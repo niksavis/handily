@@ -1,0 +1,25 @@
+{
+  "name": "quiet-items",
+  "version": "0.1.0",
+  "description": "One short row in place of each tracker write in the transcript.",
+  "author": { "name": "niksavis" },
+  "dependencies": ["workitems"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "Whether tracker writes draw as one row (on) or in full (off) when a session starts. /quiet-items toggles one session.",
+      "options": ["on", "off"],
+      "default": "on"
+    },
+    "titleLength": {
+      "type": "number",
+      "title": "Title length",
+      "description": "The number of title characters a row shows before it cuts the title with an ellipsis.",
+      "default": 60,
+      "min": 10,
+      "max": 200
+    }
+  }
+}
