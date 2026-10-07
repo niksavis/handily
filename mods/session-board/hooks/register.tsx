@@ -51,39 +51,57 @@ function agentsHost($: EngineInterface): AgentsHost {
     now: () => $.clock.now(),
     run: (argv) => $.process.run(argv),
     load: () => $.store.get(AGENTS_CACHE_KEY),
-    save: (cache) => $.store.set(AGENTS_CACHE_KEY, cache),
+    save: async (cache) => {
+      await pruneExpired($, cache)
+      await $.store.set(AGENTS_CACHE_KEY, cache)
+    },
     log: (line) => {
       $.ui.log(line, { to: 'debug' })
     },
   }
 }
 
-async function pruneExpired($: EngineInterface, cache: AgentsCache): Promise<void> {
-  if (cache.outcome.kind !== 'ok') return
-  const live = new Set(cache.outcome.rows.flatMap((row) => row.sessionId ?? []))
+async function deleteExpired($: EngineInterface, live: ReadonlySet<string>): Promise<void> {
   const now = await $.clock.now()
   for (const entry of await readAllProgress($)) {
     if (isExpired(entry, live, now)) await $.store.delete(progressKey(entry.sessionId))
   }
 }
 
-type Board = { poll: Timer | undefined; writes: Promise<void> }
+async function pruneExpired($: EngineInterface, cache: AgentsCache): Promise<void> {
+  if (cache.outcome.kind !== 'ok') return
+  await deleteExpired($, new Set(cache.outcome.rows.flatMap((row) => row.sessionId ?? [])))
+}
+
+type Board = {
+  poll: Timer | undefined
+  inFlight: Promise<void> | undefined
+  writes: Promise<void>
+}
 
 function stopPolling(board: Board): void {
   board.poll?.cancel()
   board.poll = undefined
 }
 
-async function pollOnce($: EngineInterface, board: Board): Promise<void> {
+async function pollShownBoard($: EngineInterface, board: Board): Promise<void> {
   const pane = (await $.ui.panes()).find((open) => open.id === PANE_ID)
   if (!pane) {
     stopPolling(board)
     return
   }
   if (!pane.isShown) return
-  const cache = await pollAgents(agentsHost($))
-  await pruneExpired($, cache)
+  await pollAgents(agentsHost($))
   $.ui.invalidate('ui.render')
+}
+
+function pollOnce($: EngineInterface, board: Board): Promise<void> {
+  if (board.inFlight) return board.inFlight
+  const running = pollShownBoard($, board).finally(() => {
+    board.inFlight = undefined
+  })
+  board.inFlight = running
+  return running
 }
 
 function startPolling($: EngineInterface, board: Board): void {
@@ -114,7 +132,7 @@ function updateProgress($: EngineInterface, board: Board, change: Change): Promi
 }
 
 export const register: Register = (on) => {
-  const board: Board = { poll: undefined, writes: Promise.resolve() }
+  const board: Board = { poll: undefined, inFlight: undefined, writes: Promise.resolve() }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -123,6 +141,7 @@ export const register: Register = (on) => {
       description: 'Shows every local Claude Code session: state, task, worktree and time.',
       argumentHint: '[close]',
     })
+    await deleteExpired($, new Set([await $.session.id()]))
     await updateProgress($, board, (progress, now, tasks) => withTasks(progress, tasks, now))
     return started
   })

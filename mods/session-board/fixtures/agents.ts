@@ -1,4 +1,4 @@
-[
+export const RECORDED_AGENTS = `[
   {
     "id": "0000a001",
     "cwd": "/work/docs",
@@ -36,3 +36,4 @@
     "status": "idle"
   }
 ]
+`

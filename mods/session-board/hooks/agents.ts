@@ -22,11 +22,12 @@ export type AgentRow = {
 }
 
 export type AgentsOutcome =
-  | { kind: 'ok'; rows: AgentRow[] }
+  | { kind: 'ok'; rows: AgentRow[]; skipped: number }
   | { kind: 'exit'; exitCode: number }
   | { kind: 'not-on-path' }
   | { kind: 'not-a-list' }
   | { kind: 'did-not-run' }
+  | { kind: 'cut' }
 
 export type GitPlace = { worktree: string; branch: string | null }
 
@@ -45,8 +46,6 @@ export type AgentsHost = {
   save: (cache: AgentsCache) => Promise<void>
   log: (line: string) => void
 }
-
-class UnreadableRow extends Error {}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -71,11 +70,11 @@ function rowName(entry: Record<string, unknown>, sessionId: string | null): stri
   )
 }
 
-function readRow(entry: unknown): AgentRow {
-  if (!isRecord(entry)) throw new UnreadableRow()
+function readRow(entry: unknown): AgentRow | null {
+  if (!isRecord(entry)) return null
   const { kind, cwd, startedAt } = entry
-  if (kind !== 'interactive' && kind !== 'background') throw new UnreadableRow()
-  if (typeof cwd !== 'string' || typeof startedAt !== 'number') throw new UnreadableRow()
+  if (kind !== 'interactive' && kind !== 'background') return null
+  if (typeof cwd !== 'string' || typeof startedAt !== 'number') return null
   const sessionId = optionalText(entry.sessionId)
   const word = optionalText(kind === 'background' ? entry.state : entry.status) ?? 'unknown'
   return {
@@ -99,20 +98,63 @@ export function parseAgents(stdout: string): AgentsOutcome {
     return { kind: 'not-a-list' }
   }
   if (!Array.isArray(parsed)) return { kind: 'not-a-list' }
-  try {
-    return { kind: 'ok', rows: parsed.map(readRow) }
-  } catch (error) {
-    if (error instanceof UnreadableRow) return { kind: 'not-a-list' }
-    throw error
+  const rows = parsed.map(readRow).filter((row) => row !== null)
+  return { kind: 'ok', rows, skipped: parsed.length - rows.length }
+}
+
+function isTextOrNull(value: unknown): boolean {
+  return value === null || typeof value === 'string'
+}
+
+function isAgentRow(value: unknown): value is AgentRow {
+  return (
+    isRecord(value) &&
+    typeof value.key === 'string' &&
+    isTextOrNull(value.sessionId) &&
+    typeof value.name === 'string' &&
+    (value.kind === 'interactive' || value.kind === 'background') &&
+    typeof value.word === 'string' &&
+    isTextOrNull(value.waitingFor) &&
+    typeof value.cwd === 'string' &&
+    typeof value.startedAt === 'number' &&
+    typeof value.isEnded === 'boolean'
+  )
+}
+
+const ERROR_KINDS = new Set(['not-on-path', 'not-a-list', 'did-not-run', 'cut'])
+
+function isOutcome(value: unknown): value is AgentsOutcome {
+  if (!isRecord(value) || typeof value.kind !== 'string') return false
+  if (value.kind === 'ok') {
+    return (
+      Array.isArray(value.rows) && value.rows.every(isAgentRow) && typeof value.skipped === 'number'
+    )
   }
+  if (value.kind === 'exit') return typeof value.exitCode === 'number'
+  return ERROR_KINDS.has(value.kind)
+}
+
+function isPlaceEntry(value: unknown): value is PlaceEntry {
+  return (
+    isRecord(value) &&
+    typeof value.cwd === 'string' &&
+    isRecord(value.place) &&
+    typeof value.place.worktree === 'string' &&
+    isTextOrNull(value.place.branch)
+  )
 }
 
 export function readCache(value: unknown): AgentsCache | undefined {
   if (!isRecord(value)) return undefined
   const { at, outcome, places } = value
-  if (typeof at !== 'number' || !isRecord(outcome) || !isRecord(places)) return undefined
-  if (typeof outcome.kind !== 'string') return undefined
+  if (typeof at !== 'number' || !isOutcome(outcome) || !isRecord(places)) return undefined
+  if (!Object.values(places).every(isPlaceEntry)) return undefined
   return value as AgentsCache
+}
+
+function skippedLine(skipped: number): string {
+  const rows = skipped === 1 ? 'row' : 'rows'
+  return `session-board: skipped ${String(skipped)} unreadable ${rows} of claude agents --json`
 }
 
 async function runAgents(host: AgentsHost): Promise<AgentsOutcome> {
@@ -125,8 +167,10 @@ async function runAgents(host: AgentsHost): Promise<AgentsOutcome> {
     return NOT_ON_PATH.test(reason) ? { kind: 'not-on-path' } : { kind: 'did-not-run' }
   }
   if (result.exitCode !== 0) return { kind: 'exit', exitCode: result.exitCode }
-  if (result.isStdoutTruncated) return { kind: 'not-a-list' }
-  return parseAgents(result.stdout)
+  if (result.isStdoutTruncated) return { kind: 'cut' }
+  const outcome = parseAgents(result.stdout)
+  if (outcome.kind === 'ok' && outcome.skipped > 0) host.log(skippedLine(outcome.skipped))
+  return outcome
 }
 
 function segments(path: string): string[] {
@@ -186,7 +230,8 @@ async function placesFor(
 export async function pollAgents(host: AgentsHost): Promise<AgentsCache> {
   const now = await host.now()
   const previous = readCache(await host.load())
-  if (previous && now - previous.at < POLL_INTERVAL_MS) return previous
+  const age = previous ? now - previous.at : -1
+  if (previous && age >= 0 && age < POLL_INTERVAL_MS) return previous
   const outcome = await runAgents(host)
   const known = previous?.places ?? {}
   const places = outcome.kind === 'ok' ? await placesFor(host, outcome.rows, known) : known

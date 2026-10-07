@@ -113,9 +113,14 @@ export function withTasks(progress: Progress, view: TaskView | null, now: number
     done: view.done,
     total: view.total,
     taskIds: view.ids,
-    firstTaskAt: progress.firstTaskAt ?? now,
+    firstTaskAt: firstTaskTime(progress, view, now),
     lastAddedAt: isAdded ? now : progress.lastAddedAt,
   }
+}
+
+function firstTaskTime(progress: Progress, view: TaskView, now: number): number | null {
+  if (progress.taskIds.length > 0) return progress.firstTaskAt
+  return view.done > 0 ? null : now
 }
 
 export function startTurn(progress: Progress, now: number): Progress {
@@ -133,8 +138,9 @@ export function completeTurn(progress: Progress, now: number): Progress {
   }
 }
 
-export function workedMs(progress: Progress, now: number): number {
-  const running = progress.turnStartedAt === null ? 0 : Math.max(now - progress.turnStartedAt, 0)
+export function workedMs(progress: Progress, now: number, openSince = -Infinity): number {
+  const start = progress.turnStartedAt
+  const running = start === null || start < openSince ? 0 : Math.max(now - start, 0)
   return progress.workedMs + running
 }
 

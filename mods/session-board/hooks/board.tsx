@@ -104,7 +104,7 @@ function agentRow(
     : lastSegment(row.cwd)
   let time = `${formatDuration(now - row.startedAt)} elapsed`
   if (row.isEnded) time = 'ended'
-  else if (progress) time = `${formatDuration(workedMs(progress, now))} worked`
+  else if (progress) time = `${formatDuration(workedMs(progress, now, row.startedAt))} worked`
   return {
     key: row.key,
     name: row.name,
@@ -120,7 +120,7 @@ function agentRow(
   }
 }
 
-function staleRow(progress: Progress, now: number): BoardRow {
+function staleRow(progress: Progress): BoardRow {
   return {
     key: `stale:${progress.sessionId}`,
     name: progress.sessionId.slice(0, 8),
@@ -131,7 +131,7 @@ function staleRow(progress: Progress, now: number): BoardRow {
     isStale: true,
     isEnded: false,
     place: lastSegment(progress.cwd),
-    time: `${formatDuration(workedMs(progress, now))} worked`,
+    time: `${formatDuration(progress.workedMs)} worked`,
     est: null,
   }
 }
@@ -147,9 +147,7 @@ export function boardRows(data: BoardData): BoardRow[] {
     ...ordered.map((row) =>
       agentRow(row, row.sessionId === null ? undefined : bySession.get(row.sessionId), cache, now),
     ),
-    ...data.progress
-      .filter((entry) => !listed.has(entry.sessionId))
-      .map((entry) => staleRow(entry, now)),
+    ...data.progress.filter((entry) => !listed.has(entry.sessionId)).map(staleRow),
   ]
 }
 
@@ -255,6 +253,9 @@ export function errorLines(outcome: AgentsOutcome): string[] {
     return ['claude agents --json failed: the output is not a JSON list.']
   }
   if (outcome.kind === 'did-not-run') return ['claude agents --json could not run.']
+  if (outcome.kind === 'cut') {
+    return ['claude agents --json failed: the output is over 4 MiB and was cut.']
+  }
   return []
 }
 

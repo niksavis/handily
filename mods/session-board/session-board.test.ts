@@ -10,6 +10,7 @@ import {
 } from 'claude-code/testing'
 import { AGENTS_ARGV, parseAgents, POLL_INTERVAL_MS, type AgentsCache } from './hooks/agents'
 import { formatDuration } from './hooks/board'
+import { RECORDED_AGENTS } from './fixtures/agents'
 import {
   emptyProgress,
   estimateLeftMs,
@@ -28,45 +29,6 @@ const API_ID = '00000000-0000-4000-8000-00000000000c'
 const DOCS_ID = '00000000-0000-4000-8000-00000000000d'
 const GONE_ID = '00000000-0000-4000-8000-00000000000e'
 const PANE_ID = 'session-board'
-
-const RECORDED_AGENTS = `[
-  {
-    "id": "0000a001",
-    "cwd": "/work/docs",
-    "kind": "background",
-    "startedAt": 1787489181095,
-    "sessionId": "00000000-0000-4000-8000-000000000001",
-    "name": "docs-pass",
-    "state": "blocked"
-  },
-  {
-    "pid": 1001,
-    "cwd": "/work/api",
-    "kind": "interactive",
-    "startedAt": 1791394899761,
-    "sessionId": "00000000-0000-4000-8000-000000000002",
-    "name": "api-login",
-    "status": "busy"
-  },
-  {
-    "pid": 1002,
-    "cwd": "/work/app",
-    "kind": "interactive",
-    "startedAt": 1791398802857,
-    "sessionId": "00000000-0000-4000-8000-000000000003",
-    "name": "mocks",
-    "status": "busy"
-  },
-  {
-    "pid": 1003,
-    "cwd": "/work/app.wt/lane-a1",
-    "kind": "interactive",
-    "startedAt": 1791404109915,
-    "sessionId": "00000000-0000-4000-8000-000000000004",
-    "name": "lane-a1",
-    "status": "idle"
-  }
-]`
 
 type AgentEntry = Record<string, string | number>
 
@@ -178,7 +140,8 @@ const GONE_PROGRESS = progressOf(GONE_ID, {
   taskIds: [1, 2],
 })
 
-type AgentsAnswer = { exitCode: number; stdout: string } | { deny: string }
+type AgentsAnswer =
+  { exitCode: number; stdout: string; isStdoutTruncated?: boolean } | { deny: string }
 
 type World = {
   surfaces: RenderSurface[]
@@ -188,6 +151,7 @@ type World = {
   gitCwds: string[]
   subagents: AgentInfo[]
   logs: string[]
+  wait: (() => Promise<void>) | null
 }
 
 function agentsJson(entries: readonly AgentEntry[]): AgentsAnswer {
@@ -203,6 +167,7 @@ function fakeWorld(on: On, surfaces: RenderSurface[] = ['terminal']): World {
     gitCwds: [],
     subagents: [],
     logs: [],
+    wait: null,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: OWN_ID }))
@@ -228,14 +193,15 @@ function fakeWorld(on: On, surfaces: RenderSurface[] = ['terminal']): World {
   on('agent.list', () => ({ value: world.subagents }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
-  on('process.run', (_$, e) => {
+  on('process.run', async (_$, e) => {
     const [command, flag, cwd, verb] = e.argv
     if (command === 'claude') {
       world.agentsRuns += 1
       expect(e.argv).toEqual(AGENTS_ARGV)
+      if (world.wait) await world.wait()
       if ('deny' in world.agents) return { deny: world.agents.deny }
-      const { exitCode, stdout } = world.agents
-      return { value: answer(exitCode, stdout) }
+      const { exitCode, stdout, isStdoutTruncated = false } = world.agents
+      return { value: { ...answer(exitCode, stdout), isStdoutTruncated } }
     }
     expect(command).toBe('git')
     expect(flag).toBe('-C')
@@ -333,9 +299,6 @@ describe('the recorded claude agents output', () => {
   test('refuses an output that is not a JSON list', () => {
     expect(parseAgents('not json').kind).toBe('not-a-list')
     expect(parseAgents('{"kind":"interactive"}').kind).toBe('not-a-list')
-    expect(parseAgents('[{"kind":"robot","cwd":"/work/app","startedAt":1}]').kind).toBe(
-      'not-a-list',
-    )
   })
 })
 
@@ -494,6 +457,15 @@ describe('the session progress', () => {
     },
   }
 
+  async function setTasks(engine: Engine, statuses: readonly string[]): Promise<void> {
+    await engine.command.run({
+      command: 'tp-set',
+      args: taskList(statuses),
+      origin: { kind: 'sdk' },
+      presentation: { isFullscreen: true, columns: 140 },
+    })
+  }
+
   function taskList(statuses: readonly string[]): string {
     return JSON.stringify({
       tasks: statuses.map((status, index) => ({
@@ -518,12 +490,7 @@ describe('the session progress', () => {
       fakeWorld(on)
       await startSession($)
       await openBoard($, clock)
-      await $.command.run({
-        command: 'tp-set',
-        args: taskList(['completed', 'in_progress', 'pending']),
-        origin: { kind: 'sdk' },
-        presentation: { isFullscreen: true, columns: 140 },
-      })
+      await setTasks($, ['in_progress', 'pending', 'pending'])
       await $.turn.start({ text: 'go', turnId: 't1' })
       await clock.advance(5 * MINUTE)
       await $.turn.complete({
@@ -535,6 +502,7 @@ describe('the session progress', () => {
         reason: 'answer',
       })
       await clock.advance(7 * MINUTE)
+      await setTasks($, ['completed', 'in_progress', 'pending'])
       await $.turn.complete({
         answer: 'ok',
         durationMs: 12 * MINUTE,
@@ -697,5 +665,147 @@ describe('the command replies', () => {
     expect(world.panes.map((pane) => pane.id)).toEqual([PANE_ID])
     expect(await command($, 'close')).toBe('Session board closed.')
     expect(world.panes).toEqual([])
+  })
+})
+
+function cacheOf(fields: Partial<AgentsCache>): AgentsCache {
+  return { at: NOW, outcome: parseAgents(JSON.stringify(BOARD_AGENTS)), places: {}, ...fields }
+}
+
+function storeWithLimit(on: On, entries: Record<string, unknown>): Map<string, unknown> {
+  const store = new Map(Object.entries(entries))
+  on('store.get', (_$, e) => ({ value: store.get(e.key) }))
+  on('store.keys', () => ({ value: [...store.keys()] }))
+  on('store.delete', (_$, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  on('store.set', (_$, e) => {
+    if (e.key === 'agents' && store.has(progressKey(GONE_ID))) {
+      return { deny: 'the store is over 4 MiB' }
+    }
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  return store
+}
+
+const EXPIRED_PROGRESS = { ...GONE_PROGRESS, updatedAt: NOW - 25 * HOUR }
+
+describe('the repairs of the review', () => {
+  test('skips an unreadable row and keeps the others', () => {
+    const outcome = parseAgents(
+      JSON.stringify([BOARD_AGENTS[0], { kind: 'robot' }, 'text', BOARD_AGENTS[3]]),
+    )
+    expect(outcome).toMatchObject({ kind: 'ok', skipped: 2 })
+    if (outcome.kind !== 'ok') throw new Error(`expected rows, got ${outcome.kind}`)
+    expect(outcome.rows.map((row) => row.name)).toEqual(['mocks', 'api-login'])
+  })
+
+  test('draws the board when one row cannot be read and logs the count', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on)
+    const world = fakeWorld(on)
+    world.agents = agentsJson([...BOARD_AGENTS, { kind: 'robot' }])
+    await openBoard($, clock)
+    const texts = await shownTexts($, 'terminal', 46)
+    expect(texts).toContain('  4 local · polled 0 s ago')
+    expect(world.logs).toContain('session-board: skipped 1 unreadable row of claude agents --json')
+  })
+
+  test('polls again when the cached time lies in the future', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on, { agents: cacheOf({ at: NOW + HOUR }) })
+    const world = fakeWorld(on)
+    await openBoard($, clock)
+    expect(world.agentsRuns).toBe(1)
+  })
+
+  test('polls again when a cached place cannot be read', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on, {
+      agents: { ...cacheOf({}), places: { [OWN_ID]: { cwd: '/work/app', place: null } } },
+    })
+    const world = fakeWorld(on)
+    await openBoard($, clock)
+    expect(world.agentsRuns).toBe(1)
+    expect(await shownTexts($, 'terminal', 46)).toContain('app · main · 3h 00m elapsed')
+  })
+
+  test('polls again when a cached row cannot be read', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on, {
+      agents: { ...cacheOf({}), outcome: { kind: 'ok', rows: [{ name: 5 }], skipped: 0 } },
+    })
+    const world = fakeWorld(on)
+    await openBoard($, clock)
+    expect(world.agentsRuns).toBe(1)
+  })
+
+  test('shows only the stored time of a stale key with an open turn', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on, storeWith({ ...GONE_PROGRESS, turnStartedAt: NOW - 2 * HOUR }))
+    fakeWorld(on)
+    await openBoard($, clock)
+    expect(await shownTexts($, 'terminal', 46)).toContain('old · 5m worked')
+  })
+
+  test('ignores an open turn that started before the session', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on, storeWith({ ...OWN_PROGRESS, turnStartedAt: NOW - 4 * HOUR }))
+    fakeWorld(on)
+    await openBoard($, clock)
+    expect(await shownTexts($, 'terminal', 46)).toContain('app · main · 41m worked · est. 30m left')
+  })
+
+  test('leaves the first task time unknown when the first sight has done tasks', () => {
+    const seen = withTasks(emptyProgress(OWN_ID, '/work/app', NOW), viewOf(3, 1), NOW)
+    expect(seen.firstTaskAt).toBeNull()
+    const later = withTasks(seen, viewOf(3, 2), NOW + HOUR)
+    expect(later.firstTaskAt).toBeNull()
+    expect(estimateLeftMs(later, NOW + 2 * HOUR)).toBeNull()
+  })
+
+  test('deletes keys older than 24 h at session start', async ($, on) => {
+    mock.clock(on, { now: NOW })
+    mock.store(on, { agents: cacheOf({}), ...storeWith(OWN_PROGRESS, EXPIRED_PROGRESS) })
+    const world = fakeWorld(on)
+    world.panes = [
+      { id: PANE_ID, title: 'Sessions', isShown: true, isFocused: false, isPlaced: true },
+    ]
+    await startSession($)
+    expect(await shownTexts($, 'terminal', 46)).not.toContain('Old task')
+  })
+
+  test('deletes expired keys before it saves the poll', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const store = storeWithLimit(on, storeWith(EXPIRED_PROGRESS))
+    fakeWorld(on)
+    await openBoard($, clock)
+    expect(store.has(progressKey(GONE_ID))).toBe(false)
+    expect(await shownTexts($, 'terminal', 46)).toContain('  4 local · polled 0 s ago')
+  })
+
+  test('runs one poll at a time', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on)
+    const world = fakeWorld(on)
+    world.wait = () => clock.sleep(20_000)
+    await openBoard($, clock)
+    await clock.advance(POLL_INTERVAL_MS)
+    expect(world.agentsRuns).toBe(1)
+    await clock.advance(5_000)
+    expect(world.agentsRuns).toBe(1)
+  })
+
+  test('names a cut output', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on)
+    const world = fakeWorld(on)
+    world.agents = { exitCode: 0, stdout: '[', isStdoutTruncated: true }
+    await openBoard($, clock)
+    expect(await shownTexts($, 'terminal', 46)).toContain(
+      'claude agents --json failed: the output is over 4 MiB and was cut.',
+    )
   })
 })

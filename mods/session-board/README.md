@@ -18,7 +18,9 @@ state of the session, its current task, its worktree and branch, and the time wo
 
 - `claude agents --json --all`, every 15 s, only while the board is shown. The mod keeps one
   result with its time in its `$.store` under the key `agents`. When another session polled
-  less than 15 s ago, the board uses that result and does not run the command again.
+  less than 15 s ago, the board uses that result and does not run the command again. A cached
+  time in the future, or a cached value that the mod cannot read, counts as expired. Only one
+  poll runs at a time in a session.
 - `git -C <cwd> rev-parse` and `git -C <cwd> branch --show-current`, only when the working
   directory of a session changes.
 - Each session that runs `session-board` writes its own store key `session:<session id>`. The
@@ -36,17 +38,23 @@ The mod never reads the task files of the engine on disk, because their format i
   follows after a colon.
 - `worked` is the sum of the main-loop turns, from `turn.start` to `turn.complete`. Only a
   session that runs `session-board` has it. Other sessions show the time `elapsed` since
-  `startedAt`.
+  `startedAt`. An open turn that started before `startedAt` of the session does not count,
+  and a stale key shows only its stored time.
 - `est. <time> left` divides the completed tasks by all tasks and applies the result to the
   time since the first task. The board shows no estimate before one task is complete, and none
-  for 5 minutes after a task is added.
-- A store key whose session `claude agents` does not list shows `(stale)`. The next poll
-  deletes a stale key that is older than 24 hours.
+  for 5 minutes after a task is added. When the first list that the board sees already has a
+  completed task, the time of the first task is unknown, and the board shows no estimate for
+  that list.
+- A store key whose session `claude agents` does not list shows `(stale)`. A poll deletes a
+  stale key that is older than 24 hours before it saves its result. A session start deletes
+  each key of another session that is older than 24 hours.
 
 ## Errors
 
 - `claude agents --json failed: exit <n>.` when the command exits with an error.
-- `claude agents --json failed: the output is not a JSON list.` when the output cannot be read.
+- `claude agents --json failed: the output is not a JSON list.` when the output is not a list.
+- `claude agents --json failed: the output is over 4 MiB and was cut.` when the output was cut.
+- A row of the list that the mod cannot read is left out. The debug log names the count.
 - `claude is not on PATH, so other sessions cannot be listed.` when the command cannot start.
 
 ## Limits
