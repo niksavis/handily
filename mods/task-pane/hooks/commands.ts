@@ -15,7 +15,7 @@ import {
 } from './tasks'
 
 export const OPEN_ITEMS_SHOWN = 10
-const EDIT_ATTEMPTS = 5
+const TEXT_MARKER = '--'
 
 export type TaskCommand =
   | { kind: 'list' }
@@ -30,41 +30,30 @@ export type TrackerView =
   | { kind: 'items'; label: string; items: WorkItem[]; openCount: number }
   | { kind: 'lines'; lines: TrackerLine[] }
 
-type ItemLookup = { item: WorkItem } | { refusal: string }
+type ItemLookup = { item: WorkItem } | { absentFrom: string } | { refusal: string }
 
 export type Snapshot = PluginState['workitems']['snapshot']
 
+export type ListEdit<T> = (list: TaskPaneList) => { list: TaskPaneList; value: T }
+
 export type TaskHost = {
-  getList: () => Promise<{ value: TaskPaneList | undefined; version: number }>
-  setList: (list: TaskPaneList, ifVersion?: number) => Promise<boolean>
+  read: () => Promise<TaskPaneList | undefined>
+  edit: <T>(change: ListEdit<T>) => Promise<T>
   snapshot: () => Promise<Snapshot | undefined>
   lines: (snapshot: Snapshot) => Promise<readonly TrackerLine[]>
   note: (text: string) => Promise<string | undefined>
 }
 
 export async function readList(host: TaskHost): Promise<TaskPaneList> {
-  const { value } = await host.getList()
-  return value ?? EMPTY_LIST
-}
-
-export async function changeList<T>(
-  host: TaskHost,
-  change: (list: TaskPaneList) => { list: TaskPaneList; value: T },
-): Promise<T> {
-  for (let attempt = 0; attempt < EDIT_ATTEMPTS; attempt += 1) {
-    const held = await host.getList()
-    const current = held.value ?? EMPTY_LIST
-    const outcome = change(current)
-    if (outcome.list === current) return outcome.value
-    if (await host.setList(outcome.list, held.version)) return outcome.value
-  }
-  throw new Error(
-    `task-pane: the task list changed ${String(EDIT_ATTEMPTS)} times during one edit. Try again.`,
-  )
+  return (await host.read()) ?? EMPTY_LIST
 }
 
 export async function resetList(host: TaskHost): Promise<void> {
-  await host.setList(EMPTY_LIST)
+  await host.edit(() => ({ list: EMPTY_LIST, value: undefined }))
+}
+
+export function withoutFinalPeriod(text: string): string {
+  return text.replace(/\.+$/, '')
 }
 
 export function parseTaskCommand(args: string): TaskCommand {
@@ -98,7 +87,7 @@ export async function trackerView(host: TaskHost): Promise<TrackerView> {
 }
 
 async function lookupItem(host: TaskHost, id: string): Promise<ItemLookup> {
-  const asText = 'Add it as text: /task add <text>.'
+  const asText = `Add it as text: /task add ${TEXT_MARKER} ${id}.`
   const snapshot = await host.snapshot()
   if (!snapshot) {
     return { refusal: `Cannot read ${id}: workitems has not read the tracker yet. ${asText}` }
@@ -108,7 +97,7 @@ async function lookupItem(host: TaskHost, id: string): Promise<ItemLookup> {
     case 'stale': {
       const item = snapshot.items.find((candidate) => candidate.id === id)
       if (item) return { item }
-      return { refusal: `No work item ${id} in ${snapshot.sourceLabel}. ${asText}` }
+      return { absentFrom: snapshot.sourceLabel }
     }
     case 'terminal-only':
       return {
@@ -127,29 +116,37 @@ async function lookupItem(host: TaskHost, id: string): Promise<ItemLookup> {
   }
 }
 
-function changeSuffix(isTurnRunning: boolean): string {
-  return isTurnRunning ? 'Claude sees it when this turn ends.' : 'Claude is told the list changed.'
-}
-
-async function tellModel(host: TaskHost, change: string, list: TaskPaneList): Promise<void> {
+async function tellModel(
+  host: TaskHost,
+  change: string,
+  list: TaskPaneList,
+): Promise<string | undefined> {
   const current = list.tasks.length === 0 ? 'The list is now empty.' : listText(list)
   const text = `[task-pane] The person changed the session task list: ${change}\n\n${current}`
-  const refusal = await host.note(text)
-  if (refusal !== undefined) {
-    throw new Error(`task-pane: the note to Claude was refused: ${refusal}`)
-  }
+  return host.note(text)
 }
 
-export type ItemsAdded = { added: TaskPaneTask[]; existing: TaskPaneTask[]; list: TaskPaneList }
+function toldSuffix(refusal: string | undefined): string {
+  if (refusal === undefined) return '. Claude is told the list changed.'
+  return `; Claude was not told: ${withoutFinalPeriod(refusal)}.`
+}
+
+export type ItemsAdded = {
+  added: TaskPaneTask[]
+  existing: TaskPaneTask[]
+  refusal: string | undefined
+  noteRefusal: string | undefined
+}
 
 export async function addItemsAsTasks(
   host: TaskHost,
   items: readonly WorkItem[],
 ): Promise<ItemsAdded> {
-  const outcome = await changeList(host, (current) => {
+  const outcome = await host.edit((current) => {
     let list = current
     const added: TaskPaneTask[] = []
     const existing: TaskPaneTask[] = []
+    let refusal: string | undefined
     for (const item of items) {
       const known = taskForItem(list, item.id)
       if (known) {
@@ -157,45 +154,70 @@ export async function addItemsAsTasks(
         continue
       }
       const next = addTask(list, item.title, 'person', item.id)
+      if ('refusal' in next) {
+        refusal = `${item.id}: ${next.refusal}`
+        break
+      }
       list = next.list
       added.push(next.task)
     }
-    return { list, value: { added, existing, list } }
+    return { list, value: { added, existing, refusal, list } }
   })
-  if (outcome.added.length > 0) {
-    const change = outcome.added
-      .map((task) => `it added task ${String(task.id)} from ${task.item ?? ''}: ${task.title}.`)
-      .join(' ')
-    await tellModel(host, change, outcome.list)
-  }
-  return outcome
+  const { added, existing, refusal, list } = outcome
+  if (added.length === 0) return { added, existing, refusal, noteRefusal: undefined }
+  const change = added
+    .map((task) => `it added task ${String(task.id)} from ${task.item ?? ''}: ${task.title}.`)
+    .join(' ')
+  const noteRefusal = await tellModel(host, change, list)
+  return { added, existing, refusal, noteRefusal }
 }
 
-export async function personAdd(
-  host: TaskHost,
-  text: string,
-  isTurnRunning: boolean,
-): Promise<string> {
-  if (text === '') {
-    return '/task add needs text or an item id, for example:\n/task add Write the summary   or   /task add handily-cd34'
-  }
-  if (looksLikeItemId(text)) {
-    const lookup = await lookupItem(host, text)
-    if ('refusal' in lookup) return lookup.refusal
-    const { added, existing } = await addItemsAsTasks(host, [lookup.item])
-    const known = existing[0]
-    if (known)
-      return `${text} is already task ${String(known.id)}: ${known.title}. Nothing changed.`
-    const task = added[0]
-    if (!task) throw new Error(`task-pane: adding ${text} added no task`)
-    return `Added task ${String(task.id)} from ${text}: ${task.title}.`
-  }
-  const { task, list } = await changeList(host, (current) => {
+async function addText(host: TaskHost, text: string, notice: string): Promise<string> {
+  const outcome = await host.edit((current) => {
     const added = addTask(current, text, 'person', null)
-    return { list: added.list, value: added }
+    return { list: 'refusal' in added ? current : added.list, value: added }
   })
-  await tellModel(host, `it added task ${String(task.id)}: ${task.title}.`, list)
-  return `Added task ${String(task.id)}: ${task.title}. ${changeSuffix(isTurnRunning)}`
+  if ('refusal' in outcome) return `Not added: ${outcome.refusal}`
+  const { task, list } = outcome
+  const noteRefusal = await tellModel(
+    host,
+    `it added task ${String(task.id)}: ${task.title}.`,
+    list,
+  )
+  const lead = `Added task ${String(task.id)}: ${task.title}`
+  if (notice === '') return `${lead}${toldSuffix(noteRefusal)}`
+  return `${lead}. ${withoutFinalPeriod(notice)}${toldSuffix(noteRefusal)}`
+}
+
+async function addItem(host: TaskHost, id: string, item: WorkItem): Promise<string> {
+  const { added, existing, refusal, noteRefusal } = await addItemsAsTasks(host, [item])
+  const known = existing[0]
+  if (known) return `${id} is already task ${String(known.id)}: ${known.title}. Nothing changed.`
+  const task = added[0]
+  if (!task) return `Not added: ${refusal ?? `${id} added no task`}`
+  const lead = `Added task ${String(task.id)} from ${id}: ${task.title}`
+  return noteRefusal === undefined ? `${lead}.` : `${lead}${toldSuffix(noteRefusal)}`
+}
+
+export async function personAdd(host: TaskHost, input: string): Promise<string> {
+  const needsText =
+    '/task add needs text or an item id, for example:\n/task add Write the summary   or   /task add handily-cd34'
+  if (input === TEXT_MARKER || input.startsWith(`${TEXT_MARKER} `)) {
+    const text = input.slice(TEXT_MARKER.length).trim()
+    return text === '' ? needsText : addText(host, text, '')
+  }
+  if (input === '') return needsText
+  if (!looksLikeItemId(input)) return addText(host, input, '')
+  const lookup = await lookupItem(host, input)
+  if ('refusal' in lookup) return lookup.refusal
+  if ('absentFrom' in lookup) {
+    return addText(
+      host,
+      input,
+      `No work item ${input} in ${lookup.absentFrom}, so it is added as text.`,
+    )
+  }
+  return addItem(host, input, lookup.item)
 }
 
 function missingTaskReply(id: string, list: TaskPaneList): string {
@@ -207,15 +229,10 @@ function missingTaskReply(id: string, list: TaskPaneList): string {
   return `No task ${id}. This session has ${noun} ${numbers}; run /task to list them.`
 }
 
-export async function personRemove(
-  host: TaskHost,
-  text: string,
-  isTurnRunning: boolean,
-): Promise<string> {
+export async function personRemove(host: TaskHost, text: string): Promise<string> {
   if (!/^\d+$/.test(text)) return '/task rm needs a task number, for example /task rm 2.'
   const id = Number(text)
-  const outcome = await changeList<{ task: TaskPaneTask | undefined; list: TaskPaneList }>(
-    host,
+  const outcome = await host.edit<{ task: TaskPaneTask | undefined; list: TaskPaneList }>(
     (list) => {
       const task = findTask(list, id)
       if (!task) return { list, value: { task: undefined, list } }
@@ -225,8 +242,12 @@ export async function personRemove(
   )
   if (!outcome.task) return missingTaskReply(text, outcome.list)
   const { task, list } = outcome
-  await tellModel(host, `it removed task ${String(task.id)}: ${task.title}.`, list)
-  return `Removed task ${String(task.id)}: ${task.title}. ${changeSuffix(isTurnRunning)}`
+  const noteRefusal = await tellModel(
+    host,
+    `it removed task ${String(task.id)}: ${task.title}.`,
+    list,
+  )
+  return `Removed task ${String(task.id)}: ${task.title}${toldSuffix(noteRefusal)}`
 }
 
 function itemRow(item: WorkItem): string {

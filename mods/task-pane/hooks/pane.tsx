@@ -15,6 +15,7 @@ import {
   personRemove,
   readList,
   trackerView,
+  withoutFinalPeriod,
   type TrackerLine,
   type TrackerView,
 } from './commands'
@@ -106,7 +107,6 @@ function drawTasks(
   list: TaskPaneList,
   hidden: number,
   act: Act,
-  isTurnRunning: () => boolean,
 ): RenderElement[] {
   const { Box, Text, Button } = elements
   const shown = hidden > 0 ? list.tasks.filter((task) => task.status !== 'completed') : list.tasks
@@ -131,7 +131,7 @@ function drawTasks(
       key: `rm:${String(task.id)}`,
       label: 'rm',
       onPress: () => {
-        act(() => personRemove(host, String(task.id), isTurnRunning()))
+        act(() => personRemove(host, String(task.id)))
       },
     })
     return Box({ flexDirection: 'row', children: [label, remove] })
@@ -155,9 +155,14 @@ function drawTracker(
   }
   const addItems = (items: readonly WorkItem[]) => {
     act(async () => {
-      const { added, existing } = await addItemsAsTasks(host, items)
-      const skipped = existing.length > 0 ? `; ${String(existing.length)} already were` : ''
-      return `Added ${String(added.length)} as tasks${skipped}.`
+      const { added, existing, refusal, noteRefusal } = await addItemsAsTasks(host, items)
+      const parts = [`Added ${String(added.length)} as tasks`]
+      if (existing.length > 0) parts.push(`${String(existing.length)} already were`)
+      if (refusal !== undefined) parts.push(`not added: ${withoutFinalPeriod(refusal)}`)
+      if (noteRefusal !== undefined) {
+        parts.push(`Claude was not told: ${withoutFinalPeriod(noteRefusal)}`)
+      }
+      return `${parts.join('; ')}.`
     })
   }
   const count = String(view.items.length)
@@ -206,7 +211,6 @@ function drawFooter(
   host: TaskHost,
   hidden: number,
   act: Act,
-  isTurnRunning: () => boolean,
 ): RenderElement {
   const { Box, Text, Input } = elements
   const hiddenText =
@@ -217,7 +221,7 @@ function drawFooter(
         placeholder: 'Add a task',
         submitLabel: 'Add',
         onSubmit: (value) => {
-          act(() => personAdd(host, value.trim(), isTurnRunning()))
+          act(() => personAdd(host, value.trim()))
         },
       })
     : Text({ dimColor: true, children: 'Add tasks with /task add <text>.' })
@@ -228,7 +232,6 @@ export async function drawPane(
   elements: PaneElements,
   host: TaskHost,
   ui: PaneUi,
-  isTurnRunning: () => boolean,
 ): Promise<RenderElement> {
   const { Box, Text } = elements
   const act = actor(ui)
@@ -241,7 +244,7 @@ export async function drawPane(
   const body =
     total === 0
       ? drawTracker(elements, host, await trackerView(host), act)
-      : drawTasks(elements, host, list, hidden, act, isTurnRunning)
+      : drawTasks(elements, host, list, hidden, act)
   const summary =
     total === 0 ? 'none in this session yet' : `${String(done)} of ${String(total)} done`
   const header = Box({
@@ -253,11 +256,6 @@ export async function drawPane(
   })
   return Box({
     flexDirection: 'column',
-    children: [
-      header,
-      ...body,
-      Text({ children: ' ' }),
-      drawFooter(elements, host, hidden, act, isTurnRunning),
-    ],
+    children: [header, ...body, Text({ children: ' ' }), drawFooter(elements, host, hidden, act)],
   })
 }

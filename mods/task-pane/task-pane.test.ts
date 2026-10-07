@@ -60,7 +60,7 @@ type World = {
   opened: string[]
 }
 
-function world(on: On): World {
+function world(on: On, options: { closeRefusal?: string } = {}): World {
   const state: World = {
     tools: [],
     descriptions: new Map(),
@@ -88,6 +88,7 @@ function world(on: On): World {
     return { value: { isPlaced: true as const } }
   })
   on('ui.close', (_$, e) => {
+    if (options.closeRefusal !== undefined) return { deny: options.closeRefusal }
     state.panes.delete(e.id)
     return { value: undefined }
   })
@@ -355,7 +356,7 @@ describe('/task commands', () => {
   )
 
   test(
-    '/task add while a turn runs says Claude sees it when the turn ends',
+    '/task add while a turn runs says Claude is told, because the note is listed at once',
     withWorkitems,
     async ($, on) => {
       world(on)
@@ -363,7 +364,7 @@ describe('/task commands', () => {
       await start($)
       await $.turn.start({ text: 'plan it', turnId: 'turn-1' })
       expect(await task($, 'add Write the summary')).toBe(
-        'Added task 1: Write the summary. Claude sees it when this turn ends.',
+        'Added task 1: Write the summary. Claude is told the list changed.',
       )
       await $.turn.complete({
         turnId: 'turn-1',
@@ -394,7 +395,7 @@ describe('/task commands', () => {
       )
       expect(notes(session)).toHaveLength(1)
       expect(await task($, 'add app-zz99')).toBe(
-        'No work item app-zz99 in beads. Add it as text: /task add <text>.',
+        'Added task 2: app-zz99. No work item app-zz99 in beads, so it is added as text. Claude is told the list changed.',
       )
     },
   )
@@ -406,15 +407,15 @@ describe('/task commands', () => {
       world(on)
       await start($)
       expect(await task($, 'add app-cd34')).toBe(
-        'Cannot read app-cd34: workitems has not read the tracker yet. Add it as text: /task add <text>.',
+        'Cannot read app-cd34: workitems has not read the tracker yet. Add it as text: /task add -- app-cd34.',
       )
       await publish($, failedSnapshot())
       expect(await task($, 'add app-cd34')).toBe(
-        'Cannot read app-cd34: work items unavailable: basicly tracker list exited 2. Run it in a shell to see why. Add it as text: /task add <text>.',
+        'Cannot read app-cd34: work items unavailable: basicly tracker list exited 2. Run it in a shell to see why. Add it as text: /task add -- app-cd34.',
       )
       await publish($, terminalOnlySnapshot())
       expect(await task($, 'add handily-cd34')).toBe(
-        'Cannot read handily-cd34 here: basicly needs a terminal session. Add it as text: /task add <text>.',
+        'Cannot read handily-cd34 here: basicly needs a terminal session. Add it as text: /task add -- handily-cd34.',
       )
       expect(await task($, '')).toContain('No tasks in this session yet.')
     },
@@ -776,4 +777,126 @@ describe('session life', () => {
       )
     },
   )
+})
+
+describe('review repairs', () => {
+  test('eight parallel task_add calls all land', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    const titles = Array.from({ length: 8 }, (_, index) => `Step ${String(index + 1)}`)
+    await Promise.all(titles.map((title) => $.tool.call({ tool: TOOL_ADD, title })))
+    const listed = String(await modelTool($, {}))
+    expect(listed.split('\n')[0]).toBe('Tasks (0 of 8 done)')
+    for (const title of titles) expect(listed).toContain(title)
+    for (const id of [1, 2, 3, 4, 5, 6, 7, 8]) expect(listed).toContain(`  ${String(id)}  pending`)
+  })
+
+  test('a failed /task names the error with one period', withWorkitems, async ($, on) => {
+    world(on, { closeRefusal: 'the pane is pinned.' })
+    await start($)
+    expect(await task($, 'pane')).toBe('Task pane opened.')
+    const reply = await task($, 'pane')
+    expect(reply).toContain('task-pane: /task failed:')
+    expect(reply).toContain('the pane is pinned')
+    expect(reply).toContain('Run /task to see the list.')
+    expect(reply).not.toContain('..')
+  })
+
+  test(
+    '/task add of one word with a hyphen that is no item adds it as text',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      mock.session(on)
+      await start($)
+      await publish($, okSnapshot(OPEN_ITEMS))
+      expect(await task($, 'add re-run')).toBe(
+        'Added task 1: re-run. No work item re-run in beads, so it is added as text. Claude is told the list changed.',
+      )
+      expect(await modelTool($, {})).toBe('Tasks (0 of 1 done)\n  1  pending      re-run  (you)')
+    },
+  )
+
+  test('/task add -- <text> adds text even when it names an item', withWorkitems, async ($, on) => {
+    world(on)
+    mock.session(on)
+    await start($)
+    await publish($, okSnapshot(OPEN_ITEMS))
+    expect(await task($, 'add -- app-cd34')).toBe(
+      'Added task 1: app-cd34. Claude is told the list changed.',
+    )
+    expect(await task($, 'add --')).toBe(
+      '/task add needs text or an item id, for example:\n/task add Write the summary   or   /task add handily-cd34',
+    )
+  })
+
+  test(
+    'a refused note keeps the change and says Claude was not told',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      on('session.append', () => ({ deny: 'notes are off in this session.' }))
+      await start($)
+      expect(await task($, 'add Write the summary')).toBe(
+        'Added task 1: Write the summary; Claude was not told: notes are off in this session.',
+      )
+      expect(await task($, 'rm 1')).toBe(
+        'Removed task 1: Write the summary; Claude was not told: notes are off in this session.',
+      )
+      await publish($, okSnapshot(OPEN_ITEMS))
+      expect(await task($, 'add app-cd34')).toBe(
+        'Added task 2 from app-cd34: Write the beads reader; Claude was not told: notes are off in this session.',
+      )
+    },
+  )
+
+  test(
+    'task_add refuses a title with a line break or a control character',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      for (const title of ['Line one\nLine two', 'Bell\u0007here']) {
+        expect((await $.tool.call({ tool: TOOL_ADD, title })).deny).toBe(
+          'task_add refused: the title has a line break or a control character. Write it on one line.',
+        )
+      }
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+    },
+  )
+
+  test(
+    'a title over 200 characters is refused by name for the model and the person',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      mock.session(on)
+      await start($)
+      const long = 'x'.repeat(201)
+      expect((await $.tool.call({ tool: TOOL_ADD, title: long })).deny).toBe(
+        'task_add refused: the title has 201 characters. The limit is 200.',
+      )
+      expect(await task($, `add ${long}`)).toBe(
+        'Not added: the title has 201 characters. The limit is 200.',
+      )
+      expect((await $.tool.call({ tool: TOOL_ADD, title: 'x'.repeat(200) })).result).toContain(
+        'Added task 1:',
+      )
+    },
+  )
+
+  test('the list is capped at 100 tasks, refused by name', withWorkitems, async ($, on) => {
+    world(on)
+    mock.session(on)
+    await start($)
+    for (let index = 1; index <= 100; index += 1) {
+      await $.tool.call({ tool: TOOL_ADD, title: `Task ${String(index)}` })
+    }
+    expect((await $.tool.call({ tool: TOOL_ADD, title: 'One more' })).deny).toBe(
+      'task_add refused: the list is full at 100 tasks. Remove one first.',
+    )
+    expect(await task($, 'add One more')).toBe(
+      'Not added: the list is full at 100 tasks. Remove one first.',
+    )
+  })
 })

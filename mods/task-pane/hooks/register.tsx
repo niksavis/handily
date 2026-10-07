@@ -1,8 +1,8 @@
+import { update } from 'claude-code'
 import type { EngineInterface, HookFailure, Register, ToolSpec } from 'claude-code'
-import type { TaskPaneList } from '../types'
 import {
+  type ListEdit,
   type TaskHost,
-  changeList,
   listReply,
   parseTaskCommand,
   personAdd,
@@ -10,9 +10,11 @@ import {
   readList,
   resetList,
   unknownReply,
+  withoutFinalPeriod,
 } from './commands'
 import { PANE_ID, type PaneUi, drawPane, openPane, paneCommand, paneMode } from './pane'
 import {
+  EMPTY_LIST,
   STATUSES,
   addTask,
   findTask,
@@ -80,14 +82,19 @@ export const PROMPT_SECTION_TEXT = [
 
 function hostOf($: EngineInterface): TaskHost {
   return {
-    getList: async () => {
-      const { value, version } = await $.state.get({ plugin: 'task-pane', key: 'list' })
-      return { value, version }
+    read: async () => {
+      const { value } = await $.state.get({ plugin: 'task-pane', key: 'list' })
+      return value
     },
-    setList: async (list: TaskPaneList, ifVersion?: number) => {
-      const options = ifVersion === undefined ? undefined : { ifVersion }
-      const written = await $.state.set({ plugin: 'task-pane', key: 'list' }, list, options)
-      return written.isSet
+    edit: async <T,>(change: ListEdit<T>) => {
+      let outcome: { value: T } | undefined
+      await update($, { plugin: 'task-pane', key: 'list' }, (current) => {
+        const changed = change(current ?? EMPTY_LIST)
+        outcome = { value: changed.value }
+        return changed.list
+      })
+      if (!outcome) throw new Error('task-pane: the state update never ran the change')
+      return outcome.value
     },
     snapshot: async () => {
       const { value } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
@@ -132,10 +139,12 @@ async function modelAdd(host: TaskHost, title: unknown) {
       deny: 'task_add needs a title: a non-empty string, for example {"title": "Write the tests"}.',
     }
   }
-  const task = await changeList(host, (list) => {
+  const outcome = await host.edit((list) => {
     const added = addTask(list, title.trim(), 'model', null)
-    return { list: added.list, value: added.task }
+    return { list: 'refusal' in added ? list : added.list, value: added }
   })
+  if ('refusal' in outcome) return { deny: `task_add refused: ${outcome.refusal}` }
+  const { task } = outcome
   return { result: await listResult(host, `Added task ${String(task.id)}: ${task.title}.`) }
 }
 
@@ -148,7 +157,7 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown) {
       deny: `task_update needs status: one of ${[...STATUSES, REMOVED].join(', ')}.`,
     }
   }
-  const outcome = await changeList(host, (list) => {
+  const outcome = await host.edit((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { found: false, numbers: numbersText(list) } }
     const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
@@ -165,13 +174,12 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown) {
 
 function toolFailed($: EngineInterface, tool: string, error: HookFailure): { deny: string } {
   $.ui.log(`task-pane: ${tool} failed (${error.kind}): ${error.message ?? 'no message'}`)
-  return { deny: `task-pane could not answer ${tool}: ${error.message ?? error.kind}.` }
+  const reason = withoutFinalPeriod(error.message ?? error.kind)
+  return { deny: `task-pane could not answer ${tool}: ${reason}.` }
 }
 
 export const register: Register = (on, options) => {
   const mode = paneMode(options)
-  let isTurnRunning = false
-  const turnRunning = () => isTurnRunning
 
   on('session.start', async ($, e, next) => {
     for (const tool of TOOLS) await $.tool.register(tool)
@@ -187,16 +195,6 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') await resetList(hostOf($))
-    return next(e)
-  })
-
-  on('turn.start', (_$, e, next) => {
-    isTurnRunning = true
-    return next(e)
-  })
-
-  on('turn.complete', (_$, e, next) => {
-    if (e.agentId === undefined) isTurnRunning = false
     return next(e)
   })
 
@@ -228,9 +226,9 @@ export const register: Register = (on, options) => {
       case 'list':
         return { text: await listReply(host) }
       case 'add':
-        return { text: await personAdd(host, command.text, turnRunning()) }
+        return { text: await personAdd(host, command.text) }
       case 'rm':
-        return { text: await personRemove(host, command.text, turnRunning()) }
+        return { text: await personRemove(host, command.text) }
       case 'pane':
         return { text: await paneCommand(uiOf($), mode, command.text) }
       case 'unknown':
@@ -238,15 +236,14 @@ export const register: Register = (on, options) => {
     }
   }).catch(($, _e, next) => {
     $.ui.log(`task-pane: /task failed (${next.error.kind}): ${next.error.message ?? 'no message'}`)
-    return {
-      text: `task-pane: /task failed: ${next.error.message ?? next.error.kind}. Run /task to see the list.`,
-    }
+    const reason = withoutFinalPeriod(next.error.message ?? next.error.kind)
+    return { text: `task-pane: /task failed: ${reason}. Run /task to see the list.` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const elements = { Box, Text, Button, Input, placement: e.props.placement }
-    return drawPane(elements, hostOf($), uiOf($), turnRunning)
+    return drawPane(elements, hostOf($), uiOf($))
   })
 }

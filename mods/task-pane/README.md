@@ -23,6 +23,10 @@ read or write the built-in `Task*` tools.
   is not sent. The `task_add` description carries the same instruction, so the model reads it
   in every organization.
 - A bad input is refused with the reason and the correct form. The list does not change.
+- A title must be one line with no control character, and at most 200 characters. The list
+  holds at most 100 tasks. The model and the person get the same refusal, by name.
+- Parallel edits do not get lost. Each edit goes through `update` from `claude-code`, which
+  reads the list again when another edit wrote first.
 
 ## Commands
 
@@ -31,14 +35,17 @@ read or write the built-in `Task*` tools.
 | `/task`               | Shows the list. With no tasks, it lists the open tracker items |
 | `/task add <text>`    | Adds a task as you, marked `(you)`                             |
 | `/task add <item id>` | Adds a task with the title of that work item, once             |
+| `/task add -- <text>` | Adds the text as a task, also when it looks like an item id    |
 | `/task rm <n>`        | Removes task `n`                                               |
 | `/task pane`          | Opens the pane                                                 |
 
 - A change that you make appends a note that starts with `[task-pane]`, so Claude reads the new
-  list. While a turn runs, the reply says that Claude sees it when the turn ends.
-- An argument of one word with a hyphen, such as `app-cd34`, is read as an item id. Write two
-  or more words to add text.
-- `/task add <item id>` says why by name when `workitems` cannot read the item.
+  list. Claude Code lists the note at once, also during a turn. When a plugin refuses the note,
+  the change stays and the reply says that Claude was not told, and why.
+- An argument of one word with a hyphen, such as `app-cd34`, is read as an item id. When the
+  tracker has no such item, the mod adds the word as text and says so.
+- `/task add <item id>` says why by name when `workitems` cannot read the item, and names
+  `/task add -- <text>`.
 - Task numbers do not move when a task is removed. `/task rm` of a missing number lists the
   numbers that exist.
 

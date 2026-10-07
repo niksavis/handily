@@ -37,12 +37,49 @@ export function taskForItem(list: TaskPaneList, itemId: string): TaskPaneTask | 
   return list.tasks.find((task) => task.item === itemId)
 }
 
+export const MAX_TITLE_LENGTH = 200
+
+export const MAX_TASKS = 100
+
+const LINE_SEPARATORS = new Set([0x2028, 0x2029])
+
+function isControlCode(code: number): boolean {
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f) || LINE_SEPARATORS.has(code)
+}
+
+function codePoints(text: string): number[] {
+  const codes: number[] = []
+  for (const character of text) codes.push(character.codePointAt(0) ?? 0)
+  return codes
+}
+
+export type Added = { list: TaskPaneList; task: TaskPaneTask }
+
+export type AddRefused = { refusal: string }
+
+export function titleRefusal(title: string): string | undefined {
+  const codes = codePoints(title)
+  if (codes.some(isControlCode)) {
+    return 'the title has a line break or a control character. Write it on one line.'
+  }
+  const length = codes.length
+  if (length > MAX_TITLE_LENGTH) {
+    return `the title has ${String(length)} characters. The limit is ${String(MAX_TITLE_LENGTH)}.`
+  }
+  return undefined
+}
+
 export function addTask(
   list: TaskPaneList,
   title: string,
   by: TaskPaneAuthor,
   item: string | null,
-): { list: TaskPaneList; task: TaskPaneTask } {
+): Added | AddRefused {
+  const refusal = titleRefusal(title)
+  if (refusal !== undefined) return { refusal }
+  if (list.tasks.length >= MAX_TASKS) {
+    return { refusal: `the list is full at ${String(MAX_TASKS)} tasks. Remove one first.` }
+  }
   const task: TaskPaneTask = { id: list.nextId, title, status: 'pending', by, item }
   return { list: { tasks: [...list.tasks, task], nextId: list.nextId + 1 }, task }
 }
