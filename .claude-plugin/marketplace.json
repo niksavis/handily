@@ -1,8 +1,17 @@
 {
   "name": "handily",
-  "owner": { "name": "niksavis" },
+  "owner": {
+    "name": "niksavis"
+  },
   "metadata": {
     "description": "Claude Code mods that show your work items, tasks and sessions, for any tracker."
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "workitems",
+      "source": "./mods/workitems",
+      "version": "0.1.0",
+      "description": "Provider of one typed work item list over any tracker, for other handily mods."
+    }
+  ]
 }

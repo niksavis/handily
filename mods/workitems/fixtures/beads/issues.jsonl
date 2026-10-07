@@ -1,0 +1,4 @@
+{"id":"app-ab12","title":"Add the export button","status":"open","priority":2,"issue_type":"feature","assignee":"dev-one","updated_at":"2026-10-01T09:00:00Z","labels":["ui"]}
+{"id":"app-cd34","title":"Fix the date parser","status":"in_progress","priority":1,"issue_type":"bug","updated_at":"2026-10-02T10:30:00Z","dependencies":[{"issue_id":"app-cd34","depends_on_id":"app-ab12","type":"parent-child"}]}
+{"id":"app-ef56","title":"Write the release notes","status":"closed","priority":3,"issue_type":"task","updated_at":"2026-10-03T08:15:00Z"}
+{"id":"app-gh78","title":"Drop the old importer","status":"tombstone","priority":4,"issue_type":"task","updated_at":"2026-10-04T12:00:00Z"}

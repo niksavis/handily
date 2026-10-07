@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -7,6 +7,14 @@ import { join, relative } from 'node:path'
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
+const marketplaceCommand = 'npm run marketplace'
+const marketplaceHeader = {
+  name: 'handily',
+  owner: { name: 'niksavis' },
+  metadata: {
+    description: 'Claude Code mods that show your work items, tasks and sessions, for any tracker.',
+  },
+}
 const require = createRequire(import.meta.url)
 const failures = []
 
@@ -56,12 +64,63 @@ function typesDir(mod) {
   return join(mod.dir, '.claude-plugin', 'types')
 }
 
+function readManifest(mod) {
+  return readJson(join(mod.dir, '.claude-plugin', 'plugin.json'), mod.name)
+}
+
+function dependenciesOf(mod, mods) {
+  const declared = readManifest(mod)?.dependencies ?? []
+  if (!Array.isArray(declared) || !declared.every((name) => typeof name === 'string')) {
+    fail(`${mod.name}: plugin.json "dependencies" must be a list of mod names`)
+    return []
+  }
+  const byName = new Map(mods.map((candidate) => [candidate.name, candidate]))
+  const found = new Map()
+  const pending = [...declared]
+  while (pending.length > 0) {
+    const name = pending.shift()
+    if (found.has(name) || name === mod.name) continue
+    const dependency = byName.get(name)
+    if (!dependency) {
+      fail(`${mod.name}: dependency "${name}" is not a mod under mods/`)
+      continue
+    }
+    found.set(name, dependency)
+    const nested = readManifest(dependency)?.dependencies
+    if (Array.isArray(nested)) pending.push(...nested)
+  }
+  return [...found.values()]
+}
+
+function contractPath(mod) {
+  return join(mod.dir, 'types', 'index.d.ts')
+}
+
+function laidContractPath(mod, dependency) {
+  return join(typesDir(mod), dependency.name, 'index.d.ts')
+}
+
+function isLaidContractCurrent(mod, dependency) {
+  const source = contractPath(dependency)
+  const laid = laidContractPath(mod, dependency)
+  if (!existsSync(source)) return true
+  if (!existsSync(laid)) return false
+  return readFileSync(source, 'utf8') === readFileSync(laid, 'utf8')
+}
+
+function needsTypes(mod, dependencies) {
+  if (!existsSync(join(typesDir(mod), 'tsconfig.json'))) return true
+  return !dependencies.every((dependency) => isLaidContractCurrent(mod, dependency))
+}
+
 function layTypes(mods, { force }) {
   const configDir = mkdtempSync(join(tmpdir(), 'handily-types-'))
   try {
     for (const mod of mods) {
-      if (!force && existsSync(join(typesDir(mod), 'tsconfig.json'))) continue
-      spawnSync('claude', ['--plugin-dir', mod.dir, '-p', 'ok'], {
+      const dependencies = dependenciesOf(mod, mods)
+      if (!force && !needsTypes(mod, dependencies)) continue
+      const pluginDirs = [mod, ...dependencies].flatMap((loaded) => ['--plugin-dir', loaded.dir])
+      spawnSync('claude', [...pluginDirs, '-p', 'ok'], {
         cwd: root,
         stdio: 'ignore',
         env: { ...process.env, CLAUDE_CONFIG_DIR: configDir, ANTHROPIC_API_KEY: '' },
@@ -70,9 +129,54 @@ function layTypes(mods, { force }) {
       if (!existsSync(join(typesDir(mod), 'tsconfig.json'))) {
         fail(`${mod.name}: Claude Code wrote no types; is the claude CLI on PATH?`)
       }
+      for (const dependency of dependencies) {
+        if (
+          existsSync(contractPath(dependency)) &&
+          !existsSync(laidContractPath(mod, dependency))
+        ) {
+          fail(`${mod.name}: Claude Code laid no types for its dependency "${dependency.name}"`)
+        }
+      }
     }
   } finally {
     rmSync(configDir, { recursive: true, force: true })
+  }
+}
+
+function marketplaceText(mods) {
+  const plugins = []
+  for (const mod of mods) {
+    const manifest = readManifest(mod)
+    if (!manifest) continue
+    for (const field of ['version', 'description']) {
+      if (typeof manifest[field] !== 'string' || manifest[field] === '') {
+        fail(`${mod.name}: plugin.json has no ${field}; the marketplace entry needs it`)
+      }
+    }
+    plugins.push({
+      name: mod.name,
+      source: `./mods/${mod.name}`,
+      version: manifest.version,
+      description: manifest.description,
+    })
+  }
+  return `${JSON.stringify({ ...marketplaceHeader, plugins }, null, 2)}\n`
+}
+
+function generateMarketplace(mods) {
+  const text = marketplaceText(mods)
+  if (failures.length > 0) return
+  writeFileSync(marketplacePath, text)
+  console.log(`wrote ${relative(root, marketplacePath)} with ${mods.length} plugin(s)`)
+}
+
+function checkMarketplaceIsGenerated(mods) {
+  const expected = marketplaceText(mods)
+  const actual = existsSync(marketplacePath) ? readFileSync(marketplacePath, 'utf8') : ''
+  if (actual.replaceAll('\r\n', '\n') !== expected) {
+    fail(
+      `marketplace: .claude-plugin/marketplace.json differs from the generator output; run \`${marketplaceCommand}\` and commit the file`,
+    )
   }
 }
 
@@ -81,7 +185,7 @@ function checkMarketplace(mods) {
   if (!marketplace) return
   const listed = new Map((marketplace.plugins ?? []).map((plugin) => [plugin.name, plugin]))
   for (const mod of mods) {
-    const manifest = readJson(join(mod.dir, '.claude-plugin', 'plugin.json'), mod.name)
+    const manifest = readManifest(mod)
     if (manifest && manifest.name !== mod.name) {
       fail(`${mod.name}: plugin.json name is "${manifest.name}"; it must equal the folder name`)
     }
@@ -126,6 +230,7 @@ function lint(mods) {
 
 function validate(mods) {
   checkMarketplace(mods)
+  checkMarketplaceIsGenerated(mods)
   const strict = mods.length > 0 ? ['--strict'] : []
   if (mods.length === 0) {
     console.log(
@@ -163,6 +268,7 @@ function test(mods) {
 }
 
 const tasks = {
+  marketplace: generateMarketplace,
   types: (mods) => layTypes(mods, { force: true }),
   typecheck,
   lint,

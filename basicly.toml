@@ -28,7 +28,7 @@ manifest = ".basicly/generated-manifest.json"
 # Sibling git-worktree isolation for harness tracks.
 [worktree]
 # Branch new harness/<name> worktrees fork from. Empty = the current branch.
-base_branch = ""
+base_branch = "main"
 # Cap on how many worktrees may exist at once.
 concurrency = 5
 # Files this repo's convention has EVERY lane append its own entry to, which no
@@ -51,6 +51,9 @@ concurrency = 5
 #
 # [worktree.regenerate_commands]
 # ".basicly/generated-manifest.json" = ["basicly", "build"]
+
+[worktree.regenerate_commands]
+".claude-plugin/marketplace.json" = ["npm", "run", "marketplace"]
 
 # Deterministic verify gate. Each check runs in the listed modes; a "staged"
 # check with staged_suffix runs only against staged files of that suffix.
