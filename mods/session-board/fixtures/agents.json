@@ -1,0 +1,38 @@
+[
+  {
+    "id": "0000a001",
+    "cwd": "/work/docs",
+    "kind": "background",
+    "startedAt": 1787489181095,
+    "sessionId": "00000000-0000-4000-8000-000000000001",
+    "name": "docs-pass",
+    "state": "blocked"
+  },
+  {
+    "pid": 1001,
+    "cwd": "/work/api",
+    "kind": "interactive",
+    "startedAt": 1791394899761,
+    "sessionId": "00000000-0000-4000-8000-000000000002",
+    "name": "api-login",
+    "status": "busy"
+  },
+  {
+    "pid": 1002,
+    "cwd": "/work/app",
+    "kind": "interactive",
+    "startedAt": 1791398802857,
+    "sessionId": "00000000-0000-4000-8000-000000000003",
+    "name": "mocks",
+    "status": "busy"
+  },
+  {
+    "pid": 1003,
+    "cwd": "/work/app.wt/lane-a1",
+    "kind": "interactive",
+    "startedAt": 1791404109915,
+    "sessionId": "00000000-0000-4000-8000-000000000004",
+    "name": "lane-a1",
+    "status": "idle"
+  }
+]

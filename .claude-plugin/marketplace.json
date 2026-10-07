@@ -14,6 +14,12 @@
       "description": "One short row in place of each tracker write in the transcript."
     },
     {
+      "name": "session-board",
+      "source": "./mods/session-board",
+      "version": "0.1.0",
+      "description": "A board of every local Claude Code session: state, task, worktree and time worked."
+    },
+    {
       "name": "workitems",
       "source": "./mods/workitems",
       "version": "0.1.0",
