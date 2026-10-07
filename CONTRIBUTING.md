@@ -58,6 +58,63 @@ Never bypass a failing gate. `--no-verify` is not allowed. Fix the cause.
 4. Run `npm run types`, then `npm run check`.
 5. Load it in a session: `claude --plugin-dir mods/<name>`.
 
+## Release a mod
+
+Each mod has its own version, in `mods/<name>/.claude-plugin/plugin.json`.
+Claude Code offers users an update only when that `version` changes. A tag
+alone does not reach users. A tag matters only to a user who pins a version
+range. Release only a mod that changed, and do not change the version of
+another mod.
+
+This repository does not use `basicly release`, because it writes a basicly
+version file and one tag for the whole repository.
+
+1. Choose the new version with
+   [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Set it as
+   `version` in `mods/<name>/.claude-plugin/plugin.json`.
+2. Generate the marketplace file again, so that the entry of the mod has the
+   same version:
+
+   ```sh
+   npm run marketplace
+   ```
+
+3. Fold the changelog by hand. In `CHANGELOG.md`, add a dated section below
+   `## [Unreleased]`:
+
+   ```markdown
+   ## <name> <version> - <YYYY-MM-DD>
+   ```
+
+4. Move the text of each `changelog.d/<id>.<category>.md` file of the mod into
+   that section. Put it under the `###` heading of its category: `Added`,
+   `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`. Then delete those
+   fragment files.
+5. Run the gates:
+
+   ```sh
+   npm run check
+   ```
+
+6. Commit the version, the marketplace file, the changelog and the deleted
+   fragments in one commit. The subject names a record id. Put the version in
+   the body, because the hook refuses a dot in the subject.
+7. Create the tag. The command validates the mod first. It refuses a dirty
+   tree, an existing tag, and a `plugin.json` version that differs from the
+   marketplace entry.
+
+   ```sh
+   claude plugin tag mods/<name> --dry-run
+   claude plugin tag mods/<name>
+   ```
+
+8. Push the commit, then the tag `<name>--v<version>` that the command created:
+
+   ```sh
+   git push origin main
+   git push origin <name>--v<version>
+   ```
+
 ## Commit conventions
 
 Two `commit-msg` hooks gate every commit:
