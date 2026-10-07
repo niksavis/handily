@@ -226,7 +226,7 @@ describe('detection', () => {
     await startSession($)
     const snapshot = await snapshotOf($)
     expect(snapshot.state).toBe('no-tracker')
-    expect(snapshot.reason).toBe('looked for beads')
+    expect(snapshot.reason).toBe('looked for beads, beans, .handily.json')
     expect(snapshot.items).toEqual([])
     expect(world.touched.length).toBeGreaterThan(0)
     expect(world.touched.filter((path) => !path.startsWith(`${ROOT}/`))).toEqual([])
@@ -420,7 +420,7 @@ describe('contract', () => {
         {
           kind: 'no-tracker',
           tone: 'dim',
-          text: 'No tracker found at the repo root (looked for beads).',
+          text: 'No tracker found at the repo root (looked for beads, beans, .handily.json).',
         },
       ])
     },

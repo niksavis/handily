@@ -5,16 +5,82 @@ gives other mods one typed list. It draws nothing of its own.
 
 ## What it reads
 
-| Tracker            | Detected by           | Read path                  |
-| ------------------ | --------------------- | -------------------------- |
-| beads (`bd`, `br`) | `.beads/issues.jsonl` | Built-in JSON Lines reader |
+| Tracker             | Detected by                | Read path                                       |
+| ------------------- | -------------------------- | ----------------------------------------------- |
+| beads (`bd`, `br`)  | `.beads/issues.jsonl`      | Built-in JSON Lines reader                      |
+| beans               | `.beans.yml` or `.beans/`  | Built-in front matter reader                    |
+| Any other (`files`) | `globs` in `.handily.json` | Generic JSON, JSON Lines or front matter reader |
 
 - The mod looks only at the session root (`$.session.root()`). It never reads a parent folder.
 - It detects the tracker again when the working directory changes.
+- It reads one source per repo: the first one in the table that it finds, or the one that
+  `.handily.json` names. The snapshot lists each other source that it finds under `ignored`.
+- A tracker file over 4 MiB, or a malformed line, makes the read fail. The reason names the file.
+
+### beads
+
 - The beads reader skips a line whose `_type` is not `issue`, and a `tombstone` line.
 - When `.beads/metadata.json` names the `dolt` backend, the data comes from `bd`. Then each
   item carries the label `possibly stale`, because `bd` keeps its data in Dolt.
-- A tracker file over 4 MiB, or a malformed line, makes the read fail. The reason names the file.
+
+### beans
+
+- Each `.md` file under the beans folder is one item. The id is the part of the file name
+  before `--`, for example `app-ab12` in `app-ab12--add-the-export-button.md`.
+- The beans folder is `.beans/`. The `path` key under `beans:` in `.beans.yml` moves it. The
+  reader skips a folder whose name starts with a dot, as beans does.
+- A file under the `archive/` folder is closed, whatever its `status` says.
+- beans has no assignee. The `tags` become the labels.
+
+| beans `status`          | Item `status` |
+| ----------------------- | ------------- |
+| `todo`                  | `open`        |
+| `in-progress`           | `in_progress` |
+| `draft`                 | `other`       |
+| `completed`, `scrapped` | `closed`      |
+
+| beans `priority` | Item `priority` |
+| ---------------- | --------------- |
+| `critical`       | 0               |
+| `high`           | 1               |
+| `normal`         | 2               |
+| `low`            | 3               |
+| `deferred`       | 4               |
+
+A priority word that is not in this table makes the read fail. The reason names the file and
+the line.
+
+## .handily.json
+
+`.handily.json` at the repo root chooses the source, or describes the files of another tracker.
+
+```json
+{
+  "source": "files",
+  "globs": ["work/*.jsonl"],
+  "format": "jsonl",
+  "fields": { "id": "key", "title": "summary", "status": "state", "priority": "rank" }
+}
+```
+
+| Key      | Meaning                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------- |
+| `source` | Optional. `beads`, `beans` or `files`. The mod reads this source and ignores the others     |
+| `globs`  | The item files, relative to the repo root. `*` and `?` match in one folder, `**` in any     |
+| `format` | `json` (one item or a list of items per file), `jsonl` (one item per line) or `frontmatter` |
+| `fields` | The file field of each item field. `id`, `title` and `status` are required                  |
+
+- The item fields are `id`, `title`, `status`, `priority`, `type`, `assignee`, `updatedAt`,
+  `labels`, `parent` and `url`.
+- A `status` value of `open`, `in_progress`, `blocked`, `deferred` or `closed` keeps its
+  meaning. Any other value becomes `other`.
+- The `priority` must be a whole number of 0 or more.
+- A wildcard does not match a name that starts with a dot, unless the glob part starts with a
+  dot too.
+- The mod resolves the real path of each folder that it lists and of each linked file. When
+  one leads outside the repo root, the read fails, and the reason names the path and the glob.
+- An unknown key, an unknown source, or a missing field makes the read fail. The reason names
+  the fault.
 
 ## The contract
 
@@ -51,8 +117,9 @@ Each snapshot also carries these fields:
   `closed` wins over `updated`. The item is the latest one.
 - One read runs at a time. A call that arrives while a read runs waits for one more read after
   it. All the calls that arrive during the same read share that next read.
-- The mod polls the tracker file with `$.clock.every` every 2 s. It reads the file again only
-  when the file's modification time or size changed.
+- The mod polls the tracker files with `$.clock.every` every 2 s. It reads them again only
+  when the modification time or the size of a tracker file changed. For beans and `files`, it
+  lists the item files at each poll to see this.
 - The poll starts before the first refresh at session start, so a failed first refresh does
   not stop it.
 

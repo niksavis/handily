@@ -1,0 +1,12 @@
+{
+  "globs": ["work/*.jsonl"],
+  "format": "jsonl",
+  "fields": {
+    "id": "key",
+    "title": "summary",
+    "status": "state",
+    "priority": "rank",
+    "assignee": "owner",
+    "labels": "tags"
+  }
+}

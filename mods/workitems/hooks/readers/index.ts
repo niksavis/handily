@@ -1,9 +1,14 @@
+import type { FsEntry } from 'claude-code'
 import type { WorkitemsFailedReason, WorkitemsItem, WorkitemsWriteVerbs } from '../../types'
 import { beadsReader } from './beads'
+import { beansReader } from './beans'
+import { filesReader } from './generic'
 
 export type TrackerFiles = {
   read: (relativePath: string) => Promise<string>
   exists: (relativePath: string) => Promise<boolean>
+  list: (relativeDirectory: string) => Promise<FsEntry[]>
+  realPath: (relativePath: string) => Promise<string | undefined>
 }
 
 export type ReadOutcome =
@@ -13,10 +18,13 @@ export type ReadOutcome =
 export type Reader = {
   name: string
   marker: string
+  lookedForAs?: string
+  isPresent?: (files: TrackerFiles) => Promise<boolean>
+  signature?: (files: TrackerFiles) => Promise<string>
   read: (files: TrackerFiles) => Promise<ReadOutcome>
 }
 
-export const readers: readonly Reader[] = [beadsReader]
+export const readers: readonly Reader[] = [beadsReader, beansReader, filesReader]
 
 export const writeVerbs: WorkitemsWriteVerbs = {
   br: [

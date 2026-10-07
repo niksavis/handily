@@ -1,10 +1,11 @@
+import type { FsEntry } from 'claude-code'
 import type {
   WorkitemsDiff,
-  WorkitemsFailedReason,
   WorkitemsItem,
   WorkitemsRefreshArgs,
   WorkitemsSnapshot,
 } from '../types'
+import { FileProblem } from './config'
 import { detect } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
 
@@ -12,25 +13,20 @@ export const MAX_FILE_BYTES = 4 * 1024 * 1024
 export const POLL_INTERVAL_MS = 2000
 export const DIFF_HISTORY_LIMIT = 50
 
-export type FileStat = { size: number; mtimeMs: number }
+export type FileStat = { size: number; mtimeMs: number; realPath?: string }
 
 export type ProviderHost = {
   root: () => Promise<string>
   now: () => Promise<number>
   exists: (path: string) => Promise<boolean>
-  stat: (path: string) => Promise<FileStat>
+  stat: (path: string, options?: { resolve: boolean }) => Promise<FileStat>
+  list: (path: string) => Promise<FsEntry[]>
   read: (path: string) => Promise<string>
   publish: (snapshot: WorkitemsSnapshot) => Promise<void>
 }
 
 export type Provider = {
   refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsDiff>
-}
-
-class FileProblem extends Error {
-  constructor(readonly reason: WorkitemsFailedReason) {
-    super(reason)
-  }
 }
 
 function emptyDiff(): WorkitemsDiff {
@@ -44,6 +40,20 @@ export function pathAtRoot(root: string, relativePath: string): string {
 function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
   return {
     exists: (relativePath) => host.exists(pathAtRoot(root, relativePath)),
+    list: async (relativeDirectory) => {
+      try {
+        return await host.list(pathAtRoot(root, relativeDirectory))
+      } catch {
+        throw new FileProblem(`${relativeDirectory} could not be read.`)
+      }
+    },
+    realPath: async (relativePath) => {
+      try {
+        return (await host.stat(pathAtRoot(root, relativePath), { resolve: true })).realPath
+      } catch {
+        return undefined
+      }
+    },
     read: async (relativePath) => {
       const path = pathAtRoot(root, relativePath)
       let stat: FileStat
@@ -90,8 +100,14 @@ async function readSafely(reader: Reader, files: TrackerFiles): Promise<ReadOutc
   }
 }
 
-async function signatureOf(host: ProviderHost, root: string, reader: Reader): Promise<string> {
+async function signatureOf(
+  host: ProviderHost,
+  files: TrackerFiles,
+  root: string,
+  reader: Reader,
+): Promise<string> {
   try {
+    if (reader.signature) return [root, reader.name, await reader.signature(files)].join('\n')
     const stat = await host.stat(pathAtRoot(root, reader.marker))
     return [root, reader.name, String(stat.mtimeMs), String(stat.size)].join('\n')
   } catch {
@@ -229,9 +245,9 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
   async function readOnce(): Promise<void> {
     const root = await host.root()
     const files = filesAtRoot(host, root)
-    const detection = await detect(readers, files.exists)
+    const detection = await detect(readers, files)
     const signature = detection.found
-      ? await signatureOf(host, root, detection.reader)
+      ? await signatureOf(host, files, root, detection.reader)
       : [root, 'no-tracker'].join('\n')
     const checkedAt = await host.now()
     if (current && signature === lastSignature) {

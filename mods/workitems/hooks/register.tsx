@@ -13,7 +13,8 @@ export const register: Register = (on) => {
         root: () => built.session.root(),
         now: () => built.clock.now(),
         exists: (path) => built.fs.exists(path),
-        stat: (path) => built.fs.stat(path),
+        stat: (path, options) => built.fs.stat(path, options),
+        list: (path) => built.fs.list(path),
         read: (path) => built.fs.read(path),
         publish: async (snapshot) => {
           await built.state.set({ plugin: 'workitems', key: 'snapshot' }, snapshot)
