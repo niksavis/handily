@@ -1,0 +1,17 @@
+{
+  "name": "task-pane",
+  "version": "0.1.0",
+  "description": "A session task list that Claude and you share: model tools, /task commands and an optional pane.",
+  "author": { "name": "niksavis" },
+  "dependencies": ["workitems"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Task pane mode",
+      "description": "off: the pane opens only on /task pane. toggle: /task pane opens and closes it. always: the pane opens when the session starts.",
+      "options": ["off", "toggle", "always"],
+      "default": "toggle"
+    }
+  }
+}

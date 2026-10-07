@@ -1,0 +1,757 @@
+import type { On, PluginState, PromptComposeInput, RenderPropsOf } from 'claude-code'
+import { describe, expect, mock, test, type Engine, type Plugin } from 'claude-code/testing'
+
+type Snapshot = PluginState['workitems']['snapshot']
+type Item = Snapshot['items'][number]
+
+const ROOT = '/work/app'
+const PANE = 'task-pane'
+const TOOL_ADD = 'mcp__task-pane__task_add'
+const TOOL_UPDATE = 'mcp__task-pane__task_update'
+const TOOL_LIST = 'mcp__task-pane__task_list'
+
+const fakeWorkitems: Plugin = {
+  name: 'workitems',
+  register(on) {
+    on('engine.create', async (_$, e, next) => {
+      const built = await next(e)
+      return {
+        ...built,
+        workitems: {
+          refresh: () => Promise.resolve({ created: [], updated: [], closed: [] }),
+          writeVerbs: () => Promise.reject(new Error('the fake workitems has no write verbs')),
+          lines: ({ snapshot }) => {
+            switch (snapshot.state) {
+              case 'failed':
+                return Promise.resolve([
+                  {
+                    kind: 'failed' as const,
+                    tone: 'error' as const,
+                    text: `Work items unavailable: ${snapshot.reason}` as const,
+                  },
+                ])
+              case 'no-tracker':
+                return Promise.resolve([
+                  {
+                    kind: 'no-tracker' as const,
+                    tone: 'dim' as const,
+                    text: `No tracker found at the repo root (${snapshot.reason}).` as const,
+                  },
+                ])
+              default:
+                return Promise.resolve([])
+            }
+          },
+        },
+      }
+    })
+    on('command.run', { command: 'publish-snapshot' }, async ($, e) => {
+      await $.state.set({ plugin: 'workitems', key: 'snapshot' }, JSON.parse(e.args) as Snapshot)
+      return { text: 'published' }
+    })
+  },
+}
+
+type World = {
+  tools: string[]
+  commands: string[]
+  panes: Set<string>
+  opened: string[]
+}
+
+function world(on: On): World {
+  const state: World = { tools: [], commands: [], panes: new Set(), opened: [] }
+  mock.clock(on, { now: 1_000 })
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('tool.register', (_$, e) => {
+    state.tools.push(e.name)
+    return { value: { tool: `mcp__task-pane__${e.name}` } }
+  })
+  on('command.register', (_$, e) => {
+    state.commands.push(e.name)
+    return { value: { command: e.name } }
+  })
+  on('ui.open', (_$, e) => {
+    state.panes.add(e.id)
+    state.opened.push(e.id)
+    return { value: { isPlaced: true as const } }
+  })
+  on('ui.close', (_$, e) => {
+    state.panes.delete(e.id)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: [...state.panes].map((id) => ({
+      id,
+      title: 'Tasks',
+      isShown: true,
+      isFocused: false,
+      isPlaced: true,
+    })),
+  }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  return state
+}
+
+async function start($: Engine): Promise<void> {
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+}
+
+async function task($: Engine, args: string): Promise<string> {
+  const result = await $.command.run({
+    command: 'task',
+    args,
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 120 },
+  })
+  return result.text ?? ''
+}
+
+async function modelTool($: Engine, input: Record<string, unknown>): Promise<unknown> {
+  const answer = await $.tool.call({ tool: TOOL_LIST, ...input })
+  return answer.deny ?? answer.result
+}
+
+function item(id: string, title: string, priority: number | null, status: Item['status']): Item {
+  return {
+    key: `beads:${id}`,
+    id,
+    title,
+    status,
+    rawStatus: status,
+    priority,
+    type: 'task',
+    assignee: null,
+    updatedAt: null,
+    source: 'beads',
+  }
+}
+
+const OPEN_ITEMS = [
+  item('app-cd34', 'Write the beads reader', 2, 'open'),
+  item('app-ab12', 'Draw text mocks for the mods', 1, 'in_progress'),
+  item('app-ef56', 'Generate the marketplace', 2, 'open'),
+  item('app-gh78', 'Ship the first release', 3, 'closed'),
+]
+
+function okSnapshot(items: readonly Item[]): Snapshot {
+  return {
+    at: 1,
+    version: 1,
+    checkedAt: 1,
+    root: ROOT,
+    items,
+    ignored: [],
+    state: 'ok',
+    reason: null,
+    source: 'beads',
+    sourceLabel: 'beads',
+    caveat: null,
+  }
+}
+
+function failedSnapshot(): Snapshot {
+  return {
+    at: 1,
+    version: 1,
+    checkedAt: 1,
+    root: ROOT,
+    items: [],
+    ignored: [],
+    state: 'failed',
+    reason: 'basicly tracker list exited 2. Run it in a shell to see why.',
+    source: 'basicly',
+    sourceLabel: 'basicly',
+    caveat: null,
+  }
+}
+
+function terminalOnlySnapshot(): Snapshot {
+  return {
+    at: 1,
+    version: 1,
+    checkedAt: 1,
+    root: ROOT,
+    items: [],
+    ignored: [],
+    state: 'terminal-only',
+    reason: null,
+    source: 'basicly',
+    sourceLabel: 'basicly',
+    caveat: null,
+  }
+}
+
+async function publish($: Engine, snapshot: Snapshot): Promise<void> {
+  await $.command.run({
+    command: 'publish-snapshot',
+    args: JSON.stringify(snapshot),
+    origin: { kind: 'sdk' },
+    presentation: { isFullscreen: false, columns: 80 },
+  })
+}
+
+function paneProps(placement: 'dock' | 'inline'): RenderPropsOf['Pane'] {
+  return {
+    title: 'Tasks',
+    isFocused: false,
+    bodyColumns: 40,
+    placement,
+    scroll: { offset: 0, bodyRows: 20 },
+    view: {},
+  }
+}
+
+function notes(session: ReturnType<typeof mock.session>): string[] {
+  return session.appended().map((row) =>
+    row.message.content
+      .map((block) => {
+        if (typeof block === 'string') return block
+        return typeof block.text === 'string' ? block.text : ''
+      })
+      .join(''),
+  )
+}
+
+const withWorkitems = { plugins: [fakeWorkitems] }
+
+function composeFor(tools: readonly string[]): PromptComposeInput {
+  return {
+    model: 'model-under-test',
+    promptModel: 'model-under-test',
+    surfaces: ['terminal'],
+    tools,
+    outputStyle: null,
+    traits: [],
+  }
+}
+
+describe('model tools and the prompt section', () => {
+  test(
+    'registers task_add, task_update, task_list and /task at session start',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      expect(seen.tools).toEqual(['task_add', 'task_update', 'task_list'])
+      expect(seen.commands).toEqual(['task'])
+    },
+  )
+
+  test(
+    'adds the session section only when the task tools are offered',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      on('prompt.compose', () => ({
+        sections: [{ id: 'intro', text: 'Hi.', scope: 'shared' as const }],
+      }))
+      const withTools = await $.prompt.compose(
+        composeFor(['Read', TOOL_ADD, TOOL_UPDATE, TOOL_LIST]),
+      )
+      const section = withTools.sections.find((part) => part.id === 'task-pane:tasks')
+      expect(section?.scope).toBe('session')
+      expect(section?.text).toContain('Keep your plan for this session in the task list')
+      expect(section?.text).toContain(TOOL_UPDATE)
+      const without = await $.prompt.compose(composeFor(['Read']))
+      expect(without.sections.map((part) => part.id)).toEqual(['intro'])
+    },
+  )
+
+  test(
+    'the model adds, starts, completes and removes tasks, and /task shows them',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      const added = await $.tool.call({ tool: TOOL_ADD, title: 'Read the design doc' })
+      expect(added.result).toBe(
+        'Added task 1: Read the design doc.\n\nTasks (0 of 1 done)\n  1  pending      Read the design doc',
+      )
+      await $.tool.call({ tool: TOOL_ADD, title: 'Draw the mocks' })
+      await $.tool.call({ tool: TOOL_ADD, title: 'Drop the old pane' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+      const removed = await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'removed' })
+      expect(removed.result).toContain('Removed task 3.')
+      const listed = await modelTool($, {})
+      expect(listed).toBe(
+        'Tasks (1 of 2 done)\n  1  done         Read the design doc\n  2  in progress  Draw the mocks',
+      )
+      expect(await task($, '')).toBe(listed)
+    },
+  )
+
+  test('refuses a bad tool input by name and changes nothing', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    expect((await $.tool.call({ tool: TOOL_ADD, title: '  ' })).deny).toBe(
+      'task_add needs a title: a non-empty string, for example {"title": "Write the tests"}.',
+    )
+    await $.tool.call({ tool: TOOL_ADD, title: 'One' })
+    expect((await $.tool.call({ tool: TOOL_UPDATE, id: 7, status: 'completed' })).deny).toBe(
+      'No task 7. The ids are 1. Call task_list to see them.',
+    )
+    expect((await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'done' })).deny).toBe(
+      'task_update needs status: one of pending, in_progress, completed, removed.',
+    )
+    expect(await modelTool($, {})).toBe('Tasks (0 of 1 done)\n  1  pending      One')
+  })
+})
+
+describe('/task commands', () => {
+  test(
+    '/task add <text> adds the task, tells Claude and replies as the mock',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const session = mock.session(on)
+      await start($)
+      for (const title of [
+        'Read the design doc',
+        'Grep the element table',
+        'Draw quiet-items mocks',
+        'Draw task-pane mocks',
+      ]) {
+        await $.tool.call({ tool: TOOL_ADD, title })
+      }
+      expect(await task($, 'add Write the summary')).toBe(
+        'Added task 5: Write the summary. Claude is told the list changed.',
+      )
+      const told = notes(session)
+      expect(told).toHaveLength(1)
+      expect(told[0]).toContain(
+        '[task-pane] The person changed the session task list: it added task 5: Write the summary.',
+      )
+      expect(told[0]).toContain('  5  pending      Write the summary  (you)')
+      expect(session.appended()[0]?.message.type).toBe('user')
+    },
+  )
+
+  test(
+    '/task add while a turn runs says Claude sees it when the turn ends',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      mock.session(on)
+      await start($)
+      await $.turn.start({ text: 'plan it', turnId: 'turn-1' })
+      expect(await task($, 'add Write the summary')).toBe(
+        'Added task 1: Write the summary. Claude sees it when this turn ends.',
+      )
+      await $.turn.complete({
+        turnId: 'turn-1',
+        reason: 'answer',
+        answer: 'done',
+        durationMs: 1,
+        isAborted: false,
+      })
+      expect(await task($, 'add Check the links')).toBe(
+        'Added task 2: Check the links. Claude is told the list changed.',
+      )
+    },
+  )
+
+  test(
+    '/task add <item id> takes the work item title and adds it once',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const session = mock.session(on)
+      await start($)
+      await publish($, okSnapshot(OPEN_ITEMS))
+      expect(await task($, 'add app-cd34')).toBe(
+        'Added task 1 from app-cd34: Write the beads reader.',
+      )
+      expect(await task($, 'add app-cd34')).toBe(
+        'app-cd34 is already task 1: Write the beads reader. Nothing changed.',
+      )
+      expect(notes(session)).toHaveLength(1)
+      expect(await task($, 'add app-zz99')).toBe(
+        'No work item app-zz99 in beads. Add it as text: /task add <text>.',
+      )
+    },
+  )
+
+  test(
+    '/task add <item id> says by name why workitems cannot read it',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      expect(await task($, 'add app-cd34')).toBe(
+        'Cannot read app-cd34: workitems has not read the tracker yet. Add it as text: /task add <text>.',
+      )
+      await publish($, failedSnapshot())
+      expect(await task($, 'add app-cd34')).toBe(
+        'Cannot read app-cd34: work items unavailable: basicly tracker list exited 2. Run it in a shell to see why. Add it as text: /task add <text>.',
+      )
+      await publish($, terminalOnlySnapshot())
+      expect(await task($, 'add handily-cd34')).toBe(
+        'Cannot read handily-cd34 here: basicly needs a terminal session. Add it as text: /task add <text>.',
+      )
+      expect(await task($, '')).toContain('No tasks in this session yet.')
+    },
+  )
+
+  test('/task rm <n> removes task n and tells Claude', withWorkitems, async ($, on) => {
+    world(on)
+    const session = mock.session(on)
+    await start($)
+    for (const title of ['One', 'Two', 'Three', 'Draw task-pane mocks', 'Five']) {
+      await $.tool.call({ tool: TOOL_ADD, title })
+    }
+    expect(await task($, 'rm 4')).toBe(
+      'Removed task 4: Draw task-pane mocks. Claude is told the list changed.',
+    )
+    expect(notes(session)[0]).toContain('it removed task 4: Draw task-pane mocks.')
+    expect(await modelTool($, {})).not.toContain('Draw task-pane mocks')
+  })
+
+  test('/task rm of a missing task lists the valid numbers', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    expect(await task($, 'rm 9')).toBe(
+      'No task 9. This session has no tasks yet; add one with /task add <text>.',
+    )
+    for (const title of ['One', 'Two', 'Three', 'Four', 'Five']) {
+      await $.tool.call({ tool: TOOL_ADD, title })
+    }
+    expect(await task($, 'rm 9')).toBe(
+      'No task 9. This session has tasks 1-5; run /task to list them.',
+    )
+    await task($, 'rm 4')
+    expect(await task($, 'rm 9')).toBe(
+      'No task 9. This session has tasks 1-3, 5; run /task to list them.',
+    )
+    expect(await task($, 'rm two')).toBe('/task rm needs a task number, for example /task rm 2.')
+  })
+
+  test(
+    '/task add with nothing and an unknown subcommand reply as the mock',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      expect(await task($, 'add')).toBe(
+        '/task add needs text or an item id, for example:\n/task add Write the summary   or   /task add handily-cd34',
+      )
+      expect(await task($, 'frob')).toBe(
+        'Unknown subcommand "frob". Use /task, /task add <text|id>, /task rm <n> or /task pane.',
+      )
+    },
+  )
+})
+
+describe('no tasks yet', () => {
+  test('/task lists the open tracker items and adds nothing', withWorkitems, async ($, on) => {
+    world(on)
+    const session = mock.session(on)
+    await start($)
+    await publish($, okSnapshot(OPEN_ITEMS))
+    expect(await task($, '')).toBe(
+      [
+        'No tasks in this session yet. Open in the tracker (beads, 3):',
+        '  app-ab12  P1  Draw text mocks for the mods',
+        '  app-cd34  P2  Write the beads reader',
+        '  app-ef56  P2  Generate the marketplace',
+        'Add one with /task add <id>, or press "Add 3 as tasks" in /task pane.',
+      ].join('\n'),
+    )
+    expect(await modelTool($, {})).toBe('The task list is empty.')
+    expect(session.appended()).toEqual([])
+  })
+
+  test('/task names the reason when work items are unavailable', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    await publish($, failedSnapshot())
+    expect(await task($, '')).toBe(
+      'No tasks in this session yet. Work items unavailable: basicly tracker list exited 2. Run it in a shell to see why.',
+    )
+  })
+
+  test(
+    'the pane lists open items with add buttons, and a double press adds once',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, okSnapshot(OPEN_ITEMS))
+      for (const surface of ['terminal', 'desktop'] as const) {
+        const ui = await $.ui.mount({
+          plugin: PANE,
+          surface,
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock'),
+        })
+        expect(await ui.find({ type: 'Text', text: 'none in this session yet' })).toBeDefined()
+        expect(
+          await ui.find({ type: 'Text', text: 'Open in tracker: beads · 3 open' }),
+        ).toBeDefined()
+        expect(
+          (await ui.findAll({ type: 'Button', text: 'add' })).map((button) => button.key),
+        ).toEqual(['add:app-ab12', 'add:app-cd34', 'add:app-ef56'])
+        expect((await ui.find({ key: 'add-all' }))?.text).toBe('Add 3 as tasks')
+        await ui.unmount()
+      }
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+      const ui = await $.ui.mount({
+        plugin: PANE,
+        surface: 'terminal',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock'),
+      })
+      await ui.press({ key: 'add:app-cd34' })
+      await task($, 'add app-cd34')
+      expect(await modelTool($, {})).toBe(
+        'Tasks (0 of 1 done)\n  1  pending      Write the beads reader  (you)',
+      )
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'Add N as tasks adds each open item and skips one that is already a task',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, okSnapshot(OPEN_ITEMS))
+      const ui = await $.ui.mount({
+        plugin: PANE,
+        surface: 'desktop',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock'),
+      })
+      await ui.press({ key: 'add-all' })
+      await task($, 'add app-ab12')
+      expect(await modelTool($, {})).toBe(
+        [
+          'Tasks (0 of 3 done)',
+          '  1  pending      Draw text mocks for the mods  (you)',
+          '  2  pending      Write the beads reader  (you)',
+          '  3  pending      Generate the marketplace  (you)',
+        ].join('\n'),
+      )
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'the pane shows the workitems error line in place of the items',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, failedSnapshot())
+      const ui = await $.ui.mount({
+        plugin: PANE,
+        surface: 'terminal',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock'),
+      })
+      const line = await ui.find({ type: 'Text', text: /Work items unavailable/ })
+      expect(line?.props.color).toBe('error')
+      expect(await ui.findAll({ type: 'Button' })).toEqual([])
+      await ui.unmount()
+    },
+  )
+})
+
+describe('the pane', () => {
+  test(
+    'draws each task with a mark and an rm button, and rm removes it',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const session = mock.session(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Read the design doc' })
+      await $.tool.call({ tool: TOOL_ADD, title: 'Draw quiet-items mocks' })
+      await task($, 'add Write the summary')
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+      for (const surface of ['terminal', 'desktop'] as const) {
+        const ui = await $.ui.mount({
+          plugin: PANE,
+          surface,
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock'),
+        })
+        expect(await ui.find({ type: 'Text', text: '1 of 3 done' })).toBeDefined()
+        const done = await ui.find({ type: 'Text', text: '1 Read the design doc' })
+        expect(done?.props.dimColor).toBe(true)
+        expect(
+          (await ui.find({ type: 'Text', text: '2 Draw quiet-items mocks' }))?.props.bold,
+        ).toBe(true)
+        expect(await ui.find({ type: 'Text', text: '(you)' })).toBeDefined()
+        expect(
+          (await ui.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key),
+        ).toEqual(['rm:1', 'rm:2', 'rm:3'])
+        expect((await ui.find({ type: 'Input' }))?.props.submitLabel).toBe('Add')
+        await ui.unmount()
+      }
+      const ui = await $.ui.mount({
+        plugin: PANE,
+        surface: 'terminal',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock'),
+      })
+      await ui.press({ key: 'rm:2' })
+      expect(await ui.find({ type: 'Text', text: '2 Draw quiet-items mocks' })).toBeUndefined()
+      expect(notes(session).at(-1)).toContain('it removed task 2: Draw quiet-items mocks.')
+      await ui.unmount()
+    },
+  )
+
+  test('the Input adds a task as the person', withWorkitems, async ($, on) => {
+    world(on)
+    const session = mock.session(on)
+    await start($)
+    const ui = await $.ui.mount({
+      plugin: PANE,
+      surface: 'desktop',
+      component: 'Pane',
+      requestId: PANE,
+      props: paneProps('dock'),
+    })
+    await ui.input({ key: 'add', text: '  Write the summary ' })
+    expect(await modelTool($, {})).toBe(
+      'Tasks (0 of 1 done)\n  1  pending      Write the summary  (you)',
+    )
+    expect(notes(session)).toHaveLength(1)
+    await ui.unmount()
+  })
+
+  test('mobile has no Input and points to /task add', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    const ui = await $.ui.mount({
+      plugin: PANE,
+      surface: 'mobile',
+      component: 'Pane',
+      requestId: PANE,
+      props: paneProps('inline'),
+    })
+    expect(await ui.find({ type: 'Input' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Add tasks with /task add <text>.' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test(
+    'inline with more than 6 rows hides done tasks behind a count',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      for (const title of ['One', 'Two', 'Three', 'Four', 'Five']) {
+        await $.tool.call({ tool: TOOL_ADD, title })
+      }
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed' })
+      const inline = await $.ui.mount({
+        plugin: PANE,
+        surface: 'terminal',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('inline'),
+      })
+      expect(await inline.find({ type: 'Text', text: '+2 done hidden' })).toBeDefined()
+      expect(await inline.find({ type: 'Text', text: '1 One' })).toBeUndefined()
+      expect(await inline.find({ type: 'Text', text: '3 Three' })).toBeDefined()
+      await inline.unmount()
+      const docked = await $.ui.mount({
+        plugin: PANE,
+        surface: 'terminal',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock'),
+      })
+      expect(await docked.find({ type: 'Text', text: '1 One' })).toBeDefined()
+      expect(await docked.find({ type: 'Text', text: /done hidden/ })).toBeUndefined()
+      await docked.unmount()
+    },
+  )
+})
+
+describe('/task pane and the mode', () => {
+  test('toggle, the default, opens and then closes the pane', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    expect(seen.opened).toEqual([])
+    expect(await task($, 'pane')).toBe('Task pane opened.')
+    expect(seen.panes.has(PANE)).toBe(true)
+    expect(await task($, 'pane')).toBe('Task pane closed.')
+    expect(seen.panes.has(PANE)).toBe(false)
+  })
+
+  test(
+    'always opens the pane at session start',
+    { ...withWorkitems, options: { mode: 'always' } },
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      expect(seen.opened).toEqual([PANE])
+      expect(await task($, 'pane')).toBe('Task pane opened.')
+      expect(seen.panes.has(PANE)).toBe(true)
+    },
+  )
+
+  test(
+    'off leaves the pane closed until /task pane, which only opens it',
+    { ...withWorkitems, options: { mode: 'off' } },
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      expect(seen.opened).toEqual([])
+      expect(await task($, 'pane')).toBe('Task pane opened.')
+      expect(await task($, 'pane')).toBe('Task pane opened.')
+      expect(seen.panes.has(PANE)).toBe(true)
+    },
+  )
+})
+
+describe('session life', () => {
+  test(
+    'the list resets on session end with reason clear, and only then',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Keep me' })
+      const resume = { sessionId: 's1', resume: { id: 's1' } }
+      await $.session.end({ reason: 'other', ...resume })
+      expect(await modelTool($, {})).toBe('Tasks (0 of 1 done)\n  1  pending      Keep me')
+      await $.session.end({ reason: 'clear', ...resume })
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+      expect((await $.tool.call({ tool: TOOL_ADD, title: 'Fresh' })).result).toContain(
+        'Added task 1: Fresh.',
+      )
+    },
+  )
+
+  test(
+    'a second session start, as a hot reload raises, keeps the list',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Survive the reload' })
+      await start($)
+      expect(await modelTool($, {})).toBe(
+        'Tasks (0 of 1 done)\n  1  pending      Survive the reload',
+      )
+    },
+  )
+})

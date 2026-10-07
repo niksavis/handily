@@ -20,6 +20,12 @@
       "description": "A board of every local Claude Code session: state, task, worktree and time worked."
     },
     {
+      "name": "task-pane",
+      "source": "./mods/task-pane",
+      "version": "0.1.0",
+      "description": "A session task list that Claude and you share: model tools, /task commands and an optional pane."
+    },
+    {
       "name": "workitems",
       "source": "./mods/workitems",
       "version": "0.1.0",
