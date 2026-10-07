@@ -183,8 +183,6 @@ reply, so mobile (no `Input`) and a closed pane lose nothing.
                                     4  pending      Draw task-pane mocks
                                     5  pending      Write the summary          (you)
 /task add Write the summary    -> Added task 5: Write the summary. Claude is told the list changed.
-/task add Write the summary    -> Added task 5: Write the summary. Claude sees it when this turn ends.
-   (while a turn runs)
 /task add handily-cd34         -> Added task 6 from handily-cd34: Write the beads reader.
 /task rm 4                     -> Removed task 4: Draw task-pane mocks. Claude is told the list changed.
 /task rm 9                     -> No task 9. This session has tasks 1-5; run /task to list them.
