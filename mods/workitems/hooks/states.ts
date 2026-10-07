@@ -26,7 +26,7 @@ function headerLines(
 ): WorkitemsLine[] {
   const label = snapshot.sourceLabel
   const open = numeral(snapshot.items.filter((item) => item.status !== 'closed').length)
-  const age = ageText(now - snapshot.at)
+  const age = ageText(now - snapshot.checkedAt)
   const header: WorkitemsLine =
     snapshot.caveat === null
       ? { kind: 'header', tone: 'dim', text: `${label} · ${open} open · read ${age} ago` }

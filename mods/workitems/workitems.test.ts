@@ -8,6 +8,7 @@ import {
   type MockClock,
   type Plugin,
 } from 'claude-code/testing'
+import { DIFF_HISTORY_LIMIT } from './hooks/snapshot'
 import type {
   WorkitemsDiff,
   WorkitemsItem,
@@ -20,6 +21,7 @@ const ROOT = '/work/app'
 const ISSUES = `${ROOT}/.beads/issues.jsonl`
 const METADATA = `${ROOT}/.beads/metadata.json`
 const OVER_4_MIB = 4 * 1024 * 1024 + 1
+const OTHER_ROOT = '/work/other'
 
 const FIXTURE_ISSUES = [
   '{"id":"app-ab12","title":"Add the export button","status":"open","priority":2,"issue_type":"feature","assignee":"dev-one","updated_at":"2026-10-01T09:00:00Z","labels":["ui"]}',
@@ -27,6 +29,8 @@ const FIXTURE_ISSUES = [
   '{"id":"app-ef56","title":"Write the release notes","status":"closed","priority":3,"issue_type":"task","updated_at":"2026-10-03T08:15:00Z"}',
   '{"id":"app-gh78","title":"Drop the old importer","status":"tombstone","priority":4,"issue_type":"task","updated_at":"2026-10-04T12:00:00Z"}',
 ].join('\n')
+
+const WITH_NEW_ITEM = `${FIXTURE_ISSUES}\n{"id":"app-x","title":"New","status":"open"}`
 
 type FakeFile = { text: string; mtimeMs: number; size?: number }
 
@@ -37,6 +41,7 @@ type World = {
   reads: string[]
   rootCalls: number
   readDelayMs: number
+  statDelayMs: number
 }
 
 function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): World {
@@ -47,6 +52,7 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
     reads: [],
     rootCalls: 0,
     readDelayMs: 0,
+    statDelayMs: 0,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('classic.CwdChanged', () => ({}))
@@ -58,9 +64,10 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
     world.touched.push(e.path)
     return { value: world.files.has(e.path) }
   })
-  on('fs.stat', (_$, e) => {
+  on('fs.stat', async (_$, e) => {
     world.touched.push(e.path)
     const file = world.files.get(e.path)
+    if (world.statDelayMs > 0) await clock.sleep(world.statDelayMs)
     if (!file) return { deny: `ENOENT: ${e.path}` }
     const size = file.size ?? new TextEncoder().encode(file.text).length
     return { value: { kind: 'file', size, mtimeMs: file.mtimeMs, isLink: false } }
@@ -84,11 +91,21 @@ const consumer: Plugin = {
         const { value } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
         return { text: JSON.stringify(value ?? null) }
       }
+      const refreshArgs = e.args === '' ? {} : { since: Number(e.args) }
       if (e.command === 'refresh') {
-        return { text: JSON.stringify(await $.workitems.refresh()) }
+        return { text: JSON.stringify(await $.workitems.refresh(refreshArgs)) }
+      }
+      if (e.command === 'refresh-or-error') {
+        return $.workitems.refresh(refreshArgs).then(
+          (diff) => ({ text: JSON.stringify(diff) }),
+          (error: unknown) => ({ text: `error: ${String(error)}` }),
+        )
       }
       if (e.command === 'refresh-twice') {
-        const both = await Promise.all([$.workitems.refresh(), $.workitems.refresh()])
+        const both = await Promise.all([
+          $.workitems.refresh(refreshArgs),
+          $.workitems.refresh(refreshArgs),
+        ])
         return { text: JSON.stringify(both) }
       }
       if (e.command === 'lines') {
@@ -325,26 +342,25 @@ describe('refresh', () => {
     },
   )
 
-  test('a second refresh joins the one in flight', { plugins: [consumer] }, async ($, on) => {
-    const clock = mock.clock(on)
-    const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
-    await startSession($)
-    world.files.set(ISSUES, {
-      text: `${FIXTURE_ISSUES}\n{"id":"app-x","title":"New","status":"open"}`,
-      mtimeMs: 20,
-    })
-    world.reads.length = 0
-    world.rootCalls = 0
-    world.readDelayMs = 50
-    const pending = commandText($, 'refresh-twice')
-    await clock.settle()
-    await clock.advance(50)
-    const [first, second] = JSON.parse(await pending) as [WorkitemsDiff, WorkitemsDiff]
-    expect(world.reads).toEqual([ISSUES])
-    expect(world.rootCalls).toBe(1)
-    expect(keysOf(first.created)).toEqual(['beads:app-x'])
-    expect(second).toEqual(first)
-  })
+  test(
+    'two concurrent refreshes read the changed file once',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      world.reads.length = 0
+      world.readDelayMs = 50
+      const pending = commandText($, 'refresh-twice')
+      await clock.settle()
+      await clock.advance(200)
+      const [first, second] = JSON.parse(await pending) as [WorkitemsDiff, WorkitemsDiff]
+      expect(world.reads).toEqual([ISSUES])
+      expect(keysOf(first.created)).toEqual(['beads:app-x'])
+      expect(second).toEqual(first)
+    },
+  )
 
   test(
     'polls the tracker file mtime with clock.every every 2 s',
@@ -424,5 +440,183 @@ describe('contract', () => {
     ])
     expect(verbs['.basicly/core/kit/tracker/cli.py'].length).toBe(16)
     expect(verbs.br).toContain('comments add')
+  })
+})
+
+describe('refresh since a version', () => {
+  test('returns a change that a poll tick read first', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on)
+    const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+    await startSession($)
+    const before = await snapshotOf($)
+    world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+    await clock.advance(2_000)
+    expect((await snapshotOf($)).items.length).toBe(4)
+    const diff = JSON.parse(
+      await commandText($, 'refresh', String(before.version)),
+    ) as WorkitemsDiff
+    expect(keysOf(diff.created)).toEqual(['beads:app-x'])
+  })
+
+  test(
+    'chains one read after a running read for the calls that arrive during it',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      const before = await snapshotOf($)
+      world.statDelayMs = 50
+      await clock.advance(2_000)
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      world.rootCalls = 0
+      const pending = commandText($, 'refresh-twice', String(before.version))
+      await clock.settle()
+      await clock.advance(500)
+      const [first, second] = JSON.parse(await pending) as [WorkitemsDiff, WorkitemsDiff]
+      expect(keysOf(first.created)).toEqual(['beads:app-x'])
+      expect(second).toEqual(first)
+      expect(world.rootCalls).toBe(1)
+    },
+  )
+
+  test(
+    'merges the diffs of every version since the given one',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      const before = await snapshotOf($)
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      await clock.advance(2_000)
+      const closedBoth = WITH_NEW_ITEM.replace(
+        '"status":"open","priority":2',
+        '"status":"closed","priority":2',
+      ).replace(
+        '{"id":"app-x","title":"New","status":"open"}',
+        '{"id":"app-x","title":"New","status":"closed"}',
+      )
+      world.files.set(ISSUES, { text: closedBoth, mtimeMs: 30 })
+      await clock.advance(2_000)
+      expect((await snapshotOf($)).version).toBe(before.version + 2)
+      const diff = JSON.parse(
+        await commandText($, 'refresh', String(before.version)),
+      ) as WorkitemsDiff
+      expect(keysOf(diff.created)).toEqual(['beads:app-x'])
+      expect(diff.created[0]?.status).toBe('closed')
+      expect(keysOf(diff.closed)).toEqual(['beads:app-ab12'])
+      expect(diff.updated).toEqual([])
+    },
+  )
+
+  test('raises the version only when the data changes', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on)
+    const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+    await startSession($)
+    const first = (await snapshotOf($)).version
+    await clock.advance(4_000)
+    expect((await snapshotOf($)).version).toBe(first)
+    world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+    await clock.advance(2_000)
+    expect((await snapshotOf($)).version).toBe(first + 1)
+  })
+
+  test('refuses a since newer than the current version', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on)
+    fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+    await startSession($)
+    const version = (await snapshotOf($)).version
+    const text = await commandText($, 'refresh-or-error', String(version + 1))
+    expect(text).toContain('newer than the current version')
+  })
+
+  test('refuses a since older than the kept diffs', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on)
+    const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+    await startSession($)
+    const oldest = (await snapshotOf($)).version
+    for (let change = 1; change <= DIFF_HISTORY_LIMIT + 1; change += 1) {
+      world.files.set(ISSUES, { text: FIXTURE_ISSUES, mtimeMs: 10 + change })
+      await commandText($, 'refresh')
+    }
+    const text = await commandText($, 'refresh-or-error', String(oldest))
+    expect(text).toContain('older than the oldest kept diff')
+    const kept = await commandText($, 'refresh-or-error', String(oldest + 1))
+    expect(kept).toBe(JSON.stringify({ created: [], updated: [], closed: [] }))
+  })
+})
+
+describe('session start and directory changes', () => {
+  test(
+    'the poll runs when the first refresh at session start fails',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      let isFirstExists = true
+      let reads = 0
+      const logs: string[] = []
+      on('session.start', (_$, e) => ({ cwd: e.cwd }))
+      on('ui.log', (_$, e) => {
+        logs.push(e.text)
+        return { value: undefined }
+      })
+      on('session.root', () => ({ value: ROOT }))
+      on('fs.exists', (_$, e) => {
+        if (isFirstExists) {
+          isFirstExists = false
+          return { deny: 'policy' }
+        }
+        return { value: e.path === ISSUES }
+      })
+      on('fs.stat', () => ({ value: { kind: 'file', size: 10, mtimeMs: 10, isLink: false } }))
+      on('fs.read', () => {
+        reads += 1
+        return { value: FIXTURE_ISSUES }
+      })
+      await startSession($)
+      expect(logs.filter((text) => text.includes('the first refresh failed')).length).toBe(1)
+      await clock.advance(10_000)
+      expect(reads).toBeGreaterThan(0)
+    },
+  )
+
+  test(
+    'a directory change during a running poll publishes the new root',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, {
+        [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 },
+        [`${OTHER_ROOT}/.beads/issues.jsonl`]: {
+          text: '{"id":"o-1","title":"Other","status":"open"}',
+          mtimeMs: 10,
+        },
+      })
+      await startSession($)
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      world.readDelayMs = 50
+      await clock.advance(2_000)
+      world.root = OTHER_ROOT
+      const cwd = $.classic.CwdChanged({ old_cwd: ROOT, new_cwd: OTHER_ROOT })
+      await clock.settle()
+      await clock.advance(200)
+      await cwd
+      const snapshot = await snapshotOf($)
+      expect(snapshot.root).toBe(OTHER_ROOT)
+      expect(keysOf(snapshot.items)).toEqual(['beads:o-1'])
+    },
+  )
+
+  test('the header counts the age from the last check', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on, { now: 100_000 })
+    fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+    await startSession($)
+    await clock.advance(10_000)
+    const snapshot = await snapshotOf($)
+    expect(snapshot.at).toBe(100_000)
+    expect(snapshot.checkedAt).toBe(110_000)
+    const lines = JSON.parse(await commandText($, 'lines', '122000')) as WorkitemsLine[]
+    expect(lines.map((line) => line.text)).toEqual(['beads · 2 open · read 12 s ago'])
   })
 })

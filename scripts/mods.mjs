@@ -85,7 +85,7 @@ function dependenciesOf(mod, mods) {
       fail(`${mod.name}: dependency "${name}" is not a mod under mods/`)
       continue
     }
-    found.set(name, dependency)
+    found.set(name, { ...dependency, contract: contractPath(dependency) })
     const nested = readManifest(dependency)?.dependencies
     if (Array.isArray(nested)) pending.push(...nested)
   }
@@ -93,7 +93,20 @@ function dependenciesOf(mod, mods) {
 }
 
 function contractPath(mod) {
-  return join(mod.dir, 'types', 'index.d.ts')
+  const declared = readManifest(mod)?.types
+  if (declared === undefined) return undefined
+  if (typeof declared !== 'string' || declared === '') {
+    fail(
+      `${mod.name}: plugin.json "types" must name the contract file, such as "./types/index.d.ts"`,
+    )
+    return undefined
+  }
+  const path = join(mod.dir, declared)
+  if (!existsSync(path)) {
+    fail(`${mod.name}: plugin.json "types" names ${declared}, which does not exist`)
+    return undefined
+  }
+  return path
 }
 
 function laidContractPath(mod, dependency) {
@@ -101,11 +114,30 @@ function laidContractPath(mod, dependency) {
 }
 
 function isLaidContractCurrent(mod, dependency) {
-  const source = contractPath(dependency)
+  if (dependency.contract === undefined) return true
   const laid = laidContractPath(mod, dependency)
-  if (!existsSync(source)) return true
   if (!existsSync(laid)) return false
-  return readFileSync(source, 'utf8') === readFileSync(laid, 'utf8')
+  return readFileSync(dependency.contract, 'utf8') === readFileSync(laid, 'utf8')
+}
+
+const layTimeoutMs = 120_000
+const headlessExitMessage = 'Not logged in'
+
+function firstLine(text) {
+  return text.trim().split('\n')[0] ?? ''
+}
+
+function layingRunProblem(result) {
+  if (result.error?.code === 'ETIMEDOUT') {
+    return `claude did not finish laying the types within ${layTimeoutMs / 1000} s`
+  }
+  if (result.error) return `cannot run claude (${result.error.message}); is the claude CLI on PATH?`
+  if (result.signal) return `claude was stopped by ${result.signal} while it laid the types`
+  const isHeadlessExit = result.status === 1 && result.stdout.includes(headlessExitMessage)
+  if (result.status !== 0 && !isHeadlessExit) {
+    return `claude exited ${result.status} while it laid the types: ${firstLine(result.stderr || result.stdout)}`
+  }
+  return undefined
 }
 
 function needsTypes(mod, dependencies) {
@@ -120,21 +152,26 @@ function layTypes(mods, { force }) {
       const dependencies = dependenciesOf(mod, mods)
       if (!force && !needsTypes(mod, dependencies)) continue
       const pluginDirs = [mod, ...dependencies].flatMap((loaded) => ['--plugin-dir', loaded.dir])
-      spawnSync('claude', [...pluginDirs, '-p', 'ok'], {
+      const result = spawnSync('claude', [...pluginDirs, '-p', 'ok'], {
         cwd: root,
-        stdio: 'ignore',
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, CLAUDE_CONFIG_DIR: configDir, ANTHROPIC_API_KEY: '' },
-        timeout: 120_000,
+        timeout: layTimeoutMs,
       })
+      const problem = layingRunProblem(result)
+      if (problem) {
+        fail(`${mod.name}: ${problem}`)
+        continue
+      }
       if (!existsSync(join(typesDir(mod), 'tsconfig.json'))) {
         fail(`${mod.name}: Claude Code wrote no types; is the claude CLI on PATH?`)
       }
       for (const dependency of dependencies) {
-        if (
-          existsSync(contractPath(dependency)) &&
-          !existsSync(laidContractPath(mod, dependency))
-        ) {
-          fail(`${mod.name}: Claude Code laid no types for its dependency "${dependency.name}"`)
+        if (!isLaidContractCurrent(mod, dependency)) {
+          fail(
+            `${mod.name}: the laid types of its dependency "${dependency.name}" are missing or differ from ${relative(root, dependency.contract)}`,
+          )
         }
       }
     }

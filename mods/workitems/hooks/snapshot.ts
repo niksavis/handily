@@ -2,6 +2,7 @@ import type {
   WorkitemsDiff,
   WorkitemsFailedReason,
   WorkitemsItem,
+  WorkitemsRefreshArgs,
   WorkitemsSnapshot,
 } from '../types'
 import { detect } from './detect'
@@ -9,6 +10,7 @@ import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
 
 export const MAX_FILE_BYTES = 4 * 1024 * 1024
 export const POLL_INTERVAL_MS = 2000
+export const DIFF_HISTORY_LIMIT = 50
 
 export type FileStat = { size: number; mtimeMs: number }
 
@@ -22,7 +24,7 @@ export type ProviderHost = {
 }
 
 export type Provider = {
-  refresh: () => Promise<WorkitemsDiff>
+  refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsDiff>
 }
 
 class FileProblem extends Error {
@@ -97,81 +99,186 @@ async function signatureOf(host: ProviderHost, root: string, reader: Reader): Pr
   }
 }
 
-export function createProvider(host: ProviderHost, readers: readonly Reader[]): Provider {
-  let baseline: { root: string; items: readonly WorkitemsItem[] } | undefined
-  let lastSignature: string | undefined
-  let inFlight: Promise<WorkitemsDiff> | undefined
+type DiffKind = keyof WorkitemsDiff
 
-  function diffAgainstBaseline(root: string, items: readonly WorkitemsItem[]): WorkitemsDiff {
-    return baseline?.root === root ? diffItems(baseline.items, items) : emptyDiff()
-  }
+const KINDS_BY_STRENGTH: readonly DiffKind[] = ['updated', 'closed', 'created']
 
-  async function readOnce(): Promise<WorkitemsDiff> {
-    const root = await host.root()
-    const files = filesAtRoot(host, root)
-    const detection = await detect(readers, files.exists)
-    if (!detection.found) {
-      const signature = [root, 'no-tracker'].join('\n')
-      if (signature === lastSignature) return emptyDiff()
-      await host.publish({
-        state: 'no-tracker',
-        reason: detection.lookedFor,
-        at: await host.now(),
-        root,
-        source: null,
-        sourceLabel: null,
-        caveat: null,
-        items: [],
-        ignored: [],
-      })
-      const diff = diffAgainstBaseline(root, [])
-      baseline = { root, items: [] }
-      lastSignature = signature
-      return diff
+export function mergeDiffs(diffs: readonly WorkitemsDiff[]): WorkitemsDiff {
+  const merged = new Map<string, { kind: DiffKind; item: WorkitemsItem }>()
+  for (const diff of diffs) {
+    for (const kind of KINDS_BY_STRENGTH) {
+      for (const item of diff[kind]) {
+        const seen = merged.get(item.key)
+        const isSeenStronger =
+          seen !== undefined &&
+          KINDS_BY_STRENGTH.indexOf(seen.kind) > KINDS_BY_STRENGTH.indexOf(kind)
+        merged.set(item.key, { kind: isSeenStronger ? seen.kind : kind, item })
+      }
     }
-    const { reader, ignored } = detection
-    const signature = await signatureOf(host, root, reader)
-    if (signature === lastSignature) return emptyDiff()
-    const at = await host.now()
-    const outcome = await readSafely(reader, files)
-    if (!outcome.ok) {
-      await host.publish({
+  }
+  const result = {
+    created: [] as WorkitemsItem[],
+    updated: [] as WorkitemsItem[],
+    closed: [] as WorkitemsItem[],
+  }
+  for (const { kind, item } of merged.values()) result[kind].push(item)
+  return result
+}
+
+type Stamps = 'version' | 'at' | 'checkedAt'
+type SnapshotData = WorkitemsSnapshot extends infer S
+  ? S extends unknown
+    ? Omit<S, Stamps>
+    : never
+  : never
+
+type ReadResult = { data: SnapshotData; baselineItems: readonly WorkitemsItem[] | undefined }
+
+async function readSource(
+  reader: Reader,
+  ignored: readonly string[],
+  files: TrackerFiles,
+  root: string,
+): Promise<ReadResult> {
+  const outcome = await readSafely(reader, files)
+  if (!outcome.ok) {
+    return {
+      baselineItems: undefined,
+      data: {
         state: 'failed',
         reason: outcome.reason,
-        at,
         root,
         source: reader.name,
         sourceLabel: reader.name,
         caveat: null,
         items: [],
         ignored,
-      })
-      lastSignature = signature
-      return emptyDiff()
+      },
     }
-    await host.publish({
+  }
+  return {
+    baselineItems: outcome.items,
+    data: {
       state: 'ok',
       reason: null,
-      at,
       root,
       source: reader.name,
       sourceLabel: outcome.sourceLabel,
       caveat: outcome.caveat,
       items: outcome.items,
       ignored,
-    })
-    const diff = diffAgainstBaseline(root, outcome.items)
-    baseline = { root, items: outcome.items }
+    },
+  }
+}
+
+function noTracker(root: string, lookedFor: `looked for ${string}`): ReadResult {
+  return {
+    baselineItems: [],
+    data: {
+      state: 'no-tracker',
+      reason: lookedFor,
+      root,
+      source: null,
+      sourceLabel: null,
+      caveat: null,
+      items: [],
+      ignored: [],
+    },
+  }
+}
+
+function deliveredToItsOwnCallers(): undefined {
+  return undefined
+}
+
+export function createProvider(host: ProviderHost, readers: readonly Reader[]): Provider {
+  let current: WorkitemsSnapshot | undefined
+  let baseline: { root: string; items: readonly WorkitemsItem[] } | undefined
+  let lastSignature: string | undefined
+  let version = 0
+  const history: { version: number; diff: WorkitemsDiff }[] = []
+  let tail: Promise<void> = Promise.resolve()
+  let queued: Promise<void> | undefined
+
+  function sinceOf(args: WorkitemsRefreshArgs | undefined): number {
+    const since = args?.since ?? version
+    if (!Number.isInteger(since) || since < 0) {
+      throw new RangeError(
+        `workitems refresh: since must be a whole number of 0 or more, not ${String(since)}`,
+      )
+    }
+    if (since > version) {
+      throw new RangeError(
+        `workitems refresh: since ${String(since)} is newer than the current version ${String(version)}`,
+      )
+    }
+    return since
+  }
+
+  function diffSince(since: number): WorkitemsDiff {
+    if (since === version) return emptyDiff()
+    const oldestKept = history[0]?.version ?? version + 1
+    if (since + 1 < oldestKept) {
+      throw new RangeError(
+        `workitems refresh: since ${String(since)} is older than the oldest kept diff (version ${String(oldestKept)}); call refresh() without since`,
+      )
+    }
+    return mergeDiffs(history.filter((entry) => entry.version > since).map((entry) => entry.diff))
+  }
+
+  async function readOnce(): Promise<void> {
+    const root = await host.root()
+    const files = filesAtRoot(host, root)
+    const detection = await detect(readers, files.exists)
+    const signature = detection.found
+      ? await signatureOf(host, root, detection.reader)
+      : [root, 'no-tracker'].join('\n')
+    const checkedAt = await host.now()
+    if (current && signature === lastSignature) {
+      const checked: WorkitemsSnapshot = { ...current, checkedAt }
+      await host.publish(checked)
+      current = checked
+      return
+    }
+    const result = detection.found
+      ? await readSource(detection.reader, detection.ignored, files, root)
+      : noTracker(root, detection.lookedFor)
+    const nextVersion = version + 1
+    const snapshot: WorkitemsSnapshot = {
+      ...result.data,
+      version: nextVersion,
+      at: checkedAt,
+      checkedAt,
+    }
+    await host.publish(snapshot)
+    const diff =
+      result.baselineItems !== undefined && baseline?.root === root
+        ? diffItems(baseline.items, result.baselineItems)
+        : emptyDiff()
+    if (result.baselineItems !== undefined) baseline = { root, items: result.baselineItems }
+    version = nextVersion
+    history.push({ version, diff })
+    if (history.length > DIFF_HISTORY_LIMIT) history.shift()
     lastSignature = signature
-    return diff
+    current = snapshot
+  }
+
+  function requestRead(): Promise<void> {
+    if (queued) return queued
+    const read = tail.catch(deliveredToItsOwnCallers).then(() => {
+      queued = undefined
+      return readOnce()
+    })
+    queued = read
+    tail = read
+    return read
   }
 
   return {
-    refresh: () => {
-      inFlight ??= readOnce().finally(() => {
-        inFlight = undefined
-      })
-      return inFlight
+    refresh: async (args) => {
+      const since = sinceOf(args)
+      await requestRead()
+      return diffSince(since)
     },
   }
 }

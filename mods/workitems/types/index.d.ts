@@ -32,6 +32,8 @@ export type WorkitemsSnapshotBase = {
   root: string
   items: readonly WorkitemsItem[]
   ignored: readonly string[]
+  version: number
+  checkedAt: number
 }
 
 export type WorkitemsSourced = {
@@ -129,13 +131,17 @@ export type WorkitemsLine = {
   [K in keyof WorkitemsLineTexts]: { kind: K; tone: WorkitemsLineTone; text: WorkitemsLineTexts[K] }
 }[keyof WorkitemsLineTexts]
 
+export type WorkitemsRefreshArgs = {
+  since?: number
+}
+
 export type WorkitemsLinesArgs = {
   snapshot: WorkitemsSnapshot
   now: number
 }
 
 export type Workitems = {
-  refresh: () => Promise<WorkitemsDiff>
+  refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsDiff>
   writeVerbs: () => Promise<WorkitemsWriteVerbs>
   lines: (args: WorkitemsLinesArgs) => Promise<readonly WorkitemsLine[]>
 }

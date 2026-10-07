@@ -24,7 +24,7 @@ export const register: Register = (on) => {
     return {
       ...built,
       workitems: {
-        refresh: () => provider.refresh(),
+        refresh: (args) => provider.refresh(args),
         writeVerbs: () => Promise.resolve(writeVerbs),
         lines: (args) => Promise.resolve(stateLines(args)),
       },
@@ -32,12 +32,14 @@ export const register: Register = (on) => {
   })
 
   on('session.start', async ($, e, next) => {
-    await $.workitems.refresh()
     poll?.cancel()
     poll = $.clock.every(POLL_INTERVAL_MS, () => {
       $.workitems.refresh().catch((error: unknown) => {
         $.ui.log(`workitems: the poll refresh failed: ${String(error)}`)
       })
+    })
+    await $.workitems.refresh().catch((error: unknown) => {
+      $.ui.log(`workitems: the first refresh failed: ${String(error)}`)
     })
     return next(e)
   })
