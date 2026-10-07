@@ -4,8 +4,8 @@ Status: revision 3 (record `handily-0m93`). Research and the plan review are don
 exists yet. The implementation session starts from this file.
 Claude Code build used for the research: 2.1.293.
 
-Revision 3 corrects errors in revision 2 and adds the decisions from the plan review. A point
-that depends on a probe that has not run is marked "Pending P0 probe (handily-0m93)".
+Revision 3 corrects errors in revision 2 and adds the decisions from the plan review and the
+results of the P0 probes (handily-0m93). The approved mocks are in `docs/mocks.md`.
 
 ## 1. Purpose and boundary
 
@@ -153,8 +153,10 @@ Refresh:
 
 - Refresh is single-flight and has a minimum interval.
 - `refresh()` returns a diff: created, updated and closed items.
-- Trigger: `watchPaths` with `classic.FileChanged`. Pending P0 probe (handily-0m93). When the
-  probe fails, the provider polls file mtimes with `$.clock.every`.
+- Trigger: the provider polls file mtimes with `$.clock.every`. `watchPaths` with
+  `classic.FileChanged` works for a file or a folder, but never for a glob. A team
+  organization's security plugin can skip `classic.SessionStart` for user mods, so the mod
+  does not use `watchPaths` (probe 2).
 
 Sources, in order of detection:
 
@@ -267,10 +269,13 @@ Toggle:
 - A `Pane` docks beside the transcript only in fullscreen mode. Unasked, it docks from 144
   columns. Once the person asks for it, it docks from 110 columns. When the person opens it,
   it docks at any width. Otherwise it draws inline, so the mod needs no `AbovePrompt` band.
-- `/task-pane` toggles it. `userConfig` `mode`: `off`, `toggle` or `always`.
+- `/task pane` opens it. `userConfig` `mode`: `off`, `toggle` or `always`.
 - During a session, the mod calls `TaskCreate` or `TaskUpdate status=deleted` through
-  `$.tool.call`. Pending P0 probe (handily-0m93). It also appends a note so that the model
-  knows the person changed the list.
+  `$.tool.call`. The task reaches the main task list, from `session.start` and from a
+  command (probe 1). The call draws no transcript row, so the mod appends its own note. The
+  note tells the model and the person that the list changed. A headless session has the task
+  tools only with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. The mod uses the `Task*` tools, not
+  `TodoWrite`.
 - Tasks before a session come from the tracker's open items through `workitems` (review
   decision 2). The out-of-session queue is dropped.
 - No automatic replay. The person adds open items through an explicit "add N items" button.
@@ -301,11 +306,13 @@ Toggle:
   first task. Always labelled `est.`.
   - No estimate until one task is complete.
   - No estimate for N minutes after a task is added.
-- Optional extra data from sessions that run handily: the current task and task progress, in
-  a sidecar file per session (open question Q3). The mod writes the sidecar on task events,
-  with the current session id. A sidecar is stale when its session is absent from
-  `claude agents`.
-- `claude` must be on `PATH` in a desktop session. Pending P0 probe (handily-0m93).
+- Optional extra data from sessions that run handily: the current task and task progress,
+  under one `$.store` key per session id. `$.store` merges writes per key across concurrent
+  sessions (probe 6). The mod writes its key on task events, with the current session id. A
+  key is stale when its session is absent from `claude agents`. The board does not read the
+  engine's task files on disk, because their format is internal.
+- `claude` on `PATH` in a desktop session is not measured (probe 8 needs the person). Until it
+  is, the desktop board shows this session and its subagents only.
 - This session's own subagents come from `$.agent.list()`.
 
 ### 4.5 work-status
@@ -386,27 +393,23 @@ Closed:
   `<name>--v<version>` tag. The tag is secondary. The command needs a clean tree and a
   marketplace version that matches.
 
-Open, each pending a P0 probe (handily-0m93):
+Closed by the P0 probes (handily-0m93, Claude Code 2.1.293):
 
-- **Q3. Sidecar location** for session-board. Whether `$.store` is safe for concurrent writes
-  from several sessions is unknown. Recommendation: one file per session under the user's
-  Claude config folder, written through `$.fs`.
-- **Q5. Task tools.** Whether `$.tool.call` on `TaskCreate` adds to the main session's task list,
-  draws a row or asks for permission. Also which of `TaskCreate` or `TodoWrite` this build
-  uses by mode.
+- **Q3. Sidecar location.** One `$.store` key per session. No write was lost in 4 rounds of
+  concurrent sessions.
+- **Q5. Task tools.** `$.tool.call` on `TaskCreate` reaches the main task list. It draws no
+  row. It did not ask for permission in a headless session.
 
-The eight P0 probes:
-
-| # | Probe | Design point that depends on it |
+| # | Probe | Result |
 |---|---|---|
-| 1 | `TaskCreate` through `$.tool.call`: does it reach the list, draw a row, ask? | task-pane add and remove (Q5) |
-| 2 | `watchPaths` and `classic.FileChanged` from a module | workitems refresh trigger |
-| 3 | The engine lays the types of a dependency | Mods that depend on `workitems` |
-| 4 | `claude plugin test` runs in parallel | The `mods-test` gate |
-| 5 | `$.config.set` on the mod's own `userConfig` | quiet-items and task-pane defaults |
-| 6 | `$.store` from two sessions | session-board sidecar (Q3) |
-| 7 | `claude` on `PATH` in a desktop session | session-board in the desktop app |
-| 8 | Task-list files on disk | session-board task progress for other sessions |
+| 1 | `TaskCreate` through `$.tool.call` | Reaches the list. No row. No prompt when headless |
+| 2 | `watchPaths` and `classic.FileChanged` | File and folder work. Globs fail. Blocked on a team org |
+| 3 | Types of a dependency | Laid when both mods load. A dependent alone does not load |
+| 4 | `claude plugin test` in parallel | Safe in 5 rounds |
+| 5 | `$.config.set` on the mod's own `userConfig` | Not measured headless. Nothing depends on it |
+| 6 | `$.store` from concurrent sessions | No loss. Merged per key |
+| 7 | Task-list files on disk | One folder per session, one JSON file per task. Internal |
+| 8 | Desktop `PATH` and prompts from pane buttons | Not run. It needs the person |
 
 ## 8. Delivery plan
 
