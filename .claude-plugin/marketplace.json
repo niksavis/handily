@@ -1,0 +1,8 @@
+{
+  "name": "handily",
+  "owner": { "name": "niksavis" },
+  "metadata": {
+    "description": "Claude Code mods that show your work items, tasks and sessions, for any tracker."
+  },
+  "plugins": []
+}

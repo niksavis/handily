@@ -5,11 +5,11 @@ category: project
 priority: critical
 applies_to: [all]
 tags: [overview, priming]
-# Draft until you fill it in: set `status: active` and run `basicly build`.
-status: draft
+status: active
 title: Project Overview
 body: |
-  - Purpose: TODO - what this project does and who uses it, in 1-2 lines.
-  - Stack: TODO - the languages, frameworks, and versions that matter (e.g. Python 3.14 + uv).
-  - Entry points: TODO - the main binary/module/service and where it lives.
-  - Architecture docs: TODO - pointer to the authoritative doc; do not embed a directory map here.
+  - Purpose: handily is a public repository of Claude Code mods (plugins of function hooks) and a Claude plugin marketplace. The mods show work items, tasks and sessions for any tracker. No mod needs basicly.
+  - Boundary: mods show and ask. Mods never enforce. Enforcement belongs in git hooks or a harness, because a git hook holds for every agent.
+  - Stack: TypeScript 6.0 (pinned below 6.1 for typescript-eslint), ESLint with typescript-eslint strict type-checked rules, Prettier, Node.js 22 or later. The Claude Code CLI version is pinned in `.github/workflows/basicly-gates.yml`.
+  - Layout: one mod per folder in `mods/<name>/`, listed in `.claude-plugin/marketplace.json` with source `./mods/<name>`. `scripts/mods.mjs` runs every gate over every mod.
+  - Design: `docs/design.md` is the authority for the mods, the decisions and the open questions. Read it before you start a mod.

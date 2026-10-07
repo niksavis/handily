@@ -83,6 +83,37 @@ concurrency = 5
 # command = ["pytest", "-q"]
 # modes = ["full"]
 
+[[verify.checks]]
+name = "mods-validate"
+command = ["node", "scripts/mods.mjs", "validate"]
+modes = ["fast", "full"]
+inputs = ["mods/**", ".claude-plugin/**", "scripts/**"]
+
+[[verify.checks]]
+name = "mods-typecheck"
+command = ["node", "scripts/mods.mjs", "typecheck"]
+modes = ["fast", "full"]
+inputs = ["mods/**", "scripts/**", "package.json", "package-lock.json"]
+
+[[verify.checks]]
+name = "eslint"
+command = ["node", "scripts/mods.mjs", "lint"]
+modes = ["fast", "full"]
+inputs = ["mods/**", "scripts/**", "eslint.config.mjs", "package.json", "package-lock.json"]
+
+[[verify.checks]]
+name = "prettier"
+command = ["npx", "--no-install", "prettier", "--no-error-on-unmatched-pattern", "--check", "mods", "scripts", "eslint.config.mjs"]
+fix_command = ["npx", "--no-install", "prettier", "--no-error-on-unmatched-pattern", "--write", "mods", "scripts", "eslint.config.mjs"]
+modes = ["fast", "full"]
+inputs = ["mods/**", "scripts/**", "eslint.config.mjs", ".prettierrc.json"]
+
+[[verify.checks]]
+name = "mods-test"
+command = ["node", "scripts/mods.mjs", "test"]
+modes = ["fast", "full"]
+inputs = ["mods/**", "scripts/**"]
+
 # Loop gate/checkpoint policy: which gates block advancement and the rework cap.
 [policy]
 # Gate names (from [verify] / br gate report) that MUST pass to advance. Any

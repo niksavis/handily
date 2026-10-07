@@ -74,6 +74,14 @@ The deny-list blocks only some of these, and it differs per agent. A command tha
 
 IMPORTANT: never defeat a gate to make it pass. Do not skip or weaken a test, a lint or a type check, and do not bypass a hook (`--no-verify`, `--no-gpg-sign`). Fix the cause.
 
+## Project Overview
+
+- Purpose: handily is a public repository of Claude Code mods (plugins of function hooks) and a Claude plugin marketplace. The mods show work items, tasks and sessions for any tracker. No mod needs basicly.
+- Boundary: mods show and ask. Mods never enforce. Enforcement belongs in git hooks or a harness, because a git hook holds for every agent.
+- Stack: TypeScript 6.0 (pinned below 6.1 for typescript-eslint), ESLint with typescript-eslint strict type-checked rules, Prettier, Node.js 22 or later. The Claude Code CLI version is pinned in `.github/workflows/basicly-gates.yml`.
+- Layout: one mod per folder in `mods/<name>/`, listed in `.claude-plugin/marketplace.json` with source `./mods/<name>`. `scripts/mods.mjs` runs every gate over every mod.
+- Design: `docs/design.md` is the authority for the mods, the decisions and the open questions. Read it before you start a mod.
+
 ## Harness Loop
 
 - Start a session with `basicly session start`. End it with a note tagged `[session handover <date>]` on the root record.
@@ -107,6 +115,51 @@ IMPORTANT: never defeat a gate to make it pass. Do not skip or weaken a test, a 
 
 - Before you end a session, follow the `session-finish` skill. Leave the repository clean, with no partial edits and no stray files. Report what changed, what you verified and what is still open.
 - After a refused change or a mistake the user corrected, name the root cause. Propose the fragment, skill or hook change that would have refused it. A note to "be careful" changes nothing.
+
+## Commands
+
+Commands in code fences are exact - run them verbatim instead of improvising variants.
+
+Setup:
+
+```sh
+npm ci
+npm run types
+```
+
+All gates (validate, typecheck, lint, test) over every mod:
+
+```sh
+npm run check
+```
+
+One gate over every mod:
+
+```sh
+npm run validate
+npm run typecheck
+npm run lint
+npm test
+```
+
+One mod:
+
+```sh
+claude plugin validate --strict mods/<name>
+claude plugin test mods/<name>
+```
+
+Format:
+
+```sh
+npm run format
+```
+
+Load a mod in a session for a manual check:
+
+```sh
+claude --plugin-dir mods/<name>
+```
 
 ## Git Discipline
 

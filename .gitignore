@@ -7,3 +7,7 @@ basicly.local.toml
 *.basicly-bak
 # Bytecode the vendored hooks and kits write when they run. Untracked dirt here is not a tracker path, so it refuses the commit that folds the ledger.
 __pycache__/
+# npm dependencies.
+node_modules/
+# Type files that Claude Code writes into each mod at load time; they belong to the installed Claude Code build.
+.claude-plugin/types/

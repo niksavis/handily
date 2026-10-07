@@ -1,9 +1,9 @@
 {
   "version": "1",
-  "generated_at": "2026-10-07T18:42:48.234831+00:00",
+  "generated_at": "2026-10-07T19:11:34.839459+00:00",
   "outputs": {
     ".claude/CLAUDE.md": {
-      "hash": "sha256:4b197e2fb623ed85036910d1c920aefc456d885a904cbbc94e7cfc1b1f291a91",
+      "hash": "sha256:505e70b94d56968e2789b5da358af2b11c6bded47a0f8d17fcbceea4e8c19aad",
       "source_fragments": [
         "knowledge-priming",
         "code-is-authoritative",
@@ -13,11 +13,13 @@
         "decision-protocol",
         "external-facts",
         "require-explicit-confirmation",
+        "project-overview",
         "harness-loop",
         "quality-gate",
         "catalog-authoring",
         "claude-defaults",
         "session-completion",
+        "commands",
         "git-discipline",
         "non-interactive-shell"
       ]
@@ -28,8 +30,14 @@
         "platform-hermetic-tests"
       ]
     },
+    ".claude/rules/mod-authoring.md": {
+      "hash": "sha256:65f7af03765011f03abcc3d7cd1621b0654a3e306aeb21772310084d7a615ba3",
+      "source_fragments": [
+        "mod-authoring"
+      ]
+    },
     "AGENTS.md": {
-      "hash": "sha256:097ac5f0f2ad405898b011d50f13ddc6753f19e647a0fef78fdfb20fb457bfb9",
+      "hash": "sha256:6d2e44d97d27232365aedcf66cae55c638524485ee50133ef8aadb6f94b3185f",
       "source_fragments": [
         "knowledge-priming",
         "code-is-authoritative",
@@ -39,17 +47,20 @@
         "decision-protocol",
         "external-facts",
         "require-explicit-confirmation",
+        "project-overview",
         "harness-loop",
         "quality-gate",
         "catalog-authoring",
         "session-completion",
+        "commands",
         "git-discipline",
         "non-interactive-shell",
-        "platform-hermetic-tests"
+        "platform-hermetic-tests",
+        "mod-authoring"
       ]
     },
     ".github/copilot-instructions.md": {
-      "hash": "sha256:34a42ae95a7f2e065afba60c32f5cf23e8999e53042f419e0d74fe24f2faf8cb",
+      "hash": "sha256:46a59e0bd92c2ffbb4d659efbaab079138c30f3637e0f3acd2206c996374f76a",
       "source_fragments": [
         "knowledge-priming",
         "code-is-authoritative",
@@ -59,11 +70,13 @@
         "decision-protocol",
         "external-facts",
         "require-explicit-confirmation",
+        "project-overview",
         "harness-loop",
         "quality-gate",
         "catalog-authoring",
         "copilot-defaults",
         "session-completion",
+        "commands",
         "git-discipline",
         "non-interactive-shell"
       ]

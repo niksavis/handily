@@ -66,5 +66,15 @@ jobs:
         run: uvx --from git+https://github.com/niksavis/basicly@v0.20.2 basicly skills-check
       - name: Hook wiring drift check
         run: uvx --from git+https://github.com/niksavis/basicly@v0.20.2 basicly hooks-check
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dev dependencies
+        run: npm ci --no-fund --no-audit
+      - name: Install the pinned Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.293
+      - name: Write the mod types
+        run: npm run types
       - name: Configured verify checks
         run: uvx --from git+https://github.com/niksavis/basicly@v0.20.2 basicly verify --mode full

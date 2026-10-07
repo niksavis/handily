@@ -5,8 +5,7 @@ category: commands
 priority: high
 applies_to: [all]
 tags: [commands, build, test]
-# Draft until you fill it in: set `status: active` and run `basicly build`.
-status: draft
+status: active
 title: Commands
 body: |
   Commands in code fences are exact - run them verbatim instead of improvising variants.
@@ -14,23 +13,40 @@ body: |
   Setup:
 
   ```sh
-  # TODO: dependency install (e.g. uv sync --group dev)
+  npm ci
+  npm run types
   ```
 
-  Test:
+  All gates (validate, typecheck, lint, test) over every mod:
 
   ```sh
-  # TODO: full test suite (e.g. uv run pytest -q)
+  npm run check
   ```
 
-  Single test:
+  One gate over every mod:
 
   ```sh
-  # TODO: one test file or case (e.g. uv run pytest tests/test_x.py -q)
+  npm run validate
+  npm run typecheck
+  npm run lint
+  npm test
   ```
 
-  Lint / format:
+  One mod:
 
   ```sh
-  # TODO: linter and formatter (e.g. uv run ruff check)
+  claude plugin validate --strict mods/<name>
+  claude plugin test mods/<name>
+  ```
+
+  Format:
+
+  ```sh
+  npm run format
+  ```
+
+  Load a mod in a session for a manual check:
+
+  ```sh
+  claude --plugin-dir mods/<name>
   ```

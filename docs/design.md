@@ -32,7 +32,8 @@ basicly adapts to handily, not the reverse. basicly-side work is filed in the ba
 | 7 | Extra mods | Keep `work-status` and `item-toasts` (low priority). Drop `commit-link` and `handover` |
 | 8 | Mod names | `workitems`, `quiet-items`, `task-pane`, `session-board`, `work-status`, `item-toasts` |
 | 9 | Toolchain | npm plus `typescript` as a dev dependency, for `tsc` checks |
-| 10 | Setup scope | Local repo, basicly install, this doc, the first epics. No GitHub remote yet |
+| 10 | Setup scope | Repo, basicly install, this doc, the first epics, all gates and CI, public GitHub repo |
+| 11 | Linter | typescript-eslint (strict type-checked) with Prettier |
 
 Why `commit-link` and `handover` were dropped:
 
@@ -196,11 +197,35 @@ handily is the first TypeScript repo that basicly manages. It pilots the TypeScr
 rules that basicly can later distribute as a `typescript` technology tag.
 
 - Fact: the basicly catalog has only the `python` technology tag.
-- Fact: the basicly comments gate already covers `.ts` and `.tsx`.
-- Plan: add `[[verify.checks]]` entries in `basicly.toml` for `tsc --noEmit` (strict),
-  the linter, `claude plugin validate` and `claude plugin test`. Add TypeScript rules as
-  overlay fragments in `.basicly-local/fragments`. Move them upstream once they prove out.
-- The basicly session was told about this pilot on 2026-10-07.
+- Fact: the basicly comments gate already covers `.ts`, `.tsx` and `.mjs`.
+- Fact: basicly reads skill sources only from `.basicly/core/skills`, which install manages.
+  A consumer has no local skill overlay, so handily's mod rules are an overlay fragment
+  scoped to `mods/**`.
+- basicly tracks this pilot as `basicly-975f0xc` (filed 2026-10-07).
+
+What is in place (handily-fwkt.1):
+
+| Gate | Tool | `basicly.toml` check |
+|---|---|---|
+| Validate | `claude plugin validate --strict`, plus a name check across folder, manifest and marketplace | `mods-validate` |
+| Type check | `tsc` 6.0.3 per mod | `mods-typecheck` |
+| Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` |
+| Format | Prettier 3.9 | `prettier` (with a fix command) |
+| Test | `claude plugin test`; a mod with no test fails | `mods-test` |
+
+Measured facts behind these choices:
+
+- typescript-eslint 8.71.1 accepts TypeScript `>=4.8.4 <6.1.0` (from `npm view`), so
+  TypeScript is pinned to 6.0.3, not 7.
+- A headless `claude --plugin-dir <mod> -p ok` with an empty config folder and no login
+  writes the mod's types and then exits "Not logged in". CI uses this to get the types.
+- `no-misused-promises` with its default `checksVoidReturn` ran over 80 s on a 9-line mod,
+  because it compares callbacks with the large overloads of `on`. With
+  `checksVoidReturn: false` it takes about 0.5 s. `no-floating-promises` stays at full
+  strength and refused a planted unawaited `$.store.set` in about 0.5 s.
+- `claude plugin validate --strict` refuses a marketplace with no plugins. Until the first
+  mod exists, the runner validates the marketplace without `--strict` and says so.
+- `$.ui.toast` and `$.ui.status` return `void`, not a promise.
 
 ## 7. Open questions for the implementation session
 
@@ -213,10 +238,14 @@ rules that basicly can later distribute as a `typescript` technology tag.
 3. **Sidecar location** for session-board. Whether `$.store` is safe for concurrent writes
    from several sessions is unknown. Recommendation: one file per session under the user's
    Claude config folder, written through `$.fs`.
-4. **Linter.** Biome (one tool, lint and format) or typescript-eslint (typed rules such as
-   `no-floating-promises`, which matter for async hooks). Decide with the basicly session,
-   because basicly may distribute the choice.
+4. **Linter.** Decided 2026-10-07: typescript-eslint with Prettier (section 6).
 5. **Task tools.** Whether `$.tool.call` on `TaskCreate` adds to the main session's task list,
    and which of `TaskCreate` or `TodoWrite` this build uses by mode. Test it first.
-6. **Ignore rules.** Add `.claude-plugin/types/` and `node_modules/` to `.gitignore`. The
-   person must confirm edits to ignore files.
+6. **Ignore rules.** Done 2026-10-07: `.claude-plugin/types/` and `node_modules/`.
+7. **basicly ready set.** The basicly tracker now needs a recorded INVEST/C3 review before a
+   record is ready (reported by the basicly session on 2026-10-07). A provider that shows
+   "ready" items from basicly can show 0 until records are reviewed. Show open items too,
+   and say why the ready count is 0.
+8. **Mod release process.** How a mod version is cut: `claude plugin tag` makes a
+   `<name>--v<version>` tag. Decide the tag, changelog and CI release steps before the first
+   release.
