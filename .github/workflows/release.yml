@@ -1,0 +1,90 @@
+# Publishes a GitHub release for one mod when its tag <name>--v<version> is pushed.
+# Create the tag with `claude plugin tag mods/<name>`; CONTRIBUTING.md has the steps.
+name: release
+
+"on":
+  push:
+    tags:
+      - "*--v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Read the mod and the version from the tag
+        id: tag
+        shell: bash
+        run: |
+          pattern='^([a-z0-9]+(-[a-z0-9]+)*)--v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?)$'
+          if [[ ! "${TAG}" =~ ${pattern} ]]; then
+            echo "::error::release: tag \"${TAG}\" is not <name>--v<version>; create the tag with: claude plugin tag mods/<name>"
+            exit 1
+          fi
+          name="${BASH_REMATCH[1]}"
+          version="${BASH_REMATCH[3]}"
+          manifest="mods/${name}/.claude-plugin/plugin.json"
+          if [ ! -f "${manifest}" ]; then
+            echo "::error::release: tag ${TAG} names the mod \"${name}\", but ${manifest} does not exist"
+            exit 1
+          fi
+          manifest_version="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "${manifest}")"
+          if [ "${manifest_version}" != "${version}" ]; then
+            echo "::error::release: tag ${TAG} has version ${version}, but ${manifest} has version ${manifest_version}; set the version, run npm run marketplace, commit, and tag again"
+            exit 1
+          fi
+          echo "name=${name}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Write the release notes from CHANGELOG.md
+        shell: bash
+        env:
+          NAME: ${{ steps.tag.outputs.name }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          heading="## ${NAME} ${VERSION} - "
+          notes="${RUNNER_TEMP}/release-notes.md"
+          awk -v heading="${heading}" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > "${notes}"
+          if ! grep -q '[^[:space:]]' "${notes}"; then
+            echo "::error::release: CHANGELOG.md has no section \"${heading}<YYYY-MM-DD>\" with notes; fold the changelog.d fragments of ${NAME} into it, commit, and tag again"
+            exit 1
+          fi
+      - name: Check that the marketplace file is generated
+        shell: bash
+        run: |
+          npm run marketplace
+          if ! git diff --exit-code; then
+            echo "::error::release: .claude-plugin/marketplace.json at ${TAG} differs from the output of npm run marketplace; run it, commit the file, and tag again"
+            exit 1
+          fi
+      - name: Install dev dependencies
+        run: npm ci --no-fund --no-audit
+      - name: Install the pinned Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.293
+      - name: Check the tag with claude plugin tag
+        shell: bash
+        env:
+          NAME: ${{ steps.tag.outputs.name }}
+        run: claude plugin tag "mods/${NAME}" --dry-run --force
+      - name: Write the mod types
+        run: npm run types
+      - name: Run the gates
+        run: npm run check
+      - name: Publish the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "${TAG}" --verify-tag --title "${TAG}" --notes-file "${RUNNER_TEMP}/release-notes.md"
