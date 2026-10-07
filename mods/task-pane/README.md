@@ -18,6 +18,10 @@ read or write the built-in `Task*` tools.
   `mcp__task-pane__<name>`. Each answer is the whole list.
 - A system prompt section (`task-pane:tasks`, scope `session`) tells the model to keep its plan
   in the list. The section is added only when the request offers `task_list`.
+- On a Team organization, the built-in `cc-plugin-sec-default` plugin bypasses the
+  `prompt.compose` hook of a user plugin (measured with Claude Code 2.1.293), so the section
+  is not sent. The `task_add` description carries the same instruction, so the model reads it
+  in every organization.
 - A bad input is refused with the reason and the correct form. The list does not change.
 
 ## Commands

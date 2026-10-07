@@ -54,13 +54,20 @@ const fakeWorkitems: Plugin = {
 
 type World = {
   tools: string[]
+  descriptions: Map<string, string>
   commands: string[]
   panes: Set<string>
   opened: string[]
 }
 
 function world(on: On): World {
-  const state: World = { tools: [], commands: [], panes: new Set(), opened: [] }
+  const state: World = {
+    tools: [],
+    descriptions: new Map(),
+    commands: [],
+    panes: new Set(),
+    opened: [],
+  }
   mock.clock(on, { now: 1_000 })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -68,6 +75,7 @@ function world(on: On): World {
   on('turn.complete', () => ({ text: '' }))
   on('tool.register', (_$, e) => {
     state.tools.push(e.name)
+    state.descriptions.set(e.name, e.description)
     return { value: { tool: `mcp__task-pane__${e.name}` } }
   })
   on('command.register', (_$, e) => {
@@ -301,6 +309,20 @@ describe('model tools and the prompt section', () => {
     )
     expect(await modelTool($, {})).toBe('Tasks (0 of 1 done)\n  1  pending      One')
   })
+})
+
+describe('the plan instruction outside the system prompt', () => {
+  test(
+    'task_add tells the model to keep its plan in the list, as a team org bypasses prompt.compose',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const description = seen.descriptions.get('task_add') ?? ''
+      expect(description).toContain('Keep your plan for this session in this list')
+      expect(description).toContain('[task-pane]')
+    },
+  )
 })
 
 describe('/task commands', () => {

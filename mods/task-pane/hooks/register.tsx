@@ -31,8 +31,11 @@ const REMOVED = 'removed'
 const TOOLS: readonly ToolSpec[] = [
   {
     name: 'task_add',
-    description:
-      'Add one task to the session task list. The person sees the list in /task and in the task pane. Returns the whole list with the task ids.',
+    description: [
+      'Add one task to the session task list. Returns the whole list with the task ids.',
+      'Keep your plan for this session in this list: add each step of a task with more than one step, set a task to in_progress when you start it and to completed when it is done, with task_update.',
+      'The person sees the list in /task and in the task pane, and can add or remove tasks. A message that starts with [task-pane] says that the person changed the list.',
+    ].join(' '),
     inputSchema: {
       type: 'object',
       properties: {
