@@ -12,10 +12,10 @@ The approved mocks are in `docs/mocks.md`, section 1.
 
 ## What it matches
 
-| Tool            | Match                                                                                  | Row                                  |
-| --------------- | -------------------------------------------------------------------------------------- | ------------------------------------ |
-| `Bash`          | A tracker CLI write: `br`, `bd`, `basicly tracker`, `.basicly/core/kit/tracker/cli.py` | One row per item of the refresh diff |
-| `Write`, `Edit` | A file under `.beads/` (`.jsonl`), `.basicly/ledger/` (`.jsonl`) or `.beans/` (`.md`)  | One `raw tracker edit` row           |
+| Tool            | Match                                                                                                                        | Row                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `Bash`          | A tracker CLI write: `br`, `bd`, `basicly tracker`, `.basicly/core/kit/tracker/cli.py`                                       | One row per item of the refresh diff |
+| `Write`, `Edit` | A tracker file at the `workitems` root: `.beads/issues.jsonl`, `.basicly/ledger/events-*.jsonl`, `.beans/**/<id>--<slug>.md` | One `raw tracker edit` row           |
 
 - The write verbs come from `$.workitems.writeVerbs()`. `bd` uses the verbs of `br`.
 - `basicly tracker write -- <verb>` uses the verbs of `.basicly/core/kit/tracker/cli.py`.
@@ -23,10 +23,16 @@ The approved mocks are in `docs/mocks.md`, section 1.
   the wrappers `uv run`, `uvx` and `npx`, and the flags of `python3`. It skips the global
   options of the tracker CLI.
 - A command with `--help`, `-h` or `--dry-run` is not a write.
+- The mod goes quiet only when every segment of the command is a tracker write or a `cd`. A
+  segment such as `git log`, `npm test` or `| tail -1` can hide a failure, so the engine row
+  stays.
+- The shell reads everything after a `#` at the start of a word as a comment, and so does the
+  parser.
 
 ## How it finds the items
 
-1. Before the call runs, the mod reads `version` from the `workitems` snapshot.
+1. Before the call runs, the mod calls `$.workitems.refresh()` and keeps the `version` it
+   reached. A change from before the call is then inside that version.
 2. After the call succeeds, it calls `$.workitems.refresh({ since: version })`.
 3. It keeps the rows of the diff in `$.state`, under the `tool_use_id` of the call.
 4. The `ToolUse` row draws the rows. The `ToolResult` block under it draws empty.
@@ -38,10 +44,10 @@ The verb of a row is `created`, `updated`, `closed` or `commented`. `commented` 
 
 The engine draws its own row (`next(e)`) in each of these cases:
 
-- The call is still running, errored or was interrupted.
-- The command is a loop or a heredoc, or no write matched.
+- The call is still running, errored or was interrupted, or the command wrote to stderr.
+- The command is a loop or a heredoc, a segment is not a tracker write, or no write matched.
 - The `workitems` state is not `ok`.
-- The refresh diff is empty, or the refresh rejected.
+- The refresh diff is empty, a refresh rejected, or the refresh returned no `version`.
 - The mode is `off`.
 
 ## Settings and the command

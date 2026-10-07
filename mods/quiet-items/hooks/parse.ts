@@ -8,7 +8,7 @@ export type TrackerWrite = { tracker: TrackerCli; verb: string }
 
 export type ParsedCommand =
   | { kind: 'write'; writes: readonly TrackerWrite[] }
-  | { kind: 'opaque'; reason: 'loop' | 'heredoc'; writes: readonly TrackerWrite[] }
+  | { kind: 'opaque'; reason: 'loop' | 'heredoc' | 'mixed'; writes: readonly TrackerWrite[] }
   | { kind: 'none' }
 
 const KIT_SCRIPT = '.basicly/core/kit/tracker/cli.py'
@@ -76,6 +76,12 @@ function lex(command: string): Lexed {
         word += command.charAt(i)
         inWord = true
       }
+    } else if (char === '#' && !inWord) {
+      const newline = command.indexOf('\n', i)
+      i = newline === -1 ? command.length : newline - 1
+    } else if (char === '&' && (/[<>]$/.test(word) || command.charAt(i + 1) === '>')) {
+      word += char
+      inWord = true
     } else if (char === '<' && command.charAt(i + 1) === '<') {
       hasHeredoc = true
       endWord()
@@ -172,35 +178,41 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
   const { segments, hasHeredoc } = lex(command)
   const writes: TrackerWrite[] = []
   let hasLoop = false
+  let hasOtherCommand = false
   for (const segment of segments) {
     let start = 0
     while (LEADING_KEYWORDS.has(segment[start] ?? '')) start += 1
-    if (LOOP_WORDS.has(segment[start] ?? '')) {
+    const words = segment.slice(start)
+    if (words.length === 0 || words[0] === 'cd') continue
+    if (LOOP_WORDS.has(words[0] ?? '')) {
       hasLoop = true
       continue
     }
-    const write = writeOf(segment.slice(start), table)
+    const write = writeOf(words, table)
     if (write) writes.push(write)
+    else hasOtherCommand = true
   }
   if (writes.length === 0) return { kind: 'none' }
   if (hasLoop) return { kind: 'opaque', reason: 'loop', writes }
   if (hasHeredoc) return { kind: 'opaque', reason: 'heredoc', writes }
+  if (hasOtherCommand) return { kind: 'opaque', reason: 'mixed', writes }
   return { kind: 'write', writes }
 }
 
-const TRACKER_FILES: readonly { dir: string; suffix: string }[] = [
-  { dir: '.beads/', suffix: '.jsonl' },
-  { dir: '.basicly/ledger/', suffix: '.jsonl' },
-  { dir: '.beans/', suffix: '.md' },
+const TRACKER_FILES: readonly RegExp[] = [
+  /^\.beads\/issues\.jsonl$/,
+  /^\.basicly\/ledger\/events-[^/]+\.jsonl$/,
+  /^\.beans\/(?:[^/]+\/)*[^/]+--[^/]+\.md$/,
 ]
 
-export function trackerFileOf(filePath: string): string | null {
-  const path = filePath.replaceAll('\\', '/')
-  for (const { dir, suffix } of TRACKER_FILES) {
-    if (!path.endsWith(suffix)) continue
-    if (path.startsWith(dir)) return path
-    const at = path.lastIndexOf(`/${dir}`)
-    if (at !== -1) return path.slice(at + 1)
-  }
-  return null
+function slashed(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
+export function trackerFileOf(filePath: string, root: string): string | null {
+  const path = slashed(filePath)
+  const prefix = `${slashed(root).replace(/\/+$/, '')}/`
+  if (!path.startsWith(prefix)) return null
+  const relative = path.slice(prefix.length)
+  return TRACKER_FILES.some((marker) => marker.test(relative)) ? relative : null
 }

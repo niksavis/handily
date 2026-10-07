@@ -18,12 +18,13 @@ type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
 function hasSucceeded(result: CallResult): boolean {
   if (result.deny !== undefined || result.isError === true) return false
   const output: unknown = result.result
-  return !(
-    typeof output === 'object' &&
-    output !== null &&
-    'interrupted' in output &&
-    output.interrupted === true
-  )
+  if (typeof output !== 'object' || output === null) return true
+  if ('interrupted' in output && output.interrupted === true) return false
+  return !('stderr' in output && typeof output.stderr === 'string' && output.stderr.trim() !== '')
+}
+
+function reachedVersion(diff: object): number | null {
+  return 'version' in diff && typeof diff.version === 'number' ? diff.version : null
 }
 
 function shortReason(reason: string): string {
@@ -82,10 +83,21 @@ export const register: Register = (on, options) => {
     if (parsed.kind !== 'write') return next(e)
     const { value: before } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
     if (before?.state !== 'ok') return next(e)
+    let since: number | null
+    try {
+      since = reachedVersion(await $.workitems.refresh())
+    } catch (error) {
+      $.ui.log(`quiet-items: no row for ${e.tool_use_id}; the refresh failed: ${String(error)}`)
+      return next(e)
+    }
+    if (since === null) {
+      $.ui.log('quiet-items: workitems refresh() returned no version; update the workitems mod')
+      return next(e)
+    }
     const result = await next(e)
     if (!hasSucceeded(result)) return result
     try {
-      const diff = await $.workitems.refresh({ since: before.version })
+      const diff = await $.workitems.refresh({ since })
       const rows: QuietItemsRow[] = rowsFromDiff(diff, parsed.writes)
       if (rows.length > 0) {
         await $.state.set({ plugin: 'quiet-items', key: 'rows', id: e.tool_use_id }, rows)
@@ -97,7 +109,8 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: ['Write', 'Edit'] }, async ($, e, next) => {
-    const path = trackerFileOf(e.file_path)
+    const { value: snapshot } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
+    const path = snapshot === undefined ? null : trackerFileOf(e.file_path, snapshot.root)
     if (path === null) return next(e)
     const result = await next(e)
     if (!hasSucceeded(result)) return result

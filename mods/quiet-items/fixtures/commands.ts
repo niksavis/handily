@@ -81,9 +81,10 @@ export const commandCases: readonly CommandCase[] = [
   {
     command: 'br close h-1 | tail -1',
     isWrite: true,
-    expect: 'write',
+    expect: 'opaque',
     tracker: 'br',
     verb: 'close',
+    why: 'the exit status of the pipe is the exit status of tail',
   },
   {
     command: 'for i in a b; do br close $i; done',
@@ -179,5 +180,46 @@ export const commandCases: readonly CommandCase[] = [
     command: 'bd ready',
     isWrite: false,
     expect: 'none',
+  },
+]
+
+export const compoundCases: readonly CommandCase[] = [
+  {
+    command: 'br show X; br update X --priority 1',
+    isWrite: true,
+    expect: 'opaque',
+    tracker: 'br',
+    verb: 'update',
+    why: 'br show is a segment that is not a tracker write',
+  },
+  {
+    command: 'br close X && git log --oneline -5',
+    isWrite: true,
+    expect: 'opaque',
+    tracker: 'br',
+    verb: 'close',
+    why: 'git log is a segment that is not a tracker write',
+  },
+  {
+    command: 'git stash && br close X && git stash pop',
+    isWrite: true,
+    expect: 'opaque',
+    tracker: 'br',
+    verb: 'close',
+    why: 'git stash is a segment that is not a tracker write',
+  },
+  {
+    command: 'echo hi #; br close X',
+    isWrite: false,
+    expect: 'none',
+    why: 'the shell reads everything after # as a comment',
+  },
+  {
+    command: 'npm test; br close X',
+    isWrite: true,
+    expect: 'opaque',
+    tracker: 'br',
+    verb: 'close',
+    why: 'npm test is a segment that is not a tracker write',
   },
 ]

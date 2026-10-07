@@ -7,7 +7,7 @@ import {
   type Plugin,
   type TestOptions,
 } from 'claude-code/testing'
-import { commandCases } from './fixtures/commands'
+import { commandCases, compoundCases, type CommandCase } from './fixtures/commands'
 import { parseCommand, trackerFileOf, type WriteVerbs } from './hooks/parse'
 
 type Snapshot = PluginState['workitems']['snapshot']
@@ -108,9 +108,12 @@ function emptyDiff(): Diff {
   return { created: [], updated: [], closed: [] }
 }
 
+type Change = { version: number; diff: Diff }
+
 type World = {
   snapshot: Snapshot
-  diff: Diff
+  log: Change[]
+  callChange: Diff
   sinces: number[]
   refreshError: string | null
 }
@@ -120,6 +123,7 @@ type FakeAnswer = World & { verbs: WriteVerbs }
 const fakeWorkitems: Plugin = {
   name: 'workitems',
   register(on) {
+    let lastSeen: number | null = null
     on('engine.create', async (_$, e, next) => {
       const built = await next(e)
       const ask = async (path: string) => JSON.parse(await built.fs.read(path)) as FakeAnswer
@@ -129,8 +133,27 @@ const fakeWorkitems: Plugin = {
           refresh: async (args) => {
             const world = await ask(`/fake/workitems/refresh/${String(args?.since ?? 'poll')}`)
             if (world.refreshError !== null) throw new Error(world.refreshError)
-            await built.state.set({ plugin: 'workitems', key: 'snapshot' }, world.snapshot)
-            return world.diff
+            const current = world.log.reduce(
+              (top, change) => Math.max(top, change.version),
+              world.snapshot.version,
+            )
+            const since = args?.since ?? lastSeen ?? current
+            if (since > current) {
+              throw new Error(`since ${String(since)} is newer than ${String(current)}`)
+            }
+            lastSeen = current
+            const changes = world.log.filter((change) => change.version > since)
+            await built.state.set(
+              { plugin: 'workitems', key: 'snapshot' },
+              { ...world.snapshot, version: current },
+            )
+            const merged = {
+              created: changes.flatMap((change) => change.diff.created),
+              updated: changes.flatMap((change) => change.diff.updated),
+              closed: changes.flatMap((change) => change.diff.closed),
+              version: current,
+            }
+            return merged
           },
           writeVerbs: async () => (await ask('/fake/workitems/verbs')).verbs,
           lines: () => Promise.resolve([]),
@@ -142,6 +165,14 @@ const fakeWorkitems: Plugin = {
       return next(e)
     })
   },
+}
+
+function latestVersion(world: World): number {
+  return world.log.reduce((top, change) => Math.max(top, change.version), world.snapshot.version)
+}
+
+function hasChanges(diff: Diff): boolean {
+  return diff.created.length + diff.updated.length + diff.closed.length > 0
 }
 
 type Calls = { ids: string[]; answer: () => object }
@@ -163,7 +194,9 @@ function engineBeneath(on: On, world: World): Calls {
   })
   on('tool.call', async ($, e) => {
     calls.ids.push(e.tool_use_id)
-    world.snapshot = { ...world.snapshot, version: world.snapshot.version + 1 }
+    if (hasChanges(world.callChange)) {
+      world.log.push({ version: latestVersion(world) + 1, diff: world.callChange })
+    }
     await $.workitems.refresh().catch(() => undefined)
     return calls.answer() as never
   })
@@ -172,7 +205,13 @@ function engineBeneath(on: On, world: World): Calls {
 }
 
 function newWorld(): World {
-  return { snapshot: okSnapshot(7), diff: emptyDiff(), sinces: [], refreshError: null }
+  return {
+    snapshot: okSnapshot(7),
+    log: [],
+    callChange: emptyDiff(),
+    sinces: [],
+    refreshError: null,
+  }
 }
 
 type QuietBody = (world: World, $: Engine, on: On) => unknown
@@ -256,23 +295,42 @@ async function commandText($: Engine, args = ''): Promise<string> {
   return result.text ?? ''
 }
 
+function expectClassified(cases: readonly CommandCase[]): void {
+  for (const c of cases) {
+    const parsed = parseCommand(c.command, VERBS)
+    expect({ command: c.command, kind: parsed.kind }).toEqual({
+      command: c.command,
+      kind: c.expect,
+    })
+    if (parsed.kind !== 'none') {
+      expect({ command: c.command, write: parsed.writes.at(-1) }).toEqual({
+        command: c.command,
+        write: { tracker: c.tracker, verb: c.verb },
+      })
+    }
+  }
+}
+
 describe('command parser', () => {
   test('classifies the 19 writes and 8 non-writes of the falsify review', () => {
     expect(commandCases.filter((c) => c.isWrite).length).toBe(19)
     expect(commandCases.filter((c) => !c.isWrite).length).toBe(8)
-    for (const c of commandCases) {
-      const parsed = parseCommand(c.command, VERBS)
-      expect({ command: c.command, kind: parsed.kind }).toEqual({
-        command: c.command,
-        kind: c.expect,
-      })
-      if (parsed.kind !== 'none') {
-        expect({ command: c.command, write: parsed.writes[0] }).toEqual({
-          command: c.command,
-          write: { tracker: c.tracker, verb: c.verb },
-        })
-      }
-    }
+    expectClassified(commandCases)
+  })
+
+  test('goes quiet only when every segment is a tracker write or cd', () => {
+    expect(compoundCases.length).toBe(5)
+    expect(compoundCases.filter((c) => c.expect === 'write')).toEqual([])
+    expectClassified(compoundCases)
+    expect(parseCommand('cd ../x && br close a && br update b --status open', VERBS)).toEqual({
+      kind: 'write',
+      writes: [
+        { tracker: 'br', verb: 'close' },
+        { tracker: 'br', verb: 'update' },
+      ],
+    })
+    expect(parseCommand('br close a 2>&1', VERBS).kind).toBe('write')
+    expect(parseCommand('br close a &> out.txt', VERBS).kind).toBe('write')
   })
 
   test('falls back on a heredoc and on python -c or -m', () => {
@@ -286,9 +344,12 @@ describe('command parser', () => {
   })
 
   test('strips uvx and npx wrappers and splits on ||', () => {
-    expect(parseCommand('false || uvx --from x br close a', VERBS)).toEqual({
+    expect(parseCommand('br close a || uvx --from x br close b', VERBS)).toEqual({
       kind: 'write',
-      writes: [{ tracker: 'br', verb: 'close' }],
+      writes: [
+        { tracker: 'br', verb: 'close' },
+        { tracker: 'br', verb: 'close' },
+      ],
     })
     expect(parseCommand('npx -y br --db .beads/x.db comments add a hi', VERBS)).toEqual({
       kind: 'write',
@@ -296,14 +357,27 @@ describe('command parser', () => {
     })
   })
 
-  test('names a tracker file relative to its tracker folder', () => {
-    expect(trackerFileOf(`${ROOT}/.beads/issues.jsonl`)).toBe('.beads/issues.jsonl')
-    expect(trackerFileOf('C:\\work\\app\\.basicly\\ledger\\events-a.jsonl')).toBe(
-      '.basicly/ledger/events-a.jsonl',
+  test('names a tracker file at the workitems root by its marker path', () => {
+    expect(trackerFileOf(`${ROOT}/.beads/issues.jsonl`, ROOT)).toBe('.beads/issues.jsonl')
+    expect(
+      trackerFileOf('C:\\work\\app\\.basicly\\ledger\\events-a.jsonl', 'C:\\work\\app\\'),
+    ).toBe('.basicly/ledger/events-a.jsonl')
+    expect(trackerFileOf(`${ROOT}/.beans/app-1--title.md`, ROOT)).toBe('.beans/app-1--title.md')
+    expect(trackerFileOf(`${ROOT}/.beans/archive/app-2--done.md`, ROOT)).toBe(
+      '.beans/archive/app-2--done.md',
     )
-    expect(trackerFileOf(`${ROOT}/.beans/app-1--title.md`)).toBe('.beans/app-1--title.md')
-    expect(trackerFileOf(`${ROOT}/.beads/config.yaml`)).toBeNull()
-    expect(trackerFileOf(`${ROOT}/README.md`)).toBeNull()
+  })
+
+  test('leaves other files and other roots alone', () => {
+    expect(trackerFileOf(`${ROOT}/.beads/config.yaml`, ROOT)).toBeNull()
+    expect(trackerFileOf(`${ROOT}/.beads/backup/issues.jsonl`, ROOT)).toBeNull()
+    expect(trackerFileOf(`${ROOT}/.beads/deletions.jsonl`, ROOT)).toBeNull()
+    expect(trackerFileOf(`${ROOT}/.beans/README.md`, ROOT)).toBeNull()
+    expect(trackerFileOf(`${ROOT}/.basicly/ledger/template.json`, ROOT)).toBeNull()
+    expect(trackerFileOf(`${ROOT}/README.md`, ROOT)).toBeNull()
+    expect(trackerFileOf('/work/other/.beads/issues.jsonl', ROOT)).toBeNull()
+    expect(trackerFileOf(`${ROOT}-copy/.beads/issues.jsonl`, ROOT)).toBeNull()
+    expect(trackerFileOf(`${ROOT}/vendor/app/.beads/issues.jsonl`, ROOT)).toBeNull()
   })
 })
 
@@ -311,7 +385,7 @@ describe('quiet row', () => {
   for (const surface of SURFACES) {
     quietTest(`draws one row from the refresh diff on ${surface}`, async (world, $, on) => {
       const calls = engineBeneath(on, world)
-      world.diff = { ...emptyDiff(), created: [AB12] }
+      world.callChange = { ...emptyDiff(), created: [AB12] }
       await startSession($)
       const command = 'br create --title "Draw text mocks for the mods" --priority 2'
       const id = await runBash($, calls, command)
@@ -341,7 +415,7 @@ describe('quiet row', () => {
 
     quietTest(`draws one row per item in diff order on ${surface}`, async (world, $, on) => {
       const calls = engineBeneath(on, world)
-      world.diff = {
+      world.callChange = {
         created: [item('handily-cd34', LONG_TITLE, 'open', 1)],
         updated: [item('handily-ef56', 'Fix the parser', 'in_progress', 3)],
         closed: [
@@ -361,9 +435,28 @@ describe('quiet row', () => {
     })
   }
 
+  quietTest('leaves out a change from before the call', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    await startSession($)
+    world.log.push({
+      version: 8,
+      diff: {
+        ...emptyDiff(),
+        created: [item('handily-zz00', 'Made by another session', 'open', 1)],
+      },
+    })
+    world.callChange = { ...emptyDiff(), created: [AB12] }
+    const command = 'br create --title "Draw text mocks for the mods" --priority 2'
+    const id = await runBash($, calls, command)
+    expect(world.sinces).toEqual([8])
+    expect(await rowTexts($, 'terminal', toolUse(id, command))).toEqual([
+      '● work item created handily-ab12 Draw text mocks for the mods open P2',
+    ])
+  })
+
   quietTest('names a comment write commented', async (world, $, on) => {
     const calls = engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), updated: [item('handily-ab12', 'Draw', 'in_progress', 2)] }
+    world.callChange = { ...emptyDiff(), updated: [item('handily-ab12', 'Draw', 'in_progress', 2)] }
     await startSession($)
     const command = 'br comments add handily-ab12 "looked at it"'
     const id = await runBash($, calls, command)
@@ -377,7 +470,7 @@ describe('quiet row', () => {
     { options: { titleLength: 10 } },
     async (world, $, on) => {
       const calls = engineBeneath(on, world)
-      world.diff = { ...emptyDiff(), created: [AB12] }
+      world.callChange = { ...emptyDiff(), created: [AB12] }
       await startSession($)
       const id = await runBash($, calls, 'br q "Draw text mocks for the mods"')
       expect(await rowTexts($, 'terminal', toolUse(id, 'br q'))).toEqual([
@@ -388,7 +481,7 @@ describe('quiet row', () => {
 
   quietTest('passes the full tool result to the model', async (world, $, on) => {
     engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), created: [AB12] }
+    world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const result = await $.tool.call({ tool: 'Bash', command: 'br create --title x' })
     expect(result.text).toBe(FULL_RESULT_TEXT)
@@ -399,7 +492,7 @@ describe('quiet row', () => {
 describe('fallback to the engine row', () => {
   quietTest('when the call errored', async (world, $, on) => {
     const calls = engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), closed: [AB12] }
+    world.callChange = { ...emptyDiff(), closed: [AB12] }
     calls.answer = () => ({ isError: true, result: 'issue handily-zz99 not found', text: 'Error' })
     await startSession($)
     const id = await runBash($, calls, 'br close handily-zz99')
@@ -409,7 +502,7 @@ describe('fallback to the engine row', () => {
 
   quietTest('when the call was interrupted', async (world, $, on) => {
     const calls = engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), closed: [AB12] }
+    world.callChange = { ...emptyDiff(), closed: [AB12] }
     calls.answer = () => ({ result: { stdout: '', stderr: '', interrupted: true } })
     await startSession($)
     const id = await runBash($, calls, 'br close handily-ab12')
@@ -419,7 +512,7 @@ describe('fallback to the engine row', () => {
 
   quietTest('while the row is running, interrupted or errored', async (world, $, on) => {
     const calls = engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), created: [AB12] }
+    world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
     const done = toolUse(id, 'br create --title x')
@@ -447,7 +540,7 @@ describe('fallback to the engine row', () => {
 
   quietTest('when the refresh rejects', async (world, $, on) => {
     const calls = engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), created: [AB12] }
+    world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
     expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
@@ -474,11 +567,40 @@ describe('fallback to the engine row', () => {
               sourceLabel: null,
               caveat: null,
             }
-      world.diff = { ...emptyDiff(), created: [AB12] }
+      world.callChange = { ...emptyDiff(), created: [AB12] }
       await startSession($)
       const id = await runBash($, calls, 'br create --title x')
       expect(world.sinces).toEqual([])
       expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    })
+  }
+
+  quietTest('when the command wrote to stderr', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    world.callChange = { ...emptyDiff(), closed: [AB12] }
+    calls.answer = () => ({
+      result: { stdout: '', stderr: 'warning: handily-zz99 not found', interrupted: false },
+      text: 'warning: handily-zz99 not found',
+    })
+    await startSession($)
+    const result = await $.tool.call({
+      tool: 'Bash',
+      command: 'br close handily-ab12 handily-zz99',
+    })
+    expect(result.text).toBe('warning: handily-zz99 not found')
+    const id = calls.ids.at(-1) ?? ''
+    expect(world.sinces).toEqual([])
+    expect(await drawnUse($, toolUse(id, 'br close handily-ab12 handily-zz99'))).toEqual(ENGINE_ROW)
+  })
+
+  for (const { command } of compoundCases) {
+    quietTest(`for the compound ${command}`, async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      world.callChange = { ...emptyDiff(), closed: [AB12] }
+      await startSession($)
+      const id = await runBash($, calls, command)
+      expect(world.sinces).toEqual([])
+      expect(await drawnUse($, toolUse(id, command))).toEqual(ENGINE_ROW)
     })
   }
 
@@ -491,7 +613,7 @@ describe('fallback to the engine row', () => {
   ]) {
     quietTest(`for ${command.split('\n')[0] ?? command}`, async (world, $, on) => {
       const calls = engineBeneath(on, world)
-      world.diff = { ...emptyDiff(), created: [AB12] }
+      world.callChange = { ...emptyDiff(), created: [AB12] }
       await startSession($)
       const id = await runBash($, calls, command)
       expect(world.sinces).toEqual([])
@@ -533,6 +655,26 @@ describe('raw tracker edit', () => {
     })
   }
 
+  for (const path of ['/work/other/.beads/issues.jsonl', `${ROOT}/.beads/deletions.jsonl`]) {
+    quietTest(`leaves an Edit of ${path} to the engine`, async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      calls.answer = () => ({ result: { filePath: path } })
+      await startSession($)
+      await $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b' })
+      const id = calls.ids.at(-1) ?? ''
+      expect(
+        await drawnUse($, {
+          tool_use_id: id,
+          tool: 'Edit',
+          input: { file_path: path },
+          isRunning: false,
+          isErrored: false,
+          isInterrupted: false,
+        }),
+      ).toEqual(ENGINE_ROW)
+    })
+  }
+
   quietTest('leaves a Write of another file to the engine', async (world, $, on) => {
     const calls = engineBeneath(on, world)
     calls.answer = () => ({ result: { type: 'create', filePath: `${ROOT}/notes.md` } })
@@ -555,7 +697,7 @@ describe('raw tracker edit', () => {
 describe('/quiet-items', () => {
   quietTest('toggles this session and draws in full while off', async (world, $, on) => {
     const calls = engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), created: [AB12] }
+    world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
     expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
@@ -571,7 +713,7 @@ describe('/quiet-items', () => {
 
   quietTest('starts from the mode setting', { options: { mode: 'off' } }, async (world, $, on) => {
     const calls = engineBeneath(on, world)
-    world.diff = { ...emptyDiff(), created: [AB12] }
+    world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
     expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
