@@ -368,6 +368,16 @@ describe('command parser', () => {
     )
   })
 
+  test('names the basicly ledger files that a write and a fold touch', () => {
+    expect(trackerFileOf(`${ROOT}/.basicly/ledger/pending-main.jsonl`, ROOT)).toBe(
+      '.basicly/ledger/pending-main.jsonl',
+    )
+    expect(trackerFileOf(`${ROOT}/.basicly/ledger/snapshot.jsonl`, ROOT)).toBe(
+      '.basicly/ledger/snapshot.jsonl',
+    )
+    expect(trackerFileOf(`${ROOT}/.basicly/ledger/checkpoint-1.jsonl`, ROOT)).toBeNull()
+  })
+
   test('leaves other files and other roots alone', () => {
     expect(trackerFileOf(`${ROOT}/.beads/config.yaml`, ROOT)).toBeNull()
     expect(trackerFileOf(`${ROOT}/.beads/backup/issues.jsonl`, ROOT)).toBeNull()

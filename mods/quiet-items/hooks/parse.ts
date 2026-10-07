@@ -201,7 +201,8 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
 
 const TRACKER_FILES: readonly RegExp[] = [
   /^\.beads\/issues\.jsonl$/,
-  /^\.basicly\/ledger\/events-[^/]+\.jsonl$/,
+  /^\.basicly\/ledger\/(?:events|pending)-[^/]+\.jsonl$/,
+  /^\.basicly\/ledger\/snapshot\.jsonl$/,
   /^\.beans\/(?:[^/]+\/)*[^/]+--[^/]+\.md$/,
 ]
 

@@ -12,10 +12,10 @@ The approved mocks are in `docs/mocks.md`, section 1.
 
 ## What it matches
 
-| Tool            | Match                                                                                                                        | Row                                  |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `Bash`          | A tracker CLI write: `br`, `bd`, `basicly tracker`, `.basicly/core/kit/tracker/cli.py`                                       | One row per item of the refresh diff |
-| `Write`, `Edit` | A tracker file at the `workitems` root: `.beads/issues.jsonl`, `.basicly/ledger/events-*.jsonl`, `.beans/**/<id>--<slug>.md` | One `raw tracker edit` row           |
+| Tool            | Match                                                                                                                                                                  | Row                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `Bash`          | A tracker CLI write: `br`, `bd`, `basicly tracker`, `.basicly/core/kit/tracker/cli.py`                                                                                 | One row per item of the refresh diff |
+| `Write`, `Edit` | A tracker file at the `workitems` root: `.beads/issues.jsonl`, `.basicly/ledger/` (`pending-*.jsonl`, `events-*.jsonl`, `snapshot.jsonl`), `.beans/**/<id>--<slug>.md` | One `raw tracker edit` row           |
 
 - The write verbs come from `$.workitems.writeVerbs()`. `bd` uses the verbs of `br`.
 - `basicly tracker write -- <verb>` uses the verbs of `.basicly/core/kit/tracker/cli.py`.
