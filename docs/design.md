@@ -1,7 +1,11 @@
 # handily — research and design
 
-Status: research done, no mod code yet. The implementation session starts from this file.
+Status: revision 3 (record `handily-0m93`). Research and the plan review are done. No mod code
+exists yet. The implementation session starts from this file.
 Claude Code build used for the research: 2.1.293.
+
+Revision 3 corrects errors in revision 2 and adds the decisions from the plan review. A point
+that depends on a probe that has not run is marked "Pending P0 probe (handily-0m93)".
 
 ## 1. Purpose and boundary
 
@@ -19,7 +23,9 @@ basicly, beads, br, beans and other trackers are supported through one provider 
 
 basicly adapts to handily, not the reverse. basicly-side work is filed in the basicly tracker.
 
-## 2. Decisions from the interview (2026-10-07)
+## 2. Decisions
+
+### Decisions from the interview (2026-10-07)
 
 | # | Decision | Choice |
 |---|---|---|
@@ -27,10 +33,10 @@ basicly adapts to handily, not the reverse. basicly-side work is filed in the ba
 | 2 | Name | `handily` (repo and marketplace) |
 | 3 | Tracker extension | Provider mod `workitems` with built-in readers and a CLI adapter contract |
 | 4 | quiet-items scope | The screen only. The model still reads the full tool result |
-| 5 | task-pane source | Claude's session tasks plus a saved queue per project |
+| 5 | task-pane source | Claude's session tasks plus a saved queue per project. Changed by review decision 2 |
 | 6 | session-board scope | All local sessions |
-| 7 | Extra mods | Keep `work-status` and `item-toasts` (low priority). Drop `commit-link` and `handover` |
-| 8 | Mod names | `workitems`, `quiet-items`, `task-pane`, `session-board`, `work-status`, `item-toasts` |
+| 7 | Extra mods | Keep `work-status` and `item-toasts` (low priority). Drop `commit-link` and `handover`. Review decision 7 drops `work-status` |
+| 8 | Mod names | `workitems`, `quiet-items`, `task-pane`, `session-board`, `item-toasts` (`work-status` dropped) |
 | 9 | Toolchain | npm plus `typescript` as a dev dependency, for `tsc` checks |
 | 10 | Setup scope | Repo, basicly install, this doc, the first epics, all gates and CI, public GitHub repo |
 | 11 | Linter | typescript-eslint (strict type-checked) with Prettier |
@@ -42,10 +48,26 @@ Why `commit-link` and `handover` were dropped:
 | commit-link | `tracker-commit-msg` and `tracker-claim` git hooks (commit-msg stage) | The git hook is the right layer and covers every agent |
 | handover | basicly writes and reads `[session handover` notes and shows the last one at session start | Process logic belongs to the harness |
 
+### Decisions from the plan review (2026-10-07)
+
+| # | Decision | Choice |
+|---|---|---|
+| 1 | Mocks | The person approves an ASCII mock per mod, for terminal and desktop, before the lanes start |
+| 2 | Tasks before a session | They come from the tracker's open items through `workitems`. `/task add` adds a task in any session. The out-of-session queue is dropped |
+| 3 | Tracker source per repo | One source per repo. The first detected source is used, or the source named in `.handily.json`. The provider reports the other sources as ignored |
+| 4 | Raw tracker edit | A direct `Write` or `Edit` of a tracker file draws a distinct "raw tracker edit" row |
+| 5 | quiet-items toggle | The toggle is per session, in `$.state`. `userConfig` holds only the default |
+| 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` is secondary |
+| 7 | work-status | Dropped |
+| 8 | bd data | Items that come from `.beads/issues.jsonl` for `bd` carry the label "possibly stale" |
+| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH`. The repo's `cli.py` runs only after the person approves it |
+| 10 | Approval key | The repo root, the argv, the sha256 of each repo file that the argv names, and the resolved `argv[0]` |
+| 11 | Repo config | `.handily.json` at the repo root. Its globs are confined to the root by `realPath` |
+
 ## 3. Facts about the mod API
 
 Sources: the bundled `plugin-authoring` skill (its `reference.md` and the generated
-`claude-code.d.ts`), and the docs at
+`claude-code.d.ts` of build 2.1.293), and the docs at
 <https://code.claude.com/docs/en/plugins/mods/overview.md>,
 <https://code.claude.com/docs/en/plugins/mods/create.md> and
 <https://code.claude.com/docs/en/plugins/mods/reference.md>.
@@ -68,18 +90,20 @@ Sources: the bundled `plugin-authoring` skill (its `reference.md` and the genera
   `source`. The install line is `/plugin install <mod> --marketplace niksavis/handily`.
 - A mod can add a typed noun to `$` in `engine.create` and ship its contract as
   `types/index.d.ts`. A dependent mod lists it under `dependencies` in `plugin.json`.
+- `$.fs` has no watch function. A mod cannot watch a file through `$.fs`.
 
 API surfaces each mod needs:
 
 | Need | API |
 |---|---|
-| Replace a tool row on screen | `ui.render` on `{ component: 'ToolUse' }`, props `tool`, `input`, `result`, `isRunning`, `isErrored` |
+| Replace a tool row on screen | `ui.render` on `{ component: 'ToolUse' }`. Props: `tool_use_id`, `tool`, `input`, `isRunning`, `isErrored`, `isInterrupted`, `output?`, `onScreen?` |
+| Replace a tool's result row | `ui.render` on `{ component: 'ToolResult' }`. A standalone tool row draws its result in this separate component |
 | Follow Claude's tasks | `tool.call` on `TaskCreate`, `TaskUpdate`, `TodoWrite`; results carry task ids and status |
 | Sidebar or band | `$.ui.open({ id, title })` with `ui.render` on `Pane`; `ui.render` on `AbovePrompt` |
-| Toggle | `$.command.register` and `command.run`; a `userConfig` field for the default mode |
+| Toggle | `$.command.register` and `command.run`; per-session state in `$.state`; a `userConfig` field for the default |
 | Persist across sessions | `$.store` (JSON, max 4 MiB per plugin) |
 | Agents of this session | `$.agent.list()`: id, description, type, status, parentId |
-| Run a CLI | `$.process.run({ argv })` |
+| Run a CLI | `$.process.run(argv, init)`. The argv is positional. The default timeout is 30 s. Each stream is cut at 4 MiB. CLI only, not in the desktop app |
 | Status line and toasts | `$.ui.status(text)`, `$.ui.toast(text)` |
 
 ## 4. The mods
@@ -89,10 +113,31 @@ API surfaces each mod needs:
 Adds the noun `$.workitems` with a typed contract. Other mods list `workitems` under
 `dependencies`.
 
+Detection:
+
+- The provider detects the tracker at `$.session.root()` only. It does not walk up to an
+  ancestor folder.
+- It detects again on `classic.CwdChanged`.
+- "No tracker" is its own state. It is not an error.
+- One source per repo (review decision 3). The provider uses the first detected source, or
+  the source that `.handily.json` names. It reports each other source as ignored.
+
+Snapshot, published as a typed `$.state` ref:
+
+| Field | Meaning |
+|---|---|
+| `state` | One of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker`, `terminal-only` |
+| `reason` | Why the state is not `ok` |
+| `at` | The time of the read |
+| `root` | The repo root |
+| `source` | The adapter name |
+| `items` | The normalized work items |
+
 Normalized work item:
 
 | Field | Meaning |
 |---|---|
+| `key` | `<source>:<id>`, unique across sources |
 | `id` | The tracker's id, for example `handily-ab12` |
 | `title` | The title |
 | `status` | One of `open`, `in_progress`, `blocked`, `deferred`, `closed`, `other` |
@@ -102,22 +147,72 @@ Normalized work item:
 | `assignee` | The holder when the tracker has one |
 | `updatedAt` | ISO time when the tracker has one |
 | `source` | The adapter name |
+| `url`, `labels`, `parent` | Optional, when the tracker has them |
+
+Refresh:
+
+- Refresh is single-flight and has a minimum interval.
+- `refresh()` returns a diff: created, updated and closed items.
+- Trigger: `watchPaths` with `classic.FileChanged`. Pending P0 probe (handily-0m93). When the
+  probe fails, the provider polls file mtimes with `$.clock.every`.
 
 Sources, in order of detection:
 
-| Tracker | Files | Read path |
+| Tracker | Detect by | Read path |
 |---|---|---|
-| basicly | `.basicly/ledger/events-*.jsonl`, `snapshot.jsonl` | Open question 1 |
+| basicly | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, once per open status |
 | beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader |
-| beans | `.beans/*.md` with front matter | Built-in front-matter reader |
-| Any other | Globs and a field map in the repo config | Generic JSON, JSONL or front-matter reader |
-| Any other | A command in the repo config | CLI adapter contract |
+| beans | `.beans/**/<id>--<slug>.md` | Built-in front-matter reader |
+| Any other | Globs and a field map in `.handily.json` | Generic JSON, JSONL or front-matter reader |
+| Any other | A command in `.handily.json` | CLI adapter contract |
+
+basicly:
+
+- The ledger holds `template.json`, `pending-<branch>.jsonl` and `snapshot.jsonl`. Files
+  `events-*.jsonl` appear only after a fold. So the provider detects basicly by
+  `template.json`.
+- The provider runs `basicly tracker list --status <s>` from `PATH` (review decision 9). It
+  runs the repo's `.basicly/core/kit/tracker/cli.py` only after approval.
+- `isStdoutTruncated` makes the read fail, and the reason names it.
+- The provider skips tombstoned records.
+- Field map: `record` to `id`, `fields.title`, `status`, `fields.priority`,
+  `fields.issue_type`, `fields.assignee` and `dates.updated`.
+- The repo's `cli.py list` has no `--json` flag. It needs the ledger folder and prints
+  `{count, records, schema}`.
+
+beads and br:
+
+- Fields: `id`, `title`, `status`, `priority` (0 to 4), `issue_type`, `assignee`,
+  `updated_at`.
+- The reader skips a line whose `_type` is not `issue`. It skips a tombstone.
+- `bd` stores its data in Dolt. So `.beads/issues.jsonl` can be stale. Items from `bd` carry
+  the label "possibly stale" (review decision 8).
+
+beans:
+
+- Each item is a file `.beans/**/<id>--<slug>.md`.
+- A file under `archive/` is closed.
+- Priority is a word. The reader maps it to a number.
+- beans has no assignee.
+
+Limits and safety:
+
+- A file over 4 MiB makes the read fail, and the reason names it.
+- `.handily.json` globs are confined to the root by `realPath`.
+- A repo command needs approval. The approval key is the root, the argv, the sha256 of each
+  repo file that the argv names, and the resolved `argv[0]` (review decision 10).
+- The provider never asks for approval when the session is not interactive
+  (`!isInteractive`).
+- `$.process.run` works only in the CLI. In the desktop app a CLI source shows the state
+  `terminal-only`.
 
 CLI adapter contract (version 1):
 
 - `<command> items --json` prints a JSON array of normalized work items to stdout, exit 0.
-- `<command> describe --json` prints `{ "name", "version", "contract": 1, "watch": [globs] }`.
-  The provider re-reads when a file under `watch` changes.
+- `<command> describe --json` prints `{ "name", "version", "contract": 1, "watch": [globs],
+  "writes": [argv prefixes], "statusMap": {...} }`. The provider re-reads when a file under
+  `watch` changes.
+- The provider refuses a contract version above 1.
 - A non-zero exit or bad JSON makes the provider report the adapter as failed. It never
   guesses.
 
@@ -126,50 +221,96 @@ writes. quiet-items reads that list.
 
 ### 4.2 quiet-items (mod 1)
 
-- Hooks `ui.render` on `ToolUse` for `Write`, `Edit` and `Bash`.
-- Matches a Write or an Edit whose path is a tracker file, and a Bash command that is a
-  tracker write (`br create|update|close`, `bd ...`, `basicly-tracker ...`,
-  `.basicly/core/kit/tracker/cli.py create|update|close|...`).
-- Draws one row: `work item created  handily-ab12  <title cut to N chars>  open  P2`.
-  The verb is created, updated, closed or commented. N comes from `userConfig`
-  (default 60).
-- When the row cannot be parsed, it returns `next(e)`. The engine row is drawn as before.
-- When the row is expanded (ctrl+o), it returns `next(e)`. Verify the prop name in the types.
+Match:
+
+- Hooks `tool.call` on `Bash`, `Write` and `Edit`.
+- A command parser prefilters a Bash command. It splits on `&&`, `;`, `|` and `||`. It
+  strips env assignments and the wrappers `uv run`, `uvx`, `npx` and `python3` flags. It
+  skips global options.
+- A verb allow-list per tracker comes from each CLI's own help. No `basicly-tracker` binary
+  exists.
+
+| Tracker CLI | Write verbs, from |
+|---|---|
+| `br` | `br capabilities` |
+| `.basicly/core/kit/tracker/cli.py` | Its help (16 write verbs) |
+| `basicly tracker` | `close`, `comments add`, `create`, `dep add`, `dep remove`, `gate report`, `update` |
+
+- `--help`, `--dry-run`, a loop and a heredoc fall back to the engine row.
+
+Draw:
+
+- After `next(e)` succeeds, the mod calls `workitems.refresh()`. It stores the diff in
+  `$.state`, keyed by `tool_use_id`.
+- `ToolUse` and `ToolResult` render from that state. Without state they return `next(e)`.
+- A call that is errored, interrupted or still running returns `next(e)`.
+- One row: `work item created  handily-ab12  <title cut to N chars>  open  P2`. The verb is
+  created, updated, closed or commented. N comes from `userConfig` (default 60).
+- A direct `Write` or `Edit` of a tracker file draws a distinct "raw tracker edit" row
+  (review decision 4).
+- `ToolUse` has no `isExpanded` prop. The mod cannot see the ctrl+o expanded state.
 - It never rewrites what the model reads.
+
+Toggle:
+
+- The toggle is per session, in `$.state` (review decision 5).
+- `userConfig` holds only the default. A config write reloads the module and acts on all
+  sessions.
 
 ### 4.3 task-pane (mod 2)
 
-- Follows `TaskCreate`, `TaskUpdate` and `TodoWrite` results into `$.state`.
-- Shows the list in a `Pane` (a sidebar from 144 terminal columns) or in an `AbovePrompt`
-  band when the terminal is narrower.
+- Commands come first: `/task add` and `/task rm`. The `Pane` is optional, because the mobile
+  app has no `Input`.
+- The mod follows tasks through `classic.TaskCreated` and `classic.TaskCompleted`, plus the
+  results of the `Task*` tools. It filters out a subagent's tasks by `agentId`. It resets the
+  list on `session.end` with the reason `clear`.
+- A `Pane` docks beside the transcript only in fullscreen mode. Unasked, it docks from 144
+  columns. Once the person asks for it, it docks from 110 columns. When the person opens it,
+  it docks at any width. Otherwise it draws inline, so the mod needs no `AbovePrompt` band.
 - `/task-pane` toggles it. `userConfig` `mode`: `off`, `toggle` or `always`.
-- The person adds a task through an `Input` in the pane and removes one through a `Button`.
-  During a session, the mod calls `TaskCreate` or `TaskUpdate status=deleted` through
-  `$.tool.call`. It also appends a note so that the model knows the person changed the list.
-- Outside a session, added tasks wait in a queue in `$.store`, keyed by the repo root. At
-  `session.start` the queue enters the session as tasks.
+- During a session, the mod calls `TaskCreate` or `TaskUpdate status=deleted` through
+  `$.tool.call`. Pending P0 probe (handily-0m93). It also appends a note so that the model
+  knows the person changed the list.
+- Tasks before a session come from the tracker's open items through `workitems` (review
+  decision 2). The out-of-session queue is dropped.
+- No automatic replay. The person adds open items through an explicit "add N items" button.
 - Optional action: promote a task to the tracker through the workitems CLI adapter.
 - Risk: Claude can ignore a task added mid-turn until the turn ends.
 
 ### 4.4 session-board (mod 3)
 
 - Main source: `claude agents --json`. It lists interactive and background sessions on
-  this machine with `sessionId`, `name`, `cwd`, `kind`, `startedAt`, `state` or `status`,
-  and `waitingFor`. One call takes 0.73 s (measured three times with `/usr/bin/time`).
-- Poll it every 15 s, and only while the pane is visible.
+  this machine.
+
+| Field | Meaning |
+|---|---|
+| `startedAt` | Epoch milliseconds |
+| `id`, `state` | On a background row |
+| `pid`, `status` | On an interactive row |
+| `waitingFor` | Optional |
+
+- `--all` adds sessions that ended.
+- One call takes 0.73 s (measured three times with `/usr/bin/time`).
+- Poll it every 15 s, and only while the pane is visible. One shared poll cache file holds
+  the result and its age.
 - Worktree and branch: `git -C <cwd> rev-parse --show-toplevel` and
-  `git -C <cwd> branch --show-current`.
+  `git -C <cwd> branch --show-current`. The mod runs git only when a cwd changes.
+- Time worked: the spans from `turn.start` to `turn.complete`, for sessions that run handily.
+  Other sessions show the elapsed time.
+- Completion estimate: completed tasks divided by all tasks, applied to the time since the
+  first task. Always labelled `est.`.
+  - No estimate until one task is complete.
+  - No estimate for N minutes after a task is added.
 - Optional extra data from sessions that run handily: the current task and task progress, in
-  a sidecar file per session (open question 3).
-- Completion estimate: completed tasks divided by all tasks, applied to the elapsed time.
-  Always labelled `est.`. No estimate when the session has no task list.
+  a sidecar file per session (open question Q3). The mod writes the sidecar on task events,
+  with the current session id. A sidecar is stale when its session is absent from
+  `claude agents`.
+- `claude` must be on `PATH` in a desktop session. Pending P0 probe (handily-0m93).
 - This session's own subagents come from `$.agent.list()`.
 
-### 4.5 work-status (low priority)
+### 4.5 work-status
 
-A status line entry: the work item that this session holds, and the count of ready items.
-Note: a `statusLine` shell script can do most of this. The mod's gain is event-driven updates
-that share the provider cache.
+Dropped (review decision 7).
 
 ### 4.6 item-toasts (lowest priority)
 
@@ -179,13 +320,12 @@ A toast when a work item changes state outside this session. It needs a rate lim
 
 ```text
 handily/
-  .claude-plugin/marketplace.json
+  .claude-plugin/marketplace.json   generated from mods/*/.claude-plugin/plugin.json
   mods/
     workitems/      .claude-plugin/plugin.json, hooks/, types/index.d.ts, tests
     quiet-items/
     task-pane/
     session-board/
-    work-status/
     item-toasts/
   docs/design.md
   package.json      typescript, linter, scripts that run tsc, validate and test on each mod
@@ -229,23 +369,62 @@ Measured facts behind these choices:
 
 ## 7. Open questions for the implementation session
 
-1. **basicly read path.** Fold the event log in TypeScript, read `snapshot.jsonl` (derived
-   and gitignored, so possibly stale), or call `cli.py list --json` through the adapter
-   contract. Recommendation: the CLI, because the fold rules are basicly's and change.
-   Failure mode: a Python process per refresh.
-2. **Repo config file.** Name and format of the per-repo config (globs, field map, adapter
-   command). The mods have no TOML parser. Recommendation: `.handily.json` at the repo root.
-3. **Sidecar location** for session-board. Whether `$.store` is safe for concurrent writes
-   from several sessions is unknown. Recommendation: one file per session under the user's
-   Claude config folder, written through `$.fs`.
-4. **Linter.** Decided 2026-10-07: typescript-eslint with Prettier (section 6).
-5. **Task tools.** Whether `$.tool.call` on `TaskCreate` adds to the main session's task list,
-   and which of `TaskCreate` or `TodoWrite` this build uses by mode. Test it first.
-6. **Ignore rules.** Done 2026-10-07: `.claude-plugin/types/` and `node_modules/`.
-7. **basicly ready set.** The basicly tracker now needs a recorded INVEST/C3 review before a
-   record is ready (reported by the basicly session on 2026-10-07). A provider that shows
-   "ready" items from basicly can show 0 until records are reviewed. Show open items too,
-   and say why the ready count is 0.
-8. **Mod release process.** How a mod version is cut: `claude plugin tag` makes a
-   `<name>--v<version>` tag. Decide the tag, changelog and CI release steps before the first
-   release.
+Closed:
+
+- **Q1. basicly read path.** Closed by review decision 9: `basicly tracker list --status <s>`
+  from `PATH`. The repo's `cli.py` runs only after approval. `cli.py list` has no `--json`
+  flag. It needs the ledger folder and prints `{count, records, schema}`.
+- **Q2. Repo config file.** Closed by review decision 11: `.handily.json` at the repo root.
+- **Q4. Linter.** Decided 2026-10-07: typescript-eslint with Prettier (section 6).
+- **Q6. Ignore rules.** Done 2026-10-07: `.claude-plugin/types/` and `node_modules/`.
+- **Q7. basicly ready set.** Closed by review decision 9. The basicly tracker needs a recorded
+  INVEST/C3 review before a record is ready. So the provider reads each open status, not
+  only "ready" records.
+- **Q8. Mod release process.** Closed by review decision 6. A release rests on the
+  `plugin.json` version. Users update when that version changes. Each mod has one version,
+  and only a changed mod gets a bump. `claude plugin tag mods/<name>` makes a
+  `<name>--v<version>` tag. The tag is secondary. The command needs a clean tree and a
+  marketplace version that matches.
+
+Open, each pending a P0 probe (handily-0m93):
+
+- **Q3. Sidecar location** for session-board. Whether `$.store` is safe for concurrent writes
+  from several sessions is unknown. Recommendation: one file per session under the user's
+  Claude config folder, written through `$.fs`.
+- **Q5. Task tools.** Whether `$.tool.call` on `TaskCreate` adds to the main session's task list,
+  draws a row or asks for permission. Also which of `TaskCreate` or `TodoWrite` this build
+  uses by mode.
+
+The eight P0 probes:
+
+| # | Probe | Design point that depends on it |
+|---|---|---|
+| 1 | `TaskCreate` through `$.tool.call`: does it reach the list, draw a row, ask? | task-pane add and remove (Q5) |
+| 2 | `watchPaths` and `classic.FileChanged` from a module | workitems refresh trigger |
+| 3 | The engine lays the types of a dependency | Mods that depend on `workitems` |
+| 4 | `claude plugin test` runs in parallel | The `mods-test` gate |
+| 5 | `$.config.set` on the mod's own `userConfig` | quiet-items and task-pane defaults |
+| 6 | `$.store` from two sessions | session-board sidecar (Q3) |
+| 7 | `claude` on `PATH` in a desktop session | session-board in the desktop app |
+| 8 | Task-list files on disk | session-board task progress for other sessions |
+
+## 8. Delivery plan
+
+- Each child carries EARS criteria, a file scope, a budget, an integrity level, a demo
+  command, the expected reading, and an ASCII mock for terminal and desktop.
+- The person approves the mocks per mod before the lanes start (review decision 1).
+- `basicly.toml` sets `[worktree] base_branch = "main"`. A lane branch name carries the
+  record id.
+- A generator writes `marketplace.json` from `mods/*/.claude-plugin/plugin.json`, with the
+  versions. A `generate --check` gate refuses a stale file.
+- Types are laid again when a dependency contract is newer. The development load is
+  `claude --plugin-dir mods`.
+- A full verify runs after each landing rebase.
+
+| Phase | Content |
+|---|---|
+| P0 | Decisions, mocks, probes, this doc fix |
+| P1 | workitems core: noun, contract, snapshot, beads reader, parser prefilter table, marketplace generator, types re-lay |
+| P2 | Lanes A1 then A2, B, C, D, E1. E2 after P1, with a confirmed CI edit |
+| P3 | Review, consumer runs, the person's review, then release |
+| P4 | Extras |
