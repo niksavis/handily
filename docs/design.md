@@ -263,19 +263,21 @@ Toggle:
 
 - Commands come first: `/task add` and `/task rm`. The `Pane` is optional, because the mobile
   app has no `Input`.
-- The mod follows tasks through `classic.TaskCreated` and `classic.TaskCompleted`, plus the
-  results of the `Task*` tools. It filters out a subagent's tasks by `agentId`. It resets the
-  list on `session.end` with the reason `clear`.
+- The mod owns the task list (user decision, 2026-10-07). A default session has no task tool:
+  probe 8 found neither `TaskCreate` nor `TodoWrite` in `$.tool.list()`. The `Task*` tools
+  appear only with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, which a mod cannot set.
+- At `session.start` the mod registers the model tools `task_add`, `task_update` and
+  `task_list` through `$.tool.register`. It adds a system prompt section that tells the model
+  to keep its plan in them. The list lives in `$.state`, so it survives a hot reload.
+- The list resets on `session.end` with the reason `clear`.
+- Failure mode: the model can ignore the tools. Where the variable is set, the built-in list
+  also exists, and the pane does not show it.
 - A `Pane` docks beside the transcript only in fullscreen mode. Unasked, it docks from 144
   columns. Once the person asks for it, it docks from 110 columns. When the person opens it,
   it docks at any width. Otherwise it draws inline, so the mod needs no `AbovePrompt` band.
 - `/task pane` opens it. `userConfig` `mode`: `off`, `toggle` or `always`.
-- During a session, the mod calls `TaskCreate` or `TaskUpdate status=deleted` through
-  `$.tool.call`. The task reaches the main task list, from `session.start` and from a
-  command (probe 1). The call draws no transcript row, so the mod appends its own note. The
-  note tells the model and the person that the list changed. A headless session has the task
-  tools only with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. The mod uses the `Task*` tools, not
-  `TodoWrite`.
+- When the person changes the list, the mod appends a note, so that the model knows. A pane
+  Button that runs a tool opened no permission dialog (probe 8).
 - Tasks before a session come from the tracker's open items through `workitems` (review
   decision 2). The out-of-session queue is dropped.
 - No automatic replay. The person adds open items through an explicit "add N items" button.
@@ -409,7 +411,7 @@ Closed by the P0 probes (handily-0m93, Claude Code 2.1.293):
 | 5 | `$.config.set` on the mod's own `userConfig` | Not measured headless. Nothing depends on it |
 | 6 | `$.store` from concurrent sessions | No loss. Merged per key |
 | 7 | Task-list files on disk | One folder per session, one JSON file per task. Internal |
-| 8 | Desktop `PATH` and prompts from pane buttons | Not run. It needs the person |
+| 8 | Prompts from pane buttons; task tools in a TUI session | No dialog. No task tool unless the variable is set. Desktop not run |
 
 ## 8. Delivery plan
 
