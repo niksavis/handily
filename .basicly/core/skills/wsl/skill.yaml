@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../../schemas/skill.schema.json
+schema_version: 1
+token_cost:
+  listing: 39
+name: wsl
+invocation: model
+technologies: [wsl]
+description: "Operates WSL: wsl.exe, interop, PATH, slow /mnt/c. Use when crossing Windows and Linux, or when a tool works in a terminal but not from a script."
+instructions: |
+  # WSL
+
+  Work in WSL (Windows Subsystem for Linux) across the Windows and Linux boundary. The
+  wsl.exe management and interop commands are in
+  [references/commands.md](references/commands.md).
+
+  ## Rules
+
+  - **Keep project files on the Linux filesystem (`~/...`), not under `/mnt/c/...`.** Access
+    through `/mnt` is much slower, and its case and permission rules differ.
+  - **Run `command -v <tool>` when a tool behaves strangely.** Interop puts Windows
+    executables on the Linux `PATH`, so `git`, `node` or `python` can resolve to a `.exe`.
+  - **Use the Linux toolchain for repository work.** Call `<tool>.exe` only when you want
+    the Windows program, for example `explorer.exe .`.
+  - **Set `PATH` in the script, or run it through `bash -lc '...'`.** A non-interactive
+    shell does not read your profile.
+  - **Keep LF line endings.** A Windows editor that writes CRLF breaks shell scripts and git
+    hooks.
+
+  ## Non-interactive and login shells
+
+  A login or interactive shell reads `~/.bashrc` or `~/.zshrc`. That profile loads version
+  managers and sets `PATH`. A script, a background job or a hook that an agent starts is
+  non-interactive and does not read the profile. So the `PATH`, the aliases and the version
+  managers of your terminal are not there. A command that works when you type it can then
+  fail from a script.
+
+  The node and nvm form of this problem is in the `node` skill.

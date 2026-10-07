@@ -1,0 +1,164 @@
+# basicly path wiring. Managed core catalog is materialized and upgraded by
+# `basicly install`; the overlay is always yours to edit.
+#
+# Per-machine harness settings ([worktree], [verify], [policy], [runner]) can
+# be overridden in a gitignored basicly.local.toml next to this file — keys
+# there win over this file, so machine-specific choices (e.g. runner default)
+# stay out of the shared config. [paths] and [catalog] are repo-level only.
+[paths]
+core_fragments = ".basicly/core/fragments"
+overlay_fragments = [".basicly-local/fragments"]
+targets = ".basicly/core/targets"
+templates = ".basicly/core/templates"
+manifest = ".basicly/generated-manifest.json"
+
+# Catalog technology selection. Absent = the full catalog ships. List the
+# stack/environment tags this repo wants and technology-tagged sources outside
+# it are skipped at projection time (untagged sources are universal and always
+# ship). Recorded by `basicly install --technologies ...`.
+#
+# [catalog]
+# technologies = ["python", "zsh"]
+
+# The work tracker's id namespace is not set here. Its one home is
+# .basicly/ledger/template.json, which the engine and the tracker kit both read:
+#
+#   python3 .basicly/core/kit/tracker/cli.py config .basicly/ledger set prefix acme
+
+# Sibling git-worktree isolation for harness tracks.
+[worktree]
+# Branch new harness/<name> worktrees fork from. Empty = the current branch.
+base_branch = ""
+# Cap on how many worktrees may exist at once.
+concurrency = 5
+# Files this repo's convention has EVERY lane append its own entry to, which no
+# bead's "## Scope" therefore names — a changelog, a release-notes file. Two
+# lanes appending at the same anchor conflict when the later one rebases, so a
+# declared path serializes the plan's children instead of letting the merge
+# queue discover it. A child that really does not collide (it owns the entry, or
+# writes a distinct section) declares the path in its own scope AND under
+# "shared" to stay parallel. Absent = nothing is treated as append-only.
+#
+# append_only_paths = ["CHANGELOG.md"]
+#
+# Artifacts every lane's edit regenerates and no bead declares — a projection
+# manifest, a lockfile. They collide the same way, but serializing the lanes buys
+# nothing: the file is a function of the tree, so it simply needs rebuilding once.
+# A landing rebase whose conflicts are ALL declared here is resolved by running each
+# one's own command in the lane's worktree and continuing; a conflict touching any
+# other path, or one the rebuild leaves a conflict marker in, still bounces to the
+# lane, untouched. Keyed by path, so a path declared without a rebuild cannot exist.
+#
+# [worktree.regenerate_commands]
+# ".basicly/generated-manifest.json" = ["basicly", "build"]
+
+# Deterministic verify gate. Each check runs in the listed modes; a "staged"
+# check with staged_suffix runs only against staged files of that suffix.
+# No checks are enabled by default — declare the ones your stack actually has
+# (an empty config passes vacuously; a configured command missing from PATH
+# fails the run with a one-line message).
+#
+# A check may also declare fix_command — a deterministic, lossless repair the
+# pre-commit hook applies to the staged files before gating (and that
+# `basicly verify --fix` applies before the checks), so a mechanical repair like
+# reformatting never costs a review cycle. The check still runs either way.
+#
+# Python examples:
+#
+# [[verify.checks]]
+# name = "ruff"
+# command = ["ruff", "check"]
+# modes = ["fast", "full", "staged"]
+# staged_suffix = ".py"
+#
+# [[verify.checks]]
+# name = "ruff-format"
+# command = ["ruff", "format", "--check"]
+# fix_command = ["ruff", "format"]
+# modes = ["fast", "full", "staged"]
+# staged_suffix = ".py"
+#
+# [[verify.checks]]
+# name = "pytest"
+# command = ["pytest", "-q"]
+# modes = ["full"]
+
+# Loop gate/checkpoint policy: which gates block advancement and the rework cap.
+[policy]
+# Gate names (from [verify] / br gate report) that MUST pass to advance. Any
+# recorded gate not listed here is advisory (never blocks).
+required_gates = ["verify"]
+# Rework retries allowed before a node escalates to a human.
+max_rework = 2
+# Units that may stand downstream of build - merged and parked in verify, or
+# waiting on a ship checkpoint - before a further dispatch is refused. Bounds
+# unlanded work, which [worktree] concurrency does not: that bounds how many
+# lanes run at once, this bounds how much finished-but-unreviewed output piles
+# up. Lower it when review, not machine capacity, is what runs out.
+max_downstream_wip = 5
+
+# The body sections each work type owes beyond the acceptance criteria every bead
+# owes whatever its type. This is the Definition-of-Ready rule itself, so changing
+# what a bug must carry is an edit here rather than a basicly release. A type left
+# out of the table owes nothing extra; delete the table and the built-in set below
+# applies, with a warning saying so.
+[policy.type_sections]
+bug = ["## Steps to Reproduce"]
+epic = ["## Success Criteria"]
+
+# Working-set sizing governor for decompose (factory D8). A child's context
+# cost is estimated deterministically (instruction overhead + scope read-cost
+# x per-class build factor, chars/4 tokens) and a plan outside the band is
+# refused: above the max split into more packages; below the min (when the
+# scope matches existing files) merge with a sibling in its scope group.
+# [policy.sizing]
+# working_set_min = 4600   # recalibrated 2026-09-12 when the comment ban removed
+#                          # 41.75% of the tree's tokens (basicly-phglc2x): the min is
+#                          # a proxy for "enough work to justify a lane" and its unit
+#                          # moved, so it was scaled by the measured ratio. The max was
+#                          # not: it is a hard context-capacity bound in real tokens.
+# working_set_max = 64000
+# calibration_min_samples = 10   # measured spend ratios replace the declared prior
+#                                # only past this many paired records per class
+# calibration_window = 50        # rolling run-record window per task class
+# unsized_lane_quantile = 0.9    # bound for a lane with no readable scope: the
+#                                # quantile of recent lane actuals, so at most one
+#                                # lane in ten is expected to exceed it
+# [policy.sizing.build_factor]
+# task = 3.0
+# bug = 2.0
+# chore = 1.5
+
+# Agent-agnostic runner: how the harness invokes a coding agent headless to do a
+# node's work in its worktree. "auto" detects claude -> codex -> copilot on PATH,
+# else falls back to the "manual" handoff (no command is guessed for an unknown
+# agent). Add or override an agent with [[runner.agents]]; verify any command
+# with `basicly runner dry-run` before a live run.
+[runner]
+default = "auto"
+# Ceiling on concurrently live agent processes across every class the engine
+# spawns: lane runners draw on [worktree] concurrency reserved slots, the decider
+# on one reserved slot, and read-only helpers queue on the remainder.
+# max_agent_processes = 8
+# [[runner.agents]]
+# name = "opencode"
+# command = ["opencode", "run", "{prompt}"]
+# prompt_via = "arg"   # or "stdin"
+# model = "opus"       # optional: injects `--model opus` after the binary,
+#                      # or substitutes a `{model}` placeholder if the command has one
+# tier = "high"        # optional, and preferred over `model`: a portable model tier
+#                      # (low | medium | high | maximum) resolved to the concrete id
+#                      # this family's surface accepts, via .basicly/core/models.
+#                      # A tier that resolves to nothing refuses the dispatch rather
+#                      # than falling back to another tier's model. `model` wins if both.
+# vendor = "openai"    # optional: whose model a tier resolves to. Only meaningful on a
+#                      # multi-vendor surface (copilot serves four); defaults per family.
+# sandbox = "workspace-write"   # optional: injects `--sandbox workspace-write` (codex
+#                               # defaults this); network is disabled by default in it
+# approval = "never"            # optional: injects `-a never` (codex defaults this).
+#                               # Validated against the CLI's own enum by
+#                               # `basicly runner dry-run`: a value it rejects
+#                               # fails every dispatch at argument parsing.
+# git_name = "opencode-bot"        # optional bot git identity: dispatched commits
+# git_email = "bot@example.com"    # use it (both keys or neither). Must satisfy
+#                                  # basicly.identityAllowEmail when strict mode is on.

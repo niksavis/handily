@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=../../schemas/skill.schema.json
+schema_version: 1
+token_cost:
+  listing: 41
+name: retention-probe
+invocation: model
+description: "Tests if this session still holds the always-on instruction file. Use when a repo rule seems missing, in a new subagent or after compaction."
+instructions: |
+  # Retention Probe
+
+  Test one thing: is the always-on instruction file in the context of this session?
+
+  ## Rules
+
+  - **Answer from memory only.** Do not read, search or list files first, because the probe detects whether you already have the file.
+  - **Answer exhaustively.** A short answer scores as a missing file.
+  - **Run it when you suspect a problem, not on a schedule.** The probe output repeats every rule, so each run puts the rules back into context.
+  - **Do not read the score as adherence.** A recited rule is not an obeyed rule. A gate or a `PreToolUse` hook enforces a rule.
+  - **Do not read a high score as memory.** While the file is in context you read it. You do not recall it.
+
+  ## Procedure
+
+  1. Write every rule, convention and constraint that you believe governs this repository to a scratch file, one per line.
+  2. Score the file:
+
+     ```sh
+     uv run basicly retention <scratch-file>
+     ```
+
+     | Flag | Effect |
+     | --- | --- |
+     | `--verbose` | Lists each rule that did not come back, beside the nearest line of your answer |
+     | `--baseline <path>` | Scores against another file. The default is the first of `.claude/CLAUDE.md`, `CLAUDE.md` and `AGENTS.md` |
+     | `--strict` | Exits non-zero when the verdict is absent |
+
+     Pass `-` in place of the file to read the answer from stdin.
+  3. Act on the verdict.
+
+  ## Verdicts
+
+  | Verdict | Meaning | Action |
+  | --- | --- | --- |
+  | `LOADED` | 80% or more. The file is in context. | None. |
+  | `PARTIAL` | Between 30% and 80%. Not decisive. | Run again once, with a fuller answer. |
+  | `ABSENT` | 30% or less. The file is not in context. | Read the instruction file, then continue. |
+  | `UNDERSAMPLED` | Fewer lines than the file has rules. | You stopped early. Answer exhaustively and probe again. |
+
+  A session that holds the file returns most of its rules. A session with no file returns almost none. So the probe is reliable for presence and useless for finer questions.
+
+  ## Causes of a real ABSENT
+
+  Read the instruction file to correct each of these:
+
+  - A subagent that did not get the project instructions.
+  - A session that started outside the repository root.
+  - A `claudeMdExcludes` pattern that matches too much.
+  - A consumer repository where `basicly install` has not run.
+
+  A compaction is not a cause. Claude Code reads the project-root instruction file from disk again after `/compact`.
+
+  ## Trend file
+
+  Each run appends one line with the rate and the verdict to `.basicly/usage/retention.jsonl`. Compare runs with each other. Do not read one number as absolute. The score is lexical and misses a distant paraphrase, so the rate is a lower limit.

@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=../../schemas/skill.schema.json
+schema_version: 1
+token_cost:
+  listing: 37
+name: plain-english
+invocation: model
+description: "Writes plain prose for readers of any language: READMEs, release notes, design docs, records. Use when writing text for a person."
+instructions: |
+  # Plain English
+
+  Write prose that a reader with a different first language and culture understands on the first pass. The skill covers a README, a landing page, a release note, a design document, a commit body, a tracker record and an error message. For a catalog guidance body, use the `catalog-authoring` skill.
+
+  ## Rules
+
+  Write ASD-STE100 Simplified Technical English:
+
+  - **One word, one meaning.** A synonym reads as a second thing.
+  - **Active voice.** "The gate refused the commit", not "the commit was refused".
+  - **Short sentences.** 20 words or fewer for an instruction, 25 or fewer for a description.
+  - **One idea per sentence.** Do not join two facts with a dash, a colon or a semicolon.
+  - **Keep `a`, `an`, `the` and `that`.** Without them the reader reads the sentence twice.
+  - **Three nouns together at most.** "the cost of a lane", not "lane token cost floor".
+  - **No idiom, slang or metaphor**, unless this repository defines the term. Idiom does not survive translation.
+  - **No `-ing` verb where a plain verb works.** "the gate refuses", not "the gate is refusing".
+  - **Write an abbreviation in full the first time.**
+  - **Put bad news first.** A correction, a limit, an overrun or a broken assumption goes above the good news.
+  - **Mark every number as measured, sourced or assumed.** Name the command for a measured number and the source for a sourced one.
+
+  ## Delete marketing
+
+  | Delete | Write |
+  | --- | --- |
+  | `Four pillars, not a bundle of files` | `Four pillars` |
+  | `Read the design, not just the pitch` | `Read the design` |
+  | `One command, into any git repo` | `Install into any git repo` |
+  | `The process is code, and so is the enforcement` | `The workflow and the gates are code` |
+  | `What is unusual here is that …` | the fact |
+
+  The pattern is **"X, not Y"**. Test it: name Y and ask who believed it.
+
+  - **Keep it when Y is a misreading that a careful reader would make.** "A lane claim is a lease, not ownership" removes an error.
+  - **Delete it when Y is a strawman, an unnamed competitor or nothing.** Then it only adds emphasis.
+  - **In a title, delete it almost always.** A title names the section.
+
+  Also delete:
+
+  - A comma that joins a second clause to a title to make it sound important. Put that clause in the body.
+  - `Plenty of projects …`, `What is unusual …`, `The only harness that …`. A comparison is a claim and needs evidence. Measure it or delete it.
+
+  ## Structure
+
+  | Form | Use |
+  | --- | --- |
+  | Table | Compares two or more things |
+  | List | Counts things |
+  | Code block | Real output that you copied, never output that you imagined |
+  | Paragraph | Explains one thing |
+
+  A paragraph that describes a shape does not show it. Draw the shape.
+
+  ## Before you commit the text
+
+  1. Read each sentence as a person with a different first language. Replace a word that works only in your culture.
+  2. Check each claim. Every quoted command must exist, every path must resolve, and every transcript must be one you ran.

@@ -1,0 +1,32 @@
+name: codex
+enabled: true
+tone: terse_directive
+# Higher than claude/copilot: scoped fragments are inlined here because Codex has no
+# glob-based instruction scoping and a nested AGENTS.md below the cwd is never loaded
+# (architecture 12.2). The scoped tier is 7370 characters, 46% of this file.
+#
+# Counted in BYTES, not characters, because bytes is what Codex enforces. The vendor limit
+# is `project_doc_max_bytes`, 32768 by default and configurable, and it bounds the COMBINED
+# size of every AGENTS.md from the repository root down to the working directory - so an
+# ancestor file in a consumer's tree spends the same budget. Codex truncates past it with
+# no warning in the TUI, /stats, exec or the VS Code extension (openai/codex#13386, open,
+# no maintainer response), so the failure is invisible and the margin is the whole defence.
+# 24576 is 75% of the limit, leaving 8 KiB for ancestors.
+#
+# The line cap is the adherence instrument and stays at 320. Measured 2026-09-12 by
+# `.scripts/retention_eval.py`: this file at 266 lines returned 92% of its own rules with a
+# flat position curve, while 700 lines fell to 82% with the second half 14pp below the
+# first. 320 keeps the surface inside the measured flat zone.
+#
+# Codex does have one on-demand mechanism: it reads skills from `.agents/skills`, which
+# `basicly skills-build` already writes. Guidance that is not needed every session belongs
+# there rather than here.
+max_lines_warning: 320
+max_size_warning: 24576
+max_size_unit: bytes
+outputs:
+  agents_baseline:
+    path: AGENTS.md
+    template: codex/agents_md.j2
+    filter:
+      applies_to: [all]

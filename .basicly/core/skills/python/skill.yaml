@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../../schemas/skill.schema.json
+schema_version: 1
+token_cost:
+  listing: 41
+name: python
+invocation: model
+technologies: [python]
+claude:
+  paths: ["**/*.py"]
+description: "Writes typed Python with pathlib and Windows-safe subprocesses, and judges whether an abstraction earns its keep. Use for .py edits, an except clause, a size gate or a silenced warning."
+instructions: |
+  # Python
+
+  Write Python that passes the gates on every platform. The pre-commit hook runs every
+  check that `basicly.toml` declares for mode `fast`, for example `ruff` and `pyright`.
+  This skill holds the decisions that those gates cannot make.
+
+  ## Rules
+
+  - **Leave `except A, B:` unchanged.** On Python 3.14 and later, PEP 758 makes it valid, and it
+    catches either type. It is not the Python 2 capture form.
+  - **Keep the parentheses when the clause binds a name:** `except (A, B) as err:`. Without
+    them Python raises *multiple exception types must be parenthesized when using 'as'*.
+  - **Copy `os.environ` into a child environment.** A bare `env` dict drops `PATH`, and
+    Windows then raises `[WinError 2]`.
+  - **Pass an argv list, not a shell string.** `shlex.split` removes the backslashes of a
+    Windows path.
+  - **Type-hint public functions, methods and dataclass fields.** A public signature is a
+    contract. Inference covers obvious local names.
+  - **Use `pathlib.Path` for filesystem work,** not `os.path` string operations.
+  - **Let the formatter own layout.** Do not format by hand. Run `ruff format` and `ruff check`.
+  - **Commit early and let the hook name a type error.** A clean `ruff check` and a green
+    `pytest` do not prove that `pyright` passes.
+
+  ## Type test doubles and helpers
+
+  Make a helper precise about the type it returns. Make a parameter structural about the
+  double it receives.
+
+  - Return the concrete type: `def _fake_args() -> argparse.Namespace:`, not `-> object`.
+    An `object` trips `reportArgumentType` at the first call site that passes it on.
+  - Type a captured container to its real value type: `dict[str, list[str]]`, not
+    `dict[str, object]`. An `object` value trips `reportOperatorIssue` when the test indexes
+    or compares it.
+  - Type a parameter that receives a double as `Callable[..., _Proc]` or a `Protocol`, never
+    as a sibling fake class. A second fake or a `lambda` then fails with
+    `"_FakeB" is not assignable to "_FakeA" (reportArgumentType)`.
+
+  ## Shell out on every platform
+
+  Two subprocess mistakes pass on POSIX and fail only on Windows CI. The failure is
+  deterministic, not flaky. Read [references/cross-platform.md](references/cross-platform.md)
+  before you change code that starts a process or builds a command line.
+
+  ## Design decisions
+
+  A gate reports a size, a suppression or a complexity, but not the fix. Read
+  [references/design.md](references/design.md) before you split a file, add an abstraction,
+  silence a warning or choose what to raise and catch.

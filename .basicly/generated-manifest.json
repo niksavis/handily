@@ -1,0 +1,72 @@
+{
+  "version": "1",
+  "generated_at": "2026-10-07T18:42:48.234831+00:00",
+  "outputs": {
+    ".claude/CLAUDE.md": {
+      "hash": "sha256:4b197e2fb623ed85036910d1c920aefc456d885a904cbbc94e7cfc1b1f291a91",
+      "source_fragments": [
+        "knowledge-priming",
+        "code-is-authoritative",
+        "core-rules",
+        "mistake-proofing",
+        "secure-coding",
+        "decision-protocol",
+        "external-facts",
+        "require-explicit-confirmation",
+        "harness-loop",
+        "quality-gate",
+        "catalog-authoring",
+        "claude-defaults",
+        "session-completion",
+        "git-discipline",
+        "non-interactive-shell"
+      ]
+    },
+    ".claude/rules/platform-hermetic-tests.md": {
+      "hash": "sha256:b9e0ce1ac49b98a0a3c921467b4b28bbdf907eb6843c547d8a6c20fe568a58b0",
+      "source_fragments": [
+        "platform-hermetic-tests"
+      ]
+    },
+    "AGENTS.md": {
+      "hash": "sha256:097ac5f0f2ad405898b011d50f13ddc6753f19e647a0fef78fdfb20fb457bfb9",
+      "source_fragments": [
+        "knowledge-priming",
+        "code-is-authoritative",
+        "core-rules",
+        "mistake-proofing",
+        "secure-coding",
+        "decision-protocol",
+        "external-facts",
+        "require-explicit-confirmation",
+        "harness-loop",
+        "quality-gate",
+        "catalog-authoring",
+        "session-completion",
+        "git-discipline",
+        "non-interactive-shell",
+        "platform-hermetic-tests"
+      ]
+    },
+    ".github/copilot-instructions.md": {
+      "hash": "sha256:34a42ae95a7f2e065afba60c32f5cf23e8999e53042f419e0d74fe24f2faf8cb",
+      "source_fragments": [
+        "knowledge-priming",
+        "code-is-authoritative",
+        "core-rules",
+        "mistake-proofing",
+        "secure-coding",
+        "decision-protocol",
+        "external-facts",
+        "require-explicit-confirmation",
+        "harness-loop",
+        "quality-gate",
+        "catalog-authoring",
+        "copilot-defaults",
+        "session-completion",
+        "git-discipline",
+        "non-interactive-shell"
+      ]
+    }
+  }
+}

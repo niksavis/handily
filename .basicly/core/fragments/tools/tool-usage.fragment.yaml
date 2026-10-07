@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../schemas/fragment.schema.json
+schema_version: 1
+token_cost:
+  claude: 0
+  codex: 0
+  copilot: 0
+id: tool-usage
+description: Retired. Kept so that an overlay that replaces this id still loads.
+category: tools
+priority: medium
+applies_to:
+- all
+tags:
+- context
+- retrieval
+- tooling
+status: deprecated
+title: Tool Usage
+body: |
+  - Retrieval ladder: find files by name, localize with focused search, read only the ranges you need; don't bulk-load unrelated files.

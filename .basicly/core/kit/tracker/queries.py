@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import importlib.util
+import sys
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+_HERE = Path(__file__).resolve().parent
+
+
+def _load(file_name: str, module_name: str) -> Any:
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(module_name, _HERE / file_name)
+    if spec is None or spec.loader is None:
+        raise ImportError("the tracker kit's " + file_name + " is missing from beside queries.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+differential = _load("differential.py", "basicly_tracker_kit_differential")
+scheduler = _load("scheduler.py", "basicly_tracker_kit_scheduler")
+snapshot = _load("snapshot.py", "basicly_tracker_kit_snapshot")
+holders = _load("holders.py", "basicly_tracker_kit_holders")
+templates = _load("templates.py", "basicly_tracker_kit_templates")
+events = differential.events
+
+
+def ledger_dir(directory: Path | str) -> Path:
+
+    ledger = Path(directory)
+    if not ledger.is_dir():
+        raise events.LedgerError(str(ledger) + " is not a ledger directory")
+    return ledger
+
+
+def folded(directory: Path | str) -> dict[str, Any]:
+    return snapshot.load(ledger_dir(directory)).records
+
+
+def read_record(directory: Path | str, record: str) -> dict[str, object] | None:
+    state = folded(directory).get(record)
+    return None if state is None else snapshot.record_to_dict(state)
+
+
+def query_records(
+    directory: Path | str, *, status: str | None = None, limit: int | None = None
+) -> list[dict[str, object]]:
+
+    records = folded(directory)
+    views, _ = views_and_children(directory)
+    matched = [
+        {**snapshot.record_to_dict(records[key]), "dependencies": _edges_of(views, key)}
+        for key in sorted(records)
+        if not records[key].tombstoned and (status is None or records[key].status == status)
+    ]
+    return matched if limit is None else matched[:limit]
+
+
+def _edges_of(views: Mapping[str, Any], record: str) -> list[dict[str, str]]:
+    view = views.get(record)
+    held = view.dependencies if view is not None else ()
+    return [{"id": edge.target, "dependency_type": edge.type} for edge in held]
+
+
+def views_and_children(directory: Path | str) -> tuple:
+    found = differential.read_ledger(ledger_dir(directory))
+    views = differential.views_from_events(found)
+    return views, differential.children_of(views, differential.DEFAULT_VOCABULARY)
+
+
+def ready(directory: Path | str, limit: int | None = None, mine: str = "") -> dict[str, object]:
+
+    ledger = ledger_dir(directory)
+    order = scheduler.ranking(ledger, limit=None if mine else limit)
+    states = events.fold(events.read_events(ledger)[0]).records
+    stale_days = templates.load(ledger).stale_days
+    now = holders.newest(states)
+    rows = []
+    for row in order.records:
+        state = states.get(row.record)
+        held = holders.holding(state, stale_days, now) if state is not None else None
+        if mine and (held is None or held["name"] != mine):
+            continue
+        rows.append({
+            "rank": row.rank,
+            "score": row.score,
+            "record": row.record,
+            "title": row.title,
+            "holder": held,
+        })
+    rows = rows if limit is None else rows[:limit]
+    return {"schema": order.schema, "sort": order.sort, "count": len(rows), "records": rows}
+
+
+def blocked(directory: Path | str) -> dict[str, object]:
+
+    vocabulary = differential.DEFAULT_VOCABULARY
+    found = differential.read_ledger(ledger_dir(directory))
+    views = differential.views_from_events(found)
+    children = differential.children_of(views, vocabulary)
+    states = events.fold(found).records
+    rows = []
+    for record in sorted(views):
+        view = views[record]
+        if view.tombstoned or not differential.is_dispatchable(view.status, vocabulary):
+            continue
+        if differential.is_ready(view, views, children, vocabulary):
+            continue
+        rows.append({
+            "record": record,
+            "title": str(states[record].fields.get("title") or ""),
+            "status": view.status,
+            "blocked_by": _open_blockers(view, views, vocabulary),
+            "children": sorted(children.get(record) or ()),
+        })
+    return {"count": len(rows), "records": rows}
+
+
+def _open_blockers(view: Any, views: Mapping[str, Any], vocabulary: Any) -> list:
+    found = []
+    for edge in view.dependencies:
+        if edge.type not in vocabulary.blocking_types:
+            continue
+        target = views.get(edge.target)
+        if target is None:
+            found.append({"record": edge.target, "status": "unknown"})
+        elif target.status not in vocabulary.closed_statuses:
+            found.append({"record": edge.target, "status": target.status or ""})
+    return sorted(found, key=lambda row: row["record"])
+
+
+def stats(directory: Path | str) -> dict[str, object]:
+    ledger = ledger_dir(directory)
+    folded = events.fold(events.read_events(ledger)[0]).records
+    by_status: dict[str, int] = {}
+    tombstoned = 0
+    for state in folded.values():
+        if state.tombstoned:
+            tombstoned += 1
+            continue
+        key = state.status or "unset"
+        by_status[key] = by_status.get(key, 0) + 1
+    return {
+        "records": len(folded) - tombstoned,
+        "tombstoned": tombstoned,
+        "by_status": dict(sorted(by_status.items())),
+        "ready": ready(ledger)["count"],
+        "blocked": blocked(ledger)["count"],
+    }

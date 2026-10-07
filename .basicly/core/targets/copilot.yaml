@@ -1,0 +1,29 @@
+name: copilot
+enabled: true
+tone: concise_checklist
+# Mirrors claude because the content is the same and the vendor publishes no limit for this
+# file. GitHub removed the 4000-character limit on repository custom instructions in June
+# 2026 (github.blog changelog 2026-06-12), and the current docs state no size at all, so
+# there is no vendor number to sit under. The line cap is therefore the whole constraint,
+# and it is set from the same retention measurement as claude - see targets/claude.yaml for
+# the four data points.
+max_lines_warning: 200
+max_size_warning: 12000
+outputs:
+  copilot_baseline:
+    path: .github/copilot-instructions.md
+    template: copilot/copilot_instructions_md.j2
+    filter:
+      applies_to: [all, copilot]
+      exclude_scoped: true
+# Scoped fragments are single-sourced to .claude/rules/ (claude target): VS Code
+# loads both roots without dedup, so a .github/instructions/ twin double-loads.
+# Trade-off, accepted: github.com-side Copilot keeps only the root baseline.
+#
+# Subagents are NOT projected through this file. They are rendered by
+# `agents-build` from .basicly/core/agents into .github/agents/<slug>.agent.md
+# (agents.COPILOT_AGENTS_ROOT, basicly-8sxf), because an agent file is composed
+# from slot blocks rather than rendered from a fragment template. Unlike the
+# scoped-fragment twin above, the second agent root does not double-load: GitHub
+# documents the config file name minus .md/.agent.md as the deduplication key, so
+# .claude/agents/<slug>.md and .github/agents/<slug>.agent.md collapse to one.

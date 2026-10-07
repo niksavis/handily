@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../schemas/fragment.schema.json
+schema_version: 1
+token_cost:
+  claude: 154
+  codex: 155
+  copilot: 154
+id: secure-coding
+description: Secure coding rules at the trust boundary.
+category: security
+priority: critical
+applies_to: [all]
+tags:
+- security
+status: active
+title: Secure Coding
+body: |
+  - Validate external input at the trust boundary. Code past the boundary assumes the input is safe.
+  - Pass shell arguments and query values as parameters. Concatenated input runs as syntax.
+  - Keep secrets in environment variables or a secret manager, out of the repository and the logs. A commit outlives the fix.
+  - Log the internal detail and return a generic message. A stack trace or a path maps the system.
+  - Commit no machine path, user name or host name. It breaks the next clone. The tracker's holder field is the one exception: it records the name you choose with `git config basicly.holder`.

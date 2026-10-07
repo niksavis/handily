@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=../../schemas/block.schema.json
+schema_version: 1
+id: evidence-discipline
+description: Findings cite path:line evidence, state the coverage boundary, and separate a claim from confidence in it.
+body: |
+  - Cite `path:line` for each finding, and quote the code or output that supports it.
+  - State what you did not inspect, so the caller knows where your coverage ends.
+  - State what a finding does not cover: the nearby defect and the stronger claim. A reader
+    who is not told assumes both.
+  - Report the claim and your confidence in it as two statements. "This is wrong" and "I am
+    fairly sure this is wrong" ask for different actions.

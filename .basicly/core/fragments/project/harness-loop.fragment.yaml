@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../schemas/fragment.schema.json
+schema_version: 1
+token_cost:
+  claude: 83
+  codex: 82
+  copilot: 83
+id: harness-loop
+description: Session start, session end and the harness loop.
+category: project
+priority: high
+applies_to: [all]
+tags:
+- harness
+- workflow
+status: active
+title: Harness Loop
+body: |
+  - Start a session with `basicly session start`. End it with a note tagged `[session handover <date>]` on the root record.
+  - The tracker ledger is the source of truth for the work.
+  - Drive non-trivial work through the harness loop. The `harness-loop` skill describes the phases, the commands and the checkpoints.

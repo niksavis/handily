@@ -1,0 +1,243 @@
+from __future__ import annotations
+
+import subprocess  # nosec B404
+import sys
+import time
+import tomllib
+from pathlib import Path, PurePosixPath
+
+CONFIG_FILE = "basicly.toml"
+
+FRAGMENT_DIR = "basicly.d"
+
+
+def project_root() -> Path:
+
+    cwd = Path.cwd()
+    for candidate in [cwd, *cwd.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    return cwd
+
+
+def _declared_checks(repo_root: Path) -> list[tuple[str, object]]:
+
+    found: list[tuple[str, object]] = []
+    for path in (repo_root / CONFIG_FILE, *sorted((repo_root / FRAGMENT_DIR).glob("*.toml"))):
+        if not path.exists():
+            continue
+        section = tomllib.loads(path.read_text(encoding="utf-8")).get("verify", {})
+        checks = section.get("checks") if isinstance(section, dict) else None
+        if isinstance(checks, list):
+            found += [(path.name, entry) for entry in checks]
+    return found
+
+
+def _mode_entries(repo_root: Path, mode: str) -> list[dict]:
+
+    entries: list[dict] = []
+    for source, entry in _declared_checks(repo_root):
+        if not isinstance(entry, dict):
+            raise SystemExit(f"{source}: [[verify.checks]] entry must be a table")
+        name = entry.get("name")
+        command = entry.get("command")
+        modes = entry.get("modes")
+        fix_command = entry.get("fix_command")
+        if not (isinstance(name, str) and name.strip()):
+            raise SystemExit(f"{source}: a [[verify.checks]] entry is missing 'name'")
+        if not (isinstance(command, list) and command and all(isinstance(a, str) for a in command)):
+            raise SystemExit(f"{source}: check {name!r} needs a 'command' list of strings")
+        if not (isinstance(modes, list) and all(isinstance(m, str) for m in modes)):
+            raise SystemExit(f"{source}: check {name!r} needs a 'modes' list of strings")
+        if fix_command is not None and not (
+            isinstance(fix_command, list)
+            and fix_command
+            and all(isinstance(a, str) for a in fix_command)
+        ):
+            raise SystemExit(f"{source}: check {name!r} 'fix_command' must be a list of strings")
+        inputs = entry.get("inputs")
+        if inputs is not None and not (
+            isinstance(inputs, list) and inputs and all(isinstance(g, str) and g for g in inputs)
+        ):
+            raise SystemExit(f"{source}: check {name!r} 'inputs' must be a list of glob strings")
+        if mode in modes:
+            entries.append(entry)
+    return entries
+
+
+def load_checks(repo_root: Path, mode: str) -> list[tuple[str, list[str]]]:
+    return [
+        (str(entry["name"]).strip(), list(entry["command"]))
+        for entry in _mode_entries(repo_root, mode)
+    ]
+
+
+def load_fixes(repo_root: Path, mode: str) -> list[tuple[str, list[str], str | None]]:
+
+    fixes: list[tuple[str, list[str], str | None]] = []
+    for entry in _mode_entries(repo_root, mode):
+        fix_command = entry.get("fix_command")
+        if not fix_command:
+            continue
+        suffix = entry.get("staged_suffix")
+        fixes.append((
+            str(entry["name"]).strip(),
+            list(fix_command),
+            suffix if isinstance(suffix, str) and suffix else None,
+        ))
+    return fixes
+
+
+def load_inputs(repo_root: Path, mode: str) -> dict[str, list[str]]:
+
+    declared: dict[str, list[str]] = {}
+    for entry in _mode_entries(repo_root, mode):
+        globs = entry.get("inputs")
+        if globs:
+            declared[str(entry["name"]).strip()] = [str(g) for g in globs]
+    return declared
+
+
+def _git_output(repo_root: Path, *args: str) -> str | None:
+    try:
+        proc = subprocess.run(  # nosec B603 B607
+            ["git", *args],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    return None if proc.returncode != 0 else proc.stdout
+
+
+def _git_lines(repo_root: Path, *args: str) -> list[str] | None:
+    out = _git_output(repo_root, *args)
+    return None if out is None else [line for line in out.splitlines() if line]
+
+
+def diff_paths(repo_root: Path) -> list[str] | None:
+
+    out = _git_output(repo_root, "diff", "--cached", "--name-only", "-z")
+    return None if out is None else [path for path in out.split("\0") if path]
+
+
+def scoped_skips(repo_root: Path, mode: str) -> dict[str, str]:
+
+    if not (declared := load_inputs(repo_root, mode)):
+        return {}
+    changed = diff_paths(repo_root)
+    if not changed:
+        return {}
+    skips: dict[str, str] = {}
+    for name, globs in declared.items():
+        if not any(PurePosixPath(path).full_match(glob) for path in changed for glob in globs):
+            skips[name] = f"no staged path matches its inputs ({' '.join(globs)})"
+    return skips
+
+
+def apply_fixes(repo_root: Path, mode: str) -> None:
+
+    fixes = load_fixes(repo_root, mode)
+    if not fixes:
+        return
+
+    staged = _git_lines(repo_root, "diff", "--cached", "--name-only", "--diff-filter=ACM")
+    dirty_before = _git_lines(repo_root, "diff", "--name-only")
+    if staged is None or dirty_before is None:
+        print("skipping auto-fix: cannot read the git index", file=sys.stderr)
+        return
+    if not staged:
+        return
+
+    applied = _run_fixers(repo_root, fixes, staged)
+    if applied:
+        _restage_fixed(repo_root, staged, dirty_before, applied)
+
+
+def _run_fixers(
+    repo_root: Path, fixes: list[tuple[str, list[str], str | None]], staged: list[str]
+) -> list[str]:
+    applied: list[str] = []
+    for name, command, suffix in fixes:
+        targets = [path for path in staged if path.endswith(suffix)] if suffix else []
+        if suffix and not targets:
+            continue
+        try:
+            result = subprocess.run(command + targets, cwd=repo_root, check=False)  # nosec B603
+        except OSError as exc:
+            print(f"auto-fix {name} could not run: {exc.strerror or exc}", file=sys.stderr)
+            continue
+        if result.returncode != 0:
+            print(f"auto-fix {name} exited {result.returncode}", file=sys.stderr)
+            continue
+        applied.append(name)
+    return applied
+
+
+def _restage_fixed(
+    repo_root: Path, staged: list[str], dirty_before: list[str], applied: list[str]
+) -> None:
+    dirty_after = _git_lines(repo_root, "diff", "--name-only")
+    if dirty_after is None:
+        print("skipping re-stage: cannot read the git working tree", file=sys.stderr)
+        return
+    restage = sorted((set(dirty_after) - set(dirty_before)) & set(staged))
+    if not restage:
+        return
+    if _git_lines(repo_root, "add", "--", *restage) is None:
+        print(f"auto-fix changed {', '.join(restage)} but re-staging failed", file=sys.stderr)
+        return
+    print(f"auto-fixed and re-staged ({', '.join(applied)}): {', '.join(restage)}")
+
+
+def run_checks(repo_root: Path, mode: str, *, scope_to_diff: bool = False) -> int:
+
+    checks = load_checks(repo_root, mode)
+    if not checks:
+        print(f"No verify checks configured for mode '{mode}' in {CONFIG_FILE}; nothing to gate.")
+        return 0
+
+    skips = scoped_skips(repo_root, mode) if scope_to_diff else {}
+    total_start = time.perf_counter()
+    failed: list[str] = []
+    for name, command in checks:
+        if name in skips:
+            print(f"==> {name} SKIPPED: {skips[name]}")
+            continue
+        print(f"==> {name}")
+        start = time.perf_counter()
+        try:
+            result = subprocess.run(command, cwd=repo_root, check=False)  # nosec B603
+            code = result.returncode
+        except FileNotFoundError:
+            print(
+                f"FAILED: {name} — command not found: {command[0]} "
+                f"(install it or edit [[verify.checks]] in {CONFIG_FILE})",
+                file=sys.stderr,
+            )
+            code = 127
+        except OSError as exc:
+            print(
+                f"FAILED: {name} — cannot run {command[0]} ({exc.strerror or exc})",
+                file=sys.stderr,
+            )
+            code = 126
+        elapsed = time.perf_counter() - start
+        if code != 0:
+            failed.append(name)
+            print(f"FAILED: {name} ({elapsed:.2f}s)", file=sys.stderr)
+
+    total_elapsed = time.perf_counter() - total_start
+    ran = len(checks) - len(skips)
+    tail = f" ({len(skips)} skipped: {', '.join(sorted(skips))})" if skips else ""
+    if failed:
+        print(
+            f"checks failed: {ran - len(failed)}/{ran} passed in {total_elapsed:.2f}s "
+            f"(failed: {', '.join(failed)}){tail}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"checks passed: {ran}/{ran} in {total_elapsed:.2f}s{tail}")
+    return 0

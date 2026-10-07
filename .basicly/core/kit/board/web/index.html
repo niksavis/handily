@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22%3E%3Cdefs%3E%3Cpath id=%22module%22 d=%22M25 25 H66 V36 H36 V54 H25 Z%22/%3E%3Cmask id=%22bHoles%22%3E%3Crect x=%2241%22 y=%2241%22 width=%2246%22 height=%2246%22 rx=%222%22 fill=%22%23fff%22/%3E%3Crect x=%2275%22 y=%2247%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2254%22 y=%2254%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2261%22 y=%2254%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2268%22 y=%2254%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2275%22 y=%2261%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2254%22 y=%2268%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2261%22 y=%2268%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2268%22 y=%2268%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3Crect x=%2275%22 y=%2275%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23000%22/%3E%3C/mask%3E%3C/defs%3E%3Cuse href=%22%23module%22 fill=%22%23818cf8%22/%3E%3Cuse href=%22%23module%22 fill=%22%236366f1%22 transform=%22rotate(90 64 64)%22/%3E%3Cuse href=%22%23module%22 fill=%22%23ea580c%22 transform=%22rotate(180 64 64)%22/%3E%3Cuse href=%22%23module%22 fill=%22%236366f1%22 transform=%22rotate(270 64 64)%22/%3E%3Crect x=%2241%22 y=%2241%22 width=%2246%22 height=%2246%22 rx=%222%22 fill=%22%234f46e5%22 mask=%22url(%23bHoles)%22/%3E%3Cg%3E%3Crect x=%2247%22 y=%2247%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23fdba74%22/%3E%3Crect x=%2254%22 y=%2247%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23fb923c%22/%3E%3Crect x=%2261%22 y=%2247%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23f97316%22/%3E%3Crect x=%2268%22 y=%2247%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23f59e0b%22/%3E%3Crect x=%2247%22 y=%2254%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23fb923c%22/%3E%3Crect x=%2275%22 y=%2254%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23fdba74%22/%3E%3Crect x=%2247%22 y=%2261%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23f97316%22/%3E%3Crect x=%2254%22 y=%2261%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23f59e0b%22/%3E%3Crect x=%2261%22 y=%2261%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23ea580c%22/%3E%3Crect x=%2268%22 y=%2261%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23fdba74%22/%3E%3Crect x=%2247%22 y=%2268%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23f59e0b%22/%3E%3Crect x=%2275%22 y=%2268%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23f97316%22/%3E%3Crect x=%2247%22 y=%2275%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23ea580c%22/%3E%3Crect x=%2254%22 y=%2275%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23fdba74%22/%3E%3Crect x=%2261%22 y=%2275%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23fb923c%22/%3E%3Crect x=%2268%22 y=%2275%22 width=%226%22 height=%226%22 rx=%221.5%22 fill=%22%23f97316%22/%3E%3C/g%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracker</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: light-dark(#f7f7f8, #121214); --panel: light-dark(#ffffff, #1a1a1d); --raise: light-dark(#f0f0f3, #232327);
+    --line: light-dark(#dcdce2, #2e2e34); --text: light-dark(#18181b, #e7e7ea); --muted: light-dark(#63636e, #9a9aa5);
+    --accent: light-dark(#2563eb, #6b9bff); --warn: light-dark(#b45309, #f0a24a); --bad: light-dark(#c81e1e, #ff6b6b);
+    --held: light-dark(#5b5bd6, #a5a5ff); --ok: light-dark(#15803d, #4ade80);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  header { display: flex; align-items: center; gap: 1rem; padding: .6rem 1.2rem; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 1.05rem; margin: 0; }
+  .search-box { flex: 0 1 28rem; }
+  #search { width: 100%; padding: .4rem .7rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  #counts { display: flex; gap: .9rem; color: var(--muted); font-size: .9rem; margin-left: auto; }
+  #counts b { color: var(--text); }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(22rem, 44%) 1fr; }
+  #list-pane { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  #detail-pane { overflow: auto; padding: 1.2rem 1.6rem 3rem; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding: .6rem 1rem; border-bottom: 1px solid var(--line); }
+  .tab, .chip { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: .15rem .7rem; cursor: pointer; color: var(--muted); }
+  .tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: white; }
+  .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .tab .n { opacity: .75; margin-left: .3rem; font-size: .85em; }
+  .grow { flex: 1; }
+  select.small { padding: .15rem .4rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  #rows { list-style: none; margin: 0; padding: .4rem .6rem; overflow: auto; flex: 1; }
+  #rows button { all: unset; display: grid; grid-template-columns: 1.1rem 1fr; gap: .2rem .5rem; align-items: baseline; width: 100%; box-sizing: border-box; padding: .5rem .6rem; border-radius: 8px; cursor: pointer; }
+  #rows button:hover { background: var(--raise); }
+  #rows button:focus-visible { outline: 2px solid var(--accent); }
+  #rows button > .st { grid-row: 1; align-self: center; }
+  #rows button > .title { grid-column: 2; }
+  #rows button > .meta, #rows button > .links-line { grid-column: 1 / -1; }
+  #rows button[aria-current="true"] { background: var(--raise); box-shadow: inset 3px 0 0 var(--accent); }
+  .title { font-weight: 500; }
+  .meta { color: var(--muted); font-size: .82rem; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; }
+  .id { font-family: ui-monospace, monospace; font-size: .82rem; color: var(--muted); }
+  .pr0 { color: white; background: var(--bad); border-color: var(--bad) !important; } .pr1 { color: var(--warn); }
+  .pr2 { color: var(--text); } .pr3, .pr4, .pr- { color: var(--muted); }
+  .pill { display: inline-block; font-size: .75rem; font-weight: 600; line-height: 1.5; padding: 0 .5rem; border-radius: 999px; border: 1px solid currentColor; }
+  .pill[class*="t-"] { color: var(--muted); border-color: var(--line); font-weight: 500; }
+  .st { flex: none; width: .8rem; height: .8rem; border-radius: 50%; border: 2px solid var(--muted); box-sizing: border-box; display: inline-block; position: relative; }
+  .st-in_progress { border-color: var(--accent); background: linear-gradient(90deg, var(--accent) 50%, transparent 50%); }
+  .st-blocked { border-color: var(--bad); background: var(--bad); }
+  .st-blocked::after { content: ""; position: absolute; left: 1px; right: 1px; top: calc(50% - 1px); height: 2px; background: var(--panel); }
+  .st-deferred { border-style: dashed; }
+  .st-closed { border-color: var(--ok); background: var(--ok); }
+  .s-in_progress { color: var(--accent); } .s-blocked { color: var(--bad); } .s-deferred, .s-open { color: var(--muted); } .s-closed { color: var(--ok); }
+  .bad { color: var(--bad); } .held { color: var(--held); } .ok { color: var(--ok); }
+  .empty { color: var(--muted); padding: 1rem; }
+  .links-line { color: var(--muted); font-size: .8rem; display: flex; flex-wrap: wrap; gap: .1rem .7rem; }
+  .links-line .open-blocker { color: var(--bad); }
+  .checklist { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .85rem; color: var(--muted); }
+  .checklist .have, .dod li.have { color: var(--ok); }
+  .dod ul { list-style: none; padding-left: .2rem; }
+  .needs { color: var(--muted); border-bottom: 1px dotted var(--muted); cursor: help; }
+  .notice ul { margin: .3rem 0 0; padding-left: 1.2rem; }
+  .notice li b { font-weight: 600; }
+  .label { font-size: .72rem; padding: 0 .4rem; border-radius: 4px; background: var(--raise); color: var(--muted); }
+  details.facts summary { cursor: pointer; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+  details.facts dl { display: grid; grid-template-columns: 11rem 1fr; gap: .2rem .8rem; margin: .5rem 0 0; font-size: .88rem; }
+  details.facts dt { color: var(--muted); }
+  details.facts dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .crumbs { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; color: var(--muted); }
+  .crumbs select { padding: .1rem .3rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  h2.story-title { font-size: 1.35rem; margin: .4rem 0 .6rem; line-height: 1.3; }
+  .bar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); margin-bottom: 1rem; }
+  .btn { border: 1px solid var(--accent); background: var(--accent); color: white; border-radius: 7px; padding: .3rem .9rem; cursor: pointer; }
+  .btn.plain { background: transparent; color: var(--accent); }
+  .btn.danger { border-color: var(--bad); background: var(--bad); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .link { all: unset; color: var(--accent); cursor: pointer; font-size: .85rem; }
+  .link:hover { text-decoration: underline; }
+  details.more { position: relative; }
+  details.more summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 7px; padding: .3rem .7rem; color: var(--muted); }
+  details.more summary::-webkit-details-marker { display: none; }
+  details.more .menu { position: absolute; right: 0; z-index: 5; margin-top: .3rem; min-width: 15rem; padding: .3rem; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 6px 24px #0004; }
+  details.more .menu button { all: unset; display: block; width: 100%; box-sizing: border-box; padding: .35rem .6rem; border-radius: 5px; cursor: pointer; }
+  details.more .menu button:hover { background: var(--raise); }
+  .bar select { padding: .35rem .5rem; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); }
+  .picker { position: relative; flex: 1; min-width: 16rem; }
+  .picker ul { position: absolute; z-index: 6; left: 0; right: 0; margin: .2rem 0 0; padding: .3rem; list-style: none; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 6px 24px #0004; max-height: 18rem; overflow: auto; }
+  .picker li { padding: .3rem .5rem; border-radius: 5px; cursor: pointer; display: flex; gap: .5rem; align-items: baseline; }
+  .picker li[aria-selected="true"], .picker li:hover { background: var(--raise); }
+  .verdict { font-size: .85rem; flex-basis: 100%; }
+  .notice { padding: .5rem .8rem; border-radius: 8px; margin-bottom: .8rem; border: 1px solid var(--line); }
+  .notice.note { border-color: var(--line); color: var(--text); } .notice.bad { border-color: var(--bad); }
+  section.block { margin: 1.1rem 0; }
+  section.block > h3 { display: flex; align-items: baseline; gap: .8rem; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 .4rem; }
+  .md p { margin: .3rem 0; } .md h4 { margin: .7rem 0 .2rem; font-size: .95rem; }
+  .md ul { margin: .2rem 0; padding-left: 1.2rem; } .md li.check { list-style: none; margin-left: -1.2rem; }
+  .md code { font-family: ui-monospace, monospace; font-size: .88em; background: var(--raise); padding: .05rem .25rem; border-radius: 4px; }
+  .md table { border-collapse: collapse; margin: .4rem 0; font-size: .9em; }
+  .md th, .md td { border: 1px solid var(--line); padding: .25rem .5rem; text-align: left; vertical-align: top; }
+  .md th { background: var(--raise); }
+  .md pre { background: var(--raise); padding: .6rem; border-radius: 6px; overflow: auto; }
+  .none { color: var(--muted); font-style: italic; }
+  textarea, input.field { width: 100%; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+  textarea { min-height: 7rem; resize: vertical; font-family: ui-monospace, monospace; font-size: .88rem; line-height: 1.5; overflow: hidden; }
+  textarea.tall { min-height: 16rem; }
+  .form-foot { position: sticky; bottom: -3rem; display: flex; gap: .6rem; align-items: center; padding: .7rem 0 3rem; background: var(--bg); border-top: 1px solid var(--line); margin-top: .6rem; }
+  .row-actions { display: flex; gap: .5rem; margin-top: .4rem; align-items: center; }
+  .links { list-style: none; margin: 0; padding: 0; }
+  .links li { display: flex; gap: .6rem; align-items: baseline; padding: .15rem 0; }
+  .links .kind { width: 6.5rem; flex: none; color: var(--muted); font-size: .82rem; }
+  .comments { list-style: none; margin: 0 0 .6rem; padding: 0; }
+  .comments li { border-left: 3px solid var(--line); padding: .1rem 0 .1rem .7rem; margin: .6rem 0; }
+  .comments .who { color: var(--muted); font-size: .8rem; }
+  .comments .text { white-space: pre-wrap; }
+  form.grid { display: grid; gap: .6rem; }
+  form.grid label { display: grid; gap: .2rem; color: var(--muted); font-size: .85rem; }
+  form.grid select { min-width: 10rem; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: .9rem; }
+  .inline { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  #toast { position: fixed; right: 1rem; bottom: 1rem; max-width: 34rem; padding: .6rem .9rem; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 6px 24px #0004; display: none; }
+  #outage { margin: .6rem 1.2rem 0; }
+  #toast.show { display: block; } #toast.bad { border-color: var(--bad); color: var(--bad); }
+  .back { display: none; }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    body.reading #list-pane { display: none; }
+    body:not(.reading) #detail-pane { display: none; }
+    .back { display: inline-block; margin-bottom: .6rem; }
+    #counts { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tracker</h1>
+  <div class="picker search-box"><input id="search" type="search" placeholder="Search titles and ids   ( / )" aria-label="Search" autocomplete="off"></div>
+  <div id="counts" aria-live="polite"></div>
+  <button class="btn" id="new" type="button">New story</button>
+</header>
+<div id="outage" class="notice bad" role="alert" hidden></div>
+<div id="mirror" class="notice note" role="status" hidden></div>
+<main>
+  <div id="list-pane">
+    <div class="toolbar" id="tabs" role="toolbar" aria-label="Views"></div>
+    <div class="toolbar">
+      <div id="types" class="inline" role="toolbar" aria-label="Type"></div>
+      <span class="grow"></span>
+      <label class="meta">sort <select id="sort" class="small">
+        <option value="rank">rank</option><option value="priority">priority</option>
+        <option value="updated">last updated</option><option value="created">newest</option>
+      </select></label>
+    </div>
+    <ol id="rows" aria-label="Stories"></ol>
+  </div>
+  <div id="detail-pane" aria-live="polite"></div>
+</main>
+<div id="toast" role="status"></div>
+<script>
+"use strict";
+const API = "/api/v1";
+const REFINE = "refine";
+const TYPES = ["task", "feature", "bug", "chore", "epic"];
+const PRIORITIES = [["0", "critical"], ["1", "high"], ["2", "medium"], ["3", "low"], ["4", "backlog"]];
+const STATUSES = ["open", "in_progress", "blocked", "deferred"];
+const EDGE_NAMES = { blocks: "waits on", "parent-child": "is a child of", related: "is related to", "discovered-from": "was discovered from" };
+const TABS = [["ready", "Ready"], ["working", "In progress"], ["refine", "Refine"], ["blocked", "Blocked"], ["mine", "Mine"], ["active", "All open"], ["closed", "Closed"]];
+const LIST_CAP = 400;
+const state = { dependents: new Map(), edgeTypes: ["blocks"], me: "", records: new Map(), closed: null, ready: [], refine: new Map(), blocked: new Map(), tab: "ready", type: "", sort: "rank", query: "", current: null };
+
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (value === undefined || value === null || value === false) continue;
+    if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else if (key === "class") node.className = value;
+    else node.setAttribute(key, value === true ? "" : value);
+  }
+  for (const child of children.flat()) if (child !== null && child !== undefined && child !== "") node.append(child);
+  return node;
+}
+
+async function call(method, path, body) {
+  const init = { method, headers: {} };
+  if (body !== undefined) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const response = await fetch(API + path, init);
+  const report = await response.json();
+  if (report.found === false) throw new Error("no story " + (report.record || "") + " in this ledger");
+  if (!response.ok || typeof report.refused === "string") throw new Error(report.refused || JSON.stringify(report.blocking || report));
+  return report;
+}
+
+function toast(text, bad) {
+  const node = document.getElementById("toast");
+  node.textContent = text;
+  node.className = "show" + (bad ? " bad" : "");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { node.className = ""; }, bad ? 9000 : 3500);
+}
+
+async function attempt(work, done) {
+  try {
+    await work();
+    if (done) toast(done);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function age(stamp) {
+  if (!stamp) return "";
+  const days = (Date.now() - Date.parse(stamp)) / 86400000;
+  if (days < 1 / 24) return "now";
+  if (days < 1) return Math.round(days * 24) + "h";
+  if (days < 60) return Math.round(days) + "d";
+  return Math.round(days / 30) + "mo";
+}
+
+const SECTIONS = {
+  "Trigger": ["trigger", "the situation that causes the work: When <situation>, I want <goal>, so I can <outcome>."],
+  "Acceptance Criteria": ["acceptance criteria", "checks that prove the work is done, one per line: - [ ] <a check a person can run>. Verify checks them."],
+  "Requirements": ["requirements", "what the solution must hold to, for example: standard library only. Validation judges the result against them."],
+  "Steps to Reproduce": ["steps to reproduce", "the steps that make the bug happen, one per line."],
+  "Success Criteria": ["success criteria", "what must be true when the whole epic is done."],
+};
+
+function sectionOf(name) {
+  const bare = name.replace(/^## /, "");
+  return [bare, ...(SECTIONS[bare] || [bare.toLowerCase(), "a section the template for this type requires."])];
+}
+
+function needs(names) {
+  const parts = (names || []).map(sectionOf);
+  return el("span", { class: "needs", title: parts.map(([bare, , what]) => bare + ": " + what).join("\n") }, "DoR: " + parts.map(([, short]) => short).join(", "));
+}
+
+function doneBlock(shown) {
+  const f = shown.fields;
+  const item = (ok, name, what) => el("li", { class: ok ? "have" : "" }, (ok ? "✓ " : "○ ") , el("b", {}, name), ": " + what);
+  return el("div", { class: "notice note dod" }, "Definition of Done: closing needs a reason as evidence, and the engine checks:",
+    el("ul", {}, [
+      item(Boolean(String(f.acceptance_criteria || "").trim()), "acceptance criteria", "verify checks each one"),
+      item(Boolean(String(f.requirements || "").trim()), "requirements", "validation judges the result against them, and refuses without them"),
+    ]));
+}
+
+function needsList(names) {
+  return el("ul", {}, (names || []).map(sectionOf).map(([bare, , what]) => el("li", {}, el("b", {}, bare), ": " + what)));
+}
+
+function writer(raw) {
+  const [kind, rest] = String(raw || "").split(":");
+  if (kind === "agent" && rest) return "agent · " + rest.split("_")[0];
+  return kind || "unknown";
+}
+
+function person(name) {
+  if (!name) return "";
+  return name === state.me ? "you" : name;
+}
+
+function outage(message) {
+  const node = document.getElementById("outage");
+  node.textContent = message ? "The board cannot read the tracker: " + message : "";
+  node.hidden = !message;
+}
+
+async function load() {
+  const version = await call("GET", "/version").then((stamp) => stamp.version, () => "");
+  const [index, ready, blocked, refine, ...lists] = await Promise.all([
+    call("GET", ""), call("GET", "/ready?limit=5000"), call("GET", "/blocked"), call("GET", "/refine"),
+    ...STATUSES.map((status) => call("GET", "/records?status=" + status)),
+  ]).catch((error) => {
+    outage(error.message);
+    throw error;
+  });
+  outage("");
+  state.version = version;
+  state.me = index.holder || "";
+  state.edgeTypes = index.edge_types || state.edgeTypes;
+  state.records = new Map(lists.flatMap((list) => list.records).map((one) => [one.record, one]));
+  state.dependents = new Map();
+  for (const one of state.records.values()) {
+    for (const edge of one.dependencies || []) {
+      if (!state.dependents.has(edge.id)) state.dependents.set(edge.id, []);
+      state.dependents.get(edge.id).push({ id: one.record, dependency_type: edge.dependency_type });
+    }
+  }
+  state.ready = ready.records;
+  state.blocked = new Map(blocked.records.map((one) => [one.record, one]));
+  state.refine = new Map(refine.records.map((one) => [one.record, one]));
+  if (!state.loaded && !state.ready.length && state.records.size) state.tab = "active";
+  state.loaded = true;
+  drawMirror(index.mirror);
+  drawCounts();
+  drawList();
+}
+
+function drawMirror(mirror) {
+  const node = document.getElementById("mirror");
+  node.textContent = mirror ? "This ledger mirrors " + mirror.source + " from " + mirror.export
+    + ". " + mirror.source + " stays the source of truth: sync re-imports it, and its status wins." : "";
+  node.hidden = !mirror;
+}
+
+function drawCounts() {
+  const counts = [["ready", state.ready.length], ["in progress", [...state.records.values()].filter(working).length], ["refine", state.refine.size], ["blocked", state.blocked.size], ["open", state.records.size]];
+  document.getElementById("counts").replaceChildren(...counts.map(([name, value]) => el("span", {}, el("b", {}, String(value)), " " + name)));
+}
+
+function working(record) {
+  return record.status === "in_progress";
+}
+
+function mine(record) {
+  return Boolean(state.me) && record.fields.assignee === state.me;
+}
+
+function population() {
+  const records = state.records;
+  if (state.tab === "ready") return state.ready.map((row) => ({ id: row.record, rank: row.rank, record: records.get(row.record) }));
+  if (state.tab === "refine") return [...state.refine.values()].map((row) => ({ id: row.record, record: records.get(row.record) }));
+  if (state.tab === "blocked") return [...state.blocked.values()].map((row) => ({ id: row.record, record: records.get(row.record) }));
+  if (state.tab === "working") return [...records.values()].filter(working).map((record) => ({ id: record.record, record }));
+  if (state.tab === "mine") return [...records.values()].filter(mine).map((record) => ({ id: record.record, record }));
+  if (state.tab === "closed") return (state.closed || []).map((record) => ({ id: record.record, record }));
+  return [...records.values()].map((record) => ({ id: record.record, record }));
+}
+
+function sortKey(item) {
+  const record = item.record || { fields: {}, dates: {} };
+  const dates = record.dates || {};
+  const priority = Number(record.fields.priority ?? 9);
+  if (state.sort === "priority") return [priority, item.rank ?? 1e9];
+  if (state.sort === "updated") return [-(Date.parse(dates.updated) || 0)];
+  if (state.sort === "created") return [-(Date.parse(dates.created) || 0)];
+  if (state.tab === "closed") return [-(Date.parse(dates.closed || dates.updated) || 0)];
+  return [item.rank ?? priority * 1e6];
+}
+
+function compare(a, b) {
+  const left = sortKey(a), right = sortKey(b);
+  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return left[i] - right[i];
+  return a.id < b.id ? -1 : 1;
+}
+
+function badge(item) {
+  const record = item.record || {};
+  if (record.contested && record.contested.length) return el("span", { class: "bad" }, "contested");
+  const refine = state.refine.get(item.id);
+  if (refine && refine.blocking.length) return needs(refine.blocking);
+  if (refine && refine.labelled) return el("span", { class: "needs", title: "a person wrote or changed it, so an agent reviews it before it is ready" }, "needs agent review");
+  return null;
+}
+
+function named(ids) {
+  return ids.map((id) => id + "  " + String((state.records.get(id) || { fields: {} }).fields.title || "")).join("\n");
+}
+
+function few(ids) {
+  return ids.slice(0, 2).join(", ") + (ids.length > 2 ? " +" + (ids.length - 2) : "");
+}
+
+function linksLine(item) {
+  const record = item.record;
+  if (!record) return null;
+  const own = record.dependencies || [];
+  const theirs = state.dependents.get(item.id) || [];
+  const typed = (list, type) => list.filter((edge) => edge.dependency_type === type).map((edge) => edge.id);
+  const waiting = typed(own, "blocks");
+  const openWaits = waiting.filter((id) => state.records.has(id));
+  const done = waiting.length - openWaits.length;
+  const parts = [];
+  if (openWaits.length) parts.push(el("span", { class: "open-blocker", title: named(waiting) }, "waits on " + few(openWaits) + (done ? " (+" + done + " done)" : "")));
+  else if (done) parts.push(el("span", { title: waiting.join("\n") }, done === 1 ? "blocker done" : "blockers done"));
+  const blocking = typed(theirs, "blocks");
+  if (blocking.length) parts.push(el("span", { title: named(blocking) }, "blocks " + few(blocking)));
+  const parent = typed(own, "parent-child");
+  if (parent.length) parts.push(el("span", {}, "child of " + parent.join(", ")));
+  const children = typed(theirs, "parent-child");
+  if (children.length) parts.push(el("span", { title: named(children) }, children.length + (children.length === 1 ? " child" : " children")));
+  const related = [...typed(own, "related"), ...typed(theirs, "related"), ...typed(own, "discovered-from")];
+  if (related.length) parts.push(el("span", { title: named(related) }, related.length + " related"));
+  const labels = labelsOf(record.fields.labels).filter((label) => label !== REFINE);
+  for (const label of labels.slice(0, 4)) parts.push(el("span", { class: "label" }, label));
+  return parts.length ? el("span", { class: "links-line" }, parts) : null;
+}
+
+async function closedRecords() {
+  if (!state.closed) state.closed = (await call("GET", "/records?status=closed")).records;
+  return state.closed;
+}
+
+async function pick(key) {
+  state.tab = key;
+  if (key === "closed") await attempt(closedRecords);
+  drawList();
+}
+
+function drawTabs() {
+  const sizes = { working: [...state.records.values()].filter(working).length, ready: state.ready.length, refine: state.refine.size, blocked: state.blocked.size, mine: [...state.records.values()].filter(mine).length, active: state.records.size, closed: state.closed ? state.closed.length : null };
+  document.getElementById("tabs").replaceChildren(...TABS.map(([key, name]) => el("button", {
+    class: "tab", type: "button", "aria-pressed": String(state.tab === key), onclick: () => pick(key),
+  }, name, sizes[key] === null ? null : el("span", { class: "n" }, String(sizes[key])))));
+  document.getElementById("types").replaceChildren(...[["", "all types"], ...TYPES.map((t) => [t, t])].map(([key, name]) => el("button", {
+    class: "chip", type: "button", "aria-pressed": String(state.type === key), onclick: () => { state.type = key; drawList(); },
+  }, name)));
+}
+
+const STATUS_NAMES = { open: "open", in_progress: "in progress", blocked: "blocked", deferred: "deferred", closed: "closed" };
+
+function statusMark(status, record) {
+  const waits = status === "open" && record ? (record.dependencies || []).filter((edge) => edge.dependency_type === "blocks" && state.records.has(edge.id)).map((edge) => edge.id) : [];
+  const shown = waits.length ? "blocked" : status;
+  const name = waits.length ? "open, waits on " + waits.join(", ") : STATUS_NAMES[status] || status || "unknown";
+  return el("span", { class: "st st-" + shown, role: "img", "aria-label": "status: " + name, title: name });
+}
+
+function typePill(type) {
+  return el("span", { class: "pill t-" + type }, type);
+}
+
+function priorityPill(priority, long) {
+  const known = PRIORITIES.find(([key]) => key === String(priority ?? ""));
+  if (!known) return el("span", { class: "pill pr-" }, "no priority");
+  return el("span", { class: "pill pr" + known[0], title: known[1] }, "P" + known[0] + (long ? " " + known[1] : ""));
+}
+
+function row(item) {
+  const record = item.record || { fields: {}, dates: {} };
+  const holder = person(record.fields.assignee);
+  return el("li", {}, el("button", {
+    type: "button", "aria-current": String(Boolean(state.current) && state.current.record === item.id), onclick: () => go(item.id),
+  },
+  statusMark(record.status, record),
+  el("span", { class: "title" }, String(record.fields.title || item.id)),
+  el("span", { class: "meta" },
+    priorityPill(record.fields.priority),
+    holder ? el("span", { class: "held" }, holder) : null,
+    badge(item),
+    record.fields.issue_type ? typePill(record.fields.issue_type) : null,
+    record.dates && record.dates.updated ? el("span", { title: "last updated " + record.dates.updated }, age(record.dates.updated)) : null,
+    el("span", { class: "id" }, item.id)),
+  linksLine(item)));
+}
+
+function drawList() {
+  drawTabs();
+  const query = state.query.toLowerCase();
+  const items = population().filter((item) => {
+    const fields = item.record ? item.record.fields : {};
+    if (state.type && fields.issue_type !== state.type) return false;
+    return !query || item.id.toLowerCase().includes(query) || String(fields.title || "").toLowerCase().includes(query);
+  }).sort(compare);
+  const rows = items.slice(0, LIST_CAP).map(row);
+  if (items.length > rows.length) rows.push(el("li", { class: "empty" }, `${items.length - rows.length} more: search or filter to narrow the list`));
+  if (!rows.length) rows.push(el("li", { class: "empty" }, state.tab === "mine" && !state.me ? "set git config user.name so the tracker knows who you are" : "nothing here"));
+  document.getElementById("rows").replaceChildren(...rows);
+}
+
+function strong(text) {
+  return text.split(/(\*\*[^*]+\*\*)/).map((part) => part.length > 4 && part.startsWith("**") && part.endsWith("**") ? el("strong", {}, part.slice(2, -2)) : part);
+}
+
+function inline(text) {
+  return String(text).split(/(`[^`]+`)/).flatMap((part) => part.length > 1 && part.startsWith("`") && part.endsWith("`") ? [el("code", {}, part.slice(1, -1))] : strong(part));
+}
+
+function cells(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function markdown(text) {
+  const root = el("div", { class: "md" });
+  let list = null, fence = null, table = null, para = [];
+  const flush = () => { if (para.length) root.append(el("p", {}, inline(para.join(" ")))); para = []; };
+  for (const raw of String(text || "").split("\n")) {
+    const line = raw.trimEnd();
+    if (fence !== null) {
+      if (line.trim().startsWith("```")) { root.append(el("pre", {}, el("code", {}, fence.join("\n")))); fence = null; } else fence.push(raw);
+      continue;
+    }
+    if (line.trim().startsWith("```")) { flush(); list = null; table = null; fence = []; continue; }
+    if (line.trim().startsWith("|")) {
+      flush(); list = null;
+      if (/^\|[\s:|-]+\|?$/.test(line.trim())) continue;
+      const row = el("tr", {}, cells(line).map((cell) => el(table ? "td" : "th", {}, inline(cell))));
+      if (!table) { table = el("table"); root.append(table); }
+      table.append(row);
+      continue;
+    }
+    table = null;
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    const item = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)$/);
+    if (heading) { flush(); list = null; root.append(el("h4", {}, inline(heading[1]))); continue; }
+    if (item) {
+      flush();
+      if (!list) { list = el("ul"); root.append(list); }
+      const box = item[1].match(/^\[( |x|X)\]\s*(.*)$/);
+      list.append(box ? el("li", { class: "check" }, box[1] === " " ? "☐ " : "☑ ", inline(box[2])) : el("li", {}, inline(item[1])));
+      continue;
+    }
+    if (!line.trim()) { flush(); list = null; continue; }
+    if (list && /^\s+/.test(raw)) { list.lastChild.append(" ", ...inline(line.trim())); continue; }
+    list = null;
+    para.push(line.trim());
+  }
+  if (fence !== null) root.append(el("pre", {}, el("code", {}, fence.join("\n"))));
+  flush();
+  return root;
+}
+
+function go(record) {
+  if (location.hash !== "#/record/" + record) location.hash = "#/record/" + record;
+  else open(record);
+}
+
+async function act(action, body, done) {
+  const record = state.current.record;
+  await attempt(async () => {
+    await call("POST", "/records/" + encodeURIComponent(record) + "/" + action, body);
+    await load();
+    await open(record);
+  }, done);
+}
+
+function select(options, value, onchange, unset) {
+  const known = options.some(([key]) => String(key) === String(value));
+  return el("select", { onchange: (event) => onchange(event.target.value) },
+    known || !unset ? null : el("option", { value: "", selected: true, disabled: true }, unset),
+    ...options.map(([key, name]) => el("option", { value: key, selected: String(key) === String(value) }, name)));
+}
+
+function section(title, value, placeholder) {
+  return el("section", { class: "block" }, el("h3", {}, title),
+    value && String(value).trim() ? markdown(value) : el("div", { class: "none" }, placeholder));
+}
+
+function grow(area) {
+  const fit = () => { area.style.height = "auto"; area.style.height = area.scrollHeight + 2 + "px"; };
+  area.addEventListener("input", fit);
+  requestAnimationFrame(fit);
+  return area;
+}
+
+const CONTENT = ["title", "description", "acceptance", "requirements"];
+
+function suggest(input, { source, choose, render }) {
+  const list = el("ul", { role: "listbox", hidden: true });
+  let found = [], active = 0;
+  input.setAttribute("role", "combobox");
+  input.setAttribute("autocomplete", "off");
+  input.setAttribute("aria-expanded", "false");
+  const hide = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
+  const draw = () => {
+    list.replaceChildren(...found.map((item, index) => el("li", { role: "option", "aria-selected": String(index === active), onmousedown: (event) => { event.preventDefault(); hide(); choose(item); } }, render(item))));
+    list.hidden = !found.length;
+    input.setAttribute("aria-expanded", String(!list.hidden));
+  };
+  input.addEventListener("input", async () => { found = await source(input.value); active = 0; draw(); });
+  input.addEventListener("keydown", (event) => {
+    if (list.hidden) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); active = (active + (event.key === "ArrowDown" ? 1 : found.length - 1)) % found.length; draw(); }
+    if (event.key === "Enter" && found[active]) { event.preventDefault(); event.stopImmediatePropagation(); hide(); choose(found[active]); }
+    if (event.key === "Escape") hide();
+  });
+  input.addEventListener("blur", hide);
+  return list;
+}
+
+function storyRow(one) {
+  return [statusMark(one.status), el("span", { class: "id" }, one.record), el("span", {}, String(one.fields.title || ""))];
+}
+
+function matching(query, except) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const pool = [...state.records.values(), ...(state.closed || [])];
+  return pool.filter((one) => one.record !== except && words.every((word) =>
+    one.record.toLowerCase().includes(word) || String(one.fields.title || "").toLowerCase().includes(word))).slice(0, 8);
+}
+
+function labelsOf(value) {
+  return (Array.isArray(value) ? value : String(value || "").split(",")).map((one) => String(one).trim()).filter(Boolean);
+}
+
+function knownLabels() {
+  return [...new Set([...state.records.values(), ...(state.closed || [])].flatMap((one) => labelsOf(one.fields.labels)))].sort();
+}
+
+function knownHolders() {
+  return [...new Set([state.me, ...[...state.records.values(), ...(state.closed || [])].map((one) => String(one.fields.assignee || ""))].filter(Boolean))].sort();
+}
+
+function labelInput(value) {
+  const input = el("input", { class: "field", name: "labels", value: labelsOf(value).join(", "), placeholder: "comma-separated, for example phase-1, kit" });
+  const list = suggest(input, {
+    source: (text) => {
+      const parts = text.split(",");
+      const last = parts[parts.length - 1].trim().toLowerCase();
+      const taken = new Set(parts.slice(0, -1).map((one) => one.trim()));
+      return knownLabels().filter((label) => !taken.has(label) && (!last || label.toLowerCase().includes(last))).slice(0, 8);
+    },
+    choose: (label) => {
+      const parts = input.value.split(",").slice(0, -1).map((one) => one.trim()).filter(Boolean);
+      input.value = [...parts, label].join(", ") + ", ";
+      input.focus();
+    },
+    render: (label) => el("span", {}, label),
+  });
+  return el("div", { class: "picker" }, input, list);
+}
+
+const templates = new Map();
+
+async function templateFor(type) {
+  if (!templates.has(type)) templates.set(type, call("GET", "/scaffold?type=" + encodeURIComponent(type)).catch(() => ({ required: [] })));
+  return templates.get(type);
+}
+
+function has(form, name) {
+  const bare = name.replace(/^## /, "");
+  if (bare === "Trigger") return form.description.value.trim().length > 0;
+  if (bare === "Acceptance Criteria") return form.acceptance.value.trim().length > 0;
+  if (bare === "Requirements") return form.requirements.value.trim().length > 0;
+  return form.description.value.includes("## " + bare);
+}
+
+async function drawChecklist(form, box, type) {
+  const { required } = await templateFor(type || "task");
+  box.replaceChildren(el("span", { title: "Definition of Ready: what a story needs before work can start" }, "Definition of Ready for a " + (type || "task") + ":"), ...(required || []).map((name) => {
+    const [bare, short, what] = sectionOf(name);
+    const ok = has(form, name);
+    return el("span", { class: ok ? "have" : "", title: bare + ": " + what }, (ok ? "✓ " : "○ ") + short);
+  }), el("span", {}, "An agent fills in what is missing."));
+}
+
+function storyForm(values, { status, submit, cancel, note }) {
+  const checklist = el("div", { class: "checklist", "aria-live": "polite" });
+  const type = select(TYPES.map((t) => [t, t]), values.issue_type, () => drawChecklist(form, checklist, type.value), "no type");
+  const priority = select(PRIORITIES.map(([key, name]) => [key, "P" + key + " " + name]), values.priority, () => {}, "no priority");
+  const state_ = status ? select(STATUSES.map((one) => [one, one.replace("_", " ")]), status, () => {}) : null;
+  const area = (name, text, placeholder, tall) => grow(el("textarea", { name, placeholder, class: tall ? "tall" : null }, String(text || "")));
+  const form = el("form", { class: "grid" },
+    el("label", {}, "Title", el("input", { class: "field", name: "title", required: true, value: String(values.title || "") })),
+    el("div", { class: "inline" }, el("label", {}, "Type", type), el("label", {}, "Priority", priority), state_ ? el("label", {}, "Status", state_) : null),
+    el("label", {}, "Labels", labelInput(values.labels)),
+    el("label", {}, "Story", area("description", values.description, "When <situation>, I want to <motivation>, so I can <outcome>.", true)),
+    el("label", {}, "Acceptance criteria", area("acceptance", values.acceptance, "- [ ] a check a person can run")),
+    el("label", {}, "Requirements", area("requirements", values.requirements, "- what the solution must hold to")),
+    checklist,
+    el("div", { class: "form-foot" }, el("button", { class: "btn", type: "submit" }, submit),
+      el("button", { class: "btn plain", type: "button", onclick: cancel }, "Cancel"),
+      el("span", { class: "meta" }, note + "  ·  Ctrl+Enter saves")));
+  form.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) form.requestSubmit(); });
+  form.addEventListener("input", () => drawChecklist(form, checklist, type.value));
+  drawChecklist(form, checklist, type.value);
+  form.read = () => ({
+    title: form.title.value, description: form.description.value, acceptance: form.acceptance.value, requirements: form.requirements.value,
+    issue_type: type.value, priority: priority.value, status: state_ ? state_.value : undefined,
+    labels: labelsOf(form.labels.value),
+  });
+  return form;
+}
+
+function edit(shown) {
+  const f = shown.fields;
+  const before = { title: f.title, description: f.description, acceptance: f.acceptance_criteria, requirements: f.requirements, issue_type: f.issue_type, priority: f.priority, labels: labelsOf(f.labels) };
+  const form = storyForm(before, { status: shown.status, submit: "Save", cancel: () => open(shown.record), note: "a change to the text asks for an agent refinement pass" });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const after = form.read();
+    const body = {};
+    for (const key of CONTENT) if (String(after[key] || "") !== String(before[key] || "")) body[key] = after[key];
+    const fields = {};
+    if (after.issue_type && after.issue_type !== before.issue_type) fields.issue_type = after.issue_type;
+    if (after.priority !== "" && String(after.priority) !== String(before.priority ?? "")) fields.priority = Number(after.priority);
+    if (Object.keys(fields).length) body.fields = fields;
+    if (after.status !== shown.status) body.status = after.status;
+    const text = CONTENT.some((key) => key in body);
+    const added = after.labels.filter((label) => !before.labels.includes(label));
+    const removed = before.labels.filter((label) => !after.labels.includes(label));
+    if (text && !after.labels.includes(REFINE)) added.push(REFINE);
+    if (added.length) body.add_labels = added;
+    if (removed.length) body.remove_labels = removed;
+    if (!Object.keys(body).length) return open(shown.record);
+    body.if_seq = shown.max_seq;
+    saveEdit(form, shown.record, body, text ? "saved; an agent refinement pass owes it before it is ready" : "saved");
+  });
+  document.getElementById("detail-pane").replaceChildren(
+    el("div", { class: "crumbs" }, el("span", { class: "id" }, shown.record), el("span", {}, "editing")), form);
+  form.title.focus();
+}
+
+async function saveEdit(form, record, body, done) {
+  try {
+    await call("PATCH", "/records/" + encodeURIComponent(record), body);
+    await load();
+    await open(record);
+    toast(done);
+  } catch (error) {
+    form.querySelector(".notice")?.remove();
+    form.prepend(el("div", { class: "notice bad" }, error.message + ". Your text stays in the form, so copy what you need. ",
+      el("button", { class: "link", type: "button", onclick: () => open(record) }, "Discard my edit and reload")));
+    document.getElementById("detail-pane").scrollTop = 0;
+  }
+}
+
+function assignForm(bar, shown, cancel) {
+  const held = shown.holder && shown.holder.name;
+  const input = el("input", { class: "field", placeholder: "a name, as git config user.name gives it" });
+  const list = suggest(input, {
+    source: (text) => knownHolders().filter((name) => name.toLowerCase().includes(text.trim().toLowerCase())).slice(0, 8),
+    choose: (name) => { input.value = name; judge(); },
+    render: (name) => el("span", {}, name === state.me ? name + " (you)" : name),
+  });
+  const button = el("button", { class: "btn", type: "button", disabled: true }, "Assign");
+  const judge = () => {
+    const name = input.value.trim();
+    const taking = Boolean(held) && held !== name;
+    button.disabled = !name || name === held;
+    button.className = taking ? "btn danger" : "btn";
+    button.textContent = taking ? "Take from " + held + " and assign" : "Assign";
+    button.onclick = () => act("assign", taking ? { to: name, take: true } : { to: name }, "assigned to " + name);
+  };
+  input.addEventListener("input", judge);
+  bar.replaceChildren(el("span", { class: "meta" }, "Assign to"), el("div", { class: "picker" }, input, list), button, cancel);
+  input.focus();
+}
+
+function since(held) {
+  return held.since ? " since " + held.since.slice(0, 10) : "";
+}
+
+function actionsBar(shown, waiting) {
+  const held = shown.holder && shown.holder.name;
+  const yours = Boolean(held) && held === state.me;
+  const bar = el("div", { class: "bar" });
+  const menu = el("div", { class: "menu" });
+  const more = el("details", { class: "more" }, el("summary", {}, "More ▾"), menu);
+  const item = (label, handler) => menu.append(el("button", { type: "button", onclick: () => { more.open = false; handler(); } }, label));
+  const cancel = () => el("button", { class: "btn plain", type: "button", onclick: () => open(shown.record) }, "Cancel");
+  const closeForm = () => {
+    const reason = el("input", { class: "field", placeholder: "Why is it done? This is the permanent record of what shipped." });
+    bar.replaceChildren(reason, el("button", { class: "btn", type: "button", onclick: () => act("close", { reason: reason.value }, "closed") }, "Close story"), cancel());
+    reason.focus();
+  };
+  if (!held) {
+    bar.append(el("span", { class: "meta" }, "Nobody holds this story."),
+      el("button", { class: "btn", type: "button", disabled: Boolean(waiting), title: waiting || "take it and start", onclick: () => act("claim", {}, "claimed: it is yours and in progress") }, "Claim"));
+    item("Reserve for later (assign to me)", () => act("assign", {}, "reserved for you"));
+  } else if (yours) {
+    bar.append(el("span", { class: "held" }, "● You hold this story" + since(shown.holder)),
+      el("button", { class: "btn", type: "button", onclick: closeForm }, "Close…"));
+    item("Release it (unassign)", () => act("unassign", {}, "released"));
+  } else {
+    bar.append(el("span", { class: "held" }, "● Held by " + held + since(shown.holder) + (shown.holder.stale ? " (stale)" : "")),
+      el("button", { class: "btn", type: "button", disabled: true, title: "ask them first" }, "Claim"));
+    item("Take over from " + held + "…", () => {
+      bar.replaceChildren(el("span", { class: "bad" }, "Take the story from " + held + "? The ledger records that you took it."),
+        el("button", { class: "btn danger", type: "button", onclick: () => act("claim", { take: true }, "taken over") }, "Take over"), cancel());
+    });
+  }
+  if (!yours) item("Close…", closeForm);
+  item("Assign to someone…", () => assignForm(bar, shown, cancel()));
+  item("Add a dependency…", () => dependencyForm(bar, shown, cancel()));
+  bar.append(el("span", { class: "grow" }), el("button", { class: "btn plain", type: "button", title: "edit the story (e)", onclick: () => edit(shown) }, "Edit"), more);
+  return bar;
+}
+
+function dependencyVerdict(shown, target, type) {
+  if (!target) return ["", "type an id or words from a title, then pick a story"];
+  if (target.record === shown.record) return ["bad", "a story cannot depend on itself"];
+  if (shown.dependencies.some((edge) => edge.id === target.record && edge.dependency_type === type)) return ["bad", "this story already " + EDGE_NAMES[type] + " " + target.record];
+  if (type === "blocks" && target.status === "closed") return ["bad", target.record + " is closed, so waiting on it holds nothing back; pick an open story, or use is related to"];
+  return ["ok", "this story " + (EDGE_NAMES[type] || type) + " " + target.record + ": " + String(target.fields.title || "")];
+}
+
+function dependencyForm(bar, shown, cancel) {
+  let picked = null;
+  const loading = closedRecords().catch(() => []);
+  const kind = select(state.edgeTypes.map((type) => [type, EDGE_NAMES[type] || type]), "blocks", () => judge());
+  const input = el("input", { class: "field", placeholder: "id or title words" });
+  const verdict = el("div", { class: "verdict meta" });
+  const add = el("button", { class: "btn", type: "button", disabled: true, onclick: () => act("deps", { target: picked.record, type: kind.value }, "dependency recorded") }, "Add");
+  const judge = () => {
+    const [tone, text] = dependencyVerdict(shown, picked, kind.value);
+    verdict.className = "verdict " + (tone || "meta");
+    verdict.textContent = text;
+    add.disabled = tone !== "ok";
+  };
+  const list = suggest(input, {
+    source: async (text) => {
+      picked = null;
+      const query = text.trim();
+      await loading;
+      let found = matching(query, shown.record);
+      if (!found.length && /^[\w.-]+-[\w.]+$/.test(query)) {
+        try { found = [await call("GET", "/records/" + encodeURIComponent(query))]; } catch (error) { found = []; }
+      }
+      judge();
+      if (query && !found.length) { verdict.className = "verdict bad"; verdict.textContent = "no story matches " + query; }
+      return found;
+    },
+    choose: (one) => { picked = one; input.value = one.record + "  " + String(one.fields.title || ""); judge(); },
+    render: storyRow,
+  });
+  input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !add.disabled) { event.preventDefault(); add.click(); } });
+  bar.replaceChildren(el("span", { class: "meta" }, "This story"), kind, el("div", { class: "picker" }, input, list), add, cancel, verdict);
+  judge();
+  input.focus();
+}
+
+function linkRow(kind, id, title, status, removal) {
+  const row = el("li", {}, el("span", { class: "kind" }, kind),
+    el("button", { class: "link", type: "button", onclick: () => go(id) }, id),
+    el("span", {}, title || ""), status && status !== "open" ? el("span", { class: "meta" }, status.replace("_", " ")) : null);
+  if (removal) {
+    const remove = el("button", { class: "link", type: "button", title: "retract this dependency" }, "remove");
+    remove.addEventListener("click", () => remove.replaceWith(el("span", { class: "inline" },
+      el("span", { class: "bad" }, "Remove this link?"),
+      el("button", { class: "btn danger", type: "button", onclick: removal }, "Remove"),
+      el("button", { class: "btn plain", type: "button", onclick: () => open(state.current.record) }, "Keep"))));
+    row.append(el("span", { class: "grow" }), remove);
+  }
+  return row;
+}
+
+function linksBlock(shown) {
+  const named = { "parent-child": ["parent", "child"], blocks: ["waits on", "blocks"] };
+  const rows = [
+    ...shown.dependencies.map((edge) => linkRow((named[edge.dependency_type] || [edge.dependency_type])[0], edge.id, edge.title, edge.status,
+      edge.dependency_type === "parent-child" ? null : () => act("undep", { target: edge.id, type: edge.dependency_type }, "link removed"))),
+    ...shown.dependents.map((edge) => linkRow((named[edge.dependency_type] || [, edge.dependency_type])[1], edge.id, edge.title, edge.status)),
+  ];
+  return el("section", { class: "block" }, el("h3", {}, "Links"), rows.length ? el("ul", { class: "links" }, rows) : el("div", { class: "none" }, "no links"));
+}
+
+const IMPORTED = ["design", "notes", "created_by", "owner", "source_repo", "imported_from", "created_at", "updated_at", "closed_at"];
+
+function factsBlock(shown) {
+  const f = shown.fields;
+  const dates = shown.dates || {};
+  const rows = [
+    ["created", dates.created], ["assigned", dates.assigned], ["updated", dates.updated], ["closed", dates.closed],
+    ["external_ref", f.external_ref], ["shaped under", f.shaped_under],
+    ["checkpoints", Object.keys(shown.checkpoints || {}).length ? JSON.stringify(shown.checkpoints) : ""],
+    ["artifacts", Object.keys(shown.artifacts || {}).join(", ")],
+    ["tokens", shown.totals && Object.values(shown.totals).some(Boolean) ? JSON.stringify(shown.totals) : ""],
+    ...IMPORTED.map((name) => ["imported " + name, f[name]]),
+  ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "");
+  return el("details", { class: "facts block" }, el("summary", {}, "Details"),
+    el("dl", {}, rows.flatMap(([name, value]) => [el("dt", {}, name), el("dd", {}, String(value))])));
+}
+
+function commentsBlock(shown) {
+  const log = shown.comment_log || shown.comments.map((text) => ({ text }));
+  const text = el("textarea", { placeholder: "Add a comment", style: "min-height: 5rem" });
+  return el("section", { class: "block" }, el("h3", {}, "Comments", el("span", {}, String(log.length))),
+    el("ul", { class: "comments" }, log.map((one) => el("li", {},
+      one.writer ? el("div", { class: "who" }, writer(one.writer) + (one.at ? " · " + one.at.slice(0, 16).replace("T", " ") : "")) : null,
+      el("div", { class: "text" }, one.text)))),
+    text, el("div", { class: "row-actions" }, el("button", { class: "btn plain", type: "button", onclick: () => act("comments", { text: text.value }, "comment added") }, "Comment")));
+}
+
+function notices(shown, dor) {
+  const found = [];
+  const labels = String(shown.fields.labels || "").split(",").map((one) => one.trim());
+  if (shown.conflicts && shown.conflicts.length) found.push(el("div", { class: "notice bad" }, "Two branches set different values: " + shown.conflicts.map((c) => c.key + " = " + c.values.join(" / ")).join("; ") + ". Run the kit's resolve command to keep the current value."));
+  if (labels.includes(REFINE)) found.push(el("div", { class: "notice note" }, "Needs agent review. A person wrote or changed this story, so an agent reviews it and fills in what is missing before work can start. Ask an agent to refine " + shown.record + "."));
+  if (shown.status !== "closed" && dor.blocking && dor.blocking.length) found.push(el("div", { class: "notice note" }, "Definition of Ready not met. Edit the story and add:", needsList(dor.blocking)));
+  if (shown.status !== "closed") found.push(doneBlock(shown));
+  return found;
+}
+
+function waitingReason(shown, dor) {
+  if (labelsOf(shown.fields.labels).includes(REFINE)) return "an agent reviews this story before work can start";
+  if (dor && !dor.ready && shown.fields.shaped_under) return "the story is not ready: it still needs " + (dor.blocking || []).map((name) => sectionOf(name)[1]).join(", ");
+  return "";
+}
+
+function titleBlock(shown) {
+  return el("h2", { class: "story-title" }, String(shown.fields.title || shown.record));
+}
+
+function crumbs(shown) {
+  const f = shown.fields;
+  const labels = String(f.labels || "").split(",").map((one) => one.trim()).filter(Boolean);
+  return el("div", { class: "crumbs" },
+    el("span", { class: "inline" }, statusMark(shown.status), el("span", { class: "s-" + shown.status }, STATUS_NAMES[shown.status] || shown.status)),
+    priorityPill(f.priority, true),
+    f.issue_type ? typePill(f.issue_type) : el("span", { class: "pill t-task" }, "no type"),
+    shown.dates && shown.dates.updated ? el("span", { title: shown.dates.updated }, "updated " + age(shown.dates.updated) + " ago") : null,
+    ...labels.map((label) => el("span", { class: "label" }, label)),
+    el("span", { class: "id" }, shown.record));
+}
+
+async function open(record, quiet) {
+  document.body.classList.add("reading");
+  const pane = document.getElementById("detail-pane");
+  const scrolled = pane.scrollTop;
+  const path = "/records/" + encodeURIComponent(record);
+  let shown, dor;
+  try {
+    [shown, dor] = await Promise.all([call("GET", path), fetch(API + path + "/dor").then((r) => r.json())]);
+  } catch (error) {
+    pane.replaceChildren(el("button", { class: "link back", type: "button", onclick: back }, "← back to the list"), el("p", { class: "bad" }, error.message));
+    return;
+  }
+  state.current = shown;
+  const f = shown.fields;
+  pane.replaceChildren(
+    el("button", { class: "link back", type: "button", onclick: back }, "← back to the list"),
+    crumbs(shown),
+    titleBlock(shown),
+    shown.status === "closed" ? el("div", { class: "notice" }, "Closed: " + String(f.close_reason || "")) : actionsBar(shown, waitingReason(shown, dor)),
+    ...notices(shown, dor),
+    section("Story", f.description, "no story yet: say when it happens, what the person wants, and what for"),
+    section("Acceptance criteria", f.acceptance_criteria, "no acceptance criteria yet"),
+    section("Requirements", f.requirements, "no requirements yet"),
+    linksBlock(shown),
+    commentsBlock(shown),
+    factsBlock(shown));
+  pane.scrollTop = quiet ? scrolled : 0;
+  drawList();
+}
+
+function back() {
+  document.body.classList.remove("reading");
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+function blank() {
+  document.body.classList.add("reading");
+  state.current = null;
+  drawList();
+  const form = storyForm({ issue_type: "task", priority: "2" }, { submit: "Create", cancel: back, note: "a new story waits for an agent refinement pass before it is ready" });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const made = form.read();
+    const labels = [...new Set([...made.labels, REFINE])].join(",");
+    const body = { title: made.title, description: made.description, fields: { issue_type: made.issue_type || "task", priority: Number(made.priority || 2), labels } };
+    if (made.acceptance.trim()) body.acceptance = made.acceptance;
+    if (made.requirements.trim()) body.requirements = made.requirements;
+    attempt(async () => {
+      const report = await call("POST", "/records", body);
+      await load();
+      go(report.record);
+    }, "created");
+  });
+  document.getElementById("detail-pane").replaceChildren(el("button", { class: "link back", type: "button", onclick: back }, "← back to the list"), el("h2", { class: "story-title" }, "New story"), form);
+  form.title.focus();
+}
+
+function routed() {
+  const match = location.hash.match(/^#\/record\/(.+)$/);
+  if (match) open(decodeURIComponent(match[1]));
+}
+
+const search = document.getElementById("search");
+search.addEventListener("input", (event) => { state.query = event.target.value; drawList(); });
+search.after(suggest(search, { source: (text) => matching(text, ""), choose: (one) => go(one.record), render: storyRow }));
+
+function busy() {
+  const pane = document.getElementById("detail-pane");
+  return document.hidden || Boolean(pane.querySelector("form, .bar input, details[open]"))
+    || [...pane.querySelectorAll("textarea")].some((area) => area.value.trim());
+}
+
+async function refreshQuietly() {
+  if (busy()) return;
+  try {
+    await load();
+    if (state.current && document.body.classList.contains("reading") && !busy()) await open(state.current.record, true);
+  } catch (error) {
+    toast("the tracker server did not answer: " + error.message, true);
+  }
+}
+
+async function watchVersion() {
+  if (document.hidden || !state.version || busy()) return;
+  try {
+    const { version } = await call("GET", "/version");
+    if (version !== state.version) await refreshQuietly();
+  } catch (error) {
+    return;
+  }
+}
+
+setInterval(watchVersion, 2000);
+setInterval(refreshQuietly, 15000);
+window.addEventListener("focus", refreshQuietly);
+document.getElementById("sort").addEventListener("change", (event) => { state.sort = event.target.value; drawList(); });
+document.getElementById("new").addEventListener("click", blank);
+document.addEventListener("keydown", (event) => {
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+  if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.key === "/") { event.preventDefault(); document.getElementById("search").focus(); }
+  if (event.key === "e" && state.current && state.current.status !== "closed" && !document.querySelector("#detail-pane form")) { event.preventDefault(); edit(state.current); }
+});
+window.addEventListener("hashchange", routed);
+document.getElementById("detail-pane").append(el("div", { class: "empty" }, "Pick a story from the list, or press New story."));
+load().then(routed).catch((error) => toast(error.message, true));
+</script>
+</body>
+</html>

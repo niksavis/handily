@@ -1,0 +1,151 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/protect-generated.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/unsplit-loop-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/pipe-status-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/bare-var-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/rg-replace-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/headroom-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/kit/tier/claude_tier_hook.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/tool-usage.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --no-python-downloads python \"${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/session-start.py\""
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(git status *)",
+      "Bash(git rev-parse *)",
+      "Bash(git ls-files *)",
+      "Bash(git worktree list *)",
+      "Bash(git branch)",
+      "Bash(git branch --show-current)",
+      "Bash(basicly status *)",
+      "Bash(basicly tracker show *)",
+      "Bash(basicly tracker list *)",
+      "Bash(basicly tracker ready *)",
+      "Bash(basicly tracker stats *)",
+      "Bash(basicly check)",
+      "Bash(basicly skills-check *)",
+      "Bash(basicly styles-check *)",
+      "Bash(basicly agents-check)",
+      "Bash(basicly hooks-check)",
+      "Bash(basicly permissions-check)",
+      "Bash(basicly catalog lint)",
+      "Bash(basicly verify)",
+      "Bash(basicly verify --mode fast)",
+      "Bash(basicly verify --mode full)",
+      "Bash(basicly verify --mode staged)"
+    ],
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(rm -fr*)",
+      "Bash(rm -r -f*)",
+      "Bash(rm -f -r*)",
+      "Bash(git push --force*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git push -f*)",
+      "Bash(git push*--force*)",
+      "Bash(git *push*--no-verify*)",
+      "Bash(git *push*--no-gpg-sign*)",
+      "Bash(git *commit*--no-verify*)",
+      "Bash(git *commit*--no-gpg-sign*)",
+      "Bash(git *-c core.hooksPath*)",
+      "Bash(git *-c core.hookspath*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*-f*)",
+      "Bash(git filter-branch*)",
+      "Bash(git filter-repo*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/.env.local)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)"
+    ]
+  },
+  "subagentPromptCacheTtl": "1h",
+  "skillListingBudgetFraction": 0.02
+}

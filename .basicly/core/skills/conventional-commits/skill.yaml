@@ -1,0 +1,101 @@
+# yaml-language-server: $schema=../../schemas/skill.schema.json
+schema_version: 1
+token_cost:
+  listing: 44
+name: conventional-commits
+invocation: model
+description: "Writes a commit subject that passes the hooks: type, scope, breaking-change marker, record id. Use for a commit message or after a hook refused one."
+instructions: |
+  # Conventional Commits
+
+  Construct a one-line commit subject that passes the `commit-msg` and `tracker-commit-msg` hooks on the first attempt. For staging and diff splits, read the git reference of `cli-tools`. For tracker records, use `work-tracker`.
+
+  ## Rules
+
+  - **Use `basicly commit` by default.** It derives the type, the scope and the record id, so only the description is yours.
+  - **Write the description in lowercase letters, digits, spaces and hyphens only.** The hook rejects every other character, also in proper nouns and acronyms.
+  - **Put a version, a file name or a capitalised name in the body.** The hooks check only the subject line.
+  - **Never invent a record id.** The hook reads the ids from `.basicly/ledger/events-*.jsonl`.
+  - **Read `git status --short` column 1 before you commit.** `git commit` takes the whole index, including a file staged by a refused attempt.
+  - **Run `basicly hooks-build` once in each clone and worktree.** An uninstalled hook lets a bad message through to CI.
+  - **When a hook rejects the commit, read its error output.** It names the offending characters.
+
+  ## Default: basicly commit
+
+  ```sh
+  basicly commit "<description>"
+  basicly commit "<description>" --body "Bump to 1.2.0 in README.md." --dry-run
+  ```
+
+  It derives the type from the work class of the record, the scope from the staged paths and the record id from the branch. It refuses a description that the character rules reject, names the character, and does not commit.
+
+  | Flag | Effect |
+  | --- | --- |
+  | `--body` | Free-form body, for capitals, dots and file names |
+  | `--type` | Overrides the derived type |
+  | `--scope` | Overrides the derived scope |
+  | `--issue` | Overrides the record id bound to the branch |
+  | `--breaking` | Adds the `!` before the colon |
+  | `--dry-run` | Prints the message and does not commit |
+
+  ## Format
+
+  Write the subject by hand only when `basicly commit` cannot derive it, for example outside the worktree of a record.
+
+  ```text
+  type(scope)!: description (record-id[, record-id...])
+  ```
+
+  | Part | Rule |
+  | --- | --- |
+  | `type` | One of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert` |
+  | `(scope)` | Optional. Lowercase kebab-case, no space |
+  | `!` | Optional. Directly before the colon. Marks a breaking change |
+  | `description` | Imperative mood. Entirely lowercase. Letters, digits, spaces and hyphens only, so no underscore and no dot. At least 3 characters. It starts with a letter and has no trailing punctuation |
+  | `(record-id, ...)` | One or more ids that the tracker holds, comma-separated in one trailing parenthetical |
+
+  - A record id is `<prefix>-<base>`, with optional dotted levels for child records, for example `app-q49` or `app-zrj.4.1`. The prefix is the tracker prefix of this repository.
+  - The hook finds an id by its prefix at a word boundary anywhere in the message. A hyphenated word in the description is not an id. A trailer such as `Refs: app-q49` also counts.
+  - Merge commits and subjects that start with `Revert "` are exempt.
+
+  Procedure:
+
+  1. Pick the type that matches the intent of the change.
+  2. Find or create the record with `work-tracker`.
+  3. Add `!` only for a breaking change of an interface or a behaviour.
+  4. Write the description.
+  5. Add the record ids in one trailing parenthetical.
+  6. Run `git commit -m "..."`, or name the paths with `git commit -F - -- <paths>`.
+
+  ## Examples
+
+  Valid:
+
+  - `feat(cli): add fragment loader (app-idr)`
+  - `feat(cli)!: remove deprecated config format (app-idr)`
+  - `fix: correct sorting order (app-idr, app-abc)`
+  - `docs: document the update flow (app-zrj.8)`
+
+  Invalid:
+
+  | Subject | Fault | Fix |
+  | --- | --- | --- |
+  | `Fixed the bug` | no type and colon | `fix: correct the bug (app-idr)` |
+  | `chore(scope): Message` | uppercase description | `chore(scope): message (app-idr)` |
+  | `feat: support Conventional Commits marker` | uppercase proper noun | `feat: support conventional commits marker (app-idr)` |
+  | `fix: fix test_cli mutation bug` | underscore | `fix: fix test-cli mutation bug (app-idr)` |
+  | `docs: update AGENTS.md for v0.1.0` | dots and uppercase | `docs: update agents-md for the first release (app-idr)` |
+  | `chore: restamp the install to 0.2.0` | dots | `chore: restamp the install (app-idr)`, with `Restamp to 0.2.0.` in the body |
+  | `fix: correct sorting order (not an id)` | parenthetical holds no record id | a real record id |
+  | `chore(word description): message` | space in the scope | `chore(word-description): message (app-idr)` |
+
+  ## Enforcement
+
+  The hooks are the gate. The same scripts run as the local hook and in CI:
+
+  - `.basicly/core/hooks/commit-msg.py` checks the type, the scope, the `!` and the description.
+  - `.basicly/core/hooks/tracker-commit-msg.py` checks that the record ids are present and exist.
+
+  The profile is stricter than Conventional Commits 1.0.0. A subject that passes plain Conventional Commits can still fail.
+
+  `basicly hooks-build` runs `pre-commit install` and then adds the ledger guard to the pre-push hook. A plain `pre-commit install` does not add that guard. `basicly hooks-check` reports a missing hook.
