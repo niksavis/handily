@@ -1,0 +1,36 @@
+{
+  "config": {
+    "default": true,
+    "MD013": {
+      "line_length": 100,
+      "code_blocks": false,
+      "tables": false
+    }
+  },
+  "globs": ["**/*.md"],
+  "gitignore": true,
+  "ignores": [
+    "node_modules/**",
+    ".basicly/core/**",
+    ".claude/skills/**",
+    ".agents/skills/**",
+    ".github/agents/**",
+    ".claude/agents/**",
+    ".claude/worktrees/**",
+    "mods/**/.claude-plugin/types/**",
+    "AGENTS.md",
+    ".claude/CLAUDE.md",
+    ".github/copilot-instructions.md",
+    ".claude/rules/**",
+    ".claude/output-styles/**"
+  ],
+  "overrides": [
+    {
+      "filter": ["changelog.d/*.*.md"],
+      "config": {
+        "MD041": false
+      },
+      "combine": "merge"
+    }
+  ]
+}
