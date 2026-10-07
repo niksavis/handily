@@ -1,4 +1,4 @@
-import type { FsEntry } from 'claude-code'
+import type { FsEntry, ProcessRunResult } from 'claude-code'
 import type {
   WorkitemsDiff,
   WorkitemsItem,
@@ -6,6 +6,7 @@ import type {
   WorkitemsRefreshResult,
   WorkitemsSnapshot,
 } from '../types'
+import { resolveProgram, sha256Hex, type Approvals, type SearchPath } from './approval'
 import { FileProblem } from './config'
 import { detect } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
@@ -14,7 +15,19 @@ export const MAX_FILE_BYTES = 4 * 1024 * 1024
 export const POLL_INTERVAL_MS = 2000
 export const DIFF_HISTORY_LIMIT = 50
 
-export type FileStat = { size: number; mtimeMs: number; realPath?: string }
+export type FileStat = {
+  size: number
+  mtimeMs: number
+  realPath?: string
+  kind?: 'file' | 'dir' | 'other'
+}
+
+export type CommandHost = {
+  canRun: () => Promise<boolean>
+  run: (argv: readonly string[], cwd: string) => Promise<ProcessRunResult>
+  searchPath: () => Promise<SearchPath>
+  approvals: Approvals
+}
 
 export type ProviderHost = {
   root: () => Promise<string>
@@ -23,6 +36,8 @@ export type ProviderHost = {
   stat: (path: string, options?: { resolve: boolean }) => Promise<FileStat>
   list: (path: string) => Promise<FsEntry[]>
   read: (path: string) => Promise<string>
+  readBytes: (path: string) => Promise<Uint8Array>
+  commands: CommandHost
   publish: (snapshot: WorkitemsSnapshot) => Promise<void>
 }
 
@@ -47,8 +62,45 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       throw new FileProblem(`${relativePath} could not be read.`)
     }
   }
+  async function realPathOf(path: string): Promise<string | undefined> {
+    try {
+      return (await host.stat(path, { resolve: true })).realPath ?? path
+    } catch {
+      return undefined
+    }
+  }
+  async function hashAt(relativePath: string): Promise<string | undefined> {
+    const path = pathAtRoot(root, relativePath)
+    let stat: FileStat
+    try {
+      stat = await host.stat(path)
+    } catch {
+      return undefined
+    }
+    if (stat.kind === 'dir') return undefined
+    if (stat.size > MAX_FILE_BYTES) throw new FileProblem(`${relativePath} is over 4 MiB.`)
+    try {
+      return await sha256Hex(await host.readBytes(path))
+    } catch {
+      throw new FileProblem(`${relativePath} could not be read.`)
+    }
+  }
   return {
+    root,
     stat: statAt,
+    hash: hashAt,
+    commands: {
+      canRun: () => host.commands.canRun(),
+      run: (argv) => host.commands.run(argv, root),
+      which: (program) =>
+        resolveProgram(program, {
+          searchPath: () => host.commands.searchPath(),
+          exists: (path) => host.exists(path),
+          realPath: realPathOf,
+          realPathAtRoot: (relativePath) => realPathOf(pathAtRoot(root, relativePath)),
+        }),
+      approvals: host.commands.approvals,
+    },
     exists: (relativePath) => host.exists(pathAtRoot(root, relativePath)),
     list: async (relativeDirectory) => {
       try {
@@ -161,6 +213,24 @@ async function readSource(
   root: string,
 ): Promise<ReadResult> {
   const outcome = await readSafely(reader, files)
+  const sourced = { root, source: reader.name, caveat: null, items: [], ignored }
+  if (!outcome.ok && 'state' in outcome && outcome.state === 'terminal-only') {
+    return {
+      baselineItems: undefined,
+      data: { ...sourced, state: outcome.state, reason: null, sourceLabel: outcome.sourceLabel },
+    }
+  }
+  if (!outcome.ok && 'state' in outcome) {
+    return {
+      baselineItems: undefined,
+      data: {
+        ...sourced,
+        state: outcome.state,
+        reason: outcome.command,
+        sourceLabel: outcome.sourceLabel,
+      },
+    }
+  }
   if (!outcome.ok) {
     return {
       baselineItems: undefined,

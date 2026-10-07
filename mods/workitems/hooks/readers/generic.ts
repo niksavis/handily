@@ -84,7 +84,7 @@ export function optionalLabels(
   return value
 }
 
-function optionalPriority(located: Located, field: string | undefined): number | null {
+export function optionalPriority(located: Located, field: string | undefined): number | null {
   if (field === undefined) return null
   const value = located.value(field)
   if (isAbsent(value)) return null

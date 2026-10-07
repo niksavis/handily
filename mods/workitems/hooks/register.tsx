@@ -1,13 +1,38 @@
-import type { Register, Timer } from 'claude-code'
-import { readers, writeVerbs } from './readers/index'
+import type { RenderSurface, Register, Timer } from 'claude-code'
+import { createApprovals, type Approvals } from './approval'
+import { createReaders } from './readers/index'
 import { createProvider, POLL_INTERVAL_MS } from './snapshot'
 import { stateLines } from './states'
 
+function canRunCommandsOn(surfaces: readonly RenderSurface[]): boolean {
+  return surfaces.length === 0 || surfaces.includes('terminal')
+}
+
+function bytesOf(base64: string): Uint8Array {
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
+}
+
 export const register: Register = (on) => {
   let poll: Timer | undefined
+  let approvals: Approvals | undefined
 
   on('engine.create', async (_$, e, next) => {
     const built = await next(e)
+    const readerSet = createReaders()
+    const engineApprovals = createApprovals({
+      stored: (key) => built.store.get(key),
+      store: (key, value) => built.store.set(key, value),
+      ask: (question, options) => built.ui.ask(question, options),
+      approved: () => {
+        provider.refresh().catch((error: unknown) => {
+          built.ui.log(`workitems: the refresh after an approval failed: ${String(error)}`)
+        })
+      },
+      log: (text) => {
+        built.ui.log(text)
+      },
+    })
+    approvals = engineApprovals
     const provider = createProvider(
       {
         root: () => built.session.root(),
@@ -16,23 +41,34 @@ export const register: Register = (on) => {
         stat: (path, options) => built.fs.stat(path, options),
         list: (path) => built.fs.list(path),
         read: (path) => built.fs.read(path),
+        readBytes: async (path) => bytesOf((await built.fs.read(path, { as: 'bytes' })).base64),
+        commands: {
+          canRun: async () => canRunCommandsOn(await built.session.surfaces()),
+          run: (argv, cwd) => built.process.run(argv, { cwd }),
+          searchPath: async () => ({
+            path: await built.env.get('PATH'),
+            extensions: await built.env.get('PATHEXT'),
+          }),
+          approvals: engineApprovals,
+        },
         publish: async (snapshot) => {
           await built.state.set({ plugin: 'workitems', key: 'snapshot' }, snapshot)
         },
       },
-      readers,
+      readerSet.readers,
     )
     return {
       ...built,
       workitems: {
         refresh: (args) => provider.refresh(args),
-        writeVerbs: () => Promise.resolve(writeVerbs),
+        writeVerbs: () => Promise.resolve(readerSet.writeVerbs()),
         lines: (args) => Promise.resolve(stateLines(args)),
       },
     }
   })
 
   on('session.start', async ($, e, next) => {
+    approvals?.startSession(e.isInteractive)
     poll?.cancel()
     poll = $.clock.every(POLL_INTERVAL_MS, () => {
       $.workitems.refresh().catch((error: unknown) => {

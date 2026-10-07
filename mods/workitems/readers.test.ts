@@ -523,7 +523,7 @@ describe('generic reader', () => {
       expect(snapshot.state).toBe('failed')
       expect(snapshot.source).toBe('.handily.json')
       expect(snapshot.reason).toBe(
-        '.handily.json has the key glob, which is not one of source, globs, format, fields, so it could not be read.',
+        '.handily.json has the key glob, which is not one of source, globs, format, fields, command, so it could not be read.',
       )
     },
   )
@@ -591,7 +591,7 @@ describe('one source per repo', () => {
       const snapshot = await startedSnapshot($)
       expect(snapshot.state).toBe('failed')
       expect(snapshot.reason).toBe(
-        '.handily.json names the source jira, which is not one of beads, beans, files, so it could not be read.',
+        '.handily.json names the source jira, which is not one of basicly, beads, beans, files, adapter, so it could not be read.',
       )
     },
   )

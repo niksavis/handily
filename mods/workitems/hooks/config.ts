@@ -33,7 +33,11 @@ export type FieldMap = { id: string; title: string; status: string } & Partial<
 
 export type FilesConfig = { globs: readonly string[]; format: FilesFormat; fields: FieldMap }
 
-export type HandilyConfig = { source: string | null; files: FilesConfig | null }
+export type HandilyConfig = {
+  source: string | null
+  files: FilesConfig | null
+  command: readonly string[] | null
+}
 
 export type ConfigOutcome =
   { ok: true; config: HandilyConfig } | { ok: false; reason: WorkitemsFailedReason }
@@ -41,7 +45,7 @@ export type ConfigOutcome =
 export type GlobMatch = { path: string; size: number; mtimeMs: number }
 
 const FORMATS: readonly FilesFormat[] = ['json', 'jsonl', 'frontmatter']
-const TOP_LEVEL_KEYS = ['source', 'globs', 'format', 'fields'] as const
+const TOP_LEVEL_KEYS = ['source', 'globs', 'format', 'fields', 'command'] as const
 const REQUIRED_FIELDS = ['id', 'title', 'status'] as const
 const UNSUPPORTED_GLOB_CHARACTERS = /[[\]{}\\]/
 const ABSOLUTE_PATH = /^([\\/]|[A-Za-z]:)/
@@ -96,6 +100,14 @@ function fieldsOf(value: unknown): FieldMap {
   return fields as FieldMap
 }
 
+function commandOf(value: unknown): readonly string[] | null {
+  if (value === undefined) return null
+  if (!Array.isArray(value) || value.length === 0 || !value.every(isText)) {
+    configFault('needs command as a list of the program and its arguments')
+  }
+  return value
+}
+
 function configOf(parsed: unknown): HandilyConfig {
   if (!isRecord(parsed)) configFault('is not a JSON object')
   for (const key of Object.keys(parsed)) {
@@ -103,7 +115,7 @@ function configOf(parsed: unknown): HandilyConfig {
       configFault(`has the key ${key}, which is not one of ${TOP_LEVEL_KEYS.join(', ')}`)
     }
   }
-  const { source, globs, format, fields } = parsed
+  const { source, globs, format, fields, command } = parsed
   if (source !== undefined && !isText(source)) configFault('needs source as a tracker name')
   const namesFiles = globs !== undefined || format !== undefined || fields !== undefined
   return {
@@ -111,6 +123,7 @@ function configOf(parsed: unknown): HandilyConfig {
     files: namesFiles
       ? { globs: globsOf(globs), format: formatOf(format), fields: fieldsOf(fields) }
       : null,
+    command: commandOf(command),
   }
 }
 
@@ -128,7 +141,7 @@ export function readConfig(files: TrackerFiles): Promise<ConfigOutcome> {
 async function readConfigOnce(files: TrackerFiles): Promise<ConfigOutcome> {
   try {
     if (!(await files.exists(CONFIG_FILE)))
-      return { ok: true, config: { source: null, files: null } }
+      return { ok: true, config: { source: null, files: null, command: null } }
     return { ok: true, config: configOf(parseJson(await files.read(CONFIG_FILE))) }
   } catch (error) {
     if (error instanceof FileProblem) return { ok: false, reason: error.reason }

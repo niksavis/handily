@@ -65,6 +65,7 @@ export type WorkitemsDiff = {
 }
 
 export type WorkitemsWriteVerbs = {
+  readonly [adapterCommand: string]: readonly string[]
   readonly br: readonly [
     'close',
     'create',

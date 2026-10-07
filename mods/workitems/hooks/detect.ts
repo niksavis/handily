@@ -39,7 +39,7 @@ export async function detect(readers: readonly Reader[], files: TrackerFiles): P
   if (!chosen) {
     return {
       found: false,
-      lookedFor: `looked for ${readers.map((r) => r.lookedForAs ?? r.name).join(', ')}`,
+      lookedFor: `looked for ${[...new Set(readers.map((r) => r.lookedForAs ?? r.name))].join(', ')}`,
     }
   }
   return {

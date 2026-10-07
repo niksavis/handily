@@ -5,11 +5,13 @@ gives other mods one typed list. It draws nothing of its own.
 
 ## What it reads
 
-| Tracker             | Detected by                | Read path                                       |
-| ------------------- | -------------------------- | ----------------------------------------------- |
-| beads (`bd`, `br`)  | `.beads/issues.jsonl`      | Built-in JSON Lines reader                      |
-| beans               | `.beans.yml` or `.beans/`  | Built-in front matter reader                    |
-| Any other (`files`) | `globs` in `.handily.json` | Generic JSON, JSON Lines or front matter reader |
+| Tracker               | Detected by                     | Read path                                             |
+| --------------------- | ------------------------------- | ----------------------------------------------------- |
+| basicly               | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, from `PATH`      |
+| beads (`bd`, `br`)    | `.beads/issues.jsonl`           | Built-in JSON Lines reader                            |
+| beans                 | `.beans.yml` or `.beans/`       | Built-in front matter reader                          |
+| Any other (`files`)   | `globs` in `.handily.json`      | Generic JSON, JSON Lines or front matter reader       |
+| Any other (`adapter`) | `command` in `.handily.json`    | `<command> describe --json`, `<command> items --json` |
 
 - The mod looks only at the session root (`$.session.root()`). It never reads a parent folder.
 - It detects the tracker again when the working directory changes.
@@ -23,6 +25,17 @@ gives other mods one typed list. It draws nothing of its own.
   `[a, b]` form, and lists of `- item` lines at any indent. It ignores a trailing `# comment`.
   A field in another form, such as a nested map, is unreadable. The mod skips the item only
   when the reader needs that field.
+
+### basicly
+
+- The mod runs `basicly tracker list --status <s>` from `PATH` at the repo root, once for each
+  of `open`, `in_progress` and `blocked`.
+- It maps `record` to `id`, and reads `fields.title`, `status`, `fields.priority`,
+  `fields.issue_type`, `fields.assignee` and `dates.updated`. It skips a tombstoned record.
+- When `basicly` is not on `PATH`, the mod runs the repo's own kit instead:
+  `python3 .basicly/core/kit/tracker/cli.py list --status <s> .basicly/ledger`. It runs this
+  repo command only after you approve it (see [Approval](#approval)).
+- The poll reads again when a file in `.basicly/ledger` or the kit file changes.
 
 ### beads
 
@@ -72,12 +85,13 @@ the line.
 }
 ```
 
-| Key      | Meaning                                                                                     |
-| -------- | ------------------------------------------------------------------------------------------- |
-| `source` | Optional. `beads`, `beans` or `files`. The mod reads this source and ignores the others     |
-| `globs`  | The item files, relative to the repo root. `*` and `?` match in one folder, `**` in any     |
-| `format` | `json` (one item or a list of items per file), `jsonl` (one item per line) or `frontmatter` |
-| `fields` | The file field of each item field. `id`, `title` and `status` are required                  |
+| Key       | Meaning                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| `source`  | Optional. `basicly`, `beads`, `beans`, `files` or `adapter`. The mod reads this source                 |
+| `command` | The program and its arguments of a CLI adapter, as a list, for example `["node", "tools/tracker.mjs"]` |
+| `globs`   | The item files, relative to the repo root. `*` and `?` match in one folder, `**` in any                |
+| `format`  | `json` (one item or a list of items per file), `jsonl` (one item per line) or `frontmatter`            |
+| `fields`  | The file field of each item field. `id`, `title` and `status` are required                             |
 
 - The item fields are `id`, `title`, `status`, `priority`, `type`, `assignee`, `updatedAt`,
   `labels`, `parent` and `url`.
@@ -96,6 +110,55 @@ the line.
 - An unknown key, an unknown source, or a missing field makes the read fail. The reason names
   the fault.
 
+## CLI adapter contract 1
+
+A tracker CLI that the mod does not know can serve its items through two commands. Name the
+program and its arguments under `command` in `.handily.json`.
+
+- `<command> describe --json` prints one JSON object:
+
+  ```json
+  {
+    "name": "tickets",
+    "version": "1.4.0",
+    "contract": 1,
+    "watch": ["tickets/*.json"],
+    "writes": [["close"], ["comments", "add"]],
+    "statusMap": { "todo": "open", "doing": "in_progress", "done": "closed" }
+  }
+  ```
+
+- `<command> items --json` prints a JSON array of items. Each item has `id`, `title` and
+  `status`, and can have `priority`, `type`, `assignee`, `updatedAt`, `labels`, `parent` and
+  `url`.
+- The mod refuses a `contract` other than 1, and the reason names the contract.
+- `statusMap` maps the status of the tracker to `open`, `in_progress`, `blocked`, `deferred`,
+  `closed` or `other`. A status that is not in the map keeps the rule of `.handily.json`.
+- The item keys are `<name>:<id>`. The snapshot `sourceLabel` is the `name`.
+- Each `writes` entry is the arguments after the command of one write. The mod adds them to
+  `writeVerbs()` under the command text, for example `node tools/tracker.mjs`.
+- The poll reads again when a file under `watch`, `.handily.json` or a repo file in `command`
+  changes.
+- A non-zero exit, output over 4 MiB or output that is not valid JSON makes the read fail. The
+  reason names the command.
+
+## Approval
+
+A command from the repo runs only after you approve it. This covers the CLI adapter and the
+repo's own basicly kit. `basicly` from `PATH` needs no approval.
+
+- In an interactive session the mod asks once, in the engine's question dialog, with the
+  options `Allow for this repo` and `Not now`.
+- `Allow for this repo` is kept in `$.store` under a key of the repo root, the command, the
+  sha256 of each repo file that the command names, and the real path of the program.
+- When one of these changes, the old approval does not match, and the mod asks again.
+- After `Not now`, or when you close the dialog, the state is `approval-needed`. The mod asks
+  again at the next session start.
+- The mod never asks in a session that is not interactive, such as `claude -p`. The state is
+  then `approval-needed`.
+- A session that draws only on the desktop app cannot run a command. A CLI source then has the
+  state `terminal-only`.
+
 ## The contract
 
 The contract is `types/index.d.ts`. A dependent mod lists `workitems` under `dependencies` in
@@ -106,10 +169,10 @@ its `plugin.json`, and the engine lays the contract into that mod's types folder
 | `$.state.get({ plugin: 'workitems', key: 'snapshot' })` | The last snapshot. A render that reads it draws again on a change            |
 | `$.workitems.refresh({ since })`                        | Reads again. Returns the created, updated and closed items and the `version` |
 | `$.workitems.lines({ snapshot, now })`                  | The state lines of `docs/mocks.md` section 0, with their tone                |
-| `$.workitems.writeVerbs()`                              | The write verbs of each tracker CLI                                          |
+| `$.workitems.writeVerbs()`                              | The write verbs of each tracker CLI, and of the approved CLI adapter         |
 
 The snapshot `state` is one of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker` and
-`terminal-only`. This version produces `ok`, `failed` and `no-tracker`.
+`terminal-only`. This version produces each of them except `stale`.
 
 Each snapshot also carries these fields:
 

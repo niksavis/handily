@@ -1,20 +1,35 @@
-import type { FsEntry } from 'claude-code'
+import type { FsEntry, ProcessRunResult } from 'claude-code'
 import type { WorkitemsFailedReason, WorkitemsItem, WorkitemsWriteVerbs } from '../../types'
+import type { Approvals } from '../approval'
+import { createAdapterReader } from './adapter'
+import { basiclyReader } from './basicly'
 import { beadsReader } from './beads'
 import { beansReader } from './beans'
 import { filesReader } from './generic'
 
+export type TrackerCommands = {
+  canRun: () => Promise<boolean>
+  run: (argv: readonly string[]) => Promise<ProcessRunResult>
+  which: (program: string) => Promise<string | undefined>
+  approvals: Approvals
+}
+
 export type TrackerFiles = {
+  root: string
   read: (relativePath: string) => Promise<string>
   exists: (relativePath: string) => Promise<boolean>
   list: (relativeDirectory: string) => Promise<FsEntry[]>
   realPath: (relativePath: string) => Promise<string | undefined>
   stat: (relativePath: string) => Promise<{ size: number; mtimeMs: number }>
+  hash: (relativePath: string) => Promise<string | undefined>
+  commands: TrackerCommands
 }
 
 export type ReadOutcome =
   | { ok: true; items: WorkitemsItem[]; sourceLabel: string; caveat: string | null }
   | { ok: false; reason: WorkitemsFailedReason }
+  | { ok: false; state: 'approval-needed'; command: string; sourceLabel: string }
+  | { ok: false; state: 'terminal-only'; sourceLabel: string }
 
 export type Reader = {
   name: string
@@ -25,7 +40,18 @@ export type Reader = {
   read: (files: TrackerFiles) => Promise<ReadOutcome>
 }
 
-export const readers: readonly Reader[] = [beadsReader, beansReader, filesReader]
+export type ReaderSet = {
+  readers: readonly Reader[]
+  writeVerbs: () => WorkitemsWriteVerbs
+}
+
+export function createReaders(): ReaderSet {
+  const adapter = createAdapterReader()
+  return {
+    readers: [basiclyReader, beadsReader, beansReader, filesReader, adapter.reader],
+    writeVerbs: () => ({ ...adapter.writeVerbs(), ...writeVerbs }),
+  }
+}
 
 export const writeVerbs: WorkitemsWriteVerbs = {
   br: [
