@@ -36,6 +36,8 @@ The approved mocks are in `docs/mocks.md`, section 1.
 2. After the call succeeds, it calls `$.workitems.refresh({ since: version })`.
 3. It keeps the rows of the diff in `$.state`, under the `tool_use_id` of the call.
 4. The `ToolUse` row draws the rows. The `ToolResult` block under it draws empty.
+5. When the engine folds the call into a `ToolGroup` line (`Ran 1 shell command`), the mod
+   unfolds that group, so the row shows.
 
 The verb of a row is `created`, `updated`, `closed` or `commented`. `commented` replaces
 `updated` when every matched write is a comment verb.
@@ -47,7 +49,7 @@ The engine draws its own row (`next(e)`) in each of these cases:
 - The call is still running, errored or was interrupted, or the command wrote to stderr.
 - The command is a loop or a heredoc, a segment is not a tracker write, or no write matched.
 - The `workitems` state is not `ok`.
-- The refresh diff is empty, a refresh rejected, or the refresh returned no `version`.
+- The refresh diff is empty, or a refresh rejected.
 - The mode is `off`.
 
 ## Settings and the command

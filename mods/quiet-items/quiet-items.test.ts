@@ -147,13 +147,12 @@ const fakeWorkitems: Plugin = {
               { plugin: 'workitems', key: 'snapshot' },
               { ...world.snapshot, version: current },
             )
-            const merged = {
+            return {
               created: changes.flatMap((change) => change.diff.created),
               updated: changes.flatMap((change) => change.diff.updated),
               closed: changes.flatMap((change) => change.diff.closed),
               version: current,
             }
-            return merged
           },
           writeVerbs: async () => (await ask('/fake/workitems/verbs')).verbs,
           lines: () => Promise.resolve([]),
@@ -175,11 +174,12 @@ function hasChanges(diff: Diff): boolean {
   return diff.created.length + diff.updated.length + diff.closed.length > 0
 }
 
-type Calls = { ids: string[]; answer: () => object }
+type Calls = { ids: string[]; groups: boolean[]; answer: () => object }
 
 function engineBeneath(on: On, world: World): Calls {
   const calls: Calls = {
     ids: [],
+    groups: [],
     answer: () => ({
       result: { stdout: FULL_RESULT_TEXT, stderr: '', interrupted: false },
       text: FULL_RESULT_TEXT,
@@ -200,7 +200,10 @@ function engineBeneath(on: On, world: World): Calls {
     await $.workitems.refresh().catch(() => undefined)
     return calls.answer() as never
   })
-  on('ui.render', () => ENGINE_ROW)
+  on('ui.render', (_$, e) => {
+    if (e.component === 'ToolGroup') calls.groups.push(e.props.isExpanded)
+    return ENGINE_ROW
+  })
   return calls
 }
 
@@ -630,6 +633,63 @@ describe('fallback to the engine row', () => {
       expect(await drawnUse($, toolUse(id, command))).toEqual(ENGINE_ROW)
     })
   }
+})
+
+function toolGroup(id: string, command: string): RenderPropsOf['ToolGroup'] {
+  const { output } = toolUse(id, command)
+  return {
+    calls: [
+      {
+        tool_use_id: id,
+        tool: 'Bash',
+        input: { command },
+        isRunning: false,
+        isErrored: false,
+        isInterrupted: false,
+        output,
+      },
+    ],
+    isActive: false,
+    isExpanded: false,
+  }
+}
+
+async function groupExpansion($: Engine, calls: Calls, props: RenderPropsOf['ToolGroup']) {
+  calls.groups.length = 0
+  const ui = await $.ui.mount({
+    plugin: 'quiet-items',
+    surface: 'terminal',
+    component: 'ToolGroup',
+    props,
+  })
+  await ui.unmount()
+  return calls.groups
+}
+
+describe('folded tool group', () => {
+  quietTest('unfolds a group that holds a quiet row', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    world.callChange = { ...emptyDiff(), created: [AB12] }
+    await startSession($)
+    const id = await runBash($, calls, 'br create --title x')
+    expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([true])
+  })
+
+  quietTest('leaves a group without a quiet row folded', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    await startSession($)
+    const id = await runBash($, calls, 'git status')
+    expect(await groupExpansion($, calls, toolGroup(id, 'git status'))).toEqual([false])
+  })
+
+  quietTest('leaves the group folded while the mode is off', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    world.callChange = { ...emptyDiff(), created: [AB12] }
+    await startSession($)
+    const id = await runBash($, calls, 'br create --title x')
+    await commandText($)
+    expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([false])
+  })
 })
 
 describe('raw tracker edit', () => {

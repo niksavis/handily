@@ -14,6 +14,7 @@ const NO_ARGUMENT_TEXT =
 const FULL_TAIL = 'so tracker commands draw in full.'
 
 type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
+type RefreshResult = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
 
 function hasSucceeded(result: CallResult): boolean {
   if (result.deny !== undefined || result.isError === true) return false
@@ -21,10 +22,6 @@ function hasSucceeded(result: CallResult): boolean {
   if (typeof output !== 'object' || output === null) return true
   if ('interrupted' in output && output.interrupted === true) return false
   return !('stderr' in output && typeof output.stderr === 'string' && output.stderr.trim() !== '')
-}
-
-function reachedVersion(diff: object): number | null {
-  return 'version' in diff && typeof diff.version === 'number' ? diff.version : null
 }
 
 function shortReason(reason: string): string {
@@ -83,21 +80,18 @@ export const register: Register = (on, options) => {
     if (parsed.kind !== 'write') return next(e)
     const { value: before } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
     if (before?.state !== 'ok') return next(e)
-    let since: number | null
+    let reached: RefreshResult
     try {
-      since = reachedVersion(await $.workitems.refresh())
+      reached = await $.workitems.refresh()
     } catch (error) {
       $.ui.log(`quiet-items: no row for ${e.tool_use_id}; the refresh failed: ${String(error)}`)
       return next(e)
     }
-    if (since === null) {
-      $.ui.log('quiet-items: workitems refresh() returned no version; update the workitems mod')
-      return next(e)
-    }
+    const { version } = reached
     const result = await next(e)
     if (!hasSucceeded(result)) return result
     try {
-      const diff = await $.workitems.refresh({ since })
+      const diff = await $.workitems.refresh({ since: version })
       const rows: QuietItemsRow[] = rowsFromDiff(diff, parsed.writes)
       if (rows.length > 0) {
         await $.state.set({ plugin: 'quiet-items', key: 'rows', id: e.tool_use_id }, rows)
@@ -121,6 +115,24 @@ export const register: Register = (on, options) => {
       $.ui.log(`quiet-items: no row for ${e.tool_use_id}: ${String(error)}`)
     }
     return result
+  })
+
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    if (e.props.isExpanded) return next(e)
+    const { value: mode = defaultMode } = await $.state.get({ plugin: 'quiet-items', key: 'mode' })
+    if (mode === 'off') return next(e)
+    for (const call of e.props.calls) {
+      if (call.tool_use_id === undefined || call.isRunning || call.isErrored) continue
+      const { value: rows } = await $.state.get({
+        plugin: 'quiet-items',
+        key: 'rows',
+        id: call.tool_use_id,
+      })
+      if (rows !== undefined && rows.length > 0) {
+        return next({ ...e, props: { ...e.props, isExpanded: true } })
+      }
+    }
+    return next(e)
   })
 
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
