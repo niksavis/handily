@@ -18,7 +18,7 @@ const fakeWorkitems: Plugin = {
       return {
         ...built,
         workitems: {
-          refresh: () => Promise.resolve({ created: [], updated: [], closed: [] }),
+          refresh: () => Promise.resolve({ created: [], updated: [], closed: [], version: 1 }),
           writeVerbs: () => Promise.reject(new Error('the fake workitems has no write verbs')),
           lines: ({ snapshot }) => {
             switch (snapshot.state) {
