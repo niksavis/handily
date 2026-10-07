@@ -12,7 +12,7 @@ Status: in development. No mod is released yet. See [docs/design.md](docs/design
 ## Mods (planned)
 
 | Mod | What you see |
-|---|---|
+| --- | --- |
 | `workitems` | Nothing. It is the provider that reads work items for the other mods |
 | `quiet-items` | One short row in place of a raw tracker file write |
 | `task-pane` | Claude's task list in a sidebar. You can add and remove tasks |

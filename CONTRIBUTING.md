@@ -38,12 +38,15 @@ npm run check
 ```
 
 | Gate | Command | What it refuses |
-|---|---|---|
-| Validate | `npm run validate` | A manifest or marketplace error, a name mismatch between folder, manifest and marketplace |
+| --- | --- | --- |
+| Validate | `npm run validate` | A manifest or marketplace error, a name mismatch between folder, manifest and marketplace, a marketplace file that differs from the `npm run marketplace` output |
 | Type check | `npm run typecheck` | A type error against the Claude Code mod API |
 | Lint | `npm run lint` | typescript-eslint strict type-checked findings, an unawaited promise among them |
 | Format | `npm run format:check` | Code that Prettier would change |
 | Test | `npm test` | A failing test, or a mod with no `*.test.ts` |
+
+The `markdownlint` pre-commit hook lints the Markdown files with the rules in
+`.markdownlint-cli2.jsonc`. To run it by hand, use `npx --no-install markdownlint-cli2`.
 
 Never bypass a failing gate. `--no-verify` is not allowed. Fix the cause.
 
@@ -53,8 +56,9 @@ Never bypass a failing gate. `--no-verify` is not allowed. Fix the cause.
 2. Create `mods/<name>/` with `.claude-plugin/plugin.json`, `hooks/hooks.json`,
    `hooks/register.ts`, a `tsconfig.json` that extends
    `./.claude-plugin/types/tsconfig.json`, and tests.
-3. Add `{ "name": "<name>", "source": "./mods/<name>", "description": "..." }` to
-   `.claude-plugin/marketplace.json`.
+3. Run `npm run marketplace` and commit the generated
+   `.claude-plugin/marketplace.json`. The generator takes the `version` and the
+   `description` of the mod from its `plugin.json`. Do not edit the file by hand.
 4. Run `npm run types`, then `npm run check`.
 5. Load it in a session: `claude --plugin-dir mods/<name>`.
 

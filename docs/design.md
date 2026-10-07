@@ -28,7 +28,7 @@ basicly adapts to handily, not the reverse. basicly-side work is filed in the ba
 ### Decisions from the interview (2026-10-07)
 
 | # | Decision | Choice |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Where the mods live | This separate repo, a Claude plugin marketplace |
 | 2 | Name | `handily` (repo and marketplace) |
 | 3 | Tracker extension | Provider mod `workitems` with built-in readers and a CLI adapter contract |
@@ -44,14 +44,14 @@ basicly adapts to handily, not the reverse. basicly-side work is filed in the ba
 Why `commit-link` and `handover` were dropped:
 
 | Mod | Existing mechanism in basicly | Verdict |
-|---|---|---|
+| --- | --- | --- |
 | commit-link | `tracker-commit-msg` and `tracker-claim` git hooks (commit-msg stage) | The git hook is the right layer and covers every agent |
 | handover | basicly writes and reads `[session handover` notes and shows the last one at session start | Process logic belongs to the harness |
 
 ### Decisions from the plan review (2026-10-07)
 
 | # | Decision | Choice |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Mocks | The person approves an ASCII mock per mod, for terminal and desktop, before the lanes start |
 | 2 | Tasks before a session | They come from the tracker's open items through `workitems`. `/task add` adds a task in any session. The out-of-session queue is dropped |
 | 3 | Tracker source per repo | One source per repo. The first detected source is used, or the source named in `.handily.json`. The provider reports the other sources as ignored |
@@ -95,7 +95,7 @@ Sources: the bundled `plugin-authoring` skill (its `reference.md` and the genera
 API surfaces each mod needs:
 
 | Need | API |
-|---|---|
+| --- | --- |
 | Replace a tool row on screen | `ui.render` on `{ component: 'ToolUse' }`. Props: `tool_use_id`, `tool`, `input`, `isRunning`, `isErrored`, `isInterrupted`, `output?`, `onScreen?` |
 | Replace a tool's result row | `ui.render` on `{ component: 'ToolResult' }`. A standalone tool row draws its result in this separate component |
 | Follow Claude's tasks | `tool.call` on `TaskCreate`, `TaskUpdate`, `TodoWrite`; results carry task ids and status |
@@ -125,7 +125,7 @@ Detection:
 Snapshot, published as a typed `$.state` ref:
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `state` | One of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker`, `terminal-only` |
 | `reason` | Why the state is not `ok` |
 | `at` | The time of the read |
@@ -136,7 +136,7 @@ Snapshot, published as a typed `$.state` ref:
 Normalized work item:
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `key` | `<source>:<id>`, unique across sources |
 | `id` | The tracker's id, for example `handily-ab12` |
 | `title` | The title |
@@ -161,7 +161,7 @@ Refresh:
 Sources, in order of detection:
 
 | Tracker | Detect by | Read path |
-|---|---|---|
+| --- | --- | --- |
 | basicly | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, once per open status |
 | beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader |
 | beans | `.beans/**/<id>--<slug>.md` | Built-in front-matter reader |
@@ -233,7 +233,7 @@ Match:
   exists.
 
 | Tracker CLI | Write verbs, from |
-|---|---|
+| --- | --- |
 | `br` | `br capabilities` |
 | `.basicly/core/kit/tracker/cli.py` | Its help (16 write verbs) |
 | `basicly tracker` | `close`, `comments add`, `create`, `dep add`, `dep remove`, `gate report`, `update` |
@@ -290,7 +290,7 @@ Toggle:
   this machine.
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `startedAt` | Epoch milliseconds |
 | `id`, `state` | On a background row |
 | `pid`, `status` | On an interactive row |
@@ -355,7 +355,7 @@ rules that basicly can later distribute as a `typescript` technology tag.
 What is in place (handily-fwkt.1):
 
 | Gate | Tool | `basicly.toml` check |
-|---|---|---|
+| --- | --- | --- |
 | Validate | `claude plugin validate --strict`, plus a name check across folder, manifest and marketplace | `mods-validate` |
 | Type check | `tsc` 6.0.3 per mod | `mods-typecheck` |
 | Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` |
@@ -403,7 +403,7 @@ Closed by the P0 probes (handily-0m93, Claude Code 2.1.293):
   row. It did not ask for permission in a headless session.
 
 | # | Probe | Result |
-|---|---|---|
+| --- | --- | --- |
 | 1 | `TaskCreate` through `$.tool.call` | Reaches the list. No row. No prompt when headless |
 | 2 | `watchPaths` and `classic.FileChanged` | File and folder work. Globs fail. Blocked on a team org |
 | 3 | Types of a dependency | Laid when both mods load. A dependent alone does not load |
@@ -427,7 +427,7 @@ Closed by the P0 probes (handily-0m93, Claude Code 2.1.293):
 - A full verify runs after each landing rebase.
 
 | Phase | Content |
-|---|---|
+| --- | --- |
 | P0 | Decisions, mocks, probes, this doc fix |
 | P1 | workitems core: noun, contract, snapshot, beads reader, parser prefilter table, marketplace generator, types re-lay |
 | P2 | Lanes A1 then A2, B, C, D, E1. E2 after P1, with a confirmed CI edit |

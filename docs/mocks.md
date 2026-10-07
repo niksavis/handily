@@ -35,7 +35,7 @@ Every dependent mod draws the same one-line state text from the snapshot, so the
 in one place (workitems exports it). `ok` draws no line; the mods show their data instead.
 
 | state | line (terminal) |
-|---|---|
+| --- | --- |
 | ok | `~basicly · 14 open · read 12 s ago~` (only as a header, never as a warning) |
 | ok, bd source | `~beads (bd) · 9 open · read 12 s ago · may be stale: bd keeps data in Dolt~` |
 | stale | `!Work items may be out of date: last good read 6 min ago (basicly tracker list exited 1).!` |
@@ -103,7 +103,7 @@ After (one row each; the ToolResult block under it is drawn empty):
 ● !raw tracker edit!   .beads/issues.jsonl  ~Edit, not through the tracker CLI~
 ```
 
-- `● ` and the verb column keep the engine's tool-row colour; `handily-ab12` bold; status and
+- `●` and the verb column keep the engine's tool-row colour; `handily-ab12` bold; status and
   priority `~dim~`. Title cut to 60 characters (userConfig) with `…`.
 - One command that touches several items (`br close ab12 cd34`) draws one row per item, in the
   order of the diff.
