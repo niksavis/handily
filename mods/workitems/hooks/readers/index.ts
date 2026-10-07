@@ -9,6 +9,7 @@ export type TrackerFiles = {
   exists: (relativePath: string) => Promise<boolean>
   list: (relativeDirectory: string) => Promise<FsEntry[]>
   realPath: (relativePath: string) => Promise<string | undefined>
+  stat: (relativePath: string) => Promise<{ size: number; mtimeMs: number }>
 }
 
 export type ReadOutcome =

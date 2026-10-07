@@ -318,16 +318,18 @@ describe('beans reader', () => {
   )
 
   test(
-    'fails with the file and line when a priority word is unknown',
+    'skips only the bean whose priority word is unknown and names its file and line',
     { plugins: [consumer] },
     async ($, on) => {
       startClock(on)
       fakeRepo(on, {
         '.beans/app-a1--x.md': '---\ntitle: X\nstatus: todo\npriority: urgent\n---\n',
+        '.beans/app-b2--y.md': '---\ntitle: Y\nstatus: todo\n---\n',
       })
       const snapshot = await startedSnapshot($)
-      expect(snapshot.state).toBe('failed')
-      expect(snapshot.reason).toBe('.beans/app-a1--x.md line 4 is malformed.')
+      expect(snapshot.state).toBe('ok')
+      expect(keysOf(snapshot.items)).toEqual(['beans:app-b2'])
+      expect(snapshot.caveat).toBe('1 item file skipped: .beans/app-a1--x.md line 4 is malformed.')
     },
   )
 })
@@ -659,4 +661,276 @@ describe('provider seams', () => {
       expect(snapshot.items[2]?.title).toBe('Write the notes')
     },
   )
+})
+
+describe('review regressions', () => {
+  test(
+    'ignored follows a second tracker that appears while the first is unchanged',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = startClock(on)
+      const world = fakeRepo(on, { '.beads/issues.jsonl': BEADS_ISSUES })
+      expect((await startedSnapshot($)).ignored).toEqual([])
+      world.files.set(`${ROOT}/.beans/app-ab12--add-the-export-button.md`, {
+        text: BEAN_EXPORT,
+        mtimeMs: 10,
+      })
+      await clock.advance(2_000)
+      expect((await snapshotOf($)).ignored).toEqual(['beans'])
+    },
+  )
+
+  test(
+    'a linked bean inside the root is read again after its target changes',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = startClock(on)
+      const world = fakeRepo(on, {
+        'store/app-l1.md': '---\ntitle: One\nstatus: todo\n---\n',
+        '.beans/keep/app-k1--k.md': '---\ntitle: K\nstatus: todo\n---\n',
+      })
+      world.links.set(`${ROOT}/.beans/app-l1--linked.md`, `${ROOT}/store/app-l1.md`)
+      expect((await startedSnapshot($)).state).toBe('ok')
+      world.files.set(`${ROOT}/store/app-l1.md`, {
+        text: '---\ntitle: Two words\nstatus: todo\n---\n',
+        mtimeMs: 99,
+      })
+      await clock.advance(2_000)
+      const snapshot = await snapshotOf($)
+      expect(snapshot.items.find((item) => item.id === 'app-l1')?.title).toBe('Two words')
+    },
+  )
+
+  test(
+    'a linked file that a glob matches is read again after its target changes',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = startClock(on)
+      const world = fakeRepo(on, {
+        '.handily.json': JSON.stringify({
+          globs: ['work/*.jsonl'],
+          format: 'jsonl',
+          fields: { id: 'id', title: 'title', status: 'status' },
+        }),
+        'data/a.jsonl': '{"id":"a","title":"One","status":"open"}',
+        'work/keep.txt': 'x',
+      })
+      world.links.set(`${ROOT}/work/a.jsonl`, `${ROOT}/data/a.jsonl`)
+      expect((await startedSnapshot($)).items[0]?.title).toBe('One')
+      world.files.set(`${ROOT}/data/a.jsonl`, {
+        text: '{"id":"a","title":"Two","status":"open"}',
+        mtimeMs: 50,
+      })
+      await clock.advance(2_000)
+      expect((await snapshotOf($)).items[0]?.title).toBe('Two')
+    },
+  )
+
+  test(
+    'a bean file without a slug keeps its whole name as the id',
+    { plugins: [consumer] },
+    async ($, on) => {
+      startClock(on)
+      fakeRepo(on, {
+        '.beans/app-ab12.md': '---\ntitle: X\nstatus: todo\n---\n',
+        '.beans/app.cd34--with-a-dot.md': '---\ntitle: Y\nstatus: todo\n---\n',
+      })
+      const snapshot = await startedSnapshot($)
+      expect(snapshot.items.map((item) => item.id)).toEqual(['app-ab12', 'app.cd34'])
+    },
+  )
+
+  test('reads a block scalar in front matter', { plugins: [consumer] }, async ($, on) => {
+    startClock(on)
+    fakeRepo(on, {
+      '.beans/app-a1--x.md': [
+        '---',
+        'title: >-',
+        '  A folded',
+        '  title',
+        'status: todo',
+        'note: |',
+        '  line one',
+        '',
+        '  line two',
+        '---',
+        '',
+      ].join('\n'),
+    })
+    const snapshot = await startedSnapshot($)
+    expect([snapshot.state, snapshot.reason, snapshot.caveat]).toEqual(['ok', null, null])
+    expect(snapshot.items[0]?.title).toBe('A folded title')
+  })
+
+  test('reads a list at column 0 under its key', { plugins: [consumer] }, async ($, on) => {
+    startClock(on)
+    fakeRepo(on, {
+      '.beans/app-a1--x.md': '---\ntitle: X\nstatus: todo\ntags:\n- ui\n- api\n---\n',
+    })
+    const snapshot = await startedSnapshot($)
+    expect([snapshot.state, snapshot.caveat]).toEqual(['ok', null])
+    expect(snapshot.items[0]?.labels).toEqual(['ui', 'api'])
+  })
+
+  test('reads a quoted value with a trailing comment', { plugins: [consumer] }, async ($, on) => {
+    startClock(on)
+    fakeRepo(on, {
+      '.beans/app-a1--x.md':
+        '---\ntitle: "X # not a comment" # a comment\nstatus: \'todo\' # c\n---\n',
+    })
+    const snapshot = await startedSnapshot($)
+    expect([snapshot.state, snapshot.caveat]).toEqual(['ok', null])
+    expect(snapshot.items[0]).toMatchObject({ title: 'X # not a comment', rawStatus: 'todo' })
+  })
+
+  test(
+    'a front matter form it cannot read skips only that bean and names it',
+    { plugins: [consumer] },
+    async ($, on) => {
+      startClock(on)
+      fakeRepo(on, {
+        '.beans/app-a1--x.md': '---\ntitle:\n  nested: map\nstatus: todo\n---\n',
+        '.beans/app-b2--y.md': '---\ntitle: Y\nstatus: todo\nextra: {a: 1}\n---\n',
+      })
+      const snapshot = await startedSnapshot($)
+      expect(snapshot.state).toBe('ok')
+      expect(keysOf(snapshot.items)).toEqual(['beans:app-b2'])
+      expect(snapshot.caveat).toBe('1 item file skipped: .beans/app-a1--x.md line 2 is malformed.')
+    },
+  )
+
+  test(
+    'a generic front matter file that it cannot read skips only that item',
+    { plugins: [consumer] },
+    async ($, on) => {
+      startClock(on)
+      fakeRepo(on, {
+        '.handily.json': JSON.stringify({
+          globs: ['tasks/*.md'],
+          format: 'frontmatter',
+          fields: { id: 'ref', title: 'title', status: 'state' },
+        }),
+        'tasks/a.md': '---\nref: A-1\ntitle: A\nstate: open\n---\n',
+        'tasks/b.md': 'no front matter',
+        'tasks/c.md': '---\nref: A-3\nstate: open\n---\n',
+      })
+      const snapshot = await startedSnapshot($)
+      expect(keysOf(snapshot.items)).toEqual(['files:A-1'])
+      expect(snapshot.caveat).toBe(
+        '2 item files skipped, the first: tasks/b.md line 1 is malformed.',
+      )
+    },
+  )
+
+  for (const rank of ['" "', '"0x1"', '"1e1"', '"-1"', '1.5']) {
+    test(
+      `fails on the priority ${rank}, which is not a whole number`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        startClock(on)
+        fakeRepo(on, {
+          ...GENERIC_FIXTURE,
+          'work/items.jsonl': `{"key":"T-1","summary":"Ok","state":"open","rank":${rank}}\n`,
+        })
+        const snapshot = await startedSnapshot($)
+        expect([snapshot.state, snapshot.reason]).toEqual([
+          'failed',
+          'work/items.jsonl line 1 is malformed.',
+        ])
+      },
+    )
+  }
+
+  test('reads a priority string of digits as a number', { plugins: [consumer] }, async ($, on) => {
+    startClock(on)
+    fakeRepo(on, {
+      ...GENERIC_FIXTURE,
+      'work/items.jsonl': '{"key":"T-1","summary":"Ok","state":"open","rank":"3"}\n',
+    })
+    expect((await startedSnapshot($)).items[0]?.priority).toBe(3)
+  })
+
+  test(
+    'a mapped field that only the object prototype has reads as absent',
+    { plugins: [consumer] },
+    async ($, on) => {
+      startClock(on)
+      fakeRepo(on, {
+        '.handily.json': JSON.stringify({
+          globs: ['work/*.jsonl'],
+          format: 'jsonl',
+          fields: { id: 'key', title: 'summary', status: 'state', type: 'constructor' },
+        }),
+        'work/items.jsonl': '{"key":"T-1","summary":"Ok","state":"open"}\n',
+      })
+      const snapshot = await startedSnapshot($)
+      expect([snapshot.state, snapshot.reason, snapshot.items[0]?.type]).toEqual(['ok', null, null])
+    },
+  )
+
+  test(
+    'reads beans at the repo root when .beans.yml names the path .',
+    { plugins: [consumer] },
+    async ($, on) => {
+      startClock(on)
+      fakeRepo(on, {
+        '.beans.yml': 'beans:\n  path: .\n',
+        'app-a1--x.md': '---\ntitle: X\nstatus: todo\n---\n',
+        'archive/app-b2--y.md': '---\ntitle: Y\nstatus: todo\n---\n',
+      })
+      const snapshot = await startedSnapshot($)
+      expect([snapshot.state, snapshot.reason]).toEqual(['ok', null])
+      expect(snapshot.items.map((item) => [item.id, item.status])).toEqual([
+        ['app-a1', 'open'],
+        ['app-b2', 'closed'],
+      ])
+    },
+  )
+
+  test('reads .handily.json once per poll', { plugins: [consumer] }, async ($, on) => {
+    const clock = startClock(on)
+    const world = fakeRepo(on, GENERIC_FIXTURE)
+    await startedSnapshot($)
+    const configReads = (): number =>
+      world.reads.filter((path) => path === `${ROOT}/.handily.json`).length
+    const before = configReads()
+    await clock.advance(2_000)
+    expect(configReads() - before).toBe(1)
+  })
+})
+
+describe('confinement of every glob form', () => {
+  const globs = [
+    'work/../../other/items.jsonl',
+    '*/../../other/*.jsonl',
+    '**/../../other/*.jsonl',
+    '/work/other/*.jsonl',
+    './../other/*.jsonl',
+  ]
+  for (const glob of globs) {
+    test(
+      `refuses ${glob} and touches nothing outside the root`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        startClock(on)
+        const world = fakeRepo(
+          on,
+          {
+            '.handily.json': JSON.stringify({
+              globs: [glob],
+              format: 'jsonl',
+              fields: { id: 'id', title: 'title', status: 'status' },
+            }),
+            'work/k.txt': 'x',
+          },
+          { '/work/other/items.jsonl': '{"id":"x","title":"Secret","status":"open"}' },
+        )
+        const snapshot = await startedSnapshot($)
+        expect(snapshot.state).toBe('failed')
+        expect(snapshot.reason).toContain(glob)
+        expect(world.reads.filter((path) => !path.startsWith(ROOT))).toEqual([])
+        expect(world.listed.filter((path) => !path.startsWith(ROOT))).toEqual([])
+      },
+    )
+  }
 })

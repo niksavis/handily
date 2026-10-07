@@ -11,6 +11,7 @@ import {
 import { DIFF_HISTORY_LIMIT } from './hooks/snapshot'
 import type {
   WorkitemsDiff,
+  WorkitemsRefreshResult,
   WorkitemsItem,
   WorkitemsLine,
   WorkitemsSnapshot,
@@ -336,8 +337,9 @@ describe('refresh', () => {
       const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
       await startSession($)
       const readsAfterStart = world.reads.length
-      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsDiff
-      expect(diff).toEqual({ created: [], updated: [], closed: [] })
+      const { version } = await snapshotOf($)
+      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(diff).toEqual({ created: [], updated: [], closed: [], version })
       expect(world.reads.length).toBe(readsAfterStart)
     },
   )
@@ -444,6 +446,31 @@ describe('contract', () => {
 })
 
 describe('refresh since a version', () => {
+  test(
+    'a refresh before a change and a refresh since its version after it return only that change',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      await clock.advance(2_000)
+      const before = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(before.version).toBe((await snapshotOf($)).version)
+      world.files.set(ISSUES, {
+        text: `${WITH_NEW_ITEM}\n{"id":"app-y","title":"Second","status":"open"}`,
+        mtimeMs: 30,
+      })
+      const after = JSON.parse(
+        await commandText($, 'refresh', String(before.version)),
+      ) as WorkitemsRefreshResult
+      expect(keysOf(after.created)).toEqual(['beads:app-y'])
+      expect(after.updated).toEqual([])
+      expect(after.closed).toEqual([])
+      expect(after.version).toBe(before.version + 1)
+    },
+  )
+
   test('returns a change that a poll tick read first', { plugins: [consumer] }, async ($, on) => {
     const clock = mock.clock(on)
     const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
@@ -543,7 +570,14 @@ describe('refresh since a version', () => {
     const text = await commandText($, 'refresh-or-error', String(oldest))
     expect(text).toContain('older than the oldest kept diff')
     const kept = await commandText($, 'refresh-or-error', String(oldest + 1))
-    expect(kept).toBe(JSON.stringify({ created: [], updated: [], closed: [] }))
+    expect(kept).toBe(
+      JSON.stringify({
+        created: [],
+        updated: [],
+        closed: [],
+        version: oldest + DIFF_HISTORY_LIMIT + 1,
+      }),
+    )
   })
 })
 

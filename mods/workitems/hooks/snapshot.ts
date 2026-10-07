@@ -3,6 +3,7 @@ import type {
   WorkitemsDiff,
   WorkitemsItem,
   WorkitemsRefreshArgs,
+  WorkitemsRefreshResult,
   WorkitemsSnapshot,
 } from '../types'
 import { FileProblem } from './config'
@@ -26,7 +27,7 @@ export type ProviderHost = {
 }
 
 export type Provider = {
-  refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsDiff>
+  refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsRefreshResult>
 }
 
 function emptyDiff(): WorkitemsDiff {
@@ -38,7 +39,16 @@ export function pathAtRoot(root: string, relativePath: string): string {
 }
 
 function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
+  async function statAt(relativePath: string): Promise<FileStat> {
+    try {
+      const { size, mtimeMs } = await host.stat(pathAtRoot(root, relativePath))
+      return { size, mtimeMs }
+    } catch {
+      throw new FileProblem(`${relativePath} could not be read.`)
+    }
+  }
   return {
+    stat: statAt,
     exists: (relativePath) => host.exists(pathAtRoot(root, relativePath)),
     list: async (relativeDirectory) => {
       try {
@@ -55,16 +65,10 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       }
     },
     read: async (relativePath) => {
-      const path = pathAtRoot(root, relativePath)
-      let stat: FileStat
-      try {
-        stat = await host.stat(path)
-      } catch {
-        throw new FileProblem(`${relativePath} could not be read.`)
-      }
+      const stat = await statAt(relativePath)
       if (stat.size > MAX_FILE_BYTES) throw new FileProblem(`${relativePath} is over 4 MiB.`)
       try {
-        return await host.read(path)
+        return await host.read(pathAtRoot(root, relativePath))
       } catch {
         throw new FileProblem(`${relativePath} could not be read.`)
       }
@@ -247,7 +251,10 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     const files = filesAtRoot(host, root)
     const detection = await detect(readers, files)
     const signature = detection.found
-      ? await signatureOf(host, files, root, detection.reader)
+      ? [
+          await signatureOf(host, files, root, detection.reader),
+          `ignored ${detection.ignored.join(' ')}`,
+        ].join('\n')
       : [root, 'no-tracker'].join('\n')
     const checkedAt = await host.now()
     if (current && signature === lastSignature) {
@@ -294,7 +301,7 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     refresh: async (args) => {
       const since = sinceOf(args)
       await requestRead()
-      return diffSince(since)
+      return { ...diffSince(since), version }
     },
   }
 }

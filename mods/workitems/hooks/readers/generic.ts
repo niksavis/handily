@@ -1,6 +1,7 @@
 import type { WorkitemsFailedReason, WorkitemsItem, WorkitemsStatus } from '../../types'
 import {
   CONFIG_FILE,
+  FileProblem,
   matchGlobs,
   readConfig,
   signatureOfMatches,
@@ -19,10 +20,12 @@ const NORMAL_STATUSES: readonly WorkitemsStatus[] = [
   'deferred',
   'closed',
 ]
-const NESTED = Symbol('nested')
+const UNREADABLE = Symbol('unreadable')
 const FRONT_MATTER_FENCE = '---'
+const WHOLE_NUMBER = /^\d+$/
 const KEY_LINE = /^([A-Za-z_][\w-]*)\s*:(.*)$/
-const LIST_ITEM_LINE = /^\s+-\s*(.*)$/
+const LIST_ITEM_LINE = /^\s*-(?:\s+(.*))?$/
+const BLOCK_SCALAR = /^([|>])([+-]?)\s*(#.*)?$/
 
 export class ItemFault extends Error {
   constructor(readonly reason: WorkitemsFailedReason) {
@@ -85,7 +88,7 @@ function optionalPriority(located: Located, field: string | undefined): number |
   if (field === undefined) return null
   const value = located.value(field)
   if (isAbsent(value)) return null
-  const priority = typeof value === 'string' ? Number(value) : value
+  const priority = typeof value === 'string' && WHOLE_NUMBER.test(value) ? Number(value) : value
   if (typeof priority !== 'number' || !Number.isInteger(priority) || priority < 0) {
     throw new ItemFault(located.invalid(field))
   }
@@ -96,29 +99,76 @@ export function normalStatusOf(rawStatus: string): WorkitemsStatus {
   return NORMAL_STATUSES.find((status) => status === rawStatus) ?? 'other'
 }
 
-function scalarOf(raw: string, path: string, line: number): string | null {
-  const text = raw.trim()
-  if (text === '' || text === '~' || text === 'null') return null
-  if (text.startsWith('"')) {
-    try {
-      const parsed = JSON.parse(text) as unknown
-      if (typeof parsed === 'string') return parsed
-    } catch {
-      throw new ItemFault(lineFault(path, line))
-    }
-    throw new ItemFault(lineFault(path, line))
+function closingQuoteOf(text: string): number {
+  const quote = text[0]
+  for (let index = 1; index < text.length; index += 1) {
+    const character = text[index]
+    if (quote === '"' && character === '\\') index += 1
+    else if (character === quote && quote === "'" && text[index + 1] === "'") index += 1
+    else if (character === quote) return index
   }
-  if (text.startsWith("'")) {
-    if (text.length < 2 || !text.endsWith("'")) throw new ItemFault(lineFault(path, line))
-    return text.slice(1, -1).replaceAll("''", "'")
-  }
-  return text.replace(/\s+#.*$/, '')
+  return -1
 }
 
-function flowListOf(raw: string, path: string, line: number): string[] {
-  const inner = raw.trim().slice(1, -1).trim()
+function quotedScalarOf(text: string): string | typeof UNREADABLE {
+  const close = closingQuoteOf(text)
+  if (close < 0) return UNREADABLE
+  const after = text.slice(close + 1).trim()
+  if (after !== '' && !after.startsWith('#')) return UNREADABLE
+  const literal = text.slice(0, close + 1)
+  if (literal.startsWith("'")) return literal.slice(1, -1).replaceAll("''", "'")
+  try {
+    const parsed = JSON.parse(literal) as unknown
+    return typeof parsed === 'string' ? parsed : UNREADABLE
+  } catch {
+    return UNREADABLE
+  }
+}
+
+function scalarOf(raw: string): string | null | typeof UNREADABLE {
+  const text = raw.trim()
+  if (text.startsWith('"') || text.startsWith("'")) return quotedScalarOf(text)
+  const plain = text.replace(/(^|\s+)#.*$/, '')
+  if (plain === '' || plain === '~' || plain === 'null') return null
+  if (/^[[{&*!|>@`]/.test(plain)) return UNREADABLE
+  return plain
+}
+
+function flowListOf(rest: string): readonly string[] | typeof UNREADABLE {
+  const close = rest.lastIndexOf(']')
+  const after = rest.slice(close + 1).trim()
+  if (close < 0 || (after !== '' && !after.startsWith('#'))) return UNREADABLE
+  const inner = rest.slice(1, close).trim()
   if (inner === '') return []
-  return inner.split(',').map((part) => scalarOf(part, path, line) ?? '')
+  const items = inner.split(',').map(scalarOf)
+  if (items.some((item) => item === UNREADABLE)) return UNREADABLE
+  return items.map((item) => (typeof item === 'string' ? item : ''))
+}
+
+function blockScalarOf(style: string, chomping: string, body: readonly string[]): string {
+  const indent = Math.min(
+    ...body.filter((line) => line.trim() !== '').map((line) => /^\s*/.exec(line)?.[0].length ?? 0),
+  )
+  const lines = body.map((line) => line.slice(indent).replace(/\s+$/, ''))
+  while (lines.length > 0 && lines.at(-1) === '') lines.pop()
+  const text =
+    style === '|'
+      ? lines.join('\n')
+      : lines
+          .map((line) => (line === '' ? '\n' : line))
+          .join(' ')
+          .replace(/ ?\n ?/g, '\n')
+  return chomping === '-' ? text : `${text}\n`
+}
+
+function listOrNestedOf(body: readonly string[]): unknown {
+  const content = body.filter((line) => line.trim() !== '' && !line.trim().startsWith('#'))
+  if (content.length === 0) return undefined
+  const items = content.map((line) => LIST_ITEM_LINE.exec(line))
+  if (items.some((item) => item === null)) return UNREADABLE
+  const scalars = items.map((item) => scalarOf(item?.[1] ?? ''))
+  if (scalars.some((scalar) => scalar === UNREADABLE)) return UNREADABLE
+  return scalars.map((scalar) => (typeof scalar === 'string' ? scalar : ''))
 }
 
 type FrontMatter = { values: Map<string, unknown>; lines: Map<string, number> }
@@ -131,47 +181,48 @@ function frontMatterLines(path: string, text: string): string[] {
   return lines.slice(1, end)
 }
 
+function isContinuation(line: string, takesListItems: boolean): boolean {
+  return line.trim() === '' || /^\s/.test(line) || (takesListItems && /^-(\s|$)/.test(line))
+}
+
+function valueOf(rest: string, body: readonly string[]): unknown {
+  const block = BLOCK_SCALAR.exec(rest)
+  if (block) return blockScalarOf(block[1] ?? '|', block[2] ?? '', body)
+  if (rest === '' || rest.startsWith('#')) return listOrNestedOf(body)
+  if (body.some((line) => line.trim() !== '')) return UNREADABLE
+  if (rest.startsWith('[')) return flowListOf(rest)
+  return scalarOf(rest)
+}
+
 export function parseFrontMatter(path: string, text: string): FrontMatter {
   const values = new Map<string, unknown>()
   const lines = new Map<string, number>()
-  let openKey: string | undefined
-  for (const [index, raw] of frontMatterLines(path, text).entries()) {
+  const source = frontMatterLines(path, text)
+  let index = 0
+  while (index < source.length) {
+    const raw = source[index] ?? ''
     const lineNumber = index + 2
-    if (raw.trim() === '' || raw.trim().startsWith('#')) continue
-    const listItem = LIST_ITEM_LINE.exec(raw)
-    if (/^\s/.test(raw)) {
-      if (openKey === undefined) throw new ItemFault(lineFault(path, lineNumber))
-      const current = values.get(openKey)
-      if (listItem && Array.isArray(current))
-        current.push(scalarOf(listItem[1] ?? '', path, lineNumber) ?? '')
-      else values.set(openKey, NESTED)
-      continue
-    }
+    index += 1
+    if (raw.trim() === '' || raw.startsWith('#')) continue
     const keyLine = KEY_LINE.exec(raw)
     if (!keyLine) throw new ItemFault(lineFault(path, lineNumber))
     const key = keyLine[1] ?? ''
     const rest = (keyLine[2] ?? '').trim()
-    lines.set(key, lineNumber)
-    openKey = undefined
-    if (rest === '' || rest.startsWith('#')) {
-      values.set(key, [])
-      openKey = key
-    } else if (rest.startsWith('[') && rest.endsWith(']')) {
-      values.set(key, flowListOf(rest, path, lineNumber))
-    } else {
-      values.set(key, scalarOf(rest, path, lineNumber))
+    const takesListItems = rest === '' || rest.startsWith('#')
+    const body: string[] = []
+    while (index < source.length && isContinuation(source[index] ?? '', takesListItems)) {
+      body.push(source[index] ?? '')
+      index += 1
     }
+    lines.set(key, lineNumber)
+    values.set(key, valueOf(rest, body))
   }
   return { values, lines }
 }
 
 export function frontMatterLocated(path: string, frontMatter: FrontMatter): Located {
   return {
-    value: (field) => {
-      const value = frontMatter.values.get(field)
-      const isEmptyBlock = Array.isArray(value) && value.length === 0
-      return isEmptyBlock ? undefined : value
-    },
+    value: (field) => frontMatter.values.get(field),
     invalid: (field) => lineFault(path, frontMatter.lines.get(field) ?? 1),
     missing: (field) => missingFault(path, field),
   }
@@ -183,7 +234,7 @@ function recordLocated(
   invalid: Located['invalid'],
 ): Located {
   return {
-    value: (field) => record[field],
+    value: (field) => (Object.hasOwn(record, field) ? record[field] : undefined),
     invalid,
     missing: (field) => missingFault(where, field),
   }
@@ -254,15 +305,60 @@ function jsonlLocatedItems(path: string, text: string): Located[] {
   return located
 }
 
-function locatedItems(config: FilesConfig, path: string, text: string): Located[] {
-  if (config.format === 'json') return jsonLocatedItems(path, text)
-  if (config.format === 'jsonl') return jsonlLocatedItems(path, text)
-  return [frontMatterLocated(path, parseFrontMatter(path, text))]
+export type FoundItem = { item: WorkitemsItem; path: string }
+
+export type ItemFiles = { found: FoundItem[]; skipped: WorkitemsFailedReason[] }
+
+export async function readItemFiles(
+  files: TrackerFiles,
+  paths: readonly string[],
+  itemOfFile: (path: string, text: string) => WorkitemsItem,
+): Promise<ItemFiles> {
+  const result: ItemFiles = { found: [], skipped: [] }
+  for (const path of paths) {
+    try {
+      result.found.push({ item: itemOfFile(path, await files.read(path)), path })
+    } catch (error) {
+      if (!(error instanceof ItemFault || error instanceof FileProblem)) throw error
+      result.skipped.push(error.reason)
+    }
+  }
+  return result
 }
 
-export function uniqueByKey(
-  items: readonly { item: WorkitemsItem; path: string }[],
-): WorkitemsItem[] {
+export function skippedCaveat(skipped: readonly WorkitemsFailedReason[]): string | null {
+  const [first] = skipped
+  if (first === undefined) return null
+  if (skipped.length === 1) return `1 item file skipped: ${first}`
+  return `${numeral(skipped.length)} item files skipped, the first: ${first}`
+}
+
+async function readFrontMatterFiles(
+  files: TrackerFiles,
+  config: FilesConfig,
+  paths: readonly string[],
+): Promise<ItemFiles> {
+  return readItemFiles(files, paths, (path, text) =>
+    itemOf(frontMatterLocated(path, parseFrontMatter(path, text)), config.fields),
+  )
+}
+
+async function readRecordFiles(
+  files: TrackerFiles,
+  config: FilesConfig,
+  paths: readonly string[],
+): Promise<ItemFiles> {
+  const found: FoundItem[] = []
+  for (const path of paths) {
+    const text = await files.read(path)
+    const located =
+      config.format === 'json' ? jsonLocatedItems(path, text) : jsonlLocatedItems(path, text)
+    for (const record of located) found.push({ item: itemOf(record, config.fields), path })
+  }
+  return { found, skipped: [] }
+}
+
+export function uniqueByKey(items: readonly FoundItem[]): WorkitemsItem[] {
   const seen = new Set<string>()
   for (const { item, path } of items) {
     if (seen.has(item.key)) {
@@ -285,14 +381,17 @@ async function filesConfigOf(files: TrackerFiles): Promise<FilesConfig> {
 async function readFiles(files: TrackerFiles): Promise<ReadOutcome> {
   try {
     const config = await filesConfigOf(files)
-    const found: { item: WorkitemsItem; path: string }[] = []
-    for (const match of await matchGlobs(files, config.globs)) {
-      const text = await files.read(match.path)
-      for (const located of locatedItems(config, match.path, text)) {
-        found.push({ item: itemOf(located, config.fields), path: match.path })
-      }
+    const paths = (await matchGlobs(files, config.globs)).map((match) => match.path)
+    const { found, skipped } =
+      config.format === 'frontmatter'
+        ? await readFrontMatterFiles(files, config, paths)
+        : await readRecordFiles(files, config, paths)
+    return {
+      ok: true,
+      items: uniqueByKey(found),
+      sourceLabel: SOURCE,
+      caveat: skippedCaveat(skipped),
     }
-    return { ok: true, items: uniqueByKey(found), sourceLabel: SOURCE, caveat: null }
   } catch (error) {
     if (error instanceof ItemFault) return { ok: false, reason: error.reason }
     throw error

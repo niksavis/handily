@@ -6,7 +6,9 @@ import {
   optionalLabels,
   optionalText,
   parseFrontMatter,
+  readItemFiles,
   requiredText,
+  skippedCaveat,
   uniqueByKey,
   type Located,
 } from './generic'
@@ -17,6 +19,7 @@ const DEFAULT_PATH = '.beans'
 const BEANS_CONFIG = '.beans.yml'
 const ARCHIVE_FOLDER = 'archive'
 const BEAN_EXTENSION = '.md'
+const SLUG_SEPARATOR = '--'
 const STATUSES: Readonly<Record<string, WorkitemsStatus>> = {
   todo: 'open',
   'in-progress': 'in_progress',
@@ -46,14 +49,14 @@ export function beansPathOf(configText: string): string {
   for (const line of configText.split(/\r?\n/)) {
     if (TOP_LEVEL_LINE.test(line)) inBeansSection = BEANS_SECTION_LINE.test(line)
     const path = inBeansSection ? PATH_LINE.exec(line) : null
-    if (path)
-      return (
-        unquoted(path[1] ?? '')
-          .replace(/^\.\//, '')
-          .replace(/\/+$/, '') || DEFAULT_PATH
-      )
+    const value = path ? unquoted(path[1] ?? '') : ''
+    if (value !== '') return folderSegments(value).join('/')
   }
   return DEFAULT_PATH
+}
+
+function folderSegments(path: string): string[] {
+  return path.split('/').filter((segment) => segment !== '' && segment !== '.')
 }
 
 async function beansPath(files: TrackerFiles): Promise<string> {
@@ -63,12 +66,8 @@ async function beansPath(files: TrackerFiles): Promise<string> {
 
 export function beanIdOf(fileName: string): string {
   const name = fileName.slice(0, -BEAN_EXTENSION.length)
-  const separators = ['--', '.', '-']
-  for (const separator of separators) {
-    const index = name.indexOf(separator)
-    if (index > 0) return name.slice(0, index)
-  }
-  return name
+  const slugStart = name.indexOf(SLUG_SEPARATOR)
+  return slugStart > 0 ? name.slice(0, slugStart) : name
 }
 
 function priorityOf(located: Located): number | null {
@@ -103,24 +102,30 @@ function itemOf(located: Located, fileName: string, isArchived: boolean): Workit
 
 async function beanFiles(files: TrackerFiles): Promise<{ root: string; matches: GlobMatch[] }> {
   const root = await beansPath(files)
-  return { root, matches: await matchGlobs(files, [`${root}/**/*${BEAN_EXTENSION}`]) }
+  const glob = [root, '**', `*${BEAN_EXTENSION}`].filter((part) => part !== '').join('/')
+  return { root, matches: await matchGlobs(files, [glob]) }
+}
+
+function beanOf(root: string, path: string, text: string): WorkitemsItem {
+  const relative = root === '' ? path : path.slice(root.length + 1)
+  const fileName = relative.slice(relative.lastIndexOf('/') + 1)
+  const isArchived = relative.startsWith(`${ARCHIVE_FOLDER}/`)
+  return itemOf(frontMatterLocated(path, parseFrontMatter(path, text)), fileName, isArchived)
 }
 
 async function readBeans(files: TrackerFiles): Promise<ReadOutcome> {
   try {
     const { root, matches } = await beanFiles(files)
-    const found: { item: WorkitemsItem; path: string }[] = []
-    for (const match of matches) {
-      const relative = match.path.slice(root.length + 1)
-      const fileName = relative.slice(relative.lastIndexOf('/') + 1)
-      const isArchived = relative.startsWith(`${ARCHIVE_FOLDER}/`)
-      const located = frontMatterLocated(
-        match.path,
-        parseFrontMatter(match.path, await files.read(match.path)),
-      )
-      found.push({ item: itemOf(located, fileName, isArchived), path: match.path })
+    const paths = matches.map((match) => match.path)
+    const { found, skipped } = await readItemFiles(files, paths, (path, text) =>
+      beanOf(root, path, text),
+    )
+    return {
+      ok: true,
+      items: uniqueByKey(found),
+      sourceLabel: SOURCE,
+      caveat: skippedCaveat(skipped),
     }
-    return { ok: true, items: uniqueByKey(found), sourceLabel: SOURCE, caveat: null }
   } catch (error) {
     if (error instanceof ItemFault) return { ok: false, reason: error.reason }
     throw error

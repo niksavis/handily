@@ -114,7 +114,18 @@ function configOf(parsed: unknown): HandilyConfig {
   }
 }
 
-export async function readConfig(files: TrackerFiles): Promise<ConfigOutcome> {
+const configReads = new WeakMap<TrackerFiles, Promise<ConfigOutcome>>()
+
+export function readConfig(files: TrackerFiles): Promise<ConfigOutcome> {
+  let outcome = configReads.get(files)
+  if (!outcome) {
+    outcome = readConfigOnce(files)
+    configReads.set(files, outcome)
+  }
+  return outcome
+}
+
+async function readConfigOnce(files: TrackerFiles): Promise<ConfigOutcome> {
   try {
     if (!(await files.exists(CONFIG_FILE)))
       return { ok: true, config: { source: null, files: null } }
@@ -183,8 +194,13 @@ async function lastSegment(walk: Walk, directory: string, segment: string): Prom
     const isCandidate = entry.kind === 'file' || entry.isLink
     if (!isCandidate || isHidden(entry.name, segment) || !pattern.test(entry.name)) continue
     const path = joined(directory, entry.name)
-    if (entry.isLink) await confine(walk, path)
-    matches.push({ path, size: entry.size, mtimeMs: entry.mtimeMs })
+    if (!entry.isLink) {
+      matches.push({ path, size: entry.size, mtimeMs: entry.mtimeMs })
+      continue
+    }
+    await confine(walk, path)
+    const target = await walk.files.stat(path)
+    matches.push({ path, size: target.size, mtimeMs: target.mtimeMs })
   }
   return matches
 }

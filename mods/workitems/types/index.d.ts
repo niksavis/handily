@@ -135,13 +135,17 @@ export type WorkitemsRefreshArgs = {
   since?: number
 }
 
+export type WorkitemsRefreshResult = WorkitemsDiff & {
+  version: number
+}
+
 export type WorkitemsLinesArgs = {
   snapshot: WorkitemsSnapshot
   now: number
 }
 
 export type Workitems = {
-  refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsDiff>
+  refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsRefreshResult>
   writeVerbs: () => Promise<WorkitemsWriteVerbs>
   lines: (args: WorkitemsLinesArgs) => Promise<readonly WorkitemsLine[]>
 }
