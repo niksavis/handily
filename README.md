@@ -43,6 +43,20 @@ Then type `/handily`. It lists each mod with its version and whether it loaded, 
 ends with one line such as `handily: 5 of 5 mods loaded`. When a mod is missing, the
 list gives the line that installs it.
 
+To update, run these lines in a shell, then restart Claude Code. The bundle install does
+not update a mod that is already installed, so each mod needs its own update line. Every
+line is safe to run again.
+
+```sh
+claude plugin marketplace update handily
+claude plugin install handily@handily
+claude plugin update workitems@handily
+claude plugin update quiet-items@handily
+claude plugin update task-pane@handily
+claude plugin update session-board@handily
+claude plugin update item-toasts@handily
+```
+
 Claude Code does not load the bundle when one of its mods is disabled. Then `/handily`
 is not available, and `/plugin` shows which mod to enable.
 
