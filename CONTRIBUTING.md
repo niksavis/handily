@@ -112,7 +112,9 @@ version file and one tag for the whole repository.
    claude plugin tag mods/<name>
    ```
 
-8. Push the commit, then the tag `<name>--v<version>` that the command created:
+8. Push the commit, then the tag `<name>--v<version>` that the command created. Push each
+   tag in its own `git push`: GitHub starts no workflow when one push carries more than three
+   tags.
 
    ```sh
    git push origin main
