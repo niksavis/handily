@@ -115,8 +115,11 @@ type World = {
   log: Change[]
   callChange: Diff
   sinces: number[]
+  sincesAtCallPolls: number[]
   refreshError: string | null
 }
+
+const CALL_POLL_PATH = '/fake/workitems/poll-during-call'
 
 type FakeAnswer = World & { verbs: WriteVerbs }
 
@@ -163,6 +166,12 @@ const fakeWorkitems: Plugin = {
       await $.workitems.refresh()
       return next(e)
     })
+    on('tool.call', async ($, e, next) => {
+      const result = await next(e)
+      const world = JSON.parse(await $.fs.read('/fake/workitems/poll-during-call')) as FakeAnswer
+      if (world.refreshError === null) await $.workitems.refresh()
+      return result
+    })
   },
 }
 
@@ -190,14 +199,14 @@ function engineBeneath(on: On, world: World): Calls {
   on('fs.read', (_$, e) => {
     const since = /^\/fake\/workitems\/refresh\/(\d+)$/.exec(e.path)?.[1]
     if (since !== undefined) world.sinces.push(Number(since))
+    if (e.path === CALL_POLL_PATH) world.sincesAtCallPolls.push(world.sinces.length)
     return { value: JSON.stringify({ ...world, verbs: VERBS }) }
   })
-  on('tool.call', async ($, e) => {
+  on('tool.call', (_$, e) => {
     calls.ids.push(e.tool_use_id)
     if (hasChanges(world.callChange)) {
       world.log.push({ version: latestVersion(world) + 1, diff: world.callChange })
     }
-    await $.workitems.refresh().catch(() => undefined)
     return calls.answer() as never
   })
   on('ui.render', (_$, e) => {
@@ -213,6 +222,7 @@ function newWorld(): World {
     log: [],
     callChange: emptyDiff(),
     sinces: [],
+    sincesAtCallPolls: [],
     refreshError: null,
   }
 }
@@ -581,6 +591,7 @@ describe('quiet row', () => {
       await startSession($)
       const command = 'br create --title "Draw text mocks for the mods" --priority 2'
       const id = await runBash($, calls, command)
+      expect(world.sincesAtCallPolls).toEqual([0])
       expect(world.sinces).toEqual([7])
       expect(await rowTexts($, surface, toolUse(id, command))).toEqual([
         `${MARKER[surface]}work item created handily-ab12 Draw text mocks for the mods open P2`,
