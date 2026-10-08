@@ -111,8 +111,14 @@ export function quoted(text: string): string {
 }
 
 export function taskText(task: TaskPaneTask): string {
-  if (task.by !== 'tracker') return task.title
-  return `${quoted(task.item)}: ${quoted(task.title)}`
+  switch (task.by) {
+    case 'person':
+      return task.title
+    case 'model':
+      return quoted(task.title)
+    case 'tracker':
+      return `${quoted(task.item)}: ${quoted(task.title)}`
+  }
 }
 
 function trackerNotice(tasks: readonly TaskPaneTask[]): string[] {

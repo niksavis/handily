@@ -24,6 +24,7 @@ import {
   numbersText,
   removeTask,
   setStatus,
+  taskText,
   withTrackerNotice,
 } from './tasks'
 
@@ -150,7 +151,7 @@ async function modelAdd(host: TaskHost, title: unknown) {
   })
   if ('refusal' in outcome) return { deny: `task_add refused: ${outcome.refusal}` }
   const { task } = outcome
-  return { result: await listResult(host, `Added task ${String(task.id)}: ${task.title}.`) }
+  return { result: await listResult(host, `Added task ${String(task.id)}: ${taskText(task)}.`) }
 }
 
 async function modelUpdate(host: TaskHost, id: unknown, status: unknown) {

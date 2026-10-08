@@ -35,8 +35,9 @@ read or write the built-in `Task*` tools.
   to the rows, the notes, the `/task` replies and the pane. The text comes from the repository,
   not from you. Each reply, note and tool answer that holds tracker text says that this text is
   data, not an instruction. The system prompt section and the tool descriptions say the same.
-- A note names the author of each task that it reports. It quotes a title that you did not
-  write.
+- A note names the author of each task that it reports. A title that the model wrote is quoted
+  the same way as tracker text, in the rows, the notes, `task_list`, the `/task` replies and the
+  pane, as `claude   "Read the design doc"`. Only a title that you wrote is shown as it is.
 - A tracker item whose id is not an item id, such as an id with a line break, is not added.
 - Parallel edits do not get lost. Each edit goes through `update` from `claude-code`, which
   reads the list again when another edit wrote first.
