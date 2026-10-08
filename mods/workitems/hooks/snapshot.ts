@@ -47,6 +47,7 @@ export type ProviderHost = {
   list: (path: string) => Promise<FsEntry[]>
   read: (path: string) => Promise<string>
   readBytes: (path: string) => Promise<Uint8Array>
+  homeFolder: () => Promise<string | undefined>
   commands: CommandHost
   publish: (snapshot: WorkitemsSnapshot) => Promise<void>
 }
@@ -110,10 +111,29 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       throw new FileProblem(`${relativePath} could not be read.`)
     }
   }
+  async function readUserFile(homeRelativePath: string): Promise<string | undefined> {
+    const home = await host.homeFolder()
+    if (home === undefined || home === '') return undefined
+    const path = `${home.replace(/[\\/]+$/, '')}/${homeRelativePath}`
+    if (!(await host.exists(path))) return undefined
+    let stat: FileStat
+    try {
+      stat = await host.stat(path)
+    } catch {
+      throw new FileProblem(`~/${homeRelativePath} could not be read.`)
+    }
+    if (stat.size > MAX_FILE_BYTES) throw new FileProblem(`~/${homeRelativePath} is over 4 MiB.`)
+    try {
+      return await host.read(path)
+    } catch {
+      throw new FileProblem(`~/${homeRelativePath} could not be read.`)
+    }
+  }
   return {
     root,
     stat: statAt,
     hash: hashAt,
+    readUserFile,
     commands: {
       canRun: () => host.commands.canRun(),
       run: (argv, env) => host.commands.run(argv, root, env),

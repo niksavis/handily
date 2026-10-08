@@ -17,51 +17,11 @@ const SOURCE = 'basicly'
 const LEDGER = '.basicly/ledger'
 const TEMPLATE = `${LEDGER}/template.json`
 const KIT_FOLDER = '.basicly/core/kit/tracker'
-const KIT_CLI = `${KIT_FOLDER}/cli.py`
 const KIT_CODE: readonly CoveredFolder[] = [{ path: KIT_FOLDER, suffix: '', recursive: true }]
-const PATH_PROGRAM = 'basicly'
+const PROGRAM = 'basicly'
+const LABEL = 'basicly tracker list'
+const COMMAND = [PROGRAM, 'tracker', 'list'] as const
 const OPEN_STATUSES = ['open', 'in_progress', 'blocked'] as const
-
-type OpenStatus = (typeof OPEN_STATUSES)[number]
-
-type ListRun = { argv: string[]; env?: Readonly<Record<string, string>> }
-
-type Lister = {
-  label: string
-  command: readonly string[]
-  tail: (status: OpenStatus) => string[]
-  run: (argv0: string, status: OpenStatus, cacheFolder: string) => ListRun
-}
-
-const PATH_LISTER: Lister = {
-  label: 'basicly tracker list',
-  command: [PATH_PROGRAM, 'tracker', 'list'],
-  tail: (status) => ['--status', status],
-  run: (argv0, status, cacheFolder) => ({
-    argv: [argv0, 'tracker', 'list', '--status', status],
-    env: { PYTHONDONTWRITEBYTECODE: '1', PYTHONPYCACHEPREFIX: cacheFolder },
-  }),
-}
-
-const KIT_LISTER: Lister = {
-  label: `python3 ${KIT_CLI} list`,
-  command: ['python3', '-I', '-B', KIT_CLI],
-  tail: (status) => ['list', '--status', status, LEDGER],
-  run: (argv0, status, cacheFolder) => ({
-    argv: [
-      argv0,
-      '-I',
-      '-B',
-      '-X',
-      `pycache_prefix=${cacheFolder}`,
-      KIT_CLI,
-      'list',
-      '--status',
-      status,
-      LEDGER,
-    ],
-  }),
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -124,54 +84,50 @@ function freshCacheFolder(root: string): string {
   return `${root.replace(/[\\/]+$/, '')}/.handily-pycache-${crypto.randomUUID()}`
 }
 
-function approvalNeeded(lister: Lister): ReadOutcome {
+function approvalNeeded(): ReadOutcome {
   return {
     ok: false,
     state: 'approval-needed',
-    command: quotedCommand(lister.command),
+    command: quotedCommand(COMMAND),
     sourceLabel: SOURCE,
   }
 }
 
-async function approvedProgram(files: TrackerFiles, lister: Lister): Promise<string | undefined> {
+async function approvedProgram(files: TrackerFiles): Promise<string | undefined> {
   const verdict = await files.commands.approvals.check(files, {
-    command: lister.command,
-    shown: [...lister.command, ...lister.tail('open')],
+    command: COMMAND,
+    shown: [...COMMAND, '--status', 'open'],
     folders: KIT_CODE,
   })
   return verdict.approved ? verdict.argv0 : undefined
 }
 
-async function listOpenItems(files: TrackerFiles, lister: Lister): Promise<ReadOutcome> {
+async function listOpenItems(files: TrackerFiles): Promise<ReadOutcome> {
   const byKey = new Map<string, WorkitemsItem>()
-  const cacheFolder = freshCacheFolder(files.root)
+  const env = {
+    PYTHONDONTWRITEBYTECODE: '1',
+    PYTHONPYCACHEPREFIX: freshCacheFolder(files.root),
+  }
   for (const status of OPEN_STATUSES) {
-    const argv0 = await approvedProgram(files, lister)
-    if (argv0 === undefined) return approvalNeeded(lister)
-    const { argv, env } = lister.run(argv0, status, cacheFolder)
-    const parsed = await runJson(files, lister.label, argv, env)
-    for (const item of itemsOf(lister.label, parsed)) byKey.set(item.key, item)
+    const argv0 = await approvedProgram(files)
+    if (argv0 === undefined) return approvalNeeded()
+    const argv = [argv0, ...COMMAND.slice(1), '--status', status]
+    for (const item of itemsOf(LABEL, await runJson(files, LABEL, argv, env))) {
+      byKey.set(item.key, item)
+    }
   }
   return { ok: true, items: [...byKey.values()], sourceLabel: SOURCE, caveat: null }
-}
-
-async function availableLister(files: TrackerFiles): Promise<Lister | ReadOutcome> {
-  if ((await files.commands.which(PATH_PROGRAM)) !== undefined) return PATH_LISTER
-  if (await files.exists(KIT_CLI)) return KIT_LISTER
-  return {
-    ok: false,
-    reason: `basicly is not on PATH and ${KIT_CLI} is missing, so the tracker could not be read.`,
-  }
 }
 
 async function readBasicly(files: TrackerFiles): Promise<ReadOutcome> {
   if (!(await files.commands.canRun())) {
     return { ok: false, state: 'terminal-only', sourceLabel: SOURCE }
   }
-  const lister = await availableLister(files)
-  if ('ok' in lister) return lister
+  if ((await files.commands.which(PROGRAM)) === undefined) {
+    return { ok: false, reason: 'basicly is not on PATH. Install it to read this tracker.' }
+  }
   try {
-    return await listOpenItems(files, lister)
+    return await listOpenItems(files)
   } catch (error) {
     if (error instanceof ItemFault) return { ok: false, reason: error.reason }
     throw error
@@ -184,7 +140,7 @@ async function basiclySignature(files: TrackerFiles): Promise<string> {
     .sort()
   return [
     ...ledger,
-    await coverStamp(files, { command: KIT_LISTER.command, folders: KIT_CODE }),
+    await coverStamp(files, KIT_CODE),
     String(files.commands.approvals.generation()),
   ].join('\n')
 }

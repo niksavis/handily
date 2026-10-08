@@ -1,6 +1,14 @@
-import type { WorkitemsItem, WorkitemsStatus } from '../../types'
-import { coverStamp } from '../approval'
-import { CONFIG_FILE, matchGlobs, readConfig, signatureOfMatches } from '../config'
+import type { WorkitemsFailedReason, WorkitemsItem, WorkitemsStatus } from '../../types'
+import { programOutsideRoot, quotedCommand } from '../approval'
+import {
+  argumentProblem,
+  CONFIG_FILE,
+  FileProblem,
+  matchGlobs,
+  signatureOfMatches,
+  USER_ADAPTERS_FILE,
+  USER_ADAPTERS_SHOWN,
+} from '../config'
 import { numeral } from '../states'
 import {
   checkedItem,
@@ -177,50 +185,92 @@ function itemsOf(label: string, parsed: unknown, description: Description): Work
   return uniqueByKey(found)
 }
 
-async function commandOf(files: TrackerFiles): Promise<readonly string[]> {
-  const outcome = await readConfig(files)
-  if (!outcome.ok) throw new ItemFault(outcome.reason)
-  if (outcome.config.command === null) {
-    throw new ItemFault(`${CONFIG_FILE} names no command, so it could not be read.`)
-  }
-  return outcome.config.command
+type UserCommand =
+  | { kind: 'none' }
+  | { kind: 'found'; argv: readonly string[] }
+  | { kind: 'fault'; reason: WorkitemsFailedReason }
+
+function userFault(detail: string): UserCommand {
+  return { kind: 'fault', reason: `${USER_ADAPTERS_SHOWN} ${detail}, so it could not be read.` }
 }
 
-async function hasCommand(files: TrackerFiles): Promise<boolean> {
-  const outcome = await readConfig(files)
-  return outcome.ok && outcome.config.command !== null
+async function readUserCommand(files: TrackerFiles): Promise<UserCommand> {
+  let text: string | undefined
+  try {
+    text = await files.readUserFile(USER_ADAPTERS_FILE)
+  } catch (error) {
+    if (error instanceof FileProblem) return { kind: 'fault', reason: error.reason }
+    throw error
+  }
+  if (text === undefined) return { kind: 'none' }
+  const rootReal = await files.realPath('.')
+  if (rootReal === undefined) return { kind: 'fault', reason: 'the repo root could not be read.' }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text) as unknown
+  } catch {
+    return userFault('is not valid JSON')
+  }
+  if (!isRecord(parsed)) return userFault('is not a JSON object')
+  if (!Object.hasOwn(parsed, rootReal)) return { kind: 'none' }
+  const entry = parsed[rootReal]
+  if (!isTextList(entry) || entry.length === 0)
+    return userFault('has an invalid entry for this repo')
+  return { kind: 'found', argv: entry }
+}
+
+const userCommands = new WeakMap<TrackerFiles, Promise<UserCommand>>()
+
+function userCommandOf(files: TrackerFiles): Promise<UserCommand> {
+  let lookup = userCommands.get(files)
+  if (!lookup) {
+    lookup = readUserCommand(files)
+    userCommands.set(files, lookup)
+  }
+  return lookup
+}
+
+async function hasUserCommand(files: TrackerFiles): Promise<boolean> {
+  return (await userCommandOf(files)).kind !== 'none'
+}
+
+async function missingEntry(files: TrackerFiles): Promise<WorkitemsFailedReason> {
+  const rootReal = await files.realPath('.')
+  const isShown = rootReal !== undefined && argumentProblem(rootReal) === null
+  const shown = isShown ? ` (${JSON.stringify(rootReal)})` : ''
+  return `${USER_ADAPTERS_SHOWN} has no entry for this repo${shown}, so it could not be read.`
 }
 
 export function createAdapterReader(): Reader {
-  let described: { command: string; description: Description } | undefined
+  let described: { argv: string; description: Description } | undefined
 
   async function readAdapter(files: TrackerFiles): Promise<ReadOutcome> {
+    const lookup = await userCommandOf(files)
+    if (lookup.kind === 'fault') return { ok: false, reason: lookup.reason }
+    if (lookup.kind === 'none') return { ok: false, reason: await missingEntry(files) }
+    if (!(await files.commands.canRun())) {
+      return { ok: false, state: 'terminal-only', sourceLabel: SOURCE }
+    }
+    const { argv } = lookup
+    const argv0 = await programOutsideRoot(files, argv)
+    const label = quotedCommand(argv)
     try {
-      const command = await commandOf(files)
-      const text = command.join(' ')
-      if (!(await files.commands.canRun())) {
-        return { ok: false, state: 'terminal-only', sourceLabel: text }
-      }
-      const describeArgv = [...command, 'describe', '--json']
-      const verdict = await files.commands.approvals.check(files, { command, shown: describeArgv })
-      if (!verdict.approved) {
-        return { ok: false, state: 'approval-needed', command: text, sourceLabel: text }
-      }
       described = undefined
-      const describeLabel = `${text} describe --json`
+      const describeLabel = `${label} describe --json`
+      const describeArgv = [argv0, ...argv.slice(1), 'describe', '--json']
       const description = descriptionOf(
         describeLabel,
         await runJson(files, describeLabel, describeArgv),
       )
-      described = { command: text, description }
-      const itemsLabel = `${text} items --json`
-      const parsed = await runJson(files, itemsLabel, [...command, 'items', '--json'])
+      described = { argv: JSON.stringify(argv), description }
+      const itemsLabel = `${label} items --json`
+      const parsed = await runJson(files, itemsLabel, [argv0, ...argv.slice(1), 'items', '--json'])
       return {
         ok: true,
         items: itemsOf(itemsLabel, parsed, description),
         sourceLabel: description.name,
         caveat: null,
-        adapterWrites: { command: text, verbs: description.writes },
+        adapterWrites: { command: argv.join(' '), verbs: description.writes },
       }
     } catch (error) {
       if (error instanceof ItemFault) return { ok: false, reason: error.reason }
@@ -229,10 +279,9 @@ export function createAdapterReader(): Reader {
   }
 
   async function adapterSignature(files: TrackerFiles): Promise<string> {
-    const command = await commandOf(files)
-    const parts = [JSON.stringify(command), String(files.commands.approvals.generation())]
-    parts.push(await coverStamp(files, { command }))
-    if (described?.command === command.join(' ')) {
+    const lookup = await userCommandOf(files)
+    const parts = [JSON.stringify(lookup)]
+    if (lookup.kind === 'found' && described?.argv === JSON.stringify(lookup.argv)) {
       parts.push(signatureOfMatches(await matchGlobs(files, described.description.watch)))
     }
     return parts.join('\n')
@@ -242,7 +291,7 @@ export function createAdapterReader(): Reader {
     name: SOURCE,
     marker: CONFIG_FILE,
     lookedForAs: CONFIG_FILE,
-    isPresent: hasCommand,
+    isPresent: hasUserCommand,
     signature: adapterSignature,
     read: readAdapter,
   }

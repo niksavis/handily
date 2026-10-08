@@ -55,6 +55,7 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
     readDelayMs: 0,
     statDelayMs: 0,
   }
+  mock.env(on, {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('classic.CwdChanged', () => ({}))
   on('session.root', () => {
@@ -592,6 +593,7 @@ describe('session start and directory changes', () => {
       let isFirstExists = true
       let reads = 0
       const logs: string[] = []
+      mock.env(on, {})
       on('session.start', (_$, e) => ({ cwd: e.cwd }))
       on('ui.log', (_$, e) => {
         logs.push(e.text)

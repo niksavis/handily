@@ -3,6 +3,26 @@ import type { WorkitemsFailedReason } from '../types'
 import type { TrackerFiles } from './readers/index'
 
 export const CONFIG_FILE = '.handily.json'
+export const USER_ADAPTERS_FILE = '.config/handily/adapters.json'
+export const USER_ADAPTERS_SHOWN = `~/${USER_ADAPTERS_FILE}`
+export const MAX_ARGUMENT_LENGTH = 256
+
+export function isUnsafeCharacter(code: number): boolean {
+  const isControl = code < 0x20 || (code >= 0x7f && code <= 0x9f)
+  const isLineBreak = code === 0x2028 || code === 0x2029
+  const isBidiControl = (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)
+  return isControl || isLineBreak || isBidiControl
+}
+
+export function argumentProblem(argument: string): string | null {
+  for (const character of argument) {
+    if (isUnsafeCharacter(character.codePointAt(0) ?? 0)) return 'with a control character'
+  }
+  if (argument.length > MAX_ARGUMENT_LENGTH) {
+    return `over ${String(MAX_ARGUMENT_LENGTH)} characters`
+  }
+  return null
+}
 
 export class FileProblem extends Error {
   constructor(readonly reason: WorkitemsFailedReason) {
@@ -33,11 +53,7 @@ export type FieldMap = { id: string; title: string; status: string } & Partial<
 
 export type FilesConfig = { globs: readonly string[]; format: FilesFormat; fields: FieldMap }
 
-export type HandilyConfig = {
-  source: string | null
-  files: FilesConfig | null
-  command: readonly string[] | null
-}
+export type HandilyConfig = { source: string | null; files: FilesConfig | null }
 
 export type ConfigOutcome =
   { ok: true; config: HandilyConfig } | { ok: false; reason: WorkitemsFailedReason }
@@ -45,7 +61,7 @@ export type ConfigOutcome =
 export type GlobMatch = { path: string; size: number; mtimeMs: number }
 
 const FORMATS: readonly FilesFormat[] = ['json', 'jsonl', 'frontmatter']
-const TOP_LEVEL_KEYS = ['source', 'globs', 'format', 'fields', 'command'] as const
+const TOP_LEVEL_KEYS = ['source', 'globs', 'format', 'fields'] as const
 const REQUIRED_FIELDS = ['id', 'title', 'status'] as const
 const UNSUPPORTED_GLOB_CHARACTERS = /[[\]{}\\]/
 const ABSOLUTE_PATH = /^([\\/]|[A-Za-z]:)/
@@ -100,12 +116,23 @@ function fieldsOf(value: unknown): FieldMap {
   return fields as FieldMap
 }
 
-function commandOf(value: unknown): readonly string[] | null {
-  if (value === undefined) return null
-  if (!Array.isArray(value) || value.length === 0 || !value.every(isText)) {
-    configFault('needs command as a list of the program and its arguments')
+function isCopyableCommand(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((argument) => isText(argument) && argumentProblem(argument) === null)
+  )
+}
+
+async function repoCommandFault(files: TrackerFiles, command: unknown): Promise<never> {
+  const refusal = `${CONFIG_FILE} names a command, and handily runs an adapter only from ${USER_ADAPTERS_SHOWN}`
+  const rootReal = await files.realPath('.')
+  if (rootReal === undefined || argumentProblem(rootReal) !== null || !isCopyableCommand(command)) {
+    throw new ConfigFault(`${refusal}, so it could not be read.`)
   }
-  return value
+  throw new ConfigFault(
+    `${refusal}. To run it, add ${JSON.stringify(rootReal)}: ${JSON.stringify(command)} to that file. The repo command could not be read.`,
+  )
 }
 
 function configOf(parsed: unknown): HandilyConfig {
@@ -115,7 +142,7 @@ function configOf(parsed: unknown): HandilyConfig {
       configFault(`has the key ${key}, which is not one of ${TOP_LEVEL_KEYS.join(', ')}`)
     }
   }
-  const { source, globs, format, fields, command } = parsed
+  const { source, globs, format, fields } = parsed
   if (source !== undefined && !isText(source)) configFault('needs source as a tracker name')
   const namesFiles = globs !== undefined || format !== undefined || fields !== undefined
   return {
@@ -123,7 +150,6 @@ function configOf(parsed: unknown): HandilyConfig {
     files: namesFiles
       ? { globs: globsOf(globs), format: formatOf(format), fields: fieldsOf(fields) }
       : null,
-    command: commandOf(command),
   }
 }
 
@@ -141,8 +167,12 @@ export function readConfig(files: TrackerFiles): Promise<ConfigOutcome> {
 async function readConfigOnce(files: TrackerFiles): Promise<ConfigOutcome> {
   try {
     if (!(await files.exists(CONFIG_FILE)))
-      return { ok: true, config: { source: null, files: null, command: null } }
-    return { ok: true, config: configOf(parseJson(await files.read(CONFIG_FILE))) }
+      return { ok: true, config: { source: null, files: null } }
+    const parsed = parseJson(await files.read(CONFIG_FILE))
+    if (isRecord(parsed) && Object.hasOwn(parsed, 'command')) {
+      await repoCommandFault(files, parsed.command)
+    }
+    return { ok: true, config: configOf(parsed) }
   } catch (error) {
     if (error instanceof FileProblem) return { ok: false, reason: error.reason }
     if (error instanceof ConfigFault) {

@@ -60,9 +60,10 @@ Why `commit-link` and `handover` were dropped:
 | 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` is secondary |
 | 7 | work-status | Dropped |
 | 8 | bd data | Items that come from `.beads/issues.jsonl` for `bd` carry the label "possibly stale" |
-| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH`, or the repo's `cli.py` when `basicly` is not on `PATH`. Both load the repo's kit code, so each runs only after the person approves it. The key is the root, the resolved `argv[0]`, the argv and the sha256 of every file under `.basicly/core/kit/tracker/`. Amended 2026-10-08 (security review finding 1, option A) |
-| 10 | Approval key | The repo root, the argv, the sha256 of each repo file that the argv names, and the resolved `argv[0]` |
-| 11 | Repo config | `.handily.json` at the repo root. Its globs are confined to the root by `realPath` |
+| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH` only, after the person approves it. Without `basicly` on `PATH` the read fails by name. The repo's `cli.py` fallback was dropped by decision E |
+| 10 | Approval key | For basicly: the repo root, the argv, the resolved `argv[0]` and the sha256 of every file under `.basicly/core/kit/tracker/`. A program that resolves inside the repo root is refused. A CLI adapter needs no approval (decision E) |
+| 11 | Repo config | `.handily.json` at the repo root holds data only: `source`, `globs`, `format` and `fields`. Its globs are confined to the root by `realPath`. It cannot name a command (decision E) |
+| E | CLI adapter command (2026-10-08) | A repo never names a command to run. The person lists the adapter argv in `~/.config/handily/adapters.json`, keyed on the exact real path of the repo root. Typing that line is the consent, so the adapter runs with no approval ask. A repo `.handily.json` that names a command fails and shows the line to copy |
 
 ## 3. Facts about the mod API
 
@@ -166,29 +167,27 @@ Sources, in order of detection:
 | beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader |
 | beans | `.beans/**/<id>--<slug>.md` | Built-in front-matter reader |
 | Any other | Globs and a field map in `.handily.json` | Generic JSON, JSONL or front-matter reader |
-| Any other | A command in `.handily.json` | CLI adapter contract |
+| Any other | An entry for the repo root in `~/.config/handily/adapters.json` | CLI adapter contract |
 
 basicly:
 
 - The ledger holds `template.json`, `pending-<branch>.jsonl` and `snapshot.jsonl`. Files
   `events-*.jsonl` appear only after a fold. So the provider detects basicly by
   `template.json`.
-- The provider runs `basicly tracker list --status <s>` from `PATH`, or the repo's
-  `.basicly/core/kit/tracker/cli.py` when `basicly` is not on `PATH` (review decision 9).
-  Both load the repo's kit code, so every basicly read runs only after approval. The key is
-  the root, the resolved `argv[0]`, the argv and the sha256 of every file under
+- The provider runs `basicly tracker list --status <s>` from `PATH` (review decision 9). It
+  loads the repo's kit code, so every basicly read runs only after approval. The key is the
+  root, the resolved `argv[0]`, the argv and the sha256 of every file under
   `.basicly/core/kit/tracker/`, in every subfolder. The provider runs the recorded `argv[0]`,
   refuses one inside the repo root, and checks the approval again before each list run.
-- The kit runs as `python3 -I -B -X pycache_prefix=<new folder> cli.py`, so the kit folder is
-  not on the module search path and no cached `.pyc` file from the repo runs. `-I` ignores the
-  `PYTHON*` variables, so these settings are flags. `basicly` from `PATH` gets
-  `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` as variables.
+- Without `basicly` on `PATH`, the read fails with "basicly is not on PATH. Install it to read
+  this tracker." The provider never runs the repo's `cli.py` (decision E).
+- `basicly` runs with `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` set to a new folder
+  that does not exist, so no cached `.pyc` file from the repo runs.
 - `isStdoutTruncated` makes the read fail, and the reason names it.
 - The provider skips tombstoned records.
 - Field map: `record` to `id`, `fields.title`, `status`, `fields.priority`,
   `fields.issue_type`, `fields.assignee` and `dates.updated`.
-- The repo's `cli.py list` has no `--json` flag. It needs the ledger folder and prints
-  `{count, records, schema}`.
+- `basicly tracker list` prints `{count, records, schema}`.
 
 beads and br:
 
@@ -209,22 +208,30 @@ Limits and safety:
 
 - A file over 4 MiB makes the read fail, and the reason names it.
 - `.handily.json` globs are confined to the root by `realPath`.
-- A repo command needs approval. The approval key is the root, the argv, the sha256 of each
-  repo file that the argv names, and the resolved `argv[0]` (review decision 10).
-- The provider never asks for approval when the session is not interactive
-  (`!isInteractive`).
+- basicly needs approval (review decision 10). The provider never asks for approval when the
+  session is not interactive (`!isInteractive`).
+- A repo never names a command to run (decision E). The CLI adapter argv comes only from
+  `~/.config/handily/adapters.json`, which the person writes. The key of an entry is the exact
+  real path of the repo root, with no patterns. A clone at another path does not match.
+- The provider refuses a program whose real path is inside the repo root. Program lookup skips
+  a relative or empty `PATH` entry, such as `.`.
+- Each reader refuses an item whose `id`, `title` or raw status holds a control character or is
+  too long. Every read of a tracker file stays inside the repo root.
 - `$.process.run` works only in the CLI. In the desktop app a CLI source shows the state
   `terminal-only`.
 
 CLI adapter contract (version 1):
 
+- The person names the command in `~/.config/handily/adapters.json`:
+  `{ "<real path of the repo root>": ["prog", "args..."] }`. A repo can ship the adapter script
+  and the line to copy.
 - `<command> items --json` prints a JSON array of normalized work items to stdout, exit 0.
 - `<command> describe --json` prints `{ "name", "version", "contract": 1, "watch": [globs],
   "writes": [argv prefixes], "statusMap": {...} }`. The provider re-reads when a file under
   `watch` changes.
-- The provider refuses a contract version above 1.
-- A non-zero exit or bad JSON makes the provider report the adapter as failed. It never
-  guesses.
+- The provider refuses a contract other than the number 1, and names the value it got.
+- A non-zero exit, output that was cut off or bad JSON makes the provider report the adapter
+  as failed. It never guesses.
 
 The provider also tells the other mods which paths and which CLI commands are tracker
 writes. quiet-items reads that list.
@@ -410,10 +417,9 @@ Measured facts behind these choices:
 
 Closed:
 
-- **Q1. basicly read path.** Closed by review decision 9: `basicly tracker list --status <s>`
-  from `PATH`, or the repo's `cli.py` when `basicly` is not on `PATH`. Every basicly read runs
-  only after approval, keyed on the kit files. `cli.py list` has no `--json` flag. It needs the
-  ledger folder and prints `{count, records, schema}`.
+- **Q1. basicly read path.** Closed by review decision 9 and decision E: `basicly tracker list
+  --status <s>` from `PATH` only. Every basicly read runs only after approval, keyed on the kit
+  files. The repo's `cli.py` fallback was dropped.
 - **Q2. Repo config file.** Closed by review decision 11: `.handily.json` at the repo root.
 - **Q4. Linter.** Decided 2026-10-07: typescript-eslint with Prettier (section 6).
 - **Q6. Ignore rules.** Done 2026-10-07: `.claude-plugin/types/` and `node_modules/`.

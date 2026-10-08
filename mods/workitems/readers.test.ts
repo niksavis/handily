@@ -155,6 +155,7 @@ function fakeRepo(on: On, files: Record<string, string>, outside: Record<string,
     world.files.set(`${ROOT}/${path}`, { text, mtimeMs: 10 })
   }
   for (const [path, text] of Object.entries(outside)) world.files.set(path, { text, mtimeMs: 10 })
+  mock.env(on, {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('classic.CwdChanged', () => ({}))
   on('session.root', () => ({ value: ROOT }))
@@ -523,7 +524,7 @@ describe('generic reader', () => {
       expect(snapshot.state).toBe('failed')
       expect(snapshot.source).toBe('.handily.json')
       expect(snapshot.reason).toBe(
-        '.handily.json has the key glob, which is not one of source, globs, format, fields, command, so it could not be read.',
+        '.handily.json has the key glob, which is not one of source, globs, format, fields, so it could not be read.',
       )
     },
   )

@@ -32,6 +32,7 @@ export type TrackerFiles = {
     relativePath: string,
   ) => Promise<{ size: number; mtimeMs: number; kind?: 'file' | 'dir' | 'other' }>
   hash: (relativePath: string) => Promise<FileDigest | undefined>
+  readUserFile: (homeRelativePath: string) => Promise<string | undefined>
   commands: TrackerCommands
 }
 

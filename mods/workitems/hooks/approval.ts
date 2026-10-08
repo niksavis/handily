@@ -1,7 +1,5 @@
-import type { AskOptions } from 'claude-code'
-import type { FsEntry } from 'claude-code'
-import { FileProblem, isInside } from './config'
-import { isUnsafeCharacter } from './readers/generic'
+import type { AskOptions, FsEntry } from 'claude-code'
+import { argumentProblem, FileProblem, isInside } from './config'
 import type { TrackerFiles } from './readers/index'
 
 export const APPROVE = 'Allow for this repo'
@@ -9,8 +7,8 @@ export const DECLINE = 'Not now'
 export const ASK_HEADER = 'workitems'
 const STORE_PREFIX = 'approval:'
 const ABSOLUTE_PATH = /^([\\/]|[A-Za-z]:)/
+const ABSOLUTE_FOLDER = /^([\\/]|[A-Za-z]:[\\/])/
 const NAMES_A_FOLDER = /[\\/]/
-const MAX_ARGUMENT_LENGTH = 256
 
 export type ApprovalKey = {
   root: string
@@ -32,7 +30,7 @@ export type CoveredFolder = { path: string; suffix: string; recursive?: true }
 export type ApprovalRequest = {
   command: readonly string[]
   shown: readonly string[]
-  folders?: readonly CoveredFolder[]
+  folders: readonly CoveredFolder[]
 }
 
 export type FileDigest = { sha256: string } | { size: number; mtimeMs: number }
@@ -71,7 +69,7 @@ function candidatesOn(search: SearchPath, program: string): string[] {
   const suffixes = ['', ...(search.extensions ?? '').split(';').filter((suffix) => suffix !== '')]
   return search.path
     .split(isWindows ? ';' : ':')
-    .filter((directory) => directory !== '')
+    .filter((directory) => ABSOLUTE_FOLDER.test(directory))
     .flatMap((directory) =>
       suffixes.map((suffix) => `${directory.replace(/[\\/]+$/, '')}/${program}${suffix}`),
     )
@@ -89,40 +87,45 @@ export async function resolveProgram(
   return undefined
 }
 
-function folderOf(relativePath: string): string {
-  const cut = Math.max(relativePath.lastIndexOf('/'), relativePath.lastIndexOf('\\'))
-  return cut <= 0 ? '.' : relativePath.slice(0, cut)
+export function refuseUnsafeArguments(argv: readonly string[]): void {
+  for (const argument of argv) {
+    const problem = argumentProblem(argument)
+    if (problem !== null) {
+      throw new FileProblem(`the command has an argument ${problem}, so it could not be read.`)
+    }
+  }
+}
+
+export async function programOutsideRoot(
+  files: TrackerFiles,
+  argv: readonly string[],
+): Promise<string> {
+  refuseUnsafeArguments(argv)
+  const program = argv[0] ?? ''
+  const argv0 = await files.commands.which(program)
+  if (argv0 === undefined) {
+    throw new FileProblem(`${program} could not be found, so ${argv.join(' ')} could not be read.`)
+  }
+  const rootReal = await files.realPath('.')
+  if (rootReal === undefined) throw new FileProblem('the repo root could not be read.')
+  if (isInside(rootReal, argv0)) {
+    throw new FileProblem(`${program} resolves inside the repo root, so it could not be read.`)
+  }
+  refuseUnsafeArguments([argv0])
+  return argv0
+}
+
+export function quotedCommand(argv: readonly string[]): string {
+  return argv.map((argument) => JSON.stringify(argument)).join(' ')
 }
 
 function joinedPath(folder: string, name: string): string {
   return folder === '.' ? name : `${folder}/${name}`
 }
 
-function relativeToRoot(root: string, argument: string): string | undefined {
-  if (argument.startsWith('-')) return undefined
-  if (!ABSOLUTE_PATH.test(argument)) return argument
-  const base = root.replace(/[\\/]+$/, '')
-  const isUnderRoot = argument.startsWith(`${base}/`) || argument.startsWith(`${base}\\`)
-  return isUnderRoot ? argument.slice(base.length + 1) : undefined
-}
-
 function digestText(digest: FileDigest): string {
   if ('sha256' in digest) return digest.sha256
   return `size ${String(digest.size)}, modified ${String(digest.mtimeMs)}`
-}
-
-async function namedRepoFiles(
-  files: TrackerFiles,
-  argv: readonly string[],
-): Promise<Map<string, FileDigest>> {
-  const named = new Map<string, FileDigest>()
-  for (const argument of argv) {
-    const relative = relativeToRoot(files.root, argument)
-    if (relative === undefined) continue
-    const digest = await files.hash(relative)
-    if (digest !== undefined) named.set(relative, digest)
-  }
-  return named
 }
 
 type FolderEntry = { path: string; entry: FsEntry }
@@ -147,35 +150,13 @@ async function folderEntries(files: TrackerFiles, folder: CoveredFolder): Promis
   return found
 }
 
-async function isRepoFile(files: TrackerFiles, relativePath: string): Promise<boolean> {
-  try {
-    return (await files.stat(relativePath)).kind !== 'dir'
-  } catch {
-    return false
-  }
-}
-
-async function coveredFoldersOf(
+async function coverageOf(
   files: TrackerFiles,
-  request: Pick<ApprovalRequest, 'command' | 'folders'>,
-): Promise<readonly CoveredFolder[]> {
-  if (request.folders) return request.folders
-  const paths = new Set<string>()
-  for (const argument of request.command) {
-    const relative = relativeToRoot(files.root, argument)
-    if (relative !== undefined && (await isRepoFile(files, relative))) {
-      paths.add(folderOf(relative))
-    }
-  }
-  return [...paths].map((path) => ({ path, suffix: '' }))
-}
-
-async function coverageOf(files: TrackerFiles, request: ApprovalRequest): Promise<Coverage> {
-  const digests = await namedRepoFiles(files, request.command)
-  const folders = await coveredFoldersOf(files, request)
+  folders: readonly CoveredFolder[],
+): Promise<Coverage> {
+  const digests = new Map<string, FileDigest>()
   for (const folder of folders) {
     for (const { path } of await folderEntries(files, folder)) {
-      if (digests.has(path)) continue
       const digest = await files.hash(path)
       if (digest !== undefined) digests.set(path, digest)
     }
@@ -190,55 +171,15 @@ async function coverageOf(files: TrackerFiles, request: ApprovalRequest): Promis
 
 export async function coverStamp(
   files: TrackerFiles,
-  request: Pick<ApprovalRequest, 'command' | 'folders'>,
+  folders: readonly CoveredFolder[],
 ): Promise<string> {
   const lines: string[] = []
-  for (const folder of await coveredFoldersOf(files, request)) {
+  for (const folder of folders) {
     for (const { path, entry } of await folderEntries(files, folder)) {
       lines.push(`${path} ${String(entry.size)} ${String(entry.mtimeMs)}`)
     }
   }
   return lines.sort().join('\n')
-}
-
-async function approvalKey(
-  files: TrackerFiles,
-  argv: readonly string[],
-  coverage: Coverage,
-): Promise<ApprovalKey> {
-  const program = argv[0] ?? ''
-  const argv0 = await files.commands.which(program)
-  if (argv0 === undefined) {
-    throw new FileProblem(`${program} could not be found, so ${argv.join(' ')} could not be read.`)
-  }
-  const rootReal = await files.realPath('.')
-  if (rootReal === undefined) throw new FileProblem('the repo root could not be read.')
-  if (isInside(rootReal, argv0)) {
-    throw new FileProblem(`${program} resolves inside the repo root, so it could not be read.`)
-  }
-  refuseUnsafeArguments([argv0])
-  return { root: files.root, argv: [...argv], files: coverage.files, argv0 }
-}
-
-function refuseUnsafeArguments(argv: readonly string[]): void {
-  for (const argument of argv) {
-    for (const character of argument) {
-      if (isUnsafeCharacter(character.codePointAt(0) ?? 0)) {
-        throw new FileProblem(
-          'the command has an argument with a control character, so it could not be read.',
-        )
-      }
-    }
-    if (argument.length > MAX_ARGUMENT_LENGTH) {
-      throw new FileProblem(
-        `the command has an argument over ${String(MAX_ARGUMENT_LENGTH)} characters, so it could not be read.`,
-      )
-    }
-  }
-}
-
-export function quotedCommand(argv: readonly string[]): string {
-  return argv.map((argument) => JSON.stringify(argument)).join(' ')
 }
 
 function folderName(folder: CoveredFolder): string {
@@ -310,13 +251,14 @@ export function createApprovals(host: ApprovalHost): Approvals {
       generation += 1
     },
     check: async (files, request) => {
-      refuseUnsafeArguments([...request.command, ...request.shown])
-      const coverage = await coverageOf(files, request)
-      const key = await approvalKey(files, request.command, coverage)
+      refuseUnsafeArguments(request.shown)
+      const coverage = await coverageOf(files, request.folders)
+      const argv0 = await programOutsideRoot(files, request.command)
+      const key = { root: files.root, argv: [...request.command], files: coverage.files, argv0 }
       const storeKey = await storeKeyOf(key)
-      if ((await host.stored(storeKey)) !== undefined) return { approved: true, argv0: key.argv0 }
+      if ((await host.stored(storeKey)) !== undefined) return { approved: true, argv0 }
       const mayAsk = isInteractive && !declined.has(storeKey) && !asking.has(storeKey)
-      const shown = [key.argv0, ...request.shown.slice(1)]
+      const shown = [argv0, ...request.shown.slice(1)]
       if (mayAsk) askPerson(storeKey, key, approvalQuestion(shown, coverage))
       return { approved: false }
     },

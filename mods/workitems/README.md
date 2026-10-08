@@ -5,13 +5,13 @@ gives other mods one typed list. It draws nothing of its own.
 
 ## What it reads
 
-| Tracker               | Detected by                     | Read path                                             |
-| --------------------- | ------------------------------- | ----------------------------------------------------- |
-| basicly               | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, after approval   |
-| beads (`bd`, `br`)    | `.beads/issues.jsonl`           | Built-in JSON Lines reader                            |
-| beans                 | `.beans.yml` or `.beans/`       | Built-in front matter reader                          |
-| Any other (`files`)   | `globs` in `.handily.json`      | Generic JSON, JSON Lines or front matter reader       |
-| Any other (`adapter`) | `command` in `.handily.json`    | `<command> describe --json`, `<command> items --json` |
+| Tracker               | Detected by                                        | Read path                                             |
+| --------------------- | -------------------------------------------------- | ----------------------------------------------------- |
+| basicly               | `.basicly/ledger/template.json`                    | `basicly tracker list --status <s>`, after approval   |
+| beads (`bd`, `br`)    | `.beads/issues.jsonl`                              | Built-in JSON Lines reader                            |
+| beans                 | `.beans.yml` or `.beans/`                          | Built-in front matter reader                          |
+| Any other (`files`)   | `globs` in `.handily.json`                         | Generic JSON, JSON Lines or front matter reader       |
+| Any other (`adapter`) | an entry in your `~/.config/handily/adapters.json` | `<command> describe --json`, `<command> items --json` |
 
 - The mod looks only at the session root (`$.session.root()`). It never reads a parent folder.
 - It detects the tracker again when the working directory changes.
@@ -39,16 +39,11 @@ gives other mods one typed list. It draws nothing of its own.
   after you approve it (see [Approval](#approval)).
 - It maps `record` to `id`, and reads `fields.title`, `status`, `fields.priority`,
   `fields.issue_type`, `fields.assignee` and `dates.updated`. It skips a tombstoned record.
-- When `basicly` is not on `PATH`, the mod runs the repo's own kit instead:
-  `python3 -I -B .basicly/core/kit/tracker/cli.py list --status <s> .basicly/ledger`. It also runs
-  only after you approve it. An approval of one of the two commands does not cover the other.
+- When `basicly` is not on `PATH`, the read fails with "basicly is not on PATH. Install it to
+  read this tracker." The mod never runs the repo's own `.basicly/core/kit/tracker/cli.py`.
 - The poll reads again when a file in `.basicly/ledger` or any file under the kit folder changes.
-- The repo's kit runs as `python3 -I -B -X pycache_prefix=<new folder> .basicly/core/kit/tracker/cli.py`.
-  `-I` keeps the kit folder off the module search path, so a package or a `.pyc` file there
-  cannot replace a standard module. `-I` also makes Python ignore the `PYTHON*` variables, so
-  the cache settings are flags. `basicly` from `PATH` runs with `PYTHONDONTWRITEBYTECODE=1` and
-  `PYTHONPYCACHEPREFIX` set to a new folder. The new folder does not exist, so Python never runs
-  a cached `.pyc` file from the repo.
+- `basicly` runs with `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` set to a new folder.
+  The new folder does not exist, so Python never runs a cached `.pyc` file from the repo.
 - The mod runs the program path that the approval recorded, and checks the approval again
   before each of the three list runs.
 - The mod reads only the open statuses. So when a record leaves them, for example when it is
@@ -103,13 +98,12 @@ the line.
 }
 ```
 
-| Key       | Meaning                                                                                                |
-| --------- | ------------------------------------------------------------------------------------------------------ |
-| `source`  | Optional. `basicly`, `beads`, `beans`, `files` or `adapter`. The mod reads this source                 |
-| `command` | The program and its arguments of a CLI adapter, as a list, for example `["node", "tools/tracker.mjs"]` |
-| `globs`   | The item files, relative to the repo root. `*` and `?` match in one folder, `**` in any                |
-| `format`  | `json` (one item or a list of items per file), `jsonl` (one item per line) or `frontmatter`            |
-| `fields`  | The file field of each item field. `id`, `title` and `status` are required                             |
+| Key      | Meaning                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------- |
+| `source` | Optional. `basicly`, `beads`, `beans`, `files` or `adapter`. The mod reads this source      |
+| `globs`  | The item files, relative to the repo root. `*` and `?` match in one folder, `**` in any     |
+| `format` | `json` (one item or a list of items per file), `jsonl` (one item per line) or `frontmatter` |
+| `fields` | The file field of each item field. `id`, `title` and `status` are required                  |
 
 - The item fields are `id`, `title`, `status`, `priority`, `type`, `assignee`, `updatedAt`,
   `labels`, `parent` and `url`.
@@ -127,11 +121,36 @@ the line.
   link leads to.
 - An unknown key, an unknown source, or a missing field makes the read fail. The reason names
   the fault.
+- `.handily.json` holds data only. A `command` in it runs nothing. The read fails, and the reason
+  shows the line to copy into your own `~/.config/handily/adapters.json` (see
+  [CLI adapter contract 1](#cli-adapter-contract-1)).
 
 ## CLI adapter contract 1
 
-A tracker CLI that the mod does not know can serve its items through two commands. Name the
-program and its arguments under `command` in `.handily.json`.
+A tracker CLI that the mod does not know can serve its items through two commands. A repo never
+names the command. You name it, once per repo, in your own file `~/.config/handily/adapters.json`.
+Typing the line is your consent, so the mod runs the adapter with no approval question.
+
+Setup:
+
+1. The repo can ship an adapter script, for example `tools/tracker.mjs`, and document the line
+   to copy.
+2. Find the real path of the repo root, for example with `pwd -P` in the repo.
+3. Add one entry to `~/.config/handily/adapters.json`. The key is that exact real path, and the
+   value is the program and its arguments:
+
+   ```json
+   { "/home/you/src/app": ["node", "tools/tracker.mjs"] }
+   ```
+
+- The mod finds your home folder through `HOME`, or `USERPROFILE` when `HOME` is not set.
+- The key is the exact real path, with no patterns. A clone at another path does not match. A
+  root that you open through a link resolves to the same key.
+- The mod refuses a program whose real path is inside the repo root, for example
+  `["tools/run"]`. Run a repo script through a program outside the repo, such as `node`.
+- The mod refuses an argument with a control character or over 256 characters.
+- When `.handily.json` names `"source": "adapter"` and your file has no entry for the repo, the
+  read fails, and the reason names your file and the repo root.
 
 - `<command> describe --json` prints one JSON object:
 
@@ -149,41 +168,35 @@ program and its arguments under `command` in `.handily.json`.
 - `<command> items --json` prints a JSON array of items. Each item has `id`, `title` and
   `status`, and can have `priority`, `type`, `assignee`, `updatedAt`, `labels`, `parent` and
   `url`.
-- The mod refuses a `contract` other than 1, and the reason names the contract.
+- The mod refuses a `contract` other than the number 1, and the reason names the value it got.
 - `statusMap` maps the status of the tracker to `open`, `in_progress`, `blocked`, `deferred`,
   `closed` or `other`. A status that is not in the map keeps the rule of `.handily.json`.
 - The item keys are `<name>:<id>`. The snapshot `sourceLabel` is the `name`.
 - Each `writes` entry is the arguments after the command of one write. The mod adds them to
   the snapshot as `adapterWrites: { command, verbs }`, for example the command
   `node tools/tracker.mjs`.
-- The poll reads again when a file under `watch`, `.handily.json` or a file in the folder of a
-  repo file in `command` changes.
+- The poll reads again when a file under `watch` or your adapters file changes.
 - A non-zero exit, output over 4 MiB or output that is not valid JSON makes the read fail. The
-  reason names the command.
+  reason names the command in double quotes.
 
 ## Approval
 
-A command that runs code from the repo runs only after you approve it. This covers the CLI
-adapter, `basicly tracker list` from `PATH` and the repo's own basicly kit.
+`basicly tracker list` loads the repo's kit code, so it runs only after you approve it. The CLI
+adapter needs no approval, because you typed its command yourself.
 
 - In an interactive session the mod asks once, in the engine's question dialog, with the
   options `Allow for this repo` and `Not now`.
 - `Allow for this repo` is kept in `$.store` under a key of the repo root, the command, the
-  real path of the program, and the sha256 of each covered repo file.
-- For basicly, the covered files are every file under `.basicly/core/kit/tracker/`, in every
-  subfolder and with every suffix. That is the code that both basicly commands can load from the
-  repo. A link in that folder makes the read fail, because the key cannot cover what it leads to.
-- For the CLI adapter, the covered files are each repo file that the command names, by a
-  relative or an absolute path, and every file in the same folder. The question names the
-  folders.
+  real path of `basicly`, and the sha256 of every file under `.basicly/core/kit/tracker/`, in
+  every subfolder and with every suffix. A link in that folder makes the read fail, because the
+  key cannot cover what it leads to.
 - The mod cannot read a file over 4 MiB, so the key holds the size and the modification time of
   such a file instead of its sha256. The question names each such file.
 - When one of these changes, the old approval does not match, and the mod asks again.
-- The question shows each argument in double quotes, with the real path of the program. It
-  names the folders of repo code that the command runs. The mod refuses a command argument with
-  a control character, a line break or a text direction control, or one over 256 characters,
-  before it asks.
-- The mod refuses a program whose real path is inside the repo root, such as a repo `.venv`.
+- The question shows each argument in double quotes, with the real path of the program, and
+  names the kit folder.
+- The mod refuses a `basicly` whose real path is inside the repo root. Program lookup skips a
+  relative or empty `PATH` entry, such as `.`.
 - After `Not now`, or when you close the dialog, the state is `approval-needed`. The mod asks
   again at the next session start.
 - The mod never asks in a session that is not interactive, such as `claude -p`. The state is

@@ -41,6 +41,10 @@ export const register: Register = (on) => {
         list: (path) => built.fs.list(path),
         read: (path) => built.fs.read(path),
         readBytes: async (path) => bytesOf((await built.fs.read(path, { as: 'bytes' })).base64),
+        homeFolder: async () => {
+          const home = await built.env.get('HOME')
+          return home === undefined || home === '' ? built.env.get('USERPROFILE') : home
+        },
         commands: {
           canRun: async () => canRunCommandsOn(await built.session.surfaces()),
           run: (argv, cwd, env) =>

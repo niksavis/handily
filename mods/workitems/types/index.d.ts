@@ -26,6 +26,7 @@ export type WorkitemsFailedReason =
   | `the adapter says contract ${number}; handily reads contract 1.`
   | `${string} line ${number} is malformed.`
   | `${string} could not be read.`
+  | 'basicly is not on PATH. Install it to read this tracker.'
 
 export type WorkitemsSnapshotBase = {
   at: number
