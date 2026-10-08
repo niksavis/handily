@@ -32,6 +32,8 @@ export type ToastHost = {
   log: (text: string) => void
   announced: () => Promise<Health | undefined>
   announce: (health: Health) => Promise<void>
+  lastToastAt: () => Promise<number | undefined>
+  noteToast: (at: number) => Promise<void>
 }
 
 export type Toaster = {
@@ -111,7 +113,6 @@ export function createToaster(host: ToastHost): Toaster {
   let runningCalls = 0
   let isFailed = false
   let hasOwnCallDuringFailure = false
-  let lastToastAt: number | undefined
   const knownStatus = new Map<string, string>()
   const pending = new Map<string, Change>()
   let queue: Promise<void> = Promise.resolve()
@@ -198,11 +199,12 @@ export function createToaster(host: ToastHost): Toaster {
       return
     }
     const now = await host.now()
+    const lastToastAt = await host.lastToastAt()
     if (lastToastAt !== undefined && now - lastToastAt < QUIET_WINDOW_MS) return
     const text = await nextText(snapshot, health)
     if (text === null) return
     host.toast(text)
-    lastToastAt = now
+    await host.noteToast(now)
   }
 
   return {

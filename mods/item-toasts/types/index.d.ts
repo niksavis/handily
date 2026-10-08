@@ -4,6 +4,7 @@ declare module 'claude-code' {
   interface PluginState {
     'item-toasts': {
       announced: ItemToastsHealth
+      lastToastAt: number
     }
   }
 }

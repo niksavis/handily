@@ -876,9 +876,9 @@ describe('overlapping calls', () => {
   )
 })
 
-describe('a reload of the module', () => {
+describe('a second session start', () => {
   toastTest(
-    'does not repeat the failed toast for a toaster started during the failure',
+    'does not repeat the failed toast when a second session start comes during the failure',
     async (world, $, clock) => {
       await startSession($)
       elsewhere(world, { state: 'failed' })
@@ -933,7 +933,7 @@ describe('a call that is not a tracker write', () => {
   })
 
   toastTest(
-    'toasts a change made elsewhere while a call waits at a permission prompt',
+    'toasts a change made elsewhere while a call waits before it runs',
     async (world, $, clock) => {
       await startSession($)
       world.plans['git push origin main'] = { beforeMs: TICK_MS * 10 }
@@ -1055,19 +1055,28 @@ describe('a call that is a tracker write', () => {
 })
 
 describe('a failed read of the write verbs', () => {
-  toastTest('counts the Bash call as own and logs why', async (world, $, clock) => {
+  toastTest('does not count the Bash call as own and logs why', async (world, $, clock) => {
     await startSession($)
     world.verbsError = true
-    world.plans['npm test'] = { edit: closeAb12() }
-    await bash($, 'npm test')
+    world.plans[CLOSE_AB12] = { edit: closeAb12() }
+    await bash($, CLOSE_AB12)
     await pollAndTick($, clock)
-    await clock.advance(WINDOW_MS)
-    expect(world.toasts).toEqual([])
+    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
     expect(
       world.logs.some((line) =>
-        line.startsWith('item-toasts: counting the call as own; the write verbs failed:'),
+        line.startsWith('item-toasts: not counting the call as own; the write verbs failed:'),
       ),
     ).toBe(true)
+  })
+})
+
+describe('an unknown workitems root', () => {
+  toastTest('does not count a Write as own and logs why', async (world, $) => {
+    await write($, BEADS_FILE)
+    expect(world.callIds).toHaveLength(1)
+    expect(world.logs).toContain(
+      'item-toasts: not counting the call as own; workitems has no root yet',
+    )
   })
 })
 
@@ -1154,5 +1163,60 @@ describe('parity with the quiet-items parser', () => {
     for (const [path, root, file] of files) {
       expect({ path, file: trackerFileOf(path, root) }).toEqual({ path, file })
     }
+  })
+})
+
+describe('review repairs of the second round', () => {
+  toastTest(
+    'closes only the background call whose ids the notification names',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { output: { backgroundTaskId: 'b1' } }
+      world.plans[UPDATE_CD34] = { output: { backgroundTaskId: 'b10' } }
+      await bash($, CLOSE_AB12, true)
+      const first = world.callIds.at(-1) ?? ''
+      await bash($, UPDATE_CD34, true)
+      const second = world.callIds.at(-1) ?? ''
+      await notify($, notificationText('b10', second))
+      elsewhere(world, closeAb12())
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS)
+      expect(world.toasts).toEqual([])
+      await notify($, notificationText('b1', first))
+      elsewhere(world, closeEf56())
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+    },
+  )
+
+  toastTest('keeps the 30 s limit across a second session start', async (world, $, clock) => {
+    await startSession($)
+    elsewhere(world, closeAb12())
+    await pollAndTick($, clock)
+    expect(world.toasts).toHaveLength(1)
+    await startSession($)
+    elsewhere(world, closeEf56())
+    await pollAndTick($, clock)
+    expect(world.toasts).toHaveLength(1)
+    await clock.advance(WINDOW_MS)
+    expect(world.toasts).toEqual([
+      'handily-ab12 closed: Draw text mocks for the mods',
+      'handily-ef56 closed: Fix the parser',
+    ])
+  })
+
+  toastTest('ignores a call that completes after its session ended', async (world, $, clock) => {
+    await startSession($)
+    world.plans[CLOSE_AB12] = { afterMs: TICK_MS * 2, output: { backgroundTaskId: 'b5' } }
+    const running = bash($, CLOSE_AB12, true)
+    await clock.settle()
+    await $.session.end({ reason: 'other', sessionId: 's1', resume: { id: 's1' } })
+    await startSession($)
+    await clock.advance(TICK_MS * 2)
+    await running
+    await clock.advance(30 * 60 * 1000)
+    elsewhere(world, closeEf56())
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
   })
 })

@@ -40,10 +40,13 @@ while it runs draws a toast.
 | Tool            | Counts when                                                                                       |
 | --------------- | ------------------------------------------------------------------------------------------------- |
 | `Bash`          | `parseCommand` finds a tracker name: a write, an echoed write or an opaque command such as a loop |
-| `Write`, `Edit` | `trackerFileOf` names a tracker file at the `workitems` root, or no snapshot gives a root yet     |
+| `Write`, `Edit` | `trackerFileOf` names a tracker file at the `workitems` root                                      |
 
 - `--help`, `-h` and `--dry-run` make a command a non-write, so it does not count.
-- When `$.workitems.writeVerbs()` fails, the mod counts the `Bash` call and logs why.
+- When the mod cannot decide, it does not count the call, and it logs why. This happens when
+  `$.workitems.writeVerbs()` fails for a `Bash` call, and when `workitems` has no snapshot
+  root yet for a `Write` or `Edit` call. A missed change made elsewhere is worse than a toast
+  for this session's own change.
 - `hooks/parse.ts` is a byte-identical copy of `mods/quiet-items/hooks/parse.ts`, and
   `fixtures/commands.ts` of `mods/quiet-items/fixtures/commands.ts`, because a mod cannot
   import another mod's code. `npm run lint` fails when a copy differs, and names the first
@@ -62,8 +65,9 @@ background, returns before its command ends. The mod keeps such a call open unti
 events:
 
 - The task notification of the call arrives (`prompt.submit` with the origin
-  `task-notification`). Its text names the `tool_use_id` of the call or the
-  `backgroundTaskId` of its result.
+  `task-notification`). The mod reads the ids in its `<tool-use-id>` and `<task-id>` tags and
+  compares them exactly with the `tool_use_id` of the call and the `backgroundTaskId` of its
+  result. A notification without these tags closes nothing.
 - A `Stop` hook lists the background tasks of the session, and the `backgroundTaskId` of the
   call is not in the list.
 - 30 minutes pass. The Stop hook may not run, for example when a Team organisation's security
@@ -72,7 +76,8 @@ events:
 
 Until then, a change made elsewhere draws no toast. A new session start closes every open
 call. A reload of the mod forgets the open background calls, so a change that such a command
-makes after the reload draws a toast.
+makes after the reload draws a toast. A call that ends after its session ended stays closed:
+the mod counts a generation for each session and ignores a call from an older one.
 
 ### A change during a failure
 
@@ -103,8 +108,9 @@ failure then draws no toast either.
 
 - A state toast also waits for the 30 s limit. A failure that recovers before its toast shows
   draws no toast.
-- The mod keeps the state it last toasted in `$.state` (`announced`). A reload of the mod
-  during a failure does not repeat the failed toast.
+- The mod keeps the state it last toasted (`announced`) and the time of its last toast
+  (`lastToastAt`) in `$.state`. A reload of the mod during a failure does not repeat the failed
+  toast, and a reload does not start a new 30 s window.
 - On desktop, a `basicly` source is `terminal-only`, so the mod shows nothing. A `beads` or
   `beans` source works as in a terminal.
 
@@ -117,3 +123,7 @@ claude plugin test mods/item-toasts
 
 `item-toasts` depends on `workitems`, so load the `mods` folder. The tests load a fake
 `workitems` provider, because `claude plugin test` loads only the mod under test.
+
+The test kit has no module reload and no permission prompt. A test with a second session start
+stands in for a reload, and a call that waits before it runs stands in for a prompt. No test
+covers a live reload or a live permission prompt.

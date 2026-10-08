@@ -12,7 +12,12 @@ type Toasts = {
   toaster: Toaster | undefined
   ticks: Timer | undefined
   background: Map<string, BackgroundTask>
+  generation: number
 }
+
+const TASK_ID_TAG = /<task-id>([^<]*)<\/task-id>/g
+const TOOL_USE_ID_TAG = /<tool-use-id>([^<]*)<\/tool-use-id>/g
+const NOT_OWN = 'item-toasts: not counting the call as own;'
 
 function hostOf($: EngineInterface): ToastHost {
   return {
@@ -30,10 +35,16 @@ function hostOf($: EngineInterface): ToastHost {
     announce: async (health) => {
       await $.state.set({ plugin: 'item-toasts', key: 'announced' }, health)
     },
+    lastToastAt: async () =>
+      (await $.state.get({ plugin: 'item-toasts', key: 'lastToastAt' })).value,
+    noteToast: async (at) => {
+      await $.state.set({ plugin: 'item-toasts', key: 'lastToastAt' }, at)
+    },
   }
 }
 
 function stopToasts(toasts: Toasts): void {
+  toasts.generation += 1
   toasts.ticks?.cancel()
   toasts.ticks = undefined
   toasts.toaster = undefined
@@ -57,8 +68,8 @@ async function isOwnCommand($: EngineInterface, command: string): Promise<boolea
   try {
     return isTrackerWrite({ tool: 'Bash', command, verbs: await $.workitems.writeVerbs() })
   } catch (error) {
-    $.ui.log(`item-toasts: counting the call as own; the write verbs failed: ${String(error)}`)
-    return true
+    $.ui.log(`${NOT_OWN} the write verbs failed: ${String(error)}`)
+    return false
   }
 }
 
@@ -104,12 +115,22 @@ function keepBackgroundOpen(
   toasts.background.set(toolUseId, { taskId, limit })
 }
 
+function idsIn(text: string, tag: RegExp): ReadonlySet<string> {
+  return new Set(Array.from(text.matchAll(tag), (match) => (match[1] ?? '').trim()))
+}
+
 function isNamedIn(text: string, toolUseId: string, task: BackgroundTask): boolean {
-  return text.includes(toolUseId) || (task.taskId !== null && text.includes(task.taskId))
+  if (idsIn(text, TOOL_USE_ID_TAG).has(toolUseId)) return true
+  return task.taskId !== null && idsIn(text, TASK_ID_TAG).has(task.taskId)
 }
 
 export const register: Register = (on) => {
-  const toasts: Toasts = { toaster: undefined, ticks: undefined, background: new Map() }
+  const toasts: Toasts = {
+    toaster: undefined,
+    ticks: undefined,
+    background: new Map(),
+    generation: 0,
+  }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -125,6 +146,7 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (!(await isOwnCommand($, e.command))) return next(e)
     const toaster = toasts.toaster ?? startToasts($, toasts)
+    const generation = toasts.generation
     await toaster.enterCall()
     let result: CallResult
     try {
@@ -133,6 +155,7 @@ export const register: Register = (on) => {
       await toaster.leaveCall()
       throw error
     }
+    if (toasts.generation !== generation) return result
     const background = backgroundTaskIdOf(e.run_in_background === true, result)
     if (background === null) await toaster.leaveCall()
     else keepBackgroundOpen($, toasts, e.tool_use_id, background.taskId)
@@ -141,8 +164,13 @@ export const register: Register = (on) => {
 
   on('tool.call', { tool: ['Write', 'Edit'] }, async ($, e, next) => {
     const { value: snapshot } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
-    const use = { tool: e.tool, filePath: e.file_path, root: snapshot?.root ?? null }
-    if (!isTrackerWrite(use)) return next(e)
+    if (snapshot === undefined) {
+      $.ui.log(`${NOT_OWN} workitems has no root yet`)
+      return next(e)
+    }
+    if (!isTrackerWrite({ tool: e.tool, filePath: e.file_path, root: snapshot.root })) {
+      return next(e)
+    }
     const toaster = toasts.toaster ?? startToasts($, toasts)
     await toaster.enterCall()
     try {
