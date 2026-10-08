@@ -1,14 +1,15 @@
 export type TaskPaneStatus = 'pending' | 'in_progress' | 'completed'
 
-export type TaskPaneAuthor = 'model' | 'person'
+export type TaskPaneAuthor = 'model' | 'person' | 'tracker'
+
+export type TaskPaneSource =
+  { by: Exclude<TaskPaneAuthor, 'tracker'>; item: null } | { by: 'tracker'; item: string }
 
 export type TaskPaneTask = {
   id: number
   title: string
   status: TaskPaneStatus
-  by: TaskPaneAuthor
-  item: string | null
-}
+} & TaskPaneSource
 
 export type TaskPaneList = {
   tasks: readonly TaskPaneTask[]

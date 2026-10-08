@@ -19,7 +19,7 @@ import {
   type TrackerLine,
   type TrackerView,
 } from './commands'
-import { doneCount, priorityText, type WorkItem } from './tasks'
+import { authorColumn, doneCount, priorityText, taskText, type WorkItem } from './tasks'
 
 export const PANE_ID = 'task-pane'
 const PANE_TITLE = 'Tasks'
@@ -112,19 +112,16 @@ function drawTasks(
   const shown = hidden > 0 ? list.tasks.filter((task) => task.status !== 'completed') : list.tasks
   return shown.map((task) => {
     const isDone = task.status === 'completed'
+    const isActive = task.status === 'in_progress'
     const label = Box({
       flexDirection: 'row',
       flexGrow: 1,
       flexShrink: 1,
       children: [
         Text({ color: isDone ? 'success' : undefined, children: `${taskMark(task)} ` }),
-        Text({
-          dimColor: isDone,
-          bold: task.status === 'in_progress',
-          wrap: 'truncate-end',
-          children: `${String(task.id)} ${task.title}`,
-        }),
-        task.by === 'person' ? Text({ dimColor: true, children: ' (you)' }) : null,
+        Text({ dimColor: isDone, bold: isActive, children: `${String(task.id)} ` }),
+        Text({ dimColor: true, children: `${authorColumn(task.by)} ` }),
+        Text({ dimColor: isDone, bold: isActive, wrap: 'truncate-end', children: taskText(task) }),
       ],
     })
     const remove = Button({

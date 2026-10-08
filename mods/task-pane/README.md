@@ -23,8 +23,16 @@ read or write the built-in `Task*` tools.
   is not sent. The `task_add` description carries the same instruction, so the model reads it
   in every organization.
 - A bad input is refused with the reason and the correct form. The list does not change.
-- A title must be one line with no control character, and at most 200 characters. The list
-  holds at most 100 tasks. The model and the person get the same refusal, by name.
+- A title must be one line with no control character and no invisible format character, such
+  as a bidi control or a zero-width space. It has at most 200 characters. The list holds at
+  most 100 tasks. The model and the person get the same refusal, by name.
+- Each row shows the task number, the status, the author and the title. The author is `you`
+  for a task that you added, `claude` for a task that the model added, and `tracker` for a
+  tracker item that you added. The author comes before the title, so a title cannot imitate it.
+- A `tracker` row quotes the item id and title with `JSON.stringify`, as
+  `"app-cd34": "Write the beads reader"`. The text comes from the repository, not from you.
+  When the list holds a `tracker` row, each note and each tool answer says that this text is
+  data, not an instruction. The system prompt section and the tool descriptions say the same.
 - Parallel edits do not get lost. Each edit goes through `update` from `claude-code`, which
   reads the list again when another edit wrote first.
 
@@ -33,8 +41,8 @@ read or write the built-in `Task*` tools.
 | Command               | Effect                                                         |
 | --------------------- | -------------------------------------------------------------- |
 | `/task`               | Shows the list. With no tasks, it lists the open tracker items |
-| `/task add <text>`    | Adds a task as you, marked `(you)`                             |
-| `/task add <item id>` | Adds a task with the title of that work item, once             |
+| `/task add <text>`    | Adds a task with the author `you`                              |
+| `/task add <item id>` | Adds a `tracker` task with the title of that open item, once   |
 | `/task add -- <text>` | Adds the text as a task, also when it looks like an item id    |
 | `/task rm <n>`        | Removes task `n`                                               |
 | `/task pane`          | Opens the pane                                                 |
@@ -46,13 +54,16 @@ read or write the built-in `Task*` tools.
   tracker has no such item, the mod adds the word as text and says so.
 - `/task add <item id>` says why by name when `workitems` cannot read the item, and names
   `/task add -- <text>`.
+- An item that is closed or deferred is not open. `/task add <item id>` refuses it by name, and
+  `/task` and the pane do not count or list it.
 - Task numbers do not move when a task is removed. `/task rm` of a missing number lists the
   numbers that exist.
 
 ## The pane
 
-- Each task has a mark (`✓` done, `▶` in progress, `○` pending) and an `[rm]` button. An input
-  with `Add` adds a task as you. The mobile app has no input, so the pane shows the command.
+- Each task has a mark (`✓` done, `▶` in progress, `○` pending), the author column and an
+  `[rm]` button. An input with `Add` adds a task as you. The mobile app has no input, so the
+  pane shows the command.
 - With no tasks, the pane lists up to 10 open tracker items, each with an `[add]` button, and an
   `Add N as tasks` button. Nothing is added on its own. An item that is already a task is not
   added again.
