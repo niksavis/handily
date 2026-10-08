@@ -1,5 +1,6 @@
 import type { WorkitemsItem, WorkitemsStatus } from '../../types'
 import { numeral } from '../states'
+import { itemTextProblem } from './generic'
 import type { ReadOutcome, Reader, TrackerFiles } from './index'
 
 const ISSUES_FILE = '.beads/issues.jsonl'
@@ -118,7 +119,16 @@ export function parseIssues(text: string): ReadOutcome {
     if (trimmed === '') continue
     try {
       const line = parseLine(trimmed)
-      if (!isSkipped(line)) items.push(itemOf(line))
+      if (isSkipped(line)) continue
+      const item = itemOf(line)
+      const problem = itemTextProblem(item)
+      if (problem !== null) {
+        return {
+          ok: false,
+          reason: `${ISSUES_FILE} line ${numeral(index + 1)} has ${problem}, so it could not be read.`,
+        }
+      }
+      items.push(item)
     } catch (error) {
       if (!(error instanceof MalformedLine)) throw error
       return { ok: false, reason: `${ISSUES_FILE} line ${numeral(index + 1)} is malformed.` }

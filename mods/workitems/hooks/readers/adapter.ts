@@ -1,7 +1,9 @@
 import type { WorkitemsItem, WorkitemsStatus } from '../../types'
+import { coverStamp } from '../approval'
 import { CONFIG_FILE, matchGlobs, readConfig, signatureOfMatches } from '../config'
 import { numeral } from '../states'
 import {
+  checkedItem,
   ItemFault,
   normalStatusOf,
   optionalLabels,
@@ -29,11 +31,6 @@ type Description = {
   watch: readonly string[]
   writes: readonly string[]
   statusMap: ReadonlyMap<string, WorkitemsStatus>
-}
-
-export type AdapterReader = {
-  reader: Reader
-  writeVerbs: () => Readonly<Record<string, readonly string[]>>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,6 +67,7 @@ export async function runJson(
 
 function recordLocated(record: Record<string, unknown>, where: string): Located {
   return {
+    where,
     value: (field) => (Object.hasOwn(record, field) ? record[field] : undefined),
     invalid: (field) => `${where} has an invalid ${field}, so it could not be read.`,
     missing: (field) => `${where} has no ${field}, so it could not be read.`,
@@ -116,8 +114,13 @@ function descriptionOf(label: string, parsed: unknown): Description {
   if (!isRecord(parsed))
     throw new ItemFault(`${label} printed no JSON object, so it could not be read.`)
   const contract = parsed.contract
+  if (contract === undefined) {
+    throw new ItemFault(`${label} names no contract, so it could not be read.`)
+  }
   if (typeof contract !== 'number' || !Number.isFinite(contract)) {
-    throw new ItemFault(`${label} names no contract number, so it could not be read.`)
+    throw new ItemFault(
+      `${label} says contract ${JSON.stringify(contract)}, which is not the number 1, so it could not be read.`,
+    )
   }
   if (contract !== CONTRACT) {
     throw new ItemFault(`the adapter says contract ${numeral(contract)}; handily reads contract 1.`)
@@ -157,7 +160,7 @@ function itemOf(
   }
   const labels = optionalLabels(located, 'labels')
   if (labels) item.labels = labels
-  return item
+  return checkedItem(item, where)
 }
 
 function itemsOf(label: string, parsed: unknown, description: Description): WorkitemsItem[] {
@@ -187,16 +190,7 @@ async function hasCommand(files: TrackerFiles): Promise<boolean> {
   return outcome.ok && outcome.config.command !== null
 }
 
-export async function stampOf(files: TrackerFiles, relativePath: string): Promise<string> {
-  try {
-    const { size, mtimeMs } = await files.stat(relativePath)
-    return `${relativePath} ${String(size)} ${String(mtimeMs)}`
-  } catch {
-    return `${relativePath} absent`
-  }
-}
-
-export function createAdapterReader(): AdapterReader {
+export function createAdapterReader(): Reader {
   let described: { command: string; description: Description } | undefined
 
   async function readAdapter(files: TrackerFiles): Promise<ReadOutcome> {
@@ -225,6 +219,7 @@ export function createAdapterReader(): AdapterReader {
         items: itemsOf(itemsLabel, parsed, description),
         sourceLabel: description.name,
         caveat: null,
+        adapterWrites: { command: text, verbs: description.writes },
       }
     } catch (error) {
       if (error instanceof ItemFault) return { ok: false, reason: error.reason }
@@ -235,7 +230,7 @@ export function createAdapterReader(): AdapterReader {
   async function adapterSignature(files: TrackerFiles): Promise<string> {
     const command = await commandOf(files)
     const parts = [JSON.stringify(command), String(files.commands.approvals.generation())]
-    for (const argument of command) parts.push(await stampOf(files, argument))
+    parts.push(await coverStamp(files, { command }))
     if (described?.command === command.join(' ')) {
       parts.push(signatureOfMatches(await matchGlobs(files, described.description.watch)))
     }
@@ -243,15 +238,11 @@ export function createAdapterReader(): AdapterReader {
   }
 
   return {
-    reader: {
-      name: SOURCE,
-      marker: CONFIG_FILE,
-      lookedForAs: CONFIG_FILE,
-      isPresent: hasCommand,
-      signature: adapterSignature,
-      read: readAdapter,
-    },
-    writeVerbs: () =>
-      described === undefined ? {} : { [described.command]: described.description.writes },
+    name: SOURCE,
+    marker: CONFIG_FILE,
+    lookedForAs: CONFIG_FILE,
+    isPresent: hasCommand,
+    signature: adapterSignature,
+    read: readAdapter,
   }
 }

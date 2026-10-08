@@ -156,7 +156,7 @@ function joined(directory: string, name: string): string {
   return directory === '' ? name : `${directory}/${name}`
 }
 
-function isInside(rootReal: string, real: string): boolean {
+export function isInside(rootReal: string, real: string): boolean {
   const base = rootReal.replace(/[\\/]+$/, '')
   return real === base || real.startsWith(`${base}/`) || real.startsWith(`${base}\\`)
 }

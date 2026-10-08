@@ -1,6 +1,6 @@
 import type { RenderSurface, Register, Timer } from 'claude-code'
 import { createApprovals, type Approvals } from './approval'
-import { createReaders } from './readers/index'
+import { createReaders, writeVerbs } from './readers/index'
 import { createProvider, POLL_INTERVAL_MS } from './snapshot'
 import { stateLines } from './states'
 
@@ -18,7 +18,6 @@ export const register: Register = (on) => {
 
   on('engine.create', async (_$, e, next) => {
     const built = await next(e)
-    const readerSet = createReaders()
     const engineApprovals = createApprovals({
       stored: (key) => built.store.get(key),
       store: (key, value) => built.store.set(key, value),
@@ -55,13 +54,13 @@ export const register: Register = (on) => {
           await built.state.set({ plugin: 'workitems', key: 'snapshot' }, snapshot)
         },
       },
-      readerSet.readers,
+      createReaders(),
     )
     return {
       ...built,
       workitems: {
         refresh: (args) => provider.refresh(args),
-        writeVerbs: () => Promise.resolve(readerSet.writeVerbs()),
+        writeVerbs: () => Promise.resolve(writeVerbs),
         lines: (args) => Promise.resolve(stateLines(args)),
       },
     }

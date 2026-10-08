@@ -60,7 +60,7 @@ Why `commit-link` and `handover` were dropped:
 | 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` is secondary |
 | 7 | work-status | Dropped |
 | 8 | bd data | Items that come from `.beads/issues.jsonl` for `bd` carry the label "possibly stale" |
-| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH`. The repo's `cli.py` runs only after the person approves it |
+| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH`, or the repo's `cli.py` when `basicly` is not on `PATH`. Both load the repo's kit code, so each runs only after the person approves it. The key is the root, the resolved `argv[0]`, the argv and the sha256 of every `.py` file in `.basicly/core/kit/tracker/`. Amended 2026-10-08 (security review finding 1, option A) |
 | 10 | Approval key | The repo root, the argv, the sha256 of each repo file that the argv names, and the resolved `argv[0]` |
 | 11 | Repo config | `.handily.json` at the repo root. Its globs are confined to the root by `realPath` |
 

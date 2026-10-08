@@ -24,7 +24,21 @@ export type ApprovalHost = {
   log: (text: string) => void
 }
 
-export type ApprovalRequest = { command: readonly string[]; shown: readonly string[] }
+export type CoveredFolder = { path: string; suffix: string }
+
+export type ApprovalRequest = {
+  command: readonly string[]
+  shown: readonly string[]
+  folders?: readonly CoveredFolder[]
+}
+
+export type FileDigest = { sha256: string } | { size: number; mtimeMs: number }
+
+type Coverage = {
+  files: Readonly<Record<string, string>>
+  folders: readonly CoveredFolder[]
+  stamped: readonly string[]
+}
 
 export type Verdict = 'approved' | 'needed'
 
@@ -72,30 +86,143 @@ export async function resolveProgram(
   return undefined
 }
 
-export async function approvalKey(
+function folderOf(relativePath: string): string {
+  const cut = Math.max(relativePath.lastIndexOf('/'), relativePath.lastIndexOf('\\'))
+  return cut <= 0 ? '.' : relativePath.slice(0, cut)
+}
+
+function joinedPath(folder: string, name: string): string {
+  return folder === '.' ? name : `${folder}/${name}`
+}
+
+function relativeToRoot(root: string, argument: string): string | undefined {
+  if (argument.startsWith('-')) return undefined
+  if (!ABSOLUTE_PATH.test(argument)) return argument
+  const base = root.replace(/[\\/]+$/, '')
+  const isUnderRoot = argument.startsWith(`${base}/`) || argument.startsWith(`${base}\\`)
+  return isUnderRoot ? argument.slice(base.length + 1) : undefined
+}
+
+function digestText(digest: FileDigest): string {
+  if ('sha256' in digest) return digest.sha256
+  return `size ${String(digest.size)}, modified ${String(digest.mtimeMs)}`
+}
+
+async function namedRepoFiles(
   files: TrackerFiles,
   argv: readonly string[],
+): Promise<Map<string, FileDigest>> {
+  const named = new Map<string, FileDigest>()
+  for (const argument of argv) {
+    const relative = relativeToRoot(files.root, argument)
+    if (relative === undefined) continue
+    const digest = await files.hash(relative)
+    if (digest !== undefined) named.set(relative, digest)
+  }
+  return named
+}
+
+async function folderFiles(files: TrackerFiles, folder: CoveredFolder): Promise<string[]> {
+  if (!(await files.exists(folder.path))) return []
+  return (await files.list(folder.path))
+    .filter((entry) => entry.kind === 'file' || entry.isLink)
+    .filter((entry) => entry.name.endsWith(folder.suffix))
+    .map((entry) => joinedPath(folder.path, entry.name))
+}
+
+async function isRepoFile(files: TrackerFiles, relativePath: string): Promise<boolean> {
+  try {
+    return (await files.stat(relativePath)).kind !== 'dir'
+  } catch {
+    return false
+  }
+}
+
+async function coveredFoldersOf(
+  files: TrackerFiles,
+  request: Pick<ApprovalRequest, 'command' | 'folders'>,
+): Promise<readonly CoveredFolder[]> {
+  if (request.folders) return request.folders
+  const paths = new Set<string>()
+  for (const argument of request.command) {
+    const relative = relativeToRoot(files.root, argument)
+    if (relative !== undefined && (await isRepoFile(files, relative))) {
+      paths.add(folderOf(relative))
+    }
+  }
+  return [...paths].map((path) => ({ path, suffix: '' }))
+}
+
+async function coverageOf(files: TrackerFiles, request: ApprovalRequest): Promise<Coverage> {
+  const digests = await namedRepoFiles(files, request.command)
+  const folders = await coveredFoldersOf(files, request)
+  for (const folder of folders) {
+    for (const path of await folderFiles(files, folder)) {
+      if (digests.has(path)) continue
+      const digest = await files.hash(path)
+      if (digest !== undefined) digests.set(path, digest)
+    }
+  }
+  const entries = [...digests.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return {
+    files: Object.fromEntries(entries.map(([path, digest]) => [path, digestText(digest)])),
+    folders,
+    stamped: entries.filter(([, digest]) => !('sha256' in digest)).map(([path]) => path),
+  }
+}
+
+export async function coverStamp(
+  files: TrackerFiles,
+  request: Pick<ApprovalRequest, 'command' | 'folders'>,
+): Promise<string> {
+  const lines: string[] = []
+  for (const folder of await coveredFoldersOf(files, request)) {
+    if (!(await files.exists(folder.path))) continue
+    for (const entry of await files.list(folder.path)) {
+      if (!entry.name.endsWith(folder.suffix)) continue
+      const path = joinedPath(folder.path, entry.name)
+      lines.push(`${path} ${String(entry.size)} ${String(entry.mtimeMs)}`)
+    }
+  }
+  return lines.sort().join('\n')
+}
+
+async function approvalKey(
+  files: TrackerFiles,
+  argv: readonly string[],
+  coverage: Coverage,
 ): Promise<ApprovalKey> {
   const program = argv[0] ?? ''
   const argv0 = await files.commands.which(program)
   if (argv0 === undefined) {
     throw new FileProblem(`${program} could not be found, so ${argv.join(' ')} could not be read.`)
   }
-  const hashes: Record<string, string> = {}
-  for (const argument of argv) {
-    if (ABSOLUTE_PATH.test(argument) || argument.startsWith('-')) continue
-    const digest = await files.hash(argument)
-    if (digest !== undefined) hashes[argument] = digest
-  }
-  return { root: files.root, argv: [...argv], files: hashes, argv0 }
+  return { root: files.root, argv: [...argv], files: coverage.files, argv0 }
 }
 
-export function approvalQuestion(shown: readonly string[]): string {
-  return [
+function folderName(folder: CoveredFolder): string {
+  return folder.path === '.' ? 'the repo root' : folder.path
+}
+
+function coverageNote(folders: readonly CoveredFolder[]): string {
+  const [first] = folders
+  if (first === undefined) return '(read-only; asked again if the command changes)'
+  const kind = first.suffix === '' ? 'a file' : `a ${first.suffix} file`
+  return `(read-only; it runs the repo code in ${folders.map(folderName).join(', ')}; asked again if the command or ${kind} there changes)`
+}
+
+function approvalQuestion(shown: readonly string[], coverage: Coverage): string {
+  const lines = [
     "Allow handily to run this repo's tracker CLI to read work items?",
     shown.join(' '),
-    '(read-only; asked again if this file or the command changes)',
-  ].join('\n')
+    coverageNote(coverage.folders),
+  ]
+  if (coverage.stamped.length > 0) {
+    lines.push(
+      `(a file over 4 MiB is checked by its size and time only: ${coverage.stamped.join(', ')})`,
+    )
+  }
+  return lines.join('\n')
 }
 
 async function storeKeyOf(key: ApprovalKey): Promise<string> {
@@ -108,10 +235,10 @@ export function createApprovals(host: ApprovalHost): Approvals {
   const declined = new Set<string>()
   const asking = new Set<string>()
 
-  function askPerson(storeKey: string, key: ApprovalKey, shown: readonly string[]): void {
+  function askPerson(storeKey: string, key: ApprovalKey, question: string): void {
     asking.add(storeKey)
     host
-      .ask(approvalQuestion(shown), { options: [APPROVE, DECLINE], header: ASK_HEADER })
+      .ask(question, { options: [APPROVE, DECLINE], header: ASK_HEADER })
       .then(
         async (answer) => {
           if (answer !== APPROVE) {
@@ -142,11 +269,12 @@ export function createApprovals(host: ApprovalHost): Approvals {
       generation += 1
     },
     check: async (files, request) => {
-      const key = await approvalKey(files, request.command)
+      const coverage = await coverageOf(files, request)
+      const key = await approvalKey(files, request.command, coverage)
       const storeKey = await storeKeyOf(key)
       if ((await host.stored(storeKey)) !== undefined) return 'approved'
       const mayAsk = isInteractive && !declined.has(storeKey) && !asking.has(storeKey)
-      if (mayAsk) askPerson(storeKey, key, request.shown)
+      if (mayAsk) askPerson(storeKey, key, approvalQuestion(request.shown, coverage))
       return 'needed'
     },
   }

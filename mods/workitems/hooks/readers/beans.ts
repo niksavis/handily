@@ -1,6 +1,7 @@
 import type { WorkitemsItem, WorkitemsStatus } from '../../types'
 import { matchGlobs, signatureOfMatches, type GlobMatch } from '../config'
 import {
+  checkedItem,
   frontMatterLocated,
   ItemFault,
   optionalLabels,
@@ -97,7 +98,7 @@ function itemOf(located: Located, fileName: string, isArchived: boolean): Workit
   if (labels) item.labels = labels
   const parent = optionalText(located, 'parent')
   if (parent !== null) item.parent = parent
-  return item
+  return checkedItem(item, located.where)
 }
 
 async function beanFiles(files: TrackerFiles): Promise<{ root: string; matches: GlobMatch[] }> {

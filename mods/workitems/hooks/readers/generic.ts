@@ -34,6 +34,7 @@ export class ItemFault extends Error {
 }
 
 export type Located = {
+  where: string
   value: (field: string) => unknown
   invalid: (field: string) => WorkitemsFailedReason
   missing: (field: string) => WorkitemsFailedReason
@@ -53,6 +54,42 @@ function missingFault(where: string, field: string): WorkitemsFailedReason {
 
 function isAbsent(value: unknown): boolean {
   return value === undefined || value === null || value === ''
+}
+
+const TEXT_LIMITS = [
+  ['id', 'an id', 200],
+  ['title', 'a title', 500],
+  ['rawStatus', 'a status', 100],
+] as const
+
+function isUnsafeCharacter(code: number): boolean {
+  const isControl = code < 0x20 || (code >= 0x7f && code <= 0x9f)
+  const isLineBreak = code === 0x2028 || code === 0x2029
+  const isBidiControl = (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)
+  return isControl || isLineBreak || isBidiControl
+}
+
+function textProblem(text: string, name: string, limit: number): string | null {
+  let length = 0
+  for (const character of text) {
+    if (isUnsafeCharacter(character.codePointAt(0) ?? 0)) return `${name} with a control character`
+    length += 1
+  }
+  return length > limit ? `${name} over ${String(limit)} characters` : null
+}
+
+export function itemTextProblem(item: WorkitemsItem): string | null {
+  for (const [field, name, limit] of TEXT_LIMITS) {
+    const problem = textProblem(item[field], name, limit)
+    if (problem !== null) return problem
+  }
+  return null
+}
+
+export function checkedItem(item: WorkitemsItem, where: string): WorkitemsItem {
+  const problem = itemTextProblem(item)
+  if (problem !== null) throw new ItemFault(`${where} has ${problem}, so it could not be read.`)
+  return item
 }
 
 export function requiredText(located: Located, field: string): string {
@@ -222,6 +259,7 @@ export function parseFrontMatter(path: string, text: string): FrontMatter {
 
 export function frontMatterLocated(path: string, frontMatter: FrontMatter): Located {
   return {
+    where: path,
     value: (field) => frontMatter.values.get(field),
     invalid: (field) => lineFault(path, frontMatter.lines.get(field) ?? 1),
     missing: (field) => missingFault(path, field),
@@ -234,6 +272,7 @@ function recordLocated(
   invalid: Located['invalid'],
 ): Located {
   return {
+    where,
     value: (field) => (Object.hasOwn(record, field) ? record[field] : undefined),
     invalid,
     missing: (field) => missingFault(where, field),
@@ -265,7 +304,7 @@ function itemOf(located: Located, fields: FieldMap): WorkitemsItem {
   }
   const labels = optionalLabels(located, fields.labels)
   if (labels) item.labels = labels
-  return item
+  return checkedItem(item, located.where)
 }
 
 function jsonLocatedItems(path: string, text: string): Located[] {

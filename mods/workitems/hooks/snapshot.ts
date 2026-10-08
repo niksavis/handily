@@ -6,8 +6,14 @@ import type {
   WorkitemsRefreshResult,
   WorkitemsSnapshot,
 } from '../types'
-import { resolveProgram, sha256Hex, type Approvals, type SearchPath } from './approval'
-import { FileProblem } from './config'
+import {
+  resolveProgram,
+  sha256Hex,
+  type Approvals,
+  type FileDigest,
+  type SearchPath,
+} from './approval'
+import { FileProblem, isInside } from './config'
 import { detect } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
 
@@ -56,8 +62,8 @@ export function pathAtRoot(root: string, relativePath: string): string {
 function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
   async function statAt(relativePath: string): Promise<FileStat> {
     try {
-      const { size, mtimeMs } = await host.stat(pathAtRoot(root, relativePath))
-      return { size, mtimeMs }
+      const { size, mtimeMs, kind } = await host.stat(pathAtRoot(root, relativePath))
+      return kind === undefined ? { size, mtimeMs } : { size, mtimeMs, kind }
     } catch {
       throw new FileProblem(`${relativePath} could not be read.`)
     }
@@ -69,7 +75,22 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       return undefined
     }
   }
-  async function hashAt(relativePath: string): Promise<string | undefined> {
+  let rootReal: Promise<string | undefined> | undefined
+  async function confinedPath(relativePath: string): Promise<string> {
+    const path = pathAtRoot(root, relativePath)
+    rootReal ??= realPathOf(root)
+    const base = await rootReal
+    if (base === undefined) throw new FileProblem('the repo root could not be read.')
+    const real = await realPathOf(path)
+    if (real === undefined) throw new FileProblem(`${relativePath} could not be read.`)
+    if (!isInside(base, real)) {
+      throw new FileProblem(
+        `${relativePath} resolves outside the repo root, so it could not be read.`,
+      )
+    }
+    return path
+  }
+  async function hashAt(relativePath: string): Promise<FileDigest | undefined> {
     const path = pathAtRoot(root, relativePath)
     let stat: FileStat
     try {
@@ -78,9 +99,9 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       return undefined
     }
     if (stat.kind === 'dir') return undefined
-    if (stat.size > MAX_FILE_BYTES) throw new FileProblem(`${relativePath} is over 4 MiB.`)
+    if (stat.size > MAX_FILE_BYTES) return { size: stat.size, mtimeMs: stat.mtimeMs }
     try {
-      return await sha256Hex(await host.readBytes(path))
+      return { sha256: await sha256Hex(await host.readBytes(path)) }
     } catch {
       throw new FileProblem(`${relativePath} could not be read.`)
     }
@@ -117,10 +138,11 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       }
     },
     read: async (relativePath) => {
+      const path = await confinedPath(relativePath)
       const stat = await statAt(relativePath)
       if (stat.size > MAX_FILE_BYTES) throw new FileProblem(`${relativePath} is over 4 MiB.`)
       try {
-        return await host.read(pathAtRoot(root, relativePath))
+        return await host.read(path)
       } catch {
         throw new FileProblem(`${relativePath} could not be read.`)
       }
@@ -131,6 +153,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
 export function diffItems(
   before: readonly WorkitemsItem[],
   after: readonly WorkitemsItem[],
+  isMissingClosed = false,
 ): WorkitemsDiff {
   const previous = new Map(before.map((item) => [item.key, item]))
   const diff = {
@@ -143,6 +166,12 @@ export function diffItems(
     if (!old) diff.created.push(item)
     else if (old.status !== 'closed' && item.status === 'closed') diff.closed.push(item)
     else if (JSON.stringify(old) !== JSON.stringify(item)) diff.updated.push(item)
+  }
+  if (!isMissingClosed) return diff
+  const current = new Set(after.map((item) => item.key))
+  for (const old of before) {
+    if (!current.has(old.key) && old.status !== 'closed')
+      diff.closed.push({ ...old, status: 'closed' })
   }
   return diff
 }
@@ -257,6 +286,7 @@ async function readSource(
       caveat: outcome.caveat,
       items: outcome.items,
       ignored,
+      ...(outcome.adapterWrites === undefined ? {} : { adapterWrites: outcome.adapterWrites }),
     },
   }
 }
@@ -283,7 +313,7 @@ function deliveredToItsOwnCallers(): undefined {
 
 export function createProvider(host: ProviderHost, readers: readonly Reader[]): Provider {
   let current: WorkitemsSnapshot | undefined
-  let baseline: { root: string; items: readonly WorkitemsItem[] } | undefined
+  let baseline: { root: string; source: string | null; items: readonly WorkitemsItem[] } | undefined
   let lastSignature: string | undefined
   let version = 0
   const history: { version: number; diff: WorkitemsDiff }[] = []
@@ -344,11 +374,16 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
       checkedAt,
     }
     await host.publish(snapshot)
+    const source = detection.found ? detection.reader.name : null
+    const isMissingClosed =
+      detection.found && detection.reader.listsOpenOnly === true && baseline?.source === source
     const diff =
       result.baselineItems !== undefined && baseline?.root === root
-        ? diffItems(baseline.items, result.baselineItems)
+        ? diffItems(baseline.items, result.baselineItems, isMissingClosed)
         : emptyDiff()
-    if (result.baselineItems !== undefined) baseline = { root, items: result.baselineItems }
+    if (result.baselineItems !== undefined) {
+      baseline = { root, source, items: result.baselineItems }
+    }
     version = nextVersion
     history.push({ version, diff })
     if (history.length > DIFF_HISTORY_LIMIT) history.shift()

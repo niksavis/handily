@@ -1,6 +1,11 @@
 import type { FsEntry, ProcessRunResult } from 'claude-code'
-import type { WorkitemsFailedReason, WorkitemsItem, WorkitemsWriteVerbs } from '../../types'
-import type { Approvals } from '../approval'
+import type {
+  WorkitemsAdapterWrites,
+  WorkitemsFailedReason,
+  WorkitemsItem,
+  WorkitemsWriteVerbs,
+} from '../../types'
+import type { Approvals, FileDigest } from '../approval'
 import { createAdapterReader } from './adapter'
 import { basiclyReader } from './basicly'
 import { beadsReader } from './beads'
@@ -20,13 +25,21 @@ export type TrackerFiles = {
   exists: (relativePath: string) => Promise<boolean>
   list: (relativeDirectory: string) => Promise<FsEntry[]>
   realPath: (relativePath: string) => Promise<string | undefined>
-  stat: (relativePath: string) => Promise<{ size: number; mtimeMs: number }>
-  hash: (relativePath: string) => Promise<string | undefined>
+  stat: (
+    relativePath: string,
+  ) => Promise<{ size: number; mtimeMs: number; kind?: 'file' | 'dir' | 'other' }>
+  hash: (relativePath: string) => Promise<FileDigest | undefined>
   commands: TrackerCommands
 }
 
 export type ReadOutcome =
-  | { ok: true; items: WorkitemsItem[]; sourceLabel: string; caveat: string | null }
+  | {
+      ok: true
+      items: WorkitemsItem[]
+      sourceLabel: string
+      caveat: string | null
+      adapterWrites?: WorkitemsAdapterWrites
+    }
   | { ok: false; reason: WorkitemsFailedReason }
   | { ok: false; state: 'approval-needed'; command: string; sourceLabel: string }
   | { ok: false; state: 'terminal-only'; sourceLabel: string }
@@ -35,22 +48,14 @@ export type Reader = {
   name: string
   marker: string
   lookedForAs?: string
+  listsOpenOnly?: true
   isPresent?: (files: TrackerFiles) => Promise<boolean>
   signature?: (files: TrackerFiles) => Promise<string>
   read: (files: TrackerFiles) => Promise<ReadOutcome>
 }
 
-export type ReaderSet = {
-  readers: readonly Reader[]
-  writeVerbs: () => WorkitemsWriteVerbs
-}
-
-export function createReaders(): ReaderSet {
-  const adapter = createAdapterReader()
-  return {
-    readers: [basiclyReader, beadsReader, beansReader, filesReader, adapter.reader],
-    writeVerbs: () => ({ ...adapter.writeVerbs(), ...writeVerbs }),
-  }
+export function createReaders(): readonly Reader[] {
+  return [basiclyReader, beadsReader, beansReader, filesReader, createAdapterReader()]
 }
 
 export const writeVerbs: WorkitemsWriteVerbs = {

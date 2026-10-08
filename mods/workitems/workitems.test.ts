@@ -69,6 +69,8 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
     world.touched.push(e.path)
     const file = world.files.get(e.path)
     if (world.statDelayMs > 0) await clock.sleep(world.statDelayMs)
+    const isFolder = [...world.files.keys()].some((path) => path.startsWith(`${e.path}/`))
+    if (!file && isFolder) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
     if (!file) return { deny: `ENOENT: ${e.path}` }
     const size = file.size ?? new TextEncoder().encode(file.text).length
     return { value: { kind: 'file', size, mtimeMs: file.mtimeMs, isLink: false } }

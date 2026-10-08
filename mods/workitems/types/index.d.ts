@@ -34,6 +34,7 @@ export type WorkitemsSnapshotBase = {
   ignored: readonly string[]
   version: number
   checkedAt: number
+  adapterWrites?: WorkitemsAdapterWrites
 }
 
 export type WorkitemsSourced = {
@@ -65,7 +66,6 @@ export type WorkitemsDiff = {
 }
 
 export type WorkitemsWriteVerbs = {
-  readonly [adapterCommand: string]: readonly string[]
   readonly br: readonly [
     'close',
     'create',
@@ -111,6 +111,11 @@ export type WorkitemsWriteVerbs = {
     'unassign',
     'delete',
   ]
+}
+
+export type WorkitemsAdapterWrites = {
+  command: string
+  verbs: readonly string[]
 }
 
 export type WorkitemsLineTone = 'dim' | 'warning' | 'error'

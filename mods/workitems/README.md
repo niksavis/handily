@@ -7,7 +7,7 @@ gives other mods one typed list. It draws nothing of its own.
 
 | Tracker               | Detected by                     | Read path                                             |
 | --------------------- | ------------------------------- | ----------------------------------------------------- |
-| basicly               | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, from `PATH`      |
+| basicly               | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, after approval   |
 | beads (`bd`, `br`)    | `.beads/issues.jsonl`           | Built-in JSON Lines reader                            |
 | beans                 | `.beans.yml` or `.beans/`       | Built-in front matter reader                          |
 | Any other (`files`)   | `globs` in `.handily.json`      | Generic JSON, JSON Lines or front matter reader       |
@@ -18,6 +18,12 @@ gives other mods one typed list. It draws nothing of its own.
 - It reads one source per repo: the first one in the table that it finds, or the one that
   `.handily.json` names. The snapshot lists each other source that it finds under `ignored`.
 - A tracker file over 4 MiB, or a malformed line, makes the read fail. The reason names the file.
+- Each read of a tracker file stays inside the repo root. A file that resolves outside the root,
+  for example through a link, makes the read fail. The reason names the file.
+- Each reader checks the `id`, the `title` and the raw status of each item. A control character,
+  a line break or a text direction control in one of them, or a text that is too long, makes
+  the item unreadable. The limits are 200 characters for the `id`, 500 for the `title` and 100
+  for the status. The reason names the file and the field.
 - A front matter file holds one item. When the mod cannot read one such file, it skips only
   that item. The snapshot `caveat` then counts the skipped files and names the first, for
   example `1 item file skipped: .beans/app-a1--x.md line 4 is malformed.`
@@ -29,13 +35,17 @@ gives other mods one typed list. It draws nothing of its own.
 ### basicly
 
 - The mod runs `basicly tracker list --status <s>` from `PATH` at the repo root, once for each
-  of `open`, `in_progress` and `blocked`.
+  of `open`, `in_progress` and `blocked`. This command loads the repo's kit code, so it runs only
+  after you approve it (see [Approval](#approval)).
 - It maps `record` to `id`, and reads `fields.title`, `status`, `fields.priority`,
   `fields.issue_type`, `fields.assignee` and `dates.updated`. It skips a tombstoned record.
 - When `basicly` is not on `PATH`, the mod runs the repo's own kit instead:
-  `python3 .basicly/core/kit/tracker/cli.py list --status <s> .basicly/ledger`. It runs this
-  repo command only after you approve it (see [Approval](#approval)).
-- The poll reads again when a file in `.basicly/ledger` or the kit file changes.
+  `python3 .basicly/core/kit/tracker/cli.py list --status <s> .basicly/ledger`. It also runs
+  only after you approve it. An approval of one of the two commands does not cover the other.
+- The poll reads again when a file in `.basicly/ledger` or a `.py` file of the kit changes.
+- The mod reads only the open statuses. So when a record leaves them, for example when it is
+  closed or deferred, `refresh()` reports it under `closed`, with the status `closed` and the
+  last raw status that the mod read.
 
 ### beads
 
@@ -136,21 +146,29 @@ program and its arguments under `command` in `.handily.json`.
   `closed` or `other`. A status that is not in the map keeps the rule of `.handily.json`.
 - The item keys are `<name>:<id>`. The snapshot `sourceLabel` is the `name`.
 - Each `writes` entry is the arguments after the command of one write. The mod adds them to
-  `writeVerbs()` under the command text, for example `node tools/tracker.mjs`.
-- The poll reads again when a file under `watch`, `.handily.json` or a repo file in `command`
-  changes.
+  the snapshot as `adapterWrites: { command, verbs }`, for example the command
+  `node tools/tracker.mjs`.
+- The poll reads again when a file under `watch`, `.handily.json` or a file in the folder of a
+  repo file in `command` changes.
 - A non-zero exit, output over 4 MiB or output that is not valid JSON makes the read fail. The
   reason names the command.
 
 ## Approval
 
-A command from the repo runs only after you approve it. This covers the CLI adapter and the
-repo's own basicly kit. `basicly` from `PATH` needs no approval.
+A command that runs code from the repo runs only after you approve it. This covers the CLI
+adapter, `basicly tracker list` from `PATH` and the repo's own basicly kit.
 
 - In an interactive session the mod asks once, in the engine's question dialog, with the
   options `Allow for this repo` and `Not now`.
 - `Allow for this repo` is kept in `$.store` under a key of the repo root, the command, the
-  sha256 of each repo file that the command names, and the real path of the program.
+  real path of the program, and the sha256 of each covered repo file.
+- For basicly, the covered files are the `.py` files in `.basicly/core/kit/tracker/`. That is
+  the code that both basicly commands load from the repo.
+- For the CLI adapter, the covered files are each repo file that the command names, by a
+  relative or an absolute path, and every file in the same folder. The question names the
+  folders.
+- The mod cannot read a file over 4 MiB, so the key holds the size and the modification time of
+  such a file instead of its sha256. The question names each such file.
 - When one of these changes, the old approval does not match, and the mod asks again.
 - After `Not now`, or when you close the dialog, the state is `approval-needed`. The mod asks
   again at the next session start.
@@ -169,7 +187,7 @@ its `plugin.json`, and the engine lays the contract into that mod's types folder
 | `$.state.get({ plugin: 'workitems', key: 'snapshot' })` | The last snapshot. A render that reads it draws again on a change            |
 | `$.workitems.refresh({ since })`                        | Reads again. Returns the created, updated and closed items and the `version` |
 | `$.workitems.lines({ snapshot, now })`                  | The state lines of `docs/mocks.md` section 0, with their tone                |
-| `$.workitems.writeVerbs()`                              | The write verbs of each tracker CLI, and of the approved CLI adapter         |
+| `$.workitems.writeVerbs()`                              | The write verbs of each tracker CLI that the mod knows                       |
 
 The snapshot `state` is one of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker` and
 `terminal-only`. This version produces each of them except `stale`.
