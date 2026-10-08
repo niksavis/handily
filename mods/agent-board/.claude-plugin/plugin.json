@@ -4,5 +4,6 @@
   "description": "A pane that shows what each subagent of this session does: its tool, its tool count and its time.",
   "author": {
     "name": "niksavis"
-  }
+  },
+  "types": "./types/index.d.ts"
 }

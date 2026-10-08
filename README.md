@@ -18,6 +18,8 @@ Status: in development. No mod is released yet. See [docs/design.md](docs/design
 | `task-pane` | Claude's task list in a sidebar. You can add and remove tasks |
 | `session-board` | All local Claude sessions: task, worktree, time worked, estimate |
 | `item-toasts` | A toast when a work item changes outside your session |
+| `agent-board` | A pane with what each subagent of this session does |
+| `simple-view` | One concise row per Bash, Edit and Write call; `/simple` switches it |
 | `handily` | The bundle of all the mods above. `/handily` shows which mods loaded |
 
 ## Install
@@ -40,7 +42,7 @@ Each install line opens the details of the plugin. Select **Install**, then clos
 panel.
 
 Then type `/handily`. It lists each mod with its version and whether it loaded, and it
-ends with one line such as `handily: 5 of 5 mods loaded`. When a mod is missing, the
+ends with one line such as `handily: 7 of 7 mods loaded`. When a mod is missing, the
 list gives the line that installs it.
 
 To update, run these lines in a shell, then restart Claude Code. The bundle install does
@@ -55,6 +57,17 @@ claude plugin update quiet-items@handily
 claude plugin update task-pane@handily
 claude plugin update session-board@handily
 claude plugin update item-toasts@handily
+claude plugin update agent-board@handily
+claude plugin update simple-view@handily
+```
+
+An update line fails with `Plugin "<name>" is not installed` when the mod came into the
+bundle after your install. `agent-board` and `simple-view` came later than the other
+mods. Install such a mod by its name. It then stays until you uninstall it by name.
+
+```sh
+claude plugin install agent-board@handily
+claude plugin install simple-view@handily
 ```
 
 Claude Code does not load the bundle when one of its mods is disabled. Then `/handily`

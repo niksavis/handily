@@ -937,3 +937,20 @@ describe('fallback to the engine row', () => {
     ).toBe(true)
   })
 })
+
+describe('ready value for /handily', () => {
+  test(
+    'writes the ready value that /handily reads when the session starts',
+    { plugins: [fakeQuietItems] },
+    async ($, on) => {
+      engineBeneath(on)
+      const ready: unknown[] = []
+      on('state.set', { plugin: 'simple-view', key: 'ready' }, (_$, e, next) => {
+        ready.push(e.value)
+        return next(e)
+      })
+      await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+      expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]simple-view$/) }])
+    },
+  )
+})

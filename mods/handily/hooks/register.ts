@@ -20,6 +20,10 @@ async function readyOf($: EngineInterface, name: string): Promise<Ready> {
       return (await $.state.get({ plugin: 'session-board', key: 'ready' })).value
     case 'item-toasts':
       return (await $.state.get({ plugin: 'item-toasts', key: 'ready' })).value
+    case 'agent-board':
+      return (await $.state.get({ plugin: 'agent-board', key: 'ready' })).value
+    case 'simple-view':
+      return (await $.state.get({ plugin: 'simple-view', key: 'ready' })).value
     default:
       throw new Error(
         `handily: plugin.json lists "${name}", but /handily has no ready value to read for it`,

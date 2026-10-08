@@ -53,6 +53,7 @@ export const register: Register = (on) => {
       description: 'Shows what each subagent of this session does: its tool, tool count and time.',
       argumentHint: '[close]',
     })
+    await $.state.set({ plugin: 'agent-board', key: 'ready' }, { root: $.plugin.root })
     return started
   })
 

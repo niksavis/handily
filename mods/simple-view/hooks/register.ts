@@ -270,6 +270,7 @@ export const register: Register = (on) => {
       description: 'Toggle the one-row view of tool calls, or print a call in full',
       argumentHint: '[show N]',
     })
+    await $.state.set({ plugin: 'simple-view', key: 'ready' }, { root: $.plugin.root })
     return next(e)
   })
 

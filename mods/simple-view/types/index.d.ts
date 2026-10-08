@@ -26,6 +26,7 @@ declare module 'claude-code' {
       timing: StateFamily<SimpleViewTiming>
       count: number
       calls: StateFamily<SimpleViewCall>
+      ready: { root: string }
     }
   }
 }

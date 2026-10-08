@@ -590,3 +590,16 @@ describe('the drawing', () => {
     })
   }
 })
+
+describe('ready value for /handily', () => {
+  test('writes the ready value that /handily reads when the session starts', async ($, on) => {
+    fakeWorld(on)
+    const ready: unknown[] = []
+    on('state.set', { plugin: 'agent-board', key: 'ready' }, (_$, e, next) => {
+      ready.push(e.value)
+      return next(e)
+    })
+    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]agent-board$/) }])
+  })
+})
