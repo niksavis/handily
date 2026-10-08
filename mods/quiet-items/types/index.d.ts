@@ -1,5 +1,7 @@
 export type QuietItemsMode = 'on' | 'off'
 
+export type QuietItemsSimpleViewMode = 'on' | 'off'
+
 export type QuietItemsVerb = 'created' | 'updated' | 'commented' | 'closed'
 
 export type QuietItemsItemRow = {

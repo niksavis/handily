@@ -8,6 +8,7 @@ import {
   type TestOptions,
 } from 'claude-code/testing'
 import { hasEchoedSuccess } from './hooks/register'
+import type { QuietItemsSimpleViewMode } from './types'
 
 type Snapshot = PluginState['workitems']['snapshot']
 type Diff = { created: Item[]; updated: Item[]; closed: Item[] }
@@ -799,13 +800,17 @@ const fakeSimpleView: Plugin = {
   },
 }
 
-async function setSimpleViewMode($: Engine, mode: string): Promise<void> {
+async function writeSimpleViewMode($: Engine, value: string): Promise<void> {
   await $.command.run({
     command: SIMPLE_VIEW_MODE_COMMAND,
-    args: mode,
+    args: value,
     origin: { kind: 'sdk' },
     presentation: { isFullscreen: false, columns: 120 },
   })
+}
+
+async function setSimpleViewMode($: Engine, mode: QuietItemsSimpleViewMode): Promise<void> {
+  await writeSimpleViewMode($, mode)
 }
 
 const WITH_SIMPLE_VIEW: TestOptions = { plugins: [fakeSimpleView] }
@@ -920,7 +925,7 @@ describe('simple-view mode', () => {
         world.callChange = { ...emptyDiff(), created: [AB12] }
         await startSession($)
         const id = await runBash($, calls, 'br create --title x')
-        await setSimpleViewMode($, mode)
+        await writeSimpleViewMode($, mode)
         expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
         expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([true])
         await commandText($)

@@ -8,6 +8,7 @@ import {
   type MockClock,
   type Plugin,
 } from 'claude-code/testing'
+import type { QuietItemsSimpleViewMode } from './.claude-plugin/types/quiet-items'
 import { commandLabel, programOf, segments } from './hooks/command'
 
 const ROOT = '/work/app'
@@ -676,6 +677,24 @@ describe('/simple', () => {
     await commandText($, '')
     expect(await commandText($, '', QUIET_MODE_COMMAND)).toBe('quiet-items mode on')
   })
+
+  test(
+    'writes off and then on, the mode values that quiet-items reads',
+    { plugins: [fakeQuietItems] },
+    async ($, on) => {
+      engineBeneath(on)
+      const written: unknown[] = []
+      on('state.set', { plugin: 'simple-view', key: 'mode' }, (_$, e, next) => {
+        written.push(e.value)
+        return next(e)
+      })
+      await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+      await commandText($, '')
+      await commandText($, '')
+      const quietItemsReads: QuietItemsSimpleViewMode[] = ['off', 'on']
+      expect(written).toEqual(quietItemsReads)
+    },
+  )
 
   viewTest('refuses an argument it does not know', async (_world, $) => {
     const usage =
