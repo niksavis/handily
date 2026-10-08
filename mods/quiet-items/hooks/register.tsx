@@ -1,5 +1,5 @@
 import type { EngineInterface, PluginState, Register } from 'claude-code'
-import type { QuietItemsMode, QuietItemsRow } from '../types'
+import type { QuietItemsMode, QuietItemsRow, QuietItemsSimpleViewMode } from '../types'
 import { drawEmpty, drawRows, rowsFromDiff } from './row'
 
 declare module 'claude-code' {
@@ -22,6 +22,7 @@ const FULL_TAIL = 'so tracker commands draw in full.'
 const EXIT_STATUS = '$?'
 const QUIET_ITEMS_MODE = { plugin: 'quiet-items', key: 'mode' } as const
 const SIMPLE_VIEW_MODE = { plugin: 'simple-view', key: 'mode' } as const
+const SIMPLE_VIEW_OFF: QuietItemsSimpleViewMode = 'off'
 
 type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
 type RefreshResult = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
@@ -72,7 +73,7 @@ export function onReply(snapshot: Snapshot | undefined): string {
 
 async function isSimpleViewOff($: EngineInterface): Promise<boolean> {
   const { value: simpleViewMode } = await $.state.get(SIMPLE_VIEW_MODE)
-  return simpleViewMode === 'off'
+  return simpleViewMode === SIMPLE_VIEW_OFF
 }
 
 async function drawsQuietRows($: EngineInterface, defaultMode: QuietItemsMode): Promise<boolean> {
