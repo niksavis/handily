@@ -53,8 +53,9 @@ Approval ask (terminal; engine-drawn AskUserQuestion, layout approximate):
 ```text
 (engine) ──────────────────────────────────────────────────────────────────────────
  [workitems]  Allow handily to run this repo's tracker CLI to read work items?
-              python3 .basicly/core/kit/tracker/cli.py list --status open
-              (read-only; asked again if this file or the command changes)
+              "/home/you/.local/bin/basicly" "tracker" "list" "--status" "open"
+              (it runs the repo code in .basicly/core/kit/tracker; asked again
+              when any file there or the command changes)
 
  > 1. Allow for this repo
    2. Not now
@@ -62,12 +63,14 @@ Approval ask (terminal; engine-drawn AskUserQuestion, layout approximate):
 ───────────────────────────────────────────────────────────────────────────────────
 ```
 
-- `Allow for this repo`: stored under root + argv + sha256 of the named file + resolved argv0.
-  No reply text; the data appears.
+- `Allow for this repo`: stored under root + argv + resolved argv0 + sha256 of every file under
+  `.basicly/core/kit/tracker`. No reply text; the data appears.
 - `Not now` or dismissed: state `approval-needed` (line above).
 - Non-interactive (`-p`, a background session): never asks; state `approval-needed`.
 - Narrow terminal: the same dialog; `$.ui.ask` takes only a string, so the engine wraps it. The
-  argv stays short (repo-relative path, never an absolute one).
+  program shows as its resolved absolute path, so the person sees what runs; each argument is
+  quoted. Only `basicly` on PATH asks: a custom adapter runs from the person's own
+  `~/.config/handily/adapters.json` and never asks.
 - Desktop: never asks. A CLI source is `terminal-only` there (no `$.process.run`), so there is
   nothing to approve. beads and beans (file readers) work on desktop as on terminal.
 
@@ -75,7 +78,7 @@ Look choices (approved as proposed):
 
 1. Wording and colour of the state lines above (stale and approval in warning, failed in error,
    no-tracker and terminal-only dim).
-2. Approval options: `Allow for this repo` / `Not now` (two), or add a third `Allow once`.
+2. Approval options: `Allow for this repo` / `Not now` (two).
 3. When to re-ask after `Not now`: at the next session start only (proposed), or at every refresh.
 
 ---
