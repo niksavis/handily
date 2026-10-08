@@ -69,13 +69,28 @@ export function titleRefusal(title: string): string | undefined {
   return undefined
 }
 
+export const PERSON_MARK = '(you)'
+
+function holdsPersonMark(title: string): boolean {
+  const bare = title
+    .normalize('NFKC')
+    .replace(/[\p{Cf}\s]/gu, '')
+    .toLowerCase()
+  return bare.includes(PERSON_MARK)
+}
+
+function authorRefusal(title: string, by: TaskPaneAuthor): string | undefined {
+  if (by === 'person' || !holdsPersonMark(title)) return undefined
+  return `the title holds "${PERSON_MARK}", the mark of a task that the person added. Write the title without it.`
+}
+
 export function addTask(
   list: TaskPaneList,
   title: string,
   by: TaskPaneAuthor,
   item: string | null,
 ): Added | AddRefused {
-  const refusal = titleRefusal(title)
+  const refusal = titleRefusal(title) ?? authorRefusal(title, by)
   if (refusal !== undefined) return { refusal }
   if (list.tasks.length >= MAX_TASKS) {
     return { refusal: `the list is full at ${String(MAX_TASKS)} tasks. Remove one first.` }
@@ -125,7 +140,7 @@ export function listText(list: TaskPaneList): string {
   const rows = list.tasks.map((task) => {
     const number = String(task.id).padStart(width)
     const word = statusWord(task.status).padEnd(STATUS_WORD_WIDTH)
-    const author = task.by === 'person' ? '  (you)' : ''
+    const author = task.by === 'person' ? `  ${PERSON_MARK}` : ''
     return `  ${number}  ${word}  ${task.title}${author}`
   })
   const total = String(list.tasks.length)
