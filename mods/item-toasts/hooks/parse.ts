@@ -113,6 +113,11 @@ function statusEchoOf({ words, separator }: Segment): StatusEcho | null {
   return { line: args.join(' '), isAfterAnd: separator === WRITE_CHAIN }
 }
 
+export function hasEchoedSuccess(line: string, stdout: string): boolean {
+  const printed = stdout.trimEnd().split(/\r?\n/).at(-1) ?? ''
+  return printed.trimEnd() === line.replaceAll(EXIT_STATUS, '0').trimEnd()
+}
+
 function slashed(path: string): string {
   return path.replaceAll('\\', '/')
 }

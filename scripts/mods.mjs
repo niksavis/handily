@@ -294,8 +294,40 @@ function checkSourceCharacters() {
   }
 }
 
+const identicalCopies = [
+  ['mods/quiet-items/hooks/parse.ts', 'mods/item-toasts/hooks/parse.ts'],
+  ['mods/quiet-items/fixtures/commands.ts', 'mods/item-toasts/fixtures/commands.ts'],
+]
+
+function firstDifferingLine(left, right) {
+  const leftLines = left.split('\n')
+  const rightLines = right.split('\n')
+  const count = Math.max(leftLines.length, rightLines.length)
+  for (let index = 0; index < count; index += 1) {
+    if (leftLines[index] !== rightLines[index]) return index + 1
+  }
+  return count
+}
+
+function checkIdenticalCopies() {
+  for (const [source, copy] of identicalCopies) {
+    const missing = [source, copy].filter((path) => !existsSync(join(root, path)))
+    if (missing.length > 0) {
+      fail(`copies: ${missing.join(' and ')} not found; ${source} and ${copy} must both exist`)
+      continue
+    }
+    const [sourceBytes, copyBytes] = [source, copy].map((path) => readFileSync(join(root, path)))
+    if (sourceBytes.equals(copyBytes)) continue
+    const line = firstDifferingLine(sourceBytes.toString('utf8'), copyBytes.toString('utf8'))
+    fail(
+      `copies: ${source} and ${copy} differ from line ${line}; they must be byte-identical, so copy ${source} over ${copy}`,
+    )
+  }
+}
+
 function lint(mods) {
   checkSourceCharacters()
+  checkIdenticalCopies()
   layTypes(mods, { force: false })
   const eslint = join(require.resolve('eslint/package.json'), '..', 'bin', 'eslint.js')
   run('eslint', process.execPath, [

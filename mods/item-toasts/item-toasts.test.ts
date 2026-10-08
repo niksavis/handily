@@ -192,6 +192,7 @@ type World = {
   timerReads: number
   plans: Record<string, CallPlan>
   callIds: string[]
+  verbsError: boolean
 }
 
 type CallPlan = {
@@ -308,6 +309,7 @@ function newWorld(): World {
     timerReads: 0,
     plans: {},
     callIds: [],
+    verbsError: false,
   }
 }
 
@@ -324,7 +326,10 @@ function engineBeneath(on: On, world: World): MockClock {
     return { value: undefined }
   })
   on('fs.read', (_$, e) => {
-    if (e.path === '/fake/workitems/verbs') return { value: JSON.stringify(VERBS) }
+    if (e.path === '/fake/workitems/verbs') {
+      if (world.verbsError) return { deny: 'the fake write verbs are unavailable' }
+      return { value: JSON.stringify(VERBS) }
+    }
     const since = /^\/fake\/workitems\/refresh\/(\d+|poll|timer)$/.exec(e.path)?.[1]
     if (since === undefined) return { deny: `no fake file at ${e.path}` }
     return { value: JSON.stringify(answer(world, since)) }
@@ -1047,6 +1052,23 @@ describe('a call that is a tracker write', () => {
       await outer
     },
   )
+})
+
+describe('a failed read of the write verbs', () => {
+  toastTest('counts the Bash call as own and logs why', async (world, $, clock) => {
+    await startSession($)
+    world.verbsError = true
+    world.plans['npm test'] = { edit: closeAb12() }
+    await bash($, 'npm test')
+    await pollAndTick($, clock)
+    await clock.advance(WINDOW_MS)
+    expect(world.toasts).toEqual([])
+    expect(
+      world.logs.some((line) =>
+        line.startsWith('item-toasts: counting the call as own; the write verbs failed:'),
+      ),
+    ).toBe(true)
+  })
 })
 
 describe('the time limit of a background call', () => {
