@@ -86,6 +86,8 @@ export const register: Register = (on, options) => {
       description: 'Toggle quiet tracker rows for this session',
     })
     await $.state.set({ plugin: 'quiet-items', key: 'ready' }, { root: $.plugin.root })
+    const { value: mode, version } = await $.state.get(QUIET_ITEMS_MODE)
+    if (mode === undefined) await $.state.set(QUIET_ITEMS_MODE, defaultMode, { ifVersion: version })
     return next(e)
   })
 

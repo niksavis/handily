@@ -782,13 +782,19 @@ const fakeSimpleView: Plugin = {
   name: 'simple-view',
   register(on) {
     const modeCommand = 'simple-view-mode'
+    const quietModeCommand = 'simple-view-quiet-mode'
     on('session.start', async ($, e, next) => {
       await $.command.register({ name: modeCommand, description: 'test only' })
+      await $.command.register({ name: quietModeCommand, description: 'test only' })
       return next(e)
     })
     on('command.run', { command: modeCommand }, async ($, e) => {
       await $.state.set({ plugin: 'simple-view', key: 'mode' }, e.args)
       return { text: `simple-view mode ${e.args}` }
+    })
+    on('command.run', { command: quietModeCommand }, async ($) => {
+      const { value } = await $.state.get({ plugin: 'quiet-items', key: 'mode' })
+      return { text: String(value) }
     })
   },
 }
@@ -1065,6 +1071,52 @@ describe('/quiet-items', () => {
       'quiet-items off for this session. Tracker commands draw in full.',
     )
   })
+})
+
+async function storedMode($: Engine): Promise<string> {
+  const result = await $.command.run({
+    command: 'simple-view-quiet-mode',
+    args: '',
+    origin: { kind: 'sdk' },
+    presentation: { isFullscreen: false, columns: 120 },
+  })
+  return result.text ?? ''
+}
+
+describe('active mode in state', () => {
+  quietTest(
+    'publishes the mode setting off when the session starts',
+    { ...WITH_SIMPLE_VIEW, options: { mode: 'off' } },
+    async (world, $, on) => {
+      engineBeneath(on, world)
+      await startSession($)
+      expect(await storedMode($)).toBe('off')
+    },
+  )
+
+  quietTest(
+    'publishes the default mode on when the session starts',
+    WITH_SIMPLE_VIEW,
+    async (world, $, on) => {
+      engineBeneath(on, world)
+      await startSession($)
+      expect(await storedMode($)).toBe('on')
+    },
+  )
+
+  quietTest(
+    'keeps the mode that /quiet-items set when the session starts again',
+    { ...WITH_SIMPLE_VIEW, options: { mode: 'off' } },
+    async (world, $, on) => {
+      engineBeneath(on, world)
+      await startSession($)
+      expect(await commandText($)).toBe(
+        'quiet-items on for this session. Tracker writes draw as one row.',
+      )
+      await startSession($)
+      expect(await storedMode($)).toBe('on')
+    },
+  )
 })
 
 describe('ready value for /handily', () => {

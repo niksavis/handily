@@ -115,6 +115,10 @@ The engine draws its own row (`next(e)`) in each of these cases:
 `/quiet-items` toggles the mode for this session only. It keeps the mode in `$.state`, so a
 change does not reach other sessions. It takes no argument.
 
+When the session starts and the `mode` key in `$.state` is unset, the mod writes the `mode`
+setting to it. A mod that reads the key, such as `simple-view`, then sees the active mode. The
+mod does not overwrite a mode that `/quiet-items` set before a reload of the plugin.
+
 ## Follow simple-view
 
 `/simple` is one switch for the concise view. While the `simple-view` mode is `off`, this mod
