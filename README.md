@@ -45,31 +45,19 @@ Then type `/handily`. It lists each mod with its version and whether it loaded, 
 ends with one line such as `handily: 7 of 7 mods loaded`. When a mod is missing, the
 list gives the line that installs it.
 
-To update, run these lines in a shell, then restart Claude Code. The bundle install does
-not update a mod that is already installed, so each mod needs its own update line. Every
-line is safe to run again.
+To update, run this line in a shell, then restart Claude Code. `claude plugin update` takes
+one plugin, and the bundle install does not update a mod that is already installed, so the
+line updates the bundle and each mod in turn. A mod that came into the bundle after your
+install, such as `agent-board` or `simple-view`, fails the update with
+`Plugin "<name>" is not installed`, and the line installs it by its name instead. It then
+stays until you uninstall it by name. The line is safe to run again.
 
 ```sh
-claude plugin marketplace update handily
-claude plugin install handily@handily
-claude plugin update handily@handily
-claude plugin update workitems@handily
-claude plugin update quiet-items@handily
-claude plugin update task-pane@handily
-claude plugin update session-board@handily
-claude plugin update item-toasts@handily
-claude plugin update agent-board@handily
-claude plugin update simple-view@handily
+claude plugin marketplace update handily; for p in handily workitems quiet-items task-pane session-board item-toasts agent-board simple-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
 ```
 
-An update line fails with `Plugin "<name>" is not installed` when the mod came into the
-bundle after your install. `agent-board` and `simple-view` came later than the other
-mods. Install such a mod by its name. It then stays until you uninstall it by name.
-
-```sh
-claude plugin install agent-board@handily
-claude plugin install simple-view@handily
-```
+An update keeps the folder of the old version in `~/.claude/plugins/cache/handily/`. Claude
+Code loads only the version that `claude plugin list` shows.
 
 Claude Code does not load the bundle when one of its mods is disabled. Then `/handily`
 is not available, and `/plugin` shows which mod to enable.
