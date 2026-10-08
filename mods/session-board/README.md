@@ -45,9 +45,15 @@ The mod never reads the task files of the engine on disk, because their format i
   for 5 minutes after a task is added. When the first list that the board sees already has a
   completed task, the time of the first task is unknown, and the board shows no estimate for
   that list.
-- A store key whose session `claude agents` does not list shows `(stale)`. A poll deletes a
-  stale key that is older than 24 hours before it saves its result. A session start deletes
-  each key of another session that is older than 24 hours.
+- The board shows no row for a store key whose session `claude agents` does not list. The one
+  exception is this session, before a poll lists it: its row shows `not listed` and `(stale)`.
+- A listed session whose key was written more than 60 s before its `startedAt` shows `(stale)`
+  after its task, and no estimate. The key then comes from an earlier run of the same session.
+  The 60 s margin exists because a session writes its key at start, up to about 2 s before or
+  after the `startedAt` that `claude agents` reports. One live run measured both (-1622 ms and
+  +885 ms).
+- A poll deletes a key of an unlisted session that is older than 24 hours before it saves its
+  result. A session start deletes each key of another session that is older than 24 hours.
 
 ## Errors
 

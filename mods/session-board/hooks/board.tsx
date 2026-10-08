@@ -1,6 +1,6 @@
 import type { AgentInfo, Elements, RenderElement, RenderSurface, TextProps } from 'claude-code'
 import { POLL_INTERVAL_MS, type AgentRow, type AgentsCache, type AgentsOutcome } from './agents'
-import { estimateLeftMs, workedMs, type Progress } from './progress'
+import { estimateLeftMs, isOlderThanStart, workedMs, type Progress } from './progress'
 
 export const WIDE_FROM_COLUMNS = 100
 
@@ -21,6 +21,7 @@ export type BoardRow = {
   tone: Tone
   task: TaskCell
   isStale: boolean
+  isListed: boolean
   isEnded: boolean
   place: string
   time: string
@@ -102,6 +103,7 @@ function agentRow(
   const place = known
     ? `${known.place.worktree} · ${known.place.branch ?? 'no branch'}`
     : lastSegment(row.cwd)
+  const isStale = progress !== undefined && isOlderThanStart(progress, row.startedAt)
   let time = `${formatDuration(now - row.startedAt)} elapsed`
   if (row.isEnded) time = 'ended'
   else if (progress) time = `${formatDuration(workedMs(progress, now, row.startedAt))} worked`
@@ -112,11 +114,12 @@ function agentRow(
     state: stateText(row),
     tone: stateTone(row),
     task: taskCell(progress),
-    isStale: false,
+    isStale,
+    isListed: true,
     isEnded: row.isEnded,
     place,
     time,
-    est: progress && !row.isEnded ? estText(progress, now) : null,
+    est: progress && !row.isEnded && !isStale ? estText(progress, now) : null,
   }
 }
 
@@ -129,6 +132,7 @@ function staleRow(progress: Progress): BoardRow {
     tone: 'dim',
     task: taskCell(progress),
     isStale: true,
+    isListed: false,
     isEnded: false,
     place: lastSegment(progress.cwd),
     time: `${formatDuration(progress.workedMs)} worked`,
@@ -203,7 +207,7 @@ function fixedCell(elements: BoardElements, width: number, child: RenderElement)
 }
 
 function wideRow(elements: BoardElements, row: BoardRow): RenderElement {
-  const dim = row.isEnded || row.isStale
+  const dim = row.isEnded || !row.isListed
   return box(elements, { key: `row:${row.key}`, flexDirection: 'row' }, [
     fixedCell(elements, WIDE.name, text(elements, row.name, { bold: true, wrap: 'truncate-end' })),
     fixedCell(elements, WIDE.kind, text(elements, row.kind, { dimColor: dim })),
@@ -277,7 +281,7 @@ function errorView(elements: BoardElements, outcome: AgentsOutcome): RenderEleme
 }
 
 function listedRows(rows: readonly BoardRow[]): BoardRow[] {
-  return rows.filter((row) => !row.isStale)
+  return rows.filter((row) => row.isListed)
 }
 
 export function headerText(data: BoardData, rows: readonly BoardRow[]): string {
@@ -341,6 +345,7 @@ function ownRow(elements: BoardElements, data: DesktopData): RenderElement {
     tone: isWorking ? 'success' : 'plain',
     task: taskCell(own),
     isStale: false,
+    isListed: false,
     isEnded: false,
     place: '',
     time: `${formatDuration(own ? workedMs(own, now) : 0)} worked`,

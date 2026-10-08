@@ -328,7 +328,9 @@ Opened with `/session-board`; polled while visible (every 15 s, one shared cache
 - `state` is the word `claude agents --json` gives (`state` for background, `status` for
   interactive), `waitingFor` appended after a colon.
 - `task` and `n/m` come from the sidecar of a handily session; others show `~—~`. A sidecar
-  whose session is absent from `claude agents` is stale: `~(stale)~` after the task.
+  whose session is absent from `claude agents` gets no row. A listed session whose sidecar was
+  written more than 60 s before its `startedAt` is stale: `~(stale)~` after the task, and no
+  estimate.
 - `worked` = sum of turn spans (handily sessions); `elapsed` = since `startedAt` (others).
 - `est. 30m left` only with at least one completed task, measured from the first task, and
   hidden for N minutes after a task is added.

@@ -7,6 +7,7 @@ declare module 'claude-code' {
 export const PROGRESS_PREFIX = 'session:'
 export const EST_QUIET_MS = 5 * 60_000
 export const STALE_KEEP_MS = 24 * 60 * 60_000
+export const STALE_MARGIN_MS = 60_000
 
 export type TaskView = {
   current: string | null
@@ -150,6 +151,10 @@ export function estimateLeftMs(progress: Progress, now: number): number | null {
   if (progress.lastAddedAt !== null && now - progress.lastAddedAt < EST_QUIET_MS) return null
   const spent = now - progress.firstTaskAt
   return (spent * (progress.total - progress.done)) / progress.done
+}
+
+export function isOlderThanStart(progress: Progress, startedAt: number): boolean {
+  return startedAt - progress.updatedAt > STALE_MARGIN_MS
 }
 
 export function isExpired(progress: Progress, liveSessionIds: ReadonlySet<string>, now: number) {

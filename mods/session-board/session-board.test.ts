@@ -448,6 +448,32 @@ describe('the board rows', () => {
     expect(texts).toContain('not listed')
   })
 
+  const OWN_STARTED_AT = NOW - 3 * HOUR
+  const keyAges = [
+    { before: 1622, label: 'the measured 1622 ms', isStale: false },
+    { before: 59_000, label: '59 s', isStale: false },
+    { before: 61_000, label: '61 s', isStale: true },
+  ]
+  for (const { before, label, isStale } of keyAges) {
+    test(`marks a listed task stale: ${String(isStale)} for a key ${label} before the session start`, async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      mock.store(on, storeWith({ ...OWN_PROGRESS, updatedAt: OWN_STARTED_AT - before }))
+      fakeWorld(on)
+      await openBoard($, clock)
+      const texts = await shownTexts($, 'terminal', 46)
+      expect(texts).toContain('Draw quiet-items mocks')
+      expect(texts).toContain('  4 local · polled 0 s ago')
+      if (isStale) {
+        expect(texts.filter((text) => text === ' (stale)')).toHaveLength(1)
+        expect(texts.indexOf(' (stale)')).toBe(texts.indexOf(' 2/5') + 1)
+        expect(texts).toContain('app · main · 41m worked')
+      } else {
+        expect(texts).not.toContain(' (stale)')
+        expect(texts).toContain('app · main · 41m worked · est. 30m left')
+      }
+    })
+  }
+
   test('says when only this session is running', async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     mock.store(on, storeWith(OWN_PROGRESS))
