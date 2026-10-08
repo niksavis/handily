@@ -11,6 +11,8 @@ const COUNT_TRIES = 5
 const DEFAULT_MODE: SimpleViewMode = 'on'
 const MODE = { plugin: 'simple-view', key: 'mode' } as const
 const COUNT = { plugin: 'simple-view', key: 'count' } as const
+const GENERATION = { plugin: 'simple-view', key: 'generation' } as const
+const QUIET_ITEMS_MODE = { plugin: 'quiet-items', key: 'mode' } as const
 const RESERVED_KEYS: ReadonlySet<string> = new Set(['tool', 'tool_use_id', 'agentId', 'consent'])
 const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 
@@ -47,7 +49,26 @@ async function toggle($: EngineInterface): Promise<string> {
   return mode === 'on' ? ON_TEXT : OFF_TEXT
 }
 
+async function generationOf($: EngineInterface): Promise<number> {
+  const { value = 0 } = await $.state.get(GENERATION)
+  return value
+}
+
+function timingKey(generation: number, toolUseId: string): string {
+  return `${String(generation)}:${toolUseId}`
+}
+
+async function forgetSession($: EngineInterface): Promise<void> {
+  try {
+    await $.state.set(GENERATION, (await generationOf($)) + 1)
+    await $.state.set(COUNT, 0)
+  } catch (error) {
+    logFailure($, 'the calls of the ended session stay reachable', error)
+  }
+}
+
 async function show($: EngineInterface, raw: string | undefined): Promise<string> {
+  const generation = await generationOf($)
   const { value: count = 0 } = await $.state.get(COUNT)
   const kept = Math.min(count, KEPT_CALLS)
   if (kept === 0) return NO_CALL_TEXT
@@ -60,7 +81,9 @@ async function show($: EngineInterface, raw: string | undefined): Promise<string
     key: 'calls',
     id: slotOf(seq),
   })
-  if (call?.seq !== seq) return `No call ${raw} is kept. ${rangeText(kept)}`
+  if (call?.generation !== generation || call.seq !== seq) {
+    return `No call ${raw} is kept. ${rangeText(kept)}`
+  }
   return showText(call, back, kept)
 }
 
@@ -102,15 +125,19 @@ async function settleTiming(
   }
 }
 
-async function remember($: EngineInterface, facts: Omit<CallFacts, 'seq'>): Promise<void> {
+async function remember(
+  $: EngineInterface,
+  facts: Omit<CallFacts, 'seq' | 'generation'>,
+): Promise<void> {
   try {
     for (let attempt = 0; attempt < COUNT_TRIES; attempt += 1) {
+      const generation = await generationOf($)
       const { value: count = 0, version } = await $.state.get(COUNT)
       const { isSet } = await $.state.set(COUNT, count + 1, { ifVersion: version })
       if (!isSet) continue
       await $.state.set(
         { plugin: 'simple-view', key: 'calls', id: slotOf(count) },
-        callRecord({ ...facts, seq: count }),
+        callRecord({ ...facts, generation, seq: count }),
       )
       return
     }
@@ -120,9 +147,13 @@ async function remember($: EngineInterface, facts: Omit<CallFacts, 'seq'>): Prom
   }
 }
 
-type Ended = { facts: Omit<CallFacts, 'seq' | 'elapsedMs'>; startedAt: number; isTimed: boolean }
+type Ended = {
+  facts: Omit<CallFacts, 'seq' | 'generation' | 'elapsedMs'>
+  startedAt: number
+  timing: string | null
+}
 
-async function recordCall($: EngineInterface, { facts, startedAt, isTimed }: Ended): Promise<void> {
+async function recordCall($: EngineInterface, { facts, startedAt, timing }: Ended): Promise<void> {
   let elapsedMs: number
   try {
     elapsedMs = (await $.clock.now()) - startedAt
@@ -130,7 +161,7 @@ async function recordCall($: EngineInterface, { facts, startedAt, isTimed }: End
     logFailure($, `no time for ${facts.tool_use_id}`, error)
     return
   }
-  if (isTimed) await settleTiming($, facts.tool_use_id, startedAt, elapsedMs)
+  if (timing !== null) await settleTiming($, timing, startedAt, elapsedMs)
   await remember($, { ...facts, elapsedMs })
 }
 
@@ -138,7 +169,8 @@ function inputOf(e: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(e).filter(([key]) => !RESERVED_KEYS.has(key)))
 }
 
-async function timingOf($: EngineInterface, id: string) {
+async function timingOf($: EngineInterface, toolUseId: string) {
+  const id = timingKey(await generationOf($), toolUseId)
   const { value } = await $.state.get({ plugin: 'simple-view', key: 'timing', id })
   return value
 }
@@ -215,7 +247,9 @@ async function isSimple($: EngineInterface, id: string): Promise<boolean> {
   const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
   if (mode === 'off') return false
   const { value: rows } = await $.state.get({ plugin: 'quiet-items', key: 'rows', id })
-  return rows === undefined || rows.length === 0
+  if (rows === undefined || rows.length === 0) return true
+  const { value: quietMode = 'on' } = await $.state.get(QUIET_ITEMS_MODE)
+  return quietMode === 'off'
 }
 
 export const register: Register = (on) => {
@@ -238,15 +272,22 @@ export const register: Register = (on) => {
     return { text: USAGE_TEXT }
   })
 
+  on('session.end', async ($, e, next) => {
+    await forgetSession($)
+    return next(e)
+  })
+
   on('tool.call', async ($, e, next) => {
     const id = e.tool_use_id
     if (e.agentId !== undefined) return next(e)
     const isTimed = e.tool === 'Bash' && e.run_in_background !== true
     let startedAt: number
+    let timing: string | null
     let ticker: Timer | null
     try {
       startedAt = await $.clock.now()
-      ticker = isTimed ? await startTicker($, id, startedAt) : null
+      timing = isTimed ? timingKey(await generationOf($), id) : null
+      ticker = timing === null ? null : await startTicker($, timing, startedAt)
     } catch (error) {
       logFailure($, `no time for ${id}`, error)
       return next(e)
@@ -260,7 +301,7 @@ export const register: Register = (on) => {
     await recordCall($, {
       facts: { tool_use_id: id, tool: e.tool, input: inputOf(e), answer },
       startedAt,
-      isTimed,
+      timing,
     })
     return answer
   })

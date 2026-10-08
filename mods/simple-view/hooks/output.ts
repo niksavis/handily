@@ -2,8 +2,16 @@ const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
 
 export type Totals = { added: number; removed: number }
 
+export type StderrSummary = { lines: number; first: string }
+
 export type BashEnd =
-  | { kind: 'done'; lines: number; interpretation: string | null }
+  | {
+      kind: 'done'
+      lines: number
+      interpretation: string | null
+      stderr: StderrSummary | null
+      savedTo: string | null
+    }
   | { kind: 'exit'; code: number; line: string }
 
 export type FileChange = { path: string; verb: 'Updated' | 'Created' | 'Deleted'; totals: Totals }
@@ -55,13 +63,22 @@ export function lineCount(text: string): number {
   return kept === '' ? 0 : kept.split(/\r?\n/).length
 }
 
-function firstLineAfterExit(rest: string): string {
+export function contentLines(content: string): string[] {
+  return content === '' ? [] : content.replace(/\r?\n$/, '').split(/\r?\n/)
+}
+
+function firstNonEmptyLine(text: string): string {
   return (
-    rest
+    text
       .split(/\r?\n/)
       .map((line) => line.trim())
       .find((line) => line !== '') ?? ''
   )
+}
+
+function stderrSummary(stderr: unknown): StderrSummary | null {
+  if (typeof stderr !== 'string' || stderr.trim() === '') return null
+  return { lines: lineCount(stderr.trim()), first: firstNonEmptyLine(stderr) }
 }
 
 export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
@@ -72,17 +89,19 @@ export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
     return {
       kind: 'exit',
       code: Number(found[1]),
-      line: firstLineAfterExit(output.slice(found[0].length)),
+      line: firstNonEmptyLine(output.slice(found[0].length)),
     }
   }
   if (!isRecord(output) || typeof output.stdout !== 'string') return null
   if (output.interrupted !== false || output.isImage === true) return null
   if (output.backgroundTaskId !== undefined) return null
-  const interpretation = output.returnCodeInterpretation
+  const { returnCodeInterpretation: interpretation, persistedOutputPath: savedTo } = output
   return {
     kind: 'done',
     lines: lineCount(output.stdout),
     interpretation: typeof interpretation === 'string' ? interpretation : null,
+    stderr: stderrSummary(output.stderr),
+    savedTo: typeof savedTo === 'string' ? savedTo : null,
   }
 }
 
@@ -109,7 +128,7 @@ export function bashChanges(output: unknown): BashChanges | null {
 function writeTotals(output: Record<string, unknown>, hunks: readonly Hunk[]): Totals | null {
   if (typeof output.content !== 'string') return null
   if (hunks.length > 0) return totalsOf(hunks)
-  if (output.type === 'create') return { added: lineCount(output.content), removed: 0 }
+  if (output.type === 'create') return { added: contentLines(output.content).length, removed: 0 }
   if (output.originalFile === output.content) return { added: 0, removed: 0 }
   return null
 }

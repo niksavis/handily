@@ -7,6 +7,7 @@ export type SimpleViewTiming = {
 }
 
 export type SimpleViewCall = {
+  generation: number
   seq: number
   tool_use_id: string
   tool: string
@@ -21,6 +22,7 @@ declare module 'claude-code' {
   interface PluginState {
     'simple-view': {
       mode: SimpleViewMode
+      generation: number
       timing: StateFamily<SimpleViewTiming>
       count: number
       calls: StateFamily<SimpleViewCall>

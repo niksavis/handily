@@ -1,6 +1,6 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import { elapsedText } from './detail'
-import type { BashEnd, FileChange, Totals } from './output'
+import type { BashEnd, FileChange, StderrSummary, Totals } from './output'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
 type CellStyle = Omit<Parameters<RowElements['Text']>[0], 'children'>
@@ -41,6 +41,14 @@ function plural(count: number, word: string): string {
   return `${String(count)} ${word}${count === 1 ? '' : 's'}`
 }
 
+function stderrCells(stderr: StderrSummary | null): Cell[] {
+  if (stderr === null) return []
+  return [
+    { text: plural(stderr.lines, 'stderr line'), style: { dimColor: true } },
+    { text: stderr.first, style: { dimColor: true, wrap: 'truncate-end' }, canShrink: true },
+  ]
+}
+
 function stateCells(state: BashState): Cell[] {
   switch (state.kind) {
     case 'running':
@@ -50,7 +58,11 @@ function stateCells(state: BashState): Cell[] {
         state.interpretation === null
           ? { text: 'exit 0', style: { color: 'success' } }
           : { text: state.interpretation, style: { dimColor: true } },
-        { text: plural(state.lines, 'line'), style: { dimColor: true } },
+        {
+          text: state.savedTo === null ? plural(state.lines, 'line') : 'output saved to a file',
+          style: { dimColor: true },
+        },
+        ...stderrCells(state.stderr),
       ]
     case 'exit':
       return [

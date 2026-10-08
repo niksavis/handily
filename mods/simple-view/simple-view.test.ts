@@ -53,7 +53,8 @@ const fakeQuietItems: Plugin = {
       await $.state.set({ plugin: 'quiet-items', key: 'mode' }, 'on')
       return next(e)
     })
-    on('command.run', { command: modeCommand }, async ($) => {
+    on('command.run', { command: modeCommand }, async ($, e) => {
+      if (e.args === 'off') await $.state.set({ plugin: 'quiet-items', key: 'mode' }, 'off')
       const { value } = await $.state.get({ plugin: 'quiet-items', key: 'mode' })
       return { text: `quiet-items mode ${String(value)}` }
     })
@@ -87,6 +88,7 @@ function engineBeneath(on: On): World {
     isCallWriteRefused: false,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('session.root', () =>
     world.isRootRefused ? { deny: 'the fake root is unavailable' } : { value: ROOT },
@@ -361,6 +363,46 @@ describe('Bash row', () => {
     })
   }
 
+  viewTest('names the stderr lines of a call that did not fail', async (world, $) => {
+    world.answer = () => answered('', { stderr: '\nwarning: deprecated option --old\nuse --new\n' })
+    const input = { command: 'tool --old', description: 'Run the tool' }
+    const id = await runBash(world, $, input)
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps(id, 'Bash', input, world.answer(input)),
+      }),
+    ).toEqual([
+      '● Run the tool tool exit 0 0 lines 2 stderr lines warning: deprecated option --old 0.0s',
+    ])
+    const ui = await $.ui.mount({
+      plugin: 'simple-view',
+      surface: 'terminal',
+      component: 'ToolUse',
+      props: useProps(id, 'Bash', input, world.answer(input)),
+    })
+    const line = await ui.find({ type: 'Text', text: 'warning: deprecated option --old' })
+    expect(line?.props.dimColor).toBe(true)
+    expect(line?.props.wrap).toBe('truncate-end')
+    await ui.unmount()
+  })
+
+  viewTest('says the output was saved to a file in place of the count', async (world, $) => {
+    world.answer = () =>
+      answered('preview\n', { persistedOutputPath: '/work/app/.out/toolu_1.txt' })
+    const input = { command: 'cat big.log', description: 'Print the log' }
+    const id = await runBash(world, $, input)
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps(id, 'Bash', input, world.answer(input)),
+      }),
+    ).toEqual(['● Print the log cat exit 0 output saved to a file 0.0s'])
+    expect(await commandText($, 'show 1')).toContain(
+      'Full output saved to /work/app/.out/toolu_1.txt',
+    )
+  })
+
   viewTest('shows exit N alone when no error line follows', async (world, $) => {
     world.answer = () => failed('Error: Exit code 1')
     const input = { command: 'false', description: 'Fail' }
@@ -476,6 +518,25 @@ describe('Edit and Write rows', () => {
     ).toEqual(['● Write docs/new.md +3 -0'])
   })
 
+  viewTest('counts trailing blank lines of a new file as the diff does', async (world, $) => {
+    const result = {
+      type: 'create',
+      filePath: `${ROOT}/docs/blank.md`,
+      content: 'x\n\n\n\n',
+      structuredPatch: [],
+      originalFile: null,
+    }
+    world.answer = () => ({ result })
+    await runTool(world, $, { tool: 'Write', file_path: result.filePath, content: result.content })
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps('toolu_w3', 'Write', { file_path: result.filePath }, { result }),
+      }),
+    ).toEqual(['● Write docs/blank.md +4 -0'])
+    expect(await commandText($, 'show 1')).toContain('@@ -0,0 +1,4 @@\n+x\n+\n+\n+')
+  })
+
   viewTest('shows the path alone when the totals are not known', async (_world, $) => {
     const answer = {
       result: {
@@ -528,6 +589,18 @@ describe('quiet-items rows', () => {
         ),
       }),
     ).toEqual(['● Show br exit 0 2 lines 0.0s'])
+  })
+
+  viewTest('draw the simple row while the quiet-items mode is off', async (world, $) => {
+    const input = { command: QUIET_COMMAND, description: 'Close the item' }
+    const quiet = await runBash(world, $, input)
+    expect(await commandText($, 'off', QUIET_MODE_COMMAND)).toBe('quiet-items mode off')
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps(quiet, 'Bash', input, world.answer(input)),
+      }),
+    ).toEqual(['● Close the item br exit 0 2 lines 0.0s'])
   })
 })
 
@@ -649,6 +722,38 @@ describe('/simple show', () => {
     expect(await commandText($, 'show 1')).toContain(
       `--- /dev/null\n+++ ${ROOT}/docs/new.md\n@@ -0,0 +1,2 @@\n+a\n+b`,
     )
+  })
+
+  for (const reason of ['clear', 'resume', 'other'] as const) {
+    viewTest(`forgets the calls and their times at a session end (${reason})`, async (world, $) => {
+      world.delayMs = 1500
+      const input = { command: 'ls', description: 'List files' }
+      const id = await runBash(world, $, input)
+      world.delayMs = 0
+      const use = {
+        component: 'ToolUse',
+        props: useProps(id, 'Bash', input, world.answer(input)),
+      } as const
+      expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines 1.5s'])
+      await $.session.end({ reason, sessionId: 's1', resume: { id: 's1' } })
+      expect(await commandText($, 'show 1')).toBe(
+        '/simple show has no tool call to print yet in this session.',
+      )
+      expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines'])
+      await runBash(world, $, { command: 'pwd', description: 'Print the folder' })
+      const range = '/simple show takes a call number from 1 to 1, where 1 is the last tool call.'
+      expect(await commandText($, 'show 2')).toBe(`No call 2 is kept. ${range}`)
+      expect(await commandText($, 'show 1')).toContain('"command": "pwd"')
+    })
+  }
+
+  viewTest('never shows a call of an ended session', async (world, $) => {
+    await runBash(world, $, { command: 'echo before' })
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+    world.isCallWriteRefused = true
+    await runBash(world, $, { command: 'echo after' })
+    const range = '/simple show takes a call number from 1 to 1, where 1 is the last tool call.'
+    expect(await commandText($, 'show 1')).toBe(`No call 1 is kept. ${range}`)
   })
 
   viewTest('keeps a call that was refused', async (world, $) => {

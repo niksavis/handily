@@ -687,6 +687,8 @@ After:
   Updated README.md (+1 -0)
 ● Run the unit tests  ~npm~  !running!  ~3.0s~
 ● Search for zzz  ~grep~  ~No matches found~  ~0 lines~  ~0.2s~
+● Run the tool  ~tool~  +exit 0+  ~0 lines~  ~2 stderr lines~  ~warning: deprecated option --old~  ~0.3s~
+● Print the log  ~cat~  +exit 0+  ~output saved to a file~  ~0.9s~
 ● Write  docs/new.md  ~+3 -0~
 ● Edit  src/app.ts  ~+2 -1~
 ● Write  /elsewhere/big.json
@@ -703,11 +705,15 @@ After:
 - After `exit N`, and under an `Edit` or `Write` row, the result block is drawn empty.
 - `Write /elsewhere/big.json` with no totals: the engine gave no diff, so the mod shows the path
   only.
+- A call without an error that wrote to stderr adds the stderr line count and the first
+  non-empty stderr line, dim and cut like the error line. The result block does not change.
+- When the engine saved the output to a file, the row says `output saved to a file` in place of
+  the line count. `/simple show N` prints `Full output saved to <path>` above the output.
 
 ### Terminal, fallback cases (the engine row is drawn unchanged, `next(e)`)
 
 ```text
-● Bash(br close handily-ab12)          <- quiet-items stored a row: its row wins
+● Bash(br close handily-ab12)          <- quiet-items stored a row and its mode is on: its row wins
 ● Bash(sleep 60)                       <- interrupted (Esc), refused, or run in the background
 ● Bash(npm test)                       <- errored without "Error: Exit code N" (a timeout)
   Listed 2 directories, ran 2 shell commands    <- a folded group: drawn as the engine draws it
@@ -749,7 +755,8 @@ The error line shrinks first, then the description. The program, the state and t
 /simple show 9   -> No call 9 is kept. /simple show takes a call number from 1 to 8, where 1 is
                     the last tool call.
 /simple show     -> /simple show takes a call number from 1 to 8, where 1 is the last tool call.
-/simple show 1   -> /simple show has no tool call to print yet in this session.   (no call yet)
+/simple show 1   -> /simple show has no tool call to print yet in this session.   (no call yet, or
+                    the first prompt after /clear)
 /simple x        -> /simple takes no argument, or show N. /simple toggles this session;
                     /simple show N prints the N-th last tool call in full.
 ```

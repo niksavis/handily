@@ -1,5 +1,5 @@
 import type { SimpleViewCall } from '../types'
-import { hunksOf, isRecord } from './output'
+import { contentLines, hunksOf, isRecord } from './output'
 
 export const KEPT_CALLS = 50
 export const PART_LIMIT = 8000
@@ -25,7 +25,7 @@ function fileDiff(path: string, hunks: ReturnType<typeof hunksOf>): string[] {
 }
 
 function createdDiff(path: string, content: string): string[] {
-  const lines = content === '' ? [] : content.replace(/\r?\n$/, '').split(/\r?\n/)
+  const lines = contentLines(content)
   return [
     '--- /dev/null',
     `+++ ${path}`,
@@ -56,14 +56,20 @@ export function diffText(result: unknown): string {
   return lines.join('\n')
 }
 
+function savedNote(result: unknown): string {
+  if (!isRecord(result) || typeof result.persistedOutputPath !== 'string') return ''
+  return `Full output saved to ${result.persistedOutputPath}\n\n`
+}
+
 function outputText(answer: Answer): string {
   if (answer.deny !== undefined) return `Refused: ${answer.deny}`
-  if (answer.text !== undefined) return answer.text
+  if (answer.text !== undefined) return `${savedNote(answer.result)}${answer.text}`
   if (typeof answer.result === 'string') return answer.result
   return JSON.stringify(answer.result ?? null, null, 2)
 }
 
 export type CallFacts = {
+  generation: number
   seq: number
   tool_use_id: string
   tool: string
@@ -74,6 +80,7 @@ export type CallFacts = {
 
 export function callRecord(facts: CallFacts): SimpleViewCall {
   return {
+    generation: facts.generation,
     seq: facts.seq,
     tool_use_id: facts.tool_use_id,
     tool: facts.tool,

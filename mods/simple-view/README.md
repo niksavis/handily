@@ -41,6 +41,11 @@ three:
   `VAR=value` word before it is skipped.
 - When the engine gives a meaning for a non-zero exit that is not an error, such as
   `No matches found` for `grep`, the row shows that meaning in place of `exit 0`.
+- When a call without an error wrote to stderr, the row adds the stderr line count and the
+  first non-empty stderr line, dim and cut at the row end. The result block does not change.
+- When the engine saved a large output to a file, stdout holds only a preview. The row then
+  shows `output saved to a file` in place of the line count, and `/simple show N` prints the
+  path of that file.
 - The result block names each changed file as `Updated`, `Created` or `Deleted`, with
   `(+added -removed)`. Files that the engine counts but does not list show as
   `and N more changed files`. When the engine did not track the changes, the block says
@@ -48,7 +53,8 @@ three:
 - A path inside the session root shows relative to the root. Another path shows in full.
 - The time is measured by the mod clock around the call. It includes the time that a
   permission question waited for an answer.
-- `Write` of a new file counts the lines of its content. When the engine gives no diff for an
+- `Write` of a new file counts the lines of its content, blank lines at the end included, as
+  its diff does. When the engine gives no diff for an
   update (for example, the old content was too large to diff), the row shows the path only,
   with no totals.
 
@@ -57,7 +63,9 @@ three:
 simple-view draws the engine row unchanged in each of these cases:
 
 - `/simple` turned the view off for this session.
-- `quiet-items` stored a row for the call. The tracker row of `quiet-items` wins.
+- `quiet-items` stored a row for the call, and the `quiet-items` mode is on. The tracker row
+  of `quiet-items` wins. While `/quiet-items` has turned its mode off, simple-view draws its own
+  row for the call.
 - The call was interrupted, refused or ran in the background.
 - The call errored without the `Error: Exit code N` text, for example a timeout or a refusal at
   the permission question.
@@ -86,6 +94,13 @@ it. The ctrl+o transcript unfolds the group, and each call there shows its simpl
 `/simple show` keeps the last 50 tool calls of the main session in `$.state`. It cuts each part
 of a call (the input, the output and the file diff) at 8000 characters, and says how many
 characters it cut. Calls of subagents are not kept.
+
+When a session ends for any reason (`/exit`, `/clear`, a resume or a finished run), the mod
+resets the count of kept calls. The calls and the times of the ended session are no longer
+reachable: `/simple show` refuses them, and an old row draws without its time. `$.state` has
+no delete, so the mod writes each new call over a slot of the ended session. The 50 slots stay
+the upper limit. One small time record (three numbers) stays for each `Bash` call of the
+process.
 
 ## Known limits
 

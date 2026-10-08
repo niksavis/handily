@@ -459,7 +459,9 @@ Defer to quiet-items:
 
 - `simple-view` lists `quiet-items` under `dependencies`, so the `quiet-items` contract types
   the read of its `rows` key.
-- When `quiet-items` stored rows for a call, both renders go to `next(e)`.
+- When `quiet-items` stored rows for a call and its `mode` key is not `off`, both renders go
+  to `next(e)`. quiet-items stores rows also while its mode is off, so the mod reads the mode
+  (unset means on, as in quiet-items).
 
 `/simple show` memory:
 
@@ -468,6 +470,10 @@ Defer to quiet-items:
 - It cuts each part (input, output, diff) at 8000 characters.
 - `/simple show N` reads the slot of call `count - N` and checks the sequence number in it, so a
   slot that a lost write left behind is not shown as the wrong call.
+- `session.end` (every reason, `/clear` and resume included) raises a `generation` key and
+  sets `count` to 0. Each kept call holds its generation, and each time record is keyed
+  `<generation>:<tool_use_id>`, so nothing of an ended session is reachable. `$.state` has no
+  delete. The slots are written over, so they stay at 50. One time record stays per `Bash` call.
 
 ## 5. Repo layout (proposed)
 
