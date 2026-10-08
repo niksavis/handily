@@ -60,7 +60,8 @@ An update keeps the folder of the old version in `~/.claude/plugins/cache/handil
 Code loads only the version that `claude plugin list` shows.
 
 Claude Code does not load the bundle when one of its mods is disabled. Then `/handily`
-is not available, and `/plugin` shows which mod to enable.
+is not available, and `/plugin` shows which mod to enable. `claude plugin disable` refuses
+to disable a mod while the bundle is enabled, so disable the bundle first.
 
 To install one mod only, use its name, for example
 `/plugin install quiet-items@handily`. A mod that needs `workitems` installs it too. You
