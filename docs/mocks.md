@@ -34,19 +34,19 @@ Sample names are generic: repo `app`, worktree `app.wt/lane-a1`, items `handily-
 Every dependent mod draws the same one-line state text from the snapshot, so the wording lives
 in one place (workitems exports it). `ok` draws no line; the mods show their data instead.
 
-| state | line (terminal) |
-| --- | --- |
-| ok | `~basicly · 14 open · read 12 s ago~` (only as a header, never as a warning) |
-| ok, bd source | `~beads (bd) · 9 open · read 12 s ago · may be stale: bd keeps data in Dolt~` |
-| stale | `!Work items may be out of date: last good read 6 min ago (basicly tracker list exited 1).!` |
-| failed | `#Work items unavailable: basicly tracker list exited 2. Run it in a shell to see why.#` |
-| failed (size) | `#Work items unavailable: .beads/issues.jsonl is over 4 MiB.#` |
-| failed (cut) | `#Work items unavailable: basicly tracker list output was cut off.#` |
-| failed (contract) | `#Work items unavailable: the adapter says contract 2; handily reads contract 1.#` |
-| approval-needed | `!Work items need your approval to run python3 .basicly/core/kit/tracker/cli.py.!` + `~Asked at the next refresh in an interactive session.~` |
-| no-tracker | `~No tracker found at the repo root (looked for basicly, beads, beans, .handily.json).~` |
-| terminal-only | `~basicly is read through a CLI, which only a terminal session can run. Open this repo in a terminal to see its items.~` |
-| ignored sources | `~Using beads; ignoring beans. Name one in .handily.json to change it.~` (once, under the header) |
+| state             | line (terminal)                                                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| ok                | `~basicly · 14 open · read 12 s ago~` (only as a header, never as a warning)                                                                  |
+| ok, bd source     | `~beads (bd) · 9 open · read 12 s ago · may be stale: bd keeps data in Dolt~`                                                                 |
+| stale             | `!Work items may be out of date: last good read 6 min ago (basicly tracker list exited 1).!`                                                  |
+| failed            | `#Work items unavailable: basicly tracker list exited 2. Run it in a shell to see why.#`                                                      |
+| failed (size)     | `#Work items unavailable: .beads/issues.jsonl is over 4 MiB.#`                                                                                |
+| failed (cut)      | `#Work items unavailable: basicly tracker list output was cut off.#`                                                                          |
+| failed (contract) | `#Work items unavailable: the adapter says contract 2; handily reads contract 1.#`                                                            |
+| approval-needed   | `!Work items need your approval to run python3 .basicly/core/kit/tracker/cli.py.!` + `~Asked at the next refresh in an interactive session.~` |
+| no-tracker        | `~No tracker found at the repo root (looked for basicly, beads, beans, .handily.json).~`                                                      |
+| terminal-only     | `~basicly is read through a CLI, which only a terminal session can run. Open this repo in a terminal to see its items.~`                      |
+| ignored sources   | `~Using beads; ignoring beans. Name one in .handily.json to change it.~` (once, under the header)                                             |
 
 Approval ask (terminal; engine-drawn AskUserQuestion, layout approximate):
 
@@ -291,7 +291,7 @@ Inline, the frame fits the tree and eats transcript room, so done tasks collapse
 - Tracker block: beads and beans as on terminal; basicly shows the terminal-only line:
   `~basicly is read through a CLI, which only a terminal session can run.~`
   `/task add handily-cd34` on desktop with basicly: `Cannot read handily-cd34 here: basicly needs a
-  terminal session. Add it as text: /task add <text>.`
+terminal session. Add it as text: /task add <text>.`
 - Mobile: no `Input`; the pane drops the input row and shows `~Add tasks with /task add <text>.~`.
 
 Look choices (approved as proposed):
@@ -418,6 +418,17 @@ A toast when a work item changes outside this session (a diff not caused by a to
 quiet-items matched here). Rate limit: at most one toast per 30 s; changes inside the window merge
 into the next toast. Engine draws the box (top right over the transcript, under the plugin name;
 one line on the notification bar when not fullscreen).
+
+A call of this session counts as a tracker write, and its change draws no toast, when:
+
+- `Bash`: the quiet-items parser finds a tracker name in the command (a write, an echoed write
+  or an opaque command). `--help` and `--dry-run` are not writes.
+- `Write` or `Edit`: the file is a tracker file at the `workitems` root.
+
+Limits: a change made elsewhere while such a call runs draws no toast. A script that writes
+the tracker without a tracker name in the command (`bash close.sh`) draws a toast. A background
+call counts until its task notification, until a Stop hook no longer lists its task, or for at
+most 30 minutes.
 
 ### Terminal, normal
 

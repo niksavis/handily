@@ -13,7 +13,7 @@ export const QUIET_WINDOW_MS = 30_000
 const NAMED_IDS = 2
 const KINDS_IN_DIFF_ORDER: readonly ChangeKind[] = ['created', 'updated', 'closed']
 const KINDS_BY_STRENGTH: readonly ChangeKind[] = ['updated', 'closed', 'created']
-const HEADER_AGE_PART = ' · read '
+const HEADER_AGE_PART = ' \u00b7 read '
 
 export type Change = {
   kind: ChangeKind
@@ -43,7 +43,7 @@ export type Toaster = {
 export function cutTitle(title: string, length: number): string {
   const graphemes = Array.from(new Intl.Segmenter().segment(title), (part) => part.segment)
   if (graphemes.length <= length) return title
-  return `${graphemes.slice(0, length).join('').trimEnd()}…`
+  return `${graphemes.slice(0, length).join('').trimEnd()}\u2026`
 }
 
 function statusMove(change: Change): string {

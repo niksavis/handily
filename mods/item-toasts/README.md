@@ -22,17 +22,38 @@ which it has read the diffs.
 
 1. Every 2 s, the mod reads the snapshot. When its `version` moved, the mod calls
    `$.workitems.refresh({ since })`. It holds the diff for the next toast.
-2. Before a `Bash`, `Write` or `Edit` call runs, the mod calls `refresh({ since })` the same
-   way. A change from before the call is then a change made elsewhere.
-3. While a call runs, the mod reads no diff.
-4. After the last running call ends, the mod calls `refresh({ since })` and drops the diff.
-   The call made this change, or the change came while the call ran.
+2. Before a counted call runs (see "Which calls count"), the mod calls `refresh({ since })`
+   the same way. A change from before the call is then a change made elsewhere.
+3. While a counted call runs, the mod reads no diff.
+4. After the last running counted call ends, the mod calls `refresh({ since })` and drops the
+   diff. The call made this change, or the change came while the call ran.
 
-When calls overlap, the mod drops the diff of every version from the start of the first call
+When counted calls overlap, the mod drops the diff of every version from the start of the first call
 to the end of the last call. A change made elsewhere in that time draws no toast.
 
-`isTrackerWrite` in `hooks/match.ts` decides which calls count. This version counts every
-`Bash`, `Write` and `Edit` call.
+### Which calls count
+
+`isTrackerWrite` in `hooks/match.ts` decides which calls the mod treats as this session's own
+tracker writes. Every other call runs as if the mod were not there, so a change made elsewhere
+while it runs draws a toast.
+
+| Tool            | Counts when                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| `Bash`          | `parseCommand` finds a tracker name: a write, an echoed write or an opaque command such as a loop |
+| `Write`, `Edit` | `trackerFileOf` names a tracker file at the `workitems` root, or no snapshot gives a root yet     |
+
+- `--help`, `-h` and `--dry-run` make a command a non-write, so it does not count.
+- When `$.workitems.writeVerbs()` fails, the mod counts the `Bash` call and logs why.
+- `hooks/parse.ts` is a copy of `parseCommand` and `trackerFileOf` from
+  `mods/quiet-items/hooks/parse.ts`, because a mod cannot import another mod's code.
+  `fixtures/commands.ts` is a copy of the quiet-items command list. The parity tests classify
+  that list with this copy. Change both copies together.
+
+Known limits:
+
+- A change made elsewhere while a counted call runs draws no toast.
+- A script that writes the tracker without a tracker name in its command, such as
+  `bash close.sh`, draws a toast for its own change.
 
 ### A call that runs on in the background
 
@@ -45,6 +66,9 @@ events:
   `backgroundTaskId` of its result.
 - A `Stop` hook lists the background tasks of the session, and the `backgroundTaskId` of the
   call is not in the list.
+- 30 minutes pass. The Stop hook may not run, for example when a Team organisation's security
+  plugin bypasses the user-tier settings hooks. This limit keeps the toasts from stopping
+  for good.
 
 Until then, a change made elsewhere draws no toast. A new session start closes every open
 call. A reload of the mod forgets the open background calls, so a change that such a command

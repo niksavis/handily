@@ -1,4 +1,4 @@
-import type { On, PluginState, ToolCallInput } from 'claude-code'
+import type { EngineInterface, On, PluginState, ToolCallInput } from 'claude-code'
 import {
   describe,
   expect,
@@ -9,6 +9,15 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import { changesText, type Change } from './hooks/toasts'
+import { parseCommand, trackerFileOf, type WriteVerbs } from './hooks/parse'
+import {
+  commandCases,
+  compoundCases,
+  noTrackerCommands,
+  reviewCases,
+  unsafeCases,
+  type CommandCase,
+} from './fixtures/commands'
 
 type Snapshot = PluginState['workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -26,6 +35,54 @@ const MALFORMED = '.beads/issues.jsonl line 4 is malformed.'
 const FAILED_TOAST = 'Work items unavailable: .beads/issues.jsonl line 4 is malformed.'
 const BEADS_FILE = `${ROOT}/.beads/issues.jsonl`
 const POLL_COMMAND = 'workitems-poll'
+
+const VERBS: WriteVerbs = {
+  br: [
+    'close',
+    'create',
+    'defer',
+    'delete',
+    'q',
+    'reopen',
+    'undefer',
+    'update',
+    'comments add',
+    'dep add',
+    'dep remove',
+    'dep import',
+    'label add',
+    'label remove',
+    'label rename',
+    'epic close-eligible',
+  ],
+  'basicly tracker': [
+    'close',
+    'comments add',
+    'create',
+    'dep add',
+    'dep remove',
+    'gate report',
+    'update',
+  ],
+  '.basicly/core/kit/tracker/cli.py': [
+    'create',
+    'compact',
+    'sync',
+    'import',
+    'migrate-fields',
+    'child',
+    'update',
+    'close',
+    'comment',
+    'dep',
+    'undep',
+    'assign',
+    'claim',
+    'resolve',
+    'unassign',
+    'delete',
+  ],
+}
 
 function item(id: string, title: string, status: Item['status']): Item {
   return {
@@ -70,7 +127,10 @@ const fakeWorkitems: Plugin = {
             await built.state.set({ plugin: 'workitems', key: 'snapshot' }, answer.snapshot)
             return answer.result
           },
-          writeVerbs: () => Promise.reject(new Error('the fake workitems has no write verbs')),
+          writeVerbs: async () =>
+            JSON.parse(await built.fs.read('/fake/workitems/verbs')) as Awaited<
+              ReturnType<EngineInterface['workitems']['writeVerbs']>
+            >,
           lines: ({ snapshot }) => {
             if (snapshot.state === 'failed') {
               return Promise.resolve([
@@ -87,7 +147,7 @@ const fakeWorkitems: Plugin = {
               {
                 kind: 'header' as const,
                 tone: 'dim' as const,
-                text: `${snapshot.sourceLabel} · ${String(open)} open · read 0 s ago` as `${string} · ${number} open · read ${string} ago`,
+                text: `${snapshot.sourceLabel} \u00b7 ${String(open)} open \u00b7 read 0 s ago` as `${string} \u00b7 ${number} open \u00b7 read ${string} ago`,
               },
             ])
           },
@@ -264,6 +324,7 @@ function engineBeneath(on: On, world: World): MockClock {
     return { value: undefined }
   })
   on('fs.read', (_$, e) => {
+    if (e.path === '/fake/workitems/verbs') return { value: JSON.stringify(VERBS) }
     const since = /^\/fake\/workitems\/refresh\/(\d+|poll|timer)$/.exec(e.path)?.[1]
     if (since === undefined) return { deny: `no fake file at ${e.path}` }
     return { value: JSON.stringify(answer(world, since)) }
@@ -403,7 +464,9 @@ describe('a change made elsewhere', () => {
     await startSession($)
     elsewhere(world, { diff: { ...emptyDiff(), closed: [updated(LONG, 'closed')] } })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-gh78 closed: Write the beads reader so the provider r…'])
+    expect(world.toasts).toEqual([
+      'handily-gh78 closed: Write the beads reader so the provider r\u2026',
+    ])
   })
 
   toastTest('toasts nothing when nothing changed', async (world, $, clock) => {
@@ -582,7 +645,7 @@ describe('the snapshot state', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(TICK_MS * 5)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads · 3 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 3 open.'])
     },
   )
 
@@ -727,7 +790,7 @@ describe('a change of this session during a failure', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS * 2)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads · 2 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 2 open.'])
     },
   )
 
@@ -748,7 +811,7 @@ describe('a change of this session during a failure', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS * 2)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads · 2 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 2 open.'])
     },
   )
 
@@ -766,7 +829,7 @@ describe('a change of this session during a failure', () => {
       await clock.advance(WINDOW_MS * 2)
       expect(world.toasts).toEqual([
         FAILED_TOAST,
-        'Work items are back: beads · 2 open.',
+        'Work items are back: beads \u00b7 2 open.',
         'handily-ab12 closed: Draw text mocks for the mods',
       ])
     },
@@ -821,7 +884,253 @@ describe('a reload of the module', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads · 3 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 3 open.'])
     },
   )
+})
+
+const BACKGROUND_LIMIT_MS = 30 * 60 * 1000
+const OWN_COMMANDS = [
+  'br close handily-ab12',
+  'uv run .basicly/core/kit/tracker/cli.py close handily-ab12',
+  'basicly tracker write close handily-ab12',
+  'for id in handily-ab12; do br close $id; done',
+] as const
+
+async function edit($: Engine, filePath: string): Promise<void> {
+  await $.tool.call({ tool: 'Edit', file_path: filePath, old_string: 'a', new_string: 'b' })
+}
+
+async function write($: Engine, filePath: string): Promise<void> {
+  await $.tool.call({ tool: 'Write', file_path: filePath, content: 'x' })
+}
+
+async function changeElsewhereWhileRunning(
+  world: World,
+  $: Engine,
+  clock: MockClock,
+  running: Promise<void>,
+): Promise<void> {
+  await clock.settle()
+  elsewhere(world, closeEf56())
+  await poll($)
+  await clock.advance(TICK_MS)
+  expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+  await clock.advance(TICK_MS * 10)
+  await running
+}
+
+describe('a call that is not a tracker write', () => {
+  toastTest('toasts a change made elsewhere while npm test runs', async (world, $, clock) => {
+    await startSession($)
+    world.plans['npm test'] = { afterMs: TICK_MS * 10 }
+    await changeElsewhereWhileRunning(world, $, clock, bash($, 'npm test'))
+  })
+
+  toastTest(
+    'toasts a change made elsewhere while a call waits at a permission prompt',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans['git push origin main'] = { beforeMs: TICK_MS * 10 }
+      await changeElsewhereWhileRunning(world, $, clock, bash($, 'git push origin main'))
+    },
+  )
+
+  toastTest(
+    'toasts a change made elsewhere while a Write to src/x.ts runs',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[`${ROOT}/src/x.ts`] = { afterMs: TICK_MS * 10 }
+      await changeElsewhereWhileRunning(world, $, clock, write($, `${ROOT}/src/x.ts`))
+    },
+  )
+
+  for (const command of ['br close handily-ab12 --dry-run', 'br --help']) {
+    toastTest(`does not count ${command} as own`, async (world, $, clock) => {
+      await startSession($)
+      world.plans[command] = { afterMs: TICK_MS * 10 }
+      await changeElsewhereWhileRunning(world, $, clock, bash($, command))
+    })
+  }
+
+  toastTest('toasts the change of bash close.sh, a known limit', async (world, $, clock) => {
+    await startSession($)
+    world.plans['bash close.sh'] = { edit: closeAb12() }
+    await bash($, 'bash close.sh')
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+  })
+
+  toastTest('toasts the Edit of .beans/README.md', async (world, $, clock) => {
+    await startSession($)
+    world.plans[`${ROOT}/.beans/README.md`] = { edit: closeAb12() }
+    await edit($, `${ROOT}/.beans/README.md`)
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+  })
+})
+
+describe('a call that is a tracker write', () => {
+  for (const command of OWN_COMMANDS) {
+    toastTest(`counts ${command} as own`, async (world, $, clock) => {
+      await startSession($)
+      world.plans[command] = { edit: closeAb12() }
+      await bash($, command)
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS)
+      expect(world.toasts).toEqual([])
+      expect(world.items.find((each) => each.id === 'handily-ab12')?.status).toBe('closed')
+    })
+  }
+
+  toastTest('counts the Edit of a beans item file as own', async (world, $, clock) => {
+    await startSession($)
+    world.plans[`${ROOT}/.beans/app-ab12--x.md`] = { edit: closeAb12() }
+    await edit($, `${ROOT}/.beans/app-ab12--x.md`)
+    await pollAndTick($, clock)
+    await clock.advance(WINDOW_MS)
+    expect(world.toasts).toEqual([])
+  })
+
+  toastTest(
+    'drops a change made elsewhere while a tracker write runs, a known limit',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { afterMs: TICK_MS * 5 }
+      const running = bash($, CLOSE_AB12)
+      await clock.settle()
+      elsewhere(world, closeEf56())
+      await poll($)
+      await clock.advance(TICK_MS * 6)
+      await running
+      await clock.advance(WINDOW_MS)
+      expect(world.toasts).toEqual([])
+    },
+  )
+
+  toastTest(
+    'keeps the count right when an unmatched call runs inside a tracker write',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { edit: closeAb12(), afterMs: TICK_MS * 5 }
+      world.plans['npm test'] = { afterMs: TICK_MS }
+      const outer = bash($, CLOSE_AB12)
+      await clock.settle()
+      const inner = bash($, 'npm test')
+      await clock.advance(TICK_MS * 2)
+      await inner
+      await clock.advance(TICK_MS * 4)
+      await outer
+      await clock.advance(WINDOW_MS)
+      expect(world.toasts).toEqual([])
+      elsewhere(world, closeEf56())
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+    },
+  )
+
+  toastTest(
+    'keeps the count right when a tracker write runs inside an unmatched call',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans['npm test'] = { afterMs: TICK_MS * 10 }
+      world.plans[CLOSE_AB12] = { edit: closeAb12() }
+      const outer = bash($, 'npm test')
+      await clock.settle()
+      await bash($, CLOSE_AB12)
+      await clock.advance(TICK_MS)
+      elsewhere(world, closeEf56())
+      await poll($)
+      await clock.advance(TICK_MS)
+      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+      await clock.advance(TICK_MS * 10)
+      await outer
+    },
+  )
+})
+
+describe('the time limit of a background call', () => {
+  toastTest(
+    'closes a background call after 30 minutes without a notification',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { output: { backgroundTaskId: 'b4' } }
+      await bash($, CLOSE_AB12, true)
+      elsewhere(world, closeAb12())
+      await pollAndTick($, clock)
+      await clock.advance(BACKGROUND_LIMIT_MS - TICK_MS * 2)
+      expect(world.toasts).toEqual([])
+      await clock.advance(TICK_MS * 2)
+      elsewhere(world, closeEf56())
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+    },
+  )
+})
+
+function expectClassified(cases: readonly CommandCase[]): void {
+  for (const c of cases) {
+    const parsed = parseCommand(c.command, VERBS)
+    expect({ command: c.command, kind: parsed.kind }).toEqual({
+      command: c.command,
+      kind: c.expect,
+    })
+    if (parsed.kind !== 'none') {
+      expect({ command: c.command, write: parsed.writes.at(-1) }).toEqual({
+        command: c.command,
+        write: c.tracker === undefined ? undefined : { tracker: c.tracker, verb: c.verb },
+      })
+    }
+    if (parsed.kind === 'opaque' && c.reason !== undefined) {
+      expect({ command: c.command, reason: parsed.reason }).toEqual({
+        command: c.command,
+        reason: c.reason,
+      })
+    }
+  }
+}
+
+describe('parity with the quiet-items parser', () => {
+  test('classifies every case of the shared command list as quiet-items does', () => {
+    expect(commandCases.length + compoundCases.length + unsafeCases.length).toBeGreaterThan(30)
+    expect(reviewCases.filter((c) => c.expect === 'opaque').length).toBe(57)
+    expect(reviewCases.filter((c) => c.expect === 'write').length).toBe(12)
+    expectClassified([...commandCases, ...compoundCases, ...unsafeCases, ...reviewCases])
+  })
+
+  test('reads every command without a tracker name as none', () => {
+    expect(noTrackerCommands).toContain('bash close.sh')
+    for (const command of noTrackerCommands) {
+      expect({ command, parsed: parseCommand(command, VERBS) }).toEqual({
+        command,
+        parsed: { kind: 'none' },
+      })
+    }
+  })
+
+  test('names the same tracker files as quiet-items does', () => {
+    const files: readonly (readonly [string, string, string | null])[] = [
+      [`${ROOT}/.beads/issues.jsonl`, ROOT, '.beads/issues.jsonl'],
+      [`${ROOT}/.beads/config.yaml`, ROOT, null],
+      [`${ROOT}/.beads/backup/issues.jsonl`, ROOT, null],
+      [`${ROOT}/.basicly/ledger/events-a.jsonl`, ROOT, '.basicly/ledger/events-a.jsonl'],
+      [`${ROOT}/.basicly/ledger/pending-main.jsonl`, ROOT, '.basicly/ledger/pending-main.jsonl'],
+      [`${ROOT}/.basicly/ledger/snapshot.jsonl`, ROOT, '.basicly/ledger/snapshot.jsonl'],
+      [`${ROOT}/.basicly/ledger/checkpoint-1.jsonl`, ROOT, null],
+      [`${ROOT}/.beans/app-ab12--x.md`, ROOT, '.beans/app-ab12--x.md'],
+      [`${ROOT}/.beans/archive/app-2--done.md`, ROOT, '.beans/archive/app-2--done.md'],
+      [`${ROOT}/.beans/README.md`, ROOT, null],
+      [`${ROOT}/src/x.ts`, ROOT, null],
+      ['/work/other/.beads/issues.jsonl', ROOT, null],
+      [`${ROOT}-copy/.beads/issues.jsonl`, ROOT, null],
+      [
+        'C:\\work\\app\\.basicly\\ledger\\events-a.jsonl',
+        'C:\\work\\app\\',
+        '.basicly/ledger/events-a.jsonl',
+      ],
+    ]
+    for (const [path, root, file] of files) {
+      expect({ path, file: trackerFileOf(path, root) }).toEqual({ path, file })
+    }
+  })
 })

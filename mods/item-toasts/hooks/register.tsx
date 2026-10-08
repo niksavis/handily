@@ -3,9 +3,10 @@ import { isTrackerWrite } from './match'
 import { createToaster, type ToastHost, type Toaster } from './toasts'
 
 const TICK_MS = 2000
+const BACKGROUND_LIMIT_MS = 30 * 60 * 1000
 
 type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
-type BackgroundTask = { taskId: string | null }
+type BackgroundTask = { taskId: string | null; limit: Timer }
 
 type Toasts = {
   toaster: Toaster | undefined
@@ -36,6 +37,7 @@ function stopToasts(toasts: Toasts): void {
   toasts.ticks?.cancel()
   toasts.ticks = undefined
   toasts.toaster = undefined
+  for (const task of toasts.background.values()) task.limit.cancel()
   toasts.background.clear()
 }
 
@@ -51,10 +53,19 @@ function startToasts($: EngineInterface, toasts: Toasts): Toaster {
   return toaster
 }
 
-function backgroundTaskOf(
+async function isOwnCommand($: EngineInterface, command: string): Promise<boolean> {
+  try {
+    return isTrackerWrite({ tool: 'Bash', command, verbs: await $.workitems.writeVerbs() })
+  } catch (error) {
+    $.ui.log(`item-toasts: counting the call as own; the write verbs failed: ${String(error)}`)
+    return true
+  }
+}
+
+function backgroundTaskIdOf(
   isLaunchedInBackground: boolean,
   result: CallResult,
-): BackgroundTask | null {
+): { taskId: string | null } | null {
   const output: unknown = result.result
   const taskId =
     typeof output === 'object' &&
@@ -73,9 +84,24 @@ async function endBackground(
 ): Promise<void> {
   for (const [toolUseId, task] of [...toasts.background]) {
     if (!hasEnded(toolUseId, task)) continue
+    task.limit.cancel()
     toasts.background.delete(toolUseId)
     await toasts.toaster?.leaveCall()
   }
+}
+
+function keepBackgroundOpen(
+  $: EngineInterface,
+  toasts: Toasts,
+  toolUseId: string,
+  taskId: string | null,
+): void {
+  const limit = $.clock.after(BACKGROUND_LIMIT_MS, () => {
+    endBackground(toasts, (openId) => openId === toolUseId).catch((error: unknown) => {
+      $.ui.log(`item-toasts: closing a background call failed: ${String(error)}`)
+    })
+  })
+  toasts.background.set(toolUseId, { taskId, limit })
 }
 
 function isNamedIn(text: string, toolUseId: string, task: BackgroundTask): boolean {
@@ -97,7 +123,7 @@ export const register: Register = (on) => {
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (!isTrackerWrite({ tool: 'Bash', command: e.command })) return next(e)
+    if (!(await isOwnCommand($, e.command))) return next(e)
     const toaster = toasts.toaster ?? startToasts($, toasts)
     await toaster.enterCall()
     let result: CallResult
@@ -107,9 +133,9 @@ export const register: Register = (on) => {
       await toaster.leaveCall()
       throw error
     }
-    const background = backgroundTaskOf(e.run_in_background === true, result)
+    const background = backgroundTaskIdOf(e.run_in_background === true, result)
     if (background === null) await toaster.leaveCall()
-    else toasts.background.set(e.tool_use_id, background)
+    else keepBackgroundOpen($, toasts, e.tool_use_id, background.taskId)
     return result
   })
 
