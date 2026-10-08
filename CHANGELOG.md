@@ -6,6 +6,103 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily 0.2.0 - 2026-10-08
+
+### Added
+
+- **The handily bundle brings agent-board and simple-view, and /handily reports them.** The
+  bundle now lists seven mods. agent-board and simple-view each write their ready value when a
+  session starts, so `/handily` shows their versions and ends with
+  `handily: 7 of 7 mods loaded`. The README lists both mods and their update lines. A person
+  whose bundle came before these two mods installs each one by its name, because
+  `claude plugin update` refuses a mod that is not installed (handily-fmwpm).
+
+## agent-board 0.1.1 - 2026-10-08
+
+The first tagged release. Version 0.1.0 was on the main branch without a tag.
+
+### Added
+
+- **agent-board shows what each subagent of this session does.** A new mod with its own pane,
+  opened with `/agent-board` and closed with `/agent-board close`. Each subagent is a card: its
+  type, its state, the time since its spawn, its task, the tool that it runs now with its
+  target, and its count of tool calls. A subagent with a parent shows `under` and the parent.
+  The header reads `all N done` when every subagent ended. A loop that the engine does not
+  list, such as a fork of the engine, keeps a card marked `not listed`. The board redraws
+  every second only while its pane is the shown tab, and it passes the tool calls of the main
+  loop on unchanged (handily-cr7r).
+- **The mod tells `/handily` that it loaded.** At session start it writes a `ready` value with
+  its install folder, so the `handily` bundle can show its version and state (handily-fmwpm).
+
+## simple-view 0.1.1 - 2026-10-08
+
+The first tagged release. Version 0.1.0 was on the main branch without a tag.
+
+### Added
+
+- **simple-view draws one short row for each Bash, Edit and Write call.** A Bash row shows the
+  description, the program, `exit 0` or `exit N` with the first error line, the stdout line
+  count and the time. The result block under it has one `Updated` line per changed file with
+  its totals. A call that wrote to stderr also shows its stderr line count and first stderr
+  line. An Edit or Write row shows the path and its added and removed line totals.
+  `/simple` switches the view off and on for the session. `/simple show N` prints the input,
+  the output and the file diff of the N-th last call, from the last 50 calls with each part
+  cut at 8000 characters. The mod depends on quiet-items, and a row that quiet-items drew
+  stays as quiet-items drew it. quiet-items follows the `/simple` switch, see quiet-items 0.3.0
+  (handily-v921).
+- **simple-view unfolds a folded tool group that holds a failed call.** In the normal view
+  Claude Code folds a run of read-only calls into one line, such as
+  `Listed 1 directory, ran 1 shell command`, and that line hid a failed `ls`. While the
+  simple-view mode is on, a folded group with a failed call that no longer runs now draws
+  each call as its own row. Other groups stay folded (handily-azz23).
+- **The mod tells `/handily` that it loaded.** At session start it writes a `ready` value with
+  its install folder, so the `handily` bundle can show its version and state (handily-fmwpm).
+
+## workitems 0.3.0 - 2026-10-08
+
+### Added
+
+- **workitems reads tracker commands and tracker files for other mods.** The noun has two new
+  methods. `$.workitems.classify(command)` reads a shell command and returns `write`, `echoed`,
+  `opaque` or `none` with the tracker writes that it found. `$.workitems.trackerFile({ path,
+  root })` returns the tracker file that a path names. quiet-items and item-toasts now call
+  these methods and keep no copy of the parser, so both mods count the same calls. A
+  quiet-items or item-toasts version with this change needs a workitems version with this
+  change, because an older workitems has no `classify` (handily-w56f).
+
+### Security
+
+- **workitems checks UNC and long-path repo roots on Windows.** The check that a
+  tracker program is outside the repo root now ignores case for a UNC root such as
+  `\\server\share` and treats a `\\?\` or `\\?\UNC\` prefix as the same root. The check
+  that a tracker file is inside the root compares with case, apart from the drive letter,
+  so a case-sensitive share such as `\\wsl.localhost` cannot reach a sibling folder
+  (handily-noad).
+
+## quiet-items 0.3.0 - 2026-10-08
+
+### Changed
+
+- **quiet-items follows the simple-view mode, so `/simple` is one switch for the concise
+  view.** While the simple-view mode is off, quiet-items draws every row as Claude Code draws
+  it: the tool row, the result block and a folded group line. While simple-view is not
+  installed or its mode is on, quiet-items follows its own mode, and `/quiet-items` still
+  toggles it. While `/simple` is off, `/quiet-items` on replies that tracker writes draw in
+  full. quiet-items reads the simple-view mode without a dependency on simple-view,
+  because simple-view already depends on quiet-items (handily-eshb).
+- **quiet-items reads tracker commands through workitems.** It calls
+  `$.workitems.classify` and `$.workitems.trackerFile` and keeps no copy of the parser. It
+  needs workitems 0.3.0 or later. When that check fails, quiet-items logs the reason and draws
+  the row as Claude Code draws it (handily-w56f).
+
+## item-toasts 0.3.0 - 2026-10-08
+
+### Changed
+
+- **item-toasts reads tracker commands through workitems.** It calls
+  `$.workitems.classify` and `$.workitems.trackerFile` and keeps no copy of the parser, so it
+  counts the same calls as quiet-items. It needs workitems 0.3.0 or later (handily-w56f).
+
 ## handily 0.1.0 - 2026-10-08
 
 ### Added

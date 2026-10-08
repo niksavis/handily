@@ -10,25 +10,25 @@
     {
       "name": "agent-board",
       "source": "./mods/agent-board",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "A pane that shows what each subagent of this session does: its tool, its tool count and its time."
     },
     {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {
       "name": "item-toasts",
       "source": "./mods/item-toasts",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "description": "A toast when a work item changes outside this session, at most one every 30 s."
     },
     {
       "name": "quiet-items",
       "source": "./mods/quiet-items",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "description": "One short row in place of each tracker write in the transcript."
     },
     {
@@ -40,7 +40,7 @@
     {
       "name": "simple-view",
       "source": "./mods/simple-view",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "One short row for each Bash, Edit and Write call, with /simple to switch it and /simple show to print a call in full."
     },
     {
@@ -52,7 +52,7 @@
     {
       "name": "workitems",
       "source": "./mods/workitems",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "description": "Provider of one typed work item list over any tracker, for other handily mods."
     }
   ]

@@ -52,6 +52,7 @@ line is safe to run again.
 ```sh
 claude plugin marketplace update handily
 claude plugin install handily@handily
+claude plugin update handily@handily
 claude plugin update workitems@handily
 claude plugin update quiet-items@handily
 claude plugin update task-pane@handily
