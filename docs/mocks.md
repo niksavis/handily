@@ -44,7 +44,7 @@ in one place (workitems exports it). `ok` draws no line; the mods show their dat
 | failed (cut)      | `#Work items unavailable: basicly tracker list output was cut off.#`                                                                          |
 | failed (contract) | `#Work items unavailable: the adapter says contract 2; handily reads contract 1.#`                                                            |
 | approval-needed   | `!Work items need your approval to run python3 .basicly/core/kit/tracker/cli.py.!` + `~Asked at the next refresh in an interactive session.~` |
-| no-tracker        | `~No tracker found at the repo root (looked for basicly, beads, beans, .handily.json).~`                                                      |
+| no-tracker        | `~No tracker found at the repo root (looked for basicly, beads, beans, .handily.json, ~/.config/handily/adapters.json).~`                     |
 | terminal-only     | `~basicly is read through a CLI, which only a terminal session can run. Open this repo in a terminal to see its items.~`                      |
 | ignored sources   | `~Using beads; ignoring beans. Name one in .handily.json to change it.~` (once, under the header)                                             |
 
