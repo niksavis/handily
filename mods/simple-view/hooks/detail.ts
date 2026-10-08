@@ -1,5 +1,5 @@
-import type { SimpleViewCall } from '../types'
-import { bashChanges, contentLines, hunksOf, isRecord } from './output'
+import type { SimpleViewCall, SimpleViewDiffGap } from '../types'
+import { contentLines, diffGap, hunksOf, isRecord } from './output'
 
 export const KEPT_CALLS = 50
 export const PART_LIMIT = 8000
@@ -78,11 +78,8 @@ export type CallFacts = {
   elapsedMs: number
 }
 
-function isDiffUnreported(facts: CallFacts): boolean {
-  return facts.tool === 'Bash' && bashChanges(facts.answer.result)?.kind === 'unreported'
-}
-
 export function callRecord(facts: CallFacts): SimpleViewCall {
+  const gap = diffGap(facts.tool, facts.answer.result)
   return {
     generation: facts.generation,
     seq: facts.seq,
@@ -90,7 +87,8 @@ export function callRecord(facts: CallFacts): SimpleViewCall {
     tool: facts.tool,
     input: capped(JSON.stringify(facts.input, null, 2)),
     output: capped(outputText(facts.answer)),
-    diff: isDiffUnreported(facts) ? null : capped(diffText(facts.answer.result)),
+    diff: gap === null ? capped(diffText(facts.answer.result)) : '',
+    diffGap: gap,
     isErrored: facts.answer.deny !== undefined || facts.answer.isError === true,
     elapsedMs: facts.elapsedMs,
   }
@@ -113,9 +111,14 @@ export function elapsedText(ms: number): string {
   return `${String(Math.floor(seconds / 60))}m ${String(seconds % 60).padStart(2, '0')}s`
 }
 
-function diffHeading(diff: string | null): string {
-  if (diff === null) return 'File diff: not reported by the engine.'
-  return diff === '' ? 'File diff: none.' : 'File diff:'
+const GAP_HEADINGS: Readonly<Record<SimpleViewDiffGap, string>> = {
+  unreported: 'File diff: not reported by the engine.',
+  untracked: 'File diff: not tracked by the engine.',
+}
+
+function diffHeading(call: SimpleViewCall): string {
+  if (call.diffGap !== null) return GAP_HEADINGS[call.diffGap]
+  return call.diff === '' ? 'File diff: none.' : 'File diff:'
 }
 
 export function showText(call: SimpleViewCall, back: number, kept: number): string {
@@ -126,7 +129,7 @@ export function showText(call: SimpleViewCall, back: number, kept: number): stri
     fenced('json', call.input),
     'Output:',
     fenced('text', call.output),
-    diffHeading(call.diff),
-    ...(call.diff === null || call.diff === '' ? [] : [fenced('diff', call.diff)]),
+    diffHeading(call),
+    ...(call.diff === '' ? [] : [fenced('diff', call.diff)]),
   ].join('\n\n')
 }

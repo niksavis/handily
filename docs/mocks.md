@@ -703,7 +703,9 @@ After:
   a segment that follows (`sleep 4 …`).
 - The result block holds one line per changed file (`Updated`, `Created` or `Deleted`, with the
   totals), `~and N more changed files~` for files without a diff, or
-  `~File changes were not tracked for this call~`. With no changed file, it is drawn empty.
+  `~File changes were not tracked for this call~`. With no changed file, it is drawn empty. It is
+  also drawn empty when the engine sent no `bashEditDiff`, because then the mod cannot tell
+  whether the call changed a file.
 - After `exit N`, and under an `Edit` or `Write` row, the result block is drawn empty.
 - `Write /elsewhere/big.json` with no totals: the engine gave no diff, so the mod shows the path
   only.
@@ -772,6 +774,11 @@ The error line shrinks first, then the description. The program, the state and t
                     +b1
                     +b2
                      c
+/simple show 3   -> Call 3 of the last 8 (1 is the last): Bash, answered, 0.3s
+                    …
+                    File diff: none.                                (tracked, no changed file)
+                    File diff: not tracked by the engine.           (unavailable or skipped)
+                    File diff: not reported by the engine.          (no bashEditDiff, or exit N)
 /simple show 9   -> No call 9 is kept. /simple show takes a call number from 1 to 8, where 1 is
                     the last tool call.
 /simple show     -> /simple show takes a call number from 1 to 8, where 1 is the last tool call.

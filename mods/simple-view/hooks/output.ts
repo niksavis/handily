@@ -1,3 +1,5 @@
+import type { SimpleViewDiffGap } from '../types'
+
 const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
 
 export type Totals = { added: number; removed: number }
@@ -125,6 +127,13 @@ export function bashChanges(output: unknown): BashChanges | null {
   const files = diff.files.map(fileChange)
   if (!files.every((file) => file !== null)) return null
   return { kind: 'tracked', files, moreFiles: diff.moreFiles }
+}
+
+export function diffGap(tool: string, output: unknown): SimpleViewDiffGap | null {
+  if (tool !== 'Bash') return null
+  const changes = bashChanges(output)
+  if (changes === null) return 'unreported'
+  return changes.kind === 'tracked' ? null : changes.kind
 }
 
 function writeTotals(output: Record<string, unknown>, hunks: readonly Hunk[]): Totals | null {

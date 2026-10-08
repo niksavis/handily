@@ -6,6 +6,8 @@ export type SimpleViewTiming = {
   isRunning: boolean
 }
 
+export type SimpleViewDiffGap = 'unreported' | 'untracked'
+
 export type SimpleViewCall = {
   generation: number
   seq: number
@@ -13,7 +15,8 @@ export type SimpleViewCall = {
   tool: string
   input: string
   output: string
-  diff: string | null
+  diff: string
+  diffGap: SimpleViewDiffGap | null
   isErrored: boolean
   elapsedMs: number
 }

@@ -49,11 +49,16 @@ three:
 - The result block names each changed file as `Updated`, `Created` or `Deleted`, with
   `(+added -removed)`. Files that the engine counts but does not list show as
   `and N more changed files`. When the engine reports that it could not track the changes, the
-  block says `File changes were not tracked for this call`.
-- A missing `Updated` line proves that the call changed no file only when Bash edit tracking
-  was on for that call. With tracking off, the engine sends no diff, also for a call that wrote
-  a file. The block is then empty, and `/simple show N` prints
-  `File diff: not reported by the engine.`
+  block says `File changes were not tracked for this call`, and `/simple show N` prints
+  `File diff: not tracked by the engine.`
+- A missing `Updated` line proves that the call changed no file only for a call without an
+  error, and only when Bash edit tracking was on for that call. With tracking off, the engine
+  sends no diff, also for a call that wrote a file. The block is then empty, and
+  `/simple show N` prints `File diff: not reported by the engine.`
+- After `exit N`, the engine sends no diff, but the command can still have changed a file.
+  `/simple show N` then prints `File diff: not reported by the engine.`
+- `/simple show N` prints `File diff: none.` for a `Bash` call only when the engine tracked the
+  call and listed no changed file.
 - The `bashEditDiffEnabled` setting turns Bash edit tracking on or off. The
   `CLAUDE_CODE_BASH_EDIT_DIFF` environment variable wins over the setting. Without either, the
   engine decides, and the mod cannot read that decision.

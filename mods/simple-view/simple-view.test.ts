@@ -745,8 +745,35 @@ describe('/simple show', () => {
     const last = await commandText($, 'show 1')
     expect(last).toContain('Call 1 of the last 3 (1 is the last): Bash, errored, 0.0s')
     expect(last).toContain('Error: Exit code 1\nnope')
-    expect(last).toContain('File diff: none.')
+    expect(last).toContain('File diff: not reported by the engine.')
+    expect(last).not.toContain('File diff: none.')
     expect(await commandText($, 'show 3')).toContain('"command": "echo first"')
+  })
+
+  viewTest('says the engine reported no file diff for an errored Bash call', async (world, $) => {
+    world.answer = () => failed('Error: Exit code 1\n')
+    await runBash(world, $, { command: 'echo x > f; false', description: 'Write then fail' })
+    const shown = await commandText($, 'show 1')
+    expect(shown).toContain('File diff: not reported by the engine.')
+    expect(shown).not.toContain('File diff: none.')
+  })
+
+  for (const flag of ['unavailable', 'skipped'] as const) {
+    viewTest(`says the engine did not track the file diff when it is ${flag}`, async (world, $) => {
+      world.answer = () => answered('', { bashEditDiff: { files: [], moreFiles: 0, [flag]: true } })
+      await runBash(world, $, { command: 'make', description: 'Build' })
+      const shown = await commandText($, 'show 1')
+      expect(shown).toContain('File diff: not tracked by the engine.')
+      expect(shown).not.toContain('File diff: none.')
+    })
+  }
+
+  viewTest('says the engine reported no file diff when the diff is malformed', async (world, $) => {
+    world.answer = () => answered('done\n', { bashEditDiff: { files: 'src/app.ts' } })
+    await runBash(world, $, { command: 'make', description: 'Build' })
+    const shown = await commandText($, 'show 1')
+    expect(shown).toContain('File diff: not reported by the engine.')
+    expect(shown).not.toContain('File diff: none.')
   })
 
   viewTest(
