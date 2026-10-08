@@ -11,3 +11,4 @@ __pycache__/
 node_modules/
 # Type files that Claude Code writes into each mod at load time; they belong to the installed Claude Code build.
 .claude-plugin/types/
+.basicly/ledger/.events.lock
