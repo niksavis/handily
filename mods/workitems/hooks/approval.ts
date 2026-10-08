@@ -1,5 +1,5 @@
 import type { AskOptions, FsEntry } from 'claude-code'
-import { argumentProblem, FileProblem, isInside } from './config'
+import { argumentProblem, FileProblem, mayBeInside } from './config'
 import type { TrackerFiles } from './readers/index'
 
 export const APPROVE = 'Allow for this repo'
@@ -112,7 +112,7 @@ export async function programOutsideRoot(
   }
   const rootReal = await files.realPath('.')
   if (rootReal === undefined) throw new FileProblem('the repo root could not be read.')
-  if (isInside(rootReal, argv0)) {
+  if (mayBeInside(rootReal, argv0)) {
     throw new FileProblem(`${program} resolves inside the repo root, so it could not be read.`)
   }
   refuseUnsafeArguments([argv0])

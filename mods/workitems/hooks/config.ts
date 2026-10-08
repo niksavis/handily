@@ -176,20 +176,40 @@ function joined(directory: string, name: string): string {
   return directory === '' ? name : `${directory}/${name}`
 }
 
-const WINDOWS_DRIVE = /^[A-Za-z]:/
+const WINDOWS_ROOT = /^(?:[A-Za-z]:|\\\\)/
+const LONG_PATH_UNC_PREFIX = /^\\\\\?\\UNC\\/i
+const LONG_PATH_PREFIX = /^\\\\\?\\/
 
-function comparable(path: string, isWindows: boolean): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  return isWindows ? trimmed.replaceAll('\\', '/').toLowerCase() : trimmed
+function withoutLongPathPrefix(path: string): string {
+  return path.replace(LONG_PATH_UNC_PREFIX, '\\\\').replace(LONG_PATH_PREFIX, '')
+}
+
+const LOWER_DRIVE = /^[a-z]:/
+
+function comparable(path: string, isCaseBlind: boolean): string {
+  const separated = withoutLongPathPrefix(path.replace(/[\\/]+$/, '')).replaceAll('\\', '/')
+  if (isCaseBlind) return separated.toLowerCase()
+  return separated.replace(LOWER_DRIVE, (drive) => drive.toUpperCase())
+}
+
+function startsAtRoot(rootReal: string, real: string, isCaseBlind: boolean): boolean {
+  if (!WINDOWS_ROOT.test(rootReal)) {
+    const base = rootReal.replace(/[\\/]+$/, '')
+    return (
+      real === base || real.startsWith(`${base}/`) || (isCaseBlind && real.startsWith(`${base}\\`))
+    )
+  }
+  const base = comparable(rootReal, isCaseBlind)
+  const path = comparable(real, isCaseBlind)
+  return path === base || path.startsWith(`${base}/`)
 }
 
 export function isInside(rootReal: string, real: string): boolean {
-  const isWindows = WINDOWS_DRIVE.test(rootReal)
-  const base = comparable(rootReal, isWindows)
-  const path = isWindows ? comparable(real, true) : real
-  return (
-    path === base || path.startsWith(`${base}/`) || (!isWindows && path.startsWith(`${base}\\`))
-  )
+  return startsAtRoot(rootReal, real, false)
+}
+
+export function mayBeInside(rootReal: string, real: string): boolean {
+  return startsAtRoot(rootReal, real, true)
 }
 
 function segmentPattern(segment: string): RegExp {

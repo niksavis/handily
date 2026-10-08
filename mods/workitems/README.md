@@ -217,8 +217,10 @@ adapter needs no approval, because you typed its command yourself.
   names the kit folder.
 - The mod refuses a `basicly` whose real path is inside the repo root, or whose real path the
   engine does not give. Program lookup skips a relative or empty `PATH` entry, such as `.`.
-- On Windows the mod compares a path with a drive-letter repo root (such as `C:\repo`)
-  without regard to case. A UNC root (such as `\\server\share`) is still compared with case.
+- On Windows the check that a program is outside the repo root ignores case, for a
+  drive-letter root (such as `C:\repo`) and a UNC root (such as `\\server\share`). The check
+  that a tracker file is inside the root compares with case, apart from the drive letter. A
+  long-path prefix (`\\?\` or `\\?\UNC\`) names the same root as the path without it.
 - Only the answer `Allow for this repo` stores an approval. After `Not now`, Enter, text typed
   under `Other`, or when you close the dialog, the mod stores nothing and the state is
   `approval-needed`. The mod asks again at the next session start.

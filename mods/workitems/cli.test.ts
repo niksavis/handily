@@ -10,7 +10,7 @@ import {
 } from 'claude-code/testing'
 import { LIST_BLOCKED, LIST_IN_PROGRESS, LIST_OPEN } from './fixtures/basicly/tracker-list'
 import { resolveProgram, sha256Hex } from './hooks/approval'
-import { isInside } from './hooks/config'
+import { isInside, mayBeInside } from './hooks/config'
 import { advanceUntil, settleUntil } from './testing'
 import type {
   WorkitemsLine,
@@ -643,12 +643,38 @@ describe('program lookup', () => {
     },
   )
 
-  test('a POSIX root compares by case, a Windows root without case', () => {
+  test('the program check compares a POSIX root by case, a Windows root without case', () => {
+    expect(mayBeInside('/work/app', '/work/app/tools/run')).toBe(true)
+    expect(mayBeInside('/work/app', '/work/APP/tools/run')).toBe(false)
+    expect(mayBeInside('/work/app', '/work/app\\tools/run')).toBe(true)
+    expect(mayBeInside('C:\\Work\\App', 'c:\\work\\app\\tools\\run')).toBe(true)
+    expect(mayBeInside('C:\\Work\\App', 'C:/WORK/APP/tools/run')).toBe(true)
+    expect(mayBeInside('C:\\Work\\App', 'C:\\Work\\Apple\\run')).toBe(false)
+  })
+
+  test('the program check compares a UNC or long-path root without case as the same root', () => {
+    expect(mayBeInside('\\\\srv\\share\\Repo', '\\\\srv\\share\\repo\\x')).toBe(true)
+    expect(mayBeInside('\\\\srv\\share\\Repo', '//SRV/share/REPO/x')).toBe(true)
+    expect(mayBeInside('\\\\srv\\share\\Repo', '\\\\srv\\share\\Repo2\\x')).toBe(false)
+    expect(mayBeInside('\\\\?\\C:\\Work\\App', 'c:\\work\\app\\run')).toBe(true)
+    expect(mayBeInside('C:\\Work\\App', '\\\\?\\C:\\WORK\\App\\run')).toBe(true)
+    expect(mayBeInside('\\\\?\\UNC\\srv\\share\\Repo', '\\\\SRV\\share\\repo\\x')).toBe(true)
+    expect(mayBeInside('\\\\srv\\share\\Repo', '\\\\?\\unc\\srv\\share\\REPO\\x')).toBe(true)
+    expect(mayBeInside('\\\\?\\C:\\Work\\App', 'C:\\Work\\Apple\\run')).toBe(false)
+  })
+
+  test('file confinement compares every root by case', () => {
     expect(isInside('/work/app', '/work/app/tools/run')).toBe(true)
     expect(isInside('/work/app', '/work/APP/tools/run')).toBe(false)
-    expect(isInside('C:\\Work\\App', 'c:\\work\\app\\tools\\run')).toBe(true)
-    expect(isInside('C:\\Work\\App', 'C:/WORK/APP/tools/run')).toBe(true)
+    expect(isInside('/work/app', '/work/app\\evil/secret')).toBe(false)
+    expect(isInside('/work/app', '/work/app2/run')).toBe(false)
+    expect(isInside('C:\\Work\\App', 'C:/Work/App/tools/run')).toBe(true)
+    expect(isInside('c:\\Work\\App', 'C:\\Work\\App\\run')).toBe(true)
+    expect(isInside('C:\\Work\\App', 'C:\\Work\\app\\run')).toBe(false)
     expect(isInside('C:\\Work\\App', 'C:\\Work\\Apple\\run')).toBe(false)
+    expect(isInside('\\\\?\\C:\\Work\\App', 'C:\\Work\\App\\run')).toBe(true)
+    expect(isInside('\\\\srv\\share\\repo', '\\\\srv\\share\\Repo\\secret')).toBe(false)
+    expect(isInside('\\\\?\\UNC\\srv\\share\\repo', '\\\\srv\\share\\repo\\x')).toBe(true)
   })
 
   test('probes no relative, drive-relative or empty PATH entry', async () => {
