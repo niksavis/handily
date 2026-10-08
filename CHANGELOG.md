@@ -6,6 +6,19 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## workitems 0.4.0 - 2026-10-08
+
+### Changed
+
+- **workitems asks once for a basicly repo and keeps the answer.** basicly 0.21.1 and later
+  run only the installed package for `tracker list`, not the repo code in
+  `.basicly/core/kit/tracker`. So after you answer `Allow for this repo`, the approved program
+  reports its version, and on 0.21.1 or later a change of the kit files or a basicly upgrade no
+  longer asks again. An older basicly, or a version that does not parse, still asks again when
+  a kit file changes. A changed basicly program path always asks again. No basicly command, not
+  even `--version`, runs before you approve the repo. An approval from an earlier version stays
+  valid. The question names both cases (handily-szdh).
+
 ## simple-view 0.1.2 - 2026-10-08
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "workitems",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Provider of one typed work item list over any tracker, for other handily mods.",
   "author": {
     "name": "niksavis"
