@@ -12,8 +12,10 @@ import {
   priorityText,
   quoted,
   removeTask,
+  TRACKER_TEXT_IS_DATA,
   taskForItem,
-  trackerNotice,
+  taskText,
+  withTrackerNotice,
   type WorkItem,
 } from './tasks'
 
@@ -127,8 +129,14 @@ async function lookupItem(host: TaskHost, id: string): Promise<ItemLookup> {
 
 function changedTask(task: TaskPaneTask): string {
   const number = String(task.id)
-  if (task.by !== 'tracker') return `task ${number}: ${task.title}.`
-  return `task ${number} from tracker item ${quoted(task.item)}, titled ${quoted(task.title)}.`
+  switch (task.by) {
+    case 'person':
+      return `task ${number} by the person: ${task.title}.`
+    case 'model':
+      return `task ${number} by claude, titled ${quoted(task.title)}.`
+    case 'tracker':
+      return `task ${number} from tracker item ${quoted(task.item)}, titled ${quoted(task.title)}.`
+  }
 }
 
 async function tellModel(
@@ -139,11 +147,10 @@ async function tellModel(
 ): Promise<string | undefined> {
   const change = tasks.map((task) => `it ${verb} ${changedTask(task)}`).join(' ')
   const current = list.tasks.length === 0 ? 'The list is now empty.' : listText(list)
-  const text = [
-    `[task-pane] The person changed the session task list: ${change}`,
-    current,
-    ...trackerNotice([...tasks, ...list.tasks]),
-  ].join('\n\n')
+  const text = withTrackerNotice(
+    `[task-pane] The person changed the session task list: ${change}\n\n${current}`,
+    [...tasks, ...list.tasks],
+  )
   return host.note(text)
 }
 
@@ -169,6 +176,10 @@ export async function addItemsAsTasks(
     const existing: TaskPaneTask[] = []
     let refusal: string | undefined
     for (const item of items) {
+      if (!looksLikeItemId(item.id)) {
+        refusal = `${quoted(item.id)} is no tracker item id`
+        continue
+      }
       const known = taskForItem(list, item.id)
       if (known) {
         existing.push(known)
@@ -210,11 +221,15 @@ async function addText(host: TaskHost, text: string, notice: string): Promise<st
 async function addItem(host: TaskHost, id: string, item: WorkItem): Promise<string> {
   const { added, existing, refusal, noteRefusal } = await addItemsAsTasks(host, [item])
   const known = existing[0]
-  if (known) return `${id} is already task ${String(known.id)}: ${known.title}. Nothing changed.`
+  if (known) {
+    const already = `${id} is already task ${String(known.id)}: ${taskText(known)}. Nothing changed.`
+    return withTrackerNotice(already, [known])
+  }
   const task = added[0]
   if (!task) return `Not added: ${refusal ?? `${id} added no task`}`
-  const lead = `Added task ${String(task.id)} from ${id}: ${task.title}`
-  return noteRefusal === undefined ? `${lead}.` : `${lead}${toldSuffix(noteRefusal)}`
+  const lead = `Added task ${String(task.id)}: ${taskText(task)}`
+  const reply = noteRefusal === undefined ? `${lead}.` : `${lead}${toldSuffix(noteRefusal)}`
+  return withTrackerNotice(reply, [task])
 }
 
 export async function personAdd(host: TaskHost, input: string): Promise<string> {
@@ -261,11 +276,12 @@ export async function personRemove(host: TaskHost, text: string): Promise<string
   if (!outcome.task) return missingTaskReply(text, outcome.list)
   const { task, list } = outcome
   const noteRefusal = await tellModel(host, 'removed', [task], list)
-  return `Removed task ${String(task.id)}: ${task.title}${toldSuffix(noteRefusal)}`
+  const reply = `Removed task ${String(task.id)}: ${taskText(task)}${toldSuffix(noteRefusal)}`
+  return withTrackerNotice(reply, [task])
 }
 
 function itemRow(item: WorkItem): string {
-  return `  ${item.id}  ${priorityText(item)}  ${item.title}`
+  return `  ${quoted(item.id)}  ${priorityText(item)}  ${quoted(item.title)}`
 }
 
 export async function emptyListReply(host: TaskHost): Promise<string> {
@@ -278,16 +294,17 @@ export async function emptyListReply(host: TaskHost): Promise<string> {
     view.openCount > view.items.length
       ? [`  and ${String(view.openCount - view.items.length)} more`]
       : []
-  return [
+  const rows = [
     `${lead} Open in the tracker (${view.label}, ${String(view.openCount)}):`,
     ...view.items.map(itemRow),
     ...more,
     `Add one with /task add <id>, or press "Add ${shown} as tasks" in /task pane.`,
-  ].join('\n')
+  ]
+  return [rows.join('\n'), TRACKER_TEXT_IS_DATA].join('\n\n')
 }
 
 export async function listReply(host: TaskHost): Promise<string> {
   const list = await readList(host)
   if (list.tasks.length === 0) return emptyListReply(host)
-  return listText(list)
+  return withTrackerNotice(listText(list), list.tasks)
 }

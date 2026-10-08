@@ -24,7 +24,7 @@ import {
   numbersText,
   removeTask,
   setStatus,
-  trackerNotice,
+  withTrackerNotice,
 } from './tasks'
 
 const TOOL_ADD = 'mcp__task-pane__task_add'
@@ -135,8 +135,7 @@ function uiOf($: EngineInterface): PaneUi {
 async function listResult(host: TaskHost, lead: string): Promise<string> {
   const list = await readList(host)
   const shown = list.tasks.length === 0 ? 'The task list is empty.' : listText(list)
-  const parts = lead === '' ? [shown] : [lead, shown]
-  return [...parts, ...trackerNotice(list.tasks)].join('\n\n')
+  return withTrackerNotice(lead === '' ? shown : `${lead}\n\n${shown}`, list.tasks)
 }
 
 async function modelAdd(host: TaskHost, title: unknown) {

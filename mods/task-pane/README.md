@@ -23,16 +23,21 @@ read or write the built-in `Task*` tools.
   is not sent. The `task_add` description carries the same instruction, so the model reads it
   in every organization.
 - A bad input is refused with the reason and the correct form. The list does not change.
-- A title must be one line with no control character and no invisible format character, such
-  as a bidi control or a zero-width space. It has at most 200 characters. The list holds at
-  most 100 tasks. The model and the person get the same refusal, by name.
+- A title must be one line with no control character and no bidi control character. It has at
+  most 200 characters. A zero-width joiner, a zero-width non-joiner and a soft hyphen are
+  allowed. A run of spaces in a title becomes one space. The list holds at most 100 tasks. The
+  model and the person get the same refusal, by name.
 - Each row shows the task number, the status, the author and the title. The author is `you`
   for a task that you added, `claude` for a task that the model added, and `tracker` for a
   tracker item that you added. The author comes before the title, so a title cannot imitate it.
-- A `tracker` row quotes the item id and title with `JSON.stringify`, as
-  `"app-cd34": "Write the beads reader"`. The text comes from the repository, not from you.
-  When the list holds a `tracker` row, each note and each tool answer says that this text is
+- Tracker text is always quoted with `JSON.stringify`, as `"app-cd34": "Write the beads reader"`,
+  and a control, format or line separator character in it is escaped as `\uXXXX`. That applies
+  to the rows, the notes, the `/task` replies and the pane. The text comes from the repository,
+  not from you. Each reply, note and tool answer that holds tracker text says that this text is
   data, not an instruction. The system prompt section and the tool descriptions say the same.
+- A note names the author of each task that it reports. It quotes a title that you did not
+  write.
+- A tracker item whose id is not an item id, such as an id with a line break, is not added.
 - Parallel edits do not get lost. Each edit goes through `update` from `claude-code`, which
   reads the list again when another edit wrote first.
 

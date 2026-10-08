@@ -59,9 +59,11 @@ function codePoints(text: string): number[] {
   return codes
 }
 
-const FORMAT_CHARACTER = /\p{Cf}/u
+const BIDI_CONTROL = /\p{Bidi_Control}/u
 
-const FORMAT_CHARACTERS = /\p{Cf}/gu
+const UNSAFE_IN_QUOTES = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
+
+const WHITESPACE_RUN = /\s+/gu
 
 export type Added = { list: TaskPaneList; task: TaskPaneTask }
 
@@ -72,8 +74,8 @@ export function titleRefusal(title: string): string | undefined {
   if (codes.some(isControlCode)) {
     return 'the title has a line break or a control character. Write it on one line.'
   }
-  if (FORMAT_CHARACTER.test(title)) {
-    return 'the title has an invisible format character, such as a bidi control or a zero-width space. Remove it.'
+  if (BIDI_CONTROL.test(title)) {
+    return 'the title has a bidi control character, which can reorder the text. Remove it.'
   }
   const length = codes.length
   if (length > MAX_TITLE_LENGTH) {
@@ -105,7 +107,7 @@ function escapedUnits(text: string): string {
 }
 
 export function quoted(text: string): string {
-  return JSON.stringify(text).replace(FORMAT_CHARACTERS, escapedUnits)
+  return JSON.stringify(text).replace(UNSAFE_IN_QUOTES, escapedUnits)
 }
 
 export function taskText(task: TaskPaneTask): string {
@@ -113,8 +115,12 @@ export function taskText(task: TaskPaneTask): string {
   return `${quoted(task.item)}: ${quoted(task.title)}`
 }
 
-export function trackerNotice(tasks: readonly TaskPaneTask[]): string[] {
+function trackerNotice(tasks: readonly TaskPaneTask[]): string[] {
   return tasks.some((task) => task.by === 'tracker') ? [TRACKER_TEXT_IS_DATA] : []
+}
+
+export function withTrackerNotice(text: string, tasks: readonly TaskPaneTask[]): string {
+  return [text, ...trackerNotice(tasks)].join('\n\n')
 }
 
 export function addTask(
@@ -127,7 +133,12 @@ export function addTask(
   if (list.tasks.length >= MAX_TASKS) {
     return { refusal: `the list is full at ${String(MAX_TASKS)} tasks. Remove one first.` }
   }
-  const task: TaskPaneTask = { id: list.nextId, title, status: 'pending', ...source }
+  const task: TaskPaneTask = {
+    id: list.nextId,
+    title: title.replace(WHITESPACE_RUN, ' '),
+    status: 'pending',
+    ...source,
+  }
   return { list: { tasks: [...list.tasks, task], nextId: list.nextId + 1 }, task }
 }
 

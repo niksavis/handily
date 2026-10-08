@@ -19,7 +19,7 @@ import {
   type TrackerLine,
   type TrackerView,
 } from './commands'
-import { authorColumn, doneCount, priorityText, taskText, type WorkItem } from './tasks'
+import { authorColumn, doneCount, priorityText, quoted, taskText, type WorkItem } from './tasks'
 
 export const PANE_ID = 'task-pane'
 const PANE_TITLE = 'Tasks'
@@ -172,9 +172,9 @@ function drawTracker(
           flexGrow: 1,
           flexShrink: 1,
           children: [
-            Text({ children: `  ${item.id} ` }),
+            Text({ children: `  ${quoted(item.id)} ` }),
             Text({ dimColor: true, children: `${priorityText(item)} ` }),
-            Text({ wrap: 'truncate-end', children: item.title }),
+            Text({ wrap: 'truncate-end', children: quoted(item.title) }),
           ],
         }),
         Button({
