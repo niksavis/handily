@@ -8,16 +8,23 @@ name: release
       - "*--v*"
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  TAG: ${{ github.ref_name }}
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ github.ref_name }}
+    permissions:
+      contents: read
+    outputs:
+      notes: ${{ steps.notes.outputs.notes }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           cache: npm
@@ -45,6 +52,7 @@ jobs:
           echo "name=${name}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
       - name: Write the release notes from CHANGELOG.md
+        id: notes
         shell: bash
         env:
           NAME: ${{ steps.tag.outputs.name }}
@@ -61,6 +69,12 @@ jobs:
             echo "::error::release: CHANGELOG.md has no section \"${heading}<YYYY-MM-DD>\" with notes; fold the changelog.d fragments of ${NAME} into it, commit, and tag again"
             exit 1
           fi
+          delimiter="release-notes-$(openssl rand -hex 16)"
+          {
+            echo "notes<<${delimiter}"
+            cat "${notes}"
+            echo "${delimiter}"
+          } >> "${GITHUB_OUTPUT}"
       - name: Check that the marketplace file is generated
         shell: bash
         run: |
@@ -82,9 +96,20 @@ jobs:
         run: npm run types
       - name: Run the gates
         run: npm run check
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Publish the GitHub release
         shell: bash
         env:
+          NOTES: ${{ needs.verify.outputs.notes }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "${TAG}" --verify-tag --title "${TAG}" --notes-file "${RUNNER_TEMP}/release-notes.md"
+        run: |
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+          printf '%s\n' "${NOTES}" > "${notes_file}"
+          gh release create "${TAG}" --verify-tag --title "${TAG}" --notes-file "${notes_file}"

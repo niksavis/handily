@@ -4,4 +4,6 @@
   marketplace file differs from `npm run marketplace`, or when `CHANGELOG.md`
   has no section `## <name> <version> - <date>`. Then it runs
   `claude plugin tag --dry-run`, `npm run check`, and publishes the release with
-  that section as the notes (handily-fwkt.7.2).
+  that section as the notes. The checks run with a read-only token that git
+  does not keep. Only the publish job can write, and it runs no repository
+  code. Each action is pinned by its commit SHA (handily-fwkt.7.2).
