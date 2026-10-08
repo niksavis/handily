@@ -508,8 +508,8 @@ one line on the notification bar when not fullscreen).
 
 A call of this session counts as a tracker write, and its change draws no toast, when:
 
-- `Bash`: the quiet-items parser finds a tracker name in the command (a write, an echoed write
-  or an opaque command). `--help` and `--dry-run` are not writes.
+- `Bash`: the workitems command parser finds a tracker name in the command (a write, an
+  echoed write or an opaque command). `--help` and `--dry-run` are not writes.
 - `Write` or `Edit`: the file is a tracker file at the `workitems` root.
 
 Limits: a change made elsewhere while such a call runs draws no toast. A script that writes

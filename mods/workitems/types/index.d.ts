@@ -114,6 +114,24 @@ export type WorkitemsWriteVerbs = {
   ]
 }
 
+export type WorkitemsTrackerCli = keyof WorkitemsWriteVerbs
+
+export type WorkitemsTrackerWrite = { tracker: WorkitemsTrackerCli; verb: string }
+
+export type WorkitemsOpaqueReason =
+  'expansion' | 'redirection' | 'syntax' | 'shape' | 'mixed' | 'hidden-status'
+
+export type WorkitemsParsedCommand =
+  | { kind: 'write'; writes: readonly WorkitemsTrackerWrite[] }
+  | { kind: 'echoed'; writes: readonly WorkitemsTrackerWrite[]; line: string }
+  | { kind: 'opaque'; reason: WorkitemsOpaqueReason; writes: readonly WorkitemsTrackerWrite[] }
+  | { kind: 'none' }
+
+export type WorkitemsTrackerFileArgs = {
+  path: string
+  root: string
+}
+
 export type WorkitemsAdapterWrites = {
   command: string
   verbs: readonly string[]
@@ -154,6 +172,8 @@ export type WorkitemsLinesArgs = {
 export type Workitems = {
   refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsRefreshResult>
   writeVerbs: () => Promise<WorkitemsWriteVerbs>
+  classify: (command: string) => Promise<WorkitemsParsedCommand>
+  trackerFile: (args: WorkitemsTrackerFileArgs) => Promise<string | null>
   lines: (args: WorkitemsLinesArgs) => Promise<readonly WorkitemsLine[]>
 }
 

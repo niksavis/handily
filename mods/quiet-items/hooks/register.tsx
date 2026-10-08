@@ -1,6 +1,5 @@
 import type { EngineInterface, PluginState, Register } from 'claude-code'
 import type { QuietItemsMode, QuietItemsRow } from '../types'
-import { hasEchoedSuccess, parseCommand, trackerFileOf } from './parse'
 import { drawEmpty, drawRows, rowsFromDiff } from './row'
 
 type Snapshot = PluginState['workitems']['snapshot']
@@ -12,6 +11,7 @@ const OFF_TEXT = 'quiet-items off for this session. Tracker commands draw in ful
 const NO_ARGUMENT_TEXT =
   '/quiet-items takes no argument; it toggles this session. Set the default with the plugin\'s "mode" setting.'
 const FULL_TAIL = 'so tracker commands draw in full.'
+const EXIT_STATUS = '$?'
 
 type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
 type RefreshResult = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
@@ -28,6 +28,11 @@ function stdoutOf(result: CallResult): string {
   const output: unknown = result.result
   if (typeof output !== 'object' || output === null || !('stdout' in output)) return ''
   return typeof output.stdout === 'string' ? output.stdout : ''
+}
+
+export function hasEchoedSuccess(line: string, stdout: string): boolean {
+  const printed = stdout.trimEnd().split(/\r?\n/).at(-1) ?? ''
+  return printed.trimEnd() === line.replaceAll(EXIT_STATUS, '0').trimEnd()
 }
 
 function shortReason(reason: string): string {
@@ -83,7 +88,7 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (e.run_in_background === true) return next(e)
-    const parsed = parseCommand(e.command, await $.workitems.writeVerbs())
+    const parsed = await $.workitems.classify(e.command)
     if (parsed.kind !== 'write' && parsed.kind !== 'echoed') return next(e)
     const { value: before } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
     if (before?.state !== 'ok') return next(e)
@@ -112,7 +117,10 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: ['Write', 'Edit'] }, async ($, e, next) => {
     const { value: snapshot } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
-    const path = snapshot === undefined ? null : trackerFileOf(e.file_path, snapshot.root)
+    const path =
+      snapshot === undefined
+        ? null
+        : await $.workitems.trackerFile({ path: e.file_path, root: snapshot.root })
     if (path === null) return next(e)
     const result = await next(e)
     if (!hasSucceeded(result)) return result

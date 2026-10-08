@@ -1,5 +1,5 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
-import { isTrackerWrite } from './match'
+import { isTrackerWrite, type ToolUse, type TrackerRules } from './match'
 import { createToaster, type ToastHost, type Toaster } from './toasts'
 
 const TICK_MS = 2000
@@ -64,11 +64,19 @@ function startToasts($: EngineInterface, toasts: Toasts): Toaster {
   return toaster
 }
 
-async function isOwnCommand($: EngineInterface, command: string): Promise<boolean> {
+function rulesOf($: EngineInterface): TrackerRules {
+  return {
+    classify: (command) => $.workitems.classify(command),
+    trackerFile: (args) => $.workitems.trackerFile(args),
+  }
+}
+
+async function isOwnCall($: EngineInterface, use: ToolUse): Promise<boolean> {
   try {
-    return isTrackerWrite({ tool: 'Bash', command, verbs: await $.workitems.writeVerbs() })
+    return await isTrackerWrite(rulesOf($), use)
   } catch (error) {
-    $.ui.log(`${NOT_OWN} the write verbs failed: ${String(error)}`)
+    const check = use.tool === 'Bash' ? 'the command check' : 'the tracker file check'
+    $.ui.log(`${NOT_OWN} ${check} failed: ${String(error)}`)
     return false
   }
 }
@@ -145,7 +153,7 @@ export const register: Register = (on) => {
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (!(await isOwnCommand($, e.command))) return next(e)
+    if (!(await isOwnCall($, { tool: 'Bash', command: e.command }))) return next(e)
     const toaster = toasts.toaster ?? startToasts($, toasts)
     const generation = toasts.generation
     await toaster.enterCall()
@@ -169,9 +177,8 @@ export const register: Register = (on) => {
       $.ui.log(`${NOT_OWN} workitems has no root yet`)
       return next(e)
     }
-    if (!isTrackerWrite({ tool: e.tool, filePath: e.file_path, root: snapshot.root })) {
-      return next(e)
-    }
+    const use: ToolUse = { tool: e.tool, filePath: e.file_path, root: snapshot.root }
+    if (!(await isOwnCall($, use))) return next(e)
     const toaster = toasts.toaster ?? startToasts($, toasts)
     await toaster.enterCall()
     try {

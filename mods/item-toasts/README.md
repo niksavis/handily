@@ -37,20 +37,19 @@ to the end of the last call. A change made elsewhere in that time draws no toast
 tracker writes. Every other call runs as if the mod were not there, so a change made elsewhere
 while it runs draws a toast.
 
-| Tool            | Counts when                                                                                       |
-| --------------- | ------------------------------------------------------------------------------------------------- |
-| `Bash`          | `parseCommand` finds a tracker name: a write, an echoed write or an opaque command such as a loop |
-| `Write`, `Edit` | `trackerFileOf` names a tracker file at the `workitems` root                                      |
+| Tool            | Counts when                                                                                               |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
+| `Bash`          | `$.workitems.classify` finds a tracker name: a write, an echoed write or an opaque command such as a loop |
+| `Write`, `Edit` | `$.workitems.trackerFile` names a tracker file at the `workitems` root                                    |
 
 - `--help`, `-h` and `--dry-run` make a command a non-write, so it does not count.
 - When the mod cannot decide, it does not count the call, and it logs why. This happens when
-  `$.workitems.writeVerbs()` fails for a `Bash` call, and when `workitems` has no snapshot
-  root yet for a `Write` or `Edit` call. A missed change made elsewhere is worse than a toast
+  `$.workitems.classify` fails for a `Bash` call, when `$.workitems.trackerFile` fails for a
+  `Write` or `Edit` call, and when `workitems` has no snapshot root yet for a `Write` or `Edit`
+  call. A missed change made elsewhere is worse than a toast
   for this session's own change.
-- `hooks/parse.ts` is a byte-identical copy of `mods/quiet-items/hooks/parse.ts`, and
-  `fixtures/commands.ts` of `mods/quiet-items/fixtures/commands.ts`, because a mod cannot
-  import another mod's code. `npm run lint` fails when a copy differs, and names the first
-  line that differs. The parity tests classify the shared command list with this copy.
+- `quiet-items` uses the same two rules of `workitems`, so both mods count the same calls.
+  The command cases and their tests are in `mods/workitems`.
 
 Known limits:
 

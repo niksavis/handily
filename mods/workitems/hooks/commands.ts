@@ -1,19 +1,12 @@
-import type { EngineInterface } from 'claude-code'
-
-export type WriteVerbs = Awaited<ReturnType<EngineInterface['workitems']['writeVerbs']>>
-
-export type TrackerCli = keyof WriteVerbs
-
-export type TrackerWrite = { tracker: TrackerCli; verb: string }
-
-export type OpaqueReason =
-  'expansion' | 'redirection' | 'syntax' | 'shape' | 'mixed' | 'hidden-status'
-
-export type ParsedCommand =
-  | { kind: 'write'; writes: readonly TrackerWrite[] }
-  | { kind: 'echoed'; writes: readonly TrackerWrite[]; line: string }
-  | { kind: 'opaque'; reason: OpaqueReason; writes: readonly TrackerWrite[] }
-  | { kind: 'none' }
+import type {
+  WorkitemsOpaqueReason as OpaqueReason,
+  WorkitemsParsedCommand as ParsedCommand,
+  WorkitemsTrackerCli as TrackerCli,
+  WorkitemsTrackerFileArgs,
+  WorkitemsTrackerWrite as TrackerWrite,
+  WorkitemsWriteVerbs as WriteVerbs,
+} from '../types'
+import { writeVerbs } from './readers/index'
 
 const KIT_SCRIPT = '.basicly/core/kit/tracker/cli.py'
 const KIT: TrackerCli = '.basicly/core/kit/tracker/cli.py'
@@ -111,11 +104,6 @@ function statusEchoOf({ words, separator }: Segment): StatusEcho | null {
   if (first !== 'echo' || !STATUS_ECHO_SEPARATORS.has(separator)) return null
   if (args.some((word) => word.startsWith('-'))) return null
   return { line: args.join(' '), isAfterAnd: separator === WRITE_CHAIN }
-}
-
-export function hasEchoedSuccess(line: string, stdout: string): boolean {
-  const printed = stdout.trimEnd().split(/\r?\n/).at(-1) ?? ''
-  return printed.trimEnd() === line.replaceAll(EXIT_STATUS, '0').trimEnd()
 }
 
 function slashed(path: string): string {
@@ -238,7 +226,7 @@ function parseSegments(segments: readonly Segment[], table: WriteVerbs): ParsedC
   return { kind: 'opaque', reason: 'hidden-status', writes }
 }
 
-export function parseCommand(command: string, table: WriteVerbs): ParsedCommand {
+function parseCommand(command: string, table: WriteVerbs): ParsedCommand {
   const names = () => command.split(NOT_A_NAME_CHAR)
   if (command.length > MAX_COMMAND_LENGTH) {
     if (!names().some(isTrackerProgram)) return { kind: 'none' }
@@ -251,6 +239,10 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
   return { kind: 'opaque', reason: shape.reason, writes: looseWritesOf(words, table) }
 }
 
+export function classify(command: string): ParsedCommand {
+  return parseCommand(command, writeVerbs)
+}
+
 const TRACKER_FILES: readonly RegExp[] = [
   /^\.beads\/issues\.jsonl$/,
   /^\.basicly\/ledger\/(?:events|pending)-[^/]+\.jsonl$/,
@@ -258,7 +250,7 @@ const TRACKER_FILES: readonly RegExp[] = [
   /^\.beans\/(?:[^/]+\/)*[^/]+--[^/]+\.md$/,
 ]
 
-export function trackerFileOf(filePath: string, root: string): string | null {
+export function trackerFileOf({ path: filePath, root }: WorkitemsTrackerFileArgs): string | null {
   const path = slashed(filePath)
   const prefix = `${slashed(root).replace(/\/+$/, '')}/`
   if (!path.startsWith(prefix)) return null

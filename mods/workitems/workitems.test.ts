@@ -15,7 +15,9 @@ import type {
   WorkitemsRefreshResult,
   WorkitemsItem,
   WorkitemsLine,
+  WorkitemsParsedCommand,
   WorkitemsSnapshot,
+  WorkitemsTrackerFileArgs,
   WorkitemsWriteVerbs,
 } from './types'
 
@@ -125,6 +127,13 @@ const consumer: Plugin = {
       }
       if (e.command === 'write-verbs') {
         return { text: JSON.stringify(await $.workitems.writeVerbs()) }
+      }
+      if (e.command === 'classify') {
+        return { text: JSON.stringify(await $.workitems.classify(e.args)) }
+      }
+      if (e.command === 'tracker-file') {
+        const args = JSON.parse(e.args) as WorkitemsTrackerFileArgs
+        return { text: JSON.stringify(await $.workitems.trackerFile(args)) }
       }
       return next(e)
     })
@@ -462,6 +471,60 @@ describe('contract', () => {
     expect(verbs['.basicly/core/kit/tracker/cli.py'].length).toBe(16)
     expect(verbs.br).toContain('comments add')
   })
+
+  test(
+    'classify reads a command with the write verbs of each tracker CLI',
+    { plugins: [consumer] },
+    async ($, on) => {
+      mock.clock(on)
+      const classified = async (command: string) =>
+        JSON.parse(await commandText($, 'classify', command)) as WorkitemsParsedCommand
+      expect(await classified('br close a && bd comments add a hi')).toEqual({
+        kind: 'write',
+        writes: [
+          { tracker: 'br', verb: 'close' },
+          { tracker: 'br', verb: 'comments add' },
+        ],
+      })
+      expect(await classified('python3 .basicly/core/kit/tracker/cli.py claim a')).toEqual({
+        kind: 'write',
+        writes: [{ tracker: '.basicly/core/kit/tracker/cli.py', verb: 'claim' }],
+      })
+      expect(await classified('basicly tracker gate report a')).toEqual({
+        kind: 'write',
+        writes: [{ tracker: 'basicly tracker', verb: 'gate report' }],
+      })
+      expect(await classified('br close a; echo "exit=$?"')).toEqual({
+        kind: 'echoed',
+        writes: [{ tracker: 'br', verb: 'close' }],
+        line: 'exit=$?',
+      })
+      expect(await classified('br close $(cat ids.txt)')).toEqual({
+        kind: 'opaque',
+        reason: 'expansion',
+        writes: [{ tracker: 'br', verb: 'close' }],
+      })
+      expect(await classified('br list')).toEqual({ kind: 'none' })
+      expect(await classified('npm test')).toEqual({ kind: 'none' })
+    },
+  )
+
+  test(
+    'trackerFile names a tracker file under the root and nothing else',
+    { plugins: [consumer] },
+    async ($, on) => {
+      mock.clock(on)
+      const named = async (path: string) => {
+        const args = JSON.stringify({ path: `${ROOT}/${path}`, root: ROOT })
+        return JSON.parse(await commandText($, 'tracker-file', args)) as string | null
+      }
+      expect(await named('.beads/issues.jsonl')).toBe('.beads/issues.jsonl')
+      expect(await named('.basicly/ledger/events-a.jsonl')).toBe('.basicly/ledger/events-a.jsonl')
+      expect(await named('.beans/app-1--title.md')).toBe('.beans/app-1--title.md')
+      expect(await named('.beads/config.yaml')).toBeNull()
+      expect(await named('src/x.ts')).toBeNull()
+    },
+  )
 })
 
 describe('refresh since a version', () => {

@@ -234,12 +234,14 @@ adapter needs no approval, because you typed its command yourself.
 The contract is `types/index.d.ts`. A dependent mod lists `workitems` under `dependencies` in
 its `plugin.json`, and the engine lays the contract into that mod's types folder.
 
-| Part                                                    | Use                                                                          |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `$.state.get({ plugin: 'workitems', key: 'snapshot' })` | The last snapshot. A render that reads it draws again on a change            |
-| `$.workitems.refresh({ since })`                        | Reads again. Returns the created, updated and closed items and the `version` |
-| `$.workitems.lines({ snapshot, now })`                  | The state lines of `docs/mocks.md` section 0, with their tone                |
-| `$.workitems.writeVerbs()`                              | The write verbs of each tracker CLI that the mod knows                       |
+| Part                                                    | Use                                                                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `$.state.get({ plugin: 'workitems', key: 'snapshot' })` | The last snapshot. A render that reads it draws again on a change                              |
+| `$.workitems.refresh({ since })`                        | Reads again. Returns the created, updated and closed items and the `version`                   |
+| `$.workitems.lines({ snapshot, now })`                  | The state lines of `docs/mocks.md` section 0, with their tone                                  |
+| `$.workitems.writeVerbs()`                              | The write verbs of each tracker CLI that the mod knows                                         |
+| `$.workitems.classify(command)`                         | Reads a shell command: `write`, `echoed`, `opaque` or `none`, with the tracker writes it found |
+| `$.workitems.trackerFile({ path, root })`               | The tracker file that `path` names, relative to `root`, or `null`                              |
 
 The snapshot `state` is one of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker` and
 `terminal-only`. This version produces each of them except `stale`.

@@ -17,7 +17,9 @@ The approved mocks are in `docs/mocks.md`, section 1.
 | `Bash`          | A tracker CLI write: `br`, `bd`, `basicly tracker`, `.basicly/core/kit/tracker/cli.py`                                                                                 | One row per item of the refresh diff |
 | `Write`, `Edit` | A tracker file at the `workitems` root: `.beads/issues.jsonl`, `.basicly/ledger/` (`pending-*.jsonl`, `events-*.jsonl`, `snapshot.jsonl`), `.beans/**/<id>--<slug>.md` | One `raw tracker edit` row           |
 
-- The write verbs come from `$.workitems.writeVerbs()`. `bd` uses the verbs of `br`.
+- `$.workitems.classify(command)` reads a `Bash` command, and `$.workitems.trackerFile` names a
+  tracker file. The rules are in the `workitems` mod, so `item-toasts` uses the same rules.
+- The write verbs are those of `$.workitems.writeVerbs()`. `bd` uses the verbs of `br`.
 - `basicly tracker write -- <verb>` uses the verbs of `.basicly/core/kit/tracker/cli.py`.
 - A command with `--help`, `-h` or `--dry-run` is not a write.
 

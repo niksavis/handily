@@ -9,15 +9,6 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import { changesText, type Change } from './hooks/toasts'
-import { parseCommand, trackerFileOf, type WriteVerbs } from './hooks/parse'
-import {
-  commandCases,
-  compoundCases,
-  noTrackerCommands,
-  reviewCases,
-  unsafeCases,
-  type CommandCase,
-} from './fixtures/commands'
 
 type Snapshot = PluginState['workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -25,6 +16,8 @@ type Diff = { created: Item[]; updated: Item[]; closed: Item[] }
 type TrackerState = 'ok' | 'failed' | 'no-tracker' | 'approval-needed' | 'terminal-only'
 type DiskEdit = { diff?: Diff; state?: TrackerState }
 type Answer = { error: string } | { snapshot: Snapshot; result: Diff & { version: number } }
+type Parsed = Awaited<ReturnType<EngineInterface['workitems']['classify']>>
+type TrackerFileArgs = Parameters<EngineInterface['workitems']['trackerFile']>[0]
 
 const ROOT = '/work/app'
 const START = 1_000_000
@@ -36,52 +29,42 @@ const FAILED_TOAST = 'Work items unavailable: .beads/issues.jsonl line 4 is malf
 const BEADS_FILE = `${ROOT}/.beads/issues.jsonl`
 const POLL_COMMAND = 'workitems-poll'
 
-const VERBS: WriteVerbs = {
-  br: [
-    'close',
-    'create',
-    'defer',
-    'delete',
-    'q',
-    'reopen',
-    'undefer',
-    'update',
-    'comments add',
-    'dep add',
-    'dep remove',
-    'dep import',
-    'label add',
-    'label remove',
-    'label rename',
-    'epic close-eligible',
-  ],
-  'basicly tracker': [
-    'close',
-    'comments add',
-    'create',
-    'dep add',
-    'dep remove',
-    'gate report',
-    'update',
-  ],
-  '.basicly/core/kit/tracker/cli.py': [
-    'create',
-    'compact',
-    'sync',
-    'import',
-    'migrate-fields',
-    'child',
-    'update',
-    'close',
-    'comment',
-    'dep',
-    'undep',
-    'assign',
-    'claim',
-    'resolve',
-    'unassign',
-    'delete',
-  ],
+const CLASSIFY_PATH = '/fake/workitems/classify/'
+const TRACKER_FILE_PATH = '/fake/workitems/tracker-file/'
+const BR_CLOSE = { tracker: 'br', verb: 'close' } as const
+
+const CLASSIFIED: Readonly<Record<string, Parsed>> = {
+  'br close handily-ab12': { kind: 'write', writes: [BR_CLOSE] },
+  'br update handily-cd34 --status in_progress': {
+    kind: 'write',
+    writes: [{ tracker: 'br', verb: 'update' }],
+  },
+  'uv run .basicly/core/kit/tracker/cli.py close handily-ab12': {
+    kind: 'opaque',
+    reason: 'shape',
+    writes: [{ tracker: '.basicly/core/kit/tracker/cli.py', verb: 'close' }],
+  },
+  'basicly tracker write close handily-ab12': {
+    kind: 'write',
+    writes: [{ tracker: '.basicly/core/kit/tracker/cli.py', verb: 'close' }],
+  },
+  'for id in handily-ab12; do br close $id; done': {
+    kind: 'opaque',
+    reason: 'expansion',
+    writes: [BR_CLOSE],
+  },
+  'npm test': { kind: 'none' },
+  'git push origin main': { kind: 'none' },
+  'br close handily-ab12 --dry-run': { kind: 'none' },
+  'br --help': { kind: 'none' },
+  'bash close.sh': { kind: 'none' },
+}
+
+const TRACKER_FILES: Readonly<Record<string, string | null>> = {
+  [`${ROOT}/.beads/issues.jsonl`]: '.beads/issues.jsonl',
+  [`${ROOT}/.beans/app-ab12--x.md`]: '.beans/app-ab12--x.md',
+  [`${ROOT}/.beans/README.md`]: null,
+  [`${ROOT}/src/x.ts`]: null,
 }
 
 function item(id: string, title: string, status: Item['status']): Item {
@@ -127,10 +110,15 @@ const fakeWorkitems: Plugin = {
             await built.state.set({ plugin: 'workitems', key: 'snapshot' }, answer.snapshot)
             return answer.result
           },
-          writeVerbs: async () =>
-            JSON.parse(await built.fs.read('/fake/workitems/verbs')) as Awaited<
-              ReturnType<EngineInterface['workitems']['writeVerbs']>
-            >,
+          writeVerbs: () => Promise.reject(new Error('item-toasts reads no write verbs')),
+          classify: async (command) => {
+            const path = `/fake/workitems/classify/${encodeURIComponent(command)}`
+            return JSON.parse(await built.fs.read(path)) as Parsed
+          },
+          trackerFile: async (args) => {
+            const path = `/fake/workitems/tracker-file/${encodeURIComponent(JSON.stringify(args))}`
+            return JSON.parse(await built.fs.read(path)) as string | null
+          },
           lines: ({ snapshot }) => {
             if (snapshot.state === 'failed') {
               return Promise.resolve([
@@ -192,7 +180,9 @@ type World = {
   timerReads: number
   plans: Record<string, CallPlan>
   callIds: string[]
-  verbsError: boolean
+  classifyError: boolean
+  trackerFileError: boolean
+  unanswered: string[]
 }
 
 type CallPlan = {
@@ -309,8 +299,28 @@ function newWorld(): World {
     timerReads: 0,
     plans: {},
     callIds: [],
-    verbsError: false,
+    classifyError: false,
+    trackerFileError: false,
+    unanswered: [],
   }
+}
+
+function fakeRule(world: World, path: string): { value: string } | { deny: string } | null {
+  let answer: Parsed | string | null | undefined
+  if (path.startsWith(CLASSIFY_PATH)) {
+    if (world.classifyError) return { deny: 'the fake command check is unavailable' }
+    answer = CLASSIFIED[decodeURIComponent(path.slice(CLASSIFY_PATH.length))]
+  } else if (path.startsWith(TRACKER_FILE_PATH)) {
+    if (world.trackerFileError) return { deny: 'the fake tracker file check is unavailable' }
+    const encoded = decodeURIComponent(path.slice(TRACKER_FILE_PATH.length))
+    const args = JSON.parse(encoded) as TrackerFileArgs
+    answer = args.root === ROOT ? TRACKER_FILES[args.path] : undefined
+  } else {
+    return null
+  }
+  if (answer !== undefined) return { value: JSON.stringify(answer) }
+  world.unanswered.push(decodeURIComponent(path))
+  return { deny: `the fake workitems has no answer for ${path}` }
 }
 
 function engineBeneath(on: On, world: World): MockClock {
@@ -326,10 +336,8 @@ function engineBeneath(on: On, world: World): MockClock {
     return { value: undefined }
   })
   on('fs.read', (_$, e) => {
-    if (e.path === '/fake/workitems/verbs') {
-      if (world.verbsError) return { deny: 'the fake write verbs are unavailable' }
-      return { value: JSON.stringify(VERBS) }
-    }
+    const rule = fakeRule(world, e.path)
+    if (rule !== null) return rule
     const since = /^\/fake\/workitems\/refresh\/(\d+|poll|timer)$/.exec(e.path)?.[1]
     if (since === undefined) return { deny: `no fake file at ${e.path}` }
     return { value: JSON.stringify(answer(world, since)) }
@@ -366,6 +374,7 @@ function toastTest(name: string, body: ToastBody): void {
     const world = newWorld()
     const clock = engineBeneath(on, world)
     await body(world, $, clock)
+    expect(world.unanswered).toEqual([])
   })
 }
 
@@ -1054,17 +1063,33 @@ describe('a call that is a tracker write', () => {
   )
 })
 
-describe('a failed read of the write verbs', () => {
+describe('a failed check of the workitems rules', () => {
   toastTest('does not count the Bash call as own and logs why', async (world, $, clock) => {
     await startSession($)
-    world.verbsError = true
+    world.classifyError = true
     world.plans[CLOSE_AB12] = { edit: closeAb12() }
     await bash($, CLOSE_AB12)
     await pollAndTick($, clock)
     expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
     expect(
       world.logs.some((line) =>
-        line.startsWith('item-toasts: not counting the call as own; the write verbs failed:'),
+        line.startsWith('item-toasts: not counting the call as own; the command check failed:'),
+      ),
+    ).toBe(true)
+  })
+
+  toastTest('does not count the Write call as own and logs why', async (world, $, clock) => {
+    await startSession($)
+    world.trackerFileError = true
+    world.plans[BEADS_FILE] = { edit: closeAb12() }
+    await write($, BEADS_FILE)
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(
+      world.logs.some((line) =>
+        line.startsWith(
+          'item-toasts: not counting the call as own; the tracker file check failed:',
+        ),
       ),
     ).toBe(true)
   })
@@ -1097,73 +1122,6 @@ describe('the time limit of a background call', () => {
       expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
     },
   )
-})
-
-function expectClassified(cases: readonly CommandCase[]): void {
-  for (const c of cases) {
-    const parsed = parseCommand(c.command, VERBS)
-    expect({ command: c.command, kind: parsed.kind }).toEqual({
-      command: c.command,
-      kind: c.expect,
-    })
-    if (parsed.kind !== 'none') {
-      expect({ command: c.command, write: parsed.writes.at(-1) }).toEqual({
-        command: c.command,
-        write: c.tracker === undefined ? undefined : { tracker: c.tracker, verb: c.verb },
-      })
-    }
-    if (parsed.kind === 'opaque' && c.reason !== undefined) {
-      expect({ command: c.command, reason: parsed.reason }).toEqual({
-        command: c.command,
-        reason: c.reason,
-      })
-    }
-  }
-}
-
-describe('parity with the quiet-items parser', () => {
-  test('classifies every case of the shared command list as quiet-items does', () => {
-    expect(commandCases.length + compoundCases.length + unsafeCases.length).toBeGreaterThan(30)
-    expect(reviewCases.filter((c) => c.expect === 'opaque').length).toBe(57)
-    expect(reviewCases.filter((c) => c.expect === 'write').length).toBe(12)
-    expectClassified([...commandCases, ...compoundCases, ...unsafeCases, ...reviewCases])
-  })
-
-  test('reads every command without a tracker name as none', () => {
-    expect(noTrackerCommands).toContain('bash close.sh')
-    for (const command of noTrackerCommands) {
-      expect({ command, parsed: parseCommand(command, VERBS) }).toEqual({
-        command,
-        parsed: { kind: 'none' },
-      })
-    }
-  })
-
-  test('names the same tracker files as quiet-items does', () => {
-    const files: readonly (readonly [string, string, string | null])[] = [
-      [`${ROOT}/.beads/issues.jsonl`, ROOT, '.beads/issues.jsonl'],
-      [`${ROOT}/.beads/config.yaml`, ROOT, null],
-      [`${ROOT}/.beads/backup/issues.jsonl`, ROOT, null],
-      [`${ROOT}/.basicly/ledger/events-a.jsonl`, ROOT, '.basicly/ledger/events-a.jsonl'],
-      [`${ROOT}/.basicly/ledger/pending-main.jsonl`, ROOT, '.basicly/ledger/pending-main.jsonl'],
-      [`${ROOT}/.basicly/ledger/snapshot.jsonl`, ROOT, '.basicly/ledger/snapshot.jsonl'],
-      [`${ROOT}/.basicly/ledger/checkpoint-1.jsonl`, ROOT, null],
-      [`${ROOT}/.beans/app-ab12--x.md`, ROOT, '.beans/app-ab12--x.md'],
-      [`${ROOT}/.beans/archive/app-2--done.md`, ROOT, '.beans/archive/app-2--done.md'],
-      [`${ROOT}/.beans/README.md`, ROOT, null],
-      [`${ROOT}/src/x.ts`, ROOT, null],
-      ['/work/other/.beads/issues.jsonl', ROOT, null],
-      [`${ROOT}-copy/.beads/issues.jsonl`, ROOT, null],
-      [
-        'C:\\work\\app\\.basicly\\ledger\\events-a.jsonl',
-        'C:\\work\\app\\',
-        '.basicly/ledger/events-a.jsonl',
-      ],
-    ]
-    for (const [path, root, file] of files) {
-      expect({ path, file: trackerFileOf(path, root) }).toEqual({ path, file })
-    }
-  })
 })
 
 describe('review repairs of the second round', () => {

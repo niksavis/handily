@@ -1,5 +1,6 @@
 import type { RenderSurface, Register, Timer } from 'claude-code'
 import { createApprovals, type Approvals } from './approval'
+import { classify, trackerFileOf } from './commands'
 import { createReaders, writeVerbs } from './readers/index'
 import { createProvider, POLL_INTERVAL_MS } from './snapshot'
 import { stateLines } from './states'
@@ -66,6 +67,8 @@ export const register: Register = (on) => {
       workitems: {
         refresh: (args) => provider.refresh(args),
         writeVerbs: () => Promise.resolve(writeVerbs),
+        classify: (command) => Promise.resolve(classify(command)),
+        trackerFile: (args) => Promise.resolve(trackerFileOf(args)),
         lines: (args) => Promise.resolve(stateLines(args)),
       },
     }

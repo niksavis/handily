@@ -1,8 +1,9 @@
 import type { Elements, EngineInterface, RenderElement, RenderSurface } from 'claude-code'
 import type { QuietItemsItemRow, QuietItemsRow, QuietItemsVerb } from '../types'
-import type { TrackerWrite } from './parse'
 
 type Diff = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
+type Parsed = Awaited<ReturnType<EngineInterface['workitems']['classify']>>
+type TrackerWrite = Exclude<Parsed, { kind: 'none' }>['writes'][number]
 type Item = Diff['created'][number]
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
 

@@ -30,6 +30,8 @@ const fakeWorkitems: Plugin = {
         workitems: {
           refresh: () => Promise.resolve({ created: [], updated: [], closed: [], version: 1 }),
           writeVerbs: () => Promise.reject(new Error('the fake workitems has no write verbs')),
+          classify: () => Promise.reject(new Error('the fake workitems classifies no command')),
+          trackerFile: () => Promise.reject(new Error('the fake workitems names no tracker file')),
           lines: ({ snapshot }) => {
             switch (snapshot.state) {
               case 'failed':
