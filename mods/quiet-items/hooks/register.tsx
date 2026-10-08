@@ -15,6 +15,7 @@ const EXIT_STATUS = '$?'
 
 type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
 type RefreshResult = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
+type Parsed = Awaited<ReturnType<EngineInterface['workitems']['classify']>>
 
 function hasSucceeded(result: CallResult): boolean {
   if (result.deny !== undefined || result.isError === true) return false
@@ -88,7 +89,15 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (e.run_in_background === true) return next(e)
-    const parsed = await $.workitems.classify(e.command)
+    let parsed: Parsed
+    try {
+      parsed = await $.workitems.classify(e.command)
+    } catch (error) {
+      $.ui.log(
+        `quiet-items: no row for ${e.tool_use_id}; the command check failed: ${String(error)}`,
+      )
+      return next(e)
+    }
     if (parsed.kind !== 'write' && parsed.kind !== 'echoed') return next(e)
     const { value: before } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
     if (before?.state !== 'ok') return next(e)
@@ -117,10 +126,16 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: ['Write', 'Edit'] }, async ($, e, next) => {
     const { value: snapshot } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
-    const path =
-      snapshot === undefined
-        ? null
-        : await $.workitems.trackerFile({ path: e.file_path, root: snapshot.root })
+    if (snapshot === undefined) return next(e)
+    let path: string | null
+    try {
+      path = await $.workitems.trackerFile({ path: e.file_path, root: snapshot.root })
+    } catch (error) {
+      $.ui.log(
+        `quiet-items: no row for ${e.tool_use_id}; the tracker file check failed: ${String(error)}`,
+      )
+      return next(e)
+    }
     if (path === null) return next(e)
     const result = await next(e)
     if (!hasSucceeded(result)) return result

@@ -135,6 +135,9 @@ type World = {
   sinces: number[]
   sincesAtCallPolls: number[]
   refreshError: string | null
+  classifyError: boolean
+  trackerFileError: boolean
+  logs: string[]
   unanswered: string[]
 }
 
@@ -215,8 +218,10 @@ type Calls = { ids: string[]; groups: boolean[]; answer: () => object }
 function fakeRule(world: World, path: string): { value: string } | { deny: string } | null {
   let answer: Parsed | string | null | undefined
   if (path.startsWith(CLASSIFY_PATH)) {
+    if (world.classifyError) return { deny: 'the fake command check is unavailable' }
     answer = CLASSIFIED[decodeURIComponent(path.slice(CLASSIFY_PATH.length))]
   } else if (path.startsWith(TRACKER_FILE_PATH)) {
+    if (world.trackerFileError) return { deny: 'the fake tracker file check is unavailable' }
     const encoded = decodeURIComponent(path.slice(TRACKER_FILE_PATH.length))
     const args = JSON.parse(encoded) as TrackerFileArgs
     answer = args.root === ROOT ? TRACKER_FILES[args.path] : undefined
@@ -258,6 +263,10 @@ function engineBeneath(on: On, world: World): Calls {
     if (e.component === 'ToolGroup') calls.groups.push(e.props.isExpanded)
     return ENGINE_ROW
   })
+  on('ui.log', (_$, e) => {
+    world.logs.push(e.text)
+    return { value: undefined }
+  })
   return calls
 }
 
@@ -269,6 +278,9 @@ function newWorld(): World {
     sinces: [],
     sincesAtCallPolls: [],
     refreshError: null,
+    classifyError: false,
+    trackerFileError: false,
+    logs: [],
     unanswered: [],
   }
 }
@@ -552,6 +564,53 @@ describe('fallback to the engine row', () => {
     world.refreshError = 'since 8 is older than the 50 kept diffs'
     const failed = await runBash($, calls, 'br create --title y')
     expect(await drawnUse($, toolUse(failed, 'br create --title y'))).toEqual(ENGINE_ROW)
+  })
+
+  quietTest('when the workitems command check fails', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    world.callChange = { ...emptyDiff(), created: [AB12] }
+    await startSession($)
+    world.classifyError = true
+    const result = await $.tool.call({ tool: 'Bash', command: 'br create --title x' })
+    const id = calls.ids.at(-1) ?? ''
+    expect(result.text).toBe(FULL_RESULT_TEXT)
+    expect(world.sinces).toEqual([])
+    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    expect(
+      world.logs.filter((line) =>
+        line.startsWith(`quiet-items: no row for ${id}; the command check failed:`),
+      ),
+    ).toHaveLength(1)
+  })
+
+  quietTest('when the workitems tracker file check fails', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    calls.answer = () => ({ result: { filePath: `${ROOT}/.beads/issues.jsonl` } })
+    await startSession($)
+    world.trackerFileError = true
+    await $.tool.call({
+      tool: 'Edit',
+      file_path: `${ROOT}/.beads/issues.jsonl`,
+      old_string: '"open"',
+      new_string: '"closed"',
+    })
+    const id = calls.ids.at(-1) ?? ''
+    expect(id).not.toBe('')
+    expect(
+      await drawnUse($, {
+        tool_use_id: id,
+        tool: 'Edit',
+        input: { file_path: `${ROOT}/.beads/issues.jsonl` },
+        isRunning: false,
+        isErrored: false,
+        isInterrupted: false,
+      }),
+    ).toEqual(ENGINE_ROW)
+    expect(
+      world.logs.filter((line) =>
+        line.startsWith(`quiet-items: no row for ${id}; the tracker file check failed:`),
+      ),
+    ).toHaveLength(1)
   })
 
   for (const state of ['failed', 'no-tracker'] as const) {
