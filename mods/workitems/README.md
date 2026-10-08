@@ -35,15 +35,18 @@ gives other mods one typed list. It draws nothing of its own.
 ### basicly
 
 - The mod runs `basicly tracker list --status <s>` from `PATH` at the repo root, once for each
-  of `open`, `in_progress` and `blocked`. This command loads the repo's kit code, so it runs only
-  after you approve it (see [Approval](#approval)).
+  of `open`, `in_progress` and `blocked`. It runs only after you approve it (see
+  [Approval](#approval)).
+- basicly 0.21.1 or later runs only the installed package for this command. An older basicly
+  also runs the repo code in `.basicly/core/kit/tracker`.
 - It maps `record` to `id`, and reads `fields.title`, `status`, `fields.priority`,
   `fields.issue_type`, `fields.assignee` and `dates.updated`. It skips a tombstoned record.
 - When `basicly` is not on `PATH`, the read fails with "basicly is not on PATH. Install it to
   read this tracker." The mod never runs the repo's own `.basicly/core/kit/tracker/cli.py`.
 - The poll reads again when a file in `.basicly/ledger` or any file under the kit folder changes.
-- `basicly` runs with `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` set to a new folder.
-  The new folder does not exist, so Python never runs a cached `.pyc` file from the repo.
+- `basicly` and `basicly --version` run with `PYTHONDONTWRITEBYTECODE=1` and
+  `PYTHONPYCACHEPREFIX` set to a new folder. The new folder does not exist, so Python never runs
+  a cached `.pyc` file from the repo.
 - The mod runs the program path that the approval recorded, and checks the approval again
   before each of the three list runs.
 - The mod reads only the open statuses. So when a record leaves them, for example when it is
@@ -199,8 +202,9 @@ Setup:
 
 ## Approval
 
-`basicly tracker list` loads the repo's kit code, so it runs only after you approve it. The CLI
-adapter needs no approval, because you typed its command yourself.
+`basicly tracker list` runs only after you approve it. The mod runs no basicly command before
+you approve the repo, not even `basicly --version`. The CLI adapter needs no approval, because
+you typed its command yourself.
 
 - In an interactive session the mod asks once, in the engine's question dialog, with the
   options `Not now` and `Allow for this repo`. `Not now` is the first option, so Enter
@@ -212,9 +216,30 @@ adapter needs no approval, because you typed its command yourself.
 - The mod cannot hash a file over 4 MiB, so such a kit file makes the read fail, and the
   reason names it. A kit file whose name holds a control character or is over 256 characters
   also makes the read fail, and the reason does not repeat the name.
-- When one of these changes, the old approval does not match, and the mod asks again.
-- The question shows each argument in double quotes, with the real path of the program, and
-  names the kit folder.
+- The mod also keeps the answer under a second key of the repo root, the command and the real
+  path of `basicly`, with no kit files.
+- When the kit files differ from the files that you approved, the mod runs `basicly --version`
+  with the approved program path, before each list run. The version decides if the approval
+  covers the kit files:
+
+  | `basicly --version` prints         | A kit change       |
+  | ---------------------------------- | ------------------ |
+  | `basicly X.Y.Z`, 0.21.1 or later   | does not ask again |
+  | `basicly X.Y.Z`, below 0.21.1      | asks again         |
+  | any other text, or a non-zero exit | asks again         |
+  | nothing, because it did not start  | the read fails     |
+
+  basicly 0.21.1 or later runs only the installed package, so the kit files do not change what
+  it runs. An older basicly also runs the repo code in `.basicly/core/kit/tracker`. The mod never
+  keeps the version, so a later downgrade below 0.21.1 asks again.
+
+- When the command or the real path of `basicly` changes, the old approval does not match, and
+  the mod asks again.
+- An approval that you gave before this rule stays valid for the same program path. The mod
+  then adds the second key.
+- The question shows each argument in double quotes, with the real path of the program. It says
+  that basicly 0.21.1 or later runs only the installed package, and that an older basicly also
+  runs the repo code in the kit folder.
 - The mod refuses a `basicly` whose real path is inside the repo root, or whose real path the
   engine does not give. Program lookup skips a relative or empty `PATH` entry, such as `.`.
 - On Windows the check that a program is outside the repo root ignores case, for a

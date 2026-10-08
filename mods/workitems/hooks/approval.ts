@@ -6,6 +6,7 @@ export const APPROVE = 'Allow for this repo'
 export const DECLINE = 'Not now'
 export const ASK_HEADER = 'workitems'
 const STORE_PREFIX = 'approval:'
+const PROGRAM_STORE_PREFIX = 'program-approval:'
 const ABSOLUTE_PATH = /^([\\/]|[A-Za-z]:)/
 const ABSOLUTE_FOLDER = /^([\\/]|[A-Za-z]:[\\/])/
 const NAMES_A_FOLDER = /[\\/]/
@@ -31,11 +32,8 @@ export type ApprovalRequest = {
   command: readonly string[]
   shown: readonly string[]
   folders: readonly CoveredFolder[]
-}
-
-type Coverage = {
-  files: Readonly<Record<string, string>>
-  folders: readonly CoveredFolder[]
+  note: string
+  ignoresFolders: (argv0: string) => Promise<boolean>
 }
 
 export type Verdict = { approved: true; argv0: string } | { approved: false }
@@ -158,10 +156,10 @@ async function folderEntries(
   return found
 }
 
-async function coverageOf(
+async function coveredFiles(
   files: TrackerFiles,
   folders: readonly CoveredFolder[],
-): Promise<Coverage> {
+): Promise<Record<string, string>> {
   const digests = new Map<string, string>()
   for (const folder of folders) {
     for (const { path } of await folderEntries(files, folder)) {
@@ -170,10 +168,7 @@ async function coverageOf(
     }
   }
   const entries = [...digests.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return {
-    files: Object.fromEntries(entries),
-    folders,
-  }
+  return Object.fromEntries(entries)
 }
 
 export async function coverStamp(
@@ -189,28 +184,25 @@ export async function coverStamp(
   return lines.sort().join('\n')
 }
 
-function folderName(folder: CoveredFolder): string {
-  return folder.path === '.' ? 'the repo root' : folder.path
-}
-
-function coverageNote(folders: readonly CoveredFolder[]): string {
-  const [first] = folders
-  if (first === undefined) return '(asked again if the command changes)'
-  const kind = first.suffix === '' ? 'a file' : `a ${first.suffix} file`
-  return `(it runs the repo code in ${folders.map(folderName).join(', ')}; asked again if the command or ${kind} there changes)`
-}
-
-function approvalQuestion(shown: readonly string[], coverage: Coverage): string {
+function approvalQuestion(shown: readonly string[], note: string): string {
   const lines = [
     "Allow handily to run this repo's tracker CLI to read work items?",
     quotedCommand(shown),
-    coverageNote(coverage.folders),
+    note,
   ]
   return lines.join('\n')
 }
 
+async function digestOf(value: object): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(JSON.stringify(value)))
+}
+
 async function storeKeyOf(key: ApprovalKey): Promise<string> {
-  return `${STORE_PREFIX}${await sha256Hex(new TextEncoder().encode(JSON.stringify(key)))}`
+  return `${STORE_PREFIX}${await digestOf(key)}`
+}
+
+async function programStoreKeyOf({ root, argv, argv0 }: ApprovalKey): Promise<string> {
+  return `${PROGRAM_STORE_PREFIX}${await digestOf({ root, argv, argv0 })}`
 }
 
 export function createApprovals(host: ApprovalHost): Approvals {
@@ -218,6 +210,14 @@ export function createApprovals(host: ApprovalHost): Approvals {
   let generation = 0
   const declined = new Set<string>()
   const asking = new Set<string>()
+
+  async function isStored(storeKey: string): Promise<boolean> {
+    return (await host.stored(storeKey)) !== undefined
+  }
+
+  async function keepProgramApproval(programKey: string, key: ApprovalKey): Promise<void> {
+    if (!(await isStored(programKey))) await host.store(programKey, key)
+  }
 
   function askPerson(storeKey: string, key: ApprovalKey, question: string): void {
     asking.add(storeKey)
@@ -230,6 +230,7 @@ export function createApprovals(host: ApprovalHost): Approvals {
             return
           }
           await host.store(storeKey, key)
+          await host.store(await programStoreKeyOf(key), key)
           generation += 1
           host.approved()
         },
@@ -254,14 +255,21 @@ export function createApprovals(host: ApprovalHost): Approvals {
     },
     check: async (files, request) => {
       refuseUnsafeArguments(request.shown)
-      const coverage = await coverageOf(files, request.folders)
+      const covered = await coveredFiles(files, request.folders)
       const argv0 = await programOutsideRoot(files, request.command)
-      const key = { root: files.root, argv: [...request.command], files: coverage.files, argv0 }
+      const key = { root: files.root, argv: [...request.command], files: covered, argv0 }
       const storeKey = await storeKeyOf(key)
-      if ((await host.stored(storeKey)) !== undefined) return { approved: true, argv0 }
+      const programKey = await programStoreKeyOf(key)
+      if (await isStored(storeKey)) {
+        await keepProgramApproval(programKey, key)
+        return { approved: true, argv0 }
+      }
+      if ((await isStored(programKey)) && (await request.ignoresFolders(argv0))) {
+        return { approved: true, argv0 }
+      }
       const mayAsk = isInteractive && !declined.has(storeKey) && !asking.has(storeKey)
       const shown = [argv0, ...request.shown.slice(1)]
-      if (mayAsk) askPerson(storeKey, key, approvalQuestion(shown, coverage))
+      if (mayAsk) askPerson(storeKey, key, approvalQuestion(shown, request.note))
       return { approved: false }
     },
   }

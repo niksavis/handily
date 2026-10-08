@@ -369,6 +369,10 @@ function asksAndState(world: World, asks: number, state: WorkitemsSnapshot['stat
   }
 }
 
+async function jsonDigest(value: object): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(JSON.stringify(value)))
+}
+
 async function digestsOf(
   repo: Record<string, string>,
   paths: readonly string[],
@@ -381,7 +385,7 @@ async function digestsOf(
 }
 
 const KIT_NOTE =
-  '(it runs the repo code in .basicly/core/kit/tracker; asked again if the command or a file there changes)'
+  '(basicly 0.21.1 or later runs only the installed package; asked again if the command changes. An older basicly also runs the repo code in .basicly/core/kit/tracker; asked again if a file there changes)'
 
 const PATH_QUESTION = [
   "Allow handily to run this repo's tracker CLI to read work items?",
@@ -405,6 +409,44 @@ async function approvedBasicly($: Engine, on: On, path: string = PATH_WITH_BASIC
 
 function touchLedger(world: World, mtimeMs: number) {
   world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, { text: '{}\n{}\n', mtimeMs })
+}
+
+const VERSION_RUN = `${BASICLY_BIN} --version`
+
+function reportVersion(world: World, stdout: string, exitCode = 0) {
+  world.outputs.set(VERSION_RUN, { stdout, exitCode })
+}
+
+function isListRun(run: Run): boolean {
+  return run.argv.slice(1, 3).join(' ') === 'tracker list'
+}
+
+function listRunCount(world: World): number {
+  return world.runs.filter(isListRun).length
+}
+
+function changeKit(world: World, mtimeMs: number) {
+  world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, {
+    text: `def records():\n    return [${String(mtimeMs)}]\n`,
+    mtimeMs,
+  })
+}
+
+function listRunsSince(world: World, runsBefore: number, lists: number): Until {
+  return {
+    isDone: () => world.runs.slice(runsBefore).filter(isListRun).length >= lists,
+    condition: `${String(lists)} list runs`,
+  }
+}
+
+async function legacyApproval(world: World): Promise<void> {
+  const key = {
+    root: ROOT,
+    argv: ['basicly', 'tracker', 'list'],
+    files: await digestsOf(BASICLY_REPO, KIT_FILES),
+    argv0: BASICLY_BIN,
+  }
+  world.stored.set(`approval:${await jsonDigest(key)}`, key)
 }
 
 describe('basicly source', () => {
@@ -453,14 +495,17 @@ describe('basicly source', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const { world } = await approvedBasicly($, on)
-      expect([...world.stored.values()]).toEqual([
-        {
-          root: ROOT,
-          argv: ['basicly', 'tracker', 'list'],
-          files: await digestsOf(BASICLY_REPO, KIT_FILES),
-          argv0: BASICLY_BIN,
-        },
-      ])
+      const key = {
+        root: ROOT,
+        argv: ['basicly', 'tracker', 'list'],
+        files: await digestsOf(BASICLY_REPO, KIT_FILES),
+        argv0: BASICLY_BIN,
+      }
+      const programKey = { root: key.root, argv: key.argv, argv0: key.argv0 }
+      expect(Object.fromEntries(world.stored)).toEqual({
+        [`approval:${await jsonDigest(key)}`]: key,
+        [`program-approval:${await jsonDigest(programKey)}`]: key,
+      })
     },
   )
 
@@ -748,14 +793,14 @@ describe('approval of basicly', () => {
 
   test('checks the approval again before each list run', { plugins: [consumer] }, async ($, on) => {
     const { clock, world } = await approvedBasicly($, on)
-    const runsBefore = world.runs.length
+    const listsBefore = listRunCount(world)
     world.answer = 'Not now'
     world.afterRun = () => {
       world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, { text: 'planted\n', mtimeMs: 50 })
     }
     touchLedger(world, 50)
     await pollUntil($, clock, 2_000, stateIs('approval-needed'))
-    expect(world.runs.length).toBe(runsBefore + 1)
+    expect(listRunCount(world)).toBe(listsBefore + 1)
     expect((await snapshotOf($)).state).toBe('approval-needed')
   })
 
@@ -764,7 +809,7 @@ describe('approval of basicly', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on)
-      const runsBefore = world.runs.length
+      const listsBefore = listRunCount(world)
       world.answer = 'Not now'
       world.files.set(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`, {
         text: 'print("unhashed package ran")\n',
@@ -772,13 +817,13 @@ describe('approval of basicly', () => {
       })
       await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
       expect(world.asks.length).toBe(2)
-      expect(world.runs.length).toBe(runsBefore)
+      expect(listRunCount(world)).toBe(listsBefore)
       world.files.delete(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`)
       world.files.set(`${ROOT}/${KIT_FOLDER}/shlex.pyc`, { text: 'sourceless', mtimeMs: 61 })
       await startSession($, clock, true, asksAndState(world, 3, 'approval-needed'))
       expect(world.asks.length).toBe(3)
       expect((await snapshotOf($)).state).toBe('approval-needed')
-      expect(world.runs.length).toBe(runsBefore)
+      expect(listRunCount(world)).toBe(listsBefore)
     },
   )
 
@@ -938,7 +983,7 @@ describe('approval of basicly', () => {
     async ($, on) => {
       const { world, snapshot } = await approvedBasicly($, on)
       expect(world.asks[0]?.options).toEqual(['Not now', ALLOW])
-      expect(world.stored.size).toBe(1)
+      expect(world.stored.size).toBe(2)
       expect(snapshot.state).toBe('ok')
     },
   )
@@ -963,13 +1008,13 @@ describe('approval of basicly', () => {
       { plugins: [consumer] },
       async ($, on) => {
         const { clock, world } = await approvedBasicly($, on)
-        const runsBefore = world.runs.length
+        const listsBefore = listRunCount(world)
         world.answer = 'Not now'
         world.files.set(`${ROOT}/${file}`, { text, mtimeMs: 10 })
         touchLedger(world, 30)
         await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
         expect(world.asks.length).toBe(2)
-        expect(world.runs.length).toBe(runsBefore)
+        expect(listRunCount(world)).toBe(listsBefore)
         expect((await snapshotOf($)).state).toBe('approval-needed')
       },
     )
@@ -984,6 +1029,161 @@ describe('approval of basicly', () => {
     expect(world.asks.length).toBe(2)
     expect(snapshot.state).toBe('approval-needed')
   })
+})
+
+describe('approval on a basicly that runs only its installed package', () => {
+  for (const output of [
+    'basicly 0.21.1\n',
+    'basicly 0.21.2\n',
+    'basicly 0.22.0',
+    'basicly 1.0.0\n',
+  ]) {
+    test(
+      `a kit change does not ask again when basicly reports ${JSON.stringify(output)}`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const { clock, world } = await approvedBasicly($, on)
+        reportVersion(world, output)
+        const runsBefore = world.runs.length
+        world.answer = 'Not now'
+        changeKit(world, 40)
+        const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+        expect(world.asks.length).toBe(1)
+        expect(snapshot.state).toBe('ok')
+        const [first] = world.runs.slice(runsBefore)
+        expect(first?.argv).toEqual([BASICLY_BIN, '--version'])
+        expect(first?.cwd).toBe(ROOT)
+        expect(first?.env?.PYTHONDONTWRITEBYTECODE).toBe('1')
+        expect(first?.env?.PYTHONPYCACHEPREFIX).toMatch(
+          /^\/work\/app\/\.handily-pycache-[0-9a-f-]{36}$/,
+        )
+      },
+    )
+  }
+
+  for (const [name, output, exitCode] of [
+    ['a version below 0.21.1', 'basicly 0.21.0\n', 0],
+    ['a lower minor that sorts after as text', 'basicly 0.9.30\n', 0],
+    ['a development build of 0.21.1', 'basicly 0.21.1.dev3\n', 0],
+    ['a release candidate of 0.21.1', 'basicly 0.21.1rc1\n', 0],
+    ['an output that is not a version', 'usage: basicly [-h]\n', 0],
+    ['a version with a non-zero exit', 'basicly 0.21.2\n', 1],
+  ] as const) {
+    test(
+      `a kit change asks again and runs no list after ${name}`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const { clock, world } = await approvedBasicly($, on)
+        reportVersion(world, output, exitCode)
+        const runsBefore = world.runs.length
+        world.answer = 'Not now'
+        changeKit(world, 40)
+        await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
+        expect(world.asks.length).toBe(2)
+        expect(world.asks[1]?.question).toBe(PATH_QUESTION)
+        const after = world.runs.slice(runsBefore)
+        expect(after.length).toBeGreaterThan(0)
+        expect(after.map((run) => run.argv)).toEqual(after.map(() => [BASICLY_BIN, '--version']))
+      },
+    )
+  }
+
+  test(
+    'fails the read by name when basicly --version does not start',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      world.afterRun = (argv) => {
+        if (argv[1] === '--version') throw new Error('spawn failed')
+      }
+      world.answer = 'Not now'
+      changeKit(world, 40)
+      const snapshot = await pollUntil($, clock, 2_000, stateIs('failed'))
+      expect(snapshot.reason).toBe(
+        'basicly --version did not start or did not end in time, so it could not be read.',
+      )
+      expect(world.asks.length).toBe(1)
+    },
+  )
+
+  test(
+    'an approval kept on 0.21.1 or later does not cover a kit change after a downgrade',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      reportVersion(world, 'basicly 0.21.2\n')
+      world.answer = 'Not now'
+      changeKit(world, 40)
+      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      expect(world.asks.length).toBe(1)
+      reportVersion(world, 'basicly 0.20.4\n')
+      const runsBefore = world.runs.length
+      touchLedger(world, 50)
+      await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
+      expect(world.asks.length).toBe(2)
+      expect(world.runs.slice(runsBefore).filter(isListRun)).toEqual([])
+    },
+  )
+
+  test(
+    'a changed resolved basicly asks again on 0.21.1 or later and runs nothing of it',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      const movedBin = '/opt/basicly-2/basicly'
+      reportVersion(world, 'basicly 0.21.2\n')
+      world.outputs.set(`${movedBin} --version`, { stdout: 'basicly 0.21.2\n' })
+      world.files.set(movedBin, { text: 'binary', mtimeMs: 1 })
+      world.links.set(BASICLY_BIN, movedBin)
+      const runsBefore = world.runs.length
+      world.answer = 'Not now'
+      const snapshot = await startSession($, clock, true, asksAndState(world, 2, 'approval-needed'))
+      expect(world.asks.length).toBe(2)
+      expect(snapshot.state).toBe('approval-needed')
+      expect(world.runs.slice(runsBefore)).toEqual([])
+    },
+  )
+
+  for (const isInteractive of [true, false]) {
+    test(
+      `runs no basicly command, --version included, before approval (interactive: ${String(isInteractive)})`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const clock = mock.clock(on)
+        const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+        answerBasicly(world)
+        reportVersion(world, 'basicly 0.21.2\n')
+        world.answer = 'Not now'
+        const snapshot = await startSession($, clock, isInteractive, stateIs('approval-needed'))
+        changeKit(world, 40)
+        touchLedger(world, 40)
+        await clock.advance(4_000)
+        expect(snapshot.state).toBe('approval-needed')
+        expect(world.asks.length).toBe(isInteractive ? 2 : 0)
+        expect(world.runs).toEqual([])
+      },
+    )
+  }
+
+  test(
+    'an approval kept before this change stays valid and stops covering the kit on 0.21.1 or later',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+      answerBasicly(world)
+      await legacyApproval(world)
+      const snapshot = await startSession($, clock, false, listRunsSince(world, 0, 3))
+      expect(snapshot.state).toBe('ok')
+      expect(world.asks).toEqual([])
+      expect(world.runs.map((run) => run.argv[1])).toEqual(['tracker', 'tracker', 'tracker'])
+      reportVersion(world, 'basicly 0.21.2\n')
+      changeKit(world, 40)
+      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      expect(world.asks).toEqual([])
+      expect((await snapshotOf($)).state).toBe('ok')
+    },
+  )
 })
 
 const userEntry = (argv: readonly string[] = ADAPTER_ARGV) => ({ [ROOT]: argv })

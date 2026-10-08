@@ -22,6 +22,10 @@ const PROGRAM = 'basicly'
 const LABEL = 'basicly tracker list'
 const COMMAND = [PROGRAM, 'tracker', 'list'] as const
 const OPEN_STATUSES = ['open', 'in_progress', 'blocked'] as const
+const VERSION_LABEL = 'basicly --version'
+const VERSION_LINE = /^basicly (\d+)\.(\d+)\.(\d+)$/
+const RUNS_ONLY_PACKAGE_SINCE = [0, 21, 1] as const
+const KIT_NOTE = `(basicly 0.21.1 or later runs only the installed package; asked again if the command changes. An older basicly also runs the repo code in ${KIT_FOLDER}; asked again if a file there changes)`
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -84,6 +88,36 @@ function freshCacheFolder(root: string): string {
   return `${root.replace(/[\\/]+$/, '')}/.handily-pycache-${crypto.randomUUID()}`
 }
 
+function pythonEnv(root: string): Record<string, string> {
+  return {
+    PYTHONDONTWRITEBYTECODE: '1',
+    PYTHONPYCACHEPREFIX: freshCacheFolder(root),
+  }
+}
+
+function runsOnlyPackage(versionOutput: string): boolean {
+  const match = VERSION_LINE.exec(versionOutput.trim())
+  if (match === null) return false
+  const version = match.slice(1).map(Number)
+  for (const [index, floor] of RUNS_ONLY_PACKAGE_SINCE.entries()) {
+    const part = version[index] ?? 0
+    if (part !== floor) return part > floor
+  }
+  return true
+}
+
+async function ignoresKit(files: TrackerFiles, argv0: string): Promise<boolean> {
+  let result
+  try {
+    result = await files.commands.run([argv0, '--version'], pythonEnv(files.root))
+  } catch {
+    throw new ItemFault(
+      `${VERSION_LABEL} did not start or did not end in time, so it could not be read.`,
+    )
+  }
+  return result.exitCode === 0 && !result.isStdoutTruncated && runsOnlyPackage(result.stdout)
+}
+
 function approvalNeeded(): ReadOutcome {
   return {
     ok: false,
@@ -98,16 +132,15 @@ async function approvedProgram(files: TrackerFiles): Promise<string | undefined>
     command: COMMAND,
     shown: [...COMMAND, '--status', 'open'],
     folders: KIT_CODE,
+    note: KIT_NOTE,
+    ignoresFolders: (argv0) => ignoresKit(files, argv0),
   })
   return verdict.approved ? verdict.argv0 : undefined
 }
 
 async function listOpenItems(files: TrackerFiles): Promise<ReadOutcome> {
   const byKey = new Map<string, WorkitemsItem>()
-  const env = {
-    PYTHONDONTWRITEBYTECODE: '1',
-    PYTHONPYCACHEPREFIX: freshCacheFolder(files.root),
-  }
+  const env = pythonEnv(files.root)
   for (const status of OPEN_STATUSES) {
     const argv0 = await approvedProgram(files)
     if (argv0 === undefined) return approvalNeeded()
