@@ -17,18 +17,25 @@ Status: in development. No mod is released yet. See [docs/design.md](docs/design
 | `quiet-items` | One short row in place of a raw tracker file write |
 | `task-pane` | Claude's task list in a sidebar. You can add and remove tasks |
 | `session-board` | All local Claude sessions: task, worktree, time worked, estimate |
-| `work-status` | The held work item and the ready count in the status line |
 | `item-toasts` | A toast when a work item changes outside your session |
 
 ## Install
 
-After the first release, type this at the prompt of a Claude Code session in a terminal:
+Type these at the prompt of a Claude Code session in a terminal. The first line adds the
+marketplace and installs one mod. A mod that needs `workitems` installs it too.
 
 ```text
-/plugin install task-pane --marketplace niksavis/handily
+/plugin install quiet-items --marketplace niksavis/handily
+/plugin install task-pane@handily
+/plugin install session-board@handily
+/plugin install item-toasts@handily
 ```
 
-Answer `y` to add the marketplace, then pick a scope.
+You can also open `/plugin` and pick the mods from the handily marketplace.
+
+The mods run in Claude Code only. Codex reads this repository's `.agents/plugins/marketplace.json`
+first, which lists no plugins, so Codex offers none of them. If you installed a handily mod in
+Codex before that file existed, remove it with `codex plugin remove <name>@handily`.
 
 ## Requirements
 

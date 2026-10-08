@@ -217,6 +217,17 @@ function checkMarketplaceIsGenerated(mods) {
   }
 }
 
+function checkCodexMarketplaceIsEmpty() {
+  const path = join(root, '.agents', 'plugins', 'marketplace.json')
+  const label = relative(root, path)
+  const codex = existsSync(path) ? readJson(path, 'codex marketplace') : undefined
+  if (!codex || !Array.isArray(codex.plugins) || codex.plugins.length > 0) {
+    fail(
+      `codex marketplace: ${label} must exist with an empty "plugins" list, so Codex offers none of the Claude Code mods`,
+    )
+  }
+}
+
 function checkMarketplace(mods) {
   const marketplace = readJson(marketplacePath, 'marketplace')
   if (!marketplace) return
@@ -344,6 +355,7 @@ function lint(mods) {
 function validate(mods) {
   checkMarketplace(mods)
   checkMarketplaceIsGenerated(mods)
+  checkCodexMarketplaceIsEmpty()
   const strict = mods.length > 0 ? ['--strict'] : []
   if (mods.length === 0) {
     console.log(
