@@ -1,4 +1,11 @@
-import type { EngineInterface, Register, RenderElement, RenderPropsOf, Timer } from 'claude-code'
+import type {
+  EngineInterface,
+  Register,
+  RenderElement,
+  RenderPropsOf,
+  Timer,
+  ToolGroupCall,
+} from 'claude-code'
 import type { SimpleViewMode } from '../types'
 import { commandLabel, programOf } from './command'
 import { KEPT_CALLS, callRecord, showText, slotOf, type CallFacts } from './detail'
@@ -252,6 +259,10 @@ async function isSimple($: EngineInterface, id: string): Promise<boolean> {
   return quietMode === 'off'
 }
 
+function isFailed(call: ToolGroupCall): boolean {
+  return call.isErrored && !call.isRunning
+}
+
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -304,6 +315,18 @@ export const register: Register = (on) => {
       timing,
     })
     return answer
+  })
+
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    if (e.props.isExpanded || !e.props.calls.some(isFailed)) return next(e)
+    let isOn = false
+    try {
+      const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
+      isOn = mode === 'on'
+    } catch (error) {
+      logFailure($, 'the engine folds a group with a failed call', error)
+    }
+    return next(isOn ? { ...e, props: { ...e.props, isExpanded: true } } : e)
   })
 
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {

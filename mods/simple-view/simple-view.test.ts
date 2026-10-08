@@ -29,6 +29,8 @@ type World = {
   delayMs: number
   isRootRefused: boolean
   isCallWriteRefused: boolean
+  isModeReadRefused: boolean
+  groups: boolean[]
 }
 
 function bashOutput(stdout: string, extra: Record<string, unknown> = {}) {
@@ -86,6 +88,8 @@ function engineBeneath(on: On): World {
     delayMs: 0,
     isRootRefused: false,
     isCallWriteRefused: false,
+    isModeReadRefused: false,
+    groups: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -98,12 +102,20 @@ function engineBeneath(on: On): World {
       ? { deny: 'the fake state refuses the write' }
       : next(e),
   )
+  on('state.get', (_$, e, next) =>
+    world.isModeReadRefused && e.plugin === 'simple-view' && e.key === 'mode'
+      ? { deny: 'the fake state refuses the read' }
+      : next(e),
+  )
   on('tool.call', async (_$, e) => {
     world.ids.push(e.tool_use_id)
     if (world.delayMs > 0) await world.clock.sleep(world.delayMs)
     return world.answer(e)
   })
-  on('ui.render', () => ENGINE_ROW)
+  on('ui.render', (_$, e) => {
+    if (e.component === 'ToolGroup') world.groups.push(e.props.isExpanded)
+    return ENGINE_ROW
+  })
   on('ui.log', (_$, e) => {
     world.logs.push(e.text)
     return { value: undefined }
@@ -218,6 +230,44 @@ const EDIT_DIFF = {
   ],
   moreFiles: 0,
   changedFiles: [`${ROOT}/src/app.ts`, `${ROOT}/docs/new.md`],
+}
+
+function groupCall(id: string, command: string, answer: Answer) {
+  return {
+    tool_use_id: id,
+    tool: 'Bash',
+    input: { command },
+    isRunning: false,
+    isErrored: answer.isError === true,
+    isInterrupted: false,
+    output: answer.result,
+  }
+}
+
+const LISTED = groupCall('toolu_g1', 'ls', answered('a\nb\n'))
+const MISSING = groupCall(
+  'toolu_g2',
+  'ls /nonexistent-dir',
+  failed("Error: Exit code 2\nls: cannot access '/nonexistent-dir': No such file or directory"),
+)
+
+function group(
+  calls: RenderPropsOf['ToolGroup']['calls'],
+  isExpanded = false,
+): RenderPropsOf['ToolGroup'] {
+  return { calls, isActive: false, isExpanded }
+}
+
+async function groupExpansion(
+  world: World,
+  $: Engine,
+  props: RenderPropsOf['ToolGroup'],
+  surface: Surface = 'terminal',
+): Promise<boolean[]> {
+  world.groups.length = 0
+  const ui = await $.ui.mount({ plugin: 'simple-view', surface, component: 'ToolGroup', props })
+  await ui.unmount()
+  return [...world.groups]
 }
 
 describe('command reading', () => {
@@ -762,6 +812,39 @@ describe('/simple show', () => {
     const text = await commandText($, 'show 1')
     expect(text).toContain('Read, errored')
     expect(text).toContain('Refused: not in this folder')
+  })
+})
+
+describe('folded tool group', () => {
+  for (const surface of SURFACES) {
+    viewTest(`unfolds a group that holds a failed call on ${surface}`, async (world, $) => {
+      expect(await groupExpansion(world, $, group([LISTED, MISSING]), surface)).toEqual([true])
+    })
+  }
+
+  viewTest('leaves a group without a failed call folded', async (world, $) => {
+    expect(await groupExpansion(world, $, group([LISTED]))).toEqual([false])
+  })
+
+  viewTest('leaves a group folded while its failed call still runs', async (world, $) => {
+    const running = { ...MISSING, isRunning: true, output: undefined }
+    expect(await groupExpansion(world, $, group([LISTED, running]))).toEqual([false])
+  })
+
+  viewTest('leaves an unfolded group as it is', async (world, $) => {
+    expect(await groupExpansion(world, $, group([LISTED], true))).toEqual([true])
+  })
+
+  viewTest('leaves every group folded while the mode is off', async (world, $) => {
+    await commandText($, '')
+    expect(await groupExpansion(world, $, group([LISTED, MISSING]))).toEqual([false])
+    expect(await groupExpansion(world, $, group([LISTED]))).toEqual([false])
+  })
+
+  viewTest('leaves the group folded when the mode cannot be read', async (world, $) => {
+    world.isModeReadRefused = true
+    expect(await groupExpansion(world, $, group([LISTED, MISSING]))).toEqual([false])
+    expect(world.logs.some((line) => line.startsWith('simple-view: the engine folds'))).toBe(true)
   })
 })
 

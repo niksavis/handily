@@ -78,6 +78,11 @@ In the normal view the engine folds runs of read-only calls into one group line,
 `Listed 2 directories, ran 2 shell commands`. simple-view leaves that line as the engine draws
 it. The ctrl+o transcript unfolds the group, and each call there shows its simple-view row.
 
+When a folded group holds a call that failed, simple-view unfolds the group while its mode is
+on. Each call of the group then draws as its own row, so the failure is visible. A call that
+still runs does not unfold the group. When `quiet-items` also unfolds the group, the result is
+the same.
+
 ## Commands
 
 | Command          | Effect                                                                                   |

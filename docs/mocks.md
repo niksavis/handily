@@ -719,6 +719,24 @@ After:
   Listed 2 directories, ran 2 shell commands    <- a folded group: drawn as the engine draws it
 ```
 
+### Terminal, a folded group with a failed call (handily-azz23)
+
+Before (the engine folds the group and hides the failure):
+
+```text
+  Listed 1 directory, ran 1 shell command
+```
+
+After (simple-view unfolds the group, so each call draws as its own row):
+
+```text
+● List a missing folder  ~ls~  #exit 2#  #ls: cannot access '/nonexistent-dir': No such file or directory#  ~0.4s~
+● Print a probe line  ~echo~  +exit 0+  ~1 line~  ~0.1s~
+```
+
+- simple-view unfolds a folded group only while its mode is on, and only when a call in the
+  group failed and no longer runs. Every other group stays as the engine draws it.
+
 ### Terminal, narrow (80 columns)
 
 ```text
