@@ -432,6 +432,43 @@ Limits:
   that sight.
 - The mod does not drop the row of an agent that `agent.list` named.
 
+### 4.8 simple-view (handily-v921)
+
+One row for each `Bash`, `Edit` and `Write` call, one `/simple` switch per session, and
+`/simple show N` to print a call in full. The mocks are in `docs/mocks.md`, section 6.
+
+Measured usage (2026-10-08, 94 local session transcripts, top level only): 13356 tool calls.
+`Bash` made 11744 of them (88 percent), `Edit` 327 and `Write` 239. So the mod starts with
+these three tools.
+
+Engine facts (Claude Code 2.1.294, from the generated types and two live probes):
+
+| Fact | Consequence |
+| --- | --- |
+| `ToolUse` props carry no start time | The mod reads `$.clock.now()` before and after `next(e)` in `tool.call`, and keeps the time in `$.state` by `tool_use_id`. The time includes a permission wait |
+| A `$.state` read while drawing subscribes the row | A `$.clock.every` of 1 s writes the running time, so the running row redraws. The timer stops when the call ends |
+| An errored `Bash` output is a string `Error: Exit code N` and the stderr lines | The row shows `exit N` and the first non-empty line after it. Another error text draws the engine row |
+| A successful `Bash` output has no exit code | The row shows `exit 0`, or `returnCodeInterpretation` when the engine gives one |
+| `bashEditDiff` holds the per-file hunks of a `Bash` call | The `ToolResult` shows one line per file with its totals. Replacing that `ToolResult` hides the engine's diff body |
+| `Edit` and `Write` outputs hold `structuredPatch` | The totals are the `+` and `-` lines of the patch. A new file counts its content. An update with no patch shows the path only |
+| ctrl+o reuses the settled render | No row can expand in place, so `/simple show N` prints the call |
+| The normal view folds runs of `Bash` calls into one `ToolGroup` line | The mod leaves the group line as the engine draws it. The ctrl+o transcript unfolds it into `ToolUse` rows |
+| `$.state.set` on another plugin's key is refused (`quiet-items owns that value and only its owner writes it`) | `/simple` cannot set the `quiet-items` mode. It switches only its own mode |
+
+Defer to quiet-items:
+
+- `simple-view` lists `quiet-items` under `dependencies`, so the `quiet-items` contract types
+  the read of its `rows` key.
+- When `quiet-items` stored rows for a call, both renders go to `next(e)`.
+
+`/simple show` memory:
+
+- The mod keeps the last 50 calls of the main loop in a `StateFamily` of 50 slots, and a
+  `count` key that it raises with `ifVersion`.
+- It cuts each part (input, output, diff) at 8000 characters.
+- `/simple show N` reads the slot of call `count - N` and checks the sequence number in it, so a
+  slot that a lost write left behind is not shown as the wrong call.
+
 ## 5. Repo layout (proposed)
 
 ```text

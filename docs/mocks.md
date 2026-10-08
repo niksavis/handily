@@ -655,3 +655,112 @@ fallback text.
 /agent-board close    -> Agent board closed.
 /agent-board x        -> Unknown argument "x". Use /agent-board or /agent-board close.
 ```
+
+---
+
+## 6. simple-view (handily-v921)
+
+One row for each `Bash`, `Edit` and `Write` call. These mocks are proposed and need the person's
+approval. The rows marked `(live)` were read from a terminal run with Claude Code 2.1.294 on
+2026-10-08. After that run, the result lines got a two-column indent.
+
+### Terminal, normal (wide, 150 columns)
+
+Before (engine rows):
+
+```text
+● Bash(printf "probe\n" >> README.md)
+  ⎿  Updated README.md (+1 -0)
+      91  ## License
+      92
+      93  [MIT](LICENSE)
+      94 +probe
+```
+
+After:
+
+```text
+● List the mods  ~ls~  +exit 0+  ~7 lines~  ~1.1s~                                              (live)
+● sleep 4 …  ~sleep~  +exit 0+  ~1 line~  ~4.3s~                                               (live)
+● List a missing folder  ~ls~  #exit 2#  #ls: cannot access '/nonexistent-folder': No such file or directory#  ~0.4s~  (live)
+● Append a probe line  ~printf~  +exit 0+  ~0 lines~  ~2.8s~                                    (live)
+  Updated README.md (+1 -0)
+● Run the unit tests  ~npm~  !running!  ~3.0s~
+● Search for zzz  ~grep~  ~No matches found~  ~0 lines~  ~0.2s~
+● Write  docs/new.md  ~+3 -0~
+● Edit  src/app.ts  ~+2 -1~
+● Write  /elsewhere/big.json
+```
+
+- The marker `●` is green after `exit 0`, red after `exit N` and dim while the call runs.
+- Columns: description (cut first, `truncate-end`), program, state, count or first error line,
+  time. Two spaces between columns.
+- No description: the first command segment, cut at 60 characters. An ellipsis marks a cut or
+  a segment that follows (`sleep 4 …`).
+- The result block holds one line per changed file (`Updated`, `Created` or `Deleted`, with the
+  totals), `~and N more changed files~` for files without a diff, or
+  `~File changes were not tracked for this call~`. With no changed file, it is drawn empty.
+- After `exit N`, and under an `Edit` or `Write` row, the result block is drawn empty.
+- `Write /elsewhere/big.json` with no totals: the engine gave no diff, so the mod shows the path
+  only.
+
+### Terminal, fallback cases (the engine row is drawn unchanged, `next(e)`)
+
+```text
+● Bash(br close handily-ab12)          <- quiet-items stored a row: its row wins
+● Bash(sleep 60)                       <- interrupted (Esc), refused, or run in the background
+● Bash(npm test)                       <- errored without "Error: Exit code N" (a timeout)
+  Listed 2 directories, ran 2 shell commands    <- a folded group: drawn as the engine draws it
+```
+
+### Terminal, narrow (80 columns)
+
+```text
+● List a missing folder  ~ls~  #exit 2#  #ls: cannot access '/nonex…#  ~0.4s~
+● Append a probe line  ~printf~  +exit 0+  ~0 lines~  ~2.8s~
+  Updated README.md (+1 -0)
+```
+
+The error line shrinks first, then the description. The program, the state and the time stay.
+
+### Desktop
+
+- The same rows, with no `●` marker. The desktop draws its own row chrome around `ToolUse`.
+- The result lines have no indent.
+
+### Command replies (`/simple`)
+
+```text
+/simple          -> off for this session. Tool calls draw as Claude Code draws them.
+/simple          -> on for this session. Bash, Edit and Write calls draw as one row. /simple show N
+                    prints call N in full, where 1 is the last call.
+/simple show 2   -> Call 2 of the last 8 (1 is the last): Edit, answered, 0.4s
+                    Input:  { "file_path": "…/notes.txt", "old_string": "b\n", "new_string": "b1\nb2\n" }
+                    Output: The file …/notes.txt has been updated successfully. …
+                    File diff:
+                    --- …/notes.txt
+                    +++ …/notes.txt
+                    @@ -1,3 +1,4 @@
+                     a
+                    -b
+                    +b1
+                    +b2
+                     c
+/simple show 9   -> No call 9 is kept. /simple show takes a call number from 1 to 8, where 1 is
+                    the last tool call.
+/simple show     -> /simple show takes a call number from 1 to 8, where 1 is the last tool call.
+/simple show 1   -> /simple show has no tool call to print yet in this session.   (no call yet)
+/simple x        -> /simple takes no argument, or show N. /simple toggles this session;
+                    /simple show N prints the N-th last tool call in full.
+```
+
+Claude Code puts `simple-view:` before each reply. The input, the output and the diff are in
+fenced blocks.
+
+Look choices (proposed):
+
+1. Column order `description  program  state  count  time`, with two spaces between columns.
+2. `Created` and `Deleted` in place of `Updated` for a new or a removed file.
+3. The meaning of a non-error exit code (`No matches found`) in place of `exit 0`.
+4. The result block under an `exit N` row is drawn empty. The first error line is in the row,
+   and `/simple show N` prints the rest.

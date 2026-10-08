@@ -38,6 +38,12 @@
       "description": "A board of every local Claude Code session: state, task, worktree and time worked."
     },
     {
+      "name": "simple-view",
+      "source": "./mods/simple-view",
+      "version": "0.1.0",
+      "description": "One short row for each Bash, Edit and Write call, with /simple to switch it and /simple show to print a call in full."
+    },
+    {
       "name": "task-pane",
       "source": "./mods/task-pane",
       "version": "0.2.0",

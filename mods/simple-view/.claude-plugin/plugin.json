@@ -1,0 +1,10 @@
+{
+  "name": "simple-view",
+  "version": "0.1.0",
+  "description": "One short row for each Bash, Edit and Write call, with /simple to switch it and /simple show to print a call in full.",
+  "author": {
+    "name": "niksavis"
+  },
+  "dependencies": ["quiet-items"],
+  "types": "./types/index.d.ts"
+}
