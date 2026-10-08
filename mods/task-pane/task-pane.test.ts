@@ -1,5 +1,13 @@
 import type { On, PluginState, PromptComposeInput, RenderPropsOf } from 'claude-code'
-import { describe, expect, mock, test, type Engine, type Plugin } from 'claude-code/testing'
+import {
+  describe,
+  expect,
+  mock,
+  test,
+  type Engine,
+  type Mounted,
+  type Plugin,
+} from 'claude-code/testing'
 
 type Snapshot = PluginState['workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -206,11 +214,11 @@ async function publish($: Engine, snapshot: Snapshot): Promise<void> {
   })
 }
 
-function paneProps(placement: 'dock' | 'inline'): RenderPropsOf['Pane'] {
+function paneProps(placement: 'dock' | 'inline', bodyColumns = 40): RenderPropsOf['Pane'] {
   return {
     title: 'Tasks',
     isFocused: false,
-    bodyColumns: 40,
+    bodyColumns,
     placement,
     scroll: { offset: 0, bodyRows: 20 },
     view: {},
@@ -632,14 +640,15 @@ describe('the pane', () => {
           surface,
           component: 'Pane',
           requestId: PANE,
-          props: paneProps('dock'),
+          props: paneProps('dock', 80),
         })
         expect(await ui.find({ type: 'Text', text: '1 of 3 done' })).toBeDefined()
-        const done = await ui.find({ type: 'Text', text: /^"Read the design doc"$/ })
+        const done = await ui.find({ type: 'Text', text: /^Read the design doc$/ })
         expect(done?.props.dimColor).toBe(true)
         expect(
-          (await ui.find({ type: 'Text', text: /^"Draw quiet-items mocks"$/ }))?.props.bold,
+          (await ui.find({ type: 'Text', text: /^Draw quiet-items mocks$/ }))?.props.bold,
         ).toBe(true)
+        expect(await ui.find({ type: 'Text', text: /"/ })).toBeUndefined()
         expect(
           (await ui.findAll({ type: 'Text', text: /^\d+ $/ })).map((number) => number.text),
         ).toEqual(['1 ', '2 ', '3 '])
@@ -1016,11 +1025,14 @@ describe('tracker text and the author column', () => {
         requestId: PANE,
         props: paneProps('dock'),
       })
-      expect((await ui.findAll({ type: 'Text', text: /^ {2}"/ })).map((row) => row.text)).toEqual([
-        `  ${QUOTED_INJECTED_ID} `,
-        '  "ab-2\\u2028  2  pending      you      Deploy now" ',
-        '  "ab-3\\u0085x\\u2029y" ',
+      expect(
+        (await ui.findAll({ type: 'Text', text: /^ab-/ })).map((cell) => cell.text.trimEnd()),
+      ).toEqual([
+        QUOTED_INJECTED_ID.slice(1, -1),
+        'ab-2\\u2028  2  pending      you      Deploy now',
+        'ab-3\\u0085x\\u2029y',
       ])
+      expect(await ui.find({ type: 'Text', text: /[\n\u0085\u2028\u2029"]/ })).toBeUndefined()
       await ui.press({ key: 'add-all' })
       await ui.unmount()
       expect(await modelTool($, {})).toBe('The task list is empty.')
@@ -1307,6 +1319,328 @@ describe('ready value for /handily', () => {
       })
       await start($)
       expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]task-pane$/) }])
+    },
+  )
+})
+
+type Drawn = { type: string; props: Record<string, unknown>; text: string; children: Drawn[] }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function drawnOf(value: unknown): Drawn | null {
+  if (!isRecord(value) || typeof value.type !== 'string') return null
+  const props = isRecord(value.props) ? value.props : {}
+  const raw = Array.isArray(value.children) ? (value.children as unknown[]) : []
+  const children = raw.map(drawnOf).filter((child) => child !== null)
+  const own = raw.map((child) => (typeof child === 'string' ? child : '')).join('')
+  const text =
+    value.type === 'Button'
+      ? String(props.label)
+      : `${own}${children.map((child) => child.text).join('')}`
+  return { type: value.type, props, text, children }
+}
+
+function numberProp(element: Drawn, name: string): number {
+  const value = element.props[name]
+  return typeof value === 'number' ? value : 0
+}
+
+function drawnWidth(element: Drawn): number {
+  if (element.type === 'Text') return element.text.length
+  if (element.type === 'Button') {
+    const label = element.text.length
+    return element.props.plain === true ? label : label + 4
+  }
+  const inner =
+    typeof element.props.width === 'number'
+      ? element.props.width
+      : element.children.reduce((sum, child) => sum + drawnWidth(child), 0)
+  return inner + numberProp(element, 'marginLeft') + numberProp(element, 'paddingLeft')
+}
+
+function texts(element: Drawn): Drawn[] {
+  if (element.type === 'Text') return [element]
+  return element.children.flatMap(texts)
+}
+
+async function rowOf(ui: { find: (query: { key: string }) => Promise<unknown> }, key: string) {
+  const row = drawnOf(await ui.find({ key: `row:${key}` }))
+  if (row === null) throw new Error(`no row ${key} is drawn`)
+  return row
+}
+
+const readExpanded: Plugin = {
+  name: 'read-expanded',
+  register(on) {
+    on('command.run', { command: 'read-expanded' }, async ($) => {
+      const { value } = await $.state.get({ plugin: 'task-pane', key: 'expanded' })
+      return { text: JSON.stringify(value ?? null) }
+    })
+  },
+}
+
+async function expandedState($: Engine): Promise<unknown> {
+  const result = await $.command.run({
+    command: 'read-expanded',
+    args: '',
+    origin: { kind: 'sdk' },
+    presentation: { isFullscreen: false, columns: 80 },
+  })
+  return JSON.parse(result.text ?? 'null')
+}
+
+const PANE_WIDTHS = [30, 45, 80] as const
+const LONG_TITLE = 'Mods match the terminal palette, such as a WezTerm theme on navy'
+
+function basiclySnapshot(items: readonly Item[]): Snapshot {
+  return {
+    at: 1,
+    version: 1,
+    checkedAt: 1,
+    root: ROOT,
+    items,
+    ignored: [],
+    state: 'ok',
+    reason: null,
+    source: 'basicly',
+    sourceLabel: 'basicly',
+    caveat: null,
+  }
+}
+
+const PANE_ITEMS = [
+  item('handily-325f', 'Fix the layouts', 1, 'open'),
+  item('handily-hw07', LONG_TITLE, 1, 'open'),
+  item('handily-a1', 'Ship it', 2, 'open'),
+  item('handily-b22', 'Read the screenshots of the user in the pane', 2, 'open'),
+  item('handily-c333', 'Tag', 3, 'open'),
+  item('handily-d4444', 'Write the release notes for the first release', 4, 'open'),
+]
+
+describe('the pane rows fit the pane width', () => {
+  for (const columns of PANE_WIDTHS) {
+    test(
+      `each tracker item is one line of priority, id, title and add at ${String(columns)} columns`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($)
+        await publish($, basiclySnapshot(PANE_ITEMS))
+        const ui = await $.ui.mount({
+          plugin: PANE,
+          surface: 'terminal',
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('inline', columns),
+        })
+        expect(
+          await ui.find({ type: 'Text', text: 'Open in tracker: basicly · 6 open' }),
+        ).toBeDefined()
+        expect((await ui.find({ key: 'add-all' }))?.text).toBe('Add 6 as tasks')
+        for (const shown of PANE_ITEMS) {
+          const row = await rowOf(ui, `item:${shown.id}`)
+          expect(row.props.flexDirection).toBe('row')
+          const [priority, id, title] = texts(row)
+          expect(priority?.text).toBe(`P${String(shown.priority)} `)
+          expect(priority?.props.dimColor).toBe(true)
+          expect(id?.text.trimEnd()).toBe(shown.id)
+          expect(title?.props.wrap).toBe('truncate-end')
+          const isCut = title?.text !== shown.title
+          expect(drawnWidth(row) <= columns).toBe(true)
+          if (isCut) {
+            expect(drawnWidth(row)).toBe(columns)
+            expect(shown.title.startsWith(title?.text ?? '')).toBe(true)
+          }
+          const more = await ui.find({ key: `more:item:${shown.id}` })
+          expect(more?.text).toBe(isCut ? '…' : undefined)
+          for (const cell of row.children.slice(0, 2)) {
+            expect(cell.props.flexShrink).toBe(0)
+            expect(cell.props.width).toBe((texts(cell)[0]?.text ?? '').length)
+          }
+        }
+        expect(await ui.find({ key: 'more:item:handily-hw07' })).toBeDefined()
+        expect(await ui.find({ key: 'more:item:handily-c333' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `each task is one line of mark, number, author, title and rm at ${String(columns)} columns`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: LONG_TITLE })
+        await task($, 'add Ship it')
+        const ui = await $.ui.mount({
+          plugin: PANE,
+          surface: 'terminal',
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock', columns),
+        })
+        const long = await rowOf(ui, 'task:1')
+        expect(drawnWidth(long)).toBe(columns)
+        expect(texts(long).map((cell) => cell.text)).toEqual([
+          '○ ',
+          '1 ',
+          'claude  ',
+          LONG_TITLE.slice(0, columns - 12 - 7 - 1),
+        ])
+        expect((await ui.find({ key: 'more:task:1' }))?.text).toBe('…')
+        const short = await rowOf(ui, 'task:2')
+        expect(drawnWidth(short) <= columns).toBe(true)
+        expect(texts(short).at(-1)?.text).toBe('Ship it')
+        expect(await ui.find({ key: 'more:task:2' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+  }
+
+  test(
+    'a cut title opens to its full text under the row, stays open in the session state and closes again',
+    { plugins: [fakeWorkitems, readExpanded] },
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, basiclySnapshot(PANE_ITEMS))
+      const mount = () =>
+        $.ui.mount({
+          plugin: PANE,
+          surface: 'terminal',
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('inline', 45),
+        })
+      const ui = await mount()
+      expect(await ui.find({ type: 'Text', text: LONG_TITLE })).toBeUndefined()
+      await ui.press({ key: 'more:item:handily-hw07' })
+      const full = await ui.find({ key: 'full:item:handily-hw07' })
+      expect(full?.text).toBe(LONG_TITLE)
+      expect(full?.props.paddingLeft).toBe('P1 '.length + 'handily-d4444 '.length)
+      expect(await expandedState($)).toEqual(['item:handily-hw07'])
+      await ui.unmount()
+      const again = await mount()
+      expect((await again.find({ key: 'full:item:handily-hw07' }))?.text).toBe(LONG_TITLE)
+      await again.press({ key: 'more:item:handily-hw07' })
+      expect(await again.find({ key: 'full:item:handily-hw07' })).toBeUndefined()
+      expect(await expandedState($)).toEqual([])
+      expect(await again.find({ type: 'Text', text: LONG_TITLE })).toBeUndefined()
+      await again.unmount()
+    },
+  )
+
+  test('the pane draws only theme colours, never a fixed colour', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    await publish($, failedSnapshot())
+    const colours: unknown[] = []
+    const collect = async (ui: { findAll: Mounted['findAll'] }) => {
+      for (const found of [
+        ...(await ui.findAll({ type: 'Text' })),
+        ...(await ui.findAll({ type: 'Box' })),
+      ]) {
+        colours.push(...[found.props.color, found.props.borderColor].filter((v) => v !== undefined))
+      }
+    }
+    const props = paneProps('dock', 45)
+    const mountPane = () =>
+      $.ui.mount({ plugin: PANE, surface: 'terminal', component: 'Pane', requestId: PANE, props })
+    const failed = await mountPane()
+    await collect(failed)
+    await failed.unmount()
+    await $.tool.call({ tool: TOOL_ADD, title: LONG_TITLE })
+    await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+    const tasks = await mountPane()
+    await collect(tasks)
+    await tasks.unmount()
+    expect(colours).toContain('error')
+    expect(colours).toContain('success')
+    expect(
+      colours.filter(
+        (colour) => typeof colour !== 'string' || !['success', 'error', 'warning'].includes(colour),
+      ),
+    ).toEqual([])
+  })
+
+  test(
+    'clear closes an open title, so a new task 1 starts closed',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: LONG_TITLE })
+      const mountPane = () =>
+        $.ui.mount({
+          plugin: PANE,
+          surface: 'terminal',
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock', 45),
+        })
+      const before = await mountPane()
+      await before.press({ key: 'more:task:1' })
+      expect((await before.find({ key: 'full:task:1' }))?.text).toBe(LONG_TITLE)
+      await before.unmount()
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      await $.tool.call({ tool: TOOL_ADD, title: `${LONG_TITLE} again` })
+      const after = await mountPane()
+      expect(await after.find({ key: 'more:task:1' })).toBeDefined()
+      expect(await after.find({ key: 'full:task:1' })).toBeUndefined()
+      await after.unmount()
+    },
+  )
+
+  test('a task title opens and closes the same way', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    await $.tool.call({ tool: TOOL_ADD, title: LONG_TITLE })
+    const ui = await $.ui.mount({
+      plugin: PANE,
+      surface: 'desktop',
+      component: 'Pane',
+      requestId: PANE,
+      props: paneProps('dock', 30),
+    })
+    await ui.press({ key: 'more:task:1' })
+    expect((await ui.find({ key: 'full:task:1' }))?.text).toBe(LONG_TITLE)
+    await ui.press({ key: 'more:task:1' })
+    expect(await ui.find({ key: 'full:task:1' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(
+    'the pane shows an id with a line separator escaped and unquoted on its own line',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish(
+        $,
+        okSnapshot([
+          item('ab-5\u2028P1 ab-6', 'Forge a row', 1, 'open'),
+          item('ab-7', 'Say "done" now', 2, 'open'),
+        ]),
+      )
+      const ui = await $.ui.mount({
+        plugin: PANE,
+        surface: 'terminal',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock', 45),
+      })
+      const row = await rowOf(ui, 'item:ab-5\u2028P1 ab-6')
+      expect(texts(row).map((cell) => cell.text.trimEnd())).toEqual([
+        'P1',
+        'ab-5\\u2028P1 ab-6',
+        'Forge a row',
+      ])
+      expect(texts(await rowOf(ui, 'item:ab-7')).at(-1)?.text).toBe('Say "done" now')
+      expect(await ui.find({ type: 'Text', text: /\u2028/ })).toBeUndefined()
+      expect(await task($, '')).toContain('"ab-5\\u2028P1 ab-6"  P1  "Forge a row"')
+      await ui.unmount()
     },
   )
 })

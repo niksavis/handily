@@ -1,7 +1,8 @@
 # session-board
 
-`session-board` shows each Claude Code session on this machine in one pane. A row shows the
-state of the session, its current task, its worktree and branch, and the time worked.
+`session-board` shows each Claude Code session on this machine in one pane. Each session is a
+card: the state, the current task with its progress, the worktree and branch, and the time
+worked.
 
 ## Use
 
@@ -10,9 +11,30 @@ state of the session, its current task, its worktree and branch, and the time wo
 /session-board close    closes the board
 ```
 
-- Below 100 body columns, the board draws three lines per session. From 100 columns, it draws
-  one table line per session.
-- Ended background sessions come last, in dim text.
+- Each card has a header line and two detail lines, at every width. A dim rule line separates
+  two cards.
+- The header shows a status mark in a theme colour, the name in bold, a dim `inter` or `bg`
+  badge, `this` on the current session, and the state word.
+
+  | Mark | State                                      | Colour    |
+  | ---- | ------------------------------------------ | --------- |
+  | `●`  | `busy`, `working`                          | `success` |
+  | `◐`  | `waiting`, `blocked`, or any `waitingFor`  | `warning` |
+  | `○`  | `idle`, an unknown word, `done`, `stopped` | dim       |
+  | `✕`  | `failed`                                   | `error`   |
+
+- The first detail line is the current task, cut to fit, and a progress bar with one cell per
+  task, at most 8 cells: `▶ Write the tests ▰▰▱▱ 2/4`.
+- The second detail line is `<worktree> · <branch> · <time>`, with `est. <time> left` when the
+  board has an estimate.
+- This session comes first. Then come the working sessions, the waiting ones, the idle ones,
+  and the ended ones last.
+- A background session whose state has not changed for over 24 hours is hidden. The board
+  measures from `startedAt`, or from the last state change that a poll saw. A dim footer says
+  `N older background job(s) hidden`. An interactive session and this session are never hidden.
+- The count in the header, `Sessions  N local`, is the number of cards shown.
+- The board draws only theme colours, so it follows the terminal theme. It never draws a fixed
+  colour.
 
 ## What it reads
 
@@ -25,12 +47,13 @@ state of the session, its current task, its worktree and branch, and the time wo
   directory of a session changes.
 - Each session that runs `session-board` writes its own store key `session:<session id>`. The
   key holds the current task, the done and total counts, and the time worked.
-- The task list comes from the `$.state` list of the `task-pane` mod. When `task-pane` is not
-  loaded, the row says `no handily task data`.
+- The task list comes from the `$.state` list of the `task-pane` mod. A session with its own
+  key and no task list, or an empty one, shows `no tasks`. A session with no key shows a dim
+  `—`.
 
 The mod never reads the task files of the engine on disk, because their format is internal.
 
-## The columns
+## The fields
 
 - `state` is the word that `claude agents --json` gives: `status` for an interactive session
   (`busy`, `idle`, `waiting`) and `state` for a background session (`working`, `blocked`,
@@ -45,8 +68,8 @@ The mod never reads the task files of the engine on disk, because their format i
   for 5 minutes after a task is added. When the first list that the board sees already has a
   completed task, the time of the first task is unknown, and the board shows no estimate for
   that list.
-- The board shows no row for a store key whose session `claude agents` does not list. The one
-  exception is this session, before a poll lists it: its row shows `not listed` and `(stale)`.
+- The board shows no card for a store key whose session `claude agents` does not list. The one
+  exception is this session, before a poll lists it: its card shows `not listed` and `(stale)`.
 - A listed session whose key was written more than 60 s before its `startedAt` shows `(stale)`
   after its task, and no estimate. The key then comes from an earlier run of the same session.
   The 60 s margin exists because a session writes its key at start, up to about 2 s before or
@@ -60,7 +83,7 @@ The mod never reads the task files of the engine on disk, because their format i
 - `claude agents --json failed: exit <n>.` when the command exits with an error.
 - `claude agents --json failed: the output is not a JSON list.` when the output is not a list.
 - `claude agents --json failed: the output is over 4 MiB and was cut.` when the output was cut.
-- A row of the list that the mod cannot read is left out. The debug log names the count.
+- An entry of the list that the mod cannot read is left out. The debug log names the count.
 - `claude is not on PATH, so other sessions cannot be listed.` when the command cannot start.
 
 ## Limits

@@ -30,14 +30,19 @@ read or write the built-in `Task*` tools.
 - Each row shows the task number, the status, the author and the title. The author is `you`
   for a task that you added, `claude` for a task that the model added, and `tracker` for a
   tracker item that you added. The author comes before the title, so a title cannot imitate it.
-- Tracker text is always quoted with `JSON.stringify`, as `"app-cd34": "Write the beads reader"`,
-  and a control, format or line separator character in it is escaped as `\uXXXX`. That applies
-  to the rows, the notes, the `/task` replies and the pane. The text comes from the repository,
-  not from you. Each reply, note and tool answer that holds tracker text says that this text is
-  data, not an instruction. The system prompt section and the tool descriptions say the same.
+- In what the model reads, tracker text is always quoted with `JSON.stringify`, as
+  `"app-cd34": "Write the beads reader"`, and a control, format or line separator character in
+  it is escaped as `\uXXXX`. That applies to the rows, the notes, `task_list` and the `/task`
+  replies. The text comes from the repository, not from you. Each reply, note and tool answer
+  that holds tracker text says that this text is data, not an instruction. The system prompt
+  section and the tool descriptions say the same.
 - A note names the author of each task that it reports. A title that the model wrote is quoted
-  the same way as tracker text, in the rows, the notes, `task_list`, the `/task` replies and the
-  pane, as `claude   "Read the design doc"`. Only a title that you wrote is shown as it is.
+  the same way as tracker text, in the rows, the notes, `task_list` and the `/task` replies, as
+  `claude   "Read the design doc"`. Only a title that you wrote is shown as it is.
+- The pane is your view, so it shows ids and titles without the quotes, as
+  `app-cd34: Write the beads reader`. It still escapes a control, format or line separator
+  character as `\uXXXX`, so an id with a U+2028 or a bidi character cannot break a row or
+  forge one.
 - A tracker item whose id is not an item id, such as an id with a line break, is not added.
 - Parallel edits do not get lost. Each edit goes through `update` from `claude-code`, which
   reads the list again when another edit wrote first.
@@ -67,12 +72,19 @@ read or write the built-in `Task*` tools.
 
 ## The pane
 
-- Each task has a mark (`✓` done, `▶` in progress, `○` pending), the author column and an
-  `[rm]` button. An input with `Add` adds a task as you. The mobile app has no input, so the
-  pane shows the command.
-- With no tasks, the pane lists up to 10 open tracker items, each with an `[add]` button, and an
-  `Add N as tasks` button. Nothing is added on its own. An item that is already a task is not
-  added again.
+- Each task is one line: a mark (`✓` done, `▶` in progress, `○` pending), the number, the
+  author column, the title and an `[ rm ]` button. An input with `Add` adds a task as you. The
+  mobile app has no input, so the pane shows the command.
+- With no tasks, the pane says `Open in tracker: <tracker> · N open` and lists up to 10 open
+  tracker items. Each item is one line: the priority (dim), the id, the title and an `[ add ]`
+  button. An `Add N as tasks` button follows. Nothing is added on its own. An item that is
+  already a task is not added again.
+- The columns before the title have a fixed width, and an id is never cut. The title fills the
+  room that is left in the pane width and is cut to fit, so a row never wraps. The tests check
+  this at 30, 45 and 80 columns.
+- A cut title ends with a `…` button. Press it to show the full title, wrapped under the row.
+  Press it again to hide it. The open rows are kept in `$.state` under `expanded`, for the
+  session. `/clear` closes them. A title that fits shows no `…`.
 - Claude Code places the pane. It docks beside the transcript in fullscreen mode, and draws
   inline above the prompt otherwise. Inline, when the tasks and the frame need more than 6
   rows, the done tasks fold into a `+N done hidden` count.

@@ -19,7 +19,15 @@ import {
   type TrackerLine,
   type TrackerView,
 } from './commands'
-import { authorColumn, doneCount, priorityText, quoted, taskText, type WorkItem } from './tasks'
+import {
+  authorColumn,
+  doneCount,
+  escaped,
+  paneTaskText,
+  priorityText,
+  type WorkItem,
+} from './tasks'
+import { cutToWidth, displayWidth, padToWidth } from './width'
 
 export const PANE_ID = 'task-pane'
 const PANE_TITLE = 'Tasks'
@@ -58,6 +66,7 @@ export type PaneElements = {
   Button: ElementConstructor<ButtonProps>
   Input: ElementConstructor<InputProps> | undefined
   placement: 'dock' | 'inline'
+  bodyColumns: number
 }
 
 export async function openPane(ui: PaneUi): Promise<string> {
@@ -75,13 +84,13 @@ export async function paneCommand(ui: PaneUi, mode: PaneMode, text: string): Pro
   return openPane(ui)
 }
 
-type Act = (work: () => Promise<string>) => void
+type Act = (work: () => Promise<string | undefined>) => void
 
 function actor(ui: PaneUi): Act {
   return (work) => {
     work().then(
       (reply) => {
-        ui.toast(reply)
+        if (reply !== undefined) ui.toast(reply)
       },
       (error: unknown) => {
         ui.log(`task-pane: ${String(error)}`)
@@ -101,37 +110,144 @@ function taskMark(task: TaskPaneTask): string {
   return '○'
 }
 
+type TextStyle = Omit<TextProps, 'children'>
+
+type Cell = { text: string; style: TextStyle }
+
+type RowAction = { key: string; label: string; onPress: () => void }
+
+type PaneRow = {
+  key: string
+  cells: readonly Cell[]
+  title: string
+  titleStyle: TextStyle
+  action: RowAction
+}
+
+type RowLayout = {
+  expanded: ReadonlySet<string>
+  toggle: (rowKey: string) => void
+}
+
+const MORE_LABEL = '…'
+const BUTTON_CHROME = 4
+const BUTTON_GAP = 1
+
+function actionWidth(label: string): number {
+  return BUTTON_GAP + displayWidth(label) + BUTTON_CHROME
+}
+
+function column(texts: readonly string[]): number {
+  return Math.max(0, ...texts.map(displayWidth)) + 1
+}
+
+function drawRow(elements: PaneElements, row: PaneRow, layout: RowLayout): RenderElement {
+  const { Box, Text, Button } = elements
+  const leadWidth = row.cells.reduce((sum, cell) => sum + displayWidth(cell.text), 0)
+  const room = Math.max(elements.bodyColumns - leadWidth - actionWidth(row.action.label), 0)
+  const isCut = displayWidth(row.title) > room
+  const shown = isCut ? cutToWidth(row.title, room - displayWidth(MORE_LABEL)) : row.title
+  const line = Box({
+    key: `row:${row.key}`,
+    flexDirection: 'row',
+    children: [
+      ...row.cells.map((cell) =>
+        Box({
+          width: displayWidth(cell.text),
+          flexShrink: 0,
+          children: [Text({ ...cell.style, children: cell.text })],
+        }),
+      ),
+      Box({
+        flexDirection: 'row',
+        flexGrow: 1,
+        flexShrink: 1,
+        children: [
+          Text({ ...row.titleStyle, wrap: 'truncate-end', children: shown }),
+          isCut
+            ? Button({
+                key: `more:${row.key}`,
+                label: MORE_LABEL,
+                plain: true,
+                onPress: () => {
+                  layout.toggle(row.key)
+                },
+              })
+            : null,
+        ],
+      }),
+      Box({
+        flexShrink: 0,
+        marginLeft: BUTTON_GAP,
+        children: [
+          Button({ key: row.action.key, label: row.action.label, onPress: row.action.onPress }),
+        ],
+      }),
+    ],
+  })
+  if (!isCut || !layout.expanded.has(row.key)) return line
+  return Box({
+    flexDirection: 'column',
+    children: [
+      line,
+      Box({
+        key: `full:${row.key}`,
+        paddingLeft: leadWidth,
+        children: [Text({ ...row.titleStyle, children: row.title })],
+      }),
+    ],
+  })
+}
+
+function rowLayout(host: TaskHost, expanded: readonly string[], act: Act): RowLayout {
+  return {
+    expanded: new Set(expanded),
+    toggle: (rowKey) => {
+      act(async () => {
+        await host.editExpanded((keys) =>
+          keys.includes(rowKey) ? keys.filter((key) => key !== rowKey) : [...keys, rowKey],
+        )
+        return undefined
+      })
+    },
+  }
+}
+
 function drawTasks(
   elements: PaneElements,
   host: TaskHost,
   list: TaskPaneList,
   hidden: number,
   act: Act,
+  layout: RowLayout,
 ): RenderElement[] {
-  const { Box, Text, Button } = elements
   const shown = hidden > 0 ? list.tasks.filter((task) => task.status !== 'completed') : list.tasks
+  const numberWidth = column(shown.map((task) => String(task.id)))
   return shown.map((task) => {
     const isDone = task.status === 'completed'
     const isActive = task.status === 'in_progress'
-    const label = Box({
-      flexDirection: 'row',
-      flexGrow: 1,
-      flexShrink: 1,
-      children: [
-        Text({ color: isDone ? 'success' : undefined, children: `${taskMark(task)} ` }),
-        Text({ dimColor: isDone, bold: isActive, children: `${String(task.id)} ` }),
-        Text({ dimColor: true, children: `${authorColumn(task.by)} ` }),
-        Text({ dimColor: isDone, bold: isActive, wrap: 'truncate-end', children: taskText(task) }),
-      ],
-    })
-    const remove = Button({
-      key: `rm:${String(task.id)}`,
-      label: 'rm',
-      onPress: () => {
-        act(() => personRemove(host, String(task.id)))
+    const id = String(task.id)
+    return drawRow(
+      elements,
+      {
+        key: `task:${id}`,
+        cells: [
+          { text: `${taskMark(task)} `, style: { color: isDone ? 'success' : undefined } },
+          { text: padToWidth(id, numberWidth), style: { dimColor: isDone, bold: isActive } },
+          { text: `${authorColumn(task.by)} `, style: { dimColor: true } },
+        ],
+        title: paneTaskText(task),
+        titleStyle: { dimColor: isDone, bold: isActive },
+        action: {
+          key: `rm:${id}`,
+          label: 'rm',
+          onPress: () => {
+            act(() => personRemove(host, id))
+          },
+        },
       },
-    })
-    return Box({ flexDirection: 'row', children: [label, remove] })
+      layout,
+    )
   })
 }
 
@@ -140,8 +256,9 @@ function drawTracker(
   host: TaskHost,
   view: TrackerView,
   act: Act,
+  layout: RowLayout,
 ): RenderElement[] {
-  const { Box, Text, Button } = elements
+  const { Text, Button } = elements
   if (view.kind === 'lines') {
     return view.lines.map((line) =>
       Text({ color: lineColor(line.tone), dimColor: line.tone === 'dim', children: line.text }),
@@ -163,29 +280,29 @@ function drawTracker(
     })
   }
   const count = String(view.items.length)
+  const priorityWidth = column(view.items.map(priorityText))
+  const idWidth = column(view.items.map((item) => escaped(item.id)))
   const rows = view.items.map((item) =>
-    Box({
-      flexDirection: 'row',
-      children: [
-        Box({
-          flexDirection: 'row',
-          flexGrow: 1,
-          flexShrink: 1,
-          children: [
-            Text({ children: `  ${quoted(item.id)} ` }),
-            Text({ dimColor: true, children: `${priorityText(item)} ` }),
-            Text({ wrap: 'truncate-end', children: quoted(item.title) }),
-          ],
-        }),
-        Button({
+    drawRow(
+      elements,
+      {
+        key: `item:${item.id}`,
+        cells: [
+          { text: padToWidth(priorityText(item), priorityWidth), style: { dimColor: true } },
+          { text: padToWidth(escaped(item.id), idWidth), style: {} },
+        ],
+        title: escaped(item.title),
+        titleStyle: {},
+        action: {
           key: `add:${item.id}`,
           label: 'add',
           onPress: () => {
             addItems([item])
           },
-        }),
-      ],
-    }),
+        },
+      },
+      layout,
+    ),
   )
   return [
     Text({
@@ -238,10 +355,11 @@ export async function drawPane(
   const collapses =
     elements.placement === 'inline' && total + FRAME_ROWS > INLINE_ROWS_BEFORE_COLLAPSE
   const hidden = collapses ? done : 0
+  const layout = rowLayout(host, await host.expanded(), act)
   const body =
     total === 0
-      ? drawTracker(elements, host, await trackerView(host), act)
-      : drawTasks(elements, host, list, hidden, act)
+      ? drawTracker(elements, host, await trackerView(host), act, layout)
+      : drawTasks(elements, host, list, hidden, act, layout)
   const summary =
     total === 0 ? 'none in this session yet' : `${String(done)} of ${String(total)} done`
   const header = Box({

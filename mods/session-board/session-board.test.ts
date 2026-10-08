@@ -9,7 +9,7 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import { AGENTS_ARGV, parseAgents, POLL_INTERVAL_MS, type AgentsCache } from './hooks/agents'
-import { formatDuration } from './hooks/board'
+import { formatDuration, progressText } from './hooks/board'
 import { RECORDED_AGENTS } from './fixtures/agents'
 import {
   emptyProgress,
@@ -367,7 +367,7 @@ describe('the poll of claude agents', () => {
 
 describe('the board rows', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`shows each session in two lines below 100 columns on ${surface}`, async ($, on) => {
+    test(`shows each session as a card on ${surface}`, async ($, on) => {
       const clock = mock.clock(on, { now: NOW })
       mock.store(on, storeWith(OWN_PROGRESS, LANE_PROGRESS))
       fakeWorld(on, ['terminal', surface])
@@ -378,13 +378,13 @@ describe('the board rows', () => {
       expect(texts).toContain('mocks')
       expect(texts).toContain('inter')
       expect(texts).toContain('Draw quiet-items mocks')
-      expect(texts).toContain(' 2/5')
+      expect(texts).toContain('▰▰▱▱▱ 2/5')
       expect(texts).toContain('app · main · 41m worked · est. 30m left')
       expect(texts).toContain('blocked: permission')
       expect(texts).toContain('Write the beads reader')
-      expect(texts).toContain(' 0/3')
+      expect(texts).toContain('▱▱▱ 0/3')
       expect(texts).toContain('app.wt/lane-a1 · lane/app-x1y2 · 18m worked')
-      expect(texts).toContain('no handily task data')
+      expect(texts).not.toContain('no handily task data')
       expect(texts).toContain('api · feat/login · 2h 03m elapsed')
       expect(texts).toContain('docs · main · ended')
       expect((await ui.find({ type: 'Text', text: 'busy' }))?.props).toMatchObject({
@@ -403,23 +403,6 @@ describe('the board rows', () => {
       await ui.unmount()
     })
   }
-
-  test('shows one table line per session from 100 columns', async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    mock.store(on, storeWith(OWN_PROGRESS, LANE_PROGRESS))
-    fakeWorld(on)
-    await openBoard($, clock)
-    const texts = await shownTexts($, 'terminal', 120)
-    expect(
-      texts.some((text) => text.startsWith('name') && text.includes('worktree · branch')),
-    ).toBe(true)
-    expect(texts).toContain('app.wt/lane-a1 · lane/app-x1y2')
-    expect(texts).toContain('41m worked')
-    expect(texts).toContain('  est. 30m left')
-    expect(texts).toContain('2h 03m elapsed')
-    expect(texts).toContain('ended')
-    expect(texts).toContain('—')
-  })
 
   test('shows no row for a session key whose session claude agents does not list', async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
@@ -444,7 +427,7 @@ describe('the board rows', () => {
     const texts = await shownTexts($, 'terminal', 46)
     expect(texts).toContain(OWN_ID.slice(0, 8))
     expect(texts).toContain('Draw quiet-items mocks')
-    expect(texts).toContain('  3 local · polled 0 s ago')
+    expect(texts).toContain('  4 local · polled 0 s ago')
     expect(texts).toContain('not listed')
   })
 
@@ -465,7 +448,7 @@ describe('the board rows', () => {
       expect(texts).toContain('  4 local · polled 0 s ago')
       if (isStale) {
         expect(texts.filter((text) => text === ' (stale)')).toHaveLength(1)
-        expect(texts.indexOf(' (stale)')).toBe(texts.indexOf(' 2/5') + 1)
+        expect(texts.indexOf(' (stale)')).toBe(texts.indexOf('▰▰▱▱▱ 2/5') + 1)
         expect(texts).toContain('app · main · 41m worked')
       } else {
         expect(texts).not.toContain(' (stale)')
@@ -554,12 +537,12 @@ describe('the session progress', () => {
       })
       const texts = await shownTexts($, 'terminal', 46)
       expect(texts).toContain('Task 2')
-      expect(texts).toContain(' 1/3')
+      expect(texts).toContain('▰▱▱ 1/3')
       expect(texts).toContain('app · main · 12m worked · est. 24m left')
     },
   )
 
-  test('shows no task data when task-pane is not loaded', async ($, on) => {
+  test('shows no tasks when the own key exists but task-pane is not loaded', async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     mock.store(on)
     const world = fakeWorld(on)
@@ -569,7 +552,8 @@ describe('the session progress', () => {
     await $.turn.start({ text: 'go', turnId: 't1' })
     await clock.advance(2 * MINUTE)
     const texts = await shownTexts($, 'terminal', 46)
-    expect(texts).toContain('no handily task data')
+    expect(texts).toContain('no tasks')
+    expect(texts).not.toContain('no handily task data')
     expect(texts).toContain('app · main · 2m worked')
   })
 })
@@ -677,7 +661,7 @@ describe('a session that cannot run claude agents', () => {
       'Other sessions are listed only in a terminal session (claude agents needs a CLI).',
     )
     expect(texts).toContain('this session')
-    expect(texts).toContain('  idle')
+    expect(texts).toContain('idle')
     expect(texts).toContain('Draw quiet-items mocks')
     expect(texts).toContain('41m worked · est. 30m left')
     expect(texts).toContain('subagents')
@@ -869,4 +853,344 @@ describe('ready value for /handily', () => {
     await startSession($)
     expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]session-board$/) }])
   })
+})
+
+const DAY = 24 * HOUR
+
+function sessionOf(index: number): string {
+  return `00000000-0000-4000-8000-0000000001${String(index).padStart(2, '0')}`
+}
+
+const STATE_AGENTS: AgentEntry[] = [
+  {
+    id: 'b1',
+    cwd: '/work/docs',
+    kind: 'background',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(1),
+    name: 'bg-done',
+    state: 'done',
+  },
+  {
+    id: 'b2',
+    cwd: '/work/docs',
+    kind: 'background',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(2),
+    name: 'bg-failed',
+    state: 'failed',
+  },
+  {
+    pid: 3001,
+    cwd: '/work/api',
+    kind: 'interactive',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(3),
+    name: 'inter-idle',
+    status: 'idle',
+  },
+  {
+    id: 'b3',
+    cwd: '/work/docs',
+    kind: 'background',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(4),
+    name: 'bg-blocked',
+    state: 'blocked',
+  },
+  {
+    pid: 3002,
+    cwd: '/work/api',
+    kind: 'interactive',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(5),
+    name: 'inter-busy',
+    status: 'busy',
+  },
+  {
+    id: 'b4',
+    cwd: '/work/docs',
+    kind: 'background',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(6),
+    name: 'bg-working',
+    state: 'working',
+  },
+  {
+    pid: 3003,
+    cwd: '/work/api',
+    kind: 'interactive',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(7),
+    name: 'inter-waiting',
+    status: 'waiting',
+  },
+  {
+    pid: 2001,
+    cwd: '/work/app',
+    kind: 'interactive',
+    startedAt: NOW - HOUR,
+    sessionId: OWN_ID,
+    name: 'mocks',
+    status: 'idle',
+  },
+]
+
+const OLD_BACKGROUND: AgentEntry = {
+  id: '0000b009',
+  cwd: '/work/factory',
+  kind: 'background',
+  startedAt: NOW - 46 * DAY,
+  sessionId: sessionOf(9),
+  name: 'factory loop',
+  state: 'blocked',
+}
+
+const OLD_INTERACTIVE: AgentEntry = {
+  pid: 2009,
+  cwd: '/work/api',
+  kind: 'interactive',
+  startedAt: NOW - 46 * DAY,
+  sessionId: sessionOf(10),
+  name: 'old-inter',
+  status: 'idle',
+}
+
+type Node = { type: string; props: Record<string, unknown>; text: string; children: Node[] }
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function nodeOf(value: unknown): Node | null {
+  if (!isObject(value) || typeof value.type !== 'string') return null
+  const raw = Array.isArray(value.children) ? (value.children as unknown[]) : []
+  return {
+    type: value.type,
+    props: isObject(value.props) ? value.props : {},
+    text: raw.filter((child) => typeof child === 'string').join(''),
+    children: raw.map(nodeOf).filter((child) => child !== null),
+  }
+}
+
+function textsOf(node: Node): Node[] {
+  return node.type === 'Text' ? [node] : node.children.flatMap(textsOf)
+}
+
+function wrappingTexts(node: Node): string[] {
+  const inRow = node.props.flexDirection === 'row'
+  const own = inRow
+    ? node.children
+        .filter((child) => child.type === 'Text' || child.props.flexShrink !== 0)
+        .flatMap(textsOf)
+        .filter((found) => found.props.wrap !== 'truncate-end')
+        .map((found) => found.text)
+    : []
+  return [...own, ...node.children.flatMap(wrappingTexts)]
+}
+
+const THEME_KEYS = new Set(['success', 'warning', 'error', 'subtle', 'suggestion'])
+
+function cacheWith(entries: readonly AgentEntry[], at: number, stateSince: number): AgentsCache {
+  const outcome = parseAgents(JSON.stringify(entries))
+  if (outcome.kind !== 'ok') throw new Error(`expected rows, got ${outcome.kind}`)
+  return {
+    at,
+    outcome: { ...outcome, rows: outcome.rows.map((row) => ({ ...row, stateSince })) },
+    places: {},
+  }
+}
+
+describe('the session cards', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`puts this session first, then working, waiting, idle and ended on ${surface}`, async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      mock.store(on)
+      const world = fakeWorld(on, ['terminal', surface])
+      world.agents = agentsJson(STATE_AGENTS)
+      await openBoard($, clock)
+      const ui = await mountBoard($, surface, 45)
+      const names = (await ui.findAll({ type: 'Text' }))
+        .filter((found) => found.props.bold === true && found.text !== 'Sessions')
+        .map((found) => found.text)
+      expect(names).toEqual([
+        'mocks',
+        'inter-busy',
+        'bg-working',
+        'bg-blocked',
+        'inter-waiting',
+        'inter-idle',
+        'bg-done',
+        'bg-failed',
+      ])
+      const marks = (await ui.findAll({ type: 'Text', text: /^[●◐○✕] $/ })).map((found) => [
+        found.text,
+        found.props.color ?? (found.props.dimColor === true ? 'dim' : 'plain'),
+      ])
+      expect(marks).toEqual([
+        ['○ ', 'dim'],
+        ['● ', 'success'],
+        ['● ', 'success'],
+        ['◐ ', 'warning'],
+        ['◐ ', 'warning'],
+        ['○ ', 'dim'],
+        ['○ ', 'dim'],
+        ['✕ ', 'error'],
+      ])
+      const texts = (await ui.findAll({ type: 'Text' })).map((found) => found.text)
+      expect(texts.filter((found) => found === 'this')).toHaveLength(1)
+      expect(texts.slice(texts.indexOf('mocks'), texts.indexOf('mocks') + 3)).toEqual([
+        'mocks',
+        'inter',
+        'this',
+      ])
+      const rules = await ui.findAll({ type: 'Text', text: /^─+$/ })
+      expect(rules.map((rule) => [rule.text.length, rule.props.dimColor])).toEqual(
+        STATE_AGENTS.slice(1).map(() => [45, true]),
+      )
+      await ui.unmount()
+    })
+  }
+
+  test('no line of a card can wrap: each part keeps its width or truncates', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(
+      on,
+      storeWith(OWN_PROGRESS, { ...LANE_PROGRESS, updatedAt: NOW - 2 * HOUR }, GONE_PROGRESS),
+    )
+    const world = fakeWorld(on)
+    world.agents = agentsJson([...STATE_AGENTS, ...BOARD_AGENTS.slice(1)])
+    await openBoard($, clock)
+    const ui = await mountBoard($, 'terminal', 45)
+    const board = nodeOf(await ui.drawn())
+    if (board === null) throw new Error('the board drew nothing')
+    const cards = board.children.filter((child) => String(child.props.key).startsWith('card:'))
+    expect(cards).toHaveLength(STATE_AGENTS.length + BOARD_AGENTS.length - 1)
+    expect(cards.flatMap(wrappingTexts)).toEqual([])
+    expect(cards.flatMap(textsOf).some((found) => found.props.wrap === 'truncate-end')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('draws only theme colours, never a fixed colour', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on, storeWith(OWN_PROGRESS, LANE_PROGRESS))
+    const world = fakeWorld(on)
+    world.agents = agentsJson([...STATE_AGENTS, ...BOARD_AGENTS.slice(1)])
+    await openBoard($, clock)
+    for (const columns of [45, 80]) {
+      const ui = await mountBoard($, 'terminal', columns)
+      const found = [
+        ...(await ui.findAll({ type: 'Text' })),
+        ...(await ui.findAll({ type: 'Box' })),
+      ]
+      const colours = found.flatMap((element) =>
+        [element.props.color, element.props.borderColor].filter((value) => value !== undefined),
+      )
+      expect(colours.length > 0).toBe(true)
+      expect(
+        colours.filter((colour) => typeof colour !== 'string' || !THEME_KEYS.has(colour)),
+      ).toEqual([])
+      await ui.unmount()
+    }
+  })
+
+  test('draws the progress of a task as a bar and a count', () => {
+    expect(progressText(2, 4)).toBe('▰▰▱▱ 2/4')
+    expect(progressText(0, 3)).toBe('▱▱▱ 0/3')
+    expect(progressText(4, 4)).toBe('▰▰▰▰ 4/4')
+    expect(progressText(5, 20)).toBe('▰▰▱▱▱▱▱▱ 5/20')
+  })
+
+  test('shows no tasks for a session with its own key and a dash for one without', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(
+      on,
+      storeWith(
+        { ...OWN_PROGRESS, hasTasks: false, task: null, done: 0, total: 0, taskIds: [] },
+        { ...LANE_PROGRESS, task: null, done: 0, total: 0, taskIds: [] },
+      ),
+    )
+    fakeWorld(on)
+    await openBoard($, clock)
+    const texts = await shownTexts($, 'terminal', 45)
+    expect(texts.filter((text) => text === 'no tasks')).toHaveLength(2)
+    expect(texts.filter((text) => text === '—')).toHaveLength(2)
+    expect(texts).not.toContain('no handily task data')
+    expect(texts).not.toContain('no tasks yet')
+  })
+})
+
+describe('older background sessions', () => {
+  test('hides a background session whose state is older than 24 h and counts the shown rows', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on)
+    const world = fakeWorld(on)
+    world.agents = agentsJson([OLD_BACKGROUND, ...BOARD_AGENTS, OLD_INTERACTIVE])
+    await openBoard($, clock)
+    const ui = await mountBoard($, 'terminal', 45)
+    const texts = (await ui.findAll({ type: 'Text' })).map((found) => found.text)
+    expect(texts).not.toContain('factory loop')
+    expect(texts).toContain('old-inter')
+    expect(texts).toContain('  5 local · polled 0 s ago')
+    expect(texts.at(-1)).toBe('1 older background job hidden')
+    expect((await ui.find({ type: 'Text', text: /older background/ }))?.props.dimColor).toBe(true)
+    await ui.unmount()
+  })
+
+  test('names the count of two hidden jobs', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on)
+    const world = fakeWorld(on)
+    const second = { ...OLD_BACKGROUND, id: '0000b010', sessionId: sessionOf(11), state: 'done' }
+    world.agents = agentsJson([OLD_BACKGROUND, second, ...BOARD_AGENTS])
+    await openBoard($, clock)
+    const texts = await shownTexts($, 'terminal', 45)
+    expect(texts).toContain('  4 local · polled 0 s ago')
+    expect(texts).toContain('2 older background jobs hidden')
+  })
+
+  test('shows a background session when a poll saw its state change in the last 24 h', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const before = { ...OLD_BACKGROUND, state: 'working' }
+    const store = new Map<string, unknown>([
+      ['agents', cacheWith([before], NOW - 20_000, NOW - 46 * DAY)],
+    ])
+    on('store.get', (_$, e) => ({ value: store.get(e.key) }))
+    on('store.keys', () => ({ value: [...store.keys()] }))
+    on('store.delete', (_$, e) => {
+      store.delete(e.key)
+      return { value: undefined }
+    })
+    on('store.set', (_$, e) => {
+      store.set(e.key, e.value)
+      return { value: undefined }
+    })
+    const world = fakeWorld(on)
+    world.agents = agentsJson([OLD_BACKGROUND, BOARD_AGENTS[0] ?? {}])
+    await openBoard($, clock)
+    expect(world.agentsRuns).toBe(1)
+    const texts = await shownTexts($, 'terminal', 45)
+    expect(texts).toContain('factory loop')
+    expect(texts.some((text) => text.includes('older background'))).toBe(false)
+    const saved = store.get('agents') as AgentsCache
+    if (saved.outcome.kind !== 'ok') throw new Error(`expected rows, got ${saved.outcome.kind}`)
+    expect(saved.outcome.rows.find((row) => row.name === 'factory loop')?.stateSince).toBe(NOW)
+  })
+
+  for (const { age, isHidden } of [
+    { age: 23 * HOUR, isHidden: false },
+    { age: 25 * HOUR, isHidden: true },
+  ]) {
+    test(`keeps the last state change of a poll: hidden ${String(isHidden)} after ${formatDuration(age)}`, async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      mock.store(on, { agents: cacheWith([OLD_BACKGROUND], NOW - 20_000, NOW - age) })
+      const world = fakeWorld(on)
+      world.agents = agentsJson([OLD_BACKGROUND, BOARD_AGENTS[0] ?? {}])
+      await openBoard($, clock)
+      expect(world.agentsRuns).toBe(1)
+      const texts = await shownTexts($, 'terminal', 45)
+      expect(texts.includes('factory loop')).toBe(!isHidden)
+      expect(texts.includes('1 older background job hidden')).toBe(isHidden)
+    })
+  }
 })

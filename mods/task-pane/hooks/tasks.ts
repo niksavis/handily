@@ -110,15 +110,29 @@ export function quoted(text: string): string {
   return JSON.stringify(text).replace(UNSAFE_IN_QUOTES, escapedUnits)
 }
 
-export function taskText(task: TaskPaneTask): string {
+const ESCAPED_QUOTE = /\\"/g
+
+export function escaped(text: string): string {
+  return quoted(text).slice(1, -1).replace(ESCAPED_QUOTE, '"')
+}
+
+function shownTaskText(task: TaskPaneTask, show: (text: string) => string): string {
   switch (task.by) {
     case 'person':
       return task.title
     case 'model':
-      return quoted(task.title)
+      return show(task.title)
     case 'tracker':
-      return `${quoted(task.item)}: ${quoted(task.title)}`
+      return `${show(task.item)}: ${show(task.title)}`
   }
+}
+
+export function taskText(task: TaskPaneTask): string {
+  return shownTaskText(task, quoted)
+}
+
+export function paneTaskText(task: TaskPaneTask): string {
+  return shownTaskText(task, escaped)
 }
 
 function trackerNotice(tasks: readonly TaskPaneTask[]): string[] {

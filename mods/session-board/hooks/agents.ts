@@ -18,6 +18,7 @@ export type AgentRow = {
   waitingFor: string | null
   cwd: string
   startedAt: number
+  stateSince: number
   isEnded: boolean
 }
 
@@ -86,6 +87,7 @@ function readRow(entry: unknown): AgentRow | null {
     waitingFor: optionalText(entry.waitingFor),
     cwd,
     startedAt,
+    stateSince: startedAt,
     isEnded: kind === 'background' && ENDED_STATES.has(word),
   }
 }
@@ -117,6 +119,7 @@ function isAgentRow(value: unknown): value is AgentRow {
     isTextOrNull(value.waitingFor) &&
     typeof value.cwd === 'string' &&
     typeof value.startedAt === 'number' &&
+    typeof value.stateSince === 'number' &&
     typeof value.isEnded === 'boolean'
   )
 }
@@ -227,12 +230,31 @@ async function placesFor(
   return places
 }
 
+function isSameState(row: AgentRow, seen: AgentRow): boolean {
+  return seen.word === row.word && seen.waitingFor === row.waitingFor
+}
+
+function withStateSince(
+  outcome: AgentsOutcome,
+  previous: AgentsCache | undefined,
+  now: number,
+): AgentsOutcome {
+  if (outcome.kind !== 'ok' || previous?.outcome.kind !== 'ok') return outcome
+  const seen = new Map(previous.outcome.rows.map((row) => [row.key, row]))
+  const rows = outcome.rows.map((row) => {
+    const before = seen.get(row.key)
+    if (!before) return row
+    return { ...row, stateSince: isSameState(row, before) ? before.stateSince : now }
+  })
+  return { ...outcome, rows }
+}
+
 export async function pollAgents(host: AgentsHost): Promise<AgentsCache> {
   const now = await host.now()
   const previous = readCache(await host.load())
   const age = previous ? now - previous.at : -1
   if (previous && age >= 0 && age < POLL_INTERVAL_MS) return previous
-  const outcome = await runAgents(host)
+  const outcome = withStateSince(await runAgents(host), previous, now)
   const known = previous?.places ?? {}
   const places = outcome.kind === 'ok' ? await placesFor(host, outcome.rows, known) : known
   const cache = { at: now, outcome, places }

@@ -110,6 +110,13 @@ function hostOf($: EngineInterface): TaskHost {
       const lines = await $.workitems.lines({ snapshot, now: await $.clock.now() })
       return lines.map(({ tone, text }) => ({ tone, text }))
     },
+    expanded: async () => {
+      const { value } = await $.state.get({ plugin: 'task-pane', key: 'expanded' })
+      return value ?? []
+    },
+    editExpanded: async (change) => {
+      await update($, { plugin: 'task-pane', key: 'expanded' }, (current) => change(current ?? []))
+    },
     note: async (text) => {
       const appended = await $.session.append({
         message: { type: 'user', content: [{ type: 'text', text }] },
@@ -250,7 +257,8 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
-    const elements = { Box, Text, Button, Input, placement: e.props.placement }
+    const { placement, bodyColumns } = e.props
+    const elements = { Box, Text, Button, Input, placement, bodyColumns }
     return drawPane(elements, hostOf($), uiOf($))
   })
 }

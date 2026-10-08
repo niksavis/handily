@@ -48,6 +48,8 @@ export type TaskHost = {
   snapshot: () => Promise<Snapshot | undefined>
   lines: (snapshot: Snapshot) => Promise<readonly TrackerLine[]>
   note: (text: string) => Promise<string | undefined>
+  expanded: () => Promise<readonly string[]>
+  editExpanded: (change: (keys: readonly string[]) => readonly string[]) => Promise<void>
 }
 
 export async function readList(host: TaskHost): Promise<TaskPaneList> {
@@ -56,6 +58,7 @@ export async function readList(host: TaskHost): Promise<TaskPaneList> {
 
 export async function resetList(host: TaskHost): Promise<void> {
   await host.edit(() => ({ list: EMPTY_LIST, value: undefined }))
+  await host.editExpanded(() => [])
 }
 
 export function withoutFinalPeriod(text: string): string {
