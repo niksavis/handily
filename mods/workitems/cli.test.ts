@@ -11,6 +11,7 @@ import {
 import { LIST_BLOCKED, LIST_IN_PROGRESS, LIST_OPEN } from './fixtures/basicly/tracker-list'
 import { resolveProgram, sha256Hex } from './hooks/approval'
 import { isInside } from './hooks/config'
+import { advanceUntil, settleUntil } from './testing'
 import type {
   WorkitemsLine,
   WorkitemsRefreshResult,
@@ -324,18 +325,45 @@ async function linesOf(engine: Engine): Promise<WorkitemsLine[]> {
   return JSON.parse(await commandText(engine, 'lines')) as WorkitemsLine[]
 }
 
+type Until = { isDone: (snapshot: WorkitemsSnapshot) => boolean; condition: string }
+
+const ANY_SNAPSHOT: Until = {
+  isDone: (snapshot) => (snapshot as WorkitemsSnapshot | null) !== null,
+  condition: 'a published snapshot',
+}
+
 async function startSession(
   engine: Engine,
   clock: MockClock,
   isInteractive: boolean,
+  until: Until = ANY_SNAPSHOT,
 ): Promise<WorkitemsSnapshot> {
   await engine.session.start({
     cwd: ROOT,
     surface: isInteractive ? 'terminal' : null,
     isInteractive,
   })
-  await clock.settle()
-  return snapshotOf(engine)
+  return settleUntil(clock, () => snapshotOf(engine), until.isDone, until.condition)
+}
+
+async function pollUntil(
+  engine: Engine,
+  clock: MockClock,
+  ms: number,
+  until: Until,
+): Promise<WorkitemsSnapshot> {
+  return advanceUntil(clock, ms, () => snapshotOf(engine), until.isDone, until.condition)
+}
+
+function stateIs(state: WorkitemsSnapshot['state']): Until {
+  return { isDone: (snapshot) => snapshot.state === state, condition: `the state ${state}` }
+}
+
+function asksAndState(world: World, asks: number, state: WorkitemsSnapshot['state']): Until {
+  return {
+    isDone: (snapshot) => world.asks.length >= asks && snapshot.state === state,
+    condition: `${String(asks)} asks and the state ${state}`,
+  }
 }
 
 async function digestsOf(
@@ -360,30 +388,15 @@ const PATH_QUESTION = [
 
 const ALLOW = 'Allow for this repo'
 
-const SETTLE_LIMIT = 50
-
-async function settledUntil(
-  engine: Engine,
-  clock: MockClock,
-  isDone: (snapshot: WorkitemsSnapshot) => boolean,
-): Promise<WorkitemsSnapshot> {
-  let snapshot = await snapshotOf(engine)
-  for (let round = 0; round < SETTLE_LIMIT && !isDone(snapshot); round += 1) {
-    await clock.settle()
-    snapshot = await snapshotOf(engine)
-  }
-  return snapshot
-}
-
 async function approvedBasicly($: Engine, on: On, path: string = PATH_WITH_BASICLY) {
   const clock = mock.clock(on, { now: 1_000 })
   const world = fakeWorld(on, BASICLY_REPO, path)
   answerBasicly(world)
   world.answer = ALLOW
-  await startSession($, clock, true)
-  const isApprovedRead = (current: WorkitemsSnapshot) =>
-    current.state !== 'approval-needed' && world.runs.length >= 3
-  const snapshot = await settledUntil($, clock, isApprovedRead)
+  const snapshot = await startSession($, clock, true, {
+    isDone: (current) => current.state !== 'approval-needed' && world.runs.length >= 3,
+    condition: 'the approved read and its 3 runs',
+  })
   return { clock, world, snapshot }
 }
 
@@ -479,7 +492,7 @@ describe('basicly source', () => {
       isStdoutTruncated: true,
     })
     world.answer = ALLOW
-    const snapshot = await startSession($, clock, true)
+    const snapshot = await startSession($, clock, true, stateIs('failed'))
     expect(snapshot.state).toBe('failed')
     expect(snapshot.reason).toBe('basicly tracker list output was cut off.')
     expect(snapshot.items).toEqual([])
@@ -500,7 +513,7 @@ describe('basicly source', () => {
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
       world.outputs.set(`${PATH_LIST} --status open`, { exitCode: 2, stderr: 'no kit' })
       world.answer = ALLOW
-      const snapshot = await startSession($, clock, true)
+      const snapshot = await startSession($, clock, true, stateIs('failed'))
       expect(snapshot.state).toBe('failed')
       expect(snapshot.reason).toBe('basicly tracker list exited 2. Run it in a shell to see why.')
     },
@@ -533,7 +546,10 @@ describe('basicly source', () => {
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on)
       touchLedger(world, 20)
-      await clock.advance(2_000)
+      await pollUntil($, clock, 2_000, {
+        isDone: () => world.runs.length >= 6,
+        condition: '6 runs',
+      })
       const prefixes = new Set<string>()
       for (const run of world.runs) {
         expect(run.env?.PYTHONDONTWRITEBYTECODE).toBe('1')
@@ -552,12 +568,11 @@ describe('basicly source', () => {
     'reports a record that left the open statuses as closed in the refresh diff',
     { plugins: [consumer] },
     async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on)
+      const { world } = await approvedBasicly($, on)
       world.outputs.set(`${PATH_LIST} --status open`, {
         stdout: JSON.stringify({ count: 0, records: [] }),
       })
       touchLedger(world, 20)
-      await clock.settle()
       const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
       expect(diff.closed.map((item) => [item.key, item.status, item.rawStatus])).toEqual([
         ['basicly:app-3o75', 'closed', 'open'],
@@ -710,8 +725,7 @@ describe('approval of basicly', () => {
       world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, { text: 'planted\n', mtimeMs: 50 })
     }
     touchLedger(world, 50)
-    await clock.advance(2_000)
-    await clock.settle()
+    await pollUntil($, clock, 2_000, stateIs('approval-needed'))
     expect(world.runs.length).toBe(runsBefore + 1)
     expect((await snapshotOf($)).state).toBe('approval-needed')
   })
@@ -727,13 +741,12 @@ describe('approval of basicly', () => {
         text: 'print("unhashed package ran")\n',
         mtimeMs: 60,
       })
-      await clock.advance(2_000)
-      await clock.settle()
+      await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
       expect(world.asks.length).toBe(2)
       expect(world.runs.length).toBe(runsBefore)
       world.files.delete(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`)
       world.files.set(`${ROOT}/${KIT_FOLDER}/shlex.pyc`, { text: 'sourceless', mtimeMs: 61 })
-      await startSession($, clock, true)
+      await startSession($, clock, true, asksAndState(world, 3, 'approval-needed'))
       expect(world.asks.length).toBe(3)
       expect((await snapshotOf($)).state).toBe('approval-needed')
       expect(world.runs.length).toBe(runsBefore)
@@ -842,9 +855,12 @@ describe('approval of basicly', () => {
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
       answerBasicly(world)
       world.answer = 'Not now'
-      const declined = await startSession($, clock, true)
+      const declined = await startSession($, clock, true, asksAndState(world, 1, 'approval-needed'))
       touchLedger(world, 20)
-      await clock.advance(4_000)
+      await pollUntil($, clock, 4_000, {
+        isDone: (snapshot) => snapshot.version > declined.version,
+        condition: 'a read after the ledger change',
+      })
       expect((await snapshotOf($)).version).toBeGreaterThan(declined.version)
       expect(declined.state).toBe('approval-needed')
       expect(declined.reason).toBe(PATH_APPROVAL_TEXT)
@@ -852,7 +868,7 @@ describe('approval of basicly', () => {
       expect(world.runs).toEqual([])
       expect(world.stored.size).toBe(0)
       world.answer = ALLOW
-      const approved = await startSession($, clock, true)
+      const approved = await startSession($, clock, true, asksAndState(world, 2, 'ok'))
       expect(world.asks.length).toBe(2)
       expect(approved.state).toBe('ok')
     },
@@ -861,7 +877,7 @@ describe('approval of basicly', () => {
   test('a dismissed ask counts as Not now', { plugins: [consumer] }, async ($, on) => {
     const clock = mock.clock(on)
     const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
-    const snapshot = await startSession($, clock, true)
+    const snapshot = await startSession($, clock, true, asksAndState(world, 1, 'approval-needed'))
     await clock.advance(4_000)
     expect(world.asks.length).toBe(1)
     expect(snapshot.state).toBe('approval-needed')
@@ -882,8 +898,7 @@ describe('approval of basicly', () => {
         world.answer = 'Not now'
         world.files.set(`${ROOT}/${file}`, { text, mtimeMs: 10 })
         touchLedger(world, 30)
-        await clock.advance(2_000)
-        await clock.settle()
+        await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
         expect(world.asks.length).toBe(2)
         expect(world.runs.length).toBe(runsBefore)
         expect((await snapshotOf($)).state).toBe('approval-needed')
@@ -896,7 +911,7 @@ describe('approval of basicly', () => {
     world.files.set('/opt/basicly-2/basicly', { text: 'binary', mtimeMs: 1 })
     world.links.set(BASICLY_BIN, '/opt/basicly-2/basicly')
     world.answer = 'Not now'
-    const snapshot = await startSession($, clock, true)
+    const snapshot = await startSession($, clock, true, asksAndState(world, 2, 'approval-needed'))
     expect(world.asks.length).toBe(2)
     expect(snapshot.state).toBe('approval-needed')
   })
@@ -1134,14 +1149,19 @@ describe('CLI adapter from the user file', () => {
     const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
     answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
     await startSession($, clock, false)
-    await clock.advance(2_000)
+    await pollUntil($, clock, 2_000, {
+      isDone: () => world.runs.length >= 4,
+      condition: 'the read that adds the watch globs',
+    })
     const runsSettled = world.runs.length
     await clock.advance(2_000)
     expect(world.runs.length).toBe(runsSettled)
     answerAdapter(world, DESCRIBE, [{ id: 'T-3', title: 'Ship it', status: 'done' }])
     world.files.set(`${ROOT}/tickets/t-1.json`, { text: '{"changed":true}', mtimeMs: 30 })
-    await clock.advance(2_000)
-    const snapshot = await snapshotOf($)
+    const snapshot = await pollUntil($, clock, 2_000, {
+      isDone: (current) => current.items.some((item) => item.key === 'tickets:T-3'),
+      condition: 'the item T-3',
+    })
     expect(snapshot.items.map((item) => [item.key, item.status])).toEqual([
       ['tickets:T-3', 'closed'],
     ])
@@ -1431,7 +1451,7 @@ describe('the item text check at the reader boundary', () => {
         }),
       })
       touchLedger(world, 40)
-      await clock.advance(2_000)
+      await pollUntil($, clock, 2_000, stateIs('failed'))
       expect((await snapshotOf($)).reason).toBe(
         'basicly tracker list record 1 has an id with a control character, so it could not be read.',
       )

@@ -9,6 +9,7 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import { DIFF_HISTORY_LIMIT } from './hooks/snapshot'
+import { advanceUntil } from './testing'
 import type {
   WorkitemsDiff,
   WorkitemsRefreshResult,
@@ -146,6 +147,16 @@ async function snapshotOf(engine: Engine): Promise<WorkitemsSnapshot> {
 
 async function startSession(engine: Engine): Promise<void> {
   await engine.session.start({ cwd: ROOT, surface: null, isInteractive: false })
+}
+
+async function pollUntil(
+  engine: Engine,
+  clock: MockClock,
+  ms: number,
+  isDone: (snapshot: WorkitemsSnapshot) => boolean,
+  condition: string,
+): Promise<WorkitemsSnapshot> {
+  return advanceUntil(clock, ms, () => snapshotOf(engine), isDone, condition)
 }
 
 function keysOf(items: readonly WorkitemsItem[]): string[] {
@@ -385,7 +396,7 @@ describe('refresh', () => {
       })
       await clock.advance(1_999)
       expect((await snapshotOf($)).items.length).toBe(3)
-      await clock.advance(1)
+      await pollUntil($, clock, 1, (snapshot) => snapshot.items.length === 4, '4 items')
       expect((await snapshotOf($)).items.length).toBe(4)
       const readsAfterChange = world.reads.length
       await clock.advance(2_000)
@@ -462,7 +473,7 @@ describe('refresh since a version', () => {
       const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
       await startSession($)
       world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
-      await clock.advance(2_000)
+      await pollUntil($, clock, 2_000, (snapshot) => snapshot.items.length === 4, '4 items')
       const before = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
       expect(before.version).toBe((await snapshotOf($)).version)
       world.files.set(ISSUES, {
@@ -485,7 +496,7 @@ describe('refresh since a version', () => {
     await startSession($)
     const before = await snapshotOf($)
     world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
-    await clock.advance(2_000)
+    await pollUntil($, clock, 2_000, (snapshot) => snapshot.items.length === 4, '4 items')
     expect((await snapshotOf($)).items.length).toBe(4)
     const diff = JSON.parse(
       await commandText($, 'refresh', String(before.version)),
@@ -524,7 +535,13 @@ describe('refresh since a version', () => {
       await startSession($)
       const before = await snapshotOf($)
       world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
-      await clock.advance(2_000)
+      await pollUntil(
+        $,
+        clock,
+        2_000,
+        (snapshot) => snapshot.version === before.version + 1,
+        'the first poll read',
+      )
       const closedBoth = WITH_NEW_ITEM.replace(
         '"status":"open","priority":2',
         '"status":"closed","priority":2',
@@ -533,7 +550,13 @@ describe('refresh since a version', () => {
         '{"id":"app-x","title":"New","status":"closed"}',
       )
       world.files.set(ISSUES, { text: closedBoth, mtimeMs: 30 })
-      await clock.advance(2_000)
+      await pollUntil(
+        $,
+        clock,
+        2_000,
+        (snapshot) => snapshot.version === before.version + 2,
+        'the second poll read',
+      )
       expect((await snapshotOf($)).version).toBe(before.version + 2)
       const diff = JSON.parse(
         await commandText($, 'refresh', String(before.version)),
@@ -553,7 +576,7 @@ describe('refresh since a version', () => {
     await clock.advance(4_000)
     expect((await snapshotOf($)).version).toBe(first)
     world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
-    await clock.advance(2_000)
+    await pollUntil($, clock, 2_000, (snapshot) => snapshot.version === first + 1, 'a new version')
     expect((await snapshotOf($)).version).toBe(first + 1)
   })
 
@@ -621,7 +644,13 @@ describe('session start and directory changes', () => {
       })
       await startSession($)
       expect(logs.filter((text) => text.includes('the first refresh failed')).length).toBe(1)
-      await clock.advance(10_000)
+      await advanceUntil(
+        clock,
+        10_000,
+        () => Promise.resolve(reads),
+        (count) => count > 0,
+        'a poll read',
+      )
       expect(reads).toBeGreaterThan(0)
     },
   )
@@ -657,8 +686,13 @@ describe('session start and directory changes', () => {
     const clock = mock.clock(on, { now: 100_000 })
     fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
     await startSession($)
-    await clock.advance(10_000)
-    const snapshot = await snapshotOf($)
+    const snapshot = await pollUntil(
+      $,
+      clock,
+      10_000,
+      (current) => current.checkedAt === 110_000,
+      'a check at 110 s',
+    )
     expect(snapshot.at).toBe(100_000)
     expect(snapshot.checkedAt).toBe(110_000)
     const lines = JSON.parse(await commandText($, 'lines', '122000')) as WorkitemsLine[]
