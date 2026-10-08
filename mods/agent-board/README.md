@@ -32,6 +32,8 @@ tool calls.
   characters, cut to fit.
 - The time counts every second while the agent runs. It stops when the agent ends. For an
   `unknown` row, it stops at the last moment that the board saw the agent.
+- An agent whose `turn.complete` arrived stays `done` when `$.agent.list()` no longer lists it.
+  An agent that the list drops before its turn ends becomes `unknown`.
 - The header counts the cards: `2 active · 1 done`. When every listed subagent is `done`,
   `failed` or `killed`, it reads `all N done`.
 - With no subagent, the pane shows `No subagents in this session yet.`
@@ -49,9 +51,11 @@ tool calls.
 
 - A `tool.call` with no `agentId` is a call of the main loop. The mod passes it on at once and
   changes no card.
-- The `tool.call`, `agent.spawn`, `turn.complete` and `ui.close` hooks have a `.catch` that
-  answers `next(e)`. A hook that fails never changes the result of the call, the spawn or the
-  turn. The `ui.render` hook logs a failure to the debug log and answers `next(e)`.
+- Each `session.end` clears every card. A `/clear` and a resume end the session in the same
+  process, and no `session.start` follows, so the cards of the last conversation do not stay.
+- The `session.end`, `tool.call`, `agent.spawn`, `turn.complete` and `ui.close` hooks have a
+  `.catch` that answers `next(e)`. A hook that fails never changes the result of the call, the
+  spawn or the turn. The `ui.render` hook logs a failure to the debug log and answers `next(e)`.
 - The board redraws every second while its pane is the shown tab. While the pane is a hidden
   tab, the timer only reads the list of panes. The board reads `$.agent.list()` only when it
   draws. The timer stops when the pane closes.
@@ -64,9 +68,19 @@ ids. A live probe on Claude Code 2.1.294 saw two of them, and the consumer run o
 one that called `AskUserQuestion`.
 
 The board keeps such a loop as a card, so no tool call is hidden. The card shows the first 8
-characters of the id, a dim `not listed` badge, and `running` while a call runs, else
-`unknown`. The header counts these cards apart, as `N not listed`, so that they do not block
+characters of the id, a dim `not listed` badge, and `running` while a call runs. After its
+`turn.complete` it shows `done`, else `unknown`.
+
+An agent that `agent.spawn` started, with no list row and no loop event, gets the same badge. A
+remote workflow agent is one: no local loop carries its id. Its card shows its type and
+`unknown`.
+
+The header counts all of these cards apart, as `N not listed`, so that they do not block
 `all N done`.
+
+The board keeps at most 20 cards that the list never named and that run no call. When a 21st
+comes, it drops the card that it saw least recently. It never drops a card that the list named
+or a card with a call in flight.
 
 ## Limits
 
@@ -76,8 +90,8 @@ characters of the id, a dim `not listed` badge, and `running` while a call runs,
   for at least 90 s in the probe.
 - An agent that the board saw first in `$.agent.list()` gets the time of that sight as its spawn
   time. Only an `agent.spawn` that this mod saw gives the true spawn time.
-- The board keeps one card for each agent id that it saw in the session. It does not drop
-  old cards.
+- The board does not drop the card of a subagent that the list named. Only the cards that the
+  list never named have a bound, of 20.
 - Two panes do not show at once. With `session-board` open, the two boards are tabs.
 
 ## Develop

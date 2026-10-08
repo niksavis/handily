@@ -603,7 +603,10 @@ and the count are `~dim~`; the state word has the colour of its mark.
 | `?`  | `unknown`: the engine no longer lists it | dim       |
 
 - Title: the agent name when it has one, with the type as a dim badge. Else the type. A loop
-  that `$.agent.list()` never names shows the first 8 characters of its id and `not listed`.
+  that `$.agent.list()` never names shows the first 8 characters of its id and `not listed`. A
+  spawned agent with no list row and no loop event (a remote workflow agent) shows its type
+  and `not listed`. At most 20 such rows with no call in flight stay.
+- `/clear` or a resume (`session.end`) empties the pane: `No subagents in this session yet.`
 - First detail line: the description of the Agent call, then `under <parent>` when the agent
   has a `parentId`. `<parent>` is the name of the parent, else its description, else its id.
 - Second detail line: `▸ <tool> <target> · N tools` while a call runs, `last <tool> <target> ·

@@ -1,6 +1,7 @@
 import type { AgentInfo, AgentStatus } from 'claude-code'
 
 export const TARGET_CHARS_AT_MOST = 200
+export const UNLISTED_KEPT_AT_MOST = 20
 
 const TARGET_KEYS = [
   'file_path',
@@ -41,6 +42,7 @@ export type AgentTrack = {
   parentId: string | null
   listedStatus: AgentStatus | null
   isListed: boolean
+  hasLoopEvents: boolean
 }
 
 export type Tracks = Map<string, AgentTrack>
@@ -80,9 +82,23 @@ export function trackOf(tracks: Tracks, id: string, now: number): AgentTrack {
     parentId: null,
     listedStatus: null,
     isListed: false,
+    hasLoopEvents: false,
   }
   tracks.set(id, created)
   return created
+}
+
+export function isUnlisted(track: AgentTrack): boolean {
+  return track.listedStatus === null && (track.type === null || !track.hasLoopEvents)
+}
+
+function pruneUnlisted(tracks: Tracks): void {
+  const idle = [...tracks.values()]
+    .filter((track) => track.listedStatus === null && track.running.size === 0)
+    .sort((a, b) => a.seenAt - b.seenAt)
+  for (const track of idle.slice(0, Math.max(idle.length - UNLISTED_KEPT_AT_MOST, 0))) {
+    tracks.delete(track.id)
+  }
 }
 
 export function noteSpawn(tracks: Tracks, id: string, facts: SpawnFacts, now: number): void {
@@ -91,6 +107,7 @@ export function noteSpawn(tracks: Tracks, id: string, facts: SpawnFacts, now: nu
   track.type ??= facts.type
   track.name ??= facts.name ?? null
   track.parentId ??= facts.parentId ?? null
+  pruneUnlisted(tracks)
 }
 
 export function startCall(
@@ -103,6 +120,7 @@ export function startCall(
   const track = trackOf(tracks, agentId, now)
   track.seenAt = now
   track.endedAt = null
+  track.hasLoopEvents = true
   track.running.set(callId, sight)
 }
 
@@ -113,16 +131,20 @@ export function finishCall(tracks: Tracks, agentId: string, callId: string): voi
   track.running.delete(callId)
   track.tools += 1
   track.last = sight
+  pruneUnlisted(tracks)
 }
 
 export function dropCall(tracks: Tracks, agentId: string, callId: string): void {
   tracks.get(agentId)?.running.delete(callId)
+  pruneUnlisted(tracks)
 }
 
 export function noteTurnEnd(tracks: Tracks, agentId: string, now: number): void {
   const track = trackOf(tracks, agentId, now)
   track.seenAt = now
   track.endedAt = now
+  track.hasLoopEvents = true
+  pruneUnlisted(tracks)
 }
 
 export function mergeList(tracks: Tracks, listed: readonly AgentInfo[], now: number): void {
@@ -147,7 +169,7 @@ export function mergeList(tracks: Tracks, listed: readonly AgentInfo[], now: num
 export function rowStatus(track: AgentTrack): RowStatus {
   if (track.listedStatus !== null) {
     if (track.isListed || isEnded(track.listedStatus)) return track.listedStatus
-    return 'unknown'
+    return track.endedAt === null ? 'unknown' : 'completed'
   }
   if (track.running.size > 0) return 'running'
   return track.endedAt === null ? 'unknown' : 'completed'

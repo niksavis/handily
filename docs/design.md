@@ -408,21 +408,29 @@ Design:
   makes one `$.clock.now()` call and keeps the running call in memory until `next` settles.
   Memory per agent is bounded: a fixed set of fields, the calls in flight, and a target of at
   most 200 characters.
-- Every hook on `tool.call`, `agent.spawn`, `turn.complete` and `ui.close` has a `.catch` that
-  answers `next(e)`. The `next` of a `.catch` replays a settled call and does not run it again.
+- Every hook on `session.end`, `tool.call`, `agent.spawn`, `turn.complete` and `ui.close` has a
+  `.catch` that answers `next(e)`. The `next` of a `.catch` replays a settled call and does not
+  run it again.
+- Each `session.end` clears the rows. The types say that a `/clear` is a `session.end` with the
+  reason `clear`, and that no `session.start` follows it. A resume also ends the session in the
+  same process.
 - The list and the drawing run only while the pane is drawn. A `$.clock.every(1000)` timer
   redraws while the pane is the shown tab, and stops when the pane closes.
-- A loop that `agent.list` never names keeps its row, marked `not listed`. The header counts
-  these rows apart, so they do not block `all N done`.
-- An agent that `agent.list` no longer shows keeps its row. When its last listed status was not
-  an end, its status becomes `unknown` and its time stops at the last sight.
+- A loop that `agent.list` never names keeps its row, marked `not listed`. A spawned agent with
+  no list row and no loop event gets the same mark, for example a remote workflow agent. The
+  header counts these rows apart, so they do not block `all N done`.
+- At most 20 rows that `agent.list` never named and that run no call stay. The row seen least
+  recently goes first. A row that the list named, or a row with a call in flight, never goes.
+- An agent that `agent.list` no longer shows keeps its row. When its turn ended, it stays
+  `done`. When its last listed status was not an end and no turn end came, its status becomes
+  `unknown` and its time stops at the last sight.
 
 Limits:
 
 - The rows live in the memory of the hooks module. A reload of the mod clears them.
 - `agent.list` has no spawn time. An agent that the mod first saw in the list gets the time of
   that sight.
-- The mod does not drop the row of an old agent.
+- The mod does not drop the row of an agent that `agent.list` named.
 
 ## 5. Repo layout (proposed)
 

@@ -3,6 +3,7 @@ import {
   currentCall,
   elapsedMs,
   isEnded,
+  isUnlisted,
   rowStatus,
   type AgentTrack,
   type RowStatus,
@@ -62,7 +63,7 @@ export function formatElapsed(ms: number): string {
 }
 
 function groupOf(track: AgentTrack, status: RowStatus): Group {
-  if (track.type === null) return 'unlisted'
+  if (isUnlisted(track)) return 'unlisted'
   if (isEnded(status)) return 'done'
   return status === 'unknown' ? 'unknown' : 'active'
 }
@@ -82,7 +83,7 @@ function parentLabel(tracks: Tracks, parentId: string | null): string | null {
 }
 
 function badgeOf(track: AgentTrack): string | null {
-  if (track.type === null) return NOT_LISTED_BADGE
+  if (isUnlisted(track)) return NOT_LISTED_BADGE
   return track.name === null ? null : track.type
 }
 

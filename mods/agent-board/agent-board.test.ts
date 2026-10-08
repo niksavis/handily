@@ -431,6 +431,80 @@ describe('when every subagent ended', () => {
   })
 })
 
+describe('the repairs of the review', () => {
+  for (const reason of ['clear', 'resume'] as const) {
+    test(`a session end with reason ${reason} clears the rows of the last conversation`, async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      const world = fakeWorld(on)
+      on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+      world.subagents = [{ ...EXPLORE, status: 'completed' }, PLAN]
+      await openBoard($, clock)
+      await subagentCall($, EXPLORE.id)
+      expect(await shownTexts($)).toContain('  all 2 done')
+      world.subagents = []
+      await $.session.end({ reason, sessionId: 's1', resume: { id: 's1' } })
+      expect(await shownTexts($)).toEqual(['Subagents', EMPTY_TEXT])
+    })
+  }
+
+  test('an agent whose turn ended stays done after agent.list drops it', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [EXPLORE]
+    await openBoard($, clock)
+    expect(await shownTexts($)).toContain('  1 active')
+    await subagentCall($, EXPLORE.id)
+    await clock.advance(7000)
+    await endTurn($, EXPLORE.id)
+    world.subagents = []
+    await clock.advance(60_000)
+    const texts = await shownTexts($)
+    expect(texts).toContain('  all 1 done')
+    expect(texts).toContain('done')
+    expect(texts).toContain('7s')
+    expect(texts).not.toContain('unknown')
+  })
+
+  test('keeps at most 20 idle not-listed loops and never drops a listed or running one', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [{ ...EXPLORE, status: 'completed' }]
+    await openBoard($, clock)
+    const forks = Array.from({ length: 25 }, (_, index) => `f${String(index).padStart(7, '0')}`)
+    for (const fork of forks) {
+      await clock.advance(1000)
+      await subagentCall($, fork)
+      await endTurn($, fork)
+    }
+    const gate = { release: () => undefined as unknown }
+    world.hold = new Promise<void>((resolve) => {
+      gate.release = resolve
+    })
+    const pending = subagentCall($, 'r0000001')
+    await clock.settle()
+    const texts = await shownTexts($)
+    expect(texts.filter((text) => text === NOT_LISTED_BADGE)).toHaveLength(21)
+    expect(texts).toContain('Explore')
+    expect(texts).toContain('r0000001')
+    expect(forks.filter((fork) => texts.includes(fork))).toEqual(forks.slice(5))
+    gate.release()
+    await pending
+  })
+
+  test('a spawned agent with no loop events and no list row does not block all N done', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.nextAgentId = 'w0000001'
+    await spawn($, 'remote review', 'general-purpose')
+    world.subagents = [{ ...EXPLORE, status: 'completed' }]
+    await openBoard($, clock)
+    const texts = await shownTexts($)
+    expect(texts).toContain('  all 1 done · 1 not listed')
+    expect(texts.indexOf(NOT_LISTED_BADGE)).toBe(texts.indexOf('general-purpose') + 1)
+    expect(texts).toContain('remote review')
+  })
+})
+
 type Node = { type: string; props: Record<string, unknown>; text: string; children: Node[] }
 
 function isObject(value: unknown): value is Record<string, unknown> {

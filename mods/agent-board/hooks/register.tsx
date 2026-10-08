@@ -56,6 +56,11 @@ export const register: Register = (on) => {
     return started
   })
 
+  on('session.end', (_$, e, next) => {
+    board.tracks.clear()
+    return next(e)
+  }).catch((_$, e, next) => next(e))
+
   on('tool.call', async ($, e, next) => {
     const { agentId } = e
     if (agentId === undefined) return next(e)
