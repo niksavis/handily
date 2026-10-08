@@ -48,18 +48,22 @@ const UV_RUN_VALUE_FLAGS = new Set([
   '--from',
 ])
 const NPX_VALUE_FLAGS = new Set(['--package', '-p'])
-const UV_FETCH_FLAGS = new Set([
+const UV_RUN_CODE_SOURCE_FLAGS = new Set([
   '--from',
   '--with',
   '-w',
   '--with-editable',
   '--with-requirements',
   '--package',
+  '--index',
+  '--directory',
+  '--project',
 ])
-const NPX_FETCH_FLAGS = new Set(['--package', '-p'])
+const UV_RUN_ENV_FLAGS = new Set(['--env-file'])
 const BR_GLOBAL_VALUE_FLAGS = new Set(['--db', '--actor', '--lock-timeout'])
 const EXIT_STATUS = '$?'
-const STATUS_ECHO_SEPARATORS = new Set([';', '\n', '&&'])
+const WRITE_CHAIN = '&&'
+const STATUS_ECHO_SEPARATORS = new Set([';', '\n', WRITE_CHAIN])
 const NOT_LITERAL_IN_ECHO = /[$*?[\]{}~]/
 
 type Lexed = {
@@ -162,7 +166,7 @@ function statusEchoOf(words: readonly string[], separator: string): StatusEcho |
   if (words[0] !== 'echo' || !STATUS_ECHO_SEPARATORS.has(separator)) return null
   const args = words.slice(1)
   if (!args.every(isLiteralEchoWord)) return null
-  return { line: args.join(' '), isAfterAnd: separator === '&&' }
+  return { line: args.join(' '), isAfterAnd: separator === WRITE_CHAIN }
 }
 
 export function hasEchoedSuccess(line: string, stdout: string): boolean {
@@ -181,27 +185,30 @@ function skipOptions(words: readonly string[], start: number, valueFlags: Set<st
 
 type Unwrapped = { command: readonly string[]; assigns: boolean; fetches: boolean }
 
-function fetchesCode(options: readonly string[], fetchFlags: Set<string>): boolean {
-  return options.some((option) => fetchFlags.has(option.split('=')[0] ?? ''))
+function hasAnyFlag(options: readonly string[], flags: Set<string>): boolean {
+  return options.some((option) => flags.has(option.split('=')[0] ?? ''))
 }
 
 function unwrap(words: readonly string[]): Unwrapped | null {
   let i = 0
   while (i < words.length && ENV_ASSIGNMENT.test(words[i] ?? '')) i += 1
-  const assigns = i > 0
+  let assigns = i > 0
   let fetches = false
-  const skipWrapper = (start: number, valueFlags: Set<string>, fetchFlags: Set<string>) => {
-    const end = skipOptions(words, start, valueFlags)
-    fetches ||= fetchesCode(words.slice(start, end), fetchFlags)
-    return end
-  }
   for (;;) {
     const head = words[i]
-    if (head === 'uv' && words[i + 1] === 'run')
-      i = skipWrapper(i + 2, UV_RUN_VALUE_FLAGS, UV_FETCH_FLAGS)
-    else if (head === 'uvx') i = skipWrapper(i + 1, UV_RUN_VALUE_FLAGS, UV_FETCH_FLAGS)
-    else if (head === 'npx') i = skipWrapper(i + 1, NPX_VALUE_FLAGS, NPX_FETCH_FLAGS)
-    else if (head !== undefined && PYTHON.test(head)) {
+    if (head === 'uv' && words[i + 1] === 'run') {
+      const end = skipOptions(words, i + 2, UV_RUN_VALUE_FLAGS)
+      const options = words.slice(i + 2, end)
+      fetches ||= hasAnyFlag(options, UV_RUN_CODE_SOURCE_FLAGS)
+      assigns ||= hasAnyFlag(options, UV_RUN_ENV_FLAGS)
+      i = end
+    } else if (head === 'uvx') {
+      fetches = true
+      i = skipOptions(words, i + 1, UV_RUN_VALUE_FLAGS)
+    } else if (head === 'npx') {
+      fetches = true
+      i = skipOptions(words, i + 1, NPX_VALUE_FLAGS)
+    } else if (head !== undefined && PYTHON.test(head)) {
       i += 1
       while (i < words.length && (words[i] ?? '').startsWith('-')) {
         const flag = words[i] ?? ''
@@ -266,7 +273,10 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
   let hasOtherCommand = false
   let hasAssignment = false
   let hasFetch = false
-  for (const segment of echo === null ? segments : segments.slice(0, -1)) {
+  let hasHiddenStatus = false
+  const checked = echo === null ? segments : segments.slice(0, -1)
+  for (const [index, segment] of checked.entries()) {
+    if (writes.length > 0 && separators[index] !== WRITE_CHAIN) hasHiddenStatus = true
     let start = 0
     while (LEADING_KEYWORDS.has(segment[start] ?? '')) start += 1
     const words = segment.slice(start)
@@ -292,6 +302,7 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
   if (hasAssignment) return { kind: 'opaque', reason: 'assignment', writes }
   if (hasFetch) return { kind: 'opaque', reason: 'fetch', writes }
   if (hasOtherCommand) return { kind: 'opaque', reason: 'mixed', writes }
+  if (hasHiddenStatus) return { kind: 'opaque', reason: 'hidden-status', writes }
   if (echo === null) return { kind: 'write', writes }
   if (echo.line.includes(EXIT_STATUS)) return { kind: 'echoed', writes, line: echo.line }
   if (echo.isAfterAnd) return { kind: 'write', writes }
