@@ -1,9 +1,17 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
+import { isTrackerWrite } from './match'
 import { createToaster, type ToastHost, type Toaster } from './toasts'
 
 const TICK_MS = 2000
 
-type Toasts = { toaster: Toaster | undefined; ticks: Timer | undefined }
+type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
+type BackgroundTask = { taskId: string | null }
+
+type Toasts = {
+  toaster: Toaster | undefined
+  ticks: Timer | undefined
+  background: Map<string, BackgroundTask>
+}
 
 function hostOf($: EngineInterface): ToastHost {
   return {
@@ -17,6 +25,10 @@ function hostOf($: EngineInterface): ToastHost {
     log: (text) => {
       $.ui.log(text)
     },
+    announced: async () => (await $.state.get({ plugin: 'item-toasts', key: 'announced' })).value,
+    announce: async (health) => {
+      await $.state.set({ plugin: 'item-toasts', key: 'announced' }, health)
+    },
   }
 }
 
@@ -24,6 +36,7 @@ function stopToasts(toasts: Toasts): void {
   toasts.ticks?.cancel()
   toasts.ticks = undefined
   toasts.toaster = undefined
+  toasts.background.clear()
 }
 
 function startToasts($: EngineInterface, toasts: Toasts): Toaster {
@@ -38,8 +51,39 @@ function startToasts($: EngineInterface, toasts: Toasts): Toaster {
   return toaster
 }
 
+function backgroundTaskOf(
+  isLaunchedInBackground: boolean,
+  result: CallResult,
+): BackgroundTask | null {
+  const output: unknown = result.result
+  const taskId =
+    typeof output === 'object' &&
+    output !== null &&
+    'backgroundTaskId' in output &&
+    typeof output.backgroundTaskId === 'string'
+      ? output.backgroundTaskId
+      : null
+  if (taskId === null && !isLaunchedInBackground) return null
+  return { taskId }
+}
+
+async function endBackground(
+  toasts: Toasts,
+  hasEnded: (toolUseId: string, task: BackgroundTask) => boolean,
+): Promise<void> {
+  for (const [toolUseId, task] of [...toasts.background]) {
+    if (!hasEnded(toolUseId, task)) continue
+    toasts.background.delete(toolUseId)
+    await toasts.toaster?.leaveCall()
+  }
+}
+
+function isNamedIn(text: string, toolUseId: string, task: BackgroundTask): boolean {
+  return text.includes(toolUseId) || (task.taskId !== null && text.includes(task.taskId))
+}
+
 export const register: Register = (on) => {
-  const toasts: Toasts = { toaster: undefined, ticks: undefined }
+  const toasts: Toasts = { toaster: undefined, ticks: undefined, background: new Map() }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -52,7 +96,27 @@ export const register: Register = (on) => {
     return next(e)
   })
 
-  on('tool.call', { tool: ['Bash', 'Write', 'Edit'] }, async ($, e, next) => {
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (!isTrackerWrite({ tool: 'Bash', command: e.command })) return next(e)
+    const toaster = toasts.toaster ?? startToasts($, toasts)
+    await toaster.enterCall()
+    let result: CallResult
+    try {
+      result = await next(e)
+    } catch (error) {
+      await toaster.leaveCall()
+      throw error
+    }
+    const background = backgroundTaskOf(e.run_in_background === true, result)
+    if (background === null) await toaster.leaveCall()
+    else toasts.background.set(e.tool_use_id, background)
+    return result
+  })
+
+  on('tool.call', { tool: ['Write', 'Edit'] }, async ($, e, next) => {
+    const { value: snapshot } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
+    const use = { tool: e.tool, filePath: e.file_path, root: snapshot?.root ?? null }
+    if (!isTrackerWrite(use)) return next(e)
     const toaster = toasts.toaster ?? startToasts($, toasts)
     await toaster.enterCall()
     try {
@@ -60,5 +124,24 @@ export const register: Register = (on) => {
     } finally {
       await toaster.leaveCall()
     }
+  })
+
+  on('prompt.submit', async (_$, e, next) => {
+    if (e.origin.kind === 'task-notification') {
+      await endBackground(toasts, (toolUseId, task) => isNamedIn(e.text, toolUseId, task))
+    }
+    return next(e)
+  })
+
+  on('classic.Stop', async (_$, e, next) => {
+    const running = e.background_tasks
+    if (running !== undefined) {
+      const runningIds = new Set(running.map((task) => task.id))
+      await endBackground(
+        toasts,
+        (_toolUseId, task) => task.taskId !== null && !runningIds.has(task.taskId),
+      )
+    }
+    return next(e)
   })
 }

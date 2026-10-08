@@ -1,11 +1,11 @@
 import type { EngineInterface, PluginState } from 'claude-code'
+import type { ItemToastsHealth as Health } from '../types'
 
 type Snapshot = PluginState['workitems']['snapshot']
 type Refreshed = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
 type Item = Refreshed['created'][number]
 type Line = Awaited<ReturnType<EngineInterface['workitems']['lines']>>[number]
 type ChangeKind = 'created' | 'updated' | 'closed'
-type Health = 'ok' | 'failed'
 
 export const TITLE_LENGTH = 40
 export const QUIET_WINDOW_MS = 30_000
@@ -30,6 +30,8 @@ export type ToastHost = {
   now: () => Promise<number>
   toast: (text: string) => void
   log: (text: string) => void
+  announced: () => Promise<Health | undefined>
+  announce: (health: Health) => Promise<void>
 }
 
 export type Toaster = {
@@ -107,7 +109,8 @@ function strongerKind(held: ChangeKind, next: ChangeKind): ChangeKind {
 export function createToaster(host: ToastHost): Toaster {
   let seen: number | undefined
   let runningCalls = 0
-  let announced: Health = 'ok'
+  let isFailed = false
+  let hasOwnCallDuringFailure = false
   let lastToastAt: number | undefined
   const knownStatus = new Map<string, string>()
   const pending = new Map<string, Change>()
@@ -149,6 +152,7 @@ export function createToaster(host: ToastHost): Toaster {
     if (snapshot === undefined) return
     if (seen === undefined) {
       seen = snapshot.version
+      isFailed = snapshot.state === 'failed'
       remember(snapshot.items)
     }
     if (!mustRead && snapshot.version === seen) return
@@ -160,14 +164,23 @@ export function createToaster(host: ToastHost): Toaster {
       throw error
     }
     seen = refreshed.version
-    if (isElsewhere) hold(refreshed)
+    const wasFailed = isFailed
+    isFailed = (await host.snapshot())?.state === 'failed'
+    const hasRecovered = wasFailed && !isFailed
+    const isOwnRecovery = hasRecovered && hasOwnCallDuringFailure
+    if (hasRecovered) hasOwnCallDuringFailure = false
+    if (isElsewhere && !isOwnRecovery) hold(refreshed)
     remember([...refreshed.created, ...refreshed.updated, ...refreshed.closed])
   }
 
+  function noteOwnCall(): void {
+    if (isFailed) hasOwnCallDuringFailure = true
+  }
+
   async function nextText(snapshot: Snapshot, health: Health): Promise<string | null> {
-    if (health !== announced) {
+    if (health !== ((await host.announced()) ?? 'ok')) {
       const text = healthText(await host.lines(snapshot), health)
-      announced = health
+      await host.announce(health)
       return text
     }
     if (pending.size === 0) return null
@@ -210,6 +223,7 @@ export function createToaster(host: ToastHost): Toaster {
         runningCalls -= 1
         if (runningCalls > 0) return
         await catchUp(false, true)
+        noteOwnCall()
       }),
   }
 }

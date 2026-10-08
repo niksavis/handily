@@ -1,4 +1,4 @@
-import type { On, PluginState } from 'claude-code'
+import type { On, PluginState, ToolCallInput } from 'claude-code'
 import {
   describe,
   expect,
@@ -130,6 +130,15 @@ type World = {
   callMs: number
   timerPolls: boolean
   timerReads: number
+  plans: Record<string, CallPlan>
+  callIds: string[]
+}
+
+type CallPlan = {
+  edit?: DiskEdit
+  beforeMs?: number
+  afterMs?: number
+  output?: Record<string, unknown>
 }
 
 function applyItems(items: readonly Item[], diff: Diff): Item[] {
@@ -237,6 +246,8 @@ function newWorld(): World {
     callMs: 0,
     timerPolls: false,
     timerReads: 0,
+    plans: {},
+    callIds: [],
   }
 }
 
@@ -258,12 +269,28 @@ function engineBeneath(on: On, world: World): MockClock {
     return { value: JSON.stringify(answer(world, since)) }
   })
   on('tool.call', async (_$, e) => {
-    if (world.callMs > 0) await clock.sleep(world.callMs)
-    if (world.callEdit !== null) world.disk.push(world.callEdit)
-    if (world.callMs > 0) await clock.sleep(world.callMs)
-    return { result: { stdout: `ran ${e.tool}`, stderr: '', interrupted: false } }
+    world.callIds.push(e.tool_use_id)
+    const plan = world.plans[planKey(e)] ?? {
+      edit: world.callEdit ?? undefined,
+      beforeMs: world.callMs,
+      afterMs: world.callMs,
+    }
+    if ((plan.beforeMs ?? 0) > 0) await clock.sleep(plan.beforeMs ?? 0)
+    if (plan.edit !== undefined) world.disk.push(plan.edit)
+    if ((plan.afterMs ?? 0) > 0) await clock.sleep(plan.afterMs ?? 0)
+    return {
+      result: { stdout: `ran ${e.tool}`, stderr: '', interrupted: false, ...plan.output },
+    }
   })
+  on('prompt.submit', (_$, e) => ({ text: e.text }))
+  on('classic.Stop', () => ({}))
   return clock
+}
+
+function planKey(e: ToolCallInput): string {
+  if (e.tool === 'Bash') return e.command
+  if (e.tool === 'Write' || e.tool === 'Edit') return e.file_path
+  return e.tool
 }
 
 type ToastBody = (world: World, $: Engine, clock: MockClock) => Promise<void>
@@ -328,6 +355,14 @@ async function runTool($: Engine, tool: (typeof TOOLS)[number]): Promise<void> {
 
 function call($: Engine): Promise<void> {
   return runTool($, 'Bash')
+}
+
+async function bash($: Engine, command: string, isBackground = false): Promise<void> {
+  await $.tool.call({ tool: 'Bash', command, run_in_background: isBackground })
+}
+
+async function notify($: Engine, text: string): Promise<void> {
+  await $.prompt.submit({ text, wait: false, origin: { kind: 'task-notification' } })
 }
 
 describe('a change made elsewhere', () => {
@@ -606,4 +641,187 @@ describe('the snapshot state', () => {
     await pollAndTick($, clock)
     expect(world.toasts).toEqual(['handily-cd34 closed: Write the beads reader'])
   })
+})
+
+const CLOSE_AB12 = 'br close handily-ab12'
+const UPDATE_CD34 = 'br update handily-cd34 --status in_progress'
+
+function closeAb12(): DiskEdit {
+  return { diff: { ...emptyDiff(), closed: [updated(AB12, 'closed')] } }
+}
+
+function closeEf56(): DiskEdit {
+  return { diff: { ...emptyDiff(), closed: [updated(EF56, 'closed')] } }
+}
+
+function notificationText(taskId: string, toolUseId: string): string {
+  return [
+    '<task-notification>',
+    `<task-id>${taskId}</task-id>`,
+    `<tool-use-id>${toolUseId}</tool-use-id>`,
+    '<status>completed</status>',
+    '</task-notification>',
+  ].join('\n')
+}
+
+describe('a call that runs on in the background', () => {
+  toastTest('keeps a background call open until its task notification', async (world, $, clock) => {
+    await startSession($)
+    world.plans[CLOSE_AB12] = { output: { backgroundTaskId: 'b1' } }
+    await bash($, CLOSE_AB12, true)
+    elsewhere(world, closeAb12())
+    await pollAndTick($, clock)
+    await clock.advance(WINDOW_MS)
+    expect(world.toasts).toEqual([])
+    await notify($, notificationText('b1', world.callIds.at(-1) ?? ''))
+    await clock.advance(WINDOW_MS)
+    elsewhere(world, closeEf56())
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+  })
+
+  toastTest(
+    'keeps a call moved to the background open until the stop hook lists it no more',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { output: { backgroundTaskId: 'b2', backgroundedByUser: true } }
+      await bash($, CLOSE_AB12)
+      await $.classic.Stop({
+        stop_hook_active: false,
+        background_tasks: [{ id: 'b2', type: 'shell', status: 'running', description: CLOSE_AB12 }],
+      })
+      elsewhere(world, closeAb12())
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS)
+      expect(world.toasts).toEqual([])
+      await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+      await clock.advance(WINDOW_MS)
+      elsewhere(world, closeEf56())
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+    },
+  )
+
+  toastTest('ignores the notification of another task', async (world, $, clock) => {
+    await startSession($)
+    world.plans[CLOSE_AB12] = { output: { backgroundTaskId: 'b3' } }
+    await bash($, CLOSE_AB12, true)
+    await notify($, notificationText('b9', 'toolu_other'))
+    elsewhere(world, closeAb12())
+    await pollAndTick($, clock)
+    await clock.advance(WINDOW_MS)
+    expect(world.toasts).toEqual([])
+  })
+})
+
+describe('a change of this session during a failure', () => {
+  toastTest(
+    'drops the recovery diff when a call ran during the failure',
+    async (world, $, clock) => {
+      await startSession($)
+      elsewhere(world, { state: 'failed' })
+      await pollAndTick($, clock)
+      world.plans[CLOSE_AB12] = { edit: closeAb12() }
+      await bash($, CLOSE_AB12)
+      await clock.advance(WINDOW_MS)
+      elsewhere(world, { state: 'ok' })
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS * 2)
+      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads · 2 open.'])
+    },
+  )
+
+  toastTest(
+    'drops the recovery diff when a call was open as the state turned failed',
+    async (world, $, clock) => {
+      await startSession($)
+      world.timerPolls = true
+      world.plans[CLOSE_AB12] = { edit: closeAb12(), beforeMs: TICK_MS * 2, afterMs: TICK_MS * 2 }
+      const running = bash($, CLOSE_AB12)
+      await clock.settle()
+      expect(world.sinces).toEqual([7])
+      elsewhere(world, { state: 'failed' })
+      await clock.advance(TICK_MS * 4)
+      await running
+      world.timerPolls = false
+      await clock.advance(WINDOW_MS)
+      elsewhere(world, { state: 'ok' })
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS * 2)
+      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads · 2 open.'])
+    },
+  )
+
+  toastTest(
+    'toasts a change made elsewhere during a failure with no call',
+    async (world, $, clock) => {
+      await startSession($)
+      elsewhere(world, { state: 'failed' })
+      await pollAndTick($, clock)
+      elsewhere(world, closeAb12())
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS)
+      elsewhere(world, { state: 'ok' })
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS * 2)
+      expect(world.toasts).toEqual([
+        FAILED_TOAST,
+        'Work items are back: beads · 2 open.',
+        'handily-ab12 closed: Draw text mocks for the mods',
+      ])
+    },
+  )
+})
+
+describe('overlapping calls', () => {
+  toastTest(
+    'counts the edit of the first call as own when a second call starts after it',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { edit: closeAb12(), afterMs: TICK_MS * 3 }
+      world.plans[UPDATE_CD34] = { afterMs: TICK_MS }
+      const first = bash($, CLOSE_AB12)
+      await clock.settle()
+      expect(world.disk).toHaveLength(1)
+      const second = bash($, UPDATE_CD34)
+      await clock.advance(TICK_MS * 4)
+      await Promise.all([first, second])
+      await clock.advance(WINDOW_MS)
+      expect(world.toasts).toEqual([])
+    },
+  )
+
+  toastTest(
+    'reads the diff only when the first call starts and the last call ends',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { edit: closeAb12(), afterMs: TICK_MS * 3 }
+      world.plans[UPDATE_CD34] = {}
+      const first = bash($, CLOSE_AB12)
+      await clock.settle()
+      await bash($, UPDATE_CD34)
+      expect(world.sinces).toEqual([7])
+      await clock.advance(TICK_MS * 3)
+      await first
+      expect(world.sinces).toEqual([7, 7])
+    },
+  )
+})
+
+describe('a reload of the module', () => {
+  toastTest(
+    'does not repeat the failed toast for a toaster started during the failure',
+    async (world, $, clock) => {
+      await startSession($)
+      elsewhere(world, { state: 'failed' })
+      await pollAndTick($, clock)
+      await startSession($)
+      await clock.advance(WINDOW_MS * 2)
+      expect(world.toasts).toEqual([FAILED_TOAST])
+      elsewhere(world, { state: 'ok' })
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS)
+      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads · 3 open.'])
+    },
+  )
 })

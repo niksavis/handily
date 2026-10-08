@@ -31,6 +31,32 @@ which it has read the diffs.
 When calls overlap, the mod drops the diff of every version from the start of the first call
 to the end of the last call. A change made elsewhere in that time draws no toast.
 
+`isTrackerWrite` in `hooks/match.ts` decides which calls count. This version counts every
+`Bash`, `Write` and `Edit` call.
+
+### A call that runs on in the background
+
+A `Bash` call with `run_in_background`, or a call that the person or the engine moves to the
+background, returns before its command ends. The mod keeps such a call open until one of these
+events:
+
+- The task notification of the call arrives (`prompt.submit` with the origin
+  `task-notification`). Its text names the `tool_use_id` of the call or the
+  `backgroundTaskId` of its result.
+- A `Stop` hook lists the background tasks of the session, and the `backgroundTaskId` of the
+  call is not in the list.
+
+Until then, a change made elsewhere draws no toast. A new session start closes every open
+call. A reload of the mod forgets the open background calls, so a change that such a command
+makes after the reload draws a toast.
+
+### A change during a failure
+
+While the snapshot is `failed`, `workitems` keeps the last good items. When it recovers, its
+diff holds every change from the whole failure. When a call of this session was open at any time
+during the failure, the mod drops that recovery diff. A change made elsewhere during that
+failure then draws no toast either.
+
 ## The toast
 
 - One change draws `<id> <created|updated|closed>: <title>`. An update that moved the status
@@ -53,6 +79,8 @@ to the end of the last call. A change made elsewhere in that time draws no toast
 
 - A state toast also waits for the 30 s limit. A failure that recovers before its toast shows
   draws no toast.
+- The mod keeps the state it last toasted in `$.state` (`announced`). A reload of the mod
+  during a failure does not repeat the failed toast.
 - On desktop, a `basicly` source is `terminal-only`, so the mod shows nothing. A `beads` or
   `beans` source works as in a terminal.
 
