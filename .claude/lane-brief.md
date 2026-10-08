@@ -30,6 +30,9 @@ merges. You do not merge to main, push, or write to the tracker or the ledger.
 - `$.process.run(argv, init)` is positional, CLI only, with a 4 MiB cap. `$.fs` has no watch.
   `$.fs.read` refuses files over 4 MiB. A Pane docks only in fullscreen.
 - Do not turn on `checksVoidReturn` in no-misused-promises. `rm -rf` is denied: move files away.
+- Never rewrite history: no `git reset`, `git rebase -i`, `commit --amend` or force push, even on
+  your own branch. To undo a commit, add a `git revert` commit. Rebasing on main is the only
+  rewrite allowed. Never write a raw invisible or bidi character into source: write `\uXXXX`.
 - Tests are `*.test.ts` and import from `claude-code/testing`. Assert what a caller or the
   person sees. Every criterion has a test, and a bug fix has a regression test.
 - A commit subject is Conventional Commits with a lowercase description of letters, digits,
