@@ -379,9 +379,29 @@ describe('command parser', () => {
   })
 
   test('classifies the inputs of the second security review', () => {
-    expect(reviewCases.filter((c) => c.expect === 'opaque').length).toBe(53)
-    expect(reviewCases.filter((c) => c.expect === 'write').length).toBe(13)
+    expect(reviewCases.filter((c) => c.expect === 'opaque').length).toBe(57)
+    expect(reviewCases.filter((c) => c.expect === 'write').length).toBe(12)
     expectClassified(reviewCases)
+  })
+
+  test('reads a command up to 8192 characters and refuses a longer one', () => {
+    const title = (length: number) => `br close x-1 --title "${'a'.repeat(length)}"`
+    expect(title(8169).length).toBe(8192)
+    expect(parseCommand(title(8169), VERBS)).toEqual({
+      kind: 'write',
+      writes: [{ tracker: 'br', verb: 'close' }],
+    })
+    expect(parseCommand(title(8170), VERBS)).toEqual({
+      kind: 'opaque',
+      reason: 'syntax',
+      writes: [],
+    })
+    expect(parseCommand(`sudo ${'br '.repeat(20_000)}`, VERBS)).toEqual({
+      kind: 'opaque',
+      reason: 'syntax',
+      writes: [],
+    })
+    expect(parseCommand(`echo ${'word '.repeat(12_000)}`, VERBS)).toEqual({ kind: 'none' })
   })
 
   test('returns none only when no tracker program or kit path appears', () => {

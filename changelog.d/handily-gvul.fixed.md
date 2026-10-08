@@ -3,7 +3,8 @@
   the result. Examples are a `$'…'` quote, a command substitution, a redirection, an env
   assignment, `python3 -c'…'`, `uv run` with an option, `uvx`, `npx` and a path such as
   `/tmp/br`. Now each segment must start with a bare `br`, `bd` or `basicly`, or run the
-  relative kit path through `python3`, `python` or `uv run python`, with no option. Each word
+  relative kit path through `python3` or `python`, with no option. `uv run` is not allowed,
+  and no `cd` may come before the kit path. A command over 8192 characters is not read. Each word
   must be a plain word, a single-quoted string, or a double-quoted string without `$`, a
   backtick or a backslash (handily-gvul).
 - **quiet-items draws the full row when a later command hides the exit status of a tracker

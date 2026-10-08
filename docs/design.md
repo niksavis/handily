@@ -240,13 +240,19 @@ Match:
 - A command goes quiet only when all of these hold:
   - Each segment starts with `br`, `bd` or `basicly` as a bare word, or with
     `.basicly/core/kit/tracker/cli.py`. It can also start with `python3` or `python`
-    directly followed by that kit path, or with `uv run` followed by such a `python` command.
+    directly followed by that kit path.
+  - `uv run` is not allowed. It syncs the project first, and a build backend in the tree
+    can run any code.
   - Each segment is a tracker write, or `cd` with one word. `--help`, `-h` and `--dry-run`
     are not writes.
+  - No `cd` comes before a segment that runs the kit path, because the relative path then
+    names a script in another directory. A `cd` before `br`, `bd` or `basicly` is allowed.
   - Only `&&` joins two segments.
   - Every word is a bare word of `[A-Za-z0-9._/:=@,+%-]`, a single-quoted string, or a
     double-quoted string without `$`, a backtick or a backslash.
-  - No option of `uv` or `python` appears.
+  - No option of `python` appears.
+  - The command has at most 8192 characters. The parser does not read a longer command,
+    and it gives `opaque` with reason `syntax` when a tracker name appears.
 - Every other command falls back to the engine row. The parser returns `opaque` when the
   command names a tracker program or the kit path, and `none` when it names neither. A
   script such as `bash close.sh` gives `none`, because the parser cannot see inside it.

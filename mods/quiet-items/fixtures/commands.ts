@@ -107,9 +107,11 @@ export const commandCases: readonly CommandCase[] = [
   {
     command: 'uv run python .basicly/core/kit/tracker/cli.py close h-1 .basicly/ledger',
     isWrite: true,
-    expect: 'write',
+    expect: 'opaque',
     tracker: '.basicly/core/kit/tracker/cli.py',
     verb: 'close',
+    reason: 'shape',
+    why: 'uv run syncs the project first, and a build backend in the tree can run any code',
   },
   {
     command: 'python3 -I .basicly/core/kit/tracker/cli.py assign h-1',
@@ -305,6 +307,8 @@ const PYTHON_OPTION = 'no option of python may appear, because an option can run
 const UV_OPTION = 'uv run takes no option, because an option can pick other code'
 const FETCH = 'the wrapper fetches a package from a registry'
 const PATH = 'only a bare tracker name or the exact relative kit path is allowed'
+const UV_SYNC = 'uv run syncs the project first, and a build backend in the tree can run any code'
+const CD_KIT = 'after cd, the relative kit path names a script in another directory'
 
 export const reviewCases: readonly CommandCase[] = [
   opaque("br update x-1 --title $'\\'' ; id ; echo ''", 'expansion', DESYNC, BR_UPDATE),
@@ -438,7 +442,20 @@ export const reviewCases: readonly CommandCase[] = [
   quiet('basicly tracker close x-1', BASICLY_CLOSE),
   quiet('python3 .basicly/core/kit/tracker/cli.py close x-1', KIT_CLOSE),
   quiet('python .basicly/core/kit/tracker/cli.py close x-1', KIT_CLOSE),
-  quiet('uv run python3 .basicly/core/kit/tracker/cli.py close x-1', KIT_CLOSE),
+  opaque('uv run python3 .basicly/core/kit/tracker/cli.py close x-1', 'shape', UV_SYNC, KIT_CLOSE),
+  opaque(
+    'cd evil && python3 .basicly/core/kit/tracker/cli.py close x-1',
+    'shape',
+    CD_KIT,
+    KIT_CLOSE,
+  ),
+  opaque('cd evil && .basicly/core/kit/tracker/cli.py close x-1', 'shape', CD_KIT, KIT_CLOSE),
+  opaque(
+    'br close x-2 && cd evil && python3 .basicly/core/kit/tracker/cli.py close x-1',
+    'shape',
+    CD_KIT,
+    KIT_CLOSE,
+  ),
   quiet('.basicly/core/kit/tracker/cli.py close x-1', KIT_CLOSE),
   quiet('cd ../app && br close x-1'),
   quiet('br close x-1 && br update x-2 --status open', BR_UPDATE),

@@ -31,33 +31,38 @@ A command goes quiet only when all of these hold:
 - Each segment starts with one of these programs:
   - `br`, `bd` or `basicly`;
   - `python3` or `python`, directly followed by `.basicly/core/kit/tracker/cli.py`;
-  - `uv run`, with no option, followed by `python3` or `python` and the kit path;
   - `.basicly/core/kit/tracker/cli.py` alone.
 - Each segment is a tracker write or `cd` with one word.
+- No `cd` comes before a segment that runs the kit path. A `cd` before `br`, `bd` or
+  `basicly` is allowed.
 - Only `&&` joins two segments. A trailing status echo is the one exception (see below).
+- The command has at most 8192 characters.
 - Every word is one of these:
   - a bare word of the characters `A-Z a-z 0-9 . _ / : = @ , + % -`;
   - a single-quoted string;
   - a double-quoted string without `$`, a backtick or a backslash.
 
-| Command                                                   | Row                                              | Why                                                                        |
-| --------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------- |
-| `br close a`, `br update a --title "Fix the parser"`      | Quiet                                            | An allowed shape                                                           |
-| `br update a --title '$(id)'`                             | Quiet                                            | The shell does not expand text in single quotes                            |
-| `cd x && br close a && br update b --status open`         | Quiet                                            | `&&` stops at the first failure, so the exit status shows it               |
-| `br close a && echo ok`                                   | Quiet                                            | The same as above                                                          |
-| `br close a; echo "exit=$?"`                              | Quiet only when the last output line is `exit=0` | The echo prints the exit status of the tracker command                     |
-| `br close a; echo ok`                                     | Engine                                           | The echo hides the exit status of the tracker command                      |
-| `br close a; br close b`, `br close a \|\| br close b`    | Engine                                           | The second write hides the exit status of the first                        |
-| `br close a; git log`, `br close a \| tail -1`            | Engine                                           | A segment that is not a tracker write can hide a failure                   |
-| `br update a --title "$(id)"`, `$'…'`, a backtick, `\`    | Engine                                           | The shell expands or runs it                                               |
-| `br close x-*`, `br close {a,b}`, `~/notes`, `$HOME`      | Engine                                           | The shell expands it                                                       |
-| `br close a > out.txt`, `2>&1`, `< in.txt`, `<(…)`        | Engine                                           | A redirection, also to `/dev/null`, changes where the input or output goes |
-| `br close a & id`, `(br close a)`, `br close a # note`    | Engine                                           | The parser does not read a background job, a subshell or a comment         |
-| `FOO=1 br close a`, `env …`, `sudo …`                     | Engine                                           | Only a bare tracker program may start a segment                            |
-| `uvx br close a`, `npx br close a`, `uv run br close a`   | Engine                                           | The wrapper fetches a package or picks other code                          |
-| `uv run --with x python …`, `python3 -I …`, `python3 -c…` | Engine                                           | No option of `uv` or `python` may appear                                   |
-| `/tmp/br close a`, `./br close a`, an absolute kit path   | Engine                                           | Only a bare tracker name or the exact relative kit path is allowed         |
+| Command                                                    | Row                                              | Why                                                                                |
+| ---------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `br close a`, `br update a --title "Fix the parser"`       | Quiet                                            | An allowed shape                                                                   |
+| `br update a --title '$(id)'`                              | Quiet                                            | The shell does not expand text in single quotes                                    |
+| `cd x && br close a && br update b --status open`          | Quiet                                            | `&&` stops at the first failure, so the exit status shows it                       |
+| `br close a && echo ok`                                    | Quiet                                            | The same as above                                                                  |
+| `br close a; echo "exit=$?"`                               | Quiet only when the last output line is `exit=0` | The echo prints the exit status of the tracker command                             |
+| `br close a; echo ok`                                      | Engine                                           | The echo hides the exit status of the tracker command                              |
+| `br close a; br close b`, `br close a \|\| br close b`     | Engine                                           | The second write hides the exit status of the first                                |
+| `br close a; git log`, `br close a \| tail -1`             | Engine                                           | A segment that is not a tracker write can hide a failure                           |
+| `br update a --title "$(id)"`, `$'…'`, a backtick, `\`     | Engine                                           | The shell expands or runs it                                                       |
+| `br close x-*`, `br close {a,b}`, `~/notes`, `$HOME`       | Engine                                           | The shell expands it                                                               |
+| `br close a > out.txt`, `2>&1`, `< in.txt`, `<(…)`         | Engine                                           | A redirection, also to `/dev/null`, changes where the input or output goes         |
+| `br close a & id`, `(br close a)`, `br close a # note`     | Engine                                           | The parser does not read a background job, a subshell or a comment                 |
+| `FOO=1 br close a`, `env …`, `sudo …`                      | Engine                                           | Only a bare tracker program may start a segment                                    |
+| `uvx br close a`, `npx br close a`                         | Engine                                           | The wrapper fetches a package from a registry                                      |
+| `uv run python3 .basicly/core/kit/tracker/cli.py close a`  | Engine                                           | `uv run` syncs the project first, and a build backend in the tree can run any code |
+| `python3 -I …`, `python3 -c…`                              | Engine                                           | No option of `python` may appear                                                   |
+| `/tmp/br close a`, `./br close a`, an absolute kit path    | Engine                                           | Only a bare tracker name or the exact relative kit path is allowed                 |
+| `cd x && python3 .basicly/core/kit/tracker/cli.py close a` | Engine                                           | After `cd`, the relative kit path names a script in another directory              |
+| A command longer than 8192 characters                      | Engine                                           | The parser does not read it. It gives `opaque` when a tracker name appears         |
 
 A trailing `echo` goes quiet only when it comes after `;`, a newline or `&&`. Its words must
 pass the word rule, and `$?` is the one `$` that it may hold. A word that starts with `-`

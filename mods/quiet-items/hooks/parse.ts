@@ -21,6 +21,7 @@ const TRACKER_NAMES = new Set(['br', 'bd', 'basicly'])
 const PYTHON_NAMES = new Set(['python3', 'python'])
 const NOT_A_WRITE_FLAGS = new Set(['--help', '-h', '--dry-run'])
 const BR_GLOBAL_VALUE_FLAGS = new Set(['--db', '--actor', '--lock-timeout'])
+const MAX_COMMAND_LENGTH = 8192
 const EXIT_STATUS = '$?'
 const WRITE_CHAIN = '&&'
 const LINE_BREAK = '\n'
@@ -131,12 +132,9 @@ function isTrackerProgram(word: string): boolean {
 }
 
 function allowedTrackerCommand(words: readonly string[]): readonly string[] | null {
-  const [first = '', second, third = '', fourth] = words
+  const [first = '', second] = words
   if (TRACKER_NAMES.has(first) || first === KIT_SCRIPT) return words
   if (PYTHON_NAMES.has(first) && second === KIT_SCRIPT) return words.slice(1)
-  if (first === 'uv' && second === 'run' && PYTHON_NAMES.has(third) && fourth === KIT_SCRIPT) {
-    return words.slice(3)
-  }
   return null
 }
 
@@ -208,16 +206,19 @@ function parseSegments(segments: readonly Segment[], table: WriteVerbs): ParsedC
   let hasOutsideShape = false
   let hasOtherCommand = false
   let hasHiddenStatus = false
+  let hasChangedDirectory = false
   for (const [index, segment] of checked.entries()) {
     const { words } = segment
     hasStatus ||= segment.hasStatus
     hasHiddenStatus ||= index > 0 && segment.separator !== WRITE_CHAIN
     if (words[0] === 'cd') {
+      hasChangedDirectory = true
       hasOtherCommand ||= words.length !== 2
       continue
     }
     const allowed = allowedTrackerCommand(words)
-    if (allowed === null && words.some(isTrackerProgram)) {
+    const runsKitElsewhere = hasChangedDirectory && allowed?.[0] === KIT_SCRIPT
+    if (runsKitElsewhere || (allowed === null && words.some(isTrackerProgram))) {
       hasOutsideShape = true
       writes.push(...looseWritesOf(words, table))
       continue
@@ -238,11 +239,16 @@ function parseSegments(segments: readonly Segment[], table: WriteVerbs): ParsedC
 }
 
 export function parseCommand(command: string, table: WriteVerbs): ParsedCommand {
+  const names = () => command.split(NOT_A_NAME_CHAR)
+  if (command.length > MAX_COMMAND_LENGTH) {
+    if (!names().some(isTrackerProgram)) return { kind: 'none' }
+    return { kind: 'opaque', reason: 'syntax', writes: [] }
+  }
   const shape = readShape(command)
   if (shape.kind === 'read') return parseSegments(shape.segments, table)
-  const names = command.split(NOT_A_NAME_CHAR)
-  if (!names.some(isTrackerProgram)) return { kind: 'none' }
-  return { kind: 'opaque', reason: shape.reason, writes: looseWritesOf(names, table) }
+  const words = names()
+  if (!words.some(isTrackerProgram)) return { kind: 'none' }
+  return { kind: 'opaque', reason: shape.reason, writes: looseWritesOf(words, table) }
 }
 
 const TRACKER_FILES: readonly RegExp[] = [
