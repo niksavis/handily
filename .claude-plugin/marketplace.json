@@ -8,6 +8,12 @@
   },
   "plugins": [
     {
+      "name": "agent-board",
+      "source": "./mods/agent-board",
+      "version": "0.1.0",
+      "description": "A pane that shows what each subagent of this session does: its tool, its tool count and its time."
+    },
+    {
       "name": "handily",
       "source": "./mods/handily",
       "version": "0.1.0",

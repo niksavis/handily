@@ -374,6 +374,56 @@ Dropped (review decision 7).
 
 A toast when a work item changes state outside this session. It needs a rate limit.
 
+### 4.7 agent-board (handily-cr7r)
+
+- Purpose: one pane that shows what each subagent of this session does. `session-board` shows
+  the sessions of the machine. `agent-board` shows the subagents inside one session.
+- Decision (2026-10-08, a design lane and a Codex second opinion): a new mod with its own
+  `Pane`, not a second view of `session-board` and not an extension of the engine's own
+  background agent view. No render component reaches the engine's task list.
+- Two panes do not show at once. With both boards open, they are tabs.
+
+Sources of a row:
+
+| Source | Fields |
+| --- | --- |
+| `$.agent.list()` | `id`, `type`, `status`, `description`, `name?`, `parentId?` |
+| `agent.spawn` | the result `{ model, agentId }`; the input `description`, `subagentType`, `name`, `parentAgentId` |
+| `tool.call` | `agentId` in a subagent loop, none on the main loop; `tool`, `tool_use_id` and the tool's arguments |
+| `turn.complete` | `agentId`, `durationMs`, `usage?` |
+
+Facts from the live probe on Claude Code 2.1.294 (handily-v921):
+
+- A `tool.call` of a subagent carries `agentId`. A main-loop call carries none.
+- `agent.spawn` resolved with `model` and `agentId`. `agent.list` showed the Explore agent as
+  `running`, then `completed`, and still listed it 90 s after the spawn. A main-loop spawn has
+  no `parentId`.
+- Two `agentId` values appeared in `tool.call` that `agent.list` never showed. The engine types
+  say that the agents of a workflow and the own forks of the engine (compaction, memory) carry
+  such ids. The consumer run of the mod saw one more, which called `AskUserQuestion`.
+
+Design:
+
+- Hot path: the `tool.call` hook passes a main-loop call on at once. For a subagent call it
+  makes one `$.clock.now()` call and keeps the running call in memory until `next` settles.
+  Memory per agent is bounded: a fixed set of fields, the calls in flight, and a target of at
+  most 200 characters.
+- Every hook on `tool.call`, `agent.spawn`, `turn.complete` and `ui.close` has a `.catch` that
+  answers `next(e)`. The `next` of a `.catch` replays a settled call and does not run it again.
+- The list and the drawing run only while the pane is drawn. A `$.clock.every(1000)` timer
+  redraws while the pane is the shown tab, and stops when the pane closes.
+- A loop that `agent.list` never names keeps its row, marked `not listed`. The header counts
+  these rows apart, so they do not block `all N done`.
+- An agent that `agent.list` no longer shows keeps its row. When its last listed status was not
+  an end, its status becomes `unknown` and its time stops at the last sight.
+
+Limits:
+
+- The rows live in the memory of the hooks module. A reload of the mod clears them.
+- `agent.list` has no spawn time. An agent that the mod first saw in the list gets the time of
+  that sight.
+- The mod does not drop the row of an old agent.
+
 ## 5. Repo layout (proposed)
 
 ```text

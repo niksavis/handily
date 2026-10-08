@@ -559,3 +559,96 @@ Look choices (approved as proposed):
 1. Rate limit 30 s and merge format `3 work items changed: 2 closed, 1 created (…)`.
 2. Show the status move `(open -> in_progress)` on updates, or the verb only.
 3. A toast on failed and recovered (proposed), or silent.
+
+---
+
+## 5. agent-board
+
+Opened with `/agent-board` (handily-cr7r). One pane that shows the subagents of this session, a
+tab beside `session-board`. It redraws every second while it is the shown tab.
+
+### Terminal: one card per subagent
+
+Mock, 45 column terminal (body 41 columns), built from the test fixtures:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Subagents  2 active · 1 done · 1 not lis… │
+│ ● Explore  running  1m 05s                │
+│   find the element table                  │
+│   ▸ Read docs/design.md · 3 tools         │
+│ ───────────────────────────────────────── │
+│ ◐ scout  Explore  waiting  40s            │
+│   check links  under find the element t…  │
+│   last Bash npm test · 7 tools            │
+│ ───────────────────────────────────────── │
+│ ○ Plan  done  30s                         │
+│   map the code                            │
+│   last Read src/app.ts · 2 tools          │
+│ ───────────────────────────────────────── │
+│ ? f0000009  not listed  unknown  0s       │
+│   last AskUserQuestion · 1 tool           │
+╰───────────────────────────────────────────╯
+```
+
+Looks, by the legend: the name or type is `*bold*`; the badge, the time, `under …`, `▸`, `last`
+and the count are `~dim~`; the state word has the colour of its mark.
+
+| Mark | State                                    | Colour    |
+| ---- | ---------------------------------------- | --------- |
+| `●`  | `running`                                | `success` |
+| `◐`  | `waiting`                                | `warning` |
+| `○`  | `pending`, `idle`, `done`, `killed`      | dim       |
+| `✕`  | `failed`                                 | `error`   |
+| `?`  | `unknown`: the engine no longer lists it | dim       |
+
+- Title: the agent name when it has one, with the type as a dim badge. Else the type. A loop
+  that `$.agent.list()` never names shows the first 8 characters of its id and `not listed`.
+- First detail line: the description of the Agent call, then `under <parent>` when the agent
+  has a `parentId`. `<parent>` is the name of the parent, else its description, else its id.
+- Second detail line: `▸ <tool> <target> · N tools` while a call runs, `last <tool> <target> ·
+  N tools` after it, and `no tool calls yet` before the first call.
+- Time: since the spawn, at the second. It stops when the agent ends.
+- Order: active, then `unknown`, then ended, then not listed. Inside a group, the first sight.
+
+Captured live (Claude Code 2.1.294, 150 column terminal, docked pane), one background Explore
+subagent:
+
+```text
+│Subagents  1 active
+│● Explore  running  3s
+│  List agent-board folder
+│  last Bash ls mods/agent-board · 1 tool
+
+│Subagents  all 1 done
+│○ Explore  done  4s
+│  List agent-board folder
+│  last SubagentHandback · 2 tools
+```
+
+### Terminal, empty and all done
+
+```text
+│ *Subagents*                                       │
+│ ~No subagents in this session yet.~               │
+
+│ *Subagents*  ~all 3 done~                         │
+│ ○ *Explore*  ~done~  ~30s~                        │
+│   …(as above)                                     │
+```
+
+When every listed subagent ended, the header reads `all N done`. A loop that is not listed adds
+`· N not listed` and does not block it.
+
+### Desktop
+
+The same pane. `$.agent.list()` and the tool events need no CLI, so the desktop board has no
+fallback text.
+
+### Command replies
+
+```text
+/agent-board          -> Agent board opened.
+/agent-board close    -> Agent board closed.
+/agent-board x        -> Unknown argument "x". Use /agent-board or /agent-board close.
+```
