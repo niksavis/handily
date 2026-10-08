@@ -99,10 +99,18 @@ function itemsOf(label: string, parsed: unknown): WorkitemsItem[] {
   return items
 }
 
+function pythonWithoutRepoBytecode(root: string): Readonly<Record<string, string>> {
+  return {
+    PYTHONDONTWRITEBYTECODE: '1',
+    PYTHONPYCACHEPREFIX: `${root.replace(/[\\/]+$/, '')}/.handily-pycache-${crypto.randomUUID()}`,
+  }
+}
+
 async function listOpenItems(files: TrackerFiles, lister: Lister): Promise<WorkitemsItem[]> {
   const byKey = new Map<string, WorkitemsItem>()
+  const env = pythonWithoutRepoBytecode(files.root)
   for (const status of OPEN_STATUSES) {
-    const parsed = await runJson(files, lister.label, lister.argv(status))
+    const parsed = await runJson(files, lister.label, lister.argv(status), env)
     for (const item of itemsOf(lister.label, parsed)) byKey.set(item.key, item)
   }
   return [...byKey.values()]

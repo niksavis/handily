@@ -14,7 +14,10 @@ import { filesReader } from './generic'
 
 export type TrackerCommands = {
   canRun: () => Promise<boolean>
-  run: (argv: readonly string[]) => Promise<ProcessRunResult>
+  run: (
+    argv: readonly string[],
+    env?: Readonly<Record<string, string>>,
+  ) => Promise<ProcessRunResult>
   which: (program: string) => Promise<string | undefined>
   approvals: Approvals
 }

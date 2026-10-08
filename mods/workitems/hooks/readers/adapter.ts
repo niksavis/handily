@@ -45,10 +45,11 @@ export async function runJson(
   files: TrackerFiles,
   label: string,
   argv: readonly string[],
+  env?: Readonly<Record<string, string>>,
 ): Promise<unknown> {
   let result
   try {
-    result = await files.commands.run(argv)
+    result = await files.commands.run(argv, env)
   } catch {
     throw new ItemFault(`${label} did not start or did not end in time, so it could not be read.`)
   }

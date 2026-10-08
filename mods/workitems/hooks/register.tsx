@@ -43,7 +43,8 @@ export const register: Register = (on) => {
         readBytes: async (path) => bytesOf((await built.fs.read(path, { as: 'bytes' })).base64),
         commands: {
           canRun: async () => canRunCommandsOn(await built.session.surfaces()),
-          run: (argv, cwd) => built.process.run(argv, { cwd }),
+          run: (argv, cwd, env) =>
+            built.process.run(argv, env === undefined ? { cwd } : { cwd, env: { ...env } }),
           searchPath: async () => ({
             path: await built.env.get('PATH'),
             extensions: await built.env.get('PATHEXT'),

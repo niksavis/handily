@@ -43,6 +43,9 @@ gives other mods one typed list. It draws nothing of its own.
   `python3 .basicly/core/kit/tracker/cli.py list --status <s> .basicly/ledger`. It also runs
   only after you approve it. An approval of one of the two commands does not cover the other.
 - The poll reads again when a file in `.basicly/ledger` or a `.py` file of the kit changes.
+- Both commands run with `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` set to a new
+  folder that does not exist. So Python never runs a `.pyc` file from the repo's `__pycache__`,
+  which the approval does not cover.
 - The mod reads only the open statuses. So when a record leaves them, for example when it is
   closed or deferred, `refresh()` reports it under `closed`, with the status `closed` and the
   last raw status that the mod read.

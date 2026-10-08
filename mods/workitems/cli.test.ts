@@ -78,7 +78,11 @@ const ADAPTER_REPO: Record<string, string> = {
   'tickets/t-1.json': '{}',
 }
 
-type Run = { argv: string[]; cwd: string | undefined }
+type Run = {
+  argv: string[]
+  cwd: string | undefined
+  env: Readonly<Record<string, string>> | undefined
+}
 
 type Ask = { question: string; header: unknown; options: string[] }
 
@@ -209,7 +213,7 @@ function fakeWorld(
   })
   if (options.hasProcessRun ?? true) {
     on('process.run', (_$, e) => {
-      world.runs.push({ argv: [...e.argv], cwd: e.init?.cwd })
+      world.runs.push({ argv: [...e.argv], cwd: e.init?.cwd, env: e.init?.env })
       return { value: processResult(world.outputs.get(e.argv.join(' '))) }
     })
   }
@@ -346,7 +350,7 @@ describe('basicly source', () => {
       expect(world.asks).toEqual([
         { question: PATH_QUESTION, header: 'workitems', options: [ALLOW, 'Not now'] },
       ])
-      expect(world.runs).toEqual(
+      expect(world.runs.map(({ argv, cwd }) => ({ argv, cwd }))).toEqual(
         ['open', 'in_progress', 'blocked'].map((status) => ({
           argv: ['basicly', 'tracker', 'list', '--status', status],
           cwd: ROOT,
@@ -593,6 +597,42 @@ describe('approval of a repo command', () => {
       expect(pathSnapshot.reason).toBe('basicly tracker list')
       expect(pathRuns(world)).toEqual([])
       expect(world.asks.length).toBe(2)
+    },
+  )
+
+  test(
+    'runs both basicly listers with no bytecode cache read from or written to the repo',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const onPath = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      onPath.world.files.delete(BASICLY_BIN)
+      onPath.world.answer = ALLOW
+      await startSession($, onPath.clock, true)
+      expect(pathRuns(onPath.world).length).toBe(3)
+      expect(kitRuns(onPath.world).length).toBe(3)
+      const prefixes = new Set<string>()
+      for (const run of onPath.world.runs) {
+        expect(run.env?.PYTHONDONTWRITEBYTECODE).toBe('1')
+        const prefix = run.env?.PYTHONPYCACHEPREFIX ?? ''
+        expect(prefix).toMatch(/^\/work\/app\/\.handily-pycache-[0-9a-f-]{36}$/)
+        expect(isDirectory(onPath.world, prefix) || onPath.world.files.has(prefix)).toBe(false)
+        prefixes.add(prefix)
+      }
+      expect(prefixes.size).toBe(2)
+    },
+  )
+
+  test(
+    'runs the adapter without the python cache settings',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+      answerAdapter(world, DESCRIBE, ADAPTER_ITEMS)
+      world.answer = ALLOW
+      await startSession($, clock, true)
+      expect(world.runs.length).toBe(2)
+      expect(world.runs.map((run) => run.env)).toEqual([undefined, undefined])
     },
   )
 

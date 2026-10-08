@@ -30,7 +30,11 @@ export type FileStat = {
 
 export type CommandHost = {
   canRun: () => Promise<boolean>
-  run: (argv: readonly string[], cwd: string) => Promise<ProcessRunResult>
+  run: (
+    argv: readonly string[],
+    cwd: string,
+    env?: Readonly<Record<string, string>>,
+  ) => Promise<ProcessRunResult>
   searchPath: () => Promise<SearchPath>
   approvals: Approvals
 }
@@ -112,7 +116,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
     hash: hashAt,
     commands: {
       canRun: () => host.commands.canRun(),
-      run: (argv) => host.commands.run(argv, root),
+      run: (argv, env) => host.commands.run(argv, root, env),
       which: (program) =>
         resolveProgram(program, {
           searchPath: () => host.commands.searchPath(),

@@ -173,8 +173,14 @@ basicly:
 - The ledger holds `template.json`, `pending-<branch>.jsonl` and `snapshot.jsonl`. Files
   `events-*.jsonl` appear only after a fold. So the provider detects basicly by
   `template.json`.
-- The provider runs `basicly tracker list --status <s>` from `PATH` (review decision 9). It
-  runs the repo's `.basicly/core/kit/tracker/cli.py` only after approval.
+- The provider runs `basicly tracker list --status <s>` from `PATH`, or the repo's
+  `.basicly/core/kit/tracker/cli.py` when `basicly` is not on `PATH` (review decision 9).
+  Both load the repo's kit code, so every basicly read runs only after approval. The key is
+  the root, the resolved `argv[0]`, the argv and the sha256 of every `.py` file in
+  `.basicly/core/kit/tracker/`.
+- Both commands run with `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` set to a new
+  folder that does not exist. So Python never runs a `.pyc` file from the repo's
+  `__pycache__`, which the key does not cover.
 - `isStdoutTruncated` makes the read fail, and the reason names it.
 - The provider skips tombstoned records.
 - Field map: `record` to `id`, `fields.title`, `status`, `fields.priority`,
@@ -403,8 +409,9 @@ Measured facts behind these choices:
 Closed:
 
 - **Q1. basicly read path.** Closed by review decision 9: `basicly tracker list --status <s>`
-  from `PATH`. The repo's `cli.py` runs only after approval. `cli.py list` has no `--json`
-  flag. It needs the ledger folder and prints `{count, records, schema}`.
+  from `PATH`, or the repo's `cli.py` when `basicly` is not on `PATH`. Every basicly read runs
+  only after approval, keyed on the kit files. `cli.py list` has no `--json` flag. It needs the
+  ledger folder and prints `{count, records, schema}`.
 - **Q2. Repo config file.** Closed by review decision 11: `.handily.json` at the repo root.
 - **Q4. Linter.** Decided 2026-10-07: typescript-eslint with Prettier (section 6).
 - **Q6. Ignore rules.** Done 2026-10-07: `.claude-plugin/types/` and `node_modules/`.
