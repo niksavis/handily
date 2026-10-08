@@ -70,6 +70,11 @@ alone does not reach users. A tag matters only to a user who pins a version
 range. Release only a mod that changed, and do not change the version of
 another mod.
 
+The `handily` mod is the bundle. Its `plugin.json` lists every other mod under
+`dependencies`, and `/handily` reads that list. When you add a mod to the bundle or
+remove one, change that list and release a new version of `handily`. A release of
+another mod alone does not change the version of the bundle.
+
 This repository does not use `basicly release`, because it writes a basicly
 version file and one tag for the whole repository.
 

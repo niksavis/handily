@@ -8,6 +8,12 @@
   },
   "plugins": [
     {
+      "name": "handily",
+      "source": "./mods/handily",
+      "version": "0.1.0",
+      "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
+    },
+    {
       "name": "item-toasts",
       "source": "./mods/item-toasts",
       "version": "0.1.0",
