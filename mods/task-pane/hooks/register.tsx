@@ -155,15 +155,23 @@ function hostOf($: EngineInterface): TaskHost {
 
 function modelHostOf($: EngineInterface, agentId: string | undefined): TaskHost {
   if (agentId === undefined) return hostOf($)
+  const read = async () => {
+    const { value } = await $.state.get({ plugin: 'task-pane', key: 'agentList', id: agentId })
+    return value
+  }
+  const edit = listEditor((step) =>
+    update($, { plugin: 'task-pane', key: 'agentList', id: agentId }, step),
+  )
   return {
     ...hostOf($),
-    read: async () => {
-      const { value } = await $.state.get({ plugin: 'task-pane', key: 'agentList', id: agentId })
-      return value
+    read,
+    edit: async (change) => {
+      if ((await read()) === undefined) {
+        const unchanged = change(EMPTY_LIST)
+        if (unchanged.list === EMPTY_LIST) return unchanged.value
+      }
+      return edit(change)
     },
-    edit: listEditor((step) =>
-      update($, { plugin: 'task-pane', key: 'agentList', id: agentId }, step),
-    ),
   }
 }
 
@@ -226,6 +234,8 @@ async function modelAdd(host: TaskHost, title: unknown, claim: () => Promise<str
       deny: 'task_add needs a title: a non-empty string, for example {"title": "Write the tests"}.',
     }
   }
+  const tried = addTask(EMPTY_LIST, title.trim(), { by: 'model', item: null })
+  if ('refusal' in tried) return { deny: `task_add refused: ${tried.refusal}` }
   const unclaimed = await claim()
   if (unclaimed !== undefined) return { deny: `task_add refused: ${unclaimed}` }
   const outcome = await host.edit((list) => {

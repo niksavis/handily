@@ -909,6 +909,24 @@ describe('one task list per agent', () => {
   )
 
   test(
+    'a refused title and an edit of an agent with no list store no list and take no agent slot',
+    withStateReader,
+    async ($, on) => {
+      world(on)
+      await start($)
+      expect((await $.tool.call({ tool: TOOL_ADD, title: 'a\nb', agentId: 'x1' })).deny).toContain(
+        'task_add refused: the title has a line break',
+      )
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed', agentId: 'x2' })
+      await $.tool.call({ tool: TOOL_MOVE, id: 1, before: 2, agentId: 'x3' })
+      expect(await taskState($, 'agentIds')).toBeNull()
+      expect(await taskState($, 'agentList x1')).toBeNull()
+      expect(await taskState($, 'agentList x2')).toBeNull()
+      expect(await taskState($, 'agentList x3')).toBeNull()
+    },
+  )
+
+  test(
     'a subagent list stays after the session ends, and clear empties it with the main list',
     withStateReader,
     async ($, on) => {
