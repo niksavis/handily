@@ -10,8 +10,9 @@ paths: ["mods/**"]
 - Load the `plugin-authoring` skill before you write or change a mod. The mod API is early access and changes between Claude Code releases. The generated `.claude-plugin/types/claude-code/index.d.ts` is the authority, not memory.
 - A mod has `.claude-plugin/plugin.json` (with `"author": { "name": "niksavis" }`; the identity gate refuses a git user name), `hooks/hooks.json`, `hooks/register.ts` or `.tsx`, a `tsconfig.json` that extends `./.claude-plugin/types/tsconfig.json`, and at least one `*.test.ts`. A mod that adds a `$` noun or keeps `$.state` values ships `types/index.d.ts` and names it in `plugin.json`.
 - The folder name, the `plugin.json` name and the marketplace entry name are equal. `npm run validate` refuses a mismatch.
-- Write each mod in its folder under `mods/`, not in the session mods folder that the `plugin-authoring` skill names. Load it with `claude --plugin-dir mods/<name>`.
+- Write each mod in its folder under `mods/`, not in the session mods folder that the `plugin-authoring` skill names. Load it with `claude --plugin-dir mods`, because a mod that depends on another does not load alone.
 - Await every promise from `$` and `next`. Lint refuses a floating promise.
 - A mod reads tracker data only through the `workitems` provider. A mod writes to a tracker only on an explicit action of the person, through the tracker's own CLI.
 - A `ui.render` hook that cannot read its input returns `next(e)`, so the engine draws its own row. It never draws a guess.
 - Test every mod on the `terminal` and `desktop` surfaces.
+- Drive an interactive Claude Code check yourself in tmux on a private `-L` server, and kill only that server. Ask the person only for a surface you cannot reach, such as the desktop app.

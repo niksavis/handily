@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "generated_at": "2026-10-07T19:11:34.839459+00:00",
+  "generated_at": "2026-10-08T07:50:31.123238+00:00",
   "outputs": {
     ".claude/CLAUDE.md": {
       "hash": "sha256:505e70b94d56968e2789b5da358af2b11c6bded47a0f8d17fcbceea4e8c19aad",
@@ -31,13 +31,13 @@
       ]
     },
     ".claude/rules/mod-authoring.md": {
-      "hash": "sha256:65f7af03765011f03abcc3d7cd1621b0654a3e306aeb21772310084d7a615ba3",
+      "hash": "sha256:c54e36936af76dbb7e904324c6021869d4080f7a7a3848593e40290695986ffd",
       "source_fragments": [
         "mod-authoring"
       ]
     },
     "AGENTS.md": {
-      "hash": "sha256:6d2e44d97d27232365aedcf66cae55c638524485ee50133ef8aadb6f94b3185f",
+      "hash": "sha256:4cbf37b2c4cf311516b94e76442db187023d7649da8200dce131ec06a00ae840",
       "source_fragments": [
         "knowledge-priming",
         "code-is-authoritative",
