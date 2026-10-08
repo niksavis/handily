@@ -6,6 +6,90 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily 0.1.0 - 2026-10-08
+
+### Added
+
+- **One line installs every mod.** The new `handily` plugin is a bundle that lists the five
+  mods as dependencies, so `/plugin install handily@handily` installs and enables all of
+  them. Its `/handily` command lists each mod with its version and whether it loaded, gives
+  the `/plugin install` or `/plugin enable` line for a mod that is missing or disabled, and
+  ends with a summary such as `handily: 5 of 5 mods loaded`. To remove the bundle, run
+  `/plugin uninstall handily@handily`, then `claude plugin prune` (handily-325f).
+
+## workitems 0.2.0 - 2026-10-08
+
+### Added
+
+- **The mod tells `/handily` that it loaded.** At session start it writes a `ready` value with its
+  install folder, so the `handily` bundle can show its version and state (handily-325f).
+
+### Fixed
+
+- **Enter at the workitems approval ask no longer approves the repo's tracker CLI.** `Not now`
+  is now the first option, so Enter declines. Only the answer `Allow for this repo` stores an
+  approval. `Not now`, Enter, typed text and a closed dialog store nothing, and the state stays
+  `approval-needed` (handily-0cl3).
+
+## quiet-items 0.2.0 - 2026-10-08
+
+### Added
+
+- **The mod tells `/handily` that it loaded.** At session start it writes a `ready` value with its
+  install folder, so the `handily` bundle can show its version and state (handily-325f).
+
+## task-pane 0.2.0 - 2026-10-08
+
+### Added
+
+- **The mod tells `/handily` that it loaded.** At session start it writes a `ready` value with its
+  install folder, so the `handily` bundle can show its version and state (handily-325f).
+
+### Fixed
+
+- **Each row of the task pane is one line that fits the pane.** A tracker item shows the
+  priority, the id, the title and `[ add ]`. A task shows the mark, the number, the author, the
+  title and `[ rm ]`. An id is never cut. The title fills the room that is left and is cut to
+  fit, so a row no longer wraps or splits an id at a narrow width such as 45 columns. A `…`
+  button on a cut row shows the full title under the row, and a second press hides it. The
+  pane shows ids and titles without JSON quotes, and still escapes control, format and line
+  separator characters. Notes, `task_list` and the `/task` replies keep the quotes
+  (handily-hw07).
+
+## session-board 0.2.0 - 2026-10-08
+
+### Added
+
+- **The mod tells `/handily` that it loaded.** At session start it writes a `ready` value with its
+  install folder, so the `handily` bundle can show its version and state (handily-325f).
+
+### Fixed
+
+- **The session board shows each session as a card.** A card has a status mark in a theme
+  colour, the name, an `inter` or `bg` badge, `this` on the current session, the task with a
+  progress bar such as `▰▰▱▱ 2/4`, and the worktree, branch and time. A dim rule line separates
+  two cards. This session comes first, then the working, waiting, idle and ended sessions. A
+  background session whose state has not changed for over 24 hours is hidden behind a dim
+  `N older background job(s) hidden` footer, and the header counts only the cards shown. A
+  session with its own key and no tasks shows `no tasks`, and a session with no key shows `—`.
+  The board no longer switches to a table from 100 columns (handily-hw07).
+
+## item-toasts 0.2.0 - 2026-10-08
+
+### Added
+
+- **The mod tells `/handily` that it loaded.** At session start it writes a `ready` value with its
+  install folder, so the `handily` bundle can show its version and state (handily-325f).
+
+## Repository, with the 0.2.0 mods - 2026-10-08
+
+### Fixed
+
+- **Codex no longer offers the Claude Code mods.** Codex reads `.agents/plugins/marketplace.json`
+  before `.claude-plugin/marketplace.json`. That file now lists no plugins, so Codex shows none
+  and no longer warns that it cannot parse `hooks/hooks.json`. `npm run validate` refuses a
+  missing file or a listed plugin. The README lists all five install lines (handily-9kou).
+
 ## workitems 0.1.0 - 2026-10-08
 
 ### Added

@@ -1,8 +1,10 @@
 {
   "name": "quiet-items",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One short row in place of each tracker write in the transcript.",
-  "author": { "name": "niksavis" },
+  "author": {
+    "name": "niksavis"
+  },
   "dependencies": ["workitems"],
   "types": "./types/index.d.ts",
   "userConfig": {
