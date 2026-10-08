@@ -12,7 +12,7 @@ model still reads the full tool result. Only the screen changes.
 ● Edit  src/app.ts  +2 -1
 ```
 
-The proposed mocks are in `docs/mocks.md`, section 6. The design is in `docs/design.md`,
+The approved mocks are in `docs/mocks.md`, section 6. The design is in `docs/design.md`,
 section 4.8.
 
 ## Install

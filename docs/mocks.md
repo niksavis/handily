@@ -610,7 +610,7 @@ and the count are `~dim~`; the state word has the colour of its mark.
 - First detail line: the description of the Agent call, then `under <parent>` when the agent
   has a `parentId`. `<parent>` is the name of the parent, else its description, else its id.
 - Second detail line: `▸ <tool> <target> · N tools` while a call runs, `last <tool> <target> ·
-  N tools` after it, and `no tool calls yet` before the first call.
+N tools` after it, and `no tool calls yet` before the first call.
 - Time: since the spawn, at the second. It stops when the agent ends.
 - Order: active, then `unknown`, then ended, then not listed. Inside a group, the first sight.
 
@@ -660,8 +660,8 @@ fallback text.
 
 ## 6. simple-view (handily-v921)
 
-One row for each `Bash`, `Edit` and `Write` call. These mocks are proposed and need the person's
-approval. The rows marked `(live)` were read from a terminal run with Claude Code 2.1.294 on
+One row for each `Bash`, `Edit` and `Write` call. The person approved these mocks
+on 2026-10-08. The rows marked `(live)` were read from a terminal run with Claude Code 2.1.294 on
 2026-10-08. After that run, the result lines got a two-column indent.
 
 ### Terminal, normal (wide, 150 columns)
@@ -764,7 +764,7 @@ The error line shrinks first, then the description. The program, the state and t
 Claude Code puts `simple-view:` before each reply. The input, the output and the diff are in
 fenced blocks.
 
-Look choices (proposed):
+Look choices (approved as proposed):
 
 1. Column order `description  program  state  count  time`, with two spaces between columns.
 2. `Created` and `Deleted` in place of `Updated` for a new or a removed file.
