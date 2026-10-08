@@ -222,7 +222,7 @@ export function createApprovals(host: ApprovalHost): Approvals {
   function askPerson(storeKey: string, key: ApprovalKey, question: string): void {
     asking.add(storeKey)
     host
-      .ask(question, { options: [APPROVE, DECLINE], header: ASK_HEADER })
+      .ask(question, { options: [DECLINE, APPROVE], header: ASK_HEADER })
       .then(
         async (answer) => {
           if (answer !== APPROVE) {

@@ -57,15 +57,18 @@ Approval ask (terminal; engine-drawn AskUserQuestion, layout approximate):
               (it runs the repo code in .basicly/core/kit/tracker; asked again
               when any file there or the command changes)
 
- > 1. Allow for this repo
-   2. Not now
+ > 1. Not now
+   2. Allow for this repo
    3. Other…                                                               (engine)
 ───────────────────────────────────────────────────────────────────────────────────
 ```
 
+- `Not now` is the first option, so Enter answers `Not now`. The `$.ui.ask` options have no
+  default field, so the order sets it.
 - `Allow for this repo`: stored under root + argv + resolved argv0 + sha256 of every file under
   `.basicly/core/kit/tracker`. No reply text; the data appears.
-- `Not now` or dismissed: state `approval-needed` (line above).
+- `Not now`, Enter, dismissed or text typed under `Other…`: nothing is stored; state
+  `approval-needed` (line above). Only the exact `Allow for this repo` answer stores an approval.
 - Non-interactive (`-p`, a background session): never asks; state `approval-needed`.
 - Narrow terminal: the same dialog; `$.ui.ask` takes only a string, so the engine wraps it. The
   program shows as its resolved absolute path, so the person sees what runs; each argument is
@@ -78,7 +81,7 @@ Look choices (approved as proposed):
 
 1. Wording and colour of the state lines above (stale and approval in warning, failed in error,
    no-tracker and terminal-only dim).
-2. Approval options: `Allow for this repo` / `Not now` (two).
+2. Approval options: `Not now` / `Allow for this repo` (two; `Not now` first, so Enter declines).
 3. When to re-ask after `Not now`: at the next session start only (proposed), or at every refresh.
 
 ---

@@ -93,6 +93,8 @@ type Ask = { question: string; header: unknown; options: string[] }
 
 type FakeFile = { text: string; mtimeMs: number; size?: number }
 
+const ENTER = Symbol('Enter')
+
 type World = {
   sessionRoot: string
   withheld: Set<string>
@@ -104,7 +106,7 @@ type World = {
   outputs: Map<string, Partial<ProcessRunResult>>
   stored: Map<string, unknown>
   asks: Ask[]
-  answer: string | undefined
+  answer: string | typeof ENTER | undefined
 }
 
 const MAX_READ_BYTES = 4 * 1024 * 1024
@@ -261,8 +263,9 @@ function fakeWorld(
     if (e.tool !== 'AskUserQuestion') return next(e)
     const ask = askOf(e.questions)
     world.asks.push(ask)
-    if (world.answer === undefined) return { deny: 'dismissed' }
-    return { result: { questions: e.questions, answers: { [ask.question]: world.answer } } }
+    const label = world.answer === ENTER ? ask.options[0] : world.answer
+    if (label === undefined) return { deny: 'dismissed' }
+    return { result: { questions: e.questions, answers: { [ask.question]: label } } }
   })
   return world
 }
@@ -411,7 +414,7 @@ describe('basicly source', () => {
     async ($, on) => {
       const { world, snapshot } = await approvedBasicly($, on)
       expect(world.asks).toEqual([
-        { question: PATH_QUESTION, header: 'workitems', options: [ALLOW, 'Not now'] },
+        { question: PATH_QUESTION, header: 'workitems', options: ['Not now', ALLOW] },
       ])
       expect(world.runs.map(({ argv, cwd }) => ({ argv, cwd }))).toEqual(
         ['open', 'in_progress', 'blocked'].map((status) => ({
@@ -871,6 +874,46 @@ describe('approval of basicly', () => {
       const approved = await startSession($, clock, true, asksAndState(world, 2, 'ok'))
       expect(world.asks.length).toBe(2)
       expect(approved.state).toBe('ok')
+    },
+  )
+
+  for (const [name, answer] of [
+    ['Enter on the first option', ENTER],
+    ['Not now', 'Not now'],
+    ['free text that only resembles Allow', 'allow for this repo'],
+  ] as const) {
+    test(
+      `${name} stores no approval, runs nothing and reports approval-needed`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const clock = mock.clock(on)
+        const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+        answerBasicly(world)
+        world.answer = answer
+        const snapshot = await startSession(
+          $,
+          clock,
+          true,
+          asksAndState(world, 1, 'approval-needed'),
+        )
+        await clock.advance(4_000)
+        expect(world.stored.size).toBe(0)
+        expect(world.runs).toEqual([])
+        expect(snapshot.state).toBe('approval-needed')
+        expect((await snapshotOf($)).state).toBe('approval-needed')
+        expect(world.asks[0]?.options[0]).toBe('Not now')
+      },
+    )
+  }
+
+  test(
+    'only an explicit Allow for this repo stores the approval',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world, snapshot } = await approvedBasicly($, on)
+      expect(world.asks[0]?.options).toEqual(['Not now', ALLOW])
+      expect(world.stored.size).toBe(1)
+      expect(snapshot.state).toBe('ok')
     },
   )
 

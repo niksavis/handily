@@ -203,7 +203,8 @@ Setup:
 adapter needs no approval, because you typed its command yourself.
 
 - In an interactive session the mod asks once, in the engine's question dialog, with the
-  options `Allow for this repo` and `Not now`.
+  options `Not now` and `Allow for this repo`. `Not now` is the first option, so Enter
+  answers `Not now`.
 - `Allow for this repo` is kept in `$.store` under a key of the repo root, the command, the
   real path of `basicly`, and the sha256 of every file under `.basicly/core/kit/tracker/`, in
   every subfolder and with every suffix. A link in that folder makes the read fail, because the
@@ -218,8 +219,9 @@ adapter needs no approval, because you typed its command yourself.
   engine does not give. Program lookup skips a relative or empty `PATH` entry, such as `.`.
 - On Windows the mod compares a path with a drive-letter repo root (such as `C:\repo`)
   without regard to case. A UNC root (such as `\\server\share`) is still compared with case.
-- After `Not now`, or when you close the dialog, the state is `approval-needed`. The mod asks
-  again at the next session start.
+- Only the answer `Allow for this repo` stores an approval. After `Not now`, Enter, text typed
+  under `Other`, or when you close the dialog, the mod stores nothing and the state is
+  `approval-needed`. The mod asks again at the next session start.
 - The mod never asks in a session that is not interactive, such as `claude -p`. The state is
   then `approval-needed`.
 - A session that draws only on the desktop app cannot run a command. A CLI source then has the
