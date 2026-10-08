@@ -1,19 +1,14 @@
 import type { FsEntry, ProcessRunResult } from 'claude-code'
 import type {
   WorkitemsDiff,
+  WorkitemsFailedReason,
   WorkitemsItem,
   WorkitemsRefreshArgs,
   WorkitemsRefreshResult,
   WorkitemsSnapshot,
 } from '../types'
-import {
-  resolveProgram,
-  sha256Hex,
-  type Approvals,
-  type FileDigest,
-  type SearchPath,
-} from './approval'
-import { FileProblem, isInside } from './config'
+import { resolveProgram, sha256Hex, type Approvals, type SearchPath } from './approval'
+import { FileProblem, isInside, isUnsafeCharacter } from './config'
 import { detect } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
 
@@ -75,7 +70,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
   }
   async function realPathOf(path: string): Promise<string | undefined> {
     try {
-      return (await host.stat(path, { resolve: true })).realPath ?? path
+      return (await host.stat(path, { resolve: true })).realPath
     } catch {
       return undefined
     }
@@ -95,7 +90,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
     }
     return path
   }
-  async function hashAt(relativePath: string): Promise<FileDigest | undefined> {
+  async function hashAt(relativePath: string): Promise<string | undefined> {
     const path = pathAtRoot(root, relativePath)
     let stat: FileStat
     try {
@@ -104,9 +99,13 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       return undefined
     }
     if (stat.kind === 'dir') return undefined
-    if (stat.size > MAX_FILE_BYTES) return { size: stat.size, mtimeMs: stat.mtimeMs }
+    if (stat.size > MAX_FILE_BYTES) {
+      throw new FileProblem(
+        `${relativePath} is over 4 MiB, so the approval cannot hash it and it could not be read.`,
+      )
+    }
     try {
-      return { sha256: await sha256Hex(await host.readBytes(path)) }
+      return await sha256Hex(await host.readBytes(path))
     } catch {
       throw new FileProblem(`${relativePath} could not be read.`)
     }
@@ -121,6 +120,9 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       stat = await host.stat(path)
     } catch {
       throw new FileProblem(`~/${homeRelativePath} could not be read.`)
+    }
+    if (stat.kind !== 'file') {
+      throw new FileProblem(`~/${homeRelativePath} is not a regular file, so it could not be read.`)
     }
     if (stat.size > MAX_FILE_BYTES) throw new FileProblem(`~/${homeRelativePath} is over 4 MiB.`)
     try {
@@ -259,6 +261,26 @@ type SnapshotData = WorkitemsSnapshot extends infer S
 
 type ReadResult = { data: SnapshotData; baselineItems: readonly WorkitemsItem[] | undefined }
 
+const MAX_SHOWN_TEXT = 1000
+
+function isShownText(text: string): boolean {
+  if (text.length > MAX_SHOWN_TEXT) return false
+  for (const character of text) {
+    if (isUnsafeCharacter(character.codePointAt(0) ?? 0)) return false
+  }
+  return true
+}
+
+function shownReason(reader: Reader, reason: WorkitemsFailedReason): WorkitemsFailedReason {
+  if (isShownText(reason)) return reason
+  return `${reader.name} found a name or a value with a control character or over ${String(MAX_SHOWN_TEXT)} characters, so it could not be read.`
+}
+
+function shownCaveat(reader: Reader, caveat: string | null): string | null {
+  if (caveat === null || isShownText(caveat)) return caveat
+  return `${reader.name} skipped an item file whose name has a control character or is over ${String(MAX_SHOWN_TEXT)} characters.`
+}
+
 async function readSource(
   reader: Reader,
   ignored: readonly string[],
@@ -289,7 +311,7 @@ async function readSource(
       baselineItems: undefined,
       data: {
         state: 'failed',
-        reason: outcome.reason,
+        reason: shownReason(reader, outcome.reason),
         root,
         source: reader.name,
         sourceLabel: reader.name,
@@ -307,7 +329,7 @@ async function readSource(
       root,
       source: reader.name,
       sourceLabel: outcome.sourceLabel,
-      caveat: outcome.caveat,
+      caveat: shownCaveat(reader, outcome.caveat),
       items: outcome.items,
       ignored,
       ...(outcome.adapterWrites === undefined ? {} : { adapterWrites: outcome.adapterWrites }),

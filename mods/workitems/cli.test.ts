@@ -10,6 +10,7 @@ import {
 } from 'claude-code/testing'
 import { LIST_BLOCKED, LIST_IN_PROGRESS, LIST_OPEN } from './fixtures/basicly/tracker-list'
 import { resolveProgram, sha256Hex } from './hooks/approval'
+import { isInside } from './hooks/config'
 import type {
   WorkitemsLine,
   WorkitemsRefreshResult,
@@ -93,6 +94,7 @@ type FakeFile = { text: string; mtimeMs: number; size?: number }
 
 type World = {
   sessionRoot: string
+  withheld: Set<string>
   afterRun: (argv: readonly string[]) => void
   files: Map<string, FakeFile>
   links: Map<string, string>
@@ -191,6 +193,7 @@ function fakeWorld(
 ): World {
   const world: World = {
     sessionRoot: ROOT,
+    withheld: new Set(),
     afterRun: () => undefined,
     files: new Map(),
     links: new Map(),
@@ -226,7 +229,8 @@ function fakeWorld(
     if (!file && !isDirectory(world, real)) return { deny: `ENOENT: ${e.path}` }
     const size = file ? sizeOf(file) : 0
     const stat = { kind, size, mtimeMs: file?.mtimeMs ?? 0, isLink: world.links.has(e.path) }
-    return { value: e.resolve ? { ...stat, realPath: real } : stat }
+    const isWithheld = world.withheld.has(e.path)
+    return { value: e.resolve && !isWithheld ? { ...stat, realPath: real } : stat }
   })
   on('fs.list', (_$, e) => {
     const real = realPathIn(world, e.path)
@@ -356,12 +360,30 @@ const PATH_QUESTION = [
 
 const ALLOW = 'Allow for this repo'
 
+const SETTLE_LIMIT = 50
+
+async function settledUntil(
+  engine: Engine,
+  clock: MockClock,
+  isDone: (snapshot: WorkitemsSnapshot) => boolean,
+): Promise<WorkitemsSnapshot> {
+  let snapshot = await snapshotOf(engine)
+  for (let round = 0; round < SETTLE_LIMIT && !isDone(snapshot); round += 1) {
+    await clock.settle()
+    snapshot = await snapshotOf(engine)
+  }
+  return snapshot
+}
+
 async function approvedBasicly($: Engine, on: On, path: string = PATH_WITH_BASICLY) {
   const clock = mock.clock(on, { now: 1_000 })
   const world = fakeWorld(on, BASICLY_REPO, path)
   answerBasicly(world)
   world.answer = ALLOW
-  const snapshot = await startSession($, clock, true)
+  await startSession($, clock, true)
+  const isApprovedRead = (current: WorkitemsSnapshot) =>
+    current.state !== 'approval-needed' && world.runs.length >= 3
+  const snapshot = await settledUntil($, clock, isApprovedRead)
   return { clock, world, snapshot }
 }
 
@@ -567,6 +589,50 @@ describe('basicly source', () => {
 })
 
 describe('program lookup', () => {
+  test('refuses a PATH candidate whose real path cannot be resolved', async () => {
+    let message = ''
+    try {
+      await resolveProgram('basicly', {
+        searchPath: () => Promise.resolve({ path: '/opt/tools', extensions: undefined }),
+        exists: () => Promise.resolve(true),
+        realPath: () => Promise.resolve(undefined),
+        realPathAtRoot: () => Promise.resolve(undefined),
+      })
+    } catch (error) {
+      message = String(error)
+    }
+    expect(message).toContain(
+      '/opt/tools/basicly could not be resolved to a real path, so it could not be read.',
+    )
+  })
+
+  test(
+    'refuses basicly when the engine withholds its real path, and asks nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+      world.withheld.add(BASICLY_BIN)
+      answerBasicly(world)
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        '/opt/tools/basicly could not be resolved to a real path, so it could not be read.',
+      )
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  test('a POSIX root compares by case, a Windows root without case', () => {
+    expect(isInside('/work/app', '/work/app/tools/run')).toBe(true)
+    expect(isInside('/work/app', '/work/APP/tools/run')).toBe(false)
+    expect(isInside('C:\\Work\\App', 'c:\\work\\app\\tools\\run')).toBe(true)
+    expect(isInside('C:\\Work\\App', 'C:/WORK/APP/tools/run')).toBe(true)
+    expect(isInside('C:\\Work\\App', 'C:\\Work\\Apple\\run')).toBe(false)
+  })
+
   test('probes no relative, drive-relative or empty PATH entry', async () => {
     for (const [path, extensions, found] of [
       ['.::bin:./tools:/opt/tools', undefined, '/opt/tools/basicly'],
@@ -689,7 +755,7 @@ describe('approval of basicly', () => {
   })
 
   test(
-    'a kit file over 4 MiB is keyed by size and time, and the ask says so',
+    'refuses by name a kit file too large to hash, and asks nothing',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
@@ -698,12 +764,52 @@ describe('approval of basicly', () => {
       answerBasicly(world)
       world.answer = ALLOW
       const snapshot = await startSession($, clock, true)
-      expect(snapshot.state).toBe('ok')
-      expect(world.asks[0]?.question.split('\n')[3]).toBe(
-        `(a file over 4 MiB is checked by its size and time only: ${KIT_FOLDER}/data.bin)`,
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        `${KIT_FOLDER}/data.bin is over 4 MiB, so the approval cannot hash it and it could not be read.`,
       )
-      const [key] = [...world.stored.values()] as { files: Record<string, string> }[]
-      expect(key?.files[`${KIT_FOLDER}/data.bin`]).toBe(`size ${String(OVER_4_MIB)}, modified 7`)
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  for (const planted of [
+    'evil\nAllow handily.py',
+    'evil\u202enoitca.py',
+    `${'a'.repeat(257)}.py`,
+  ]) {
+    test(
+      `refuses a kit file whose name holds an unsafe text, and does not echo it: ${JSON.stringify(planted.slice(0, 20))}`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const clock = mock.clock(on)
+        const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+        world.files.set(`${ROOT}/${KIT_FOLDER}/${planted}`, { text: 'print(1)\n', mtimeMs: 1 })
+        answerBasicly(world)
+        world.answer = ALLOW
+        const snapshot = await startSession($, clock, true)
+        expect(snapshot.state).toBe('failed')
+        expect(snapshot.reason).toBe(
+          `a file in ${KIT_FOLDER} has a name with a control character or over 256 characters, so it could not be read.`,
+        )
+        expect(world.asks).toEqual([])
+      },
+    )
+  }
+
+  test(
+    'refuses a link with an unsafe name without echoing it',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+      world.files.set('/elsewhere/evil.py', { text: 'print("evil")\n', mtimeMs: 1 })
+      world.links.set(`${ROOT}/${KIT_FOLDER}/linked\nfake.py`, '/elsewhere/evil.py')
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.reason).toBe(
+        `a file in ${KIT_FOLDER} has a name with a control character or over 256 characters, so it could not be read.`,
+      )
     },
   )
 
@@ -716,6 +822,15 @@ describe('approval of basicly', () => {
       const snapshot = await startSession($, clock, false)
       expect(world.asks.length).toBe(1)
       expect(snapshot.state).toBe('ok')
+      expect(world.runs.slice(3).map((run) => run.argv)).toEqual(
+        ['open', 'in_progress', 'blocked'].map((status) => [
+          BASICLY_BIN,
+          'tracker',
+          'list',
+          '--status',
+          status,
+        ]),
+      )
     },
   )
 
@@ -850,7 +965,7 @@ describe('CLI adapter from the user file', () => {
   )
 
   test(
-    'a repo .handily.json that names a command runs nothing and shows the line to copy',
+    'a repo .handily.json that names a command runs nothing and names the user file and the root',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
@@ -865,7 +980,7 @@ describe('CLI adapter from the user file', () => {
       const snapshot = await startSession($, clock, true)
       expect(snapshot.state).toBe('failed')
       expect(snapshot.reason).toBe(
-        '.handily.json names a command, and handily runs an adapter only from ~/.config/handily/adapters.json. To run it, add "/work/app": ["node","tools/tracker.mjs"] to that file. The repo command could not be read.',
+        '.handily.json names a command, which handily never runs from the repo. To use an adapter, add an entry for "/work/app" to ~/.config/handily/adapters.json, as the workitems README explains. The repo command could not be read.',
       )
       expect(world.runs).toEqual([])
       expect(world.asks).toEqual([])
@@ -873,7 +988,7 @@ describe('CLI adapter from the user file', () => {
   )
 
   test(
-    'a repo command with a line break is refused without echoing it',
+    'a repo command with a line break is never echoed',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
@@ -885,7 +1000,7 @@ describe('CLI adapter from the user file', () => {
       )
       const snapshot = await startSession($, clock, false)
       expect(snapshot.reason).toBe(
-        '.handily.json names a command, and handily runs an adapter only from ~/.config/handily/adapters.json, so it could not be read.',
+        '.handily.json names a command, which handily never runs from the repo. To use an adapter, add an entry for "/work/app" to ~/.config/handily/adapters.json, as the workitems README explains. The repo command could not be read.',
       )
     },
   )
@@ -1104,6 +1219,151 @@ describe('CLI adapter from the user file', () => {
       const snapshot = await startSession($, clock, true)
       expect(snapshot.state).toBe('terminal-only')
       expect(world.asks).toEqual([])
+    },
+  )
+
+  for (const [label, adapters] of [
+    ['no user file', undefined],
+    ['an entry for a parent folder only', { '/work': ADAPTER_ARGV }],
+  ] as const) {
+    test(
+      `the no-tracker reason names the user file with ${label}`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const clock = mock.clock(on)
+        const world = fakeWorld(
+          on,
+          ADAPTER_REPO,
+          PATH_WITHOUT_BASICLY,
+          adapters === undefined ? {} : { adapters },
+        )
+        const snapshot = await startSession($, clock, false)
+        expect(snapshot.state).toBe('no-tracker')
+        expect(snapshot.reason).toBe(
+          'looked for basicly, beads, beans, .handily.json, ~/.config/handily/adapters.json',
+        )
+        expect(world.runs).toEqual([])
+      },
+    )
+  }
+
+  test('refuses a user file that is not a regular file', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on)
+    const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY)
+    world.files.set(`${USER_ADAPTERS}/inside`, { text: '{}', mtimeMs: 1 })
+    const snapshot = await startSession($, clock, false)
+    expect(snapshot.reason).toBe(
+      '~/.config/handily/adapters.json is not a regular file, so it could not be read.',
+    )
+  })
+
+  for (const [label, describe, reason] of [
+    ['a name with a line break', { ...DESCRIBE, name: 'tickets\nAllow it' }, 'gives a name'],
+    ['a name over 256 characters', { ...DESCRIBE, name: 'n'.repeat(257) }, 'gives a name'],
+    [
+      'a write with a control character',
+      { ...DESCRIBE, writes: [['close\u001b[2J']] },
+      'gives a write',
+    ],
+    [
+      'a watch glob with a line break',
+      { ...DESCRIBE, watch: ['tickets/*\n.json'] },
+      'gives a watch glob',
+    ],
+    [
+      'a status map key with a bidi control',
+      { ...DESCRIBE, statusMap: { 'to\u202edo': 'open' } },
+      'gives a status',
+    ],
+  ] as const) {
+    test(
+      `refuses adapter output with ${label} without echoing it`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const clock = mock.clock(on)
+        const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
+        answerAdapter(world, describe, ADAPTER_ITEMS)
+        const snapshot = await startSession($, clock, false)
+        expect(snapshot.state).toBe('failed')
+        expect(snapshot.reason).toBe(
+          `${ADAPTER_LABEL} describe --json ${reason} with a control character or over 256 characters, so it could not be read.`,
+        )
+      },
+    )
+  }
+
+  test(
+    'refuses a status map value outside the list without echoing it',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
+      answerAdapter(world, { ...DESCRIBE, statusMap: { todo: 'done\nAllow' } }, ADAPTER_ITEMS)
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.reason).toBe(
+        `${ADAPTER_LABEL} describe --json maps a status to a value that is not one of open, in_progress, blocked, deferred, closed, other, so it could not be read.`,
+      )
+    },
+  )
+
+  test(
+    'refuses more than 100 writes, watch globs or mapped statuses',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, ADAPTER_REPO, PATH_WITHOUT_BASICLY, { adapters: userEntry() })
+      const writes = Array.from({ length: 101 }, (_, index) => [`w${String(index)}`])
+      answerAdapter(world, { ...DESCRIBE, writes }, ADAPTER_ITEMS)
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.reason).toBe(
+        `${ADAPTER_LABEL} describe --json gives more than 100 writes, so it could not be read.`,
+      )
+    },
+  )
+})
+
+const SHOWN_REFUSAL_FILES =
+  'files found a name or a value with a control character or over 1000 characters, so it could not be read.'
+
+describe('failure texts never echo an unsafe name', () => {
+  test(
+    'a matched file with a line break in its name is not echoed',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, GENERIC_REPO('{"id":"x"}\n'), PATH_WITHOUT_BASICLY)
+      world.files.delete(`${ROOT}/work/items.jsonl`)
+      world.files.set(`${ROOT}/work/a\nfake.jsonl`, { text: 'not json\n', mtimeMs: 1 })
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(SHOWN_REFUSAL_FILES)
+    },
+  )
+
+  test(
+    'a .handily.json key with a line break is not echoed',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      fakeWorld(on, { '.handily.json': '{"glo\\nb": 1}' }, PATH_WITHOUT_BASICLY)
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.reason).toBe(
+        '.handily.json found a name or a value with a control character or over 1000 characters, so it could not be read.',
+      )
+    },
+  )
+
+  test(
+    'a skipped bean with a line break in its name is not echoed in the caveat',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      fakeWorld(on, { '.beans/app-a1--x\ny.md': 'no front matter\n' }, PATH_WITHOUT_BASICLY)
+      const snapshot = await startSession($, clock, false)
+      expect(snapshot.state).toBe('ok')
+      expect(snapshot.caveat).toBe(
+        'beans skipped an item file whose name has a control character or is over 1000 characters.',
+      )
     },
   )
 })

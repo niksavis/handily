@@ -5,7 +5,8 @@
   the program path and every file of the repo's basicly kit. Without `basicly` on `PATH`, the
   read fails by name. A tracker CLI runs only from the person's own
   `~/.config/handily/adapters.json`, keyed on the real path of the repo root. A repo
-  `.handily.json` that names a command runs nothing and shows the line to copy. The mod refuses
+  `.handily.json` that names a command runs nothing, and the reason names the user file. The
+  entry covers the command, not one version of the script, so a pull can run new code. The mod refuses
   a contract other than the number 1, and names the value that it got. The adapter write verbs
   are in the snapshot as `adapterWrites`. Output that was cut off, or a non-zero exit, makes the
   read fail with the command name. A session on the desktop app shows the state `terminal-only`

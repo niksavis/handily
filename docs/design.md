@@ -63,7 +63,7 @@ Why `commit-link` and `handover` were dropped:
 | 9 | basicly read path | `basicly tracker list --status <s>` from `PATH` only, after the person approves it. Without `basicly` on `PATH` the read fails by name. The repo's `cli.py` fallback was dropped by decision E |
 | 10 | Approval key | For basicly: the repo root, the argv, the resolved `argv[0]` and the sha256 of every file under `.basicly/core/kit/tracker/`. A program that resolves inside the repo root is refused. A CLI adapter needs no approval (decision E) |
 | 11 | Repo config | `.handily.json` at the repo root holds data only: `source`, `globs`, `format` and `fields`. Its globs are confined to the root by `realPath`. It cannot name a command (decision E) |
-| E | CLI adapter command (2026-10-08) | A repo never names a command to run. The person lists the adapter argv in `~/.config/handily/adapters.json`, keyed on the exact real path of the repo root. Typing that line is the consent, so the adapter runs with no approval ask. A repo `.handily.json` that names a command fails and shows the line to copy |
+| E | CLI adapter command (2026-10-08) | A repo never names a command to run. The person lists the adapter argv in `~/.config/handily/adapters.json`, keyed on the exact real path of the repo root. Typing that line is the consent, so the adapter runs with no approval ask. A repo `.handily.json` that names a command fails, names the user file and the root, and never repeats the command. The consent covers the command, not one version of the code |
 
 ## 3. Facts about the mod API
 
@@ -213,8 +213,19 @@ Limits and safety:
 - A repo never names a command to run (decision E). The CLI adapter argv comes only from
   `~/.config/handily/adapters.json`, which the person writes. The key of an entry is the exact
   real path of the repo root, with no patterns. A clone at another path does not match.
-- The provider refuses a program whose real path is inside the repo root. Program lookup skips
-  a relative or empty `PATH` entry, such as `.`.
+- The consent in `adapters.json` covers the command, not one version of the code. A pull that
+  changes the script runs new code with no new ask. A clone placed later at the same path
+  inherits the entry. With the working folder at the root, `npx`, `python -m`, `uv run` and the
+  `require` of `node` load repo code. The check that the program is outside the root covers
+  only `argv[0]`.
+- The provider refuses a program whose real path is inside the repo root, or whose real path
+  the engine does not give. Program lookup skips a relative or empty `PATH` entry, such as `.`.
+  On Windows the root comparison ignores case.
+- A kit file over 4 MiB, or a covered file whose name holds a control character or is over 256
+  characters, makes the read fail. A failure reason or caveat that holds a control character
+  or is over 1000 characters becomes a fixed text, so a repo name is never echoed.
+- The adapter `name`, `writes`, `watch` and `statusMap` keys are refused when one holds a control
+  character or is over 256 characters, or when a list has more than 100 entries.
 - Each reader refuses an item whose `id`, `title` or raw status holds a control character or is
   too long. Every read of a tracker file stays inside the repo root.
 - `$.process.run` works only in the CLI. In the desktop app a CLI source shows the state
@@ -224,7 +235,8 @@ CLI adapter contract (version 1):
 
 - The person names the command in `~/.config/handily/adapters.json`:
   `{ "<real path of the repo root>": ["prog", "args..."] }`. A repo can ship the adapter script
-  and the line to copy.
+  and document the command. A repo `.handily.json` that names a command fails, and the reason
+  names the user file and the root but never repeats the command.
 - `<command> items --json` prints a JSON array of normalized work items to stdout, exit 0.
 - `<command> describe --json` prints `{ "name", "version", "contract": 1, "watch": [globs],
   "writes": [argv prefixes], "statusMap": {...} }`. The provider re-reads when a file under

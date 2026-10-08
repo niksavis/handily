@@ -33,12 +33,9 @@ export type ApprovalRequest = {
   folders: readonly CoveredFolder[]
 }
 
-export type FileDigest = { sha256: string } | { size: number; mtimeMs: number }
-
 type Coverage = {
   files: Readonly<Record<string, string>>
   folders: readonly CoveredFolder[]
-  stamped: readonly string[]
 }
 
 export type Verdict = { approved: true; argv0: string } | { approved: false }
@@ -82,7 +79,14 @@ export async function resolveProgram(
   if (ABSOLUTE_PATH.test(program)) return search.realPath(program)
   if (NAMES_A_FOLDER.test(program)) return search.realPathAtRoot(program)
   for (const candidate of candidatesOn(await search.searchPath(), program)) {
-    if (await search.exists(candidate)) return (await search.realPath(candidate)) ?? candidate
+    if (!(await search.exists(candidate))) continue
+    const real = await search.realPath(candidate)
+    if (real === undefined) {
+      throw new FileProblem(
+        `${candidate} could not be resolved to a real path, so it could not be read.`,
+      )
+    }
+    return real
   }
   return undefined
 }
@@ -123,17 +127,21 @@ function joinedPath(folder: string, name: string): string {
   return folder === '.' ? name : `${folder}/${name}`
 }
 
-function digestText(digest: FileDigest): string {
-  if ('sha256' in digest) return digest.sha256
-  return `size ${String(digest.size)}, modified ${String(digest.mtimeMs)}`
-}
-
 type FolderEntry = { path: string; entry: FsEntry }
 
-async function folderEntries(files: TrackerFiles, folder: CoveredFolder): Promise<FolderEntry[]> {
+async function folderEntries(
+  files: TrackerFiles,
+  folder: CoveredFolder,
+  shownFolder: string = folder.path,
+): Promise<FolderEntry[]> {
   if (!(await files.exists(folder.path))) return []
   const found: FolderEntry[] = []
   for (const entry of await files.list(folder.path)) {
+    if (argumentProblem(entry.name) !== null) {
+      throw new FileProblem(
+        `a file in ${shownFolder} has a name with a control character or over 256 characters, so it could not be read.`,
+      )
+    }
     const path = joinedPath(folder.path, entry.name)
     if (folder.recursive === true && entry.isLink) {
       throw new FileProblem(
@@ -141,7 +149,7 @@ async function folderEntries(files: TrackerFiles, folder: CoveredFolder): Promis
       )
     }
     if (entry.kind === 'dir' && folder.recursive === true) {
-      found.push(...(await folderEntries(files, { ...folder, path })))
+      found.push(...(await folderEntries(files, { ...folder, path }, shownFolder)))
       continue
     }
     const isFile = entry.kind === 'file' || entry.isLink
@@ -154,7 +162,7 @@ async function coverageOf(
   files: TrackerFiles,
   folders: readonly CoveredFolder[],
 ): Promise<Coverage> {
-  const digests = new Map<string, FileDigest>()
+  const digests = new Map<string, string>()
   for (const folder of folders) {
     for (const { path } of await folderEntries(files, folder)) {
       const digest = await files.hash(path)
@@ -163,9 +171,8 @@ async function coverageOf(
   }
   const entries = [...digests.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   return {
-    files: Object.fromEntries(entries.map(([path, digest]) => [path, digestText(digest)])),
+    files: Object.fromEntries(entries),
     folders,
-    stamped: entries.filter(([, digest]) => !('sha256' in digest)).map(([path]) => path),
   }
 }
 
@@ -199,11 +206,6 @@ function approvalQuestion(shown: readonly string[], coverage: Coverage): string 
     quotedCommand(shown),
     coverageNote(coverage.folders),
   ]
-  if (coverage.stamped.length > 0) {
-    lines.push(
-      `(a file over 4 MiB is checked by its size and time only: ${coverage.stamped.join(', ')})`,
-    )
-  }
   return lines.join('\n')
 }
 

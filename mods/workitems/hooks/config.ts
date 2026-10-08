@@ -116,22 +116,12 @@ function fieldsOf(value: unknown): FieldMap {
   return fields as FieldMap
 }
 
-function isCopyableCommand(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every((argument) => isText(argument) && argumentProblem(argument) === null)
-  )
-}
-
-async function repoCommandFault(files: TrackerFiles, command: unknown): Promise<never> {
-  const refusal = `${CONFIG_FILE} names a command, and handily runs an adapter only from ${USER_ADAPTERS_SHOWN}`
+async function repoCommandFault(files: TrackerFiles): Promise<never> {
   const rootReal = await files.realPath('.')
-  if (rootReal === undefined || argumentProblem(rootReal) !== null || !isCopyableCommand(command)) {
-    throw new ConfigFault(`${refusal}, so it could not be read.`)
-  }
+  const isShown = rootReal !== undefined && argumentProblem(rootReal) === null
+  const entry = isShown ? `an entry for ${JSON.stringify(rootReal)}` : 'an entry for this repo'
   throw new ConfigFault(
-    `${refusal}. To run it, add ${JSON.stringify(rootReal)}: ${JSON.stringify(command)} to that file. The repo command could not be read.`,
+    `${CONFIG_FILE} names a command, which handily never runs from the repo. To use an adapter, add ${entry} to ${USER_ADAPTERS_SHOWN}, as the workitems README explains. The repo command could not be read.`,
   )
 }
 
@@ -170,7 +160,7 @@ async function readConfigOnce(files: TrackerFiles): Promise<ConfigOutcome> {
       return { ok: true, config: { source: null, files: null } }
     const parsed = parseJson(await files.read(CONFIG_FILE))
     if (isRecord(parsed) && Object.hasOwn(parsed, 'command')) {
-      await repoCommandFault(files, parsed.command)
+      await repoCommandFault(files)
     }
     return { ok: true, config: configOf(parsed) }
   } catch (error) {
@@ -186,9 +176,20 @@ function joined(directory: string, name: string): string {
   return directory === '' ? name : `${directory}/${name}`
 }
 
+const WINDOWS_DRIVE = /^[A-Za-z]:/
+
+function comparable(path: string, isWindows: boolean): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  return isWindows ? trimmed.replaceAll('\\', '/').toLowerCase() : trimmed
+}
+
 export function isInside(rootReal: string, real: string): boolean {
-  const base = rootReal.replace(/[\\/]+$/, '')
-  return real === base || real.startsWith(`${base}/`) || real.startsWith(`${base}\\`)
+  const isWindows = WINDOWS_DRIVE.test(rootReal)
+  const base = comparable(rootReal, isWindows)
+  const path = isWindows ? comparable(real, true) : real
+  return (
+    path === base || path.startsWith(`${base}/`) || (!isWindows && path.startsWith(`${base}\\`))
+  )
 }
 
 function segmentPattern(segment: string): RegExp {

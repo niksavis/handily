@@ -122,8 +122,10 @@ the line.
 - An unknown key, an unknown source, or a missing field makes the read fail. The reason names
   the fault.
 - `.handily.json` holds data only. A `command` in it runs nothing. The read fails, and the reason
-  shows the line to copy into your own `~/.config/handily/adapters.json` (see
-  [CLI adapter contract 1](#cli-adapter-contract-1)).
+  names your file `~/.config/handily/adapters.json` and the repo root. It never repeats the
+  repo's command (see [CLI adapter contract 1](#cli-adapter-contract-1)).
+- A failure reason never shows a name or a value from the repo that holds a control character
+  or is very long. Such a reason becomes a fixed text that names the source.
 
 ## CLI adapter contract 1
 
@@ -131,13 +133,23 @@ A tracker CLI that the mod does not know can serve its items through two command
 names the command. You name it, once per repo, in your own file `~/.config/handily/adapters.json`.
 Typing the line is your consent, so the mod runs the adapter with no approval question.
 
+**What your entry allows.** Read this before you add a line:
+
+- The entry approves the command, not one version of the code. A `git pull` that changes the
+  script runs the new code at the next read, with no new question.
+- The key is a path. A different clone that you later place at the same path inherits the entry.
+- The check that the program is outside the repo covers only `argv[0]`. With the working folder
+  at the repo root, `npx`, `python -m`, `uv run` and the `require` of `node` load code from the
+  repo itself. So `["node", "tools/tracker.mjs"]` runs whatever that repo file holds.
+- Add an entry only for a repo whose code you already trust to run on your machine.
+
 Setup:
 
-1. The repo can ship an adapter script, for example `tools/tracker.mjs`, and document the line
-   to copy.
+1. The repo can ship an adapter script and document the command for it. Read the script first.
 2. Find the real path of the repo root, for example with `pwd -P` in the repo.
 3. Add one entry to `~/.config/handily/adapters.json`. The key is that exact real path, and the
-   value is the program and its arguments:
+   value is the program and its arguments. This example runs a repo script, with the limits
+   above:
 
    ```json
    { "/home/you/src/app": ["node", "tools/tracker.mjs"] }
@@ -149,6 +161,9 @@ Setup:
 - The mod refuses a program whose real path is inside the repo root, for example
   `["tools/run"]`. Run a repo script through a program outside the repo, such as `node`.
 - The mod refuses an argument with a control character or over 256 characters.
+- The mod refuses an adapters file that is not a regular file.
+- When no entry matches the repo, the no-tracker line names `~/.config/handily/adapters.json`
+  as a place that the mod looked.
 - When `.handily.json` names `"source": "adapter"` and your file has no entry for the repo, the
   read fails, and the reason names your file and the repo root.
 
@@ -176,6 +191,9 @@ Setup:
   the snapshot as `adapterWrites: { command, verbs }`, for example the command
   `node tools/tracker.mjs`.
 - The poll reads again when a file under `watch` or your adapters file changes.
+- The mod refuses a `name`, a `writes` entry, a `watch` glob or a `statusMap` key with a control
+  character or over 256 characters, and more than 100 entries in one list. The reason does not
+  repeat the value.
 - A non-zero exit, output over 4 MiB or output that is not valid JSON makes the read fail. The
   reason names the command in double quotes.
 
@@ -190,13 +208,15 @@ adapter needs no approval, because you typed its command yourself.
   real path of `basicly`, and the sha256 of every file under `.basicly/core/kit/tracker/`, in
   every subfolder and with every suffix. A link in that folder makes the read fail, because the
   key cannot cover what it leads to.
-- The mod cannot read a file over 4 MiB, so the key holds the size and the modification time of
-  such a file instead of its sha256. The question names each such file.
+- The mod cannot hash a file over 4 MiB, so such a kit file makes the read fail, and the
+  reason names it. A kit file whose name holds a control character or is over 256 characters
+  also makes the read fail, and the reason does not repeat the name.
 - When one of these changes, the old approval does not match, and the mod asks again.
 - The question shows each argument in double quotes, with the real path of the program, and
   names the kit folder.
-- The mod refuses a `basicly` whose real path is inside the repo root. Program lookup skips a
-  relative or empty `PATH` entry, such as `.`.
+- The mod refuses a `basicly` whose real path is inside the repo root, or whose real path the
+  engine does not give. Program lookup skips a relative or empty `PATH` entry, such as `.`.
+- On Windows the mod compares a path with the repo root without regard to case.
 - After `Not now`, or when you close the dialog, the state is `approval-needed`. The mod asks
   again at the next session start.
 - The mod never asks in a session that is not interactive, such as `claude -p`. The state is

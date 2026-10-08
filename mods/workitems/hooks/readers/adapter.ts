@@ -24,6 +24,8 @@ import {
 import type { ReadOutcome, Reader, TrackerFiles } from './index'
 
 const SOURCE = 'adapter'
+const MAX_DESCRIBED_ENTRIES = 100
+const UNSAFE_TEXT = 'with a control character or over 256 characters'
 const CONTRACT = 1
 const MAPPED_STATUSES: readonly WorkitemsStatus[] = [
   'open',
@@ -83,16 +85,28 @@ function recordLocated(record: Record<string, unknown>, where: string): Located 
   }
 }
 
+function refuseUnsafe(label: string, what: string, values: readonly string[]): void {
+  if (values.length > MAX_DESCRIBED_ENTRIES) {
+    throw new ItemFault(
+      `${label} gives more than ${String(MAX_DESCRIBED_ENTRIES)} ${what}s, so it could not be read.`,
+    )
+  }
+  if (values.some((value) => argumentProblem(value) !== null)) {
+    throw new ItemFault(`${label} gives a ${what} ${UNSAFE_TEXT}, so it could not be read.`)
+  }
+}
+
 function statusMapOf(label: string, value: unknown): Map<string, WorkitemsStatus> {
   const map = new Map<string, WorkitemsStatus>()
   if (value === undefined) return map
   if (!isRecord(value))
     throw new ItemFault(`${label} has an invalid statusMap, so it could not be read.`)
+  refuseUnsafe(label, 'status', Object.keys(value))
   for (const [raw, normal] of Object.entries(value)) {
     const status = MAPPED_STATUSES.find((known) => known === normal)
     if (!status) {
       throw new ItemFault(
-        `${label} maps the status ${raw} to ${String(normal)}, which is not one of ${MAPPED_STATUSES.join(', ')}, so it could not be read.`,
+        `${label} maps a status to a value that is not one of ${MAPPED_STATUSES.join(', ')}, so it could not be read.`,
       )
     }
     map.set(raw, status)
@@ -109,13 +123,16 @@ function writesOf(label: string, value: unknown): string[] {
   ) {
     throw new ItemFault(`${label} has invalid writes, so it could not be read.`)
   }
-  return value.map((write) => write.join(' '))
+  const writes = value.map((write) => write.join(' '))
+  refuseUnsafe(label, 'write', writes)
+  return writes
 }
 
 function watchOf(label: string, value: unknown): string[] {
   if (value === undefined) return []
   if (!isTextList(value))
     throw new ItemFault(`${label} has an invalid watch, so it could not be read.`)
+  refuseUnsafe(label, 'watch glob', value)
   return value
 }
 
@@ -135,6 +152,9 @@ function descriptionOf(label: string, parsed: unknown): Description {
     throw new ItemFault(`the adapter says contract ${numeral(contract)}; handily reads contract 1.`)
   }
   const name = requiredText(recordLocated(parsed, label), 'name')
+  if (argumentProblem(name) !== null) {
+    throw new ItemFault(`${label} gives a name ${UNSAFE_TEXT}, so it could not be read.`)
+  }
   return {
     name,
     watch: watchOf(label, parsed.watch),
@@ -290,7 +310,7 @@ export function createAdapterReader(): Reader {
   return {
     name: SOURCE,
     marker: CONFIG_FILE,
-    lookedForAs: CONFIG_FILE,
+    lookedForAs: USER_ADAPTERS_SHOWN,
     isPresent: hasUserCommand,
     signature: adapterSignature,
     read: readAdapter,

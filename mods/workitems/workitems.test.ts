@@ -71,10 +71,13 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
     const file = world.files.get(e.path)
     if (world.statDelayMs > 0) await clock.sleep(world.statDelayMs)
     const isFolder = [...world.files.keys()].some((path) => path.startsWith(`${e.path}/`))
-    if (!file && isFolder) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+    const landed = e.resolve ? { realPath: e.path } : {}
+    if (!file && isFolder) {
+      return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, ...landed } }
+    }
     if (!file) return { deny: `ENOENT: ${e.path}` }
     const size = file.size ?? new TextEncoder().encode(file.text).length
-    return { value: { kind: 'file', size, mtimeMs: file.mtimeMs, isLink: false } }
+    return { value: { kind: 'file', size, mtimeMs: file.mtimeMs, isLink: false, ...landed } }
   })
   on('fs.read', async (_$, e) => {
     world.touched.push(e.path)
@@ -230,7 +233,9 @@ describe('detection', () => {
     await startSession($)
     const snapshot = await snapshotOf($)
     expect(snapshot.state).toBe('no-tracker')
-    expect(snapshot.reason).toBe('looked for basicly, beads, beans, .handily.json')
+    expect(snapshot.reason).toBe(
+      'looked for basicly, beads, beans, .handily.json, ~/.config/handily/adapters.json',
+    )
     expect(snapshot.items).toEqual([])
     expect(world.touched.length).toBeGreaterThan(0)
     expect(world.touched.filter((path) => !path.startsWith(`${ROOT}/`))).toEqual([])
@@ -425,7 +430,7 @@ describe('contract', () => {
         {
           kind: 'no-tracker',
           tone: 'dim',
-          text: 'No tracker found at the repo root (looked for basicly, beads, beans, .handily.json).',
+          text: 'No tracker found at the repo root (looked for basicly, beads, beans, .handily.json, ~/.config/handily/adapters.json).',
         },
       ])
     },
@@ -607,7 +612,9 @@ describe('session start and directory changes', () => {
         }
         return { value: e.path === ISSUES }
       })
-      on('fs.stat', () => ({ value: { kind: 'file', size: 10, mtimeMs: 10, isLink: false } }))
+      on('fs.stat', (_$, e) => ({
+        value: { kind: 'file', size: 10, mtimeMs: 10, isLink: false, realPath: e.path },
+      }))
       on('fs.read', () => {
         reads += 1
         return { value: FIXTURE_ISSUES }

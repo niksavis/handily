@@ -5,7 +5,7 @@ import type {
   WorkitemsItem,
   WorkitemsWriteVerbs,
 } from '../../types'
-import type { Approvals, FileDigest } from '../approval'
+import type { Approvals } from '../approval'
 import { createAdapterReader } from './adapter'
 import { basiclyReader } from './basicly'
 import { beadsReader } from './beads'
@@ -31,7 +31,7 @@ export type TrackerFiles = {
   stat: (
     relativePath: string,
   ) => Promise<{ size: number; mtimeMs: number; kind?: 'file' | 'dir' | 'other' }>
-  hash: (relativePath: string) => Promise<FileDigest | undefined>
+  hash: (relativePath: string) => Promise<string | undefined>
   readUserFile: (homeRelativePath: string) => Promise<string | undefined>
   commands: TrackerCommands
 }
