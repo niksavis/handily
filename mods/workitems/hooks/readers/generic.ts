@@ -62,7 +62,7 @@ const TEXT_LIMITS = [
   ['rawStatus', 'a status', 100],
 ] as const
 
-function isUnsafeCharacter(code: number): boolean {
+export function isUnsafeCharacter(code: number): boolean {
   const isControl = code < 0x20 || (code >= 0x7f && code <= 0x9f)
   const isLineBreak = code === 0x2028 || code === 0x2029
   const isBidiControl = (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)

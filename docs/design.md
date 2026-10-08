@@ -60,7 +60,7 @@ Why `commit-link` and `handover` were dropped:
 | 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` is secondary |
 | 7 | work-status | Dropped |
 | 8 | bd data | Items that come from `.beads/issues.jsonl` for `bd` carry the label "possibly stale" |
-| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH`, or the repo's `cli.py` when `basicly` is not on `PATH`. Both load the repo's kit code, so each runs only after the person approves it. The key is the root, the resolved `argv[0]`, the argv and the sha256 of every `.py` file in `.basicly/core/kit/tracker/`. Amended 2026-10-08 (security review finding 1, option A) |
+| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH`, or the repo's `cli.py` when `basicly` is not on `PATH`. Both load the repo's kit code, so each runs only after the person approves it. The key is the root, the resolved `argv[0]`, the argv and the sha256 of every file under `.basicly/core/kit/tracker/`. Amended 2026-10-08 (security review finding 1, option A) |
 | 10 | Approval key | The repo root, the argv, the sha256 of each repo file that the argv names, and the resolved `argv[0]` |
 | 11 | Repo config | `.handily.json` at the repo root. Its globs are confined to the root by `realPath` |
 
@@ -176,11 +176,13 @@ basicly:
 - The provider runs `basicly tracker list --status <s>` from `PATH`, or the repo's
   `.basicly/core/kit/tracker/cli.py` when `basicly` is not on `PATH` (review decision 9).
   Both load the repo's kit code, so every basicly read runs only after approval. The key is
-  the root, the resolved `argv[0]`, the argv and the sha256 of every `.py` file in
-  `.basicly/core/kit/tracker/`.
-- Both commands run with `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` set to a new
-  folder that does not exist. So Python never runs a `.pyc` file from the repo's
-  `__pycache__`, which the key does not cover.
+  the root, the resolved `argv[0]`, the argv and the sha256 of every file under
+  `.basicly/core/kit/tracker/`, in every subfolder. The provider runs the recorded `argv[0]`,
+  refuses one inside the repo root, and checks the approval again before each list run.
+- The kit runs as `python3 -I -B -X pycache_prefix=<new folder> cli.py`, so the kit folder is
+  not on the module search path and no cached `.pyc` file from the repo runs. `-I` ignores the
+  `PYTHON*` variables, so these settings are flags. `basicly` from `PATH` gets
+  `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` as variables.
 - `isStdoutTruncated` makes the read fail, and the reason names it.
 - The provider skips tombstoned records.
 - Field map: `record` to `id`, `fields.title`, `status`, `fields.priority`,

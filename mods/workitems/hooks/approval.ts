@@ -1,5 +1,7 @@
 import type { AskOptions } from 'claude-code'
-import { FileProblem } from './config'
+import type { FsEntry } from 'claude-code'
+import { FileProblem, isInside } from './config'
+import { isUnsafeCharacter } from './readers/generic'
 import type { TrackerFiles } from './readers/index'
 
 export const APPROVE = 'Allow for this repo'
@@ -8,6 +10,7 @@ export const ASK_HEADER = 'workitems'
 const STORE_PREFIX = 'approval:'
 const ABSOLUTE_PATH = /^([\\/]|[A-Za-z]:)/
 const NAMES_A_FOLDER = /[\\/]/
+const MAX_ARGUMENT_LENGTH = 256
 
 export type ApprovalKey = {
   root: string
@@ -24,7 +27,7 @@ export type ApprovalHost = {
   log: (text: string) => void
 }
 
-export type CoveredFolder = { path: string; suffix: string }
+export type CoveredFolder = { path: string; suffix: string; recursive?: true }
 
 export type ApprovalRequest = {
   command: readonly string[]
@@ -40,7 +43,7 @@ type Coverage = {
   stamped: readonly string[]
 }
 
-export type Verdict = 'approved' | 'needed'
+export type Verdict = { approved: true; argv0: string } | { approved: false }
 
 export type Approvals = {
   generation: () => number
@@ -122,12 +125,26 @@ async function namedRepoFiles(
   return named
 }
 
-async function folderFiles(files: TrackerFiles, folder: CoveredFolder): Promise<string[]> {
+type FolderEntry = { path: string; entry: FsEntry }
+
+async function folderEntries(files: TrackerFiles, folder: CoveredFolder): Promise<FolderEntry[]> {
   if (!(await files.exists(folder.path))) return []
-  return (await files.list(folder.path))
-    .filter((entry) => entry.kind === 'file' || entry.isLink)
-    .filter((entry) => entry.name.endsWith(folder.suffix))
-    .map((entry) => joinedPath(folder.path, entry.name))
+  const found: FolderEntry[] = []
+  for (const entry of await files.list(folder.path)) {
+    const path = joinedPath(folder.path, entry.name)
+    if (folder.recursive === true && entry.isLink) {
+      throw new FileProblem(
+        `${path} is a link, which the approval cannot cover, so it could not be read.`,
+      )
+    }
+    if (entry.kind === 'dir' && folder.recursive === true) {
+      found.push(...(await folderEntries(files, { ...folder, path })))
+      continue
+    }
+    const isFile = entry.kind === 'file' || entry.isLink
+    if (isFile && entry.name.endsWith(folder.suffix)) found.push({ path, entry })
+  }
+  return found
 }
 
 async function isRepoFile(files: TrackerFiles, relativePath: string): Promise<boolean> {
@@ -157,7 +174,7 @@ async function coverageOf(files: TrackerFiles, request: ApprovalRequest): Promis
   const digests = await namedRepoFiles(files, request.command)
   const folders = await coveredFoldersOf(files, request)
   for (const folder of folders) {
-    for (const path of await folderFiles(files, folder)) {
+    for (const { path } of await folderEntries(files, folder)) {
       if (digests.has(path)) continue
       const digest = await files.hash(path)
       if (digest !== undefined) digests.set(path, digest)
@@ -177,10 +194,7 @@ export async function coverStamp(
 ): Promise<string> {
   const lines: string[] = []
   for (const folder of await coveredFoldersOf(files, request)) {
-    if (!(await files.exists(folder.path))) continue
-    for (const entry of await files.list(folder.path)) {
-      if (!entry.name.endsWith(folder.suffix)) continue
-      const path = joinedPath(folder.path, entry.name)
+    for (const { path, entry } of await folderEntries(files, folder)) {
       lines.push(`${path} ${String(entry.size)} ${String(entry.mtimeMs)}`)
     }
   }
@@ -197,7 +211,34 @@ async function approvalKey(
   if (argv0 === undefined) {
     throw new FileProblem(`${program} could not be found, so ${argv.join(' ')} could not be read.`)
   }
+  const rootReal = await files.realPath('.')
+  if (rootReal === undefined) throw new FileProblem('the repo root could not be read.')
+  if (isInside(rootReal, argv0)) {
+    throw new FileProblem(`${program} resolves inside the repo root, so it could not be read.`)
+  }
+  refuseUnsafeArguments([argv0])
   return { root: files.root, argv: [...argv], files: coverage.files, argv0 }
+}
+
+function refuseUnsafeArguments(argv: readonly string[]): void {
+  for (const argument of argv) {
+    for (const character of argument) {
+      if (isUnsafeCharacter(character.codePointAt(0) ?? 0)) {
+        throw new FileProblem(
+          'the command has an argument with a control character, so it could not be read.',
+        )
+      }
+    }
+    if (argument.length > MAX_ARGUMENT_LENGTH) {
+      throw new FileProblem(
+        `the command has an argument over ${String(MAX_ARGUMENT_LENGTH)} characters, so it could not be read.`,
+      )
+    }
+  }
+}
+
+export function quotedCommand(argv: readonly string[]): string {
+  return argv.map((argument) => JSON.stringify(argument)).join(' ')
 }
 
 function folderName(folder: CoveredFolder): string {
@@ -206,15 +247,15 @@ function folderName(folder: CoveredFolder): string {
 
 function coverageNote(folders: readonly CoveredFolder[]): string {
   const [first] = folders
-  if (first === undefined) return '(read-only; asked again if the command changes)'
+  if (first === undefined) return '(asked again if the command changes)'
   const kind = first.suffix === '' ? 'a file' : `a ${first.suffix} file`
-  return `(read-only; it runs the repo code in ${folders.map(folderName).join(', ')}; asked again if the command or ${kind} there changes)`
+  return `(it runs the repo code in ${folders.map(folderName).join(', ')}; asked again if the command or ${kind} there changes)`
 }
 
 function approvalQuestion(shown: readonly string[], coverage: Coverage): string {
   const lines = [
     "Allow handily to run this repo's tracker CLI to read work items?",
-    shown.join(' '),
+    quotedCommand(shown),
     coverageNote(coverage.folders),
   ]
   if (coverage.stamped.length > 0) {
@@ -269,13 +310,15 @@ export function createApprovals(host: ApprovalHost): Approvals {
       generation += 1
     },
     check: async (files, request) => {
+      refuseUnsafeArguments([...request.command, ...request.shown])
       const coverage = await coverageOf(files, request)
       const key = await approvalKey(files, request.command, coverage)
       const storeKey = await storeKeyOf(key)
-      if ((await host.stored(storeKey)) !== undefined) return 'approved'
+      if ((await host.stored(storeKey)) !== undefined) return { approved: true, argv0: key.argv0 }
       const mayAsk = isInteractive && !declined.has(storeKey) && !asking.has(storeKey)
-      if (mayAsk) askPerson(storeKey, key, approvalQuestion(request.shown, coverage))
-      return 'needed'
+      const shown = [key.argv0, ...request.shown.slice(1)]
+      if (mayAsk) askPerson(storeKey, key, approvalQuestion(shown, coverage))
+      return { approved: false }
     },
   }
 }

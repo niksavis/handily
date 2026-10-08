@@ -21,14 +21,15 @@ const ROOT = '/work/app'
 const TEMPLATE = '.basicly/ledger/template.json'
 const KIT_FOLDER = '.basicly/core/kit/tracker'
 const KIT_CLI = `${KIT_FOLDER}/cli.py`
-const KIT_PY_FILES = [KIT_CLI, `${KIT_FOLDER}/queries.py`, `${KIT_FOLDER}/snapshot.py`]
 const KIT_CLI_TEXT = 'print("the tracker kit")\n'
 const BASICLY_BIN = '/opt/tools/basicly'
 const PYTHON_LINK = '/usr/bin/python3'
 const PYTHON_REAL = '/usr/lib/python3.12/bin/python3.12'
 const PATH_WITH_BASICLY = '/usr/bin:/opt/tools'
 const PATH_WITHOUT_BASICLY = '/usr/bin'
-const KIT_COMMAND = `python3 ${KIT_CLI}`
+const KIT_APPROVAL_TEXT = `"python3" "-I" "-B" "${KIT_CLI}"`
+const PATH_APPROVAL_TEXT = '"basicly" "tracker" "list"'
+const CACHE_ARGUMENT = 'pycache_prefix=*'
 const ADAPTER_SCRIPT = 'tools/tracker.mjs'
 const ADAPTER_COMMAND = `node ${ADAPTER_SCRIPT}`
 const NODE_BIN = '/usr/bin/node'
@@ -46,6 +47,10 @@ const BASICLY_REPO: Record<string, string> = {
   [`${KIT_FOLDER}/GUIDANCE.md`]: '# The tracker kit\n',
   [`${KIT_FOLDER}/__pycache__/queries.cpython-312.pyc`]: 'compiled',
 }
+
+const KIT_FILES = Object.keys(BASICLY_REPO)
+  .filter((path) => path.startsWith(`${KIT_FOLDER}/`))
+  .sort()
 
 const DESCRIBE = {
   name: 'tickets',
@@ -89,6 +94,7 @@ type Ask = { question: string; header: unknown; options: string[] }
 type FakeFile = { text: string; mtimeMs: number; size?: number }
 
 type World = {
+  afterRun: (argv: readonly string[]) => void
   files: Map<string, FakeFile>
   links: Map<string, string>
   surfaces: RenderSurface[]
@@ -123,7 +129,19 @@ function entriesIn(world: World, directory: string): FsEntry[] {
         : { name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false },
     )
   }
+  for (const link of world.links.keys()) {
+    const name = link.slice(directory.length + 1)
+    if (link.startsWith(`${directory}/`) && !name.includes('/')) {
+      names.set(name, { name, kind: 'other', size: 0, mtimeMs: 0, isLink: true })
+    }
+  }
   return [...names.values()]
+}
+
+function lookupKey(argv: readonly string[]): string {
+  return argv
+    .map((argument) => (argument.startsWith('pycache_prefix=') ? CACHE_ARGUMENT : argument))
+    .join(' ')
 }
 
 function processResult(answer: Partial<ProcessRunResult> | undefined): ProcessRunResult {
@@ -162,6 +180,7 @@ function fakeWorld(
   options: WorldOptions = {},
 ): World {
   const world: World = {
+    afterRun: () => undefined,
     files: new Map(),
     links: new Map([[PYTHON_LINK, PYTHON_REAL]]),
     surfaces: ['terminal'],
@@ -214,7 +233,9 @@ function fakeWorld(
   if (options.hasProcessRun ?? true) {
     on('process.run', (_$, e) => {
       world.runs.push({ argv: [...e.argv], cwd: e.init?.cwd, env: e.init?.env })
-      return { value: processResult(world.outputs.get(e.argv.join(' '))) }
+      const answer = world.outputs.get(lookupKey(e.argv))
+      world.afterRun(e.argv)
+      return { value: processResult(answer) }
     })
   }
   on('tool.call', (_$, e, next) => {
@@ -227,10 +248,14 @@ function fakeWorld(
   return world
 }
 
-function answerBasicly(world: World, program: readonly string[], ledger: readonly string[]) {
+const PATH_LIST = `${BASICLY_BIN} tracker list`
+const KIT_LIST = `${PYTHON_REAL} -I -B -X ${CACHE_ARGUMENT} ${KIT_CLI} list`
+
+function answerBasicly(world: World) {
   const lists = { open: LIST_OPEN, in_progress: LIST_IN_PROGRESS, blocked: LIST_BLOCKED }
   for (const [status, stdout] of Object.entries(lists)) {
-    world.outputs.set([...program, '--status', status, ...ledger].join(' '), { stdout })
+    world.outputs.set(`${PATH_LIST} --status ${status}`, { stdout })
+    world.outputs.set(`${KIT_LIST} --status ${status} .basicly/ledger`, { stdout })
   }
 }
 
@@ -296,11 +321,11 @@ async function startSession(
 }
 
 function kitRuns(world: World): Run[] {
-  return world.runs.filter((run) => run.argv[1] === KIT_CLI)
+  return world.runs.filter((run) => run.argv.includes(KIT_CLI))
 }
 
 function pathRuns(world: World): Run[] {
-  return world.runs.filter((run) => run.argv[0] === 'basicly')
+  return world.runs.filter((run) => run.argv[1] === 'tracker')
 }
 
 async function digestsOf(
@@ -315,17 +340,17 @@ async function digestsOf(
 }
 
 const KIT_NOTE =
-  '(read-only; it runs the repo code in .basicly/core/kit/tracker; asked again if the command or a .py file there changes)'
+  '(it runs the repo code in .basicly/core/kit/tracker; asked again if the command or a file there changes)'
 
 const PATH_QUESTION = [
   "Allow handily to run this repo's tracker CLI to read work items?",
-  'basicly tracker list --status open',
+  `"${BASICLY_BIN}" "tracker" "list" "--status" "open"`,
   KIT_NOTE,
 ].join('\n')
 
 const KIT_QUESTION = [
   "Allow handily to run this repo's tracker CLI to read work items?",
-  `${KIT_COMMAND} list --status open .basicly/ledger`,
+  `"${PYTHON_REAL}" "-I" "-B" "${KIT_CLI}" "list" "--status" "open" ".basicly/ledger"`,
   KIT_NOTE,
 ].join('\n')
 
@@ -334,8 +359,7 @@ const ALLOW = 'Allow for this repo'
 async function approvedBasicly($: Engine, on: On, path: string) {
   const clock = mock.clock(on, { now: 1_000 })
   const world = fakeWorld(on, BASICLY_REPO, path)
-  answerBasicly(world, ['basicly', 'tracker', 'list'], [])
-  answerBasicly(world, ['python3', KIT_CLI, 'list'], ['.basicly/ledger'])
+  answerBasicly(world)
   world.answer = ALLOW
   const snapshot = await startSession($, clock, true)
   return { clock, world, snapshot }
@@ -352,7 +376,7 @@ describe('basicly source', () => {
       ])
       expect(world.runs.map(({ argv, cwd }) => ({ argv, cwd }))).toEqual(
         ['open', 'in_progress', 'blocked'].map((status) => ({
-          argv: ['basicly', 'tracker', 'list', '--status', status],
+          argv: [BASICLY_BIN, 'tracker', 'list', '--status', status],
           cwd: ROOT,
         })),
       )
@@ -391,7 +415,7 @@ describe('basicly source', () => {
         {
           root: ROOT,
           argv: ['basicly', 'tracker', 'list'],
-          files: await digestsOf(BASICLY_REPO, KIT_PY_FILES),
+          files: await digestsOf(BASICLY_REPO, KIT_FILES),
           argv0: BASICLY_BIN,
         },
       ])
@@ -401,8 +425,8 @@ describe('basicly source', () => {
   test('a cut-off output fails with the reason', { plugins: [consumer] }, async ($, on) => {
     const clock = mock.clock(on)
     const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
-    answerBasicly(world, ['basicly', 'tracker', 'list'], [])
-    world.outputs.set('basicly tracker list --status in_progress', {
+    answerBasicly(world)
+    world.outputs.set(`${PATH_LIST} --status in_progress`, {
       stdout: LIST_IN_PROGRESS.slice(0, 40),
       isStdoutTruncated: true,
     })
@@ -426,7 +450,7 @@ describe('basicly source', () => {
     async ($, on) => {
       const clock = mock.clock(on)
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
-      world.outputs.set('basicly tracker list --status open', { exitCode: 2, stderr: 'no kit' })
+      world.outputs.set(`${PATH_LIST} --status open`, { exitCode: 2, stderr: 'no kit' })
       world.answer = ALLOW
       const snapshot = await startSession($, clock, true)
       expect(snapshot.state).toBe('failed')
@@ -460,7 +484,7 @@ describe('basicly source', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
-      world.outputs.set('basicly tracker list --status open', {
+      world.outputs.set(`${PATH_LIST} --status open`, {
         stdout: JSON.stringify({ count: 0, records: [] }),
       })
       world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, {
@@ -505,7 +529,7 @@ describe('approval of a repo command', () => {
     async ($, on) => {
       const clock = mock.clock(on)
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
-      answerBasicly(world, ['basicly', 'tracker', 'list'], [])
+      answerBasicly(world)
       world.answer = ALLOW
       const snapshot = await startSession($, clock, false)
       await clock.advance(4_000)
@@ -516,7 +540,7 @@ describe('approval of a repo command', () => {
         {
           kind: 'approval-needed',
           tone: 'warning',
-          text: 'Work items need your approval to run basicly tracker list.',
+          text: `Work items need your approval to run ${PATH_APPROVAL_TEXT}.`,
         },
         {
           kind: 'approval-hint',
@@ -537,7 +561,7 @@ describe('approval of a repo command', () => {
       const snapshot = await startSession($, clock, false)
       expect(world.asks).toEqual([])
       expect(world.runs).toEqual([])
-      expect(snapshot.reason).toBe(KIT_COMMAND)
+      expect(snapshot.reason).toBe(KIT_APPROVAL_TEXT)
     },
   )
 
@@ -551,16 +575,16 @@ describe('approval of a repo command', () => {
       ])
       expect(snapshot.state).toBe('ok')
       expect(snapshot.items.length).toBe(3)
-      expect(kitRuns(world).map((run) => run.argv.join(' '))).toEqual([
-        `${KIT_COMMAND} list --status open .basicly/ledger`,
-        `${KIT_COMMAND} list --status in_progress .basicly/ledger`,
-        `${KIT_COMMAND} list --status blocked .basicly/ledger`,
+      expect(kitRuns(world).map((run) => lookupKey(run.argv))).toEqual([
+        `${KIT_LIST} --status open .basicly/ledger`,
+        `${KIT_LIST} --status in_progress .basicly/ledger`,
+        `${KIT_LIST} --status blocked .basicly/ledger`,
       ])
       expect([...world.stored.values()]).toEqual([
         {
           root: ROOT,
-          argv: ['python3', KIT_CLI],
-          files: await digestsOf(BASICLY_REPO, KIT_PY_FILES),
+          argv: ['python3', '-I', '-B', KIT_CLI],
+          files: await digestsOf(BASICLY_REPO, KIT_FILES),
           argv0: PYTHON_REAL,
         },
       ])
@@ -577,7 +601,7 @@ describe('approval of a repo command', () => {
       world.answer = 'Not now'
       const kitSnapshot = await startSession($, clock, true)
       expect(kitSnapshot.state).toBe('approval-needed')
-      expect(kitSnapshot.reason).toBe(KIT_COMMAND)
+      expect(kitSnapshot.reason).toBe(KIT_APPROVAL_TEXT)
       expect(kitRuns(world)).toEqual([])
       expect(world.asks.length).toBe(2)
     },
@@ -594,7 +618,7 @@ describe('approval of a repo command', () => {
       world.answer = 'Not now'
       const pathSnapshot = await startSession($, clock, true)
       expect(pathSnapshot.state).toBe('approval-needed')
-      expect(pathSnapshot.reason).toBe('basicly tracker list')
+      expect(pathSnapshot.reason).toBe(PATH_APPROVAL_TEXT)
       expect(pathRuns(world)).toEqual([])
       expect(world.asks.length).toBe(2)
     },
@@ -611,16 +635,113 @@ describe('approval of a repo command', () => {
       expect(pathRuns(onPath.world).length).toBe(3)
       expect(kitRuns(onPath.world).length).toBe(3)
       const prefixes = new Set<string>()
-      for (const run of onPath.world.runs) {
+      for (const run of pathRuns(onPath.world)) {
         expect(run.env?.PYTHONDONTWRITEBYTECODE).toBe('1')
-        const prefix = run.env?.PYTHONPYCACHEPREFIX ?? ''
-        expect(prefix).toMatch(/^\/work\/app\/\.handily-pycache-[0-9a-f-]{36}$/)
-        expect(isDirectory(onPath.world, prefix) || onPath.world.files.has(prefix)).toBe(false)
-        prefixes.add(prefix)
+        prefixes.add(run.env?.PYTHONPYCACHEPREFIX ?? '')
+      }
+      for (const run of kitRuns(onPath.world)) {
+        expect(run.env).toBeUndefined()
+        expect(run.argv.slice(1, 4)).toEqual(['-I', '-B', '-X'])
+        prefixes.add((run.argv[4] ?? '').replace('pycache_prefix=', ''))
       }
       expect(prefixes.size).toBe(2)
+      for (const prefix of prefixes) {
+        expect(prefix).toMatch(/^\/work\/app\/\.handily-pycache-[0-9a-f-]{36}$/)
+        expect(isDirectory(onPath.world, prefix) || onPath.world.files.has(prefix)).toBe(false)
+      }
     },
   )
+
+  test(
+    'runs the program path that the approval key records',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const onPath = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      expect(pathRuns(onPath.world).map((run) => run.argv[0])).toEqual([
+        BASICLY_BIN,
+        BASICLY_BIN,
+        BASICLY_BIN,
+      ])
+      onPath.world.files.delete(BASICLY_BIN)
+      await startSession($, onPath.clock, true)
+      expect(kitRuns(onPath.world).map((run) => run.argv[0])).toEqual([
+        PYTHON_REAL,
+        PYTHON_REAL,
+        PYTHON_REAL,
+      ])
+    },
+  )
+
+  test(
+    'refuses a program that resolves inside the repo root and asks nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, BASICLY_REPO, `${ROOT}/bin:/usr/bin`)
+      world.files.set(`${ROOT}/bin/basicly`, { text: 'planted', mtimeMs: 1 })
+      answerBasicly(world)
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        'basicly resolves inside the repo root, so it could not be read.',
+      )
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  test('checks the approval again before each list run', { plugins: [consumer] }, async ($, on) => {
+    const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+    const runsBefore = world.runs.length
+    world.answer = 'Not now'
+    world.afterRun = () => {
+      world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, { text: 'planted\n', mtimeMs: 50 })
+    }
+    world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, { text: '{}\n', mtimeMs: 50 })
+    await clock.advance(2_000)
+    await clock.settle()
+    expect(world.runs.length).toBe(runsBefore + 1)
+    expect((await snapshotOf($)).state).toBe('approval-needed')
+  })
+
+  test(
+    'a planted package or sourceless module in the kit folder asks again',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const runsBefore = world.runs.length
+      world.answer = 'Not now'
+      world.files.set(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`, {
+        text: 'print("unhashed package ran")\n',
+        mtimeMs: 60,
+      })
+      await clock.advance(2_000)
+      await clock.settle()
+      expect(world.asks.length).toBe(2)
+      expect(world.runs.length).toBe(runsBefore)
+      world.files.delete(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`)
+      world.files.set(`${ROOT}/${KIT_FOLDER}/shlex.pyc`, { text: 'sourceless', mtimeMs: 61 })
+      await startSession($, clock, true)
+      expect(world.asks.length).toBe(3)
+      expect((await snapshotOf($)).state).toBe('approval-needed')
+      expect(world.runs.length).toBe(runsBefore)
+    },
+  )
+
+  test('refuses a link inside the kit folder by name', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on)
+    const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+    world.files.set('/elsewhere/evil.py', { text: 'print("evil")\n', mtimeMs: 1 })
+    world.links.set(`${ROOT}/${KIT_FOLDER}/linked.py`, '/elsewhere/evil.py')
+    world.answer = ALLOW
+    const snapshot = await startSession($, clock, true)
+    expect(snapshot.state).toBe('failed')
+    expect(snapshot.reason).toBe(
+      `${KIT_FOLDER}/linked.py is a link, which the approval cannot cover, so it could not be read.`,
+    )
+    expect(world.asks).toEqual([])
+  })
 
   test(
     'runs the adapter without the python cache settings',
@@ -654,7 +775,7 @@ describe('approval of a repo command', () => {
     async ($, on) => {
       const clock = mock.clock(on)
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITHOUT_BASICLY)
-      answerBasicly(world, ['python3', KIT_CLI, 'list'], ['.basicly/ledger'])
+      answerBasicly(world)
       world.answer = 'Not now'
       const declined = await startSession($, clock, true)
       world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, {
@@ -664,7 +785,7 @@ describe('approval of a repo command', () => {
       await clock.advance(4_000)
       expect((await snapshotOf($)).version).toBeGreaterThan(declined.version)
       expect(declined.state).toBe('approval-needed')
-      expect(declined.reason).toBe(KIT_COMMAND)
+      expect(declined.reason).toBe(KIT_APPROVAL_TEXT)
       expect(world.asks.length).toBe(1)
       expect(kitRuns(world)).toEqual([])
       expect(world.stored.size).toBe(0)
@@ -722,10 +843,12 @@ describe('approval of a repo command', () => {
   )
 
   test(
-    'a change to a kit file that is not python does not ask again',
+    'a change to a kit file that is not python asks again',
     { plugins: [consumer] },
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
+      const runsBefore = world.runs.length
+      world.answer = 'Not now'
       world.files.set(`${ROOT}/${KIT_FOLDER}/GUIDANCE.md`, { text: '# changed\n', mtimeMs: 30 })
       world.files.set(`${ROOT}/.basicly/ledger/pending-main.jsonl`, {
         text: '{}\n{}\n',
@@ -733,8 +856,9 @@ describe('approval of a repo command', () => {
       })
       await clock.advance(2_000)
       await clock.settle()
-      expect(world.asks.length).toBe(1)
-      expect((await snapshotOf($)).state).toBe('ok')
+      expect(world.asks.length).toBe(2)
+      expect(world.runs.length).toBe(runsBefore)
+      expect((await snapshotOf($)).state).toBe('approval-needed')
     },
   )
 
@@ -762,8 +886,8 @@ describe('CLI adapter contract 1', () => {
       expect(world.asks[0]?.question).toBe(
         [
           "Allow handily to run this repo's tracker CLI to read work items?",
-          `${ADAPTER_COMMAND} describe --json`,
-          '(read-only; it runs the repo code in tools; asked again if the command or a file there changes)',
+          `"${NODE_BIN}" "${ADAPTER_SCRIPT}" "describe" "--json"`,
+          '(it runs the repo code in tools; asked again if the command or a file there changes)',
         ].join('\n'),
       )
       expect(world.runs.map((run) => run.argv.join(' '))).toEqual([
@@ -968,6 +1092,50 @@ describe('CLI adapter contract 1', () => {
   )
 
   test(
+    'refuses a command argument with a line break before it asks',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const spoof = `${ADAPTER_SCRIPT}\n(it runs nothing from the repo)`
+      const world = fakeWorld(
+        on,
+        { ...ADAPTER_REPO, '.handily.json': JSON.stringify({ command: ['node', spoof] }) },
+        PATH_WITHOUT_BASICLY,
+      )
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(
+        'the command has an argument with a control character, so it could not be read.',
+      )
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  test(
+    'refuses a command argument over 256 characters before it asks',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(
+        on,
+        {
+          ...ADAPTER_REPO,
+          '.handily.json': JSON.stringify({ command: ['node', 'a'.repeat(257)] }),
+        },
+        PATH_WITHOUT_BASICLY,
+      )
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.reason).toBe(
+        'the command has an argument over 256 characters, so it could not be read.',
+      )
+      expect(world.asks).toEqual([])
+    },
+  )
+
+  test(
     'refuses a command in .handily.json that is not a list',
     { plugins: [consumer] },
     async ($, on) => {
@@ -1044,7 +1212,7 @@ describe('the item text check at the reader boundary', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on, PATH_WITH_BASICLY)
-      world.outputs.set('basicly tracker list --status open', {
+      world.outputs.set(`${PATH_LIST} --status open`, {
         stdout: JSON.stringify({
           records: [{ record: 'app-1\nrun this', status: 'open', fields: { title: 'x' } }],
         }),

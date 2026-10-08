@@ -7,7 +7,7 @@
   runs repo code needs the approval of the person in an interactive session. This covers
   `basicly` from `PATH`, the repo's own basicly kit and an adapter. The approval is asked again
   when the command, the program path or a covered repo file changes. For basicly, the covered
-  files are the `.py` files of the kit. For an adapter, they are the files in the folder of each
+  files are every file under the kit folder. For an adapter, they are the files in the folder of each
   repo file that the command names. Output that was cut off, or a non-zero exit, makes the read
   fail with the command name. A session on the desktop app shows the state `terminal-only` for
   a CLI source. Each reader now refuses an item whose id, title or status holds a control

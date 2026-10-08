@@ -203,7 +203,7 @@ export function createAdapterReader(): Reader {
       }
       const describeArgv = [...command, 'describe', '--json']
       const verdict = await files.commands.approvals.check(files, { command, shown: describeArgv })
-      if (verdict !== 'approved') {
+      if (!verdict.approved) {
         return { ok: false, state: 'approval-needed', command: text, sourceLabel: text }
       }
       described = undefined

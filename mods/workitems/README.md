@@ -40,12 +40,17 @@ gives other mods one typed list. It draws nothing of its own.
 - It maps `record` to `id`, and reads `fields.title`, `status`, `fields.priority`,
   `fields.issue_type`, `fields.assignee` and `dates.updated`. It skips a tombstoned record.
 - When `basicly` is not on `PATH`, the mod runs the repo's own kit instead:
-  `python3 .basicly/core/kit/tracker/cli.py list --status <s> .basicly/ledger`. It also runs
+  `python3 -I -B .basicly/core/kit/tracker/cli.py list --status <s> .basicly/ledger`. It also runs
   only after you approve it. An approval of one of the two commands does not cover the other.
-- The poll reads again when a file in `.basicly/ledger` or a `.py` file of the kit changes.
-- Both commands run with `PYTHONDONTWRITEBYTECODE=1` and `PYTHONPYCACHEPREFIX` set to a new
-  folder that does not exist. So Python never runs a `.pyc` file from the repo's `__pycache__`,
-  which the approval does not cover.
+- The poll reads again when a file in `.basicly/ledger` or any file under the kit folder changes.
+- The repo's kit runs as `python3 -I -B -X pycache_prefix=<new folder> .basicly/core/kit/tracker/cli.py`.
+  `-I` keeps the kit folder off the module search path, so a package or a `.pyc` file there
+  cannot replace a standard module. `-I` also makes Python ignore the `PYTHON*` variables, so
+  the cache settings are flags. `basicly` from `PATH` runs with `PYTHONDONTWRITEBYTECODE=1` and
+  `PYTHONPYCACHEPREFIX` set to a new folder. The new folder does not exist, so Python never runs
+  a cached `.pyc` file from the repo.
+- The mod runs the program path that the approval recorded, and checks the approval again
+  before each of the three list runs.
 - The mod reads only the open statuses. So when a record leaves them, for example when it is
   closed or deferred, `refresh()` reports it under `closed`, with the status `closed` and the
   last raw status that the mod read.
@@ -165,14 +170,20 @@ adapter, `basicly tracker list` from `PATH` and the repo's own basicly kit.
   options `Allow for this repo` and `Not now`.
 - `Allow for this repo` is kept in `$.store` under a key of the repo root, the command, the
   real path of the program, and the sha256 of each covered repo file.
-- For basicly, the covered files are the `.py` files in `.basicly/core/kit/tracker/`. That is
-  the code that both basicly commands load from the repo.
+- For basicly, the covered files are every file under `.basicly/core/kit/tracker/`, in every
+  subfolder and with every suffix. That is the code that both basicly commands can load from the
+  repo. A link in that folder makes the read fail, because the key cannot cover what it leads to.
 - For the CLI adapter, the covered files are each repo file that the command names, by a
   relative or an absolute path, and every file in the same folder. The question names the
   folders.
 - The mod cannot read a file over 4 MiB, so the key holds the size and the modification time of
   such a file instead of its sha256. The question names each such file.
 - When one of these changes, the old approval does not match, and the mod asks again.
+- The question shows each argument in double quotes, with the real path of the program. It
+  names the folders of repo code that the command runs. The mod refuses a command argument with
+  a control character, a line break or a text direction control, or one over 256 characters,
+  before it asks.
+- The mod refuses a program whose real path is inside the repo root, such as a repo `.venv`.
 - After `Not now`, or when you close the dialog, the state is `approval-needed`. The mod asks
   again at the next session start.
 - The mod never asks in a session that is not interactive, such as `claude -p`. The state is
