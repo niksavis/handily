@@ -147,7 +147,9 @@ export function boardRows(data: BoardData): BoardRow[] {
     ...ordered.map((row) =>
       agentRow(row, row.sessionId === null ? undefined : bySession.get(row.sessionId), cache, now),
     ),
-    ...data.progress.filter((entry) => !listed.has(entry.sessionId)).map(staleRow),
+    ...data.progress
+      .filter((entry) => entry.sessionId === data.ownSessionId && !listed.has(entry.sessionId))
+      .map(staleRow),
   ]
 }
 

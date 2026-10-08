@@ -28,6 +28,7 @@ const LANE_ID = '00000000-0000-4000-8000-00000000000b'
 const API_ID = '00000000-0000-4000-8000-00000000000c'
 const DOCS_ID = '00000000-0000-4000-8000-00000000000d'
 const GONE_ID = '00000000-0000-4000-8000-00000000000e'
+const KEPT_ID = '00000000-0000-4000-8000-00000000000f'
 const PANE_ID = 'session-board'
 
 type AgentEntry = Record<string, string | number>
@@ -420,16 +421,31 @@ describe('the board rows', () => {
     expect(texts).toContain('—')
   })
 
-  test('marks a session key whose session claude agents does not list as stale', async ($, on) => {
+  test('shows no row for a session key whose session claude agents does not list', async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     mock.store(on, storeWith(OWN_PROGRESS, GONE_PROGRESS))
     fakeWorld(on)
     await openBoard($, clock)
     const texts = await shownTexts($, 'terminal', 46)
-    expect(texts).toContain('Old task')
-    expect(texts).toContain(' (stale)')
+    expect(texts).toContain('Draw quiet-items mocks')
     expect(texts).toContain('  4 local · polled 0 s ago')
-    expect(texts.filter((text) => text === ' (stale)')).toHaveLength(1)
+    expect(texts).not.toContain('Old task')
+    expect(texts).not.toContain(GONE_ID.slice(0, 8))
+    expect(texts).not.toContain('not listed')
+    expect(texts).not.toContain(' (stale)')
+  })
+
+  test('shows this session when claude agents does not list it yet', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    mock.store(on, storeWith(OWN_PROGRESS))
+    const world = fakeWorld(on)
+    world.agents = agentsJson(BOARD_AGENTS.slice(1))
+    await openBoard($, clock)
+    const texts = await shownTexts($, 'terminal', 46)
+    expect(texts).toContain(OWN_ID.slice(0, 8))
+    expect(texts).toContain('Draw quiet-items mocks')
+    expect(texts).toContain('  3 local · polled 0 s ago')
+    expect(texts).toContain('not listed')
   })
 
   test('says when only this session is running', async ($, on) => {
@@ -744,10 +760,11 @@ describe('the repairs of the review', () => {
 
   test('shows only the stored time of a stale key with an open turn', async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
-    mock.store(on, storeWith({ ...GONE_PROGRESS, turnStartedAt: NOW - 2 * HOUR }))
-    fakeWorld(on)
+    mock.store(on, storeWith({ ...OWN_PROGRESS, turnStartedAt: NOW - 2 * HOUR }))
+    const world = fakeWorld(on)
+    world.agents = agentsJson(BOARD_AGENTS.slice(1))
     await openBoard($, clock)
-    expect(await shownTexts($, 'terminal', 46)).toContain('old · 5m worked')
+    expect(await shownTexts($, 'terminal', 46)).toContain('app · 41m worked')
   })
 
   test('ignores an open turn that started before the session', async ($, on) => {
@@ -768,13 +785,16 @@ describe('the repairs of the review', () => {
 
   test('deletes keys older than 24 h at session start', async ($, on) => {
     mock.clock(on, { now: NOW })
-    mock.store(on, { agents: cacheOf({}), ...storeWith(OWN_PROGRESS, EXPIRED_PROGRESS) })
-    const world = fakeWorld(on)
-    world.panes = [
-      { id: PANE_ID, title: 'Sessions', isShown: true, isFocused: false, isPlaced: true },
-    ]
+    const kept = { ...GONE_PROGRESS, sessionId: KEPT_ID, updatedAt: NOW - 23 * HOUR }
+    const store = storeWithLimit(on, {
+      agents: cacheOf({}),
+      ...storeWith(OWN_PROGRESS, EXPIRED_PROGRESS, kept),
+    })
+    fakeWorld(on)
     await startSession($)
-    expect(await shownTexts($, 'terminal', 46)).not.toContain('Old task')
+    expect(store.has(progressKey(GONE_ID))).toBe(false)
+    expect(store.has(progressKey(KEPT_ID))).toBe(true)
+    expect(store.has(progressKey(OWN_ID))).toBe(true)
   })
 
   test('deletes expired keys before it saves the poll', async ($, on) => {
