@@ -251,7 +251,51 @@ function typecheck(mods) {
   }
 }
 
+const generatedTypesSegment = join('.claude-plugin', 'types')
+
+function isGeneratedTypesPath(path) {
+  return path.includes(generatedTypesSegment)
+}
+
+const sourceDirs = [modsDir, join(root, 'scripts')]
+const sourceFilePattern = /\.(ts|tsx|mjs)$/
+const hiddenCharacterPattern = /[\p{Cf}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu
+
+function listSourceFiles(dir) {
+  if (!existsSync(dir)) return []
+  const files = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || isGeneratedTypesPath(path)) continue
+      files.push(...listSourceFiles(path))
+    } else if (entry.isFile() && sourceFilePattern.test(entry.name)) {
+      files.push(path)
+    }
+  }
+  return files
+}
+
+function codePointLabel(character) {
+  return `U+${character.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
+}
+
+function checkSourceCharacters() {
+  for (const path of sourceDirs.flatMap(listSourceFiles)) {
+    const lines = readFileSync(path, 'utf8').split('\n')
+    for (const [index, line] of lines.entries()) {
+      for (const match of line.matchAll(hiddenCharacterPattern)) {
+        const label = codePointLabel(match[0])
+        fail(
+          `${relative(root, path)}:${index + 1}:${match.index + 1}: raw ${label} is an invisible or bidi character; write it as the escape \\u{${label.slice(2)}}`,
+        )
+      }
+    }
+  }
+}
+
 function lint(mods) {
+  checkSourceCharacters()
   layTypes(mods, { force: false })
   const eslint = join(require.resolve('eslint/package.json'), '..', 'bin', 'eslint.js')
   run('eslint', process.execPath, [
@@ -288,7 +332,7 @@ function validate(mods) {
 function hasTests(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
     const path = join(entry.parentPath, entry.name)
-    if (path.includes(`${join('.claude-plugin', 'types')}`)) continue
+    if (isGeneratedTypesPath(path)) continue
     if (entry.isFile() && /\.test\.tsx?$/.test(entry.name)) return true
   }
   return false
