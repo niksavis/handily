@@ -18,6 +18,12 @@ export type TaskPaneList = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'task-pane': { list: TaskPaneList; expanded: readonly string[]; ready: { root: string } }
+    'task-pane': {
+      list: TaskPaneList
+      agentList: StateFamily<TaskPaneList>
+      agentIds: readonly string[]
+      expanded: readonly string[]
+      ready: { root: string }
+    }
   }
 }

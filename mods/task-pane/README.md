@@ -1,7 +1,8 @@
 # task-pane
 
 `task-pane` keeps one task list per session that Claude and you share. Claude keeps its plan in
-the list through three model tools. You see the list and change it with `/task`, or in a pane.
+the list through four model tools. You see the list and change it with `/task`, or in a pane.
+Each subagent keeps a list of its own.
 
 A default Claude Code session has no task tool of its own, so the mod owns the list. It does not
 read or write the built-in `Task*` tools.
@@ -12,10 +13,13 @@ read or write the built-in `Task*` tools.
 | ------------- | ---------------------------------------------------------------------- | ------------------------------------ |
 | `task_add`    | `title`                                                                | Adds a pending task                  |
 | `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task |
+| `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before` |
 | `task_list`   | none                                                                   | Returns the list                     |
 
 - The mod registers the tools at `session.start`. The model calls them as
-  `mcp__task-pane__<name>`. Each answer is the whole list.
+  `mcp__task-pane__<name>`. Each answer is the whole list, in the order of the work.
+- `task_move` changes the order of the list. The task ids do not change. A move that names an
+  unknown id, or the same id twice, is refused with the ids that exist and the correct form.
 - A system prompt section (`task-pane:tasks`, scope `session`) tells the model to keep its plan
   in the list. The section is added only when the request offers `task_list`.
 - On a Team organization, the built-in `cc-plugin-sec-default` plugin bypasses the
@@ -46,6 +50,25 @@ read or write the built-in `Task*` tools.
 - A tracker item whose id is not an item id, such as an id with a line break, is not added.
 - Parallel edits do not get lost. Each edit goes through `update` from `claude-code`, which
   reads the list again when another edit wrote first.
+
+## One list per agent
+
+The `agentId` of a tool call names the loop that calls the tool. The main loop has no `agentId`.
+
+| Caller        | List                                                      |
+| ------------- | --------------------------------------------------------- |
+| The main loop | `$.state` `{ plugin: 'task-pane', key: 'list' }`          |
+| A subagent    | `$.state` `{ plugin: 'task-pane', key: 'agentList', id }` |
+
+- The tools of a subagent act only on the list of that subagent. `task_list` returns the list of
+  the agent that calls it.
+- `/task`, the pane and the `[task-pane]` notes act only on the list of the main loop.
+  `session-board` reads that list.
+- Another mod reads the agent ids in `{ plugin: 'task-pane', key: 'agentIds' }`, in the order of
+  their first task, and reads each list by its agent id.
+- Each list has the same title rules and the same limit of 100 tasks. The session keeps the lists
+  of at most 100 agents. A `task_add` of an agent past that limit is refused by name.
+- The list of a subagent that ended stays for the session.
 
 ## Commands
 
@@ -100,7 +123,8 @@ read or write the built-in `Task*` tools.
 ## Lifetime
 
 - The list lives in `$.state`, so it survives a hot reload of the mod.
-- `/clear` ends the session with the reason `clear`, and the list resets.
+- `/clear` ends the session with the reason `clear`. The list of the main loop and the lists of
+  all subagents reset.
 
 ## Develop
 
