@@ -6,6 +6,29 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## simple-view 0.1.2 - 2026-10-08
+
+### Fixed
+
+- **`/simple show N` says `File diff: none.` only when Claude Code tracked the Bash call and
+  listed no changed file.** Claude Code sends the file diff of a Bash call only while Bash edit
+  tracking is on, so a missing diff does not prove that nothing changed. When the diff is
+  missing, malformed, or the call failed, `/simple show N` now prints
+  `File diff: not reported by the engine.` When Claude Code reports that it could not track the
+  call, it prints `File diff: not tracked by the engine.`, which matches the row. The row itself
+  stays silent when no diff came. The README names the `bashEditDiffEnabled` setting and the
+  `CLAUDE_CODE_BASH_EDIT_DIFF` variable that turn tracking on (handily-s43cv).
+
+## quiet-items 0.3.1 - 2026-10-08
+
+### Fixed
+
+- **quiet-items reads the simple-view mode through a shared type.** quiet-items compares the
+  simple-view mode against a constant of the new `QuietItemsSimpleViewMode` type, and a
+  simple-view test pins the values that `/simple` writes. A rename of a mode value now fails a
+  test or the type check, so `/simple` off cannot stop turning the quiet rows off without
+  notice. The behaviour does not change (handily-e19gp).
+
 ## handily 0.2.0 - 2026-10-08
 
 ### Added

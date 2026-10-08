@@ -28,7 +28,7 @@
     {
       "name": "quiet-items",
       "source": "./mods/quiet-items",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "One short row in place of each tracker write in the transcript."
     },
     {
@@ -40,7 +40,7 @@
     {
       "name": "simple-view",
       "source": "./mods/simple-view",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "One short row for each Bash, Edit and Write call, with /simple to switch it and /simple show to print a call in full."
     },
     {
