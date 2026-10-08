@@ -6,9 +6,12 @@ export type TrackerCli = keyof WriteVerbs
 
 export type TrackerWrite = { tracker: TrackerCli; verb: string }
 
+export type OpaqueReason =
+  'loop' | 'heredoc' | 'substitution' | 'redirection' | 'assignment' | 'fetch' | 'mixed'
+
 export type ParsedCommand =
   | { kind: 'write'; writes: readonly TrackerWrite[] }
-  | { kind: 'opaque'; reason: 'loop' | 'heredoc' | 'mixed'; writes: readonly TrackerWrite[] }
+  | { kind: 'opaque'; reason: OpaqueReason; writes: readonly TrackerWrite[] }
   | { kind: 'none' }
 
 const KIT_SCRIPT = '.basicly/core/kit/tracker/cli.py'
@@ -22,6 +25,7 @@ const PYTHON_VALUE_FLAGS = new Set(['-X', '-W'])
 const PYTHON_NO_SCRIPT_FLAGS = new Set(['-c', '-m'])
 const UV_RUN_VALUE_FLAGS = new Set([
   '--with',
+  '-w',
   '--with-editable',
   '--with-requirements',
   '--python',
@@ -36,9 +40,28 @@ const UV_RUN_VALUE_FLAGS = new Set([
   '--from',
 ])
 const NPX_VALUE_FLAGS = new Set(['--package', '-p'])
+const UV_FETCH_FLAGS = new Set([
+  '--from',
+  '--with',
+  '-w',
+  '--with-editable',
+  '--with-requirements',
+  '--package',
+])
+const NPX_FETCH_FLAGS = new Set(['--package', '-p'])
 const BR_GLOBAL_VALUE_FLAGS = new Set(['--db', '--actor', '--lock-timeout'])
 
-type Lexed = { segments: string[][]; hasHeredoc: boolean }
+type Lexed = {
+  segments: string[][]
+  hasHeredoc: boolean
+  hasSubstitution: boolean
+  hasRedirection: boolean
+}
+
+function startsSubstitution(command: string, i: number): boolean {
+  const char = command.charAt(i)
+  return char === '`' || ((char === '$' || char === '<') && command.charAt(i + 1) === '(')
+}
 
 function lex(command: string): Lexed {
   const segments: string[][] = []
@@ -46,6 +69,8 @@ function lex(command: string): Lexed {
   let word = ''
   let inWord = false
   let hasHeredoc = false
+  let hasSubstitution = false
+  let hasRedirection = false
   const endWord = () => {
     if (inWord) words.push(word)
     word = ''
@@ -68,6 +93,7 @@ function lex(command: string): Lexed {
       inWord = true
       for (i += 1; i < command.length && command.charAt(i) !== '"'; i += 1) {
         if (command.charAt(i) === '\\' && i + 1 < command.length) i += 1
+        else if (startsSubstitution(command, i)) hasSubstitution = true
         word += command.charAt(i)
       }
     } else if (char === '\\' && i + 1 < command.length) {
@@ -76,6 +102,10 @@ function lex(command: string): Lexed {
         word += command.charAt(i)
         inWord = true
       }
+    } else if (startsSubstitution(command, i)) {
+      hasSubstitution = true
+      word += char
+      inWord = true
     } else if (char === '#' && !inWord) {
       const newline = command.indexOf('\n', i)
       i = newline === -1 ? command.length : newline - 1
@@ -86,6 +116,10 @@ function lex(command: string): Lexed {
       hasHeredoc = true
       endWord()
       i += 1
+    } else if (char === '<' || char === '>') {
+      hasRedirection = true
+      word += char
+      inWord = true
     } else if (';&|()\n'.includes(char)) {
       endSegment()
     } else if (char === ' ' || char === '\t') {
@@ -96,7 +130,7 @@ function lex(command: string): Lexed {
     }
   }
   endSegment()
-  return { segments, hasHeredoc }
+  return { segments, hasHeredoc, hasSubstitution, hasRedirection }
 }
 
 function skipOptions(words: readonly string[], start: number, valueFlags: Set<string>): number {
@@ -108,14 +142,28 @@ function skipOptions(words: readonly string[], start: number, valueFlags: Set<st
   return i
 }
 
-function unwrap(words: readonly string[]): readonly string[] | null {
+type Unwrapped = { command: readonly string[]; assigns: boolean; fetches: boolean }
+
+function fetchesCode(options: readonly string[], fetchFlags: Set<string>): boolean {
+  return options.some((option) => fetchFlags.has(option.split('=')[0] ?? ''))
+}
+
+function unwrap(words: readonly string[]): Unwrapped | null {
   let i = 0
   while (i < words.length && ENV_ASSIGNMENT.test(words[i] ?? '')) i += 1
+  const assigns = i > 0
+  let fetches = false
+  const skipWrapper = (start: number, valueFlags: Set<string>, fetchFlags: Set<string>) => {
+    const end = skipOptions(words, start, valueFlags)
+    fetches ||= fetchesCode(words.slice(start, end), fetchFlags)
+    return end
+  }
   for (;;) {
     const head = words[i]
-    if (head === 'uv' && words[i + 1] === 'run') i = skipOptions(words, i + 2, UV_RUN_VALUE_FLAGS)
-    else if (head === 'uvx') i = skipOptions(words, i + 1, UV_RUN_VALUE_FLAGS)
-    else if (head === 'npx') i = skipOptions(words, i + 1, NPX_VALUE_FLAGS)
+    if (head === 'uv' && words[i + 1] === 'run')
+      i = skipWrapper(i + 2, UV_RUN_VALUE_FLAGS, UV_FETCH_FLAGS)
+    else if (head === 'uvx') i = skipWrapper(i + 1, UV_RUN_VALUE_FLAGS, UV_FETCH_FLAGS)
+    else if (head === 'npx') i = skipWrapper(i + 1, NPX_VALUE_FLAGS, NPX_FETCH_FLAGS)
     else if (head !== undefined && PYTHON.test(head)) {
       i += 1
       while (i < words.length && (words[i] ?? '').startsWith('-')) {
@@ -125,7 +173,7 @@ function unwrap(words: readonly string[]): readonly string[] | null {
       }
     } else break
   }
-  return words.slice(i)
+  return { command: words.slice(i), assigns, fetches }
 }
 
 function isKitScript(word: string): boolean {
@@ -146,11 +194,9 @@ function verbOf(args: readonly string[], verbs: readonly string[]): string | nul
   return null
 }
 
-function writeOf(words: readonly string[], table: WriteVerbs): TrackerWrite | null {
-  if (words.some((word) => NOT_A_WRITE_FLAGS.has(word))) return null
-  const command = unwrap(words)
-  const argv0 = command?.[0]
-  if (command === null || argv0 === undefined) return null
+function writeOf(command: readonly string[], table: WriteVerbs): TrackerWrite | null {
+  const argv0 = command[0]
+  if (argv0 === undefined) return null
   const name = argv0.replaceAll('\\', '/').split('/').pop() ?? ''
   const rest = command.slice(1)
   if (name === 'br' || name === 'bd') {
@@ -175,10 +221,12 @@ function writeOf(words: readonly string[], table: WriteVerbs): TrackerWrite | nu
 }
 
 export function parseCommand(command: string, table: WriteVerbs): ParsedCommand {
-  const { segments, hasHeredoc } = lex(command)
+  const { segments, hasHeredoc, hasSubstitution, hasRedirection } = lex(command)
   const writes: TrackerWrite[] = []
   let hasLoop = false
   let hasOtherCommand = false
+  let hasAssignment = false
+  let hasFetch = false
   for (const segment of segments) {
     let start = 0
     while (LEADING_KEYWORDS.has(segment[start] ?? '')) start += 1
@@ -188,13 +236,22 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
       hasLoop = true
       continue
     }
-    const write = writeOf(words, table)
-    if (write) writes.push(write)
-    else hasOtherCommand = true
+    const isNotAWrite = words.some((word) => NOT_A_WRITE_FLAGS.has(word))
+    const unwrapped = isNotAWrite ? null : unwrap(words)
+    const write = unwrapped && writeOf(unwrapped.command, table)
+    if (unwrapped && write) {
+      writes.push(write)
+      hasAssignment ||= unwrapped.assigns
+      hasFetch ||= unwrapped.fetches
+    } else hasOtherCommand = true
   }
   if (writes.length === 0) return { kind: 'none' }
   if (hasLoop) return { kind: 'opaque', reason: 'loop', writes }
   if (hasHeredoc) return { kind: 'opaque', reason: 'heredoc', writes }
+  if (hasSubstitution) return { kind: 'opaque', reason: 'substitution', writes }
+  if (hasRedirection) return { kind: 'opaque', reason: 'redirection', writes }
+  if (hasAssignment) return { kind: 'opaque', reason: 'assignment', writes }
+  if (hasFetch) return { kind: 'opaque', reason: 'fetch', writes }
   if (hasOtherCommand) return { kind: 'opaque', reason: 'mixed', writes }
   return { kind: 'write', writes }
 }
