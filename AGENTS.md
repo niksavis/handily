@@ -168,6 +168,12 @@ claude --plugin-dir mods/<name>
 - Never loop over an unquoted variable (`for x in $LIST`). zsh does not split it, so the loop runs once and looks like success. Use an array (`"${arr[@]}"`), an inline list or one batch command, and check that the count changed.
 - Before a scripted replace across many sites, state the expected count, and compare it after. A different count is a stop.
 
+## Lane Dispatch Quirks
+
+- Commit the ledger before you dispatch a worktree lane for a new or reshaped record. A worktree forks from HEAD, so its commit hooks refuse a record id that is only in the uncommitted ledger.
+- The Definition of Ready gate reads a `<word>` in an acceptance criterion as a placeholder and counts the criteria as absent. Write the thing by name, such as "the interpreter", not `<interpreter>`.
+- zsh has no `mapfile`. Read lines into an array with `arr=("${(@f)$(command)}")`, and check the count before you use the array.
+
 ## Platform-Hermetic Tests
 
 The local gate runs on one OS, and CI runs the others only after the push. So make the platform an input to the test:
