@@ -226,8 +226,8 @@ writes. quiet-items reads that list.
 Match:
 
 - Hooks `tool.call` on `Bash`, `Write` and `Edit`.
-- A command parser prefilters a Bash command. It splits on `&&`, `;`, a newline, `|` and
-  `||`. It strips the wrapper `uv run` and the `python3` flags. It skips global options.
+- A command parser decides with an allowlist (handily-gvul). A denylist missed shapes that
+  ran code, such as `$'…'`, `python3 -c'…'`, `uv run --default-index=…` and `/tmp/br`.
 - A verb allow-list per tracker comes from each CLI's own help. No `basicly-tracker` binary
   exists.
 
@@ -237,21 +237,24 @@ Match:
 | `.basicly/core/kit/tracker/cli.py` | Its help (16 write verbs) |
 | `basicly tracker` | `close`, `comments add`, `create`, `dep add`, `dep remove`, `gate report`, `update` |
 
-- `--help`, `--dry-run`, a loop and a heredoc fall back to the engine row.
-- The mod goes quiet only when it sees every effect and the exit status of the command
-  (handily-gvul). These cases fall back to the engine row:
-  - a command substitution, a backtick or `<(` outside single quotes;
-  - any redirection, also `2>&1` and a redirection to `/dev/null`;
-  - an env assignment in front of a segment, or `uv run --env-file`;
-  - every `uvx` and `npx` wrapper, because each fetches a package from a registry;
-  - `uv run` with `--from`, `--with`, `-w`, `--with-editable`, `--with-requirements`,
-    `--package`, `--index`, `--directory` or `--project`;
-  - a separator other than `&&` after a tracker write, such as `;`, a newline, `|` or `||`;
-  - a segment that is not a tracker write or a `cd`.
-- A trailing `echo` with only literal words and `$?` is the one exception. After `;` or a
-  newline, the mod goes quiet only when the last output line shows `$?` as `0`. After `&&`,
-  a plain echo stays quiet, because the exit status of the list is the tracker's.
-  `br close a; echo ok` falls back to the engine row.
+- A command goes quiet only when all of these hold:
+  - Each segment starts with `br`, `bd` or `basicly` as a bare word, or with
+    `.basicly/core/kit/tracker/cli.py`. It can also start with `python3` or `python`
+    directly followed by that kit path, or with `uv run` followed by such a `python` command.
+  - Each segment is a tracker write, or `cd` with one word. `--help`, `-h` and `--dry-run`
+    are not writes.
+  - Only `&&` joins two segments.
+  - Every word is a bare word of `[A-Za-z0-9._/:=@,+%-]`, a single-quoted string, or a
+    double-quoted string without `$`, a backtick or a backslash.
+  - No option of `uv` or `python` appears.
+- Every other command falls back to the engine row. The parser returns `opaque` when the
+  command names a tracker program or the kit path, and `none` when it names neither. A
+  script such as `bash close.sh` gives `none`, because the parser cannot see inside it.
+- A trailing `echo` is the one exception to the `&&` rule. It holds only allowed words, `$?`
+  is the one `$` that it may hold, and no word starts with `-`. After `;` or a newline, the
+  mod goes quiet only when the last output line shows `$?` as `0`. After `&&`, a plain echo
+  stays quiet, because the exit status of the list is the tracker's. `br close a; echo ok`
+  falls back to the engine row.
 
 Draw:
 

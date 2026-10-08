@@ -19,35 +19,59 @@ The approved mocks are in `docs/mocks.md`, section 1.
 
 - The write verbs come from `$.workitems.writeVerbs()`. `bd` uses the verbs of `br`.
 - `basicly tracker write -- <verb>` uses the verbs of `.basicly/core/kit/tracker/cli.py`.
-- The parser splits a command on `&&`, `;`, a newline, `|` and `||`. It strips the wrapper
-  `uv run` and the flags of `python3`. It skips the global options of the tracker CLI.
 - A command with `--help`, `-h` or `--dry-run` is not a write.
-- The shell reads everything after a `#` at the start of a word as a comment, and so does the
-  parser.
 
 ## Which commands go quiet
 
-The mod goes quiet only when it can see every effect of the command and its exit status. In
-every other case the engine draws its full row.
+The parser uses an allowlist. The mod goes quiet only when the command has one of the
+allowed shapes. Every other command draws the engine row.
 
-| Command                                                | Row                                              | Why                                                                                                                                                                             |
-| ------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `br close a`                                           | Quiet                                            | One tracker write                                                                                                                                                               |
-| `cd x && br close a && br update b --status open`      | Quiet                                            | `&&` stops at the first failure, so the exit status shows it                                                                                                                    |
-| `br close a && echo ok`                                | Quiet                                            | The same as above                                                                                                                                                               |
-| `br close a; echo "exit=$?"`                           | Quiet only when the last output line is `exit=0` | The echo prints the exit status of the tracker command                                                                                                                          |
-| `br close a; echo ok`                                  | Engine                                           | The echo hides the exit status of the tracker command                                                                                                                           |
-| `br close a; br close b`, `br close a \|\| br close b` | Engine                                           | The second write hides the exit status of the first                                                                                                                             |
-| `br close a; git log`, `br close a \| tail -1`         | Engine                                           | A segment that is not a tracker write can hide a failure                                                                                                                        |
-| `br update a --title "$(id)"`, a backtick, `<(…)`      | Engine                                           | The shell runs other code. Inside single quotes the shell does not expand it, so the write stays quiet                                                                          |
-| `br close a > out.txt`, `2>&1`, `< in.txt`             | Engine                                           | A redirection, also to `/dev/null`, changes where the input or the output goes                                                                                                  |
-| `FOO=1 br close a`, `uv run --env-file f br close a`   | Engine                                           | An env assignment, such as `PATH`, can change the program that runs                                                                                                             |
-| `uvx br close a`, `npx br close a`                     | Engine                                           | The wrapper fetches a package from a registry                                                                                                                                   |
-| `uv run --with x br close a`                           | Engine                                           | The flag chooses where the code comes from. The same applies to `--from`, `-w`, `--with-editable`, `--with-requirements`, `--package`, `--index`, `--directory` and `--project` |
-| A loop or a heredoc                                    | Engine                                           | The parser cannot see each write                                                                                                                                                |
+A command goes quiet only when all of these hold:
 
-A trailing echo goes quiet only when it comes after `;`, a newline or `&&`, and it holds only
-literal words and `$?`. Another `$`, a glob character or a leading `-` keeps the engine row.
+- Each segment starts with one of these programs:
+  - `br`, `bd` or `basicly`;
+  - `python3` or `python`, directly followed by `.basicly/core/kit/tracker/cli.py`;
+  - `uv run`, with no option, followed by `python3` or `python` and the kit path;
+  - `.basicly/core/kit/tracker/cli.py` alone.
+- Each segment is a tracker write or `cd` with one word.
+- Only `&&` joins two segments. A trailing status echo is the one exception (see below).
+- Every word is one of these:
+  - a bare word of the characters `A-Z a-z 0-9 . _ / : = @ , + % -`;
+  - a single-quoted string;
+  - a double-quoted string without `$`, a backtick or a backslash.
+
+| Command                                                   | Row                                              | Why                                                                        |
+| --------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------- |
+| `br close a`, `br update a --title "Fix the parser"`      | Quiet                                            | An allowed shape                                                           |
+| `br update a --title '$(id)'`                             | Quiet                                            | The shell does not expand text in single quotes                            |
+| `cd x && br close a && br update b --status open`         | Quiet                                            | `&&` stops at the first failure, so the exit status shows it               |
+| `br close a && echo ok`                                   | Quiet                                            | The same as above                                                          |
+| `br close a; echo "exit=$?"`                              | Quiet only when the last output line is `exit=0` | The echo prints the exit status of the tracker command                     |
+| `br close a; echo ok`                                     | Engine                                           | The echo hides the exit status of the tracker command                      |
+| `br close a; br close b`, `br close a \|\| br close b`    | Engine                                           | The second write hides the exit status of the first                        |
+| `br close a; git log`, `br close a \| tail -1`            | Engine                                           | A segment that is not a tracker write can hide a failure                   |
+| `br update a --title "$(id)"`, `$'…'`, a backtick, `\`    | Engine                                           | The shell expands or runs it                                               |
+| `br close x-*`, `br close {a,b}`, `~/notes`, `$HOME`      | Engine                                           | The shell expands it                                                       |
+| `br close a > out.txt`, `2>&1`, `< in.txt`, `<(…)`        | Engine                                           | A redirection, also to `/dev/null`, changes where the input or output goes |
+| `br close a & id`, `(br close a)`, `br close a # note`    | Engine                                           | The parser does not read a background job, a subshell or a comment         |
+| `FOO=1 br close a`, `env …`, `sudo …`                     | Engine                                           | Only a bare tracker program may start a segment                            |
+| `uvx br close a`, `npx br close a`, `uv run br close a`   | Engine                                           | The wrapper fetches a package or picks other code                          |
+| `uv run --with x python …`, `python3 -I …`, `python3 -c…` | Engine                                           | No option of `uv` or `python` may appear                                   |
+| `/tmp/br close a`, `./br close a`, an absolute kit path   | Engine                                           | Only a bare tracker name or the exact relative kit path is allowed         |
+
+A trailing `echo` goes quiet only when it comes after `;`, a newline or `&&`. Its words must
+pass the word rule, and `$?` is the one `$` that it may hold. A word that starts with `-`
+keeps the engine row.
+
+The parser gives one of three results:
+
+- `write` or `echoed`: the command has an allowed shape.
+- `opaque`: the command names `br`, `bd`, `basicly` or the kit path, but it is not an
+  allowed shape. When the parser cannot read the command, any mention of these names counts.
+- `none`: the command names no tracker program and no kit path, for example `npm test`.
+
+The parser cannot see inside a script. `bash close.sh` gives `none`, even when the script
+runs a tracker write.
 
 ## How it finds the items
 
@@ -67,7 +91,7 @@ The verb of a row is `created`, `updated`, `closed` or `commented`. `commented` 
 The engine draws its own row (`next(e)`) in each of these cases:
 
 - The call is still running, errored or was interrupted, or the command wrote to stderr.
-- The command draws the engine row in the table of the section above, or no write matched.
+- The command does not have an allowed shape (see the section above), or no write matched.
 - The last output line of a status echo does not show the exit status 0.
 - The `workitems` state is not `ok`.
 - The refresh diff is empty, or a refresh rejected.

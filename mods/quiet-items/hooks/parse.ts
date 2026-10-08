@@ -7,14 +7,7 @@ export type TrackerCli = keyof WriteVerbs
 export type TrackerWrite = { tracker: TrackerCli; verb: string }
 
 export type OpaqueReason =
-  | 'loop'
-  | 'heredoc'
-  | 'substitution'
-  | 'redirection'
-  | 'assignment'
-  | 'fetch'
-  | 'hidden-status'
-  | 'mixed'
+  'expansion' | 'redirection' | 'syntax' | 'shape' | 'mixed' | 'hidden-status'
 
 export type ParsedCommand =
   | { kind: 'write'; writes: readonly TrackerWrite[] }
@@ -24,154 +17,131 @@ export type ParsedCommand =
 
 const KIT_SCRIPT = '.basicly/core/kit/tracker/cli.py'
 const KIT: TrackerCli = '.basicly/core/kit/tracker/cli.py'
-const LOOP_WORDS = new Set(['for', 'while', 'until', 'select'])
-const LEADING_KEYWORDS = new Set(['do', 'then', 'else', 'done', 'fi'])
+const TRACKER_NAMES = new Set(['br', 'bd', 'basicly'])
+const PYTHON_NAMES = new Set(['python3', 'python'])
 const NOT_A_WRITE_FLAGS = new Set(['--help', '-h', '--dry-run'])
-const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
-const PYTHON = /^python(3(\.\d+)?)?$/
-const PYTHON_VALUE_FLAGS = new Set(['-X', '-W'])
-const PYTHON_NO_SCRIPT_FLAGS = new Set(['-c', '-m'])
-const UV_RUN_VALUE_FLAGS = new Set([
-  '--with',
-  '-w',
-  '--with-editable',
-  '--with-requirements',
-  '--python',
-  '-p',
-  '--project',
-  '--directory',
-  '--package',
-  '--group',
-  '--extra',
-  '--env-file',
-  '--index',
-  '--from',
-])
-const NPX_VALUE_FLAGS = new Set(['--package', '-p'])
-const UV_RUN_CODE_SOURCE_FLAGS = new Set([
-  '--from',
-  '--with',
-  '-w',
-  '--with-editable',
-  '--with-requirements',
-  '--package',
-  '--index',
-  '--directory',
-  '--project',
-])
-const UV_RUN_ENV_FLAGS = new Set(['--env-file'])
 const BR_GLOBAL_VALUE_FLAGS = new Set(['--db', '--actor', '--lock-timeout'])
 const EXIT_STATUS = '$?'
 const WRITE_CHAIN = '&&'
-const STATUS_ECHO_SEPARATORS = new Set([';', '\n', WRITE_CHAIN])
-const NOT_LITERAL_IN_ECHO = /[$*?[\]{}~]/
+const LINE_BREAK = '\n'
+const OPERATORS = [WRITE_CHAIN, '||', '|', ';', LINE_BREAK]
+const TRAILING_OPERATORS = new Set([';', LINE_BREAK])
+const STATUS_ECHO_SEPARATORS = new Set([';', LINE_BREAK, WRITE_CHAIN])
+const BARE_WORD_CHAR = /^[A-Za-z0-9._/:=@,+%-]$/
+const DOUBLE_QUOTED_EXPANSION = /[$`\\]/
+const NOT_A_NAME_CHAR = /[^A-Za-z0-9._/:=@,+%\\-]+/
+const EXPANSION_CHARS = '$`\\*?[]{}~'
+const REDIRECTION_CHARS = '<>'
 
-type Lexed = {
-  segments: string[][]
-  separators: string[]
-  hasHeredoc: boolean
-  hasSubstitution: boolean
-  hasRedirection: boolean
+type Segment = { words: string[]; separator: string; hasStatus: boolean }
+
+type Shape = { kind: 'read'; segments: Segment[] } | { kind: 'refused'; reason: OpaqueReason }
+
+function refusalOf(char: string): OpaqueReason {
+  if (REDIRECTION_CHARS.includes(char)) return 'redirection'
+  if (EXPANSION_CHARS.includes(char)) return 'expansion'
+  return 'syntax'
 }
 
-function startsSubstitution(command: string, i: number): boolean {
-  const char = command.charAt(i)
-  return char === '`' || ((char === '$' || char === '<') && command.charAt(i + 1) === '(')
-}
-
-function lex(command: string): Lexed {
-  const segments: string[][] = []
-  const separators: string[] = []
-  let separator = ''
+function readShape(command: string): Shape {
+  const segments: Segment[] = []
   let words: string[] = []
   let word = ''
   let inWord = false
-  let hasHeredoc = false
-  let hasSubstitution = false
-  let hasRedirection = false
+  let hasStatus = false
+  let separator = ''
   const endWord = () => {
     if (inWord) words.push(word)
     word = ''
     inWord = false
   }
-  const endSegment = () => {
-    endWord()
-    if (words.length > 0) {
-      segments.push(words)
-      separators.push(separator)
-      separator = ''
-    }
-    words = []
-  }
   for (let i = 0; i < command.length; i += 1) {
     const char = command.charAt(i)
-    if (char === "'") {
-      const close = command.indexOf("'", i + 1)
-      const end = close === -1 ? command.length : close
-      word += command.slice(i + 1, end)
-      inWord = true
-      i = end
-    } else if (char === '"') {
-      inWord = true
-      for (i += 1; i < command.length && command.charAt(i) !== '"'; i += 1) {
-        if (command.charAt(i) === '\\' && i + 1 < command.length) i += 1
-        else if (startsSubstitution(command, i)) hasSubstitution = true
-        word += command.charAt(i)
+    if (char === "'" || char === '"') {
+      const close = command.indexOf(char, i + 1)
+      if (close === -1) return { kind: 'refused', reason: 'syntax' }
+      const quoted = command.slice(i + 1, close)
+      if (char === '"') {
+        if (DOUBLE_QUOTED_EXPANSION.test(quoted.replaceAll(EXIT_STATUS, ''))) {
+          return { kind: 'refused', reason: 'expansion' }
+        }
+        hasStatus ||= quoted.includes(EXIT_STATUS)
       }
-    } else if (char === '\\' && i + 1 < command.length) {
-      i += 1
-      if (command.charAt(i) !== '\n') {
-        word += command.charAt(i)
-        inWord = true
-      }
-    } else if (startsSubstitution(command, i)) {
-      hasSubstitution = true
+      word += quoted
+      inWord = true
+      i = close
+    } else if (command.startsWith(EXIT_STATUS, i)) {
+      hasStatus = true
+      word += EXIT_STATUS
+      inWord = true
+      i += EXIT_STATUS.length - 1
+    } else if (BARE_WORD_CHAR.test(char)) {
       word += char
       inWord = true
-    } else if (char === '#' && !inWord) {
-      const newline = command.indexOf('\n', i)
-      i = newline === -1 ? command.length : newline - 1
-    } else if (char === '&' && (/[<>]$/.test(word) || command.charAt(i + 1) === '>')) {
-      word += char
-      inWord = true
-    } else if (char === '<' && command.charAt(i + 1) === '<') {
-      hasHeredoc = true
-      endWord()
-      i += 1
-    } else if (char === '<' || char === '>') {
-      hasRedirection = true
-      word += char
-      inWord = true
-    } else if (';&|()\n'.includes(char)) {
-      endSegment()
-      separator += char
     } else if (char === ' ' || char === '\t') {
       endWord()
     } else {
-      word += char
-      inWord = true
+      const operator = OPERATORS.find((each) => command.startsWith(each, i))
+      if (operator === undefined) return { kind: 'refused', reason: refusalOf(char) }
+      endWord()
+      i += operator.length - 1
+      if (words.length > 0) {
+        segments.push({ words, separator, hasStatus })
+        words = []
+        hasStatus = false
+        separator = operator
+      } else if (operator !== LINE_BREAK) {
+        return { kind: 'refused', reason: 'syntax' }
+      }
     }
   }
-  endSegment()
-  return { segments, separators, hasHeredoc, hasSubstitution, hasRedirection }
+  endWord()
+  if (words.length > 0) segments.push({ words, separator, hasStatus })
+  else if (segments.length > 0 && !TRAILING_OPERATORS.has(separator)) {
+    return { kind: 'refused', reason: 'syntax' }
+  }
+  return { kind: 'read', segments }
 }
 
 type StatusEcho = { line: string; isAfterAnd: boolean }
 
-function isLiteralEchoWord(word: string): boolean {
-  return !word.startsWith('-') && !NOT_LITERAL_IN_ECHO.test(word.replaceAll(EXIT_STATUS, ''))
-}
-
-function statusEchoOf(words: readonly string[], separator: string): StatusEcho | null {
-  if (words[0] !== 'echo' || !STATUS_ECHO_SEPARATORS.has(separator)) return null
-  const args = words.slice(1)
-  if (!args.every(isLiteralEchoWord)) return null
+function statusEchoOf({ words, separator }: Segment): StatusEcho | null {
+  const [first, ...args] = words
+  if (first !== 'echo' || !STATUS_ECHO_SEPARATORS.has(separator)) return null
+  if (args.some((word) => word.startsWith('-'))) return null
   return { line: args.join(' '), isAfterAnd: separator === WRITE_CHAIN }
 }
 
 export function hasEchoedSuccess(line: string, stdout: string): boolean {
   const printed = stdout.trimEnd().split(/\r?\n/).at(-1) ?? ''
   return printed.trimEnd() === line.replaceAll(EXIT_STATUS, '0').trimEnd()
+}
+
+function slashed(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
+function isKitScript(word: string): boolean {
+  const path = slashed(word).replace(/^(\.\/)+/, '')
+  return path === KIT_SCRIPT || path.endsWith(`/${KIT_SCRIPT}`)
+}
+
+function isTrackerProgram(word: string): boolean {
+  return TRACKER_NAMES.has(slashed(word).split('/').pop() ?? '') || isKitScript(word)
+}
+
+function allowedTrackerCommand(words: readonly string[]): readonly string[] | null {
+  const [first = '', second, third = '', fourth] = words
+  if (TRACKER_NAMES.has(first) || first === KIT_SCRIPT) return words
+  if (PYTHON_NAMES.has(first) && second === KIT_SCRIPT) return words.slice(1)
+  if (first === 'uv' && second === 'run' && PYTHON_NAMES.has(third) && fourth === KIT_SCRIPT) {
+    return words.slice(3)
+  }
+  return null
+}
+
+function isNotAWrite(words: readonly string[]): boolean {
+  return words.some((word) => NOT_A_WRITE_FLAGS.has(word))
 }
 
 function skipOptions(words: readonly string[], start: number, valueFlags: Set<string>): number {
@@ -181,48 +151,6 @@ function skipOptions(words: readonly string[], start: number, valueFlags: Set<st
     i += valueFlags.has(flag) ? 2 : 1
   }
   return i
-}
-
-type Unwrapped = { command: readonly string[]; assigns: boolean; fetches: boolean }
-
-function hasAnyFlag(options: readonly string[], flags: Set<string>): boolean {
-  return options.some((option) => flags.has(option.split('=')[0] ?? ''))
-}
-
-function unwrap(words: readonly string[]): Unwrapped | null {
-  let i = 0
-  while (i < words.length && ENV_ASSIGNMENT.test(words[i] ?? '')) i += 1
-  let assigns = i > 0
-  let fetches = false
-  for (;;) {
-    const head = words[i]
-    if (head === 'uv' && words[i + 1] === 'run') {
-      const end = skipOptions(words, i + 2, UV_RUN_VALUE_FLAGS)
-      const options = words.slice(i + 2, end)
-      fetches ||= hasAnyFlag(options, UV_RUN_CODE_SOURCE_FLAGS)
-      assigns ||= hasAnyFlag(options, UV_RUN_ENV_FLAGS)
-      i = end
-    } else if (head === 'uvx') {
-      fetches = true
-      i = skipOptions(words, i + 1, UV_RUN_VALUE_FLAGS)
-    } else if (head === 'npx') {
-      fetches = true
-      i = skipOptions(words, i + 1, NPX_VALUE_FLAGS)
-    } else if (head !== undefined && PYTHON.test(head)) {
-      i += 1
-      while (i < words.length && (words[i] ?? '').startsWith('-')) {
-        const flag = words[i] ?? ''
-        if (PYTHON_NO_SCRIPT_FLAGS.has(flag)) return null
-        i += PYTHON_VALUE_FLAGS.has(flag) ? 2 : 1
-      }
-    } else break
-  }
-  return { command: words.slice(i), assigns, fetches }
-}
-
-function isKitScript(word: string): boolean {
-  const path = word.replaceAll('\\', '/').replace(/^(\.\/)+/, '')
-  return path === KIT_SCRIPT || path.endsWith(`/${KIT_SCRIPT}`)
 }
 
 function positionals(words: readonly string[], globalValueFlags: Set<string>): string[] {
@@ -241,7 +169,7 @@ function verbOf(args: readonly string[], verbs: readonly string[]): string | nul
 function writeOf(command: readonly string[], table: WriteVerbs): TrackerWrite | null {
   const argv0 = command[0]
   if (argv0 === undefined) return null
-  const name = argv0.replaceAll('\\', '/').split('/').pop() ?? ''
+  const name = slashed(argv0).split('/').pop() ?? ''
   const rest = command.slice(1)
   if (name === 'br' || name === 'bd') {
     const verb = verbOf(positionals(rest, BR_GLOBAL_VALUE_FLAGS), table.br)
@@ -264,43 +192,43 @@ function writeOf(command: readonly string[], table: WriteVerbs): TrackerWrite | 
   return null
 }
 
-export function parseCommand(command: string, table: WriteVerbs): ParsedCommand {
-  const { segments, separators, hasHeredoc, hasSubstitution, hasRedirection } = lex(command)
+function looseWritesOf(words: readonly string[], table: WriteVerbs): TrackerWrite[] {
+  if (isNotAWrite(words)) return []
+  return words.flatMap((word, index) =>
+    isTrackerProgram(word) ? (writeOf(words.slice(index), table) ?? []) : [],
+  )
+}
+
+function parseSegments(segments: readonly Segment[], table: WriteVerbs): ParsedCommand {
   const last = segments.at(-1)
-  const echo = last === undefined ? null : statusEchoOf(last, separators.at(-1) ?? '')
-  const writes: TrackerWrite[] = []
-  let hasLoop = false
-  let hasOtherCommand = false
-  let hasAssignment = false
-  let hasFetch = false
-  let hasHiddenStatus = false
+  const echo = last !== undefined && segments.length > 1 ? statusEchoOf(last) : null
   const checked = echo === null ? segments : segments.slice(0, -1)
+  const writes: TrackerWrite[] = []
+  let hasStatus = false
+  let hasOutsideShape = false
+  let hasOtherCommand = false
+  let hasHiddenStatus = false
   for (const [index, segment] of checked.entries()) {
-    if (writes.length > 0 && separators[index] !== WRITE_CHAIN) hasHiddenStatus = true
-    let start = 0
-    while (LEADING_KEYWORDS.has(segment[start] ?? '')) start += 1
-    const words = segment.slice(start)
-    if (words.length === 0 || words[0] === 'cd') continue
-    if (LOOP_WORDS.has(words[0] ?? '')) {
-      hasLoop = true
+    const { words } = segment
+    hasStatus ||= segment.hasStatus
+    hasHiddenStatus ||= index > 0 && segment.separator !== WRITE_CHAIN
+    if (words[0] === 'cd') {
+      hasOtherCommand ||= words.length !== 2
       continue
     }
-    const isNotAWrite = words.some((word) => NOT_A_WRITE_FLAGS.has(word))
-    const unwrapped = isNotAWrite ? null : unwrap(words)
-    const write = unwrapped && writeOf(unwrapped.command, table)
-    if (unwrapped && write) {
-      writes.push(write)
-      hasAssignment ||= unwrapped.assigns
-      hasFetch ||= unwrapped.fetches
-    } else hasOtherCommand = true
+    const allowed = allowedTrackerCommand(words)
+    if (allowed === null && words.some(isTrackerProgram)) {
+      hasOutsideShape = true
+      writes.push(...looseWritesOf(words, table))
+      continue
+    }
+    const write = allowed === null || isNotAWrite(words) ? null : writeOf(allowed, table)
+    if (write) writes.push(write)
+    else hasOtherCommand = true
   }
+  if (hasOutsideShape) return { kind: 'opaque', reason: 'shape', writes }
   if (writes.length === 0) return { kind: 'none' }
-  if (hasLoop) return { kind: 'opaque', reason: 'loop', writes }
-  if (hasHeredoc) return { kind: 'opaque', reason: 'heredoc', writes }
-  if (hasSubstitution) return { kind: 'opaque', reason: 'substitution', writes }
-  if (hasRedirection) return { kind: 'opaque', reason: 'redirection', writes }
-  if (hasAssignment) return { kind: 'opaque', reason: 'assignment', writes }
-  if (hasFetch) return { kind: 'opaque', reason: 'fetch', writes }
+  if (hasStatus) return { kind: 'opaque', reason: 'expansion', writes }
   if (hasOtherCommand) return { kind: 'opaque', reason: 'mixed', writes }
   if (hasHiddenStatus) return { kind: 'opaque', reason: 'hidden-status', writes }
   if (echo === null) return { kind: 'write', writes }
@@ -309,16 +237,20 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
   return { kind: 'opaque', reason: 'hidden-status', writes }
 }
 
+export function parseCommand(command: string, table: WriteVerbs): ParsedCommand {
+  const shape = readShape(command)
+  if (shape.kind === 'read') return parseSegments(shape.segments, table)
+  const names = command.split(NOT_A_NAME_CHAR)
+  if (!names.some(isTrackerProgram)) return { kind: 'none' }
+  return { kind: 'opaque', reason: shape.reason, writes: looseWritesOf(names, table) }
+}
+
 const TRACKER_FILES: readonly RegExp[] = [
   /^\.beads\/issues\.jsonl$/,
   /^\.basicly\/ledger\/(?:events|pending)-[^/]+\.jsonl$/,
   /^\.basicly\/ledger\/snapshot\.jsonl$/,
   /^\.beans\/(?:[^/]+\/)*[^/]+--[^/]+\.md$/,
 ]
-
-function slashed(path: string): string {
-  return path.replaceAll('\\', '/')
-}
 
 export function trackerFileOf(filePath: string, root: string): string | null {
   const path = slashed(filePath)
