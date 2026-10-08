@@ -109,8 +109,9 @@ failure then draws no toast either.
 - A state toast also waits for the 30 s limit. A failure that recovers before its toast shows
   draws no toast.
 - The mod keeps the state it last toasted (`announced`) and the time of its last toast
-  (`lastToastAt`) in `$.state`. A reload of the mod during a failure does not repeat the failed
-  toast, and a reload does not start a new 30 s window.
+  (`lastToastAt`) in `$.state`, which outlives a reload of the mod. This is meant to keep a
+  reload from repeating the failed toast or starting a new 30 s window. Tests cover it with a
+  second session start only. A live reload is not tested.
 - On desktop, a `basicly` source is `terminal-only`, so the mod shows nothing. A `beads` or
   `beans` source works as in a terminal.
 
