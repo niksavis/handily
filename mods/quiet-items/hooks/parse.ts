@@ -7,10 +7,18 @@ export type TrackerCli = keyof WriteVerbs
 export type TrackerWrite = { tracker: TrackerCli; verb: string }
 
 export type OpaqueReason =
-  'loop' | 'heredoc' | 'substitution' | 'redirection' | 'assignment' | 'fetch' | 'mixed'
+  | 'loop'
+  | 'heredoc'
+  | 'substitution'
+  | 'redirection'
+  | 'assignment'
+  | 'fetch'
+  | 'hidden-status'
+  | 'mixed'
 
 export type ParsedCommand =
   | { kind: 'write'; writes: readonly TrackerWrite[] }
+  | { kind: 'echoed'; writes: readonly TrackerWrite[]; line: string }
   | { kind: 'opaque'; reason: OpaqueReason; writes: readonly TrackerWrite[] }
   | { kind: 'none' }
 
@@ -50,9 +58,13 @@ const UV_FETCH_FLAGS = new Set([
 ])
 const NPX_FETCH_FLAGS = new Set(['--package', '-p'])
 const BR_GLOBAL_VALUE_FLAGS = new Set(['--db', '--actor', '--lock-timeout'])
+const EXIT_STATUS = '$?'
+const STATUS_ECHO_SEPARATORS = new Set([';', '\n', '&&'])
+const NOT_LITERAL_IN_ECHO = /[$*?[\]{}~]/
 
 type Lexed = {
   segments: string[][]
+  separators: string[]
   hasHeredoc: boolean
   hasSubstitution: boolean
   hasRedirection: boolean
@@ -65,6 +77,8 @@ function startsSubstitution(command: string, i: number): boolean {
 
 function lex(command: string): Lexed {
   const segments: string[][] = []
+  const separators: string[] = []
+  let separator = ''
   let words: string[] = []
   let word = ''
   let inWord = false
@@ -78,7 +92,11 @@ function lex(command: string): Lexed {
   }
   const endSegment = () => {
     endWord()
-    if (words.length > 0) segments.push(words)
+    if (words.length > 0) {
+      segments.push(words)
+      separators.push(separator)
+      separator = ''
+    }
     words = []
   }
   for (let i = 0; i < command.length; i += 1) {
@@ -122,6 +140,7 @@ function lex(command: string): Lexed {
       inWord = true
     } else if (';&|()\n'.includes(char)) {
       endSegment()
+      separator += char
     } else if (char === ' ' || char === '\t') {
       endWord()
     } else {
@@ -130,7 +149,25 @@ function lex(command: string): Lexed {
     }
   }
   endSegment()
-  return { segments, hasHeredoc, hasSubstitution, hasRedirection }
+  return { segments, separators, hasHeredoc, hasSubstitution, hasRedirection }
+}
+
+type StatusEcho = { line: string; isAfterAnd: boolean }
+
+function isLiteralEchoWord(word: string): boolean {
+  return !word.startsWith('-') && !NOT_LITERAL_IN_ECHO.test(word.replaceAll(EXIT_STATUS, ''))
+}
+
+function statusEchoOf(words: readonly string[], separator: string): StatusEcho | null {
+  if (words[0] !== 'echo' || !STATUS_ECHO_SEPARATORS.has(separator)) return null
+  const args = words.slice(1)
+  if (!args.every(isLiteralEchoWord)) return null
+  return { line: args.join(' '), isAfterAnd: separator === '&&' }
+}
+
+export function hasEchoedSuccess(line: string, stdout: string): boolean {
+  const printed = stdout.trimEnd().split(/\r?\n/).at(-1) ?? ''
+  return printed.trimEnd() === line.replaceAll(EXIT_STATUS, '0').trimEnd()
 }
 
 function skipOptions(words: readonly string[], start: number, valueFlags: Set<string>): number {
@@ -221,13 +258,15 @@ function writeOf(command: readonly string[], table: WriteVerbs): TrackerWrite | 
 }
 
 export function parseCommand(command: string, table: WriteVerbs): ParsedCommand {
-  const { segments, hasHeredoc, hasSubstitution, hasRedirection } = lex(command)
+  const { segments, separators, hasHeredoc, hasSubstitution, hasRedirection } = lex(command)
+  const last = segments.at(-1)
+  const echo = last === undefined ? null : statusEchoOf(last, separators.at(-1) ?? '')
   const writes: TrackerWrite[] = []
   let hasLoop = false
   let hasOtherCommand = false
   let hasAssignment = false
   let hasFetch = false
-  for (const segment of segments) {
+  for (const segment of echo === null ? segments : segments.slice(0, -1)) {
     let start = 0
     while (LEADING_KEYWORDS.has(segment[start] ?? '')) start += 1
     const words = segment.slice(start)
@@ -253,7 +292,10 @@ export function parseCommand(command: string, table: WriteVerbs): ParsedCommand 
   if (hasAssignment) return { kind: 'opaque', reason: 'assignment', writes }
   if (hasFetch) return { kind: 'opaque', reason: 'fetch', writes }
   if (hasOtherCommand) return { kind: 'opaque', reason: 'mixed', writes }
-  return { kind: 'write', writes }
+  if (echo === null) return { kind: 'write', writes }
+  if (echo.line.includes(EXIT_STATUS)) return { kind: 'echoed', writes, line: echo.line }
+  if (echo.isAfterAnd) return { kind: 'write', writes }
+  return { kind: 'opaque', reason: 'hidden-status', writes }
 }
 
 const TRACKER_FILES: readonly RegExp[] = [

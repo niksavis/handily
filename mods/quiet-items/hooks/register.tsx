@@ -1,6 +1,6 @@
 import type { EngineInterface, PluginState, Register } from 'claude-code'
 import type { QuietItemsMode, QuietItemsRow } from '../types'
-import { parseCommand, trackerFileOf } from './parse'
+import { hasEchoedSuccess, parseCommand, trackerFileOf } from './parse'
 import { drawEmpty, drawRows, rowsFromDiff } from './row'
 
 type Snapshot = PluginState['workitems']['snapshot']
@@ -22,6 +22,12 @@ function hasSucceeded(result: CallResult): boolean {
   if (typeof output !== 'object' || output === null) return true
   if ('interrupted' in output && output.interrupted === true) return false
   return !('stderr' in output && typeof output.stderr === 'string' && output.stderr.trim() !== '')
+}
+
+function stdoutOf(result: CallResult): string {
+  const output: unknown = result.result
+  if (typeof output !== 'object' || output === null || !('stdout' in output)) return ''
+  return typeof output.stdout === 'string' ? output.stdout : ''
 }
 
 function shortReason(reason: string): string {
@@ -77,7 +83,7 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (e.run_in_background === true) return next(e)
     const parsed = parseCommand(e.command, await $.workitems.writeVerbs())
-    if (parsed.kind !== 'write') return next(e)
+    if (parsed.kind !== 'write' && parsed.kind !== 'echoed') return next(e)
     const { value: before } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
     if (before?.state !== 'ok') return next(e)
     let reached: RefreshResult
@@ -90,6 +96,7 @@ export const register: Register = (on, options) => {
     const { version } = reached
     const result = await next(e)
     if (!hasSucceeded(result)) return result
+    if (parsed.kind === 'echoed' && !hasEchoedSuccess(parsed.line, stdoutOf(result))) return result
     try {
       const diff = await $.workitems.refresh({ since: version })
       const rows: QuietItemsRow[] = rowsFromDiff(diff, parsed.writes)

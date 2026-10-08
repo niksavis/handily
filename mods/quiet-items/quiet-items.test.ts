@@ -8,7 +8,7 @@ import {
   type TestOptions,
 } from 'claude-code/testing'
 import { commandCases, compoundCases, unsafeCases, type CommandCase } from './fixtures/commands'
-import { parseCommand, trackerFileOf, type WriteVerbs } from './hooks/parse'
+import { hasEchoedSuccess, parseCommand, trackerFileOf, type WriteVerbs } from './hooks/parse'
 
 type Snapshot = PluginState['workitems']['snapshot']
 type Diff = { created: Item[]; updated: Item[]; closed: Item[] }
@@ -419,6 +419,53 @@ describe('command parser', () => {
     }
   })
 
+  test('reads the exit status that a trailing echo prints', () => {
+    const writes = [{ tracker: 'br', verb: 'close' }]
+    expect(parseCommand('br close x; echo "exit=$?"', VERBS)).toEqual({
+      kind: 'echoed',
+      writes,
+      line: 'exit=$?',
+    })
+    expect(parseCommand('br close x\necho exit $?', VERBS)).toEqual({
+      kind: 'echoed',
+      writes,
+      line: 'exit $?',
+    })
+    expect(parseCommand('br close x && echo ok', VERBS)).toEqual({ kind: 'write', writes })
+    expect(parseCommand('br close x; echo ok', VERBS)).toEqual({
+      kind: 'opaque',
+      reason: 'hidden-status',
+      writes,
+    })
+    expect(hasEchoedSuccess('exit=$?', `${FULL_RESULT_TEXT}\nexit=0\n`)).toBe(true)
+    expect(hasEchoedSuccess('exit=$?', `${FULL_RESULT_TEXT}\nexit=1\n`)).toBe(false)
+    expect(hasEchoedSuccess('exit=$?', `${FULL_RESULT_TEXT}\nexit=10\n`)).toBe(false)
+    expect(hasEchoedSuccess('exit=$?', `${FULL_RESULT_TEXT}exit=0\n`)).toBe(false)
+    expect(hasEchoedSuccess('exit=$?', 'exit=$?\n')).toBe(false)
+  })
+
+  test('keeps the engine row for a trailing echo that is not a plain status echo', () => {
+    for (const [command, reason] of [
+      ['br close x; echo "$(id) $?"', 'substitution'],
+      ['br close x; echo `id` $?', 'substitution'],
+      ['br close x; echo "exit=$?" > out.txt', 'redirection'],
+      ['br close x; echo "exit=$?" 2>&1', 'redirection'],
+      ['br close x; echo $HOME', 'mixed'],
+      ['br close x; echo -e "exit=$?"', 'mixed'],
+      ['br close x; echo exit=*', 'mixed'],
+      ['br close x || echo "exit=$?"', 'mixed'],
+      ['br close x | echo "exit=$?"', 'mixed'],
+      ['br close x & echo "exit=$?"', 'mixed'],
+      ['git status; echo "exit=$?"', 'none'],
+    ] as const) {
+      const parsed = parseCommand(command, VERBS)
+      expect({ command, reason: parsed.kind === 'opaque' ? parsed.reason : parsed.kind }).toEqual({
+        command,
+        reason,
+      })
+    }
+  })
+
   test('falls back on a heredoc and on python -c or -m', () => {
     expect(parseCommand("br create --title x <<'EOF'\nbody\nEOF", VERBS).kind).toBe('opaque')
     expect(
@@ -528,6 +575,23 @@ describe('quiet row', () => {
         `${MARKER[surface]}work item updated handily-ef56 Fix the parser in_progress P3`,
         `${MARKER[surface]}work item closed handily-ab12 Draw text mocks for the mods closed P2`,
         `${MARKER[surface]}work item closed handily-gh78 Drop the old importer closed`,
+      ])
+    })
+  }
+
+  for (const [command, stdout] of [
+    ['br close handily-ab12; echo "exit=$?"', `${FULL_RESULT_TEXT}\nexit=0\n`],
+    ['br close handily-ab12 && echo ok', `${FULL_RESULT_TEXT}\nok\n`],
+  ] as const) {
+    quietTest(`draws one row for ${command}`, async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      world.callChange = { ...emptyDiff(), closed: [AB12] }
+      calls.answer = () => ({ result: { stdout, stderr: '', interrupted: false }, text: stdout })
+      await startSession($)
+      const id = await runBash($, calls, command)
+      expect(world.sinces).toEqual([7])
+      expect(await rowTexts($, 'terminal', toolUse(id, command))).toEqual([
+        '● work item closed handily-ab12 Draw text mocks for the mods open P2',
       ])
     })
   }
@@ -689,6 +753,22 @@ describe('fallback to the engine row', () => {
     expect(world.sinces).toEqual([])
     expect(await drawnUse($, toolUse(id, 'br close handily-ab12 handily-zz99'))).toEqual(ENGINE_ROW)
   })
+
+  for (const [command, stdout] of [
+    ['br close handily-ab12; echo "exit=$?"', 'issue handily-ab12 not found\nexit=1\n'],
+    ['br close handily-ab12; echo "exit=$?"', 'exit=1\n'],
+    ['br close handily-ab12; echo ok', `${FULL_RESULT_TEXT}\nok\n`],
+  ] as const) {
+    quietTest(`for ${command} that prints ${JSON.stringify(stdout)}`, async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      world.callChange = { ...emptyDiff(), closed: [AB12] }
+      calls.answer = () => ({ result: { stdout, stderr: '', interrupted: false }, text: stdout })
+      await startSession($)
+      const id = await runBash($, calls, command)
+      expect(world.sinces).toEqual([])
+      expect(await drawnUse($, toolUse(id, command))).toEqual(ENGINE_ROW)
+    })
+  }
 
   for (const { command } of unsafeCases) {
     quietTest(`for the unsafe ${command}`, async (world, $, on) => {
