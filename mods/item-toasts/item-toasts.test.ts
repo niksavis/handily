@@ -1220,3 +1220,20 @@ describe('review repairs of the second round', () => {
     expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
   })
 })
+
+describe('ready value for /handily', () => {
+  test(
+    'writes the ready value that /handily reads when the session starts',
+    { plugins: [fakeWorkitems] },
+    async ($, on) => {
+      engineBeneath(on, newWorld())
+      const ready: unknown[] = []
+      on('state.set', { plugin: 'item-toasts', key: 'ready' }, (_$, e, next) => {
+        ready.push(e.value)
+        return next(e)
+      })
+      await startSession($)
+      expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]item-toasts$/) }])
+    },
+  )
+})

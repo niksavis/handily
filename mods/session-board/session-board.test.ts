@@ -855,3 +855,18 @@ describe('the repairs of the review', () => {
     )
   })
 })
+
+describe('ready value for /handily', () => {
+  test('writes the ready value that /handily reads when the session starts', async ($, on) => {
+    mock.clock(on, { now: NOW })
+    mock.store(on)
+    fakeWorld(on)
+    const ready: unknown[] = []
+    on('state.set', { plugin: 'session-board', key: 'ready' }, (_$, e, next) => {
+      ready.push(e.value)
+      return next(e)
+    })
+    await startSession($)
+    expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]session-board$/) }])
+  })
+})

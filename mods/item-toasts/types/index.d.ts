@@ -5,6 +5,7 @@ declare module 'claude-code' {
     'item-toasts': {
       announced: ItemToastsHealth
       lastToastAt: number
+      ready: { root: string }
     }
   }
 }

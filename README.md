@@ -36,6 +36,9 @@ When the marketplace is already added, this line is enough:
 /plugin install handily@handily
 ```
 
+Each install line opens the details of the plugin. Select **Install**, then close the
+panel.
+
 Then type `/handily`. It lists each mod with its version and whether it loaded, and it
 ends with one line such as `handily: 5 of 5 mods loaded`. When a mod is missing, the
 list gives the line that installs it.

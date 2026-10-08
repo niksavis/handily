@@ -135,6 +135,7 @@ export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await startToasts($, toasts).tick()
+    await $.state.set({ plugin: 'item-toasts', key: 'ready' }, { root: $.plugin.root })
     return started
   })
 

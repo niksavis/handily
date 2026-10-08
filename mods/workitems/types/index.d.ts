@@ -162,6 +162,6 @@ declare module 'claude-code' {
     workitems: Workitems
   }
   interface PluginState {
-    workitems: { snapshot: WorkitemsSnapshot }
+    workitems: { snapshot: WorkitemsSnapshot; ready: { root: string } }
   }
 }

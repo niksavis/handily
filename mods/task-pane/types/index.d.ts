@@ -18,6 +18,6 @@ export type TaskPaneList = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'task-pane': { list: TaskPaneList }
+    'task-pane': { list: TaskPaneList; ready: { root: string } }
   }
 }

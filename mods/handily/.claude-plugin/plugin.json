@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded.",
   "author": { "name": "niksavis" },
-  "dependencies": ["workitems", "quiet-items", "task-pane", "session-board", "item-toasts"]
+  "dependencies": ["workitems", "quiet-items", "task-pane", "session-board", "item-toasts"],
+  "types": "./types/index.d.ts"
 }

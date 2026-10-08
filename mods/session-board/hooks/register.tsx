@@ -143,6 +143,7 @@ export const register: Register = (on) => {
     })
     await deleteExpired($, new Set([await $.session.id()]))
     await updateProgress($, board, (progress, now, tasks) => withTasks(progress, tasks, now))
+    await $.state.set({ plugin: 'session-board', key: 'ready' }, { root: $.plugin.root })
     return started
   })
 

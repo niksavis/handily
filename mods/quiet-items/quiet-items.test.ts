@@ -1067,3 +1067,19 @@ describe('/quiet-items', () => {
     )
   })
 })
+
+describe('ready value for /handily', () => {
+  quietTest(
+    'writes the ready value that /handily reads when the session starts',
+    async (world, $, on) => {
+      engineBeneath(on, world)
+      const ready: unknown[] = []
+      on('state.set', { plugin: 'quiet-items', key: 'ready' }, (_$, e, next) => {
+        ready.push(e.value)
+        return next(e)
+      })
+      await startSession($)
+      expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]quiet-items$/) }])
+    },
+  )
+})

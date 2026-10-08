@@ -1293,3 +1293,20 @@ describe('tracker text and the author column', () => {
     )
   })
 })
+
+describe('ready value for /handily', () => {
+  test(
+    'writes the ready value that /handily reads when the session starts',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const ready: unknown[] = []
+      on('state.set', { plugin: 'task-pane', key: 'ready' }, (_$, e, next) => {
+        ready.push(e.value)
+        return next(e)
+      })
+      await start($)
+      expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]task-pane$/) }])
+    },
+  )
+})

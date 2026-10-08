@@ -699,3 +699,21 @@ describe('session start and directory changes', () => {
     expect(lines.map((line) => line.text)).toEqual(['beads · 2 open · read 12 s ago'])
   })
 })
+
+describe('ready value for /handily', () => {
+  test(
+    'writes the ready value that /handily reads when the session starts',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 1_000 })
+      fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      const ready: unknown[] = []
+      on('state.set', { plugin: 'workitems', key: 'ready' }, (_$, e, next) => {
+        ready.push(e.value)
+        return next(e)
+      })
+      await startSession($)
+      expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]workitems$/) }])
+    },
+  )
+})

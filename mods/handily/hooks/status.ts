@@ -1,22 +1,21 @@
-export type Admission = { version: string | undefined; refusal: string | undefined }
-
-export type ModState = 'loaded' | 'refused' | 'disabled' | 'not installed' | 'not loaded'
-
-export type ModStatus = {
-  name: string
-  version: string | undefined
-  state: ModState
-  detail: string
-}
+import type { HandilyModStatus } from '../types'
 
 const MARKETPLACE = 'handily'
 
-export function bundledMods(manifestText: string): string[] {
+type Manifest = { version: unknown; dependencies: unknown }
+
+function manifestOf(manifestText: string): Manifest {
   const manifest: unknown = JSON.parse(manifestText)
-  const dependencies: unknown =
-    typeof manifest === 'object' && manifest !== null && 'dependencies' in manifest
-      ? manifest.dependencies
-      : undefined
+  if (typeof manifest !== 'object' || manifest === null)
+    return { version: undefined, dependencies: undefined }
+  return {
+    version: 'version' in manifest ? manifest.version : undefined,
+    dependencies: 'dependencies' in manifest ? manifest.dependencies : undefined,
+  }
+}
+
+export function bundledMods(manifestText: string): string[] {
+  const { dependencies } = manifestOf(manifestText)
   if (
     !Array.isArray(dependencies) ||
     dependencies.length === 0 ||
@@ -25,6 +24,14 @@ export function bundledMods(manifestText: string): string[] {
     throw new Error('handily: plugin.json "dependencies" must list the handily mods by name')
   }
   return dependencies
+}
+
+export function manifestVersion(manifestText: string, name: string): string {
+  const { version } = manifestOf(manifestText)
+  if (typeof version !== 'string' || version === '') {
+    throw new Error(`handily: the plugin.json of ${name} has no "version"`)
+  }
+  return version
 }
 
 function pluginId(name: string): string {
@@ -38,13 +45,10 @@ function enabledEntry(enabledPlugins: unknown, name: string): unknown {
 
 function stateOf(
   name: string,
-  admission: Admission | undefined,
+  version: string | undefined,
   enabled: unknown,
-): Pick<ModStatus, 'state' | 'detail'> {
-  if (admission?.refusal !== undefined) {
-    return { state: 'refused', detail: `did not load: ${admission.refusal}` }
-  }
-  if (admission !== undefined) return { state: 'loaded', detail: 'loaded' }
+): Pick<HandilyModStatus, 'state' | 'detail'> {
+  if (version !== undefined) return { state: 'loaded', detail: 'loaded' }
   if (enabled === false) {
     return { state: 'disabled', detail: `disabled. Run /plugin enable ${pluginId(name)}` }
   }
@@ -62,27 +66,27 @@ function stateOf(
 
 export function statusesOf(
   mods: readonly string[],
-  admissions: ReadonlyMap<string, Admission>,
+  loadedVersions: ReadonlyMap<string, string>,
   enabledPlugins: unknown,
-): ModStatus[] {
+): HandilyModStatus[] {
   return mods.map((name) => {
-    const admission = admissions.get(name)
+    const version = loadedVersions.get(name)
     return {
       name,
-      version: admission?.version,
-      ...stateOf(name, admission, enabledEntry(enabledPlugins, name)),
+      version: version ?? null,
+      ...stateOf(name, version, enabledEntry(enabledPlugins, name)),
     }
   })
 }
 
-export function summaryOf(statuses: readonly ModStatus[]): string {
+export function summaryOf(statuses: readonly HandilyModStatus[]): string {
   const loaded = statuses.filter((status) => status.state === 'loaded').length
   return `handily: ${String(loaded)} of ${String(statuses.length)} mods loaded`
 }
 
-export function replyText(statuses: readonly ModStatus[]): string {
+export function replyText(statuses: readonly HandilyModStatus[]): string {
   const rows = statuses.map((status) => {
-    const version = status.version === undefined ? '' : ` ${status.version}`
+    const version = status.version === null ? '' : ` ${status.version}`
     return `- ${status.name}${version}: ${status.detail}`
   })
   return [...rows, '', summaryOf(statuses)].join('\n')

@@ -24,6 +24,7 @@ declare module 'claude-code' {
     'quiet-items': {
       mode: QuietItemsMode
       rows: StateFamily<readonly QuietItemsRow[]>
+      ready: { root: string }
     }
   }
 }

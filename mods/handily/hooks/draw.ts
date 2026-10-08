@@ -1,11 +1,11 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
-import { summaryOf, type ModState, type ModStatus } from './status'
+import type { HandilyModState, HandilyModStatus } from '../types'
+import { summaryOf } from './status'
 
 type ReportElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
 
-const STATE_COLOR: Record<ModState, ThemeKey> = {
+const STATE_COLOR: Record<HandilyModState, ThemeKey> = {
   loaded: 'success',
-  refused: 'error',
   disabled: 'error',
   'not installed': 'error',
   'not loaded': 'warning',
@@ -17,7 +17,7 @@ function widest(texts: readonly string[]): number {
 
 export function drawReport(
   { Box, Text }: ReportElements,
-  statuses: readonly ModStatus[],
+  statuses: readonly HandilyModStatus[],
 ): RenderElement {
   const nameWidth = widest(statuses.map((status) => status.name))
   const versionWidth = widest(statuses.map((status) => status.version ?? ''))

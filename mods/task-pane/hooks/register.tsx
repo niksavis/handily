@@ -196,6 +196,7 @@ export const register: Register = (on, options) => {
       immediate: true,
     })
     if (mode === 'always') await openPane(uiOf($))
+    await $.state.set({ plugin: 'task-pane', key: 'ready' }, { root: $.plugin.root })
     return next(e)
   })
 

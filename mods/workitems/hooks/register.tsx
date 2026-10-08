@@ -82,6 +82,7 @@ export const register: Register = (on) => {
     await $.workitems.refresh().catch((error: unknown) => {
       $.ui.log(`workitems: the first refresh failed: ${String(error)}`)
     })
+    await $.state.set({ plugin: 'workitems', key: 'ready' }, { root: $.plugin.root })
     return next(e)
   })
 
