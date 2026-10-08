@@ -132,7 +132,8 @@ mod follows its own mode.
   `simple-view`, because the two lists would make a cycle. The mod types the key as `unknown`
   and checks the value when it reads it. Only the value `off` turns the rows off.
 - `/quiet-items` still toggles its own mode. While `/simple` is off, `/quiet-items` on draws no
-  quiet row until `/simple` is on again.
+  quiet row until `/simple` is on again. Its reply says so:
+  `quiet-items on for this session, but /simple is off, so tracker writes draw in full.`
 
 ## Develop
 

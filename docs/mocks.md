@@ -160,6 +160,8 @@ so nothing else changes.
                   (basicly tracker list exited 2), so tracker commands draw in full.
 /quiet-items   -> quiet-items on for this session, but basicly needs a terminal session here,
                   so tracker commands draw in full.            (desktop, basicly repo)
+/quiet-items   -> quiet-items on for this session, but /simple is off, so tracker writes draw
+                  in full.                                     (simple-view mode off)
 /quiet-items x -> /quiet-items takes no argument; it toggles this session. Set the default
                   with the plugin's "mode" setting.
 ```

@@ -864,11 +864,27 @@ describe('simple-view mode', () => {
       await startSession($)
       const id = await runBash($, calls, 'br create --title x')
       await setSimpleViewMode($, 'off')
+      expect(await commandText($)).toBe(
+        'quiet-items off for this session. Tracker commands draw in full.',
+      )
+      expect(await commandText($)).toBe(
+        'quiet-items on for this session, but /simple is off, so tracker writes draw in full.',
+      )
+      expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    },
+  )
+
+  quietTest(
+    'says that tracker writes draw as one row while simple-view is on',
+    WITH_SIMPLE_VIEW,
+    async (world, $, on) => {
+      engineBeneath(on, world)
+      await startSession($)
+      await setSimpleViewMode($, 'on')
       await commandText($)
       expect(await commandText($)).toBe(
         'quiet-items on for this session. Tracker writes draw as one row.',
       )
-      expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
     },
   )
 

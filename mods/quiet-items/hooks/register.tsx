@@ -14,6 +14,8 @@ const COMMAND = 'quiet-items'
 const DEFAULT_TITLE_LENGTH = 60
 const ON_TEXT = 'quiet-items on for this session. Tracker writes draw as one row.'
 const OFF_TEXT = 'quiet-items off for this session. Tracker commands draw in full.'
+const SIMPLE_VIEW_OFF_TEXT =
+  'quiet-items on for this session, but /simple is off, so tracker writes draw in full.'
 const NO_ARGUMENT_TEXT =
   '/quiet-items takes no argument; it toggles this session. Set the default with the plugin\'s "mode" setting.'
 const FULL_TAIL = 'so tracker commands draw in full.'
@@ -68,9 +70,13 @@ export function onReply(snapshot: Snapshot | undefined): string {
   }
 }
 
-async function drawsQuietRows($: EngineInterface, defaultMode: QuietItemsMode): Promise<boolean> {
+async function isSimpleViewOff($: EngineInterface): Promise<boolean> {
   const { value: simpleViewMode } = await $.state.get(SIMPLE_VIEW_MODE)
-  if (simpleViewMode === 'off') return false
+  return simpleViewMode === 'off'
+}
+
+async function drawsQuietRows($: EngineInterface, defaultMode: QuietItemsMode): Promise<boolean> {
+  if (await isSimpleViewOff($)) return false
   const { value: mode = defaultMode } = await $.state.get(QUIET_ITEMS_MODE)
   return mode !== 'off'
 }
@@ -97,6 +103,7 @@ export const register: Register = (on, options) => {
     const mode: QuietItemsMode = current === 'on' ? 'off' : 'on'
     await $.state.set(QUIET_ITEMS_MODE, mode)
     if (mode === 'off') return { text: OFF_TEXT }
+    if (await isSimpleViewOff($)) return { text: SIMPLE_VIEW_OFF_TEXT }
     const { value: snapshot } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
     return { text: onReply(snapshot) }
   })
