@@ -289,11 +289,15 @@ type QuietBody = (world: World, $: Engine, on: On) => unknown
 
 function quietTest(name: string, ...rest: [QuietBody] | [TestOptions, QuietBody]): void {
   const [options, body] = rest.length === 1 ? [{}, rest[0]] : rest
-  test(name, { ...options, plugins: [fakeWorkitems] }, async ($, on) => {
-    const world = newWorld()
-    await body(world, $, on)
-    expect(world.unanswered).toEqual([])
-  })
+  test(
+    name,
+    { ...options, plugins: [fakeWorkitems, ...(options.plugins ?? [])] },
+    async ($, on) => {
+      const world = newWorld()
+      await body(world, $, on)
+      expect(world.unanswered).toEqual([])
+    },
+  )
 }
 
 async function startSession($: Engine): Promise<void> {
@@ -769,6 +773,151 @@ describe('folded tool group', () => {
     const id = await runBash($, calls, 'br create --title x')
     await commandText($)
     expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([false])
+  })
+})
+
+const SIMPLE_VIEW_MODE_COMMAND = 'simple-view-mode'
+
+const fakeSimpleView: Plugin = {
+  name: 'simple-view',
+  register(on) {
+    const modeCommand = 'simple-view-mode'
+    on('session.start', async ($, e, next) => {
+      await $.command.register({ name: modeCommand, description: 'test only' })
+      return next(e)
+    })
+    on('command.run', { command: modeCommand }, async ($, e) => {
+      await $.state.set({ plugin: 'simple-view', key: 'mode' }, e.args)
+      return { text: `simple-view mode ${e.args}` }
+    })
+  },
+}
+
+async function setSimpleViewMode($: Engine, mode: string): Promise<void> {
+  await $.command.run({
+    command: SIMPLE_VIEW_MODE_COMMAND,
+    args: mode,
+    origin: { kind: 'sdk' },
+    presentation: { isFullscreen: false, columns: 120 },
+  })
+}
+
+const WITH_SIMPLE_VIEW: TestOptions = { plugins: [fakeSimpleView] }
+
+describe('simple-view mode', () => {
+  for (const surface of SURFACES) {
+    quietTest(
+      `draws every row as the engine draws it while simple-view is off on ${surface}`,
+      WITH_SIMPLE_VIEW,
+      async (world, $, on) => {
+        const calls = engineBeneath(on, world)
+        world.callChange = { ...emptyDiff(), created: [AB12] }
+        await startSession($)
+        const command = 'br create --title x'
+        const id = await runBash($, calls, command)
+        await setSimpleViewMode($, 'off')
+        const use = await $.ui.mount({
+          plugin: 'quiet-items',
+          surface,
+          component: 'ToolUse',
+          props: toolUse(id, command),
+        })
+        expect(await use.drawn()).toEqual(ENGINE_ROW)
+        await use.unmount()
+        const result = await $.ui.mount({
+          plugin: 'quiet-items',
+          surface,
+          component: 'ToolResult',
+          props: toolResult(id),
+        })
+        expect(await result.drawn()).toEqual(ENGINE_ROW)
+        await result.unmount()
+      },
+    )
+  }
+
+  quietTest(
+    'leaves the group folded while simple-view is off',
+    WITH_SIMPLE_VIEW,
+    async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      world.callChange = { ...emptyDiff(), created: [AB12] }
+      await startSession($)
+      const id = await runBash($, calls, 'br create --title x')
+      await setSimpleViewMode($, 'off')
+      expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([false])
+    },
+  )
+
+  quietTest(
+    'draws the engine row while simple-view is off and its own mode is on',
+    WITH_SIMPLE_VIEW,
+    async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      world.callChange = { ...emptyDiff(), created: [AB12] }
+      await startSession($)
+      const id = await runBash($, calls, 'br create --title x')
+      await setSimpleViewMode($, 'off')
+      await commandText($)
+      expect(await commandText($)).toBe(
+        'quiet-items on for this session. Tracker writes draw as one row.',
+      )
+      expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    },
+  )
+
+  quietTest(
+    'draws the row again when simple-view switches back on',
+    WITH_SIMPLE_VIEW,
+    async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      world.callChange = { ...emptyDiff(), created: [AB12] }
+      await startSession($)
+      const id = await runBash($, calls, 'br create --title x')
+      const use = await $.ui.mount({
+        plugin: 'quiet-items',
+        surface: 'terminal',
+        component: 'ToolUse',
+        props: toolUse(id, 'br create --title x'),
+      })
+      expect(await use.drawn()).not.toEqual(ENGINE_ROW)
+      await setSimpleViewMode($, 'off')
+      expect(await use.drawn()).toEqual(ENGINE_ROW)
+      await setSimpleViewMode($, 'on')
+      expect(await use.drawn()).not.toEqual(ENGINE_ROW)
+      await use.unmount()
+    },
+  )
+
+  for (const mode of ['on', 'Off', '']) {
+    quietTest(
+      `follows its own mode while the simple-view mode is ${JSON.stringify(mode)}`,
+      WITH_SIMPLE_VIEW,
+      async (world, $, on) => {
+        const calls = engineBeneath(on, world)
+        world.callChange = { ...emptyDiff(), created: [AB12] }
+        await startSession($)
+        const id = await runBash($, calls, 'br create --title x')
+        await setSimpleViewMode($, mode)
+        expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+        expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([true])
+        await commandText($)
+        expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+        expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([
+          false,
+        ])
+      },
+    )
+  }
+
+  quietTest('follows its own mode while simple-view is not installed', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    world.callChange = { ...emptyDiff(), created: [AB12] }
+    await startSession($)
+    const id = await runBash($, calls, 'br create --title x')
+    expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+    await commandText($)
+    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
   })
 })
 

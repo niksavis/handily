@@ -2,6 +2,12 @@ import type { EngineInterface, PluginState, Register } from 'claude-code'
 import type { QuietItemsMode, QuietItemsRow } from '../types'
 import { drawEmpty, drawRows, rowsFromDiff } from './row'
 
+declare module 'claude-code' {
+  interface PluginState {
+    'simple-view': { mode: unknown }
+  }
+}
+
 type Snapshot = PluginState['workitems']['snapshot']
 
 const COMMAND = 'quiet-items'
@@ -12,6 +18,8 @@ const NO_ARGUMENT_TEXT =
   '/quiet-items takes no argument; it toggles this session. Set the default with the plugin\'s "mode" setting.'
 const FULL_TAIL = 'so tracker commands draw in full.'
 const EXIT_STATUS = '$?'
+const QUIET_ITEMS_MODE = { plugin: 'quiet-items', key: 'mode' } as const
+const SIMPLE_VIEW_MODE = { plugin: 'simple-view', key: 'mode' } as const
 
 type CallResult = Awaited<ReturnType<EngineInterface['tool']['call']>>
 type RefreshResult = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
@@ -60,6 +68,13 @@ export function onReply(snapshot: Snapshot | undefined): string {
   }
 }
 
+async function drawsQuietRows($: EngineInterface, defaultMode: QuietItemsMode): Promise<boolean> {
+  const { value: simpleViewMode } = await $.state.get(SIMPLE_VIEW_MODE)
+  if (simpleViewMode === 'off') return false
+  const { value: mode = defaultMode } = await $.state.get(QUIET_ITEMS_MODE)
+  return mode !== 'off'
+}
+
 export const register: Register = (on, options) => {
   const defaultMode: QuietItemsMode = options.mode === 'off' ? 'off' : 'on'
   const titleLength =
@@ -76,12 +91,9 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     if (e.args.trim() !== '') return { text: NO_ARGUMENT_TEXT }
-    const { value: current = defaultMode } = await $.state.get({
-      plugin: 'quiet-items',
-      key: 'mode',
-    })
+    const { value: current = defaultMode } = await $.state.get(QUIET_ITEMS_MODE)
     const mode: QuietItemsMode = current === 'on' ? 'off' : 'on'
-    await $.state.set({ plugin: 'quiet-items', key: 'mode' }, mode)
+    await $.state.set(QUIET_ITEMS_MODE, mode)
     if (mode === 'off') return { text: OFF_TEXT }
     const { value: snapshot } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
     return { text: onReply(snapshot) }
@@ -150,8 +162,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     if (e.props.isExpanded) return next(e)
-    const { value: mode = defaultMode } = await $.state.get({ plugin: 'quiet-items', key: 'mode' })
-    if (mode === 'off') return next(e)
+    if (!(await drawsQuietRows($, defaultMode))) return next(e)
     for (const call of e.props.calls) {
       if (call.tool_use_id === undefined || call.isRunning || call.isErrored) continue
       const { value: rows } = await $.state.get({
@@ -169,8 +180,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
     if (e.props.isErrored) return next(e)
     if (e.component === 'ToolUse' && (e.props.isRunning || e.props.isInterrupted)) return next(e)
-    const { value: mode = defaultMode } = await $.state.get({ plugin: 'quiet-items', key: 'mode' })
-    if (mode === 'off') return next(e)
+    if (!(await drawsQuietRows($, defaultMode))) return next(e)
     const { value: rows } = await $.state.get({
       plugin: 'quiet-items',
       key: 'rows',

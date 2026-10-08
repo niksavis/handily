@@ -103,6 +103,7 @@ The engine draws its own row (`next(e)`) in each of these cases:
 - The `workitems` state is not `ok`.
 - The refresh diff is empty, or a refresh rejected.
 - The mode is `off`.
+- The `simple-view` mode is `off`.
 
 ## Settings and the command
 
@@ -113,6 +114,21 @@ The engine draws its own row (`next(e)`) in each of these cases:
 
 `/quiet-items` toggles the mode for this session only. It keeps the mode in `$.state`, so a
 change does not reach other sessions. It takes no argument.
+
+## Follow simple-view
+
+`/simple` is one switch for the concise view. While the `simple-view` mode is `off`, this mod
+draws every row as the engine draws it: the `ToolUse` row, the `ToolResult` block and a
+folded `ToolGroup` line. While `simple-view` is not installed or its mode is not `off`, this
+mod follows its own mode.
+
+- The mod reads the `mode` key of `simple-view` from `$.state`. It cannot set that key,
+  because only its owner writes it.
+- `simple-view` lists `quiet-items` under `dependencies`. This mod does not list
+  `simple-view`, because the two lists would make a cycle. The mod types the key as `unknown`
+  and checks the value when it reads it. Only the value `off` turns the rows off.
+- `/quiet-items` still toggles its own mode. While `/simple` is off, `/quiet-items` on draws no
+  quiet row until `/simple` is on again.
 
 ## Develop
 
