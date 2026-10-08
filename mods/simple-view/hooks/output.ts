@@ -17,7 +17,9 @@ export type BashEnd =
 export type FileChange = { path: string; verb: 'Updated' | 'Created' | 'Deleted'; totals: Totals }
 
 export type BashChanges =
-  { isTracked: true; files: FileChange[]; moreFiles: number } | { isTracked: false }
+  | { kind: 'tracked'; files: FileChange[]; moreFiles: number }
+  | { kind: 'untracked' }
+  | { kind: 'unreported' }
 
 export type FileEdit = { path: string; totals: Totals | null }
 
@@ -116,13 +118,13 @@ function fileChange(value: unknown): FileChange | null {
 export function bashChanges(output: unknown): BashChanges | null {
   if (!isRecord(output)) return null
   const diff = output.bashEditDiff
-  if (diff === undefined) return { isTracked: true, files: [], moreFiles: 0 }
+  if (diff === undefined) return { kind: 'unreported' }
   if (!isRecord(diff)) return null
-  if (diff.unavailable === true || diff.skipped === true) return { isTracked: false }
+  if (diff.unavailable === true || diff.skipped === true) return { kind: 'untracked' }
   if (!Array.isArray(diff.files) || typeof diff.moreFiles !== 'number') return null
   const files = diff.files.map(fileChange)
   if (!files.every((file) => file !== null)) return null
-  return { isTracked: true, files, moreFiles: diff.moreFiles }
+  return { kind: 'tracked', files, moreFiles: diff.moreFiles }
 }
 
 function writeTotals(output: Record<string, unknown>, hunks: readonly Hunk[]): Totals | null {

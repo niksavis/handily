@@ -369,6 +369,18 @@ describe('Bash row', () => {
     ).toEqual(['File changes were not tracked for this call'])
   })
 
+  viewTest('draws no result line when the engine reports no bashEditDiff', async (world, $) => {
+    world.answer = () => answered('')
+    const input = { command: 'printf x >> notes.txt', description: 'Append a line' }
+    const id = await runBash(world, $, input)
+    const result = await drawn($, {
+      component: 'ToolResult',
+      props: resultProps(id, 'Bash', world.answer(input)),
+    })
+    expect(result.tree).toMatchObject({ type: 'Box' })
+    expect(result.textCount).toBe(0)
+  })
+
   viewTest('shows the meaning of a non-error exit code in place of exit 0', async (world, $) => {
     world.answer = () => answered('', { returnCodeInterpretation: 'No matches found' })
     const input = { command: 'grep -r zzz src', description: 'Search for zzz' }
@@ -735,6 +747,25 @@ describe('/simple show', () => {
     expect(last).toContain('Error: Exit code 1\nnope')
     expect(last).toContain('File diff: none.')
     expect(await commandText($, 'show 3')).toContain('"command": "echo first"')
+  })
+
+  viewTest(
+    'says the engine reported no file diff for a Bash output without one',
+    async (world, $) => {
+      world.answer = () => answered('done\n')
+      await runBash(world, $, { command: 'printf x >> notes.txt', description: 'Append a line' })
+      const shown = await commandText($, 'show 1')
+      expect(shown).toContain('File diff: not reported by the engine.')
+      expect(shown).not.toContain('File diff: none.')
+    },
+  )
+
+  viewTest('says none for a Bash output with an empty file diff', async (world, $) => {
+    world.answer = () => answered('done\n', { bashEditDiff: { files: [], moreFiles: 0 } })
+    await runBash(world, $, { command: 'ls', description: 'List files' })
+    const shown = await commandText($, 'show 1')
+    expect(shown).toContain('File diff: none.')
+    expect(shown).not.toContain('not reported by the engine')
   })
 
   viewTest('refuses a number out of range and gives the range', async (world, $) => {

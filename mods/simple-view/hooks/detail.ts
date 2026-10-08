@@ -1,5 +1,5 @@
 import type { SimpleViewCall } from '../types'
-import { contentLines, hunksOf, isRecord } from './output'
+import { bashChanges, contentLines, hunksOf, isRecord } from './output'
 
 export const KEPT_CALLS = 50
 export const PART_LIMIT = 8000
@@ -78,6 +78,10 @@ export type CallFacts = {
   elapsedMs: number
 }
 
+function isDiffUnreported(facts: CallFacts): boolean {
+  return facts.tool === 'Bash' && bashChanges(facts.answer.result)?.kind === 'unreported'
+}
+
 export function callRecord(facts: CallFacts): SimpleViewCall {
   return {
     generation: facts.generation,
@@ -86,7 +90,7 @@ export function callRecord(facts: CallFacts): SimpleViewCall {
     tool: facts.tool,
     input: capped(JSON.stringify(facts.input, null, 2)),
     output: capped(outputText(facts.answer)),
-    diff: capped(diffText(facts.answer.result)),
+    diff: isDiffUnreported(facts) ? null : capped(diffText(facts.answer.result)),
     isErrored: facts.answer.deny !== undefined || facts.answer.isError === true,
     elapsedMs: facts.elapsedMs,
   }
@@ -109,6 +113,11 @@ export function elapsedText(ms: number): string {
   return `${String(Math.floor(seconds / 60))}m ${String(seconds % 60).padStart(2, '0')}s`
 }
 
+function diffHeading(diff: string | null): string {
+  if (diff === null) return 'File diff: not reported by the engine.'
+  return diff === '' ? 'File diff: none.' : 'File diff:'
+}
+
 export function showText(call: SimpleViewCall, back: number, kept: number): string {
   const ending = call.isErrored ? 'errored' : 'answered'
   return [
@@ -117,7 +126,7 @@ export function showText(call: SimpleViewCall, back: number, kept: number): stri
     fenced('json', call.input),
     'Output:',
     fenced('text', call.output),
-    call.diff === '' ? 'File diff: none.' : 'File diff:',
-    ...(call.diff === '' ? [] : [fenced('diff', call.diff)]),
+    diffHeading(call.diff),
+    ...(call.diff === null || call.diff === '' ? [] : [fenced('diff', call.diff)]),
   ].join('\n\n')
 }

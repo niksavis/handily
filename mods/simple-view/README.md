@@ -48,8 +48,15 @@ three:
   path of that file.
 - The result block names each changed file as `Updated`, `Created` or `Deleted`, with
   `(+added -removed)`. Files that the engine counts but does not list show as
-  `and N more changed files`. When the engine did not track the changes, the block says
-  `File changes were not tracked for this call`.
+  `and N more changed files`. When the engine reports that it could not track the changes, the
+  block says `File changes were not tracked for this call`.
+- A missing `Updated` line proves that the call changed no file only when Bash edit tracking
+  was on for that call. With tracking off, the engine sends no diff, also for a call that wrote
+  a file. The block is then empty, and `/simple show N` prints
+  `File diff: not reported by the engine.`
+- The `bashEditDiffEnabled` setting turns Bash edit tracking on or off. The
+  `CLAUDE_CODE_BASH_EDIT_DIFF` environment variable wins over the setting. Without either, the
+  engine decides, and the mod cannot read that decision.
 - A path inside the session root shows relative to the root. Another path shows in full.
 - The time is measured by the mod clock around the call. It includes the time that a
   permission question waited for an answer.

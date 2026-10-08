@@ -234,7 +234,8 @@ async function bashResult(
   if (end.kind === 'exit') return look.elements.Box({})
   const changes = bashChanges(props.output)
   if (changes === null) return null
-  if (!changes.isTracked) return changesBlock(look, null)
+  if (changes.kind === 'unreported') return look.elements.Box({})
+  if (changes.kind === 'untracked') return changesBlock(look, null)
   const root = changes.files.length === 0 ? '' : await $.session.root()
   const files = changes.files.map((file) => ({ ...file, path: shownPath(file.path, root) }))
   return changesBlock(look, { files, moreFiles: changes.moreFiles })

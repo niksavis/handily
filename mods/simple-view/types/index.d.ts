@@ -13,7 +13,7 @@ export type SimpleViewCall = {
   tool: string
   input: string
   output: string
-  diff: string
+  diff: string | null
   isErrored: boolean
   elapsedMs: number
 }
