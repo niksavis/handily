@@ -660,7 +660,18 @@ const BR_BIN = '/opt/tools/br'
 const BR_RUN = `${BR_BIN} list --json --limit 0`
 const BR_APPROVAL_TEXT = '"br" "list" "--json" "--limit" "0"'
 const BR_NOTE =
-  '(br reads the .beads data and runs no code from the repo; asked again if the command or the real path of br changes)'
+  '(checked on br 0.3.2: br list writes the .beads cache beads.db and beads.base.jsonl, imports an edited issues.jsonl into beads.db and does not rewrite issues.jsonl. It started no git, sh, bash, python3, node, env, editor or vi from PATH. A program that it starts by an absolute path was not ruled out. Asked again if the command or the real path of br changes. A new br at the same path is not asked again)'
+const CHILD_LINE = JSON.stringify({
+  id: 'app-1fm',
+  title: 'Child one',
+  status: 'open',
+  priority: 2,
+  issue_type: 'task',
+  assignee: 'dev-one',
+  updated_at: '2026-10-09T13:44:00.506674453Z',
+  labels: ['ui'],
+  dependencies: [{ issue_id: 'app-1fm', depends_on_id: 'app-red', type: 'parent-child' }],
+})
 const BR_QUESTION = [
   "Allow handily to run this repo's tracker CLI to read work items?",
   `"${BR_BIN}" "list" "--json" "--limit" "0"`,
@@ -1138,6 +1149,90 @@ describe('beads over 4 MiB through br', () => {
       expect(diff.created.map((item) => [item.key, item.status])).toEqual([
         ['beads:app-done', 'closed'],
       ])
+    },
+  )
+
+  for (const [name, title, isUpdated] of [
+    ['an unchanged child item is not updated', 'Child one', false],
+    ['a child item with a new title is updated', 'Child renamed', true],
+  ] as const) {
+    test(`from the file to br, ${name}`, { plugins: [consumer] }, async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on, OVER_4_MIB - 1)
+      touchIssues(world, 10, `${CHILD_LINE}\n`, OVER_4_MIB - 1)
+      world.outputs.set(BR_RUN, { stdout: brList([{ ...CHILD_ONE, title }]) })
+      world.answer = ALLOW
+      const direct = await startSession($, clock, true, stateIs('ok'))
+      expect(direct.items[0]?.parent).toBe('app-red')
+      touchIssues(world, 20)
+      await commandText($, 'refresh')
+      await settleUntil(
+        clock,
+        () => snapshotOf($),
+        (snapshot) => snapshot.state === 'ok' && snapshot.sourceLabel === 'beads (br)',
+        'the br read',
+      )
+      const diff = JSON.parse(
+        await commandText($, 'refresh-since', String(direct.version)),
+      ) as WorkitemsRefreshResult
+      expect(diff.updated.map((item) => item.key)).toEqual(isUpdated ? ['beads:app-1fm'] : [])
+    })
+
+    test(`from br to the file, ${name}`, { plugins: [consumer] }, async ($, on) => {
+      const { world } = await approvedBr($, on)
+      touchIssues(world, 30, `${CHILD_LINE.replace('Child one', title)}\n`, OVER_4_MIB - 1)
+      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect((await snapshotOf($)).items[0]?.parent).toBe('app-red')
+      expect(diff.updated.map((item) => item.key)).toEqual(isUpdated ? ['beads:app-1fm'] : [])
+    })
+  }
+
+  test(
+    'a direct read after a direct read still reports a changed parent as updated',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on, OVER_4_MIB - 1)
+      touchIssues(world, 10, `${CHILD_LINE}\n`, OVER_4_MIB - 1)
+      await startSession($, clock, false, stateIs('ok'))
+      touchIssues(world, 20, `${CHILD_LINE.replace('"app-red"', '"app-wqe"')}\n`, OVER_4_MIB - 1)
+      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(diff.updated.map((item) => [item.key, item.parent])).toEqual([
+        ['beads:app-1fm', 'app-wqe'],
+      ])
+    },
+  )
+
+  test(
+    'reads again at the next poll when br is installed after a missing-br failure',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on)
+      world.files.delete(BR_BIN)
+      world.answer = ALLOW
+      const missing = await startSession($, clock, true, stateIs('failed'))
+      expect(missing.reason).toBe(
+        'br is not on PATH. Install br to list the open items of .beads/issues.jsonl, which is over 4 MiB.',
+      )
+      world.files.set(BR_BIN, { text: 'binary', mtimeMs: 1 })
+      world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN })
+      const snapshot = await pollUntil($, clock, 2_000, stateIs('ok'))
+      expect(snapshot.items).toEqual(BR_ITEMS)
+    },
+  )
+
+  test(
+    'asks again at the next poll when br moves to a new real path',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBr($, on)
+      world.files.set('/opt/br-2/br', { text: 'binary', mtimeMs: 1 })
+      world.links.set(BR_BIN, '/opt/br-2/br')
+      world.answer = 'Not now'
+      const snapshot = await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
+      expect(world.asks[1]?.question).toContain('"/opt/br-2/br" "list"')
+      expect(snapshot.items).toEqual([])
     },
   )
 

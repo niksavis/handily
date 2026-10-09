@@ -176,11 +176,20 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
   }
 }
 
+type DiffRules = {
+  isMissingClosed: boolean
+  wasOpenOnly: boolean
+  ignoresParent: boolean
+}
+
+function comparable(item: WorkitemsItem, ignoresParent: boolean): string {
+  return JSON.stringify(ignoresParent ? { ...item, parent: undefined } : item)
+}
+
 export function diffItems(
   before: readonly WorkitemsItem[],
   after: readonly WorkitemsItem[],
-  isMissingClosed = false,
-  wasOpenOnly = false,
+  { isMissingClosed, wasOpenOnly, ignoresParent }: DiffRules,
 ): WorkitemsDiff {
   const previous = new Map(before.map((item) => [item.key, item]))
   const diff = {
@@ -194,7 +203,9 @@ export function diffItems(
     if (wasClosedBefore) continue
     if (!old) diff.created.push(item)
     else if (old.status !== 'closed' && item.status === 'closed') diff.closed.push(item)
-    else if (JSON.stringify(old) !== JSON.stringify(item)) diff.updated.push(item)
+    else if (comparable(old, ignoresParent) !== comparable(item, ignoresParent)) {
+      diff.updated.push(item)
+    }
   }
   if (!isMissingClosed) return diff
   const current = new Set(after.map((item) => item.key))
@@ -266,6 +277,7 @@ type ReadResult = {
   data: SnapshotData
   baselineItems: readonly WorkitemsItem[] | undefined
   listsOpenOnly: boolean
+  omitsParent: boolean
 }
 
 const MAX_SHOWN_TEXT = 1000
@@ -300,6 +312,7 @@ async function readSource(
     return {
       baselineItems: undefined,
       listsOpenOnly: false,
+      omitsParent: false,
       data: { ...sourced, state: outcome.state, reason: null, sourceLabel: outcome.sourceLabel },
     }
   }
@@ -307,6 +320,7 @@ async function readSource(
     return {
       baselineItems: undefined,
       listsOpenOnly: false,
+      omitsParent: false,
       data: {
         ...sourced,
         state: outcome.state,
@@ -319,6 +333,7 @@ async function readSource(
     return {
       baselineItems: undefined,
       listsOpenOnly: false,
+      omitsParent: false,
       data: {
         state: 'failed',
         reason: shownReason(reader, outcome.reason),
@@ -334,6 +349,7 @@ async function readSource(
   return {
     baselineItems: outcome.items,
     listsOpenOnly: outcome.listsOpenOnly === true,
+    omitsParent: outcome.omitsParent === true,
     data: {
       state: 'ok',
       reason: null,
@@ -352,6 +368,7 @@ function noTracker(root: string, lookedFor: `looked for ${string}`): ReadResult 
   return {
     baselineItems: [],
     listsOpenOnly: false,
+    omitsParent: false,
     data: {
       state: 'no-tracker',
       reason: lookedFor,
@@ -377,6 +394,7 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
         source: string | null
         items: readonly WorkitemsItem[]
         listsOpenOnly: boolean
+        omitsParent: boolean
       }
     | undefined
   let lastSignature: string | undefined
@@ -443,12 +461,23 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     const isSameSource = baseline?.source === source
     const isMissingClosed = result.listsOpenOnly && isSameSource
     const wasOpenOnly = isSameSource && baseline?.listsOpenOnly === true
+    const ignoresParent = result.omitsParent || baseline?.omitsParent === true
     const diff =
       result.baselineItems !== undefined && baseline?.root === root
-        ? diffItems(baseline.items, result.baselineItems, isMissingClosed, wasOpenOnly)
+        ? diffItems(baseline.items, result.baselineItems, {
+            isMissingClosed,
+            wasOpenOnly,
+            ignoresParent,
+          })
         : emptyDiff()
     if (result.baselineItems !== undefined) {
-      baseline = { root, source, items: result.baselineItems, listsOpenOnly: result.listsOpenOnly }
+      baseline = {
+        root,
+        source,
+        items: result.baselineItems,
+        listsOpenOnly: result.listsOpenOnly,
+        omitsParent: result.omitsParent,
+      }
     }
     version = nextVersion
     history.push({ version, diff })

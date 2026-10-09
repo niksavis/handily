@@ -44,6 +44,7 @@ export type ReadOutcome =
       caveat: string | null
       adapterWrites?: WorkitemsAdapterWrites
       listsOpenOnly?: true
+      omitsParent?: true
     }
   | { ok: false; reason: WorkitemsFailedReason }
   | { ok: false; state: 'approval-needed'; command: string; sourceLabel: string }

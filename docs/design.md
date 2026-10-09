@@ -240,10 +240,15 @@ beads and br:
   the label "possibly stale" (review decision 8).
 - Over 4 MiB the engine cannot read the file. The provider then runs `br list --json --limit 0`
   from `PATH`, after approval. The key is the root, the argv and the resolved `argv[0]`, with no
-  repo file, because `br` runs no repo code. `br list` lists every item that is not closed, so
-  the outcome is open-only: a missing item reads as closed. A cut output, a non-zero exit, bad
-  JSON, `has_more` not `false` or a `total` that differs from the count fails by name and shows
-  no item. On Dolt (`bd`) a file over 4 MiB fails by name and runs nothing (handily-vli6x).
+  repo file and no hash of `br`. On br 0.3.2 `br list` wrote its git-ignored `.beads` cache, not
+  `issues.jsonl`, and started no spied program from `PATH`. A program started by an absolute
+  path was not ruled out. A new `br` at the same path is not asked again. `br list` lists every
+  item that is not closed, so the outcome is open-only: a missing item reads as closed. A cut
+  output, a non-zero exit, bad JSON, `has_more` not `false` or a `total` that differs from the
+  count fails by name and shows no item. `br list` gives no `parent`, so a diff across the
+  switch ignores `parent`. The poll signature holds the resolved `br`, so installing or moving
+  it reads again. On Dolt (`bd`) a file over 4 MiB fails by name and runs nothing
+  (handily-vli6x).
 
 beans:
 

@@ -15,7 +15,7 @@ const BR = 'br'
 const LIST_COMMAND = [BR, 'list', '--json', '--limit', '0'] as const
 const LIST_LABEL = 'br list'
 const BR_NOTE =
-  '(br reads the .beads data and runs no code from the repo; asked again if the command or the real path of br changes)'
+  '(checked on br 0.3.2: br list writes the .beads cache beads.db and beads.base.jsonl, imports an edited issues.jsonl into beads.db and does not rewrite issues.jsonl. It started no git, sh, bash, python3, node, env, editor or vi from PATH. A program that it starts by an absolute path was not ruled out. Asked again if the command or the real path of br changes. A new br at the same path is not asked again)'
 const SEE_WHY =
   'Run "br list --json --limit 0" at the repo root to see why the list could not be read.'
 const TOO_MANY_OPEN = 'Close some open items, because their list is over 4 MiB.'
@@ -227,6 +227,7 @@ async function listOpenThroughBr(files: TrackerFiles): Promise<ReadOutcome> {
       sourceLabel: BR_SOURCE_LABEL,
       caveat: null,
       listsOpenOnly: true,
+      omitsParent: true,
     }
   } catch (error) {
     if (error instanceof ItemFault) return { ok: false, reason: reasonWithFix(error) }
@@ -271,7 +272,8 @@ async function beadsSignature(files: TrackerFiles): Promise<string> {
   const { size, mtimeMs } = await files.stat(ISSUES_FILE)
   const stamp = [String(mtimeMs), String(size)]
   if (size <= MAX_FILE_BYTES) return stamp.join('\n')
-  return [...stamp, String(files.commands.approvals.generation())].join('\n')
+  const br = (await files.commands.which(BR)) ?? 'br not on PATH'
+  return [...stamp, br, String(files.commands.approvals.generation())].join('\n')
 }
 
 export const beadsReader: Reader = {

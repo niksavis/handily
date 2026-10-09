@@ -99,8 +99,11 @@ The engine reads no file over 4 MiB. So the size of `.beads/issues.jsonl` choose
 
 - Until you approve the run, the state is `approval-needed`. On a surface that cannot run a
   command, the state is `terminal-only`.
-- The poll reads again when the size or the modification time of the file changes, and after
-  you approve `br list`.
+- The poll reads again when the size or the modification time of the file changes, when the
+  real path of `br` on `PATH` changes, for example when you install or move `br`, and after you
+  approve `br list`.
+- When the read changes between the file and `br`, `refresh()` compares the items without
+  `parent`. So a child item that did not change is not reported as updated.
 - When the file shrinks to 4 MiB or less, the mod reads the file itself again. A closed item
   that the `br` list did not hold is then not reported as created.
 
@@ -302,12 +305,20 @@ approval, because you typed its command yourself.
 `br list --json --limit 0` follows the same rules as basicly above, with one difference in what
 the approval covers:
 
-- The key holds the repo root, the command and the real path of `br`. It holds no repo file,
-  because `br` is a program outside the repo that reads only the `.beads` data. The
-  `capabilities` command of br 0.3.2 marks `list` as a read command.
-- The question says that `br` reads the `.beads` data and runs no code from the repo.
-- A new `br` at a new real path asks again. A `br` that changes at the same real path does not,
-  because the key holds the path, not a hash of the program.
+- The key holds the repo root, the command and the real path of `br`. It holds no repo file
+  and no hash of the `br` program.
+- A new `br` at a new real path asks again. A new `br` at the same real path does not ask
+  again, because the key holds the path, not the content of the program.
+- These facts about `br list --json --limit 0` were checked on br 0.3.2 on 2026-10-09. The
+  question names them in short:
+
+  | Checked                         | Result                                                                                                                                                             |
+  | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | Files that it writes            | The git-ignored cache `.beads/beads.db` and `.beads/beads.base.jsonl`. It imports an edited `issues.jsonl` into the cache. It does not rewrite `issues.jsonl`      |
+  | Programs that it starts by name | None of `git`, `sh`, `bash`, `python3`, `node`, `env`, `editor` and `vi`, each placed first on `PATH` as a spy. A control call proved that the spies record a call |
+  | Programs that it starts by path | Not ruled out. No system call tracer was available                                                                                                                 |
+  | `.beads/config.yaml`            | Holds the prefix, defaults and sync settings. `br config list` shows no key that names a command                                                                   |
+
 - The key holds no repo file, so the mod never runs a version check of `br`.
 - The mod refuses a `br` whose real path is inside the repo root.
 
