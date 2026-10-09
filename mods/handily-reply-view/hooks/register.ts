@@ -9,7 +9,7 @@ const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
 const DRAWN_CHARACTERS_AT_MOST = 60_000
 
 const ON_TEXT =
-  'on for this session. A reply longer than 12 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons.'
+  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons.'
 const OFF_TEXT = 'off for this session. Replies draw as Claude Code draws them.'
 const USAGE_TEXT = '/replies takes no argument. It turns the reply view off or on for this session.'
 

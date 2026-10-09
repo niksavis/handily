@@ -227,6 +227,17 @@ const TABLE = [
   '| **simple-view** | `released` | click to expand |',
 ].join('\n')
 
+const LONG_TABLE = [
+  '| Mod | Change | Risk | Owner |',
+  '| --- | --- | --- | --- |',
+  '| reply-view | Tables wrap their long cells inside their columns and keep the rows aligned | A wide table can still take many lines on a narrow screen | Ana |',
+  '| task-pane | Each task tool call draws as one row | Low | Bo |',
+].join('\n')
+
+function placed(parts: readonly (readonly [number, string])[]): string {
+  return parts.reduce((line, [column, text]) => line.padEnd(column) + text, '')
+}
+
 const FAMILY = '👨\u200d👩\u200d👧'
 
 const FENCE = [
@@ -241,29 +252,29 @@ const FENCE = [
 describe('long reply', () => {
   for (const surface of SURFACES) {
     viewTest(
-      `a reply of 12 lines or fewer draws as the engine draws it on ${surface}`,
+      `a reply of 30 lines or fewer draws as the engine draws it on ${surface}`,
       async (_world, $) => {
-        const ui = await mountReply($, reply(shownLines(1, 12).join('\n')), surface)
+        const ui = await mountReply($, reply(shownLines(1, 30).join('\n')), surface)
         expect(await ui.drawn()).toEqual(ENGINE_ROW)
         await ui.unmount()
       },
     )
 
     viewTest(
-      `a reply longer than 12 lines draws its first lines, the hidden count, more and copy on ${surface}`,
+      `a reply longer than 30 lines draws its first lines, the hidden count, more and copy on ${surface}`,
       async (_world, $) => {
         const ui = await mountReply($, reply(LONG_REPLY), surface)
         const folded = await sketchOf(ui)
         if (surface === 'terminal') {
           expect(folded).toEqual([
             '● Line 1',
-            ...shownLines(2, 12),
-            edges('  ~… 42 more lines~', '[ more ] [ copy ]'),
+            ...shownLines(2, 30),
+            edges('  ~… 24 more lines~', '[ more ] [ copy ]'),
           ])
         } else {
           expect(folded).toEqual([
-            ...shownLines(1, 12).map((line) => line.trim()),
-            edges('~… 42 more lines~', '[ more ] [ copy ]'),
+            ...shownLines(1, 30).map((line) => line.trim()),
+            edges('~… 24 more lines~', '[ more ] [ copy ]'),
           ])
         }
         await ui.unmount()
@@ -280,7 +291,7 @@ describe('long reply', () => {
       edges('', '[ less ] [ copy ]'),
     ])
     await ui.press({ key: 'fold' })
-    expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 42 more lines~', '[ more ] [ copy ]'))
+    expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
     await ui.unmount()
   })
 
@@ -304,18 +315,27 @@ describe('long reply', () => {
     'counts a long line by the rows it wraps to and cuts it at a word',
     async (_world, $) => {
       const long = Array.from({ length: 60 }, (_, index) => `word${String(index)}`).join(' ')
-      const text = [long, '', long, '', long, '', long].join('\n')
+      const text = [long, '', long, '', long, '', long, '', long, '', long].join('\n')
       const ui = await mountReply($, reply(text))
       const folded = await sketchOf(ui)
       const rowsOfLong = Math.ceil(long.length / (COLUMNS - 2))
       expect(rowsOfLong).toBe(6)
-      expect(folded).toHaveLength(4)
-      expect(folded.slice(0, 2)).toEqual([`● ${long}`, ''])
-      const cut = folded[2] ?? ''
+      expect(folded).toHaveLength(10)
+      expect(folded.slice(0, 8)).toEqual([
+        `● ${long}`,
+        '',
+        `  ${long}`,
+        '',
+        `  ${long}`,
+        '',
+        `  ${long}`,
+        '',
+      ])
+      const cut = folded[8] ?? ''
       expect(cut).toMatch(/^ {2}word0 word1( word\d+)* word\d+…$/)
-      expect(cut.length - 2).toBeLessThanOrEqual(5 * (COLUMNS - 2))
+      expect(cut.length - 2).toBeLessThanOrEqual(2 * (COLUMNS - 2))
       expect(long.startsWith(cut.slice(2, -1))).toBe(true)
-      expect(folded[3]).toBe(edges('  ~… 15 more lines~', '[ more ] [ copy ]'))
+      expect(folded[9]).toBe(edges('  ~… 11 more lines~', '[ more ] [ copy ]'))
       await ui.unmount()
     },
   )
@@ -324,13 +344,13 @@ describe('long reply', () => {
     'a reply that grows while it streams keeps its first lines in place',
     async (_world, $) => {
       const lines = LONG_REPLY.split('\n')
-      const ui = await mountReply($, reply(lines.slice(0, 20).join('\n')))
+      const ui = await mountReply($, reply(lines.slice(0, 40).join('\n')))
       const early = await sketchOf(ui)
       await ui.redraw(reply(LONG_REPLY))
       const later = await sketchOf(ui)
-      expect(later.slice(0, 12)).toEqual(early.slice(0, 12))
-      expect(early.at(-1)).toBe(edges('  ~… 8 more lines~', '[ more ] [ copy ]'))
-      expect(later.at(-1)).toBe(edges('  ~… 42 more lines~', '[ more ] [ copy ]'))
+      expect(later.slice(0, 30)).toEqual(early.slice(0, 30))
+      expect(early.at(-1)).toBe(edges('  ~… 10 more lines~', '[ more ] [ copy ]'))
+      expect(later.at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
       await ui.unmount()
     },
   )
@@ -363,10 +383,9 @@ describe('tables', () => {
       expect(await sketchOf(ui)).toEqual([
         '● The state of the mods:',
         '',
-        '  *Mod           State      Next*',
+        '  *Mod           State      Next*  [ copy ] [ copy as text ]',
         '  task-pane     released   follows the work',
         '  simple-view   released   click to expand',
-        '                  [ copy ] [ copy as text ]',
       ])
       const header = await ui.find({ key: 'header' })
       expect(header?.text).toBe('Mod           State      Next')
@@ -375,22 +394,158 @@ describe('tables', () => {
     },
   )
 
-  viewTest('a table that does not fit the width draws one block per row', async (_world, $) => {
-    const ui = await mountReply($, reply(TABLE), 'terminal', 36)
-    expect(await sketchOf(ui, 36)).toEqual([
-      '● The state of the mods:',
-      '',
-      '  *task-pane*',
-      '    State: released',
-      '    Next:  follows the work',
-      '',
-      '  *simple-view*',
-      '    State: released',
-      '    Next:  click to expand',
-      '           [ copy ] [ copy as text ]',
-    ])
-    await ui.unmount()
-  })
+  viewTest(
+    'a table that does not fit 39 columns draws one block per row with the buttons on the first title',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(TABLE), 'terminal', 39)
+      expect(await sketchOf(ui, 39)).toEqual([
+        '● The state of the mods:',
+        '',
+        '  *task-pane*  [ copy ] [ copy as text ]',
+        '    State: released',
+        '    Next:  follows the work',
+        '',
+        '  *simple-view*',
+        '    State: released',
+        '    Next:  click to expand',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a block title too long to sit beside the buttons goes under them',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(TABLE), 'terminal', 36)
+      expect((await sketchOf(ui, 36)).slice(2, 5)).toEqual([
+        '           [ copy ] [ copy as text ]',
+        '  *task-pane*',
+        '    State: released',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a table that does not fit 40 columns wraps its cells inside their columns',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(TABLE), 'terminal', 40)
+      expect((await sketchOf(ui, 40)).slice(2)).toEqual([
+        '  *Mod*        [ copy ] [ copy as text ]',
+        `  *${placed([
+          [14, 'State'],
+          [25, 'Next'],
+        ])}*`,
+        '  task-pane     released   follows the',
+        `  ${placed([[25, 'work']])}`,
+        '  simple-view   released   click to',
+        `  ${placed([[25, 'expand']])}`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a wide table with long cells wraps them at 80 columns and keeps every heading on the header rows',
+    async (world, $) => {
+      const ui = await mountReply($, reply(LONG_TABLE))
+      expect(await sketchOf(ui)).toEqual([
+        `● *${placed([
+          [0, 'Mod'],
+          [13, 'Change'],
+          [47, 'Risk'],
+        ])}*  [ copy ] [ copy as text ]`,
+        `  *${placed([[73, 'Owner']])}*`,
+        `  ${placed([
+          [0, 'reply-view'],
+          [13, 'Tables wrap their long cells'],
+          [47, 'A wide table can still'],
+          [73, 'Ana'],
+        ])}`,
+        `  ${placed([
+          [13, 'inside their columns and keep'],
+          [47, 'take many lines on a'],
+        ])}`,
+        `  ${placed([
+          [13, 'the rows aligned'],
+          [47, 'narrow screen'],
+        ])}`,
+        `  ${placed([
+          [0, 'task-pane'],
+          [13, 'Each task tool call draws as'],
+          [47, 'Low'],
+          [73, 'Bo'],
+        ])}`,
+        `  ${placed([[13, 'one row']])}`,
+      ])
+      await ui.press({ key: 'block-0-text' })
+      expect(world.copies).toEqual([
+        [
+          'Mod: reply-view',
+          'Change: Tables wrap their long cells inside their columns and keep the rows aligned',
+          'Risk: A wide table can still take many lines on a narrow screen',
+          'Owner: Ana',
+          '',
+          'Mod: task-pane',
+          'Change: Each task tool call draws as one row',
+          'Risk: Low',
+          'Owner: Bo',
+        ].join('\n'),
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a wide table at 120 columns wraps in columns and puts the buttons on its first header row',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(LONG_TABLE), 'terminal', 120)
+      const drawn = await sketchOf(ui, 120)
+      expect(drawn[0]).toBe(
+        `● *${placed([
+          [0, 'Mod'],
+          [13, 'Change'],
+          [69, 'Risk'],
+        ])}*${' '.repeat(118 - 75 - 25)}[ copy ] [ copy as text ]`,
+      )
+      expect(drawn.slice(1)).toEqual([
+        `  *${placed([[113, 'Owner']])}*`,
+        `  ${placed([
+          [0, 'reply-view'],
+          [13, 'Tables wrap their long cells inside their columns and'],
+          [69, 'A wide table can still take many lines on'],
+          [113, 'Ana'],
+        ])}`,
+        `  ${placed([
+          [13, 'keep the rows aligned'],
+          [69, 'a narrow screen'],
+        ])}`,
+        `  ${placed([
+          [0, 'task-pane'],
+          [13, 'Each task tool call draws as one row'],
+          [69, 'Low'],
+          [113, 'Bo'],
+        ])}`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a table of a header and 29 rows takes 30 lines and does not fold',
+    async (_world, $) => {
+      const rows = Array.from({ length: 29 }, (_, index) => `| row ${String(index + 1)} | ok |`)
+      const ui = await mountReply(
+        $,
+        reply(['| Name | State |', '| --- | --- |', ...rows].join('\n')),
+      )
+      const drawn = await sketchOf(ui)
+      expect(drawn).toHaveLength(30)
+      expect(drawn[0]).toBe('● *Name     State*  [ copy ] [ copy as text ]')
+      expect(drawn.at(-1)).toBe('  row 29   ok')
+      await ui.unmount()
+    },
+  )
 
   viewTest(
     'copy copies the table as markdown and copy as text copies label and value lines',
@@ -419,7 +574,7 @@ describe('tables', () => {
     const table = ['| Mod | Tests |', '| :-- | --: |', '| a | 7 |', '| b | 140 |'].join('\n')
     const ui = await mountReply($, reply(table))
     expect((await sketchOf(ui)).slice(0, 3)).toEqual([
-      '● *Mod   Tests*',
+      '● *Mod   Tests*  [ copy ] [ copy as text ]',
       '  a         7',
       '  b       140',
     ])
@@ -439,12 +594,11 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        '● *Path          Glob*',
+        '● *Path          Glob*  [ copy ] [ copy as text ]',
         '  __init__.py   **/*.ts',
         '  ~~x~~         [x](y)',
         '  C:\\*          bold code',
         '  a | b         docs',
-        '  [ copy ] [ copy as text ]',
       ])
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual([
@@ -459,7 +613,7 @@ describe('tables', () => {
           'Glob: bold code',
           '',
           'Path: a | b',
-          'Glob: docs',
+          'Glob: docs (https://x.example)',
         ].join('\n'),
       ])
       await ui.unmount()
@@ -502,9 +656,8 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(text))
       expect(await sketchOf(ui)).toEqual([
-        '● *Name      Value*',
+        '● *Name      Value*  [ copy ] [ copy as text ]',
         '  example   ok',
-        '  [ copy ] [ copy as text ]',
         '',
         `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
         '  echo a | cat',
@@ -521,9 +674,8 @@ describe('tables', () => {
       const text = '| Very long heading | Another very long heading |\n| --- | --- |'
       const ui = await mountReply($, reply(text), 'terminal', 30)
       expect(await sketchOf(ui, 30)).toEqual([
-        '● *Very long heading*',
+        '● *Very long heading*  [ copy ]',
         '  *Another very long heading*',
-        '                      [ copy ]',
       ])
       await ui.unmount()
     },
@@ -542,7 +694,7 @@ describe('tables', () => {
     ].join('\n')
     const ui = await mountReply($, reply(text))
     expect((await sketchOf(ui)).slice(0, 7)).toEqual([
-      '● *Check    Result   Note*',
+      '● *Check    Result   Note*  [ copy ] [ copy as text ]',
       '  build    ✅       ok',
       '  lint     ❌       ok',
       '  ship     🚀       ok',
@@ -561,9 +713,37 @@ describe('tables', () => {
       )
       const ui = await mountReply($, reply(text), 'terminal', 26)
       expect(await sketchOf(ui, 26)).toEqual([
-        '● *build*',
+        '● [ copy ] [ copy as text ]',
+        '  *build*',
         `    State: ${'✅'.repeat(10)}`,
-        '  [ copy ] [ copy as text ]',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'copy as text drops markdown marks, escapes and entities and keeps the address of a link',
+    async (world, $) => {
+      const table = [
+        '| Item | Note |',
+        '| --- | --- |',
+        '| \\#1 | _draft_ &amp; <https://x.example> |',
+        '| [docs](https://x.example/a_b) | 5 \\* 3 &lt; 4 |',
+      ].join('\n')
+      const ui = await mountReply($, reply(table))
+      expect((await sketchOf(ui)).slice(1)).toEqual([
+        '  #1     draft & https://x.example',
+        '  docs   5 * 3 < 4',
+      ])
+      await ui.press({ key: 'block-0-text' })
+      expect(world.copies).toEqual([
+        [
+          'Item: #1',
+          'Note: draft & https://x.example',
+          '',
+          'Item: docs (https://x.example/a_b)',
+          'Note: 5 * 3 < 4',
+        ].join('\n'),
       ])
       await ui.unmount()
     },
@@ -661,9 +841,9 @@ describe('/replies', () => {
       const table = await mountReply($, reply(TABLE), 'terminal', COLUMNS, 'message-2')
       expect(await table.drawn()).toEqual(ENGINE_ROW)
       expect(await commandText($)).toBe(
-        'on for this session. A reply longer than 12 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons.',
+        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons.',
       )
-      expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 42 more lines~', '[ more ] [ copy ]'))
+      expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
       await ui.unmount()
       await table.unmount()
     },

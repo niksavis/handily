@@ -22,11 +22,25 @@ const DELIMITER_CELL = /^:?-+:?$/
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 const KEPT_CONTROLS: ReadonlySet<string> = new Set(['\t', '\n'])
 const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
-const LINK = /!?\[([^\]]*)\]\([^)]*\)/g
+const LINK = /!?\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g
+const AUTOLINK = /<((?:https?:\/\/|mailto:)[^>\s]+)>/g
 const PAIRED_MARK = /(\*\*|__|~~)(.+?)\1/g
-const ESCAPE_OR_CODE_SPAN = /\\([\\`*_~|[\]])|`([^`]*)`/g
+const ESCAPE_OR_CODE_SPAN = /\\([\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e])|`([^`]*)`/g
 const PRIVATE_USE_START = 0xe000
 const STAR_EMPHASIS = /\*(\S(?:[^*]*\S)?)\*/g
+const UNDERSCORE_EMPHASIS = /(^|[^\p{L}\p{N}_])_([^\s_](?:[^_]*[^\s_])?)_(?![\p{L}\p{N}_])/gu
+const ENTITY = /&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|(amp|lt|gt|quot|apos|nbsp));/g
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00a0',
+}
+const LAST_CODE_POINT = 0x10ffff
+const FIRST_SURROGATE = 0xd800
+const LAST_SURROGATE = 0xdfff
 const LINE_BREAK_TAG = /<br\s*\/?>/gi
 const INDENTED_CODE = /^(?: {4}|\t)/
 const LEADING_SPACES = /^ */
@@ -57,23 +71,54 @@ function unusedCharacter(text: string): string {
   return String.fromCodePoint(code)
 }
 
-export function plainCell(cell: string): string {
+function entityText(found: string, decimal?: string, hex?: string, name?: string): string {
+  if (name !== undefined) return NAMED_ENTITIES[name] ?? found
+  const code = decimal === undefined ? Number.parseInt(hex ?? '', 16) : Number(decimal)
+  const isSurrogate = code >= FIRST_SURROGATE && code <= LAST_SURROGATE
+  const isCharacter = code > 0 && code <= LAST_CODE_POINT && !isSurrogate
+  return isCharacter ? String.fromCodePoint(code) : found
+}
+
+type Hold = (literal: string) => string
+
+function linkOf(text: string, address: string, keepsAddress: boolean, hold: Hold): string {
+  if (text === '') return hold(address)
+  return !keepsAddress || address === '' || address === text ? text : `${text} (${hold(address)})`
+}
+
+function plainText(cell: string, keepsAddress: boolean): string {
   const mark = unusedCharacter(cell)
   const literals: string[] = []
-  const held = cell.replace(ESCAPE_OR_CODE_SPAN, (_found, escaped?: string, code?: string) => {
-    literals.push(escaped ?? code ?? '')
+  const hold: Hold = (literal) => {
+    literals.push(literal)
     return `${mark}${String(literals.length - 1)}${mark}`
-  })
+  }
+  const held = cell.replace(ESCAPE_OR_CODE_SPAN, (_found, escaped?: string, code?: string) =>
+    hold(escaped ?? code ?? ''),
+  )
   return held
     .replace(LINE_BREAK_TAG, ' ')
-    .replace(LINK, '$1')
+    .replace(LINK, (_found, text: string, address: string) =>
+      linkOf(text, address, keepsAddress, hold),
+    )
+    .replace(AUTOLINK, (_found, address: string) => hold(address))
     .replace(PAIRED_MARK, '$2')
     .replace(STAR_EMPHASIS, '$1')
+    .replace(UNDERSCORE_EMPHASIS, '$1$2')
+    .replace(ENTITY, entityText)
     .replace(
       new RegExp(`${mark}(\\d+)${mark}`, 'gu'),
       (_found, index: string) => literals[Number(index)] ?? '',
     )
     .replace(/\t/g, ' ')
+}
+
+export function plainCell(cell: string): string {
+  return plainText(cell, false)
+}
+
+export function copiedCell(cell: string): string {
+  return plainText(cell, true)
 }
 
 export function cellsOf(line: string): string[] {
