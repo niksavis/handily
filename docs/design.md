@@ -66,6 +66,30 @@ Why `commit-link` and `handover` were dropped:
 | E | CLI adapter command (2026-10-08) | A repo never names a command to run. The person lists the adapter argv in `~/.config/handily/adapters.json`, keyed on the exact real path of the repo root. Typing that line is the consent, so the adapter runs with no approval ask. A repo `.handily.json` that names a command fails, names the user file and the root, and never repeats the command. The consent covers the command, not one version of the code |
 | F | Ask once for basicly (2026-10-08, handily-szdh) | Ask once and keep the answer. No basicly command, `--version` included, runs before the person approves the repo. After approval, a kit change runs the approved program's `--version`. The verdict is kept in memory only, keyed on the approval key and the size and modification time of the program file, so a kit change or a reinstall at the same path runs `--version` again. The guarantee that holds on every path is older: `tracker items` first shipped in basicly 0.21.1, the release that stopped running the repo kit, so a basicly that runs repo kit code fails this read by name before any kit code runs (handily-8mjdz). An approval of `basicly tracker list` does not cover `basicly tracker items`, so the person approves once again. A read without approval through an isolated interpreter was dropped: two reviews each found a way for repo code to run before any check |
 
+### Plugin names (2026-10-09, handily-wltuw)
+
+The person decided on 2026-10-09 to start the plugin name of each mod with `handily-`. The
+marketplace lists many plugins, and a short name such as `workitems` did not show that it
+belongs to handily.
+
+| Part | Choice |
+| --- | --- |
+| Plugin name, folder and marketplace entry | `handily-<mod>`, such as `handily-workitems` |
+| Bundle | Keeps the name `handily` |
+| Slash commands | Keep their short names: `/task`, `/simple`, `/replies`, `/agent-board`, `/session-board`, `/quiet-items`, `/handily` |
+| Command description | Starts with `handily ·`, so the menu shows where a command comes from |
+| `$.state` keys, `dependencies` and contract folders | Use the new name, because `$.state.set` writes only the value of the calling plugin |
+| Model tools of task-pane | `mcp__handily-task-pane__<name>`, because the engine names a tool after its plugin |
+| Release | One release of every mod. A new tag is `handily-<mod>--v<version>`. The old tags stay |
+| Old ids | `/handily` names each old id that the user, project or local settings still hold, and prints `claude plugin uninstall <old id> --scope <scope>` |
+
+On Claude Code 2.1.295 an update of the bundle from 0.2.0 to 0.3.0 did not install its new
+dependency `reply-view` (measured by the person). So an update after the rename leaves the old
+ids installed and the new ids missing. With both installed, the two copies collide (measured
+with `--plugin-dir` beside the old installed ids): Claude Code refused the commands of one
+copy, and `handily-workitems` did not load, because `workitems` had already added
+`$.workitems`.
+
 ### Signals and colours (2026-10-09, handily-fwkt.8.14)
 
 The person approved this set of marks on 2026-10-09. Every pane draws a state with the same mark
@@ -125,7 +149,7 @@ Sources: the bundled `plugin-authoring` skill (its `reference.md` and the genera
   `claude-code/testing`) and `tsc -p <mod>`.
 - Development load: `claude --plugin-dir <mod>` or `CLAUDE_CODE_PLUGIN_DIRS`.
 - Sharing: `.claude-plugin/marketplace.json` at the repo root lists each mod by a relative
-  `source`. The install line is `/plugin install <mod> --marketplace niksavis/handily`.
+  `source`. The install line is `/plugin install handily-<mod> --marketplace niksavis/handily`.
 - A mod can add a typed noun to `$` in `engine.create` and ship its contract as
   `types/index.d.ts`. A dependent mod lists it under `dependencies` in `plugin.json`.
 - `$.fs` has no watch function. A mod cannot watch a file through `$.fs`.
@@ -148,7 +172,7 @@ API surfaces each mod needs:
 
 ### 4.1 workitems (provider)
 
-Adds the noun `$.workitems` with a typed contract. Other mods list `workitems` under
+Adds the noun `$.workitems` with a typed contract. Other mods list `handily-workitems` under
 `dependencies`.
 
 Detection:
@@ -515,8 +539,8 @@ Engine facts (Claude Code 2.1.294, from the generated types and two live probes)
 
 Defer to quiet-items:
 
-- `simple-view` lists `quiet-items` under `dependencies`, so the `quiet-items` contract types
-  the read of its `rows` key.
+- `handily-simple-view` lists `handily-quiet-items` under `dependencies`, so the `quiet-items`
+  contract types the read of its `rows` key.
 - When `quiet-items` stored rows for a call and its `mode` key is not `off`, both renders go
   to `next(e)`. quiet-items stores rows also while its mode is off, so the mod reads the mode
   (unset means on, as in quiet-items).
@@ -539,11 +563,15 @@ Defer to quiet-items:
 handily/
   .claude-plugin/marketplace.json   generated from mods/*/.claude-plugin/plugin.json
   mods/
-    workitems/      .claude-plugin/plugin.json, hooks/, types/index.d.ts, tests
-    quiet-items/
-    task-pane/
-    session-board/
-    item-toasts/
+    handily/                the bundle
+    handily-workitems/      .claude-plugin/plugin.json, hooks/, types/index.d.ts, tests
+    handily-quiet-items/
+    handily-task-pane/
+    handily-session-board/
+    handily-item-toasts/
+    handily-agent-board/
+    handily-simple-view/
+    handily-reply-view/
   docs/design.md
   package.json      typescript, linter, scripts that run tsc, validate and test on each mod
 ```

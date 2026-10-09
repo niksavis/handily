@@ -11,16 +11,20 @@ Status: in development. No mod is released yet. See [docs/design.md](docs/design
 
 ## Mods (planned)
 
+Each mod has a plugin name that starts with `handily-`. Its slash commands keep their short
+names, such as `/task` and `/simple`, and each command description in the menu starts with
+`handily ·`.
+
 | Mod | What you see |
 | --- | --- |
-| `workitems` | Nothing. It is the provider that reads work items for the other mods |
-| `quiet-items` | One short row in place of a raw tracker file write |
-| `task-pane` | Claude's task list in a sidebar. You can add and remove tasks |
-| `session-board` | All local Claude sessions: task, worktree, time worked, estimate |
-| `item-toasts` | A toast when a work item changes outside your session |
-| `agent-board` | A pane with what each subagent of this session does |
-| `simple-view` | One concise row per Bash, Edit and Write call, with buttons to open and copy its output; `/simple` switches it |
-| `reply-view` | Long replies fold after 12 lines, tables draw without box lines, and tables and code blocks get copy buttons; `/replies` switches it |
+| `handily-workitems` | Nothing. It is the provider that reads work items for the other mods |
+| `handily-quiet-items` | One short row in place of a raw tracker file write |
+| `handily-task-pane` | Claude's task list in a sidebar. You can add and remove tasks |
+| `handily-session-board` | All local Claude sessions: task, worktree, time worked, estimate |
+| `handily-item-toasts` | A toast when a work item changes outside your session |
+| `handily-agent-board` | A pane with what each subagent of this session does |
+| `handily-simple-view` | One concise row per Bash, Edit and Write call, with buttons to open and copy its output; `/simple` switches it |
+| `handily-reply-view` | Long replies fold after 12 lines, tables draw without box lines, and tables and code blocks get copy buttons; `/replies` switches it |
 | `handily` | The bundle of all the mods above. `/handily` shows which mods loaded |
 
 ## Install
@@ -49,12 +53,12 @@ list gives the line that installs it.
 To update, run this line in a shell, then restart Claude Code. `claude plugin update` takes
 one plugin, and the bundle install does not update a mod that is already installed, so the
 line updates the bundle and each mod in turn. A mod that came into the bundle after your
-install, such as `agent-board`, `simple-view` or `reply-view`, fails the update with
-`Plugin "<name>" is not installed`, and the line installs it by its name instead. It then
+install fails the update with `Plugin "<name>" is not installed`, and the line installs it by
+its name instead. It then
 stays until you uninstall it by name. The line is safe to run again.
 
 ```sh
-claude plugin marketplace update handily; for p in handily workitems quiet-items task-pane session-board item-toasts agent-board simple-view reply-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
+claude plugin marketplace update handily; for p in handily handily-workitems handily-quiet-items handily-task-pane handily-session-board handily-item-toasts handily-agent-board handily-simple-view handily-reply-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
 ```
 
 An update keeps the folder of the old version in `~/.claude/plugins/cache/handily/`. Claude
@@ -65,8 +69,8 @@ is not available, and `/plugin` shows which mod to enable. `claude plugin disabl
 to disable a mod while the bundle is enabled, so disable the bundle first.
 
 To install one mod only, use its name, for example
-`/plugin install quiet-items@handily`. A mod that needs `workitems` installs it too. You
-can also open `/plugin` and pick the mods from the handily marketplace.
+`/plugin install handily-quiet-items@handily`. A mod that needs `handily-workitems` installs it
+too. You can also open `/plugin` and pick the mods from the handily marketplace.
 
 To remove the bundle, type the first line in Claude Code and the second line in a shell.
 The uninstall leaves the mods in place. `claude plugin prune` then removes each mod that
@@ -81,6 +85,17 @@ claude plugin prune
 The mods run in Claude Code only. Codex reads this repository's `.agents/plugins/marketplace.json`
 first, which lists no plugins, so Codex offers none of them. If you installed a handily mod in
 Codex before that file existed, remove it with `codex plugin remove <name>@handily`.
+
+### Move from the old plugin names
+
+Before handily 0.4.0 the mods had plugin names without `handily-`, such as `workitems@handily`.
+An update does not move an old name to the new one. Claude Code keeps the old plugin installed
+and does not install the new one. When both are installed, the two copies collide: Claude Code
+refuses the commands of one copy, and `handily-workitems` does not load beside `workitems`.
+
+Type `/handily`. It names each old plugin that is still installed and prints the command that
+uninstalls it. [CHANGELOG.md](CHANGELOG.md) lists every old name, its new name and the commands
+to move.
 
 ## Requirements
 

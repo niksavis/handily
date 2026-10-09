@@ -264,7 +264,7 @@ The same rows without the markup, as the terminal draws them:
 ### A cut title, opened
 
 Pressing `…` opens the row: the full title wraps under the row, in the title column. A second
-press closes it. The open rows are kept in `$.state` (`task-pane` / `expanded`), so they stay
+press closes it. The open rows are kept in `$.state` (`handily-task-pane` / `expanded`), so they stay
 open for the session, across a redraw and a hot reload. `/clear` closes them.
 
 ```text
@@ -847,7 +847,7 @@ The error line shrinks first, then the description. The program, the state and t
                     /simple show N prints the N-th last tool call in full.
 ```
 
-Claude Code puts `simple-view:` before each reply. The input, the output and the diff are in
+Claude Code puts `handily-simple-view:` before each reply. The input, the output and the diff are in
 fenced blocks.
 
 Look choices (approved as proposed):
