@@ -50,7 +50,8 @@ Then type `/handily`. It lists each mod with its version and whether it loaded, 
 ends with one line such as `handily: 8 of 8 mods loaded`. When a mod is missing, the
 list gives the line that installs it.
 
-To update, run this line in a shell, then restart Claude Code. `claude plugin update` takes
+To update, run this line in a shell, then type `/reload-plugins` in each open session, or
+restart Claude Code. `claude plugin update` takes
 one plugin, and the bundle install does not update a mod that is already installed, so the
 line updates the bundle and each mod in turn. A mod that came into the bundle after your
 install fails the update with `Plugin "<name>" is not installed`, and the line installs it by
@@ -93,9 +94,17 @@ An update does not move an old name to the new one. Claude Code keeps the old pl
 and does not install the new one. When both are installed, the two copies collide: Claude Code
 refuses the commands of one copy, and `handily-workitems` does not load beside `workitems`.
 
-Type `/handily`. It names each old plugin that is still installed and prints the command that
-uninstalls it. [CHANGELOG.md](CHANGELOG.md) lists every old name, its new name and the commands
-to move.
+To move, run this line in a shell, then type `/reload-plugins` in each open session. It updates
+the marketplace, installs each new name and uninstalls each old name. A command for a plugin
+that you did not install fails for that plugin only.
+
+```sh
+claude plugin marketplace update handily; for p in workitems quiet-items task-pane session-board item-toasts agent-board simple-view reply-view; do claude plugin install "handily-$p@handily"; done; for p in reply-view simple-view agent-board item-toasts session-board task-pane quiet-items workitems; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
+```
+
+Then type `/handily`. It must end with `handily: 8 of 8 mods loaded`. It names each old plugin
+that is still installed, with its scope, and prints the command that uninstalls it.
+[CHANGELOG.md](CHANGELOG.md) lists every old name and its new name.
 
 ## Requirements
 
