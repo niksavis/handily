@@ -2,7 +2,7 @@ import type { EngineInterface, Register, RenderElement, RenderSurface } from 'cl
 import type { ReplyViewFold, ReplyViewMode } from '../types'
 import { DEFAULT_COLUMNS, replyTree, type ReplyActions } from './draw'
 import { blocksOf } from './markdown'
-import { promptTree } from './prompt'
+import { framedPrompt } from './prompt'
 
 const COMMAND = 'replies'
 const DEFAULT_MODE: ReplyViewMode = 'on'
@@ -10,7 +10,7 @@ const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
 const DRAWN_CHARACTERS_AT_MOST = 60_000
 
 const ON_TEXT =
-  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a dim rule.'
+  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
 const USAGE_TEXT = '/replies takes no argument. It turns the reply view off or on for this session.'
 
@@ -82,7 +82,7 @@ export const register: Register = (on) => {
     return { text: await toggle($) }
   })
 
-  on('session.append', { door: 'prompt' }, async ($, e, next) => {
+  on('session.append', { door: ['prompt', 'delivery'] }, async ($, e, next) => {
     const isTyped = e.origin.kind === 'composer' && e.agentId === undefined
     const appendedAt = await $.clock.now()
     const stored = await next(e)
@@ -100,34 +100,32 @@ export const register: Register = (on) => {
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    const isRuled =
+    const isFramed =
       e.surface === 'terminal' &&
       e.props.origin.kind === 'composer' &&
       e.props.from === undefined &&
       e.props.task === undefined &&
-      !e.props.isExpanded &&
-      e.props.text.length <= DRAWN_CHARACTERS_AT_MOST
-    if (!isRuled) return next(e)
-    let drawn: RenderElement | null = null
+      !e.props.isExpanded
+    if (!isFramed) return next(e)
+    const engineRow = await next(e)
     try {
       const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
-      if (mode === 'on') {
-        const { value: submittedAt } = await $.state.get({
-          plugin: 'handily-reply-view',
-          key: 'submittedAt',
-          id: e.requestId,
-        })
-        drawn = promptTree(
-          $.ui.resolve(e),
-          e.props.text,
-          e.viewport?.columns ?? DEFAULT_COLUMNS,
-          submittedAt,
-        )
-      }
+      if (mode === 'off') return engineRow
+      const { value: submittedAt } = await $.state.get({
+        plugin: 'handily-reply-view',
+        key: 'submittedAt',
+        id: e.requestId,
+      })
+      return framedPrompt(
+        $.ui.resolve(e),
+        engineRow,
+        e.viewport?.columns ?? DEFAULT_COLUMNS,
+        submittedAt,
+      )
     } catch (error) {
-      logFailure($, `the engine draws prompt ${e.requestId}`, error)
+      logFailure($, `the engine draws prompt ${e.requestId} without its rule`, error)
+      return engineRow
     }
-    return drawn ?? next(e)
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {

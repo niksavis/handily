@@ -5,7 +5,13 @@ import { displayWidth } from './hooks/width'
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
 const COLUMNS = 80
-const COLOR_MARKS: Readonly<Record<string, string>> = { error: '#', success: '+', warning: '!' }
+const COLOR_MARKS: Readonly<Record<string, string>> = {
+  error: '#',
+  success: '+',
+  warning: '!',
+  suggestion: '^',
+}
+const ENGINE_MARGIN_AND_ROW = ['', '(engine)']
 
 type Surface = (typeof SURFACES)[number]
 
@@ -163,17 +169,34 @@ function sum2([left, right]: [number, number]): number {
   return left + right
 }
 
+function isAbsolute(node: unknown): boolean {
+  return isDrawnNode(node) && node.props?.position === 'absolute'
+}
+
+function paintedUnder(lines: readonly string[], placed: readonly unknown[], width: number) {
+  const painted = [...lines]
+  for (const node of placed) {
+    const top = isDrawnNode(node) ? Number(node.props?.top ?? 0) : 0
+    sketchLines(node, width).forEach((line, row) => {
+      if ((painted[top + row] ?? '') === '') painted[top + row] = line
+    })
+  }
+  return painted
+}
+
 function boxLines(props: Record<string, unknown>, children: readonly unknown[], width: number) {
   const indent = Number(props.paddingLeft ?? 0)
   const inner = (typeof props.width === 'number' ? props.width : width) - indent
   const gap = Number(props.gap ?? 0)
-  const lines =
+  const flowing = children.filter((child) => !isAbsolute(child))
+  const flowed =
     props.flexDirection === 'column'
-      ? children.flatMap((child, index) => [
+      ? flowing.flatMap((child, index) => [
           ...(index > 0 ? Array<string>(gap).fill('') : []),
           ...sketchLines(child, inner),
         ])
-      : rowLines(children, inner, gap)
+      : rowLines(flowing, inner, gap)
+  const lines = paintedUnder(flowed, children.filter(isAbsolute), inner)
   const placed =
     props.justifyContent === 'flex-end'
       ? lines.map((line) => ' '.repeat(Math.max(inner - cellsIn(line), 0)) + line)
@@ -214,7 +237,7 @@ function sketchLines(node: unknown, width: number): string[] {
     case 'Box':
       return boxLines(props, node.children ?? [], width)
     case 'engine':
-      return ['(engine)']
+      return ENGINE_MARGIN_AND_ROW
     default:
       return []
   }
@@ -1009,13 +1032,31 @@ async function appendPrompt($: Engine, text: string, origin: PromptOrigin, uuid 
   })
 }
 
-function promptRule(label: string, columns = COLUMNS): string {
-  const head = dim(`── ${label} `)
-  return head + dim('─'.repeat(columns - cellsIn(head)))
+async function queuePrompt($: Engine, text: string, origin: PromptOrigin, uuid = 'prompt-1') {
+  await $.session.append({
+    message: {
+      type: 'attachment',
+      name: 'queued_command',
+      role: 'user',
+      content: [{ type: 'text', text }],
+    },
+    door: 'delivery',
+    origin,
+    uuid,
+  })
 }
 
-function typedLine(text: string): string {
-  return `${dim('❯')}*${text}*`
+function accent(text: string): string {
+  return `^${text}^`
+}
+
+function promptRule(label: string, columns = COLUMNS): string {
+  const head = accent(`── ${label} `)
+  return head + accent('─'.repeat(columns - cellsIn(head)))
+}
+
+function framed(label: string, columns = COLUMNS): string[] {
+  return ['', promptRule(label, columns), '(engine)']
 }
 
 function promptTest(name: string, body: ViewBody): void {
@@ -1044,27 +1085,42 @@ const OTHER_ROWS: readonly [string, Partial<RenderPropsOf['UserMessage']>][] = [
 
 describe('typed prompts', () => {
   promptTest(
-    'a typed prompt draws a dim rule labelled you and the time, then the prompt in bold',
+    'a typed prompt draws a blank line, an accent rule labelled you and the time, then the engine prompt row',
     async (_world, $) => {
       await appendPrompt($, PROMPT, { kind: 'composer' })
       const ui = await mountPrompt($, prompt(PROMPT))
-      expect(await sketchOf(ui)).toEqual([promptRule('you · 21:37'), typedLine(PROMPT)])
+      expect(await sketchOf(ui)).toEqual(framed('you · 21:37'))
       await ui.unmount()
     },
   )
 
-  promptTest('the rule spans the width of the transcript at 120 columns', async (_world, $) => {
-    await appendPrompt($, PROMPT, { kind: 'composer' })
-    const ui = await mountPrompt($, prompt(PROMPT), 'terminal', 120)
-    expect((await sketchOf(ui, 120))[0]).toBe(promptRule('you · 21:37', 120))
-    await ui.unmount()
-  })
+  for (const columns of [80, 120]) {
+    promptTest(
+      `the rule spans the width of the transcript at ${String(columns)} columns`,
+      async (_world, $) => {
+        await appendPrompt($, PROMPT, { kind: 'composer' })
+        const ui = await mountPrompt($, prompt(PROMPT), 'terminal', columns)
+        expect((await sketchOf(ui, columns))[1]).toBe(promptRule('you · 21:37', columns))
+        await ui.unmount()
+      },
+    )
+  }
+
+  promptTest(
+    'a prompt typed while claude works keeps its time when the session takes it from the queue',
+    async (_world, $) => {
+      await queuePrompt($, PROMPT, { kind: 'composer' })
+      const ui = await mountPrompt($, prompt(PROMPT))
+      expect(await sketchOf(ui)).toEqual(framed('you · 21:37'))
+      await ui.unmount()
+    },
+  )
 
   promptTest(
     'a prompt whose time the mod does not know, such as after a resume, draws the label you alone',
     async (_world, $) => {
       const ui = await mountPrompt($, prompt(PROMPT))
-      expect(await sketchOf(ui)).toEqual([promptRule('you'), typedLine(PROMPT)])
+      expect(await sketchOf(ui)).toEqual(framed('you'))
       await ui.unmount()
     },
   )
@@ -1072,18 +1128,26 @@ describe('typed prompts', () => {
   promptTest('a prompt that another party appended keeps no time', async (_world, $) => {
     await appendPrompt($, PROMPT, { kind: 'peer' })
     const ui = await mountPrompt($, prompt(PROMPT))
-    expect((await sketchOf(ui))[0]).toBe(promptRule('you'))
+    expect((await sketchOf(ui))[1]).toBe(promptRule('you'))
     await ui.unmount()
   })
 
-  promptTest('a long prompt keeps all its text and the wrap of the screen', async (_world, $) => {
-    const long = Array.from({ length: 400 }, (_, index) => `word${String(index)}`).join(' ')
-    const ui = await mountPrompt($, prompt(long))
-    expect((await sketchOf(ui))[1]).toBe(typedLine(long))
-    const [text] = await ui.findAll({ type: 'Text', text: long })
-    expect(text?.props.wrap).toBeUndefined()
+  promptTest('a message that another session queued keeps no time', async (_world, $) => {
+    await queuePrompt($, PROMPT, { kind: 'peer' })
+    const ui = await mountPrompt($, prompt(PROMPT))
+    expect((await sketchOf(ui))[1]).toBe(promptRule('you'))
     await ui.unmount()
   })
+
+  promptTest(
+    'a prompt longer than 60000 characters keeps the frame and the engine row',
+    async (_world, $) => {
+      const long = 'word '.repeat(13_000)
+      const ui = await mountPrompt($, prompt(long))
+      expect(await sketchOf(ui)).toEqual(framed('you'))
+      await ui.unmount()
+    },
+  )
 
   for (const [row, extra] of OTHER_ROWS) {
     for (const surface of SURFACES) {
@@ -1119,7 +1183,7 @@ describe('typed prompts', () => {
       await commandText($)
       expect(await ui.drawn()).toEqual(ENGINE_ROW)
       await commandText($)
-      expect(await sketchOf(ui)).toEqual([promptRule('you'), typedLine(PROMPT)])
+      expect(await sketchOf(ui)).toEqual(framed('you'))
       await ui.unmount()
     },
   )
@@ -1137,7 +1201,7 @@ describe('/replies', () => {
       const table = await mountReply($, reply(TABLE), 'terminal', COLUMNS, 'message-2')
       expect(await table.drawn()).toEqual(ENGINE_ROW)
       expect(await commandText($)).toBe(
-        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a dim rule.',
+        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
       )
       expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
       await ui.unmount()

@@ -3,8 +3,8 @@
 `reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
 30 lines folds to its first lines. A markdown table draws with dim rules between its columns and
 under its header, and without a box around it. Each table and each fenced code block gets a
-`copy` button. Each prompt that you type opens under a dim rule labelled `you`, so you find it
-when you scroll. `/replies` switches the view off and on for the session. The model still reads
+`copy` button. Each prompt that you type opens under a coloured rule labelled `you`, so you find
+it when you scroll. `/replies` switches the view off and on for the session. The model still reads
 the full reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3.
@@ -139,30 +139,38 @@ rule with no title.
 
 ## A prompt that you type
 
-A prompt that you type opens with a dim rule that spans the width of the transcript. The rule
-names `you` and the time when the prompt entered the session. The prompt text under the rule is
-bold, and the dim `❯` marker stays in front of it:
+A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
+mod adds a blank line and a rule above it. The rule spans the width of the transcript, names
+`you` and the time when the prompt entered the session, and has the `suggestion` colour of your
+theme:
 
 ```text
 ● ok
 
-── you · 22:25 ─────────────────────────────────────────────────────────────────
+── you · 22:47 ──────────────────────────────────────────────────────────────────
 ❯ make the human prompts in the terminal distinguishable from your answers, and
   reply with the single word ok
+
+● ok
 ```
 
-- The time comes from the moment the session kept the prompt. The mod keeps it for this session
-  only. After a resume, a prompt from before the resume shows `you` without a time, because the
-  mod knows no time for it. The mod never guesses a time.
-- A long prompt wraps as Claude Code wraps it, and the mod never cuts it.
-- The rule takes one line above each prompt.
+- A mod cannot set the grey band itself, because no theme key names it. So the mod keeps the
+  row of Claude Code and frames it.
+- The time comes from the moment the session kept the prompt. A prompt that you type while
+  Claude works waits in the queue, and its time is the moment the session takes it from the
+  queue. The mod keeps the time for this session only. After a resume, a prompt from before the
+  resume shows `you` without a time, because the mod knows no time for it. The mod never guesses
+  a time.
+- While a prompt waits in the queue, its rule shows `you` without a time.
+- The prompt text, its wrap and its band are those of Claude Code. The mod never changes them.
+- The next row of the transcript draws the blank line under the prompt. A row that draws no
+  blank line above itself, such as a tool row, stands directly under the prompt.
 - These rows draw as Claude Code draws them: a task notification, a message from another agent,
   teammate, session or channel, a prompt that a plugin sent, a slash command that you type and
   its output.
 - The ctrl+o view and `--verbose` draw each prompt in full as Claude Code draws it, without the
   rule, so a copy of that text holds no rule characters.
 - The desktop app draws each prompt as it draws it.
-- A prompt longer than 60000 characters draws as Claude Code draws it.
 
 ## Command
 

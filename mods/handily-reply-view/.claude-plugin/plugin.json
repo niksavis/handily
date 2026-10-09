@@ -1,7 +1,7 @@
 {
   "name": "handily-reply-view",
-  "version": "0.5.0",
-  "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a dim rule labelled you.",
+  "version": "0.5.1",
+  "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you.",
   "author": {
     "name": "niksavis"
   },
