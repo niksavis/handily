@@ -66,6 +66,42 @@ Why `commit-link` and `handover` were dropped:
 | E | CLI adapter command (2026-10-08) | A repo never names a command to run. The person lists the adapter argv in `~/.config/handily/adapters.json`, keyed on the exact real path of the repo root. Typing that line is the consent, so the adapter runs with no approval ask. A repo `.handily.json` that names a command fails, names the user file and the root, and never repeats the command. The consent covers the command, not one version of the code |
 | F | Ask once for basicly (2026-10-08, handily-szdh) | Ask once and keep the answer. No basicly command, `--version` included, runs before the person approves the repo. After approval, a kit change runs the approved program's `--version`, never kept, so a downgrade below 0.21.1 asks again. An approval from before this decision stays valid for the same program path. A read without approval through an isolated interpreter was dropped: two reviews each found a way for repo code to run before any check |
 
+### Signals and colours (2026-10-09, handily-fwkt.8.14)
+
+The person approved this set of marks on 2026-10-09. Every pane draws a state with the same mark
+and the same colour. Each mark is one column wide, because an emoji such as ⚡ is two columns
+wide in most terminals and breaks the row alignment. A test measures the width of each mark.
+
+| Signal | Kanban meaning | Mark | Colour | When the pane shows it |
+| --- | --- | --- | --- | --- |
+| Doing | in progress | `▶` | orange | the task in progress, a running agent |
+| Done | finished | `✓` | green | done tasks and agents |
+| To do | in the backlog | `○` | subtle | open tasks |
+| Blocked | blocked tag | `■` | red | an agent or a task whose last tool call failed twice |
+| Waits for you | needs a person | `◆` | yellow | a permission dialog, a question to you |
+| Aging | aging dots | `·` `:` `⁝` | subtle, then yellow | the task in progress has run 5, 15 or 30 minutes without an update |
+| Too much at once | limit on work in progress | `2▶` | yellow | more than one task in progress at the same time |
+| Stale plan | no update | `⌀` | yellow | no plan change for 20 tool calls |
+| Retry | rework | `↻` | subtle | the same tool call ran again after a failure |
+
+The colours are theme colours of the engine, so they follow the person's theme: orange is
+`claude`, green is `success`, red is `error`, yellow is `warning` and subtle is `subtle`. The
+handover of 2026-10-09 also names `suggestion`; which signal uses it is open.
+
+The approved example of the task pane:
+
+```text
+Tasks  3 of 7 done · 22m
+▶ 4 claude  Build the reply view   :  12m   ▸ Edit fold.ts · 14 tools
+◆ 5 claude  Ask about the colours          waits for you
+○ 6 claude  Release the mods
+○ 7 you     Read the mock
+[ +3 done ]
+Agents  2 running
+▶ lane-b   Build compact view   ▸ Bash npm test
+■ scout    Probe the engine     ✗ npm test failed twice
+```
+
 ## 3. Facts about the mod API
 
 Sources: the bundled `plugin-authoring` skill (its `reference.md` and the generated
