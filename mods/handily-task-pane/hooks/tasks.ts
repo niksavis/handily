@@ -35,6 +35,16 @@ export function statusWord(status: TaskPaneStatus): string {
   return STATUS_WORDS[status]
 }
 
+const STATUS_MARKS: Record<TaskPaneStatus, string> = {
+  pending: '○',
+  in_progress: '▶',
+  completed: '✓',
+}
+
+export function statusMark(status: TaskPaneStatus): string {
+  return STATUS_MARKS[status]
+}
+
 export function findTask(list: TaskPaneList, id: number): TaskPaneTask | undefined {
   return list.tasks.find((task) => task.id === id)
 }

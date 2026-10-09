@@ -79,6 +79,7 @@ type World = {
   opened: string[]
   agents: AgentInfo[]
   toasts: string[]
+  logs: string[]
   clock: MockClock
   panesAsked: number
 }
@@ -96,6 +97,7 @@ function world(
     opened: [],
     agents: [],
     toasts: [],
+    logs: [],
     clock: mock.clock(on, { now: 1_000 }),
     panesAsked: 0,
   }
@@ -145,7 +147,10 @@ function world(
     state.toasts.push(e.text)
     return { value: undefined }
   })
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', (_$, e) => {
+    state.logs.push(e.text)
+    return { value: undefined }
+  })
   on('tool.call', () => ({ result: '' }))
   return state
 }
@@ -2658,4 +2663,351 @@ describe('the empty pane reaches every open tracker item', () => {
       await ui.unmount()
     },
   )
+})
+
+const ENGINE_ROW = { type: 'engine', ref: 0 } as const
+const SURFACES = ['terminal', 'desktop'] as const
+const ROW_WIDTHS = [30, 45, 80] as const
+const TOOL_ID_LOG = 'tool id '
+const ROW_TITLE = `${LONG_TITLE}, and the light theme of the desktop app`
+const CUT_TITLES: Record<(typeof ROW_WIDTHS)[number], { added: string; started: string }> = {
+  30: { added: 'Mods match th…', started: 'Mods …' },
+  45: { added: 'Mods match the terminal pale…', started: 'Mods match the termi…' },
+  80: {
+    added: 'Mods match the terminal palette, such as a WezTerm theme on nav…',
+    started: 'Mods match the terminal palette, such as a WezTerm them…',
+  },
+}
+
+type Surface = (typeof SURFACES)[number]
+
+const seeToolIds: Plugin = {
+  name: 'see-tool-ids',
+  tier: 'prepend',
+  register(on) {
+    on('tool.call', async ($, e, next) => {
+      const answer = await next(e)
+      $.ui.log(`tool id ${e.tool_use_id}`)
+      return answer
+    })
+  },
+}
+
+const withToolIds = { plugins: [fakeWorkitems, seeToolIds] }
+
+function engineRows(on: On): void {
+  on('ui.render', () => ENGINE_ROW)
+}
+
+type Called = { id: string; tool: string; input: Record<string, unknown>; answer: unknown }
+
+async function called(
+  $: Engine,
+  seen: World,
+  input: Parameters<Engine['tool']['call']>[0],
+): Promise<Called> {
+  const answer = await $.tool.call(input)
+  const id = seen.logs.findLast((text) => text.startsWith(TOOL_ID_LOG))?.slice(TOOL_ID_LOG.length)
+  if (id === undefined) throw new Error('the tool call logged no tool_use_id')
+  const { tool, ...rest } = input
+  return { id, tool, input: rest, answer }
+}
+
+function useOf(
+  call: Called,
+  extra: Partial<RenderPropsOf['ToolUse']> = {},
+): RenderPropsOf['ToolUse'] {
+  const answer = call.answer as { result?: unknown; deny?: string }
+  return {
+    tool_use_id: call.id,
+    tool: call.tool,
+    input: call.input,
+    isRunning: false,
+    isErrored: answer.deny !== undefined,
+    isInterrupted: false,
+    output: answer.deny ?? answer.result,
+    ...extra,
+  }
+}
+
+function lineOf(element: Drawn): string {
+  if (element.type === 'Text') return element.text
+  const inner = element.children.map(lineOf).join('')
+  const left = ' '.repeat(numberProp(element, 'marginLeft'))
+  return `${left}${inner}${' '.repeat(numberProp(element, 'marginRight'))}`
+}
+
+async function callRow(
+  $: Engine,
+  surface: Surface,
+  props: RenderPropsOf['ToolUse'],
+  columns = 80,
+): Promise<unknown> {
+  const ui = await $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'ToolUse',
+    requestId: props.tool_use_id,
+    viewport: { columns, rows: 40 },
+    props,
+  })
+  const tree = await ui.drawn()
+  await ui.unmount()
+  const drawn = drawnOf(tree)
+  return drawn === null || drawn.type === 'engine' ? tree : lineOf(drawn).trimEnd()
+}
+
+async function resultBlock($: Engine, surface: Surface, call: Called) {
+  const use = useOf(call)
+  const ui = await $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'ToolResult',
+    requestId: call.id,
+    props: {
+      tool_use_id: call.id,
+      tool: call.tool,
+      output: use.output,
+      isErrored: use.isErrored,
+    },
+  })
+  const tree = await ui.drawn()
+  const textCount = (await ui.findAll({ type: 'Text' })).length
+  await ui.unmount()
+  return { tree, textCount }
+}
+
+describe('each task tool call is one row in the transcript', () => {
+  for (const surface of SURFACES) {
+    test(
+      `add, update, move, list and remove draw one row each on ${surface}, with no task list`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        const calls = [
+          await called($, seen, { tool: TOOL_ADD, title: 'Read the design doc' }),
+          await called($, seen, { tool: TOOL_ADD, title: 'Draw the mocks' }),
+          await called($, seen, { tool: TOOL_ADD, title: 'Drop the old pane' }),
+          await called($, seen, { tool: TOOL_UPDATE, id: 2, status: 'in_progress' }),
+          await called($, seen, { tool: TOOL_UPDATE, id: 1, status: 'completed' }),
+          await called($, seen, { tool: TOOL_UPDATE, id: 1, status: 'pending' }),
+          await called($, seen, { tool: TOOL_MOVE, id: 3, before: 1 }),
+          await called($, seen, { tool: TOOL_LIST }),
+          await called($, seen, { tool: TOOL_UPDATE, id: 3, status: 'removed' }),
+        ]
+        const rows: unknown[] = []
+        for (const call of calls) rows.push(await callRow($, surface, useOf(call)))
+        const marker = surface === 'terminal' ? '● ' : ''
+        expect(rows).toEqual(
+          [
+            'Task 1 added  Read the design doc',
+            'Task 2 added  Draw the mocks',
+            'Task 3 added  Drop the old pane',
+            'Task 2 ▶ in progress  Draw the mocks',
+            'Task 1 ✓ done  Read the design doc',
+            'Task 1 ○ pending  Read the design doc',
+            'Task 3 moved before 1  Drop the old pane',
+            'Task list  0 of 3 done',
+            'Task 3 removed  Drop the old pane',
+          ].map((row) => `${marker}${row}`),
+        )
+        for (const call of calls) {
+          expect(await resultBlock($, surface, call)).toEqual({
+            tree: { type: 'Box' },
+            textCount: 0,
+          })
+        }
+      },
+    )
+  }
+
+  test('the mark of each status has its signal colour', withToolIds, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    await called($, seen, { tool: TOOL_ADD, title: 'One' })
+    const marks: unknown[] = []
+    for (const status of ['in_progress', 'completed', 'pending']) {
+      const call = await called($, seen, { tool: TOOL_UPDATE, id: 1, status })
+      const ui = await $.ui.mount({
+        plugin: PLUGIN,
+        surface: 'terminal',
+        component: 'ToolUse',
+        requestId: call.id,
+        props: useOf(call),
+      })
+      const texts = await ui.findAll({ type: 'Text' })
+      const mark = texts.find((one) => ['▶', '✓', '○'].includes(one.text))
+      marks.push([mark?.text, mark?.props.color])
+      await ui.unmount()
+    }
+    expect(marks).toEqual([
+      ['▶', 'claude'],
+      ['✓', 'success'],
+      ['○', 'subtle'],
+    ])
+  })
+
+  test('the model still receives the whole list in each answer', withToolIds, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    await called($, seen, { tool: TOOL_ADD, title: 'Read the design doc' })
+    await called($, seen, { tool: TOOL_ADD, title: 'Draw the mocks' })
+    const list =
+      'Tasks (0 of 2 done)\n  1  pending      claude   "Read the design doc"\n  2  in progress  claude   "Draw the mocks"'
+    const started = await called($, seen, { tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+    expect(started.answer).toEqual({ result: `Task 2 is now in_progress.\n\n${list}` })
+    const moved =
+      'Tasks (0 of 2 done)\n  2  in progress  claude   "Draw the mocks"\n  1  pending      claude   "Read the design doc"'
+    expect((await called($, seen, { tool: TOOL_MOVE, id: 2, before: 1 })).answer).toEqual({
+      result: `Moved task 2 before task 1.\n\n${moved}`,
+    })
+    expect((await called($, seen, { tool: TOOL_LIST })).answer).toEqual({ result: moved })
+  })
+
+  test(
+    'a title is escaped as the pane shows it, and a tracker task names its item',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await publish($, okSnapshot(OPEN_ITEMS))
+      const joined = await called($, seen, { tool: TOOL_ADD, title: 'Join\u{200D}me' })
+      await task($, 'add app-cd34')
+      const started = await called($, seen, { tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+      expect(await callRow($, 'terminal', useOf(joined))).toBe('● Task 1 added  Join\\u200dme')
+      expect(await callRow($, 'terminal', useOf(started))).toBe(
+        '● Task 2 ▶ in progress  app-cd34: Write the beads reader',
+      )
+    },
+  )
+
+  test('a subagent call names the task of its own list', withToolIds, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    await called($, seen, { tool: TOOL_ADD, title: 'Main step' })
+    const added = await called($, seen, { tool: TOOL_ADD, title: 'Agent step', agentId: 'a1' })
+    expect(await callRow($, 'terminal', useOf(added))).toBe('● Task 1 added  Agent step')
+  })
+})
+
+describe('a task tool row the mod cannot draw is the engine row', () => {
+  test('a refused call draws the engine row and its error', withToolIds, async ($, on) => {
+    const seen = world(on)
+    engineRows(on)
+    await start($)
+    const refused = await called($, seen, { tool: TOOL_UPDATE, id: 9, status: 'completed' })
+    expect(refused.answer).toEqual({
+      deny: 'No task 9. The list is empty. Call task_list to see them.',
+    })
+    expect(await callRow($, 'terminal', useOf(refused))).toEqual(ENGINE_ROW)
+    expect(await resultBlock($, 'terminal', refused)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+  })
+
+  test(
+    'an errored, running or interrupted call draws the engine row',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      await start($)
+      const added = await called($, seen, { tool: TOOL_ADD, title: 'One' })
+      for (const extra of [{ isErrored: true }, { isRunning: true }, { isInterrupted: true }]) {
+        expect(await callRow($, 'terminal', useOf(added, extra))).toEqual(ENGINE_ROW)
+      }
+      const errored = { ...added, answer: { deny: 'failed' } }
+      expect(await resultBlock($, 'terminal', errored)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+    },
+  )
+
+  test(
+    'a call with no kept row, and a call of another tool, draw the engine row',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      await start($)
+      const added = await called($, seen, { tool: TOOL_ADD, title: 'One' })
+      const unknown = { ...added, id: 'toolu_never_seen' }
+      expect(await callRow($, 'terminal', useOf(unknown))).toEqual(ENGINE_ROW)
+      expect(await resultBlock($, 'terminal', unknown)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+      const bash = { ...added, tool: 'Bash' }
+      expect(await callRow($, 'terminal', useOf(bash))).toEqual(ENGINE_ROW)
+    },
+  )
+
+  test(
+    'a row that the state refuses to read draws the engine row and logs why',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      on('state.get', (_$, e, next) =>
+        e.plugin === PLUGIN && e.key === 'rows'
+          ? { deny: 'the fake state refuses the read' }
+          : next(e),
+      )
+      await start($)
+      const added = await called($, seen, { tool: TOOL_ADD, title: 'One' })
+      expect(await callRow($, 'terminal', useOf(added))).toEqual(ENGINE_ROW)
+      const why = `the engine draws the row of ${added.id}`
+      expect(seen.logs.some((text) => text.includes(why))).toBe(true)
+    },
+  )
+
+  test(
+    'a row that the state refuses to keep leaves the answer whole and draws the engine row',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      on('state.set', (_$, e, next) =>
+        e.plugin === PLUGIN && e.key === 'rows'
+          ? { deny: 'the fake state refuses the write' }
+          : next(e),
+      )
+      await start($)
+      const added = await called($, seen, { tool: TOOL_ADD, title: 'One' })
+      expect(added.answer).toEqual({
+        result: 'Added task 1: "One".\n\nTasks (0 of 1 done)\n  1  pending      claude   "One"',
+      })
+      expect(await callRow($, 'terminal', useOf(added))).toEqual(ENGINE_ROW)
+    },
+  )
+})
+
+describe('the task tool rows fit the terminal width', () => {
+  for (const columns of ROW_WIDTHS) {
+    test(
+      `each row fits ${String(columns)} columns and cuts the title with an ellipsis`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        const calls = [
+          await called($, seen, { tool: TOOL_ADD, title: ROW_TITLE }),
+          await called($, seen, { tool: TOOL_ADD, title: 'Short' }),
+          await called($, seen, { tool: TOOL_UPDATE, id: 1, status: 'in_progress' }),
+          await called($, seen, { tool: TOOL_MOVE, id: 2, before: 1 }),
+          await called($, seen, { tool: TOOL_LIST }),
+        ]
+        const rows: string[] = []
+        for (const call of calls) {
+          rows.push(String(await callRow($, 'terminal', useOf(call), columns)))
+        }
+        for (const row of rows) {
+          const fits = Array.from(row).length <= columns
+          expect(fits, `"${row}" is wider than ${String(columns)}`).toBe(true)
+        }
+        expect(rows).toEqual([
+          `● Task 1 added  ${CUT_TITLES[columns].added}`,
+          '● Task 2 added  Short',
+          `● Task 1 ▶ in progress  ${CUT_TITLES[columns].started}`,
+          '● Task 2 moved before 1  Short',
+          '● Task list  0 of 2 done',
+        ])
+      },
+    )
+  }
 })

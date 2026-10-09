@@ -39,6 +39,13 @@ export type TaskPaneActivity = {
 
 export type TaskPaneAgentActivity = { id: string; calls: number; last: TaskPaneToolSight }
 
+export type TaskPaneCallRow =
+  | { kind: 'added'; id: number; title: string }
+  | { kind: 'status'; id: number; status: TaskPaneStatus; title: string }
+  | { kind: 'removed'; id: number; title: string }
+  | { kind: 'moved'; id: number; before: number; title: string }
+  | { kind: 'list'; done: number; total: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'handily-task-pane': {
@@ -48,6 +55,7 @@ declare module 'claude-code' {
       expanded: readonly string[]
       activity: TaskPaneActivity
       agentActivity: readonly TaskPaneAgentActivity[]
+      rows: StateFamily<TaskPaneCallRow>
       ready: { root: string }
     }
   }

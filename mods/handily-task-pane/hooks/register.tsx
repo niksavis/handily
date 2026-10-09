@@ -41,7 +41,7 @@ import {
   paneCommand,
   paneMode,
 } from './pane'
-import type { TaskPaneList } from '../types'
+import type { TaskPaneCallRow, TaskPaneList, TaskPaneTask } from '../types'
 import {
   EMPTY_LIST,
   MAX_AGENT_LISTS,
@@ -59,6 +59,7 @@ import {
   taskText,
   withTrackerNotice,
 } from './tasks'
+import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from './transcript'
 
 const TOOL_ADD = 'mcp__handily-task-pane__task_add'
 const TOOL_UPDATE = 'mcp__handily-task-pane__task_update'
@@ -357,17 +358,59 @@ function uiOf($: EngineInterface): PaneUi {
   }
 }
 
-async function listResult(host: TaskHost, lead: string): Promise<string> {
-  const list = await readList(host)
+function listAnswer(list: TaskPaneList, lead: string): string {
   const shown = list.tasks.length === 0 ? 'The task list is empty.' : listText(list)
   return withTrackerNotice(lead === '' ? shown : `${lead}\n\n${shown}`, list.tasks)
+}
+
+async function listResult(host: TaskHost, lead: string): Promise<string> {
+  return listAnswer(await readList(host), lead)
+}
+
+type ModelAnswer = { deny: string } | { result: string; row: TaskPaneCallRow }
+
+async function keepRow($: EngineInterface, toolUseId: string, row: TaskPaneCallRow) {
+  try {
+    await $.state.set({ plugin: 'handily-task-pane', key: 'rows', id: toolUseId }, row)
+  } catch (error) {
+    $.ui.log(`task-pane: the engine draws the row of ${toolUseId}: ${String(error)}`, {
+      to: 'debug',
+    })
+  }
+}
+
+async function answerWithRow($: EngineInterface, toolUseId: string, answer: ModelAnswer) {
+  if ('deny' in answer) return answer
+  await keepRow($, toolUseId, answer.row)
+  return { result: answer.result }
+}
+
+async function keptRow($: EngineInterface, toolUseId: string) {
+  try {
+    const { value } = await $.state.get({ plugin: 'handily-task-pane', key: 'rows', id: toolUseId })
+    return value
+  } catch (error) {
+    $.ui.log(`task-pane: the engine draws the row of ${toolUseId}: ${String(error)}`, {
+      to: 'debug',
+    })
+    return undefined
+  }
+}
+
+async function modelList(host: TaskHost): Promise<ModelAnswer> {
+  const list = await readList(host)
+  return { result: listAnswer(list, ''), row: listRow(list) }
 }
 
 function knownIds(numbers: string): string {
   return numbers === '' ? 'The list is empty.' : `The ids are ${numbers}.`
 }
 
-async function modelAdd(host: TaskHost, title: unknown, claim: () => Promise<string | undefined>) {
+async function modelAdd(
+  host: TaskHost,
+  title: unknown,
+  claim: () => Promise<string | undefined>,
+): Promise<ModelAnswer> {
   if (typeof title !== 'string' || title.trim() === '') {
     return {
       deny: 'task_add needs a title: a non-empty string, for example {"title": "Write the tests"}.',
@@ -383,10 +426,13 @@ async function modelAdd(host: TaskHost, title: unknown, claim: () => Promise<str
   })
   if ('refusal' in outcome) return { deny: `task_add refused: ${outcome.refusal}` }
   const { task } = outcome
-  return { result: await listResult(host, `Added task ${String(task.id)}: ${taskText(task)}.`) }
+  return {
+    result: await listResult(host, `Added task ${String(task.id)}: ${taskText(task)}.`),
+    row: addedRow(task),
+  }
 }
 
-async function modelUpdate(host: TaskHost, id: unknown, status: unknown) {
+async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promise<ModelAnswer> {
   if (typeof id !== 'number' || !Number.isInteger(id)) {
     return { deny: 'task_update needs id: the integer task id that task_list shows.' }
   }
@@ -395,23 +441,31 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown) {
       deny: `task_update needs status: one of ${[...STATUSES, REMOVED].join(', ')}.`,
     }
   }
-  const outcome = await host.edit((list) => {
+  const outcome = await host.edit<{ task: TaskPaneTask | undefined; numbers: string }>((list) => {
     const task = findTask(list, id)
-    if (!task) return { list, value: { found: false, numbers: numbersText(list) } }
+    if (!task) return { list, value: { task, numbers: numbersText(list) } }
     const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
-    return { list: next, value: { found: true, numbers: '' } }
+    return { list: next, value: { task, numbers: '' } }
   })
-  if (!outcome.found) {
+  const { task } = outcome
+  if (!task) {
     return {
       deny: `No task ${String(id)}. ${knownIds(outcome.numbers)} Call task_list to see them.`,
     }
   }
-  const lead =
-    status === REMOVED ? `Removed task ${String(id)}.` : `Task ${String(id)} is now ${status}.`
-  return { result: await listResult(host, lead) }
+  if (status === REMOVED) {
+    return {
+      result: await listResult(host, `Removed task ${String(id)}.`),
+      row: removedRow(task),
+    }
+  }
+  return {
+    result: await listResult(host, `Task ${String(id)} is now ${status}.`),
+    row: statusRow(task, status),
+  }
 }
 
-async function modelMove(host: TaskHost, id: unknown, before: unknown) {
+async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<ModelAnswer> {
   if (
     typeof id !== 'number' ||
     !Number.isInteger(id) ||
@@ -423,10 +477,14 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown) {
     }
   }
   if (id === before) return { deny: `task_move needs two different task ids, ${MOVE_EXAMPLE}.` }
-  const outcome = await host.edit<{ missing: number | undefined; numbers: string }>((list) => {
-    const missing = [id, before].find((one) => !findTask(list, one))
-    if (missing !== undefined) return { list, value: { missing, numbers: numbersText(list) } }
-    return { list: moveTask(list, id, before), value: { missing, numbers: '' } }
+  const outcome = await host.edit<
+    { missing: number; numbers: string } | { missing: undefined; task: TaskPaneTask }
+  >((list) => {
+    const task = findTask(list, id)
+    if (task && findTask(list, before)) {
+      return { list: moveTask(list, id, before), value: { missing: undefined, task } }
+    }
+    return { list, value: { missing: task ? before : id, numbers: numbersText(list) } }
   })
   if (outcome.missing !== undefined) {
     const known = knownIds(outcome.numbers)
@@ -436,6 +494,7 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown) {
   }
   return {
     result: await listResult(host, `Moved task ${String(id)} before task ${String(before)}.`),
+    row: movedRow(outcome.task, before),
   }
 }
 
@@ -516,18 +575,22 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('tool.call', { tool: TOOL_ADD }, ($, e) =>
-    modelAdd(modelHostOf($, e.agentId), e.title, () => claimAgentList($, e.agentId)),
+  on('tool.call', { tool: TOOL_ADD }, async ($, e) =>
+    answerWithRow(
+      $,
+      e.tool_use_id,
+      await modelAdd(modelHostOf($, e.agentId), e.title, () => claimAgentList($, e.agentId)),
+    ),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
-  on('tool.call', { tool: TOOL_UPDATE }, ($, e) =>
-    modelUpdate(modelHostOf($, e.agentId), e.id, e.status),
+  on('tool.call', { tool: TOOL_UPDATE }, async ($, e) =>
+    answerWithRow($, e.tool_use_id, await modelUpdate(modelHostOf($, e.agentId), e.id, e.status)),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
-  on('tool.call', { tool: TOOL_MOVE }, ($, e) =>
-    modelMove(modelHostOf($, e.agentId), e.id, e.before),
+  on('tool.call', { tool: TOOL_MOVE }, async ($, e) =>
+    answerWithRow($, e.tool_use_id, await modelMove(modelHostOf($, e.agentId), e.id, e.before)),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
-  on('tool.call', { tool: TOOL_LIST }, async ($, e) => ({
-    result: await listResult(modelHostOf($, e.agentId), ''),
-  })).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_LIST }, async ($, e) =>
+    answerWithRow($, e.tool_use_id, await modelList(modelHostOf($, e.agentId))),
+  ).catch(($, e, next) => toolFailed($, e.tool, next.error))
 
   on('command.run', { command: 'task' }, async ($, e) => {
     const host = hostOf($)
@@ -554,6 +617,17 @@ export const register: Register = (on, options) => {
     const closed = await next(e)
     if (!(await $.ui.panes()).some((pane) => pane.id === PANE_ID)) stopRedraw(redraw)
     return closed
+  })
+
+  on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
+    if (!isTaskTool(e.props.tool) || e.props.isErrored) return next(e)
+    if (e.component === 'ToolUse' && (e.props.isRunning || e.props.isInterrupted)) return next(e)
+    const row = await keptRow($, e.props.tool_use_id)
+    if (row === undefined) return next(e)
+    const elements = $.ui.resolve(e)
+    if (e.component === 'ToolResult') return elements.Box({})
+    const look = { elements, hasToolMarker: e.surface === 'terminal' }
+    return drawCallRow(look, row, e.viewport?.columns)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {

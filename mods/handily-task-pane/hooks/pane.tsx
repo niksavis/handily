@@ -27,9 +27,10 @@ import {
   escaped,
   paneTaskText,
   priorityText,
+  statusMark,
   type WorkItem,
 } from './tasks'
-import { cutToWidth, displayWidth, padToWidth } from './width'
+import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
 
 export const PANE_ID = 'task-pane'
 const PANE_TITLE = 'Tasks'
@@ -124,12 +125,6 @@ function lineColor(tone: TrackerLine['tone']): 'error' | 'warning' | undefined {
   return tone === 'dim' ? undefined : tone
 }
 
-function taskMark(task: TaskPaneTask): string {
-  if (task.status === 'completed') return '✓'
-  if (task.status === 'in_progress') return '▶'
-  return '○'
-}
-
 type TextStyle = Omit<TextProps, 'children'>
 
 type Cell = { text: string; style: TextStyle }
@@ -167,11 +162,6 @@ function asideWidth(aside: Cell | undefined): number {
 
 function column(texts: readonly string[]): number {
   return Math.max(0, ...texts.map(displayWidth)) + 1
-}
-
-function fitted(text: string, width: number): string {
-  if (displayWidth(text) <= width) return text
-  return `${cutToWidth(text, Math.max(width - displayWidth(MORE_LABEL), 0))}${MORE_LABEL}`
 }
 
 function callText(sight: TaskPaneToolSight): string {
@@ -340,7 +330,7 @@ function taskRow(
   return {
     key: `task:${id}`,
     cells: [
-      { text: `${taskMark(task)} `, style: { color: isDone ? 'success' : undefined } },
+      { text: `${statusMark(task.status)} `, style: { color: isDone ? 'success' : undefined } },
       { text: padToWidth(id, numberWidth), style: { dimColor: isDone, bold: isActive } },
       { text: `${authorColumn(task.by)} `, style: { dimColor: true } },
     ],

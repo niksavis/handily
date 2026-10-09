@@ -51,6 +51,33 @@ read or write the built-in `Task*` tools.
 - Parallel edits do not get lost. Each edit goes through `update` from `claude-code`, which
   reads the list again when another edit wrote first.
 
+## In the transcript
+
+Each call of a task tool draws one row in the transcript. The row names the action, the task
+number and the title. It shows no task list, and the result block under it is empty. The model
+still reads the whole answer with the list. Rows from the tests, 80 columns wide:
+
+```text
+● Task 1 added  Read the design doc
+● Task 2 ▶ in progress  Draw the mocks
+● Task 1 ✓ done  Read the design doc
+● Task 1 ○ pending  Read the design doc
+● Task 3 moved before 1  Drop the old pane
+● Task list  0 of 3 done
+● Task 3 removed  Drop the old pane
+```
+
+- The marks and colours are the signals of the pane: `▶` in progress (orange), `✓` done (green)
+  and `○` pending (subtle).
+- The title is shown as the pane shows it: without quotes, with a tracker id before it, and with
+  a control, format or line separator character escaped as `\uXXXX`.
+- A long title is cut with `…`, so the row fits the terminal width. The tests check this at 30,
+  45 and 80 columns.
+- On the desktop the row has no `●` marker, because the desktop draws its own row chrome.
+- A refused call, a call that failed, a call that still runs or was interrupted, and a row that
+  the mod cannot read draw as Claude Code draws them.
+- The mod keeps each row in `$.state` under `rows`, by the `tool_use_id` of the call.
+
 ## One list per agent
 
 The `agentId` of a tool call names the loop that calls the tool. The main loop has no `agentId`.
