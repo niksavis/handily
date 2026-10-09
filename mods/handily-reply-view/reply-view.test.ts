@@ -1,5 +1,5 @@
-import type { On, RenderPropsOf, UiCopyResult } from 'claude-code'
-import { describe, expect, test, type Engine } from 'claude-code/testing'
+import type { On, PromptOrigin, RenderPropsOf, UiCopyResult } from 'claude-code'
+import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import { displayWidth } from './hooks/width'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -184,10 +184,24 @@ function boxLines(props: Record<string, unknown>, children: readonly unknown[], 
   ]
 }
 
+function clippedLines(node: unknown, width: number): string[] {
+  if (!isDrawnNode(node) || node.type !== 'Text') return sketchLines(node, width)
+  const text = (node.children ?? []).map(inlineText).join('')
+  return [marked(node.props ?? {}, Array.from(text).slice(0, width).join(''))]
+}
+
+function hiddenOverflowLines(props: Record<string, unknown>, children: unknown[], width: number) {
+  const lines = children.flatMap((child) => clippedLines(child, width))
+  return typeof props.height === 'number' ? lines.slice(0, props.height) : lines
+}
+
 function sketchLines(node: unknown, width: number): string[] {
   if (typeof node === 'string') return [node]
   if (!isDrawnNode(node)) return []
   const props = node.props ?? {}
+  if (node.type === 'Box' && props.overflow === 'hidden') {
+    return hiddenOverflowLines(props, node.children ?? [], width)
+  }
   switch (node.type) {
     case 'Text':
       return [inlineText(node)]
@@ -962,19 +976,168 @@ describe('fenced blocks', () => {
   )
 })
 
+const TYPED_AT = new Date(2026, 9, 9, 21, 37).getTime()
+const PROMPT = 'make the human prompts in the terminal distinguishable from your answers'
+
+function prompt(text: string, extra: Partial<RenderPropsOf['UserMessage']> = {}) {
+  return { text, origin: { kind: 'composer' as const }, isExpanded: false, ...extra }
+}
+
+async function mountPrompt(
+  $: Engine,
+  props: RenderPropsOf['UserMessage'],
+  surface: Surface = 'terminal',
+  columns = COLUMNS,
+  requestId = 'prompt-1',
+) {
+  return $.ui.mount({
+    plugin: 'handily-reply-view',
+    surface,
+    component: 'UserMessage',
+    props,
+    requestId,
+    viewport: { columns, rows: 40 },
+  })
+}
+
+async function appendPrompt($: Engine, text: string, origin: PromptOrigin, uuid = 'prompt-1') {
+  await $.session.append({
+    message: { type: 'user', role: 'user', content: [{ type: 'text', text }] },
+    door: 'prompt',
+    origin,
+    uuid,
+  })
+}
+
+function promptRule(label: string, columns = COLUMNS): string {
+  const head = dim(`── ${label} `)
+  return head + dim('─'.repeat(columns - cellsIn(head)))
+}
+
+function typedLine(text: string): string {
+  return `${dim('❯')}*${text}*`
+}
+
+function promptTest(name: string, body: ViewBody): void {
+  test(name, async ($, on) => {
+    const world = engineBeneath(on)
+    mock.clock(on, { now: TYPED_AT })
+    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    await body(world, $)
+  })
+}
+
+const OTHER_ROWS: readonly [string, Partial<RenderPropsOf['UserMessage']>][] = [
+  [
+    'a task notification',
+    { origin: { kind: 'task-notification' }, task: { id: 'agent-1', status: 'completed' } },
+  ],
+  ['a message from another agent', { origin: { kind: 'unclassified' }, from: { name: 'Explore' } }],
+  ['a message from a teammate', { origin: { kind: 'unclassified' }, from: { name: 'Ana' } }],
+  ['a message from another session', { origin: { kind: 'peer' }, from: { name: 'release' } }],
+  [
+    'a message from a channel',
+    { origin: { kind: 'channel', server: 'slack' }, from: { name: 'Bo' } },
+  ],
+  ['a prompt that a plugin sent', { origin: { kind: 'plugin', name: 'handily-task-pane' } }],
+]
+
+describe('typed prompts', () => {
+  promptTest(
+    'a typed prompt draws a dim rule labelled you and the time, then the prompt in bold',
+    async (_world, $) => {
+      await appendPrompt($, PROMPT, { kind: 'composer' })
+      const ui = await mountPrompt($, prompt(PROMPT))
+      expect(await sketchOf(ui)).toEqual([promptRule('you · 21:37'), typedLine(PROMPT)])
+      await ui.unmount()
+    },
+  )
+
+  promptTest('the rule spans the width of the transcript at 120 columns', async (_world, $) => {
+    await appendPrompt($, PROMPT, { kind: 'composer' })
+    const ui = await mountPrompt($, prompt(PROMPT), 'terminal', 120)
+    expect((await sketchOf(ui, 120))[0]).toBe(promptRule('you · 21:37', 120))
+    await ui.unmount()
+  })
+
+  promptTest(
+    'a prompt whose time the mod does not know, such as after a resume, draws the label you alone',
+    async (_world, $) => {
+      const ui = await mountPrompt($, prompt(PROMPT))
+      expect(await sketchOf(ui)).toEqual([promptRule('you'), typedLine(PROMPT)])
+      await ui.unmount()
+    },
+  )
+
+  promptTest('a prompt that another party appended keeps no time', async (_world, $) => {
+    await appendPrompt($, PROMPT, { kind: 'peer' })
+    const ui = await mountPrompt($, prompt(PROMPT))
+    expect((await sketchOf(ui))[0]).toBe(promptRule('you'))
+    await ui.unmount()
+  })
+
+  promptTest('a long prompt keeps all its text and the wrap of the screen', async (_world, $) => {
+    const long = Array.from({ length: 400 }, (_, index) => `word${String(index)}`).join(' ')
+    const ui = await mountPrompt($, prompt(long))
+    expect((await sketchOf(ui))[1]).toBe(typedLine(long))
+    const [text] = await ui.findAll({ type: 'Text', text: long })
+    expect(text?.props.wrap).toBeUndefined()
+    await ui.unmount()
+  })
+
+  for (const [row, extra] of OTHER_ROWS) {
+    for (const surface of SURFACES) {
+      promptTest(`${row} draws as the engine draws it on ${surface}`, async (_world, $) => {
+        const ui = await mountPrompt($, prompt('The task is done.', extra), surface)
+        expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        await ui.unmount()
+      })
+    }
+  }
+
+  promptTest(
+    'the ctrl+o view draws the prompt in full as the engine draws it, with no rule characters',
+    async (_world, $) => {
+      const ui = await mountPrompt($, prompt(PROMPT, { isExpanded: true }))
+      const drawn = await ui.drawn()
+      expect(drawn).toEqual(ENGINE_ROW)
+      expect(RULE_CHARACTERS.some((rule) => JSON.stringify(drawn).includes(rule))).toBe(false)
+      await ui.unmount()
+    },
+  )
+
+  promptTest('a typed prompt draws as the engine draws it on desktop', async (_world, $) => {
+    const ui = await mountPrompt($, prompt(PROMPT), 'desktop')
+    expect(await ui.drawn()).toEqual(ENGINE_ROW)
+    await ui.unmount()
+  })
+
+  promptTest(
+    'a typed prompt draws as the engine draws it while /replies is off',
+    async (_world, $) => {
+      const ui = await mountPrompt($, prompt(PROMPT))
+      await commandText($)
+      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      await commandText($)
+      expect(await sketchOf(ui)).toEqual([promptRule('you'), typedLine(PROMPT)])
+      await ui.unmount()
+    },
+  )
+})
+
 describe('/replies', () => {
   viewTest(
     'turns the reply view off and on, and the engine draws replies unchanged while it is off',
     async (_world, $) => {
       const ui = await mountReply($, reply(LONG_REPLY))
       expect(await commandText($)).toBe(
-        'off for this session. Replies draw as Claude Code draws them.',
+        'off for this session. Replies and prompts draw as Claude Code draws them.',
       )
       expect(await ui.drawn()).toEqual(ENGINE_ROW)
       const table = await mountReply($, reply(TABLE), 'terminal', COLUMNS, 'message-2')
       expect(await table.drawn()).toEqual(ENGINE_ROW)
       expect(await commandText($)).toBe(
-        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons.',
+        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a dim rule.',
       )
       expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
       await ui.unmount()
@@ -984,7 +1147,7 @@ describe('/replies', () => {
 
   viewTest('registers /replies with a description that starts with the handily mark', (world) => {
     expect(world.commandDescriptions).toEqual([
-      'handily · Turn the folded view of long replies, tables and code blocks off or on',
+      'handily · Turn the folded view of long replies, tables, code blocks and prompt rules off or on',
     ])
   })
 

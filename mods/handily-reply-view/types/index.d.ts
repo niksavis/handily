@@ -7,6 +7,7 @@ declare module 'claude-code' {
     'handily-reply-view': {
       mode: ReplyViewMode
       folds: StateFamily<ReplyViewFold>
+      submittedAt: StateFamily<number>
       ready: { root: string }
     }
   }

@@ -3,8 +3,9 @@
 `reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
 30 lines folds to its first lines. A markdown table draws with dim rules between its columns and
 under its header, and without a box around it. Each table and each fenced code block gets a
-`copy` button. `/replies` switches the view off and on for the session. The model still reads the
-full reply. Only the screen changes.
+`copy` button. Each prompt that you type opens under a dim rule labelled `you`, so you find it
+when you scroll. `/replies` switches the view off and on for the session. The model still reads
+the full reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3.
 
@@ -136,13 +137,40 @@ content draws with the highlighting of Claude Code for that language:
 `copy` copies the content of the block only, without the fences. A block without a tag draws a
 rule with no title.
 
+## A prompt that you type
+
+A prompt that you type opens with a dim rule that spans the width of the transcript. The rule
+names `you` and the time when the prompt entered the session. The prompt text under the rule is
+bold, and the dim `❯` marker stays in front of it:
+
+```text
+● ok
+
+── you · 22:25 ─────────────────────────────────────────────────────────────────
+❯ make the human prompts in the terminal distinguishable from your answers, and
+  reply with the single word ok
+```
+
+- The time comes from the moment the session kept the prompt. The mod keeps it for this session
+  only. After a resume, a prompt from before the resume shows `you` without a time, because the
+  mod knows no time for it. The mod never guesses a time.
+- A long prompt wraps as Claude Code wraps it, and the mod never cuts it.
+- The rule takes one line above each prompt.
+- These rows draw as Claude Code draws them: a task notification, a message from another agent,
+  teammate, session or channel, a prompt that a plugin sent, a slash command that you type and
+  its output.
+- The ctrl+o view and `--verbose` draw each prompt in full as Claude Code draws it, without the
+  rule, so a copy of that text holds no rule characters.
+- The desktop app draws each prompt as it draws it.
+- A prompt longer than 60000 characters draws as Claude Code draws it.
+
 ## Command
 
 | Command    | Effect                                                                                       |
 | ---------- | -------------------------------------------------------------------------------------------- |
 | `/replies` | Turns the reply view off or on for this session, and replies with the new mode. It starts on |
 
-While the view is off, Claude Code draws every reply unchanged.
+While the view is off, Claude Code draws every reply and every prompt unchanged.
 
 ## When the reply stays as Claude Code draws it
 
@@ -164,3 +192,4 @@ While the view is off, Claude Code draws every reply unchanged.
 - The widest cell of each column sets the layout of the table: aligned, wrapped or in blocks.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
   stays open or folded when it draws again.
+- Each prompt that you type keeps its time in `$.state` for this session.
