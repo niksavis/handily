@@ -1863,3 +1863,63 @@ describe('the pane rows fit the pane width', () => {
     },
   )
 })
+
+describe('the empty pane reaches every open tracker item', () => {
+  const MANY = Array.from({ length: 12 }, (_, index) =>
+    item(`app-${String(index + 10)}`, `Open item ${String(index + 10)}`, 2, 'open'),
+  )
+
+  test(
+    'with more than 10 open items the pane shows the first 10 and an all N open button that shows every item',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, okSnapshot([...MANY, item('app-99', 'Closed one', 1, 'closed')]))
+      for (const surface of ['terminal', 'desktop'] as const) {
+        const ui = await $.ui.mount({
+          plugin: PANE,
+          surface,
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock', 44),
+        })
+        const itemKeys = async () =>
+          (await ui.findAll({ type: 'Button', text: 'add' })).map((button) => button.key)
+        expect(
+          await ui.find({ type: 'Text', text: 'Open in tracker: beads · 12 open' }),
+        ).toBeDefined()
+        expect(await itemKeys()).toEqual(MANY.slice(0, 10).map((one) => `add:${one.id}`))
+        expect((await ui.find({ key: 'all-items' }))?.text).toBe('all 12 open')
+        expect((await ui.find({ key: 'add-all' }))?.text).toBe('Add 10 as tasks')
+        await ui.press({ key: 'all-items' })
+        expect(await itemKeys()).toEqual(MANY.map((one) => `add:${one.id}`))
+        expect((await ui.find({ key: 'all-items' }))?.text).toBe('first 10')
+        expect((await ui.find({ key: 'add-all' }))?.text).toBe('Add 12 as tasks')
+        await ui.press({ key: 'all-items' })
+        expect(await itemKeys()).toEqual(MANY.slice(0, 10).map((one) => `add:${one.id}`))
+        await ui.unmount()
+      }
+    },
+  )
+
+  test(
+    'with 10 open items or fewer the pane shows no all N open button',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, okSnapshot(MANY.slice(0, 10)))
+      const ui = await $.ui.mount({
+        plugin: PANE,
+        surface: 'terminal',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock', 44),
+      })
+      expect((await ui.findAll({ type: 'Button', text: 'add' })).length).toBe(10)
+      expect(await ui.find({ key: 'all-items' })).toBeUndefined()
+      await ui.unmount()
+    },
+  )
+})

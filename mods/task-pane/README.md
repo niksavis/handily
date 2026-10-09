@@ -98,10 +98,11 @@ The `agentId` of a tool call names the loop that calls the tool. The main loop h
 - Each task is one line: a mark (`✓` done, `▶` in progress, `○` pending), the number, the
   author column, the title and an `[ rm ]` button. An input with `Add` adds a task as you. The
   mobile app has no input, so the pane shows the command.
-- With no tasks, the pane says `Open in tracker: <tracker> · N open` and lists up to 10 open
-  tracker items. Each item is one line: the priority (dim), the id, the title and an `[ add ]`
-  button. An `Add N as tasks` button follows. Nothing is added on its own. An item that is
-  already a task is not added again.
+- With no tasks, the pane says `Open in tracker: <tracker> · N open` and lists the first 10 open
+  tracker items. With more than 10, an `all N open` button shows every open item, and
+  `first 10` folds them again. Each item is one line: the priority (dim), the id, the title and
+  an `[ add ]` button. An `Add N as tasks` button adds the items that the pane shows. Nothing
+  is added on its own. An item that is already a task is not added again.
 - The columns before the title have a fixed width, and an id is never cut. The title fills the
   room that is left in the pane width and is cut to fit, so a row never wraps. The tests check
   this at 30, 45 and 80 columns.

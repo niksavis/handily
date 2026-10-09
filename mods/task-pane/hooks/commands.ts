@@ -33,8 +33,7 @@ export type TaskCommand =
 export type TrackerLine = { tone: 'dim' | 'warning' | 'error'; text: string }
 
 export type TrackerView =
-  | { kind: 'items'; label: string; items: WorkItem[]; openCount: number }
-  | { kind: 'lines'; lines: TrackerLine[] }
+  { kind: 'items'; label: string; items: WorkItem[] } | { kind: 'lines'; lines: TrackerLine[] }
 
 type ItemLookup = { item: WorkItem } | { absentFrom: string } | { refusal: string }
 
@@ -88,8 +87,7 @@ export async function trackerView(host: TaskHost): Promise<TrackerView> {
     return {
       kind: 'items',
       label: snapshot.sourceLabel,
-      items: openItems(snapshot.items, OPEN_ITEMS_SHOWN),
-      openCount: snapshot.items.filter(isOpenItem).length,
+      items: openItems(snapshot.items),
     }
   }
   return { kind: 'lines', lines: [...(await host.lines(snapshot))] }
@@ -292,16 +290,16 @@ export async function emptyListReply(host: TaskHost): Promise<string> {
   const view = await trackerView(host)
   if (view.kind === 'lines') return [lead, ...view.lines.map((line) => line.text)].join(' ')
   if (view.items.length === 0) return `${lead} The tracker (${view.label}) has no open items.`
-  const shown = String(view.items.length)
+  const items = view.items.slice(0, OPEN_ITEMS_SHOWN)
   const more =
-    view.openCount > view.items.length
-      ? [`  and ${String(view.openCount - view.items.length)} more`]
+    view.items.length > items.length
+      ? [`  and ${String(view.items.length - items.length)} more`]
       : []
   const rows = [
-    `${lead} Open in the tracker (${view.label}, ${String(view.openCount)}):`,
-    ...view.items.map(itemRow),
+    `${lead} Open in the tracker (${view.label}, ${String(view.items.length)}):`,
+    ...items.map(itemRow),
     ...more,
-    `Add one with /task add <id>, or press "Add ${shown} as tasks" in /task pane.`,
+    `Add one with /task add <id>, or press "Add ${String(items.length)} as tasks" in /task pane.`,
   ]
   return [rows.join('\n'), TRACKER_TEXT_IS_DATA].join('\n\n')
 }

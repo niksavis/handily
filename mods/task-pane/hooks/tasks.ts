@@ -223,7 +223,7 @@ export function isOpenItem(item: WorkItem): boolean {
   return item.status !== 'closed' && item.status !== 'deferred'
 }
 
-export function openItems(items: readonly WorkItem[], limit: number): WorkItem[] {
+export function openItems(items: readonly WorkItem[]): WorkItem[] {
   return items
     .filter(isOpenItem)
     .sort(
@@ -231,7 +231,6 @@ export function openItems(items: readonly WorkItem[], limit: number): WorkItem[]
         (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER) ||
         a.id.localeCompare(b.id),
     )
-    .slice(0, limit)
 }
 
 export function priorityText(item: WorkItem): string {

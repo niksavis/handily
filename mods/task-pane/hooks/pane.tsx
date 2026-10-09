@@ -9,6 +9,7 @@ import type {
 } from 'claude-code'
 import type { TaskPaneList, TaskPaneTask } from '../types'
 import {
+  OPEN_ITEMS_SHOWN,
   addItemsAsTasks,
   type TaskHost,
   personAdd,
@@ -31,6 +32,7 @@ import { cutToWidth, displayWidth, padToWidth } from './width'
 
 export const PANE_ID = 'task-pane'
 const PANE_TITLE = 'Tasks'
+const ITEMS_GROUP = 'group:items'
 const INLINE_ROWS_BEFORE_COLLAPSE = 6
 const FRAME_ROWS = 2
 
@@ -279,10 +281,13 @@ function drawTracker(
       return `${parts.join('; ')}.`
     })
   }
-  const count = String(view.items.length)
-  const priorityWidth = column(view.items.map(priorityText))
-  const idWidth = column(view.items.map((item) => escaped(item.id)))
-  const rows = view.items.map((item) =>
+  const openCount = String(view.items.length)
+  const isAllShown = layout.expanded.has(ITEMS_GROUP)
+  const items = isAllShown ? view.items : view.items.slice(0, OPEN_ITEMS_SHOWN)
+  const count = String(items.length)
+  const priorityWidth = column(items.map(priorityText))
+  const idWidth = column(items.map((item) => escaped(item.id)))
+  const rows = items.map((item) =>
     drawRow(
       elements,
       {
@@ -304,20 +309,27 @@ function drawTracker(
       layout,
     ),
   )
+  const isFolding = view.items.length > OPEN_ITEMS_SHOWN
   return [
-    Text({
-      dimColor: true,
-      children: `Open in tracker: ${view.label} · ${String(view.openCount)} open`,
-    }),
+    Text({ dimColor: true, children: `Open in tracker: ${view.label} · ${openCount} open` }),
     ...rows,
+    isFolding
+      ? Button({
+          key: 'all-items',
+          label: isAllShown ? `first ${String(OPEN_ITEMS_SHOWN)}` : `all ${openCount} open`,
+          onPress: () => {
+            layout.toggle(ITEMS_GROUP)
+          },
+        })
+      : null,
     Button({
       key: 'add-all',
-      label: view.items.length === 1 ? 'Add 1 as a task' : `Add ${count} as tasks`,
+      label: items.length === 1 ? 'Add 1 as a task' : `Add ${count} as tasks`,
       onPress: () => {
-        addItems(view.items)
+        addItems(items)
       },
     }),
-  ]
+  ].filter((element) => element !== null)
 }
 
 function drawFooter(
