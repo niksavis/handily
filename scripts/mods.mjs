@@ -1,8 +1,16 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
@@ -118,6 +126,16 @@ function isLaidContractCurrent(mod, dependency) {
   const laid = laidContractPath(mod, dependency)
   if (!existsSync(laid)) return false
   return readFileSync(dependency.contract, 'utf8') === readFileSync(laid, 'utf8')
+}
+
+function layContracts(mod, dependencies) {
+  for (const dependency of dependencies) {
+    if (isLaidContractCurrent(mod, dependency)) continue
+    const laid = laidContractPath(mod, dependency)
+    mkdirSync(dirname(laid), { recursive: true })
+    rmSync(laid, { force: true })
+    writeFileSync(laid, readFileSync(dependency.contract, 'utf8'))
+  }
 }
 
 const layTimeoutMs = 120_000
@@ -264,6 +282,7 @@ function checkMarketplace(mods) {
 }
 
 function typecheck(mods) {
+  for (const mod of mods) layContracts(mod, dependenciesOf(mod, mods))
   layTypes(mods, { force: false })
   const tsc = require.resolve('typescript/bin/tsc')
   for (const mod of mods) {

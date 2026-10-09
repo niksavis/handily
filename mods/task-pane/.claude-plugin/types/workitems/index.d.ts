@@ -1,1 +1,0 @@
-/home/niksa/development/handily/mods/workitems/types/index.d.ts
