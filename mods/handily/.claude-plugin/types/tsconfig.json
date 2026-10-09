@@ -20,13 +20,14 @@
       "claude-code",
       "claude-code-tools",
       "claude-code-mcp",
-      "agent-board",
-      "item-toasts",
+      "workitems",
       "quiet-items",
-      "session-board",
-      "simple-view",
       "task-pane",
-      "workitems"
+      "session-board",
+      "item-toasts",
+      "agent-board",
+      "simple-view",
+      "reply-view"
     ]
   },
   "include": [
