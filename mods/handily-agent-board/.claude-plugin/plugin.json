@@ -1,6 +1,6 @@
 {
   "name": "handily-agent-board",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A pane that shows what each subagent of this session does: its tool, its tool count, its time and its task list.",
   "author": {
     "name": "niksavis"

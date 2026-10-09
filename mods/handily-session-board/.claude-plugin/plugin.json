@@ -1,6 +1,6 @@
 {
   "name": "handily-session-board",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A board of every local Claude Code session: state, task, worktree and time worked.",
   "author": {
     "name": "niksavis"

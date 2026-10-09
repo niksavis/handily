@@ -31,9 +31,10 @@ read or write the built-in `Task*` tools.
   most 200 characters. A zero-width joiner, a zero-width non-joiner and a soft hyphen are
   allowed. A run of spaces in a title becomes one space. The list holds at most 100 tasks. The
   model and the person get the same refusal, by name.
-- Each row shows the task number, the status, the author and the title. The author is `you`
-  for a task that you added, `claude` for a task that the model added, and `tracker` for a
-  tracker item that you added. The author comes before the title, so a title cannot imitate it.
+- Each row of a `/task` reply and of a model tool answer shows the task number, the status, the
+  author and the title. The author is `you` for a task that you added, `claude` for a task that
+  the model added, and `tracker` for a tracker item that you added. The author comes before the
+  title, so a title cannot imitate it.
 - In what the model reads, tracker text is always quoted with `JSON.stringify`, as
   `"app-cd34": "Write the beads reader"`, and a control, format or line separator character in
   it is escaped as `\uXXXX`. That applies to the rows, the notes, `task_list` and the `/task`
@@ -67,8 +68,10 @@ still reads the whole answer with the list. Rows from the tests, 80 columns wide
 ● Task 3 removed  Drop the old pane
 ```
 
-- The marks and colours are the signals of the pane: `▶` in progress (orange), `✓` done (green)
-  and `○` pending (subtle).
+- The marks and colours are the signals of the pane: `▶` in progress (`claude`, orange), `✓`
+  done (`success`, green) and `○` pending (`subtle`). `hooks/signals.ts` holds the table of
+  signals. `agent-board` and `session-board` keep the same table, and
+  `scripts/signals.test.mjs` fails when two tables differ.
 - The title is shown as the pane shows it: without quotes, with a tracker id before it, and with
   a control, format or line separator character escaped as `\uXXXX`.
 - A long title is cut with `…`, so the row fits the terminal width. The tests check this at 30,
@@ -127,9 +130,9 @@ subagents. Two captures from the tests, 44 columns wide:
 
 ```text
 Tasks  1 of 3 done · 4m
-▶ 2 claude  Write the mocks        4m [ rm ]
-            ▸ Edit docs/mocks.md     3 tools
-○ 3 claude  Commit the mocks          [ rm ]
+▶ 2 Write the mocks                4m [ rm ]
+    ▸ Edit docs/mocks.md             3 tools
+○ 3 Commit the mocks
 [ +1 done ]
 
 [ Add a task ][Add]
@@ -137,18 +140,25 @@ Tasks  1 of 3 done · 4m
 
 ```text
 Tasks  0 of 1 done
-○ 1 claude  Write the mocks           [ rm ]
+○ 1 Write the mocks
 ────────────────────────────────────────────
 Agents  1 running
-● scout 3 of 7 ▸ mcp__search__grep hooks/
+▶ scout 3 of 7 ▸ mcp__search__grep hooks/
 
 [ Add a task ][Add]
 ```
 
 - The header shows the done count and the time since the first tool call of the main loop.
-- Each task is one line: a mark (`✓` done, `▶` in progress, `○` pending), the number, the
-  author column, the title and an `[ rm ]` button. An input with `Add` adds a task as you. The
-  mobile app has no input, so the pane shows the command.
+- Each task is one line: a mark (`✓` done in `success`, `▶` in progress in `claude`, `○`
+  pending in `subtle`), the number, the author, the title and an `[ rm ]` button. An input
+  with `Add` adds a task as you. The mobile app has no input, so the pane shows the command.
+- The pane shows a dim author only for a task by `you` or by `tracker`. A task by `claude`
+  shows no author, because most tasks are by `claude`. So in the pane, a model title that
+  starts with `you` can look like a task that you added. The `/task` reply names the author of
+  each task and quotes each model title.
+- The `[ rm ]` button shows on the task in progress and on each task that you opened with a
+  press on its title. The engine has no row selection for a pane, so the open row is the row
+  that you chose. `/task rm <n>` removes any task.
 - The task in progress comes first, in bold, with the time since it started. The line under it
   shows the last tool and target of the main loop, and the count of tool calls since the task
   started. The target of a call with a description, such as a `Bash` call, is that description,
@@ -158,9 +168,11 @@ Agents  1 running
 - Press a task title to show its full title, its start time and its tool count under the row.
   A task that was never in progress says so. Press the title again to hide them.
 - When the list has no task in progress, a `▶ Now` line shows the last tool, the count of tool
-  calls and the time since the first one.
-- `Agents` lists each subagent that is pending, running or waiting: its name, its plan count
-  from its own task list and its last tool. With no such subagent the section is not drawn.
+  calls and the time since the first one. The `▶` is in `claude`.
+- `Agents` lists each subagent that is pending, running or waiting: its mark, its name, its plan
+  count from its own task list and its last tool. The mark is `○` in `subtle` while the
+  subagent is pending, and `▶` in `claude` while it runs or waits. With no such subagent the
+  section is not drawn.
 - The columns before the title have a fixed width, and an id is never cut. The title fills the
   room that is left in the pane width and is cut to fit, so a row never wraps. The tests check
   this at 30, 45 and 80 columns. A tool target, a subagent name and every title are escaped

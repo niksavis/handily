@@ -662,7 +662,7 @@ describe('no tasks yet', () => {
 
 describe('the pane', () => {
   test(
-    'draws each task with a mark and an rm button, and rm removes it',
+    'draws each task with its signal mark, the author only when it is not claude, rm on the task in progress and on an opened task, and rm removes it',
     withWorkitems,
     async ($, on) => {
       world(on)
@@ -696,11 +696,25 @@ describe('the pane', () => {
           (await ui.findAll({ type: 'Text', text: /^(you|claude|tracker) +$/ })).map(
             (author) => author.text,
           ),
-        ).toEqual(['claude  ', 'you     ', 'claude  '])
+        ).toEqual(['you '])
         expect(await ui.find({ type: 'Text', text: /\(you\)/ })).toBeUndefined()
         expect(
-          (await ui.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key),
-        ).toEqual(['rm:2', 'rm:3', 'rm:1'])
+          (await ui.findAll({ type: 'Text', text: /^[▶○✓] $/ })).map((mark) => [
+            mark.text,
+            mark.props.color,
+          ]),
+        ).toEqual([
+          ['▶ ', 'claude'],
+          ['○ ', 'subtle'],
+          ['✓ ', 'success'],
+        ])
+        const removable = async () =>
+          (await ui.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key)
+        expect(await removable()).toEqual(['rm:2'])
+        await ui.press({ key: 'open:task:3' })
+        expect(await removable()).toEqual(['rm:2', 'rm:3'])
+        await ui.press({ key: 'open:task:3' })
+        expect(await removable()).toEqual(['rm:2'])
         expect((await ui.find({ type: 'Input' }))?.props.submitLabel).toBe('Add')
         await ui.press({ key: 'done' })
         await ui.unmount()
@@ -1420,7 +1434,7 @@ describe('tracker text and the author column', () => {
   )
 
   test(
-    'a model title that imitates the person mark stays in the claude column',
+    'a model title that imitates the person mark draws no author cell',
     withWorkitems,
     async ($, on) => {
       world(on)
@@ -1456,7 +1470,7 @@ describe('tracker text and the author column', () => {
         (await ui.findAll({ type: 'Text', text: /^(you|claude|tracker) +$/ })).map(
           (author) => author.text,
         ),
-      ).toEqual(titles.map(() => 'claude  '))
+      ).toEqual([])
       await ui.unmount()
     },
   )
@@ -1756,12 +1770,13 @@ describe('the pane rows fit the pane width', () => {
     )
 
     test(
-      `each task is one line of mark, number, author, title and rm at ${String(columns)} columns`,
+      `each task is one line of mark, number, the author when not claude, and title at ${String(columns)} columns`,
       withWorkitems,
       async ($, on) => {
         world(on)
         await start($)
-        await $.tool.call({ tool: TOOL_ADD, title: LONG_TITLE })
+        const title = `${LONG_TITLE} ${LONG_TITLE}`
+        await $.tool.call({ tool: TOOL_ADD, title })
         await task($, 'add Ship it')
         const ui = await $.ui.mount({
           plugin: PLUGIN,
@@ -1775,16 +1790,15 @@ describe('the pane rows fit the pane width', () => {
         expect(texts(long).map((cell) => cell.text)).toEqual([
           '○ ',
           '1 ',
-          'claude  ',
-          LONG_TITLE.slice(0, columns - 12 - 7 - 1),
+          title.slice(0, columns - 4 - 1),
           '…',
         ])
         expect((await ui.find({ key: 'open:task:1' }))?.text).toBe(
-          `${LONG_TITLE.slice(0, columns - 12 - 7 - 1)}…`,
+          `${title.slice(0, columns - 4 - 1)}…`,
         )
         const short = await rowOf(ui, 'task:2')
         expect(drawnWidth(short) <= columns).toBe(true)
-        expect(texts(short).at(-1)?.text).toBe('Ship it')
+        expect(texts(short).map((cell) => cell.text)).toEqual(['○ ', '2 ', 'you ', 'Ship it'])
         expect((await ui.find({ key: 'open:task:2' }))?.text).toBe('Ship it')
         await ui.unmount()
       },
@@ -2058,9 +2072,9 @@ describe('the pane follows the work', () => {
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
         'Tasks  1 of 3 done · 4m',
-        '▶ 2 claude  Write the mocks        4m [ rm ]',
-        '            ▸ Edit docs/mocks.md     3 tools',
-        '○ 3 claude  Commit the mocks          [ rm ]',
+        '▶ 2 Write the mocks                4m [ rm ]',
+        '    ▸ Edit docs/mocks.md             3 tools',
+        '○ 3 Commit the mocks',
         '[ +1 done ]',
         '',
         '[ Add a task ][Add]',
@@ -2069,12 +2083,12 @@ describe('the pane follows the work', () => {
       await bash($, 'npm test')
       expect((await screen(ui, WIDTH)).slice(0, 3)).toEqual([
         'Tasks  1 of 3 done · 5m',
-        '▶ 2 claude  Write the mocks        5m [ rm ]',
-        '            ▸ Bash npm test          4 tools',
+        '▶ 2 Write the mocks                5m [ rm ]',
+        '    ▸ Bash npm test                  4 tools',
       ])
       await $.tool.call({ tool: 'Bash', command: 'npm run lint', description: 'Lint the mods' })
       expect((await screen(ui, WIDTH)).slice(2, 3)).toEqual([
-        '            ▸ Bash Lint the mods     5 tools',
+        '    ▸ Bash Lint the mods             5 tools',
       ])
       await ui.unmount()
     },
@@ -2113,12 +2127,12 @@ describe('the pane follows the work', () => {
         ])
         expect(await screen(ui, WIDTH)).toEqual([
           'Tasks  1 of 3 done · 7m',
-          '▶ 2 claude  Mods match the termin… 4m [ rm ]',
-          '            Mods match the terminal palette,',
-          '            such as a WezTerm theme on navy',
-          `            started ${clockText(START + 3 * MINUTE)} · 9 tools · 4m`,
-          '            ▸ Read src/file8.ts      9 tools',
-          '○ 3 claude  Push after approval       [ rm ]',
+          '▶ 2 Mods match the terminal palet… 4m [ rm ]',
+          '    Mods match the terminal palette, such as',
+          '    a WezTerm theme on navy',
+          `    started ${clockText(START + 3 * MINUTE)} · 9 tools · 4m`,
+          '    ▸ Read src/file8.ts              9 tools',
+          '○ 3 Push after approval',
           '[ +1 done ]',
           '',
           '[ Add a task ][Add]',
@@ -2158,7 +2172,7 @@ describe('the pane follows the work', () => {
   )
 
   test(
-    'the pane lists each running subagent with its plan count and last tool, and no subagent section when none runs',
+    'the pane lists each running subagent with its signal mark, plan count and last tool, and no subagent section when none runs',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
@@ -2176,10 +2190,10 @@ describe('the pane follows the work', () => {
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
         'Tasks  0 of 1 done',
-        '○ 1 claude  Write the mocks           [ rm ]',
+        '○ 1 Write the mocks',
         '────────────────────────────────────────────',
         'Agents  1 running',
-        '● scout 3 of 7 ▸ mcp__search__grep hooks/',
+        '▶ scout 3 of 7 ▸ mcp__search__grep hooks/',
         '',
         '[ Add a task ][Add]',
       ])
@@ -2189,10 +2203,20 @@ describe('the pane follows the work', () => {
       expect((await screen(both, WIDTH)).slice(2, 6)).toEqual([
         '────────────────────────────────────────────',
         'Agents  2 running',
-        '● scout           3 of 7 ▸ mcp__search__gre…',
-        '● planner withou…        ▸ no tool call yet',
+        '▶ scout           3 of 7 ▸ mcp__search__gre…',
+        '▶ planner withou…        ▸ no tool call yet',
       ])
       await both.unmount()
+      seen.agents.push(agent('a4', 'queued', 'pending'))
+      const marked = await mountPane($)
+      const markOf = async (id: string) => {
+        const mark = texts(await rowOf(marked, `agent:${id}`))[0]
+        return [mark?.text, mark?.props.color]
+      }
+      expect(await markOf('a1')).toEqual(['▶ ', 'claude'])
+      expect(await markOf('a3')).toEqual(['▶ ', 'claude'])
+      expect(await markOf('a4')).toEqual(['○ ', 'subtle'])
+      await marked.unmount()
       seen.agents.splice(0, seen.agents.length, agent('a1', 'scout', 'completed'))
       const none = await mountPane($)
       const lines = await screen(none, WIDTH)
@@ -2234,6 +2258,8 @@ describe('the pane follows the work', () => {
         '',
         '[ Add a task ][Add]',
       ])
+      const now = texts(await rowOf(ui, 'now'))[0]
+      expect([now?.text, now?.props.color]).toEqual(['▶ ', 'claude'])
       await ui.unmount()
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       const cleared = await mountPane($)
@@ -2303,7 +2329,7 @@ describe('the pane follows the work', () => {
       expect(await screen(ui, WIDTH)).toEqual([
         'Tasks  0 of 1 done · <1m',
         '▶ Now  Read src/file19.ts     20 tools · <1m',
-        '○ 1 claude  Write the mocks           [ rm ]',
+        '○ 1 Write the mocks',
         'No plan update for 20 tool calls.',
         '[ Ask Claude for a plan ]',
         '',
@@ -2345,7 +2371,7 @@ describe('the pane follows the work', () => {
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
-      seen.agents.push(agent('a1', 'scout\u2028● forged', 'running'))
+      seen.agents.push(agent('a1', 'scout\u2028▶ forged', 'running'))
       await start($)
       await bash($, 'echo hi\u2028▶ Now  forged\u202e')
       await agentCall($, 'a1', 'x\u2029y')
@@ -2355,8 +2381,8 @@ describe('the pane follows the work', () => {
         'Tasks  none kept by Claude',
         '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                        1 tool · <1m',
       ])
-      expect(lines.filter((line) => line.startsWith('●'))).toEqual([
-        '● scout\\u2028● f…  ▸ mcp__search__grep x\\u2029y',
+      expect(lines.filter((line) => line.startsWith('▶ scout'))).toEqual([
+        '▶ scout\\u2028▶ f…  ▸ mcp__search__grep x\\u2029y',
       ])
       expect(await ui.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
       await ui.unmount()
@@ -2467,14 +2493,14 @@ describe('the redraw timer', () => {
       await seen.clock.set(START + 55_000)
       await read($, 'docs/mocks.md')
       const ui = await mountPane($)
-      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks       <1m [ rm ]')
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 Write the mocks               <1m [ rm ]')
       await seen.clock.advance(10_000)
-      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 Write the mocks                1m [ rm ]')
       expect(await paneCommandOf($)).toBe('Task pane closed.')
       const asked = seen.panesAsked
       await seen.clock.advance(60_000)
       expect(seen.panesAsked).toBe(asked)
-      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 Write the mocks                1m [ rm ]')
       await ui.unmount()
     },
   )
@@ -2494,7 +2520,7 @@ describe('the redraw timer', () => {
       const ui = await mountPane($)
       expect(await paneCommandOf($)).toBe('Task pane closed.')
       await seen.clock.advance(10_000)
-      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 Write the mocks                1m [ rm ]')
       await ui.unmount()
     },
   )

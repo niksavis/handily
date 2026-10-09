@@ -602,7 +602,7 @@ function wrappingTexts(node: Node): string[] {
   return [...own, ...node.children.flatMap(wrappingTexts)]
 }
 
-const THEME_KEYS = new Set(['success', 'warning', 'error', 'subtle', 'suggestion'])
+const THEME_KEYS = new Set(['claude', 'success', 'warning', 'error', 'subtle', 'suggestion'])
 
 const EVERY_STATE: AgentInfo[] = [
   { ...EXPLORE, name: 'scout-with-a-long-name-that-cannot-fit-in-the-pane-at-all' },
@@ -633,6 +633,34 @@ describe('the drawing', () => {
   })
 
   for (const surface of SURFACES) {
+    test(`draws each state with the mark and theme colour of its signal on ${surface}`, async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      const world = fakeWorld(on)
+      world.subagents = EVERY_STATE
+      await openBoard($, clock)
+      const ui = await mountBoard($, surface)
+      const board = nodeOf(await ui.drawn())
+      if (board === null) throw new Error('the board drew nothing')
+      const marks = board.children
+        .filter((child) => String(child.props.key).startsWith('agent:'))
+        .map((card) => {
+          const header = card.children[0] ? textsOf(card.children[0]) : []
+          const mark = header[0]
+          const status = header.at(-2)
+          return [status?.text, mark?.text, mark?.props.color, status?.props.color]
+        })
+      expect(marks).toEqual([
+        ['running', '▶ ', 'claude', 'claude'],
+        ['waiting', '▶ ', 'claude', 'claude'],
+        ['pending', '○ ', 'subtle', 'subtle'],
+        ['idle', '○ ', 'subtle', 'subtle'],
+        ['done', '✓ ', 'success', 'success'],
+        ['failed', '■ ', 'error', 'error'],
+        ['killed', '✓ ', 'success', 'success'],
+      ])
+      await ui.unmount()
+    })
+
     test(`draws only theme colours, never a fixed colour, on ${surface}`, async ($, on) => {
       const clock = mock.clock(on, { now: NOW })
       const world = fakeWorld(on)
@@ -771,8 +799,9 @@ describe('the plan of a subagent', () => {
           (await ui.find({ type: 'Text', text: shown }))?.props
         expect(await styleOf('✓ ')).toMatchObject({ color: 'success' })
         expect(await styleOf('Read the design')).toMatchObject({ dimColor: true })
+        expect(await styleOf('▶ ')).toMatchObject({ color: 'claude' })
         expect(await styleOf('Draw the plan')).toMatchObject({ bold: true })
-        expect(await styleOf('○ ')).toMatchObject({ dimColor: true })
+        expect(await styleOf('○ ')).toMatchObject({ color: 'subtle' })
         expect(await ui.findAll({ type: 'Button' })).toEqual([])
         await ui.unmount()
       },
@@ -833,7 +862,7 @@ describe('the plan of a subagent', () => {
   }
 
   const BEFORE = [
-    '● ',
+    '▶ ',
     'Explore',
     'running',
     '0s',

@@ -1,12 +1,17 @@
 import type { AgentInfo, Elements, RenderElement, RenderSurface, TextProps } from 'claude-code'
-import { POLL_INTERVAL_MS, type AgentRow, type AgentsCache, type AgentsOutcome } from './agents'
+import {
+  POLL_INTERVAL_MS,
+  type AgentKind,
+  type AgentRow,
+  type AgentsCache,
+  type AgentsOutcome,
+} from './agents'
 import { estimateLeftMs, isOlderThanStart, workedMs, type Progress } from './progress'
+import { SIGNALS, type Signal } from './signals'
 
 export const HIDE_BACKGROUND_AFTER_MS = 24 * 60 * 60_000
 
 type BoardElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
-
-type Tone = 'success' | 'warning' | 'plain' | 'dim'
 
 export type StateGroup = 'working' | 'waiting' | 'idle' | 'ended' | 'failed'
 
@@ -18,7 +23,7 @@ export type TaskCell =
 export type BoardRow = {
   key: string
   name: string
-  kind: 'inter' | 'bg' | '—'
+  kind: AgentKind | null
   state: string
   group: StateGroup
   task: TaskCell
@@ -56,7 +61,6 @@ const GROUP_ORDER: Record<StateGroup, number> = {
   ended: 3,
   failed: 3,
 }
-const BAR_CELLS_AT_MOST = 8
 const DETAIL_INDENT = 2
 const CARD_RULE = '─'
 
@@ -64,20 +68,12 @@ type TextStyle = Omit<TextProps, 'children'>
 type BoxStyle = Omit<Parameters<BoardElements['Box']>[0], 'children'>
 type Child = RenderElement | null
 
-const MARKS: Record<StateGroup, { glyph: string; style: TextStyle }> = {
-  working: { glyph: '●', style: { color: 'success' } },
-  waiting: { glyph: '◐', style: { color: 'warning' } },
-  idle: { glyph: '○', style: { dimColor: true } },
-  ended: { glyph: '○', style: { dimColor: true } },
-  failed: { glyph: '✕', style: { color: 'error' } },
-}
-
-const GROUP_TONES: Record<StateGroup, Tone> = {
-  working: 'success',
-  waiting: 'warning',
-  idle: 'plain',
-  ended: 'dim',
-  failed: 'dim',
+const GROUP_SIGNALS: Record<StateGroup, Signal> = {
+  working: 'doing',
+  waiting: 'waitsForYou',
+  idle: 'toDo',
+  ended: 'done',
+  failed: 'blocked',
 }
 
 export function formatDuration(ms: number): string {
@@ -95,9 +91,7 @@ export function formatAge(ms: number): string {
 }
 
 export function progressText(done: number, total: number): string {
-  const cells = Math.min(total, BAR_CELLS_AT_MOST)
-  const filled = total === 0 ? 0 : Math.floor((done * cells) / total)
-  return `${'▰'.repeat(filled)}${'▱'.repeat(cells - filled)} ${String(done)}/${String(total)}`
+  return `${String(done)} of ${String(total)}`
 }
 
 function lastSegment(path: string): string {
@@ -149,7 +143,7 @@ function agentRow(
   return {
     key: row.key,
     name: row.name,
-    kind: row.kind === 'interactive' ? 'inter' : 'bg',
+    kind: row.kind,
     state: stateText(row),
     group: stateGroup(row),
     task: taskCell(progress),
@@ -166,7 +160,7 @@ function staleRow(progress: Progress): BoardRow {
   return {
     key: `stale:${progress.sessionId}`,
     name: progress.sessionId.slice(0, 8),
-    kind: '—',
+    kind: null,
     state: 'not listed',
     group: 'idle',
     task: taskCell(progress),
@@ -217,30 +211,22 @@ function box(elements: BoardElements, style: BoxStyle, children: readonly Child[
   return elements.Box({ ...style, children: children.filter((child) => child !== null) })
 }
 
-function toneStyle(tone: Tone): TextStyle {
-  if (tone === 'success') return { color: 'success' }
-  if (tone === 'warning') return { color: 'warning' }
-  if (tone === 'dim') return { dimColor: true }
-  return {}
-}
-
 function kept(elements: BoardElements, child: RenderElement): RenderElement {
   return box(elements, { flexShrink: 0 }, [child])
 }
 
-function taskLine(elements: BoardElements, row: BoardRow): RenderElement {
+function taskLine(elements: BoardElements, row: BoardRow): Child {
   const { task } = row
+  if (task.kind === 'no-data') return null
   const stale = row.isStale ? kept(elements, text(elements, ' (stale)', { dimColor: true })) : null
-  if (task.kind !== 'task') {
-    const label = task.kind === 'no-data' ? '—' : 'no tasks'
-    return box(elements, { flexDirection: 'row' }, [
-      kept(elements, text(elements, label, { dimColor: true })),
+  if (task.kind === 'no-tasks') {
+    return box(elements, { flexDirection: 'row', paddingLeft: DETAIL_INDENT }, [
+      kept(elements, text(elements, 'no tasks', { dimColor: true })),
       stale,
     ])
   }
   const title = task.current ?? `all ${String(task.total)} done`
-  return box(elements, { flexDirection: 'row' }, [
-    kept(elements, text(elements, '▶ ', { dimColor: true })),
+  return box(elements, { flexDirection: 'row', paddingLeft: DETAIL_INDENT }, [
     box(elements, { flexShrink: 1 }, [text(elements, title, { wrap: 'truncate-end' })]),
     box(elements, { flexShrink: 0, marginLeft: 1 }, [
       text(elements, progressText(task.done, task.total)),
@@ -250,13 +236,13 @@ function taskLine(elements: BoardElements, row: BoardRow): RenderElement {
 }
 
 function cardHeader(elements: BoardElements, row: BoardRow): RenderElement {
-  const mark = MARKS[row.group]
+  const { mark, color } = SIGNALS[GROUP_SIGNALS[row.group]]
   return box(elements, { flexDirection: 'row' }, [
-    box(elements, { flexShrink: 0 }, [text(elements, `${mark.glyph} `, mark.style)]),
+    box(elements, { flexShrink: 0 }, [text(elements, `${mark} `, { color })]),
     box(elements, { flexShrink: 1 }, [
       text(elements, row.name, { bold: true, wrap: 'truncate-end' }),
     ]),
-    row.kind === '—'
+    row.kind === null
       ? null
       : box(elements, { flexShrink: 0, marginLeft: 2 }, [
           text(elements, row.kind, { dimColor: true }),
@@ -267,7 +253,7 @@ function cardHeader(elements: BoardElements, row: BoardRow): RenderElement {
         ])
       : null,
     box(elements, { flexShrink: 1, marginLeft: 2 }, [
-      text(elements, row.state, { ...toneStyle(GROUP_TONES[row.group]), wrap: 'truncate-end' }),
+      text(elements, row.state, { color, wrap: 'truncate-end' }),
     ]),
   ])
 }
@@ -281,7 +267,7 @@ function placeLine(row: BoardRow): string {
 function card(elements: BoardElements, row: BoardRow): RenderElement {
   return box(elements, { key: `card:${row.key}`, flexDirection: 'column' }, [
     cardHeader(elements, row),
-    box(elements, { paddingLeft: DETAIL_INDENT }, [taskLine(elements, row)]),
+    taskLine(elements, row),
     box(elements, { paddingLeft: DETAIL_INDENT }, [
       text(elements, placeLine(row), { dimColor: true, wrap: 'truncate-end' }),
     ]),
@@ -373,7 +359,7 @@ function ownRow(data: DesktopData): BoardRow {
   return {
     key: 'this-session',
     name: 'this session',
-    kind: '—',
+    kind: null,
     state: isWorking ? 'working' : 'idle',
     group: isWorking ? 'working' : 'idle',
     task: taskCell(own),

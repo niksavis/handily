@@ -11,20 +11,28 @@ worked.
 /session-board close    closes the board
 ```
 
-- Each card has a header line and two detail lines, at every width. A dim rule line separates
+- Each card has a header line and up to two detail lines, at every width. A dim rule line separates
   two cards.
-- The header shows a status mark in a theme colour, the name in bold, a dim `inter` or `bg`
-  badge, `this` on the current session, and the state word.
+- The header shows a status mark in a theme colour, the name in bold, a dim `interactive` or
+  `background` badge, `this` on the current session, and the state word in the colour of the
+  mark.
 
-  | Mark | State                                      | Colour    |
-  | ---- | ------------------------------------------ | --------- |
-  | `●`  | `busy`, `working`                          | `success` |
-  | `◐`  | `waiting`, `blocked`, or any `waitingFor`  | `warning` |
-  | `○`  | `idle`, an unknown word, `done`, `stopped` | dim       |
-  | `✕`  | `failed`                                   | `error`   |
+  | Mark | Signal        | State                                     | Colour    |
+  | ---- | ------------- | ----------------------------------------- | --------- |
+  | `▶`  | Doing         | `busy`, `working`                         | `claude`  |
+  | `◆`  | Waits for you | `waiting`, `blocked`, or any `waitingFor` | `warning` |
+  | `○`  | To do         | `idle`, an unknown word                   | `subtle`  |
+  | `✓`  | Done          | `done`, `stopped`                         | `success` |
+  | `■`  | Blocked       | `failed`                                  | `error`   |
 
-- The first detail line is the current task, cut to fit, and a progress bar with one cell per
-  task, at most 8 cells: `▶ Write the tests ▰▰▱▱ 2/4`.
+- The marks and colours are the signals of `docs/design.md`. `hooks/signals.ts` holds the
+  table. `task-pane` and `agent-board` keep the same table, and `scripts/signals.test.mjs`
+  fails when two tables differ.
+- `idle` draws as To do, not as Waits for you. An idle session is between turns and asks you
+  nothing. A `waitingFor` value, such as `permission`, draws as Waits for you. `stopped` draws
+  as Done, because the session left the work. The state word still says `stopped`.
+- The first detail line is the current task, cut to fit, and the count of done tasks:
+  `Write the tests 2 of 4`. A session with no store key has no task line.
 - The second detail line is `<worktree> · <branch> · <time>`, with `est. <time> left` when the
   board has an estimate.
 - This session comes first. Then come the working sessions, the waiting ones, the idle ones,
@@ -48,8 +56,8 @@ worked.
 - Each session that runs `session-board` writes its own store key `session:<session id>`. The
   key holds the current task, the done and total counts, and the time worked.
 - The task list comes from the `$.state` list of the `handily-task-pane` mod. A session with its own
-  key and no task list, or an empty one, shows `no tasks`. A session with no key shows a dim
-  `—`.
+  key and no task list, or an empty one, shows `no tasks`. A session with no key shows no task
+  line.
 
 The mod never reads the task files of the engine on disk, because their format is internal.
 

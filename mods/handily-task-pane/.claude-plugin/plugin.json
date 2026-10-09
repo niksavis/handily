@@ -1,6 +1,6 @@
 {
   "name": "handily-task-pane",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A session task list that Claude and you share: model tools, /task commands and an optional pane.",
   "author": {
     "name": "niksavis"

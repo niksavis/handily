@@ -14,15 +14,26 @@ tool calls and, when the subagent keeps one in `task-pane`, its task list.
 - Each card has a header line, up to two detail lines and the task list of the agent. A dim
   rule line separates two cards.
 - The header shows a status mark in a theme colour, the name or the type in bold, the state
-  word and the time since the spawn. A dim badge shows the type when the agent has a name.
+  word in the colour of the mark, and the time since the spawn. A dim badge shows the type
+  when the agent has a name.
 
-  | Mark | State                                    | Colour    |
-  | ---- | ---------------------------------------- | --------- |
-  | `●`  | `running`                                | `success` |
-  | `◐`  | `waiting`                                | `warning` |
-  | `○`  | `pending`, `idle`, `done`, `killed`      | dim       |
-  | `✕`  | `failed`                                 | `error`   |
-  | `?`  | `unknown`: the engine no longer lists it | dim       |
+  | Mark | Signal  | State                                    | Colour    |
+  | ---- | ------- | ---------------------------------------- | --------- |
+  | `▶`  | Doing   | `running`, `waiting`                     | `claude`  |
+  | `○`  | To do   | `pending`, `idle`                        | `subtle`  |
+  | `✓`  | Done    | `done`, `killed`                         | `success` |
+  | `■`  | Blocked | `failed`                                 | `error`   |
+  | `?`  | none    | `unknown`: the engine no longer lists it | dim       |
+
+- The marks and colours are the signals of `docs/design.md`. `hooks/signals.ts` holds the
+  table. `task-pane` and `session-board` keep the same table, and `scripts/signals.test.mjs`
+  fails when two tables differ.
+- `waiting` draws as Doing, not as Waits for you. The engine types say that an agent is
+  `waiting` on background work that it owns, on an Agent call, or on the approval of a plan.
+  Only the approval needs a person, and the state does not say which wait it is. So a yellow
+  `◆` would often be a false alarm. `idle` draws as To do: the agent is between turns until a
+  message wakes it. `killed` draws as Done,
+  because the agent left the work. The state word still says `killed`.
 
 - The first detail line is the task description of the Agent call. When the agent has a
   parent, `under <parent>` follows. `<parent>` is the name of the parent, else its description,
@@ -35,11 +46,11 @@ tool calls and, when the subagent keeps one in `task-pane`, its task list.
   last other call. The line shows `SubagentHandback` only when it was the one call.
 - The task list starts with a dim `plan 2/7 done` line, then one line per task in list order:
 
-  | Mark | Task        | Title                |
-  | ---- | ----------- | -------------------- |
-  | `✓`  | done        | dim, mark in success |
-  | `▶`  | in progress | bold                 |
-  | `○`  | open        | plain, mark dim      |
+  | Mark | Task        | Mark colour | Title |
+  | ---- | ----------- | ----------- | ----- |
+  | `✓`  | done        | `success`   | dim   |
+  | `▶`  | in progress | `claude`    | bold  |
+  | `○`  | open        | `subtle`    | plain |
 
 - A list of more than 5 tasks folds. The card shows the task in progress, the 2 tasks before
   it and the 2 tasks after it, and `· 5 of 7 shown`. With no task in progress, the fold centres

@@ -6,6 +6,7 @@ import type {
   TaskPaneStatus,
   TaskPaneTask,
 } from '../types'
+import { SIGNALS, type Signal, type SignalLook } from './signals'
 
 export type WorkItem = PluginState['handily-workitems']['snapshot']['items'][number]
 
@@ -35,14 +36,14 @@ export function statusWord(status: TaskPaneStatus): string {
   return STATUS_WORDS[status]
 }
 
-const STATUS_MARKS: Record<TaskPaneStatus, string> = {
-  pending: '○',
-  in_progress: '▶',
-  completed: '✓',
+const STATUS_SIGNALS: Record<TaskPaneStatus, Signal> = {
+  pending: 'toDo',
+  in_progress: 'doing',
+  completed: 'done',
 }
 
-export function statusMark(status: TaskPaneStatus): string {
-  return STATUS_MARKS[status]
+export function statusLook(status: TaskPaneStatus): SignalLook {
+  return SIGNALS[STATUS_SIGNALS[status]]
 }
 
 export function findTask(list: TaskPaneList, id: number): TaskPaneTask | undefined {
@@ -106,6 +107,10 @@ const AUTHOR_WORD_WIDTH = Math.max(...Object.values(AUTHOR_WORDS).map((word) => 
 
 export function authorColumn(by: TaskPaneAuthor): string {
   return AUTHOR_WORDS[by].padEnd(AUTHOR_WORD_WIDTH)
+}
+
+export function shownAuthor(by: TaskPaneAuthor): string | undefined {
+  return by === 'model' ? undefined : AUTHOR_WORDS[by]
 }
 
 export const TRACKER_TEXT_IS_DATA =

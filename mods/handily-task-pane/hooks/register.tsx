@@ -310,6 +310,7 @@ async function agentRows($: EngineInterface): Promise<AgentRow[]> {
     rows.push({
       id: agent.id,
       name: agent.name ?? (agent.description === '' ? agent.type : agent.description),
+      status: agent.status,
       plan:
         plan === undefined || plan.tasks.length === 0
           ? null

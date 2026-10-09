@@ -1,6 +1,6 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import type { TaskPaneCallRow, TaskPaneList, TaskPaneStatus, TaskPaneTask } from '../types'
-import { doneCount, paneTaskText, statusMark, statusWord } from './tasks'
+import { doneCount, paneTaskText, statusLook, statusWord } from './tasks'
 import { displayWidth, fitted } from './width'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
@@ -12,12 +12,6 @@ type Part = { text: string; color?: ThemeKey }
 const MARKER = '●'
 const MARKER_WIDTH = displayWidth(`${MARKER} `)
 const TITLE_GAP = 2
-
-const MARK_COLORS: Record<TaskPaneStatus, ThemeKey> = {
-  pending: 'subtle',
-  in_progress: 'claude',
-  completed: 'success',
-}
 
 export function addedRow(task: TaskPaneTask): TaskPaneCallRow {
   return { kind: 'added', id: task.id, title: paneTaskText(task) }
@@ -43,6 +37,11 @@ function taskName(id: number): string {
   return `Task ${String(id)}`
 }
 
+function markPart(status: TaskPaneStatus): Part {
+  const { mark, color } = statusLook(status)
+  return { text: mark, color }
+}
+
 function headOf(row: TaskPaneCallRow): Part[] {
   switch (row.kind) {
     case 'added':
@@ -50,7 +49,7 @@ function headOf(row: TaskPaneCallRow): Part[] {
     case 'status':
       return [
         { text: `${taskName(row.id)} ` },
-        { text: statusMark(row.status), color: MARK_COLORS[row.status] },
+        markPart(row.status),
         { text: ` ${statusWord(row.status)}` },
       ]
     case 'removed':

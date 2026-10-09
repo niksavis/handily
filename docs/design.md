@@ -112,6 +112,23 @@ The colours are theme colours of the engine, so they follow the person's theme: 
 `claude`, green is `success`, red is `error`, yellow is `warning` and subtle is `subtle`. The
 handover of 2026-10-09 also names `suggestion`; which signal uses it is open.
 
+Each of `task-pane`, `agent-board` and `session-board` keeps the first five signals in its own
+`hooks/signals.ts`, because mods share no code at run time. `scripts/signals.test.mjs` fails
+when a table differs from this one or from another mod, or when a mark is not one column wide.
+The mods map their states to the signals as follows. The aging dots, `2▶`, `⌀` and `↻` are not
+built yet.
+
+| Signal | task-pane | agent-board | session-board |
+| --- | --- | --- | --- |
+| Doing | a task in progress, `Now`, a running or waiting subagent | `running`, `waiting` | `busy`, `working` |
+| Done | a done task | `done`, `killed` | `done`, `stopped` |
+| To do | an open task, a pending subagent | `pending`, `idle` | `idle`, an unknown word |
+| Blocked | none | `failed` | `failed` |
+| Waits for you | none | none | `waiting`, `blocked`, any `waitingFor` |
+
+On 2026-10-09 the person also asked the task pane to drop the author `claude` from each row.
+The pane shows the author only for `you` and `tracker`.
+
 The approved example of the task pane:
 
 ```text

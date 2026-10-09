@@ -1,4 +1,4 @@
-import type { Elements, RenderElement, RenderSurface, TextProps } from 'claude-code'
+import type { AgentStatus, Elements, RenderElement, RenderSurface, TextProps } from 'claude-code'
 import {
   currentCall,
   elapsedMs,
@@ -11,6 +11,7 @@ import {
   type Tracks,
 } from './agents'
 import { planView, type PlanStatus, type PlanTask, type PlanView } from './plan'
+import { SIGNALS, type Signal } from './signals'
 
 export const EMPTY_TEXT = 'No subagents in this session yet.'
 export const NOT_LISTED_BADGE = 'not listed'
@@ -28,21 +29,33 @@ const SHORT_ID_CHARS = 8
 
 const STATUS_WORDS: Partial<Record<RowStatus, string>> = { completed: 'done' }
 
-const MARKS: Record<RowStatus, { glyph: string; style: TextStyle }> = {
-  running: { glyph: '●', style: { color: 'success' } },
-  pending: { glyph: '○', style: { dimColor: true } },
-  waiting: { glyph: '◐', style: { color: 'warning' } },
-  idle: { glyph: '○', style: { dimColor: true } },
-  completed: { glyph: '○', style: { dimColor: true } },
-  failed: { glyph: '✕', style: { color: 'error' } },
-  killed: { glyph: '○', style: { dimColor: true } },
-  unknown: { glyph: '?', style: { dimColor: true } },
+type Mark = { glyph: string; style: TextStyle }
+
+const STATUS_SIGNALS: Record<AgentStatus, Signal> = {
+  running: 'doing',
+  pending: 'toDo',
+  waiting: 'doing',
+  idle: 'toDo',
+  completed: 'done',
+  failed: 'blocked',
+  killed: 'done',
 }
 
-const TASK_MARKS: Record<PlanStatus, { glyph: string; style: TextStyle; title: TextStyle }> = {
-  completed: { glyph: '✓', style: { color: 'success' }, title: { dimColor: true } },
-  in_progress: { glyph: '▶', style: {}, title: { bold: true } },
-  pending: { glyph: '○', style: { dimColor: true }, title: {} },
+const UNKNOWN_MARK: Mark = { glyph: '?', style: { dimColor: true } }
+
+const TASK_SIGNALS: Record<PlanStatus, { signal: Signal; title: TextStyle }> = {
+  completed: { signal: 'done', title: { dimColor: true } },
+  in_progress: { signal: 'doing', title: { bold: true } },
+  pending: { signal: 'toDo', title: {} },
+}
+
+function signalMark(signal: Signal): Mark {
+  const { mark, color } = SIGNALS[signal]
+  return { glyph: mark, style: { color } }
+}
+
+function statusMark(status: RowStatus): Mark {
+  return status === 'unknown' ? UNKNOWN_MARK : signalMark(STATUS_SIGNALS[status])
 }
 
 const GROUP_ORDER: Record<Group, number> = { active: 0, unknown: 1, done: 2, unlisted: 3 }
@@ -177,7 +190,7 @@ function cut(elements: BoardElements, line: string, style: TextStyle = {}): Rend
 }
 
 function cardHeader(elements: BoardElements, row: BoardRow): RenderElement {
-  const mark = MARKS[row.status]
+  const mark = statusMark(row.status)
   return box(elements, { flexDirection: 'row' }, [
     kept(elements, text(elements, `${mark.glyph} `, mark.style)),
     cut(elements, row.title, { bold: true }),
@@ -255,10 +268,11 @@ function planHead(
 }
 
 function taskLine(elements: BoardElements, task: PlanTask): RenderElement {
-  const mark = TASK_MARKS[task.status]
+  const { signal, title } = TASK_SIGNALS[task.status]
+  const mark = signalMark(signal)
   return box(elements, { flexDirection: 'row', paddingLeft: DETAIL_INDENT }, [
     kept(elements, text(elements, `${mark.glyph} `, mark.style)),
-    cut(elements, task.title, mark.title),
+    cut(elements, task.title, title),
   ])
 }
 

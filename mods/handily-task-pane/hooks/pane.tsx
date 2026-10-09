@@ -1,4 +1,5 @@
 import type {
+  AgentStatus,
   BoxProps,
   ButtonProps,
   ElementConstructor,
@@ -21,13 +22,14 @@ import {
   type TrackerLine,
   type TrackerView,
 } from './commands'
+import { SIGNALS, type SignalLook } from './signals'
 import {
-  authorColumn,
   doneCount,
   escaped,
   paneTaskText,
   priorityText,
-  statusMark,
+  shownAuthor,
+  statusLook,
   type WorkItem,
 } from './tasks'
 import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
@@ -80,6 +82,7 @@ export type AgentPlan = { done: number; total: number }
 export type AgentRow = {
   id: string
   name: string
+  status: AgentStatus
   plan: AgentPlan | null
   last: TaskPaneToolSight | null
 }
@@ -226,7 +229,7 @@ function drawOpened(
 
 function drawRow(elements: PaneElements, row: PaneRow, layout: RowLayout): RenderElement {
   const { Box, Text, Button } = elements
-  const leadWidth = row.cells.reduce((sum, cell) => sum + displayWidth(cell.text), 0)
+  const leadWidth = cellsWidth(row.cells)
   const room = Math.max(
     elements.bodyColumns - leadWidth - asideWidth(row.aside) - actionWidth(row.action),
     0,
@@ -316,34 +319,50 @@ function runningAside(task: TaskPaneTask, work: PaneWork): Cell | undefined {
   return { text: elapsedText(work.now - clock.startedAt), style: { dimColor: true } }
 }
 
+function taskCells(task: TaskPaneTask, numberWidth: number): Cell[] {
+  const isDone = task.status === 'completed'
+  const isActive = task.status === 'in_progress'
+  const { mark, color } = statusLook(task.status)
+  const author = shownAuthor(task.by)
+  return [
+    { text: `${mark} `, style: { color } },
+    { text: padToWidth(String(task.id), numberWidth), style: { dimColor: isDone, bold: isActive } },
+    ...(author === undefined ? [] : [{ text: `${author} `, style: { dimColor: true } }]),
+  ]
+}
+
+function cellsWidth(cells: readonly Cell[]): number {
+  return cells.reduce((sum, cell) => sum + displayWidth(cell.text), 0)
+}
+
 function taskRow(
   host: TaskHost,
   task: TaskPaneTask,
   numberWidth: number,
   work: PaneWork,
   act: Act,
+  layout: RowLayout,
 ): PaneRow {
   const isDone = task.status === 'completed'
   const isActive = task.status === 'in_progress'
   const id = String(task.id)
+  const key = `task:${id}`
   const aside = runningAside(task, work)
+  const removal: RowAction = {
+    key: `rm:${id}`,
+    label: 'rm',
+    onPress: () => {
+      act(() => personRemove(host, id))
+    },
+  }
+  const isRemovable = isActive || layout.expanded.has(key)
   return {
-    key: `task:${id}`,
-    cells: [
-      { text: `${statusMark(task.status)} `, style: { color: isDone ? 'success' : undefined } },
-      { text: padToWidth(id, numberWidth), style: { dimColor: isDone, bold: isActive } },
-      { text: `${authorColumn(task.by)} `, style: { dimColor: true } },
-    ],
+    key,
+    cells: taskCells(task, numberWidth),
     title: paneTaskText(task),
     titleStyle: { dimColor: isDone, bold: isActive },
     ...(aside ? { aside } : {}),
-    action: {
-      key: `rm:${id}`,
-      label: 'rm',
-      onPress: () => {
-        act(() => personRemove(host, id))
-      },
-    },
+    ...(isRemovable ? { action: removal } : {}),
     opening: {
       kind: 'details',
       lines: [{ text: clockLine(task, work), style: { dimColor: true } }],
@@ -419,15 +438,21 @@ function drawTasks(
   const isDoneShown = layout.expanded.has(DONE_GROUP)
   const numberWidth = column(list.tasks.map((task) => String(task.id)))
   const draw = (task: TaskPaneTask) =>
-    drawRow(elements, taskRow(host, task, numberWidth, work, act), layout)
+    drawRow(elements, taskRow(host, task, numberWidth, work, act, layout), layout)
   const first = running[0]
-  const indent = displayWidth('▶ ') + numberWidth + displayWidth(`${authorColumn('model')} `)
   const doneCountText = String(done.length)
   return [
     running.length === 0 ? nowRow(elements, work, layout) : null,
     ...running.flatMap((task) =>
       task === first
-        ? [draw(task), drawRow(elements, lastCallRow(task, indent, work), layout)]
+        ? [
+            draw(task),
+            drawRow(
+              elements,
+              lastCallRow(task, cellsWidth(taskCells(task, numberWidth)), work),
+              layout,
+            ),
+          ]
         : [draw(task)],
     ),
     ...pending.map(draw),
@@ -453,7 +478,7 @@ function nowRow(elements: PaneElements, work: PaneWork, layout: RowLayout): Rend
     {
       key: 'now',
       cells: [
-        { text: '▶ ', style: {} },
+        { text: `${SIGNALS.doing.mark} `, style: { color: SIGNALS.doing.color } },
         { text: 'Now  ', style: { bold: true } },
       ],
       title: callText(activity.last),
@@ -473,7 +498,7 @@ function drawNow(elements: PaneElements, work: PaneWork, layout: RowLayout): Ren
   const counts = activity.perTool
     .map((count) => `${escaped(count.tool)} ${String(count.calls)}`)
     .join(' · ')
-  const indent = displayWidth('▶ ')
+  const indent = displayWidth(`${SIGNALS.doing.mark} `)
   return [
     now,
     Box({
@@ -564,13 +589,18 @@ function drawTracker(
   ].filter((element) => element !== null)
 }
 
+function agentLook(status: AgentStatus): SignalLook {
+  return status === 'pending' ? SIGNALS.toDo : SIGNALS.doing
+}
+
 function agentRow(agent: AgentRow, nameWidth: number, planWidth: number): PaneRow {
   const plan =
     agent.plan === null ? '' : `${String(agent.plan.done)} of ${String(agent.plan.total)}`
+  const { mark, color } = agentLook(agent.status)
   return {
     key: `agent:${agent.id}`,
     cells: [
-      { text: '● ', style: {} },
+      { text: `${mark} `, style: { color } },
       { text: padToWidth(fitted(escaped(agent.name), nameWidth - 1), nameWidth), style: {} },
       { text: padToWidth(plan, planWidth), style: { dimColor: true } },
     ],

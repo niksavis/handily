@@ -381,25 +381,29 @@ describe('the board rows', () => {
       const texts = (await ui.findAll({ type: 'Text' })).map((found) => found.text)
       expect(texts).toContain('  4 local · polled 0 s ago')
       expect(texts).toContain('mocks')
-      expect(texts).toContain('inter')
+      expect(texts).toContain('interactive')
+      expect(texts).toContain('background')
+      expect(texts).not.toContain('inter')
+      expect(texts).not.toContain('bg')
+      expect(texts).not.toContain('—')
       expect(texts).toContain('Draw quiet-items mocks')
-      expect(texts).toContain('▰▰▱▱▱ 2/5')
+      expect(texts).toContain('2 of 5')
       expect(texts).toContain('app · main · 41m worked · est. 30m left')
       expect(texts).toContain('blocked: permission')
       expect(texts).toContain('Write the beads reader')
-      expect(texts).toContain('▱▱▱ 0/3')
+      expect(texts).toContain('0 of 3')
       expect(texts).toContain('app.wt/lane-a1 · lane/app-x1y2 · 18m worked')
       expect(texts).not.toContain('no handily task data')
       expect(texts).toContain('api · feat/login · 2h 03m elapsed')
       expect(texts).toContain('docs · main · ended')
       expect((await ui.find({ type: 'Text', text: 'busy' }))?.props).toMatchObject({
-        color: 'success',
+        color: 'claude',
       })
       expect((await ui.find({ type: 'Text', text: 'blocked: permission' }))?.props).toMatchObject({
         color: 'warning',
       })
       expect((await ui.find({ type: 'Text', text: 'done' }))?.props).toMatchObject({
-        dimColor: true,
+        color: 'success',
       })
       const names = texts.filter((text) =>
         ['mocks', 'lane-a1', 'api-login', 'docs-pass'].includes(text),
@@ -453,7 +457,7 @@ describe('the board rows', () => {
       expect(texts).toContain('  4 local · polled 0 s ago')
       if (isStale) {
         expect(texts.filter((text) => text === ' (stale)')).toHaveLength(1)
-        expect(texts.indexOf(' (stale)')).toBe(texts.indexOf('▰▰▱▱▱ 2/5') + 1)
+        expect(texts.indexOf(' (stale)')).toBe(texts.indexOf('2 of 5') + 1)
         expect(texts).toContain('app · main · 41m worked')
       } else {
         expect(texts).not.toContain(' (stale)')
@@ -545,7 +549,7 @@ describe('the session progress', () => {
       })
       const texts = await shownTexts($, 'terminal', 46)
       expect(texts).toContain('Task 2')
-      expect(texts).toContain('▰▱▱ 1/3')
+      expect(texts).toContain('1 of 3')
       expect(texts).toContain('app · main · 12m worked · est. 24m left')
     },
   )
@@ -899,6 +903,15 @@ const STATE_AGENTS: AgentEntry[] = [
     state: 'failed',
   },
   {
+    id: 'b5',
+    cwd: '/work/docs',
+    kind: 'background',
+    startedAt: NOW - HOUR,
+    sessionId: sessionOf(8),
+    name: 'bg-stopped',
+    state: 'stopped',
+  },
+  {
     pid: 3001,
     cwd: '/work/api',
     kind: 'interactive',
@@ -1007,7 +1020,7 @@ function wrappingTexts(node: Node): string[] {
   return [...own, ...node.children.flatMap(wrappingTexts)]
 }
 
-const THEME_KEYS = new Set(['success', 'warning', 'error', 'subtle', 'suggestion'])
+const THEME_KEYS = new Set(['claude', 'success', 'warning', 'error', 'subtle', 'suggestion'])
 
 function cacheWith(entries: readonly AgentEntry[], at: number, stateSince: number): AgentsCache {
   const outcome = parseAgents(JSON.stringify(entries))
@@ -1040,26 +1053,28 @@ describe('the session cards', () => {
         'inter-idle',
         'bg-done',
         'bg-failed',
+        'bg-stopped',
       ])
-      const marks = (await ui.findAll({ type: 'Text', text: /^[●◐○✕] $/ })).map((found) => [
+      const marks = (await ui.findAll({ type: 'Text', text: /^[▶◆○✓■] $/ })).map((found) => [
         found.text,
-        found.props.color ?? (found.props.dimColor === true ? 'dim' : 'plain'),
+        found.props.color,
       ])
       expect(marks).toEqual([
-        ['○ ', 'dim'],
-        ['● ', 'success'],
-        ['● ', 'success'],
-        ['◐ ', 'warning'],
-        ['◐ ', 'warning'],
-        ['○ ', 'dim'],
-        ['○ ', 'dim'],
-        ['✕ ', 'error'],
+        ['○ ', 'subtle'],
+        ['▶ ', 'claude'],
+        ['▶ ', 'claude'],
+        ['◆ ', 'warning'],
+        ['◆ ', 'warning'],
+        ['○ ', 'subtle'],
+        ['✓ ', 'success'],
+        ['■ ', 'error'],
+        ['✓ ', 'success'],
       ])
       const texts = (await ui.findAll({ type: 'Text' })).map((found) => found.text)
       expect(texts.filter((found) => found === 'this')).toHaveLength(1)
       expect(texts.slice(texts.indexOf('mocks'), texts.indexOf('mocks') + 3)).toEqual([
         'mocks',
-        'inter',
+        'interactive',
         'this',
       ])
       const rules = await ui.findAll({ type: 'Text', text: /^─+$/ })
@@ -1112,14 +1127,14 @@ describe('the session cards', () => {
     }
   })
 
-  test('draws the progress of a task as a bar and a count', () => {
-    expect(progressText(2, 4)).toBe('▰▰▱▱ 2/4')
-    expect(progressText(0, 3)).toBe('▱▱▱ 0/3')
-    expect(progressText(4, 4)).toBe('▰▰▰▰ 4/4')
-    expect(progressText(5, 20)).toBe('▰▰▱▱▱▱▱▱ 5/20')
+  test('draws the progress of a task as a plain count, with no bar', () => {
+    expect(progressText(2, 4)).toBe('2 of 4')
+    expect(progressText(0, 3)).toBe('0 of 3')
+    expect(progressText(4, 4)).toBe('4 of 4')
+    expect(progressText(5, 20)).toBe('5 of 20')
   })
 
-  test('shows no tasks for a session with its own key and a dash for one without', async ($, on) => {
+  test('shows no tasks for a session with its own key and no task line for one without', async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     mock.store(
       on,
@@ -1132,7 +1147,14 @@ describe('the session cards', () => {
     await openBoard($, clock)
     const texts = await shownTexts($, 'terminal', 45)
     expect(texts.filter((text) => text === 'no tasks')).toHaveLength(2)
-    expect(texts.filter((text) => text === '—')).toHaveLength(2)
+    expect(texts).not.toContain('—')
+    const apiLogin = texts.indexOf('api-login')
+    expect(texts.slice(apiLogin, apiLogin + 4)).toEqual([
+      'api-login',
+      'interactive',
+      'idle',
+      'api · feat/login · 2h 03m elapsed',
+    ])
     expect(texts).not.toContain('no handily task data')
     expect(texts).not.toContain('no tasks yet')
   })
