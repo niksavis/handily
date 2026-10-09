@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 const root = join(import.meta.dirname, '..')
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
 const bundleName = 'handily'
-const bundleProbeMod = 'agent-board'
+const bundleProbeMod = 'handily-agent-board'
 const runTimeoutMs = 60_000
 const goalStateFailure = 'already_in_goal_state'
 const dependentsFailure = 'required_by_dependents'

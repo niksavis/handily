@@ -1,9 +1,0 @@
-{
-  "name": "session-board",
-  "version": "0.2.0",
-  "description": "A board of every local Claude Code session: state, task, worktree and time worked.",
-  "author": {
-    "name": "niksavis"
-  },
-  "types": "./types/index.d.ts"
-}

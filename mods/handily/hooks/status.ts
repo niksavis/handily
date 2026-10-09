@@ -1,6 +1,19 @@
-import type { HandilyModStatus } from '../types'
+import type { HandilyModStatus, HandilyOldId, HandilyOldIdScope, HandilyReport } from '../types'
 
 const MARKETPLACE = 'handily'
+
+const RENAMED_MODS: ReadonlyMap<string, string> = new Map([
+  ['workitems', 'handily-workitems'],
+  ['quiet-items', 'handily-quiet-items'],
+  ['task-pane', 'handily-task-pane'],
+  ['session-board', 'handily-session-board'],
+  ['item-toasts', 'handily-item-toasts'],
+  ['agent-board', 'handily-agent-board'],
+  ['simple-view', 'handily-simple-view'],
+  ['reply-view', 'handily-reply-view'],
+])
+
+export const OLD_ID_SCOPES: readonly HandilyOldIdScope[] = ['user', 'project', 'local']
 
 type Manifest = { version: unknown; dependencies: unknown }
 
@@ -79,15 +92,38 @@ export function statusesOf(
   })
 }
 
-export function summaryOf(statuses: readonly HandilyModStatus[]): string {
-  const loaded = statuses.filter((status) => status.state === 'loaded').length
-  return `handily: ${String(loaded)} of ${String(statuses.length)} mods loaded`
+export function oldIdsOf(enabledByScope: ReadonlyMap<HandilyOldIdScope, unknown>): HandilyOldId[] {
+  const found: HandilyOldId[] = []
+  for (const [oldName, renamedTo] of RENAMED_MODS) {
+    for (const scope of OLD_ID_SCOPES) {
+      if (enabledEntry(enabledByScope.get(scope), oldName) === undefined) continue
+      const id = pluginId(oldName)
+      found.push({
+        id,
+        scope,
+        detail: `old id of ${renamedTo}, in the ${scope} settings. Run claude plugin uninstall ${id} --scope ${scope}`,
+      })
+    }
+  }
+  return found
 }
 
-export function replyText(statuses: readonly HandilyModStatus[]): string {
-  const rows = statuses.map((status) => {
+export function isAllWell(report: HandilyReport): boolean {
+  return report.oldIds.length === 0 && report.mods.every((status) => status.state === 'loaded')
+}
+
+export function summaryOf(report: HandilyReport): string {
+  const loaded = report.mods.filter((status) => status.state === 'loaded').length
+  const counted = `handily: ${String(loaded)} of ${String(report.mods.length)} mods loaded`
+  if (report.oldIds.length === 0) return counted
+  return `${counted}. Run each uninstall command above, then restart Claude Code`
+}
+
+export function replyText(report: HandilyReport): string {
+  const modRows = report.mods.map((status) => {
     const version = status.version === null ? '' : ` ${status.version}`
     return `- ${status.name}${version}: ${status.detail}`
   })
-  return [...rows, '', summaryOf(statuses)].join('\n')
+  const oldIdRows = report.oldIds.map((oldId) => `- ${oldId.id}: ${oldId.detail}`)
+  return [...modRows, ...oldIdRows, '', summaryOf(report)].join('\n')
 }

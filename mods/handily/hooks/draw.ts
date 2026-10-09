@@ -1,8 +1,10 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
-import type { HandilyModState, HandilyModStatus } from '../types'
-import { summaryOf } from './status'
+import type { HandilyModState, HandilyReport } from '../types'
+import { isAllWell, summaryOf } from './status'
 
 type ReportElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
+
+type Row = { key: string; name: string; version: string; color: ThemeKey; detail: string }
 
 const STATE_COLOR: Record<HandilyModState, ThemeKey> = {
   loaded: 'success',
@@ -11,44 +13,61 @@ const STATE_COLOR: Record<HandilyModState, ThemeKey> = {
   'not loaded': 'warning',
 }
 
+const OLD_ID_COLOR: ThemeKey = 'warning'
+
 function widest(texts: readonly string[]): number {
   return Math.max(0, ...texts.map((text) => text.length))
 }
 
-export function drawReport(
-  { Box, Text }: ReportElements,
-  statuses: readonly HandilyModStatus[],
-): RenderElement {
-  const nameWidth = widest(statuses.map((status) => status.name))
-  const versionWidth = widest(statuses.map((status) => status.version ?? ''))
-  const rows = statuses.map((status) =>
+function rowsOf(report: HandilyReport): Row[] {
+  const modRows = report.mods.map((status) => ({
+    key: status.name,
+    name: status.name,
+    version: status.version ?? '',
+    color: STATE_COLOR[status.state],
+    detail: status.detail,
+  }))
+  const oldIdRows = report.oldIds.map((oldId) => ({
+    key: `${oldId.id} ${oldId.scope}`,
+    name: oldId.id,
+    version: '',
+    color: OLD_ID_COLOR,
+    detail: oldId.detail,
+  }))
+  return [...modRows, ...oldIdRows]
+}
+
+export function drawReport({ Box, Text }: ReportElements, report: HandilyReport): RenderElement {
+  const rows = rowsOf(report)
+  const nameWidth = widest(rows.map((row) => row.name))
+  const versionWidth = widest(rows.map((row) => row.version))
+  const drawn = rows.map((row) =>
     Box({
-      key: status.name,
+      key: row.key,
       flexDirection: 'row',
       gap: 2,
       children: [
         Box({
           flexShrink: 0,
-          children: Text({ bold: true, children: status.name.padEnd(nameWidth) }),
+          children: Text({ bold: true, children: row.name.padEnd(nameWidth) }),
         }),
         Box({
           flexShrink: 0,
-          children: Text({ dimColor: true, children: (status.version ?? '').padEnd(versionWidth) }),
+          children: Text({ dimColor: true, children: row.version.padEnd(versionWidth) }),
         }),
         Box({
           flexShrink: 1,
-          children: Text({ color: STATE_COLOR[status.state], children: status.detail }),
+          children: Text({ color: row.color, children: row.detail }),
         }),
       ],
     }),
   )
-  const isEveryModLoaded = statuses.every((status) => status.state === 'loaded')
   const summary = Box({
     key: 'summary',
     children: Text({
-      color: isEveryModLoaded ? 'success' : 'warning',
-      children: summaryOf(statuses),
+      color: isAllWell(report) ? 'success' : 'warning',
+      children: summaryOf(report),
     }),
   })
-  return Box({ flexDirection: 'column', children: [...rows, summary] })
+  return Box({ flexDirection: 'column', children: [...drawn, summary] })
 }

@@ -1,0 +1,10 @@
+{
+  "name": "handily-simple-view",
+  "version": "0.3.0",
+  "description": "One short row for each Bash, Edit and Write call, with buttons to open and copy its output, /simple to switch it and /simple show to print a call in full.",
+  "author": {
+    "name": "niksavis"
+  },
+  "dependencies": ["handily-quiet-items"],
+  "types": "./types/index.d.ts"
+}

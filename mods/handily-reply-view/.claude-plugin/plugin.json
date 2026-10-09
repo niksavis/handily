@@ -1,0 +1,9 @@
+{
+  "name": "handily-reply-view",
+  "version": "0.2.0",
+  "description": "Long replies fold to their first lines, tables draw without box lines, and each table and code block gets a copy button.",
+  "author": {
+    "name": "niksavis"
+  },
+  "types": "./types/index.d.ts"
+}

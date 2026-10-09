@@ -1,6 +1,14 @@
 import type { EngineInterface, Register } from 'claude-code'
+import type { HandilyOldIdScope } from '../types'
 import { drawReport } from './draw'
-import { bundledMods, manifestVersion, replyText, statusesOf } from './status'
+import {
+  bundledMods,
+  manifestVersion,
+  OLD_ID_SCOPES,
+  oldIdsOf,
+  replyText,
+  statusesOf,
+} from './status'
 
 const COMMAND = 'handily'
 const NO_ARGUMENT_TEXT =
@@ -10,22 +18,22 @@ type Ready = { root: string } | undefined
 
 async function readyOf($: EngineInterface, name: string): Promise<Ready> {
   switch (name) {
-    case 'workitems':
-      return (await $.state.get({ plugin: 'workitems', key: 'ready' })).value
-    case 'quiet-items':
-      return (await $.state.get({ plugin: 'quiet-items', key: 'ready' })).value
-    case 'task-pane':
-      return (await $.state.get({ plugin: 'task-pane', key: 'ready' })).value
-    case 'session-board':
-      return (await $.state.get({ plugin: 'session-board', key: 'ready' })).value
-    case 'item-toasts':
-      return (await $.state.get({ plugin: 'item-toasts', key: 'ready' })).value
-    case 'agent-board':
-      return (await $.state.get({ plugin: 'agent-board', key: 'ready' })).value
-    case 'simple-view':
-      return (await $.state.get({ plugin: 'simple-view', key: 'ready' })).value
-    case 'reply-view':
-      return (await $.state.get({ plugin: 'reply-view', key: 'ready' })).value
+    case 'handily-workitems':
+      return (await $.state.get({ plugin: 'handily-workitems', key: 'ready' })).value
+    case 'handily-quiet-items':
+      return (await $.state.get({ plugin: 'handily-quiet-items', key: 'ready' })).value
+    case 'handily-task-pane':
+      return (await $.state.get({ plugin: 'handily-task-pane', key: 'ready' })).value
+    case 'handily-session-board':
+      return (await $.state.get({ plugin: 'handily-session-board', key: 'ready' })).value
+    case 'handily-item-toasts':
+      return (await $.state.get({ plugin: 'handily-item-toasts', key: 'ready' })).value
+    case 'handily-agent-board':
+      return (await $.state.get({ plugin: 'handily-agent-board', key: 'ready' })).value
+    case 'handily-simple-view':
+      return (await $.state.get({ plugin: 'handily-simple-view', key: 'ready' })).value
+    case 'handily-reply-view':
+      return (await $.state.get({ plugin: 'handily-reply-view', key: 'ready' })).value
     default:
       throw new Error(
         `handily: plugin.json lists "${name}", but /handily has no ready value to read for it`,
@@ -54,11 +62,20 @@ async function loadedVersions(
   return versions
 }
 
+async function enabledByScope($: EngineInterface): Promise<Map<HandilyOldIdScope, unknown>> {
+  const found = new Map<HandilyOldIdScope, unknown>()
+  for (const scope of OLD_ID_SCOPES) {
+    const { enabledPlugins } = await $.settings.read({ source: scope })
+    found.set(scope, enabledPlugins)
+  }
+  return found
+}
+
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'Show which handily mods are installed and loaded',
+      description: 'handily · Show which handily mods are installed and loaded',
     })
     return next(e)
   })
@@ -68,11 +85,14 @@ export const register: Register = (on) => {
     const mods = bundledMods(await $.fs.read(manifestPath($.plugin.root)))
     const versions = await loadedVersions($, mods)
     const { enabledPlugins } = await $.settings.read()
-    const statuses = statusesOf(mods, versions, enabledPlugins)
-    const text = replyText(statuses)
+    const report = {
+      mods: statusesOf(mods, versions, enabledPlugins),
+      oldIds: oldIdsOf(await enabledByScope($)),
+    }
+    const text = replyText(report)
     await $.state.set(
       { plugin: 'handily', key: 'reports', id: shownUnderPluginName($.plugin.name, text) },
-      statuses,
+      report,
     )
     return { text }
   })
@@ -82,13 +102,13 @@ export const register: Register = (on) => {
     { component: 'CommandOutput', props: { command: COMMAND } },
     async ($, e, next) => {
       if (e.props.isErrored) return next(e)
-      const { value: statuses } = await $.state.get({
+      const { value: report } = await $.state.get({
         plugin: 'handily',
         key: 'reports',
         id: e.props.text,
       })
-      if (statuses === undefined) return next(e)
-      return drawReport($.ui.resolve(e), statuses)
+      if (report === undefined) return next(e)
+      return drawReport($.ui.resolve(e), report)
     },
   )
 }

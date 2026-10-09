@@ -1,0 +1,9 @@
+{
+  "name": "handily-workitems",
+  "version": "0.5.0",
+  "description": "Provider of one typed work item list over any tracker, for other handily mods.",
+  "author": {
+    "name": "niksavis"
+  },
+  "types": "./types/index.d.ts"
+}

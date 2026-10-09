@@ -8,57 +8,57 @@
   },
   "plugins": [
     {
-      "name": "agent-board",
-      "source": "./mods/agent-board",
-      "version": "0.2.1",
-      "description": "A pane that shows what each subagent of this session does: its tool, its tool count, its time and its task list."
-    },
-    {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {
-      "name": "item-toasts",
-      "source": "./mods/item-toasts",
+      "name": "handily-agent-board",
+      "source": "./mods/handily-agent-board",
       "version": "0.3.0",
+      "description": "A pane that shows what each subagent of this session does: its tool, its tool count, its time and its task list."
+    },
+    {
+      "name": "handily-item-toasts",
+      "source": "./mods/handily-item-toasts",
+      "version": "0.4.0",
       "description": "A toast when a work item changes outside this session, at most one every 30 s."
     },
     {
-      "name": "quiet-items",
-      "source": "./mods/quiet-items",
-      "version": "0.3.1",
+      "name": "handily-quiet-items",
+      "source": "./mods/handily-quiet-items",
+      "version": "0.4.0",
       "description": "One short row in place of each tracker write in the transcript."
     },
     {
-      "name": "reply-view",
-      "source": "./mods/reply-view",
-      "version": "0.1.0",
+      "name": "handily-reply-view",
+      "source": "./mods/handily-reply-view",
+      "version": "0.2.0",
       "description": "Long replies fold to their first lines, tables draw without box lines, and each table and code block gets a copy button."
     },
     {
-      "name": "session-board",
-      "source": "./mods/session-board",
-      "version": "0.2.0",
+      "name": "handily-session-board",
+      "source": "./mods/handily-session-board",
+      "version": "0.3.0",
       "description": "A board of every local Claude Code session: state, task, worktree and time worked."
     },
     {
-      "name": "simple-view",
-      "source": "./mods/simple-view",
-      "version": "0.2.0",
+      "name": "handily-simple-view",
+      "source": "./mods/handily-simple-view",
+      "version": "0.3.0",
       "description": "One short row for each Bash, Edit and Write call, with buttons to open and copy its output, /simple to switch it and /simple show to print a call in full."
     },
     {
-      "name": "task-pane",
-      "source": "./mods/task-pane",
-      "version": "0.4.2",
+      "name": "handily-task-pane",
+      "source": "./mods/handily-task-pane",
+      "version": "0.5.0",
       "description": "A session task list that Claude and you share: model tools, /task commands and an optional pane."
     },
     {
-      "name": "workitems",
-      "source": "./mods/workitems",
-      "version": "0.4.1",
+      "name": "handily-workitems",
+      "source": "./mods/handily-workitems",
+      "version": "0.5.0",
       "description": "Provider of one typed work item list over any tracker, for other handily mods."
     }
   ]
