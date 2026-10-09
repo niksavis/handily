@@ -382,7 +382,7 @@ function test(mods) {
     }
     run(`${mod.name}: claude plugin test`, 'claude', ['plugin', 'test', mod.dir])
   }
-  run('scripts: node --test', process.execPath, ['--test', join(root, 'scripts')])
+  run('scripts: node --test', process.execPath, ['--test', 'scripts/*.test.mjs'])
 }
 
 const tasks = {
