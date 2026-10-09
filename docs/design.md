@@ -534,7 +534,7 @@ Engine facts (Claude Code 2.1.294, from the generated types and two live probes)
 | An errored `Bash` output is a string, so it carries no `bashEditDiff`. A failed command can still change a file | `/simple show N` prints `File diff: not reported by the engine.` for an errored `Bash` call |
 | `Edit` and `Write` outputs hold `structuredPatch` | The totals are the `+` and `-` lines of the patch. A new file counts its content. An update with no patch shows the path only |
 | ctrl+o reuses the settled render | No row can expand in place, so `/simple show N` prints the call |
-| The normal view folds runs of `Bash` calls into one `ToolGroup` line | The mod leaves the group line as the engine draws it. The ctrl+o transcript unfolds it into `ToolUse` rows |
+| The normal view folds runs of `Bash` calls into one `ToolGroup` line | While the mode is on, the mod unfolds a group whose calls are all foreground `Bash`, `Read`, `Grep` or `Glob` calls (`isExpanded: true` on `ToolGroup`), so each call draws as its own row (handily-vxxvq). Any other group stays as the engine draws it |
 | `$.state.set` on another plugin's key is refused (`quiet-items owns that value and only its owner writes it`) | `/simple` cannot set the `quiet-items` mode. It switches only its own mode |
 
 Defer to quiet-items:
