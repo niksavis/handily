@@ -6,6 +6,21 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## task-pane 0.3.0 - 2026-10-09
+
+### Added
+
+- **Each subagent keeps a task list of its own.** The task tools of a subagent act only on the
+  list of that subagent, and `task_list` returns the list of the agent that calls it. The main
+  loop keeps its list at `{ plugin: 'task-pane', key: 'list' }`, so `/task`, the pane and
+  `session-board` work as before. Another mod reads the agent ids at `agentIds` and each list
+  at `agentList` by its agent id. The session keeps the lists of at most 100 agents, and
+  `/clear` resets all of them (handily-fwkt.8.2).
+- **The `task_move` tool puts a task before another.** It takes `id` and `before`, and the task
+  ids do not change. A move that names an unknown id, or the same id twice, is refused with the
+  ids that exist and the correct form. Each tool answer lists the tasks in the order of the
+  work (handily-fwkt.8.12).
+
 ## workitems 0.4.0 - 2026-10-08
 
 ### Changed
