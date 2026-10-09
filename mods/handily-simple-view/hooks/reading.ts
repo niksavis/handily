@@ -77,6 +77,16 @@ function searchTarget(pattern: string, input: Record<string, unknown>, root: str
   return [pattern, `in ${shownPath(input.path, root)}`]
 }
 
+export function streamingTarget(tool: string, input: unknown, root: string): string[] | null {
+  if (!isRecord(input)) return null
+  const named = tool === 'Read' ? input.file_path : input.pattern
+  if (named !== undefined && typeof named !== 'string') return null
+  if (tool === 'Read') return named === undefined ? [] : [shownPath(named, root)]
+  if (input.path !== undefined && typeof input.path !== 'string') return null
+  if (named === undefined) return []
+  return searchTarget(tool === 'Grep' ? `"${named}"` : named, input, root)
+}
+
 export function readingTarget(
   tool: string,
   input: unknown,
@@ -88,8 +98,6 @@ export function readingTarget(
     const { filePath } = output.file
     return typeof filePath === 'string' ? [shownPath(filePath, root)] : null
   }
-  if (!isRecord(input) || typeof input.pattern !== 'string') return null
-  if (input.path !== undefined && typeof input.path !== 'string') return null
-  const pattern = tool === 'Grep' ? `"${input.pattern}"` : input.pattern
-  return searchTarget(pattern, input, root)
+  const target = streamingTarget(tool, input, root)
+  return target === null || target.length === 0 ? null : target
 }

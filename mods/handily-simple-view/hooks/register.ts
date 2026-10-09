@@ -20,7 +20,7 @@ import {
   type FoldActions,
 } from './fold'
 import { bashChanges, bashEnd, fileEdit, isRecord, lineCount, shownPath } from './output'
-import { READING_TOOLS, readingCount, readingTarget } from './reading'
+import { READING_TOOLS, readingCount, readingTarget, streamingTarget } from './reading'
 import { bashRow, changesBlock, fileRow, readingRow, type BashState, type RowLook } from './row'
 
 const COMMAND = 'simple'
@@ -42,14 +42,29 @@ const USAGE_TEXT =
 const NO_CALL_TEXT = '/simple show has no tool call to print yet in this session.'
 
 type Answer = Awaited<ReturnType<EngineInterface['tool']['call']>>
-type BashInput = { command: string; description?: string; run_in_background?: boolean }
+type StreamingBashInput = { command?: string; description?: string; run_in_background?: boolean }
+type BashInput = StreamingBashInput & { command: string }
+type CallProgress = Pick<ToolGroupCall, 'isRunning' | 'isErrored' | 'isInterrupted' | 'output'>
 
-function isBashInput(input: unknown): input is BashInput {
+function isStreamingBashInput(input: unknown): input is StreamingBashInput {
   return (
     isRecord(input) &&
-    typeof input.command === 'string' &&
+    (input.command === undefined || typeof input.command === 'string') &&
     (input.description === undefined || typeof input.description === 'string')
   )
+}
+
+function isBashInput(input: unknown): input is BashInput {
+  return isStreamingBashInput(input) && typeof input.command === 'string'
+}
+
+function isPending(call: CallProgress): boolean {
+  return !call.isRunning && !call.isErrored && !call.isInterrupted && call.output === undefined
+}
+
+function bashLabel(input: StreamingBashInput): string {
+  const description = input.description?.trim() ?? ''
+  return description === '' ? commandLabel(input.command ?? '') : description
 }
 
 function rangeText(kept: number): string {
@@ -243,20 +258,31 @@ async function foldOf($: EngineInterface, id: string): Promise<SimpleViewFold> {
   return value
 }
 
+function pendingBashRow(look: RowLook, tool: string, input: unknown): RenderElement | null {
+  if (!isStreamingBashInput(input) || input.run_in_background === true) return null
+  const label = bashLabel(input)
+  return bashRow(look, {
+    label: label === '' ? tool : label,
+    program: programOf(input.command ?? ''),
+    state: { kind: 'pending' },
+    elapsedMs: null,
+  })
+}
+
 async function bashUse(
   $: EngineInterface,
   props: RenderPropsOf['ToolUse'],
   look: RowLook,
 ): Promise<RenderElement | null> {
+  if (isPending(props)) return pendingBashRow(look, props.tool, props.input)
   if (!isBashInput(props.input) || props.input.run_in_background === true) return null
   const state: BashState | null = props.isRunning
     ? { kind: 'running' }
     : bashEnd(props.output, props.isErrored)
   if (state === null) return null
   const timing = await timingOf($, props.tool_use_id)
-  const description = props.input.description?.trim() ?? ''
   const view = {
-    label: description === '' ? commandLabel(props.input.command) : description,
+    label: bashLabel(props.input),
     program: programOf(props.input.command),
     state,
     elapsedMs: timing?.elapsedMs ?? null,
@@ -292,7 +318,11 @@ async function readingUse(
   props: RenderPropsOf['ToolUse'],
   look: RowLook,
 ): Promise<RenderElement | null> {
-  if (props.isRunning || props.isErrored) return null
+  if (props.isErrored) return null
+  if (props.isRunning || isPending(props)) {
+    const target = streamingTarget(props.tool, props.input, await $.session.root())
+    return target === null ? null : readingRow(look, props.tool, target, null)
+  }
   const count = readingCount(props.tool, props.output)
   if (count === null) return null
   const target = readingTarget(props.tool, props.input, props.output, await $.session.root())
@@ -365,8 +395,10 @@ function isRunningForeground(call: ToolGroupCall): boolean {
 }
 
 function isDrawnAsRow(call: ToolGroupCall): boolean {
-  if (call.tool === 'Bash') return isBashInput(call.input) && call.input.run_in_background !== true
-  return READING_TOOLS.has(call.tool)
+  if (call.tool !== 'Bash') return READING_TOOLS.has(call.tool)
+  const { input } = call
+  if (!isStreamingBashInput(input) || input.run_in_background === true) return false
+  return isPending(call) || typeof input.command === 'string'
 }
 
 function shouldUnfold(props: RenderPropsOf['ToolGroup']): boolean {

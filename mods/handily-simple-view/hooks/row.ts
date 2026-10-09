@@ -9,7 +9,7 @@ type Cell = { text: string; style?: CellStyle; canShrink?: boolean; keptCells?: 
 
 export type RowLook = { elements: RowElements; hasToolMarker: boolean }
 
-export type BashState = { kind: 'running' } | BashEnd
+export type BashState = { kind: 'pending' } | { kind: 'running' } | BashEnd
 
 export type BashView = {
   label: string
@@ -19,6 +19,7 @@ export type BashView = {
 }
 
 const LABEL_KEPT_CELLS = 40
+const PENDING_TEXT = '…'
 const TIME_SHOWN_FROM_MS = 1000
 
 function cell(
@@ -82,6 +83,8 @@ function stderrCells(stderr: StderrSummary | null): Cell[] {
 
 function stateCells(state: BashState): Cell[] {
   switch (state.kind) {
+    case 'pending':
+      return [{ text: PENDING_TEXT, style: { dimColor: true } }]
     case 'running':
       return [{ text: 'running', style: { dimColor: true } }]
     case 'done':
@@ -113,6 +116,7 @@ function timeText(elapsedMs: number | null): string {
 }
 
 const MARKERS: Readonly<Record<BashState['kind'], ThemeKey>> = {
+  pending: 'subtle',
   running: 'subtle',
   done: 'success',
   exit: 'error',
@@ -165,12 +169,12 @@ export function readingRow(
   look: RowLook,
   tool: string,
   target: readonly string[],
-  count: string,
+  count: string | null,
 ): RenderElement {
-  return line(look, 'row', 'success', [
+  return line(look, 'row', count === null ? 'subtle' : 'success', [
     { text: tool },
     ...target.map((text) => ({ text, style: { wrap: 'truncate-end' as const }, canShrink: true })),
-    { text: count, style: { dimColor: true } },
+    { text: count ?? PENDING_TEXT, style: { dimColor: true } },
   ])
 }
 

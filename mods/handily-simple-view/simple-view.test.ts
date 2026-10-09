@@ -196,6 +196,15 @@ function useProps(
   }
 }
 
+function streamingProps(
+  id: string,
+  tool: string,
+  input: unknown,
+  extra: Partial<RenderPropsOf['ToolUse']> = {},
+): RenderPropsOf['ToolUse'] {
+  return useProps(id, tool, input, { result: undefined }, extra)
+}
+
 function resultProps(id: string, tool: string, answer: Answer): RenderPropsOf['ToolResult'] {
   return { tool_use_id: id, tool, output: answer.result, isErrored: answer.isError === true }
 }
@@ -418,6 +427,14 @@ const READ_CALL = {
   tool: 'Read',
   input: { file_path: `${ROOT}/README.md` },
   output: readOutput(`${ROOT}/README.md`, 1, 3, 3),
+}
+const STREAMING_BASH = {
+  tool_use_id: 'toolu_g5',
+  tool: 'Bash',
+  input: {},
+  isRunning: false,
+  isErrored: false,
+  isInterrupted: false,
 }
 const MISSING = groupCall(
   'toolu_g2',
@@ -750,6 +767,25 @@ describe('Bash row', () => {
       }),
     ).toEqual(['● Wait five seconds sleep exit 0 2 lines 5.0s'])
   })
+
+  for (const surface of SURFACES) {
+    viewTest(`draws its own row while the input streams on ${surface}`, async (_world, $) => {
+      const rowOf = async (input: unknown) => {
+        const ui = await mountUse($, streamingProps('toolu_s1', 'Bash', input), surface)
+        const lines = sketch(await ui.drawn())
+        await ui.unmount()
+        return lines
+      }
+      const marker = MARKER[surface]
+      expect(await rowOf({})).toEqual([`${marker}Bash  ~…~`])
+      expect(await rowOf({ command: 'sleep 2; seq 1 5' })).toEqual([
+        `${marker}sleep 2 …  ~sleep~  ~…~`,
+      ])
+      expect(
+        await rowOf({ command: 'sleep 2; seq 1 5', description: 'Count to five slowly' }),
+      ).toEqual([`${marker}Count to five slowly  ~sleep~  ~…~`])
+    })
+  }
 })
 
 const LONG_STDOUT = `${Array.from({ length: 140 }, (_, index) => `line ${String(index + 1)}`).join('\n')}\n`
@@ -1147,6 +1183,37 @@ describe('Read, Grep and Glob rows', () => {
     })
   }
 
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws a Read, Grep or Glob row while the input streams or the call runs on ${surface}`,
+      async (_world, $) => {
+        const rowOf = async (
+          tool: string,
+          input: unknown,
+          extra: Partial<RenderPropsOf['ToolUse']> = {},
+        ) => {
+          const ui = await mountUse($, streamingProps('toolu_s4', tool, input, extra), surface)
+          const lines = sketch(await ui.drawn())
+          await ui.unmount()
+          return lines
+        }
+        const marker = MARKER[surface]
+        const readRow = `${marker}Read  mods/handily/.claude-plugin/plugin.json  ~…~`
+        expect(await rowOf('Read', {})).toEqual([`${marker}Read  ~…~`])
+        expect(await rowOf('Read', { file_path: PLUGIN_JSON })).toEqual([readRow])
+        expect(await rowOf('Read', { file_path: PLUGIN_JSON }, { isRunning: true })).toEqual([
+          readRow,
+        ])
+        expect(await rowOf('Grep', { pattern: 'TODO', path: `${ROOT}/src` })).toEqual([
+          `${marker}Grep  "TODO"  in src  ~…~`,
+        ])
+        expect(await rowOf('Glob', { pattern: '**/*.ts' }, { isRunning: true })).toEqual([
+          `${marker}Glob  **/*.ts  ~…~`,
+        ])
+      },
+    )
+  }
+
   viewTest('shows the range of a Read with an offset and a limit', async (_world, $) => {
     const result = readOutput(`${ROOT}/docs/design.md`, 160, 80, 600)
     const input = { file_path: `${ROOT}/docs/design.md`, offset: 160, limit: 80 }
@@ -1280,19 +1347,13 @@ describe('Read, Grep and Glob rows', () => {
     expect(await rowOf(globOutput({ numFiles: 1 }))).toEqual(['● Glob **/* 1 file'])
   })
 
-  viewTest('passes an errored, running or unread Read, Grep or Glob on', async (_w, $) => {
+  viewTest('passes an errored or unread Read, Grep or Glob on', async (_w, $) => {
     const missing = failed(
       'File does not exist. Note: your current working directory is /work/app.',
     )
     const cases: [string, unknown, Answer, Partial<RenderPropsOf['ToolUse']>][] = [
       ['Read', { file_path: `${ROOT}/nope.ts` }, missing, {}],
       ['Grep', { pattern: 'x', path: `${ROOT}/nope` }, failed('Error: Path does not exist'), {}],
-      [
-        'Read',
-        { file_path: PLUGIN_JSON },
-        { result: undefined },
-        { isRunning: true, output: undefined },
-      ],
       [
         'Read',
         { file_path: `${ROOT}/a.png` },
@@ -1598,6 +1659,38 @@ describe('folded tool group', () => {
     })
   }
 
+  for (const surface of SURFACES) {
+    viewTest(
+      `unfolds the live group while the input of its calls streams on ${surface}`,
+      async (world, $) => {
+        const live = (calls: RenderPropsOf['ToolGroup']['calls']) => ({
+          ...group(calls),
+          isActive: true,
+        })
+        expect(await groupExpansion(world, $, live([STREAMING_BASH]), surface)).toEqual([true])
+        const streamingRead = { ...STREAMING_BASH, tool: 'Read' }
+        expect(await groupExpansion(world, $, live([LISTED, streamingRead]), surface)).toEqual([
+          true,
+        ])
+      },
+    )
+  }
+
+  viewTest('leaves the live group folded while a call it does not draw streams', async (w, $) => {
+    const live = (calls: RenderPropsOf['ToolGroup']['calls']) => ({
+      ...group(calls),
+      isActive: true,
+    })
+    const streamingSearch = { ...STREAMING_BASH, tool: 'WebSearch' }
+    expect(await groupExpansion(w, $, live([STREAMING_BASH, streamingSearch]))).toEqual([false])
+    const background = { command: 'npm run dev', run_in_background: true }
+    expect(await groupExpansion(w, $, live([{ ...STREAMING_BASH, input: background }]))).toEqual([
+      false,
+    ])
+    const odd = { ...STREAMING_BASH, input: { command: 3 } }
+    expect(await groupExpansion(w, $, live([odd]))).toEqual([false])
+  })
+
   viewTest('leaves a group folded that holds a call it does not draw', async (world, $) => {
     expect(await groupExpansion(world, $, group([LISTED, SEARCHED]))).toEqual([false])
   })
@@ -1721,6 +1814,32 @@ describe('fallback to the engine row', () => {
       ).tree,
     ).toEqual(ENGINE_ROW)
     expect(world.logs).toEqual([])
+  })
+
+  viewTest('when the input that streams is not a shape it reads', async (world, $) => {
+    const cases: [string, unknown][] = [
+      ['Bash', { command: 3 }],
+      ['Bash', { command: 'ls', description: 3 }],
+      ['Bash', { command: 'npm run dev', run_in_background: true }],
+      ['Bash', 'ls'],
+      ['Read', { file_path: 3 }],
+      ['Grep', { pattern: 'x', path: 3 }],
+      ['Glob', { pattern: ['*'] }],
+      ['Edit', {}],
+      ['WebSearch', {}],
+    ]
+    for (const [tool, input] of cases) {
+      const props = streamingProps('toolu_s2', tool, input)
+      expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
+    }
+    expect(world.logs).toEqual([])
+  })
+
+  viewTest('when an abort dropped the call before it ran', async (_world, $) => {
+    for (const tool of ['Bash', 'Read']) {
+      const props = streamingProps('toolu_s3', tool, {}, { isInterrupted: true })
+      expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
+    }
   })
 
   viewTest('when drawing throws', async (world, $) => {

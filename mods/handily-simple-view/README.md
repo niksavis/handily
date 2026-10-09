@@ -33,15 +33,17 @@ three:
 
 ## Rows
 
-| Call                  | Row                                                                        | Result block under it               |
-| --------------------- | -------------------------------------------------------------------------- | ----------------------------------- |
-| `Bash`, running       | description, program, dim `running`, time since the call started           | as the engine draws it              |
-| `Bash`, no error      | description, program, `exit 0`, stdout line count, time                    | one `Updated` line per changed file |
-| `Bash`, `Exit code N` | description, program, `exit N`, the first non-empty error line, time       | empty                               |
-| `Edit`, `Write`       | tool, file path, added and removed line totals                             | empty                               |
-| `Read`                | tool, file path, line count, or the range of lines that the call read      | empty                               |
-| `Grep`                | tool, pattern in quotes, `in` and the folder, the count of the output mode | empty                               |
-| `Glob`                | tool, pattern, `in` and the folder, the count of matched files             | empty                               |
+| Call                                           | Row                                                                        | Result block under it               |
+| ---------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------- |
+| `Bash`, `Read`, `Grep`, `Glob`, before the run | description or tool, the parts of the input it can read, dim `…`           | as the engine draws it              |
+| `Bash`, running                                | description, program, dim `running`, time since the call started           | as the engine draws it              |
+| `Bash`, no error                               | description, program, `exit 0`, stdout line count, time                    | one `Updated` line per changed file |
+| `Bash`, `Exit code N`                          | description, program, `exit N`, the first non-empty error line, time       | empty                               |
+| `Edit`, `Write`                                | tool, file path, added and removed line totals                             | empty                               |
+| `Read`                                         | tool, file path, line count, or the range of lines that the call read      | empty                               |
+| `Grep`                                         | tool, pattern in quotes, `in` and the folder, the count of the output mode | empty                               |
+| `Glob`                                         | tool, pattern, `in` and the folder, the count of matched files             | empty                               |
+| `Read`, `Grep`, `Glob`, running                | tool, the path or the pattern from the input, dim `…`                      | as the engine draws it              |
 
 - The description is the `description` that the model gave. Without one, the row shows the
   first command segment. An ellipsis (`…`) marks a cut or a segment that follows.
@@ -91,6 +93,30 @@ three:
   its diff does. When the engine gives no diff for an
   update (for example, the old content was too large to diff), the row shows the path only,
   with no totals.
+
+## While the input streams
+
+Claude Code sends the tool name of a call first, and its input when the model has written it.
+Before the call runs, a `Bash`, `Read`, `Grep` or `Glob` row shows what is readable, and a dim `…`
+in place of the result:
+
+```text
+● Bash  …
+● Count to five slowly  sleep  …
+● Read  …
+```
+
+- A `Bash` row shows the tool name until the description or the command arrives. Then it shows
+  the same label and program as the finished row.
+- A `Read` row shows the path, and a `Grep` or `Glob` row shows the pattern and the folder, as
+  soon as they arrive. A running `Read`, `Grep` or `Glob` call shows the same row.
+- A call is before its run while it does not run, has no output, and has no error and no abort.
+  In that state a missing field has not arrived yet, so the row leaves it out. A field of the
+  wrong type is not an input that streams, so the engine draws the row. This rule holds for a
+  complete input too.
+- In a live check with Claude Code 2.1.296, the input of a call stayed `{}` until the model had
+  written all of it. The row showed `● Bash  …` first, then the description and the program with
+  `…` until the call started.
 
 ## Open and copy the output
 
@@ -145,7 +171,9 @@ simple-view draws the engine row unchanged in each of these cases:
 - The output or the input is not a shape that the mod reads, or a staged `Edit` or `Write` that
   did not change the file. A `Read` of an image, a PDF, a notebook or an unchanged file is not a
   shape that the mod reads.
-- A `Read`, `Grep` or `Glob` call that errored or still runs.
+- A `Read`, `Grep` or `Glob` call that errored.
+- An input field of the wrong type, also while the input streams, such as a `command` that is
+  not text.
 - Drawing the row failed. The mod writes the reason to the debug log.
 - Any tool other than `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`.
 
@@ -159,6 +187,9 @@ a `Read`, a `Grep` or a `Glob`. The calls of the group then draw as their rows i
 ● Read  package.json  30 lines
 ● List the mods  ls  exit 0  9 lines                                        [ more ] [ copy ]
 ```
+
+The group also unfolds while the input of its calls streams, as soon as the tool names are known.
+So the engine line `Running 1 shell command…` does not show first.
 
 A group that holds another tool keeps the line of the engine, except in the two cases below.
 The ctrl+o transcript unfolds every group, and each call there shows its simple-view row.
