@@ -41,7 +41,7 @@ buttons at the right edge:
 
 A table loses its box lines. The columns stay aligned, the header is bold, and a column that the
 table aligns to the right stays right-aligned. The `copy` and `copy as text` buttons stand on the
-first header line, so they take no line of their own:
+header line when they fit after the headings:
 
 ```text
   Mod           State      Next  [ copy ] [ copy as text ]
@@ -52,26 +52,30 @@ first header line, so they take no line of their own:
 When the table does not fit the width of the screen, a long cell wraps at the spaces inside its
 column, and the rows stay aligned. A short column keeps its width. The long columns share the
 rest of the width by the width of their widest cell, and each long column gets at least 12
-cells when the screen has room for that:
+cells when the screen has room for that.
+
+The view puts the buttons in the first of these places where they fit:
+
+1. The header line, after the headings.
+2. The last line of the last row, after its text.
+3. A line of their own, under the table.
+
+A heading or a cell never moves and is never cut to make room for the buttons. The buttons end at
+the right edge of the table. A wrapped table at 80 columns puts them on its last row:
 
 ```text
-  Mod          Change                            Risk  [ copy ] [ copy as text ]
-                                                                           Owner
+  Mod          Change                            Risk                      Owner
   reply-view   Tables wrap their long cells      A wide table can still    Ana
                inside their columns and keep     take many lines on a
                the rows aligned                  narrow screen
+  task-pane    Each task tool call draws as      Low                       Bo
+               one row                                 [ copy ] [ copy as text ]
 ```
-
-- The buttons end at the right edge of the table. When the table is too narrow for its headings
-  and the buttons, the buttons start two cells after the last heading.
-- A heading that reaches into the room of the buttons moves down to the second header line, in
-  its own column. The view never cuts a heading or a cell to make room for the buttons. The table
-  above shows this with `Owner`.
 
 A screen narrower than 40 columns draws each row as a block. The view also draws blocks when a
 column of the table would get fewer than 6 cells. The first cell is the bold title of the block,
-and each other cell is a `label: value` line. The buttons stand on the title of the first block,
-or above it when the title and the buttons do not fit on one line:
+and each other cell is a `label: value` line. The buttons stand on the title of the first block
+when they fit there, and otherwise on a line of their own under the last block:
 
 ```text
   task-pane  [ copy ] [ copy as text ]

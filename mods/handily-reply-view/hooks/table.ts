@@ -4,7 +4,6 @@ import { cutToWidth, displayWidth, graphemesOf, padToWidth } from './width'
 export const COLUMN_GAP = 3
 const LONG_COLUMN_CELLS_AT_LEAST = 12
 const COLUMN_CELLS_AT_LEAST = 6
-const NO_COLUMNS: ReadonlySet<number> = new Set()
 
 export type TableLook = {
   header: string[]
@@ -142,12 +141,8 @@ export function linesOf(
   look: TableLook,
   widths: readonly number[],
   cells: readonly string[],
-  lowered: ReadonlySet<number> = NO_COLUMNS,
 ): string[] {
-  const wrapped = widths.map((width, index) => [
-    ...(lowered.has(index) ? [''] : []),
-    ...wrapCell(cells[index] ?? '', width),
-  ])
+  const wrapped = widths.map((width, index) => wrapCell(cells[index] ?? '', width))
   const height = Math.max(1, ...wrapped.map((lines) => lines.length))
   return Array.from({ length: height }, (_, line) =>
     lineOf(
@@ -158,22 +153,8 @@ export function linesOf(
   )
 }
 
-function headingEnd(look: TableLook, widths: readonly number[], index: number): number {
-  const width = widths[index] ?? 0
-  const start = sum(widths.slice(0, index)) + COLUMN_GAP * index
-  const first = wrapCell(look.header[index] ?? '', width)[0] ?? ''
-  return start + displayWidth(aligned(first, width, look.alignments[index] ?? 'left').trimEnd())
-}
-
-export function headerEnd(look: TableLook, widths: readonly number[]): number {
-  return Math.max(0, ...widths.map((_, index) => headingEnd(look, widths, index)))
-}
-
-export function headerLines(look: TableLook, widths: readonly number[], limit: number): string[] {
-  const lowered = new Set(
-    widths.flatMap((_, index) => (headingEnd(look, widths, index) > limit ? [index] : [])),
-  )
-  return linesOf(look, widths, look.header, lowered)
+export function headerLines(look: TableLook, widths: readonly number[]): string[] {
+  return linesOf(look, widths, look.header)
 }
 
 export function rowTitle(row: readonly string[], index: number): string {

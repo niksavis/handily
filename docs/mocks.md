@@ -931,7 +931,7 @@ After `[ more ]`, the output opens under the row, at most 20 lines:
   [ all 140 lines ]
 ```
 
-A long reply folds after 12 lines:
+A long reply folds after 30 lines:
 
 ```text
 ● The release is done. task-pane 0.3.0 and agent-board 0.2.0 are
@@ -972,6 +972,6 @@ A fenced block gets a title line from its tag and a copy button:
 
 ### 7.3 Decisions of the person (2026-10-09)
 
-1. A reply folds after 12 lines.
+1. A reply folds after 30 lines.
 2. The task pane lists the running subagents, so one pane shows all the work.
 3. Done tasks stay folded by default.

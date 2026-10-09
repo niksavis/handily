@@ -4,7 +4,6 @@ import { shownText, type Block, type Fence, type Prose, type Table } from './mar
 import {
   columnWidths,
   fieldsOf,
-  headerEnd,
   headerLines,
   labelWidth,
   linesOf,
@@ -157,6 +156,20 @@ function plainLine(context: Context, text: string, key: string) {
   return Box({ key, children: Text({ wrap: 'truncate-end', children: text }) })
 }
 
+type ButtonsPlace = 'header' | 'last-row' | 'under'
+
+function buttonsPlace(
+  context: Context,
+  room: number,
+  header: readonly string[],
+  rows: readonly string[][],
+): ButtonsPlace {
+  const fitsAfter = (line: string) => displayWidth(line) + room <= context.width
+  if (fitsAfter(header[0] ?? '')) return 'header'
+  const last = rows.at(-1)?.at(-1)
+  return last !== undefined && fitsAfter(last) ? 'last-row' : 'under'
+}
+
 function columnsPiece(
   context: Context,
   table: Table,
@@ -167,33 +180,43 @@ function columnsPiece(
   const { Box } = context.elements
   const buttons = tableButtons(context, table, key)
   const room = buttons.columns + BUTTONS_GAP
-  const end = Math.min(context.width, Math.max(tableWidth(widths), headerEnd(look, widths) + room))
-  const [first = '', ...more] = headerLines(look, widths, end - room)
-  const heading = [
+  const width = tableWidth(widths)
+  const header = headerLines(look, widths)
+  const rows = look.rows.map((row) => linesOf(look, widths, row))
+  const place = buttonsPlace(context, room, header, rows)
+  const withButtons = (text: RenderElement, line: string) =>
     lineWithButtons(
       context,
-      first === '' ? null : boldLine(context, first, 'header', 'truncate-end'),
+      text,
       buttons,
-      end,
-    ),
-    ...more.map((line, index) =>
-      boldLine(context, line, `header-${String(index + 1)}`, 'truncate-end'),
-    ),
-  ]
-  const rows = look.rows.map((row) => linesOf(look, widths, row))
+      Math.min(context.width, Math.max(width, displayWidth(line) + room)),
+    )
+  const heading = header.map((line, index) => {
+    const text = boldLine(
+      context,
+      line,
+      index === 0 ? 'header' : `header-${String(index)}`,
+      'truncate-end',
+    )
+    return index === 0 && place === 'header' ? withButtons(text, line) : text
+  })
+  const lastRow = rows.length - 1
   const drawnRows = rows.map((lines, index) =>
     Box({
       key: `row-${String(index)}`,
       flexDirection: 'column',
-      children: lines.map((line, lineIndex) =>
-        plainLine(context, line, `line-${String(lineIndex)}`),
-      ),
+      children: lines.map((line, lineIndex) => {
+        const text = plainLine(context, line, `line-${String(lineIndex)}`)
+        const isLast = index === lastRow && lineIndex === lines.length - 1
+        return place === 'last-row' && isLast ? withButtons(text, line) : text
+      }),
     }),
   )
+  const under = place === 'under' ? [lineWithButtons(context, null, buttons, width)] : []
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
   return {
-    rows: heading.length + sum(rows.map((lines) => lines.length)),
-    whole: () => column([...heading, ...drawnRows]),
+    rows: heading.length + sum(rows.map((lines) => lines.length)) + under.length,
+    whole: () => column([...heading, ...drawnRows, ...under]),
     cut: (budget) => {
       let used = heading.length
       let count = 0
@@ -208,13 +231,9 @@ function columnsPiece(
   }
 }
 
-function titleLines(context: Context, buttons: Buttons | null, title: string): RenderElement[] {
+function titleLine(context: Context, buttons: Buttons | null, title: string): RenderElement {
   const text = boldLine(context, title, 'title', 'truncate-end')
-  if (buttons === null) return [text]
-  if (displayWidth(title) + BUTTONS_GAP + buttons.columns <= context.width) {
-    return [lineWithButtons(context, text, buttons, context.width)]
-  }
-  return [lineWithButtons(context, null, buttons, context.width), text]
+  return buttons === null ? text : lineWithButtons(context, text, buttons, context.width)
 }
 
 function rowBlock(
@@ -226,16 +245,15 @@ function rowBlock(
 ): Drawing {
   const { Box, Text } = context.elements
   const labels = labelWidth(look)
-  const title = titleLines(context, buttons, rowTitle(row, index))
   const fields = fieldsOf(look, row)
   const valueWidth = context.width - FIELD_INDENT - labels - 1
   return {
-    rows: title.length + sum(fields.map((field) => rowsOf(field.value, valueWidth))),
+    rows: 1 + sum(fields.map((field) => rowsOf(field.value, valueWidth))),
     element: Box({
       key: `row-${String(index)}`,
       flexDirection: 'column',
       children: [
-        ...title,
+        titleLine(context, buttons, rowTitle(row, index)),
         ...fields.map((field, fieldIndex) =>
           Box({
             key: `field-${String(fieldIndex)}`,
@@ -256,17 +274,16 @@ function rowBlock(
   }
 }
 
-function headingsBlock(context: Context, look: TableLook, buttons: Buttons): Drawing {
+function headingsBlock(context: Context, look: TableLook, buttons: Buttons | null): Drawing {
   const { Box } = context.elements
   const [first = '', ...more] = look.header
-  const title = titleLines(context, buttons, first)
   return {
-    rows: title.length + sum(more.map((heading) => rowsOf(heading, context.width))),
+    rows: 1 + sum(more.map((heading) => rowsOf(heading, context.width))),
     element: Box({
       key: 'headings',
       flexDirection: 'column',
       children: [
-        ...title,
+        titleLine(context, buttons, first),
         ...more.map((heading, index) => boldLine(context, heading, `heading-${String(index)}`)),
       ],
     }),
@@ -276,17 +293,27 @@ function headingsBlock(context: Context, look: TableLook, buttons: Buttons): Dra
 function blocksPiece(context: Context, table: Table, look: TableLook, key: string): Piece {
   const { Box } = context.elements
   const buttons = tableButtons(context, table, key)
+  const firstRow = look.rows[0]
+  const firstTitle = firstRow === undefined ? (look.header[0] ?? '') : rowTitle(firstRow, 0)
+  const isOnTitle = displayWidth(firstTitle) + BUTTONS_GAP + buttons.columns <= context.width
+  const titled = isOnTitle ? buttons : null
   const blocks =
     look.rows.length > 0
       ? look.rows.map((row, index) =>
-          rowBlock(context, look, row, index, index === 0 ? buttons : null),
+          rowBlock(context, look, row, index, index === 0 ? titled : null),
         )
-      : [headingsBlock(context, look, buttons)]
+      : [headingsBlock(context, look, titled)]
+  const under = isOnTitle ? [] : [lineWithButtons(context, null, buttons, context.width)]
   const column = (shown: readonly Drawing[]) =>
-    Box({ key, flexDirection: 'column', gap: 1, children: shown.map((block) => block.element) })
+    Box({
+      key: `${key}-blocks`,
+      flexDirection: 'column',
+      gap: 1,
+      children: shown.map((block) => block.element),
+    })
   return {
-    rows: sum(blocks.map((block) => block.rows)) + blocks.length - 1,
-    whole: () => column(blocks),
+    rows: sum(blocks.map((block) => block.rows)) + blocks.length - 1 + under.length,
+    whole: () => Box({ key, flexDirection: 'column', children: [column(blocks), ...under] }),
     cut: (budget) => {
       let used = 0
       let count = 0

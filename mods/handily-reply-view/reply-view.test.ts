@@ -414,39 +414,41 @@ describe('tables', () => {
   )
 
   viewTest(
-    'a block title too long to sit beside the buttons goes under them',
+    'a block title too long to sit beside the buttons keeps its place and the buttons go under the blocks',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 36)
-      expect((await sketchOf(ui, 36)).slice(2, 5)).toEqual([
-        '           [ copy ] [ copy as text ]',
+      expect((await sketchOf(ui, 36)).slice(2)).toEqual([
         '  *task-pane*',
         '    State: released',
+        '    Next:  follows the work',
+        '',
+        '  *simple-view*',
+        '    State: released',
+        '    Next:  click to expand',
+        `  ${' '.repeat(34 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
   )
 
   viewTest(
-    'a table that does not fit 40 columns wraps its cells inside their columns',
+    'a wrapped table with no room on its header line or its last row puts the buttons on a line under it',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 40)
       expect((await sketchOf(ui, 40)).slice(2)).toEqual([
-        '  *Mod*        [ copy ] [ copy as text ]',
-        `  *${placed([
-          [14, 'State'],
-          [25, 'Next'],
-        ])}*`,
+        '  *Mod           State      Next*',
         '  task-pane     released   follows the',
         `  ${placed([[25, 'work']])}`,
         '  simple-view   released   click to',
         `  ${placed([[25, 'expand']])}`,
+        `  ${' '.repeat(38 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
   )
 
   viewTest(
-    'a wide table with long cells wraps them at 80 columns and keeps every heading on the header rows',
+    'a wrapped table at 80 columns keeps every heading on one line and puts the buttons on its last row',
     async (world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE))
       expect(await sketchOf(ui)).toEqual([
@@ -454,8 +456,8 @@ describe('tables', () => {
           [0, 'Mod'],
           [13, 'Change'],
           [47, 'Risk'],
-        ])}*  [ copy ] [ copy as text ]`,
-        `  *${placed([[73, 'Owner']])}*`,
+          [73, 'Owner'],
+        ])}*`,
         `  ${placed([
           [0, 'reply-view'],
           [13, 'Tables wrap their long cells'],
@@ -476,7 +478,7 @@ describe('tables', () => {
           [47, 'Low'],
           [73, 'Bo'],
         ])}`,
-        `  ${placed([[13, 'one row']])}`,
+        `  ${placed([[13, 'one row']])}${' '.repeat(78 - 20 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual([
@@ -497,19 +499,16 @@ describe('tables', () => {
   )
 
   viewTest(
-    'a wide table at 120 columns wraps in columns and puts the buttons on its first header row',
+    'a wrapped table at 120 columns whose last row is full puts the buttons on a line under it',
     async (_world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE), 'terminal', 120)
-      const drawn = await sketchOf(ui, 120)
-      expect(drawn[0]).toBe(
+      expect(await sketchOf(ui, 120)).toEqual([
         `● *${placed([
           [0, 'Mod'],
           [13, 'Change'],
           [69, 'Risk'],
-        ])}*${' '.repeat(118 - 75 - 25)}[ copy ] [ copy as text ]`,
-      )
-      expect(drawn.slice(1)).toEqual([
-        `  *${placed([[113, 'Owner']])}*`,
+          [113, 'Owner'],
+        ])}*`,
         `  ${placed([
           [0, 'reply-view'],
           [13, 'Tables wrap their long cells inside their columns and'],
@@ -526,6 +525,7 @@ describe('tables', () => {
           [69, 'Low'],
           [113, 'Bo'],
         ])}`,
+        `  ${' '.repeat(118 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -713,9 +713,9 @@ describe('tables', () => {
       )
       const ui = await mountReply($, reply(text), 'terminal', 26)
       expect(await sketchOf(ui, 26)).toEqual([
-        '● [ copy ] [ copy as text ]',
-        '  *build*',
+        '● *build*',
         `    State: ${'✅'.repeat(10)}`,
+        '  [ copy ] [ copy as text ]',
       ])
       await ui.unmount()
     },
