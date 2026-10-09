@@ -2048,6 +2048,10 @@ describe('the pane follows the work', () => {
         '▶ 2 claude  Write the mocks        5m [ rm ]',
         '            ▸ Bash npm test          4 tools',
       ])
+      await $.tool.call({ tool: 'Bash', command: 'npm run lint', description: 'Lint the mods' })
+      expect((await screen(ui, WIDTH)).slice(2, 3)).toEqual([
+        '            ▸ Bash Lint the mods     5 tools',
+      ])
       await ui.unmount()
     },
   )

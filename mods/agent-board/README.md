@@ -29,7 +29,7 @@ tool calls and, when the subagent keeps one in `task-pane`, its task list.
   else the first 8 characters of its id.
 - The second detail line is the tool call: `▸ Read docs/design.md · 3 tools` while a call runs,
   and a dim `last Read docs/design.md · 4 tools` after it. The target is the first line of the
-  file path, pattern, path, URL, query, command, description or skill of the call, at most 200
+  file path, pattern, path, URL, query, description, command or skill of the call, at most 200
   characters, cut to fit.
 - A `SubagentHandback` call adds 1 to the count, but the line keeps the tool and target of the
   last other call. The line shows `SubagentHandback` only when it was the one call.

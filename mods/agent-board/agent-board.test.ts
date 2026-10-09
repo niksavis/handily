@@ -281,6 +281,26 @@ describe('the tool calls of a subagent', () => {
     expect(await shownTexts($)).toEqual(['Subagents', EMPTY_TEXT])
   })
 
+  test('shows the description of a Bash call in place of its command, and the command without one', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [EXPLORE]
+    await openBoard($, clock)
+    const described = {
+      tool: 'Bash' as const,
+      command: 'npm test -- --reporter dot',
+      description: 'Run the tests',
+      agentId: EXPLORE.id,
+    }
+    await $.tool.call(described)
+    const shown = (await shownTexts($)).join('\n')
+    expect(shown).toContain('Bash Run the tests')
+    expect(shown).not.toContain('npm test')
+    const plain = { tool: 'Bash' as const, command: 'npm test', agentId: EXPLORE.id }
+    await $.tool.call(plain)
+    expect((await shownTexts($)).join('\n')).toContain('Bash npm test')
+  })
+
   test('keeps only the first line of a target, cut to its limit', () => {
     const long = `${'x'.repeat(TARGET_CHARS_AT_MOST + 50)}\nsecond line`
     expect(toolTarget({ command: long })).toBe('x'.repeat(TARGET_CHARS_AT_MOST))

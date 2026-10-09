@@ -124,7 +124,8 @@ Agents  1 running
   mobile app has no input, so the pane shows the command.
 - The task in progress comes first, in bold, with the time since it started. The line under it
   shows the last tool and target of the main loop, and the count of tool calls since the task
-  started. Open tasks follow in list order.
+  started. The target of a call with a description, such as a `Bash` call, is that description,
+  not the command. Open tasks follow in list order.
 - Done tasks fold into a `+N done` button. Press it to show them after the open tasks. Press
   `hide N done` to fold them again.
 - Press a task title to show its full title, its start time and its tool count under the row.

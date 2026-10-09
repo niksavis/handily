@@ -11,8 +11,8 @@ const TARGET_KEYS = [
   'path',
   'url',
   'query',
-  'command',
   'description',
+  'command',
   'skill',
 ] as const
 

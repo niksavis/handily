@@ -1,6 +1,6 @@
 {
   "name": "task-pane",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A session task list that Claude and you share: model tools, /task commands and an optional pane.",
   "author": {
     "name": "niksavis"
