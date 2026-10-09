@@ -20,6 +20,16 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 - **A poll failure that repeats shows once.** workitems wrote one transcript line on every failed
   poll, every 2 seconds. Now a failure shows once, and again only after a refresh succeeds or the
   failure text changes (handily-8mjdz).
+- **A basicly tracker no longer starts up to six basicly processes on each read.** workitems
+  ran `basicly tracker list` once for each open status, and checked the approval before each
+  run. Each check could run `basicly --version`. On Windows one read then took longer than the
+  hook limit of 10 seconds. workitems now runs one `basicly tracker items --json` call for every
+  open status, checks the approval once per read, and keeps the verdict of `basicly --version`
+  in memory. A change of a kit file, of the program path or a reinstall of basicly runs the
+  version check again. A basicly below 0.21.1 has no `tracker items` command, so it fails the read
+  by name and runs no kit code. The approved
+  command changed, so workitems asks you once again to allow basicly. A basicly without
+  `tracker items` fails the read by name (handily-8mjdz).
 
 ## task-pane 0.4.2 - 2026-10-09
 

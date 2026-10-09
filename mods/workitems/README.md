@@ -286,8 +286,9 @@ approval, because you typed its command yourself.
   of `basicly`, the size and modification time of the file at that path, and the sha256 of
   every kit file. A later read with the same key runs no `basicly --version`. A kit change, a
   different program path or a reinstall of `basicly` at the same path changes the key, so the
-  mod runs `basicly --version` again, and a downgrade below 0.21.1 asks again. When the engine
-  cannot give the size and the time of the program file, the mod keeps no verdict.
+  mod runs `basicly --version` again. A basicly below 0.21.1 has no `tracker items` command, so
+  the read fails by name and runs no kit code. When the engine cannot give the size and the time
+  of the program file, the mod keeps no verdict.
 
 - When the command or the real path of `basicly` changes, the old approval does not match, and
   the mod asks again.

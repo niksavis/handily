@@ -38,10 +38,10 @@ in one place (workitems exports it). `ok` draws no line; the mods show their dat
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | ok                | `~basicly · 14 open · read 12 s ago~` (only as a header, never as a warning)                                                                  |
 | ok, bd source     | `~beads (bd) · 9 open · read 12 s ago · may be stale: bd keeps data in Dolt~`                                                                 |
-| stale             | `!Work items may be out of date: last good read 6 min ago (basicly tracker list exited 1).!`                                                  |
-| failed            | `#Work items unavailable: basicly tracker list exited 2. Run it in a shell to see why.#`                                                      |
+| stale             | `!Work items may be out of date: last good read 6 min ago (basicly tracker items exited 1).!`                                                 |
+| failed            | `#Work items unavailable: basicly tracker items exited 2. Run it in a shell to see why.#`                                                     |
 | failed (size)     | `#Work items unavailable: .beads/issues.jsonl is over 4 MiB.#`                                                                                |
-| failed (cut)      | `#Work items unavailable: basicly tracker list output was cut off.#`                                                                          |
+| failed (cut)      | `#Work items unavailable: basicly tracker items output was cut off.#`                                                                         |
 | failed (contract) | `#Work items unavailable: the adapter says contract 2; handily reads contract 1.#`                                                            |
 | approval-needed   | `!Work items need your approval to run python3 .basicly/core/kit/tracker/cli.py.!` + `~Asked at the next refresh in an interactive session.~` |
 | no-tracker        | `~No tracker found at the repo root (looked for basicly, beads, beans, .handily.json, ~/.config/handily/adapters.json).~`                     |
@@ -157,7 +157,7 @@ so nothing else changes.
 /quiet-items   -> quiet-items off for this session. Tracker commands draw in full.
 /quiet-items   -> quiet-items on for this session. Tracker writes draw as one row.
 /quiet-items   -> quiet-items on for this session, but work items are unavailable
-                  (basicly tracker list exited 2), so tracker commands draw in full.
+                  (basicly tracker items exited 2), so tracker commands draw in full.
 /quiet-items   -> quiet-items on for this session, but basicly needs a terminal session here,
                   so tracker commands draw in full.            (desktop, basicly repo)
 /quiet-items   -> quiet-items on for this session, but /simple is off, so tracker writes draw
@@ -212,7 +212,7 @@ reply, so mobile (no `Input`) and a closed pane lose nothing.
 
                                   (then the data sentence below)
 /task      (no tasks, failed)  -> No tasks in this session yet. Work items unavailable:
-                                  basicly tracker list exited 2.
+                                  basicly tracker items exited 2.
 ```
 
 The author column names who added the task: `you` (the person), `claude` (the model) or
@@ -305,7 +305,7 @@ is already a task in this session is not added again, so a double press adds it 
 ```text
 │ *Tasks*  ~none in this session yet~    │
 │ #Work items unavailable: basicly#      │
-│ #tracker list exited 2.#               │
+│ #tracker items exited 2.#              │
 │                                        │
 │ [ Add a task ________ ][Add]           │
 
@@ -534,7 +534,7 @@ handily-ab12 closed: Draw text mocks for the mods
 handily-cd34 created: Write the beads reader
 handily-cd34 updated: Write the beads reader (open -> in_progress)
 3 work items changed: 2 closed, 1 created (handily-ab12, handily-cd34, +1)
-Work items unavailable: basicly tracker list exited 2.          (once per failure, not repeated)
+Work items unavailable: basicly tracker items exited 2.          (once per failure, not repeated)
 ```
 
 ### Empty / error

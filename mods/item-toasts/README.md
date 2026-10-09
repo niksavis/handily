@@ -9,7 +9,7 @@ handily-ab12 closed: Draw text mocks for the mods
 handily-cd34 created: Write the beads reader
 handily-cd34 updated: Write the beads reader (open -> in_progress)
 3 work items changed: 2 closed, 1 created (handily-ab12, handily-cd34, +1)
-Work items unavailable: basicly tracker list exited 2.
+Work items unavailable: basicly tracker items exited 2.
 Work items are back: basicly · 14 open.
 ```
 
