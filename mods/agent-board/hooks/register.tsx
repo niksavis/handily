@@ -9,7 +9,8 @@ import {
   toolTarget,
   type Tracks,
 } from './agents'
-import { boardRows, renderBoard } from './board'
+import { boardRows, renderBoard, type CardPlans } from './board'
+import { readPlan, type PlanTask } from './plan'
 
 export const PANE_ID = 'agent-board'
 export const PANE_TITLE = 'Subagents'
@@ -17,6 +18,7 @@ export const REDRAW_INTERVAL_MS = 1000
 
 type Board = {
   tracks: Tracks
+  unfolded: Set<string>
   redraw: Timer | undefined
 }
 
@@ -43,8 +45,29 @@ function startRedraw($: EngineInterface, board: Board): void {
   })
 }
 
+async function readPlans($: EngineInterface, tracks: Tracks): Promise<Map<string, PlanTask[]>> {
+  const plans = new Map<string, PlanTask[]>()
+  for (const agentId of tracks.keys()) {
+    const ref = { plugin: 'task-pane', key: 'agentList', id: agentId } as const
+    const plan = readPlan((await $.state.get(ref)).value)
+    if (plan !== null) plans.set(agentId, plan)
+  }
+  return plans
+}
+
+function cardPlans($: EngineInterface, board: Board, lists: Map<string, PlanTask[]>): CardPlans {
+  return {
+    lists,
+    unfolded: board.unfolded,
+    toggle: (agentId) => {
+      if (!board.unfolded.delete(agentId)) board.unfolded.add(agentId)
+      $.ui.invalidate('ui.render')
+    },
+  }
+}
+
 export const register: Register = (on) => {
-  const board: Board = { tracks: new Map(), redraw: undefined }
+  const board: Board = { tracks: new Map(), unfolded: new Set(), redraw: undefined }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -59,6 +82,7 @@ export const register: Register = (on) => {
 
   on('session.end', (_$, e, next) => {
     board.tracks.clear()
+    board.unfolded.clear()
     return next(e)
   }).catch((_$, e, next) => next(e))
 
@@ -124,7 +148,8 @@ export const register: Register = (on) => {
     const now = await $.clock.now()
     mergeList(board.tracks, await $.agent.list(), now)
     startRedraw($, board)
-    return renderBoard(elements, boardRows(board.tracks, now), e.props.bodyColumns)
+    const plans = cardPlans($, board, await readPlans($, board.tracks))
+    return renderBoard(elements, boardRows(board.tracks, now), e.props.bodyColumns, plans)
   }).catch(($, e, next) => {
     $.ui.log(`agent-board: the board could not be drawn (${next.error.kind})`, { to: 'debug' })
     return next(e)

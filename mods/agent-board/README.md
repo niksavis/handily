@@ -1,8 +1,8 @@
 # agent-board
 
 `agent-board` shows the subagents of this session in one pane. Each subagent is a card: its
-type, its state, the time since its spawn, its task, the tool that it runs now and its count of
-tool calls.
+type, its state, the time since its spawn, its task, the tool that it runs now, its count of
+tool calls and, when the subagent keeps one in `task-pane`, its task list.
 
 ## Use
 
@@ -11,7 +11,8 @@ tool calls.
 /agent-board close    closes the board
 ```
 
-- Each card has a header line and up to two detail lines. A dim rule line separates two cards.
+- Each card has a header line, up to two detail lines and the task list of the agent. A dim
+  rule line separates two cards.
 - The header shows a status mark in a theme colour, the name or the type in bold, the state
   word and the time since the spawn. A dim badge shows the type when the agent has a name.
 
@@ -32,6 +33,21 @@ tool calls.
   characters, cut to fit.
 - A `SubagentHandback` call adds 1 to the count, but the line keeps the tool and target of the
   last other call. The line shows `SubagentHandback` only when it was the one call.
+- The task list starts with a dim `plan 2/7 done` line, then one line per task in list order:
+
+  | Mark | Task        | Title                |
+  | ---- | ----------- | -------------------- |
+  | `✓`  | done        | dim, mark in success |
+  | `▶`  | in progress | bold                 |
+  | `○`  | open        | plain, mark dim      |
+
+- A list of more than 5 tasks folds. The card shows the task in progress, the 2 tasks before
+  it and the 2 tasks after it, and `· 5 of 7 shown`. With no task in progress, the fold centres
+  on the first open task, else on the last task.
+- On a folded list, `plan 2/7 done` is a button. Tab or the arrows move the focus of the pane
+  onto it, and Enter unfolds the whole list: `· all 7 shown`. Enter again folds it.
+- A subagent with no task list, or a session without `task-pane`, draws the card without the
+  list.
 - The time counts every second while the agent runs. It stops when the agent ends. For an
   `unknown` row, it stops at the last moment that the board saw the agent.
 - An agent whose `turn.complete` arrived stays `done` when `$.agent.list()` no longer lists it.
@@ -50,6 +66,7 @@ tool calls.
 | `agent.spawn`                  | the agent id from the result, and the spawn time                |
 | `tool.call` with `agentId`     | the tool, its target, and the count when the call resolves      |
 | `turn.complete` with `agentId` | the end time of the run of a subagent                           |
+| `task-pane` `agentList` state  | the task list of each agent, by its agent id, at each draw      |
 
 - A `tool.call` with no `agentId` is a call of the main loop. The mod passes it on at once and
   changes no card.
@@ -58,6 +75,8 @@ tool calls.
 - The `session.end`, `tool.call`, `agent.spawn`, `turn.complete` and `ui.close` hooks have a
   `.catch` that answers `next(e)`. A hook that fails never changes the result of the call, the
   spawn or the turn. The `ui.render` hook logs a failure to the debug log and answers `next(e)`.
+- The board reads the `task-pane` state with a type of its own and no plugin dependency, so it
+  loads and draws without `task-pane`. A later write of a list draws the board again.
 - The board redraws every second while its pane is the shown tab. While the pane is a hidden
   tab, the timer only reads the list of panes. The board reads `$.agent.list()` only when it
   draws. The timer stops when the pane closes.

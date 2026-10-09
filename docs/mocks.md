@@ -616,6 +616,62 @@ N tools` after it, and `no tool calls yet` before the first call.
 - Time: since the spawn, at the second. It stops when the agent ends.
 - Order: active, then `unknown`, then ended, then not listed. Inside a group, the first sight.
 
+### Terminal: a card with a plan (handily-fwkt.8.3)
+
+A subagent that keeps a task list in `task-pane` gets the list on its card. Mock, 45 column
+terminal (body 41 columns), built from the test fixtures: a list of 8 tasks, 4 done, the 5th in
+progress. Folded:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Subagents  1 active                       │
+│ ● Explore  running  0s                    │
+│   find the element table                  │
+│   last Read docs/design.md · 1 tool       │
+│   plan 4/8 done · 5 of 8 shown            │
+│   ✓ Draw the plan                         │
+│   ✓ Test the fold                         │
+│   ▶ Update the mock                       │
+│   ○ Bump the version                      │
+│   ○ Write the changelog                   │
+╰───────────────────────────────────────────╯
+```
+
+After Enter on the focused `plan 4/8 done`:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Subagents  1 active                       │
+│ ● Explore  running  0s                    │
+│   find the element table                  │
+│   last Read docs/design.md · 1 tool       │
+│   plan 4/8 done · all 8 shown             │
+│   ✓ Read the design                       │
+│   ✓ Map the hooks                         │
+│   ✓ Draw the plan                         │
+│   ✓ Test the fold                         │
+│   ▶ Update the mock                       │
+│   ○ Bump the version                      │
+│   ○ Write the changelog                   │
+│   ○ Run the gates                         │
+╰───────────────────────────────────────────╯
+```
+
+| Mark | Task        | Looks                                  |
+| ---- | ----------- | -------------------------------------- |
+| `✓`  | done        | mark in `success`, title `~dim~`       |
+| `▶`  | in progress | title `*bold*`                         |
+| `○`  | open        | mark `~dim~`, title plain              |
+
+- `plan N/M done` is `~dim~`. It counts the done tasks of the whole list.
+- A list of 5 tasks or fewer shows every task, and `plan N/M done` is text, not a button.
+- A list of more than 5 folds to the task in progress, the 2 tasks before it and the 2 tasks
+  after it. With no task in progress, it folds around the first open task, else the last task.
+- On a folded list, `plan N/M done` is a plain `Button`, dim until the focus is on it. Enter
+  unfolds the list, and Enter again folds it. The fold is kept per agent until `session.end`.
+- A subagent with no list, an empty list, or no `task-pane` in the session draws the card as
+  above, with no plan line.
+
 Captured live (Claude Code 2.1.294, 150 column terminal, docked pane), one background Explore
 subagent:
 
@@ -630,6 +686,9 @@ subagent:
 │  List agent-board folder
 │  last SubagentHandback · 2 tools
 ```
+
+This capture predates handily-yxfev. A done row now keeps the tool and target of the last
+other call, here `last Bash ls mods/agent-board · 2 tools`.
 
 ### Terminal, empty and all done
 

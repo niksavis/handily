@@ -10,8 +10,8 @@
     {
       "name": "agent-board",
       "source": "./mods/agent-board",
-      "version": "0.1.1",
-      "description": "A pane that shows what each subagent of this session does: its tool, its tool count and its time."
+      "version": "0.2.0",
+      "description": "A pane that shows what each subagent of this session does: its tool, its tool count, its time and its task list."
     },
     {
       "name": "handily",
