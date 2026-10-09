@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import {
+  chmodSync,
   cpSync,
   lstatSync,
   mkdirSync,
@@ -63,21 +64,24 @@ test('typecheck writes no .js file into mods/ when the types are missing', () =>
   assert.deepEqual(emitted, [])
 })
 
-function makeRepoWithUnlaidContract() {
+const engineCompilerOptions = { strict: true, noEmit: true, typeRoots: ['.'] }
+
+function engineTsconfig(types) {
+  return JSON.stringify({ compilerOptions: { ...engineCompilerOptions, types } })
+}
+
+function makeRepoWithUnlaidContract({ listsDependency }) {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-contract-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
   cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
   symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
-  const engineTypes = { compilerOptions: { strict: true, noEmit: true, types: [] } }
-  const layMod = (name, manifest) => {
+  const layMod = (name, manifest, laidTypes) => {
     const mod = join(root, 'mods', name)
     mkdirSync(join(mod, '.claude-plugin', 'types'), { recursive: true })
     mkdirSync(join(mod, 'hooks'))
     writeFileSync(join(mod, '.claude-plugin', 'plugin.json'), JSON.stringify(manifest))
-    writeFileSync(
-      join(mod, '.claude-plugin', 'types', 'tsconfig.json'),
-      JSON.stringify(engineTypes),
-    )
+    writeFileSync(join(mod, '.claude-plugin', 'types', 'tsconfig.json'), engineTsconfig(laidTypes))
     writeFileSync(
       join(mod, 'tsconfig.json'),
       JSON.stringify({ extends: './.claude-plugin/types/tsconfig.json', include: ['hooks'] }),
@@ -85,24 +89,86 @@ function makeRepoWithUnlaidContract() {
     writeFileSync(join(mod, 'hooks', 'register.ts'), 'export const answer: number = 42\n')
     return mod
   }
-  const base = layMod('base', { name: 'base', types: './types/index.d.ts' })
+  const base = layMod('base', { name: 'base', types: './types/index.d.ts' }, [])
   mkdirSync(join(base, 'types'))
   writeFileSync(join(base, 'types', 'index.d.ts'), 'export type BaseValue = number\n')
-  const dependent = layMod('dependent', { name: 'dependent', dependencies: ['base'] })
-  return { root, laid: join(dependent, '.claude-plugin', 'types', 'base', 'index.d.ts') }
+  const dependent = layMod(
+    'dependent',
+    { name: 'dependent', dependencies: ['base'] },
+    listsDependency ? ['base'] : [],
+  )
+  const laidTypes = join(dependent, '.claude-plugin', 'types')
+  return {
+    root,
+    laid: join(laidTypes, 'base', 'index.d.ts'),
+    laidTsconfig: join(laidTypes, 'tsconfig.json'),
+  }
 }
 
-const contractRepo = makeRepoWithUnlaidContract()
-after(() => rmSync(contractRepo.root, { recursive: true, force: true }))
+function makeFakeClaude(body) {
+  const bin = mkdtempSync(join(tmpdir(), 'handily-fake-claude-'))
+  after(() => rmSync(bin, { recursive: true, force: true }))
+  const path = join(bin, 'claude')
+  writeFileSync(path, `#!${process.execPath}\n${body}\n`)
+  chmodSync(path, 0o755)
+  return bin
+}
 
-const contractResult = spawnSync(
-  process.execPath,
-  [join(contractRepo.root, 'scripts', 'mods.mjs'), 'typecheck'],
-  { cwd: contractRepo.root, encoding: 'utf8', env: { ...process.env, PATH: emptyBin } },
+const notLoggedIn = "console.log('Not logged in')\nprocess.exit(1)"
+const headlessClaude = makeFakeClaude(notLoggedIn)
+const layingClaude = makeFakeClaude(`const { writeFileSync } = require('node:fs')
+const { basename, join } = require('node:path')
+const args = process.argv.slice(2)
+const pluginDirs = args.filter((_, index) => args[index - 1] === '--plugin-dir')
+const [mod, ...dependencies] = pluginDirs
+writeFileSync(
+  join(mod, '.claude-plugin', 'types', 'tsconfig.json'),
+  JSON.stringify({ compilerOptions: { ...${JSON.stringify(engineCompilerOptions)}, types: dependencies.map((dir) => basename(dir)) } }),
 )
+${notLoggedIn}`)
+
+function runMods(repo, task, bin) {
+  return spawnSync(process.execPath, [join(repo.root, 'scripts', 'mods.mjs'), task], {
+    cwd: repo.root,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: bin },
+  })
+}
+
+const contractRepo = makeRepoWithUnlaidContract({ listsDependency: true })
+const contractResult = runMods(contractRepo, 'typecheck', emptyBin)
 
 test('typecheck lays a missing dependency contract as a regular file and passes without the engine', () => {
   assert.equal(contractResult.status, 0, contractResult.stdout + contractResult.stderr)
   assert.equal(lstatSync(contractRepo.laid).isSymbolicLink(), false)
   assert.equal(readFileSync(contractRepo.laid, 'utf8'), 'export type BaseValue = number\n')
+})
+
+const typesRepo = makeRepoWithUnlaidContract({ listsDependency: true })
+const typesResult = runMods(typesRepo, 'types', headlessClaude)
+
+test('types lays the dependency contracts and passes when the headless engine lays nothing', () => {
+  assert.equal(typesResult.status, 0, typesResult.stdout + typesResult.stderr)
+  assert.equal(readFileSync(typesRepo.laid, 'utf8'), 'export type BaseValue = number\n')
+})
+
+const staleRepo = makeRepoWithUnlaidContract({ listsDependency: false })
+const staleResult = runMods(staleRepo, 'typecheck', layingClaude)
+
+test('typecheck lays the types again when the laid tsconfig does not list a dependency', () => {
+  assert.equal(staleResult.status, 0, staleResult.stdout + staleResult.stderr)
+  const laid = JSON.parse(readFileSync(staleRepo.laidTsconfig, 'utf8'))
+  assert.deepEqual(laid.compilerOptions.types, ['base'])
+})
+
+const unlistedRepo = makeRepoWithUnlaidContract({ listsDependency: false })
+const unlistedResult = runMods(unlistedRepo, 'types', headlessClaude)
+
+test('types fails by name with the lay command when the engine leaves a dependency unlisted', () => {
+  assert.equal(unlistedResult.status, 1, unlistedResult.stdout + unlistedResult.stderr)
+  assert.match(
+    unlistedResult.stderr,
+    /dependent: the laid \S+tsconfig\.json does not list the types of its dependencies base;/,
+  )
+  assert.match(unlistedResult.stderr, /claude --plugin-dir mods\/dependent --plugin-dir mods\/base/)
 })

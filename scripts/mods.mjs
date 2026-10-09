@@ -169,9 +169,22 @@ function layCommand(mod, dependencies) {
   return `claude ${pluginDirs.join(' ')}`
 }
 
+function laidTypeNames(mod) {
+  const laid = readJson(join(typesDir(mod), 'tsconfig.json'), mod.name)
+  const names = laid?.compilerOptions?.types
+  return Array.isArray(names) ? names : []
+}
+
+function unlistedDependencies(mod, dependencies) {
+  const listed = new Set(laidTypeNames(mod))
+  return dependencies.filter(
+    (dependency) => dependency.contract !== undefined && !listed.has(dependency.name),
+  )
+}
+
 function needsTypes(mod, dependencies) {
   if (!hasLaidTypes(mod)) return true
-  return !dependencies.every((dependency) => isLaidContractCurrent(mod, dependency))
+  return unlistedDependencies(mod, dependencies).length > 0
 }
 
 function layTypes(mods, { force }) {
@@ -179,6 +192,7 @@ function layTypes(mods, { force }) {
   try {
     for (const mod of mods) {
       const dependencies = dependenciesOf(mod, mods)
+      layContracts(mod, dependencies)
       if (!force && !needsTypes(mod, dependencies)) continue
       const pluginDirs = [mod, ...dependencies].flatMap((loaded) => ['--plugin-dir', loaded.dir])
       const result = spawnSync('claude', [...pluginDirs, '-p', 'ok'], {
@@ -197,6 +211,15 @@ function layTypes(mods, { force }) {
         fail(
           `${mod.name}: Claude Code wrote no types; load the mod once in an interactive session: ${layCommand(mod, dependencies)}`,
         )
+      } else {
+        const unlisted = unlistedDependencies(mod, dependencies).map(
+          (dependency) => dependency.name,
+        )
+        if (unlisted.length > 0) {
+          fail(
+            `${mod.name}: the laid ${relative(root, join(typesDir(mod), 'tsconfig.json'))} does not list the types of its dependencies ${unlisted.join(', ')}; load the mod once in an interactive session: ${layCommand(mod, dependencies)}`,
+          )
+        }
       }
       for (const dependency of dependencies) {
         if (!isLaidContractCurrent(mod, dependency)) {
@@ -282,7 +305,6 @@ function checkMarketplace(mods) {
 }
 
 function typecheck(mods) {
-  for (const mod of mods) layContracts(mod, dependenciesOf(mod, mods))
   layTypes(mods, { force: false })
   const tsc = require.resolve('typescript/bin/tsc')
   for (const mod of mods) {
