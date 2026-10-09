@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
@@ -385,10 +385,45 @@ function lint(mods) {
   ])
 }
 
+const engineSnapshotFiles = [
+  '.gitignore',
+  'tsconfig.json',
+  join('claude-code', 'index.d.ts'),
+  join('claude-code-mcp', 'index.d.ts'),
+  join('claude-code-tools', 'index.d.ts'),
+]
+
+function checkEngineSnapshotIsTracked(mods) {
+  const laid = mods.flatMap((mod) =>
+    engineSnapshotFiles
+      .map((file) => ({ mod, path: relative(root, join(typesDir(mod), file)) }))
+      .filter(({ path }) => existsSync(join(root, path))),
+  )
+  if (laid.length === 0) return
+  const result = spawnSync('git', ['ls-files', '-z', '--', ...laid.map(({ path }) => path)], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  if (result.error || result.status !== 0) {
+    fail(
+      `engine types: cannot list the tracked files with git ls-files (${result.error?.message ?? firstLine(result.stderr)})`,
+    )
+    return
+  }
+  const tracked = new Set(result.stdout.split('\0').filter((path) => path !== ''))
+  for (const { mod, path } of laid) {
+    if (tracked.has(path.split(sep).join('/'))) continue
+    fail(
+      `${mod.name}: ${path} of the engine types is not tracked by git, so a fresh clone and CI miss it; run \`git add -f ${path}\` and commit it`,
+    )
+  }
+}
+
 function validate(mods) {
   checkMarketplace(mods)
   checkMarketplaceIsGenerated(mods)
   checkCodexMarketplaceIsEmpty()
+  checkEngineSnapshotIsTracked(mods)
   const strict = mods.length > 0 ? ['--strict'] : []
   if (mods.length === 0) {
     console.log(

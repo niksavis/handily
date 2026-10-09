@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { after, test } from 'node:test'
 
 const repoRoot = join(import.meta.dirname, '..')
@@ -171,4 +171,75 @@ test('types fails by name with the lay command when the engine leaves a dependen
     /dependent: the laid \S+tsconfig\.json does not list the types of its dependencies base;/,
   )
   assert.match(unlistedResult.stderr, /claude --plugin-dir mods\/dependent --plugin-dir mods\/base/)
+})
+
+const environmentWithoutGit = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')),
+)
+
+function git(root, ...args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: environmentWithoutGit })
+  assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`)
+}
+
+const engineSnapshot = {
+  '.gitignore': '*\n',
+  'tsconfig.json': engineTsconfig(['claude-code']),
+  'claude-code/index.d.ts': 'export {}\n',
+  'claude-code-mcp/index.d.ts': 'export {}\n',
+  'claude-code-tools/index.d.ts': 'export {}\n',
+}
+const untrackedSnapshotFile = 'mods/snapshot/.claude-plugin/types/claude-code-tools/index.d.ts'
+
+function makeGitRepoWithLaidSnapshot() {
+  const root = mkdtempSync(join(tmpdir(), 'handily-mods-snapshot-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
+  writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
+  mkdirSync(join(root, '.claude-plugin'))
+  const mod = join(root, 'mods', 'snapshot')
+  mkdirSync(join(mod, '.claude-plugin'), { recursive: true })
+  writeFileSync(
+    join(mod, '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ name: 'snapshot', version: '0.1.0', description: 'A laid engine snapshot.' }),
+  )
+  for (const [file, text] of Object.entries(engineSnapshot)) {
+    const path = join(mod, '.claude-plugin', 'types', file)
+    mkdirSync(join(path, '..'), { recursive: true })
+    writeFileSync(path, text)
+  }
+  git(root, 'init', '--quiet')
+  const tracked = Object.keys(engineSnapshot)
+    .map((file) => `mods/snapshot/.claude-plugin/types/${file}`)
+    .filter((path) => path !== untrackedSnapshotFile)
+  git(root, 'add', '-f', '--', ...tracked)
+  return { root }
+}
+
+const passingClaude = makeFakeClaude('process.exit(0)')
+const snapshotRepo = makeGitRepoWithLaidSnapshot()
+const runWithGit = (task) =>
+  spawnSync(process.execPath, [join(snapshotRepo.root, 'scripts', 'mods.mjs'), task], {
+    cwd: snapshotRepo.root,
+    encoding: 'utf8',
+    env: { ...environmentWithoutGit, PATH: `${passingClaude}${delimiter}${process.env.PATH}` },
+  })
+const marketplaceResult = runWithGit('marketplace')
+const untrackedResult = runWithGit('validate')
+git(snapshotRepo.root, 'add', '-f', '--', untrackedSnapshotFile)
+const trackedResult = runWithGit('validate')
+
+test('validate fails and names the mod and the file when an engine types file is not tracked', () => {
+  assert.equal(marketplaceResult.status, 0, marketplaceResult.stdout + marketplaceResult.stderr)
+  assert.equal(untrackedResult.status, 1, untrackedResult.stdout + untrackedResult.stderr)
+  const failures = untrackedResult.stderr.split('\n').filter((line) => line.startsWith('FAIL '))
+  assert.deepEqual(failures, [
+    `FAIL snapshot: ${untrackedSnapshotFile} of the engine types is not tracked by git, so a fresh clone and CI miss it; run \`git add -f ${untrackedSnapshotFile}\` and commit it`,
+  ])
+})
+
+test('validate passes when every laid engine types file is tracked', () => {
+  assert.equal(trackedResult.status, 0, trackedResult.stdout + trackedResult.stderr)
 })
