@@ -6,6 +6,41 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## simple-view 0.2.0 - 2026-10-09
+
+### Added
+
+- **simple-view opens and copies the output of a Bash call by a click.** A finished `Bash` row
+  with output ends with `more` and `copy`. `more` opens at most 20 lines of the output under the
+  row, then `all N lines` opens every line, and `less` folds it again. `copy` copies the output
+  exactly as the engine gave it, also an output that the engine saved to a file, and a toast says
+  how many lines it copied. A running call draws one row with a dim `running` state and its time,
+  and `more` opens its full command. While the live group of the engine holds a running `Bash`
+  call, simple-view unfolds the group, so the engine no longer draws the full command over many
+  lines. A tab moves to the next stop by the width of the text on the screen, so wide characters
+  and emoji keep the columns in place (handily-t899o).
+
+## reply-view 0.1.0 - 2026-10-09
+
+### Added
+
+- **reply-view folds long replies and structures tables and code blocks.** A reply longer than
+  12 lines draws its first 12 lines, a count of the hidden lines, `more` and `copy`. `copy`
+  copies the whole reply as markdown. A table draws without box lines, with aligned columns and
+  a bold header, and as one block per row when the columns do not fit the width. `copy` copies
+  the table as markdown, and `copy as text` copies `label: value` lines. Text between backticks
+  keeps its marks, and an emoji counts as two columns. A fenced block gets a title line from its
+  tag and a `copy` button that copies its content only, without the indent of a list item.
+  `/replies` turns the view off and on for the session. The model still reads the full reply
+  (handily-t899o).
+
+## handily 0.3.0 - 2026-10-09
+
+### Added
+
+- **The handily bundle installs reply-view.** The bundle now installs 8 mods, and `/handily`
+  lists reply-view with the others (handily-t899o).
+
 ## task-pane 0.4.1 - 2026-10-09
 
 ### Fixed
