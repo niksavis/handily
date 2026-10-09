@@ -1,3 +1,5 @@
+import { graphemesOf, isEmoji } from './width'
+
 export type Alignment = 'left' | 'right' | 'center'
 
 export type Prose = { kind: 'prose'; lines: string[] }
@@ -14,16 +16,20 @@ export type Fence = { kind: 'fence'; tag: string; content: string }
 
 export type Block = Prose | Table | Fence
 
-const FENCE_OPENING = /^ {0,3}(`{3,}|~{3,})(.*)$/
+const FENCE_OPENING = /^( {0,3})(`{3,}|~{3,})(.*)$/
 const FENCE_CLOSING = /^ {0,3}(`{3,}|~{3,})\s*$/
 const DELIMITER_CELL = /^:?-+:?$/
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 const KEPT_CONTROLS: ReadonlySet<string> = new Set(['\t', '\n'])
+const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 const LINK = /!?\[([^\]]*)\]\([^)]*\)/g
 const PAIRED_MARK = /(\*\*|__|~~)(.+?)\1/g
-const CODE_SPAN = /`([^`]*)`/g
+const ESCAPE_OR_CODE_SPAN = /\\([\\`*_~|[\]])|`([^`]*)`/g
+const PRIVATE_USE_START = 0xe000
 const STAR_EMPHASIS = /\*(\S(?:[^*]*\S)?)\*/g
 const LINE_BREAK_TAG = /<br\s*\/?>/gi
+const INDENTED_CODE = /^(?: {4}|\t)/
+const LEADING_SPACES = /^ */
 
 function escapedUnits(text: string): string {
   return Array.from(
@@ -32,22 +38,42 @@ function escapedUnits(text: string): string {
   ).join('')
 }
 
-export function shownText(text: string): string {
-  return text.replace(HIDDEN_CHARACTER, (found) =>
-    KEPT_CONTROLS.has(found) ? found : escapedUnits(found),
+function shownGrapheme(grapheme: string): string {
+  const keepsJoiners = isEmoji(grapheme)
+  return grapheme.replace(HIDDEN_CHARACTER, (found) =>
+    KEPT_CONTROLS.has(found) || (keepsJoiners && EMOJI_JOINER.test(found))
+      ? found
+      : escapedUnits(found),
   )
 }
 
+export function shownText(text: string): string {
+  return graphemesOf(text).map(shownGrapheme).join('')
+}
+
+function unusedCharacter(text: string): string {
+  let code = PRIVATE_USE_START
+  while (text.includes(String.fromCodePoint(code))) code += 1
+  return String.fromCodePoint(code)
+}
+
 export function plainCell(cell: string): string {
-  const plain = cell
+  const mark = unusedCharacter(cell)
+  const literals: string[] = []
+  const held = cell.replace(ESCAPE_OR_CODE_SPAN, (_found, escaped?: string, code?: string) => {
+    literals.push(escaped ?? code ?? '')
+    return `${mark}${String(literals.length - 1)}${mark}`
+  })
+  return held
     .replace(LINE_BREAK_TAG, ' ')
     .replace(LINK, '$1')
-    .replace(CODE_SPAN, '$1')
     .replace(PAIRED_MARK, '$2')
     .replace(STAR_EMPHASIS, '$1')
-    .replace(/\\([\\`*_~|[\]])/g, '$1')
+    .replace(
+      new RegExp(`${mark}(\\d+)${mark}`, 'gu'),
+      (_found, index: string) => literals[Number(index)] ?? '',
+    )
     .replace(/\t/g, ' ')
-  return shownText(plain)
 }
 
 export function cellsOf(line: string): string[] {
@@ -85,7 +111,7 @@ function delimiterOf(line: string, columns: number): Alignment[] | null {
 }
 
 function isTableRow(line: string): boolean {
-  return line.trim() !== '' && line.includes('|')
+  return line.trim() !== '' && line.includes('|') && !INDENTED_CODE.test(line)
 }
 
 function fitted(cells: string[], columns: number): string[] {
@@ -99,7 +125,13 @@ function tableAt(lines: readonly string[], start: number): { table: Table; end: 
   const alignments = delimiterOf(lines[start + 1] ?? '', header.length)
   if (alignments === null) return null
   let end = start + 2
-  while (end < lines.length && isTableRow(lines[end] ?? '')) end += 1
+  while (
+    end < lines.length &&
+    isTableRow(lines[end] ?? '') &&
+    openingOf(lines[end] ?? '') === null
+  ) {
+    end += 1
+  }
   return {
     table: {
       kind: 'table',
@@ -117,16 +149,32 @@ function isClosing(line: string, fence: string): boolean {
   return marks !== undefined && marks[0] === fence[0] && marks.length >= fence.length
 }
 
+type Opening = { indent: number; marks: string; info: string }
+
+function openingOf(line: string): Opening | null {
+  const found = FENCE_OPENING.exec(line)
+  const indent = found?.[1]
+  const marks = found?.[2]
+  const info = found?.[3] ?? ''
+  if (indent === undefined || marks === undefined) return null
+  if (marks.startsWith('`') && info.includes('`')) return null
+  return { indent: indent.length, marks, info }
+}
+
+function withoutIndent(line: string, indent: number): string {
+  const spaces = LEADING_SPACES.exec(line)?.[0].length ?? 0
+  return line.slice(Math.min(spaces, indent))
+}
+
 function fenceAt(lines: readonly string[], start: number): { fence: Fence; end: number } | null {
-  const opening = FENCE_OPENING.exec(lines[start] ?? '')
-  const marks = opening?.[1]
-  const info = opening?.[2] ?? ''
-  if (marks === undefined || (marks.startsWith('`') && info.includes('`'))) return null
+  const opening = openingOf(lines[start] ?? '')
+  if (opening === null) return null
   let end = start + 1
-  while (end < lines.length && !isClosing(lines[end] ?? '', marks)) end += 1
-  const tag = info.trim().split(/\s+/)[0] ?? ''
+  while (end < lines.length && !isClosing(lines[end] ?? '', opening.marks)) end += 1
+  const tag = opening.info.trim().split(/\s+/)[0] ?? ''
+  const content = lines.slice(start + 1, end).map((line) => withoutIndent(line, opening.indent))
   return {
-    fence: { kind: 'fence', tag, content: lines.slice(start + 1, end).join('\n') },
+    fence: { kind: 'fence', tag, content: content.join('\n') },
     end: Math.min(end + 1, lines.length),
   }
 }

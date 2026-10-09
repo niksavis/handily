@@ -102,8 +102,9 @@ function prosePiece(context: Context, prose: Prose): Piece {
   }
 }
 
-function tableButtons(context: Context, table: Table, look: TableLook, key: string, width: number) {
+function tableButtons(context: Context, table: Table, key: string, width: number) {
   const { Box } = context.elements
+  const text = textCopy(table)
   return Box({
     key: `${key}-buttons`,
     width: Math.max(width, TABLE_BUTTONS_COLUMNS),
@@ -113,7 +114,9 @@ function tableButtons(context: Context, table: Table, look: TableLook, key: stri
       gap: 1,
       children: [
         copyButton(context, `${key}-copy`, 'copy', table.source, 'the table as markdown'),
-        copyButton(context, `${key}-text`, 'copy as text', textCopy(look), 'the table as text'),
+        ...(text === ''
+          ? []
+          : [copyButton(context, `${key}-text`, 'copy as text', text, 'the table as text')]),
       ],
     }),
   })
@@ -158,6 +161,17 @@ function rowBlock(
   })
 }
 
+function headingsBlock(context: Context, look: TableLook, key: string) {
+  const { Box, Text } = context.elements
+  return Box({
+    key: `${key}-headings`,
+    flexDirection: 'column',
+    children: look.header.map((heading, index) =>
+      Box({ key: `heading-${String(index)}`, children: Text({ bold: true, children: heading }) }),
+    ),
+  })
+}
+
 function blockRows(context: Context, look: TableLook, row: readonly string[]): number {
   const valueWidth = context.width - FIELD_INDENT - labelWidth(look) - 1
   return 1 + sum(fieldsOf(look, row).map((field) => rowsOf(field.value, valueWidth)))
@@ -173,10 +187,7 @@ function tablePiece(context: Context, table: Table, key: string): Piece {
     return {
       rows: 2 + look.rows.length,
       whole: () =>
-        column([
-          ...wideLines(context, look, look.rows),
-          tableButtons(context, table, look, key, width),
-        ]),
+        column([...wideLines(context, look, look.rows), tableButtons(context, table, key, width)]),
       cut: (budget) => {
         if (budget < 2) return null
         const rows = look.rows.slice(0, budget - 1)
@@ -184,15 +195,20 @@ function tablePiece(context: Context, table: Table, key: string): Piece {
       },
     }
   }
-  const heights = look.rows.map((row) => blockRows(context, look, row))
-  const blocks = look.rows.map((row, index) => rowBlock(context, look, key, row, index))
+  const hasRows = look.rows.length > 0
+  const heights = hasRows
+    ? look.rows.map((row) => blockRows(context, look, row))
+    : [sum(look.header.map((heading) => rowsOf(heading, context.width)))]
+  const blocks = hasRows
+    ? look.rows.map((row, index) => rowBlock(context, look, key, row, index))
+    : [headingsBlock(context, look, key)]
   return {
-    rows: sum(heights) + Math.max(look.rows.length - 1, 0) + 1,
+    rows: sum(heights) + Math.max(blocks.length - 1, 0) + 1,
     whole: () =>
       Box({
         key,
         flexDirection: 'column',
-        children: [column(blocks, 1), tableButtons(context, table, look, key, context.width)],
+        children: [column(blocks, 1), tableButtons(context, table, key, context.width)],
       }),
     cut: (budget) => {
       let used = 0

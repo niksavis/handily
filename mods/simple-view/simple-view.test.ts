@@ -746,8 +746,21 @@ describe('tool row fold and copy', () => {
   viewTest('copy copies the full output of the call and says so', async (world, $) => {
     const ui = await mountUse($, await longCall(world, $))
     await ui.press({ key: 'copy' })
-    expect(world.copies).toEqual([LONG_STDOUT.trimEnd()])
+    expect(world.copies).toEqual([LONG_STDOUT])
     expect(world.toasts).toEqual(['Copied 140 lines of output.'])
+    await ui.unmount()
+  })
+
+  viewTest('copy keeps the trailing spaces and blank lines of the stdout', async (world, $) => {
+    world.answer = () => answered('abc  \n\n')
+    const input = { command: 'printf', description: 'Print padded text' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'fold' })
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(['  ~abc~'])
+    await ui.press({ key: 'copy' })
+    expect(world.copies).toEqual(['abc  \n\n'])
+    expect(world.toasts).toEqual(['Copied 1 line of output.'])
     await ui.unmount()
   })
 
@@ -757,7 +770,18 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'copy' })
+    expect(world.copies).toEqual(['built\nwarning: old option\n'])
+    await ui.unmount()
+  })
+
+  viewTest('copy puts a line break between stdout and stderr that lack one', async (world, $) => {
+    world.answer = () => answered('built', { stderr: 'warning: old option' })
+    const input = { command: 'make', description: 'Build' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['built\nwarning: old option'])
+    expect(world.toasts).toEqual(['Copied 2 lines of output.'])
     await ui.unmount()
   })
 
@@ -773,7 +797,7 @@ describe('tool row fold and copy', () => {
       '  ~more~',
     ])
     await ui.press({ key: 'copy' })
-    expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore'])
+    expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore\n'])
     await ui.unmount()
   })
 
@@ -791,7 +815,7 @@ describe('tool row fold and copy', () => {
     ])
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['all\nof\nit\n'])
-    expect(world.toasts).toEqual(['Copied 4 lines of output.'])
+    expect(world.toasts).toEqual(['Copied 3 lines of output.'])
     await ui.unmount()
   })
 
@@ -829,9 +853,54 @@ describe('tool row fold and copy', () => {
     await ui.unmount()
   })
 
+  viewTest(
+    'keeps the joiner inside an emoji and escapes a joiner outside one',
+    async (world, $) => {
+      const family = '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}'
+      world.answer = () => answered(`${family}\tX\na\u{200D}b\n`)
+      const input = { command: 'cat family.txt', description: 'Print the family' }
+      const id = await runBash(world, $, input)
+      const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+      await ui.press({ key: 'fold' })
+      expect(sketch(await ui.drawn()).slice(1)).toEqual([
+        `  ~${family}${' '.repeat(6)}X~`,
+        '  ~a\\u200db~',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest('a tab moves to the next 8-cell stop by display cells', async (world, $) => {
+    const lines = ['界\tX', '\u00e9\tX', 'e\u0301\tX', '🙂\tX', '👍🏽\tX', '\u0301\tX', '\u200b\tX']
+    world.answer = () => answered(`${lines.join('\n')}\n`)
+    const input = { command: 'cat cells.txt', description: 'Print the cells' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'fold' })
+    expect(sketch(await ui.drawn()).slice(1)).toEqual([
+      `  ~界${' '.repeat(6)}X~`,
+      `  ~\u00e9${' '.repeat(7)}X~`,
+      `  ~e\u0301${' '.repeat(7)}X~`,
+      `  ~🙂${' '.repeat(6)}X~`,
+      `  ~👍🏽${' '.repeat(6)}X~`,
+      `  ~\u0301${' '.repeat(8)}X~`,
+      `  ~\\u200b${' '.repeat(2)}X~`,
+    ])
+    await ui.unmount()
+  })
+
   viewTest('a call with no output draws no buttons', async (world, $) => {
     world.answer = () => answered('')
     const input = { command: 'true', description: 'Do nothing' }
+    const id = await runBash(world, $, input)
+    const quiet = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    expect(await quiet.findAll({ type: 'Button' })).toEqual([])
+    await quiet.unmount()
+  })
+
+  viewTest('a call with only blank output draws no buttons', async (world, $) => {
+    world.answer = () => answered('  \n\t\n\n')
+    const input = { command: 'printf', description: 'Print blanks' }
     const id = await runBash(world, $, input)
     const quiet = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     expect(await quiet.findAll({ type: 'Button' })).toEqual([])

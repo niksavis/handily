@@ -14,13 +14,12 @@ import {
   callOutput,
   copyRefusalText,
   foldButtons,
-  lineCountOf,
   outputBlock,
   plural,
   type CallOutput,
   type FoldActions,
 } from './fold'
-import { bashChanges, bashEnd, fileEdit, isRecord, shownPath } from './output'
+import { bashChanges, bashEnd, fileEdit, isRecord, lineCount, shownPath } from './output'
 import { bashRow, changesBlock, fileRow, type BashState, type RowLook } from './row'
 
 const COMMAND = 'simple'
@@ -203,7 +202,7 @@ async function copyOutput(
     const result = await $.ui.copy({ text, surface })
     $.ui.toast(
       result.isCopied
-        ? `Copied ${plural(lineCountOf(text), 'line')} of output.`
+        ? `Copied ${plural(lineCount(text), 'line')} of output.`
         : copyRefusalText(result.reason),
     )
   } catch (error) {

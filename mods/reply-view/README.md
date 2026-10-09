@@ -34,7 +34,9 @@ buttons at the right edge:
   rows. When the 12 rows end inside a line, that line is cut at a word and ends with `…`.
 - A reply of 12 lines or fewer draws as Claude Code draws it, unless it holds a table or a
   fenced block.
-- While a reply streams, its first lines stay in place. Only the count of hidden lines grows.
+- While a reply streams, the view draws it again with each new part. A reply that passes 12
+  rows changes from the view of Claude Code to the folded view. After that, the first rows of
+  prose stay in place, and only the count of hidden lines grows.
 
 ## A table
 
@@ -60,7 +62,10 @@ is the bold title of the block, and each other cell is a `label: value` line:
 
 - `copy` copies the table as markdown, as Claude wrote it.
 - `copy as text` copies `label: value` lines, one block for each row, for an email or a chat.
-- A cell shows its text without markdown marks: no `**`, no backticks, a link as its text.
+  A table with no data rows has no `copy as text` button.
+- A cell shows its text without markdown marks: no `**`, no backticks, a link as its text. The
+  text between two backticks keeps its marks, such as `**/*.ts`.
+- A table without data rows that does not fit the width shows its headings, one on each line.
 - An empty cell draws no line in a block, and `copy as text` leaves it out.
 
 ## A fenced block
@@ -98,7 +103,12 @@ While the view is off, Claude Code draws every reply unchanged.
 - The count of lines is an estimate from the width of the screen. The renderer of Claude Code
   wraps the text, so the real count can differ by a few lines.
 - A hidden character in a reply, such as a zero-width space, shows as an escape such as
-  `​`. `copy` keeps the text as Claude wrote it.
+  `\u200b`. The joiners inside an emoji, such as the family emoji, stay hidden. `copy` and
+  `copy as text` keep the characters as Claude wrote them.
+- An emoji counts as two columns. A terminal that draws an emoji in another width moves the
+  columns of a table after it.
+- The widest cell of a table sets its layout, in columns or in blocks. While a table streams, a
+  wider row can change it from columns to blocks.
 - While a table streams, its first line draws as text until the line under it arrives.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
   stays open or folded when it draws again.

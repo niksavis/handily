@@ -2,6 +2,7 @@ import type { RenderElement, RenderSurface } from 'claude-code'
 import type { SimpleViewFold } from '../types'
 import { EXIT_PREFIX, isRecord } from './output'
 import type { RowLook } from './row'
+import { graphemesOf, isEmoji } from './width'
 
 export const OPEN_LINES = 20
 export const DRAWN_CHARACTERS_AT_MOST = 60_000
@@ -9,7 +10,8 @@ const TAB_STOP = 8
 const RESULT_INDENT = 2
 // eslint-disable-next-line no-control-regex -- an ANSI colour code starts with the escape character
 const COLOR_CODE = /\u001b\[[0-9;:]*m/g
-const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
+const HIDDEN_CHARACTER = /(?!\t)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
+const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 const LEADING_BLANK_LINES = /^(?:[ \t]*\r?\n)+/
 
 const COPY_REFUSALS: Readonly<Record<'no-surface' | 'no-clipboard' | 'refused', string>> = {
@@ -36,27 +38,45 @@ function escapedUnits(text: string): string {
   ).join('')
 }
 
-function expandedTabs(line: string): string {
+function shownGrapheme(grapheme: string): string {
+  const keepsJoiners = isEmoji(grapheme)
+  return grapheme.replace(HIDDEN_CHARACTER, (found) =>
+    keepsJoiners && EMOJI_JOINER.test(found) ? found : escapedUnits(found),
+  )
+}
+
+function shownWithTabs(line: string): string {
   let shown = ''
-  for (const character of line) {
-    shown += character === '\t' ? ' '.repeat(TAB_STOP - (shown.length % TAB_STOP)) : character
+  let column = 0
+  for (const { grapheme, cells } of graphemesOf(line)) {
+    if (grapheme === '\t') {
+      const tabCells = TAB_STOP - (column % TAB_STOP)
+      shown += ' '.repeat(tabCells)
+      column += tabCells
+      continue
+    }
+    const drawn = shownGrapheme(grapheme)
+    shown += drawn
+    column +=
+      drawn === grapheme ? cells : graphemesOf(drawn).reduce((sum, part) => sum + part.cells, 0)
   }
   return shown
 }
 
-export function lineCountOf(text: string): number {
-  return text === '' ? 0 : text.split(/\r?\n/).length
-}
-
 export function shownLine(line: string): string {
   const overwritten = line.replace(COLOR_CODE, '').split('\r').at(-1) ?? ''
-  return expandedTabs(overwritten).replace(HIDDEN_CHARACTER, escapedUnits)
+  return shownWithTabs(overwritten)
 }
 
-function outputOf(text: string, savedTo: string | null): CallOutput | null {
-  const kept = text.trimEnd()
+function outputOf(copied: string, drawn: string, savedTo: string | null): CallOutput | null {
+  const kept = drawn.trimEnd()
   if (kept === '' && savedTo === null) return null
-  return { text: kept, lines: kept === '' ? [] : kept.split(/\r?\n/), savedTo }
+  return { text: copied, lines: kept === '' ? [] : kept.split(/\r?\n/), savedTo }
+}
+
+function stdoutThenStderr(stdout: string, stderr: string): string {
+  const isBreakNeeded = stdout !== '' && stderr !== '' && !stdout.endsWith('\n')
+  return `${stdout}${isBreakNeeded ? '\n' : ''}${stderr}`
 }
 
 export function callOutput(output: unknown, isErrored: boolean): CallOutput | null {
@@ -64,13 +84,14 @@ export function callOutput(output: unknown, isErrored: boolean): CallOutput | nu
     if (typeof output !== 'string') return null
     const found = EXIT_PREFIX.exec(output)
     if (found === null) return null
-    return outputOf(output.slice(found[0].length).replace(LEADING_BLANK_LINES, ''), null)
+    const errorOutput = output.slice(found[0].length).replace(LEADING_BLANK_LINES, '')
+    return outputOf(errorOutput, errorOutput, null)
   }
   if (!isRecord(output) || typeof output.stdout !== 'string') return null
-  const stderr = typeof output.stderr === 'string' ? output.stderr.trimEnd() : ''
-  const text = [output.stdout.trimEnd(), stderr].filter((part) => part !== '').join('\n')
+  const stderr = typeof output.stderr === 'string' ? output.stderr : ''
+  const drawn = [output.stdout.trimEnd(), stderr.trimEnd()].filter((part) => part !== '').join('\n')
   const savedTo = typeof output.persistedOutputPath === 'string' ? output.persistedOutputPath : null
-  return outputOf(text, savedTo)
+  return outputOf(stdoutThenStderr(output.stdout, stderr), drawn, savedTo)
 }
 
 export function plural(count: number, word: string): string {

@@ -1,6 +1,5 @@
 import type { On, RenderPropsOf, UiCopyResult } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
-import { blocksOf, cellsOf, plainCell } from './hooks/markdown'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -218,6 +217,8 @@ const TABLE = [
   '| **simple-view** | `released` | click to expand |',
 ].join('\n')
 
+const FAMILY = '👨\u200d👩\u200d👧'
+
 const FENCE = [
   'Here is the plan:',
   '',
@@ -415,15 +416,160 @@ describe('tables', () => {
     await ui.unmount()
   })
 
-  test('reads a cell with an escaped bar, a link and inline marks as plain text', () => {
-    expect(
-      cellsOf('| a \\| b | [docs](https://x.example) | **bold** `code` |').map(plainCell),
-    ).toEqual(['a | b', 'docs', 'bold code'])
+  viewTest(
+    'a cell keeps the text inside backticks as written on the screen and in copy as text',
+    async (world, $) => {
+      const table = [
+        '| Path | Glob |',
+        '| --- | --- |',
+        '| `__init__.py` | `**/*.ts` |',
+        '| `~~x~~` | `[x](y)` |',
+        '| `C:\\*` | **bold** `code` |',
+        '| a \\| b | [docs](https://x.example) |',
+      ].join('\n')
+      const ui = await mountReply($, reply(table))
+      expect(await sketchOf(ui)).toEqual([
+        '● *Path          Glob*',
+        '  __init__.py   **/*.ts',
+        '  ~~x~~         [x](y)',
+        '  C:\\*          bold code',
+        '  a | b         docs',
+        '  [ copy ] [ copy as text ]',
+      ])
+      await ui.press({ key: 'block-0-text' })
+      expect(world.copies).toEqual([
+        [
+          'Path: __init__.py',
+          'Glob: **/*.ts',
+          '',
+          'Path: ~~x~~',
+          'Glob: [x](y)',
+          '',
+          'Path: C:\\*',
+          'Glob: bold code',
+          '',
+          'Path: a | b',
+          'Glob: docs',
+        ].join('\n'),
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a line with a bar but no delimiter row draws as the engine draws it',
+    async (_world, $) => {
+      const ui = await mountReply($, reply('a | b\nnext line'))
+      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      await ui.unmount()
+    },
+  )
+
+  viewTest('a line indented by four spaces is code, not a table row', async (_world, $) => {
+    const text = ['    a | b', '    --- | ---', '    c | d', '', '```sh', 'ls', '```'].join('\n')
+    const ui = await mountReply($, reply(text))
+    expect(await sketchOf(ui)).toEqual([
+      '●     a | b',
+      '      --- | ---',
+      '      c | d',
+      '',
+      `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+      '  ls',
+    ])
+    await ui.unmount()
   })
 
-  test('leaves a line with a bar but no delimiter row as prose', () => {
-    expect(blocksOf('a | b\nnext line').map((block) => block.kind)).toEqual(['prose'])
+  viewTest(
+    'a table ends where a code fence opens, even when the fence line holds a bar',
+    async (world, $) => {
+      const text = [
+        '| Name | Value |',
+        '| --- | --- |',
+        '| example | ok |',
+        '```sh | example',
+        'echo a | cat',
+        '```',
+      ].join('\n')
+      const ui = await mountReply($, reply(text))
+      expect(await sketchOf(ui)).toEqual([
+        '● *Name      Value*',
+        '  example   ok',
+        '  [ copy ] [ copy as text ]',
+        '',
+        `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+        '  echo a | cat',
+      ])
+      await ui.press({ key: 'block-1-copy' })
+      expect(world.copies).toEqual(['echo a | cat'])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a table with no data rows that does not fit shows its headings and no copy as text',
+    async (_world, $) => {
+      const text = '| Very long heading | Another very long heading |\n| --- | --- |'
+      const ui = await mountReply($, reply(text), 'terminal', 30)
+      expect(await sketchOf(ui, 30)).toEqual([
+        '● *Very long heading*',
+        '  *Another very long heading*',
+        '                      [ copy ]',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest('an emoji takes two columns when the columns of a table align', async (_world, $) => {
+    const text = [
+      '| Check | Result | Note |',
+      '| --- | --- | --- |',
+      '| build | ✅ | ok |',
+      '| lint | ❌ | ok |',
+      '| ship | 🚀 | ok |',
+      '| melt | 🫠 | ok |',
+      '| warn | ⚠️ | ok |',
+      `| family | ${FAMILY} | ok |`,
+    ].join('\n')
+    const ui = await mountReply($, reply(text))
+    expect((await sketchOf(ui)).slice(0, 7)).toEqual([
+      '● *Check    Result   Note*',
+      '  build    ✅       ok',
+      '  lint     ❌       ok',
+      '  ship     🚀       ok',
+      '  melt     🫠       ok',
+      '  warn     ⚠️       ok',
+      `  family   ${FAMILY}       ok`,
+    ])
+    await ui.unmount()
   })
+
+  viewTest(
+    'a table of emoji that is wider than the screen in columns draws one block per row',
+    async (_world, $) => {
+      const text = ['| Step | State |', '| --- | --- |', `| build | ${'✅'.repeat(10)} |`].join(
+        '\n',
+      )
+      const ui = await mountReply($, reply(text), 'terminal', 26)
+      expect(await sketchOf(ui, 26)).toEqual([
+        '● *build*',
+        `    State: ${'✅'.repeat(10)}`,
+        '  [ copy ] [ copy as text ]',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'copy as text copies a hidden character as written while the screen shows its escape',
+    async (world, $) => {
+      const text = ['| Name | Value |', '| --- | --- |', '| zero\u200bwidth | ok |'].join('\n')
+      const ui = await mountReply($, reply(text))
+      expect((await sketchOf(ui))[1]).toBe('  zero\\u200bwidth   ok')
+      await ui.press({ key: 'block-0-text' })
+      expect(world.copies).toEqual(['Name: zero\u200bwidth\nValue: ok'])
+      await ui.unmount()
+    },
+  )
 })
 
 describe('fenced blocks', () => {
@@ -453,11 +599,44 @@ describe('fenced blocks', () => {
     await ui.unmount()
   })
 
-  test('reads a block that is still open up to the end of the text', () => {
-    expect(blocksOf('```sh\nnpm ci\nnpm test')).toEqual([
-      { kind: 'fence', tag: 'sh', content: 'npm ci\nnpm test' },
+  viewTest('a block that is still open draws up to the end of the text', async (world, $) => {
+    const ui = await mountReply($, reply('```sh\nnpm ci\nnpm test'))
+    expect(await sketchOf(ui)).toEqual([
+      `● ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+      '  npm ci',
+      '  npm test',
     ])
+    await ui.press({ key: 'block-0-copy' })
+    expect(world.copies).toEqual(['npm ci\nnpm test'])
+    await ui.unmount()
   })
+
+  viewTest(
+    'a block indented inside a list item loses that indent on each line of its content',
+    async (world, $) => {
+      const text = [
+        '1. Add:',
+        '   ```python',
+        '   def f():',
+        '       return 1',
+        '   ```',
+        '2. Run it',
+      ].join('\n')
+      const ui = await mountReply($, reply(text))
+      expect(await sketchOf(ui)).toEqual([
+        '● 1. Add:',
+        '',
+        `  ~── python ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── python '.length)}~  [ copy ]`,
+        '  def f():',
+        '      return 1',
+        '',
+        '  2. Run it',
+      ])
+      await ui.press({ key: 'block-1-copy' })
+      expect(world.copies).toEqual(['def f():\n    return 1'])
+      await ui.unmount()
+    },
+  )
 })
 
 describe('/replies', () => {

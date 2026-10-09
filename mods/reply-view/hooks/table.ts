@@ -1,4 +1,4 @@
-import { plainCell, type Alignment, type Table } from './markdown'
+import { plainCell, shownText, type Alignment, type Table } from './markdown'
 import { displayWidth, padToWidth } from './width'
 
 export const COLUMN_GAP = 3
@@ -10,9 +10,17 @@ export type TableLook = {
   widths: number[]
 }
 
+function plainHeader(table: Table): string[] {
+  return table.header.map((cell, index) => plainCell(cell) || `Column ${String(index + 1)}`)
+}
+
+function plainRows(table: Table): string[][] {
+  return table.rows.map((row) => row.map(plainCell))
+}
+
 export function tableLook(table: Table): TableLook {
-  const header = table.header.map((cell, index) => plainCell(cell) || `Column ${String(index + 1)}`)
-  const rows = table.rows.map((row) => row.map(plainCell))
+  const header = plainHeader(table).map(shownText)
+  const rows = plainRows(table).map((row) => row.map(shownText))
   const widths = header.map((cell, index) =>
     Math.max(displayWidth(cell), ...rows.map((row) => displayWidth(row[index] ?? ''))),
   )
@@ -55,10 +63,11 @@ export function labelWidth(look: TableLook): number {
   return Math.max(0, ...look.header.slice(1).map(displayWidth)) + 1
 }
 
-export function textCopy(look: TableLook): string {
-  return look.rows
+export function textCopy(table: Table): string {
+  const header = plainHeader(table)
+  return plainRows(table)
     .map((row) =>
-      look.header
+      header
         .map((label, index) => ({ label, value: row[index] ?? '' }))
         .filter((field) => field.value !== '')
         .map((field) => `${field.label}: ${field.value}`)

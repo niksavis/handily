@@ -92,20 +92,23 @@ and `less` on the row folds the output again:
   [ all 140 lines ]
 ```
 
-- `copy` copies the full output of the call: stdout, then stderr. After `exit N` it copies the
-  error output under the `Error: Exit code N` line. A toast says how many lines it copied, or
-  why the copy failed.
+- `copy` copies the full output of the call: stdout, then stderr, exactly as the engine gave
+  them. Trailing spaces and blank lines stay. After `exit N` it copies the error output under the
+  `Error: Exit code N` line. A toast says how many lines it copied, or why the copy failed.
 - When the engine saved a large output to a file, the row shows only the preview that the engine
   kept. `copy` reads the saved file and copies all of it.
 - The opened lines are dim and never wrap: a long line is cut at the row end. `copy` keeps the
   whole line. Colour codes are dropped, a line that a carriage return overwrote shows its last
-  part, a tab becomes spaces, and other hidden characters show as escapes such as `\u200b`.
+  part, a tab becomes spaces up to the next 8-cell stop, and other hidden characters show as
+  escapes such as `\u200b`. A wide character or an emoji takes 2 cells, and a combining mark
+  takes none.
 - `all N lines` draws at most 60000 characters. Then a dim line says how many lines it did not
   draw, and `copy` still takes all of them.
 - A running call has `more` only. It opens the full command under the row, one dim line for
   each command line. When the call ends, an opened row shows the output in place of the command.
 - Each row opens and folds alone. A call with no output and an `Edit` or `Write` row have no
-  buttons.
+  buttons. An output of only spaces, tabs and blank lines counts as no output, so its row shows
+  `0 lines` and has no buttons.
 
 ## When the engine row stays
 
