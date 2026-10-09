@@ -1,6 +1,6 @@
 import type { WorkitemsItem } from '../../types'
 import { numeral } from '../states'
-import { coverStamp, quotedCommand, type CoveredFolder } from '../approval'
+import { coverStamp, quotedCommand, type ApprovalKey, type CoveredFolder } from '../approval'
 import { runJson } from './adapter'
 import {
   checkedItem,
@@ -106,7 +106,7 @@ function runsOnlyPackage(versionOutput: string): boolean {
   return true
 }
 
-async function ignoresKit(files: TrackerFiles, argv0: string): Promise<boolean> {
+async function versionIgnoresKit(files: TrackerFiles, argv0: string): Promise<boolean> {
   let result
   try {
     result = await files.commands.run([argv0, '--version'], pythonEnv(files.root))
@@ -118,6 +118,21 @@ async function ignoresKit(files: TrackerFiles, argv0: string): Promise<boolean> 
   return result.exitCode === 0 && !result.isStdoutTruncated && runsOnlyPackage(result.stdout)
 }
 
+type VersionMemory = { kept?: { key: string; ignoresKit: boolean } }
+
+async function ignoresKit(
+  files: TrackerFiles,
+  approval: ApprovalKey,
+  memory: VersionMemory,
+): Promise<boolean> {
+  const program = await files.commands.stamp(approval.argv0)
+  const key = program === undefined ? undefined : JSON.stringify({ ...approval, program })
+  if (key !== undefined && memory.kept?.key === key) return memory.kept.ignoresKit
+  const verdict = await versionIgnoresKit(files, approval.argv0)
+  if (key !== undefined) memory.kept = { key, ignoresKit: verdict }
+  return verdict
+}
+
 function approvalNeeded(): ReadOutcome {
   return {
     ok: false,
@@ -127,22 +142,31 @@ function approvalNeeded(): ReadOutcome {
   }
 }
 
-async function approvedProgram(files: TrackerFiles): Promise<string | undefined> {
+async function approvedProgram(
+  files: TrackerFiles,
+  memory: VersionMemory,
+): Promise<string | undefined> {
   const verdict = await files.commands.approvals.check(files, {
     command: COMMAND,
     shown: [...COMMAND, '--status', 'open'],
     folders: KIT_CODE,
     note: KIT_NOTE,
-    ignoresFolders: (argv0) => ignoresKit(files, argv0),
+    ignoresFolders: (approval) => ignoresKit(files, approval, memory),
   })
   return verdict.approved ? verdict.argv0 : undefined
 }
 
-async function listOpenItems(files: TrackerFiles): Promise<ReadOutcome> {
+async function listOpenItems(files: TrackerFiles, memory: VersionMemory): Promise<ReadOutcome> {
   const byKey = new Map<string, WorkitemsItem>()
   const env = pythonEnv(files.root)
+  let checkedKit: string | undefined
+  let argv0: string | undefined
   for (const status of OPEN_STATUSES) {
-    const argv0 = await approvedProgram(files)
+    const kit = await coverStamp(files, KIT_CODE)
+    if (kit !== checkedKit) {
+      argv0 = await approvedProgram(files, memory)
+      checkedKit = kit
+    }
     if (argv0 === undefined) return approvalNeeded()
     const argv = [argv0, ...COMMAND.slice(1), '--status', status]
     for (const item of itemsOf(LABEL, await runJson(files, LABEL, argv, env))) {
@@ -158,7 +182,7 @@ async function listOpenItems(files: TrackerFiles): Promise<ReadOutcome> {
   }
 }
 
-async function readBasicly(files: TrackerFiles): Promise<ReadOutcome> {
+async function readBasicly(files: TrackerFiles, memory: VersionMemory): Promise<ReadOutcome> {
   if (!(await files.commands.canRun())) {
     return { ok: false, state: 'terminal-only', sourceLabel: SOURCE }
   }
@@ -166,7 +190,7 @@ async function readBasicly(files: TrackerFiles): Promise<ReadOutcome> {
     return { ok: false, reason: 'basicly is not on PATH. Install it to read this tracker.' }
   }
   try {
-    return await listOpenItems(files)
+    return await listOpenItems(files, memory)
   } catch (error) {
     if (error instanceof ItemFault) return { ok: false, reason: error.reason }
     throw error
@@ -184,9 +208,12 @@ async function basiclySignature(files: TrackerFiles): Promise<string> {
   ].join('\n')
 }
 
-export const basiclyReader: Reader = {
-  name: SOURCE,
-  marker: TEMPLATE,
-  signature: basiclySignature,
-  read: readBasicly,
+export function createBasiclyReader(): Reader {
+  const memory: VersionMemory = {}
+  return {
+    name: SOURCE,
+    marker: TEMPLATE,
+    signature: basiclySignature,
+    read: (files) => readBasicly(files, memory),
+  }
 }

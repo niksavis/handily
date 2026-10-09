@@ -64,7 +64,7 @@ Why `commit-link` and `handover` were dropped:
 | 10 | Approval key | For basicly: the repo root, the argv, the resolved `argv[0]` and the sha256 of every file under `.basicly/core/kit/tracker/`. A second key holds the same without the kit files. When the kit changed, the approved program's `--version` decides: 0.21.1 or later runs only the installed package, so the second key is enough. Below 0.21.1, or a version that does not parse, the kit files must match. No basicly command runs before approval (decision F). A program that resolves inside the repo root is refused. A CLI adapter needs no approval (decision E) |
 | 11 | Repo config | `.handily.json` at the repo root holds data only: `source`, `globs`, `format` and `fields`. Its globs are confined to the root by `realPath`. It cannot name a command (decision E) |
 | E | CLI adapter command (2026-10-08) | A repo never names a command to run. The person lists the adapter argv in `~/.config/handily/adapters.json`, keyed on the exact real path of the repo root. Typing that line is the consent, so the adapter runs with no approval ask. A repo `.handily.json` that names a command fails, names the user file and the root, and never repeats the command. The consent covers the command, not one version of the code |
-| F | Ask once for basicly (2026-10-08, handily-szdh) | Ask once and keep the answer. No basicly command, `--version` included, runs before the person approves the repo. After approval, a kit change runs the approved program's `--version`, never kept, so a downgrade below 0.21.1 asks again. An approval from before this decision stays valid for the same program path. A read without approval through an isolated interpreter was dropped: two reviews each found a way for repo code to run before any check |
+| F | Ask once for basicly (2026-10-08, handily-szdh) | Ask once and keep the answer. No basicly command, `--version` included, runs before the person approves the repo. After approval, a kit change runs the approved program's `--version`. The verdict is kept in memory only, keyed on the approval key and the size and modification time of the program file, so a kit change or a reinstall runs `--version` again and a downgrade below 0.21.1 asks again (handily-8mjdz). An approval from before this decision stays valid for the same program path. A read without approval through an isolated interpreter was dropped: two reviews each found a way for repo code to run before any check |
 
 ### Signals and colours (2026-10-09, handily-fwkt.8.14)
 
@@ -219,7 +219,8 @@ basicly:
   root, the argv and the resolved `argv[0]`. When only the kit files differ, the provider runs
   `<argv[0]> --version`, and a `basicly X.Y.Z` of 0.21.1 or later approves the read. Any other
   output, or a non-zero exit, asks again. The provider runs the recorded `argv[0]`, refuses one
-  inside the repo root, and checks the approval again before each list run.
+  inside the repo root, and checks the approval once per read. It checks again before a later
+  list run only when a kit file changed.
 - Without `basicly` on `PATH`, the read fails with "basicly is not on PATH. Install it to read
   this tracker." The provider never runs the repo's `cli.py` (decision E).
 - `basicly` and `basicly --version` run with `PYTHONDONTWRITEBYTECODE=1` and

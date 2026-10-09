@@ -7,7 +7,7 @@ import type {
 } from '../../types'
 import type { Approvals } from '../approval'
 import { createAdapterReader } from './adapter'
-import { basiclyReader } from './basicly'
+import { createBasiclyReader } from './basicly'
 import { beadsReader } from './beads'
 import { beansReader } from './beans'
 import { filesReader } from './generic'
@@ -19,6 +19,7 @@ export type TrackerCommands = {
     env?: Readonly<Record<string, string>>,
   ) => Promise<ProcessRunResult>
   which: (program: string) => Promise<string | undefined>
+  stamp: (program: string) => Promise<string | undefined>
   approvals: Approvals
 }
 
@@ -60,7 +61,7 @@ export type Reader = {
 }
 
 export function createReaders(): readonly Reader[] {
-  return [basiclyReader, beadsReader, beansReader, filesReader, createAdapterReader()]
+  return [createBasiclyReader(), beadsReader, beansReader, filesReader, createAdapterReader()]
 }
 
 export const writeVerbs: WorkitemsWriteVerbs = {

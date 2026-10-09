@@ -106,6 +106,7 @@ type World = {
   runs: Run[]
   outputs: Map<string, Partial<ProcessRunResult>>
   stored: Map<string, unknown>
+  storeReads: string[]
   asks: Ask[]
   answer: string | typeof ENTER | undefined
 }
@@ -205,6 +206,7 @@ function fakeWorld(
     runs: [],
     outputs: new Map(),
     stored: new Map(),
+    storeReads: [],
     asks: [],
     answer: undefined,
   }
@@ -247,7 +249,10 @@ function fakeWorld(
     if (sizeOf(file) > MAX_READ_BYTES) return { deny: `over 4 MiB: ${e.path}` }
     return { value: e.as === 'bytes' ? { base64: btoa(file.text) } : file.text }
   })
-  on('store.get', (_$, e) => ({ value: world.stored.get(e.key) }))
+  on('store.get', (_$, e) => {
+    world.storeReads.push(e.key)
+    return { value: world.stored.get(e.key) }
+  })
   on('store.set', (_$, e) => {
     world.stored.set(e.key, e.value)
     return { value: undefined }
@@ -427,6 +432,27 @@ function isListRun(run: Run): boolean {
 
 function listRunCount(world: World): number {
   return world.runs.filter(isListRun).length
+}
+
+function approvalChecksSince(world: World, readsBefore: number): number {
+  return world.storeReads.slice(readsBefore).filter((key) => key.startsWith('approval:')).length
+}
+
+function commandsSince(world: World, runsBefore: number): string[] {
+  return world.runs.slice(runsBefore).map((run) => run.argv.slice(1).join(' '))
+}
+
+const VERSION_AND_LISTS = [
+  '--version',
+  'tracker list --status open',
+  'tracker list --status in_progress',
+  'tracker list --status blocked',
+]
+
+const LISTS_ONLY = VERSION_AND_LISTS.slice(1)
+
+function reinstallBasicly(world: World, mtimeMs: number) {
+  world.files.set(BASICLY_BIN, { text: 'binary', mtimeMs })
 }
 
 function changeKit(world: World, mtimeMs: number) {
@@ -1394,18 +1420,22 @@ describe('approval of basicly', () => {
     },
   )
 
-  test('checks the approval again before each list run', { plugins: [consumer] }, async ($, on) => {
-    const { clock, world } = await approvedBasicly($, on)
-    const listsBefore = listRunCount(world)
-    world.answer = 'Not now'
-    world.afterRun = () => {
-      world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, { text: 'planted\n', mtimeMs: 50 })
-    }
-    touchLedger(world, 50)
-    await pollUntil($, clock, 2_000, stateIs('approval-needed'))
-    expect(listRunCount(world)).toBe(listsBefore + 1)
-    expect((await snapshotOf($)).state).toBe('approval-needed')
-  })
+  test(
+    'checks the approval again when the kit changes between list runs',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      const listsBefore = listRunCount(world)
+      world.answer = 'Not now'
+      world.afterRun = () => {
+        world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, { text: 'planted\n', mtimeMs: 50 })
+      }
+      touchLedger(world, 50)
+      await pollUntil($, clock, 2_000, stateIs('approval-needed'))
+      expect(listRunCount(world)).toBe(listsBefore + 1)
+      expect((await snapshotOf($)).state).toBe('approval-needed')
+    },
+  )
 
   test(
     'a planted package or sourceless module in the kit folder asks again',
@@ -1720,11 +1750,78 @@ describe('approval on a basicly that runs only its installed package', () => {
       await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
       expect(world.asks.length).toBe(1)
       reportVersion(world, 'basicly 0.20.4\n')
+      reinstallBasicly(world, 2)
       const runsBefore = world.runs.length
       touchLedger(world, 50)
       await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
       expect(world.asks.length).toBe(2)
       expect(world.runs.slice(runsBefore).filter(isListRun)).toEqual([])
+    },
+  )
+
+  test(
+    'one refresh after a kit change checks the approval once and runs basicly --version once',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      reportVersion(world, 'basicly 0.21.2\n')
+      const runsBefore = world.runs.length
+      const readsBefore = world.storeReads.length
+      changeKit(world, 40)
+      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      expect(snapshot.state).toBe('ok')
+      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_LISTS)
+      expect(approvalChecksSince(world, readsBefore)).toBe(1)
+    },
+  )
+
+  test(
+    'a later refresh with the same approved program and kit runs no basicly --version',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      reportVersion(world, 'basicly 0.21.2\n')
+      changeKit(world, 40)
+      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      const runsBefore = world.runs.length
+      touchLedger(world, 50)
+      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      expect(snapshot.state).toBe('ok')
+      expect(commandsSince(world, runsBefore)).toEqual(LISTS_ONLY)
+    },
+  )
+
+  test(
+    'a second kit change runs basicly --version again',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      reportVersion(world, 'basicly 0.21.2\n')
+      changeKit(world, 40)
+      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      const runsBefore = world.runs.length
+      changeKit(world, 60)
+      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      expect(snapshot.state).toBe('ok')
+      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_LISTS)
+    },
+  )
+
+  test(
+    'a reinstalled basicly at the same path runs basicly --version again',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBasicly($, on)
+      reportVersion(world, 'basicly 0.21.2\n')
+      changeKit(world, 40)
+      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      reportVersion(world, 'basicly 0.21.3\n')
+      reinstallBasicly(world, 2)
+      const runsBefore = world.runs.length
+      touchLedger(world, 50)
+      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      expect(snapshot.state).toBe('ok')
+      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_LISTS)
     },
   )
 

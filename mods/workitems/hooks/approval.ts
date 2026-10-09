@@ -33,7 +33,7 @@ export type ApprovalRequest = {
   shown: readonly string[]
   folders: readonly CoveredFolder[]
   note: string
-  ignoresFolders: (argv0: string) => Promise<boolean>
+  ignoresFolders: (key: ApprovalKey) => Promise<boolean>
 }
 
 export type Verdict = { approved: true; argv0: string } | { approved: false }
@@ -264,7 +264,7 @@ export function createApprovals(host: ApprovalHost): Approvals {
         await keepProgramApproval(programKey, key)
         return { approved: true, argv0 }
       }
-      if ((await isStored(programKey)) && (await request.ignoresFolders(argv0))) {
+      if ((await isStored(programKey)) && (await request.ignoresFolders(key))) {
         return { approved: true, argv0 }
       }
       const mayAsk = isInteractive && !declined.has(storeKey) && !asking.has(storeKey)

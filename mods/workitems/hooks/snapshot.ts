@@ -146,6 +146,14 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
           realPath: realPathOf,
           realPathAtRoot: (relativePath) => realPathOf(pathAtRoot(root, relativePath)),
         }),
+      stamp: async (program) => {
+        try {
+          const { size, mtimeMs } = await host.stat(program)
+          return `${String(size)} ${String(mtimeMs)}`
+        } catch {
+          return undefined
+        }
+      },
       approvals: host.commands.approvals,
     },
     exists: (relativePath) => host.exists(pathAtRoot(root, relativePath)),

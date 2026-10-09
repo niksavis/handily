@@ -48,8 +48,9 @@ gives other mods one typed list. It draws nothing of its own.
 - `basicly` and `basicly --version` run with `PYTHONDONTWRITEBYTECODE=1` and
   `PYTHONPYCACHEPREFIX` set to a new folder. The new folder does not exist, so Python never runs
   a cached `.pyc` file from the repo.
-- The mod runs the program path that the approval recorded, and checks the approval again
-  before each of the three list runs.
+- The mod runs the program path that the approval recorded. It checks the approval once for
+  each read, before the first list run. It checks the approval again before a later list run
+  only when a file under the kit folder changed since the last check.
 - The mod reads only the open statuses. So when a record leaves them, for example when it is
   closed or deferred, `refresh()` reports it under `closed`, with the status `closed` and the
   last raw status that the mod read.
@@ -267,8 +268,7 @@ approval, because you typed its command yourself.
 - The mod also keeps the answer under a second key of the repo root, the command and the real
   path of `basicly`, with no kit files.
 - When the kit files differ from the files that you approved, the mod runs `basicly --version`
-  with the approved program path, before each list run. The version decides if the approval
-  covers the kit files:
+  with the approved program path. The version decides if the approval covers the kit files:
 
   | `basicly --version` prints         | A kit change       |
   | ---------------------------------- | ------------------ |
@@ -278,8 +278,15 @@ approval, because you typed its command yourself.
   | nothing, because it did not start  | the read fails     |
 
   basicly 0.21.1 or later runs only the installed package, so the kit files do not change what
-  it runs. An older basicly also runs the repo code in `.basicly/core/kit/tracker`. The mod never
-  keeps the version, so a later downgrade below 0.21.1 asks again.
+  it runs. An older basicly also runs the repo code in `.basicly/core/kit/tracker`.
+
+- The mod keeps the last verdict of `basicly --version` in memory while Claude Code runs, never
+  in `$.store` or `$.state`. The verdict is keyed on the repo root, the command, the real path
+  of `basicly`, the size and modification time of the file at that path, and the sha256 of
+  every kit file. A later read with the same key runs no `basicly --version`. A kit change, a
+  different program path or a reinstall of `basicly` at the same path changes the key, so the
+  mod runs `basicly --version` again, and a downgrade below 0.21.1 asks again. When the engine
+  cannot give the size and the time of the program file, the mod keeps no verdict.
 
 - When the command or the real path of `basicly` changes, the old approval does not match, and
   the mod asks again.
