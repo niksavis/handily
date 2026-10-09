@@ -85,6 +85,7 @@ describe('the width of each mark', () => {
 
   test('the width rule counts an emoji as two columns', () => {
     assert.equal(displayWidth('🔥'), 2)
+    assert.equal(displayWidth('\u26A1'), 2)
     assert.match('🔥', /\p{Emoji_Presentation}/u)
   })
 })

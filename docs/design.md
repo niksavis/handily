@@ -110,7 +110,8 @@ wide in most terminals and breaks the row alignment. A test measures the width o
 
 The colours are theme colours of the engine, so they follow the person's theme: orange is
 `claude`, green is `success`, red is `error`, yellow is `warning` and subtle is `subtle`. The
-handover of 2026-10-09 also names `suggestion`; which signal uses it is open.
+handover of 2026-10-09 also names `suggestion`; which signal uses it is open. The task pane
+draws its author word in `suggestion`, so a title cannot imitate the author.
 
 Each of `task-pane`, `agent-board` and `session-board` keeps the first five signals in its own
 `hooks/signals.ts`, because mods share no code at run time. `scripts/signals.test.mjs` fails

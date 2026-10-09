@@ -7,6 +7,7 @@ import type {
   PluginOptions,
   RenderElement,
   TextProps,
+  ThemeKey,
 } from 'claude-code'
 import type { TaskPaneActivity, TaskPaneList, TaskPaneTask, TaskPaneToolSight } from '../types'
 import { PLAN_REQUEST, callsText, clockTime, elapsedText, planLag } from './activity'
@@ -39,6 +40,7 @@ const PANE_TITLE = 'Tasks'
 const DONE_GROUP = 'group:done'
 const ITEMS_GROUP = 'group:items'
 const AGENT_NAME_COLUMNS_AT_MOST = 16
+const AUTHOR_COLOR: ThemeKey = 'suggestion'
 
 export type PaneMode = 'off' | 'toggle' | 'always'
 
@@ -327,7 +329,7 @@ function taskCells(task: TaskPaneTask, numberWidth: number): Cell[] {
   return [
     { text: `${mark} `, style: { color } },
     { text: padToWidth(String(task.id), numberWidth), style: { dimColor: isDone, bold: isActive } },
-    ...(author === undefined ? [] : [{ text: `${author} `, style: { dimColor: true } }]),
+    ...(author === undefined ? [] : [{ text: `${author} `, style: { color: AUTHOR_COLOR } }]),
   ]
 }
 

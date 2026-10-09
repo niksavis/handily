@@ -1475,6 +1475,40 @@ describe('tracker text and the author column', () => {
     },
   )
 
+  test(
+    'a model title that starts with you keeps the title colour, and the author word of a person task has the author colour',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'you Ship it' })
+      await task($, 'add Ship it')
+      for (const surface of ['terminal', 'desktop'] as const) {
+        const ui = await $.ui.mount({
+          plugin: PLUGIN,
+          surface,
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock', 80),
+        })
+        const cellsOf = async (key: string) =>
+          texts(await rowOf(ui, key)).map((cell) => [cell.text, cell.props.color])
+        expect(await cellsOf('task:1')).toEqual([
+          ['○ ', 'subtle'],
+          ['1 ', undefined],
+          ['you Ship it', undefined],
+        ])
+        expect(await cellsOf('task:2')).toEqual([
+          ['○ ', 'subtle'],
+          ['2 ', undefined],
+          ['you ', 'suggestion'],
+          ['Ship it', undefined],
+        ])
+        await ui.unmount()
+      }
+    },
+  )
+
   test('a title with a bidi control is refused by name', withWorkitems, async ($, on) => {
     world(on)
     mock.session(on)
@@ -1804,6 +1838,24 @@ describe('the pane rows fit the pane width', () => {
       },
     )
   }
+
+  test(
+    'a title of emoji counts each emoji as two columns, so the row fits 30 columns',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: '\u26A1'.repeat(30) })
+      const ui = await mountPane($, 30)
+      expect(texts(await rowOf(ui, 'task:1')).map((cell) => cell.text)).toEqual([
+        '○ ',
+        '1 ',
+        '\u26A1'.repeat(12),
+        '…',
+      ])
+      await ui.unmount()
+    },
+  )
 
   test(
     'a cut title opens to its full text under the row, stays open in the session state and closes again',

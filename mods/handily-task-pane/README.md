@@ -152,10 +152,10 @@ Agents  1 running
 - Each task is one line: a mark (`✓` done in `success`, `▶` in progress in `claude`, `○`
   pending in `subtle`), the number, the author, the title and an `[ rm ]` button. An input
   with `Add` adds a task as you. The mobile app has no input, so the pane shows the command.
-- The pane shows a dim author only for a task by `you` or by `tracker`. A task by `claude`
-  shows no author, because most tasks are by `claude`. So in the pane, a model title that
-  starts with `you` can look like a task that you added. The `/task` reply names the author of
-  each task and quotes each model title.
+- The pane shows the author only for a task by `you` or by `tracker`. A task by `claude`
+  shows no author, because most tasks are by `claude`.
+- The pane draws the author word in the theme colour `suggestion` and a title in plain text, so
+  a model title that starts with `you` stays in the title colour.
 - The `[ rm ]` button shows on the task in progress and on each task that you opened with a
   press on its title. The engine has no row selection for a pane, so the open row is the row
   that you chose. `/task rm <n>` removes any task.

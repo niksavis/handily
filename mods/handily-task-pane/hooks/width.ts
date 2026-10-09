@@ -3,7 +3,10 @@ const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}]$/u
 const DOUBLE_WIDTH =
   /^[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{1F300}-\u{1F64F}\u{1F900}-\u{1F9FF}\u{20000}-\u{3FFFD}]$/u
 
+const EMOJI_PRESENTATION = /^\p{Emoji_Presentation}$/u
+
 function cellsOf(character: string): number {
+  if (EMOJI_PRESENTATION.test(character)) return 2
   if (ZERO_WIDTH.test(character)) return 0
   return DOUBLE_WIDTH.test(character) ? 2 : 1
 }
