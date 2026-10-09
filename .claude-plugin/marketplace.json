@@ -34,7 +34,7 @@
     {
       "name": "handily-reply-view",
       "source": "./mods/handily-reply-view",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Long replies fold to their first lines, tables draw without box lines, and each table and code block gets a copy button."
     },
     {

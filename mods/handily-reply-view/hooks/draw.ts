@@ -5,12 +5,14 @@ import {
   columnWidths,
   fieldsOf,
   headerLines,
+  headerSpans,
   labelWidth,
   linesOf,
   rowTitle,
   tableLook,
   tableWidth,
   textCopy,
+  type Span,
   type TableLook,
 } from './table'
 import { cutToWidth, displayWidth } from './width'
@@ -151,6 +153,14 @@ function boldLine(context: Context, text: string, key: string, wrap?: 'truncate-
   return Box({ key, flexShrink: 1, children: Text({ bold: true, wrap, children: text }) })
 }
 
+function headingLine(context: Context, spans: readonly Span[], key: string) {
+  const { Box, Text } = context.elements
+  const children = spans.map((span) =>
+    span.isCell ? Text({ underline: true, children: span.text }) : span.text,
+  )
+  return Box({ key, flexShrink: 1, children: Text({ bold: true, wrap: 'truncate-end', children }) })
+}
+
 function plainLine(context: Context, text: string, key: string) {
   const { Box, Text } = context.elements
   return Box({ key, children: Text({ wrap: 'truncate-end', children: text }) })
@@ -182,7 +192,10 @@ function columnsPiece(
   const room = buttons.columns + BUTTONS_GAP
   const width = tableWidth(widths)
   const header = headerLines(look, widths)
+  const spans = headerSpans(look, widths)
   const rows = look.rows.map((row) => linesOf(look, widths, row))
+  const isWrapped = [header, ...rows].some((lines) => lines.length > 1)
+  const rowGap = isWrapped ? 1 : 0
   const place = buttonsPlace(context, room, header, rows)
   const withButtons = (text: RenderElement, line: string) =>
     lineWithButtons(
@@ -192,11 +205,10 @@ function columnsPiece(
       Math.min(context.width, Math.max(width, displayWidth(line) + room)),
     )
   const heading = header.map((line, index) => {
-    const text = boldLine(
+    const text = headingLine(
       context,
-      line,
+      spans[index] ?? [],
       index === 0 ? 'header' : `header-${String(index)}`,
-      'truncate-end',
     )
     return index === 0 && place === 'header' ? withButtons(text, line) : text
   })
@@ -213,20 +225,24 @@ function columnsPiece(
     }),
   )
   const under = place === 'under' ? [lineWithButtons(context, null, buttons, width)] : []
+  const rowsBox = (shown: RenderElement[]) =>
+    Box({ key: 'rows', flexDirection: 'column', gap: rowGap, children: shown })
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
+  const gaps = rowGap * Math.max(rows.length - 1, 0)
   return {
-    rows: heading.length + sum(rows.map((lines) => lines.length)) + under.length,
-    whole: () => column([...heading, ...drawnRows, ...under]),
+    rows: heading.length + sum(rows.map((lines) => lines.length)) + gaps + under.length,
+    whole: () => column([...heading, rowsBox(drawnRows), ...under]),
     cut: (budget) => {
       let used = heading.length
       let count = 0
       for (const lines of rows) {
-        if (used + lines.length > budget) break
-        used += lines.length
+        const needed = lines.length + (count > 0 ? rowGap : 0)
+        if (used + needed > budget) break
+        used += needed
         count += 1
       }
       if (used > budget || (count === 0 && rows.length > 0)) return null
-      return { element: column([...heading, ...drawnRows.slice(0, count)]), rows: used }
+      return { element: column([...heading, rowsBox(drawnRows.slice(0, count))]), rows: used }
     },
   }
 }

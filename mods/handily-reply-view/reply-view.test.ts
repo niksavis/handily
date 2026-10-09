@@ -94,7 +94,8 @@ function isDrawnNode(value: unknown): value is DrawnNode {
 
 function marked(props: Record<string, unknown>, text: string): string {
   if (text.trim() === '') return text
-  let shown = props.bold === true ? `*${text}*` : text
+  let shown = props.underline === true ? `_${text}_` : text
+  if (props.bold === true) shown = `*${shown}*`
   if (props.dimColor === true) shown = `~${shown}~`
   const mark = typeof props.color === 'string' ? COLOR_MARKS[props.color] : undefined
   return mark === undefined ? shown : `${mark}${shown}${mark}`
@@ -238,6 +239,11 @@ function placed(parts: readonly (readonly [number, string])[]): string {
   return parts.reduce((line, [column, text]) => line.padEnd(column) + text, '')
 }
 
+function underlinedHeading(parts: readonly (readonly [number, string])[]): string {
+  const marks = '_'.length * 2
+  return `*${placed(parts.map(([column, text], index) => [column + marks * index, `_${text}_`] as const))}*`
+}
+
 const FAMILY = '👨\u200d👩\u200d👧'
 
 const FENCE = [
@@ -377,13 +383,13 @@ describe('long reply', () => {
 
 describe('tables', () => {
   viewTest(
-    'a table draws without box lines, with aligned columns and a bold header',
+    'a table that fits draws without box lines or blank lines, with a bold header of underlined cells',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE))
       expect(await sketchOf(ui)).toEqual([
         '● The state of the mods:',
         '',
-        '  *Mod           State      Next*  [ copy ] [ copy as text ]',
+        '  *_Mod_           _State_      _Next_*  [ copy ] [ copy as text ]',
         '  task-pane     released   follows the work',
         '  simple-view   released   click to expand',
       ])
@@ -436,9 +442,10 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 40)
       expect((await sketchOf(ui, 40)).slice(2)).toEqual([
-        '  *Mod           State      Next*',
+        '  *_Mod_           _State_      _Next_*',
         '  task-pane     released   follows the',
         `  ${placed([[25, 'work']])}`,
+        '',
         '  simple-view   released   click to',
         `  ${placed([[25, 'expand']])}`,
         `  ${' '.repeat(38 - 25)}[ copy ] [ copy as text ]`,
@@ -452,12 +459,12 @@ describe('tables', () => {
     async (world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE))
       expect(await sketchOf(ui)).toEqual([
-        `● *${placed([
+        `● ${underlinedHeading([
           [0, 'Mod'],
           [13, 'Change'],
           [47, 'Risk'],
           [73, 'Owner'],
-        ])}*`,
+        ])}`,
         `  ${placed([
           [0, 'reply-view'],
           [13, 'Tables wrap their long cells'],
@@ -472,6 +479,7 @@ describe('tables', () => {
           [13, 'the rows aligned'],
           [47, 'narrow screen'],
         ])}`,
+        '',
         `  ${placed([
           [0, 'task-pane'],
           [13, 'Each task tool call draws as'],
@@ -503,12 +511,12 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE), 'terminal', 120)
       expect(await sketchOf(ui, 120)).toEqual([
-        `● *${placed([
+        `● ${underlinedHeading([
           [0, 'Mod'],
           [13, 'Change'],
           [69, 'Risk'],
           [113, 'Owner'],
-        ])}*`,
+        ])}`,
         `  ${placed([
           [0, 'reply-view'],
           [13, 'Tables wrap their long cells inside their columns and'],
@@ -519,6 +527,7 @@ describe('tables', () => {
           [13, 'keep the rows aligned'],
           [69, 'a narrow screen'],
         ])}`,
+        '',
         `  ${placed([
           [0, 'task-pane'],
           [13, 'Each task tool call draws as one row'],
@@ -541,8 +550,39 @@ describe('tables', () => {
       )
       const drawn = await sketchOf(ui)
       expect(drawn).toHaveLength(30)
-      expect(drawn[0]).toBe('● *Name     State*  [ copy ] [ copy as text ]')
+      expect(drawn[0]).toBe('● *_Name_     _State_*  [ copy ] [ copy as text ]')
       expect(drawn.at(-1)).toBe('  row 29   ok')
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a wrapped table counts the blank line between its rows when it folds',
+    async (_world, $) => {
+      const rows = Array.from(
+        { length: 11 },
+        (_, index) => `| row ${String(index + 1)} name | released | follows the work |`,
+      )
+      const ui = await mountReply(
+        $,
+        reply(['| Mod | State | Next |', '| --- | --- | --- |', ...rows].join('\n')),
+        'terminal',
+        40,
+      )
+      const drawn = await sketchOf(ui, 40)
+      expect(drawn.slice(0, 5)).toEqual([
+        '● *_Mod_           _State_      _Next_*',
+        '  row 1 name    released   follows the',
+        `  ${placed([[25, 'work']])}`,
+        '',
+        '  row 2 name    released   follows the',
+      ])
+      expect(drawn.slice(27)).toEqual([
+        '',
+        '  row 10 name   released   follows the',
+        `  ${placed([[25, 'work']])}`,
+        edges('  ~… 4 more lines~', '[ more ] [ copy ]', 40),
+      ])
       await ui.unmount()
     },
   )
@@ -574,7 +614,7 @@ describe('tables', () => {
     const table = ['| Mod | Tests |', '| :-- | --: |', '| a | 7 |', '| b | 140 |'].join('\n')
     const ui = await mountReply($, reply(table))
     expect((await sketchOf(ui)).slice(0, 3)).toEqual([
-      '● *Mod   Tests*  [ copy ] [ copy as text ]',
+      '● *_Mod_   _Tests_*  [ copy ] [ copy as text ]',
       '  a         7',
       '  b       140',
     ])
@@ -594,7 +634,7 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        '● *Path          Glob*  [ copy ] [ copy as text ]',
+        '● *_Path_          _Glob_*  [ copy ] [ copy as text ]',
         '  __init__.py   **/*.ts',
         '  ~~x~~         [x](y)',
         '  C:\\*          bold code',
@@ -656,7 +696,7 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(text))
       expect(await sketchOf(ui)).toEqual([
-        '● *Name      Value*  [ copy ] [ copy as text ]',
+        '● *_Name_      _Value_*  [ copy ] [ copy as text ]',
         '  example   ok',
         '',
         `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
@@ -694,7 +734,7 @@ describe('tables', () => {
     ].join('\n')
     const ui = await mountReply($, reply(text))
     expect((await sketchOf(ui)).slice(0, 7)).toEqual([
-      '● *Check    Result   Note*  [ copy ] [ copy as text ]',
+      '● *_Check_    _Result_   _Note_*  [ copy ] [ copy as text ]',
       '  build    ✅       ok',
       '  lint     ❌       ok',
       '  ship     🚀       ok',

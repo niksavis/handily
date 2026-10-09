@@ -39,9 +39,10 @@ buttons at the right edge:
 
 ## A table
 
-A table loses its box lines. The columns stay aligned, the header is bold, and a column that the
-table aligns to the right stays right-aligned. The `copy` and `copy as text` buttons stand on the
-header line when they fit after the headings:
+A table loses its box lines. The columns stay aligned, the header is bold, each heading is
+underlined, and a column that the table aligns to the right stays right-aligned. The underline
+covers the text of each heading, not the space between the columns, and it adds no line. The
+`copy` and `copy as text` buttons stand on the header line when they fit after the headings:
 
 ```text
   Mod           State      Next  [ copy ] [ copy as text ]
@@ -52,7 +53,8 @@ header line when they fit after the headings:
 When the table does not fit the width of the screen, a long cell wraps at the spaces inside its
 column, and the rows stay aligned. A short column keeps its width. The long columns share the
 rest of the width by the width of their widest cell, and each long column gets at least 12
-cells when the screen has room for that.
+cells when the screen has room for that. When a cell wraps, one blank line separates the rows, so
+you can see where each row ends. A table where no cell wraps has no blank lines.
 
 The view puts the buttons in the first of these places where they fit:
 
@@ -68,6 +70,7 @@ the right edge of the table. A wrapped table at 80 columns puts them on its last
   reply-view   Tables wrap their long cells      A wide table can still    Ana
                inside their columns and keep     take many lines on a
                the rows aligned                  narrow screen
+
   task-pane    Each task tool call draws as      Low                       Bo
                one row                                 [ copy ] [ copy as text ]
 ```

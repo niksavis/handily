@@ -130,11 +130,18 @@ function aligned(text: string, width: number, alignment: Alignment): string {
   return padToWidth(text, width)
 }
 
-function lineOf(look: TableLook, widths: readonly number[], cells: readonly string[]): string {
-  return cells
-    .map((cell, index) => aligned(cell, widths[index] ?? 0, look.alignments[index] ?? 'left'))
-    .join(' '.repeat(COLUMN_GAP))
-    .trimEnd()
+function alignedLines(
+  look: TableLook,
+  widths: readonly number[],
+  cells: readonly string[],
+): string[][] {
+  const wrapped = widths.map((width, index) => wrapCell(cells[index] ?? '', width))
+  const height = Math.max(1, ...wrapped.map((lines) => lines.length))
+  return Array.from({ length: height }, (_, line) =>
+    wrapped.map((lines, index) =>
+      aligned(lines[line] ?? '', widths[index] ?? 0, look.alignments[index] ?? 'left'),
+    ),
+  )
 }
 
 export function linesOf(
@@ -142,19 +149,39 @@ export function linesOf(
   widths: readonly number[],
   cells: readonly string[],
 ): string[] {
-  const wrapped = widths.map((width, index) => wrapCell(cells[index] ?? '', width))
-  const height = Math.max(1, ...wrapped.map((lines) => lines.length))
-  return Array.from({ length: height }, (_, line) =>
-    lineOf(
-      look,
-      widths,
-      wrapped.map((lines) => lines[line] ?? ''),
-    ),
+  return alignedLines(look, widths, cells).map((line) =>
+    line.join(' '.repeat(COLUMN_GAP)).trimEnd(),
   )
 }
 
 export function headerLines(look: TableLook, widths: readonly number[]): string[] {
   return linesOf(look, widths, look.header)
+}
+
+export type Span = { text: string; isCell: boolean }
+
+function spansOf(line: readonly string[]): Span[] {
+  const spans: Span[] = []
+  const addSpace = (text: string) => {
+    const last = spans.at(-1)
+    if (text === '') return
+    if (last?.isCell === false) last.text += text
+    else spans.push({ text, isCell: false })
+  }
+  for (const [index, cell] of line.entries()) {
+    if (index > 0) addSpace(' '.repeat(COLUMN_GAP))
+    const lead = cell.length - cell.trimStart().length
+    const text = cell.trim()
+    addSpace(cell.slice(0, lead))
+    if (text !== '') spans.push({ text, isCell: true })
+    addSpace(cell.slice(lead + text.length))
+  }
+  if (spans.at(-1)?.isCell === false) spans.pop()
+  return spans
+}
+
+export function headerSpans(look: TableLook, widths: readonly number[]): Span[][] {
+  return alignedLines(look, widths, look.header).map(spansOf)
 }
 
 export function rowTitle(row: readonly string[], index: number): string {
