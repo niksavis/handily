@@ -15,7 +15,8 @@
     "format:check": "prettier --no-error-on-unmatched-pattern --check mods scripts eslint.config.mjs",
     "validate": "node scripts/mods.mjs validate",
     "test": "node scripts/mods.mjs test",
-    "check": "node scripts/mods.mjs check"
+    "check": "node scripts/mods.mjs check",
+    "install-gate": "node scripts/install-gate.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
