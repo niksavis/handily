@@ -165,7 +165,8 @@ Claude has kept no plan for 20 tool calls.
 - When the warning holds and you submit a prompt, the mod adds one note for Claude beside the
   prompt. The note asks Claude to keep its plan with `task_add` and `task_update`. It comes at
   most once per 20 tool calls, only for a prompt that you typed, and it never blocks or changes
-  the prompt. It uses the `context` of `prompt.submit`, not `prompt.compose`. Whether a Team
+  the prompt. A prompt that another hook drops does not use up the note. It uses the `context`
+  of `prompt.submit`, not `prompt.compose`. Whether a Team
   organization also bypasses `prompt.submit` for a user plugin is not measured yet.
 - The task-pane tools themselves and the tool calls of subagents do not count.
 

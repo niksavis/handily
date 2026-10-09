@@ -75,9 +75,13 @@ type World = {
   agents: AgentInfo[]
   toasts: string[]
   clock: MockClock
+  panesAsked: number
 }
 
-function world(on: On, options: { closeRefusal?: string; cwdFailure?: string } = {}): World {
+function world(
+  on: On,
+  options: { closeRefusal?: string; cwdFailure?: string; closeKeepsOpen?: boolean } = {},
+): World {
   const state: World = {
     tools: [],
     descriptions: new Map(),
@@ -87,6 +91,7 @@ function world(on: On, options: { closeRefusal?: string; cwdFailure?: string } =
     agents: [],
     toasts: [],
     clock: mock.clock(on, { now: 1_000 }),
+    panesAsked: 0,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => {
@@ -113,18 +118,22 @@ function world(on: On, options: { closeRefusal?: string; cwdFailure?: string } =
   })
   on('ui.close', (_$, e) => {
     if (options.closeRefusal !== undefined) return { deny: options.closeRefusal }
+    if (options.closeKeepsOpen === true) return { value: undefined }
     state.panes.delete(e.id)
     return { value: undefined }
   })
-  on('ui.panes', () => ({
-    value: [...state.panes].map((id) => ({
-      id,
-      title: 'Tasks',
-      isShown: true,
-      isFocused: false,
-      isPlaced: true,
-    })),
-  }))
+  on('ui.panes', () => {
+    state.panesAsked += 1
+    return {
+      value: [...state.panes].map((id) => ({
+        id,
+        title: 'Tasks',
+        isShown: true,
+        isFocused: false,
+        isPlaced: true,
+      })),
+    }
+  })
   on('ui.toast', (_$, e) => {
     state.toasts.push(e.text)
     return { value: undefined }
@@ -2328,15 +2337,16 @@ describe('the pane follows the work', () => {
 })
 
 describe('the work tracker never blocks or repeats a call', () => {
-  test('a tool call that fails beneath the mod runs once', withWorkitems, async ($, on) => {
+  test('a tracked tool call runs once beneath the mod', withWorkitems, async ($, on) => {
     let runs = 0
     on('tool.call', { tool: 'Read' }, () => {
       runs += 1
-      throw new Error('the tool failed')
+      return { result: 'read' }
     })
     world(on)
     await start($)
-    await $.tool.call({ tool: 'Read', file_path: `${ROOT}/a.ts` }).catch(() => undefined)
+    const answer = await $.tool.call({ tool: 'Read', file_path: `${ROOT}/a.ts` })
+    expect(answer.result).toBe('read')
     expect(runs).toBe(1)
   })
 
@@ -2360,20 +2370,106 @@ describe('the work tracker never blocks or repeats a call', () => {
     },
   )
 
-  test('a prompt that fails beneath the mod is submitted once', withWorkitems, async ($, on) => {
-    let submits = 0
-    on('prompt.submit', () => {
-      submits += 1
-      throw new Error('the prompt failed')
-    })
-    world(on)
-    await start($)
-    await readsOf($, 20)
-    await $.prompt
-      .submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
-      .catch(() => undefined)
-    expect(submits).toBe(1)
-  })
+  test(
+    'a prompt with the plan note is submitted once beneath the mod',
+    withWorkitems,
+    async ($, on) => {
+      let submits = 0
+      on('prompt.submit', (_$, e) => {
+        submits += 1
+        return { text: e.text, context: e.context }
+      })
+      world(on)
+      await start($)
+      await readsOf($, 20)
+      const entered = await $.prompt.submit({
+        text: 'go on',
+        wait: false,
+        origin: { kind: 'composer' },
+      })
+      expect(entered.context).toHaveLength(1)
+      expect(submits).toBe(1)
+    },
+  )
+
+  test(
+    'a plan note that cannot be read leaves the prompt submitted once, unchanged and not dropped',
+    withWorkitems,
+    async ($, on) => {
+      let isBroken = false
+      const seen: { text: string; context: readonly string[] | undefined }[] = []
+      on('state.get', { plugin: 'task-pane', key: 'activity' }, (_$, e, next) =>
+        isBroken ? { deny: 'the activity state is unreadable' } : next(e),
+      )
+      on('prompt.submit', (_$, e) => {
+        seen.push({ text: e.text, context: e.context })
+        return { text: e.text, context: e.context }
+      })
+      world(on)
+      await start($)
+      await readsOf($, 20)
+      isBroken = true
+      const entered = await $.prompt.submit({
+        text: 'go on',
+        wait: false,
+        origin: { kind: 'composer' },
+      })
+      expect(entered.drop).toBeUndefined()
+      expect(entered.text).toBe('go on')
+      expect(seen).toEqual([{ text: 'go on', context: undefined }])
+    },
+  )
+})
+
+describe('the redraw timer', () => {
+  async function paneCommandOf($: Engine): Promise<string> {
+    return task($, 'pane')
+  }
+
+  test(
+    'the time on a shown pane moves after 10 seconds, and no redraw runs after the pane closes',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await seen.clock.set(START)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      expect(await paneCommandOf($)).toBe('Task pane opened.')
+      await seen.clock.set(START + 55_000)
+      await read($, 'docs/mocks.md')
+      const ui = await mountPane($)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks       <1m [ rm ]')
+      await seen.clock.advance(10_000)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      expect(await paneCommandOf($)).toBe('Task pane closed.')
+      const asked = seen.panesAsked
+      await seen.clock.advance(60_000)
+      expect(seen.panesAsked).toBe(asked)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a close that a hook beneath refuses quietly keeps the timer of the open pane',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { closeKeepsOpen: true })
+      await start($)
+      await seen.clock.set(START)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      await paneCommandOf($)
+      await seen.clock.set(START + 55_000)
+      await read($, 'docs/mocks.md')
+      const ui = await mountPane($)
+      expect(await paneCommandOf($)).toBe('Task pane closed.')
+      await seen.clock.advance(10_000)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      await ui.unmount()
+    },
+  )
 })
 
 describe('the plan note at prompt submit', () => {
@@ -2426,6 +2522,29 @@ describe('the plan note at prompt submit', () => {
         '[task-pane] The person sees an empty task list in the task pane, after 20 tool calls of yours. Add your plan with task_add, one task for each step, and keep it current with task_update: in_progress when you start a task, completed when it is done.',
       ])
       expect(rows[4]?.context[0]).toContain('after 40 tool calls of yours')
+    },
+  )
+
+  test(
+    'a prompt that a hook beneath drops does not use up the plan note',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const rows: { text: string; context: readonly string[] }[] = []
+      on('prompt.submit', (_$, e) => {
+        if (e.text === 'drop me') return { drop: 'a hook refused the prompt' }
+        rows.push({ text: e.text, context: e.context ?? [] })
+        return { text: e.text, context: e.context }
+      })
+      await start($)
+      await readsOf($, 20)
+      const dropped = await submit($, 'drop me')
+      expect(dropped.drop).toBe('a hook refused the prompt')
+      await readsOf($, 1)
+      await submit($, 'go on')
+      expect(rows).toEqual([
+        { text: 'go on', context: [expect.stringContaining('after 21 tool calls of yours')] },
+      ])
     },
   )
 

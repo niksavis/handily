@@ -274,17 +274,22 @@ async function notePlanChange($: EngineInterface): Promise<void> {
   }
 }
 
-async function planNoteFor($: EngineInterface): Promise<string | undefined> {
+type DueNote = { text: string; calls: number }
+
+async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
   const list = await readList(hostOf($))
-  let note: string | undefined
-  await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => {
-    note = undefined
-    const lag = planLag(current)
-    if (lag === undefined || !isNoteDue(current)) return current
-    note = planNote(lag, list.tasks.length > 0)
-    return { ...current, noteAt: current.calls }
-  })
-  return note
+  const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
+  const lag = planLag(activity)
+  if (lag === undefined || !isNoteDue(activity)) return undefined
+  return { text: planNote(lag, list.tasks.length > 0), calls: activity.calls }
+}
+
+async function recordNote($: EngineInterface, calls: number): Promise<void> {
+  try {
+    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => ({ ...current, noteAt: calls }))
+  } catch (error) {
+    $.ui.log(`task-pane: the plan note was not recorded: ${String(error)}`, { to: 'debug' })
+  }
 }
 
 async function agentRows($: EngineInterface): Promise<AgentRow[]> {
@@ -473,9 +478,11 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     if (!PERSON_ORIGINS.has(e.origin.kind)) return next(e)
-    const note = await planNoteFor($)
+    const note = await dueNote($)
     if (note === undefined) return next(e)
-    return next({ ...e, context: [...(e.context ?? []), note] })
+    const entered = await next({ ...e, context: [...(e.context ?? []), note.text] })
+    if (entered.drop === undefined) await recordNote($, note.calls)
+    return entered
   }).catch(($, e, next) => {
     $.ui.log(`task-pane: no plan note (${next.error.kind}): ${next.error.message ?? 'no message'}`)
     return next(e)
@@ -537,9 +544,9 @@ export const register: Register = (on, options) => {
     return { text: `task-pane: /task failed: ${reason}. Run /task to see the list.` }
   })
 
-  on('ui.close', { id: PANE_ID }, async (_$, e, next) => {
+  on('ui.close', { id: PANE_ID }, async ($, e, next) => {
     const closed = await next(e)
-    stopRedraw(redraw)
+    if (!(await $.ui.panes()).some((pane) => pane.id === PANE_ID)) stopRedraw(redraw)
     return closed
   })
 
