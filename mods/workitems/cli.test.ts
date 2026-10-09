@@ -8,7 +8,13 @@ import {
   type MockClock,
   type Plugin,
 } from 'claude-code/testing'
-import { LIST_BLOCKED, LIST_IN_PROGRESS, LIST_OPEN } from './fixtures/basicly/tracker-list'
+import {
+  ITEM_BLOCKED,
+  ITEM_IN_PROGRESS,
+  ITEM_OPEN,
+  OPEN_ITEMS,
+  printedItems,
+} from './fixtures/basicly/tracker-items'
 import { BR_LIST_OPEN, brList, CHILD_ONE, OPEN_ISSUES } from './fixtures/beads/br-list'
 import { resolveProgram, sha256Hex } from './hooks/approval'
 import { isInside, mayBeInside } from './hooks/config'
@@ -30,7 +36,7 @@ const KIT_CLI_TEXT = 'print("the tracker kit")\n'
 const BASICLY_BIN = '/opt/tools/basicly'
 const PATH_WITH_BASICLY = '/usr/bin:/opt/tools'
 const PATH_WITHOUT_BASICLY = '/usr/bin'
-const PATH_APPROVAL_TEXT = '"basicly" "tracker" "list"'
+const PATH_APPROVAL_TEXT = '"basicly" "tracker" "items"'
 const ADAPTER_SCRIPT = 'tools/tracker.mjs'
 const ADAPTER_ARGV = ['node', ADAPTER_SCRIPT]
 const ADAPTER_LABEL = `"node" "${ADAPTER_SCRIPT}"`
@@ -276,13 +282,21 @@ function fakeWorld(
   return world
 }
 
-const PATH_LIST = `${BASICLY_BIN} tracker list`
+const ITEMS_ARGS = [
+  'tracker',
+  'items',
+  '--json',
+  '--status',
+  'open',
+  '--status',
+  'in_progress',
+  '--status',
+  'blocked',
+]
+const ITEMS_RUN = [BASICLY_BIN, ...ITEMS_ARGS].join(' ')
 
 function answerBasicly(world: World) {
-  const lists = { open: LIST_OPEN, in_progress: LIST_IN_PROGRESS, blocked: LIST_BLOCKED }
-  for (const [status, stdout] of Object.entries(lists)) {
-    world.outputs.set(`${PATH_LIST} --status ${status}`, { stdout })
-  }
+  world.outputs.set(ITEMS_RUN, { stdout: OPEN_ITEMS })
 }
 
 const ADAPTER_RUN = `${NODE_BIN} ${ADAPTER_SCRIPT}`
@@ -398,7 +412,7 @@ const KIT_NOTE =
 
 const PATH_QUESTION = [
   "Allow handily to run this repo's tracker CLI to read work items?",
-  `"${BASICLY_BIN}" "tracker" "list" "--status" "open"`,
+  [BASICLY_BIN, ...ITEMS_ARGS].map((argument) => `"${argument}"`).join(' '),
   KIT_NOTE,
 ].join('\n')
 
@@ -410,8 +424,8 @@ async function approvedBasicly($: Engine, on: On, path: string = PATH_WITH_BASIC
   answerBasicly(world)
   world.answer = ALLOW
   const snapshot = await startSession($, clock, true, {
-    isDone: (current) => current.state !== 'approval-needed' && world.runs.length >= 3,
-    condition: 'the approved read and its 3 runs',
+    isDone: (current) => current.state !== 'approval-needed' && world.runs.length >= 1,
+    condition: 'the approved read and its run',
   })
   return { clock, world, snapshot }
 }
@@ -426,12 +440,12 @@ function reportVersion(world: World, stdout: string, exitCode = 0) {
   world.outputs.set(VERSION_RUN, { stdout, exitCode })
 }
 
-function isListRun(run: Run): boolean {
-  return run.argv.slice(1, 3).join(' ') === 'tracker list'
+function isItemsRun(run: Run): boolean {
+  return run.argv.slice(1, 3).join(' ') === 'tracker items'
 }
 
-function listRunCount(world: World): number {
-  return world.runs.filter(isListRun).length
+function itemsRunCount(world: World): number {
+  return world.runs.filter(isItemsRun).length
 }
 
 function approvalChecksSince(world: World, readsBefore: number): number {
@@ -442,14 +456,9 @@ function commandsSince(world: World, runsBefore: number): string[] {
   return world.runs.slice(runsBefore).map((run) => run.argv.slice(1).join(' '))
 }
 
-const VERSION_AND_LISTS = [
-  '--version',
-  'tracker list --status open',
-  'tracker list --status in_progress',
-  'tracker list --status blocked',
-]
+const ITEMS_ONLY = [ITEMS_ARGS.join(' ')]
 
-const LISTS_ONLY = VERSION_AND_LISTS.slice(1)
+const VERSION_AND_ITEMS = ['--version', ...ITEMS_ONLY]
 
 function reinstallBasicly(world: World, mtimeMs: number) {
   world.files.set(BASICLY_BIN, { text: 'binary', mtimeMs })
@@ -462,10 +471,10 @@ function changeKit(world: World, mtimeMs: number) {
   })
 }
 
-function listRunsSince(world: World, runsBefore: number, lists: number): Until {
+function itemsRunsSince(world: World, runsBefore: number, runs: number): Until {
   return {
-    isDone: () => world.runs.slice(runsBefore).filter(isListRun).length >= lists,
-    condition: `${String(lists)} list runs`,
+    isDone: () => world.runs.slice(runsBefore).filter(isItemsRun).length >= runs,
+    condition: `${String(runs)} items runs`,
   }
 }
 
@@ -481,19 +490,16 @@ async function legacyApproval(world: World): Promise<void> {
 
 describe('basicly source', () => {
   test(
-    'runs basicly tracker list from PATH per open status after approval and maps the records',
+    'runs one basicly tracker items for every open status after approval and maps the items',
     { plugins: [consumer] },
     async ($, on) => {
       const { world, snapshot } = await approvedBasicly($, on)
       expect(world.asks).toEqual([
         { question: PATH_QUESTION, header: 'workitems', options: ['Not now', ALLOW] },
       ])
-      expect(world.runs.map(({ argv, cwd }) => ({ argv, cwd }))).toEqual(
-        ['open', 'in_progress', 'blocked'].map((status) => ({
-          argv: [BASICLY_BIN, 'tracker', 'list', '--status', status],
-          cwd: ROOT,
-        })),
-      )
+      expect(world.runs.map(({ argv, cwd }) => ({ argv, cwd }))).toEqual([
+        { argv: [BASICLY_BIN, ...ITEMS_ARGS], cwd: ROOT },
+      ])
       expect(snapshot.state).toBe('ok')
       expect(snapshot.source).toBe('basicly')
       expect(snapshot.items.map((item) => item.key)).toEqual([
@@ -527,7 +533,7 @@ describe('basicly source', () => {
       const { world } = await approvedBasicly($, on)
       const key = {
         root: ROOT,
-        argv: ['basicly', 'tracker', 'list'],
+        argv: ['basicly', 'tracker', 'items'],
         files: await digestsOf(BASICLY_REPO, KIT_FILES),
         argv0: BASICLY_BIN,
       }
@@ -565,20 +571,20 @@ describe('basicly source', () => {
     const clock = mock.clock(on)
     const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
     answerBasicly(world)
-    world.outputs.set(`${PATH_LIST} --status in_progress`, {
-      stdout: LIST_IN_PROGRESS.slice(0, 40),
+    world.outputs.set(ITEMS_RUN, {
+      stdout: OPEN_ITEMS.slice(0, 40),
       isStdoutTruncated: true,
     })
     world.answer = ALLOW
     const snapshot = await startSession($, clock, true, stateIs('failed'))
     expect(snapshot.state).toBe('failed')
-    expect(snapshot.reason).toBe('basicly tracker list output was cut off.')
+    expect(snapshot.reason).toBe('basicly tracker items output was cut off.')
     expect(snapshot.items).toEqual([])
     expect(await linesOf($)).toEqual([
       {
         kind: 'failed',
         tone: 'error',
-        text: 'Work items unavailable: basicly tracker list output was cut off.',
+        text: 'Work items unavailable: basicly tracker items output was cut off.',
       },
     ])
   })
@@ -589,13 +595,36 @@ describe('basicly source', () => {
     async ($, on) => {
       const clock = mock.clock(on)
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
-      world.outputs.set(`${PATH_LIST} --status open`, { exitCode: 2, stderr: 'no kit' })
+      world.outputs.set(ITEMS_RUN, { exitCode: 2, stderr: 'no kit' })
       world.answer = ALLOW
       const snapshot = await startSession($, clock, true, stateIs('failed'))
       expect(snapshot.state).toBe('failed')
-      expect(snapshot.reason).toBe('basicly tracker list exited 2. Run it in a shell to see why.')
+      expect(snapshot.reason).toBe('basicly tracker items exited 2. Run it in a shell to see why.')
     },
   )
+
+  for (const [name, stdout, reason] of [
+    [
+      'a repeated id',
+      printedItems([ITEM_OPEN, ITEM_OPEN]),
+      'basicly tracker items repeats the id app-3o75, so it could not be read.',
+    ],
+    [
+      'an output that is not a list',
+      JSON.stringify({ records: [] }),
+      'basicly tracker items printed no list of items, so it could not be read.',
+    ],
+  ] as const) {
+    test(`fails the read by name on ${name}`, { plugins: [consumer] }, async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+      world.outputs.set(ITEMS_RUN, { stdout })
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true, stateIs('failed'))
+      expect(snapshot.reason).toBe(reason)
+      expect(world.runs.map((run) => run.argv)).toEqual([[BASICLY_BIN, ...ITEMS_ARGS]])
+    })
+  }
 
   test(
     'reports terminal-only and runs nothing on a surface without process.run',
@@ -625,15 +654,15 @@ describe('basicly source', () => {
       const { clock, world } = await approvedBasicly($, on)
       touchLedger(world, 20)
       await pollUntil($, clock, 2_000, {
-        isDone: () => world.runs.length >= 6,
-        condition: '6 runs',
+        isDone: () => world.runs.length >= 2,
+        condition: '2 runs',
       })
       const prefixes = new Set<string>()
       for (const run of world.runs) {
         expect(run.env?.PYTHONDONTWRITEBYTECODE).toBe('1')
         prefixes.add(run.env?.PYTHONPYCACHEPREFIX ?? '')
       }
-      expect(world.runs.length).toBe(6)
+      expect(world.runs.length).toBe(2)
       expect(prefixes.size).toBe(2)
       for (const prefix of prefixes) {
         expect(prefix).toMatch(/^\/work\/app\/\.handily-pycache-[0-9a-f-]{36}$/)
@@ -647,9 +676,7 @@ describe('basicly source', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const { world } = await approvedBasicly($, on)
-      world.outputs.set(`${PATH_LIST} --status open`, {
-        stdout: JSON.stringify({ count: 0, records: [] }),
-      })
+      world.outputs.set(ITEMS_RUN, { stdout: printedItems([ITEM_IN_PROGRESS, ITEM_BLOCKED]) })
       touchLedger(world, 20)
       const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
       expect(diff.closed.map((item) => [item.key, item.status, item.rawStatus])).toEqual([
@@ -1421,28 +1448,11 @@ describe('approval of basicly', () => {
   )
 
   test(
-    'checks the approval again when the kit changes between list runs',
-    { plugins: [consumer] },
-    async ($, on) => {
-      const { clock, world } = await approvedBasicly($, on)
-      const listsBefore = listRunCount(world)
-      world.answer = 'Not now'
-      world.afterRun = () => {
-        world.files.set(`${ROOT}/${KIT_FOLDER}/queries.py`, { text: 'planted\n', mtimeMs: 50 })
-      }
-      touchLedger(world, 50)
-      await pollUntil($, clock, 2_000, stateIs('approval-needed'))
-      expect(listRunCount(world)).toBe(listsBefore + 1)
-      expect((await snapshotOf($)).state).toBe('approval-needed')
-    },
-  )
-
-  test(
     'a planted package or sourceless module in the kit folder asks again',
     { plugins: [consumer] },
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on)
-      const listsBefore = listRunCount(world)
+      const listsBefore = itemsRunCount(world)
       world.answer = 'Not now'
       world.files.set(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`, {
         text: 'print("unhashed package ran")\n',
@@ -1450,13 +1460,13 @@ describe('approval of basicly', () => {
       })
       await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
       expect(world.asks.length).toBe(2)
-      expect(listRunCount(world)).toBe(listsBefore)
+      expect(itemsRunCount(world)).toBe(listsBefore)
       world.files.delete(`${ROOT}/${KIT_FOLDER}/argparse/__init__.py`)
       world.files.set(`${ROOT}/${KIT_FOLDER}/shlex.pyc`, { text: 'sourceless', mtimeMs: 61 })
       await startSession($, clock, true, asksAndState(world, 3, 'approval-needed'))
       expect(world.asks.length).toBe(3)
       expect((await snapshotOf($)).state).toBe('approval-needed')
-      expect(listRunCount(world)).toBe(listsBefore)
+      expect(itemsRunCount(world)).toBe(listsBefore)
     },
   )
 
@@ -1542,15 +1552,7 @@ describe('approval of basicly', () => {
       const snapshot = await startSession($, clock, false)
       expect(world.asks.length).toBe(1)
       expect(snapshot.state).toBe('ok')
-      expect(world.runs.slice(3).map((run) => run.argv)).toEqual(
-        ['open', 'in_progress', 'blocked'].map((status) => [
-          BASICLY_BIN,
-          'tracker',
-          'list',
-          '--status',
-          status,
-        ]),
-      )
+      expect(world.runs.slice(1).map((run) => run.argv)).toEqual([[BASICLY_BIN, ...ITEMS_ARGS]])
     },
   )
 
@@ -1641,13 +1643,13 @@ describe('approval of basicly', () => {
       { plugins: [consumer] },
       async ($, on) => {
         const { clock, world } = await approvedBasicly($, on)
-        const listsBefore = listRunCount(world)
+        const listsBefore = itemsRunCount(world)
         world.answer = 'Not now'
         world.files.set(`${ROOT}/${file}`, { text, mtimeMs: 10 })
         touchLedger(world, 30)
         await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
         expect(world.asks.length).toBe(2)
-        expect(listRunCount(world)).toBe(listsBefore)
+        expect(itemsRunCount(world)).toBe(listsBefore)
         expect((await snapshotOf($)).state).toBe('approval-needed')
       },
     )
@@ -1680,7 +1682,7 @@ describe('approval on a basicly that runs only its installed package', () => {
         const runsBefore = world.runs.length
         world.answer = 'Not now'
         changeKit(world, 40)
-        const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+        const snapshot = await pollUntil($, clock, 2_000, itemsRunsSince(world, runsBefore, 1))
         expect(world.asks.length).toBe(1)
         expect(snapshot.state).toBe('ok')
         const [first] = world.runs.slice(runsBefore)
@@ -1747,7 +1749,7 @@ describe('approval on a basicly that runs only its installed package', () => {
       reportVersion(world, 'basicly 0.21.2\n')
       world.answer = 'Not now'
       changeKit(world, 40)
-      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      await pollUntil($, clock, 2_000, itemsRunsSince(world, 1, 1))
       expect(world.asks.length).toBe(1)
       reportVersion(world, 'basicly 0.20.4\n')
       reinstallBasicly(world, 2)
@@ -1755,7 +1757,7 @@ describe('approval on a basicly that runs only its installed package', () => {
       touchLedger(world, 50)
       await pollUntil($, clock, 2_000, asksAndState(world, 2, 'approval-needed'))
       expect(world.asks.length).toBe(2)
-      expect(world.runs.slice(runsBefore).filter(isListRun)).toEqual([])
+      expect(world.runs.slice(runsBefore).filter(isItemsRun)).toEqual([])
     },
   )
 
@@ -1768,9 +1770,9 @@ describe('approval on a basicly that runs only its installed package', () => {
       const runsBefore = world.runs.length
       const readsBefore = world.storeReads.length
       changeKit(world, 40)
-      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      const snapshot = await pollUntil($, clock, 2_000, itemsRunsSince(world, runsBefore, 1))
       expect(snapshot.state).toBe('ok')
-      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_LISTS)
+      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_ITEMS)
       expect(approvalChecksSince(world, readsBefore)).toBe(1)
     },
   )
@@ -1782,12 +1784,12 @@ describe('approval on a basicly that runs only its installed package', () => {
       const { clock, world } = await approvedBasicly($, on)
       reportVersion(world, 'basicly 0.21.2\n')
       changeKit(world, 40)
-      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      await pollUntil($, clock, 2_000, itemsRunsSince(world, 1, 1))
       const runsBefore = world.runs.length
       touchLedger(world, 50)
-      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      const snapshot = await pollUntil($, clock, 2_000, itemsRunsSince(world, runsBefore, 1))
       expect(snapshot.state).toBe('ok')
-      expect(commandsSince(world, runsBefore)).toEqual(LISTS_ONLY)
+      expect(commandsSince(world, runsBefore)).toEqual(ITEMS_ONLY)
     },
   )
 
@@ -1798,12 +1800,12 @@ describe('approval on a basicly that runs only its installed package', () => {
       const { clock, world } = await approvedBasicly($, on)
       reportVersion(world, 'basicly 0.21.2\n')
       changeKit(world, 40)
-      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      await pollUntil($, clock, 2_000, itemsRunsSince(world, 1, 1))
       const runsBefore = world.runs.length
       changeKit(world, 60)
-      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      const snapshot = await pollUntil($, clock, 2_000, itemsRunsSince(world, runsBefore, 1))
       expect(snapshot.state).toBe('ok')
-      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_LISTS)
+      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_ITEMS)
     },
   )
 
@@ -1814,14 +1816,14 @@ describe('approval on a basicly that runs only its installed package', () => {
       const { clock, world } = await approvedBasicly($, on)
       reportVersion(world, 'basicly 0.21.2\n')
       changeKit(world, 40)
-      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
+      await pollUntil($, clock, 2_000, itemsRunsSince(world, 1, 1))
       reportVersion(world, 'basicly 0.21.3\n')
       reinstallBasicly(world, 2)
       const runsBefore = world.runs.length
       touchLedger(world, 50)
-      const snapshot = await pollUntil($, clock, 2_000, listRunsSince(world, runsBefore, 3))
+      const snapshot = await pollUntil($, clock, 2_000, itemsRunsSince(world, runsBefore, 1))
       expect(snapshot.state).toBe('ok')
-      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_LISTS)
+      expect(commandsSince(world, runsBefore)).toEqual(VERSION_AND_ITEMS)
     },
   )
 
@@ -1866,22 +1868,19 @@ describe('approval on a basicly that runs only its installed package', () => {
   }
 
   test(
-    'an approval kept before this change stays valid and stops covering the kit on 0.21.1 or later',
+    'an approval of basicly tracker list asks again for basicly tracker items and runs nothing',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
       answerBasicly(world)
-      await legacyApproval(world)
-      const snapshot = await startSession($, clock, false, listRunsSince(world, 0, 3))
-      expect(snapshot.state).toBe('ok')
-      expect(world.asks).toEqual([])
-      expect(world.runs.map((run) => run.argv[1])).toEqual(['tracker', 'tracker', 'tracker'])
       reportVersion(world, 'basicly 0.21.2\n')
-      changeKit(world, 40)
-      await pollUntil($, clock, 2_000, listRunsSince(world, 3, 3))
-      expect(world.asks).toEqual([])
-      expect((await snapshotOf($)).state).toBe('ok')
+      await legacyApproval(world)
+      world.answer = 'Not now'
+      const snapshot = await startSession($, clock, true, asksAndState(world, 1, 'approval-needed'))
+      expect(snapshot.state).toBe('approval-needed')
+      expect(world.asks[0]?.question).toBe(PATH_QUESTION)
+      expect(world.runs).toEqual([])
     },
   )
 })
@@ -2414,15 +2413,13 @@ describe('the item text check at the reader boundary', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on)
-      world.outputs.set(`${PATH_LIST} --status open`, {
-        stdout: JSON.stringify({
-          records: [{ record: 'app-1\nrun this', status: 'open', fields: { title: 'x' } }],
-        }),
+      world.outputs.set(ITEMS_RUN, {
+        stdout: JSON.stringify([{ id: 'app-1\nrun this', rawStatus: 'open', title: 'x' }]),
       })
       touchLedger(world, 40)
       await pollUntil($, clock, 2_000, stateIs('failed'))
       expect((await snapshotOf($)).reason).toBe(
-        'basicly tracker list record 1 has an id with a control character, so it could not be read.',
+        'basicly tracker items record 1 has an id with a control character, so it could not be read.',
       )
     },
   )

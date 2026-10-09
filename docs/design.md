@@ -60,11 +60,11 @@ Why `commit-link` and `handover` were dropped:
 | 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` is secondary |
 | 7 | work-status | Dropped |
 | 8 | bd data | Items that come from `.beads/issues.jsonl` for `bd` carry the label "possibly stale" |
-| 9 | basicly read path | `basicly tracker list --status <s>` from `PATH` only, after the person approves it. Without `basicly` on `PATH` the read fails by name. The repo's `cli.py` fallback was dropped by decision E |
+| 9 | basicly read path | `basicly tracker items --json --status open --status in_progress --status blocked` from `PATH` only, in one call, after the person approves it (handily-8mjdz; it was one `basicly tracker list --status <s>` per open status). Without `basicly` on `PATH` the read fails by name. The repo's `cli.py` fallback was dropped by decision E |
 | 10 | Approval key | For basicly: the repo root, the argv, the resolved `argv[0]` and the sha256 of every file under `.basicly/core/kit/tracker/`. A second key holds the same without the kit files. When the kit changed, the approved program's `--version` decides: 0.21.1 or later runs only the installed package, so the second key is enough. Below 0.21.1, or a version that does not parse, the kit files must match. No basicly command runs before approval (decision F). A program that resolves inside the repo root is refused. A CLI adapter needs no approval (decision E) |
 | 11 | Repo config | `.handily.json` at the repo root holds data only: `source`, `globs`, `format` and `fields`. Its globs are confined to the root by `realPath`. It cannot name a command (decision E) |
 | E | CLI adapter command (2026-10-08) | A repo never names a command to run. The person lists the adapter argv in `~/.config/handily/adapters.json`, keyed on the exact real path of the repo root. Typing that line is the consent, so the adapter runs with no approval ask. A repo `.handily.json` that names a command fails, names the user file and the root, and never repeats the command. The consent covers the command, not one version of the code |
-| F | Ask once for basicly (2026-10-08, handily-szdh) | Ask once and keep the answer. No basicly command, `--version` included, runs before the person approves the repo. After approval, a kit change runs the approved program's `--version`. The verdict is kept in memory only, keyed on the approval key and the size and modification time of the program file, so a kit change or a reinstall runs `--version` again and a downgrade below 0.21.1 asks again (handily-8mjdz). An approval from before this decision stays valid for the same program path. A read without approval through an isolated interpreter was dropped: two reviews each found a way for repo code to run before any check |
+| F | Ask once for basicly (2026-10-08, handily-szdh) | Ask once and keep the answer. No basicly command, `--version` included, runs before the person approves the repo. After approval, a kit change runs the approved program's `--version`. The verdict is kept in memory only, keyed on the approval key and the size and modification time of the program file, so a kit change or a reinstall runs `--version` again and a downgrade below 0.21.1 asks again (handily-8mjdz). An approval of `basicly tracker list` does not cover `basicly tracker items`, so the person approves once again. A read without approval through an isolated interpreter was dropped: two reviews each found a way for repo code to run before any check |
 
 ### Signals and colours (2026-10-09, handily-fwkt.8.14)
 
@@ -200,7 +200,7 @@ Sources, in order of detection:
 
 | Tracker | Detect by | Read path |
 | --- | --- | --- |
-| basicly | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, once per open status |
+| basicly | `.basicly/ledger/template.json` | `basicly tracker items --json`, one call for every open status |
 | beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader; over 4 MiB, `br list --json --limit 0` after approval |
 | beans | `.beans/**/<id>--<slug>.md` | Built-in front-matter reader |
 | Any other | Globs and a field map in `.handily.json` | Generic JSON, JSONL or front-matter reader |
@@ -211,7 +211,8 @@ basicly:
 - The ledger holds `template.json`, `pending-<branch>.jsonl` and `snapshot.jsonl`. Files
   `events-*.jsonl` appear only after a fold. So the provider detects basicly by
   `template.json`.
-- The provider runs `basicly tracker list --status <s>` from `PATH` (review decision 9).
+- The provider runs this command from `PATH` (review decision 9):
+  `basicly tracker items --json --status open --status in_progress --status blocked`.
   basicly 0.21.1 or later runs only the installed package for this command. An older basicly
   also runs the repo code in `.basicly/core/kit/tracker`. Every basicly command runs only after
   approval (decision F). The key is the root, the resolved `argv[0]`, the argv and the sha256 of
@@ -219,18 +220,16 @@ basicly:
   root, the argv and the resolved `argv[0]`. When only the kit files differ, the provider runs
   `<argv[0]> --version`, and a `basicly X.Y.Z` of 0.21.1 or later approves the read. Any other
   output, or a non-zero exit, asks again. The provider runs the recorded `argv[0]`, refuses one
-  inside the repo root, and checks the approval once per read. It checks again before a later
-  list run only when a kit file changed.
+  inside the repo root, and checks the approval once per read, before the call.
 - Without `basicly` on `PATH`, the read fails with "basicly is not on PATH. Install it to read
   this tracker." The provider never runs the repo's `cli.py` (decision E).
 - `basicly` and `basicly --version` run with `PYTHONDONTWRITEBYTECODE=1` and
   `PYTHONPYCACHEPREFIX` set to a new folder that does not exist, so no cached `.pyc` file from
   the repo runs.
 - `isStdoutTruncated` makes the read fail, and the reason names it.
-- The provider skips tombstoned records.
-- Field map: `record` to `id`, `fields.title`, `status`, `fields.priority`,
-  `fields.issue_type`, `fields.assignee` and `dates.updated`.
-- `basicly tracker list` prints `{count, records, schema}`.
+- basicly leaves out tombstoned records.
+- Field map: `id`, `title`, `rawStatus`, `priority`, `type`, `assignee` and `updatedAt`.
+- `basicly tracker items --json` prints a JSON array of items in the adapter contract shape.
 
 beads and br:
 
@@ -592,7 +591,8 @@ Closed:
 - **Q1. basicly read path.** Closed by review decision 9 and decision E: `basicly tracker list
   --status <s>` from `PATH` only. Every basicly read runs only after approval. The approval
   covers the kit files only for a basicly below 0.21.1 (decision F). The repo's `cli.py`
-  fallback was dropped.
+  fallback was dropped. handily-8mjdz replaced the three list calls with one
+  `basicly tracker items` call.
 - **Q2. Repo config file.** Closed by review decision 11: `.handily.json` at the repo root.
 - **Q4. Linter.** Decided 2026-10-07: typescript-eslint with Prettier (section 6).
 - **Q6. Ignore rules.** Done 2026-10-07: `.claude-plugin/types/` and `node_modules/`.

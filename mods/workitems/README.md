@@ -7,7 +7,7 @@ gives other mods one typed list. It draws nothing of its own.
 
 | Tracker               | Detected by                                        | Read path                                             |
 | --------------------- | -------------------------------------------------- | ----------------------------------------------------- |
-| basicly               | `.basicly/ledger/template.json`                    | `basicly tracker list --status <s>`, after approval   |
+| basicly               | `.basicly/ledger/template.json`                    | `basicly tracker items --json`, after approval        |
 | beads (`bd`, `br`)    | `.beads/issues.jsonl`                              | Built-in JSON Lines reader, or `br list` over 4 MiB   |
 | beans                 | `.beans.yml` or `.beans/`                          | Built-in front matter reader                          |
 | Any other (`files`)   | `globs` in `.handily.json`                         | Generic JSON, JSON Lines or front matter reader       |
@@ -35,13 +35,15 @@ gives other mods one typed list. It draws nothing of its own.
 
 ### basicly
 
-- The mod runs `basicly tracker list --status <s>` from `PATH` at the repo root, once for each
-  of `open`, `in_progress` and `blocked`. It runs only after you approve it (see
-  [Approval](#approval)).
+- The mod runs this command from `PATH` at the repo root:
+  `basicly tracker items --json --status open --status in_progress --status blocked`. One call
+  reads every open status. It runs only after you approve it (see [Approval](#approval)).
+- A basicly without `tracker items` exits with an error, and the read fails with the command
+  and the exit code. basicly 0.21.5 has the command.
 - basicly 0.21.1 or later runs only the installed package for this command. An older basicly
   also runs the repo code in `.basicly/core/kit/tracker`.
-- It maps `record` to `id`, and reads `fields.title`, `status`, `fields.priority`,
-  `fields.issue_type`, `fields.assignee` and `dates.updated`. It skips a tombstoned record.
+- It reads `id`, `title`, `rawStatus`, `priority`, `type`, `assignee` and `updatedAt` of each
+  item. basicly leaves out a tombstoned record. A repeated id makes the read fail by name.
 - When `basicly` is not on `PATH`, the read fails with "basicly is not on PATH. Install it to
   read this tracker." The mod never runs the repo's own `.basicly/core/kit/tracker/cli.py`.
 - The poll reads again when a file in `.basicly/ledger` or any file under the kit folder changes.
@@ -49,8 +51,7 @@ gives other mods one typed list. It draws nothing of its own.
   `PYTHONPYCACHEPREFIX` set to a new folder. The new folder does not exist, so Python never runs
   a cached `.pyc` file from the repo.
 - The mod runs the program path that the approval recorded. It checks the approval once for
-  each read, before the first list run. It checks the approval again before a later list run
-  only when a file under the kit folder changed since the last check.
+  each read, before the call.
 - The mod reads only the open statuses. So when a record leaves them, for example when it is
   closed or deferred, `refresh()` reports it under `closed`, with the status `closed` and the
   last raw status that the mod read.
@@ -251,7 +252,7 @@ Setup:
 
 ## Approval
 
-`basicly tracker list` and `br list` run only after you approve them. The mod runs no basicly
+`basicly tracker items` and `br list` run only after you approve them. The mod runs no basicly
 command before you approve the repo, not even `basicly --version`. The CLI adapter needs no
 approval, because you typed its command yourself.
 
@@ -290,8 +291,8 @@ approval, because you typed its command yourself.
 
 - When the command or the real path of `basicly` changes, the old approval does not match, and
   the mod asks again.
-- An approval that you gave before this rule stays valid for the same program path. The mod
-  then adds the second key.
+- An approval of `basicly tracker list` from an older workitems does not cover
+  `basicly tracker items`. The approved command changed, so the mod asks you once again.
 - The question shows each argument in double quotes, with the real path of the program. It says
   that basicly 0.21.1 or later runs only the installed package, and that an older basicly also
   runs the repo code in the kit folder.
