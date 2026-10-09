@@ -769,7 +769,7 @@ describe('the plan of a subagent', () => {
 
   for (const surface of SURFACES) {
     test(
-      `Enter on the focused plan of a card unfolds the whole list and folds it again on ${surface}`,
+      `a click on the plan of a card unfolds the whole list and a second click folds it on ${surface}`,
       { plugins: [taskPane] },
       async ($, on) => {
         const clock = mock.clock(on, { now: NOW })
