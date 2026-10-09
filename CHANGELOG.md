@@ -6,6 +6,130 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily 0.4.0 - 2026-10-09
+
+### Changed
+
+- **Every mod has a new plugin name that starts with `handily-`, and an update does not move
+  you to it.** Claude Code keeps each old plugin installed and does not install the new one. When
+  both are installed, the two copies collide: Claude Code refuses the commands of one copy, and
+  `handily-workitems` does not load beside `workitems` (measured on Claude Code 2.1.295). The
+  bundle keeps the name `handily`. The slash commands keep their short names, and each command
+  description now starts with `handily ·`. The new versions are handily 0.4.0,
+  handily-workitems 0.5.0, handily-quiet-items 0.4.0, handily-task-pane 0.5.0,
+  handily-session-board 0.3.0, handily-item-toasts 0.4.0, handily-agent-board 0.3.0,
+  handily-simple-view 0.3.0 and handily-reply-view 0.2.0. New release tags are
+  `handily-<mod>--v<version>`. The old tags stay (handily-wltuw).
+
+  | Old plugin id | New plugin id |
+  | --- | --- |
+  | `workitems@handily` | `handily-workitems@handily` |
+  | `quiet-items@handily` | `handily-quiet-items@handily` |
+  | `task-pane@handily` | `handily-task-pane@handily` |
+  | `session-board@handily` | `handily-session-board@handily` |
+  | `item-toasts@handily` | `handily-item-toasts@handily` |
+  | `agent-board@handily` | `handily-agent-board@handily` |
+  | `simple-view@handily` | `handily-simple-view@handily` |
+  | `reply-view@handily` | `handily-reply-view@handily` |
+
+  To move, run these lines in a shell. The first line updates the marketplace and the bundle.
+  The second line installs each new id. The third line uninstalls each old id, each mod before
+  the mod that it depends on. A command for a plugin that you did not install fails for that
+  plugin only. Then restart Claude Code.
+
+  ```sh
+  claude plugin marketplace update handily; claude plugin update handily@handily
+  for p in workitems quiet-items task-pane session-board item-toasts agent-board simple-view reply-view; do claude plugin install "handily-$p@handily"; done
+  for p in reply-view simple-view agent-board item-toasts session-board task-pane quiet-items workitems; do claude plugin uninstall "$p@handily"; done
+  ```
+
+  To move one mod only, install its new id and uninstall its old id, for example
+  `claude plugin install handily-task-pane@handily` and
+  `claude plugin uninstall task-pane@handily`. `claude plugin uninstall` works on the user scope
+  when you give no `--scope`. For an old id in the project or local settings, type `/handily`
+  after the restart. It names each old id that is still installed, with its scope, and prints the
+  exact command, such as `claude plugin uninstall workitems@handily --scope project`.
+
+  The new ids start with their own settings and store. Set the `mode` and `titleLength` of
+  handily-quiet-items and the `mode` of handily-task-pane again in `/config` if you changed them.
+  Expect handily-workitems to ask once again before it runs `basicly` or `br`. A permission rule
+  for the task-pane tools names `mcp__handily-task-pane__<name>` now.
+
+  In a clone of this repository, a `git pull` leaves the old `mods/<name>` folders with
+  generated type files, and `npm run check` refuses them as mods without a `plugin.json`. Move
+  them out of `mods/` (handily-wltuw).
+
+## handily-workitems 0.5.0 - 2026-10-09
+
+### Changed
+
+- **`workitems@handily` is now `handily-workitems@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+
+## handily-quiet-items 0.4.0 - 2026-10-09
+
+### Changed
+
+- **`quiet-items@handily` is now `handily-quiet-items@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+
+## handily-task-pane 0.5.0 - 2026-10-09
+
+### Changed
+
+- **`task-pane@handily` is now `handily-task-pane@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+- **task-pane draws each task tool call as one row in the transcript.** A `task_add`,
+  `task_update`, `task_move` or `task_list` call took about 6 lines: the call, the result line
+  and the whole task list. Now it is one row that names the action, the task number and the
+  title, such as `● Task 2 ▶ in progress  Draw the mocks`, and the result block is empty. The
+  model still receives the whole answer with the list. A long title is cut with `…` to the
+  terminal width. A refused or failed call, and a row that the mod cannot read, draw as Claude
+  Code draws them (handily-trnjp).
+
+## handily-session-board 0.3.0 - 2026-10-09
+
+### Changed
+
+- **`session-board@handily` is now `handily-session-board@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+
+## handily-item-toasts 0.4.0 - 2026-10-09
+
+### Changed
+
+- **`item-toasts@handily` is now `handily-item-toasts@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+
+## handily-agent-board 0.3.0 - 2026-10-09
+
+### Changed
+
+- **`agent-board@handily` is now `handily-agent-board@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+
+## handily-simple-view 0.3.0 - 2026-10-09
+
+### Changed
+
+- **`simple-view@handily` is now `handily-simple-view@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+
+## handily-reply-view 0.2.0 - 2026-10-09
+
+### Changed
+
+- **`reply-view@handily` is now `handily-reply-view@handily`.** Install the new id and
+  uninstall the old one.
+  The steps and the reasons are in the handily 0.4.0 section (handily-wltuw).
+
 ## workitems 0.4.1 - 2026-10-09
 
 ### Fixed
