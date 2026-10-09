@@ -8,7 +8,7 @@ gives other mods one typed list. It draws nothing of its own.
 | Tracker               | Detected by                                        | Read path                                             |
 | --------------------- | -------------------------------------------------- | ----------------------------------------------------- |
 | basicly               | `.basicly/ledger/template.json`                    | `basicly tracker list --status <s>`, after approval   |
-| beads (`bd`, `br`)    | `.beads/issues.jsonl`                              | Built-in JSON Lines reader                            |
+| beads (`bd`, `br`)    | `.beads/issues.jsonl`                              | Built-in JSON Lines reader, or `br list` over 4 MiB   |
 | beans                 | `.beans.yml` or `.beans/`                          | Built-in front matter reader                          |
 | Any other (`files`)   | `globs` in `.handily.json`                         | Generic JSON, JSON Lines or front matter reader       |
 | Any other (`adapter`) | an entry in your `~/.config/handily/adapters.json` | `<command> describe --json`, `<command> items --json` |
@@ -18,6 +18,7 @@ gives other mods one typed list. It draws nothing of its own.
 - It reads one source per repo: the first one in the table that it finds, or the one that
   `.handily.json` names. The snapshot lists each other source that it finds under `ignored`.
 - A tracker file over 4 MiB, or a malformed line, makes the read fail. The reason names the file.
+  `.beads/issues.jsonl` is the one exception to the size rule (see [beads](#beads)).
 - Each read of a tracker file stays inside the repo root. A file that resolves outside the root,
   for example through a link, makes the read fail. The reason names the file.
 - Each reader checks the `id`, the `title` and the raw status of each item. A control character,
@@ -58,6 +59,50 @@ gives other mods one typed list. It draws nothing of its own.
 - The beads reader skips a line whose `_type` is not `issue`, and a `tombstone` line.
 - When `.beads/metadata.json` names the `dolt` backend, the data comes from `bd`. Then each
   item carries the label `possibly stale`, because `bd` keeps its data in Dolt.
+
+#### A tracker file over 4 MiB
+
+The engine reads no file over 4 MiB. So the size of `.beads/issues.jsonl` chooses the read path:
+
+| Size of `.beads/issues.jsonl` | Read path                                                                |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| 4 MiB or less                 | The mod reads the file itself, as above                                  |
+| Over 4 MiB                    | The mod runs `br list --json --limit 0`, after you approve it            |
+| Over 4 MiB, on Dolt (`bd`)    | The read fails by name. The mod runs nothing, because `br` reads no Dolt |
+
+- The mod runs `br` from `PATH` at the repo root. It runs nothing before you approve it (see
+  [Approval](#approval)). The snapshot `sourceLabel` is `beads (br)`.
+- `br list` with no status lists every item that is not closed and not a tombstone. In br 0.3.2
+  that includes `deferred`, `draft`, `pinned` and a custom status. `--limit 0` asks for every
+  such item.
+- The mod reads only these open items. So when an item leaves the list, `refresh()` reports it
+  under `closed`, with the status `closed` and the last raw status that the mod read.
+- The mod reads `id`, `title`, `status`, `priority`, `issue_type`, `assignee`, `updated_at` and
+  `labels`, with the same checks as a line of the file. `br list` gives no dependencies, so an
+  item from it has no `parent`.
+- The mod shows no item when the list can be incomplete. Each failure names the cause and the
+  fix:
+
+  | Cause                                                            | Reason                                                                  |
+  | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+  | `br` is not on `PATH`                                            | `br is not on PATH. Install br to list the open items of ...`           |
+  | The output was cut at 4 MiB                                      | `br list output was cut off. Close some open items, ...`                |
+  | A non-zero exit                                                  | `br list exited N. Run it in a shell to see why.`                       |
+  | `br list` did not start or did not end in time                   | `br list did not start or did not end in time ...`                      |
+  | The output is not JSON, or has no `issues` list                  | `br list printed no valid JSON ...` or `... printed no issues list ...` |
+  | `has_more` is not `false`, or `total` is not a number            | `br list did not say that it printed every item ...`                    |
+  | `total` differs from the number of items                         | `br list printed N of M items ...`                                      |
+  | An item is not an object, has an invalid field or an unsafe text | `br list item N ...`                                                    |
+
+  A reason in the last five rows ends with the fix
+  `Run "br list --json --limit 0" at the repo root to see why the list could not be read.`
+
+- Until you approve the run, the state is `approval-needed`. On a surface that cannot run a
+  command, the state is `terminal-only`.
+- The poll reads again when the size or the modification time of the file changes, and after
+  you approve `br list`.
+- When the file shrinks to 4 MiB or less, the mod reads the file itself again. A closed item
+  that the `br` list did not hold is then not reported as created.
 
 ### beans
 
@@ -202,9 +247,9 @@ Setup:
 
 ## Approval
 
-`basicly tracker list` runs only after you approve it. The mod runs no basicly command before
-you approve the repo, not even `basicly --version`. The CLI adapter needs no approval, because
-you typed its command yourself.
+`basicly tracker list` and `br list` run only after you approve them. The mod runs no basicly
+command before you approve the repo, not even `basicly --version`. The CLI adapter needs no
+approval, because you typed its command yourself.
 
 - In an interactive session the mod asks once, in the engine's question dialog, with the
   options `Not now` and `Allow for this repo`. `Not now` is the first option, so Enter
@@ -253,6 +298,18 @@ you typed its command yourself.
   then `approval-needed`.
 - A session that draws only on the desktop app cannot run a command. A CLI source then has the
   state `terminal-only`.
+
+`br list --json --limit 0` follows the same rules as basicly above, with one difference in what
+the approval covers:
+
+- The key holds the repo root, the command and the real path of `br`. It holds no repo file,
+  because `br` is a program outside the repo that reads only the `.beads` data. The
+  `capabilities` command of br 0.3.2 marks `list` as a read command.
+- The question says that `br` reads the `.beads` data and runs no code from the repo.
+- A new `br` at a new real path asks again. A `br` that changes at the same real path does not,
+  because the key holds the path, not a hash of the program.
+- The key holds no repo file, so the mod never runs a version check of `br`.
+- The mod refuses a `br` whose real path is inside the repo root.
 
 ## The contract
 

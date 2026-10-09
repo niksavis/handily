@@ -201,7 +201,7 @@ Sources, in order of detection:
 | Tracker | Detect by | Read path |
 | --- | --- | --- |
 | basicly | `.basicly/ledger/template.json` | `basicly tracker list --status <s>`, once per open status |
-| beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader |
+| beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader; over 4 MiB, `br list --json --limit 0` after approval |
 | beans | `.beans/**/<id>--<slug>.md` | Built-in front-matter reader |
 | Any other | Globs and a field map in `.handily.json` | Generic JSON, JSONL or front-matter reader |
 | Any other | An entry for the repo root in `~/.config/handily/adapters.json` | CLI adapter contract |
@@ -238,6 +238,12 @@ beads and br:
 - The reader skips a line whose `_type` is not `issue`. It skips a tombstone.
 - `bd` stores its data in Dolt. So `.beads/issues.jsonl` can be stale. Items from `bd` carry
   the label "possibly stale" (review decision 8).
+- Over 4 MiB the engine cannot read the file. The provider then runs `br list --json --limit 0`
+  from `PATH`, after approval. The key is the root, the argv and the resolved `argv[0]`, with no
+  repo file, because `br` runs no repo code. `br list` lists every item that is not closed, so
+  the outcome is open-only: a missing item reads as closed. A cut output, a non-zero exit, bad
+  JSON, `has_more` not `false` or a `total` that differs from the count fails by name and shows
+  no item. On Dolt (`bd`) a file over 4 MiB fails by name and runs nothing (handily-vli6x).
 
 beans:
 
@@ -248,7 +254,8 @@ beans:
 
 Limits and safety:
 
-- A file over 4 MiB makes the read fail, and the reason names it.
+- A file over 4 MiB makes the read fail, and the reason names it. The one exception is
+  `.beads/issues.jsonl`, which the provider then lists through `br`.
 - `.handily.json` globs are confined to the root by `realPath`.
 - basicly needs approval (review decision 10). The provider never asks for approval when the
   session is not interactive (`!isInteractive`).

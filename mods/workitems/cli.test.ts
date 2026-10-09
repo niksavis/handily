@@ -9,6 +9,7 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import { LIST_BLOCKED, LIST_IN_PROGRESS, LIST_OPEN } from './fixtures/basicly/tracker-list'
+import { BR_LIST_OPEN, brList, CHILD_ONE, OPEN_ISSUES } from './fixtures/beads/br-list'
 import { resolveProgram, sha256Hex } from './hooks/approval'
 import { isInside, mayBeInside } from './hooks/config'
 import { advanceUntil, settleUntil } from './testing'
@@ -302,6 +303,9 @@ const consumer: Plugin = {
       if (e.command === 'refresh') {
         return { text: JSON.stringify(await $.workitems.refresh()) }
       }
+      if (e.command === 'refresh-since') {
+        return { text: JSON.stringify(await $.workitems.refresh({ since: Number(e.args) })) }
+      }
       if (e.command === 'write-verbs') {
         return { text: JSON.stringify(await $.workitems.writeVerbs()) }
       }
@@ -310,10 +314,10 @@ const consumer: Plugin = {
   },
 }
 
-async function commandText(engine: Engine, command: string): Promise<string> {
+async function commandText(engine: Engine, command: string, args = ''): Promise<string> {
   const result = await engine.command.run({
     command,
-    args: '',
+    args,
     origin: { kind: 'sdk' },
     presentation: { isFullscreen: false, columns: 80 },
   })
@@ -647,6 +651,510 @@ describe('basicly source', () => {
       world.files.set(`${ROOT}/.beads/issues.jsonl`, { text: `${BEADS_LINE}\n`, mtimeMs: 20 })
       const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
       expect(diff.closed).toEqual([])
+    },
+  )
+})
+
+const ISSUES_FILE = '.beads/issues.jsonl'
+const BR_BIN = '/opt/tools/br'
+const BR_RUN = `${BR_BIN} list --json --limit 0`
+const BR_APPROVAL_TEXT = '"br" "list" "--json" "--limit" "0"'
+const BR_NOTE =
+  '(br reads the .beads data and runs no code from the repo; asked again if the command or the real path of br changes)'
+const BR_QUESTION = [
+  "Allow handily to run this repo's tracker CLI to read work items?",
+  `"${BR_BIN}" "list" "--json" "--limit" "0"`,
+  BR_NOTE,
+].join('\n')
+const SEE_WHY =
+  'Run "br list --json --limit 0" at the repo root to see why the list could not be read.'
+const DOLT_TOO_LARGE =
+  'br cannot list a bd tracker on Dolt. Make .beads/issues.jsonl 4 MiB or less to read it, because the engine reads no file that is over 4 MiB.'
+
+const BR_ITEMS = [
+  {
+    key: 'beads:app-1fm',
+    id: 'app-1fm',
+    title: 'Child one',
+    status: 'open',
+    rawStatus: 'open',
+    priority: 2,
+    type: 'task',
+    assignee: 'dev-one',
+    updatedAt: '2026-10-09T13:44:00.506674453Z',
+    source: 'beads',
+    labels: ['ui'],
+  },
+  {
+    key: 'beads:app-1q2',
+    id: 'app-1q2',
+    title: 'Deferred one',
+    status: 'deferred',
+    rawStatus: 'deferred',
+    priority: 3,
+    type: 'task',
+    assignee: null,
+    updatedAt: '2026-10-09T13:43:59.477518194Z',
+    source: 'beads',
+  },
+  {
+    key: 'beads:app-w4y',
+    id: 'app-w4y',
+    title: 'Blocked one',
+    status: 'blocked',
+    rawStatus: 'blocked',
+    priority: 1,
+    type: 'bug',
+    assignee: null,
+    updatedAt: '2026-10-09T13:43:59.123046797Z',
+    source: 'beads',
+  },
+  {
+    key: 'beads:app-red',
+    id: 'app-red',
+    title: 'Second in progress',
+    status: 'in_progress',
+    rawStatus: 'in_progress',
+    priority: 0,
+    type: 'task',
+    assignee: null,
+    updatedAt: '2026-10-09T13:43:58.744112941Z',
+    source: 'beads',
+  },
+  {
+    key: 'beads:app-tww',
+    id: 'app-tww',
+    title: 'Draft one',
+    status: 'other',
+    rawStatus: 'draft',
+    priority: 4,
+    type: 'chore',
+    assignee: null,
+    updatedAt: '2026-10-09T13:44:31.315625895Z',
+    source: 'beads',
+  },
+  {
+    key: 'beads:app-wqe',
+    id: 'app-wqe',
+    title: 'First open',
+    status: 'open',
+    rawStatus: 'open',
+    priority: 2,
+    type: 'feature',
+    assignee: null,
+    updatedAt: '2026-10-09T13:43:58.379047327Z',
+    source: 'beads',
+  },
+]
+
+function largeBeadsWorld(on: On, size: number = OVER_4_MIB): World {
+  const world = fakeWorld(on, {}, PATH_WITH_BASICLY)
+  world.files.set(`${ROOT}/${ISSUES_FILE}`, { text: `${BEADS_LINE}\n`, mtimeMs: 10, size })
+  world.files.set(BR_BIN, { text: 'binary', mtimeMs: 1 })
+  return world
+}
+
+function touchIssues(world: World, mtimeMs: number, text = `${BEADS_LINE}\n`, size = OVER_4_MIB) {
+  world.files.set(`${ROOT}/${ISSUES_FILE}`, { text, mtimeMs, size })
+}
+
+async function approvedBr($: Engine, on: On) {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = largeBeadsWorld(on)
+  world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN })
+  world.answer = ALLOW
+  const snapshot = await startSession($, clock, true, {
+    isDone: (current) => current.state !== 'approval-needed' && world.runs.length >= 1,
+    condition: 'the approved br run',
+  })
+  return { clock, world, snapshot }
+}
+
+async function failedBrRead($: Engine, on: On, output: Partial<ProcessRunResult>) {
+  const clock = mock.clock(on)
+  const world = largeBeadsWorld(on)
+  world.outputs.set(BR_RUN, output)
+  world.answer = ALLOW
+  const snapshot = await startSession($, clock, true, stateIs('failed'))
+  return { world, snapshot }
+}
+
+describe('beads over 4 MiB through br', () => {
+  test(
+    'lists the open items through br list after approval and maps them as the file reader does',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world, snapshot } = await approvedBr($, on)
+      expect(world.asks).toEqual([
+        { question: BR_QUESTION, header: 'workitems', options: ['Not now', ALLOW] },
+      ])
+      expect(world.runs.map(({ argv, cwd }) => ({ argv, cwd }))).toEqual([
+        { argv: [BR_BIN, 'list', '--json', '--limit', '0'], cwd: ROOT },
+      ])
+      expect(snapshot.state).toBe('ok')
+      expect(snapshot.source).toBe('beads')
+      expect(snapshot.sourceLabel).toBe('beads (br)')
+      expect(snapshot.items).toEqual(BR_ITEMS)
+      expect(await linesOf($)).toEqual([
+        { kind: 'header', tone: 'dim', text: 'beads (br) · 6 open · read 0 s ago' },
+      ])
+    },
+  )
+
+  test(
+    'keys the br approval on the root, the command and the real path of br, with no repo file',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBr($, on)
+      const key = {
+        root: ROOT,
+        argv: ['br', 'list', '--json', '--limit', '0'],
+        files: {},
+        argv0: BR_BIN,
+      }
+      const programKey = { root: key.root, argv: key.argv, argv0: key.argv0 }
+      expect(Object.fromEntries(world.stored)).toEqual({
+        [`approval:${await jsonDigest(key)}`]: key,
+        [`program-approval:${await jsonDigest(programKey)}`]: key,
+      })
+    },
+  )
+
+  test(
+    'a stored br approval lists the items in a later session without asking',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedBr($, on)
+      world.answer = undefined
+      const snapshot = await startSession($, clock, false, {
+        isDone: (current) => current.state === 'ok' && world.runs.length >= 2,
+        condition: 'a second br run',
+      })
+      expect(world.asks.length).toBe(1)
+      expect(world.runs.length).toBe(2)
+      expect(snapshot.items).toEqual(BR_ITEMS)
+    },
+  )
+
+  test(
+    'never asks, runs nothing and lists no item while the session is not interactive',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on)
+      world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN })
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, false)
+      await clock.advance(4_000)
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+      expect(snapshot.state).toBe('approval-needed')
+      expect(snapshot.items).toEqual([])
+      expect(await linesOf($)).toEqual([
+        {
+          kind: 'approval-needed',
+          tone: 'warning',
+          text: `Work items need your approval to run ${BR_APPROVAL_TEXT}.`,
+        },
+        {
+          kind: 'approval-hint',
+          tone: 'dim',
+          text: 'Asked at the next refresh in an interactive session.',
+        },
+      ])
+    },
+  )
+
+  for (const [name, answer] of [
+    ['Enter on the first option', ENTER],
+    ['Not now', 'Not now'],
+  ] as const) {
+    test(
+      `${name} on the br question stores nothing, runs nothing and lists no item`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const clock = mock.clock(on)
+        const world = largeBeadsWorld(on)
+        world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN })
+        world.answer = answer
+        const snapshot = await startSession(
+          $,
+          clock,
+          true,
+          asksAndState(world, 1, 'approval-needed'),
+        )
+        await clock.advance(4_000)
+        expect(world.stored.size).toBe(0)
+        expect(world.runs).toEqual([])
+        expect(snapshot.items).toEqual([])
+        expect((await snapshotOf($)).state).toBe('approval-needed')
+      },
+    )
+  }
+
+  test(
+    'reports by name that br is not on PATH, with the fix, and asks and runs nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on)
+      world.files.delete(BR_BIN)
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      const reason =
+        'br is not on PATH. Install br to list the open items of .beads/issues.jsonl, which is over 4 MiB.'
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(reason)
+      expect(snapshot.items).toEqual([])
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+      expect(await linesOf($)).toEqual([
+        { kind: 'failed', tone: 'error', text: `Work items unavailable: ${reason}` },
+      ])
+    },
+  )
+
+  for (const [name, output, reason] of [
+    [
+      'a cut-off output',
+      { stdout: BR_LIST_OPEN.slice(0, 40), isStdoutTruncated: true },
+      'br list output was cut off. Close some open items, because their list is over 4 MiB.',
+    ],
+    [
+      'a non-zero exit',
+      { exitCode: 4, stderr: 'database is locked' },
+      'br list exited 4. Run it in a shell to see why.',
+    ],
+    [
+      'output that is not JSON',
+      { stdout: 'app-1fm Child one' },
+      `br list printed no valid JSON, so it could not be read. ${SEE_WHY}`,
+    ],
+    [
+      'a JSON list in place of the issues object',
+      { stdout: '[]' },
+      `br list printed no issues list, so it could not be read. ${SEE_WHY}`,
+    ],
+    [
+      'a page that says more items follow',
+      { stdout: brList(OPEN_ISSUES.slice(0, 2), { total: 6, has_more: true }) },
+      `br list did not say that it printed every item, so it could not be read. ${SEE_WHY}`,
+    ],
+    [
+      'a page with no completeness flag',
+      { stdout: brList(OPEN_ISSUES, { has_more: undefined }) },
+      `br list did not say that it printed every item, so it could not be read. ${SEE_WHY}`,
+    ],
+    [
+      'fewer items than the total',
+      { stdout: brList(OPEN_ISSUES.slice(0, 2), { total: 6 }) },
+      `br list printed 2 of 6 items, so it could not be read. ${SEE_WHY}`,
+    ],
+    [
+      'an item that is not an object',
+      { stdout: JSON.stringify({ issues: ['app-1fm'], total: 1, has_more: false }) },
+      `br list item 1 is not an object, so it could not be read. ${SEE_WHY}`,
+    ],
+    [
+      'an item with no title',
+      { stdout: brList([{ ...CHILD_ONE, title: '' }]) },
+      `br list item 1 has an invalid title, so it could not be read. ${SEE_WHY}`,
+    ],
+    [
+      'an item with a control character in its title',
+      { stdout: brList([{ ...CHILD_ONE, title: 'evil\u0007title' }]) },
+      `br list item 1 has a title with a control character, so it could not be read. ${SEE_WHY}`,
+    ],
+  ] as const) {
+    test(
+      `${name} fails with the cause and the fix and lists no item`,
+      { plugins: [consumer] },
+      async ($, on) => {
+        const { snapshot } = await failedBrRead($, on, output)
+        expect(snapshot.state).toBe('failed')
+        expect(snapshot.reason).toBe(reason)
+        expect(snapshot.items).toEqual([])
+        expect(await linesOf($)).toEqual([
+          { kind: 'failed', tone: 'error', text: `Work items unavailable: ${reason}` },
+        ])
+      },
+    )
+  }
+
+  test(
+    'a br run that does not start fails with the cause and the fix and lists no item',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on)
+      world.afterRun = () => {
+        throw new Error('spawn br ENOENT')
+      }
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true, stateIs('failed'))
+      expect(snapshot.reason).toBe(
+        `br list did not start or did not end in time, so it could not be read. ${SEE_WHY}`,
+      )
+      expect(snapshot.items).toEqual([])
+    },
+  )
+
+  test(
+    'a bd tracker on Dolt over 4 MiB fails by name and runs nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on)
+      world.files.set(`${ROOT}/.beads/metadata.json`, { text: '{"backend":"dolt"}', mtimeMs: 1 })
+      world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN })
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.reason).toBe(DOLT_TOO_LARGE)
+      expect(snapshot.items).toEqual([])
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
+    },
+  )
+
+  test(
+    'reports terminal-only and runs nothing on a surface without process.run',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, {}, PATH_WITH_BASICLY, { hasProcessRun: false })
+      touchIssues(world, 10)
+      world.files.set(BR_BIN, { text: 'binary', mtimeMs: 1 })
+      world.surfaces = ['desktop']
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('terminal-only')
+      expect(world.asks).toEqual([])
+      expect(await linesOf($)).toEqual([
+        {
+          kind: 'terminal-only',
+          tone: 'dim',
+          text: 'beads (br) is read through a CLI, which only a terminal session can run. Open this repo in a terminal to see its items.',
+        },
+      ])
+    },
+  )
+
+  test(
+    'reports an item that left the br list as closed in the refresh diff',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBr($, on)
+      world.outputs.set(BR_RUN, { stdout: brList(OPEN_ISSUES.slice(0, 5)) })
+      touchIssues(world, 20)
+      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(diff.closed.map((item) => [item.key, item.status, item.rawStatus])).toEqual([
+        ['beads:app-wqe', 'closed', 'open'],
+      ])
+      expect(diff.created).toEqual([])
+      expect(diff.updated).toEqual([])
+    },
+  )
+
+  test(
+    'reports an open item that the large file drops as closed after a direct read',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const small = [
+        '{"id":"app-1fm","title":"Child one","status":"open"}',
+        '{"id":"app-gone","title":"Closed since","status":"open"}',
+      ].join('\n')
+      const world = largeBeadsWorld(on, OVER_4_MIB - 1)
+      touchIssues(world, 10, small, OVER_4_MIB - 1)
+      world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN })
+      world.answer = ALLOW
+      const direct = await startSession($, clock, true, stateIs('ok'))
+      expect(direct.sourceLabel).toBe('beads')
+      expect(world.runs).toEqual([])
+      touchIssues(world, 20)
+      await commandText($, 'refresh')
+      await settleUntil(
+        clock,
+        () => snapshotOf($),
+        (snapshot) => snapshot.state === 'ok' && snapshot.sourceLabel === 'beads (br)',
+        'the br read',
+      )
+      expect(world.runs.length).toBe(1)
+      const diff = JSON.parse(
+        await commandText($, 'refresh-since', String(direct.version)),
+      ) as WorkitemsRefreshResult
+      expect(diff.closed.map((item) => [item.key, item.status])).toEqual([
+        ['beads:app-gone', 'closed'],
+      ])
+    },
+  )
+
+  test(
+    'a failed br run after a good one lists no item and reports nothing as closed',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBr($, on)
+      world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN.slice(0, 40), isStdoutTruncated: true })
+      touchIssues(world, 20)
+      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(diff.closed).toEqual([])
+      const snapshot = await snapshotOf($)
+      expect(snapshot.state).toBe('failed')
+      expect(snapshot.items).toEqual([])
+    },
+  )
+
+  test(
+    'reads the file directly again when it shrinks to 4 MiB, and reports no closed item as created',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBr($, on)
+      const shrunk = [
+        '{"id":"app-1fm","title":"Child one","status":"open","priority":2,"issue_type":"task","assignee":"dev-one","updated_at":"2026-10-09T13:44:00.506674453Z","labels":["ui"]}',
+        '{"id":"app-old","title":"Closed long ago","status":"closed"}',
+        '{"id":"app-new","title":"Opened since","status":"open"}',
+      ].join('\n')
+      touchIssues(world, 30, shrunk, OVER_4_MIB - 1)
+      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(diff.created.map((item) => item.key)).toEqual(['beads:app-new'])
+      expect(diff.closed).toEqual([])
+      const snapshot = await snapshotOf($)
+      expect(snapshot.sourceLabel).toBe('beads')
+      expect(world.runs.length).toBe(1)
+    },
+  )
+
+  test(
+    'a direct read after a direct read still reports a new closed item as created',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on, OVER_4_MIB - 1)
+      await startSession($, clock, false, stateIs('ok'))
+      const closedLine = '{"id":"app-done","title":"Done at once","status":"closed"}'
+      touchIssues(world, 20, `${BEADS_LINE}\n${closedLine}\n`, OVER_4_MIB - 1)
+      const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(diff.created.map((item) => [item.key, item.status])).toEqual([
+        ['beads:app-done', 'closed'],
+      ])
+    },
+  )
+
+  test(
+    'reads a tracker file of exactly 4 MiB directly, with no question and no br run',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = largeBeadsWorld(on, OVER_4_MIB - 1)
+      world.outputs.set(BR_RUN, { stdout: BR_LIST_OPEN })
+      world.answer = ALLOW
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.state).toBe('ok')
+      expect(snapshot.sourceLabel).toBe('beads')
+      expect(snapshot.items.map((item) => item.key)).toEqual(['beads:app-1'])
+      expect(world.asks).toEqual([])
+      expect(world.runs).toEqual([])
     },
   )
 })

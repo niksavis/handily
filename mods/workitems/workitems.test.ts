@@ -283,17 +283,19 @@ describe('detection', () => {
 
 describe('failures name the file', () => {
   test(
-    'fails without reading when the tracker file is over 4 MiB',
+    'does not read a tracker file over 4 MiB, and needs the br CLI in a terminal for it',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
       const world = fakeWorld(on, clock, {
         [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10, size: OVER_4_MIB },
       })
+      on('session.surfaces', () => ({ value: ['desktop'] }))
       await startSession($)
       const snapshot = await snapshotOf($)
-      expect(snapshot.state).toBe('failed')
-      expect(snapshot.reason).toBe('.beads/issues.jsonl is over 4 MiB.')
+      expect(snapshot.state).toBe('terminal-only')
+      expect(snapshot.sourceLabel).toBe('beads (br)')
+      expect(snapshot.items).toEqual([])
       expect(world.reads).toEqual([])
     },
   )
@@ -440,7 +442,7 @@ describe('contract', () => {
         {
           kind: 'failed',
           tone: 'error',
-          text: 'Work items unavailable: .beads/issues.jsonl is over 4 MiB.',
+          text: 'Work items unavailable: br cannot list a bd tracker on Dolt. Make .beads/issues.jsonl 4 MiB or less to read it, because the engine reads no file that is over 4 MiB.',
         },
       ])
       world.files.clear()

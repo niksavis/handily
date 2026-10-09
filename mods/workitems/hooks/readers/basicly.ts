@@ -149,7 +149,13 @@ async function listOpenItems(files: TrackerFiles): Promise<ReadOutcome> {
       byKey.set(item.key, item)
     }
   }
-  return { ok: true, items: [...byKey.values()], sourceLabel: SOURCE, caveat: null }
+  return {
+    ok: true,
+    items: [...byKey.values()],
+    sourceLabel: SOURCE,
+    caveat: null,
+    listsOpenOnly: true,
+  }
 }
 
 async function readBasicly(files: TrackerFiles): Promise<ReadOutcome> {
@@ -181,7 +187,6 @@ async function basiclySignature(files: TrackerFiles): Promise<string> {
 export const basiclyReader: Reader = {
   name: SOURCE,
   marker: TEMPLATE,
-  listsOpenOnly: true,
   signature: basiclySignature,
   read: readBasicly,
 }

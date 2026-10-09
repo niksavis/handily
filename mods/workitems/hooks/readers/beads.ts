@@ -1,11 +1,26 @@
-import type { WorkitemsItem, WorkitemsStatus } from '../../types'
+import type { WorkitemsFailedReason, WorkitemsItem, WorkitemsStatus } from '../../types'
+import { quotedCommand } from '../approval'
+import { FileProblem, FileTooLarge } from '../config'
+import { MAX_FILE_BYTES } from '../snapshot'
 import { numeral } from '../states'
-import { itemTextProblem } from './generic'
+import { CommandFault, runJson } from './adapter'
+import { checkedItem, ItemFault } from './generic'
 import type { ReadOutcome, Reader, TrackerFiles } from './index'
 
 const ISSUES_FILE = '.beads/issues.jsonl'
 const METADATA_FILE = '.beads/metadata.json'
 const SOURCE = 'beads'
+const BR_SOURCE_LABEL = 'beads (br)'
+const BR = 'br'
+const LIST_COMMAND = [BR, 'list', '--json', '--limit', '0'] as const
+const LIST_LABEL = 'br list'
+const BR_NOTE =
+  '(br reads the .beads data and runs no code from the repo; asked again if the command or the real path of br changes)'
+const SEE_WHY =
+  'Run "br list --json --limit 0" at the repo root to see why the list could not be read.'
+const TOO_MANY_OPEN = 'Close some open items, because their list is over 4 MiB.'
+const BR_MISSING = `br is not on PATH. Install br to list the open items of ${ISSUES_FILE}, which is over 4 MiB.`
+const DOLT_TOO_LARGE = `br cannot list a bd tracker on Dolt. Make ${ISSUES_FILE} 4 MiB or less to read it, because the engine reads no file that is over 4 MiB.`
 const KNOWN_STATUSES: readonly WorkitemsStatus[] = [
   'open',
   'in_progress',
@@ -105,44 +120,142 @@ function parseJson(text: string): unknown {
   }
 }
 
-function parseLine(text: string): Line {
-  const parsed = parseJson(text)
-  if (!isRecord(parsed)) throw new MalformedLine('json')
-  return parsed
+type MalformedFault = (field: string) => WorkitemsFailedReason
+
+function issueAt(
+  value: unknown,
+  where: string,
+  malformed: MalformedFault,
+): WorkitemsItem | undefined {
+  try {
+    if (!isRecord(value)) throw new MalformedLine('json')
+    if (isSkipped(value)) return undefined
+    return checkedItem(itemOf(value), where)
+  } catch (error) {
+    if (error instanceof MalformedLine) throw new ItemFault(malformed(error.message))
+    throw error
+  }
 }
 
 export function parseIssues(text: string): ReadOutcome {
   const items: WorkitemsItem[] = []
   const lines = text.split('\n')
-  for (const [index, raw] of lines.entries()) {
-    const trimmed = raw.trim()
-    if (trimmed === '') continue
-    try {
-      const line = parseLine(trimmed)
-      if (isSkipped(line)) continue
-      const item = itemOf(line)
-      const problem = itemTextProblem(item)
-      if (problem !== null) {
-        return {
-          ok: false,
-          reason: `${ISSUES_FILE} line ${numeral(index + 1)} has ${problem}, so it could not be read.`,
-        }
-      }
-      items.push(item)
-    } catch (error) {
-      if (!(error instanceof MalformedLine)) throw error
-      return { ok: false, reason: `${ISSUES_FILE} line ${numeral(index + 1)} is malformed.` }
+  try {
+    for (const [index, raw] of lines.entries()) {
+      const trimmed = raw.trim()
+      if (trimmed === '') continue
+      const where = `${ISSUES_FILE} line ${numeral(index + 1)}` as const
+      const item = issueAt(parseJson(trimmed), where, () => `${where} is malformed.`)
+      if (item) items.push(item)
     }
+  } catch (error) {
+    if (error instanceof ItemFault) return { ok: false, reason: error.reason }
+    throw error
   }
   return { ok: true, items, sourceLabel: SOURCE, caveat: null }
 }
 
-async function readBeads(files: TrackerFiles): Promise<ReadOutcome> {
-  const outcome = parseIssues(await files.read(ISSUES_FILE))
-  if (!outcome.ok || !(await files.exists(METADATA_FILE))) return outcome
+function listedIssues(parsed: unknown): WorkitemsItem[] {
+  const issues = isRecord(parsed) ? parsed.issues : undefined
+  if (!isRecord(parsed) || !Array.isArray(issues)) {
+    throw new ItemFault(`${LIST_LABEL} printed no issues list, so it could not be read.`)
+  }
+  if (parsed.has_more !== false || typeof parsed.total !== 'number') {
+    throw new ItemFault(
+      `${LIST_LABEL} did not say that it printed every item, so it could not be read.`,
+    )
+  }
+  if (parsed.total !== issues.length) {
+    throw new ItemFault(
+      `${LIST_LABEL} printed ${numeral(issues.length)} of ${numeral(parsed.total)} items, so it could not be read.`,
+    )
+  }
+  const items: WorkitemsItem[] = []
+  for (const [index, issue] of issues.entries()) {
+    const where = `${LIST_LABEL} item ${numeral(index + 1)}`
+    if (!isRecord(issue)) throw new ItemFault(`${where} is not an object, so it could not be read.`)
+    const item = issueAt(
+      issue,
+      where,
+      (field) => `${where} has an invalid ${field}, so it could not be read.`,
+    )
+    if (item) items.push(item)
+  }
+  return items
+}
+
+function approvalNeeded(): ReadOutcome {
+  return {
+    ok: false,
+    state: 'approval-needed',
+    command: quotedCommand(LIST_COMMAND),
+    sourceLabel: BR_SOURCE_LABEL,
+  }
+}
+
+async function approvedBr(files: TrackerFiles): Promise<string | undefined> {
+  const verdict = await files.commands.approvals.check(files, {
+    command: LIST_COMMAND,
+    shown: LIST_COMMAND,
+    folders: [],
+    note: BR_NOTE,
+    ignoresFolders: () => Promise.resolve(false),
+  })
+  return verdict.approved ? verdict.argv0 : undefined
+}
+
+function reasonWithFix(fault: ItemFault): WorkitemsFailedReason {
+  if (fault instanceof CommandFault && fault.kind === 'exit') return fault.reason
+  if (fault instanceof CommandFault && fault.kind === 'cut') {
+    return `${fault.reason} ${TOO_MANY_OPEN}`
+  }
+  return `${fault.reason} ${SEE_WHY}`
+}
+
+async function listOpenThroughBr(files: TrackerFiles): Promise<ReadOutcome> {
+  if (!(await files.commands.canRun())) {
+    return { ok: false, state: 'terminal-only', sourceLabel: BR_SOURCE_LABEL }
+  }
+  if ((await files.commands.which(BR)) === undefined) return { ok: false, reason: BR_MISSING }
+  const argv0 = await approvedBr(files)
+  if (argv0 === undefined) return approvalNeeded()
+  try {
+    const parsed = await runJson(files, LIST_LABEL, [argv0, ...LIST_COMMAND.slice(1)])
+    return {
+      ok: true,
+      items: listedIssues(parsed),
+      sourceLabel: BR_SOURCE_LABEL,
+      caveat: null,
+      listsOpenOnly: true,
+    }
+  } catch (error) {
+    if (error instanceof ItemFault) return { ok: false, reason: reasonWithFix(error) }
+    throw error
+  }
+}
+
+async function isOnDolt(files: TrackerFiles): Promise<boolean> {
+  if (!(await files.exists(METADATA_FILE))) return false
   const metadata = parseJson(await files.read(METADATA_FILE))
-  if (!isRecord(metadata)) return { ok: false, reason: `${METADATA_FILE} could not be read.` }
-  if (metadata.backend !== 'dolt') return outcome
+  if (!isRecord(metadata)) throw new FileProblem(`${METADATA_FILE} could not be read.`)
+  return metadata.backend === 'dolt'
+}
+
+async function readLargeBeads(files: TrackerFiles): Promise<ReadOutcome> {
+  if (await isOnDolt(files)) return { ok: false, reason: DOLT_TOO_LARGE }
+  return listOpenThroughBr(files)
+}
+
+async function readBeads(files: TrackerFiles): Promise<ReadOutcome> {
+  let text: string
+  try {
+    text = await files.read(ISSUES_FILE)
+  } catch (error) {
+    if (error instanceof FileTooLarge) return readLargeBeads(files)
+    throw error
+  }
+  const outcome = parseIssues(text)
+  if (!outcome.ok || !(await isOnDolt(files))) return outcome
   return {
     ok: true,
     items: outcome.items.map((item) => ({
@@ -154,4 +267,16 @@ async function readBeads(files: TrackerFiles): Promise<ReadOutcome> {
   }
 }
 
-export const beadsReader: Reader = { name: SOURCE, marker: ISSUES_FILE, read: readBeads }
+async function beadsSignature(files: TrackerFiles): Promise<string> {
+  const { size, mtimeMs } = await files.stat(ISSUES_FILE)
+  const stamp = [String(mtimeMs), String(size)]
+  if (size <= MAX_FILE_BYTES) return stamp.join('\n')
+  return [...stamp, String(files.commands.approvals.generation())].join('\n')
+}
+
+export const beadsReader: Reader = {
+  name: SOURCE,
+  marker: ISSUES_FILE,
+  signature: beadsSignature,
+  read: readBeads,
+}

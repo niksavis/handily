@@ -58,7 +58,7 @@
     {
       "name": "workitems",
       "source": "./mods/workitems",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "description": "Provider of one typed work item list over any tracker, for other handily mods."
     }
   ]

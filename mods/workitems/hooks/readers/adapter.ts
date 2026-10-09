@@ -51,6 +51,17 @@ function isTextList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry !== '')
 }
 
+export type CommandFaultKind = 'not-run' | 'cut' | 'exit' | 'not-json'
+
+export class CommandFault extends ItemFault {
+  constructor(
+    reason: WorkitemsFailedReason,
+    readonly kind: CommandFaultKind,
+  ) {
+    super(reason)
+  }
+}
+
 export async function runJson(
   files: TrackerFiles,
   label: string,
@@ -61,18 +72,22 @@ export async function runJson(
   try {
     result = await files.commands.run(argv, env)
   } catch {
-    throw new ItemFault(`${label} did not start or did not end in time, so it could not be read.`)
+    throw new CommandFault(
+      `${label} did not start or did not end in time, so it could not be read.`,
+      'not-run',
+    )
   }
-  if (result.isStdoutTruncated) throw new ItemFault(`${label} output was cut off.`)
+  if (result.isStdoutTruncated) throw new CommandFault(`${label} output was cut off.`, 'cut')
   if (result.exitCode !== 0) {
-    throw new ItemFault(
+    throw new CommandFault(
       `${label} exited ${numeral(result.exitCode)}. Run it in a shell to see why.`,
+      'exit',
     )
   }
   try {
     return JSON.parse(result.stdout) as unknown
   } catch {
-    throw new ItemFault(`${label} printed no valid JSON, so it could not be read.`)
+    throw new CommandFault(`${label} printed no valid JSON, so it could not be read.`, 'not-json')
   }
 }
 

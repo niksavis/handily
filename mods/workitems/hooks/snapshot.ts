@@ -8,7 +8,7 @@ import type {
   WorkitemsSnapshot,
 } from '../types'
 import { resolveProgram, sha256Hex, type Approvals, type SearchPath } from './approval'
-import { FileProblem, isInside, isUnsafeCharacter } from './config'
+import { FileProblem, FileTooLarge, isInside, isUnsafeCharacter } from './config'
 import { detect } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
 
@@ -166,7 +166,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
     read: async (relativePath) => {
       const path = await confinedPath(relativePath)
       const stat = await statAt(relativePath)
-      if (stat.size > MAX_FILE_BYTES) throw new FileProblem(`${relativePath} is over 4 MiB.`)
+      if (stat.size > MAX_FILE_BYTES) throw new FileTooLarge(`${relativePath} is over 4 MiB.`)
       try {
         return await host.read(path)
       } catch {
@@ -180,6 +180,7 @@ export function diffItems(
   before: readonly WorkitemsItem[],
   after: readonly WorkitemsItem[],
   isMissingClosed = false,
+  wasOpenOnly = false,
 ): WorkitemsDiff {
   const previous = new Map(before.map((item) => [item.key, item]))
   const diff = {
@@ -189,6 +190,8 @@ export function diffItems(
   }
   for (const item of after) {
     const old = previous.get(item.key)
+    const wasClosedBefore = !old && wasOpenOnly && item.status === 'closed'
+    if (wasClosedBefore) continue
     if (!old) diff.created.push(item)
     else if (old.status !== 'closed' && item.status === 'closed') diff.closed.push(item)
     else if (JSON.stringify(old) !== JSON.stringify(item)) diff.updated.push(item)
@@ -259,7 +262,11 @@ type SnapshotData = WorkitemsSnapshot extends infer S
     : never
   : never
 
-type ReadResult = { data: SnapshotData; baselineItems: readonly WorkitemsItem[] | undefined }
+type ReadResult = {
+  data: SnapshotData
+  baselineItems: readonly WorkitemsItem[] | undefined
+  listsOpenOnly: boolean
+}
 
 const MAX_SHOWN_TEXT = 1000
 
@@ -292,12 +299,14 @@ async function readSource(
   if (!outcome.ok && 'state' in outcome && outcome.state === 'terminal-only') {
     return {
       baselineItems: undefined,
+      listsOpenOnly: false,
       data: { ...sourced, state: outcome.state, reason: null, sourceLabel: outcome.sourceLabel },
     }
   }
   if (!outcome.ok && 'state' in outcome) {
     return {
       baselineItems: undefined,
+      listsOpenOnly: false,
       data: {
         ...sourced,
         state: outcome.state,
@@ -309,6 +318,7 @@ async function readSource(
   if (!outcome.ok) {
     return {
       baselineItems: undefined,
+      listsOpenOnly: false,
       data: {
         state: 'failed',
         reason: shownReason(reader, outcome.reason),
@@ -323,6 +333,7 @@ async function readSource(
   }
   return {
     baselineItems: outcome.items,
+    listsOpenOnly: outcome.listsOpenOnly === true,
     data: {
       state: 'ok',
       reason: null,
@@ -340,6 +351,7 @@ async function readSource(
 function noTracker(root: string, lookedFor: `looked for ${string}`): ReadResult {
   return {
     baselineItems: [],
+    listsOpenOnly: false,
     data: {
       state: 'no-tracker',
       reason: lookedFor,
@@ -359,7 +371,14 @@ function deliveredToItsOwnCallers(): undefined {
 
 export function createProvider(host: ProviderHost, readers: readonly Reader[]): Provider {
   let current: WorkitemsSnapshot | undefined
-  let baseline: { root: string; source: string | null; items: readonly WorkitemsItem[] } | undefined
+  let baseline:
+    | {
+        root: string
+        source: string | null
+        items: readonly WorkitemsItem[]
+        listsOpenOnly: boolean
+      }
+    | undefined
   let lastSignature: string | undefined
   let version = 0
   const history: { version: number; diff: WorkitemsDiff }[] = []
@@ -421,14 +440,15 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     }
     await host.publish(snapshot)
     const source = detection.found ? detection.reader.name : null
-    const isMissingClosed =
-      detection.found && detection.reader.listsOpenOnly === true && baseline?.source === source
+    const isSameSource = baseline?.source === source
+    const isMissingClosed = result.listsOpenOnly && isSameSource
+    const wasOpenOnly = isSameSource && baseline?.listsOpenOnly === true
     const diff =
       result.baselineItems !== undefined && baseline?.root === root
-        ? diffItems(baseline.items, result.baselineItems, isMissingClosed)
+        ? diffItems(baseline.items, result.baselineItems, isMissingClosed, wasOpenOnly)
         : emptyDiff()
     if (result.baselineItems !== undefined) {
-      baseline = { root, source, items: result.baselineItems }
+      baseline = { root, source, items: result.baselineItems, listsOpenOnly: result.listsOpenOnly }
     }
     version = nextVersion
     history.push({ version, diff })

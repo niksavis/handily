@@ -30,6 +30,8 @@ export class FileProblem extends Error {
   }
 }
 
+export class FileTooLarge extends FileProblem {}
+
 export type FilesFormat = 'json' | 'jsonl' | 'frontmatter'
 
 export const MAPPED_FIELDS = [

@@ -43,6 +43,7 @@ export type ReadOutcome =
       sourceLabel: string
       caveat: string | null
       adapterWrites?: WorkitemsAdapterWrites
+      listsOpenOnly?: true
     }
   | { ok: false; reason: WorkitemsFailedReason }
   | { ok: false; state: 'approval-needed'; command: string; sourceLabel: string }
@@ -52,7 +53,6 @@ export type Reader = {
   name: string
   marker: string
   lookedForAs?: string
-  listsOpenOnly?: true
   isPresent?: (files: TrackerFiles) => Promise<boolean>
   signature?: (files: TrackerFiles) => Promise<string>
   read: (files: TrackerFiles) => Promise<ReadOutcome>
