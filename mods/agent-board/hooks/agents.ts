@@ -2,6 +2,7 @@ import type { AgentInfo, AgentStatus } from 'claude-code'
 
 export const TARGET_CHARS_AT_MOST = 200
 export const UNLISTED_KEPT_AT_MOST = 20
+const HANDBACK_TOOL = 'SubagentHandback'
 
 const TARGET_KEYS = [
   'file_path',
@@ -130,7 +131,7 @@ export function finishCall(tracks: Tracks, agentId: string, callId: string): voi
   if (!track || !sight) return
   track.running.delete(callId)
   track.tools += 1
-  track.last = sight
+  if (sight.tool !== HANDBACK_TOOL || track.last === null) track.last = sight
   pruneUnlisted(tracks)
 }
 

@@ -10,11 +10,12 @@ import {
   type ToolSight,
   type Tracks,
 } from './agents'
+import { planView, type PlanStatus, type PlanTask, type PlanView } from './plan'
 
 export const EMPTY_TEXT = 'No subagents in this session yet.'
 export const NOT_LISTED_BADGE = 'not listed'
 
-type BoardElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
+type BoardElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 type TextStyle = Omit<TextProps, 'children'>
 type BoxStyle = Omit<Parameters<BoardElements['Box']>[0], 'children'>
 type Child = RenderElement | null
@@ -38,7 +39,19 @@ const MARKS: Record<RowStatus, { glyph: string; style: TextStyle }> = {
   unknown: { glyph: '?', style: { dimColor: true } },
 }
 
+const TASK_MARKS: Record<PlanStatus, { glyph: string; style: TextStyle; title: TextStyle }> = {
+  completed: { glyph: '✓', style: { color: 'success' }, title: { dimColor: true } },
+  in_progress: { glyph: '▶', style: {}, title: { bold: true } },
+  pending: { glyph: '○', style: { dimColor: true }, title: {} },
+}
+
 const GROUP_ORDER: Record<Group, number> = { active: 0, unknown: 1, done: 2, unlisted: 3 }
+
+export type CardPlans = {
+  lists: ReadonlyMap<string, readonly PlanTask[]>
+  unfolded: ReadonlySet<string>
+  toggle: (agentId: string) => void
+}
 
 export type BoardRow = {
   id: string
@@ -204,11 +217,67 @@ function toolLine(elements: BoardElements, row: BoardRow): RenderElement {
   ])
 }
 
-function card(elements: BoardElements, row: BoardRow): RenderElement {
+export function planKey(agentId: string): string {
+  return `plan:${agentId}`
+}
+
+function shownText(view: PlanView): string {
+  return view.shown.length < view.total
+    ? ` · ${String(view.shown.length)} of ${String(view.total)} shown`
+    : ` · all ${String(view.total)} shown`
+}
+
+function planHead(
+  elements: BoardElements,
+  row: BoardRow,
+  view: PlanView,
+  plans: CardPlans,
+): RenderElement {
+  const count = `plan ${String(view.done)}/${String(view.total)} done`
+  if (!view.isFoldable) {
+    return box(elements, { flexDirection: 'row', paddingLeft: DETAIL_INDENT }, [
+      kept(elements, text(elements, count, { dimColor: true })),
+    ])
+  }
+  const fold = elements.Button({
+    key: planKey(row.id),
+    label: count,
+    plain: true,
+    dimColor: true,
+    onPress: () => {
+      plans.toggle(row.id)
+    },
+  })
+  return box(elements, { flexDirection: 'row', paddingLeft: DETAIL_INDENT }, [
+    kept(elements, fold),
+    cut(elements, shownText(view), { dimColor: true }),
+  ])
+}
+
+function taskLine(elements: BoardElements, task: PlanTask): RenderElement {
+  const mark = TASK_MARKS[task.status]
+  return box(elements, { flexDirection: 'row', paddingLeft: DETAIL_INDENT }, [
+    kept(elements, text(elements, `${mark.glyph} `, mark.style)),
+    cut(elements, task.title, mark.title),
+  ])
+}
+
+function planLines(elements: BoardElements, row: BoardRow, plans: CardPlans): RenderElement[] {
+  const tasks = plans.lists.get(row.id)
+  if (tasks === undefined) return []
+  const view = planView(tasks, plans.unfolded.has(row.id))
+  return [
+    planHead(elements, row, view, plans),
+    ...view.shown.map((task) => taskLine(elements, task)),
+  ]
+}
+
+function card(elements: BoardElements, row: BoardRow, plans: CardPlans): RenderElement {
   return box(elements, { key: `agent:${row.id}`, flexDirection: 'column' }, [
     cardHeader(elements, row),
     aboutLine(elements, row),
     toolLine(elements, row),
+    ...planLines(elements, row, plans),
   ])
 }
 
@@ -216,6 +285,7 @@ export function renderBoard(
   elements: BoardElements,
   rows: readonly BoardRow[],
   bodyColumns: number,
+  plans: CardPlans,
 ): RenderElement {
   const rule = () => text(elements, CARD_RULE.repeat(bodyColumns), { dimColor: true })
   const header = headerText(rows)
@@ -225,6 +295,6 @@ export function renderBoard(
       header === '' ? null : cut(elements, `  ${header}`, { dimColor: true }),
     ]),
     rows.length === 0 ? text(elements, EMPTY_TEXT, { dimColor: true }) : null,
-    ...rows.flatMap((row, index) => [index === 0 ? null : rule(), card(elements, row)]),
+    ...rows.flatMap((row, index) => [index === 0 ? null : rule(), card(elements, row, plans)]),
   ])
 }

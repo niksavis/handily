@@ -1,7 +1,16 @@
-import type { AgentInfo, On, RenderSurface, UiPane } from 'claude-code'
-import { describe, expect, mock, test, type Engine, type MockClock } from 'claude-code/testing'
+import type { AgentInfo, On, RenderSurface, ToolCallArgs, UiPane } from 'claude-code'
+import {
+  describe,
+  expect,
+  mock,
+  test,
+  type Engine,
+  type MockClock,
+  type Plugin,
+} from 'claude-code/testing'
 import { TARGET_CHARS_AT_MOST, toolTarget } from './hooks/agents'
-import { EMPTY_TEXT, formatElapsed, NOT_LISTED_BADGE } from './hooks/board'
+import { EMPTY_TEXT, formatElapsed, NOT_LISTED_BADGE, planKey } from './hooks/board'
+import { planView, readPlan, type PlanStatus } from './hooks/plan'
 import { REDRAW_INTERVAL_MS } from './hooks/register'
 
 const NOW = 1_791_400_000_000
@@ -127,6 +136,11 @@ async function subagentCall(engine: Engine, agentId: string, filePath = 'docs/de
   return engine.tool.call(input)
 }
 
+async function handBack(engine: Engine, agentId: string) {
+  const outsideTheToolTable = { tool: 'SubagentHandback', message: 'report', agentId }
+  return engine.tool.call(outsideTheToolTable as unknown as ToolCallArgs)
+}
+
 async function spawn(engine: Engine, description: string, subagentType: string) {
   return engine.agent.spawn({
     tool_use_id: `use-${description}`,
@@ -219,6 +233,31 @@ describe('the tool calls of a subagent', () => {
     expect(resolved).toContain('Read docs/design.md')
     expect(resolved).toContain(' · 2 tools')
     expect(resolved).not.toContain('▸ ')
+  })
+
+  test('keeps the tool and target of the last other call after a SubagentHandback', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [{ ...EXPLORE, status: 'completed' }]
+    await openBoard($, clock)
+    await subagentCall($, EXPLORE.id, 'mods/agent-board/README.md')
+    expect(await handBack($, EXPLORE.id)).toMatchObject({ result: 'ran SubagentHandback' })
+    const texts = await shownTexts($)
+    expect(texts).toContain('Read mods/agent-board/README.md')
+    expect(texts).toContain(' · 2 tools')
+    expect(texts.filter((text) => text.includes('SubagentHandback'))).toEqual([])
+  })
+
+  test('shows the SubagentHandback when it is the only call of the subagent', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [{ ...EXPLORE, status: 'completed' }]
+    await openBoard($, clock)
+    await handBack($, EXPLORE.id)
+    const texts = await shownTexts($)
+    expect(texts).toContain('SubagentHandback')
+    expect(texts).toContain(' · 1 tool')
+    expect(texts).not.toContain('no tool calls yet')
   })
 
   test('shows no tool calls yet for a listed subagent that made none', async ($, on) => {
@@ -601,5 +640,246 @@ describe('ready value for /handily', () => {
     })
     await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
     expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]agent-board$/) }])
+  })
+})
+
+const PLAN_TITLES = [
+  'Read the design',
+  'Map the hooks',
+  'Draw the plan',
+  'Test the fold',
+  'Update the mock',
+  'Bump the version',
+  'Write the changelog',
+  'Run the gates',
+] as const
+
+const MARK_OF: Record<PlanStatus, string> = { completed: '✓ ', in_progress: '▶ ', pending: '○ ' }
+
+function planList(statuses: readonly PlanStatus[], titles: readonly string[] = PLAN_TITLES) {
+  return {
+    tasks: statuses.map((status, index) => ({
+      id: statuses.length - index,
+      title: titles[index] ?? `Task ${String(index + 1)}`,
+      status,
+      by: 'model',
+      item: null,
+    })),
+    nextId: statuses.length + 1,
+  }
+}
+
+const taskPane: Plugin = {
+  name: 'task-pane',
+  register(on) {
+    on('command.run', async ($, e, next) => {
+      if (e.command !== 'tp-plan') return next(e)
+      const { agentId, list } = JSON.parse(e.args) as { agentId: string; list: unknown }
+      await $.state.set({ plugin: 'task-pane', key: 'agentList', id: agentId }, list)
+      return { text: 'set' }
+    })
+  },
+}
+
+async function setPlan(engine: Engine, agentId: string, list: unknown): Promise<void> {
+  await engine.command.run({
+    command: 'tp-plan',
+    args: JSON.stringify({ agentId, list }),
+    origin: { kind: 'sdk' },
+    presentation: { isFullscreen: true, columns: 140 },
+  })
+}
+
+function planTexts(statuses: readonly PlanStatus[], from = 0, to = statuses.length): string[] {
+  return statuses
+    .slice(from, to)
+    .flatMap((status, index) => [MARK_OF[status], PLAN_TITLES[from + index] ?? ''])
+}
+
+function cardTexts(texts: readonly string[], title: string): string[] {
+  const start = texts.indexOf(title) - 1
+  const end = texts.indexOf('─'.repeat(60), start)
+  return texts.slice(start, end < 0 ? texts.length : end)
+}
+
+const FOUR: readonly PlanStatus[] = ['completed', 'completed', 'in_progress', 'pending']
+const EIGHT: readonly PlanStatus[] = [
+  'completed',
+  'completed',
+  'completed',
+  'completed',
+  'in_progress',
+  'pending',
+  'pending',
+  'pending',
+]
+
+describe('the plan of a subagent', () => {
+  for (const surface of SURFACES) {
+    test(
+      `shows the tasks in list order with done, in-progress and open marks and a done count on ${surface}`,
+      { plugins: [taskPane] },
+      async ($, on) => {
+        const clock = mock.clock(on, { now: NOW })
+        const world = fakeWorld(on)
+        world.subagents = [EXPLORE]
+        await openBoard($, clock)
+        await subagentCall($, EXPLORE.id)
+        const ui = await mountBoard($, surface)
+        const shown = async () => (await ui.findAll({ type: 'Text' })).map((found) => found.text)
+        expect((await shown()).at(-1)).toBe(' · 1 tool')
+        await setPlan($, EXPLORE.id, planList(FOUR))
+        const texts = await shown()
+        expect(texts.slice(texts.indexOf(' · 1 tool') + 1)).toEqual([
+          'plan 2/4 done',
+          ...planTexts(FOUR),
+        ])
+        const styleOf = async (shown: string) =>
+          (await ui.find({ type: 'Text', text: shown }))?.props
+        expect(await styleOf('✓ ')).toMatchObject({ color: 'success' })
+        expect(await styleOf('Read the design')).toMatchObject({ dimColor: true })
+        expect(await styleOf('Draw the plan')).toMatchObject({ bold: true })
+        expect(await styleOf('○ ')).toMatchObject({ dimColor: true })
+        expect(await ui.findAll({ type: 'Button' })).toEqual([])
+        await ui.unmount()
+      },
+    )
+  }
+
+  test(
+    'folds a list of more than 5 to the task in progress, 2 before, 2 after and the count',
+    { plugins: [taskPane] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      const world = fakeWorld(on)
+      world.subagents = [EXPLORE]
+      await openBoard($, clock)
+      await setPlan($, EXPLORE.id, planList(EIGHT))
+      const texts = await shownTexts($)
+      expect(texts.slice(texts.indexOf('no tool calls yet') + 1)).toEqual([
+        ' · 5 of 8 shown',
+        ...planTexts(EIGHT, 2, 7),
+      ])
+      const ui = await mountBoard($, 'terminal')
+      const fold = await ui.find({ key: planKey(EXPLORE.id) })
+      expect(fold?.props).toMatchObject({ label: 'plan 4/8 done' })
+      await ui.unmount()
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `a click on the plan of a card unfolds the whole list and a second click folds it on ${surface}`,
+      { plugins: [taskPane] },
+      async ($, on) => {
+        const clock = mock.clock(on, { now: NOW })
+        const world = fakeWorld(on)
+        world.subagents = [EXPLORE, { ...PLAN, status: 'running' }]
+        await openBoard($, clock)
+        await setPlan($, EXPLORE.id, planList(EIGHT))
+        await setPlan($, PLAN.id, planList(EIGHT))
+        const ui = await mountBoard($, surface)
+        const shown = async () => (await ui.findAll({ type: 'Text' })).map((found) => found.text)
+        const buttons = await ui.findAll({ type: 'Button' })
+        expect(buttons.map((button) => button.props.key)).toEqual([
+          planKey(EXPLORE.id),
+          planKey(PLAN.id),
+        ])
+        await ui.press({ key: planKey(EXPLORE.id) })
+        const open = await shown()
+        expect(cardTexts(open, 'Explore')).toContain(' · all 8 shown')
+        expect(cardTexts(open, 'Explore').slice(-16)).toEqual(planTexts(EIGHT))
+        expect(cardTexts(open, 'Plan')).toContain(' · 5 of 8 shown')
+        await ui.press({ key: planKey(EXPLORE.id) })
+        const folded = await shown()
+        expect(cardTexts(folded, 'Explore')).toContain(' · 5 of 8 shown')
+        expect(cardTexts(folded, 'Explore').slice(-10)).toEqual(planTexts(EIGHT, 2, 7))
+        await ui.unmount()
+      },
+    )
+  }
+
+  const BEFORE = [
+    '● ',
+    'Explore',
+    'running',
+    '0s',
+    'find the element table',
+    'last ',
+    'Read docs/design.md',
+    ' · 1 tool',
+  ]
+
+  test('draws the card as before when task-pane is not installed', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [EXPLORE]
+    await openBoard($, clock)
+    await subagentCall($, EXPLORE.id)
+    expect(await shownTexts($)).toEqual(['Subagents', '  1 active', ...BEFORE])
+  })
+
+  test(
+    'draws the card as before when the subagent has no list or an empty one',
+    { plugins: [taskPane] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      const world = fakeWorld(on)
+      world.subagents = [EXPLORE, { ...PLAN, status: 'running' }]
+      await openBoard($, clock)
+      await subagentCall($, EXPLORE.id)
+      await setPlan($, PLAN.id, planList(FOUR))
+      expect(cardTexts(await shownTexts($), 'Explore')).toEqual(BEFORE)
+      await setPlan($, EXPLORE.id, planList([]))
+      expect(cardTexts(await shownTexts($), 'Explore')).toEqual(BEFORE)
+      expect(cardTexts(await shownTexts($), 'Plan')).toContain('plan 2/4 done')
+    },
+  )
+
+  test('no plan line can wrap, folded or unfolded', { plugins: [taskPane] }, async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [EXPLORE]
+    await openBoard($, clock)
+    const long = PLAN_TITLES.map((title) => `${title} ${'and more '.repeat(20)}`)
+    await setPlan($, EXPLORE.id, planList(EIGHT, long))
+    const ui = await mountBoard($, 'terminal')
+    for (let press = 0; press < 2; press += 1) {
+      const board = nodeOf(await ui.drawn())
+      if (board === null) throw new Error('the board drew nothing')
+      expect(wrappingTexts(board)).toEqual([])
+      await ui.press({ key: planKey(EXPLORE.id) })
+    }
+    await ui.unmount()
+  })
+
+  test('shows a hidden character in a plan title as an escape, as task-pane does', () => {
+    const titles = ['Run\u200bthe gates', 'Run the gates\u{E0049}', 'soft\u00adhyphen', 'tab\there']
+    const plan = readPlan(planList(Array<PlanStatus>(titles.length).fill('pending'), titles))
+    expect(plan?.map((task) => task.title)).toEqual([
+      'Run\\u200bthe gates',
+      'Run the gates\\udb40\\udc49',
+      'soft\\u00adhyphen',
+      'tab\\u0009here',
+    ])
+  })
+
+  test('anchors the fold on the task in progress, else the next open task, else the last', () => {
+    const titles = (statuses: readonly PlanStatus[]) =>
+      planView(
+        statuses.map((status, index) => ({ title: String(index), status })),
+        false,
+      ).shown.map((task) => task.title)
+    const open = Array<PlanStatus>(8).fill('pending')
+    expect(titles(['in_progress', ...open.slice(1)])).toEqual(['0', '1', '2'])
+    expect(titles(['completed', 'completed', 'completed', ...open.slice(3)])).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+    ])
+    expect(titles(Array<PlanStatus>(8).fill('completed'))).toEqual(['5', '6', '7'])
+    expect(titles(open.slice(0, 5))).toEqual(['0', '1', '2', '3', '4'])
   })
 })
