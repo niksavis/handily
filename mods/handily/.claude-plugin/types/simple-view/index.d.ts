@@ -1,0 +1,1 @@
+/home/niksa/development/handily/mods/simple-view/types/index.d.ts

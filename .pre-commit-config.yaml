@@ -1,3 +1,4 @@
+exclude: ^mods/[^/]+/\.claude-plugin/types/
 repos:
 - repo: local
   hooks:

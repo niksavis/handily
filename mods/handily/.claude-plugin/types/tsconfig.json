@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": [
+      "es2023"
+    ],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment",
+    "typeRoots": [
+      "."
+    ],
+    "types": [
+      "claude-code",
+      "claude-code-tools",
+      "claude-code-mcp",
+      "agent-board",
+      "item-toasts",
+      "quiet-items",
+      "session-board",
+      "simple-view",
+      "task-pane",
+      "workitems"
+    ]
+  },
+  "include": [
+    "../../hooks",
+    "../../types",
+    "../../tests"
+  ]
+}

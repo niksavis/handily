@@ -1,0 +1,1 @@
+/home/niksa/development/handily/mods/agent-board/types/index.d.ts
