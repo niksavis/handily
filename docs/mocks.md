@@ -857,3 +857,121 @@ Look choices (approved as proposed):
 3. The meaning of a non-error exit code (`No matches found`) in place of `exit 0`.
 4. The result block under an `exit N` row is drawn empty. The first error line is in the row,
    and `/simple show N` prints the rest.
+
+---
+
+## 7. Proposed 2026-10-09: the usability focus (not approved yet)
+
+The person set the focus on 2026-10-09. These mocks wait for the person's approval. Nothing here
+is built. The same legend applies.
+
+### 7.1 task-pane follows the work (handily-eq6pk)
+
+Terminal, Pane docked (fullscreen, body 44 columns). Claude keeps a list:
+
+```text
+╭────────────────────────────────────────────✕─╮  (engine frame)
+│ *Tasks*  ~2 of 6 done · 14m~                    │
+│ ▶ *3 Write the mocks*                  ~4m~     │
+│   ~▸ Edit docs/mocks.md · 9 tools~              │
+│ ○ 4 Commit the mocks                        │
+│ ○ 5 Push after approval                     │
+│ ○ 6 you  Read the mocks                     │
+│ [ +2 done ]                                 │
+│ ───────────────────────────────────────────── │
+│ *Agents*  ~1 running~                           │
+│ ● scout  ~3 of 7~  ~▸ Grep hooks/~   [ open ]   │
+│                                             │
+│ [ Add a task ____________ ][Add]            │
+╰─────────────────────────────────────────────╯
+```
+
+- The task in progress is first and bold. Its time counts. The line under it shows the last
+  tool and the tool count since the task started, so the person sees the work move.
+- Open tasks follow in list order. Done tasks fold to `[ +2 done ]`. A click unfolds them.
+- A click on a task opens its full title, its start time and its tool count. A second click
+  closes it.
+- `Agents` lists each running subagent with its plan count and its last tool. `[ open ]` opens
+  `/agent-board` on that agent (handily-h497e decides if a click can switch the terminal to it).
+
+Claude keeps no list, or did not update it for 20 tool calls:
+
+```text
+│ *Tasks*  ~none kept by Claude~                  │
+│ ▶ *Now*  ~Edit docs/mocks.md · 14 tools · 3m~   │
+│   ~Read 4 · Edit 6 · Bash 4~                    │
+│ !Claude has kept no plan for 14 tool calls.!    │
+│ [ Ask Claude for a plan ]                       │
+```
+
+- The pane still shows the work, from the tool calls: the last tool, the counts per tool and
+  the time.
+- At the next turn start, the mod adds one short note for Claude: "the person sees an empty
+  task list; add your plan with task_add". This note shows and asks. It does not block.
+- `[ Ask Claude for a plan ]` puts a prompt into the composer. It does not send it.
+
+The empty pane with tracker items (handily-yxie3): the first 10 open items show, then
+`[ all 29 open ]`. A click shows all of them, in a list that scrolls.
+
+### 7.2 Compact transcript: fold, expand and copy (handily-t899o)
+
+A tool call stays one row, as in simple-view, and gets two buttons:
+
+```text
+● Run the unit tests  ~npm~  +exit 0+  ~140 lines~  ~3.0s~        [ more ] [ copy ]
+```
+
+After `[ more ]`, the output opens under the row, at most 20 lines:
+
+```text
+● Run the unit tests  ~npm~  +exit 0+  ~140 lines~  ~3.0s~        [ less ] [ copy ]
+  ~ 38 pass~
+  ~  0 fail~
+  ~…~
+  [ all 140 lines ]
+```
+
+A long reply folds after 12 lines:
+
+```text
+● The release is done. task-pane 0.3.0 and agent-board 0.2.0 are
+  published, and every gate passed.
+  ~… 42 more lines~                                                [ more ] [ copy ]
+```
+
+A table loses its box lines and keeps aligned columns. The header is bold:
+
+```text
+  *Mod*          *State*      *Next*
+  task-pane      released   follows the work
+  simple-view    released   click to expand
+                                         [ copy ] [ copy as text ]
+```
+
+On a narrow screen, each row draws as a block:
+
+```text
+  *task-pane*
+    State: released
+    Next:  follows the work
+```
+
+A fenced block gets a title line from its tag and a copy button:
+
+```text
+  ~── plan ──────────────────────────────────~  [ copy ]
+  1. Write the mocks
+  2. Ask the person
+```
+
+- `[ copy ]` copies the text as markdown. `[ copy as text ]` copies a table as label and value
+  lines for an email.
+- A click on `[ copy ]` was proven in normal mode on 2026-10-09 (handily-fwkt.8.1). Fullscreen
+  is not proven yet.
+- The model still reads the full text. Only the screen changes.
+
+### 7.3 Questions for the person
+
+1. Fold a reply after 12 lines, or after another count?
+2. Should the task pane show the subagents, or keep them only in agent-board?
+3. Should done tasks stay folded by default?
