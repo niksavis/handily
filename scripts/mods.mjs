@@ -140,8 +140,19 @@ function layingRunProblem(result) {
   return undefined
 }
 
+function hasLaidTypes(mod) {
+  return existsSync(join(typesDir(mod), 'tsconfig.json'))
+}
+
+function layCommand(mod, dependencies) {
+  const pluginDirs = [mod, ...dependencies].map(
+    (loaded) => `--plugin-dir ${relative(root, loaded.dir)}`,
+  )
+  return `claude ${pluginDirs.join(' ')}`
+}
+
 function needsTypes(mod, dependencies) {
-  if (!existsSync(join(typesDir(mod), 'tsconfig.json'))) return true
+  if (!hasLaidTypes(mod)) return true
   return !dependencies.every((dependency) => isLaidContractCurrent(mod, dependency))
 }
 
@@ -164,8 +175,10 @@ function layTypes(mods, { force }) {
         fail(`${mod.name}: ${problem}`)
         continue
       }
-      if (!existsSync(join(typesDir(mod), 'tsconfig.json'))) {
-        fail(`${mod.name}: Claude Code wrote no types; is the claude CLI on PATH?`)
+      if (!hasLaidTypes(mod)) {
+        fail(
+          `${mod.name}: Claude Code wrote no types; load the mod once in an interactive session: ${layCommand(mod, dependencies)}`,
+        )
       }
       for (const dependency of dependencies) {
         if (!isLaidContractCurrent(mod, dependency)) {
@@ -258,7 +271,18 @@ function typecheck(mods) {
       fail(`${mod.name}: no tsconfig.json; it extends ./.claude-plugin/types/tsconfig.json`)
       continue
     }
-    run(`${mod.name}: tsc`, process.execPath, [tsc, '-p', join(mod.dir, 'tsconfig.json')])
+    if (!hasLaidTypes(mod)) {
+      fail(
+        `${mod.name}: no laid types; tsc did not run. Lay them with: ${layCommand(mod, dependenciesOf(mod, mods))}`,
+      )
+      continue
+    }
+    run(`${mod.name}: tsc`, process.execPath, [
+      tsc,
+      '-p',
+      join(mod.dir, 'tsconfig.json'),
+      '--noEmit',
+    ])
   }
 }
 
@@ -358,6 +382,7 @@ function test(mods) {
     }
     run(`${mod.name}: claude plugin test`, 'claude', ['plugin', 'test', mod.dir])
   }
+  run('scripts: node --test', process.execPath, ['--test', join(root, 'scripts')])
 }
 
 const tasks = {

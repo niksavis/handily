@@ -13,14 +13,17 @@ import {
   withoutFinalPeriod,
 } from './commands'
 import { PANE_ID, type PaneUi, drawPane, openPane, paneCommand, paneMode } from './pane'
+import type { TaskPaneList } from '../types'
 import {
   EMPTY_LIST,
+  MAX_AGENT_LISTS,
   STATUSES,
   TRACKER_TEXT_IS_DATA,
   addTask,
   findTask,
   isStatus,
   listText,
+  moveTask,
   numbersText,
   removeTask,
   setStatus,
@@ -30,16 +33,19 @@ import {
 
 const TOOL_ADD = 'mcp__task-pane__task_add'
 const TOOL_UPDATE = 'mcp__task-pane__task_update'
+const TOOL_MOVE = 'mcp__task-pane__task_move'
 const TOOL_LIST = 'mcp__task-pane__task_list'
 const REMOVED = 'removed'
+const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
+const AGENT_IDS = { plugin: 'task-pane', key: 'agentIds' } as const
 
 const TOOLS: readonly ToolSpec[] = [
   {
     name: 'task_add',
     description: [
-      'Add one task to the session task list. Returns the whole list with the task ids.',
-      'Keep your plan for this session in this list: add each step of a task with more than one step, set a task to in_progress when you start it and to completed when it is done, with task_update.',
-      'The person sees the list in /task and in the task pane, and can add or remove tasks. A message that starts with [task-pane] says that the person changed the list.',
+      'Add one task to your task list. A subagent has a list of its own. Returns the whole list with the task ids.',
+      'Keep your plan for this session in this list: add each step of a task with more than one step, set a task to in_progress when you start it and to completed when it is done, with task_update. When the plan changes, put the tasks in the order of the work with task_move.',
+      'The person sees the list of the main loop in /task and in the task pane, and can add or remove tasks. A message that starts with [task-pane] says that the person changed the list.',
       TRACKER_TEXT_IS_DATA,
     ].join(' '),
     inputSchema: {
@@ -55,7 +61,7 @@ const TOOLS: readonly ToolSpec[] = [
   {
     name: 'task_update',
     description:
-      'Set the status of one task in the session task list, or remove it with status "removed". Returns the whole list.',
+      'Set the status of one task in your task list, or remove it with status "removed". Returns the whole list.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -68,9 +74,24 @@ const TOOLS: readonly ToolSpec[] = [
     isDeferred: false,
   },
   {
+    name: 'task_move',
+    description:
+      'Move one task before another task in your task list, so the list keeps the order in which you do the work. Task ids do not change. Returns the whole list.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'The id of the task to move.' },
+        before: { type: 'integer', description: 'The id of the task that it goes before.' },
+      },
+      required: ['id', 'before'],
+      additionalProperties: false,
+    },
+    isDeferred: false,
+  },
+  {
     name: 'task_list',
     description: [
-      'Show the session task list: each task id, status, author and title. The author is you for a task that the person added, claude for a task that you added, and tracker for a tracker item that the person added.',
+      'Show your task list in the order of the work: each task id, status, author and title. The author is you for a task that the person added, claude for a task that you added, and tracker for a tracker item that the person added.',
       TRACKER_TEXT_IS_DATA,
     ].join(' '),
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -86,22 +107,28 @@ export const PROMPT_SECTION_TEXT = [
   `A message that starts with [task-pane] says that the person changed the list. Follow the list that it shows. ${TRACKER_TEXT_IS_DATA}`,
 ].join('\n\n')
 
+type ListWrite = (step: (current: TaskPaneList | undefined) => TaskPaneList) => Promise<unknown>
+
+function listEditor(write: ListWrite): TaskHost['edit'] {
+  return async <T,>(change: ListEdit<T>) => {
+    let outcome: { value: T } | undefined
+    await write((current) => {
+      const changed = change(current ?? EMPTY_LIST)
+      outcome = { value: changed.value }
+      return changed.list
+    })
+    if (!outcome) throw new Error('task-pane: the state update never ran the change')
+    return outcome.value
+  }
+}
+
 function hostOf($: EngineInterface): TaskHost {
   return {
     read: async () => {
       const { value } = await $.state.get({ plugin: 'task-pane', key: 'list' })
       return value
     },
-    edit: async <T,>(change: ListEdit<T>) => {
-      let outcome: { value: T } | undefined
-      await update($, { plugin: 'task-pane', key: 'list' }, (current) => {
-        const changed = change(current ?? EMPTY_LIST)
-        outcome = { value: changed.value }
-        return changed.list
-      })
-      if (!outcome) throw new Error('task-pane: the state update never ran the change')
-      return outcome.value
-    },
+    edit: listEditor((step) => update($, { plugin: 'task-pane', key: 'list' }, step)),
     snapshot: async () => {
       const { value } = await $.state.get({ plugin: 'workitems', key: 'snapshot' })
       return value
@@ -126,6 +153,57 @@ function hostOf($: EngineInterface): TaskHost {
   }
 }
 
+function modelHostOf($: EngineInterface, agentId: string | undefined): TaskHost {
+  if (agentId === undefined) return hostOf($)
+  const read = async () => {
+    const { value } = await $.state.get({ plugin: 'task-pane', key: 'agentList', id: agentId })
+    return value
+  }
+  const edit = listEditor((step) =>
+    update($, { plugin: 'task-pane', key: 'agentList', id: agentId }, step),
+  )
+  return {
+    ...hostOf($),
+    read,
+    edit: async (change) => {
+      if ((await read()) === undefined) {
+        const unchanged = change(EMPTY_LIST)
+        if (unchanged.list === EMPTY_LIST) return unchanged.value
+      }
+      return edit(change)
+    },
+  }
+}
+
+async function claimAgentList(
+  $: EngineInterface,
+  agentId: string | undefined,
+): Promise<string | undefined> {
+  if (agentId === undefined) return undefined
+  let refusal: string | undefined
+  await update($, AGENT_IDS, (current = []) => {
+    refusal = undefined
+    if (current.includes(agentId)) return current
+    if (current.length >= MAX_AGENT_LISTS) {
+      refusal = `the session keeps the task lists of ${String(MAX_AGENT_LISTS)} agents. Keep this plan in your reply.`
+      return current
+    }
+    return [...current, agentId]
+  })
+  return refusal
+}
+
+async function resetAgentLists($: EngineInterface): Promise<void> {
+  let agentIds: readonly string[] = []
+  await update($, AGENT_IDS, (current = []) => {
+    agentIds = current
+    return []
+  })
+  for (const id of agentIds) {
+    await $.state.set({ plugin: 'task-pane', key: 'agentList', id }, EMPTY_LIST)
+  }
+}
+
 function uiOf($: EngineInterface): PaneUi {
   return {
     open: (id, title) => $.ui.open({ id, title }),
@@ -146,12 +224,20 @@ async function listResult(host: TaskHost, lead: string): Promise<string> {
   return withTrackerNotice(lead === '' ? shown : `${lead}\n\n${shown}`, list.tasks)
 }
 
-async function modelAdd(host: TaskHost, title: unknown) {
+function knownIds(numbers: string): string {
+  return numbers === '' ? 'The list is empty.' : `The ids are ${numbers}.`
+}
+
+async function modelAdd(host: TaskHost, title: unknown, claim: () => Promise<string | undefined>) {
   if (typeof title !== 'string' || title.trim() === '') {
     return {
       deny: 'task_add needs a title: a non-empty string, for example {"title": "Write the tests"}.',
     }
   }
+  const tried = addTask(EMPTY_LIST, title.trim(), { by: 'model', item: null })
+  if ('refusal' in tried) return { deny: `task_add refused: ${tried.refusal}` }
+  const unclaimed = await claim()
+  if (unclaimed !== undefined) return { deny: `task_add refused: ${unclaimed}` }
   const outcome = await host.edit((list) => {
     const added = addTask(list, title.trim(), { by: 'model', item: null })
     return { list: 'refusal' in added ? list : added.list, value: added }
@@ -177,12 +263,41 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown) {
     return { list: next, value: { found: true, numbers: '' } }
   })
   if (!outcome.found) {
-    const known = outcome.numbers === '' ? 'The list is empty.' : `The ids are ${outcome.numbers}.`
-    return { deny: `No task ${String(id)}. ${known} Call task_list to see them.` }
+    return {
+      deny: `No task ${String(id)}. ${knownIds(outcome.numbers)} Call task_list to see them.`,
+    }
   }
   const lead =
     status === REMOVED ? `Removed task ${String(id)}.` : `Task ${String(id)} is now ${status}.`
   return { result: await listResult(host, lead) }
+}
+
+async function modelMove(host: TaskHost, id: unknown, before: unknown) {
+  if (
+    typeof id !== 'number' ||
+    !Number.isInteger(id) ||
+    typeof before !== 'number' ||
+    !Number.isInteger(before)
+  ) {
+    return {
+      deny: `task_move needs id and before: the integer task ids that task_list shows, ${MOVE_EXAMPLE}.`,
+    }
+  }
+  if (id === before) return { deny: `task_move needs two different task ids, ${MOVE_EXAMPLE}.` }
+  const outcome = await host.edit<{ missing: number | undefined; numbers: string }>((list) => {
+    const missing = [id, before].find((one) => !findTask(list, one))
+    if (missing !== undefined) return { list, value: { missing, numbers: numbersText(list) } }
+    return { list: moveTask(list, id, before), value: { missing, numbers: '' } }
+  })
+  if (outcome.missing !== undefined) {
+    const known = knownIds(outcome.numbers)
+    return {
+      deny: `No task ${String(outcome.missing)}. ${known} Call task_list, then task_move with two of its ids, ${MOVE_EXAMPLE}.`,
+    }
+  }
+  return {
+    result: await listResult(host, `Moved task ${String(id)} before task ${String(before)}.`),
+  }
 }
 
 function toolFailed($: EngineInterface, tool: string, error: HookFailure): { deny: string } {
@@ -208,7 +323,10 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear') await resetList(hostOf($))
+    if (e.reason === 'clear') {
+      await resetList(hostOf($))
+      await resetAgentLists($)
+    }
     return next(e)
   })
 
@@ -223,14 +341,17 @@ export const register: Register = (on, options) => {
     }
   })
 
-  on('tool.call', { tool: TOOL_ADD }, ($, e) => modelAdd(hostOf($), e.title)).catch(($, e, next) =>
-    toolFailed($, e.tool, next.error),
-  )
-  on('tool.call', { tool: TOOL_UPDATE }, ($, e) => modelUpdate(hostOf($), e.id, e.status)).catch(
-    ($, e, next) => toolFailed($, e.tool, next.error),
-  )
-  on('tool.call', { tool: TOOL_LIST }, async ($) => ({
-    result: await listResult(hostOf($), ''),
+  on('tool.call', { tool: TOOL_ADD }, ($, e) =>
+    modelAdd(modelHostOf($, e.agentId), e.title, () => claimAgentList($, e.agentId)),
+  ).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_UPDATE }, ($, e) =>
+    modelUpdate(modelHostOf($, e.agentId), e.id, e.status),
+  ).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_MOVE }, ($, e) =>
+    modelMove(modelHostOf($, e.agentId), e.id, e.before),
+  ).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_LIST }, async ($, e) => ({
+    result: await listResult(modelHostOf($, e.agentId), ''),
   })).catch(($, e, next) => toolFailed($, e.tool, next.error))
 
   on('command.run', { command: 'task' }, async ($, e) => {

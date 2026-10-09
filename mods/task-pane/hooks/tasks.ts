@@ -47,6 +47,8 @@ export const MAX_TITLE_LENGTH = 200
 
 export const MAX_TASKS = 100
 
+export const MAX_AGENT_LISTS = 100
+
 const LINE_SEPARATORS = new Set([0x2028, 0x2029])
 
 function isControlCode(code: number): boolean {
@@ -173,6 +175,14 @@ export function removeTask(list: TaskPaneList, id: number): TaskPaneList {
   return { ...list, tasks: list.tasks.filter((task) => task.id !== id) }
 }
 
+export function moveTask(list: TaskPaneList, id: number, before: number): TaskPaneList {
+  const task = findTask(list, id)
+  const rest = list.tasks.filter((other) => other.id !== id)
+  const at = rest.findIndex((other) => other.id === before)
+  if (!task || at === -1) return list
+  return { ...list, tasks: [...rest.slice(0, at), task, ...rest.slice(at)] }
+}
+
 export function doneCount(list: TaskPaneList): number {
   return list.tasks.filter((task) => task.status === 'completed').length
 }
@@ -185,7 +195,7 @@ export function numbersText(list: TaskPaneList): string {
     if (start === undefined || previous === undefined) return
     ranges.push(start === previous ? String(start) : `${String(start)}-${String(previous)}`)
   }
-  for (const { id } of list.tasks) {
+  for (const id of list.tasks.map((task) => task.id).sort((a, b) => a - b)) {
     if (previous !== undefined && id === previous + 1) {
       previous = id
       continue
