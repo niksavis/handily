@@ -1,9 +1,10 @@
 # reply-view
 
 `reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
-30 lines folds to its first lines. A markdown table draws without box lines. Each table and each
-fenced code block gets a `copy` button. `/replies` switches the view off and on for the session.
-The model still reads the full reply. Only the screen changes.
+30 lines folds to its first lines. A markdown table draws with dim rules between its columns and
+under its header, and without a box around it. Each table and each fenced code block gets a
+`copy` button. `/replies` switches the view off and on for the session. The model still reads the
+full reply. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3.
 
@@ -39,35 +40,39 @@ buttons at the right edge:
 
 ## A table
 
-A table loses its box lines. The columns stay aligned, the header is bold, each heading is
-underlined, and a column that the table aligns to the right stays right-aligned. The underline
-covers the text of each heading, not the space between the columns, and it adds no line. The
-`copy` and `copy as text` buttons stand on the header line when they fit after the headings:
+A table loses its box. The columns stay aligned, the header is bold, and a column that the table
+aligns to the right stays right-aligned. A dim `│` stands between the columns on every line, and a
+dim `─` line with a `┼` at each column stands under the header. The rules span the width of the
+table, not the width of the screen. Each rule character takes one column, so the rules do not
+change the widths of the columns. The `copy` and `copy as text` buttons stand on the header line
+when they fit after the headings:
 
 ```text
-  Mod           State      Next  [ copy ] [ copy as text ]
-  task-pane     released   follows the work
-  simple-view   released   click to expand
+  Mod         │ State    │ Next  [ copy ] [ copy as text ]
+  ────────────┼──────────┼─────────────────
+  task-pane   │ released │ follows the work
+  simple-view │ released │ click to expand
 ```
 
 When the table does not fit the width of the screen, a long cell wraps at the spaces inside its
 column, and the rows stay aligned. A column whose widest cell is 12 cells or less is short and
 keeps its width. Every other column is long. The long columns share the rest of the width by the
 width of their widest cell, and each long column gets at least 12 cells when the screen has room
-for that. When a cell wraps, one blank line separates the rows, so you can see where each row
-ends. A table where no cell wraps has no blank lines.
+for that. When a cell wraps, a dim dotted `┄` line separates the rows, so you can see where each
+row ends. A table where no cell wraps has no row rules.
 
 At 120 columns, a column of short phrases such as `Buttons on the header row` is long, so it
 wraps and gives its width to the other long columns:
 
 ```text
-  Change          Why                                                      Effect              [ copy ] [ copy as text ]
-  Buttons on      The buttons took a line of their own under every         A table that fits draws its buttons after the
-  the header      table, so a short table took one line more than it       headings, and the reply is one line shorter
-  row             needed
-
-  Wrapped cells   A wide table drew one block for each row, so the         Long cells wrap inside their columns and the
-                  reader lost the columns                                  rows stay aligned on a normal screen
+  Change        │ Why                                                    │ Effect              [ copy ] [ copy as text ]
+  ──────────────┼────────────────────────────────────────────────────────┼──────────────────────────────────────────────
+  Buttons on    │ The buttons took a line of their own under every       │ A table that fits draws its buttons after the
+  the header    │ table, so a short table took one line more than it     │ headings, and the reply is one line shorter
+  row           │ needed                                                 │
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Wrapped cells │ A wide table drew one block for each row, so the       │ Long cells wrap inside their columns and the
+                │ reader lost the columns                                │ rows stay aligned on a normal screen
 ```
 
 The view puts the buttons in the first of these places where they fit:
@@ -77,16 +82,20 @@ The view puts the buttons in the first of these places where they fit:
 3. A line of their own, under the table.
 
 A heading or a cell never moves and is never cut to make room for the buttons. The buttons end at
-the right edge of the table. A wrapped table at 80 columns puts them on its last row:
+the right edge of the table. The `│` rules on the last line count as its text, so the buttons fit
+on the last row only when that line ends early. At 80 columns, this table has no room on its
+header line or its last row, so the buttons go under it:
 
 ```text
-  Mod          Change                            Risk                      Owner
-  reply-view   Tables wrap their long cells      A wide table can still    Ana
-               inside their columns and keep     take many lines on a
-               the rows aligned                  narrow screen
-
-  task-pane    Each task tool call draws as      Low                       Bo
-               one row                                 [ copy ] [ copy as text ]
+  Mod        │ Change                          │ Risk                    │ Owner
+  ───────────┼─────────────────────────────────┼─────────────────────────┼──────
+  reply-view │ Tables wrap their long cells    │ A wide table can still  │ Ana
+             │ inside their columns and keep   │ take many lines on a    │
+             │ the rows aligned                │ narrow screen           │
+  ┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄
+  task-pane  │ Each task tool call draws as    │ Low                     │ Bo
+             │ one row                         │                         │
+                                                     [ copy ] [ copy as text ]
 ```
 
 A screen narrower than 40 columns draws each row as a block. The view also draws blocks when a

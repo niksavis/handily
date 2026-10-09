@@ -1,7 +1,11 @@
 import { copiedCell, plainCell, shownText, type Alignment, type Table } from './markdown'
 import { cutToWidth, displayWidth, graphemesOf, padToWidth } from './width'
 
-export const COLUMN_GAP = 3
+const COLUMN_RULE = '│'
+export const HEADER_RULE = '─'
+export const ROW_RULE = '┄'
+const RULE_CROSSING = '┼'
+const COLUMN_GAP = displayWidth(` ${COLUMN_RULE} `)
 const LONG_COLUMN_CELLS_AT_LEAST = 12
 const COLUMN_CELLS_AT_LEAST = 6
 
@@ -147,44 +151,50 @@ function alignedLines(
   )
 }
 
-export function linesOf(
-  look: TableLook,
-  widths: readonly number[],
-  cells: readonly string[],
-): string[] {
-  return alignedLines(look, widths, cells).map((line) =>
-    line.join(' '.repeat(COLUMN_GAP)).trimEnd(),
-  )
-}
-
-export function headerLines(look: TableLook, widths: readonly number[]): string[] {
-  return linesOf(look, widths, look.header)
-}
-
-export type Span = { text: string; isCell: boolean }
+export type Span = { text: string; kind: 'cell' | 'space' | 'rule' }
 
 function spansOf(line: readonly string[]): Span[] {
   const spans: Span[] = []
   const addSpace = (text: string) => {
     const last = spans.at(-1)
     if (text === '') return
-    if (last?.isCell === false) last.text += text
-    else spans.push({ text, isCell: false })
+    if (last?.kind === 'space') last.text += text
+    else spans.push({ text, kind: 'space' })
   }
   for (const [index, cell] of line.entries()) {
-    if (index > 0) addSpace(' '.repeat(COLUMN_GAP))
+    if (index > 0) {
+      addSpace(' ')
+      spans.push({ text: COLUMN_RULE, kind: 'rule' })
+      addSpace(' ')
+    }
     const lead = cell.length - cell.trimStart().length
     const text = cell.trim()
     addSpace(cell.slice(0, lead))
-    if (text !== '') spans.push({ text, isCell: true })
+    if (text !== '') spans.push({ text, kind: 'cell' })
     addSpace(cell.slice(lead + text.length))
   }
-  if (spans.at(-1)?.isCell === false) spans.pop()
+  if (spans.at(-1)?.kind === 'space') spans.pop()
   return spans
 }
 
-export function headerSpans(look: TableLook, widths: readonly number[]): Span[][] {
-  return alignedLines(look, widths, look.header).map(spansOf)
+export function spanLines(
+  look: TableLook,
+  widths: readonly number[],
+  cells: readonly string[],
+): Span[][] {
+  return alignedLines(look, widths, cells).map(spansOf)
+}
+
+export function linesOf(
+  look: TableLook,
+  widths: readonly number[],
+  cells: readonly string[],
+): string[] {
+  return spanLines(look, widths, cells).map((spans) => spans.map((span) => span.text).join(''))
+}
+
+export function ruleLine(widths: readonly number[], rule: string): string {
+  return widths.map((width) => rule.repeat(width)).join(`${rule}${RULE_CROSSING}${rule}`)
 }
 
 export function rowTitle(row: readonly string[], index: number): string {

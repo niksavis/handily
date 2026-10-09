@@ -4,11 +4,13 @@ import { shownText, type Block, type Fence, type Prose, type Table } from './mar
 import {
   columnWidths,
   fieldsOf,
-  headerLines,
-  headerSpans,
+  HEADER_RULE,
   labelWidth,
   linesOf,
+  ROW_RULE,
+  ruleLine,
   rowTitle,
+  spanLines,
   tableLook,
   tableWidth,
   textCopy,
@@ -153,17 +155,18 @@ function boldLine(context: Context, text: string, key: string, wrap?: 'truncate-
   return Box({ key, flexShrink: 1, children: Text({ bold: true, wrap, children: text }) })
 }
 
-function headingLine(context: Context, spans: readonly Span[], key: string) {
+function tableLine(context: Context, spans: readonly Span[], key: string, isHeader: boolean) {
   const { Box, Text } = context.elements
-  const children = spans.map((span) =>
-    span.isCell ? Text({ underline: true, children: span.text }) : span.text,
-  )
-  return Box({ key, flexShrink: 1, children: Text({ bold: true, wrap: 'truncate-end', children }) })
+  const children = spans.map((span) => {
+    if (span.kind === 'rule') return Text({ dimColor: true, children: span.text })
+    return isHeader && span.kind === 'cell' ? Text({ bold: true, children: span.text }) : span.text
+  })
+  return Box({ key, flexShrink: 1, children: Text({ wrap: 'truncate-end', children }) })
 }
 
-function plainLine(context: Context, text: string, key: string) {
+function ruleRow(context: Context, text: string, key: string) {
   const { Box, Text } = context.elements
-  return Box({ key, children: Text({ wrap: 'truncate-end', children: text }) })
+  return Box({ key, children: Text({ dimColor: true, wrap: 'truncate-end', children: text }) })
 }
 
 type ButtonsPlace = 'header' | 'last-row' | 'under'
@@ -191,11 +194,12 @@ function columnsPiece(
   const buttons = tableButtons(context, table, key)
   const room = buttons.columns + BUTTONS_GAP
   const width = tableWidth(widths)
-  const header = headerLines(look, widths)
-  const spans = headerSpans(look, widths)
+  const header = linesOf(look, widths, look.header)
+  const headerSpans = spanLines(look, widths, look.header)
+  const rowSpans = look.rows.map((row) => spanLines(look, widths, row))
   const rows = look.rows.map((row) => linesOf(look, widths, row))
   const isWrapped = [header, ...rows].some((lines) => lines.length > 1)
-  const rowGap = isWrapped ? 1 : 0
+  const linesBetweenRows = isWrapped ? 1 : 0
   const place = buttonsPlace(context, room, header, rows)
   const withButtons = (text: RenderElement, line: string) =>
     lineWithButtons(
@@ -204,39 +208,50 @@ function columnsPiece(
       buttons,
       Math.min(context.width, Math.max(width, displayWidth(line) + room)),
     )
-  const heading = header.map((line, index) => {
-    const text = headingLine(
-      context,
-      spans[index] ?? [],
-      index === 0 ? 'header' : `header-${String(index)}`,
-    )
-    return index === 0 && place === 'header' ? withButtons(text, line) : text
-  })
+  const heading = [
+    ...headerSpans.map((spans, index) => {
+      const text = tableLine(
+        context,
+        spans,
+        index === 0 ? 'header' : `header-${String(index)}`,
+        true,
+      )
+      return index === 0 && place === 'header' ? withButtons(text, header[0] ?? '') : text
+    }),
+    ruleRow(context, ruleLine(widths, HEADER_RULE), 'header-rule'),
+  ]
   const lastRow = rows.length - 1
-  const drawnRows = rows.map((lines, index) =>
+  const drawnRows = rowSpans.map((lines, index) =>
     Box({
       key: `row-${String(index)}`,
       flexDirection: 'column',
-      children: lines.map((line, lineIndex) => {
-        const text = plainLine(context, line, `line-${String(lineIndex)}`)
+      children: lines.map((spans, lineIndex) => {
+        const text = tableLine(context, spans, `line-${String(lineIndex)}`, false)
         const isLast = index === lastRow && lineIndex === lines.length - 1
-        return place === 'last-row' && isLast ? withButtons(text, line) : text
+        return place === 'last-row' && isLast
+          ? withButtons(text, rows[index]?.[lineIndex] ?? '')
+          : text
       }),
     }),
   )
+  const rowRule = ruleLine(widths, ROW_RULE)
+  const ruled = (shown: readonly RenderElement[]) =>
+    shown.flatMap((row, index) =>
+      index > 0 && isWrapped ? [ruleRow(context, rowRule, `rule-${String(index)}`), row] : [row],
+    )
   const under = place === 'under' ? [lineWithButtons(context, null, buttons, width)] : []
-  const rowsBox = (shown: RenderElement[]) =>
-    Box({ key: 'rows', flexDirection: 'column', gap: rowGap, children: shown })
+  const rowsBox = (shown: readonly RenderElement[]) =>
+    Box({ key: 'rows', flexDirection: 'column', children: ruled(shown) })
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
-  const gaps = rowGap * Math.max(rows.length - 1, 0)
+  const rowRules = linesBetweenRows * Math.max(rows.length - 1, 0)
   return {
-    rows: heading.length + sum(rows.map((lines) => lines.length)) + gaps + under.length,
+    rows: heading.length + sum(rows.map((lines) => lines.length)) + rowRules + under.length,
     whole: () => column([...heading, rowsBox(drawnRows), ...under]),
     cut: (budget) => {
       let used = heading.length
       let count = 0
       for (const lines of rows) {
-        const needed = lines.length + (count > 0 ? rowGap : 0)
+        const needed = lines.length + (count > 0 ? linesBetweenRows : 0)
         if (used + needed > budget) break
         used += needed
         count += 1

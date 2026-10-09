@@ -1,5 +1,6 @@
 import type { On, RenderPropsOf, UiCopyResult } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
+import { displayWidth } from './hooks/width'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -242,13 +243,21 @@ const CHANGES_TABLE = [
   '| Wrapped cells | A wide table drew one block for each row, so the reader lost the columns | Long cells wrap inside their columns and the rows stay aligned on a normal screen |',
 ].join('\n')
 
-function placed(parts: readonly (readonly [number, string])[]): string {
-  return parts.reduce((line, [column, text]) => line.padEnd(column) + text, '')
+const RULE_CHARACTERS = ['─', '│', '┼', '┄'] as const
+
+function ruled(line: string): string {
+  return line.split('│').join('~│~')
 }
 
-function underlinedHeading(parts: readonly (readonly [number, string])[]): string {
-  const marks = '_'.length * 2
-  return `*${placed(parts.map(([column, text], index) => [column + marks * index, `_${text}_`] as const))}*`
+function headed(line: string): string {
+  return line
+    .split('│')
+    .map((cell) => (cell.trim() === '' ? cell : cell.replace(cell.trim(), `*${cell.trim()}*`)))
+    .join('~│~')
+}
+
+function dim(line: string): string {
+  return `~${line}~`
 }
 
 const FAMILY = '👨\u200d👩\u200d👧'
@@ -390,22 +399,29 @@ describe('long reply', () => {
 
 describe('tables', () => {
   viewTest(
-    'a table that fits draws without box lines or blank lines, with a bold header of underlined cells',
+    'a table that fits draws dim column rules and a dim header rule under a bold header, and no row rules',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE))
       expect(await sketchOf(ui)).toEqual([
         '● The state of the mods:',
         '',
-        '  *_Mod_           _State_      _Next_*  [ copy ] [ copy as text ]',
-        '  task-pane     released   follows the work',
-        '  simple-view   released   click to expand',
+        `  ${headed('Mod         │ State    │ Next')}  [ copy ] [ copy as text ]`,
+        `  ${dim('────────────┼──────────┼─────────────────')}`,
+        `  ${ruled('task-pane   │ released │ follows the work')}`,
+        `  ${ruled('simple-view │ released │ click to expand')}`,
       ])
       const header = await ui.find({ key: 'header' })
-      expect(header?.text).toBe('Mod           State      Next')
-      expect((await ui.find({ type: 'Text', text: 'Mod' }))?.props.bold).toBe(true)
+      expect(header?.text).toBe('Mod         │ State    │ Next')
+      const heading = await ui.find({ type: 'Text', text: /^Mod$/ })
+      expect(heading?.props.bold).toBe(true)
+      expect(heading?.props.underline).toBeUndefined()
       await ui.unmount()
     },
   )
+
+  test('every rule character of a table measures one column', () => {
+    expect(RULE_CHARACTERS.map((rule) => displayWidth(rule))).toEqual([1, 1, 1, 1])
+  })
 
   viewTest(
     'a table that does not fit 39 columns draws one block per row with the buttons on the first title',
@@ -449,12 +465,13 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 40)
       expect((await sketchOf(ui, 40)).slice(2)).toEqual([
-        '  *_Mod_           _State_      _Next_*',
-        '  task-pane     released   follows the',
-        `  ${placed([[25, 'work']])}`,
-        '',
-        '  simple-view   released   click to',
-        `  ${placed([[25, 'expand']])}`,
+        `  ${headed('Mod         │ State    │ Next')}`,
+        `  ${dim('────────────┼──────────┼──────────────')}`,
+        `  ${ruled('task-pane   │ released │ follows the')}`,
+        `  ${ruled('            │          │ work')}`,
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
+        `  ${ruled('simple-view │ released │ click to')}`,
+        `  ${ruled('            │          │ expand')}`,
         `  ${' '.repeat(38 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
@@ -462,41 +479,31 @@ describe('tables', () => {
   )
 
   viewTest(
-    'a wrapped table at 80 columns keeps every heading on one line and puts the buttons on its last row',
+    'a wrapped table at 80 columns separates its rows by a dotted rule and copies no rule characters',
     async (world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE))
-      expect(await sketchOf(ui)).toEqual([
-        `● ${underlinedHeading([
-          [0, 'Mod'],
-          [13, 'Change'],
-          [47, 'Risk'],
-          [73, 'Owner'],
-        ])}`,
-        `  ${placed([
-          [0, 'reply-view'],
-          [13, 'Tables wrap their long cells'],
-          [47, 'A wide table can still'],
-          [73, 'Ana'],
-        ])}`,
-        `  ${placed([
-          [13, 'inside their columns and keep'],
-          [47, 'take many lines on a'],
-        ])}`,
-        `  ${placed([
-          [13, 'the rows aligned'],
-          [47, 'narrow screen'],
-        ])}`,
-        '',
-        `  ${placed([
-          [0, 'task-pane'],
-          [13, 'Each task tool call draws as'],
-          [47, 'Low'],
-          [73, 'Bo'],
-        ])}`,
-        `  ${placed([[13, 'one row']])}${' '.repeat(78 - 20 - 25)}[ copy ] [ copy as text ]`,
+      const drawn = await sketchOf(ui)
+      expect(drawn).toEqual([
+        `● ${headed('Mod        │ Change                          │ Risk                    │ Owner')}`,
+        `  ${dim('───────────┼─────────────────────────────────┼─────────────────────────┼──────')}`,
+        `  ${ruled('reply-view │ Tables wrap their long cells    │ A wide table can still  │ Ana')}`,
+        `  ${ruled('           │ inside their columns and keep   │ take many lines on a    │')}`,
+        `  ${ruled('           │ the rows aligned                │ narrow screen           │')}`,
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄')}`,
+        `  ${ruled('task-pane  │ Each task tool call draws as    │ Low                     │ Bo')}`,
+        `  ${ruled('           │ one row                         │                         │')}`,
+        `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
       ])
+      expect(RULE_CHARACTERS.filter((rule) => drawn.join('').includes(rule))).toEqual([
+        ...RULE_CHARACTERS,
+      ])
+      await ui.press({ key: 'block-0-copy' })
       await ui.press({ key: 'block-0-text' })
+      expect(
+        world.copies.filter((text) => RULE_CHARACTERS.some((rule) => text.includes(rule))),
+      ).toEqual([])
       expect(world.copies).toEqual([
+        LONG_TABLE,
         [
           'Mod: reply-view',
           'Change: Tables wrap their long cells inside their columns and keep the rows aligned',
@@ -514,33 +521,39 @@ describe('tables', () => {
   )
 
   viewTest(
+    'a wrapped table whose header line is full puts the buttons after the short last row',
+    async (_world, $) => {
+      const table = [
+        '| Name | What the view does with a column of twelve cells or less while a long column wraps |',
+        '| --- | --- |',
+        '| twelve-cells | The view keeps a column of twelve cells or less at its natural width |',
+        '| short | x |',
+      ].join('\n')
+      const ui = await mountReply($, reply(table))
+      expect(await sketchOf(ui)).toEqual([
+        `● ${headed('Name         │ What the view does with a column of twelve cells or less while')}`,
+        `  ${headed('             │ a long column wraps')}`,
+        `  ${dim('─────────────┼────────────────────────────────────────────────────────────────')}`,
+        `  ${ruled('twelve-cells │ The view keeps a column of twelve cells or less at its natural')}`,
+        `  ${ruled('             │ width')}`,
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
+        edges(`  ${ruled('short        │ x')}`, '[ copy ] [ copy as text ]'),
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
     'a wrapped table at 120 columns whose last row is full puts the buttons on a line under it',
     async (_world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE), 'terminal', 120)
       expect(await sketchOf(ui, 120)).toEqual([
-        `● ${underlinedHeading([
-          [0, 'Mod'],
-          [13, 'Change'],
-          [69, 'Risk'],
-          [113, 'Owner'],
-        ])}`,
-        `  ${placed([
-          [0, 'reply-view'],
-          [13, 'Tables wrap their long cells inside their columns and'],
-          [69, 'A wide table can still take many lines on'],
-          [113, 'Ana'],
-        ])}`,
-        `  ${placed([
-          [13, 'keep the rows aligned'],
-          [69, 'a narrow screen'],
-        ])}`,
-        '',
-        `  ${placed([
-          [0, 'task-pane'],
-          [13, 'Each task tool call draws as one row'],
-          [69, 'Low'],
-          [113, 'Bo'],
-        ])}`,
+        `● ${headed('Mod        │ Change                                                │ Risk                                      │ Owner')}`,
+        `  ${dim('───────────┼───────────────────────────────────────────────────────┼───────────────────────────────────────────┼──────')}`,
+        `  ${ruled('reply-view │ Tables wrap their long cells inside their columns and │ A wide table can still take many lines on │ Ana')}`,
+        `  ${ruled('           │ keep the rows aligned                                 │ a narrow screen                           │')}`,
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄')}`,
+        `  ${ruled('task-pane  │ Each task tool call draws as one row                  │ Low                                       │ Bo')}`,
         `  ${' '.repeat(118 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
@@ -553,38 +566,17 @@ describe('tables', () => {
       const ui = await mountReply($, reply(CHANGES_TABLE), 'terminal', 120)
       expect(await sketchOf(ui, 120)).toEqual([
         edges(
-          `● ${underlinedHeading([
-            [0, 'Change'],
-            [16, 'Why'],
-            [73, 'Effect'],
-          ])}`,
+          `● ${headed('Change        │ Why                                                    │ Effect')}`,
           '[ copy ] [ copy as text ]',
           120,
         ),
-        `  ${placed([
-          [0, 'Buttons on'],
-          [16, 'The buttons took a line of their own under every'],
-          [73, 'A table that fits draws its buttons after the'],
-        ])}`,
-        `  ${placed([
-          [0, 'the header'],
-          [16, 'table, so a short table took one line more than it'],
-          [73, 'headings, and the reply is one line shorter'],
-        ])}`,
-        `  ${placed([
-          [0, 'row'],
-          [16, 'needed'],
-        ])}`,
-        '',
-        `  ${placed([
-          [0, 'Wrapped cells'],
-          [16, 'A wide table drew one block for each row, so the'],
-          [73, 'Long cells wrap inside their columns and the'],
-        ])}`,
-        `  ${placed([
-          [16, 'reader lost the columns'],
-          [73, 'rows stay aligned on a normal screen'],
-        ])}`,
+        `  ${dim('──────────────┼────────────────────────────────────────────────────────┼──────────────────────────────────────────────')}`,
+        `  ${ruled('Buttons on    │ The buttons took a line of their own under every       │ A table that fits draws its buttons after the')}`,
+        `  ${ruled('the header    │ table, so a short table took one line more than it     │ headings, and the reply is one line shorter')}`,
+        `  ${ruled('row           │ needed                                                 │')}`,
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
+        `  ${ruled('Wrapped cells │ A wide table drew one block for each row, so the       │ Long cells wrap inside their columns and the')}`,
+        `  ${ruled('              │ reader lost the columns                                │ rows stay aligned on a normal screen')}`,
       ])
       await ui.unmount()
     },
@@ -601,24 +593,19 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        edges(
-          `● ${underlinedHeading([
-            [0, 'Name'],
-            [15, 'Note'],
-          ])}`,
-          '[ copy ] [ copy as text ]',
-        ),
-        '  twelve-cells   The view keeps a column of twelve cells or less at its natural',
-        `  ${placed([[15, 'width while the long column wraps inside its own width']])}`,
-        '',
-        '  short          x',
+        edges(`● ${headed('Name         │ Note')}`, '[ copy ] [ copy as text ]'),
+        `  ${dim('─────────────┼────────────────────────────────────────────────────────────────')}`,
+        `  ${ruled('twelve-cells │ The view keeps a column of twelve cells or less at its natural')}`,
+        `  ${ruled('             │ width while the long column wraps inside its own width')}`,
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
+        `  ${ruled('short        │ x')}`,
       ])
       await ui.unmount()
     },
   )
 
   viewTest(
-    'a table whose cells are all 12 cells or less keeps its natural widths and draws no blank lines',
+    'a table whose cells are all 12 cells or less keeps its natural widths and draws no row rules',
     async (_world, $) => {
       const table = [
         '| Step | Lint | Test | Ship |',
@@ -628,37 +615,36 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        `● ${underlinedHeading([
-          [0, 'Step'],
-          [15, 'Lint'],
-          [25, 'Test'],
-          [34, 'Ship'],
-        ])}  [ copy ] [ copy as text ]`,
-        '  build-checks   passed    passed   passed',
-        '  release-note   skipped   failed   skipped',
+        `● ${headed('Step         │ Lint    │ Test   │ Ship')}  [ copy ] [ copy as text ]`,
+        `  ${dim('─────────────┼─────────┼────────┼────────')}`,
+        `  ${ruled('build-checks │ passed  │ passed │ passed')}`,
+        `  ${ruled('release-note │ skipped │ failed │ skipped')}`,
       ])
       await ui.unmount()
     },
   )
 
   viewTest(
-    'a table of a header and 29 rows takes 30 lines and does not fold',
+    'a table of a header, its rule and 28 rows takes 30 lines and does not fold',
     async (_world, $) => {
-      const rows = Array.from({ length: 29 }, (_, index) => `| row ${String(index + 1)} | ok |`)
+      const rows = Array.from({ length: 28 }, (_, index) => `| row ${String(index + 1)} | ok |`)
       const ui = await mountReply(
         $,
         reply(['| Name | State |', '| --- | --- |', ...rows].join('\n')),
       )
       const drawn = await sketchOf(ui)
       expect(drawn).toHaveLength(30)
-      expect(drawn[0]).toBe('● *_Name_     _State_*  [ copy ] [ copy as text ]')
-      expect(drawn.at(-1)).toBe('  row 29   ok')
+      expect(drawn.slice(0, 2)).toEqual([
+        `● ${headed('Name   │ State')}  [ copy ] [ copy as text ]`,
+        `  ${dim('───────┼──────')}`,
+      ])
+      expect(drawn.at(-1)).toBe(`  ${ruled('row 28 │ ok')}`)
       await ui.unmount()
     },
   )
 
   viewTest(
-    'a wrapped table counts the blank line between its rows when it folds',
+    'a wrapped table counts the header rule and the rule between its rows when it folds',
     async (_world, $) => {
       const rows = Array.from(
         { length: 11 },
@@ -671,18 +657,19 @@ describe('tables', () => {
         40,
       )
       const drawn = await sketchOf(ui, 40)
-      expect(drawn.slice(0, 5)).toEqual([
-        '● *_Mod_           _State_      _Next_*',
-        '  row 1 name    released   follows the',
-        `  ${placed([[25, 'work']])}`,
-        '',
-        '  row 2 name    released   follows the',
+      expect(drawn.slice(0, 6)).toEqual([
+        `● ${headed('Mod         │ State    │ Next')}`,
+        `  ${dim('────────────┼──────────┼──────────────')}`,
+        `  ${ruled('row 1 name  │ released │ follows the')}`,
+        `  ${ruled('            │          │ work')}`,
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
+        `  ${ruled('row 2 name  │ released │ follows the')}`,
       ])
-      expect(drawn.slice(27)).toEqual([
-        '',
-        '  row 10 name   released   follows the',
-        `  ${placed([[25, 'work']])}`,
-        edges('  ~… 4 more lines~', '[ more ] [ copy ]', 40),
+      expect(drawn.slice(25)).toEqual([
+        `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
+        `  ${ruled('row 9 name  │ released │ follows the')}`,
+        `  ${ruled('            │          │ work')}`,
+        edges('  ~… 7 more lines~', '[ more ] [ copy ]', 40),
       ])
       await ui.unmount()
     },
@@ -714,10 +701,11 @@ describe('tables', () => {
   viewTest('keeps a column right-aligned when the table says so', async (_world, $) => {
     const table = ['| Mod | Tests |', '| :-- | --: |', '| a | 7 |', '| b | 140 |'].join('\n')
     const ui = await mountReply($, reply(table))
-    expect((await sketchOf(ui)).slice(0, 3)).toEqual([
-      '● *_Mod_   _Tests_*  [ copy ] [ copy as text ]',
-      '  a         7',
-      '  b       140',
+    expect((await sketchOf(ui)).slice(0, 4)).toEqual([
+      `● ${headed('Mod │ Tests')}  [ copy ] [ copy as text ]`,
+      `  ${dim('────┼──────')}`,
+      `  ${ruled('a   │     7')}`,
+      `  ${ruled('b   │   140')}`,
     ])
     await ui.unmount()
   })
@@ -735,11 +723,12 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        '● *_Path_          _Glob_*  [ copy ] [ copy as text ]',
-        '  __init__.py   **/*.ts',
-        '  ~~x~~         [x](y)',
-        '  C:\\*          bold code',
-        '  a | b         docs',
+        `● ${headed('Path        │ Glob')}  [ copy ] [ copy as text ]`,
+        `  ${dim('────────────┼──────────')}`,
+        `  ${ruled('__init__.py │ **/*.ts')}`,
+        `  ${ruled('~~x~~       │ [x](y)')}`,
+        `  ${ruled('C:\\*        │ bold code')}`,
+        `  ${ruled('a | b       │ docs')}`,
       ])
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual([
@@ -797,8 +786,9 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(text))
       expect(await sketchOf(ui)).toEqual([
-        '● *_Name_      _Value_*  [ copy ] [ copy as text ]',
-        '  example   ok',
+        `● ${headed('Name    │ Value')}  [ copy ] [ copy as text ]`,
+        `  ${dim('────────┼──────')}`,
+        `  ${ruled('example │ ok')}`,
         '',
         `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
         '  echo a | cat',
@@ -834,14 +824,15 @@ describe('tables', () => {
       `| family | ${FAMILY} | ok |`,
     ].join('\n')
     const ui = await mountReply($, reply(text))
-    expect((await sketchOf(ui)).slice(0, 7)).toEqual([
-      '● *_Check_    _Result_   _Note_*  [ copy ] [ copy as text ]',
-      '  build    ✅       ok',
-      '  lint     ❌       ok',
-      '  ship     🚀       ok',
-      '  melt     🫠       ok',
-      '  warn     ⚠️       ok',
-      `  family   ${FAMILY}       ok`,
+    expect((await sketchOf(ui)).slice(0, 8)).toEqual([
+      `● ${headed('Check  │ Result │ Note')}  [ copy ] [ copy as text ]`,
+      `  ${dim('───────┼────────┼─────')}`,
+      `  ${ruled('build  │ ✅     │ ok')}`,
+      `  ${ruled('lint   │ ❌     │ ok')}`,
+      `  ${ruled('ship   │ 🚀     │ ok')}`,
+      `  ${ruled('melt   │ 🫠     │ ok')}`,
+      `  ${ruled('warn   │ ⚠️     │ ok')}`,
+      `  ${ruled(`family │ ${FAMILY}     │ ok`)}`,
     ])
     await ui.unmount()
   })
@@ -873,8 +864,9 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect((await sketchOf(ui)).slice(1)).toEqual([
-        '  #1     draft & https://x.example',
-        '  docs   5 * 3 < 4',
+        `  ${dim('─────┼──────────────────────────')}`,
+        `  ${ruled('#1   │ draft & https://x.example')}`,
+        `  ${ruled('docs │ 5 * 3 < 4')}`,
       ])
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual([
@@ -895,7 +887,7 @@ describe('tables', () => {
     async (world, $) => {
       const text = ['| Name | Value |', '| --- | --- |', '| zero\u200bwidth | ok |'].join('\n')
       const ui = await mountReply($, reply(text))
-      expect((await sketchOf(ui))[1]).toBe('  zero\\u200bwidth   ok')
+      expect((await sketchOf(ui))[2]).toBe(`  ${ruled('zero\\u200bwidth │ ok')}`)
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual(['Name: zero\u200bwidth\nValue: ok'])
       await ui.unmount()
