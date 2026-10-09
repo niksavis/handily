@@ -1,19 +1,20 @@
 # simple-view
 
 `simple-view` draws one short row for each `Bash`, `Edit` and `Write` call in the transcript.
-`/simple` switches it off and on for the session. `/simple show N` prints one call in full. The
-model still reads the full tool result. Only the screen changes.
+A `Bash` row with output has a `more` button that opens the output under the row, and a `copy`
+button that copies it. `/simple` switches the view off and on for the session. `/simple show N`
+prints one call in full. The model still reads the full tool result. Only the screen changes.
 
 ```text
-● List the mods  ls  exit 0  7 lines  1.1s
-● List a missing folder  ls  exit 2  ls: cannot access '/nonexistent-folder': No such file or directory  0.4s
+● List the mods  ls  exit 0  7 lines  1.1s                                  [ more ] [ copy ]
+● List a missing folder  ls  exit 2  ls: cannot access '/nonexistent-folder': No such…  0.4s  [ more ] [ copy ]
 ● Append a probe line  printf  exit 0  0 lines  2.8s
   Updated README.md (+1 -0)
 ● Edit  src/app.ts  +2 -1
 ```
 
-The approved mocks are in `docs/mocks.md`, section 6. The design is in `docs/design.md`,
-section 4.8.
+The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
+`docs/design.md`, section 4.8.
 
 ## Install
 
@@ -30,7 +31,7 @@ three:
 
 | Call                  | Row                                                                  | Result block under it               |
 | --------------------- | -------------------------------------------------------------------- | ----------------------------------- |
-| `Bash`, running       | description, program, `running`, time since the call started         | as the engine draws it              |
+| `Bash`, running       | description, program, dim `running`, time since the call started     | as the engine draws it              |
 | `Bash`, no error      | description, program, `exit 0`, stdout line count, time              | one `Updated` line per changed file |
 | `Bash`, `Exit code N` | description, program, `exit N`, the first non-empty error line, time | empty                               |
 | `Edit`, `Write`       | tool, file path, added and removed line totals                       | empty                               |
@@ -70,6 +71,42 @@ three:
   update (for example, the old content was too large to diff), the row shows the path only,
   with no totals.
 
+## Open and copy the output
+
+A finished `Bash` row with output ends with two buttons. They stand at the right edge of the row,
+dim until the pointer is on them.
+
+```text
+● Run the unit tests  npm  exit 0  140 lines  3.0s                          [ more ] [ copy ]
+```
+
+`more` opens the output under the row, at most 20 lines. Then `all 140 lines` opens every line,
+and `less` on the row folds the output again:
+
+```text
+● Run the unit tests  npm  exit 0  140 lines  3.0s                          [ less ] [ copy ]
+  line 1
+  …
+  line 20
+  …
+  [ all 140 lines ]
+```
+
+- `copy` copies the full output of the call: stdout, then stderr. After `exit N` it copies the
+  error output under the `Error: Exit code N` line. A toast says how many lines it copied, or
+  why the copy failed.
+- When the engine saved a large output to a file, the row shows only the preview that the engine
+  kept. `copy` reads the saved file and copies all of it.
+- The opened lines are dim and never wrap: a long line is cut at the row end. `copy` keeps the
+  whole line. Colour codes are dropped, a line that a carriage return overwrote shows its last
+  part, a tab becomes spaces, and other hidden characters show as escapes such as `\u200b`.
+- `all N lines` draws at most 60000 characters. Then a dim line says how many lines it did not
+  draw, and `copy` still takes all of them.
+- A running call has `more` only. It opens the full command under the row, one dim line for
+  each command line. When the call ends, an opened row shows the output in place of the command.
+- Each row opens and folds alone. A call with no output and an `Edit` or `Write` row have no
+  buttons.
+
 ## When the engine row stays
 
 simple-view draws the engine row unchanged in each of these cases:
@@ -91,9 +128,14 @@ In the normal view the engine folds runs of read-only calls into one group line,
 it. The ctrl+o transcript unfolds the group, and each call there shows its simple-view row.
 
 When a folded group holds a call that failed, simple-view unfolds the group while its mode is
-on. Each call of the group then draws as its own row, so the failure is visible. A call that
-still runs does not unfold the group. When `quiet-items` also unfolds the group, the result is
-the same.
+on. Each call of the group then draws as its own row, so the failure is visible. When
+`quiet-items` also unfolds the group, the result is the same.
+
+While the live group holds a `Bash` call that runs in the foreground, simple-view also unfolds
+that group. The engine would draw the full command of the running call there, over many lines.
+The running call draws as one row instead, and its `more` button opens the command. When no call
+of the group runs, the group folds again to the line of the engine, unless a call of the group
+failed.
 
 ## Commands
 
@@ -104,7 +146,7 @@ the same.
 
 - `/simple show N` refuses a number outside the kept calls, and gives the valid range.
 - ctrl+o cannot expand a single row. The engine reuses the drawn row and does not call the mod
-  again. Use `/simple show N`.
+  again. Use `more` on the row, or `/simple show N`.
 
 ## Memory limit
 
@@ -118,6 +160,9 @@ reachable: `/simple show` refuses them, and an old row draws without its time. `
 no delete, so the mod writes each new call over a slot of the ended session. The 50 slots stay
 the upper limit. One small time record (three numbers) stays for each `Bash` call of the
 process.
+
+A press on `more`, `all N lines` or `less` keeps one small value for that call in `$.state`, so
+the row stays open or folded when it draws again.
 
 ## Known limits
 

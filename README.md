@@ -19,7 +19,8 @@ Status: in development. No mod is released yet. See [docs/design.md](docs/design
 | `session-board` | All local Claude sessions: task, worktree, time worked, estimate |
 | `item-toasts` | A toast when a work item changes outside your session |
 | `agent-board` | A pane with what each subagent of this session does |
-| `simple-view` | One concise row per Bash, Edit and Write call; `/simple` switches it |
+| `simple-view` | One concise row per Bash, Edit and Write call, with buttons to open and copy its output; `/simple` switches it |
+| `reply-view` | Long replies fold after 12 lines, tables draw without box lines, and tables and code blocks get copy buttons; `/replies` switches it |
 | `handily` | The bundle of all the mods above. `/handily` shows which mods loaded |
 
 ## Install
@@ -42,18 +43,18 @@ Each install line opens the details of the plugin. Select **Install**, then clos
 panel.
 
 Then type `/handily`. It lists each mod with its version and whether it loaded, and it
-ends with one line such as `handily: 7 of 7 mods loaded`. When a mod is missing, the
+ends with one line such as `handily: 8 of 8 mods loaded`. When a mod is missing, the
 list gives the line that installs it.
 
 To update, run this line in a shell, then restart Claude Code. `claude plugin update` takes
 one plugin, and the bundle install does not update a mod that is already installed, so the
 line updates the bundle and each mod in turn. A mod that came into the bundle after your
-install, such as `agent-board` or `simple-view`, fails the update with
+install, such as `agent-board`, `simple-view` or `reply-view`, fails the update with
 `Plugin "<name>" is not installed`, and the line installs it by its name instead. It then
 stays until you uninstall it by name. The line is safe to run again.
 
 ```sh
-claude plugin marketplace update handily; for p in handily workitems quiet-items task-pane session-board item-toasts agent-board simple-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
+claude plugin marketplace update handily; for p in handily workitems quiet-items task-pane session-board item-toasts agent-board simple-view reply-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
 ```
 
 An update keeps the folder of the old version in `~/.claude/plugins/cache/handily/`. Claude

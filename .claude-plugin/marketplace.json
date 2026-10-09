@@ -16,7 +16,7 @@
     {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {
@@ -32,6 +32,12 @@
       "description": "One short row in place of each tracker write in the transcript."
     },
     {
+      "name": "reply-view",
+      "source": "./mods/reply-view",
+      "version": "0.1.0",
+      "description": "Long replies fold to their first lines, tables draw without box lines, and each table and code block gets a copy button."
+    },
+    {
       "name": "session-board",
       "source": "./mods/session-board",
       "version": "0.2.0",
@@ -40,8 +46,8 @@
     {
       "name": "simple-view",
       "source": "./mods/simple-view",
-      "version": "0.1.2",
-      "description": "One short row for each Bash, Edit and Write call, with /simple to switch it and /simple show to print a call in full."
+      "version": "0.2.0",
+      "description": "One short row for each Bash, Edit and Write call, with buttons to open and copy its output, /simple to switch it and /simple show to print a call in full."
     },
     {
       "name": "task-pane",

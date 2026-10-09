@@ -1,6 +1,6 @@
 import type { SimpleViewDiffGap } from '../types'
 
-const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
+export const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
 
 export type Totals = { added: number; removed: number }
 

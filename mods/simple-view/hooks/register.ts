@@ -3,12 +3,23 @@ import type {
   Register,
   RenderElement,
   RenderPropsOf,
+  RenderSurface,
   Timer,
   ToolGroupCall,
 } from 'claude-code'
-import type { SimpleViewMode } from '../types'
+import type { SimpleViewFold, SimpleViewMode } from '../types'
 import { commandLabel, programOf } from './command'
 import { KEPT_CALLS, callRecord, showText, slotOf, type CallFacts } from './detail'
+import {
+  callOutput,
+  copyRefusalText,
+  foldButtons,
+  lineCountOf,
+  outputBlock,
+  plural,
+  type CallOutput,
+  type FoldActions,
+} from './fold'
 import { bashChanges, bashEnd, fileEdit, isRecord, shownPath } from './output'
 import { bashRow, changesBlock, fileRow, type BashState, type RowLook } from './row'
 
@@ -182,6 +193,52 @@ async function timingOf($: EngineInterface, toolUseId: string) {
   return value
 }
 
+async function copyOutput(
+  $: EngineInterface,
+  output: CallOutput,
+  surface: RenderSurface,
+): Promise<void> {
+  try {
+    const text = output.savedTo === null ? output.text : await $.fs.read(output.savedTo)
+    const result = await $.ui.copy({ text, surface })
+    $.ui.toast(
+      result.isCopied
+        ? `Copied ${plural(lineCountOf(text), 'line')} of output.`
+        : copyRefusalText(result.reason),
+    )
+  } catch (error) {
+    logFailure($, 'the output was not copied', error)
+    $.ui.toast('Not copied. The debug log says why.')
+  }
+}
+
+function foldActions($: EngineInterface, id: string, output: CallOutput | null): FoldActions {
+  return {
+    fold: (next) => {
+      void $.state
+        .set({ plugin: 'simple-view', key: 'folds', id }, next)
+        .catch((error: unknown) => {
+          logFailure($, `the output of ${id} did not ${next === 'folded' ? 'fold' : 'open'}`, error)
+        })
+    },
+    copy:
+      output === null
+        ? undefined
+        : (surface) => {
+            void copyOutput($, output, surface)
+          },
+  }
+}
+
+function commandOutput(command: string): CallOutput {
+  return { text: command, lines: command.split(/\r?\n/), savedTo: null }
+}
+
+async function foldOf($: EngineInterface, id: string): Promise<SimpleViewFold> {
+  const { value = 'folded' } = await $.state.get({ plugin: 'simple-view', key: 'folds', id })
+  return value
+}
+
 async function bashUse(
   $: EngineInterface,
   props: RenderPropsOf['ToolUse'],
@@ -194,12 +251,25 @@ async function bashUse(
   if (state === null) return null
   const timing = await timingOf($, props.tool_use_id)
   const description = props.input.description?.trim() ?? ''
-  return bashRow(look, {
+  const view = {
     label: description === '' ? commandLabel(props.input.command) : description,
     program: programOf(props.input.command),
     state,
     elapsedMs: timing?.elapsedMs ?? null,
-  })
+  }
+  const isRunning = state.kind === 'running'
+  const output = isRunning ? null : callOutput(props.output, props.isErrored)
+  if (!isRunning && output === null) return bashRow(look, view)
+  const fold = await foldOf($, props.tool_use_id)
+  const actions = foldActions($, props.tool_use_id, output)
+  const row = bashRow(look, view, foldButtons(look, fold, actions))
+  if (fold === 'folded') return row
+  const opened =
+    output === null
+      ? outputBlock(look, commandOutput(props.input.command), 'all', actions)
+      : outputBlock(look, output, fold, actions)
+  const { Box } = look.elements
+  return Box({ flexDirection: 'column', children: [row, opened] })
 }
 
 async function fileUse(
@@ -264,6 +334,19 @@ function isFailed(call: ToolGroupCall): boolean {
   return call.isErrored && !call.isRunning
 }
 
+function isRunningForeground(call: ToolGroupCall): boolean {
+  return (
+    call.tool === 'Bash' &&
+    call.isRunning &&
+    !(isBashInput(call.input) && call.input.run_in_background === true)
+  )
+}
+
+function shouldUnfold(props: RenderPropsOf['ToolGroup']): boolean {
+  if (props.isExpanded) return false
+  return props.calls.some(isFailed) || (props.isActive && props.calls.some(isRunningForeground))
+}
+
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -320,7 +403,7 @@ export const register: Register = (on) => {
   })
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    if (e.props.isExpanded || !e.props.calls.some(isFailed)) return next(e)
+    if (!shouldUnfold(e.props)) return next(e)
     let isOn = false
     try {
       const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)

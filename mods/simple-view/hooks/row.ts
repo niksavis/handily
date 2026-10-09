@@ -2,7 +2,7 @@ import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-co
 import { elapsedText } from './detail'
 import type { BashEnd, FileChange, StderrSummary, Totals } from './output'
 
-type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
+type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 type CellStyle = Omit<Parameters<RowElements['Text']>[0], 'children'>
 type Cell = { text: string; style?: CellStyle; canShrink?: boolean }
 
@@ -21,20 +21,36 @@ function cell({ Box, Text }: RowElements, { text, style = {}, canShrink = false 
   return Box({ flexShrink: canShrink ? 1 : 0, children: Text({ ...style, children: text }) })
 }
 
-function line(look: RowLook, key: string, marker: ThemeKey, cells: Cell[]): RenderElement {
+function trailing(elements: RowElements, actions: RenderElement | null): RenderElement[] {
+  if (actions === null) return []
+  return [
+    elements.Box({ flexGrow: 1, minWidth: 2 }),
+    elements.Box({ flexShrink: 0, children: actions }),
+  ]
+}
+
+function line(
+  look: RowLook,
+  key: string,
+  marker: ThemeKey,
+  cells: Cell[],
+  actions: RenderElement | null = null,
+): RenderElement {
   const { elements } = look
   const columns = elements.Box({
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 2,
     children: cells.filter((part) => part.text !== '').map((part) => cell(elements, part)),
   })
-  if (!look.hasToolMarker) return elements.Box({ key, children: columns })
+  const parts = [columns, ...trailing(elements, actions)]
+  if (!look.hasToolMarker) return elements.Box({ key, flexDirection: 'row', children: parts })
   const dot = elements.Box({
     flexShrink: 0,
     marginRight: 1,
     children: elements.Text({ color: marker, children: '●' }),
   })
-  return elements.Box({ key, flexDirection: 'row', children: [dot, columns] })
+  return elements.Box({ key, flexDirection: 'row', children: [dot, ...parts] })
 }
 
 function plural(count: number, word: string): string {
@@ -52,7 +68,7 @@ function stderrCells(stderr: StderrSummary | null): Cell[] {
 function stateCells(state: BashState): Cell[] {
   switch (state.kind) {
     case 'running':
-      return [{ text: 'running', style: { color: 'warning' } }]
+      return [{ text: 'running', style: { dimColor: true } }]
     case 'done':
       return [
         state.interpretation === null
@@ -78,16 +94,26 @@ const MARKERS: Readonly<Record<BashState['kind'], ThemeKey>> = {
   exit: 'error',
 }
 
-export function bashRow(look: RowLook, view: BashView): RenderElement {
-  return line(look, 'row', MARKERS[view.state.kind], [
-    { text: view.label, style: { wrap: 'truncate-end' }, canShrink: true },
-    { text: view.program, style: { dimColor: true } },
-    ...stateCells(view.state),
-    {
-      text: view.elapsedMs === null ? '' : elapsedText(view.elapsedMs),
-      style: { dimColor: true },
-    },
-  ])
+export function bashRow(
+  look: RowLook,
+  view: BashView,
+  actions: RenderElement | null = null,
+): RenderElement {
+  return line(
+    look,
+    'row',
+    MARKERS[view.state.kind],
+    [
+      { text: view.label, style: { wrap: 'truncate-end' }, canShrink: true },
+      { text: view.program, style: { dimColor: true } },
+      ...stateCells(view.state),
+      {
+        text: view.elapsedMs === null ? '' : elapsedText(view.elapsedMs),
+        style: { dimColor: true },
+      },
+    ],
+    actions,
+  )
 }
 
 export function totalsText({ added, removed }: Totals): string {

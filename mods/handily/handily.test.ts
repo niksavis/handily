@@ -11,6 +11,7 @@ const MODS = [
   'item-toasts',
   'agent-board',
   'simple-view',
+  'reply-view',
 ]
 const MANIFEST = JSON.stringify({ name: 'handily', version: '0.1.0', dependencies: MODS })
 const ALL_ENABLED = Object.fromEntries(MODS.map((name) => [`${name}@handily`, true]))
@@ -22,6 +23,7 @@ const MOD_VERSIONS: Record<string, string> = {
   'item-toasts': '1.0.0',
   'agent-board': '0.1.2',
   'simple-view': '0.4.0',
+  'reply-view': '0.1.0',
 }
 
 const WORKITEMS: Plugin = {
@@ -94,6 +96,16 @@ const SIMPLE_VIEW: Plugin = {
   },
 }
 
+const REPLY_VIEW: Plugin = {
+  name: 'reply-view',
+  register(on) {
+    on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'reply-view', key: 'ready' }, { root: $.plugin.root })
+      return next(e)
+    })
+  },
+}
+
 const HEARTBEATS = [
   WORKITEMS,
   QUIET_ITEMS,
@@ -102,6 +114,7 @@ const HEARTBEATS = [
   ITEM_TOASTS,
   AGENT_BOARD,
   SIMPLE_VIEW,
+  REPLY_VIEW,
 ]
 
 function heartbeatsWithout(name: string): Plugin[] {
@@ -187,8 +200,9 @@ describe('/handily reply', () => {
           '- item-toasts 1.0.0: loaded',
           '- agent-board 0.1.2: loaded',
           '- simple-view 0.4.0: loaded',
+          '- reply-view 0.1.0: loaded',
           '',
-          'handily: 7 of 7 mods loaded',
+          'handily: 8 of 8 mods loaded',
         ].join('\n'),
       )
     },
@@ -203,7 +217,7 @@ describe('/handily reply', () => {
       expect(text).toContain(
         '- workitems: enabled, but it did not load. Run claude --debug to see why',
       )
-      expect(text.split('\n').at(-1)).toBe('handily: 6 of 7 mods loaded')
+      expect(text.split('\n').at(-1)).toBe('handily: 7 of 8 mods loaded')
     },
   )
 
@@ -214,7 +228,7 @@ describe('/handily reply', () => {
       fakeWorld(on, { enabledPlugins: enabledWithout('task-pane') })
       const text = await runHandily($)
       expect(text).toContain('- task-pane: not installed. Run /plugin install task-pane@handily')
-      expect(text.split('\n').at(-1)).toBe('handily: 6 of 7 mods loaded')
+      expect(text.split('\n').at(-1)).toBe('handily: 7 of 8 mods loaded')
     },
   )
 
@@ -225,7 +239,7 @@ describe('/handily reply', () => {
       fakeWorld(on, { enabledPlugins: { ...ALL_ENABLED, 'session-board@handily': false } })
       const text = await runHandily($)
       expect(text).toContain('- session-board: disabled. Run /plugin enable session-board@handily')
-      expect(text.split('\n').at(-1)).toBe('handily: 6 of 7 mods loaded')
+      expect(text.split('\n').at(-1)).toBe('handily: 7 of 8 mods loaded')
     },
   )
 
@@ -235,7 +249,7 @@ describe('/handily reply', () => {
     for (const name of MODS) {
       expect(text).toContain(`- ${name}: not installed. Run /plugin install ${name}@handily`)
     }
-    expect(text.split('\n').at(-1)).toBe('handily: 0 of 7 mods loaded')
+    expect(text.split('\n').at(-1)).toBe('handily: 0 of 8 mods loaded')
   })
 
   test(
@@ -247,7 +261,7 @@ describe('/handily reply', () => {
       await startSession($)
       expect(world.sessionStarts).toBe(2)
       expect(await handily($)).toBe(before)
-      expect(before.split('\n').at(-1)).toBe('handily: 7 of 7 mods loaded')
+      expect(before.split('\n').at(-1)).toBe('handily: 8 of 8 mods loaded')
     },
   )
 
@@ -270,7 +284,7 @@ describe('/handily colours', () => {
   for (const surface of SURFACES) {
     test(
       `draws each row in a theme colour on ${surface}`,
-      { plugins: [WORKITEMS, QUIET_ITEMS, SESSION_BOARD, AGENT_BOARD, SIMPLE_VIEW] },
+      { plugins: [WORKITEMS, QUIET_ITEMS, SESSION_BOARD, AGENT_BOARD, SIMPLE_VIEW, REPLY_VIEW] },
       async ($, on) => {
         fakeWorld(on, {
           enabledPlugins: { ...enabledWithout('task-pane'), 'item-toasts@handily': false },
@@ -284,7 +298,8 @@ describe('/handily colours', () => {
           { text: 'disabled. Run /plugin enable item-toasts@handily', color: 'error' },
           { text: 'loaded', color: 'success' },
           { text: 'loaded', color: 'success' },
-          { text: 'handily: 5 of 7 mods loaded', color: 'warning' },
+          { text: 'loaded', color: 'success' },
+          { text: 'handily: 6 of 8 mods loaded', color: 'warning' },
         ])
       },
     )
@@ -295,7 +310,7 @@ describe('/handily colours', () => {
       async ($, on) => {
         fakeWorld(on)
         const rows = await shownRows($, surface, engineRowText(await runHandily($)))
-        expect(rows.at(-1)).toEqual({ text: 'handily: 7 of 7 mods loaded', color: 'success' })
+        expect(rows.at(-1)).toEqual({ text: 'handily: 8 of 8 mods loaded', color: 'success' })
       },
     )
 
@@ -308,13 +323,15 @@ describe('/handily colours', () => {
         world.enabledPlugins = { ...ALL_ENABLED, 'simple-view@handily': false }
         const second = await handily($)
         expect(second).not.toBe(first)
-        const firstRows = await shownRows($, surface, engineRowText(first))
-        const secondRows = await shownRows($, surface, engineRowText(second))
-        expect(firstRows.at(-2)).toEqual({
+        const coloured = (rows: Awaited<ReturnType<typeof shownRows>>) =>
+          rows.filter((row) => row.color !== undefined)
+        const firstRows = coloured(await shownRows($, surface, engineRowText(first)))
+        const secondRows = coloured(await shownRows($, surface, engineRowText(second)))
+        expect(firstRows.at(-3)).toEqual({
           text: 'enabled, but it did not load. Run claude --debug to see why',
           color: 'warning',
         })
-        expect(secondRows.at(-2)).toEqual({
+        expect(secondRows.at(-3)).toEqual({
           text: 'disabled. Run /plugin enable simple-view@handily',
           color: 'error',
         })

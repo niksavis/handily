@@ -32,6 +32,10 @@ type World = {
   isCallWriteRefused: boolean
   isModeReadRefused: boolean
   groups: boolean[]
+  copies: string[]
+  toasts: string[]
+  copyRefusal: 'no-surface' | 'no-clipboard' | 'refused' | null
+  files: Record<string, string>
 }
 
 function bashOutput(stdout: string, extra: Record<string, unknown> = {}) {
@@ -91,6 +95,10 @@ function engineBeneath(on: On): World {
     isCallWriteRefused: false,
     isModeReadRefused: false,
     groups: [],
+    copies: [],
+    toasts: [],
+    copyRefusal: null,
+    files: {},
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -120,6 +128,22 @@ function engineBeneath(on: On): World {
   on('ui.log', (_$, e) => {
     world.logs.push(e.text)
     return { value: undefined }
+  })
+  on('ui.copy', (_$, e) => {
+    if (world.copyRefusal !== null) {
+      return { value: { isCopied: false as const, reason: world.copyRefusal } }
+    }
+    world.copies.push(e.text)
+    return { value: { isCopied: true as const } }
+  })
+  on('ui.toast', (_$, e) => {
+    world.toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('fs.read', (_$, e) => {
+    const text = world.files[e.path]
+    if (text === undefined) return { deny: `no fixture file ${e.path}` }
+    return { value: text }
   })
   return world
 }
@@ -197,6 +221,121 @@ async function drawn($: Engine, target: Mountable, surface: Surface = 'terminal'
   const textCount = (await ui.findAll({ type: 'Text' })).length
   await ui.unmount()
   return { tree, textCount }
+}
+
+const SKETCH_COLUMNS = 100
+const COLOR_MARKS: Readonly<Record<string, string>> = { error: '#', success: '+', warning: '!' }
+
+type DrawnNode = { type?: unknown; props?: Record<string, unknown>; children?: unknown[] }
+
+function isDrawnNode(value: unknown): value is DrawnNode {
+  return typeof value === 'object' && value !== null
+}
+
+function marked(props: Record<string, unknown>, text: string): string {
+  if (text.trim() === '') return text
+  let shown = props.bold === true ? `*${text}*` : text
+  if (props.dimColor === true) shown = `~${shown}~`
+  const mark = typeof props.color === 'string' ? COLOR_MARKS[props.color] : undefined
+  return mark === undefined ? shown : `${mark}${shown}${mark}`
+}
+
+function inlineText(node: unknown): string {
+  if (typeof node === 'string') return node
+  if (!isDrawnNode(node)) return ''
+  return marked(node.props ?? {}, (node.children ?? []).map(inlineText).join(''))
+}
+
+function cellsOf(line: string): number {
+  return Array.from(line).length
+}
+
+function blockWidth(lines: readonly string[]): number {
+  return Math.max(0, ...lines.map(cellsOf))
+}
+
+function isGrower(node: unknown): boolean {
+  return isDrawnNode(node) && Number(node.props?.flexGrow ?? 0) > 0
+}
+
+function rowLines(children: readonly unknown[], width: number, gap: number): string[] {
+  const margins = (node: unknown) =>
+    isDrawnNode(node)
+      ? [Number(node.props?.marginLeft ?? 0), Number(node.props?.marginRight ?? 0)]
+      : [0, 0]
+  const blocks = children.map((child) => (isGrower(child) ? null : sketchLines(child, width)))
+  const used = blocks.reduce(
+    (sum, block, index) => {
+      const [left = 0, right = 0] = margins(children[index])
+      return sum + left + right + (block === null ? 0 : blockWidth(block))
+    },
+    gap * Math.max(children.length - 1, 0),
+  )
+  const filled = children.map((child, index) => {
+    const block = blocks[index]
+    if (block !== null && block !== undefined) return block
+    const least = isDrawnNode(child) ? Number(child.props?.minWidth ?? 0) : 0
+    return [' '.repeat(Math.max(least, width - used))]
+  })
+  const height = Math.max(0, ...filled.map((block) => block.length))
+  return Array.from({ length: height }, (_, row) =>
+    filled
+      .map((block, index) => {
+        const [left = 0, right = 0] = margins(children[index])
+        const text = block[row] ?? ''
+        const padded = text + ' '.repeat(blockWidth(block) - cellsOf(text))
+        return ' '.repeat(left) + padded + ' '.repeat(right)
+      })
+      .join(' '.repeat(gap))
+      .trimEnd(),
+  )
+}
+
+function boxLines(props: Record<string, unknown>, children: readonly unknown[], width: number) {
+  const indent = Number(props.paddingLeft ?? 0)
+  const inner = (typeof props.width === 'number' ? props.width : width) - indent
+  const gap = Number(props.gap ?? 0)
+  const lines =
+    props.flexDirection === 'column'
+      ? children.flatMap((child, index) => [
+          ...(index > 0 ? Array<string>(gap).fill('') : []),
+          ...sketchLines(child, inner),
+        ])
+      : rowLines(children, inner, gap)
+  const placed =
+    props.justifyContent === 'flex-end'
+      ? lines.map((line) => ' '.repeat(Math.max(inner - cellsOf(line), 0)) + line)
+      : lines
+  return [
+    ...Array<string>(Number(props.marginTop ?? 0)).fill(''),
+    ...placed.map((line) => (line === '' ? line : ' '.repeat(indent) + line)),
+  ]
+}
+
+function sketchLines(node: unknown, width: number): string[] {
+  if (typeof node === 'string') return [node]
+  if (!isDrawnNode(node)) return []
+  const props = node.props ?? {}
+  switch (node.type) {
+    case 'Text':
+      return [inlineText(node)]
+    case 'Button':
+      return [`[ ${String(props.label)} ]`]
+    case 'Box':
+      return boxLines(props, node.children ?? [], width)
+    case 'engine':
+      return ['(engine)']
+    default:
+      return []
+  }
+}
+
+function sketch(node: unknown): string[] {
+  return sketchLines(node, SKETCH_COLUMNS).map((line) => line.trimEnd())
+}
+
+function edges(left: string, right: string): string {
+  return left + ' '.repeat(SKETCH_COLUMNS - cellsOf(left) - cellsOf(right)) + right
 }
 
 async function commandText($: Engine, args: string, command = 'simple'): Promise<string> {
@@ -527,6 +666,210 @@ describe('Bash row', () => {
       }),
     ).toEqual(['● Wait five seconds sleep exit 0 2 lines 5.0s'])
   })
+})
+
+const LONG_STDOUT = `${Array.from({ length: 140 }, (_, index) => `line ${String(index + 1)}`).join('\n')}\n`
+const TESTS_RUN = { command: 'npm test', description: 'Run the unit tests' }
+const FOLDED_ROW = '+●+ Run the unit tests  ~npm~  +exit 0+  ~140 lines~  ~3.0s~'
+
+async function longCall(world: World, $: Engine) {
+  world.delayMs = 3000
+  world.answer = () => answered(LONG_STDOUT)
+  const id = await runBash(world, $, TESTS_RUN)
+  return useProps(id, 'Bash', TESTS_RUN, world.answer(TESTS_RUN))
+}
+
+async function mountUse($: Engine, props: RenderPropsOf['ToolUse'], surface: Surface = 'terminal') {
+  return $.ui.mount({ plugin: 'simple-view', surface, component: 'ToolUse', props })
+}
+
+function numbered(from: number, to: number): string[] {
+  return Array.from({ length: to - from + 1 }, (_, index) => `  ~line ${String(from + index)}~`)
+}
+
+describe('tool row fold and copy', () => {
+  for (const surface of SURFACES) {
+    viewTest(
+      `a finished call with output draws more and copy on its row on ${surface}`,
+      async (world, $) => {
+        const ui = await mountUse($, await longCall(world, $), surface)
+        const row = surface === 'terminal' ? FOLDED_ROW : FOLDED_ROW.slice('+●+ '.length)
+        expect(sketch(await ui.drawn())).toEqual([edges(row, '[ more ] [ copy ]')])
+        expect(
+          (await ui.findAll({ type: 'Button' })).map((button) => button.props.dimColor),
+        ).toEqual([true, true])
+        await ui.unmount()
+      },
+    )
+  }
+
+  viewTest(
+    'more opens 20 lines under the row, all opens every line, less folds it',
+    async (world, $) => {
+      const ui = await mountUse($, await longCall(world, $))
+      await ui.press({ key: 'fold' })
+      expect(sketch(await ui.drawn())).toEqual([
+        edges(FOLDED_ROW, '[ less ] [ copy ]'),
+        ...numbered(1, 20),
+        '  ~…~',
+        '  [ all 140 lines ]',
+      ])
+      await ui.press({ key: 'all' })
+      const all = sketch(await ui.drawn())
+      expect(all).toEqual([edges(FOLDED_ROW, '[ less ] [ copy ]'), ...numbered(1, 140)])
+      await ui.press({ key: 'fold' })
+      expect(sketch(await ui.drawn())).toEqual([edges(FOLDED_ROW, '[ more ] [ copy ]')])
+      await ui.unmount()
+    },
+  )
+
+  viewTest('more on one row leaves every other row folded', async (world, $) => {
+    const first = await mountUse($, await longCall(world, $))
+    const second = await mountUse($, await longCall(world, $))
+    await first.press({ key: 'fold' })
+    expect(sketch(await second.drawn())).toEqual([edges(FOLDED_ROW, '[ more ] [ copy ]')])
+    await first.unmount()
+    await second.unmount()
+  })
+
+  viewTest('more on a short output opens every line and draws no all button', async (world, $) => {
+    world.answer = () => answered('alpha\n\tbeta\n')
+    const input = { command: 'ls', description: 'List files' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'fold' })
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(['  ~alpha~', '  ~        beta~'])
+    expect(await ui.find({ key: 'all' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  viewTest('copy copies the full output of the call and says so', async (world, $) => {
+    const ui = await mountUse($, await longCall(world, $))
+    await ui.press({ key: 'copy' })
+    expect(world.copies).toEqual([LONG_STDOUT.trimEnd()])
+    expect(world.toasts).toEqual(['Copied 140 lines of output.'])
+    await ui.unmount()
+  })
+
+  viewTest('copy takes the stderr lines after the stdout lines', async (world, $) => {
+    world.answer = () => answered('built\n', { stderr: 'warning: old option\n' })
+    const input = { command: 'make', description: 'Build' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'copy' })
+    expect(world.copies).toEqual(['built\nwarning: old option'])
+    await ui.unmount()
+  })
+
+  viewTest('an exit N row opens and copies the error output', async (world, $) => {
+    const error = 'Error: Exit code 2\n\n  src/app.ts(3,1): error TS2304\nmore\n'
+    world.answer = () => failed(error)
+    const input = { command: 'npx tsc -p .', description: 'Type check the project' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'fold' })
+    expect(sketch(await ui.drawn()).slice(1)).toEqual([
+      '  ~  src/app.ts(3,1): error TS2304~',
+      '  ~more~',
+    ])
+    await ui.press({ key: 'copy' })
+    expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore'])
+    await ui.unmount()
+  })
+
+  viewTest('copy of an output saved to a file copies the file', async (world, $) => {
+    const path = `${ROOT}/.tool-results/out.txt`
+    world.files[path] = 'all\nof\nit\n'
+    world.answer = () => answered('all\n', { persistedOutputPath: path })
+    const input = { command: 'cat big.log', description: 'Print the log' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'fold' })
+    expect(sketch(await ui.drawn()).slice(1)).toEqual([
+      '  ~all~',
+      `  ~The full output is in ${path}. Copy takes all of it.~`,
+    ])
+    await ui.press({ key: 'copy' })
+    expect(world.copies).toEqual(['all\nof\nit\n'])
+    expect(world.toasts).toEqual(['Copied 4 lines of output.'])
+    await ui.unmount()
+  })
+
+  viewTest('says why a copy failed', async (world, $) => {
+    const ui = await mountUse($, await longCall(world, $))
+    world.copyRefusal = 'no-clipboard'
+    await ui.press({ key: 'copy' })
+    expect(world.toasts).toEqual([
+      'Not copied: the clipboard took nothing. The text may be too long for this terminal.',
+    ])
+    await ui.unmount()
+  })
+
+  viewTest('says that a saved output it cannot read was not copied', async (world, $) => {
+    world.answer = () => answered('x\n', { persistedOutputPath: `${ROOT}/gone.txt` })
+    const input = { command: 'cat big.log', description: 'Print the log' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'copy' })
+    expect(world.copies).toEqual([])
+    expect(world.toasts).toEqual(['Not copied. The debug log says why.'])
+    expect(
+      world.logs.some((line) => line.startsWith('simple-view: the output was not copied')),
+    ).toBe(true)
+    await ui.unmount()
+  })
+
+  viewTest('shows hidden characters as escapes and drops colour codes', async (world, $) => {
+    world.answer = () => answered('\u001b[32mok\u001b[0m\u200b\n10%\r100%\n')
+    const input = { command: 'npm ci', description: 'Install' }
+    const id = await runBash(world, $, input)
+    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    await ui.press({ key: 'fold' })
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(['  ~ok\\u200b~', '  ~100%~'])
+    await ui.unmount()
+  })
+
+  viewTest('a call with no output draws no buttons', async (world, $) => {
+    world.answer = () => answered('')
+    const input = { command: 'true', description: 'Do nothing' }
+    const id = await runBash(world, $, input)
+    const quiet = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+    expect(await quiet.findAll({ type: 'Button' })).toEqual([])
+    await quiet.unmount()
+  })
+
+  viewTest(
+    'a running call draws one row with a dim running state and its full command behind more',
+    async (world, $) => {
+      world.delayMs = 4000
+      const command = 'git add -A\ngit commit -m "save"\ngit push'
+      const input = { command, description: 'Commit and push the work' }
+      const pending = $.tool.call({ tool: 'Bash', ...input })
+      await world.clock.settle()
+      await world.clock.advance(3000)
+      const id = world.ids.at(-1) ?? ''
+      const props = useProps(
+        id,
+        'Bash',
+        input,
+        { result: undefined },
+        { isRunning: true, output: undefined },
+      )
+      const ui = await mountUse($, props)
+      const row = '● Commit and push the work  ~git~  ~running~  ~3.0s~'
+      expect(sketch(await ui.drawn())).toEqual([edges(row, '[ more ]')])
+      await ui.press({ key: 'fold' })
+      expect(sketch(await ui.drawn())).toEqual([
+        edges(row, '[ less ]'),
+        '  ~git add -A~',
+        '  ~git commit -m "save"~',
+        '  ~git push~',
+      ])
+      await ui.unmount()
+      await world.clock.advance(1000)
+      await pending
+    },
+  )
 })
 
 describe('Edit and Write rows', () => {
@@ -906,6 +1249,36 @@ describe('folded tool group', () => {
   viewTest('leaves a group folded while its failed call still runs', async (world, $) => {
     const running = { ...MISSING, isRunning: true, output: undefined }
     expect(await groupExpansion(world, $, group([LISTED, running]))).toEqual([false])
+  })
+
+  viewTest('unfolds the live group while a Bash call in it runs', async (world, $) => {
+    const running = { ...LISTED, isRunning: true, output: undefined }
+    const live = { ...group([LISTED, running]), isActive: true }
+    expect(await groupExpansion(world, $, live)).toEqual([true])
+  })
+
+  viewTest('leaves the live group folded when no call in it runs', async (world, $) => {
+    expect(await groupExpansion(world, $, { ...group([LISTED]), isActive: true })).toEqual([false])
+  })
+
+  viewTest(
+    'leaves the live group folded while its running call runs in the background',
+    async (world, $) => {
+      const background = {
+        ...LISTED,
+        input: { command: 'npm run dev', run_in_background: true },
+        isRunning: true,
+        output: undefined,
+      }
+      const live = { ...group([background]), isActive: true }
+      expect(await groupExpansion(world, $, live)).toEqual([false])
+    },
+  )
+
+  viewTest('leaves the live group folded while the mode is off', async (world, $) => {
+    await commandText($, '')
+    const running = { ...LISTED, isRunning: true, output: undefined }
+    expect(await groupExpansion(world, $, { ...group([running]), isActive: true })).toEqual([false])
   })
 
   viewTest('leaves an unfolded group as it is', async (world, $) => {
