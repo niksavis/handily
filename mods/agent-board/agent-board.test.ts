@@ -10,7 +10,7 @@ import {
 } from 'claude-code/testing'
 import { TARGET_CHARS_AT_MOST, toolTarget } from './hooks/agents'
 import { EMPTY_TEXT, formatElapsed, NOT_LISTED_BADGE, planKey } from './hooks/board'
-import { planView, type PlanStatus } from './hooks/plan'
+import { planView, readPlan, type PlanStatus } from './hooks/plan'
 import { REDRAW_INTERVAL_MS } from './hooks/register'
 
 const NOW = 1_791_400_000_000
@@ -851,6 +851,17 @@ describe('the plan of a subagent', () => {
       await ui.press({ key: planKey(EXPLORE.id) })
     }
     await ui.unmount()
+  })
+
+  test('shows a hidden character in a plan title as an escape, as task-pane does', () => {
+    const titles = ['Run\u200bthe gates', 'Run the gates\u{E0049}', 'soft\u00adhyphen', 'tab\there']
+    const plan = readPlan(planList(Array<PlanStatus>(titles.length).fill('pending'), titles))
+    expect(plan?.map((task) => task.title)).toEqual([
+      'Run\\u200bthe gates',
+      'Run the gates\\udb40\\udc49',
+      'soft\\u00adhyphen',
+      'tab\\u0009here',
+    ])
   })
 
   test('anchors the fold on the task in progress, else the next open task, else the last', () => {

@@ -44,8 +44,13 @@ tool calls and, when the subagent keeps one in `task-pane`, its task list.
 - A list of more than 5 tasks folds. The card shows the task in progress, the 2 tasks before
   it and the 2 tasks after it, and `· 5 of 7 shown`. With no task in progress, the fold centres
   on the first open task, else on the last task.
-- On a folded list, `plan 2/7 done` is a button. Tab or the arrows move the focus of the pane
-  onto it, and Enter unfolds the whole list: `· all 7 shown`. Enter again folds it.
+- On a folded list, `plan 2/7 done` is a button. A click on it unfolds the whole list:
+  `· all 7 shown`. A second click folds it.
+- The open pane does not take the keyboard focus. Measured in Claude Code 2.1.295 in fullscreen:
+  Tab and `ctrl+x tab` leave the focus at the prompt or on the engine's own agent list, and Enter
+  after a click goes to the prompt.
+- A plan title shows a control, format or line separator character as a `\uXXXX` escape, as
+  `task-pane` shows it.
 - A subagent with no task list, or a session without `task-pane`, draws the card without the
   list.
 - The time counts every second while the agent runs. It stops when the agent ends. For an

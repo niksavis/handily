@@ -32,11 +32,24 @@ function isPlanTask(value: unknown): value is PlanTask {
   )
 }
 
+const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
+
+function escapedUnits(text: string): string {
+  return Array.from(
+    { length: text.length },
+    (_, index) => `\\u${text.charCodeAt(index).toString(16).padStart(4, '0')}`,
+  ).join('')
+}
+
+export function shownTitle(title: string): string {
+  return title.replace(HIDDEN_CHARACTER, escapedUnits)
+}
+
 export function readPlan(value: unknown): PlanTask[] | null {
   if (!isRecord(value) || !Array.isArray(value.tasks)) return null
   const tasks = value.tasks
     .filter(isPlanTask)
-    .map((task) => ({ title: task.title, status: task.status }))
+    .map((task) => ({ title: shownTitle(task.title), status: task.status }))
   return tasks.length === 0 ? null : tasks
 }
 

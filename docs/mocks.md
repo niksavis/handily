@@ -637,7 +637,7 @@ progress. Folded:
 ╰───────────────────────────────────────────╯
 ```
 
-After Enter on the focused `plan 4/8 done`:
+After a click on `plan 4/8 done`:
 
 ```text
 ╭─────────────────────────────────────────✕─╮
@@ -667,8 +667,8 @@ After Enter on the focused `plan 4/8 done`:
 - A list of 5 tasks or fewer shows every task, and `plan N/M done` is text, not a button.
 - A list of more than 5 folds to the task in progress, the 2 tasks before it and the 2 tasks
   after it. With no task in progress, it folds around the first open task, else the last task.
-- On a folded list, `plan N/M done` is a plain `Button`, dim until the focus is on it. Enter
-  unfolds the list, and Enter again folds it. The fold is kept per agent until `session.end`.
+- On a folded list, `plan N/M done` is a plain dim `Button`. A click unfolds the list, and a
+  second click folds it. The fold is kept per agent until `session.end`.
 - A subagent with no list, an empty list, or no `task-pane` in the session draws the card as
   above, with no plan line.
 
