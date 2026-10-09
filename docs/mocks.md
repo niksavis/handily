@@ -860,10 +860,10 @@ Look choices (approved as proposed):
 
 ---
 
-## 7. Proposed 2026-10-09: the usability focus (not approved yet)
+## 7. Approved 2026-10-09: the usability focus
 
-The person set the focus on 2026-10-09. These mocks wait for the person's approval. Nothing here
-is built. The same legend applies.
+The person set the focus and approved these mocks on 2026-10-09. Nothing here is built yet.
+The same legend applies.
 
 ### 7.1 task-pane follows the work (handily-eq6pk)
 
@@ -970,8 +970,8 @@ A fenced block gets a title line from its tag and a copy button:
   is not proven yet.
 - The model still reads the full text. Only the screen changes.
 
-### 7.3 Questions for the person
+### 7.3 Decisions of the person (2026-10-09)
 
-1. Fold a reply after 12 lines, or after another count?
-2. Should the task pane show the subagents, or keep them only in agent-board?
-3. Should done tasks stay folded by default?
+1. A reply folds after 12 lines.
+2. The task pane lists the running subagents, so one pane shows all the work.
+3. Done tasks stay folded by default.
