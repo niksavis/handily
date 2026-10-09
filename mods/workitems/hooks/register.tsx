@@ -77,10 +77,19 @@ export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     approvals?.startSession(e.isInteractive)
     poll?.cancel()
+    let lastPollFailure: string | null = null
     poll = $.clock.every(POLL_INTERVAL_MS, () => {
-      $.workitems.refresh().catch((error: unknown) => {
-        $.ui.log(`workitems: the poll refresh failed: ${String(error)}`)
-      })
+      $.workitems.refresh().then(
+        () => {
+          lastPollFailure = null
+        },
+        (error: unknown) => {
+          const text = `workitems: the poll refresh failed: ${String(error)}`
+          if (text === lastPollFailure) return
+          lastPollFailure = text
+          $.ui.log(text)
+        },
+      )
     })
     await $.workitems.refresh().catch((error: unknown) => {
       $.ui.log(`workitems: the first refresh failed: ${String(error)}`)

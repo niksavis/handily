@@ -8,7 +8,7 @@ import {
   type MockClock,
   type Plugin,
 } from 'claude-code/testing'
-import { DIFF_HISTORY_LIMIT } from './hooks/snapshot'
+import { DIFF_HISTORY_LIMIT, POLL_INTERVAL_MS } from './hooks/snapshot'
 import { advanceUntil } from './testing'
 import type {
   WorkitemsDiff,
@@ -717,6 +717,38 @@ describe('session start and directory changes', () => {
         'a poll read',
       )
       expect(reads).toBeGreaterThan(0)
+    },
+  )
+
+  test(
+    'a poll failure that repeats is logged once, and again only after a success',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      let isDenied = false
+      const logs: string[] = []
+      mock.env(on, {})
+      on('session.start', (_$, e) => ({ cwd: e.cwd }))
+      on('ui.log', (_$, e) => {
+        logs.push(e.text)
+        return { value: undefined }
+      })
+      on('session.root', () => ({ value: ROOT }))
+      on('fs.exists', (_$, e) => (isDenied ? { deny: 'policy' } : { value: e.path === ISSUES }))
+      on('fs.stat', (_$, e) => ({
+        value: { kind: 'file', size: 10, mtimeMs: 10, isLink: false, realPath: e.path },
+      }))
+      on('fs.read', () => ({ value: FIXTURE_ISSUES }))
+      const pollFailures = () => logs.filter((text) => text.includes('the poll refresh failed'))
+      await startSession($)
+      isDenied = true
+      await clock.advance(5 * POLL_INTERVAL_MS)
+      expect(pollFailures().length).toBe(1)
+      isDenied = false
+      await clock.advance(POLL_INTERVAL_MS)
+      isDenied = true
+      await clock.advance(3 * POLL_INTERVAL_MS)
+      expect(pollFailures().length).toBe(2)
     },
   )
 
