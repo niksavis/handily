@@ -6,6 +6,39 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## workitems 0.4.1 - 2026-10-09
+
+### Fixed
+
+- **workitems reads a beads tracker file over 4 MiB.** The engine reads no file over 4 MiB, so
+  a long-lived beads project showed "Work items unavailable". When `.beads/issues.jsonl` is over
+  4 MiB, workitems now lists the open items through `br list --json --limit 0`, after you approve
+  the run once for the repo. A missing `br`, a cut output, a non-zero exit, output that is not
+  JSON or a list that says it is incomplete fails with the cause and the fix, and shows no item.
+  A file of 4 MiB or less is read directly as before. A `bd` tracker on Dolt over 4 MiB fails by
+  name (handily-vli6x).
+- **A poll failure that repeats shows once.** workitems wrote one transcript line on every failed
+  poll, every 2 seconds. Now a failure shows once, and again only after a refresh succeeds or the
+  failure text changes (handily-8mjdz).
+
+## task-pane 0.4.2 - 2026-10-09
+
+### Changed
+
+- **task-pane shows what a call does, not its raw command.** The tool line of
+  the task in progress shows the description that Claude gave a call, such
+  as `Bash Run the tests`. A call without a description still shows the first line of its
+  command. task-pane is now version 0.4.2 (handily-urqjc).
+
+## agent-board 0.2.1 - 2026-10-09
+
+### Changed
+
+- **agent-board shows what a call does, not its raw command.** The tool line of
+  each subagent shows the description that Claude gave a call, such
+  as `Bash Run the tests`. A call without a description still shows the first line of its
+  command. agent-board is now version 0.2.1 (handily-urqjc).
+
 ## simple-view 0.2.0 - 2026-10-09
 
 ### Added
