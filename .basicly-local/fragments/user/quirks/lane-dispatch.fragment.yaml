@@ -8,6 +8,6 @@ tags: [tracker, worktree, zsh]
 status: active
 title: Lane Dispatch Quirks
 body: |
-  - Commit the ledger before you dispatch a worktree lane for a new or reshaped record. A worktree forks from HEAD, so its commit hooks refuse a record id that is only in the uncommitted ledger.
+  - Commit the ledger before you dispatch a worktree lane for a new or reshaped record. An Agent isolation worktree forks from origin/main, not from the local HEAD. Start each lane with `git merge --ff-only main`, so its branch carries the ledger commit and its commit hooks accept the record id.
   - The Definition of Ready gate reads a `<word>` in an acceptance criterion as a placeholder and counts the criteria as absent. Write the thing by name, such as "the interpreter", not `<interpreter>`.
   - zsh has no `mapfile`. Read lines into an array with `arr=("${(@f)$(command)}")`, and check the count before you use the array.
