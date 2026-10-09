@@ -46,7 +46,7 @@
     {
       "name": "task-pane",
       "source": "./mods/task-pane",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "description": "A session task list that Claude and you share: model tools, /task commands and an optional pane."
     },
     {

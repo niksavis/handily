@@ -1,5 +1,24 @@
 import { update } from 'claude-code'
-import type { EngineInterface, HookFailure, Register, ToolSpec } from 'claude-code'
+import type {
+  AgentStatus,
+  EngineInterface,
+  HookFailure,
+  PromptOrigin,
+  Register,
+  Timer,
+  ToolSpec,
+} from 'claude-code'
+import {
+  EMPTY_ACTIVITY,
+  isNoteDue,
+  isTaskTool,
+  planLag,
+  planNote,
+  toolTarget,
+  withAgentCall,
+  withMainCall,
+  withPlanUpdate,
+} from './activity'
 import {
   type ListEdit,
   type TaskHost,
@@ -12,7 +31,16 @@ import {
   unknownReply,
   withoutFinalPeriod,
 } from './commands'
-import { PANE_ID, type PaneUi, drawPane, openPane, paneCommand, paneMode } from './pane'
+import {
+  PANE_ID,
+  type AgentRow,
+  type PaneUi,
+  type PaneWork,
+  drawPane,
+  openPane,
+  paneCommand,
+  paneMode,
+} from './pane'
 import type { TaskPaneList } from '../types'
 import {
   EMPTY_LIST,
@@ -20,6 +48,7 @@ import {
   STATUSES,
   TRACKER_TEXT_IS_DATA,
   addTask,
+  doneCount,
   findTask,
   isStatus,
   listText,
@@ -38,6 +67,18 @@ const TOOL_LIST = 'mcp__task-pane__task_list'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
 const AGENT_IDS = { plugin: 'task-pane', key: 'agentIds' } as const
+const ACTIVITY = { plugin: 'task-pane', key: 'activity' } as const
+const AGENT_ACTIVITY = { plugin: 'task-pane', key: 'agentActivity' } as const
+const REDRAW_INTERVAL_MS = 10_000
+const ACTIVE_AGENT_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
+  'pending',
+  'running',
+  'waiting',
+])
+const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
+  'composer',
+  'bridge',
+])
 
 const TOOLS: readonly ToolSpec[] = [
   {
@@ -193,6 +234,91 @@ async function claimAgentList(
   return refusal
 }
 
+type Redraw = { timer: Timer | undefined }
+
+function stopRedraw(redraw: Redraw): void {
+  redraw.timer?.cancel()
+  redraw.timer = undefined
+}
+
+async function redrawShownPane($: EngineInterface, redraw: Redraw): Promise<void> {
+  const pane = (await $.ui.panes()).find((open) => open.id === PANE_ID)
+  if (!pane) {
+    stopRedraw(redraw)
+    return
+  }
+  if (pane.isShown) $.ui.invalidate('ui.render')
+}
+
+function startRedraw($: EngineInterface, redraw: Redraw): void {
+  if (redraw.timer) return
+  redraw.timer = $.clock.every(REDRAW_INTERVAL_MS, () => {
+    redrawShownPane($, redraw).catch((error: unknown) => {
+      $.ui.log(`task-pane: the redraw failed: ${String(error)}`, { to: 'debug' })
+    })
+  })
+}
+
+async function resetActivity($: EngineInterface): Promise<void> {
+  await $.state.set(ACTIVITY, EMPTY_ACTIVITY)
+  await $.state.set(AGENT_ACTIVITY, [])
+}
+
+async function notePlanChange($: EngineInterface): Promise<void> {
+  try {
+    const list = await readList(hostOf($))
+    const now = await $.clock.now()
+    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withPlanUpdate(current, list, now))
+  } catch (error) {
+    $.ui.log(`task-pane: the plan clock was not updated: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+type DueNote = { text: string; calls: number }
+
+async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
+  const list = await readList(hostOf($))
+  const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
+  const lag = planLag(activity)
+  if (lag === undefined || !isNoteDue(activity)) return undefined
+  return { text: planNote(lag, list.tasks.length > 0), calls: activity.calls }
+}
+
+async function recordNote($: EngineInterface, calls: number): Promise<void> {
+  try {
+    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => ({ ...current, noteAt: calls }))
+  } catch (error) {
+    $.ui.log(`task-pane: the plan note was not recorded: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+async function agentRows($: EngineInterface): Promise<AgentRow[]> {
+  const listed = (await $.agent.list()).filter((agent) => ACTIVE_AGENT_STATUSES.has(agent.status))
+  if (listed.length === 0) return []
+  const { value: seen = [] } = await $.state.get(AGENT_ACTIVITY)
+  const rows: AgentRow[] = []
+  for (const agent of listed) {
+    const ref = { plugin: 'task-pane', key: 'agentList', id: agent.id } as const
+    const { value: plan } = await $.state.get(ref)
+    rows.push({
+      id: agent.id,
+      name: agent.name ?? (agent.description === '' ? agent.type : agent.description),
+      plan:
+        plan === undefined || plan.tasks.length === 0
+          ? null
+          : { done: doneCount(plan), total: plan.tasks.length },
+      last: seen.find((one) => one.id === agent.id)?.last ?? null,
+    })
+  }
+  return rows
+}
+
+async function workOf($: EngineInterface): Promise<PaneWork> {
+  const now = await $.clock.now()
+  const { value: activity } = await $.state.get(ACTIVITY)
+  return { now, activity: activity ?? EMPTY_ACTIVITY, agents: await agentRows($) }
+}
+
 async function resetAgentLists($: EngineInterface): Promise<void> {
   let agentIds: readonly string[] = []
   await update($, AGENT_IDS, (current = []) => {
@@ -209,6 +335,13 @@ function uiOf($: EngineInterface): PaneUi {
     open: (id, title) => $.ui.open({ id, title }),
     close: (id) => $.ui.close({ id }),
     isOpen: async (id) => (await $.ui.panes()).some((pane) => pane.id === id),
+    fillPrompt: async (text) => {
+      const draft = await $.prompt.read()
+      const filled = await $.prompt.fill(
+        draft.text.trim() === '' ? { text } : { text: ` ${text}`, mode: 'append' },
+      )
+      return { isFilled: filled.isFilled, refusal: filled.refusal }
+    },
     toast: (text) => {
       $.ui.toast(text)
     },
@@ -308,6 +441,7 @@ function toolFailed($: EngineInterface, tool: string, error: HookFailure): { den
 
 export const register: Register = (on, options) => {
   const mode = paneMode(options)
+  const redraw: Redraw = { timer: undefined }
 
   on('session.start', async ($, e, next) => {
     for (const tool of TOOLS) await $.tool.register(tool)
@@ -326,6 +460,7 @@ export const register: Register = (on, options) => {
     if (e.reason === 'clear') {
       await resetList(hostOf($))
       await resetAgentLists($)
+      await resetActivity($)
     }
     return next(e)
   })
@@ -339,6 +474,40 @@ export const register: Register = (on, options) => {
         { id: PROMPT_SECTION_ID, text: PROMPT_SECTION_TEXT, scope: 'session' as const },
       ],
     }
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    if (!PERSON_ORIGINS.has(e.origin.kind)) return next(e)
+    const note = await dueNote($)
+    if (note === undefined) return next(e)
+    const entered = await next({ ...e, context: [...(e.context ?? []), note.text] })
+    if (entered.drop === undefined) await recordNote($, note.calls)
+    return entered
+  }).catch(($, e, next) => {
+    $.ui.log(`task-pane: no plan note (${next.error.kind}): ${next.error.message ?? 'no message'}`)
+    return next(e)
+  })
+
+  on('tool.call', async ($, e, next) => {
+    if (isTaskTool(e.tool)) {
+      const answer = await next(e)
+      if (e.agentId === undefined && e.tool !== TOOL_LIST && answer.deny === undefined) {
+        await notePlanChange($)
+      }
+      return answer
+    }
+    const sight = { tool: e.tool, target: toolTarget(e, await $.session.cwd()) }
+    const { agentId } = e
+    if (agentId === undefined) {
+      const now = await $.clock.now()
+      await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withMainCall(current, sight, now))
+    } else {
+      await update($, AGENT_ACTIVITY, (current = []) => withAgentCall(current, agentId, sight))
+    }
+    return next(e)
+  }).catch(($, e, next) => {
+    $.ui.log(`task-pane: the work was not tracked (${next.error.kind})`, { to: 'debug' })
+    return next(e)
   })
 
   on('tool.call', { tool: TOOL_ADD }, ($, e) =>
@@ -375,11 +544,19 @@ export const register: Register = (on, options) => {
     return { text: `task-pane: /task failed: ${reason}. Run /task to see the list.` }
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE_ID }, ($, e) => {
+  on('ui.close', { id: PANE_ID }, async ($, e, next) => {
+    const closed = await next(e)
+    if (!(await $.ui.panes()).some((pane) => pane.id === PANE_ID)) stopRedraw(redraw)
+    return closed
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
-    const { placement, bodyColumns } = e.props
-    const elements = { Box, Text, Button, Input, placement, bodyColumns }
-    return drawPane(elements, hostOf($), uiOf($))
+    const { bodyColumns } = e.props
+    const elements = { Box, Text, Button, Input, bodyColumns }
+    const work = await workOf($)
+    startRedraw($, redraw)
+    return drawPane(elements, hostOf($), uiOf($), work)
   })
 }

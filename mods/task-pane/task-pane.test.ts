@@ -1,10 +1,11 @@
-import type { On, PluginState, PromptComposeInput, RenderPropsOf } from 'claude-code'
+import type { AgentInfo, On, PluginState, PromptComposeInput, RenderPropsOf } from 'claude-code'
 import {
   describe,
   expect,
   mock,
   test,
   type Engine,
+  type MockClock,
   type Mounted,
   type Plugin,
 } from 'claude-code/testing'
@@ -71,18 +72,33 @@ type World = {
   commands: string[]
   panes: Set<string>
   opened: string[]
+  agents: AgentInfo[]
+  toasts: string[]
+  clock: MockClock
+  panesAsked: number
 }
 
-function world(on: On, options: { closeRefusal?: string } = {}): World {
+function world(
+  on: On,
+  options: { closeRefusal?: string; cwdFailure?: string; closeKeepsOpen?: boolean } = {},
+): World {
   const state: World = {
     tools: [],
     descriptions: new Map(),
     commands: [],
     panes: new Set(),
     opened: [],
+    agents: [],
+    toasts: [],
+    clock: mock.clock(on, { now: 1_000 }),
+    panesAsked: 0,
   }
-  mock.clock(on, { now: 1_000 })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => {
+    if (options.cwdFailure !== undefined) throw new Error(options.cwdFailure)
+    return { value: ROOT }
+  })
+  on('agent.list', () => ({ value: state.agents }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -102,20 +118,28 @@ function world(on: On, options: { closeRefusal?: string } = {}): World {
   })
   on('ui.close', (_$, e) => {
     if (options.closeRefusal !== undefined) return { deny: options.closeRefusal }
+    if (options.closeKeepsOpen === true) return { value: undefined }
     state.panes.delete(e.id)
     return { value: undefined }
   })
-  on('ui.panes', () => ({
-    value: [...state.panes].map((id) => ({
-      id,
-      title: 'Tasks',
-      isShown: true,
-      isFocused: false,
-      isPlaced: true,
-    })),
-  }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.panes', () => {
+    state.panesAsked += 1
+    return {
+      value: [...state.panes].map((id) => ({
+        id,
+        title: 'Tasks',
+        isShown: true,
+        isFocused: false,
+        isPlaced: true,
+      })),
+    }
+  })
+  on('ui.toast', (_$, e) => {
+    state.toasts.push(e.text)
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
+  on('tool.call', () => ({ result: '' }))
   return state
 }
 
@@ -646,6 +670,7 @@ describe('the pane', () => {
           props: paneProps('dock', 80),
         })
         expect(await ui.find({ type: 'Text', text: '1 of 3 done' })).toBeDefined()
+        await ui.press({ key: 'done' })
         const done = await ui.find({ type: 'Text', text: /^Read the design doc$/ })
         expect(done?.props.dimColor).toBe(true)
         expect(
@@ -654,17 +679,18 @@ describe('the pane', () => {
         expect(await ui.find({ type: 'Text', text: /"/ })).toBeUndefined()
         expect(
           (await ui.findAll({ type: 'Text', text: /^\d+ $/ })).map((number) => number.text),
-        ).toEqual(['1 ', '2 ', '3 '])
+        ).toEqual(['2 ', '3 ', '1 '])
         expect(
           (await ui.findAll({ type: 'Text', text: /^(you|claude|tracker) +$/ })).map(
             (author) => author.text,
           ),
-        ).toEqual(['claude  ', 'claude  ', 'you     '])
+        ).toEqual(['claude  ', 'you     ', 'claude  '])
         expect(await ui.find({ type: 'Text', text: /\(you\)/ })).toBeUndefined()
         expect(
           (await ui.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key),
-        ).toEqual(['rm:1', 'rm:2', 'rm:3'])
+        ).toEqual(['rm:2', 'rm:3', 'rm:1'])
         expect((await ui.find({ type: 'Input' }))?.props.submitLabel).toBe('Add')
+        await ui.press({ key: 'done' })
         await ui.unmount()
       }
       const ui = await $.ui.mount({
@@ -711,6 +737,7 @@ describe('the pane', () => {
   test('mobile has no Input and points to /task add', withWorkitems, async ($, on) => {
     world(on)
     await start($)
+    await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
     const ui = await $.ui.mount({
       plugin: PANE,
       surface: 'mobile',
@@ -720,11 +747,13 @@ describe('the pane', () => {
     })
     expect(await ui.find({ type: 'Input' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: 'Add tasks with /task add <text>.' })).toBeDefined()
+    await ui.press({ key: 'open:task:1' })
+    expect((await ui.find({ key: 'full:task:1' }))?.text).toBe('Write the mocksnot started yet')
     await ui.unmount()
   })
 
   test(
-    'inline with more than 6 rows hides done tasks behind a count',
+    'the task in progress draws first and bold, open tasks follow in list order, and done tasks fold to a +N done button',
     withWorkitems,
     async ($, on) => {
       world(on)
@@ -733,28 +762,42 @@ describe('the pane', () => {
         await $.tool.call({ tool: TOOL_ADD, title })
       }
       await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
-      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed' })
-      const inline = await $.ui.mount({
-        plugin: PANE,
-        surface: 'terminal',
-        component: 'Pane',
-        requestId: PANE,
-        props: paneProps('inline'),
-      })
-      expect(await inline.find({ type: 'Text', text: '+2 done hidden' })).toBeDefined()
-      expect(await inline.find({ type: 'Text', text: 'One' })).toBeUndefined()
-      expect(await inline.find({ type: 'Text', text: 'Three' })).toBeDefined()
-      await inline.unmount()
-      const docked = await $.ui.mount({
-        plugin: PANE,
-        surface: 'terminal',
-        component: 'Pane',
-        requestId: PANE,
-        props: paneProps('dock'),
-      })
-      expect(await docked.find({ type: 'Text', text: 'One' })).toBeDefined()
-      expect(await docked.find({ type: 'Text', text: /done hidden/ })).toBeUndefined()
-      await docked.unmount()
+      await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'completed' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 4, status: 'in_progress' })
+      for (const placement of ['dock', 'inline'] as const) {
+        for (const surface of ['terminal', 'desktop'] as const) {
+          const ui = await $.ui.mount({
+            plugin: PANE,
+            surface,
+            component: 'Pane',
+            requestId: PANE,
+            props: paneProps(placement, 45),
+          })
+          const rowKeys = async () =>
+            (await ui.findAll({ type: 'Box' }))
+              .map((box) => box.key)
+              .filter((key) => key?.startsWith('row:task:'))
+          expect(await rowKeys()).toEqual(['row:task:4', 'row:task:2', 'row:task:5'])
+          expect((await ui.find({ type: 'Text', text: /^Four$/ }))?.props.bold).toBe(true)
+          expect((await ui.find({ type: 'Text', text: /^Two$/ }))?.props.bold).toBeFalsy()
+          expect((await ui.find({ key: 'done' }))?.text).toBe('+2 done')
+          expect(await ui.find({ type: 'Text', text: /^One$/ })).toBeUndefined()
+          await ui.press({ key: 'done' })
+          expect(await rowKeys()).toEqual([
+            'row:task:4',
+            'row:task:2',
+            'row:task:5',
+            'row:task:1',
+            'row:task:3',
+          ])
+          expect((await ui.find({ key: 'done' }))?.text).toBe('hide 2 done')
+          expect((await ui.find({ type: 'Text', text: /^One$/ }))?.props.dimColor).toBe(true)
+          await ui.press({ key: 'done' })
+          expect(await rowKeys()).toEqual(['row:task:4', 'row:task:2', 'row:task:5'])
+          expect((await ui.find({ key: 'done' }))?.text).toBe('+2 done')
+          await ui.unmount()
+        }
+      }
     },
   )
 })
@@ -1555,8 +1598,8 @@ function drawnOf(value: unknown): Drawn | null {
   const children = raw.map(drawnOf).filter((child) => child !== null)
   const own = raw.map((child) => (typeof child === 'string' ? child : '')).join('')
   const text =
-    value.type === 'Button'
-      ? String(props.label)
+    value.type === 'Button' && typeof props.label === 'string'
+      ? props.label
       : `${own}${children.map((child) => child.text).join('')}`
   return { type: value.type, props, text, children }
 }
@@ -1569,7 +1612,10 @@ function numberProp(element: Drawn, name: string): number {
 function drawnWidth(element: Drawn): number {
   if (element.type === 'Text') return element.text.length
   if (element.type === 'Button') {
-    const label = element.text.length
+    const label =
+      typeof element.props.label === 'string'
+        ? element.text.length
+        : element.children.reduce((sum, child) => sum + drawnWidth(child), 0)
     return element.props.plain === true ? label : label + 4
   }
   const inner =
@@ -1707,12 +1753,15 @@ describe('the pane rows fit the pane width', () => {
           '1 ',
           'claude  ',
           LONG_TITLE.slice(0, columns - 12 - 7 - 1),
+          '…',
         ])
-        expect((await ui.find({ key: 'more:task:1' }))?.text).toBe('…')
+        expect((await ui.find({ key: 'open:task:1' }))?.text).toBe(
+          `${LONG_TITLE.slice(0, columns - 12 - 7 - 1)}…`,
+        )
         const short = await rowOf(ui, 'task:2')
         expect(drawnWidth(short) <= columns).toBe(true)
         expect(texts(short).at(-1)?.text).toBe('Ship it')
-        expect(await ui.find({ key: 'more:task:2' })).toBeUndefined()
+        expect((await ui.find({ key: 'open:task:2' }))?.text).toBe('Ship it')
         await ui.unmount()
       },
     )
@@ -1773,6 +1822,7 @@ describe('the pane rows fit the pane width', () => {
     await $.tool.call({ tool: TOOL_ADD, title: LONG_TITLE })
     await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
     const tasks = await mountPane()
+    await tasks.press({ key: 'done' })
     await collect(tasks)
     await tasks.unmount()
     expect(colours).toContain('error')
@@ -1800,13 +1850,13 @@ describe('the pane rows fit the pane width', () => {
           props: paneProps('dock', 45),
         })
       const before = await mountPane()
-      await before.press({ key: 'more:task:1' })
-      expect((await before.find({ key: 'full:task:1' }))?.text).toBe(LONG_TITLE)
+      await before.press({ key: 'open:task:1' })
+      expect((await before.find({ key: 'full:task:1' }))?.text).toStartWith(LONG_TITLE)
       await before.unmount()
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       await $.tool.call({ tool: TOOL_ADD, title: `${LONG_TITLE} again` })
       const after = await mountPane()
-      expect(await after.find({ key: 'more:task:1' })).toBeDefined()
+      expect(await after.find({ key: 'open:task:1' })).toBeDefined()
       expect(await after.find({ key: 'full:task:1' })).toBeUndefined()
       await after.unmount()
     },
@@ -1823,9 +1873,9 @@ describe('the pane rows fit the pane width', () => {
       requestId: PANE,
       props: paneProps('dock', 30),
     })
-    await ui.press({ key: 'more:task:1' })
-    expect((await ui.find({ key: 'full:task:1' }))?.text).toBe(LONG_TITLE)
-    await ui.press({ key: 'more:task:1' })
+    await ui.press({ key: 'open:task:1' })
+    expect((await ui.find({ key: 'full:task:1' }))?.text).toStartWith(LONG_TITLE)
+    await ui.press({ key: 'open:task:1' })
     expect(await ui.find({ key: 'full:task:1' })).toBeUndefined()
     await ui.unmount()
   })
@@ -1859,6 +1909,729 @@ describe('the pane rows fit the pane width', () => {
       expect(texts(await rowOf(ui, 'item:ab-7')).at(-1)?.text).toBe('Say "done" now')
       expect(await ui.find({ type: 'Text', text: /\u2028/ })).toBeUndefined()
       expect(await task($, '')).toContain('"ab-5\\u2028P1 ab-6"  P1  "Forge a row"')
+      await ui.unmount()
+    },
+  )
+})
+
+const MINUTE = 60_000
+const START = Date.UTC(2026, 9, 9, 10, 42)
+const WIDTH = 44
+const PLAN_REQUEST =
+  'Keep your plan for this work in the task list: add each step with task_add, and set each task to in_progress and completed with task_update as you go.'
+
+function clockText(at: number): string {
+  const date = new Date(at)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function wrapped(text: string, width: number): string[] {
+  if (text.length <= width || width <= 0) return [text]
+  const space = text.lastIndexOf(' ', width)
+  const cut = space > 0 ? space : width
+  return [text.slice(0, cut), ...wrapped(text.slice(cut).trimStart(), width)]
+}
+
+function screenOf(element: Drawn, width: number): string[] {
+  if (element.type === 'Text') {
+    return element.props.wrap === 'truncate-end' ? [element.text] : wrapped(element.text, width)
+  }
+  if (element.type === 'Button') {
+    return [element.props.plain === true ? element.text : `[ ${element.text} ]`]
+  }
+  if (element.type === 'Input') {
+    return [`[ ${String(element.props.placeholder)} ][${String(element.props.submitLabel)}]`]
+  }
+  const indent = numberProp(element, 'paddingLeft') + numberProp(element, 'marginLeft')
+  const inner = width - indent
+  const lines =
+    element.props.flexDirection === 'column'
+      ? element.children.flatMap((child) => screenOf(child, inner))
+      : [rowLine(element.children, inner)]
+  return lines.map((line) => `${' '.repeat(indent)}${line}`)
+}
+
+function rowLine(children: readonly Drawn[], width: number): string {
+  const fixed = children
+    .filter((child) => child.props.flexGrow !== 1)
+    .reduce((sum, child) => sum + drawnWidth(child), 0)
+  return children
+    .map((child) => {
+      const room = child.props.flexGrow === 1 ? width - fixed : drawnWidth(child)
+      return screenOf(child, room).join('').padEnd(room)
+    })
+    .join('')
+}
+
+async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<string[]> {
+  const root = drawnOf(await ui.find({ type: 'Box' }))
+  if (root === null) throw new Error('the pane drew no Box')
+  const lines = screenOf(root, columns).map((line) => line.trimEnd())
+  for (const line of lines)
+    expect(line.length <= columns, `"${line}" is wider than ${String(columns)}`).toBe(true)
+  return lines
+}
+
+async function mountPane($: Engine, columns = WIDTH) {
+  return $.ui.mount({
+    plugin: PANE,
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: PANE,
+    props: paneProps('dock', columns),
+  })
+}
+
+async function read($: Engine, file: string): Promise<void> {
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/${file}` })
+}
+
+async function edit($: Engine, file: string): Promise<void> {
+  await $.tool.call({
+    tool: 'Edit',
+    file_path: `${ROOT}/${file}`,
+    old_string: 'a',
+    new_string: 'b',
+  })
+}
+
+async function bash($: Engine, command: string): Promise<void> {
+  await $.tool.call({ tool: 'Bash', command })
+}
+
+async function agentCall($: Engine, agentId: string, pattern: string): Promise<void> {
+  await $.tool.call({ tool: 'mcp__search__grep', pattern, agentId })
+}
+
+async function readsOf($: Engine, count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) await read($, `src/file${String(index)}.ts`)
+}
+
+function agent(id: string, description: string, status: AgentInfo['status']): AgentInfo {
+  return { id, description, type: 'Explore', status }
+}
+
+describe('the pane follows the work', () => {
+  test(
+    'under the task in progress the pane shows the last tool and target, the tool count since it started and its time',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await seen.clock.set(START)
+      for (const title of ['Read the design', 'Write the mocks', 'Commit the mocks']) {
+        await $.tool.call({ tool: TOOL_ADD, title })
+      }
+      await read($, 'docs/design.md')
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+      await seen.clock.advance(4 * MINUTE)
+      await read($, 'docs/mocks.md')
+      await edit($, 'docs/mocks.md')
+      await edit($, 'docs/mocks.md')
+      await $.tool.call({ tool: TOOL_LIST })
+      await agentCall($, 'a1', 'hooks/')
+      const ui = await mountPane($)
+      expect(await screen(ui, WIDTH)).toEqual([
+        'Tasks  1 of 3 done · 4m',
+        '▶ 2 claude  Write the mocks        4m [ rm ]',
+        '            ▸ Edit docs/mocks.md     3 tools',
+        '○ 3 claude  Commit the mocks          [ rm ]',
+        '[ +1 done ]',
+        '',
+        '[ Add a task ][Add]',
+      ])
+      await seen.clock.advance(MINUTE)
+      await bash($, 'npm test')
+      expect((await screen(ui, WIDTH)).slice(0, 3)).toEqual([
+        'Tasks  1 of 3 done · 5m',
+        '▶ 2 claude  Write the mocks        5m [ rm ]',
+        '            ▸ Bash npm test          4 tools',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a click on a task shows its full title, its start time and its tool count under the row, and a second click hides them',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await seen.clock.set(START)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+      await $.tool.call({ tool: TOOL_ADD, title: LONG_TITLE })
+      await $.tool.call({ tool: TOOL_ADD, title: 'Push after approval' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      await readsOf($, 2)
+      await seen.clock.advance(3 * MINUTE)
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+      await seen.clock.advance(4 * MINUTE)
+      await readsOf($, 9)
+      for (const surface of ['terminal', 'desktop'] as const) {
+        const ui = await $.ui.mount({
+          plugin: PANE,
+          surface,
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock', WIDTH),
+        })
+        await ui.press({ key: 'open:task:2' })
+        const opened = drawnOf(await ui.find({ key: 'full:task:2' }))
+        expect(opened === null ? [] : texts(opened).map((line) => line.text)).toEqual([
+          LONG_TITLE,
+          `started ${clockText(START + 3 * MINUTE)} · 9 tools · 4m`,
+        ])
+        expect(await screen(ui, WIDTH)).toEqual([
+          'Tasks  1 of 3 done · 7m',
+          '▶ 2 claude  Mods match the termin… 4m [ rm ]',
+          '            Mods match the terminal palette,',
+          '            such as a WezTerm theme on navy',
+          `            started ${clockText(START + 3 * MINUTE)} · 9 tools · 4m`,
+          '            ▸ Read src/file8.ts      9 tools',
+          '○ 3 claude  Push after approval       [ rm ]',
+          '[ +1 done ]',
+          '',
+          '[ Add a task ][Add]',
+        ])
+        await ui.press({ key: 'open:task:3' })
+        expect(
+          texts(
+            drawnOf(await ui.find({ key: 'full:task:3' })) ?? {
+              type: 'Box',
+              props: {},
+              text: '',
+              children: [],
+            },
+          ).map((line) => line.text),
+        ).toEqual(['Push after approval', 'not started yet'])
+        await ui.press({ key: 'done' })
+        await ui.press({ key: 'open:task:1' })
+        expect(
+          texts(
+            drawnOf(await ui.find({ key: 'full:task:1' })) ?? {
+              type: 'Box',
+              props: {},
+              text: '',
+              children: [],
+            },
+          ).map((line) => line.text),
+        ).toEqual(['Read the design', `started ${clockText(START)} · 2 tools · took 3m`])
+        for (const key of ['open:task:1', 'open:task:2', 'open:task:3', 'done']) {
+          await ui.press({ key })
+        }
+        expect(await ui.find({ key: 'full:task:1' })).toBeUndefined()
+        expect(await ui.find({ key: 'full:task:2' })).toBeUndefined()
+        expect(await ui.find({ key: 'full:task:3' })).toBeUndefined()
+        await ui.unmount()
+      }
+    },
+  )
+
+  test(
+    'the pane lists each running subagent with its plan count and last tool, and no subagent section when none runs',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      seen.agents.push(agent('a1', 'scout', 'running'), agent('a2', 'reviewer', 'completed'))
+      for (const title of ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven']) {
+        await $.tool.call({ tool: TOOL_ADD, title, agentId: 'a1' })
+      }
+      for (const id of [1, 2, 3]) {
+        await $.tool.call({ tool: TOOL_UPDATE, id, status: 'completed', agentId: 'a1' })
+      }
+      await agentCall($, 'a1', 'hooks/')
+      await agentCall($, 'a2', 'docs/')
+      const ui = await mountPane($)
+      expect(await screen(ui, WIDTH)).toEqual([
+        'Tasks  0 of 1 done',
+        '○ 1 claude  Write the mocks           [ rm ]',
+        '────────────────────────────────────────────',
+        'Agents  1 running',
+        '● scout 3 of 7 ▸ mcp__search__grep hooks/',
+        '',
+        '[ Add a task ][Add]',
+      ])
+      await ui.unmount()
+      seen.agents.push(agent('a3', 'planner without a plan or a call', 'waiting'))
+      const both = await mountPane($)
+      expect((await screen(both, WIDTH)).slice(2, 6)).toEqual([
+        '────────────────────────────────────────────',
+        'Agents  2 running',
+        '● scout           3 of 7 ▸ mcp__search__gre…',
+        '● planner withou…        ▸ no tool call yet',
+      ])
+      await both.unmount()
+      seen.agents.splice(0, seen.agents.length, agent('a1', 'scout', 'completed'))
+      const none = await mountPane($)
+      const lines = await screen(none, WIDTH)
+      expect(lines.some((line) => line.startsWith('Agents'))).toBe(false)
+      expect(lines.some((line) => line.includes('─'))).toBe(false)
+      expect(await none.find({ type: 'Text', text: /scout/ })).toBeUndefined()
+      await none.unmount()
+    },
+  )
+
+  test(
+    'with no task list the pane shows a Now line with the last tool, the count per tool and the time since the first call',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await publish($, okSnapshot([]))
+      const before = await mountPane($)
+      expect((await screen(before, WIDTH)).slice(0, 2)).toEqual([
+        'Tasks  none in this session yet',
+        'Open in tracker: beads · no open items',
+      ])
+      await before.unmount()
+      await seen.clock.set(START)
+      await read($, 'docs/design.md')
+      await read($, 'docs/mocks.md')
+      await edit($, 'docs/mocks.md')
+      await $.tool.call({ tool: TOOL_LIST })
+      await agentCall($, 'a1', 'hooks/')
+      await seen.clock.advance(3 * MINUTE)
+      await edit($, 'docs/mocks.md')
+      await bash($, 'npm test')
+      const ui = await mountPane($)
+      expect(await screen(ui, WIDTH)).toEqual([
+        'Tasks  none kept by Claude',
+        '▶ Now  Bash npm test            5 tools · 3m',
+        '  Read 2 · Edit 2 · Bash 1',
+        'Open in tracker: beads · no open items',
+        '',
+        '[ Add a task ][Add]',
+      ])
+      await ui.unmount()
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      const cleared = await mountPane($)
+      expect((await screen(cleared, WIDTH)).slice(0, 2)).toEqual([
+        'Tasks  none in this session yet',
+        'Open in tracker: beads · no open items',
+      ])
+      await cleared.unmount()
+    },
+  )
+
+  test(
+    'after 20 main loop tool calls with no list the pane warns with the count and a button fills the prompt box without sending it',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const fills: { text: string; mode: string | undefined }[] = []
+      const submitted: string[] = []
+      let draft = ''
+      on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
+      on('prompt.fill', (_$, e) => {
+        fills.push({ text: e.text, mode: e.mode })
+        return { isFilled: true }
+      })
+      on('prompt.submit', (_$, e) => {
+        submitted.push(e.text)
+        return { text: e.text }
+      })
+      await start($)
+      await readsOf($, 19)
+      const ui = await mountPane($)
+      expect(await ui.find({ key: 'plan-warning' })).toBeUndefined()
+      expect(await ui.find({ key: 'ask-plan' })).toBeUndefined()
+      await read($, 'one-more.ts')
+      expect((await screen(ui, WIDTH)).slice(0, 5)).toEqual([
+        'Tasks  none kept by Claude',
+        '▶ Now  Read one-more.ts       20 tools · <1m',
+        '  Read 20',
+        'Claude has kept no plan for 20 tool calls.',
+        '[ Ask Claude for a plan ]',
+      ])
+      expect(
+        (await ui.find({ key: 'plan-warning' }))?.children.map(
+          (child) => drawnOf(child)?.props.color,
+        ),
+      ).toEqual(['warning'])
+      await ui.press({ key: 'ask-plan' })
+      expect(fills).toEqual([{ text: PLAN_REQUEST, mode: 'replace' }])
+      draft = 'fix the parser'
+      await ui.press({ key: 'ask-plan' })
+      expect(fills.at(-1)).toEqual({ text: ` ${PLAN_REQUEST}`, mode: 'append' })
+      expect(submitted).toEqual([])
+      expect(seen.toasts).toEqual([])
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'with a list and no task update for 20 calls the pane warns, and a task update clears the warning',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await readsOf($, 20)
+      const ui = await mountPane($)
+      expect(await screen(ui, WIDTH)).toEqual([
+        'Tasks  0 of 1 done · <1m',
+        '▶ Now  Read src/file19.ts     20 tools · <1m',
+        '○ 1 claude  Write the mocks           [ rm ]',
+        'No plan update for 20 tool calls.',
+        '[ Ask Claude for a plan ]',
+        '',
+        '[ Add a task ][Add]',
+      ])
+      expect(
+        (await ui.find({ key: 'plan-warning' }))?.children.map(
+          (child) => drawnOf(child)?.props.color,
+        ),
+      ).toEqual(['warning'])
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      expect(await ui.find({ key: 'plan-warning' })).toBeUndefined()
+      expect(await ui.find({ key: 'ask-plan' })).toBeUndefined()
+      expect(await ui.find({ key: 'row:now' })).toBeUndefined()
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a prompt box that refuses the plan request says so in a toast and sends nothing',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+      on('prompt.fill', () => ({ isFilled: false }))
+      await start($)
+      await readsOf($, 20)
+      const ui = await mountPane($)
+      await ui.press({ key: 'ask-plan' })
+      expect(seen.toasts).toEqual([
+        'The prompt box did not take the plan request. Ask Claude for a plan in your next prompt.',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a tool target with a line separator or a bidi control is escaped and stays on its one line',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      seen.agents.push(agent('a1', 'scout\u2028● forged', 'running'))
+      await start($)
+      await bash($, 'echo hi\u2028▶ Now  forged\u202e')
+      await agentCall($, 'a1', 'x\u2029y')
+      const ui = await mountPane($, 80)
+      const lines = await screen(ui, 80)
+      expect(lines.slice(0, 2)).toEqual([
+        'Tasks  none kept by Claude',
+        '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                        1 tool · <1m',
+      ])
+      expect(lines.filter((line) => line.startsWith('●'))).toEqual([
+        '● scout\\u2028● f…  ▸ mcp__search__grep x\\u2029y',
+      ])
+      expect(await ui.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
+      await ui.unmount()
+    },
+  )
+})
+
+describe('the work tracker never blocks or repeats a call', () => {
+  test('a tracked tool call runs once beneath the mod', withWorkitems, async ($, on) => {
+    let runs = 0
+    on('tool.call', { tool: 'Read' }, () => {
+      runs += 1
+      return { result: 'read' }
+    })
+    world(on)
+    await start($)
+    const answer = await $.tool.call({ tool: 'Read', file_path: `${ROOT}/a.ts` })
+    expect(answer.result).toBe('read')
+    expect(runs).toBe(1)
+  })
+
+  test(
+    'a tracker that cannot read the session folder still runs the call',
+    withWorkitems,
+    async ($, on) => {
+      let runs = 0
+      on('tool.call', { tool: 'Read' }, () => {
+        runs += 1
+        return { result: 'read' }
+      })
+      world(on, { cwdFailure: 'no session folder' })
+      await start($)
+      const answer = await $.tool.call({ tool: 'Read', file_path: `${ROOT}/a.ts` })
+      expect(answer.result).toBe('read')
+      expect(runs).toBe(1)
+      const ui = await mountPane($)
+      expect((await screen(ui, WIDTH))[0]).toBe('Tasks  none in this session yet')
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a prompt with the plan note is submitted once beneath the mod',
+    withWorkitems,
+    async ($, on) => {
+      let submits = 0
+      on('prompt.submit', (_$, e) => {
+        submits += 1
+        return { text: e.text, context: e.context }
+      })
+      world(on)
+      await start($)
+      await readsOf($, 20)
+      const entered = await $.prompt.submit({
+        text: 'go on',
+        wait: false,
+        origin: { kind: 'composer' },
+      })
+      expect(entered.context).toHaveLength(1)
+      expect(submits).toBe(1)
+    },
+  )
+
+  test(
+    'a plan note that cannot be read leaves the prompt submitted once, unchanged and not dropped',
+    withWorkitems,
+    async ($, on) => {
+      let isBroken = false
+      const seen: { text: string; context: readonly string[] | undefined }[] = []
+      on('state.get', { plugin: 'task-pane', key: 'activity' }, (_$, e, next) =>
+        isBroken ? { deny: 'the activity state is unreadable' } : next(e),
+      )
+      on('prompt.submit', (_$, e) => {
+        seen.push({ text: e.text, context: e.context })
+        return { text: e.text, context: e.context }
+      })
+      world(on)
+      await start($)
+      await readsOf($, 20)
+      isBroken = true
+      const entered = await $.prompt.submit({
+        text: 'go on',
+        wait: false,
+        origin: { kind: 'composer' },
+      })
+      expect(entered.drop).toBeUndefined()
+      expect(entered.text).toBe('go on')
+      expect(seen).toEqual([{ text: 'go on', context: undefined }])
+    },
+  )
+})
+
+describe('the redraw timer', () => {
+  async function paneCommandOf($: Engine): Promise<string> {
+    return task($, 'pane')
+  }
+
+  test(
+    'the time on a shown pane moves after 10 seconds, and no redraw runs after the pane closes',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await seen.clock.set(START)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      expect(await paneCommandOf($)).toBe('Task pane opened.')
+      await seen.clock.set(START + 55_000)
+      await read($, 'docs/mocks.md')
+      const ui = await mountPane($)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks       <1m [ rm ]')
+      await seen.clock.advance(10_000)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      expect(await paneCommandOf($)).toBe('Task pane closed.')
+      const asked = seen.panesAsked
+      await seen.clock.advance(60_000)
+      expect(seen.panesAsked).toBe(asked)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a close that a hook beneath refuses quietly keeps the timer of the open pane',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { closeKeepsOpen: true })
+      await start($)
+      await seen.clock.set(START)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      await paneCommandOf($)
+      await seen.clock.set(START + 55_000)
+      await read($, 'docs/mocks.md')
+      const ui = await mountPane($)
+      expect(await paneCommandOf($)).toBe('Task pane closed.')
+      await seen.clock.advance(10_000)
+      expect((await screen(ui, WIDTH))[1]).toBe('▶ 1 claude  Write the mocks        1m [ rm ]')
+      await ui.unmount()
+    },
+  )
+})
+
+describe('the plan note at prompt submit', () => {
+  function submitted(on: On): { text: string; context: readonly string[] }[] {
+    const rows: { text: string; context: readonly string[] }[] = []
+    on('prompt.submit', (_$, e) => {
+      rows.push({ text: e.text, context: e.context ?? [] })
+      return { text: e.text, context: e.context }
+    })
+    return rows
+  }
+
+  async function submit(
+    $: Engine,
+    text: string,
+    kind: 'composer' | 'task-notification' = 'composer',
+  ) {
+    return $.prompt.submit({ text, wait: false, origin: { kind } })
+  }
+
+  test(
+    'while the warning holds a person prompt gets one note for Claude, at most once per 20 tool calls, and is never blocked',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const rows = submitted(on)
+      await start($)
+      await readsOf($, 19)
+      await submit($, 'go on')
+      await readsOf($, 1)
+      const entered = await submit($, 'next step')
+      await submit($, 'and the tests')
+      await readsOf($, 19)
+      await submit($, 'still going')
+      await readsOf($, 1)
+      await submit($, 'one more')
+      expect(entered).toEqual({
+        text: 'next step',
+        context: [expect.stringMatching(/^\[task-pane\] /)],
+      })
+      expect(rows.map((row) => row.text)).toEqual([
+        'go on',
+        'next step',
+        'and the tests',
+        'still going',
+        'one more',
+      ])
+      expect(rows.map((row) => row.context.length)).toEqual([0, 1, 0, 0, 1])
+      expect(rows[1]?.context).toEqual([
+        '[task-pane] The person sees an empty task list in the task pane, after 20 tool calls of yours. Add your plan with task_add, one task for each step, and keep it current with task_update: in_progress when you start a task, completed when it is done.',
+      ])
+      expect(rows[4]?.context[0]).toContain('after 40 tool calls of yours')
+    },
+  )
+
+  test(
+    'a prompt that a hook beneath drops does not use up the plan note',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const rows: { text: string; context: readonly string[] }[] = []
+      on('prompt.submit', (_$, e) => {
+        if (e.text === 'drop me') return { drop: 'a hook refused the prompt' }
+        rows.push({ text: e.text, context: e.context ?? [] })
+        return { text: e.text, context: e.context }
+      })
+      await start($)
+      await readsOf($, 20)
+      const dropped = await submit($, 'drop me')
+      expect(dropped.drop).toBe('a hook refused the prompt')
+      await readsOf($, 1)
+      await submit($, 'go on')
+      expect(rows).toEqual([
+        { text: 'go on', context: [expect.stringContaining('after 21 tool calls of yours')] },
+      ])
+    },
+  )
+
+  test(
+    'with a stale list the note asks for task_update, and a prompt that is not from the person gets no note',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      const rows = submitted(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await readsOf($, 20)
+      await submit($, 'a background result', 'task-notification')
+      await submit($, 'go on')
+      expect(rows.map((row) => row.context)).toEqual([
+        [],
+        [
+          '[task-pane] The person sees an old plan in the task pane: your task list did not change in 20 tool calls. Keep your plan current with task_update: in_progress when you start a task, completed when it is done. Add new steps with task_add.',
+        ],
+      ])
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      await readsOf($, 19)
+      await submit($, 'after the update')
+      expect(rows.at(-1)?.context).toEqual([])
+    },
+  )
+})
+
+describe('the empty pane reaches every open tracker item', () => {
+  const MANY = Array.from({ length: 12 }, (_, index) =>
+    item(`app-${String(index + 10)}`, `Open item ${String(index + 10)}`, 2, 'open'),
+  )
+
+  test(
+    'with more than 10 open items the pane shows the first 10 and an all N open button that shows every item',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, okSnapshot([...MANY, item('app-99', 'Closed one', 1, 'closed')]))
+      for (const surface of ['terminal', 'desktop'] as const) {
+        const ui = await $.ui.mount({
+          plugin: PANE,
+          surface,
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock', WIDTH),
+        })
+        const itemKeys = async () =>
+          (await ui.findAll({ type: 'Button', text: 'add' })).map((button) => button.key)
+        expect(
+          await ui.find({ type: 'Text', text: 'Open in tracker: beads · 12 open' }),
+        ).toBeDefined()
+        expect(await itemKeys()).toEqual(MANY.slice(0, 10).map((one) => `add:${one.id}`))
+        expect((await ui.find({ key: 'all-items' }))?.text).toBe('all 12 open')
+        expect((await ui.find({ key: 'add-all' }))?.text).toBe('Add 10 as tasks')
+        await ui.press({ key: 'all-items' })
+        expect(await itemKeys()).toEqual(MANY.map((one) => `add:${one.id}`))
+        expect((await ui.find({ key: 'all-items' }))?.text).toBe('first 10')
+        expect((await ui.find({ key: 'add-all' }))?.text).toBe('Add 12 as tasks')
+        const lines = await screen(ui, WIDTH)
+        expect(lines.slice(1, 3)).toEqual([
+          'Open in tracker: beads · 12 open',
+          'P2 app-10 Open item 10               [ add ]',
+        ])
+        expect(lines.slice(13, 16)).toEqual([
+          'P2 app-21 Open item 21               [ add ]',
+          '[ first 10 ]',
+          '[ Add 12 as tasks ]',
+        ])
+        await ui.press({ key: 'all-items' })
+        expect(await itemKeys()).toEqual(MANY.slice(0, 10).map((one) => `add:${one.id}`))
+        await ui.unmount()
+      }
+    },
+  )
+
+  test(
+    'with 10 open items or fewer the pane shows no all N open button',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, okSnapshot(MANY.slice(0, 10)))
+      const ui = await mountPane($)
+      expect((await ui.findAll({ type: 'Button', text: 'add' })).length).toBe(10)
+      expect(await ui.find({ key: 'all-items' })).toBeUndefined()
       await ui.unmount()
     },
   )
