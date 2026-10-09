@@ -95,23 +95,89 @@ The `agentId` of a tool call names the loop that calls the tool. The main loop h
 
 ## The pane
 
+The pane shows the work of the main loop: the task list, the tool calls and the running
+subagents. Two captures from the tests, 44 columns wide:
+
+```text
+Tasks  1 of 3 done · 4m
+▶ 2 claude  Write the mocks        4m [ rm ]
+            ▸ Edit docs/mocks.md     3 tools
+○ 3 claude  Commit the mocks          [ rm ]
+[ +1 done ]
+
+[ Add a task ][Add]
+```
+
+```text
+Tasks  0 of 1 done
+○ 1 claude  Write the mocks           [ rm ]
+────────────────────────────────────────────
+Agents  1 running
+● scout 3 of 7 ▸ mcp__search__grep hooks/
+
+[ Add a task ][Add]
+```
+
+- The header shows the done count and the time since the first tool call of the main loop.
 - Each task is one line: a mark (`✓` done, `▶` in progress, `○` pending), the number, the
   author column, the title and an `[ rm ]` button. An input with `Add` adds a task as you. The
   mobile app has no input, so the pane shows the command.
+- The task in progress comes first, in bold, with the time since it started. The line under it
+  shows the last tool and target of the main loop, and the count of tool calls since the task
+  started. Open tasks follow in list order.
+- Done tasks fold into a `+N done` button. Press it to show them after the open tasks. Press
+  `hide N done` to fold them again.
+- Press a task title to show its full title, its start time and its tool count under the row.
+  A task that was never in progress says so. Press the title again to hide them.
+- When the list has no task in progress, a `▶ Now` line shows the last tool, the count of tool
+  calls and the time since the first one.
+- `Agents` lists each subagent that is pending, running or waiting: its name, its plan count
+  from its own task list and its last tool. With no such subagent the section is not drawn.
+- The columns before the title have a fixed width, and an id is never cut. The title fills the
+  room that is left in the pane width and is cut to fit, so a row never wraps. The tests check
+  this at 30, 45 and 80 columns. A tool target, a subagent name and every title are escaped
+  as `\uXXXX` where they hold a control, format or line separator character.
+- The open rows and the unfolded groups are kept in `$.state` under `expanded`, for the
+  session. `/clear` closes them.
+- Claude Code places the pane. It docks beside the transcript in fullscreen mode, and draws
+  inline above the prompt otherwise. The pane draws again at each tool call, and every 10
+  seconds while it is shown, so the times move.
+
+### No list, or an old list
+
+When the main loop keeps no task list, the pane shows the work from the tool calls:
+
+```text
+Tasks  none kept by Claude
+▶ Now  Read one-more.ts       20 tools · <1m
+  Read 20
+Claude has kept no plan for 20 tool calls.
+[ Ask Claude for a plan ]
+```
+
+- The `Now` line shows the last tool and target, the count of tool calls and the time since
+  the first one. The line under it counts the calls per tool, in the order of first use.
+- After 20 tool calls of the main loop with no task list, or with no change of the list by
+  Claude, the pane shows a warning with the count. A list that the person changed still counts
+  as old. With a list the warning reads `No plan update for N tool calls.`
+- `Ask Claude for a plan` puts a plan request into the prompt box. It does not send it. A draft
+  that you typed stays, and the request goes after it.
+- When the warning holds and you submit a prompt, the mod adds one note for Claude beside the
+  prompt. The note asks Claude to keep its plan with `task_add` and `task_update`. It comes at
+  most once per 20 tool calls, only for a prompt that you typed, and it never blocks or changes
+  the prompt. It uses the `context` of `prompt.submit`, not `prompt.compose`. Whether a Team
+  organization also bypasses `prompt.submit` for a user plugin is not measured yet.
+- The task-pane tools themselves and the tool calls of subagents do not count.
+
+### No tasks yet
+
 - With no tasks, the pane says `Open in tracker: <tracker> · N open` and lists the first 10 open
   tracker items. With more than 10, an `all N open` button shows every open item, and
   `first 10` folds them again. Each item is one line: the priority (dim), the id, the title and
   an `[ add ]` button. An `Add N as tasks` button adds the items that the pane shows. Nothing
   is added on its own. An item that is already a task is not added again.
-- The columns before the title have a fixed width, and an id is never cut. The title fills the
-  room that is left in the pane width and is cut to fit, so a row never wraps. The tests check
-  this at 30, 45 and 80 columns.
-- A cut title ends with a `…` button. Press it to show the full title, wrapped under the row.
-  Press it again to hide it. The open rows are kept in `$.state` under `expanded`, for the
-  session. `/clear` closes them. A title that fits shows no `…`.
-- Claude Code places the pane. It docks beside the transcript in fullscreen mode, and draws
-  inline above the prompt otherwise. Inline, when the tasks and the frame need more than 6
-  rows, the done tasks fold into a `+N done hidden` count.
+- A cut item title ends with a `…` button. Press it to show the full title, wrapped under the
+  row. Press it again to hide it. A title that fits shows no `…`.
 
 ## Settings
 
@@ -124,8 +190,10 @@ The `agentId` of a tool call names the loop that calls the tool. The main loop h
 ## Lifetime
 
 - The list lives in `$.state`, so it survives a hot reload of the mod.
-- `/clear` ends the session with the reason `clear`. The list of the main loop and the lists of
-  all subagents reset.
+- The tool calls live in `$.state` too: the counts, the last tool and the task times of the main
+  loop under `activity`, and the last tool of each subagent under `agentActivity`.
+- `/clear` ends the session with the reason `clear`. The list of the main loop, the lists of
+  all subagents and the tool calls reset.
 
 ## Develop
 

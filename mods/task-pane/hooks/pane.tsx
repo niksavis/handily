@@ -7,7 +7,8 @@ import type {
   RenderElement,
   TextProps,
 } from 'claude-code'
-import type { TaskPaneList, TaskPaneTask } from '../types'
+import type { TaskPaneActivity, TaskPaneList, TaskPaneTask, TaskPaneToolSight } from '../types'
+import { PLAN_REQUEST, callsText, clockTime, elapsedText, planLag } from './activity'
 import {
   OPEN_ITEMS_SHOWN,
   addItemsAsTasks,
@@ -32,9 +33,9 @@ import { cutToWidth, displayWidth, padToWidth } from './width'
 
 export const PANE_ID = 'task-pane'
 const PANE_TITLE = 'Tasks'
+const DONE_GROUP = 'group:done'
 const ITEMS_GROUP = 'group:items'
-const INLINE_ROWS_BEFORE_COLLAPSE = 6
-const FRAME_ROWS = 2
+const AGENT_NAME_COLUMNS_AT_MOST = 16
 
 export type PaneMode = 'off' | 'toggle' | 'always'
 
@@ -51,6 +52,8 @@ export function paneMode(options: PluginOptions): PaneMode {
   return known
 }
 
+export type PromptFill = { isFilled: boolean; refusal?: string }
+
 export type PaneUi = {
   open: (
     id: string,
@@ -58,6 +61,7 @@ export type PaneUi = {
   ) => Promise<{ isPlaced: true } | { isPlaced: false; reason: string }>
   close: (id: string) => Promise<void>
   isOpen: (id: string) => Promise<boolean>
+  fillPrompt: (text: string) => Promise<PromptFill>
   toast: (text: string) => void
   log: (text: string) => void
 }
@@ -67,8 +71,22 @@ export type PaneElements = {
   Text: ElementConstructor<TextProps>
   Button: ElementConstructor<ButtonProps>
   Input: ElementConstructor<InputProps> | undefined
-  placement: 'dock' | 'inline'
   bodyColumns: number
+}
+
+export type AgentPlan = { done: number; total: number }
+
+export type AgentRow = {
+  id: string
+  name: string
+  plan: AgentPlan | null
+  last: TaskPaneToolSight | null
+}
+
+export type PaneWork = {
+  now: number
+  activity: TaskPaneActivity
+  agents: readonly AgentRow[]
 }
 
 export async function openPane(ui: PaneUi): Promise<string> {
@@ -118,12 +136,16 @@ type Cell = { text: string; style: TextStyle }
 
 type RowAction = { key: string; label: string; onPress: () => void }
 
+type RowOpening = { kind: 'none' } | { kind: 'cut' } | { kind: 'details'; lines: readonly Cell[] }
+
 type PaneRow = {
   key: string
   cells: readonly Cell[]
   title: string
   titleStyle: TextStyle
-  action: RowAction
+  aside?: Cell
+  action?: RowAction
+  opening: RowOpening
 }
 
 type RowLayout = {
@@ -135,18 +157,90 @@ const MORE_LABEL = '…'
 const BUTTON_CHROME = 4
 const BUTTON_GAP = 1
 
-function actionWidth(label: string): number {
-  return BUTTON_GAP + displayWidth(label) + BUTTON_CHROME
+function actionWidth(action: RowAction | undefined): number {
+  return action === undefined ? 0 : BUTTON_GAP + displayWidth(action.label) + BUTTON_CHROME
+}
+
+function asideWidth(aside: Cell | undefined): number {
+  return aside === undefined ? 0 : BUTTON_GAP + displayWidth(aside.text)
 }
 
 function column(texts: readonly string[]): number {
   return Math.max(0, ...texts.map(displayWidth)) + 1
 }
 
+function fitted(text: string, width: number): string {
+  if (displayWidth(text) <= width) return text
+  return `${cutToWidth(text, Math.max(width - displayWidth(MORE_LABEL), 0))}${MORE_LABEL}`
+}
+
+function callText(sight: TaskPaneToolSight): string {
+  const tool = escaped(sight.tool)
+  return sight.target === null ? tool : `${tool} ${escaped(sight.target)}`
+}
+
+function drawTitle(
+  elements: PaneElements,
+  row: PaneRow,
+  shown: string,
+  isCut: boolean,
+  layout: RowLayout,
+): RenderElement[] {
+  const { Text, Button } = elements
+  const title = Text({ ...row.titleStyle, wrap: 'truncate-end', children: shown })
+  const toggle = () => {
+    layout.toggle(row.key)
+  }
+  switch (row.opening.kind) {
+    case 'none':
+      return [isCut ? Text({ ...row.titleStyle, children: `${shown}${MORE_LABEL}` }) : title]
+    case 'cut':
+      return isCut
+        ? [
+            title,
+            Button({ key: `more:${row.key}`, label: MORE_LABEL, plain: true, onPress: toggle }),
+          ]
+        : [title]
+    case 'details':
+      return [
+        Button({
+          key: `open:${row.key}`,
+          plain: true,
+          onPress: toggle,
+          children: [title, isCut ? Text({ ...row.titleStyle, children: MORE_LABEL }) : null],
+        }),
+      ]
+  }
+}
+
+function drawOpened(
+  elements: PaneElements,
+  row: PaneRow,
+  isCut: boolean,
+  leadWidth: number,
+): RenderElement | null {
+  const { Box, Text } = elements
+  const { opening } = row
+  if (opening.kind === 'none' || (opening.kind === 'cut' && !isCut)) return null
+  const lines = opening.kind === 'details' ? opening.lines : []
+  return Box({
+    key: `full:${row.key}`,
+    flexDirection: 'column',
+    paddingLeft: leadWidth,
+    children: [
+      Text({ ...row.titleStyle, children: row.title }),
+      ...lines.map((line) => Text({ ...line.style, children: line.text })),
+    ],
+  })
+}
+
 function drawRow(elements: PaneElements, row: PaneRow, layout: RowLayout): RenderElement {
   const { Box, Text, Button } = elements
   const leadWidth = row.cells.reduce((sum, cell) => sum + displayWidth(cell.text), 0)
-  const room = Math.max(elements.bodyColumns - leadWidth - actionWidth(row.action.label), 0)
+  const room = Math.max(
+    elements.bodyColumns - leadWidth - asideWidth(row.aside) - actionWidth(row.action),
+    0,
+  )
   const isCut = displayWidth(row.title) > room
   const shown = isCut ? cutToWidth(row.title, room - displayWidth(MORE_LABEL)) : row.title
   const line = Box({
@@ -164,41 +258,33 @@ function drawRow(elements: PaneElements, row: PaneRow, layout: RowLayout): Rende
         flexDirection: 'row',
         flexGrow: 1,
         flexShrink: 1,
-        children: [
-          Text({ ...row.titleStyle, wrap: 'truncate-end', children: shown }),
-          isCut
-            ? Button({
-                key: `more:${row.key}`,
-                label: MORE_LABEL,
-                plain: true,
-                onPress: () => {
-                  layout.toggle(row.key)
-                },
-              })
-            : null,
-        ],
+        children: drawTitle(elements, row, shown, isCut, layout),
       }),
-      Box({
-        flexShrink: 0,
-        marginLeft: BUTTON_GAP,
-        children: [
-          Button({ key: row.action.key, label: row.action.label, onPress: row.action.onPress }),
-        ],
-      }),
+      row.aside
+        ? Box({
+            flexShrink: 0,
+            marginLeft: BUTTON_GAP,
+            children: [Text({ ...row.aside.style, children: row.aside.text })],
+          })
+        : null,
+      row.action
+        ? Box({
+            flexShrink: 0,
+            marginLeft: BUTTON_GAP,
+            children: [
+              Button({
+                key: row.action.key,
+                label: row.action.label,
+                onPress: row.action.onPress,
+              }),
+            ],
+          })
+        : null,
     ],
   })
-  if (!isCut || !layout.expanded.has(row.key)) return line
-  return Box({
-    flexDirection: 'column',
-    children: [
-      line,
-      Box({
-        key: `full:${row.key}`,
-        paddingLeft: leadWidth,
-        children: [Text({ ...row.titleStyle, children: row.title })],
-      }),
-    ],
-  })
+  const opened = layout.expanded.has(row.key) ? drawOpened(elements, row, isCut, leadWidth) : null
+  if (opened === null) return line
+  return Box({ flexDirection: 'column', children: [line, opened] })
 }
 
 function rowLayout(host: TaskHost, expanded: readonly string[], act: Act): RowLayout {
@@ -215,42 +301,197 @@ function rowLayout(host: TaskHost, expanded: readonly string[], act: Act): RowLa
   }
 }
 
+function toolsSince(activity: TaskPaneActivity, task: TaskPaneTask): number | undefined {
+  const clock = activity.clocks[String(task.id)]
+  if (clock === undefined) return undefined
+  return (clock.endCalls ?? activity.calls) - clock.startCalls
+}
+
+function clockLine(task: TaskPaneTask, work: PaneWork): string {
+  const clock = work.activity.clocks[String(task.id)]
+  if (clock === undefined) {
+    if (task.status === 'pending') return 'not started yet'
+    if (task.status === 'completed') return 'done; never seen in progress'
+    return 'in progress; its start was not seen'
+  }
+  const tools = callsText(toolsSince(work.activity, task) ?? 0)
+  const started = `started ${clockTime(clock.startedAt)} · ${tools}`
+  if (clock.endedAt === null) return `${started} · ${elapsedText(work.now - clock.startedAt)}`
+  return `${started} · took ${elapsedText(clock.endedAt - clock.startedAt)}`
+}
+
+function runningAside(task: TaskPaneTask, work: PaneWork): Cell | undefined {
+  const clock = work.activity.clocks[String(task.id)]
+  if (task.status !== 'in_progress' || clock === undefined) return undefined
+  return { text: elapsedText(work.now - clock.startedAt), style: { dimColor: true } }
+}
+
+function taskRow(
+  host: TaskHost,
+  task: TaskPaneTask,
+  numberWidth: number,
+  work: PaneWork,
+  act: Act,
+): PaneRow {
+  const isDone = task.status === 'completed'
+  const isActive = task.status === 'in_progress'
+  const id = String(task.id)
+  const aside = runningAside(task, work)
+  return {
+    key: `task:${id}`,
+    cells: [
+      { text: `${taskMark(task)} `, style: { color: isDone ? 'success' : undefined } },
+      { text: padToWidth(id, numberWidth), style: { dimColor: isDone, bold: isActive } },
+      { text: `${authorColumn(task.by)} `, style: { dimColor: true } },
+    ],
+    title: paneTaskText(task),
+    titleStyle: { dimColor: isDone, bold: isActive },
+    ...(aside ? { aside } : {}),
+    action: {
+      key: `rm:${id}`,
+      label: 'rm',
+      onPress: () => {
+        act(() => personRemove(host, id))
+      },
+    },
+    opening: {
+      kind: 'details',
+      lines: [{ text: clockLine(task, work), style: { dimColor: true } }],
+    },
+  }
+}
+
+function lastCallRow(task: TaskPaneTask, indent: number, work: PaneWork): PaneRow {
+  const { activity } = work
+  const since = toolsSince(activity, task)
+  const title = activity.last === null ? '▸ no tool call yet' : `▸ ${callText(activity.last)}`
+  return {
+    key: `work:${String(task.id)}`,
+    cells: [{ text: ' '.repeat(indent), style: {} }],
+    title,
+    titleStyle: { dimColor: true },
+    ...(since === undefined
+      ? {}
+      : { aside: { text: callsText(since), style: { dimColor: true } } }),
+    opening: { kind: 'none' },
+  }
+}
+
+function warningText(lag: number, hasList: boolean): string {
+  const calls = `${String(lag)} tool calls`
+  return hasList ? `No plan update for ${calls}.` : `Claude has kept no plan for ${calls}.`
+}
+
+function drawPlanWarning(
+  elements: PaneElements,
+  ui: PaneUi,
+  work: PaneWork,
+  hasList: boolean,
+  act: Act,
+): RenderElement[] {
+  const { Box, Text, Button } = elements
+  const lag = planLag(work.activity)
+  if (lag === undefined) return []
+  const ask = () => {
+    act(async () => {
+      const filled = await ui.fillPrompt(PLAN_REQUEST)
+      if (filled.isFilled) return undefined
+      const why = filled.refusal === undefined ? '' : ` (${filled.refusal})`
+      return `The prompt box did not take the plan request${why}. Ask Claude for a plan in your next prompt.`
+    })
+  }
+  return [
+    Box({
+      key: 'plan-warning',
+      children: [
+        Text({
+          color: 'warning',
+          children: fitted(warningText(lag, hasList), elements.bodyColumns),
+        }),
+      ],
+    }),
+    Button({ key: 'ask-plan', label: 'Ask Claude for a plan', onPress: ask }),
+  ]
+}
+
 function drawTasks(
   elements: PaneElements,
   host: TaskHost,
   list: TaskPaneList,
-  hidden: number,
+  work: PaneWork,
   act: Act,
   layout: RowLayout,
 ): RenderElement[] {
-  const shown = hidden > 0 ? list.tasks.filter((task) => task.status !== 'completed') : list.tasks
-  const numberWidth = column(shown.map((task) => String(task.id)))
-  return shown.map((task) => {
-    const isDone = task.status === 'completed'
-    const isActive = task.status === 'in_progress'
-    const id = String(task.id)
-    return drawRow(
-      elements,
-      {
-        key: `task:${id}`,
-        cells: [
-          { text: `${taskMark(task)} `, style: { color: isDone ? 'success' : undefined } },
-          { text: padToWidth(id, numberWidth), style: { dimColor: isDone, bold: isActive } },
-          { text: `${authorColumn(task.by)} `, style: { dimColor: true } },
-        ],
-        title: paneTaskText(task),
-        titleStyle: { dimColor: isDone, bold: isActive },
-        action: {
-          key: `rm:${id}`,
-          label: 'rm',
+  const { Button } = elements
+  const running = list.tasks.filter((task) => task.status === 'in_progress')
+  const pending = list.tasks.filter((task) => task.status === 'pending')
+  const done = list.tasks.filter((task) => task.status === 'completed')
+  const isDoneShown = layout.expanded.has(DONE_GROUP)
+  const numberWidth = column(list.tasks.map((task) => String(task.id)))
+  const draw = (task: TaskPaneTask) =>
+    drawRow(elements, taskRow(host, task, numberWidth, work, act), layout)
+  const first = running[0]
+  const indent = displayWidth('▶ ') + numberWidth + displayWidth(`${authorColumn('model')} `)
+  const doneCountText = String(done.length)
+  return [
+    running.length === 0 ? nowRow(elements, work, layout) : null,
+    ...running.flatMap((task) =>
+      task === first
+        ? [draw(task), drawRow(elements, lastCallRow(task, indent, work), layout)]
+        : [draw(task)],
+    ),
+    ...pending.map(draw),
+    done.length > 0
+      ? Button({
+          key: 'done',
+          label: isDoneShown ? `hide ${doneCountText} done` : `+${doneCountText} done`,
           onPress: () => {
-            act(() => personRemove(host, id))
+            layout.toggle(DONE_GROUP)
           },
-        },
-      },
-      layout,
-    )
-  })
+        })
+      : null,
+    ...(isDoneShown ? done.map(draw) : []),
+  ].filter((element) => element !== null)
+}
+
+function nowRow(elements: PaneElements, work: PaneWork, layout: RowLayout): RenderElement | null {
+  const { activity } = work
+  if (activity.last === null || activity.firstAt === null) return null
+  const spent = elapsedText(work.now - activity.firstAt)
+  return drawRow(
+    elements,
+    {
+      key: 'now',
+      cells: [
+        { text: '▶ ', style: {} },
+        { text: 'Now  ', style: { bold: true } },
+      ],
+      title: callText(activity.last),
+      titleStyle: { dimColor: true },
+      aside: { text: `${callsText(activity.calls)} · ${spent}`, style: { dimColor: true } },
+      opening: { kind: 'none' },
+    },
+    layout,
+  )
+}
+
+function drawNow(elements: PaneElements, work: PaneWork, layout: RowLayout): RenderElement[] {
+  const { Box, Text } = elements
+  const { activity } = work
+  const now = nowRow(elements, work, layout)
+  if (now === null) return []
+  const counts = activity.perTool
+    .map((count) => `${escaped(count.tool)} ${String(count.calls)}`)
+    .join(' · ')
+  const indent = displayWidth('▶ ')
+  return [
+    now,
+    Box({
+      key: 'tool-counts',
+      paddingLeft: indent,
+      children: [Text({ dimColor: true, children: fitted(counts, elements.bodyColumns - indent) })],
+    }),
+  ]
 }
 
 function drawTracker(
@@ -305,6 +546,7 @@ function drawTracker(
             addItems([item])
           },
         },
+        opening: { kind: 'cut' },
       },
       layout,
     ),
@@ -332,16 +574,58 @@ function drawTracker(
   ].filter((element) => element !== null)
 }
 
-function drawFooter(
+function agentRow(agent: AgentRow, nameWidth: number, planWidth: number): PaneRow {
+  const plan =
+    agent.plan === null ? '' : `${String(agent.plan.done)} of ${String(agent.plan.total)}`
+  return {
+    key: `agent:${agent.id}`,
+    cells: [
+      { text: '● ', style: {} },
+      { text: padToWidth(fitted(escaped(agent.name), nameWidth - 1), nameWidth), style: {} },
+      { text: padToWidth(plan, planWidth), style: { dimColor: true } },
+    ],
+    title: agent.last === null ? '▸ no tool call yet' : `▸ ${callText(agent.last)}`,
+    titleStyle: { dimColor: true },
+    opening: { kind: 'none' },
+  }
+}
+
+function drawAgents(
   elements: PaneElements,
-  host: TaskHost,
-  hidden: number,
-  act: Act,
-): RenderElement {
-  const { Box, Text, Input } = elements
-  const hiddenText =
-    hidden > 0 ? Text({ dimColor: true, children: `+${String(hidden)} done hidden  ` }) : null
-  const entry = Input
+  agents: readonly AgentRow[],
+  layout: RowLayout,
+): RenderElement[] {
+  const { Box, Text } = elements
+  if (agents.length === 0) return []
+  const nameWidth = Math.min(
+    column(agents.map((agent) => escaped(agent.name))),
+    AGENT_NAME_COLUMNS_AT_MOST,
+  )
+  const planWidth = column(
+    agents.map((agent) =>
+      agent.plan === null ? '' : `${String(agent.plan.done)} of ${String(agent.plan.total)}`,
+    ),
+  )
+  return [
+    Box({
+      key: 'agents-rule',
+      children: [Text({ dimColor: true, children: '─'.repeat(elements.bodyColumns) })],
+    }),
+    Box({
+      key: 'agents',
+      flexDirection: 'row',
+      children: [
+        Text({ bold: true, children: 'Agents' }),
+        Text({ dimColor: true, children: `  ${String(agents.length)} running` }),
+      ],
+    }),
+    ...agents.map((agent) => drawRow(elements, agentRow(agent, nameWidth, planWidth), layout)),
+  ]
+}
+
+function drawFooter(elements: PaneElements, host: TaskHost, act: Act): RenderElement {
+  const { Text, Input } = elements
+  return Input
     ? Input({
         key: 'add',
         placeholder: 'Add a task',
@@ -351,38 +635,51 @@ function drawFooter(
         },
       })
     : Text({ dimColor: true, children: 'Add tasks with /task add <text>.' })
-  return Box({ flexDirection: 'row', children: [hiddenText, entry] })
+}
+
+function summaryText(list: TaskPaneList, work: PaneWork): string {
+  const { activity } = work
+  const total = list.tasks.length
+  if (total === 0) return activity.calls > 0 ? 'none kept by Claude' : 'none in this session yet'
+  const done = `${String(doneCount(list))} of ${String(total)} done`
+  if (activity.firstAt === null) return done
+  return `${done} · ${elapsedText(work.now - activity.firstAt)}`
 }
 
 export async function drawPane(
   elements: PaneElements,
   host: TaskHost,
   ui: PaneUi,
+  work: PaneWork,
 ): Promise<RenderElement> {
   const { Box, Text } = elements
   const act = actor(ui)
   const list = await readList(host)
-  const total = list.tasks.length
-  const done = doneCount(list)
-  const collapses =
-    elements.placement === 'inline' && total + FRAME_ROWS > INLINE_ROWS_BEFORE_COLLAPSE
-  const hidden = collapses ? done : 0
+  const hasList = list.tasks.length > 0
   const layout = rowLayout(host, await host.expanded(), act)
-  const body =
-    total === 0
-      ? drawTracker(elements, host, await trackerView(host), act, layout)
-      : drawTasks(elements, host, list, hidden, act, layout)
-  const summary =
-    total === 0 ? 'none in this session yet' : `${String(done)} of ${String(total)} done`
+  const warning = drawPlanWarning(elements, ui, work, hasList, act)
+  const body = hasList
+    ? [...drawTasks(elements, host, list, work, act, layout), ...warning]
+    : [
+        ...drawNow(elements, work, layout),
+        ...warning,
+        ...drawTracker(elements, host, await trackerView(host), act, layout),
+      ]
   const header = Box({
     flexDirection: 'row',
     children: [
       Text({ bold: true, children: 'Tasks' }),
-      Text({ dimColor: true, children: `  ${summary}` }),
+      Text({ dimColor: true, children: `  ${summaryText(list, work)}` }),
     ],
   })
   return Box({
     flexDirection: 'column',
-    children: [header, ...body, Text({ children: ' ' }), drawFooter(elements, host, hidden, act)],
+    children: [
+      header,
+      ...body,
+      ...drawAgents(elements, work.agents, layout),
+      Text({ children: ' ' }),
+      drawFooter(elements, host, act),
+    ],
   })
 }
