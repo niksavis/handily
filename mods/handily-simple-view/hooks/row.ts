@@ -1,10 +1,11 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import { elapsedText } from './detail'
 import type { BashEnd, FileChange, StderrSummary, Totals } from './output'
+import { graphemesOf } from './width'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 type CellStyle = Omit<Parameters<RowElements['Text']>[0], 'children'>
-type Cell = { text: string; style?: CellStyle; canShrink?: boolean }
+type Cell = { text: string; style?: CellStyle; canShrink?: boolean; keptCells?: number }
 
 export type RowLook = { elements: RowElements; hasToolMarker: boolean }
 
@@ -17,8 +18,22 @@ export type BashView = {
   elapsedMs: number | null
 }
 
-function cell({ Box, Text }: RowElements, { text, style = {}, canShrink = false }: Cell) {
-  return Box({ flexShrink: canShrink ? 1 : 0, children: Text({ ...style, children: text }) })
+const LABEL_KEPT_CELLS = 40
+const TIME_SHOWN_FROM_MS = 1000
+
+function cell(
+  { Box, Text }: RowElements,
+  { text, style = {}, canShrink = false, keptCells }: Cell,
+) {
+  return Box({
+    flexShrink: canShrink ? 1 : 0,
+    ...(keptCells === undefined ? {} : { minWidth: keptCells }),
+    children: Text({ ...style, children: text }),
+  })
+}
+
+function cellsOf(text: string): number {
+  return graphemesOf(text).reduce((sum, part) => sum + part.cells, 0)
 }
 
 function trailing(elements: RowElements, actions: RenderElement | null): RenderElement[] {
@@ -88,6 +103,15 @@ function stateCells(state: BashState): Cell[] {
   }
 }
 
+function hasCutText(state: BashState): boolean {
+  return state.kind === 'exit' ? state.line !== '' : state.kind === 'done' && state.stderr !== null
+}
+
+function timeText(elapsedMs: number | null): string {
+  if (elapsedMs === null || elapsedMs < TIME_SHOWN_FROM_MS) return ''
+  return elapsedText(elapsedMs)
+}
+
 const MARKERS: Readonly<Record<BashState['kind'], ThemeKey>> = {
   running: 'subtle',
   done: 'success',
@@ -104,13 +128,17 @@ export function bashRow(
     'row',
     MARKERS[view.state.kind],
     [
-      { text: view.label, style: { wrap: 'truncate-end' }, canShrink: true },
+      {
+        text: view.label,
+        style: { wrap: 'truncate-end' },
+        canShrink: true,
+        keptCells: hasCutText(view.state)
+          ? Math.min(cellsOf(view.label), LABEL_KEPT_CELLS)
+          : undefined,
+      },
       { text: view.program, style: { dimColor: true } },
       ...stateCells(view.state),
-      {
-        text: view.elapsedMs === null ? '' : elapsedText(view.elapsedMs),
-        style: { dimColor: true },
-      },
+      { text: timeText(view.elapsedMs), style: { dimColor: true } },
     ],
     actions,
   )
@@ -130,6 +158,19 @@ export function fileRow(
     { text: tool },
     { text: path, style: { wrap: 'truncate-end' }, canShrink: true },
     { text: totals === null ? '' : totalsText(totals), style: { dimColor: true } },
+  ])
+}
+
+export function readingRow(
+  look: RowLook,
+  tool: string,
+  target: readonly string[],
+  count: string,
+): RenderElement {
+  return line(look, 'row', 'success', [
+    { text: tool },
+    ...target.map((text) => ({ text, style: { wrap: 'truncate-end' as const }, canShrink: true })),
+    { text: count, style: { dimColor: true } },
   ])
 }
 

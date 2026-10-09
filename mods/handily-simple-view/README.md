@@ -1,16 +1,19 @@
 # simple-view
 
-`simple-view` draws one short row for each `Bash`, `Edit` and `Write` call in the transcript.
+`simple-view` draws one short row for each `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`
+call in the transcript.
 A `Bash` row with output has a `more` button that opens the output under the row, and a `copy`
 button that copies it. `/simple` switches the view off and on for the session. `/simple show N`
 prints one call in full. The model still reads the full tool result. Only the screen changes.
 
 ```text
 ● List the mods  ls  exit 0  7 lines  1.1s                                  [ more ] [ copy ]
-● List a missing folder  ls  exit 2  ls: cannot access '/nonexistent-folder': No such…  0.4s  [ more ] [ copy ]
+● List a folder that does not exist  ls  exit 2  ls: cannot access '/n…  [ more ] [ copy ]
 ● Append a probe line  printf  exit 0  0 lines  2.8s
   Updated README.md (+1 -0)
 ● Edit  src/app.ts  +2 -1
+● Read  mods/handily/.claude-plugin/plugin.json  18 lines
+● Read  docs/design.md  lines 160-239 of 674
 ```
 
 The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
@@ -30,12 +33,15 @@ three:
 
 ## Rows
 
-| Call                  | Row                                                                  | Result block under it               |
-| --------------------- | -------------------------------------------------------------------- | ----------------------------------- |
-| `Bash`, running       | description, program, dim `running`, time since the call started     | as the engine draws it              |
-| `Bash`, no error      | description, program, `exit 0`, stdout line count, time              | one `Updated` line per changed file |
-| `Bash`, `Exit code N` | description, program, `exit N`, the first non-empty error line, time | empty                               |
-| `Edit`, `Write`       | tool, file path, added and removed line totals                       | empty                               |
+| Call                  | Row                                                                        | Result block under it               |
+| --------------------- | -------------------------------------------------------------------------- | ----------------------------------- |
+| `Bash`, running       | description, program, dim `running`, time since the call started           | as the engine draws it              |
+| `Bash`, no error      | description, program, `exit 0`, stdout line count, time                    | one `Updated` line per changed file |
+| `Bash`, `Exit code N` | description, program, `exit N`, the first non-empty error line, time       | empty                               |
+| `Edit`, `Write`       | tool, file path, added and removed line totals                             | empty                               |
+| `Read`                | tool, file path, line count, or the range of lines that the call read      | empty                               |
+| `Grep`                | tool, pattern in quotes, `in` and the folder, the count of the output mode | empty                               |
+| `Glob`                | tool, pattern, `in` and the folder, the count of matched files             | empty                               |
 
 - The description is the `description` that the model gave. Without one, the row shows the
   first command segment. An ellipsis (`…`) marks a cut or a segment that follows.
@@ -64,9 +70,23 @@ three:
 - The `bashEditDiffEnabled` setting turns Bash edit tracking on or off. The
   `CLAUDE_CODE_BASH_EDIT_DIFF` environment variable wins over the setting. Without either, the
   engine decides, and the mod cannot read that decision.
-- A path inside the session root shows relative to the root. Another path shows in full.
-- The time is measured by the mod clock around the call. It includes the time that a
-  permission question waited for an answer.
+- When an error line or a stderr line follows the description, the description keeps up to 40
+  cells. The terminal cuts the error line or the stderr line first.
+- A path inside the session root shows relative to the root, and the root itself shows as `.`.
+  Another path shows in full.
+- The row shows the time only from 1 second. The engine gives no run time for a `Bash` call, so
+  the mod clock measures the time around the call. It includes the time that a permission
+  question waited for an answer.
+- A `Read` of a whole file shows its line count, such as `18 lines`. A `Read` of a part shows
+  the range, such as `lines 160-239 of 674`.
+- A `Grep` row counts what its output mode returned: `12 lines` for `content`, `3 files` for
+  `files_with_matches` and `7 matches` for `count`. When the engine cut the output at
+  `head_limit`, the row shows both counts, such as `10 of 12 lines`.
+- A `Glob` row shows the total of matched files. When the engine knows the total only as a
+  lower bound, the row adds a `+`, such as `100+ files`.
+- Claude Code 2.1.295 offered no `Grep` or `Glob` tool in a live check, also not to an `Explore`
+  agent. The mod reads their outputs in the shape of the 2.1.295 output schema. The
+  transcripts of 2.1.294 show the same shape.
 - `Write` of a new file counts the lines of its content, blank lines at the end included, as
   its diff does. When the engine gives no diff for an
   update (for example, the old content was too large to diff), the row shows the path only,
@@ -123,13 +143,25 @@ simple-view draws the engine row unchanged in each of these cases:
 - The call errored without the `Error: Exit code N` text, for example a timeout or a refusal at
   the permission question.
 - The output or the input is not a shape that the mod reads, or a staged `Edit` or `Write` that
-  did not change the file.
+  did not change the file. A `Read` of an image, a PDF, a notebook or an unchanged file is not a
+  shape that the mod reads.
+- A `Read`, `Grep` or `Glob` call that errored or still runs.
 - Drawing the row failed. The mod writes the reason to the debug log.
-- Any tool other than `Bash`, `Edit` and `Write`.
+- Any tool other than `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`.
 
 In the normal view the engine folds runs of read-only calls into one group line, such as
-`Listed 2 directories, ran 2 shell commands`. simple-view leaves that line as the engine draws
-it. The ctrl+o transcript unfolds the group, and each call there shows its simple-view row.
+`Read 2 files, listed 1 directory, ran 1 shell command`. While its mode is on, simple-view
+unfolds a group when each call of the group draws as one row: a `Bash` call in the foreground,
+a `Read`, a `Grep` or a `Glob`. The calls of the group then draw as their rows in its place:
+
+```text
+● Read  README.md  123 lines
+● Read  package.json  30 lines
+● List the mods  ls  exit 0  9 lines                                        [ more ] [ copy ]
+```
+
+A group that holds another tool keeps the line of the engine, except in the two cases below.
+The ctrl+o transcript unfolds every group, and each call there shows its simple-view row.
 
 When a folded group holds a call that failed, simple-view unfolds the group while its mode is
 on. Each call of the group then draws as its own row, so the failure is visible. When

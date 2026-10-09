@@ -158,6 +158,7 @@ export function fileEdit(tool: string, output: unknown): FileEdit | null {
 
 export function shownPath(path: string, root: string): string {
   const base = root.replace(/[\\/]+$/, '')
+  if (base !== '' && path.replace(/[\\/]+$/, '') === base) return '.'
   const separator = path.charAt(base.length)
   if (base !== '' && path.startsWith(base) && (separator === '/' || separator === '\\')) {
     return path.slice(base.length + 1)

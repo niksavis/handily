@@ -377,6 +377,23 @@ const EDIT_DIFF = {
   changedFiles: [`${ROOT}/src/app.ts`, `${ROOT}/docs/new.md`],
 }
 
+function readOutput(path: string, startLine: number, numLines: number, totalLines: number) {
+  return {
+    type: 'text',
+    file: { filePath: path, content: 'x\n'.repeat(numLines), numLines, startLine, totalLines },
+  }
+}
+
+function grepOutput(extra: Record<string, unknown>) {
+  return { numFiles: 0, filenames: [], ...extra }
+}
+
+function globOutput(extra: Record<string, unknown>) {
+  return { filenames: [], durationMs: 12, numFiles: 41, truncated: false, ...extra }
+}
+
+const PLUGIN_JSON = `${ROOT}/mods/handily/.claude-plugin/plugin.json`
+
 function groupCall(id: string, command: string, answer: Answer) {
   return {
     tool_use_id: id,
@@ -390,6 +407,18 @@ function groupCall(id: string, command: string, answer: Answer) {
 }
 
 const LISTED = groupCall('toolu_g1', 'ls', answered('a\nb\n'))
+const SEARCHED = {
+  ...groupCall('toolu_g3', 'unused', answered('')),
+  tool: 'WebSearch',
+  input: { query: 'ink flexShrink' },
+  output: { query: 'ink flexShrink', results: [] },
+}
+const READ_CALL = {
+  ...groupCall('toolu_g4', 'unused', answered('')),
+  tool: 'Read',
+  input: { file_path: `${ROOT}/README.md` },
+  output: readOutput(`${ROOT}/README.md`, 1, 3, 3),
+}
 const MISSING = groupCall(
   'toolu_g2',
   'ls /nonexistent-dir',
@@ -539,7 +568,7 @@ describe('Bash row', () => {
         component: 'ToolUse',
         props: useProps(id, 'Bash', input, world.answer(input)),
       }),
-    ).toEqual(['● Search for zzz grep No matches found 0 lines 0.0s'])
+    ).toEqual(['● Search for zzz grep No matches found 0 lines'])
   })
 
   for (const surface of SURFACES) {
@@ -585,7 +614,7 @@ describe('Bash row', () => {
         props: useProps(id, 'Bash', input, world.answer(input)),
       }),
     ).toEqual([
-      '● Run the tool tool exit 0 0 lines 2 stderr lines warning: deprecated option --old 0.0s',
+      '● Run the tool tool exit 0 0 lines 2 stderr lines warning: deprecated option --old',
     ])
     const ui = await $.ui.mount({
       plugin: 'handily-simple-view',
@@ -609,7 +638,7 @@ describe('Bash row', () => {
         component: 'ToolUse',
         props: useProps(id, 'Bash', input, world.answer(input)),
       }),
-    ).toEqual(['● Print the log cat exit 0 output saved to a file 0.0s'])
+    ).toEqual(['● Print the log cat exit 0 output saved to a file'])
     expect(await commandText($, 'show 1')).toContain(
       'Full output saved to /work/app/.out/toolu_1.txt',
     )
@@ -624,8 +653,53 @@ describe('Bash row', () => {
         component: 'ToolUse',
         props: useProps(id, 'Bash', input, world.answer(input)),
       }),
-    ).toEqual(['● Fail false exit 1 0.0s'])
+    ).toEqual(['● Fail false exit 1'])
   })
+
+  viewTest('shows no time under one second and the time from one second', async (world, $) => {
+    const input = { command: 'ls', description: 'List files' }
+    world.delayMs = 999
+    const quick = await runBash(world, $, input)
+    world.delayMs = 1000
+    const slow = await runBash(world, $, input)
+    const rowOf = async (id: string) =>
+      texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps(id, 'Bash', input, world.answer(input)),
+      })
+    expect(await rowOf(quick)).toEqual(['● List files ls exit 0 2 lines'])
+    expect(await rowOf(slow)).toEqual(['● List files ls exit 0 2 lines 1.0s'])
+  })
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `an exit N row keeps the description and cuts the error text first on ${surface}`,
+      async (world, $) => {
+        const description = 'List a folder that does not exist'
+        world.answer = () =>
+          failed(
+            "Error: Exit code 2\nls: cannot access '/nonexistent-folder': No such file or directory",
+          )
+        const input = { command: 'ls /nonexistent-folder', description }
+        const id = await runBash(world, $, input)
+        const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)), surface)
+        const cellOf = async (text: string) =>
+          (await ui.findAll({ type: 'Box' })).find(
+            (box) =>
+              box.children.length === 1 &&
+              (box.children[0] as { children?: unknown[] }).children?.[0] === text,
+          )
+        const label = await cellOf(description)
+        const error = await cellOf(
+          "ls: cannot access '/nonexistent-folder': No such file or directory",
+        )
+        expect(label?.props).toMatchObject({ flexShrink: 1, minWidth: description.length })
+        expect(error?.props).toMatchObject({ flexShrink: 1 })
+        expect(error?.props.minWidth).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+  }
 
   viewTest('shows the first command segment cut with an ellipsis', async (world, $) => {
     const input = { command: 'cd /work/app && npm test -- --watch=false' }
@@ -635,7 +709,7 @@ describe('Bash row', () => {
         component: 'ToolUse',
         props: useProps(id, 'Bash', input, world.answer(input)),
       }),
-    ).toEqual(['● cd /work/app … npm exit 0 2 lines 0.0s'])
+    ).toEqual(['● cd /work/app … npm exit 0 2 lines'])
   })
 
   test('cuts a long first segment with an ellipsis', () => {
@@ -661,7 +735,7 @@ describe('Bash row', () => {
       },
     )
     expect(await texts($, 'terminal', { component: 'ToolUse', props: running })).toEqual([
-      '● Wait five seconds sleep running 0.0s',
+      '● Wait five seconds sleep running',
     ])
     await world.clock.advance(3000)
     expect(await texts($, 'terminal', { component: 'ToolUse', props: running })).toEqual([
@@ -1050,6 +1124,202 @@ describe('Edit and Write rows', () => {
   })
 })
 
+describe('Read, Grep and Glob rows', () => {
+  for (const surface of SURFACES) {
+    viewTest(`draws a Read as its path and line count on ${surface}`, async (world, $) => {
+      const result = readOutput(PLUGIN_JSON, 1, 18, 18)
+      world.answer = () => ({ result, text: '' })
+      const input = { file_path: PLUGIN_JSON }
+      const id = await runTool(world, $, { tool: 'Read', ...input })
+      expect(
+        await texts($, surface, {
+          component: 'ToolUse',
+          props: useProps(id, 'Read', input, { result }),
+        }),
+      ).toEqual([`${MARKER[surface]}Read mods/handily/.claude-plugin/plugin.json 18 lines`])
+      const block = await drawn(
+        $,
+        { component: 'ToolResult', props: resultProps(id, 'Read', { result }) },
+        surface,
+      )
+      expect(block.tree).toMatchObject({ type: 'Box' })
+      expect(block.textCount).toBe(0)
+    })
+  }
+
+  viewTest('shows the range of a Read with an offset and a limit', async (_world, $) => {
+    const result = readOutput(`${ROOT}/docs/design.md`, 160, 80, 600)
+    const input = { file_path: `${ROOT}/docs/design.md`, offset: 160, limit: 80 }
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps('toolu_r2', 'Read', input, { result }),
+      }),
+    ).toEqual(['● Read docs/design.md lines 160-239 of 600'])
+  })
+
+  viewTest('shows one line in the singular and a path outside the root in full', async (_w, $) => {
+    const result = readOutput('/etc/hostname', 1, 1, 1)
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps('toolu_r3', 'Read', { file_path: '/etc/hostname' }, { result }),
+      }),
+    ).toEqual(['● Read /etc/hostname 1 line'])
+  })
+
+  for (const surface of SURFACES) {
+    viewTest(`draws a Grep as its pattern, folder and count on ${surface}`, async (_w, $) => {
+      const result = grepOutput({ mode: 'content', content: 'a', numLines: 12, totalLines: 12 })
+      const input = { pattern: 'TODO', path: `${ROOT}/src`, output_mode: 'content' }
+      expect(
+        await texts($, surface, {
+          component: 'ToolUse',
+          props: useProps('toolu_g1', 'Grep', input, { result }),
+        }),
+      ).toEqual([`${MARKER[surface]}Grep "TODO" in src 12 lines`])
+      const block = await drawn(
+        $,
+        { component: 'ToolResult', props: resultProps('toolu_g1', 'Grep', { result }) },
+        surface,
+      )
+      expect(block.tree).toMatchObject({ type: 'Box' })
+      expect(block.textCount).toBe(0)
+    })
+  }
+
+  viewTest('names the Grep count for each output mode', async (_world, $) => {
+    const rowOf = async (input: Record<string, unknown>, result: Record<string, unknown>) =>
+      texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps('toolu_g2', 'Grep', input, { result }),
+      })
+    expect(
+      await rowOf(
+        { pattern: 'TODO' },
+        grepOutput({ mode: 'files_with_matches', numFiles: 3, totalFiles: 3 }),
+      ),
+    ).toEqual(['● Grep "TODO" 3 files'])
+    expect(
+      await rowOf(
+        { pattern: 'TODO', path: ROOT },
+        grepOutput({ mode: 'files_with_matches', numFiles: 1, totalFiles: 1 }),
+      ),
+    ).toEqual(['● Grep "TODO" in . 1 file'])
+    expect(
+      await rowOf(
+        { pattern: 'TODO', head_limit: 250 },
+        grepOutput({ mode: 'files_with_matches', numFiles: 250, totalFiles: 301 }),
+      ),
+    ).toEqual(['● Grep "TODO" 250 of 301 files'])
+    expect(
+      await rowOf(
+        { pattern: 'TODO', output_mode: 'count' },
+        grepOutput({ mode: 'count', numFiles: 2, content: 'a:5\nb:2', numMatches: 7 }),
+      ),
+    ).toEqual(['● Grep "TODO" 7 matches'])
+    expect(
+      await rowOf(
+        { pattern: 'TODO', output_mode: 'count' },
+        grepOutput({ mode: 'count', numFiles: 1, content: 'a:1', numMatches: 1 }),
+      ),
+    ).toEqual(['● Grep "TODO" 1 match'])
+    expect(
+      await rowOf(
+        { pattern: 'vli6x', output_mode: 'content', head_limit: 10 },
+        grepOutput({
+          mode: 'content',
+          content: 'x',
+          numLines: 10,
+          totalLines: 12,
+          appliedLimit: 10,
+        }),
+      ),
+    ).toEqual(['● Grep "vli6x" 10 of 12 lines'])
+  })
+
+  for (const surface of SURFACES) {
+    viewTest(`draws a Glob as its pattern, folder and file count on ${surface}`, async (_w, $) => {
+      const result = globOutput({ totalMatches: 41, countIsComplete: true })
+      const input = { pattern: '**/*.ts', path: `${ROOT}/mods` }
+      expect(
+        await texts($, surface, {
+          component: 'ToolUse',
+          props: useProps('toolu_b1', 'Glob', input, { result }),
+        }),
+      ).toEqual([`${MARKER[surface]}Glob **/*.ts in mods 41 files`])
+      const block = await drawn(
+        $,
+        { component: 'ToolResult', props: resultProps('toolu_b1', 'Glob', { result }) },
+        surface,
+      )
+      expect(block.tree).toMatchObject({ type: 'Box' })
+      expect(block.textCount).toBe(0)
+    })
+  }
+
+  viewTest('names a Glob total that the engine cut or only knows as a floor', async (_w, $) => {
+    const rowOf = async (result: Record<string, unknown>) =>
+      texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps('toolu_b2', 'Glob', { pattern: '**/*' }, { result }),
+      })
+    expect(
+      await rowOf(
+        globOutput({ numFiles: 100, truncated: true, totalMatches: 412, countIsComplete: true }),
+      ),
+    ).toEqual(['● Glob **/* 412 files'])
+    expect(
+      await rowOf(
+        globOutput({ numFiles: 100, truncated: true, totalMatches: 900, countIsComplete: false }),
+      ),
+    ).toEqual(['● Glob **/* 900+ files'])
+    expect(await rowOf(globOutput({ numFiles: 100, truncated: true }))).toEqual([
+      '● Glob **/* 100+ files',
+    ])
+    expect(await rowOf(globOutput({ numFiles: 1 }))).toEqual(['● Glob **/* 1 file'])
+  })
+
+  viewTest('passes an errored, running or unread Read, Grep or Glob on', async (_w, $) => {
+    const missing = failed(
+      'File does not exist. Note: your current working directory is /work/app.',
+    )
+    const cases: [string, unknown, Answer, Partial<RenderPropsOf['ToolUse']>][] = [
+      ['Read', { file_path: `${ROOT}/nope.ts` }, missing, {}],
+      ['Grep', { pattern: 'x', path: `${ROOT}/nope` }, failed('Error: Path does not exist'), {}],
+      [
+        'Read',
+        { file_path: PLUGIN_JSON },
+        { result: undefined },
+        { isRunning: true, output: undefined },
+      ],
+      [
+        'Read',
+        { file_path: `${ROOT}/a.png` },
+        { result: { type: 'image', file: { base64: '', type: 'image/png', originalSize: 1 } } },
+        {},
+      ],
+      ['Read', { file_path: PLUGIN_JSON }, { result: { type: 'file_unchanged', file: {} } }, {}],
+      ['Grep', { pattern: 'x' }, { result: grepOutput({ numLines: 3 }) }, {}],
+      ['Grep', { path: ROOT }, { result: grepOutput({ mode: 'count', numMatches: 3 }) }, {}],
+      ['Glob', { pattern: 3 }, { result: globOutput({}) }, {}],
+      ['Glob', { pattern: '*' }, { result: { filenames: [] } }, {}],
+    ]
+    for (const [tool, input, answer, extra] of cases) {
+      const use = useProps('toolu_x1', tool, input, answer, extra)
+      expect((await drawn($, { component: 'ToolUse', props: use })).tree).toEqual(ENGINE_ROW)
+    }
+    for (const [tool, result] of [
+      ['Read', missing],
+      ['Grep', { result: grepOutput({ numLines: 3 }) }],
+      ['Glob', { result: { filenames: [] } }],
+    ] as const) {
+      const props = resultProps('toolu_x1', tool, result)
+      expect((await drawn($, { component: 'ToolResult', props })).tree).toEqual(ENGINE_ROW)
+    }
+  })
+})
+
 describe('quiet-items rows', () => {
   viewTest('pass ToolUse and ToolResult on unchanged', async (world, $) => {
     const input = { command: QUIET_COMMAND, description: 'Close the item' }
@@ -1073,7 +1343,7 @@ describe('quiet-items rows', () => {
           answer,
         ),
       }),
-    ).toEqual(['● Show br exit 0 2 lines 0.0s'])
+    ).toEqual(['● Show br exit 0 2 lines'])
   })
 
   viewTest('draw the simple row while the quiet-items mode is off', async (world, $) => {
@@ -1085,7 +1355,7 @@ describe('quiet-items rows', () => {
         component: 'ToolUse',
         props: useProps(quiet, 'Bash', input, world.answer(input)),
       }),
-    ).toEqual(['● Close the item br exit 0 2 lines 0.0s'])
+    ).toEqual(['● Close the item br exit 0 2 lines'])
   })
 })
 
@@ -1102,9 +1372,9 @@ describe('/simple', () => {
     expect((await drawn($, use)).tree).toEqual(ENGINE_ROW)
     expect((await drawn($, result)).tree).toEqual(ENGINE_ROW)
     expect(await commandText($, '')).toBe(
-      'on for this session. Bash, Edit and Write calls draw as one row. /simple show N prints call N in full, where 1 is the last call.',
+      'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.',
     )
-    expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines 0.0s'])
+    expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines'])
   })
 
   viewTest('leaves the quiet-items mode to quiet-items', async (_world, $) => {
@@ -1321,13 +1591,20 @@ describe('folded tool group', () => {
     })
   }
 
-  viewTest('leaves a group without a failed call folded', async (world, $) => {
-    expect(await groupExpansion(world, $, group([LISTED]))).toEqual([false])
+  for (const surface of SURFACES) {
+    viewTest(`unfolds a group whose calls all draw as one row on ${surface}`, async (world, $) => {
+      expect(await groupExpansion(world, $, group([LISTED]), surface)).toEqual([true])
+      expect(await groupExpansion(world, $, group([READ_CALL, LISTED]), surface)).toEqual([true])
+    })
+  }
+
+  viewTest('leaves a group folded that holds a call it does not draw', async (world, $) => {
+    expect(await groupExpansion(world, $, group([LISTED, SEARCHED]))).toEqual([false])
   })
 
   viewTest('leaves a group folded while its failed call still runs', async (world, $) => {
     const running = { ...MISSING, isRunning: true, output: undefined }
-    expect(await groupExpansion(world, $, group([LISTED, running]))).toEqual([false])
+    expect(await groupExpansion(world, $, group([SEARCHED, running]))).toEqual([false])
   })
 
   viewTest('unfolds the live group while a Bash call in it runs', async (world, $) => {
@@ -1337,7 +1614,9 @@ describe('folded tool group', () => {
   })
 
   viewTest('leaves the live group folded when no call in it runs', async (world, $) => {
-    expect(await groupExpansion(world, $, { ...group([LISTED]), isActive: true })).toEqual([false])
+    expect(await groupExpansion(world, $, { ...group([SEARCHED]), isActive: true })).toEqual([
+      false,
+    ])
   })
 
   viewTest(

@@ -20,7 +20,8 @@ import {
   type FoldActions,
 } from './fold'
 import { bashChanges, bashEnd, fileEdit, isRecord, lineCount, shownPath } from './output'
-import { bashRow, changesBlock, fileRow, type BashState, type RowLook } from './row'
+import { READING_TOOLS, readingCount, readingTarget } from './reading'
+import { bashRow, changesBlock, fileRow, readingRow, type BashState, type RowLook } from './row'
 
 const COMMAND = 'simple'
 const TICK_MS = 1000
@@ -34,7 +35,7 @@ const RESERVED_KEYS: ReadonlySet<string> = new Set(['tool', 'tool_use_id', 'agen
 const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 
 const ON_TEXT =
-  'on for this session. Bash, Edit and Write calls draw as one row. /simple show N prints call N in full, where 1 is the last call.'
+  'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.'
 const OFF_TEXT = 'off for this session. Tool calls draw as Claude Code draws them.'
 const USAGE_TEXT =
   '/simple takes no argument, or show N. /simple toggles this session; /simple show N prints the N-th last tool call in full.'
@@ -286,6 +287,19 @@ async function fileUse(
   return fileRow(look, props.tool, shownPath(edit.path, await $.session.root()), edit.totals)
 }
 
+async function readingUse(
+  $: EngineInterface,
+  props: RenderPropsOf['ToolUse'],
+  look: RowLook,
+): Promise<RenderElement | null> {
+  if (props.isRunning || props.isErrored) return null
+  const count = readingCount(props.tool, props.output)
+  if (count === null) return null
+  const target = readingTarget(props.tool, props.input, props.output, await $.session.root())
+  if (target === null) return null
+  return readingRow(look, props.tool, target, count)
+}
+
 async function useDrawing(
   $: EngineInterface,
   props: RenderPropsOf['ToolUse'],
@@ -294,6 +308,7 @@ async function useDrawing(
   if (props.isInterrupted) return null
   if (props.tool === 'Bash') return bashUse($, props, look)
   if (FILE_TOOLS.has(props.tool)) return fileUse($, props, look)
+  if (READING_TOOLS.has(props.tool)) return readingUse($, props, look)
   return null
 }
 
@@ -320,7 +335,11 @@ async function resultDrawing(
   look: RowLook,
 ): Promise<RenderElement | null> {
   if (props.tool === 'Bash') return bashResult($, props, look)
-  if (!FILE_TOOLS.has(props.tool) || props.isErrored) return null
+  if (props.isErrored) return null
+  if (READING_TOOLS.has(props.tool)) {
+    return readingCount(props.tool, props.output) === null ? null : look.elements.Box({})
+  }
+  if (!FILE_TOOLS.has(props.tool)) return null
   return fileEdit(props.tool, props.output) === null ? null : look.elements.Box({})
 }
 
@@ -345,9 +364,18 @@ function isRunningForeground(call: ToolGroupCall): boolean {
   )
 }
 
+function isDrawnAsRow(call: ToolGroupCall): boolean {
+  if (call.tool === 'Bash') return isBashInput(call.input) && call.input.run_in_background !== true
+  return READING_TOOLS.has(call.tool)
+}
+
 function shouldUnfold(props: RenderPropsOf['ToolGroup']): boolean {
   if (props.isExpanded) return false
-  return props.calls.some(isFailed) || (props.isActive && props.calls.some(isRunningForeground))
+  return (
+    (props.calls.length > 0 && props.calls.every(isDrawnAsRow)) ||
+    props.calls.some(isFailed) ||
+    (props.isActive && props.calls.some(isRunningForeground))
+  )
 }
 
 export const register: Register = (on) => {
@@ -412,7 +440,7 @@ export const register: Register = (on) => {
       const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
       isOn = mode === 'on'
     } catch (error) {
-      logFailure($, 'the engine folds a group with a failed call', error)
+      logFailure($, 'the engine folds the group', error)
     }
     return next(isOn ? { ...e, props: { ...e.props, isExpanded: true } } : e)
   })
