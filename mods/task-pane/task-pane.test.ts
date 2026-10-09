@@ -77,7 +77,7 @@ type World = {
   clock: MockClock
 }
 
-function world(on: On, options: { closeRefusal?: string } = {}): World {
+function world(on: On, options: { closeRefusal?: string; cwdFailure?: string } = {}): World {
   const state: World = {
     tools: [],
     descriptions: new Map(),
@@ -89,7 +89,10 @@ function world(on: On, options: { closeRefusal?: string } = {}): World {
     clock: mock.clock(on, { now: 1_000 }),
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('session.cwd', () => ({ value: ROOT }))
+  on('session.cwd', () => {
+    if (options.cwdFailure !== undefined) throw new Error(options.cwdFailure)
+    return { value: ROOT }
+  })
   on('agent.list', () => ({ value: state.agents }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
@@ -2322,6 +2325,55 @@ describe('the pane follows the work', () => {
       await ui.unmount()
     },
   )
+})
+
+describe('the work tracker never blocks or repeats a call', () => {
+  test('a tool call that fails beneath the mod runs once', withWorkitems, async ($, on) => {
+    let runs = 0
+    on('tool.call', { tool: 'Read' }, () => {
+      runs += 1
+      throw new Error('the tool failed')
+    })
+    world(on)
+    await start($)
+    await $.tool.call({ tool: 'Read', file_path: `${ROOT}/a.ts` }).catch(() => undefined)
+    expect(runs).toBe(1)
+  })
+
+  test(
+    'a tracker that cannot read the session folder still runs the call',
+    withWorkitems,
+    async ($, on) => {
+      let runs = 0
+      on('tool.call', { tool: 'Read' }, () => {
+        runs += 1
+        return { result: 'read' }
+      })
+      world(on, { cwdFailure: 'no session folder' })
+      await start($)
+      const answer = await $.tool.call({ tool: 'Read', file_path: `${ROOT}/a.ts` })
+      expect(answer.result).toBe('read')
+      expect(runs).toBe(1)
+      const ui = await mountPane($)
+      expect((await screen(ui, WIDTH))[0]).toBe('Tasks  none in this session yet')
+      await ui.unmount()
+    },
+  )
+
+  test('a prompt that fails beneath the mod is submitted once', withWorkitems, async ($, on) => {
+    let submits = 0
+    on('prompt.submit', () => {
+      submits += 1
+      throw new Error('the prompt failed')
+    })
+    world(on)
+    await start($)
+    await readsOf($, 20)
+    await $.prompt
+      .submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
+      .catch(() => undefined)
+    expect(submits).toBe(1)
+  })
 })
 
 describe('the plan note at prompt submit', () => {
