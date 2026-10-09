@@ -1,4 +1,4 @@
-import type { AgentInfo, On, RenderSurface, UiPane } from 'claude-code'
+import type { AgentInfo, On, RenderSurface, ToolCallArgs, UiPane } from 'claude-code'
 import { describe, expect, mock, test, type Engine, type MockClock } from 'claude-code/testing'
 import { TARGET_CHARS_AT_MOST, toolTarget } from './hooks/agents'
 import { EMPTY_TEXT, formatElapsed, NOT_LISTED_BADGE } from './hooks/board'
@@ -127,6 +127,11 @@ async function subagentCall(engine: Engine, agentId: string, filePath = 'docs/de
   return engine.tool.call(input)
 }
 
+async function handBack(engine: Engine, agentId: string) {
+  const outsideTheToolTable = { tool: 'SubagentHandback', message: 'report', agentId }
+  return engine.tool.call(outsideTheToolTable as unknown as ToolCallArgs)
+}
+
 async function spawn(engine: Engine, description: string, subagentType: string) {
   return engine.agent.spawn({
     tool_use_id: `use-${description}`,
@@ -219,6 +224,31 @@ describe('the tool calls of a subagent', () => {
     expect(resolved).toContain('Read docs/design.md')
     expect(resolved).toContain(' · 2 tools')
     expect(resolved).not.toContain('▸ ')
+  })
+
+  test('keeps the tool and target of the last other call after a SubagentHandback', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [{ ...EXPLORE, status: 'completed' }]
+    await openBoard($, clock)
+    await subagentCall($, EXPLORE.id, 'mods/agent-board/README.md')
+    expect(await handBack($, EXPLORE.id)).toMatchObject({ result: 'ran SubagentHandback' })
+    const texts = await shownTexts($)
+    expect(texts).toContain('Read mods/agent-board/README.md')
+    expect(texts).toContain(' · 2 tools')
+    expect(texts.filter((text) => text.includes('SubagentHandback'))).toEqual([])
+  })
+
+  test('shows the SubagentHandback when it is the only call of the subagent', async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const world = fakeWorld(on)
+    world.subagents = [{ ...EXPLORE, status: 'completed' }]
+    await openBoard($, clock)
+    await handBack($, EXPLORE.id)
+    const texts = await shownTexts($)
+    expect(texts).toContain('SubagentHandback')
+    expect(texts).toContain(' · 1 tool')
+    expect(texts).not.toContain('no tool calls yet')
   })
 
   test('shows no tool calls yet for a listed subagent that made none', async ($, on) => {

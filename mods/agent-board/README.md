@@ -30,6 +30,8 @@ tool calls.
   and a dim `last Read docs/design.md · 4 tools` after it. The target is the first line of the
   file path, pattern, path, URL, query, command, description or skill of the call, at most 200
   characters, cut to fit.
+- A `SubagentHandback` call adds 1 to the count, but the line keeps the tool and target of the
+  last other call. The line shows `SubagentHandback` only when it was the one call.
 - The time counts every second while the agent runs. It stops when the agent ends. For an
   `unknown` row, it stops at the last moment that the board saw the agent.
 - An agent whose `turn.complete` arrived stays `done` when `$.agent.list()` no longer lists it.
