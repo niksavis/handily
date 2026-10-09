@@ -6,6 +6,15 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## task-pane 0.4.1 - 2026-10-09
+
+### Fixed
+
+- **An opened task no longer repeats its title.** A click on a task whose title fits the row
+  shows only its start time and tool count. A cut title still shows in full (handily-huxqo).
+- **The release carries task-pane 0.4.0.** The 0.4.0 tag has no release page, because the release
+  check failed on an older Claude Code. The mods now require the latest Claude Code.
+
 ## task-pane 0.4.0 - 2026-10-09
 
 ### Added
