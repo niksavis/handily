@@ -748,7 +748,7 @@ describe('the pane', () => {
     expect(await ui.find({ type: 'Input' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: 'Add tasks with /task add <text>.' })).toBeDefined()
     await ui.press({ key: 'open:task:1' })
-    expect((await ui.find({ key: 'full:task:1' }))?.text).toBe('Write the mocksnot started yet')
+    expect((await ui.find({ key: 'full:task:1' }))?.text).toBe('not started yet')
     await ui.unmount()
   })
 
@@ -2105,7 +2105,7 @@ describe('the pane follows the work', () => {
               children: [],
             },
           ).map((line) => line.text),
-        ).toEqual(['Push after approval', 'not started yet'])
+        ).toEqual(['not started yet'])
         await ui.press({ key: 'done' })
         await ui.press({ key: 'open:task:1' })
         expect(
@@ -2117,7 +2117,7 @@ describe('the pane follows the work', () => {
               children: [],
             },
           ).map((line) => line.text),
-        ).toEqual(['Read the design', `started ${clockText(START)} · 2 tools · took 3m`])
+        ).toEqual([`started ${clockText(START)} · 2 tools · took 3m`])
         for (const key of ['open:task:1', 'open:task:2', 'open:task:3', 'done']) {
           await ui.press({ key })
         }

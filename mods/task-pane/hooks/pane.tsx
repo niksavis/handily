@@ -228,7 +228,7 @@ function drawOpened(
     flexDirection: 'column',
     paddingLeft: leadWidth,
     children: [
-      Text({ ...row.titleStyle, children: row.title }),
+      isCut ? Text({ ...row.titleStyle, children: row.title }) : null,
       ...lines.map((line) => Text({ ...line.style, children: line.text })),
     ],
   })
