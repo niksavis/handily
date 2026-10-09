@@ -1,5 +1,5 @@
 {
-  "basicly_version": "0.21.4",
+  "basicly_version": "0.21.5",
   "core": {
     "agents/architect/agent.yaml": "sha256:25b0335d5d2f254a9ae5596d6e2aaf90786f5cfdf02664e9a1b3e3c1fe934dfd",
     "agents/auditor/agent.yaml": "sha256:b68326d319210c5c25785033879e5ac3ab3ed1f7a46e506d94537921250608cc",
@@ -55,7 +55,7 @@
     "hooks/protect-generated-commit.py": "sha256:ff9cfcafd1f2901a2d5f2618503103f9e72cdc226df3d4bd48d416a420ec8751",
     "hooks/protect-generated.py": "sha256:a5b5955b91fed2fba9baeb5d5a6f68d857f7a84231ee8bdc0877d0c0d04edddb",
     "hooks/rg-replace-guard.py": "sha256:1748c96b9aa073ad7c75bfd93cabfa21780443c7e2afe8570c0327b946056e8d",
-    "hooks/secret-scan.py": "sha256:2869170ac2198ed66dad288419e29bd5360cfb6397766b5e604c333b726e4c91",
+    "hooks/secret-scan.py": "sha256:97e0d766386a0e3aea7d0a975467a5b4b023ea36051b90f9eb95ed9b015f55b1",
     "hooks/session-start.py": "sha256:e8e29cb86544f63d3bb12b70f74998266dcd5db11bd96f4f328f7a6fed4f8c6d",
     "hooks/shell_tokens.py": "sha256:2f148beb5b8cb6c70381aaddccbb1ab7d50ffbfdab53b4fb1e7d5a359c84e034",
     "hooks/tool-usage.py": "sha256:c3ee917a9fd294abcbe248b979529c3bd12dfc2b72f05ba4cbef15a597c7ff97",
@@ -74,7 +74,7 @@
     "kit/board/web/index.html": "sha256:07e48667950fba5e26bb86b995bd13898022adcfe99bdb98232eb7e83ebde210",
     "kit/comments/GUIDANCE.md": "sha256:e559d4f21727db549ced5bb0cd7aa5b35913eacd8c3a23c14037700fbab4850f",
     "kit/comments/INSTRUCTION.md": "sha256:4563dd64bd9906c84dcb3bec1c763484cd3df35936a748c56bc151d23401376f",
-    "kit/comments/README.md": "sha256:92c585ef65bba46beef4b14fed6393b684ef5da97ecb949521b4b283bc1df223",
+    "kit/comments/README.md": "sha256:e335fb1b5ba497bfcb8ab88303e98bc93531620c406fb13dbfc354645fa6231e",
     "kit/comments/cli.py": "sha256:8fe786d1d7504af4cf496b1663dd10bec78b06a33adc4575452a3d6ab386608a",
     "kit/comments/directives.py": "sha256:a2e67833e04a4b6724a5a7323ce3f3e335c31e569b358fd970933a84af4e1d0e",
     "kit/comments/languages.py": "sha256:0b5b53b4feb0faf1a3cbd543f740c4c88717e7760f1151cbdba017da69189abf",
@@ -120,7 +120,7 @@
     "kit/tracker/locking.py": "sha256:514aaca03cee6482eb3a37993b137ebdc387d9ed8c93fecfca63d1173bf91493",
     "kit/tracker/migrate.py": "sha256:55e5c2891b315a209dda53229f3f4de0f0e173097cff73d14349f46a905a5c31",
     "kit/tracker/mirror.py": "sha256:b1907afcba7494b7fd5cb95230ab487304e0706cf1830b4616ffac989ba2ffd6",
-    "kit/tracker/pin.py": "sha256:2e196fc2fab674901e9e36efe0c55a934ef04483244af8c43d9933ce36fa3699",
+    "kit/tracker/pin.py": "sha256:ea8d3e2409cbe776342241b21b1822c26c786abce77c4cc1648d8235ceb9db83",
     "kit/tracker/process_evidence.py": "sha256:0fb346d06bd8c4614a8a993e3a2e0f5423e707340a21f02b9b7f1f0180c654f7",
     "kit/tracker/provenance.py": "sha256:5800d8eda460d3e7179e7e920738ef50e04fad0ee15ada48db49e3243e99fc59",
     "kit/tracker/queries.py": "sha256:b006b534e7d4151d6b25649f979adfed707891d800d1042403e276e92aa3d2f4",
@@ -279,6 +279,6 @@
     "templates/codex/rule_md.j2": "sha256:0c236f2ac2ab05fafc6d5c199700ead5ec7c69ff21b8850f09a46f585ea94166",
     "templates/copilot/copilot_instructions_md.j2": "sha256:5d69050d4a037b769f918c84bfd1c92dae393b358df7451ae035b86ba98bdb9c"
   },
-  "installed_at": "2026-10-09T09:42:08.674932+00:00",
+  "installed_at": "2026-10-09T11:34:12.032993+00:00",
   "schema_version": 1
 }
