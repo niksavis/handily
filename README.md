@@ -83,8 +83,9 @@ Codex before that file existed, remove it with `codex plugin remove <name>@handi
 
 ## Requirements
 
-- Claude Code with mod support (function hooks). The mod API is early access, so each
-  release names the Claude Code version that it was tested on.
+- The latest Claude Code. The mod API is early access and changes between releases, so the
+  mods support only the newest version, and CI tests them on it. Update Claude Code before
+  you update a mod.
 
 ## Contributing
 

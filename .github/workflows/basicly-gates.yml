@@ -73,7 +73,7 @@ jobs:
       - name: Install dev dependencies
         run: npm ci --no-fund --no-audit
       - name: Install the pinned Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.293
+        run: npm install -g @anthropic-ai/claude-code@2.1.295
       - name: Write the mod types
         run: npm run types
       - name: Configured verify checks
