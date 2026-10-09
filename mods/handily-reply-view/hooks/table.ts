@@ -48,7 +48,10 @@ function longColumns(naturals: readonly number[], free: number) {
   let left = free
   for (;;) {
     const share = left / long.length
-    const short = long.filter((index) => (naturals[index] ?? 0) <= share)
+    const short = long.filter((index) => {
+      const natural = naturals[index] ?? 0
+      return natural <= share && natural <= LONG_COLUMN_CELLS_AT_LEAST
+    })
     if (short.length === 0 || short.length === long.length) return { long, left }
     left -= sum(short.map((index) => naturals[index] ?? 0))
     long = long.filter((index) => !short.includes(index))

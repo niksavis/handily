@@ -51,10 +51,24 @@ covers the text of each heading, not the space between the columns, and it adds 
 ```
 
 When the table does not fit the width of the screen, a long cell wraps at the spaces inside its
-column, and the rows stay aligned. A short column keeps its width. The long columns share the
-rest of the width by the width of their widest cell, and each long column gets at least 12
-cells when the screen has room for that. When a cell wraps, one blank line separates the rows, so
-you can see where each row ends. A table where no cell wraps has no blank lines.
+column, and the rows stay aligned. A column whose widest cell is 12 cells or less is short and
+keeps its width. Every other column is long. The long columns share the rest of the width by the
+width of their widest cell, and each long column gets at least 12 cells when the screen has room
+for that. When a cell wraps, one blank line separates the rows, so you can see where each row
+ends. A table where no cell wraps has no blank lines.
+
+At 120 columns, a column of short phrases such as `Buttons on the header row` is long, so it
+wraps and gives its width to the other long columns:
+
+```text
+  Change          Why                                                      Effect              [ copy ] [ copy as text ]
+  Buttons on      The buttons took a line of their own under every         A table that fits draws its buttons after the
+  the header      table, so a short table took one line more than it       headings, and the reply is one line shorter
+  row             needed
+
+  Wrapped cells   A wide table drew one block for each row, so the         Long cells wrap inside their columns and the
+                  reader lost the columns                                  rows stay aligned on a normal screen
+```
 
 The view puts the buttons in the first of these places where they fit:
 

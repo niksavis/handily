@@ -235,6 +235,13 @@ const LONG_TABLE = [
   '| task-pane | Each task tool call draws as one row | Low | Bo |',
 ].join('\n')
 
+const CHANGES_TABLE = [
+  '| Change | Why | Effect |',
+  '| --- | --- | --- |',
+  '| Buttons on the header row | The buttons took a line of their own under every table, so a short table took one line more than it needed | A table that fits draws its buttons after the headings, and the reply is one line shorter |',
+  '| Wrapped cells | A wide table drew one block for each row, so the reader lost the columns | Long cells wrap inside their columns and the rows stay aligned on a normal screen |',
+].join('\n')
+
 function placed(parts: readonly (readonly [number, string])[]): string {
   return parts.reduce((line, [column, text]) => line.padEnd(column) + text, '')
 }
@@ -535,6 +542,100 @@ describe('tables', () => {
           [113, 'Bo'],
         ])}`,
         `  ${' '.repeat(118 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a column wider than 12 cells wraps and shares the width by the width of its widest cell',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(CHANGES_TABLE), 'terminal', 120)
+      expect(await sketchOf(ui, 120)).toEqual([
+        edges(
+          `● ${underlinedHeading([
+            [0, 'Change'],
+            [16, 'Why'],
+            [73, 'Effect'],
+          ])}`,
+          '[ copy ] [ copy as text ]',
+          120,
+        ),
+        `  ${placed([
+          [0, 'Buttons on'],
+          [16, 'The buttons took a line of their own under every'],
+          [73, 'A table that fits draws its buttons after the'],
+        ])}`,
+        `  ${placed([
+          [0, 'the header'],
+          [16, 'table, so a short table took one line more than it'],
+          [73, 'headings, and the reply is one line shorter'],
+        ])}`,
+        `  ${placed([
+          [0, 'row'],
+          [16, 'needed'],
+        ])}`,
+        '',
+        `  ${placed([
+          [0, 'Wrapped cells'],
+          [16, 'A wide table drew one block for each row, so the'],
+          [73, 'Long cells wrap inside their columns and the'],
+        ])}`,
+        `  ${placed([
+          [16, 'reader lost the columns'],
+          [73, 'rows stay aligned on a normal screen'],
+        ])}`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a column of 12 cells keeps its natural width beside a column that wraps',
+    async (_world, $) => {
+      const table = [
+        '| Name | Note |',
+        '| --- | --- |',
+        '| twelve-cells | The view keeps a column of twelve cells or less at its natural width while the long column wraps inside its own width |',
+        '| short | x |',
+      ].join('\n')
+      const ui = await mountReply($, reply(table))
+      expect(await sketchOf(ui)).toEqual([
+        edges(
+          `● ${underlinedHeading([
+            [0, 'Name'],
+            [15, 'Note'],
+          ])}`,
+          '[ copy ] [ copy as text ]',
+        ),
+        '  twelve-cells   The view keeps a column of twelve cells or less at its natural',
+        `  ${placed([[15, 'width while the long column wraps inside its own width']])}`,
+        '',
+        '  short          x',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a table whose cells are all 12 cells or less keeps its natural widths and draws no blank lines',
+    async (_world, $) => {
+      const table = [
+        '| Step | Lint | Test | Ship |',
+        '| --- | --- | --- | --- |',
+        '| build-checks | passed | passed | passed |',
+        '| release-note | skipped | failed | skipped |',
+      ].join('\n')
+      const ui = await mountReply($, reply(table))
+      expect(await sketchOf(ui)).toEqual([
+        `● ${underlinedHeading([
+          [0, 'Step'],
+          [15, 'Lint'],
+          [25, 'Test'],
+          [34, 'Ship'],
+        ])}  [ copy ] [ copy as text ]`,
+        '  build-checks   passed    passed   passed',
+        '  release-note   skipped   failed   skipped',
       ])
       await ui.unmount()
     },
