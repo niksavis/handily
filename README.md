@@ -66,12 +66,15 @@ Some mods need another mod. Claude Code installs a dependency with the mod that 
 
 | Mod | Needs |
 | --- | --- |
+| `handily-workitems` | n/a |
 | `handily-quiet-items` | `handily-workitems` |
 | `handily-task-pane` | `handily-workitems` |
+| `handily-session-board` | n/a |
 | `handily-item-toasts` | `handily-workitems` |
+| `handily-agent-board` | n/a |
 | `handily-simple-view` | `handily-quiet-items`, and through it `handily-workitems` |
-| `handily` | every mod |
-| Every other mod | nothing |
+| `handily-reply-view` | n/a |
+| `handily` | every mod above |
 
 ## Quick start
 
