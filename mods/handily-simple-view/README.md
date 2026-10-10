@@ -22,12 +22,9 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 ## Install
 
 `handily-simple-view` depends on `handily-quiet-items`, and `handily-quiet-items` depends on
-`handily-workitems`. Install all
-three:
+`handily-workitems`. Claude Code installs both with it:
 
 ```text
-/plugin install handily-workitems --marketplace niksavis/handily
-/plugin install handily-quiet-items --marketplace niksavis/handily
 /plugin install handily-simple-view --marketplace niksavis/handily
 ```
 

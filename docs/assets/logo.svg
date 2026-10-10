@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="logo-title logo-desc">
+  <title id="logo-title">handily</title>
+  <desc id="logo-desc">A blocky hand in shades of indigo grips the pixelated orange handle of a wrench. The palm and thumb form one L-bracket, and four finger bars wrap the handle.</desc>
+  <path d="M44 8 H57 V22 H71 V8 H84 V34 H44 Z" fill="#ea580c"/>
+  <g>
+    <rect x="58" y="36" width="6" height="6" rx="1.5" fill="#fdba74"/>
+    <rect x="65" y="36" width="5" height="6" rx="1.5" fill="#fb923c"/>
+    <rect x="58" y="43" width="6" height="6" rx="1.5" fill="#f97316"/>
+    <rect x="65" y="43" width="5" height="6" rx="1.5" fill="#f59e0b"/>
+    <rect x="58" y="103" width="6" height="6" rx="1.5" fill="#f59e0b"/>
+    <rect x="65" y="103" width="5" height="6" rx="1.5" fill="#f97316"/>
+    <rect x="58" y="110" width="6" height="6" rx="1.5" fill="#fdba74"/>
+    <rect x="65" y="110" width="5" height="6" rx="1.5" fill="#ea580c"/>
+  </g>
+  <path d="M24 47 H72 V57 H35 V101 H24 Z" fill="#4f46e5"/>
+  <rect x="37" y="59" width="43" height="9" rx="2" fill="#818cf8"/>
+  <rect x="37" y="70" width="45" height="9" rx="2" fill="#6366f1"/>
+  <rect x="37" y="81" width="44" height="9" rx="2" fill="#6366f1"/>
+  <rect x="37" y="92" width="39" height="9" rx="2" fill="#818cf8"/>
+</svg>

@@ -34,6 +34,14 @@
         "MD041": false
       },
       "combine": "merge"
+    },
+    {
+      "filter": ["README.md"],
+      "config": {
+        "MD033": { "allowed_elements": ["div", "img"] },
+        "MD041": false
+      },
+      "combine": "merge"
     }
   ]
 }
