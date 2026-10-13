@@ -303,7 +303,8 @@ handily 0.5.0 removes `handily-task-pane`, `handily-agent-board` and `handily-se
 `handily-board` replaces them. `/task`, `/agent-board` and `/session-board` are gone, and
 `/board` replaces them. An update does not remove the old plugins.
 
-To move, run this line in a shell, then type `/reload-plugins` in each open session. It updates
+To move, run this line in a shell, then restart Claude Code. `/reload-plugins` does not unload
+an uninstalled plugin from an open session, so a restart is needed. The line updates
 the marketplace, installs `handily-board`, uninstalls the three old plugins and updates the
 bundle. A command for a plugin that you did not install fails for that plugin only.
 
@@ -321,7 +322,8 @@ An update does not move an old name to the new one. Claude Code keeps the old pl
 and does not install the new one. When both are installed, the two copies collide. Claude Code
 refuses the commands of one copy, and `handily-workitems` does not load beside `workitems`.
 
-To move, run this line in a shell, then type `/reload-plugins` in each open session. It updates
+To move, run this line in a shell, then restart Claude Code. `/reload-plugins` does not unload
+an uninstalled plugin from an open session, so a restart is needed. The line updates
 the marketplace, installs each new name and uninstalls each old name. A command for a plugin
 that you did not install fails for that plugin only.
 

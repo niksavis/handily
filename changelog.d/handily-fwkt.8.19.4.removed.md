@@ -3,8 +3,8 @@
   `/session-board` are gone. `/board` replaces them, and `/board machine` shows the board of
   every local session. An update does not remove an old plugin. With an old plugin and
   `handily-board` both installed, Claude gets two sets of task tools. To move, run this line
-  in a shell, then
-  type `/reload-plugins` in each open session. It updates the marketplace, installs
+  in a shell, then restart Claude Code, because `/reload-plugins` does not unload an
+  uninstalled plugin from an open session. The line updates the marketplace, installs
   `handily-board`, uninstalls the three old plugins and updates the bundle. A command for a
   plugin that you did not install fails for that plugin only (handily-fwkt.8.19.4).
 
