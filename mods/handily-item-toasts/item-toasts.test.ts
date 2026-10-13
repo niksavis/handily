@@ -332,6 +332,7 @@ function engineBeneath(on: On, world: World): MockClock {
   const clock = mock.clock(on, { now: START })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.toast', (_$, e) => {
     world.toasts.push(e.text)
     return { value: undefined }
@@ -1237,6 +1238,87 @@ describe('ready value for /handily', () => {
       })
       await startSession($)
       expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]handily-item-toasts$/) }])
+    },
+  )
+})
+
+const ON_REPLY =
+  'item-toasts on for this session. A work item that changes elsewhere draws a toast.'
+const OFF_REPLY =
+  'item-toasts off for this session. No work item change draws a toast until /item-toasts on.'
+const USAGE_REPLY =
+  '/item-toasts takes on or off. /item-toasts on and /item-toasts off set this session.'
+
+async function toastsCommand($: Engine, args: string): Promise<string> {
+  const result = await $.command.run({
+    command: 'item-toasts',
+    args,
+    origin: { kind: 'sdk' },
+    presentation: { isFullscreen: false, columns: 120 },
+  })
+  return result.text ?? ''
+}
+
+describe('/item-toasts', () => {
+  for (const surface of SURFACES) {
+    test(
+      `stores off in its mode state key, replies with the new mode and draws no toast for a tracker change until /item-toasts on on ${surface}`,
+      { plugins: [fakeWorkitems] },
+      async ($, on) => {
+        const world = newWorld()
+        const clock = engineBeneath(on, world)
+        const written: unknown[] = []
+        on('state.set', { plugin: 'handily-item-toasts', key: 'mode' }, (_$, e, next) => {
+          written.push(e.value)
+          return next(e)
+        })
+        await startSession($, surface)
+        expect(await toastsCommand($, 'off')).toBe(OFF_REPLY)
+        expect(written).toEqual(['off'])
+        elsewhere(world, closeAb12())
+        await pollAndTick($, clock)
+        await call($)
+        await clock.advance(WINDOW_MS)
+        await pollAndTick($, clock)
+        expect(world.toasts).toEqual([])
+        expect(await toastsCommand($, 'on')).toBe(ON_REPLY)
+        expect(written).toEqual(['off', 'on'])
+        await pollAndTick($, clock)
+        expect(world.toasts).toEqual([])
+        elsewhere(world, closeEf56())
+        await pollAndTick($, clock)
+        expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+        expect(world.unanswered).toEqual([])
+      },
+    )
+  }
+
+  toastTest('keeps off when the session starts again', async (world, $, clock) => {
+    await startSession($)
+    expect(await toastsCommand($, 'off')).toBe(OFF_REPLY)
+    await startSession($)
+    elsewhere(world, closeAb12())
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual([])
+  })
+
+  toastTest('replies with the new mode when the mode is already set', async (_world, $) => {
+    await startSession($)
+    expect(await toastsCommand($, 'on')).toBe(ON_REPLY)
+    expect(await toastsCommand($, 'off')).toBe(OFF_REPLY)
+    expect(await toastsCommand($, 'off')).toBe(OFF_REPLY)
+  })
+
+  toastTest(
+    'replies with the valid forms by name to an unknown argument and keeps the mode',
+    async (world, $, clock) => {
+      await startSession($)
+      for (const args of ['', 'of', 'on off', 'toggle']) {
+        expect(await toastsCommand($, args)).toBe(USAGE_REPLY)
+      }
+      elsewhere(world, closeAb12())
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
     },
   )
 })

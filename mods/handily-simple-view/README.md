@@ -3,8 +3,9 @@
 `simple-view` draws one short row for each `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`
 call in the transcript.
 A `Bash` row with output has a `more` button that opens the output under the row, and a `copy`
-button that copies it. `/simple` switches the view off and on for the session. `/simple show N`
-prints one call in full. The model still reads the full tool result. Only the screen changes.
+button that copies it. `/simple off` and `/simple on` switch the view for the session.
+`/simple show N` prints one call in full. The model still reads the full tool result. Only the
+screen changes.
 
 ```text
 ● List the mods  ls  exit 0  7 lines  1.1s                                  [ more ] [ copy ]
@@ -201,10 +202,13 @@ failed.
 
 | Command          | Effect                                                                                   |
 | ---------------- | ---------------------------------------------------------------------------------------- |
+| `/simple on`     | Turns the view on for this session, and replies with the new mode                        |
+| `/simple off`    | Turns the view off for this session, and replies with the new mode                       |
 | `/simple`        | Turns the view off or on for this session, and replies with the new mode. It starts on   |
 | `/simple show N` | Prints the input, the output and the file diff of the N-th last tool call. 1 is the last |
 
 - `/simple show N` refuses a number outside the kept calls, and gives the valid range.
+- Any other argument changes nothing, and the reply names the valid forms.
 - ctrl+o cannot expand a single row. The engine reuses the drawn row and does not call the mod
   again. Use `more` on the row, or `/simple show N`.
 

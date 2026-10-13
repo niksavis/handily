@@ -1,4 +1,5 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { ItemToastsMode } from '../types'
 import { isTrackerWrite, type ToolUse, type TrackerRules } from './match'
 import { createToaster, type ToastHost, type Toaster } from './toasts'
 
@@ -18,6 +19,14 @@ type Toasts = {
 const TASK_ID_TAG = /<task-id>([^<]*)<\/task-id>/g
 const TOOL_USE_ID_TAG = /<tool-use-id>([^<]*)<\/tool-use-id>/g
 const NOT_OWN = 'item-toasts: not counting the call as own;'
+const COMMAND = 'item-toasts'
+const DEFAULT_MODE: ItemToastsMode = 'on'
+const MODE = { plugin: 'handily-item-toasts', key: 'mode' } as const
+const ON_TEXT = 'item-toasts on for this session. A work item that changes elsewhere draws a toast.'
+const OFF_TEXT =
+  'item-toasts off for this session. No work item change draws a toast until /item-toasts on.'
+const USAGE_TEXT =
+  '/item-toasts takes on or off. /item-toasts on and /item-toasts off set this session.'
 
 function hostOf($: EngineInterface): ToastHost {
   return {
@@ -64,6 +73,26 @@ function startToasts($: EngineInterface, toasts: Toasts): Toaster {
     })
   })
   return toaster
+}
+
+async function isOn($: EngineInterface): Promise<boolean> {
+  const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
+  return mode === 'on'
+}
+
+async function toasterOf($: EngineInterface, toasts: Toasts): Promise<Toaster | undefined> {
+  if (toasts.toaster !== undefined) return toasts.toaster
+  return (await isOn($)) ? startToasts($, toasts) : undefined
+}
+
+async function setMode($: EngineInterface, toasts: Toasts, mode: ItemToastsMode): Promise<string> {
+  await $.state.set(MODE, mode)
+  if (mode === 'off') {
+    stopToasts(toasts)
+    return OFF_TEXT
+  }
+  if (toasts.toaster === undefined) await startToasts($, toasts).tick()
+  return ON_TEXT
 }
 
 function rulesOf($: EngineInterface): TrackerRules {
@@ -143,10 +172,21 @@ export const register: Register = (on) => {
   }
 
   on('session.start', async ($, e, next) => {
+    await $.command.register({
+      name: COMMAND,
+      description: 'handily · Set the toasts for work item changes on or off for this session',
+      argumentHint: 'on|off',
+    })
     const started = await next(e)
-    await startToasts($, toasts).tick()
+    if (await isOn($)) await startToasts($, toasts).tick()
     await $.state.set({ plugin: 'handily-item-toasts', key: 'ready' }, { root: $.plugin.root })
     return started
+  })
+
+  on('command.run', { command: COMMAND }, async ($, e) => {
+    const asked = e.args.trim()
+    if (asked !== 'on' && asked !== 'off') return { text: USAGE_TEXT }
+    return { text: await setMode($, toasts, asked) }
   })
 
   on('session.end', (_$, e, next) => {
@@ -156,7 +196,8 @@ export const register: Register = (on) => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (!(await isOwnCall($, { tool: 'Bash', command: e.command }))) return next(e)
-    const toaster = toasts.toaster ?? startToasts($, toasts)
+    const toaster = await toasterOf($, toasts)
+    if (toaster === undefined) return next(e)
     const generation = toasts.generation
     await toaster.enterCall()
     let result: CallResult
@@ -181,7 +222,8 @@ export const register: Register = (on) => {
     }
     const use: ToolUse = { tool: e.tool, filePath: e.file_path, root: snapshot.root }
     if (!(await isOwnCall($, use))) return next(e)
-    const toaster = toasts.toaster ?? startToasts($, toasts)
+    const toaster = await toasterOf($, toasts)
+    if (toaster === undefined) return next(e)
     await toaster.enterCall()
     try {
       return await next(e)

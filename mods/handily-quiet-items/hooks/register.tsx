@@ -16,8 +16,8 @@ const ON_TEXT = 'quiet-items on for this session. Tracker writes draw as one row
 const OFF_TEXT = 'quiet-items off for this session. Tracker commands draw in full.'
 const SIMPLE_VIEW_OFF_TEXT =
   'quiet-items on for this session, but /simple is off, so tracker writes draw in full.'
-const NO_ARGUMENT_TEXT =
-  '/quiet-items takes no argument; it toggles this session. Set the default with the plugin\'s "mode" setting.'
+const USAGE_TEXT =
+  '/quiet-items takes on, off or no argument. /quiet-items on and /quiet-items off set this session, and /quiet-items toggles it. Set the default with the plugin\'s "mode" setting.'
 const FULL_TAIL = 'so tracker commands draw in full.'
 const EXIT_STATUS = '$?'
 const QUIET_ITEMS_MODE = { plugin: 'handily-quiet-items', key: 'mode' } as const
@@ -71,6 +71,13 @@ export function onReply(snapshot: Snapshot | undefined): string {
   }
 }
 
+function modeFor(args: string, current: QuietItemsMode): QuietItemsMode | null {
+  const asked = args.trim()
+  if (asked === '') return current === 'on' ? 'off' : 'on'
+  if (asked === 'on' || asked === 'off') return asked
+  return null
+}
+
 async function isSimpleViewOff($: EngineInterface): Promise<boolean> {
   const { value: simpleViewMode } = await $.state.get(SIMPLE_VIEW_MODE)
   return simpleViewMode === SIMPLE_VIEW_OFF
@@ -90,7 +97,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'handily · Toggle quiet tracker rows for this session',
+      description: 'handily · Set or toggle quiet tracker rows for this session',
+      argumentHint: '[on|off]',
     })
     await $.state.set({ plugin: 'handily-quiet-items', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(QUIET_ITEMS_MODE)
@@ -99,9 +107,9 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    if (e.args.trim() !== '') return { text: NO_ARGUMENT_TEXT }
     const { value: current = defaultMode } = await $.state.get(QUIET_ITEMS_MODE)
-    const mode: QuietItemsMode = current === 'on' ? 'off' : 'on'
+    const mode = modeFor(e.args, current)
+    if (mode === null) return { text: USAGE_TEXT }
     await $.state.set(QUIET_ITEMS_MODE, mode)
     if (mode === 'off') return { text: OFF_TEXT }
     if (await isSimpleViewOff($)) return { text: SIMPLE_VIEW_OFF_TEXT }

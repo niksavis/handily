@@ -39,7 +39,7 @@ const ON_TEXT =
   'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.'
 const OFF_TEXT = 'off for this session. Tool calls draw as Claude Code draws them.'
 const USAGE_TEXT =
-  '/simple takes no argument, or show N. /simple toggles this session; /simple show N prints the N-th last tool call in full.'
+  '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full.'
 const NO_CALL_TEXT = '/simple show has no tool call to print yet in this session.'
 
 type Answer = Awaited<ReturnType<EngineInterface['tool']['call']>>
@@ -76,9 +76,13 @@ function logFailure($: EngineInterface, what: string, error: unknown): void {
   $.ui.log(`simple-view: ${what}: ${String(error)}`)
 }
 
-async function toggle($: EngineInterface): Promise<string> {
+function isMode(word: string): word is SimpleViewMode {
+  return word === 'on' || word === 'off'
+}
+
+async function setMode($: EngineInterface, asked: SimpleViewMode | null): Promise<string> {
   const { value: current = DEFAULT_MODE } = await $.state.get(MODE)
-  const mode: SimpleViewMode = current === 'on' ? 'off' : 'on'
+  const mode: SimpleViewMode = asked ?? (current === 'on' ? 'off' : 'on')
   await $.state.set(MODE, mode)
   return mode === 'on' ? ON_TEXT : OFF_TEXT
 }
@@ -415,8 +419,9 @@ export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'handily · Toggle the one-row view of tool calls, or print a call in full',
-      argumentHint: '[show N]',
+      description:
+        'handily · Set or toggle the one-row view of tool calls, or print a call in full',
+      argumentHint: '[on|off|show N]',
     })
     await $.state.set({ plugin: 'handily-simple-view', key: 'ready' }, { root: $.plugin.root })
     return next(e)
@@ -427,7 +432,8 @@ export const register: Register = (on) => {
       .trim()
       .split(/\s+/)
       .filter((word) => word !== '')
-    if (verb === undefined) return { text: await toggle($) }
+    if (verb === undefined) return { text: await setMode($, null) }
+    if (isMode(verb) && number === undefined) return { text: await setMode($, verb) }
     if (verb === 'show' && rest.length === 0) return { text: await show($, number) }
     return { text: USAGE_TEXT }
   })
