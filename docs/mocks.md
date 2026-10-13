@@ -859,7 +859,7 @@ waits-for line is already on the row.
 │     [ up ] [ down ] [ rm ]                │
 │ ▶ 2 Write the tab mocks       4m [ rm ]   │
 │     ▸ Edit docs/mocks.md         9 tools  │
-│     started 4m ago · 14 tools in all      │
+│     started 4m ago · 9 tools in all       │
 ```
 
 A cut title, opened, shows the full title wrapped first, then these lines.
