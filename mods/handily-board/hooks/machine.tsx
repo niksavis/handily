@@ -61,7 +61,9 @@ const RETRY_TEXT = `retry in ${elapsedText(POLL_INTERVAL_MS)}`
 const NOT_LISTED = 'not listed (stale)'
 const AGENT_ROWS_AT_MOST = 4
 const AGENT_COUNT_WIDTH = 5
-const NARROW_NAME_WIDTH = 10
+const AGENT_NAME_AT_MOST = 12
+const AGENT_NAME_WIDTH = 14
+const NARROW_NAME_WIDTH = 13
 const DESKTOP_LINE = 'Other sessions are listed only in a terminal session.'
 
 const ATTENTION_LOOKS: Record<Attention, SignalLook> = {
@@ -320,9 +322,12 @@ function agentRowLines(
   const moreKey = `machine:more:${card.key}`
   const isOpen = elements.expanded.has(moreKey)
   const shown = isOpen ? card.agentRows : card.agentRows.slice(0, AGENT_ROWS_AT_MOST)
-  const names = numberedNames(card.agentRows.map((agent) => escaped(agent.name)))
+  const names = numberedNames(
+    card.agentRows.map((agent) => escaped(agent.name)),
+    AGENT_NAME_AT_MOST,
+  )
   const widths = {
-    name: layout.isNarrow ? NARROW_NAME_WIDTH : ROW_NAME_WIDTH,
+    name: layout.isNarrow ? NARROW_NAME_WIDTH : AGENT_NAME_WIDTH,
     count: Math.max(
       AGENT_COUNT_WIDTH,
       ...card.agentRows.map((agent) => displayWidth(agentCount(agent))),

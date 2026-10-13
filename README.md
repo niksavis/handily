@@ -57,21 +57,23 @@ claude plugin install handily@handily
 
 | Mod | What you see | Command |
 | --- | --- | --- |
-| [`handily-workitems`](mods/handily-workitems/README.md) | Nothing. It reads the work items of your tracker for the other mods | none |
+| [`handily-workitems`](mods/handily-workitems/README.md) | Nothing. It reads the work items of your tracker for the other mods | `/workitems` |
 | [`handily-quiet-items`](mods/handily-quiet-items/README.md) | One short row in place of each tracker write in the transcript | `/quiet-items` |
-| [`handily-item-toasts`](mods/handily-item-toasts/README.md) | A toast when a work item changes outside your session | none |
+| [`handily-item-toasts`](mods/handily-item-toasts/README.md) | A toast when a work item changes outside your session | `/item-toasts` |
 | [`handily-simple-view`](mods/handily-simple-view/README.md) | One short row for each Bash, Edit, Write, Read, Grep and Glob call | `/simple` |
 | [`handily-reply-view`](mods/handily-reply-view/README.md) | Long replies fold, tables draw without box lines, copy buttons, a rule above each prompt | `/replies` |
 | [`handily-board`](mods/handily-board/README.md) | A board with two tabs: your tasks and agents, and every local session with its agents | `/board` |
 | [`handily`](mods/handily/README.md) | The bundle of all the mods above | `/handily` |
 
-[docs/install.md](docs/install.md) tells you how to install one mod, update, uninstall, and
-move from the old plugin names.
+[docs/guide.md](docs/guide.md) lists every command of each mod, with its arguments and its
+settings. [docs/install.md](docs/install.md) tells you how to install one mod, update,
+uninstall, and move from the old plugin names.
 
 ## Documentation
 
 | Page | For |
 | --- | --- |
+| [docs/guide.md](docs/guide.md) | Each mod, its commands and its settings on one page |
 | [docs/install.md](docs/install.md) | Install, update, uninstall, old plugin names, troubleshooting |
 | `mods/<name>/README.md` | What each mod draws, its commands and its settings |
 | [CHANGELOG.md](CHANGELOG.md) | Every release and each breaking change |

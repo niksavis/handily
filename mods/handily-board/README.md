@@ -296,12 +296,16 @@ Sessions  4 · 1 needs you · 12s ago
 
   ```text
   agents 6 · 1 needs you · 1 failed
-  ◆ scout      needs you            4/9
-  ▶ Explore    Map the hooks        2/5
-  ▶ tester     Run the unit tests   0/1
-  ▶ reviewer   Review board.tsx     1/3
+  ◆ scout         needs you         4/9
+  ▶ Explore       Map the hooks     2/5
+  ▶ tester        Run the unit te…  0/1
+  ▶ reviewer      Review board.tsx  1/3
   [ +2 more agents ]
   ```
+
+- An agent name on a card keeps up to 12 characters. A longer name keeps its first 4 and its last
+  7 characters around `…`, such as `gene…purpose`. The task text is cut first. At 30 columns,
+  `▶ gene…purpose Write…  1/4` keeps the whole name.
 
 - The rows that need you come first. No source marks an agent as one that needs you yet; the
   board reads a `needsYou` flag in the store key when one is there.

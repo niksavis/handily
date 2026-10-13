@@ -737,6 +737,9 @@ Measured facts (tmux, Claude Code 2.1.296):
   `general-purpose` -> `gene…pose`, `implementer` -> `impl…nter`, `code-reviewer` -> `code…ewer`.
   Two rows that still show the same name get a space and `2`, `3` in spawn order, cut further to fit:
   `Explore`, `Explore 2`; `gene…se 2`.
+- Name cut on a "this machine" card (handily-fwkt.8.21): an agent name keeps up to 12 characters.
+  A longer name keeps its first 4 and last 7 around `…`, so `general-purpose` -> `gene…purpose`.
+  The task text is cut first.
 - Agent row (41): mark, name 9, state 9, detail 15, time 3. A running agent is one line. An agent
   that needs you or failed gets a second line: what it waits for, or what failed.
 - A running agent row has an `open` button before the time (handily-fwkt.8.22). It takes 5 columns
@@ -936,10 +939,10 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │   ▶ Build the tab pane ▰▰▰▱▱▱ 3/6         │
 │   app.wt/lane-a1 · lane/a1 · 22m worked   │
 │   agents 6 · 1 needs you                  │  8.11 8.10
-│   ◆ scout      needs you            4/9   │  8.11 8.10
-│   ▶ Explore    Map the hooks        2/5   │  8.11
-│   ▶ tester     Run the unit tests   0/1   │  8.11
-│   ▶ reviewer   Review board.tsx     1/3   │  8.11
+│   ◆ scout         needs you         4/9   │  8.11 8.10
+│   ▶ Explore       Map the hooks     2/5   │  8.11
+│   ▶ tester        Run the unit te…  0/1   │  8.11
+│   ▶ reviewer      Review board.tsx  1/3   │  8.11
 │   [ +2 more agents ]                      │  8.11
 │ ───────────────────────────────────────── │
 │ ✓ docs-pass  background  done             │
@@ -997,10 +1000,10 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │ ▶ lane-a1  working             │
 │   ▶ Build the tab… ▰▰▰▱▱▱ 3/6  │
 │   agents 6 · 1 needs you       │
-│   ◆ scout     needs you  4/9   │
-│   ▶ Explore   Map the …  2/5   │
-│   ▶ tester    Run the …  0/1   │
-│   ▶ reviewer  Review b…  1/3   │
+│   ◆ scout        needs…  4/9   │
+│   ▶ Explore      Map t…  2/5   │
+│   ▶ tester       Run t…  0/1   │
+│   ▶ reviewer     Revie…  1/3   │
 │   [ +2 more agents ]           │
 ╰────────────────────────────────╯
 ```
