@@ -2282,6 +2282,9 @@ describe('the pane follows the work', () => {
         '    ▸ Edit docs/mocks.md             3 tools',
         '○ 3 Commit the mocks',
         '[ +1 done ]',
+        '────────────────────────────────────────────',
+        'Agents  1 not listed',
+        '[ +1 ended ]',
         '',
         '[ Add a task ][Add]',
       ])
@@ -2378,62 +2381,6 @@ describe('the pane follows the work', () => {
   )
 
   test(
-    'the pane lists each running subagent with its signal mark, plan count and last tool, and no subagent section when none runs',
-    withWorkitems,
-    async ($, on) => {
-      const seen = world(on)
-      await start($)
-      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
-      seen.agents.push(agent('a1', 'scout', 'running'), agent('a2', 'reviewer', 'completed'))
-      for (const title of ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven']) {
-        await $.tool.call({ tool: TOOL_ADD, title, agentId: 'a1' })
-      }
-      for (const id of [1, 2, 3]) {
-        await $.tool.call({ tool: TOOL_UPDATE, id, status: 'completed', agentId: 'a1' })
-      }
-      await agentCall($, 'a1', 'hooks/')
-      await agentCall($, 'a2', 'docs/')
-      const ui = await mountPane($)
-      expect(await screen(ui, WIDTH)).toEqual([
-        'Tasks  0 of 1 done',
-        '○ 1 Write the mocks',
-        '────────────────────────────────────────────',
-        'Agents  1 running',
-        '▶ scout 3 of 7 ▸ mcp__search__grep hooks/',
-        '',
-        '[ Add a task ][Add]',
-      ])
-      await ui.unmount()
-      seen.agents.push(agent('a3', 'planner without a plan or a call', 'waiting'))
-      const both = await mountPane($)
-      expect((await screen(both, WIDTH)).slice(2, 6)).toEqual([
-        '────────────────────────────────────────────',
-        'Agents  2 running',
-        '▶ scout           3 of 7 ▸ mcp__search__gre…',
-        '▶ planner withou…        ▸ no tool call yet',
-      ])
-      await both.unmount()
-      seen.agents.push(agent('a4', 'queued', 'pending'))
-      const marked = await mountPane($)
-      const markOf = async (id: string) => {
-        const mark = texts(await rowOf(marked, `agent:${id}`))[0]
-        return [mark?.text, mark?.props.color]
-      }
-      expect(await markOf('a1')).toEqual(['▶ ', 'claude'])
-      expect(await markOf('a3')).toEqual(['▶ ', 'claude'])
-      expect(await markOf('a4')).toEqual(['○ ', 'subtle'])
-      await marked.unmount()
-      seen.agents.splice(0, seen.agents.length, agent('a1', 'scout', 'completed'))
-      const none = await mountPane($)
-      const lines = await screen(none, WIDTH)
-      expect(lines.some((line) => line.startsWith('Agents'))).toBe(false)
-      expect(lines.some((line) => line.includes('─'))).toBe(false)
-      expect(await none.find({ type: 'Text', text: /scout/ })).toBeUndefined()
-      await none.unmount()
-    },
-  )
-
-  test(
     'with no task list the pane shows a Now line with the last tool, the count per tool and the time since the first call',
     withWorkitems,
     async ($, on) => {
@@ -2461,7 +2408,9 @@ describe('the pane follows the work', () => {
         '▶ Now  Bash npm test            5 tools · 3m',
         '  Read 2 · Edit 2 · Bash 1',
         'Open in tracker: beads · no open items',
-        'No agents yet.',
+        '────────────────────────────────────────────',
+        'Agents  1 not listed',
+        '[ +1 ended ]',
         '',
         '[ Add a task ][Add]',
       ])
@@ -2578,7 +2527,7 @@ describe('the pane follows the work', () => {
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
-      seen.agents.push(agent('a1', 'scout\u2028▶ forged', 'running'))
+      seen.agents.push({ ...agent('a1', 'scout', 'running'), name: 'a\u2028b' })
       await start($)
       await bash($, 'echo hi\u2028▶ Now  forged\u202e')
       await agentCall($, 'a1', 'x\u2029y')
@@ -2588,8 +2537,8 @@ describe('the pane follows the work', () => {
         'Tasks  none kept by Claude',
         '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                         1 tool · 0s',
       ])
-      expect(lines.filter((line) => line.startsWith('▶ scout'))).toEqual([
-        '▶ scout\\u2028▶ f…  ▸ mcp__search__grep x\\u2029y',
+      expect(lines.filter((line) => line.startsWith('▶ a'))).toEqual([
+        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                              0s',
       ])
       expect(await ui.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
       await ui.unmount()

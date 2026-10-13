@@ -1,5 +1,4 @@
 import type {
-  AgentStatus,
   BoxProps,
   ButtonProps,
   ElementConstructor,
@@ -10,6 +9,8 @@ import type {
 } from 'claude-code'
 import type { BoardActivity, BoardList, BoardTask, BoardToolSight } from '../types'
 import { PLAN_REQUEST, callsText, elapsedText, planLag } from './activity'
+import { drawAgents } from './agent-rows'
+import type { AgentRow } from './agents'
 import type { PaneUi } from './board'
 import {
   OPEN_ITEMS_SHOWN,
@@ -25,7 +26,7 @@ import {
   type TrackerLine,
   type TrackerView,
 } from './commands'
-import { SIGNALS, type SignalLook } from './signals'
+import { SIGNALS } from './signals'
 import {
   doneCount,
   escaped,
@@ -39,7 +40,6 @@ import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
 
 const DONE_GROUP = 'group:done'
 const ITEMS_GROUP = 'group:items'
-const AGENT_NAME_COLUMNS_AT_MOST = 16
 const AUTHOR_COLOR: ThemeKey = 'suggestion'
 
 export type PaneElements = {
@@ -49,16 +49,6 @@ export type PaneElements = {
   Input: ElementConstructor<InputProps> | undefined
   bodyColumns: number
   isInline: boolean
-}
-
-export type AgentPlan = { done: number; total: number }
-
-export type AgentRow = {
-  id: string
-  name: string
-  status: AgentStatus
-  plan: AgentPlan | null
-  last: BoardToolSight | null
 }
 
 export type PaneWork = {
@@ -110,7 +100,7 @@ type PaneRow = {
   openIndent?: number
 }
 
-type RowLayout = {
+export type RowLayout = {
   expanded: ReadonlySet<string>
   toggle: (rowKey: string) => void
 }
@@ -640,60 +630,6 @@ function drawTracker(
   ]
 }
 
-function agentLook(status: AgentStatus): SignalLook {
-  return status === 'pending' ? SIGNALS.toDo : SIGNALS.doing
-}
-
-function agentRow(agent: AgentRow, nameWidth: number, planWidth: number): PaneRow {
-  const plan =
-    agent.plan === null ? '' : `${String(agent.plan.done)} of ${String(agent.plan.total)}`
-  const { mark, color } = agentLook(agent.status)
-  return {
-    key: `agent:${agent.id}`,
-    cells: [
-      { text: `${mark} `, style: { color } },
-      { text: padToWidth(fitted(escaped(agent.name), nameWidth - 1), nameWidth), style: {} },
-      { text: padToWidth(plan, planWidth), style: { dimColor: true } },
-    ],
-    title: agent.last === null ? '▸ no tool call yet' : `▸ ${callText(agent.last)}`,
-    titleStyle: { dimColor: true },
-    opening: { kind: 'none' },
-  }
-}
-
-function drawAgents(
-  elements: PaneElements,
-  agents: readonly AgentRow[],
-  layout: RowLayout,
-): RenderElement[] {
-  const { Box, Text } = elements
-  if (agents.length === 0) return []
-  const nameWidth = Math.min(
-    column(agents.map((agent) => escaped(agent.name))),
-    AGENT_NAME_COLUMNS_AT_MOST,
-  )
-  const planWidth = column(
-    agents.map((agent) =>
-      agent.plan === null ? '' : `${String(agent.plan.done)} of ${String(agent.plan.total)}`,
-    ),
-  )
-  return [
-    Box({
-      key: 'agents-rule',
-      children: [Text({ dimColor: true, children: '─'.repeat(elements.bodyColumns) })],
-    }),
-    Box({
-      key: 'agents',
-      flexDirection: 'row',
-      children: [
-        Text({ bold: true, children: 'Agents' }),
-        Text({ dimColor: true, children: `  ${String(agents.length)} running` }),
-      ],
-    }),
-    ...agents.map((agent) => drawRow(elements, agentRow(agent, nameWidth, planWidth), layout)),
-  ]
-}
-
 function drawFooter(elements: PaneElements, host: TaskHost, act: Act): RenderElement {
   const { Text, Input } = elements
   return Input
@@ -755,7 +691,7 @@ export async function drawPane(
     children: [
       header,
       ...body,
-      ...drawAgents(elements, work.agents, layout),
+      ...drawAgents(elements, work.agents, layout, work.now),
       Text({ children: ' ' }),
       drawFooter(elements, host, act),
     ],

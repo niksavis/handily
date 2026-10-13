@@ -37,7 +37,28 @@ export type BoardActivity = {
   clocks: Readonly<Partial<Record<string, BoardTaskClock>>>
 }
 
-export type BoardAgentActivity = { id: string; calls: number; last: BoardToolSight }
+export type BoardAgentStatus =
+  'pending' | 'running' | 'waiting' | 'idle' | 'completed' | 'failed' | 'killed'
+
+export type BoardAgentCall = { id: string; tool: string; target: string | null }
+
+export type BoardAgent = {
+  id: string
+  startedAt: number
+  isSpawnSeen: boolean
+  seenAt: number
+  endedAt: number | null
+  tools: number
+  running: readonly BoardAgentCall[]
+  last: BoardToolSight | null
+  description: string | null
+  type: string | null
+  name: string | null
+  parentId: string | null
+  listedStatus: BoardAgentStatus | null
+  isListed: boolean
+  hasLoopEvents: boolean
+}
 
 export type BoardCallRow =
   | { kind: 'added'; id: number; title: string }
@@ -54,7 +75,7 @@ declare module 'claude-code' {
       agentIds: readonly string[]
       expanded: readonly string[]
       activity: BoardActivity
-      agentActivity: readonly BoardAgentActivity[]
+      agents: readonly BoardAgent[]
       rows: StateFamily<BoardCallRow>
       ready: { root: string }
     }
