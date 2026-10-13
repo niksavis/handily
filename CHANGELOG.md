@@ -6,6 +6,14 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-workitems 0.7.0 - 2026-10-13
+
+### Added
+
+handily-workitems reads a `.beads/issues.jsonl` over 4 MiB by streaming it through `/bin/cat`,
+or `cmd.exe type` on Windows, with no approval and no `br` run. It keeps only the open items and
+reads the file again only when its size or modification time changes.
+
 ## handily 0.6.0 - 2026-10-13
 
 ### Added
