@@ -7,7 +7,7 @@ import {
   type Plugin,
   type TestOptions,
 } from 'claude-code/testing'
-import { hasEchoedSuccess } from './hooks/register'
+import { hasEchoedSuccess, onReply } from './hooks/register'
 import type { QuietItemsSimpleViewMode } from './types'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
@@ -178,6 +178,7 @@ const fakeWorkitems: Plugin = {
               updated: changes.flatMap((change) => change.diff.updated),
               closed: changes.flatMap((change) => change.diff.closed),
               version: current,
+              state: world.snapshot.state === 'paused' ? 'paused' : 'read',
             }
           },
           writeVerbs: () => Promise.reject(new Error('quiet-items reads no write verbs')),
@@ -657,6 +658,17 @@ describe('fallback to the engine row', () => {
       expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
     })
   }
+
+  quietTest('when workitems is paused, with no error logged', async (world, $, on) => {
+    const calls = engineBeneath(on, world)
+    world.snapshot = { ...okSnapshot(7), state: 'paused', reason: null }
+    world.callChange = { ...emptyDiff(), created: [AB12] }
+    await startSession($)
+    const id = await runBash($, calls, 'br create --title x')
+    expect(world.sinces).toEqual([])
+    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    expect(world.logs).toEqual([])
+  })
 
   quietTest('when the command wrote to stderr', async (world, $, on) => {
     const calls = engineBeneath(on, world)
@@ -1184,4 +1196,12 @@ describe('ready value for /handily', () => {
       ])
     },
   )
+})
+
+describe('a paused workitems', () => {
+  test('names the pause, not an error, in the reply of the on mode', () => {
+    expect(onReply({ ...okSnapshot(7), state: 'paused', reason: null })).toBe(
+      'quiet-items on for this session, but workitems is paused (/workitems resume reads the tracker again), so tracker commands draw in full.',
+    )
+  })
 })

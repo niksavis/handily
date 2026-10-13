@@ -60,6 +60,7 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
   }
   mock.env(on, {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('classic.CwdChanged', () => ({}))
   on('session.root', () => {
     world.rootCalls += 1
@@ -369,7 +370,7 @@ describe('refresh', () => {
       const readsAfterStart = world.reads.length
       const { version } = await snapshotOf($)
       const diff = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
-      expect(diff).toEqual({ created: [], updated: [], closed: [], version })
+      expect(diff).toEqual({ created: [], updated: [], closed: [], version, state: 'read' })
       expect(world.reads.length).toBe(readsAfterStart)
     },
   )
@@ -672,6 +673,7 @@ describe('refresh since a version', () => {
         updated: [],
         closed: [],
         version: oldest + DIFF_HISTORY_LIMIT + 1,
+        state: 'read',
       }),
     )
   })
@@ -688,6 +690,7 @@ describe('session start and directory changes', () => {
       const logs: string[] = []
       mock.env(on, {})
       on('session.start', (_$, e) => ({ cwd: e.cwd }))
+      on('command.register', (_$, e) => ({ value: { command: e.name } }))
       on('ui.log', (_$, e) => {
         logs.push(e.text)
         return { value: undefined }
@@ -729,6 +732,7 @@ describe('session start and directory changes', () => {
       const logs: string[] = []
       mock.env(on, {})
       on('session.start', (_$, e) => ({ cwd: e.cwd }))
+      on('command.register', (_$, e) => ({ value: { command: e.name } }))
       on('ui.log', (_$, e) => {
         logs.push(e.text)
         return { value: undefined }
@@ -811,6 +815,128 @@ describe('ready value for /handily', () => {
       })
       await startSession($)
       expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]handily-workitems$/) }])
+    },
+  )
+})
+
+const PAUSED_REPLY =
+  'workitems paused for this session. It reads no tracker, so the other mods show no new items until /workitems resume.'
+const IS_PAUSED_REPLY = 'workitems is paused. /workitems resume reads the tracker again.'
+const IS_POLLING_REPLY = 'workitems polls the tracker. /workitems pause stops every tracker read.'
+
+describe('/workitems pause and resume', () => {
+  test(
+    'When the person runs /workitems pause, the mod stops its poll and its tracker reads, stores paused in its state, and replies that the other mods show no new items until /workitems resume',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      const before = await snapshotOf($)
+      expect(await commandText($, 'workitems', 'pause')).toBe(PAUSED_REPLY)
+      const paused = await snapshotOf($)
+      expect(paused).toEqual({ ...before, state: 'paused', reason: null })
+      const touched = world.touched.length
+      const rootCalls = world.rootCalls
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      await clock.advance(10 * POLL_INTERVAL_MS)
+      await $.classic.CwdChanged({ old_cwd: ROOT, new_cwd: ROOT })
+      expect(world.touched.length).toBe(touched)
+      expect(world.rootCalls).toBe(rootCalls)
+      expect(await snapshotOf($)).toEqual(paused)
+      expect(await commandText($, 'workitems', 'pause')).toBe(IS_PAUSED_REPLY)
+      expect(await commandText($, 'workitems')).toBe(IS_PAUSED_REPLY)
+    },
+  )
+
+  test(
+    'When the person runs /workitems resume, the mod polls again and refreshes once',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      await commandText($, 'workitems', 'pause')
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      const reads = world.reads.length
+      expect(await commandText($, 'workitems', 'resume')).toBe(
+        'workitems resumed. It polls the tracker again and has read it once.',
+      )
+      expect(world.reads.length).toBe(reads + 1)
+      const resumed = await snapshotOf($)
+      expect(resumed.state).toBe('ok')
+      expect(keysOf(resumed.items)).toContain('beads:app-x')
+      world.files.set(ISSUES, {
+        text: `${WITH_NEW_ITEM}\n{"id":"app-y","title":"Newer","status":"open"}`,
+        mtimeMs: 30,
+      })
+      const polled = await pollUntil(
+        $,
+        clock,
+        POLL_INTERVAL_MS,
+        (snapshot) => snapshot.items.some((item) => item.key === 'beads:app-y'),
+        'a poll read after the resume',
+      )
+      expect(polled.state).toBe('ok')
+      expect(await commandText($, 'workitems', 'resume')).toBe(IS_POLLING_REPLY)
+      expect(await commandText($, 'workitems')).toBe(IS_POLLING_REPLY)
+    },
+  )
+
+  test(
+    'While workitems is paused, a refresh that another mod asks for answers with a paused state and reads nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      const { version } = await snapshotOf($)
+      await commandText($, 'workitems', 'pause')
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      const touched = world.touched.length
+      const answer = JSON.parse(await commandText($, 'refresh')) as WorkitemsRefreshResult
+      expect(answer).toEqual({ created: [], updated: [], closed: [], version, state: 'paused' })
+      expect(world.touched.length).toBe(touched)
+      const lines = JSON.parse(await commandText($, 'lines', '0')) as WorkitemsLine[]
+      expect(lines).toEqual([
+        {
+          kind: 'paused',
+          tone: 'dim',
+          text: 'Work items paused: no tracker reads until /workitems resume.',
+        },
+      ])
+    },
+  )
+
+  test(
+    'a second session start while paused stays paused and reads nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      await commandText($, 'workitems', 'pause')
+      const touched = world.touched.length
+      await startSession($)
+      await clock.advance(5 * POLL_INTERVAL_MS)
+      expect(world.touched.length).toBe(touched)
+      expect((await snapshotOf($)).state).toBe('paused')
+    },
+  )
+
+  test(
+    'When /workitems gets an unknown argument, the mod replies with the valid forms by name',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      expect(await commandText($, 'workitems', 'stop')).toBe(
+        'Unknown argument "stop". Use /workitems, /workitems pause or /workitems resume.',
+      )
+      expect(await commandText($, 'workitems', 'pause now')).toBe(
+        'Unknown argument "pause now". Use /workitems, /workitems pause or /workitems resume.',
+      )
     },
   )
 })

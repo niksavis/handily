@@ -89,5 +89,13 @@ export function stateLines({ snapshot, now }: WorkitemsLinesArgs): WorkitemsLine
           text: `${snapshot.sourceLabel} is read through a CLI, which only a terminal session can run. Open this repo in a terminal to see its items.`,
         },
       ]
+    case 'paused':
+      return [
+        {
+          kind: 'paused',
+          tone: 'dim',
+          text: 'Work items paused: no tracker reads until /workitems resume.',
+        },
+      ]
   }
 }

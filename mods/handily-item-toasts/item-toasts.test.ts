@@ -13,9 +13,10 @@ import { changesText, type Change } from './hooks/toasts'
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
 type Diff = { created: Item[]; updated: Item[]; closed: Item[] }
-type TrackerState = 'ok' | 'failed' | 'no-tracker' | 'approval-needed' | 'terminal-only'
+type TrackerState = 'ok' | 'failed' | 'no-tracker' | 'approval-needed' | 'terminal-only' | 'paused'
 type DiskEdit = { diff?: Diff; state?: TrackerState }
-type Answer = { error: string } | { snapshot: Snapshot; result: Diff & { version: number } }
+type Refreshed = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
+type Answer = { error: string } | { snapshot: Snapshot; result: Refreshed }
 type Parsed = Awaited<ReturnType<EngineInterface['workitems']['classify']>>
 type TrackerFileArgs = Parameters<EngineInterface['workitems']['trackerFile']>[0]
 
@@ -232,6 +233,8 @@ function snapshotOf(world: World): Snapshot {
         reason: null,
         items: world.items,
       }
+    case 'paused':
+      return { ...base, ...sourced, state: 'paused', reason: null, items: world.items }
     case 'no-tracker':
       return {
         ...base,
@@ -283,7 +286,8 @@ function answer(world: World, sinceText: string): Answer {
   const diff = world.history
     .filter((entry) => entry.version > since)
     .reduce((sum, entry) => addDiff(sum, entry.diff), emptyDiff())
-  return { snapshot: snapshotOf(world), result: { ...diff, version: world.version } }
+  const state = world.state === 'paused' ? 'paused' : 'read'
+  return { snapshot: snapshotOf(world), result: { ...diff, version: world.version, state } }
 }
 
 function newWorld(): World {
@@ -751,6 +755,22 @@ describe('the snapshot state', () => {
       expect(world.sinces.length).toBeGreaterThan(0)
     })
   }
+
+  toastTest(
+    'shows no error toast and logs no failure while workitems is paused',
+    async (world, $, clock) => {
+      await startSession($)
+      elsewhere(world, { state: 'paused' })
+      await pollAndTick($, clock)
+      await runTool($, 'Bash')
+      await clock.advance(WINDOW_MS * 2)
+      elsewhere(world, { state: 'ok' })
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS * 2)
+      expect(world.toasts).toEqual([])
+      expect(world.logs).toEqual([])
+    },
+  )
 
   toastTest('starts toasting again when the state is ok again', async (world, $, clock) => {
     await startSession($)

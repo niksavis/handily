@@ -49,6 +49,9 @@ export type ProviderHost = {
 
 export type Provider = {
   refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsRefreshResult>
+  pause: (last: WorkitemsSnapshot | undefined) => Promise<void>
+  resume: () => void
+  isPaused: () => boolean
 }
 
 function emptyDiff(): WorkitemsDiff {
@@ -390,6 +393,22 @@ function noTracker(root: string, lookedFor: `looked for ${string}`): ReadResult 
   }
 }
 
+function pausedOf(from: WorkitemsSnapshot, version: number): WorkitemsSnapshot {
+  const base = {
+    state: 'paused' as const,
+    reason: null,
+    at: from.at,
+    checkedAt: from.checkedAt,
+    root: from.root,
+    items: from.items,
+    ignored: from.ignored,
+    version,
+    ...(from.adapterWrites === undefined ? {} : { adapterWrites: from.adapterWrites }),
+  }
+  if (from.source === null) return { ...base, source: null, sourceLabel: null, caveat: null }
+  return { ...base, source: from.source, sourceLabel: from.sourceLabel, caveat: from.caveat }
+}
+
 function deliveredToItsOwnCallers(): undefined {
   return undefined
 }
@@ -410,6 +429,7 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
   const history: { version: number; diff: WorkitemsDiff }[] = []
   let tail: Promise<void> = Promise.resolve()
   let queued: Promise<void> | undefined
+  let paused = false
 
   function sinceOf(args: WorkitemsRefreshArgs | undefined): number {
     const since = args?.since ?? version
@@ -438,6 +458,7 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
   }
 
   async function readOnce(): Promise<void> {
+    if (paused) return
     const root = await host.root()
     const files = filesAtRoot(host, root)
     const detection = await detect(readers, files)
@@ -505,11 +526,44 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     return read
   }
 
+  function readState(): WorkitemsRefreshResult['state'] {
+    return paused ? 'paused' : 'read'
+  }
+
+  async function pausedFromNothing(): Promise<WorkitemsSnapshot> {
+    const at = await host.now()
+    return {
+      state: 'paused',
+      reason: null,
+      at,
+      checkedAt: at,
+      root: await host.root(),
+      items: [],
+      ignored: [],
+      version,
+      source: null,
+      sourceLabel: null,
+      caveat: null,
+    }
+  }
+
   return {
     refresh: async (args) => {
       const since = sinceOf(args)
+      if (paused) return { ...diffSince(since), version, state: 'paused' }
       await requestRead()
-      return { ...diffSince(since), version }
+      return { ...diffSince(since), version, state: readState() }
     },
+    pause: async (last) => {
+      paused = true
+      await tail.catch(deliveredToItsOwnCallers)
+      const from = current ?? last
+      await host.publish(from === undefined ? await pausedFromNothing() : pausedOf(from, version))
+    },
+    resume: () => {
+      paused = false
+      lastSignature = undefined
+    },
+    isPaused: () => paused,
   }
 }
