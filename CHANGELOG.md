@@ -6,6 +6,109 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily 0.5.1 - 2026-10-13
+
+### Changed
+
+- **handily 0.5.0 lists `handily-board` in place of `handily-task-pane`,
+  `handily-session-board` and `handily-agent-board`.** `/handily` now reports 6 mods, such as
+  `handily: 6 of 6 mods loaded`. It names `handily-task-pane@handily`,
+  `handily-session-board@handily` and `handily-agent-board@handily` as old ids of
+  `handily-board`, in the same way as the ids from before handily 0.4.0, and prints
+  `claude plugin uninstall <old id> --scope <scope>` for each (handily-fwkt.8.19.4).
+
+### Removed
+
+- **Breaking change: `handily-task-pane`, `handily-agent-board` and `handily-session-board`
+  are removed, with no alias and no deprecation version.** `/task`, `/agent-board` and
+  `/session-board` are gone. `/board` replaces them, and `/board machine` shows the board of
+  every local session. An update does not remove an old plugin. With an old plugin and
+  `handily-board` both installed, Claude gets two sets of task tools. To move, run this line
+  in a shell, then type `/reload-plugins` in each open session. The line updates the
+  marketplace, installs `handily-board`, uninstalls the three old plugins and updates the
+  bundle. A command for a plugin that you did not install fails for that plugin only
+  (handily-fwkt.8.19.4).
+
+  ```sh
+  claude plugin marketplace update handily; claude plugin install handily-board@handily; for p in handily-task-pane handily-agent-board handily-session-board; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
+  ```
+
+### Fixed
+
+- **After the move from an old plugin name, type `/reload-plugins` in each open session. A
+  restart is not needed.** `/reload-plugins` unloads an uninstalled plugin from an open session.
+  The README move sections and the removal note said that a restart was needed. When `/handily`
+  names an old plugin id, its summary line now ends with
+  `Run each uninstall command above, then type /reload-plugins` (handily-fwkt.12).
+
+## handily-board 0.2.0 - 2026-10-13
+
+### Added
+
+- **handily-board 0.1.0 is a board with two tabs that replaces handily-task-pane,
+  handily-session-board and handily-agent-board.** `/board` opens it. The `this session` tab
+  shows the task list that Claude and you share, and the subagents of this session: a failed
+  agent with a second line, an agent on hold, and at most 6 rows before a fold. The
+  `this machine` tab shows every local Claude Code session, the ones that wait for you first,
+  with a `waits for:` line. The tab polls `claude agents --json` only while it is shown.
+  `/board add`, `/board rm`, `/board list` and `/board close` replace the `/task` forms. The
+  model tools are `mcp__handily-board__task_add`, `task_update`, `task_move` and `task_list`
+  (handily-fwkt.8.19).
+
+- **handily-board 0.2.0 shows the agents of other sessions on the this machine tab.** Each
+  session that runs the board now shares the name, the current task and the done and total
+  counts of its active subagents in its store key, at most 4096 bytes. A card of another session
+  shows at most 4 agent rows, an agent with no task list as `no tasks`, then a
+  `+N more agents` button. Inline, the agents fold into one `N agents` button under the row.
+  This session's card keeps its counts only (handily-fwkt.8.11).
+
+### Fixed
+
+- **handily-board 0.1.1 polls the sessions at once when the this machine tab becomes
+  shown.** The 15 second poll skips its turn while the tab is hidden. Before this fix,
+  a switch back to the tab showed old data, such as `Sessions 4 · 38s ago`, until the
+  next turn. Now the tab polls `claude agents --json` at once when its data is 15
+  seconds old or older, and polls nothing extra when the data is newer
+  (handily-fwkt.8.20).
+
+## handily-reply-view 0.5.3 - 2026-10-13
+
+### Changed
+
+- **handily-reply-view 0.5.3 and handily-simple-view 0.4.2 draw divider lines around the text
+  that `more` opens.** A dim line now stands above and below an opened long reply and above and
+  below the opened output of a tool call row, so the person sees where the opened text starts
+  and ends and what copy takes. `less` removes both lines (handily-fwkt.16).
+
+### Fixed
+
+- **handily-reply-view 0.5.2 names the reply on its copy button.** The button that copies a
+  whole long reply now reads `copy reply`, so under a reply that ends with a code block it no
+  longer looks like the `copy` button of that block. Each copy toast names the copied part and
+  its line count, such as `Copied the sh block (2 lines).` or
+  `Copied the reply as markdown (61 lines).`. On a narrow screen the count of hidden lines is
+  cut at its end, so the buttons stay on its line (handily-fwkt.15).
+
+## handily-simple-view 0.4.2 - 2026-10-13
+
+### Changed
+
+- **handily-reply-view 0.5.3 and handily-simple-view 0.4.2 draw divider lines around the text
+  that `more` opens.** A dim line now stands above and below an opened long reply and above and
+  below the opened output of a tool call row, so the person sees where the opened text starts
+  and ends and what copy takes. `less` removes both lines (handily-fwkt.16).
+
+## handily-item-toasts 0.4.1 - 2026-10-13
+
+### Fixed
+
+- **handily-item-toasts 0.4.1 shows no error after `/reload-plugins`.** A reload
+  restarts the version of `handily-workitems` at 0. Before this fix, item-toasts
+  then asked for changes since a newer version and logged
+  `HooksError: workitems refresh: since 64 is newer than the current version 1`
+  once. Now item-toasts takes the restarted snapshot as its new baseline, with no
+  error and no toast, and toasts the next change against it (handily-fwkt.11).
+
 ## handily-reply-view 0.5.1 - 2026-10-09
 
 ### Fixed
