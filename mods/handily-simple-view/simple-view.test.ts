@@ -1447,6 +1447,10 @@ describe('quiet-items rows', () => {
   })
 })
 
+const OFF_REPLY = 'off for this session. Tool calls draw as Claude Code draws them.'
+const ON_REPLY =
+  'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.'
+
 describe('/simple', () => {
   viewTest('toggles the mode and every row follows it', async (world, $) => {
     const input = { command: 'ls', description: 'List files' }
@@ -1488,12 +1492,56 @@ describe('/simple', () => {
     },
   )
 
-  viewTest('refuses an argument it does not know', async (_world, $) => {
-    const usage =
-      '/simple takes no argument, or show N. /simple toggles this session; /simple show N prints the N-th last tool call in full.'
-    expect(await commandText($, 'off')).toBe(usage)
-    expect(await commandText($, 'show 1 2')).toBe(usage)
-  })
+  viewTest(
+    'sets the mode that /simple on or /simple off names and replies with it, while the bare /simple still toggles',
+    async (world, $) => {
+      const input = { command: 'ls', description: 'List files' }
+      const id = await runBash(world, $, input)
+      const use = {
+        component: 'ToolUse',
+        props: useProps(id, 'Bash', input, world.answer(input)),
+      } as const
+      expect(await commandText($, 'off')).toBe(OFF_REPLY)
+      expect((await drawn($, use)).tree).toEqual(ENGINE_ROW)
+      expect(await commandText($, 'off')).toBe(OFF_REPLY)
+      expect((await drawn($, use)).tree).toEqual(ENGINE_ROW)
+      expect(await commandText($, 'on')).toBe(ON_REPLY)
+      expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines'])
+      expect(await commandText($, 'on')).toBe(ON_REPLY)
+      expect(await commandText($, '')).toBe(OFF_REPLY)
+      expect(await commandText($, '')).toBe(ON_REPLY)
+    },
+  )
+
+  test(
+    'writes the mode that /simple on or /simple off names, the values that quiet-items reads',
+    { plugins: [fakeQuietItems] },
+    async ($, on) => {
+      engineBeneath(on)
+      const written: unknown[] = []
+      on('state.set', { plugin: 'handily-simple-view', key: 'mode' }, (_$, e, next) => {
+        written.push(e.value)
+        return next(e)
+      })
+      await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+      await commandText($, 'off')
+      await commandText($, 'on')
+      const quietItemsReads: QuietItemsSimpleViewMode[] = ['off', 'on']
+      expect(written).toEqual(quietItemsReads)
+    },
+  )
+
+  viewTest(
+    'replies with the valid forms by name to an unknown argument and keeps the mode',
+    async (_world, $) => {
+      const usage =
+        '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full.'
+      expect(await commandText($, 'of')).toBe(usage)
+      expect(await commandText($, 'on now')).toBe(usage)
+      expect(await commandText($, 'show 1 2')).toBe(usage)
+      expect(await commandText($, '')).toBe(OFF_REPLY)
+    },
+  )
 })
 
 describe('/simple show', () => {
@@ -1915,7 +1963,7 @@ describe('ready value for /handily', () => {
       const world = engineBeneath(on)
       await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
       expect(world.commandDescriptions).toContain(
-        'handily · Toggle the one-row view of tool calls, or print a call in full',
+        'handily · Set or toggle the one-row view of tool calls, or print a call in full',
       )
     },
   )

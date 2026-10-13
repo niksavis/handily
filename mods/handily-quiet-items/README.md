@@ -112,8 +112,14 @@ The engine draws its own row (`next(e)`) in each of these cases:
 | `mode`        | `on`    | The mode when a session starts: `on` or `off`       |
 | `titleLength` | `60`    | The number of title characters before the cut (`…`) |
 
-`/quiet-items` toggles the mode for this session only. It keeps the mode in `$.state`, so a
-change does not reach other sessions. It takes no argument.
+| Command            | Effect                                                             |
+| ------------------ | ------------------------------------------------------------------ |
+| `/quiet-items on`  | Turns the mode on for this session, and replies with the new mode  |
+| `/quiet-items off` | Turns the mode off for this session, and replies with the new mode |
+| `/quiet-items`     | Toggles the mode for this session, and replies with the new mode   |
+
+The command keeps the mode in `$.state`, so a change does not reach other sessions. Any other
+argument changes nothing, and the reply names the valid forms.
 
 When the session starts and the `mode` key in `$.state` is unset, the mod writes the `mode`
 setting to it. A mod that reads the key, such as `simple-view`, then sees the active mode. The
@@ -131,7 +137,7 @@ mod follows its own mode.
 - `handily-simple-view` lists `handily-quiet-items` under `dependencies`. This mod does not list
   `simple-view`, because the two lists would make a cycle. The mod types the key as `unknown`
   and checks the value when it reads it. Only the value `off` turns the rows off.
-- `/quiet-items` still toggles its own mode. While `/simple` is off, `/quiet-items` on draws no
+- `/quiet-items` still sets its own mode. While `/simple` is off, `/quiet-items` on draws no
   quiet row until `/simple` is on again. Its reply says so:
   `quiet-items on for this session, but /simple is off, so tracker writes draw in full.`
 

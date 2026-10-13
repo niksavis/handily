@@ -1039,6 +1039,9 @@ describe('raw tracker edit', () => {
   })
 })
 
+const OFF_REPLY = 'quiet-items off for this session. Tracker commands draw in full.'
+const ON_REPLY = 'quiet-items on for this session. Tracker writes draw as one row.'
+
 describe('/quiet-items', () => {
   quietTest('toggles this session and draws in full while off', async (world, $, on) => {
     const calls = engineBeneath(on, world)
@@ -1101,16 +1104,40 @@ describe('/quiet-items', () => {
     )
   })
 
-  quietTest('refuses an argument and changes nothing', async (world, $, on) => {
-    engineBeneath(on, world)
-    await startSession($)
-    expect(await commandText($, 'x')).toBe(
-      '/quiet-items takes no argument; it toggles this session. Set the default with the plugin\'s "mode" setting.',
-    )
-    expect(await commandText($)).toBe(
-      'quiet-items off for this session. Tracker commands draw in full.',
-    )
-  })
+  quietTest(
+    'sets the mode that /quiet-items on or /quiet-items off names and replies with it, while the bare /quiet-items still toggles',
+    WITH_SIMPLE_VIEW,
+    async (world, $, on) => {
+      const calls = engineBeneath(on, world)
+      world.callChange = { ...emptyDiff(), created: [AB12] }
+      await startSession($)
+      const id = await runBash($, calls, 'br create --title x')
+      expect(await commandText($, 'off')).toBe(OFF_REPLY)
+      expect(await storedMode($)).toBe('off')
+      expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+      expect(await commandText($, 'off')).toBe(OFF_REPLY)
+      expect(await storedMode($)).toBe('off')
+      expect(await commandText($, 'on')).toBe(ON_REPLY)
+      expect(await storedMode($)).toBe('on')
+      expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+      expect(await commandText($, 'on')).toBe(ON_REPLY)
+      expect(await commandText($)).toBe(OFF_REPLY)
+      expect(await commandText($)).toBe(ON_REPLY)
+    },
+  )
+
+  quietTest(
+    'replies with the valid forms by name to an unknown argument and keeps the mode',
+    async (world, $, on) => {
+      engineBeneath(on, world)
+      await startSession($)
+      const usage =
+        '/quiet-items takes on, off or no argument. /quiet-items on and /quiet-items off set this session, and /quiet-items toggles it. Set the default with the plugin\'s "mode" setting.'
+      expect(await commandText($, 'x')).toBe(usage)
+      expect(await commandText($, 'on off')).toBe(usage)
+      expect(await commandText($)).toBe(OFF_REPLY)
+    },
+  )
 })
 
 async function storedMode($: Engine): Promise<string> {
@@ -1180,7 +1207,7 @@ describe('ready value for /handily', () => {
       const calls = engineBeneath(on, world)
       await startSession($)
       expect(calls.commandDescriptions).toEqual([
-        'handily · Toggle quiet tracker rows for this session',
+        'handily · Set or toggle quiet tracker rows for this session',
       ])
     },
   )
