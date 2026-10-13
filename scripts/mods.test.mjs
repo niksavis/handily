@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { after, test } from 'node:test'
+import { environmentWithoutGit } from './git-env.mjs'
 
 const repoRoot = join(import.meta.dirname, '..')
 
@@ -172,10 +173,6 @@ test('types fails by name with the lay command when the engine leaves a dependen
   )
   assert.match(unlistedResult.stderr, /claude --plugin-dir mods\/dependent --plugin-dir mods\/base/)
 })
-
-const environmentWithoutGit = Object.fromEntries(
-  Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')),
-)
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: environmentWithoutGit })

@@ -4,14 +4,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { environmentWithoutGit } from './git-env.mjs'
 
 const gatePath = join(import.meta.dirname, 'changelog-gate.mjs')
-const isolatedEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')),
-)
 
 function git(cwd, args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', env: isolatedEnv })
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', env: environmentWithoutGit })
   assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`)
 }
 
@@ -27,7 +25,7 @@ function runGate(stagedFile, subject) {
     return spawnSync(process.execPath, [gatePath, messagePath], {
       cwd: repo,
       encoding: 'utf8',
-      env: isolatedEnv,
+      env: environmentWithoutGit,
     })
   } finally {
     rmSync(repo, { recursive: true, force: true })
