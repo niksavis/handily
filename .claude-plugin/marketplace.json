@@ -34,7 +34,7 @@
     {
       "name": "handily-reply-view",
       "source": "./mods/handily-reply-view",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
     {

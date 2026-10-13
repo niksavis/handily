@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold, ReplyViewMode } from '../types'
-import { DEFAULT_COLUMNS, replyTree, type ReplyActions } from './draw'
+import { DEFAULT_COLUMNS, plural, replyTree, type ReplyActions } from './draw'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
 
@@ -18,6 +18,11 @@ const COPY_REFUSALS: Readonly<Record<'no-surface' | 'no-clipboard' | 'refused', 
   'no-surface': 'no screen is attached to this session',
   'no-clipboard': 'the clipboard took nothing. The text may be too long for this terminal',
   refused: 'another plugin refused the copy',
+}
+
+function lineCount(text: string): number {
+  const kept = text.replace(/\r?\n$/, '')
+  return kept === '' ? 0 : kept.split(/\r?\n/).length
 }
 
 function logFailure($: EngineInterface, what: string, error: unknown): void {
@@ -39,7 +44,11 @@ async function copyText(
 ): Promise<void> {
   try {
     const result = await $.ui.copy({ text, surface })
-    $.ui.toast(result.isCopied ? `Copied ${what}.` : `Not copied: ${COPY_REFUSALS[result.reason]}.`)
+    $.ui.toast(
+      result.isCopied
+        ? `Copied ${what} (${plural(lineCount(text), 'line')}).`
+        : `Not copied: ${COPY_REFUSALS[result.reason]}.`,
+    )
   } catch (error) {
     logFailure($, `${what} was not copied`, error)
     $.ui.toast('Not copied. The debug log says why.')

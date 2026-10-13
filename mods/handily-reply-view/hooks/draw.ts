@@ -57,7 +57,7 @@ function sum(numbers: readonly number[]): number {
   return numbers.reduce((total, value) => total + value, 0)
 }
 
-function plural(count: number, word: string): string {
+export function plural(count: number, word: string): string {
   return `${String(count)} ${word}${count === 1 ? '' : 's'}`
 }
 
@@ -472,7 +472,7 @@ function replyButtons(context: Context, fold: ReplyViewFold, text: string): Rend
           context.actions.fold(fold === 'folded' ? 'open' : 'folded')
         },
       }),
-      copyButton(context, 'copy-reply', 'copy', text, 'the reply as markdown'),
+      copyButton(context, 'copy-reply', 'copy reply', text, 'the reply as markdown'),
     ],
   })
 }
@@ -486,7 +486,11 @@ function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: nu
       fold === 'folded'
         ? Box({
             flexShrink: 1,
-            children: Text({ dimColor: true, children: `… ${plural(hidden, 'more line')}` }),
+            children: Text({
+              dimColor: true,
+              wrap: 'truncate-end',
+              children: `… ${plural(hidden, 'more line')}`,
+            }),
           })
         : null,
       Box({ flexGrow: 1, minWidth: 2 }),
