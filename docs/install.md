@@ -169,7 +169,7 @@ its new name.
 
 ### From handily-task-pane, handily-agent-board and handily-session-board
 
-handily 0.5.0 removes `handily-task-pane`, `handily-agent-board` and `handily-session-board`.
+handily 0.5.1 removes `handily-task-pane`, `handily-agent-board` and `handily-session-board`.
 `handily-board` replaces them. `/task`, `/agent-board` and `/session-board` are gone, and
 `/board` replaces them.
 
