@@ -92,6 +92,11 @@ beside the log adds sections (`extend`) or replaces them (`override`), for all r
 for one `issue_type`. A field named after a section, such as `--field risks="<text>"`,
 satisfies it.
 
+A record has one of six types: `task`, `bug`, `feature`, `chore`, `epic` or `research`. An
+`epic` holds features, tasks, bugs, chores and research records. A `feature` holds tasks, bugs
+and chores. A task, bug, chore or research record holds no children. `GET /api/v1` lists the
+types as `record_types` and the allowed children as `child_types`.
+
 ## INVEST
 
 Before an agent starts a card, review these six qualities and record a rationale for each
@@ -214,6 +219,7 @@ cause. It refuses:
 
 - a record id that the ledger does not hold, and an edge that makes a cycle;
 - a status outside `open`, `in_progress`, `blocked`, `deferred`, `closed`;
+- a type outside the six, and a parent and child whose types the hierarchy does not allow;
 - a priority outside 0 (critical) to 4 (backlog), and a `close` without `--reason`;
 - a field that no code reads, an import-history field, or a derived date. `fields` prints
   each field, its role and its reader;

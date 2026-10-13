@@ -109,7 +109,7 @@ def _append(
     template = templates.load(ledger)
     found = events.read_events(ledger)[0]
     states = events.fold(found).records
-    values.refuse(events, drafts, template, states)
+    values.refuse(events, drafts, template, states, found)
     holders.refuse(states, drafts)
     review.refuse(states, drafts, writers.writer_class(), template, found=found)
     resolved = recurrence.at_the_generation_this_write_needs(

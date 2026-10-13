@@ -26,6 +26,7 @@ def _load(file_name: str, module_name: str) -> Any:
 
 fields = _load("fields.py", "basicly_tracker_kit_fields")
 process = _load("process_evidence.py", "basicly_tracker_kit_process_evidence")
+record_types = _load("record_types.py", "basicly_tracker_kit_record_types")
 
 WRITABLE_STATUSES = ("open", "in_progress", "blocked", "deferred", "closed")
 CLOSED = "closed"
@@ -131,9 +132,12 @@ def refuse_external_refs(events: Any, states: Any, drafts: Sequence[Any]) -> Non
         )
 
 
-def refuse(events: Any, drafts: Sequence[Any], template: Any = None, states: Any = None) -> None:
+def refuse(
+    events: Any, drafts: Sequence[Any], template: Any = None, states: Any = None, found: Any = ()
+) -> None:
 
     refuse_external_refs(events, states or {}, drafts)
+    record_types.refuse_drafts(states or {}, drafts, found)
 
     reasoned = {
         draft.record
