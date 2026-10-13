@@ -336,7 +336,7 @@ describe('/handily old plugin ids', () => {
         '- task-pane@handily: old id of handily-board, in the user settings. Run claude plugin uninstall task-pane@handily --scope user',
         '- reply-view@handily: old id of handily-reply-view, in the local settings. Run claude plugin uninstall reply-view@handily --scope local',
         '',
-        'handily: 6 of 6 mods loaded. Run each uninstall command above, then restart Claude Code',
+        'handily: 6 of 6 mods loaded. Run each uninstall command above, then type /reload-plugins',
       ])
     },
   )
@@ -358,7 +358,7 @@ describe('/handily old plugin ids', () => {
         '- handily-session-board@handily: old id of handily-board, in the local settings. Run claude plugin uninstall handily-session-board@handily --scope local',
         '- handily-agent-board@handily: old id of handily-board, in the project settings. Run claude plugin uninstall handily-agent-board@handily --scope project',
         '',
-        'handily: 6 of 6 mods loaded. Run each uninstall command above, then restart Claude Code',
+        'handily: 6 of 6 mods loaded. Run each uninstall command above, then type /reload-plugins',
       ])
     },
   )
@@ -399,7 +399,7 @@ describe('/handily old plugin ids', () => {
     }
     expect(text.split('\n')).toHaveLength(MODS.length + oldIds.length + 2)
     expect(text.split('\n').at(-1)).toBe(
-      'handily: 0 of 6 mods loaded. Run each uninstall command above, then restart Claude Code',
+      'handily: 0 of 6 mods loaded. Run each uninstall command above, then type /reload-plugins',
     )
   })
 })
@@ -452,7 +452,7 @@ describe('/handily colours', () => {
             color: 'warning',
           },
           {
-            text: 'handily: 6 of 6 mods loaded. Run each uninstall command above, then restart Claude Code',
+            text: 'handily: 6 of 6 mods loaded. Run each uninstall command above, then type /reload-plugins',
             color: 'warning',
           },
         ])

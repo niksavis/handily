@@ -119,7 +119,7 @@ export function summaryOf(report: HandilyReport): string {
   const loaded = report.mods.filter((status) => status.state === 'loaded').length
   const counted = `handily: ${String(loaded)} of ${String(report.mods.length)} mods loaded`
   if (report.oldIds.length === 0) return counted
-  return `${counted}. Run each uninstall command above, then restart Claude Code`
+  return `${counted}. Run each uninstall command above, then type /reload-plugins`
 }
 
 export function replyText(report: HandilyReport): string {
