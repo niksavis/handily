@@ -20,7 +20,7 @@ const LATER = '2026-10-08T22:00:00.000Z'
 
 function plugin(overrides = {}) {
   return {
-    id: 'handily-workitems@handily',
+    id: 'handily-workitems@niksavis',
     version: '0.4.0',
     enabled: true,
     installedAt: INSTALLED_AT,
@@ -35,7 +35,7 @@ function state(...entries) {
 }
 
 const install = { name: 'install', enabled: true }
-const marketplacePlugin = { id: 'handily-workitems@handily', version: '0.4.0' }
+const marketplacePlugin = { id: 'handily-workitems@niksavis', version: '0.4.0' }
 
 describe('differences', () => {
   test('two equal states have no difference', () => {
@@ -46,7 +46,7 @@ describe('differences', () => {
     const before = state(plugin())
     const after = state(plugin({ version: '0.4.1' }))
     assert.deepEqual(differences(before, after), [
-      { id: 'handily-workitems@handily', field: 'version' },
+      { id: 'handily-workitems@niksavis', field: 'version' },
     ])
   })
 
@@ -54,7 +54,7 @@ describe('differences', () => {
     const before = state(plugin())
     const after = state(plugin({ enabled: false }))
     assert.deepEqual(differences(before, after), [
-      { id: 'handily-workitems@handily', field: 'enabled' },
+      { id: 'handily-workitems@niksavis', field: 'enabled' },
     ])
   })
 
@@ -62,17 +62,17 @@ describe('differences', () => {
     const before = state(plugin())
     const after = state(plugin({ cacheVersions: ['0.4.0', '0.4.1'] }))
     assert.deepEqual(differences(before, after), [
-      { id: 'handily-workitems@handily', field: 'cacheVersions' },
+      { id: 'handily-workitems@niksavis', field: 'cacheVersions' },
     ])
   })
 
   test('a plugin present on one side only names the installed field', () => {
-    const extra = plugin({ id: 'handily-quiet-items@handily' })
+    const extra = plugin({ id: 'handily-quiet-items@niksavis' })
     assert.deepEqual(differences(state(plugin()), state(plugin(), extra)), [
-      { id: 'handily-quiet-items@handily', field: 'installed' },
+      { id: 'handily-quiet-items@niksavis', field: 'installed' },
     ])
     assert.deepEqual(differences(state(plugin(), extra), state(plugin())), [
-      { id: 'handily-quiet-items@handily', field: 'installed' },
+      { id: 'handily-quiet-items@niksavis', field: 'installed' },
     ])
   })
 
@@ -80,7 +80,7 @@ describe('differences', () => {
     const before = state(plugin())
     const after = state(plugin({ errors: ['Dependency is disabled'] }))
     assert.deepEqual(differences(before, after), [
-      { id: 'handily-workitems@handily', field: 'errors' },
+      { id: 'handily-workitems@niksavis', field: 'errors' },
     ])
   })
 
@@ -88,8 +88,8 @@ describe('differences', () => {
     const before = state(plugin())
     const after = state(plugin({ installedAt: LATER, lastUpdated: LATER }))
     assert.deepEqual(differences(before, after), [
-      { id: 'handily-workitems@handily', field: 'installedAt' },
-      { id: 'handily-workitems@handily', field: 'lastUpdated' },
+      { id: 'handily-workitems@niksavis', field: 'installedAt' },
+      { id: 'handily-workitems@niksavis', field: 'lastUpdated' },
     ])
   })
 
@@ -103,7 +103,7 @@ describe('differences', () => {
     const before = state(plugin())
     const after = state(plugin({ lastUpdated: 'never' }))
     assert.deepEqual(differences(before, after, new Set(['lastUpdated'])), [
-      { id: 'handily-workitems@handily', field: 'lastUpdated' },
+      { id: 'handily-workitems@niksavis', field: 'lastUpdated' },
     ])
   })
 
@@ -111,7 +111,7 @@ describe('differences', () => {
     const before = state(plugin({ syncedAt: INSTALLED_AT }))
     const after = state(plugin({ syncedAt: LATER }))
     assert.deepEqual(differences(before, after, new Set(['syncedAt'])), [
-      { id: 'handily-workitems@handily', field: 'syncedAt' },
+      { id: 'handily-workitems@niksavis', field: 'syncedAt' },
     ])
   })
 })
@@ -138,7 +138,7 @@ describe('changedTimestamps', () => {
     const after = state(plugin({ lastUpdated: LATER, version: '0.4.1' }))
     const measured = new Set(changedTimestamps(before, after))
     assert.deepEqual(differences(before, after, measured), [
-      { id: 'handily-workitems@handily', field: 'version' },
+      { id: 'handily-workitems@niksavis', field: 'version' },
     ])
   })
 })
@@ -153,7 +153,7 @@ describe('expectedStateFailures', () => {
       marketplacePlugin,
     ])
     assert.deepEqual(failures, [
-      'handily-workitems@handily: cacheVersions is [] after install; expected it to include 0.4.0',
+      'handily-workitems@niksavis: cacheVersions is [] after install; expected it to include 0.4.0',
     ])
   })
 
@@ -162,7 +162,7 @@ describe('expectedStateFailures', () => {
       marketplacePlugin,
     ])
     assert.deepEqual(failures, [
-      'handily-workitems@handily: cacheVersions is [0.3.0] after install; expected it to include 0.4.0',
+      'handily-workitems@niksavis: cacheVersions is [0.3.0] after install; expected it to include 0.4.0',
     ])
   })
 
@@ -173,31 +173,31 @@ describe('expectedStateFailures', () => {
 
   test('a missing plugin names the installed field', () => {
     assert.deepEqual(expectedStateFailures(install, {}, [marketplacePlugin]), [
-      'handily-workitems@handily: installed is false after install; expected true',
+      'handily-workitems@niksavis: installed is false after install; expected true',
     ])
   })
 })
 
 describe('restoredBundleFailures', () => {
   test('a bundle without errorDetails has no failure', () => {
-    const bundle = plugin({ id: 'handily@handily' })
+    const bundle = plugin({ id: 'handily@niksavis' })
     assert.deepEqual(
-      restoredBundleFailures(state(bundle), 'handily@handily', 'handily-board@handily'),
+      restoredBundleFailures(state(bundle), 'handily@niksavis', 'handily-board@niksavis'),
       [],
     )
   })
 
   test('a missing bundle entry names the installed field', () => {
-    assert.deepEqual(restoredBundleFailures({}, 'handily@handily', 'handily-board@handily'), [
-      'handily@handily: installed is false after handily-board@handily is enabled again; expected true',
+    assert.deepEqual(restoredBundleFailures({}, 'handily@niksavis', 'handily-board@niksavis'), [
+      'handily@niksavis: installed is false after handily-board@niksavis is enabled again; expected true',
     ])
   })
 
   test('a bundle with errorDetails names the errorDetails field', () => {
-    const bundle = plugin({ id: 'handily@handily', errorDetails: [] })
+    const bundle = plugin({ id: 'handily@niksavis', errorDetails: [] })
     assert.deepEqual(
-      restoredBundleFailures(state(bundle), 'handily@handily', 'handily-board@handily'),
-      ['handily@handily: errorDetails remain after handily-board@handily is enabled again'],
+      restoredBundleFailures(state(bundle), 'handily@niksavis', 'handily-board@niksavis'),
+      ['handily@niksavis: errorDetails remain after handily-board@niksavis is enabled again'],
     )
   })
 })

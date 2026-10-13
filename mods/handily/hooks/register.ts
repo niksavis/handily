@@ -83,7 +83,7 @@ export const register: Register = (on) => {
     const { enabledPlugins } = await $.settings.read()
     const report = {
       mods: statusesOf(mods, versions, enabledPlugins),
-      oldIds: oldIdsOf(await enabledByScope($)),
+      oldIds: oldIdsOf([$.plugin.name, ...mods], await enabledByScope($)),
     }
     const text = replyText(report)
     await $.state.set(

@@ -1,6 +1,6 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import type { HandilyModState, HandilyReport } from '../types'
-import { isAllWell, summaryOf } from './status'
+import { isAllWell, oldMarketplaceRows, summaryOf } from './status'
 
 type ReportElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
 
@@ -34,7 +34,14 @@ function rowsOf(report: HandilyReport): Row[] {
     color: OLD_ID_COLOR,
     detail: oldId.detail,
   }))
-  return [...modRows, ...oldIdRows]
+  const marketplaceRows = oldMarketplaceRows(report).map((row) => ({
+    key: row.name,
+    name: row.name,
+    version: '',
+    color: OLD_ID_COLOR,
+    detail: row.detail,
+  }))
+  return [...modRows, ...oldIdRows, ...marketplaceRows]
 }
 
 export function drawReport({ Box, Text }: ReportElements, report: HandilyReport): RenderElement {

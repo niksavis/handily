@@ -1,5 +1,5 @@
 {
-  "name": "handily",
+  "name": "niksavis",
   "owner": {
     "name": "niksavis"
   },
@@ -10,7 +10,7 @@
     {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {

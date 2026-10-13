@@ -17,7 +17,7 @@ const modsDir = join(root, 'mods')
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
 const marketplaceCommand = 'npm run marketplace'
 const marketplaceHeader = {
-  name: 'handily',
+  name: 'niksavis',
   owner: { name: 'niksavis' },
   metadata: {
     description: 'Claude Code mods that show your work items, tasks and sessions, for any tracker.',

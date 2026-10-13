@@ -1,6 +1,8 @@
 import type { HandilyModStatus, HandilyOldId, HandilyOldIdScope, HandilyReport } from '../types'
 
-const MARKETPLACE = 'handily'
+const MARKETPLACE = 'niksavis'
+
+const OLD_MARKETPLACE = 'handily'
 
 const REPLACED_MODS: ReadonlyMap<string, string> = new Map([
   ['workitems', 'handily-workitems'],
@@ -50,13 +52,13 @@ export function manifestVersion(manifestText: string, name: string): string {
   return version
 }
 
-function pluginId(name: string): string {
-  return `${name}@${MARKETPLACE}`
+function pluginId(name: string, marketplace = MARKETPLACE): string {
+  return `${name}@${marketplace}`
 }
 
-function enabledEntry(enabledPlugins: unknown, name: string): unknown {
+function enabledEntry(enabledPlugins: unknown, id: string): unknown {
   if (typeof enabledPlugins !== 'object' || enabledPlugins === null) return undefined
-  return (enabledPlugins as Record<string, unknown>)[pluginId(name)]
+  return (enabledPlugins as Record<string, unknown>)[id]
 }
 
 function stateOf(
@@ -90,17 +92,21 @@ export function statusesOf(
     return {
       name,
       version: version ?? null,
-      ...stateOf(name, version, enabledEntry(enabledPlugins, name)),
+      ...stateOf(name, version, enabledEntry(enabledPlugins, pluginId(name))),
     }
   })
 }
 
-export function oldIdsOf(enabledByScope: ReadonlyMap<HandilyOldIdScope, unknown>): HandilyOldId[] {
+export function oldIdsOf(
+  current: readonly string[],
+  enabledByScope: ReadonlyMap<HandilyOldIdScope, unknown>,
+): HandilyOldId[] {
   const found: HandilyOldId[] = []
-  for (const [oldName, replacedBy] of REPLACED_MODS) {
+  const names = [...REPLACED_MODS, ...current.map((name) => [name, name] as const)]
+  for (const [oldName, replacedBy] of names) {
+    const id = pluginId(oldName, OLD_MARKETPLACE)
     for (const scope of OLD_ID_SCOPES) {
-      if (enabledEntry(enabledByScope.get(scope), oldName) === undefined) continue
-      const id = pluginId(oldName)
+      if (enabledEntry(enabledByScope.get(scope), id) === undefined) continue
       found.push({
         id,
         scope,
@@ -115,11 +121,21 @@ export function isAllWell(report: HandilyReport): boolean {
   return report.oldIds.length === 0 && report.mods.every((status) => status.state === 'loaded')
 }
 
+export function oldMarketplaceRows(report: HandilyReport): { name: string; detail: string }[] {
+  if (report.oldIds.length === 0) return []
+  return [
+    {
+      name: `${OLD_MARKETPLACE} marketplace`,
+      detail: `old marketplace of these ids. Run claude plugin marketplace remove ${OLD_MARKETPLACE}`,
+    },
+  ]
+}
+
 export function summaryOf(report: HandilyReport): string {
   const loaded = report.mods.filter((status) => status.state === 'loaded').length
   const counted = `handily: ${String(loaded)} of ${String(report.mods.length)} mods loaded`
   if (report.oldIds.length === 0) return counted
-  return `${counted}. Run each uninstall command above, then type /reload-plugins`
+  return `${counted}. Run each command above, then type /reload-plugins`
 }
 
 export function replyText(report: HandilyReport): string {
@@ -127,6 +143,10 @@ export function replyText(report: HandilyReport): string {
     const version = status.version === null ? '' : ` ${status.version}`
     return `- ${status.name}${version}: ${status.detail}`
   })
-  const oldIdRows = report.oldIds.map((oldId) => `- ${oldId.id}: ${oldId.detail}`)
+  const oldRows = [
+    ...report.oldIds.map((oldId) => ({ name: oldId.id, detail: oldId.detail })),
+    ...oldMarketplaceRows(report),
+  ]
+  const oldIdRows = oldRows.map((row) => `- ${row.name}: ${row.detail}`)
   return [...modRows, ...oldIdRows, '', summaryOf(report)].join('\n')
 }
