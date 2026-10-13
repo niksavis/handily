@@ -1,6 +1,23 @@
-import type { HandilyModStatus, HandilyOldId, HandilyOldIdScope, HandilyReport } from '../types'
+import type {
+  HandilyModMode,
+  HandilyModState,
+  HandilyModStatus,
+  HandilyOldId,
+  HandilyOldIdScope,
+  HandilyReport,
+} from '../types'
 
-const MARKETPLACE = 'handily'
+const MARKETPLACE = 'niksavis'
+
+const OLD_MARKETPLACE = 'handily'
+
+const REPLY_COLUMNS = 80
+
+const COLUMN_GAP = '  '
+
+const ACTION_INDENT = '  '
+
+const SHORTEST_ABOUT = 12
 
 const REPLACED_MODS: ReadonlyMap<string, string> = new Map([
   ['workitems', 'handily-workitems'],
@@ -18,14 +35,30 @@ const REPLACED_MODS: ReadonlyMap<string, string> = new Map([
 
 export const OLD_ID_SCOPES: readonly HandilyOldIdScope[] = ['user', 'project', 'local']
 
-type Manifest = { version: unknown; dependencies: unknown }
+export type LoadedMod = { version: string; description: string; mode: HandilyModMode }
+
+export type ModRow = {
+  key: string
+  state: HandilyModState
+  name: string
+  version: string
+  stateText: string
+  mode: string
+  about: string
+  action: string | null
+}
+
+export type OldRow = { key: string; name: string; detail: string; action: string }
+
+type Manifest = { version: unknown; description: unknown; dependencies: unknown }
 
 function manifestOf(manifestText: string): Manifest {
   const manifest: unknown = JSON.parse(manifestText)
   if (typeof manifest !== 'object' || manifest === null)
-    return { version: undefined, dependencies: undefined }
+    return { version: undefined, description: undefined, dependencies: undefined }
   return {
     version: 'version' in manifest ? manifest.version : undefined,
+    description: 'description' in manifest ? manifest.description : undefined,
     dependencies: 'dependencies' in manifest ? manifest.dependencies : undefined,
   }
 }
@@ -50,83 +83,167 @@ export function manifestVersion(manifestText: string, name: string): string {
   return version
 }
 
-function pluginId(name: string): string {
-  return `${name}@${MARKETPLACE}`
+export function manifestDescription(manifestText: string, name: string): string {
+  const { description } = manifestOf(manifestText)
+  if (typeof description !== 'string' || description === '') {
+    throw new Error(`handily: the plugin.json of ${name} has no "description"`)
+  }
+  return description
 }
 
-function enabledEntry(enabledPlugins: unknown, name: string): unknown {
+function pluginId(name: string, marketplace = MARKETPLACE): string {
+  return `${name}@${marketplace}`
+}
+
+function enabledEntry(enabledPlugins: unknown, id: string): unknown {
   if (typeof enabledPlugins !== 'object' || enabledPlugins === null) return undefined
-  return (enabledPlugins as Record<string, unknown>)[pluginId(name)]
+  return (enabledPlugins as Record<string, unknown>)[id]
 }
 
-function stateOf(
-  name: string,
-  version: string | undefined,
-  enabled: unknown,
-): Pick<HandilyModStatus, 'state' | 'detail'> {
-  if (version !== undefined) return { state: 'loaded', detail: 'loaded' }
+function missingStatus(name: string, enabled: unknown): HandilyModStatus {
+  const missing = { name, version: null, mode: '-' as const, about: null }
   if (enabled === false) {
-    return { state: 'disabled', detail: `disabled. Run /plugin enable ${pluginId(name)}` }
+    return { ...missing, state: 'disabled', action: `Run /plugin enable ${pluginId(name)}` }
   }
   if (enabled === undefined) {
-    return {
-      state: 'not installed',
-      detail: `not installed. Run /plugin install ${pluginId(name)}`,
-    }
+    return { ...missing, state: 'not installed', action: `Run /plugin install ${pluginId(name)}` }
   }
-  return {
-    state: 'not loaded',
-    detail: 'enabled, but it did not load. Run claude --debug to see why',
-  }
+  return { ...missing, state: 'not loaded', action: 'Run claude --debug to see why' }
 }
 
 export function statusesOf(
   mods: readonly string[],
-  loadedVersions: ReadonlyMap<string, string>,
+  loaded: ReadonlyMap<string, LoadedMod>,
   enabledPlugins: unknown,
 ): HandilyModStatus[] {
   return mods.map((name) => {
-    const version = loadedVersions.get(name)
+    const mod = loaded.get(name)
+    if (mod === undefined) return missingStatus(name, enabledEntry(enabledPlugins, pluginId(name)))
     return {
       name,
-      version: version ?? null,
-      ...stateOf(name, version, enabledEntry(enabledPlugins, name)),
+      version: mod.version,
+      state: 'loaded',
+      mode: mod.mode,
+      about: mod.description,
+      action: null,
     }
   })
 }
 
-export function oldIdsOf(enabledByScope: ReadonlyMap<HandilyOldIdScope, unknown>): HandilyOldId[] {
+export function oldIdsOf(
+  current: readonly string[],
+  enabledByScope: ReadonlyMap<HandilyOldIdScope, unknown>,
+): HandilyOldId[] {
   const found: HandilyOldId[] = []
-  for (const [oldName, replacedBy] of REPLACED_MODS) {
+  const names = [...REPLACED_MODS, ...current.map((name) => [name, name] as const)]
+  for (const [oldName, replacedBy] of names) {
+    const id = pluginId(oldName, OLD_MARKETPLACE)
     for (const scope of OLD_ID_SCOPES) {
-      if (enabledEntry(enabledByScope.get(scope), oldName) === undefined) continue
-      const id = pluginId(oldName)
+      if (enabledEntry(enabledByScope.get(scope), id) === undefined) continue
       found.push({
         id,
         scope,
-        detail: `old id of ${replacedBy}, in the ${scope} settings. Run claude plugin uninstall ${id} --scope ${scope}`,
+        detail: `old id of ${replacedBy}, ${scope} settings`,
+        action: `Run claude plugin uninstall ${id} --scope ${scope}`,
       })
     }
   }
   return found
 }
 
+function widest(texts: readonly string[]): number {
+  return Math.max(0, ...texts.map((text) => text.length))
+}
+
+export function shortened(text: string, width: number): string {
+  const sentence = (text.split(/[.:] /, 1)[0] ?? text).replace(/\.$/, '')
+  if (sentence.length <= width) return sentence
+  const room = sentence.slice(0, width - 1)
+  const lastSpace = room.lastIndexOf(' ')
+  const cut = lastSpace > 0 ? room.slice(0, lastSpace) : room
+  return `${cut.replace(/[\s,.;:]+$/, '')}…`
+}
+
+export function modRowsOf(report: HandilyReport): ModRow[] {
+  const cells = report.mods.map((status) => ({
+    status,
+    name: status.name,
+    version: status.version ?? '-',
+    stateText: status.state,
+    mode: status.mode,
+  }))
+  const nameWidth = widest(cells.map((cell) => cell.name))
+  const versionWidth = widest(cells.map((cell) => cell.version))
+  const stateWidth = widest(cells.map((cell) => cell.stateText))
+  const modeWidth = widest(cells.map((cell) => cell.mode))
+  const aboutWidth = Math.max(
+    SHORTEST_ABOUT,
+    REPLY_COLUMNS - nameWidth - versionWidth - stateWidth - modeWidth - 4 * COLUMN_GAP.length,
+  )
+  return cells.map((cell) => ({
+    key: cell.name,
+    state: cell.status.state,
+    name: cell.name.padEnd(nameWidth),
+    version: cell.version.padEnd(versionWidth),
+    stateText: cell.stateText.padEnd(stateWidth),
+    mode: cell.mode.padEnd(modeWidth),
+    about: shortened(cell.status.about ?? '', aboutWidth),
+    action: cell.status.action,
+  }))
+}
+
+export function oldRowsOf(report: HandilyReport): OldRow[] {
+  if (report.oldIds.length === 0) return []
+  const rows = [
+    ...report.oldIds.map((oldId) => ({
+      key: `${oldId.id} ${oldId.scope}`,
+      name: oldId.id,
+      detail: oldId.detail,
+      action: oldId.action,
+    })),
+    {
+      key: `${OLD_MARKETPLACE} marketplace`,
+      name: `${OLD_MARKETPLACE} marketplace`,
+      detail: 'old marketplace of these ids',
+      action: `Run claude plugin marketplace remove ${OLD_MARKETPLACE}`,
+    },
+  ]
+  const nameWidth = widest(rows.map((row) => row.name))
+  return rows.map((row) => ({ ...row, name: row.name.padEnd(nameWidth) }))
+}
+
 export function isAllWell(report: HandilyReport): boolean {
   return report.oldIds.length === 0 && report.mods.every((status) => status.state === 'loaded')
 }
 
-export function summaryOf(report: HandilyReport): string {
+function isOffOrPaused(status: HandilyModStatus): boolean {
+  return status.mode === 'off' || status.mode === 'paused'
+}
+
+export function summaryOf(report: HandilyReport): string[] {
   const loaded = report.mods.filter((status) => status.state === 'loaded').length
-  const counted = `handily: ${String(loaded)} of ${String(report.mods.length)} mods loaded`
-  if (report.oldIds.length === 0) return counted
-  return `${counted}. Run each uninstall command above, then type /reload-plugins`
+  const off = report.mods.filter(isOffOrPaused).length
+  const counted = `handily: ${String(loaded)} of ${String(report.mods.length)} mods loaded, ${String(off)} off or paused`
+  if (report.oldIds.length === 0) return [counted]
+  return [counted, 'Run each command above, then type /reload-plugins']
+}
+
+export function modLine(row: ModRow): string {
+  return [row.name, row.version, row.stateText, row.mode, row.about].join(COLUMN_GAP).trimEnd()
+}
+
+export function oldLine(row: OldRow): string {
+  return [row.name, row.detail].join(COLUMN_GAP)
+}
+
+export function actionLine(action: string): string {
+  return `${ACTION_INDENT}${action}`
 }
 
 export function replyText(report: HandilyReport): string {
-  const modRows = report.mods.map((status) => {
-    const version = status.version === null ? '' : ` ${status.version}`
-    return `- ${status.name}${version}: ${status.detail}`
-  })
-  const oldIdRows = report.oldIds.map((oldId) => `- ${oldId.id}: ${oldId.detail}`)
-  return [...modRows, ...oldIdRows, '', summaryOf(report)].join('\n')
+  const modLines = modRowsOf(report).flatMap((row) =>
+    row.action === null ? [modLine(row)] : [modLine(row), actionLine(row.action)],
+  )
+  const oldLines = oldRowsOf(report).flatMap((row) => [oldLine(row), actionLine(row.action)])
+  return [...modLines, ...oldLines, '', ...summaryOf(report)].join('\n')
 }

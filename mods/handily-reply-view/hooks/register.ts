@@ -83,6 +83,8 @@ export const register: Register = (on) => {
         'handily · Turn the folded view of long replies, tables, code blocks and prompt rules off or on',
     })
     await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
+    const { value: mode, version } = await $.state.get(MODE)
+    if (mode === undefined) await $.state.set(MODE, DEFAULT_MODE, { ifVersion: version })
     return next(e)
   })
 

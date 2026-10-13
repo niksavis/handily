@@ -1,18 +1,20 @@
 import type { EngineInterface, Register } from 'claude-code'
-import type { HandilyOldIdScope } from '../types'
+import type { HandilyModMode, HandilyOldIdScope } from '../types'
 import { drawReport } from './draw'
 import {
   bundledMods,
+  manifestDescription,
   manifestVersion,
   OLD_ID_SCOPES,
   oldIdsOf,
   replyText,
   statusesOf,
+  type LoadedMod,
 } from './status'
 
 const COMMAND = 'handily'
 const NO_ARGUMENT_TEXT =
-  '/handily takes no argument; it lists the handily mods and whether each loaded.'
+  '/handily takes no argument; it lists each handily mod with its version, state and mode.'
 
 type Ready = { root: string } | undefined
 
@@ -37,6 +39,46 @@ async function readyOf($: EngineInterface, name: string): Promise<Ready> {
   }
 }
 
+function onOrOff(stored: unknown): HandilyModMode {
+  if (stored === undefined) return '-'
+  if (stored === 'on' || stored === 'off') return stored
+  throw new Error(`the stored mode ${JSON.stringify(stored)} is neither on nor off`)
+}
+
+async function storedMode($: EngineInterface, name: string): Promise<HandilyModMode> {
+  switch (name) {
+    case 'handily-workitems': {
+      const { value } = await $.state.get({ plugin: 'handily-workitems', key: 'snapshot' })
+      if (value === undefined) return '-'
+      return value.state === 'paused' ? 'paused' : 'polling'
+    }
+    case 'handily-quiet-items':
+      return onOrOff((await $.state.get({ plugin: 'handily-quiet-items', key: 'mode' })).value)
+    case 'handily-item-toasts':
+      return onOrOff((await $.state.get({ plugin: 'handily-item-toasts', key: 'mode' })).value)
+    case 'handily-simple-view':
+      return onOrOff((await $.state.get({ plugin: 'handily-simple-view', key: 'mode' })).value)
+    case 'handily-reply-view':
+      return onOrOff((await $.state.get({ plugin: 'handily-reply-view', key: 'mode' })).value)
+    case 'handily-board':
+      return '-'
+    default:
+      throw new Error(
+        `handily: plugin.json lists "${name}", but /handily has no mode to read for it`,
+      )
+  }
+}
+
+async function modeOf($: EngineInterface, name: string): Promise<HandilyModMode> {
+  try {
+    return await storedMode($, name)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    $.ui.log(`handily: cannot read the mode of ${name}: ${reason}`, { to: 'debug' })
+    return '?'
+  }
+}
+
 function manifestPath(root: string): string {
   return `${root}/.claude-plugin/plugin.json`
 }
@@ -45,17 +87,22 @@ function shownUnderPluginName(pluginName: string, text: string): string {
   return `${pluginName}: ${text}`
 }
 
-async function loadedVersions(
+async function loadedMods(
   $: EngineInterface,
   mods: readonly string[],
-): Promise<Map<string, string>> {
-  const versions = new Map<string, string>()
+): Promise<Map<string, LoadedMod>> {
+  const loaded = new Map<string, LoadedMod>()
   for (const name of mods) {
     const ready = await readyOf($, name)
     if (ready === undefined) continue
-    versions.set(name, manifestVersion(await $.fs.read(manifestPath(ready.root)), name))
+    const manifest = await $.fs.read(manifestPath(ready.root))
+    loaded.set(name, {
+      version: manifestVersion(manifest, name),
+      description: manifestDescription(manifest, name),
+      mode: await modeOf($, name),
+    })
   }
-  return versions
+  return loaded
 }
 
 async function enabledByScope($: EngineInterface): Promise<Map<HandilyOldIdScope, unknown>> {
@@ -71,7 +118,7 @@ export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'handily · Show which handily mods are installed and loaded',
+      description: 'handily · Show the version, state, mode and purpose of each handily mod',
     })
     return next(e)
   })
@@ -79,11 +126,11 @@ export const register: Register = (on) => {
   on('command.run', { command: COMMAND }, async ($, e) => {
     if (e.args.trim() !== '') return { text: NO_ARGUMENT_TEXT }
     const mods = bundledMods(await $.fs.read(manifestPath($.plugin.root)))
-    const versions = await loadedVersions($, mods)
+    const loaded = await loadedMods($, mods)
     const { enabledPlugins } = await $.settings.read()
     const report = {
-      mods: statusesOf(mods, versions, enabledPlugins),
-      oldIds: oldIdsOf(await enabledByScope($)),
+      mods: statusesOf(mods, loaded, enabledPlugins),
+      oldIds: oldIdsOf([$.plugin.name, ...mods], await enabledByScope($)),
     }
     const text = replyText(report)
     await $.state.set(
