@@ -6,6 +6,65 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily 0.6.0 - 2026-10-13
+
+### Added
+
+- **handily 0.6.0 `/handily` shows the version, the state, the mode and the purpose of each
+  mod.** Each mod gets one line that fits in 80 columns: its name, its version, `loaded` or why it
+  did not load, its mode (`on`, `off`, `polling`, `paused`, `-` for none, or `?` when the read
+  fails), and the first sentence of its description. A mod that did not load gets a second line
+  with the command that fixes it. The last line counts the loaded mods and the mods that are off
+  or paused. handily-item-toasts 0.5.1, handily-simple-view 0.5.1 and handily-reply-view 0.5.4
+  now store their `on` mode when a session starts, so `/handily` can show it (handily-fwkt.22).
+
+### Changed
+
+- **Breaking change: the marketplace is now named `niksavis`, so the install id is
+  `handily@niksavis`.** `/plugin marketplace add niksavis/handily` still works and now adds the
+  marketplace `niksavis`. To move from the old marketplace `handily`, run
+  `claude plugin marketplace remove handily`, which also uninstalls each plugin you installed
+  from it, then `claude plugin marketplace add niksavis/handily` and
+  `claude plugin install handily@niksavis`, and type `/reload-plugins`. handily 0.6.0 `/handily`
+  names each plugin still installed from the marketplace `handily` as an old id, with the line
+  that uninstalls it and the line that removes the marketplace (handily-fwkt.21).
+
+## handily-item-toasts 0.5.1 - 2026-10-13
+
+### Changed
+
+- **handily 0.6.0 `/handily` shows the version, the state, the mode and the purpose of each
+  mod.** Each mod gets one line that fits in 80 columns: its name, its version, `loaded` or why it
+  did not load, its mode (`on`, `off`, `polling`, `paused`, `-` for none, or `?` when the read
+  fails), and the first sentence of its description. A mod that did not load gets a second line
+  with the command that fixes it. The last line counts the loaded mods and the mods that are off
+  or paused. handily-item-toasts 0.5.1, handily-simple-view 0.5.1 and handily-reply-view 0.5.4
+  now store their `on` mode when a session starts, so `/handily` can show it (handily-fwkt.22).
+
+## handily-simple-view 0.5.1 - 2026-10-13
+
+### Changed
+
+- **handily 0.6.0 `/handily` shows the version, the state, the mode and the purpose of each
+  mod.** Each mod gets one line that fits in 80 columns: its name, its version, `loaded` or why it
+  did not load, its mode (`on`, `off`, `polling`, `paused`, `-` for none, or `?` when the read
+  fails), and the first sentence of its description. A mod that did not load gets a second line
+  with the command that fixes it. The last line counts the loaded mods and the mods that are off
+  or paused. handily-item-toasts 0.5.1, handily-simple-view 0.5.1 and handily-reply-view 0.5.4
+  now store their `on` mode when a session starts, so `/handily` can show it (handily-fwkt.22).
+
+## handily-reply-view 0.5.4 - 2026-10-13
+
+### Changed
+
+- **handily 0.6.0 `/handily` shows the version, the state, the mode and the purpose of each
+  mod.** Each mod gets one line that fits in 80 columns: its name, its version, `loaded` or why it
+  did not load, its mode (`on`, `off`, `polling`, `paused`, `-` for none, or `?` when the read
+  fails), and the first sentence of its description. A mod that did not load gets a second line
+  with the command that fixes it. The last line counts the loaded mods and the mods that are off
+  or paused. handily-item-toasts 0.5.1, handily-simple-view 0.5.1 and handily-reply-view 0.5.4
+  now store their `on` mode when a session starts, so `/handily` can show it (handily-fwkt.22).
+
 ## handily-board 0.3.2 - 2026-10-13
 
 ### Fixed
