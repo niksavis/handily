@@ -1050,10 +1050,10 @@ describe(ROWS_CRITERION, () => {
       const lane = lines.indexOf('▶ lane-a1  background  working')
       expect(lines.slice(lane + 3, lane + 9)).toEqual([
         '  agents 6 · 1 needs you · 1 failed',
-        '  ◆ scout      needs you            4/9',
-        '  ▶ Explore    Map the hooks        2/5',
-        '  ▶ tester     Run the unit tests   0/1',
-        '  ▶ reviewer   Review board.tsx     1/3',
+        '  ◆ scout         needs you         4/9',
+        '  ▶ Explore       Map the hooks     2/5',
+        '  ▶ tester        Run the unit te…  0/1',
+        '  ▶ reviewer      Review board.tsx  1/3',
         '  [ +2 more agents ]',
       ])
       const mocks = lines.indexOf('▶ mocks  interactive  this  busy')
@@ -1063,20 +1063,20 @@ describe(ROWS_CRITERION, () => {
       await ui.press({ key: more?.key ?? '' })
       const opened = await screen(ui, 41)
       expect(opened.slice(lane + 8, lane + 11)).toEqual([
-        '  ▶ lane-b     no tasks',
-        '  ■ impl…nter  Edit b.ts            1/2',
+        '  ▶ lane-b        no tasks',
+        '  ■ implementer   Edit b.ts         1/2',
         '  [ hide 2 more agents ]',
       ])
       await ui.unmount()
       const narrow = await screenAt($, surface, 'dock', 30)
       const narrowLane = narrow.indexOf('▶ lane-a1  working')
       expect(narrow.slice(narrowLane + 4, narrowLane + 11)).toEqual([
-        '  ◆ scout     needs you  4/9',
-        '  ▶ Explore   Map the …  2/5',
-        '  ▶ tester    Run the …  0/1',
-        '  ▶ reviewer  Review b…  1/3',
-        '  ▶ lane-b    no tasks',
-        '  ■ impl…nter Edit b.ts  1/2',
+        '  ◆ scout        needs…  4/9',
+        '  ▶ Explore      Map t…  2/5',
+        '  ▶ tester       Run t…  0/1',
+        '  ▶ reviewer     Revie…  1/3',
+        '  ▶ lane-b       no ta…',
+        '  ■ implementer  Edit …  1/2',
         '  [ hide 2 more agents ]',
       ])
     })
@@ -1110,15 +1110,20 @@ describe(ROWS_CRITERION, () => {
     const opened = await screen(ui, 76)
     expect(opened.slice(lane + 1, lane + 7)).toEqual([
       '    [ hide 6 agents ]',
-      '    ◆ scout      needs you                                             4/9',
-      '    ▶ Explore    Map the hooks                                         2/5',
-      '    ▶ tester     Run the unit tests                                    0/1',
-      '    ▶ reviewer   Review board.tsx                                      1/3',
+      '    ◆ scout         needs you                                          4/9',
+      '    ▶ Explore       Map the hooks                                      2/5',
+      '    ▶ tester        Run the unit tests                                 0/1',
+      '    ▶ reviewer      Review board.tsx                                   1/3',
       '    [ +2 more agents ]',
     ])
     await ui.unmount()
   })
 })
+
+const GENERAL_PURPOSE_ROWS: Record<number, string[]> = {
+  41: ['  ▶ gene…purpose  Write the user …  1/4', '  ▶ gene…rpose 2  Check the links   0/2'],
+  30: ['  ▶ gene…purpose Write…  1/4', '  ▶ gene…rpose 2 Check…  0/2'],
+}
 
 const WIDTH_CRITERION =
   'A test with 10 sessions of 5 agents draws every card within the tab at 41 columns'
@@ -1147,7 +1152,22 @@ describe(WIDTH_CRITERION, () => {
     const lines = await screenAt($, 'terminal', 'dock', 41)
     expect(lines.filter((line) => line.startsWith('  ▶ gene…'))).toHaveLength(40)
     expect(lines.filter((line) => line === '  [ +1 more agents ]')).toHaveLength(10)
-    expect(lines).toContain('  ▶ gene…se-0  Write the very ve…  10/100')
+    expect(lines).toContain('  ▶ gene…rpose-0  Write the very…  10/100')
     for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(41)
   })
+
+  for (const columns of [41, 30]) {
+    test(`docked at ${String(columns)} columns: an agent name keeps 12 columns and the task text is cut first`, async ($, on) => {
+      const agents = [
+        shared('general-purpose', { task: 'Write the user guide of every mod', done: 1, total: 4 }),
+        shared('general-purpose', { task: 'Check the links', done: 0, total: 2 }),
+      ]
+      const seen = world(on, storeWith({ ...LANE_PROGRESS, agents, agentCount: 2 }))
+      await mockWork($, seen)
+      await showMachine($, seen)
+      const lines = await screenAt($, 'terminal', 'dock', columns)
+      const rows = lines.filter((line) => line.startsWith('  ▶ gene…'))
+      expect(rows).toEqual(GENERAL_PURPOSE_ROWS[columns])
+    })
+  }
 })
