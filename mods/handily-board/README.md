@@ -147,11 +147,61 @@ Tasks  1 of 4 done · 14m
   neighbour with the same status, as `task_move` does, and Claude is told.
 - The columns before the title have a fixed width. The title fills the room that is left and is
   cut with `…`, so a row never wraps. The tests check this at 30, 41 and 80 columns.
-- `Agents` lists each subagent that is pending, running or waiting: its mark, its name, its plan
-  count and its last tool.
 - The mobile app has no input, so the tab says `Add tasks with /board add <text>.`
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
+
+### Agents
+
+The subagents of this session follow the tasks. A capture from the tests, docked at 41 columns:
+
+```text
+Agents  3 · 1 failed
+■ lane-b    failed                     4m
+    failed after Bash npm test
+▶ Explore   plan 2/7  ▸ Read pane.tsx  1m
+▶ scout     on hold   ▸ Agent find t…  2m
+[ +2 ended ]
+```
+
+- Each agent is one row: the mark, the name, the state, the current tool and the time since the
+  spawn. The time stops when the agent ends.
+- The name is the name of the Agent call, else the agent type, else the first 8 characters of
+  the id. A name of more than 9 characters keeps its first 4 and its last characters around `…`,
+  such as `gene…pose`. When two rows show the same name, the later one gets a number, such as
+  `Explore 2` or `gene…se 2`.
+- The state is `running`, `plan 2/7` while a running agent keeps a task list, `on hold`,
+  `pending`, `idle`, `failed`, `done`, `killed` or `not listed`.
+
+  | Mark | State                                      | Colour    |
+  | ---- | ------------------------------------------ | --------- |
+  | `■`  | `failed`                                   | `error`   |
+  | `▶`  | `running`, `on hold`                       | `claude`  |
+  | `○`  | `pending`, `idle`                          | `subtle`  |
+  | `✓`  | `done`, `killed`                           | `success` |
+  | `?`  | `not listed`: Claude Code does not list it | `subtle`  |
+
+- `on hold` is the engine status `waiting`: the agent waits for its own background work, an
+  Agent call or a plan approval. The status does not say which, so the board does not draw it
+  as a wait for you.
+- The tool column shows `▸` and the call that runs now, or the last call. Below 36 columns the
+  tool column is left out. Docked, a failed agent gets a second line, `failed after` its last
+  call. Inline, that text is in the tool column.
+- Order: failed first, then running, on hold, pending and idle, each in spawn order. Ended
+  agents fold into `+N ended`. At most 6 active agents show. The rest fold into
+  `+N more agents`, so the Add input stays on screen.
+- Press an agent name to open it. The opened row shows the task description, the parent and the
+  spawn age (`under scout · spawned 1m ago`), the count of finished tool calls and the task list
+  of the agent. A list of more than 5 tasks shows the task in progress with 2 tasks before and
+  2 after it, and `all 7` shows every task.
+- An agent loop that Claude Code does not list, such as a fork of the engine, gets a `?` row with
+  the first 8 characters of its id. It stays with the active agents while a call runs, and goes
+  under `+N ended` after. The board keeps at most 20 such rows that run no call.
+- Only a tool call that Claude Code raises for the model moves a row. A call that a plugin raises
+  does not.
+- The rows live in `$.state` under `agents`, so a hot reload keeps them. The board reads the list
+  of agents each time it draws, and keeps the statuses every 10 seconds while a tab is shown, and
+  at the end of each subagent turn.
 
 ### Empty states
 
@@ -174,7 +224,7 @@ No agents yet.
 - The tab lists the first 10 open items. `all N open` shows every open item, and `first 10`
   folds them again. Each `[ add ]` and `Add N as tasks` is explicit. An item that is already a
   task is not added again.
-- `No agents yet.` shows only while the task list is empty and no subagent runs.
+- `No agents yet.` shows only while the task list is empty and the board knows no agent.
 - When the main loop keeps no list, a `▶ Now` line shows the last tool, the count of tool calls
   and the time. After 20 tool calls with no list, the tab says
   `No plan from Claude for 20 tool calls.` With a list that did not change, it says
@@ -221,6 +271,7 @@ Sessions
 - The list and the tool calls live in `$.state`, so they survive a hot reload of the mod.
 - `/clear` ends the session with the reason `clear`. The list of the main loop, the lists of all
   subagents and the tool calls reset.
+- Each end of the session, `/clear` and a resume included, clears the agent rows.
 - The board draws again at each tool call, and every 10 seconds while a tab is shown, so the
   times move.
 

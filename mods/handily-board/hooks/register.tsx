@@ -1,6 +1,5 @@
 import { update } from 'claude-code'
 import type {
-  AgentStatus,
   EngineInterface,
   HookFailure,
   PromptOrigin,
@@ -15,10 +14,17 @@ import {
   planLag,
   planNote,
   toolTarget,
-  withAgentCall,
   withMainCall,
   withPlanUpdate,
 } from './activity'
+import {
+  type AgentHost,
+  agentView,
+  noteAgentList,
+  noteSpawn,
+  noteTurnEnd,
+  trackAgentCall,
+} from './agents'
 import {
   BOARD_PANES,
   SESSIONS_PANE,
@@ -43,7 +49,7 @@ import {
   withoutFinalPeriod,
 } from './commands'
 import { drawMachine } from './machine'
-import { type AgentRow, type PaneWork, drawPane } from './pane'
+import { type PaneWork, drawPane } from './pane'
 import type { BoardCallRow, BoardList, BoardTask } from '../types'
 import {
   EMPTY_LIST,
@@ -51,7 +57,6 @@ import {
   STATUSES,
   TRACKER_TEXT_IS_DATA,
   addTask,
-  doneCount,
   findTask,
   isStatus,
   listText,
@@ -72,14 +77,9 @@ const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
 const AGENT_IDS = { plugin: 'handily-board', key: 'agentIds' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
-const AGENT_ACTIVITY = { plugin: 'handily-board', key: 'agentActivity' } as const
+const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 const REDRAW_INTERVAL_MS = 10_000
 const ENGINE_ORIGIN = 'engine'
-const ACTIVE_AGENT_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
-  'pending',
-  'running',
-  'waiting',
-])
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
   'composer',
   'bridge',
@@ -245,6 +245,19 @@ async function claimAgentList(
   return refusal
 }
 
+function agentHostOf($: EngineInterface): AgentHost {
+  return {
+    now: () => $.clock.now(),
+    listed: () => $.agent.list(),
+    stored: async () => (await $.state.get(AGENTS)).value ?? [],
+    change: async (step) => {
+      await update($, AGENTS, (current = []) => step(current))
+    },
+    plan: async (agentId) =>
+      (await $.state.get({ plugin: 'handily-board', key: 'agentList', id: agentId })).value,
+  }
+}
+
 type Redraw = { timer: Timer | undefined }
 
 function stopRedraw(redraw: Redraw): void {
@@ -266,7 +279,9 @@ async function redrawShownPane($: EngineInterface, redraw: Redraw): Promise<void
     stopRedraw(redraw)
     return
   }
-  if (panes.some((pane) => pane.isShown)) $.ui.invalidate('ui.render')
+  if (!panes.some((pane) => pane.isShown)) return
+  await noteAgentList(agentHostOf($))
+  $.ui.invalidate('ui.render')
 }
 
 function startRedraw($: EngineInterface, redraw: Redraw): void {
@@ -280,7 +295,6 @@ function startRedraw($: EngineInterface, redraw: Redraw): void {
 
 async function resetActivity($: EngineInterface): Promise<void> {
   await $.state.set(ACTIVITY, EMPTY_ACTIVITY)
-  await $.state.set(AGENT_ACTIVITY, [])
 }
 
 async function notePlanChange($: EngineInterface): Promise<void> {
@@ -311,32 +325,10 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
   }
 }
 
-async function agentRows($: EngineInterface): Promise<AgentRow[]> {
-  const listed = (await $.agent.list()).filter((agent) => ACTIVE_AGENT_STATUSES.has(agent.status))
-  if (listed.length === 0) return []
-  const { value: seen = [] } = await $.state.get(AGENT_ACTIVITY)
-  const rows: AgentRow[] = []
-  for (const agent of listed) {
-    const ref = { plugin: 'handily-board', key: 'agentList', id: agent.id } as const
-    const { value: plan } = await $.state.get(ref)
-    rows.push({
-      id: agent.id,
-      name: agent.name ?? (agent.description === '' ? agent.type : agent.description),
-      status: agent.status,
-      plan:
-        plan === undefined || plan.tasks.length === 0
-          ? null
-          : { done: doneCount(plan), total: plan.tasks.length },
-      last: seen.find((one) => one.id === agent.id)?.last ?? null,
-    })
-  }
-  return rows
-}
-
 async function workOf($: EngineInterface): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
-  return { now, activity: activity ?? EMPTY_ACTIVITY, agents: await agentRows($) }
+  return { now, activity: activity ?? EMPTY_ACTIVITY, agents: await agentView(agentHostOf($), now) }
 }
 
 async function resetAgentLists($: EngineInterface): Promise<void> {
@@ -536,6 +528,7 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
+    await $.state.set(AGENTS, [])
     if (e.reason === 'clear') {
       await resetList(hostOf($))
       await resetAgentLists($)
@@ -583,14 +576,33 @@ export const register: Register = (on, options) => {
     if (agentId === undefined) {
       const now = await $.clock.now()
       await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withMainCall(current, sight, now))
-    } else {
-      await update($, AGENT_ACTIVITY, (current = []) => withAgentCall(current, agentId, sight))
+      return next(e)
     }
-    return next(e)
+    return trackAgentCall(agentHostOf($), agentId, { id: e.tool_use_id, ...sight }, () => next(e))
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the work was not tracked (${next.error.kind})`, { to: 'debug' })
     return next(e)
   })
+
+  on('agent.spawn', async ($, e, next) => {
+    const at = await $.clock.now()
+    const spawned = await next(e)
+    if (spawned.agentId === undefined) return spawned
+    const facts = {
+      description: e.description,
+      type: e.subagentType,
+      name: e.name,
+      parentId: e.parentAgentId,
+    }
+    await noteSpawn(agentHostOf($), spawned.agentId, facts, at)
+    return spawned
+  }).catch((_$, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    const completed = await next(e)
+    if (e.agentId !== undefined) await noteTurnEnd(agentHostOf($), e.agentId)
+    return completed
+  }).catch((_$, e, next) => next(e))
 
   on('tool.call', { tool: TOOL_ADD }, async ($, e) =>
     answerWithRow(

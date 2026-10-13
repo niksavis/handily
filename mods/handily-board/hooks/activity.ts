@@ -1,12 +1,10 @@
 import type {
   BoardActivity,
-  BoardAgentActivity,
   BoardList,
   BoardTaskClock,
   BoardToolCount,
   BoardToolSight,
 } from '../types'
-import { MAX_AGENT_LISTS } from './tasks'
 
 export const PLAN_WARNING_CALLS = 20
 
@@ -130,17 +128,6 @@ export function planNote(lag: number, hasList: boolean): string {
 
 export const PLAN_REQUEST =
   'Keep your plan for this work in the task list: add each step with task_add, and set each task to in_progress and completed with task_update as you go.'
-
-export function withAgentCall(
-  agents: readonly BoardAgentActivity[],
-  id: string,
-  sight: BoardToolSight,
-): BoardAgentActivity[] {
-  const known = agents.find((agent) => agent.id === id)
-  const others = agents.filter((agent) => agent.id !== id)
-  const calls = (known?.calls ?? 0) + 1
-  return [...others, { id, calls, last: sight }].slice(-MAX_AGENT_LISTS)
-}
 
 const SECOND_MS = 1_000
 const SECONDS_PER_MINUTE = 60
