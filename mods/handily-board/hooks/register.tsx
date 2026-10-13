@@ -43,6 +43,14 @@ import {
   withoutFinalPeriod,
 } from './commands'
 import { drawMachine } from './machine'
+import {
+  type SessionsHost,
+  newMachine,
+  readMachine,
+  removeExpiredKeys,
+  updateProgress,
+} from './sessions'
+import { completeTurn, startTurn, withTasks } from './progress'
 import { type AgentRow, type PaneWork, drawPane } from './pane'
 import type { BoardCallRow, BoardList, BoardTask } from '../types'
 import {
@@ -70,6 +78,7 @@ const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
+const LIST = { plugin: 'handily-board', key: 'list' } as const
 const AGENT_IDS = { plugin: 'handily-board', key: 'agentIds' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
 const AGENT_ACTIVITY = { plugin: 'handily-board', key: 'agentActivity' } as const
@@ -372,6 +381,31 @@ function uiOf($: EngineInterface): PaneUi {
   }
 }
 
+function sessionsHost($: EngineInterface): SessionsHost {
+  return {
+    now: () => $.clock.now(),
+    sessionId: () => $.session.id(),
+    cwd: () => $.session.cwd(),
+    surfaces: () => $.session.surfaces(),
+    list: async () => (await $.state.get(LIST)).value ?? EMPTY_LIST,
+    agents: () => $.agent.list(),
+    storeGet: (key) => $.store.get(key),
+    storeSet: (key, value) => $.store.set(key, value),
+    storeDelete: (key) => $.store.delete(key),
+    storeKeys: () => $.store.keys(),
+    run: (argv) => $.process.run(argv),
+    panes: () => $.ui.panes(),
+    redraw: () => {
+      $.ui.invalidate('ui.render')
+    },
+    every: (ms, fn) => $.clock.every(ms, fn),
+    after: (ms, fn) => $.clock.after(ms, fn),
+    debug: (line) => {
+      $.ui.log(line, { to: 'debug' })
+    },
+  }
+}
+
 function listAnswer(list: BoardList, lead: string): string {
   const shown = list.tasks.length === 0 ? 'The task list is empty.' : listText(list)
   return withTrackerNotice(lead === '' ? shown : `${lead}\n\n${shown}`, list.tasks)
@@ -521,6 +555,7 @@ function toolFailed($: EngineInterface, tool: string, error: HookFailure): { den
 export const register: Register = (on, options) => {
   const mode = boardMode(options)
   const redraw: Redraw = { timer: undefined }
+  const machine = newMachine(SESSIONS_PANE.id)
 
   on('session.start', async ($, e, next) => {
     for (const tool of TOOLS) await $.tool.register(tool)
@@ -532,7 +567,39 @@ export const register: Register = (on, options) => {
     })
     if (mode === 'always') await openUnasked(uiOf($))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
+    const started = await next(e)
+    const host = sessionsHost($)
+    await removeExpiredKeys(host)
+    await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
+    return started
+  })
+
+  on('turn.start', async ($, e, next) => {
+    await updateProgress(sessionsHost($), machine, (progress, now, list) =>
+      withTasks(startTurn(progress, now), list, now),
+    )
     return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const completed = await next(e)
+    if (e.agentId === undefined) {
+      await updateProgress(sessionsHost($), machine, (progress, now, list) =>
+        withTasks(completeTurn(progress, now), list, now),
+      )
+    }
+    return completed
+  })
+
+  on('state.set', { plugin: 'handily-board', key: 'list' }, async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny === undefined && result.value.isSet) {
+      const list = e.value
+      await updateProgress(sessionsHost($), machine, (progress, now) =>
+        withTasks(progress, list, now),
+      )
+    }
+    return result
   })
 
   on('session.end', async ($, e, next) => {
@@ -665,14 +732,9 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
-    const work = {
-      now: await $.clock.now(),
-      cwd: await $.session.cwd(),
-      list: await readList(hostOf($)),
-      activity,
-    }
+    const { view, now } = await readMachine(sessionsHost($), machine)
     startRedraw($, redraw)
-    return drawMachine({ Box, Text, bodyColumns: e.props.bodyColumns }, work)
+    const { bodyColumns, placement } = e.props
+    return drawMachine({ Box, Text, bodyColumns, isInline: placement === 'inline' }, view, now)
   })
 }

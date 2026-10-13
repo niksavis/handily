@@ -29,6 +29,20 @@ export function cutToWidth(text: string, width: number): string {
   return kept
 }
 
+export function lastToWidth(text: string, width: number): string {
+  const characters: string[] = []
+  for (const character of text) characters.push(character)
+  let kept = ''
+  let used = 0
+  for (const character of characters.reverse()) {
+    const cells = cellsOf(character)
+    if (used + cells > width) break
+    kept = character + kept
+    used += cells
+  }
+  return kept
+}
+
 const CUT_MARK = '…'
 
 export function fitted(text: string, width: number): string {

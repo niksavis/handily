@@ -1,7 +1,8 @@
 # board
 
 `board` shows your work in one pane with two tabs. The `this session` tab shows the task list
-that Claude and you share. The `this machine` tab shows the card of this session. Claude keeps
+that Claude and you share. The `this machine` tab shows a card for each Claude Code session on
+this machine, and the session that waits for you comes first. Claude keeps
 its plan in the list through four model tools. You see the list and change it with `/board`, or
 on the board.
 
@@ -188,21 +189,89 @@ No agents yet.
 
 ## The this machine tab
 
-The tab shows the card of this session, from the state of this session:
+The tab shows a card for each Claude Code session on this machine:
 
 ```text
-Sessions
-▶ this
+Sessions  4 · 1 needs you · 12s ago
+◆ api-login  interactive  needs you
+  waits for: permission
+  ▶ Fix the login redirect ▰▰▱ 2/3
+  api · feat/login · 2h worked
+─────────────────────────────────────────
+▶ mocks  interactive  this  busy
   ▶ Write the tab mocks ▰▱▱▱ 1/4
-  app · 14m elapsed
+  app · main · 14m worked · est. 30m left
+  agents 3 · 1 failed
+─────────────────────────────────────────
+▶ lane-a1  background  working
+  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6
+  app.wt/lane-a1 · lane/a1 · 22m worked
+─────────────────────────────────────────
+✓ docs-pass  background  done
+  docs · main · ended
+1 older background job hidden
 ```
 
-- The first line is the mark of the current task and the name `this`.
-- The task line shows the task in progress, or the first pending task, with a bar and the done
-  count. The bar has one cell per task, at most 8. With more tasks, each cell is a share. A
-  session with no tasks shows `no tasks`. A list with every task done shows `all N done`.
-- The place line shows the folder of the session and the time since the first tool call.
-- The tab lists only this session.
+- The header counts the cards, the sessions that need you and the failed ones, and says how old
+  the list is.
+- The cards sort by attention: a session that needs you, then failed, working, idle and ended.
+  This session goes first in its own group, not first overall.
+- The first line of a card is the mark, the name, the `interactive` or `background` badge,
+  `this` on this session, and the state.
+
+  | Mark | State                                                      | Colour    |
+  | ---- | ---------------------------------------------------------- | --------- |
+  | `◆`  | `needs you`: a `waitingFor` value, or `waiting`, `blocked` | `warning` |
+  | `■`  | `failed`                                                   | `error`   |
+  | `▶`  | `busy`, `working`                                          | `claude`  |
+  | `○`  | `idle`, or a word the board does not know                  | `subtle`  |
+  | `✓`  | `done`, `stopped`                                          | `success` |
+
+- A session that needs you has a `waits for:` line with its `waitingFor` value. With no value,
+  the line says `waits for: an answer`.
+- The task line shows the current task, a bar and the done count. The bar has one cell per task,
+  at most 8. With more tasks, each cell is a share. A session that runs the board with an empty
+  list shows `no tasks`. A session without the board has no task line.
+- The place line is the worktree, the branch and the time. The time is `worked` for a session
+  that runs the board: the sum of its turns. Other sessions show the time `elapsed` since they
+  started. `est. <time> left` follows when the board has an estimate.
+- This session's card reads the task list, the time worked and the agents of this session, not
+  the poll. Its `agents` line counts the agents that did not end, and the failed ones.
+- A background session whose state has not changed for over 24 hours is hidden, and a footer
+  counts it.
+- Below 36 columns, the badge, the age of the list and the words `worked` and `elapsed` drop.
+- Inline above the prompt, from 60 columns, each session is one row: the name, `inter` or `bg`,
+  the state, the place, the task count and the time. A name of more than 9 characters keeps its
+  first 4 and last 4 characters.
+
+### Where the data comes from
+
+- `claude agents --json --all`, every 15 seconds, only while the tab is shown. The mod keeps the
+  result with its time in its `$.store` under the key `agents`. When another session polled less
+  than 15 seconds ago, the tab uses that result.
+- The worktree and the branch come from two git commands in the folder of the session. The mod
+  runs them only when that folder changes.
+- Each session that runs the board writes its store key `session:<session id>`: the current
+  task, the done and total counts, and the time worked. Other sessions read it from the same
+  store. A poll removes a key of a session that is not listed and is older than 24 hours.
+- A key written more than 60 seconds before its session started is from an earlier run. Its task
+  shows `(stale)`, with no estimate, and the card shows the elapsed time.
+- The estimate divides the done tasks by all tasks and applies the result to the time since the
+  first task. It shows after one task is done, and not for 5 minutes after a task is added.
+
+### States
+
+| State                                         | The tab shows                                                          |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| The first poll has not answered               | `Listing the local sessions…`                                          |
+| The poll lists no session                     | `No local sessions are listed.`, and this card as `not listed (stale)` |
+| Only this session runs                        | `Sessions  1` and `Only this session is running.`                      |
+| A poll failed over 30 s after the last answer | `Last poll failed; showing 2m old data.` above the cards               |
+| The command exits with an error               | `claude agents --json failed: exit 1.` and `retry in 15s`              |
+| The output is no JSON list                    | `claude agents --json failed: the output is not a JSON list.`          |
+| The output is over 4 MiB                      | `claude agents --json failed: the output is over 4 MiB and was cut.`   |
+| `claude` does not start                       | `claude is not on PATH, so other sessions cannot be listed.`           |
+| No terminal surface, such as the desktop app  | `Other sessions are listed only in a terminal session.`, and this card |
 
 ## Settings
 
