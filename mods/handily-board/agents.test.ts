@@ -44,7 +44,15 @@ const withWorkitems = { plugins: [fakeWorkitems] }
 
 type Flight = { arrived: (count: number) => Promise<void>; release: () => void }
 
-type World = { agents: AgentInfo[]; clock: MockClock; held: Map<string, Flight> }
+type World = {
+  agents: AgentInfo[]
+  clock: MockClock
+  held: Map<string, Flight>
+  runs: string[]
+  isRefused: boolean
+  toasts: string[]
+  logs: string[]
+}
 
 type Hold = { flight: Flight; arrive: () => void; gate: Promise<void> }
 
@@ -78,6 +86,10 @@ function world(on: On, heldTools: readonly string[] = []): World {
     agents: [],
     clock: mock.clock(on, { now: START }),
     held: new Map([...holds].map(([tool, one]) => [tool, one.flight])),
+    runs: [],
+    isRefused: false,
+    toasts: [],
+    logs: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: ROOT }))
@@ -101,8 +113,19 @@ function world(on: On, heldTools: readonly string[] = []): World {
       isPlaced: true,
     })),
   }))
-  on('ui.toast', () => ({ value: undefined }))
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.toast', (_$, e) => {
+    state.toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.log', (_$, e) => {
+    state.logs.push(e.text)
+    return { value: undefined }
+  })
+  on('command.run', { command: 'tasks' }, (_$, e, next) => {
+    state.runs.push(`${e.command} ${e.args}`.trim())
+    if (state.isRefused) return next(e)
+    return { text: '' }
+  })
   on('tool.call', async (_$, e) => {
     const held = holds.get(e.tool)
     if (held === undefined) return { result: '' }
@@ -308,7 +331,7 @@ const PLAN_TITLES = [
   'Ask for review',
 ]
 
-type Scene = { flights: Flight[]; calls: Promise<ToolCallResult>[] }
+type Scene = { seen: World; flights: Flight[]; calls: Promise<ToolCallResult>[] }
 
 async function mockScene($: Engine, on: On): Promise<Scene> {
   const seen = world(on, ['Agent', 'Read'])
@@ -376,7 +399,7 @@ async function mockScene($: Engine, on: On): Promise<Scene> {
       description: 'find the element table',
     }),
   )
-  return { flights: [agentCall, read], calls: [scoutCall, readCall] }
+  return { seen, flights: [agentCall, read], calls: [scoutCall, readCall] }
 }
 
 async function land(scene: Scene): Promise<void> {
@@ -406,7 +429,7 @@ const SCENE_SCREENS: readonly {
       'Agents  3 · 1 failed',
       '■ lane-b    failed                     4m',
       '    failed after Bash npm test',
-      '▶ Explore   plan 2/7  ▸ Read pane.tsx  1m',
+      '▶ Explore   plan 2/7  ▸ Read pa… open  1m',
       '▶ scout     on hold   ▸ Agent find t…  2m',
       '[ +2 ended ]',
       '',
@@ -427,7 +450,7 @@ const SCENE_SCREENS: readonly {
       'Agents  3 · 1 failed',
       '■ lane-b    failed          4m',
       '    failed after Bash npm test',
-      '▶ Explore   plan 2/7        1m',
+      '▶ Explore   plan 2/7  open  1m',
       '▶ scout     on hold         2m',
       '[ +2 ended ]',
       '',
@@ -445,7 +468,7 @@ const SCENE_SCREENS: readonly {
       '[ +1 done ]',
       'Agents  3 · 1 failed',
       '■ lane-b     failed     failed after Bash npm test                        4m',
-      '▶ Explore    plan 2/7   ▸ Read pane.tsx                                   1m',
+      '▶ Explore    plan 2/7   ▸ Read pane.tsx                             open  1m',
       '▶ scout      on hold    ▸ Agent find the element table                    2m',
       '[ +2 ended ]',
       '',
@@ -556,7 +579,7 @@ describe(OPEN_CRITERION, () => {
         await ui.press({ key: `open:agent:${EXPLORE}` })
         const lines = agentLines(await screen(ui, 41))
         expect(lines.slice(3, 14)).toEqual([
-          '▶ Explore   plan 2/7  ▸ Read pane.tsx  1m',
+          '▶ Explore   plan 2/7  ▸ Read pa… open  1m',
           '    find the element table',
           '    under scout · spawned 1m ago',
           '    7 tool calls',
@@ -656,6 +679,93 @@ describe(OPEN_CRITERION, () => {
   )
 })
 
+const OPEN_BUTTON_CRITERION =
+  'When the person presses the open button on a running agent row of the this session tab, handily-board runs the tasks command once through the command API'
+
+describe(OPEN_BUTTON_CRITERION, () => {
+  test(
+    'one press on the Explore row runs the tasks command once, and only the running row has the button',
+    withWorkitems,
+    async ($, on) => {
+      const scene = await mockScene($, on)
+      const { seen } = scene
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        const before = seen.runs.length
+        await ui.press({ key: `tasks:agent:${EXPLORE}` })
+        expect(seen.runs.slice(before)).toEqual(['tasks'])
+        for (const id of [LANE, SCOUT]) {
+          expect(await ui.find({ key: `tasks:agent:${id}` })).toBeUndefined()
+        }
+        await ui.press({ key: 'group:ended-agents' })
+        for (const id of [PLAN, REVIEW]) {
+          expect(await ui.find({ key: `row:agent:${id}` })).toBeDefined()
+          expect(await ui.find({ key: `tasks:agent:${id}` })).toBeUndefined()
+        }
+        await ui.press({ key: 'group:ended-agents' })
+        await ui.unmount()
+      }
+      await land(scene)
+    },
+  )
+
+  test('a refused run is logged and named in a toast', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+    seen.agents.push(listed('d1', 'Explore', 'running'))
+    seen.isRefused = true
+    const ui = await mountTab($, 'terminal', 'dock', 41)
+    await ui.press({ key: 'tasks:agent:d1' })
+    expect(seen.runs).toEqual(['tasks'])
+    expect(seen.logs.filter((text) => text.includes('the agents view did not open'))).toHaveLength(
+      1,
+    )
+    expect(seen.toasts).toEqual([
+      'handily-board: the agents view did not open; see the transcript log.',
+    ])
+    await ui.unmount()
+  })
+})
+
+const NO_OPEN_CRITERION =
+  'When no agent of this session runs, the this session tab draws no open button'
+
+describe(NO_OPEN_CRITERION, () => {
+  test(
+    'pending, idle, held, failed, killed and done agents draw no open button',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      const statuses: AgentInfo['status'][] = [
+        'pending',
+        'idle',
+        'waiting',
+        'failed',
+        'killed',
+        'completed',
+      ]
+      seen.agents.push(
+        ...statuses.map((status, index) => listed(`e${String(index)}`, 'Plan', status)),
+      )
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        await ui.press({ key: 'group:ended-agents' })
+        for (const index of statuses.keys()) {
+          const id = `e${String(index)}`
+          expect(await ui.find({ key: `row:agent:${id}` })).toBeDefined()
+          expect(await ui.find({ key: `tasks:agent:${id}` })).toBeUndefined()
+        }
+        expect(await ui.find({ type: 'Button', text: 'open' })).toBeUndefined()
+        await ui.press({ key: 'group:ended-agents' })
+        await ui.unmount()
+      }
+    },
+  )
+})
+
 const FOLD_CRITERION =
   'When more than 6 agents are active, the tab draws 6 rows, failed ones first, and folds the rest, so the Add input stays visible at 41 columns'
 
@@ -694,11 +804,11 @@ describe(FOLD_CRITERION, () => {
           'Agents  16 · 1 failed',
           '■ lane-b    failed                     0s',
           '    failed after Bash npm test',
-          '▶ Explore   running                    1m',
-          '▶ Explore 2 running                    1m',
-          '▶ Explore 3 running                    1m',
-          '▶ Explore 4 running                    1m',
-          '▶ Explore 5 running                    1m',
+          '▶ Explore   running              open  1m',
+          '▶ Explore 2 running              open  1m',
+          '▶ Explore 3 running              open  1m',
+          '▶ Explore 4 running              open  1m',
+          '▶ Explore 5 running              open  1m',
           '[ +10 more agents ]  [ +5 ended ]',
           '',
           '[ Add a task ][Add]',
@@ -707,7 +817,7 @@ describe(FOLD_CRITERION, () => {
         const lines = await screen(ui, 41)
         expect(lines.filter((line) => line.startsWith('▶ Expl'))).toHaveLength(15)
         expect(lines.slice(-4)).toEqual([
-          '▶ Expl…e 15 running                    1m',
+          '▶ Expl…e 15 running              open  1m',
           '[ hide 10 more agents ]  [ +5 ended ]',
           '',
           '[ Add a task ][Add]',
@@ -716,7 +826,7 @@ describe(FOLD_CRITERION, () => {
         await ui.unmount()
         const narrow = await mountTab($, surface, 'dock', 30)
         expect((await screen(narrow, 30)).slice(-5)).toEqual([
-          '▶ Explore 5 running         1m',
+          '▶ Explore 5 running   open  1m',
           '[ +10 more agents ]',
           '[ +5 ended ]',
           '',
@@ -779,7 +889,7 @@ describe(UNLISTED_CRITERION, () => {
         await ui.press({ key: 'group:ended-agents' })
         expect(agentLines(await screen(ui, 41))).toEqual([
           'Agents  1 · 2 not listed',
-          '▶ Explore   running   Bash cat a.ts    5m',
+          '▶ Explore   running   Bash cat … open  5m',
           '? f0000010  not listed ▸ AskUserQues…  0s',
           '[ hide 1 ended ]',
           '? f0000009  not listed Bash ls         0s',
@@ -836,12 +946,12 @@ describe(NAME_CRITERION, () => {
       }
       const ui = await mountTab($, surface, 'dock', 41)
       expect(agentLines(await screen(ui, 41)).slice(1, 7)).toEqual([
-        '▶ gene…pose running                    6s',
-        '▶ impl…nter running                    5s',
-        '▶ code…ewer running                    4s',
-        '▶ Explore   running                    3s',
-        '▶ Explore 2 running                    2s',
-        '▶ gene…se 2 running                    1s',
+        '▶ gene…pose running              open  6s',
+        '▶ impl…nter running              open  5s',
+        '▶ code…ewer running              open  4s',
+        '▶ Explore   running              open  3s',
+        '▶ Explore 2 running              open  2s',
+        '▶ gene…se 2 running              open  1s',
       ])
       await ui.unmount()
     })
@@ -856,7 +966,7 @@ describe(NAME_CRITERION, () => {
       await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
       seen.agents.push(listed('i1', 'Explore', 'running', { name: 'a\u2028b' }))
       const ui = await mountTab($, 'terminal', 'dock', 41)
-      expect(agentLines(await screen(ui, 41))[1]).toBe('▶ a\\u2028b  running                    0s')
+      expect(agentLines(await screen(ui, 41))[1]).toBe('▶ a\\u2028b  running              open  0s')
       expect(await ui.find({ type: 'Text', text: /\u2028/ })).toBeUndefined()
       await ui.unmount()
     },
@@ -902,7 +1012,7 @@ describe(ORIGIN_CRITERION, () => {
         const ui = await mountTab($, surface, 'dock', 41)
         expect(agentLines(await screen(ui, 41))).toEqual([
           'Agents  1',
-          '▶ Explore   running   Bash grep -rn …  0s',
+          '▶ Explore   running   Bash grep… open  0s',
           '',
         ])
         await ui.press({ key: 'open:agent:j1' })

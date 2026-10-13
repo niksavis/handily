@@ -73,6 +73,18 @@ function actor(ui: PaneUi): Act {
   }
 }
 
+function agentsOpener(ui: PaneUi): () => void {
+  return () => {
+    ui.openAgents().then(
+      () => undefined,
+      (error: unknown) => {
+        ui.log(`handily-board: the agents view did not open: ${String(error)}`)
+        ui.toast('handily-board: the agents view did not open; see the transcript log.')
+      },
+    )
+  }
+}
+
 function lineColor(tone: TrackerLine['tone']): 'error' | 'warning' | undefined {
   return tone === 'dim' ? undefined : tone
 }
@@ -691,7 +703,7 @@ export async function drawPane(
     children: [
       header,
       ...body,
-      ...drawAgents(elements, work.agents, layout, work.now),
+      ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),
       Text({ children: ' ' }),
       drawFooter(elements, host, act),
     ],
