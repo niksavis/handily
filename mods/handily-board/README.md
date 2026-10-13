@@ -1,4 +1,4 @@
-# board
+# handily-board
 
 `board` shows your work in one pane with two tabs. The `this session` tab shows the task list
 that Claude and you share. The `this machine` tab shows a card for each Claude Code session on
@@ -9,15 +9,10 @@ on the board.
 A default Claude Code session has no task tool of its own, so the mod owns the list. It does not
 read or write the built-in `Task*` tools.
 
-`board` replaces `task-pane`. The `/task` command is gone. Use `/board` and `/board list`.
+`board` replaces `task-pane`, `session-board` and `agent-board`. The `/task`, `/session-board`
+and `/agent-board` commands are gone. Use `/board` and `/board list`.
 
-## Install
-
-`handily-board` depends on `handily-workitems`. Claude Code installs it with the board:
-
-```text
-/plugin install handily-board --marketplace niksavis/handily
-```
+[docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
 
 ## Commands
 

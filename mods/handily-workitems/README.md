@@ -1,4 +1,4 @@
-# workitems
+# handily-workitems
 
 `workitems` is a provider mod. It reads the work items of the tracker at the session root and
 gives other mods one typed list. It draws nothing of its own.

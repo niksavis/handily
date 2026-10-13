@@ -178,8 +178,8 @@ Look choices (approved as proposed):
 
 ## 2. task-pane
 
-Replaced by the this session tab of section 8, `handily-board` (decision of the person, 2026-10-13,
-handily-fwkt.8.19). This section stays as the record of the task-pane design until handily-board ships.
+Historical. Replaced by the this session tab of section 8, `handily-board` (decision of the person,
+2026-10-13, handily-fwkt.8.19). handily 0.5.1 removed the plugin `handily-task-pane`.
 
 Commands come first; the Pane is optional (`/task pane`). The same list text is the command
 reply, so mobile (no `Input`) and a closed pane lose nothing.
@@ -360,8 +360,8 @@ Look choices (approved as proposed):
 
 ## 3. session-board
 
-Replaced by section 8, `handily-board` (decision of the person, 2026-10-13, handily-fwkt.8.19). The
-plugin is removed when handily-board ships.
+Historical. Replaced by section 8, `handily-board` (decision of the person, 2026-10-13,
+handily-fwkt.8.19). handily 0.5.1 removed the plugin `handily-session-board`.
 
 ## 4. item-toasts
 
@@ -428,8 +428,8 @@ Look choices (approved as proposed):
 
 ## 5. agent-board
 
-Replaced by section 8, `handily-board` (decision of the person, 2026-10-13, handily-fwkt.8.19). The
-plugin is removed when handily-board ships.
+Historical. Replaced by section 8, `handily-board` (decision of the person, 2026-10-13,
+handily-fwkt.8.19). handily 0.5.1 removed the plugin `handily-agent-board`.
 
 ## 6. simple-view (handily-v921)
 

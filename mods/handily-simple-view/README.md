@@ -1,4 +1,4 @@
-# simple-view
+# handily-simple-view
 
 `simple-view` draws one short row for each `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`
 call in the transcript.
@@ -19,14 +19,7 @@ prints one call in full. The model still reads the full tool result. Only the sc
 The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 `docs/design.md`, section 4.8.
 
-## Install
-
-`handily-simple-view` depends on `handily-quiet-items`, and `handily-quiet-items` depends on
-`handily-workitems`. Claude Code installs both with it:
-
-```text
-/plugin install handily-simple-view --marketplace niksavis/handily
-```
+[docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
 
 ## Rows
 

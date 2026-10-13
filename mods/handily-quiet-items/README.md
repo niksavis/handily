@@ -1,4 +1,4 @@
-# quiet-items
+# handily-quiet-items
 
 `quiet-items` draws one short row in place of each tracker write in the transcript. The model
 still reads the full tool result. Only the screen changes.

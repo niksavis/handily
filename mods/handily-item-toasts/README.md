@@ -1,4 +1,4 @@
-# item-toasts
+# handily-item-toasts
 
 `item-toasts` shows a toast when a work item changes outside this session. Another session, a
 person at a shell or a sync can make that change. A change that a tool call of this session
