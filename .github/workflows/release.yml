@@ -1,5 +1,5 @@
 # Publishes a GitHub release for one mod when its tag <name>--v<version> is pushed.
-# Create the tag with `claude plugin tag mods/<name>`; CONTRIBUTING.md has the steps.
+# Create the tag with `claude plugin tag mods/<name>`; docs/maintaining.md has the steps.
 name: release
 
 "on":
