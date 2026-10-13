@@ -770,7 +770,7 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 │ ◆ api-login  interactive  needs you       │
 │   waits for: permission                   │
 │   ▶ Fix the login redirect ▰▰▱ 2/3        │
-│   api · feat/login · 2h elapsed           │
+│   api · feat/login · 2h worked            │
 │ ───────────────────────────────────────── │
 │ ▶ mocks  interactive  this  busy          │
 │   ▶ Write the tab mocks ▰▱▱▱ 1/4          │
@@ -903,7 +903,7 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │ ◆ api-login  interactive  needs you       │
 │   waits for: permission                   │
 │   ▶ Fix the login redirect ▰▰▱ 2/3        │
-│   api · feat/login · 2h elapsed           │
+│   api · feat/login · 2h worked            │
 │ ───────────────────────────────────────── │
 │ ▶ mocks  interactive  this  busy          │
 │   ▶ Write the tab mocks ▰▱▱▱ 1/4          │
