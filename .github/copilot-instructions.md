@@ -179,3 +179,9 @@ claude --plugin-dir mods/<name>
 - Commit the ledger before you dispatch a worktree lane for a new or reshaped record. An Agent isolation worktree forks from origin/main, not from the local HEAD. Start each lane with `git merge --ff-only main`, so its branch carries the ledger commit and its commit hooks accept the record id.
 - The Definition of Ready gate reads a `<word>` in an acceptance criterion as a placeholder and counts the criteria as absent. Write the thing by name, such as "the interpreter", not `<interpreter>`.
 - zsh has no `mapfile`. Read lines into an array with `arr=("${(@f)$(command)}")`, and check the count before you use the array.
+- A worktree lane has no `node_modules`, so `npm run check` and the pre-commit hook fail with "Cannot find module typescript/bin/tsc". Link `../../../node_modules` into the lane before the gates, and remove the link after the commit.
+- The commit-msg hook refuses `merge:` as a type. It also refuses an apostrophe in the description. Use `chore:` for a merge commit, and write the description without an apostrophe.
+- The Definition of Ready trigger parser ends the situation at the first "I want". So "When I want my list, I want to" reads as an empty situation. Write the situation without "I want". A `<word>` in a comment that the review cites also reads as a placeholder, so write the thing by name there too.
+- A new comment or dependency edge on a record makes its recorded review stale. The record then leaves the ready set. Record the review again after such an edit.
+- A session started with `--plugin-dir mods` writes `.claude-plugin/types` into a removed mod folder. Then `npm run check` fails with "a folder under mods/ is a mod". Delete the regenerated folder and run the check again.
+- `/reload-plugins` unloads an uninstalled plugin but keeps a disabled one loaded, as measured on Claude Code 2.1.296. To drop a mod from a running session, uninstall it before you reload.
