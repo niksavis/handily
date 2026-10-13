@@ -182,6 +182,9 @@ No agents yet.
   It does not send it.
 - When the warning holds and you submit a prompt, the mod adds one note for Claude beside the
   prompt, at most once per 20 tool calls.
+- Only a tool call that Claude Code raises for the model counts. A tool call that a plugin
+  raises does not count. An example is the `AskUserQuestion` call of the `workitems` approval
+  question.
 
 ## The this machine tab
 

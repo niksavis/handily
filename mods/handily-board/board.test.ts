@@ -3646,3 +3646,42 @@ describe('The this machine tab draws this session card from local state', () => 
     await ui.unmount()
   })
 })
+
+const askingPlugin: Plugin = {
+  name: 'asking-plugin',
+  register(on) {
+    on('command.run', { command: 'ask-now' }, async ($) => {
+      const answer = await $.ui
+        .ask('May the tracker run?', ['Not now', 'Allow'])
+        .catch((error: unknown) => `refused: ${String(error)}`)
+      return { text: answer }
+    })
+  },
+}
+
+describe('a tool call that another plugin raises, such as the workitems approval ask, is no work of Claude', () => {
+  test(
+    'the AskUserQuestion of $.ui.ask in another plugin draws no Now row and counts no tool call',
+    { plugins: [fakeWorkitems, askingPlugin] },
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.command.run({
+        command: 'ask-now',
+        args: '',
+        origin: { kind: 'composer' },
+        presentation: { isFullscreen: true, columns: 130 },
+      })
+      expect(await board($, '')).toBe('Board opened: this session.')
+      const ui = await mountPane($)
+      expect(await ui.find({ key: 'row:now' })).toBeUndefined()
+      expect((await screen(ui, WIDTH))[0]).toBe('Tasks  none in this session yet')
+      await ui.unmount()
+      await read($, 'docs/design.md')
+      const worked = await mountPane($)
+      expect((await screen(worked, WIDTH))[0]).toBe('Tasks  none kept by Claude')
+      expect(await worked.find({ type: 'Text', text: /AskUserQuestion/ })).toBeUndefined()
+      await worked.unmount()
+    },
+  )
+})

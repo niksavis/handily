@@ -74,6 +74,7 @@ const AGENT_IDS = { plugin: 'handily-board', key: 'agentIds' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
 const AGENT_ACTIVITY = { plugin: 'handily-board', key: 'agentActivity' } as const
 const REDRAW_INTERVAL_MS = 10_000
+const ENGINE_ORIGIN = 'engine'
 const ACTIVE_AGENT_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
   'pending',
   'running',
@@ -576,6 +577,7 @@ export const register: Register = (on, options) => {
       }
       return answer
     }
+    if (next.origin.plugin !== ENGINE_ORIGIN) return next(e)
     const sight = { tool: e.tool, target: toolTarget(e, await $.session.cwd()) }
     const { agentId } = e
     if (agentId === undefined) {
