@@ -1,0 +1,19 @@
+{
+  "name": "handily-board",
+  "version": "0.1.0",
+  "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows this session's card. /board opens it, and four model tools keep the list.",
+  "author": {
+    "name": "niksavis"
+  },
+  "dependencies": ["handily-workitems"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Board mode",
+      "description": "off: the board opens only on /board or /board machine. toggle: as off, and /board on a shown this session tab closes the board. always: the board opens when the session starts.",
+      "options": ["off", "toggle", "always"],
+      "default": "toggle"
+    }
+  }
+}
