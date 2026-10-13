@@ -261,11 +261,16 @@ function withStateSince(
   })
 }
 
+export function isFresh(cache: AgentsCache | undefined, now: number): boolean {
+  if (!cache) return false
+  const age = now - cache.at
+  return age >= 0 && age < POLL_INTERVAL_MS
+}
+
 export async function pollAgents(host: AgentsHost): Promise<AgentsCache> {
   const now = await host.now()
   const previous = readCache(await host.load())
-  const age = previous ? now - previous.at : -1
-  if (previous && age >= 0 && age < POLL_INTERVAL_MS) return previous
+  if (previous && isFresh(previous, now)) return previous
   const answered = await runAgents(host)
   const known = previous?.places ?? {}
   let cache: AgentsCache

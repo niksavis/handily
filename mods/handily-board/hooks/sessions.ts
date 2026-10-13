@@ -2,6 +2,7 @@ import type { AgentInfo, ProcessRunResult, RenderSurface, Timer } from 'claude-c
 import type { BoardList } from '../types'
 import {
   AGENTS_CACHE_KEY,
+  isFresh,
   POLL_INTERVAL_MS,
   pollAgents,
   readCache,
@@ -111,15 +112,17 @@ function pollOnce(host: SessionsHost, machine: Machine): Promise<void> {
   return running
 }
 
-function startPolling(host: SessionsHost, machine: Machine): void {
-  if (machine.poll) return
-  const tick = () => {
+function pollTick(host: SessionsHost, machine: Machine): () => void {
+  return () => {
     pollOnce(host, machine).catch((error: unknown) => {
       host.debug(`handily-board: the poll of claude agents failed: ${String(error)}`)
     })
   }
-  machine.poll = host.every(POLL_INTERVAL_MS, tick)
-  host.after(0, tick)
+}
+
+function startPolling(host: SessionsHost, machine: Machine): void {
+  if (machine.poll) return
+  machine.poll = host.every(POLL_INTERVAL_MS, pollTick(host, machine))
 }
 
 async function writeProgress(host: SessionsHost, change: ProgressChange, list?: BoardList) {
@@ -170,5 +173,6 @@ export async function readMachine(host: SessionsHost, machine: Machine): Promise
   }
   startPolling(host, machine)
   const cache = readCache(await host.storeGet(AGENTS_CACHE_KEY))
+  if (!isFresh(cache, now)) host.after(0, pollTick(host, machine))
   return { view: machineView({ now, own, cache, progress: await readAllProgress(host) }), now }
 }
