@@ -46,7 +46,7 @@
     {
       "name": "handily-workitems",
       "source": "./mods/handily-workitems",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "description": "Provider of one typed work item list over any tracker, for other handily mods."
     }
   ]

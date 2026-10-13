@@ -284,7 +284,7 @@ describe('detection', () => {
 
 describe('failures name the file', () => {
   test(
-    'does not read a tracker file over 4 MiB, and needs the br CLI in a terminal for it',
+    'does not read a tracker file over 4 MiB outside a terminal, which runs its reader',
     { plugins: [consumer] },
     async ($, on) => {
       const clock = mock.clock(on)
@@ -295,7 +295,7 @@ describe('failures name the file', () => {
       await startSession($)
       const snapshot = await snapshotOf($)
       expect(snapshot.state).toBe('terminal-only')
-      expect(snapshot.sourceLabel).toBe('beads (br)')
+      expect(snapshot.sourceLabel).toBe('beads')
       expect(snapshot.items).toEqual([])
       expect(world.reads).toEqual([])
     },

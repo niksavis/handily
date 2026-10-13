@@ -111,6 +111,8 @@ export const register: Register = (on) => {
           canRun: async () => canRunCommandsOn(await built.session.surfaces()),
           run: (argv, cwd, env) =>
             built.process.run(argv, env === undefined ? { cwd } : { cwd, env: { ...env } }),
+          spawn: (argv, cwd) => built.process.spawn({ argv, cwd }),
+          systemRoot: () => built.env.get('SystemRoot'),
           searchPath: async () => ({
             path: await built.env.get('PATH'),
             extensions: await built.env.get('PATHEXT'),

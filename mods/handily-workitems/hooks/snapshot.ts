@@ -1,4 +1,10 @@
-import type { FsEntry, ProcessRunResult } from 'claude-code'
+import type {
+  FsEntry,
+  HookStream,
+  ProcessRunResult,
+  ProcessSpawnChunk,
+  ProcessSpawnResult,
+} from 'claude-code'
 import type {
   WorkitemsDiff,
   WorkitemsFailedReason,
@@ -7,7 +13,13 @@ import type {
   WorkitemsRefreshResult,
   WorkitemsSnapshot,
 } from '../types'
-import { resolveProgram, sha256Hex, type Approvals, type SearchPath } from './approval'
+import {
+  programOutsideRoot,
+  resolveProgram,
+  sha256Hex,
+  type Approvals,
+  type SearchPath,
+} from './approval'
 import { FileProblem, FileTooLarge, isInside, isUnsafeCharacter } from './config'
 import { detect } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
@@ -15,6 +27,7 @@ import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
 export const MAX_FILE_BYTES = 4 * 1024 * 1024
 export const POLL_INTERVAL_MS = 2000
 export const DIFF_HISTORY_LIMIT = 50
+const ABSOLUTE_WINDOWS_FOLDER = /^[A-Za-z]:[\\/]/
 
 export type FileStat = {
   size: number
@@ -30,6 +43,8 @@ export type CommandHost = {
     cwd: string,
     env?: Readonly<Record<string, string>>,
   ) => Promise<ProcessRunResult>
+  spawn: (argv: readonly string[], cwd: string) => HookStream<ProcessSpawnChunk, ProcessSpawnResult>
+  systemRoot: () => Promise<string | undefined>
   searchPath: () => Promise<SearchPath>
   approvals: Approvals
 }
@@ -134,8 +149,36 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       throw new FileProblem(`~/${homeRelativePath} could not be read.`)
     }
   }
-  return {
+  async function readerArgv(path: string, relativePath: string): Promise<string[]> {
+    const { extensions } = await host.commands.searchPath()
+    if (extensions === undefined) return ['/bin/cat', path]
+    const systemRoot = await host.commands.systemRoot()
+    if (systemRoot === undefined || !ABSOLUTE_WINDOWS_FOLDER.test(systemRoot)) {
+      throw new FileProblem(
+        `SystemRoot names no absolute folder, so cmd.exe cannot type ${relativePath} and it could not be read.`,
+      )
+    }
+    const cmd = `${systemRoot.replace(/[\\/]+$/, '')}\\System32\\cmd.exe`
+    return [cmd, '/d', '/c', 'type', relativePath.replaceAll('/', '\\')]
+  }
+  async function* streamAt(relativePath: string): AsyncGenerator<string, void> {
+    const path = await confinedPath(relativePath)
+    const argv = await readerArgv(path, relativePath)
+    const reader = await programOutsideRoot(files, argv)
+    const pieces = host.commands.spawn([reader, ...argv.slice(1)], root)
+    for await (const piece of pieces) {
+      if (piece.stream === 'stdout') yield piece.text
+    }
+    const ended = await pieces.result
+    if (ended.code !== 0) {
+      throw new FileProblem(
+        `${argv[0] ?? ''} ended with ${ended.signal ?? `exit ${String(ended.code)}`} while reading ${relativePath}, so it could not be read.`,
+      )
+    }
+  }
+  const files: TrackerFiles = {
     root,
+    stream: streamAt,
     stat: statAt,
     hash: hashAt,
     readUserFile,
@@ -185,6 +228,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
       }
     },
   }
+  return files
 }
 
 type DiffRules = {

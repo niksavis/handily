@@ -243,7 +243,7 @@ Sources, in order of detection:
 | Tracker | Detect by | Read path |
 | --- | --- | --- |
 | basicly | `.basicly/ledger/template.json` | `basicly tracker items --json`, one call for every open status |
-| beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader; over 4 MiB, `br list --json --limit 0` after approval |
+| beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader; over 4 MiB, streamed through a fixed system reader with no approval |
 | beans | `.beans/**/<id>--<slug>.md` | Built-in front-matter reader |
 | Any other | Globs and a field map in `.handily.json` | Generic JSON, JSONL or front-matter reader |
 | Any other | An entry for the repo root in `~/.config/handily/adapters.json` | CLI adapter contract |
@@ -280,17 +280,15 @@ beads and br:
 - The reader skips a line whose `_type` is not `issue`. It skips a tombstone.
 - `bd` stores its data in Dolt. So `.beads/issues.jsonl` can be stale. Items from `bd` carry
   the label "possibly stale" (review decision 8).
-- Over 4 MiB the engine cannot read the file. The provider then runs `br list --json --limit 0`
-  from `PATH`, after approval. The key is the root, the argv and the resolved `argv[0]`, with no
-  repo file and no hash of `br`. On br 0.3.2 `br list` wrote its git-ignored `.beads` cache, not
-  `issues.jsonl`, and started no spied program from `PATH`. A program started by an absolute
-  path was not ruled out. A new `br` at the same path is not asked again. `br list` lists every
-  item that is not closed, so the outcome is open-only: a missing item reads as closed. A cut
-  output, a non-zero exit, bad JSON, `has_more` not `false` or a `total` that differs from the
-  count fails by name and shows no item. `br list` gives no `parent`, so a diff across the
-  switch ignores `parent`. The poll signature holds the resolved `br`, so installing or moving
-  it reads again. On Dolt (`bd`) a file over 4 MiB fails by name and runs nothing
-  (handily-vli6x).
+- Over 4 MiB the engine cannot read the file. The provider then streams it through
+  `$.process.spawn` with a fixed system reader: `/bin/cat <absolute path>` on Linux and macOS,
+  `%SystemRoot%\System32\cmd.exe /d /c type .beads\issues.jsonl` at the root on Windows. No
+  repo file can change the reader, so there is no approval and no `br` run. A reader whose real
+  path is inside the root fails by name. Lines are parsed as they arrive; a line whose only
+  `"status":` key is closed or tombstone is skipped before `JSON.parse`. Only items that are
+  not closed are kept, so the outcome is open-only: a missing item reads as closed. The poll
+  signature is the size and mtime, so an unchanged file is not read. On Dolt (`bd`) a file
+  over 4 MiB fails by name and runs nothing (handily-vli6x, handily-fwkt.2.4).
 
 beans:
 
@@ -302,7 +300,7 @@ beans:
 Limits and safety:
 
 - A file over 4 MiB makes the read fail, and the reason names it. The one exception is
-  `.beads/issues.jsonl`, which the provider then lists through `br`.
+  `.beads/issues.jsonl`, which the provider then streams.
 - `.handily.json` globs are confined to the root by `realPath`.
 - basicly needs approval (review decision 10). The provider never asks for approval when the
   session is not interactive (`!isInteractive`).

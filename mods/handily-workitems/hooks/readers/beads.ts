@@ -1,25 +1,12 @@
 import type { WorkitemsFailedReason, WorkitemsItem, WorkitemsStatus } from '../../types'
-import { quotedCommand } from '../approval'
 import { FileProblem, FileTooLarge } from '../config'
-import { MAX_FILE_BYTES } from '../snapshot'
 import { numeral } from '../states'
-import { CommandFault, runJson } from './adapter'
 import { checkedItem, ItemFault } from './generic'
 import type { ReadOutcome, Reader, TrackerFiles } from './index'
 
 const ISSUES_FILE = '.beads/issues.jsonl'
 const METADATA_FILE = '.beads/metadata.json'
 const SOURCE = 'beads'
-const BR_SOURCE_LABEL = 'beads (br)'
-const BR = 'br'
-const LIST_COMMAND = [BR, 'list', '--json', '--limit', '0'] as const
-const LIST_LABEL = 'br list'
-const BR_NOTE =
-  '(checked on br 0.3.2: br list writes the .beads cache beads.db and beads.base.jsonl, imports an edited issues.jsonl into beads.db and does not rewrite issues.jsonl. It started no git, sh, bash, python3, node, env, editor or vi from PATH. A program that it starts by an absolute path was not ruled out. Asked again if the command or the real path of br changes. A new br at the same path is not asked again)'
-const SEE_WHY =
-  'Run "br list --json --limit 0" at the repo root to see why the list could not be read.'
-const TOO_MANY_OPEN = 'Close some open items, because their list is over 4 MiB.'
-const BR_MISSING = `br is not on PATH. Install br to list the open items of ${ISSUES_FILE}, which is over 4 MiB.`
 const DOLT_TOO_LARGE = `br cannot list a bd tracker on Dolt. Make ${ISSUES_FILE} 4 MiB or less to read it, because the engine reads no file that is over 4 MiB.`
 const KNOWN_STATUSES: readonly WorkitemsStatus[] = [
   'open',
@@ -155,82 +142,60 @@ export function parseIssues(text: string): ReadOutcome {
   return { ok: true, items, sourceLabel: SOURCE, caveat: null }
 }
 
-function listedIssues(parsed: unknown): WorkitemsItem[] {
-  const issues = isRecord(parsed) ? parsed.issues : undefined
-  if (!isRecord(parsed) || !Array.isArray(issues)) {
-    throw new ItemFault(`${LIST_LABEL} printed no issues list, so it could not be read.`)
-  }
-  if (parsed.has_more !== false || typeof parsed.total !== 'number') {
-    throw new ItemFault(
-      `${LIST_LABEL} did not say that it printed every item, so it could not be read.`,
-    )
-  }
-  if (parsed.total !== issues.length) {
-    throw new ItemFault(
-      `${LIST_LABEL} printed ${numeral(issues.length)} of ${numeral(parsed.total)} items, so it could not be read.`,
-    )
-  }
+const STATUS_KEY = '"status":'
+const SKIPPED_STATUSES = ['"status":"closed"', `"status":"${TOMBSTONE}"`]
+
+export function isClosedLineText(raw: string): boolean {
+  const first = raw.indexOf(STATUS_KEY)
+  if (first === -1 || raw.indexOf(STATUS_KEY, first + 1) !== -1) return false
+  return SKIPPED_STATUSES.some((status) => raw.startsWith(status, first))
+}
+
+export type OpenIssues = { push: (text: string) => void; end: () => WorkitemsItem[] }
+
+export function openIssues(): OpenIssues {
   const items: WorkitemsItem[] = []
-  for (const [index, issue] of issues.entries()) {
-    const where = `${LIST_LABEL} item ${numeral(index + 1)}`
-    if (!isRecord(issue)) throw new ItemFault(`${where} is not an object, so it could not be read.`)
-    const item = issueAt(
-      issue,
-      where,
-      (field) => `${where} has an invalid ${field}, so it could not be read.`,
-    )
-    if (item) items.push(item)
+  let pending = ''
+  let lineNumber = 0
+  function take(raw: string): void {
+    lineNumber += 1
+    if (isClosedLineText(raw)) return
+    const trimmed = raw.trim()
+    if (trimmed === '') return
+    const where = `${ISSUES_FILE} line ${numeral(lineNumber)}` as const
+    const item = issueAt(parseJson(trimmed), where, () => `${where} is malformed.`)
+    if (item && item.status !== 'closed') items.push(item)
   }
-  return items
-}
-
-function approvalNeeded(): ReadOutcome {
   return {
-    ok: false,
-    state: 'approval-needed',
-    command: quotedCommand(LIST_COMMAND),
-    sourceLabel: BR_SOURCE_LABEL,
+    push: (text) => {
+      const lines = (pending + text).split('\n')
+      pending = lines.pop() ?? ''
+      for (const raw of lines) take(raw)
+    },
+    end: () => {
+      take(pending)
+      pending = ''
+      return items
+    },
   }
 }
 
-async function approvedBr(files: TrackerFiles): Promise<string | undefined> {
-  const verdict = await files.commands.approvals.check(files, {
-    command: LIST_COMMAND,
-    shown: LIST_COMMAND,
-    folders: [],
-    note: BR_NOTE,
-    ignoresFolders: () => Promise.resolve(false),
-  })
-  return verdict.approved ? verdict.argv0 : undefined
-}
-
-function reasonWithFix(fault: ItemFault): WorkitemsFailedReason {
-  if (fault instanceof CommandFault && fault.kind === 'exit') return fault.reason
-  if (fault instanceof CommandFault && fault.kind === 'cut') {
-    return `${fault.reason} ${TOO_MANY_OPEN}`
-  }
-  return `${fault.reason} ${SEE_WHY}`
-}
-
-async function listOpenThroughBr(files: TrackerFiles): Promise<ReadOutcome> {
+async function streamOpenIssues(files: TrackerFiles): Promise<ReadOutcome> {
   if (!(await files.commands.canRun())) {
-    return { ok: false, state: 'terminal-only', sourceLabel: BR_SOURCE_LABEL }
+    return { ok: false, state: 'terminal-only', sourceLabel: SOURCE }
   }
-  if ((await files.commands.which(BR)) === undefined) return { ok: false, reason: BR_MISSING }
-  const argv0 = await approvedBr(files)
-  if (argv0 === undefined) return approvalNeeded()
+  const parsed = openIssues()
   try {
-    const parsed = await runJson(files, LIST_LABEL, [argv0, ...LIST_COMMAND.slice(1)])
+    for await (const text of files.stream(ISSUES_FILE)) parsed.push(text)
     return {
       ok: true,
-      items: listedIssues(parsed),
-      sourceLabel: BR_SOURCE_LABEL,
+      items: parsed.end(),
+      sourceLabel: SOURCE,
       caveat: null,
       listsOpenOnly: true,
-      omitsParent: true,
     }
   } catch (error) {
-    if (error instanceof ItemFault) return { ok: false, reason: reasonWithFix(error) }
+    if (error instanceof ItemFault) return { ok: false, reason: error.reason }
     throw error
   }
 }
@@ -244,7 +209,7 @@ async function isOnDolt(files: TrackerFiles): Promise<boolean> {
 
 async function readLargeBeads(files: TrackerFiles): Promise<ReadOutcome> {
   if (await isOnDolt(files)) return { ok: false, reason: DOLT_TOO_LARGE }
-  return listOpenThroughBr(files)
+  return streamOpenIssues(files)
 }
 
 async function readBeads(files: TrackerFiles): Promise<ReadOutcome> {
@@ -270,10 +235,7 @@ async function readBeads(files: TrackerFiles): Promise<ReadOutcome> {
 
 async function beadsSignature(files: TrackerFiles): Promise<string> {
   const { size, mtimeMs } = await files.stat(ISSUES_FILE)
-  const stamp = [String(mtimeMs), String(size)]
-  if (size <= MAX_FILE_BYTES) return stamp.join('\n')
-  const br = (await files.commands.which(BR)) ?? 'br not on PATH'
-  return [...stamp, br, String(files.commands.approvals.generation())].join('\n')
+  return [String(mtimeMs), String(size)].join('\n')
 }
 
 export const beadsReader: Reader = {
