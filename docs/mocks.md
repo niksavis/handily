@@ -966,8 +966,8 @@ A fenced block gets a title line from its tag and a copy button:
 
 - `[ copy ]` copies the text as markdown. `[ copy as text ]` copies a table as label and value
   lines for an email.
-- A click on `[ copy ]` was proven in normal mode on 2026-10-09 (handily-fwkt.8.1). Fullscreen
-  is not proven yet.
+- A click on `[ copy ]` was proven in normal mode on 2026-10-09 and in fullscreen mode on
+  2026-10-13 (handily-fwkt.8.1).
 - The model still reads the full text. Only the screen changes.
 
 ### 7.3 Decisions of the person (2026-10-09)
