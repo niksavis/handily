@@ -29,9 +29,12 @@ The bundle. One install of it installs and enables every other mod on this page.
 
 | Command | What it does |
 | --- | --- |
-| `/handily` | Prints one row for each mod, with its loaded version and its state. The last line counts the loaded mods |
+| `/handily` | Prints one line for each mod: its name, its version, its state, its mode and a short description. The last line counts the loaded mods and the mods that are off or paused |
 
-`/handily` takes no argument.
+`/handily` takes no argument. A mod that did not load gets a second line with the command that
+fixes it, such as `Run /plugin install handily-board@niksavis`. The mode is `on` or `off`,
+`polling` or `paused` for `handily-workitems`, `-` for a mod with no mode, and `?` when
+`/handily` cannot read it. The install id of the bundle is `handily@niksavis`.
 
 Settings: none.
 

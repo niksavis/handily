@@ -39,19 +39,51 @@ Type these two lines at the prompt of a Claude Code session:
 
 ```text
 /plugin marketplace add niksavis/handily
-/plugin install handily@handily
+/plugin install handily@niksavis
 ```
 
 1. The install line opens the details of the plugin. Select **Install**, then close the panel.
 2. Type `/reload-plugins`.
-3. Type `/handily`. It lists each mod and ends with `handily: 6 of 6 mods loaded`.
+3. Type `/handily`. It lists each mod and ends with `handily: 6 of 6 mods loaded, 0 off or paused`.
 
 To install from a shell, run these two lines, then start Claude Code:
 
 ```sh
 claude plugin marketplace add niksavis/handily
-claude plugin install handily@handily
+claude plugin install handily@niksavis
 ```
+
+The marketplace name is `niksavis`, so each install id ends with `@niksavis`. Did you install
+from the old marketplace `handily`? Then read
+[Move from the handily marketplace](docs/install.md#move-from-the-handily-marketplace).
+
+## Update
+
+In a Claude Code session, this line gets the new versions and updates each installed mod:
+
+```text
+/plugin marketplace update niksavis
+```
+
+In a shell, the marketplace update gets the new versions only. It does not update an installed
+mod. An update of the bundle does not update its mods either. So update each plugin by its id,
+in bash or zsh:
+
+```sh
+claude plugin marketplace update niksavis
+for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view; do claude plugin update "$p@niksavis"; done
+```
+
+After an update, type `/reload-plugins` in each open session, or restart Claude Code.
+[docs/install.md](docs/install.md#update) has the full steps.
+
+## Check the installed versions
+
+| Where | What to do |
+| --- | --- |
+| Claude Code session | Type `/handily`. It shows the version, the state and the mode of each mod |
+| Claude Code session | Type `/plugin` and open the **Installed** tab |
+| Shell | Run `claude plugin list` |
 
 ## Mods
 

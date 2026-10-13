@@ -30,7 +30,8 @@ In a shell, run:
 claude plugin marketplace add niksavis/handily
 ```
 
-The marketplace name is `handily`, so every plugin id ends with `@handily`. Each install line
+The marketplace name is `niksavis`, so every plugin id ends with `@niksavis`. The name comes
+from the file `.claude-plugin/marketplace.json`, not from the repository name. Each install line
 on this page also works without this step, when you add `--marketplace niksavis/handily` to it.
 The flag registers the marketplace first:
 
@@ -45,13 +46,13 @@ and enables each mod with it. [mods/handily/README.md](../mods/handily/README.md
 bundle and its `/handily` command.
 
 ```text
-/plugin install handily@handily
+/plugin install handily@niksavis
 ```
 
 In a shell:
 
 ```sh
-claude plugin install handily@handily
+claude plugin install handily@niksavis
 ```
 
 A session install line opens the details of the plugin. Select **Install**, then close the
@@ -63,30 +64,30 @@ Install a mod by its plugin id. Claude Code installs the mods that it needs with
 
 | Mod | Plugin id | Needs |
 | --- | --- | --- |
-| [handily-workitems](../mods/handily-workitems/README.md) | `handily-workitems@handily` | nothing |
-| [handily-quiet-items](../mods/handily-quiet-items/README.md) | `handily-quiet-items@handily` | `handily-workitems` |
-| [handily-item-toasts](../mods/handily-item-toasts/README.md) | `handily-item-toasts@handily` | `handily-workitems` |
-| [handily-simple-view](../mods/handily-simple-view/README.md) | `handily-simple-view@handily` | `handily-quiet-items`, and through it `handily-workitems` |
-| [handily-reply-view](../mods/handily-reply-view/README.md) | `handily-reply-view@handily` | nothing |
-| [handily-board](../mods/handily-board/README.md) | `handily-board@handily` | `handily-workitems` |
-| [handily](../mods/handily/README.md) | `handily@handily` | every mod above |
+| [handily-workitems](../mods/handily-workitems/README.md) | `handily-workitems@niksavis` | nothing |
+| [handily-quiet-items](../mods/handily-quiet-items/README.md) | `handily-quiet-items@niksavis` | `handily-workitems` |
+| [handily-item-toasts](../mods/handily-item-toasts/README.md) | `handily-item-toasts@niksavis` | `handily-workitems` |
+| [handily-simple-view](../mods/handily-simple-view/README.md) | `handily-simple-view@niksavis` | `handily-quiet-items`, and through it `handily-workitems` |
+| [handily-reply-view](../mods/handily-reply-view/README.md) | `handily-reply-view@niksavis` | nothing |
+| [handily-board](../mods/handily-board/README.md) | `handily-board@niksavis` | `handily-workitems` |
+| [handily](../mods/handily/README.md) | `handily@niksavis` | every mod above |
 
 For example, to install the board in a session, type:
 
 ```text
-/plugin install handily-board@handily
+/plugin install handily-board@niksavis
 ```
 
 To install several mods, run one install line for each mod. This example installs the board,
 the simple view and the reply view:
 
 ```sh
-claude plugin install handily-board@handily
-claude plugin install handily-simple-view@handily
-claude plugin install handily-reply-view@handily
+claude plugin install handily-board@niksavis
+claude plugin install handily-simple-view@niksavis
+claude plugin install handily-reply-view@niksavis
 ```
 
-You can also type `/plugin` in a session, open the `handily` marketplace and select the mods.
+You can also type `/plugin` in a session, open the `niksavis` marketplace and select the mods.
 
 Each mod has a plugin name that starts with `handily-`. Its slash commands keep their short
 names, such as `/board` and `/simple`. Each command description in the menu starts with
@@ -94,37 +95,68 @@ names, such as `/board` and `/simple`. Each command description in the menu star
 
 ## Update
 
-First update the marketplace. Claude Code then knows the new versions.
+In a Claude Code session, update the marketplace. In a session this line does two things. It
+gets the new versions, and it updates each plugin that you installed from the marketplace:
 
 ```text
-/plugin marketplace update handily
+/plugin marketplace update niksavis
 ```
 
-In a shell:
+To update one plugin in a session, type `/plugin`, open the **Installed** tab, select the
+plugin and select **Update now**.
+
+In a shell, the marketplace update only gets the new versions. It does not update an installed
+plugin:
 
 ```sh
-claude plugin marketplace update handily
+claude plugin marketplace update niksavis
 ```
 
-Then update each mod that you installed. `claude plugin update` takes one plugin. An update of
-the bundle does not update a mod that is already installed, so update each mod:
+Then update each plugin that you installed. `claude plugin update` takes one plugin. An update
+of the bundle does not update a mod that is already installed, so update each mod:
 
 ```sh
-claude plugin update handily-board@handily
+claude plugin update handily-board@niksavis
 ```
 
 To update the bundle and every mod, run this line in bash or zsh. A mod that came into the
 bundle after your install fails its update with `Plugin "<name>" is not installed`. The line
-then installs that mod by its name. You can run the line again with no harm.
+then installs that mod by its name.
 
 ```sh
-claude plugin marketplace update handily; for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
+claude plugin marketplace update niksavis; for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view; do claude plugin update "$p@niksavis" || claude plugin install "$p@niksavis"; done
 ```
 
 After an update, type `/reload-plugins` in each open session, or restart Claude Code.
 
-An update keeps the folder of the old version in `~/.claude/plugins/cache/handily/`. Claude
+An update keeps the folder of the old version in `~/.claude/plugins/cache/niksavis/`. Claude
 Code loads only the version that `claude plugin list` shows.
+
+### Commands that you can run again
+
+These shell commands exit with 0 and change nothing when you run them a second time. This was
+measured with Claude Code 2.1.296, with the marketplace added from a local folder:
+
+| Command | Output of the second run |
+| --- | --- |
+| `claude plugin marketplace add <source>` | `Marketplace 'niksavis' already on disk` |
+| `claude plugin install handily@niksavis` | `Plugin "handily@niksavis" is already installed` |
+| `claude plugin marketplace update niksavis` | `Successfully updated marketplace: niksavis` |
+
+These commands fail with exit code 1 when you run them a second time:
+
+| Command | Output of the second run |
+| --- | --- |
+| `claude plugin uninstall <id>` | `Plugin "<id>" not found in installed plugins` |
+| `claude plugin marketplace remove handily` | `Marketplace 'handily' not found` |
+
+## Check the installed versions
+
+| Where | What to do |
+| --- | --- |
+| Claude Code session | Type `/handily`. It shows the version, the state and the mode of each mod |
+| Claude Code session | Type `/plugin` and open the **Installed** tab |
+| Shell | Run `claude plugin list` |
 
 ## Disable and uninstall
 
@@ -135,7 +167,7 @@ a mod while the bundle is enabled, so disable the bundle first.
 To uninstall one mod, use its plugin id:
 
 ```text
-/plugin uninstall handily-reply-view@handily
+/plugin uninstall handily-reply-view@niksavis
 ```
 
 To remove the bundle, type the first line in Claude Code and run the second line in a shell.
@@ -144,69 +176,78 @@ Code installed only for the bundle. A mod that you installed by its own plugin i
 you uninstall it by that id.
 
 ```text
-/plugin uninstall handily@handily
+/plugin uninstall handily@niksavis
 claude plugin prune
 ```
 
 To remove the marketplace:
 
 ```sh
-claude plugin marketplace remove handily
+claude plugin marketplace remove niksavis
 ```
 
 ## Codex
 
 Codex reads the file `.agents/plugins/marketplace.json` of this repository first. That file
-lists no plugins, so Codex offers none of the mods. If you installed a handily mod in Codex
-before that file existed, remove it with `codex plugin remove <name>@handily`.
+lists no plugins, so Codex offers none of the mods. Its marketplace name is `niksavis`. If you
+installed a handily mod in Codex before that file existed, remove it with
+`codex plugin remove <name>@handily`.
 
-## Move from the old plugin names
+## Move from the handily marketplace
 
-An update does not remove an old plugin. Use the section below that names your old plugins.
-Then type `/handily`. It names each old plugin that is still installed, with its scope, and
-prints the command that uninstalls it. [CHANGELOG.md](../CHANGELOG.md) lists every old name and
-its new name.
+Before handily 0.6.0 the marketplace name was `handily`, and the install id of the bundle was
+`handily@handily`. A plugin from that marketplace does not change to `@niksavis` by itself.
+Keep only one of the two ids installed.
 
-### From handily-task-pane, handily-agent-board and handily-session-board
+To move, do these steps in a shell. Skip a line for a plugin that you did not install.
 
-handily 0.5.1 removes `handily-task-pane`, `handily-agent-board` and `handily-session-board`.
-`handily-board` replaces them. `/task`, `/agent-board` and `/session-board` are gone, and
-`/board` replaces them.
+1. Uninstall each plugin from the old marketplace. Start with the bundle and end with
+   `handily-workitems`, because the other mods need it:
 
-To move, run this line in bash or zsh, then type `/reload-plugins` in each open session. The
-line updates the marketplace, installs `handily-board`, uninstalls the three old plugins and
-updates the bundle. A command for a plugin that you did not install fails for that plugin only.
+   ```sh
+   claude plugin uninstall handily@handily
+   claude plugin uninstall handily-board@handily
+   claude plugin uninstall handily-item-toasts@handily
+   claude plugin uninstall handily-simple-view@handily
+   claude plugin uninstall handily-quiet-items@handily
+   claude plugin uninstall handily-reply-view@handily
+   claude plugin uninstall handily-workitems@handily
+   ```
 
-```sh
-claude plugin marketplace update handily; claude plugin install handily-board@handily; for p in handily-task-pane handily-agent-board handily-session-board; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
-```
+2. Remove the old marketplace. This also uninstalls each plugin from it that is still installed
+   in the user scope. This was measured with Claude Code 2.1.296:
 
-### From the names before handily 0.4.0
+   ```sh
+   claude plugin marketplace remove handily
+   ```
 
-Before handily 0.4.0 the mods had plugin names without `handily-`, such as `workitems@handily`.
-An update does not move an old name to the new one. Claude Code keeps the old plugin installed
-and does not install the new one. When both are installed, the two copies collide. Claude Code
-refuses the commands of one copy, and `handily-workitems` does not load beside `workitems`.
+3. Add the marketplace again under its new name, and install the bundle:
 
-To move, run this line in bash or zsh, then type `/reload-plugins` in each open session. The
-line updates the marketplace, installs each new name and uninstalls each old name. A command
-for a plugin that you did not install fails for that plugin only.
+   ```sh
+   claude plugin marketplace add niksavis/handily
+   claude plugin install handily@niksavis
+   ```
 
-```sh
-claude plugin marketplace update handily; for p in workitems quiet-items board item-toasts simple-view reply-view; do claude plugin install "handily-$p@handily"; done; for p in reply-view simple-view agent-board item-toasts session-board task-pane quiet-items workitems; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
-```
+4. Type `/reload-plugins` in each open session, or restart Claude Code.
+
+5. Type `/handily`. It names each plugin id from the marketplace `handily` that a scope still
+   holds, such as the project settings. Under each id it prints the command that uninstalls it,
+   and then the command that removes the marketplace.
+
+[CHANGELOG.md](../CHANGELOG.md) lists every old plugin name and its new name.
 
 ## Troubleshooting
 
-Type `/handily` in a session. It lists each mod of the bundle with its version and whether it
-loaded. It ends with one line such as `handily: 6 of 6 mods loaded`.
+Type `/handily` in a session. It lists each mod of the bundle with its version, its state and
+its mode. It ends with one line such as `handily: 6 of 6 mods loaded, 0 off or paused`.
 
 | The list says | Do this |
 | --- | --- |
 | `not installed` | Run the `/plugin install` line that the list gives |
 | `disabled` | Run the `/plugin enable` line that the list gives |
-| `enabled, but it did not load` | Run `claude --debug` to see why |
+| `not loaded` | Run `claude --debug` to see why |
 | `old id of` a mod | Run the `claude plugin uninstall` line that the list gives |
+| `old marketplace of these ids` | Run the `claude plugin marketplace remove handily` line that the list gives |
 
 Then type `/reload-plugins`. [mods/handily/README.md](../mods/handily/README.md) describes the
 list in full.
