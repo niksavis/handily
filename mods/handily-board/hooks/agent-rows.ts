@@ -24,6 +24,7 @@ const PLAN_FOLD_ABOVE = 5
 const PLAN_SIDE = 2
 const FOLD_GAP = 2
 const BUTTON_CHROME = 4
+const OPEN_LABEL = 'open'
 const MAIN_LOOP = 'main'
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
   mark: string
@@ -124,6 +125,7 @@ function agentLine(
   row: AgentRow,
   name: string,
   layout: RowLayout,
+  openAgents: () => void,
 ): RenderElement {
   const { Box, Text, Button } = elements
   const look = LOOKS[row.look]
@@ -133,11 +135,13 @@ function agentLine(
   const stateWidth = Math.max(columns, displayWidth(state.text)) + NAME_GAP
   const time = elapsedText(row.ageMs)
   const timeWidth = NAME_GAP + Math.max(TIME_COLUMNS, displayWidth(time))
+  const hasToolColumn = elements.isInline || elements.bodyColumns >= TOOL_COLUMN_FROM
+  const isOpenable = row.look === 'running'
+  const openWidth = isOpenable ? displayWidth(OPEN_LABEL) + (hasToolColumn ? NAME_GAP : 0) : 0
   const detailWidth = Math.max(
-    elements.bodyColumns - MARK_COLUMNS - nameWidth - stateWidth - timeWidth,
+    elements.bodyColumns - MARK_COLUMNS - nameWidth - stateWidth - openWidth - timeWidth,
     0,
   )
-  const hasToolColumn = elements.isInline || elements.bodyColumns >= TOOL_COLUMN_FROM
   const detail = hasToolColumn ? fitted(detailText(row, elements.isInline), detailWidth) : ''
   return Box({
     key: `row:agent:${row.id}`,
@@ -162,6 +166,21 @@ function agentLine(
         flexShrink: 1,
         children: [Text({ dimColor: true, children: detail })],
       }),
+      isOpenable
+        ? Box({
+            flexShrink: 0,
+            marginLeft: openWidth - displayWidth(OPEN_LABEL),
+            children: [
+              Button({
+                key: `tasks:agent:${row.id}`,
+                label: OPEN_LABEL,
+                plain: true,
+                dimColor: true,
+                onPress: openAgents,
+              }),
+            ],
+          })
+        : null,
       fixedBox(elements, timeWidth, Text({ dimColor: true, children: time.padStart(timeWidth) })),
     ],
   })
@@ -268,9 +287,10 @@ function drawAgent(
   names: ReadonlyMap<string, string>,
   layout: RowLayout,
   now: number,
+  openAgents: () => void,
 ): RenderElement {
   const name = names.get(row.id) ?? escaped(row.label)
-  const head = agentLine(elements, row, name, layout)
+  const head = agentLine(elements, row, name, layout, openAgents)
   const failure =
     row.look === 'failed' && !elements.isInline
       ? line(elements, failureText(row), { dimColor: true })
@@ -368,11 +388,12 @@ export function drawAgents(
   rows: readonly AgentRow[],
   layout: RowLayout,
   now: number,
+  openAgents: () => void,
 ): RenderElement[] {
   const { Box, Text } = elements
   if (rows.length === 0) return []
   const names = shownNames(rows)
-  const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now)
+  const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now, openAgents)
   const active = rows.filter((row) => !row.isEnded)
   const ended = rows.filter((row) => row.isEnded)
   const hidden = active.length - AGENT_ROWS_AT_MOST

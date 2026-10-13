@@ -739,6 +739,10 @@ Measured facts (tmux, Claude Code 2.1.296):
   `Explore`, `Explore 2`; `gene…se 2`.
 - Agent row (41): mark, name 9, state 9, detail 15, time 3. A running agent is one line. An agent
   that needs you or failed gets a second line: what it waits for, or what failed.
+- A running agent row has an `open` button before the time (handily-fwkt.8.22). It takes 5 columns
+  of the detail, and at 30 columns the place of the tool column. A press runs `/tasks`: Claude
+  Code opens its background view, the agent's detail view with one running agent and the list
+  with more. On hold, pending, idle, failed and ended agents have no button.
 - Attention first, everywhere: needs you, then failed, then doing, to do, done. A fold that hides an
   agent that needs you says so: `[ +2 ended ]` never hides one (an ended agent cannot wait);
   `[ +2 more agents · 1 needs you ]`, `[ 6 agents · 1 needs you ]`.
@@ -771,7 +775,7 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 │ Agents  3 · 1 failed                      │
 │ ■ lane-b    failed                     4m │
 │     failed after Bash npm test            │
-│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ ▶ Explore   plan 2/7  ▸ Grep ho… open  1m │
 │ ▶ scout     on hold   ▸ Agent          2m │
 │ [ +2 ended ]                              │
 │                                           │
@@ -827,7 +831,7 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 │     waits for: permission · Bash npm t…   │  8.10
 │ ■ lane-b    failed                     4m │
 │     failed after Bash npm test            │
-│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ ▶ Explore   plan 2/7  ▸ Grep ho… open  1m │
 │ [ +2 ended ]                              │
 │                                           │
 │ [ Add a task ____________ ][Add]          │
@@ -837,7 +841,7 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 #### 8.2b The Explore row pressed open (no field repeats the row)
 
 ```text
-│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ ▶ Explore   plan 2/7  ▸ Grep ho… open  1m │
 │     find the element table                │
 │     under scout · spawned 1m ago          │
 │     7 tool calls                          │
@@ -860,7 +864,7 @@ waits-for line is already on the row.
 │ ◆ scout     needs you                  2m │
 │     waits for: permission · Bash npm t…   │
 │ ? f0000010 not listed ▸ AskUserQ…      0s │
-│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ ▶ Explore   plan 2/7  ▸ Grep ho… open  1m │
 │ [ hide 2 ended ]                          │
 │ ✓ Plan      done      Read src/app.ts 30s │
 │ ? f0000009 not listed AskUserQuestion  5m │
@@ -899,9 +903,9 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │     waits for: an answer                  │  8.10
 │ ■ lane-b    failed                     4m │
 │     failed after Bash npm test            │
-│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
-│ ▶ Explore 2 running   ▸ Read a.ts      1m │
-│ ▶ impl…nter plan 0/3  ▸ Edit b.ts      9s │
+│ ▶ Explore   plan 2/7  ▸ Grep ho… open  1m │
+│ ▶ Explore 2 running   ▸ Read a.… open  1m │
+│ ▶ impl…nter plan 0/3  ▸ Edit b.… open  9s │
 │ [ +10 more agents ]  [ +5 ended ]         │
 │                                           │
 │ [ Add a task ____________ ][Add]          │
@@ -974,7 +978,7 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │     waits for: permission ·…   │
 │ ■ lane-b    failed          4m │
 │     failed after Bash npm t…   │
-│ ▶ Explore   plan 2/7        1m │
+│ ▶ Explore   plan 2/7  open  1m │
 │ [ +2 ended ]                   │
 │                                │
 │ [ Add a task ___ ][Add]        │
@@ -1017,7 +1021,7 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │ Agents  3 · 1 needs you · 1 failed                                           │  8.10
 │ ◆ scout      needs you  waits for: permission · Bash npm test             2m │  8.10
 │ ■ lane-b     failed     failed after Bash npm test                        4m │
-│ ▶ Explore    plan 2/7   ▸ Grep hooks/                                     1m │
+│ ▶ Explore    plan 2/7   ▸ Grep hooks/                               open  1m │
 │ [ +2 ended ]                                                                 │
 │ [ Add a task ______________________________ ][Add]                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯

@@ -2538,7 +2538,7 @@ describe('the pane follows the work', () => {
         '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                         1 tool · 0s',
       ])
       expect(lines.filter((line) => line.startsWith('▶ a'))).toEqual([
-        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                              0s',
+        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                        open  0s',
       ])
       expect(await ui.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
       await ui.unmount()

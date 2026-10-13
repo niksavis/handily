@@ -155,7 +155,7 @@ The subagents of this session follow the tasks. A capture from the tests, docked
 Agents  3 · 1 failed
 ■ lane-b    failed                     4m
     failed after Bash npm test
-▶ Explore   plan 2/7  ▸ Read pane.tsx  1m
+▶ Explore   plan 2/7  ▸ Read pa… open  1m
 ▶ scout     on hold   ▸ Agent find t…  2m
 [ +2 ended ]
 ```
@@ -186,6 +186,12 @@ Agents  3 · 1 failed
 - Order: failed first, then running, on hold, pending and idle, each in spawn order. Ended
   agents fold into `+N ended`. At most 6 active agents show. The rest fold into
   `+N more agents`, so the Add input stays on screen.
+- A running agent row has an `open` button before the time. A press runs `/tasks`, which opens
+  Claude Code's view of the background agents: with one running agent its detail view, with more
+  the list, where you pick the agent. Claude Code has no way for a plugin to pick the agent. An
+  agent that is on hold, pending, idle, failed or ended has no button. When Claude Code refuses
+  the run, the board logs why and says so in a toast. At 30 columns the button takes the place
+  of the tool column: `▶ Explore   plan 2/7  open  1m`.
 - Press an agent name to open it. The opened row shows the task description, the parent and the
   spawn age (`under scout · spawned 1m ago`), the count of finished tool calls and the task list
   of the agent. A list of more than 5 tasks shows the task in progress with 2 tasks before and

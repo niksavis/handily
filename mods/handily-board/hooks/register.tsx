@@ -385,6 +385,9 @@ function uiOf($: EngineInterface): PaneUi {
       )
       return { isFilled: filled.isFilled, refusal: filled.refusal }
     },
+    openAgents: async () => {
+      await $.command.run({ command: 'tasks' })
+    },
     toast: (text) => {
       $.ui.toast(text)
     },
