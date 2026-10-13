@@ -34,13 +34,13 @@
     {
       "name": "handily-reply-view",
       "source": "./mods/handily-reply-view",
-      "version": "0.5.1",
+      "version": "0.5.3",
       "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
     {
       "name": "handily-simple-view",
       "source": "./mods/handily-simple-view",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "description": "One short row for each Bash, Edit, Write, Read, Grep and Glob call, with buttons to open and copy its output, /simple to switch it and /simple show to print a call in full."
     },
     {

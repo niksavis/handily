@@ -633,14 +633,17 @@ A tool call stays one row, as in simple-view, and gets two buttons:
 ● Run the unit tests  ~npm~  +exit 0+  ~140 lines~  ~3.0s~        [ more ] [ copy ]
 ```
 
-After `[ more ]`, the output opens under the row, at most 20 lines:
+After `[ more ]`, the output opens under the row, at most 20 lines, between two dim divider
+lines (handily-fwkt.16). `[ less ]` folds it and removes both lines:
 
 ```text
 ● Run the unit tests  ~npm~  +exit 0+  ~140 lines~  ~3.0s~        [ less ] [ copy ]
+  ~────────────────────────────────────────────────────────────────~
   ~ 38 pass~
   ~  0 fail~
   ~…~
   [ all 140 lines ]
+  ~────────────────────────────────────────────────────────────────~
 ```
 
 A long reply folds after 30 lines:
@@ -648,7 +651,19 @@ A long reply folds after 30 lines:
 ```text
 ● The release is done. task-pane 0.3.0 and agent-board 0.2.0 are
   published, and every gate passed.
-  ~… 42 more lines~                                                [ more ] [ copy ]
+  ~… 42 more lines~                                          [ more ] [ copy reply ]
+```
+
+After `[ more ]`, the whole reply opens between two dim divider lines, and `[ less ]` folds it
+and removes both lines (handily-fwkt.16):
+
+```text
+● ~────────────────────────────────────────────────────────────────────────────~
+  The release is done. task-pane 0.3.0 and agent-board 0.2.0 are
+  published, and every gate passed.
+  …
+  ~────────────────────────────────────────────────────────────────────────────~
+                                                             [ less ] [ copy reply ]
 ```
 
 A table loses its box lines and keeps aligned columns. The header is bold:
@@ -676,6 +691,9 @@ A fenced block gets a title line from its tag and a copy button:
   2. Ask the person
 ```
 
+- `[ copy reply ]` copies the whole reply as markdown, and its label differs from the `[ copy ]`
+  of a code block above it (handily-fwkt.15). A toast names the copied part and its line count:
+  `Copied the plan block (2 lines).`
 - `[ copy ]` copies the text as markdown. `[ copy as text ]` copies a table as label and value
   lines for an email.
 - A click on `[ copy ]` was proven in normal mode on 2026-10-09 and in fullscreen mode on

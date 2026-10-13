@@ -251,6 +251,8 @@ function edges(left: string, right: string, columns = COLUMNS): string {
   return left + ' '.repeat(columns - cellsIn(left) - cellsIn(right)) + right
 }
 
+const DIVIDER = `~${'─'.repeat(COLUMNS - 2)}~`
+
 const LONG_REPLY = Array.from({ length: 54 }, (_, index) => `Line ${String(index + 1)}`).join('\n')
 
 function shownLines(from: number, to: number): string[] {
@@ -328,12 +330,12 @@ describe('long reply', () => {
           expect(folded).toEqual([
             '● Line 1',
             ...shownLines(2, 30),
-            edges('  ~… 24 more lines~', '[ more ] [ copy ]'),
+            edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'),
           ])
         } else {
           expect(folded).toEqual([
             ...shownLines(1, 30).map((line) => line.trim()),
-            edges('~… 24 more lines~', '[ more ] [ copy ]'),
+            edges('~… 24 more lines~', '[ more ] [ copy reply ]'),
           ])
         }
         await ui.unmount()
@@ -341,24 +343,68 @@ describe('long reply', () => {
     )
   }
 
-  viewTest('more shows the whole reply and less folds it again', async (_world, $) => {
-    const ui = await mountReply($, reply(LONG_REPLY))
-    await ui.press({ key: 'fold' })
-    expect(await sketchOf(ui)).toEqual([
-      '● Line 1',
-      ...shownLines(2, 54),
-      edges('', '[ less ] [ copy ]'),
-    ])
-    await ui.press({ key: 'fold' })
-    expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
-    await ui.unmount()
-  })
+  viewTest(
+    'more shows the whole reply between two dim divider lines and less folds it again without them',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(LONG_REPLY))
+      await ui.press({ key: 'fold' })
+      expect(await sketchOf(ui)).toEqual([
+        `● ${DIVIDER}`,
+        '  Line 1',
+        ...shownLines(2, 54),
+        `  ${DIVIDER}`,
+        edges('', '[ less ] [ copy reply ]'),
+      ])
+      await ui.press({ key: 'fold' })
+      const folded = await sketchOf(ui)
+      expect(folded[0]).toBe('● Line 1')
+      expect(folded.some((line) => line.includes(DIVIDER))).toBe(false)
+      expect(await ui.find({ key: 'opened-top' })).toBeUndefined()
+      expect(await ui.find({ key: 'opened-bottom' })).toBeUndefined()
+      expect(folded.at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'))
+      await ui.unmount()
+    },
+  )
 
   viewTest('copy copies the whole reply as markdown', async (world, $) => {
     const ui = await mountReply($, reply(LONG_REPLY))
     await ui.press({ key: 'copy-reply' })
     expect(world.copies).toEqual([LONG_REPLY])
-    expect(world.toasts).toEqual(['Copied the reply as markdown.'])
+    expect(world.toasts).toEqual(['Copied the reply as markdown (54 lines).'])
+    await ui.unmount()
+  })
+
+  viewTest(
+    'a reply that ends with a code block names the reply on its copy button and each toast names its part',
+    async (world, $) => {
+      const kickoff = ['Run this to start:', '', '```sh', 'npm ci', 'npm test', '```']
+      const text = [LONG_REPLY, '', ...kickoff].join('\n')
+      const ui = await mountReply($, reply(text))
+      await ui.press({ key: 'fold' })
+      const drawn = await sketchOf(ui)
+      expect(drawn.slice(-5)).toEqual([
+        `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+        '  npm ci',
+        '  npm test',
+        `  ${DIVIDER}`,
+        edges('', '[ less ] [ copy reply ]'),
+      ])
+      await ui.press({ key: 'block-1-copy' })
+      await ui.press({ key: 'copy-reply' })
+      expect(world.copies).toEqual(['npm ci\nnpm test', text])
+      expect(world.toasts).toEqual([
+        'Copied the sh block (2 lines).',
+        'Copied the reply as markdown (61 lines).',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest('the hidden count cuts at the end on a narrow screen', async (_world, $) => {
+    const ui = await mountReply($, reply(LONG_REPLY), 'terminal', 40)
+    expect((await ui.find({ type: 'Text', text: '… 24 more lines' }))?.props.wrap).toBe(
+      'truncate-end',
+    )
     await ui.unmount()
   })
 
@@ -394,7 +440,7 @@ describe('long reply', () => {
       expect(cut).toMatch(/^ {2}word0 word1( word\d+)* word\d+…$/)
       expect(cut.length - 2).toBeLessThanOrEqual(2 * (COLUMNS - 2))
       expect(long.startsWith(cut.slice(2, -1))).toBe(true)
-      expect(folded[9]).toBe(edges('  ~… 11 more lines~', '[ more ] [ copy ]'))
+      expect(folded[9]).toBe(edges('  ~… 11 more lines~', '[ more ] [ copy reply ]'))
       await ui.unmount()
     },
   )
@@ -408,8 +454,8 @@ describe('long reply', () => {
       await ui.redraw(reply(LONG_REPLY))
       const later = await sketchOf(ui)
       expect(later.slice(0, 30)).toEqual(early.slice(0, 30))
-      expect(early.at(-1)).toBe(edges('  ~… 10 more lines~', '[ more ] [ copy ]'))
-      expect(later.at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
+      expect(early.at(-1)).toBe(edges('  ~… 10 more lines~', '[ more ] [ copy reply ]'))
+      expect(later.at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'))
       await ui.unmount()
     },
   )
@@ -429,7 +475,7 @@ describe('long reply', () => {
   viewTest('shows hidden characters in the reply as escapes', async (_world, $) => {
     const ui = await mountReply($, reply(`${LONG_REPLY}\u200b\u0007`))
     await ui.press({ key: 'fold' })
-    expect((await sketchOf(ui)).at(-2)).toBe('  Line 54\\u200b\\u0007')
+    expect((await sketchOf(ui)).at(-3)).toBe('  Line 54\\u200b\\u0007')
     await ui.unmount()
   })
 })
@@ -706,7 +752,7 @@ describe('tables', () => {
         `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
         `  ${ruled('row 9 name  │ released │ follows the')}`,
         `  ${ruled('            │          │ work')}`,
-        edges('  ~… 7 more lines~', '[ more ] [ copy ]', 40),
+        '  ~… 7 more lines~  [ more ] [ copy reply ]',
       ])
       await ui.unmount()
     },
@@ -730,7 +776,10 @@ describe('tables', () => {
           'Next: click to expand',
         ].join('\n'),
       ])
-      expect(world.toasts).toEqual(['Copied the table as markdown.', 'Copied the table as text.'])
+      expect(world.toasts).toEqual([
+        'Copied the table as markdown (4 lines).',
+        'Copied the table as text (7 lines).',
+      ])
       await ui.unmount()
     },
   )
@@ -948,7 +997,7 @@ describe('fenced blocks', () => {
       expect((await ui.find({ type: 'Code' }))?.props.language).toBe('plan')
       await ui.press({ key: 'block-1-copy' })
       expect(world.copies).toEqual(['1. Write the mocks\n2. Ask the person'])
-      expect(world.toasts).toEqual(['Copied the plan block.'])
+      expect(world.toasts).toEqual(['Copied the plan block (2 lines).'])
       await ui.unmount()
     },
   )
@@ -1203,7 +1252,9 @@ describe('/replies', () => {
       expect(await commandText($)).toBe(
         'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
       )
-      expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy ]'))
+      expect((await sketchOf(ui)).at(-1)).toBe(
+        edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'),
+      )
       await ui.unmount()
       await table.unmount()
     },

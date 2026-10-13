@@ -7,7 +7,7 @@ type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 type CellStyle = Omit<Parameters<RowElements['Text']>[0], 'children'>
 type Cell = { text: string; style?: CellStyle; canShrink?: boolean; keptCells?: number }
 
-export type RowLook = { elements: RowElements; hasToolMarker: boolean }
+export type RowLook = { elements: RowElements; hasToolMarker: boolean; columns: number }
 
 export type BashState = { kind: 'pending' } | { kind: 'running' } | BashEnd
 

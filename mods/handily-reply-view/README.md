@@ -26,12 +26,29 @@ buttons at the right edge:
   - Step 1 of the release ran without a warning.
   …
   - Step 27 of the release ran without a warning.
-  … 15 more lines                                             [ more ] [ copy ]
+  … 15 more lines                                       [ more ] [ copy reply ]
 ```
 
-- `more` shows the whole reply, with `less` and `copy` under its last line. `less` folds it again.
-- `copy` copies the whole reply as markdown, as Claude wrote it. A toast says what it copied, or
-  why the copy failed.
+- `more` shows the whole reply between two dim divider lines, with `less` and `copy reply` under
+  the lower line. The lines show where the opened reply starts and ends, which is the text that
+  `copy reply` takes. `less` folds it again and removes both lines:
+
+```text
+● ──────────────────────────────────────────────────────────────────────────────
+  The release is done. task-pane 0.3.0 and agent-board 0.2.0 are published, and every gate passed.
+  …
+  - Step 42 of the release ran without a warning.
+  ──────────────────────────────────────────────────────────────────────────────
+                                                        [ less ] [ copy reply ]
+```
+
+- `copy reply` copies the whole reply as markdown, as Claude wrote it. Its label differs from the
+  `copy` button of a code block, so a reply that ends with a code block shows which button takes
+  the block and which takes the reply.
+- A toast names what a copy button copied and its line count, such as
+  `Copied the sh block (2 lines).` or `Copied the reply as markdown (61 lines).`, or says why the
+  copy failed.
+- On a narrow screen the count of hidden lines is cut at its end, so the buttons stay on its line.
 - A line counts as the rows that it takes on the screen. A long paragraph counts as several
   rows. When the 30 rows end inside a line, that line is cut at a word and ends with `…`.
 - A reply of 30 lines or fewer draws as Claude Code draws it, unless it holds a table or a
