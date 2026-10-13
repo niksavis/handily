@@ -60,7 +60,12 @@ names, such as `/task` and `/simple`. Each command description in the menu start
 | [`handily-agent-board`](mods/handily-agent-board/README.md) | A pane that shows what each subagent of this session does | `/agent-board` |
 | [`handily-simple-view`](mods/handily-simple-view/README.md) | One short row for each Bash, Edit, Write, Read, Grep and Glob call | `/simple` |
 | [`handily-reply-view`](mods/handily-reply-view/README.md) | Long replies fold, tables draw without box lines, copy buttons, a rule above each prompt | `/replies` |
-| `handily` | The bundle of all the mods above | `/handily` |
+| [`handily-board`](mods/handily-board/README.md) | A board with two tabs: your tasks and agents, and every local session | `/board` |
+| `handily` | The bundle of all the mods above, except `handily-board` | `/handily` |
+
+`handily-board` replaces `handily-task-pane`, `handily-session-board` and `handily-agent-board`.
+A coming release removes the three old mods and puts `handily-board` in the bundle. Until then,
+install `handily-board` alone, or the bundle alone. Both together draw two task panes.
 
 Some mods need another mod. Claude Code installs a dependency with the mod that needs it.
 
@@ -74,7 +79,8 @@ Some mods need another mod. Claude Code installs a dependency with the mod that 
 | `handily-agent-board` | n/a |
 | `handily-simple-view` | `handily-quiet-items`, and through it `handily-workitems` |
 | `handily-reply-view` | n/a |
-| `handily` | every mod above |
+| `handily-board` | `handily-workitems` |
+| `handily` | every mod above, except `handily-board` |
 
 ## Quick start
 
@@ -233,6 +239,20 @@ Needs nothing.
 
 ```sh
 claude plugin install handily-reply-view@handily
+```
+
+### handily-board
+
+A board with two tabs. `this session` shows the task list that Claude and you share, and this
+session's subagents. `this machine` shows every local Claude Code session, the ones that wait
+for you first. `/board` opens it. Needs `handily-workitems`.
+
+```text
+/plugin install handily-board@handily
+```
+
+```sh
+claude plugin install handily-board@handily
 ```
 
 ## Install several mods

@@ -6,6 +6,19 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+### Added
+
+- **handily-board 0.1.0 is a board with two tabs that replaces handily-task-pane,
+  handily-session-board and handily-agent-board.** `/board` opens it. The `this session` tab
+  shows the task list that Claude and you share, and the subagents of this session: a failed
+  agent with a second line, an agent on hold, and at most 6 rows before a fold. The
+  `this machine` tab shows every local Claude Code session, the ones that wait for you first,
+  with a `waits for:` line. The tab polls `claude agents --json` only while it is shown.
+  `/board add`, `/board rm`, `/board list` and `/board close` replace the `/task` forms. The
+  model tools are `mcp__handily-board__task_add`, `task_update`, `task_move` and `task_list`. A
+  coming release removes the three old mods. Until then, do not install `handily-board` beside
+  the bundle, because both draw a task pane (handily-fwkt.8.19).
+
 ## handily-reply-view 0.5.1 - 2026-10-09
 
 ### Fixed
