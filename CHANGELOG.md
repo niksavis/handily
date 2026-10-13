@@ -6,6 +6,14 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.3.2 - 2026-10-13
+
+### Fixed
+
+- **handily-board: an agent name on a "this machine" card stays readable.** The name keeps up to
+  12 characters, so `general-purpose` shows as `gene…purpose` and no longer as `gene…pose`. The
+  task text is cut first (handily-fwkt.8.21).
+
 ## handily-workitems 0.6.0 - 2026-10-13
 
 ### Added
