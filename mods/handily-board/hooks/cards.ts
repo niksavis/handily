@@ -7,7 +7,14 @@ import {
   type SessionKind,
   type SessionRow,
 } from './agents-json'
-import { currentTask, estimateLeftMs, isOlderThanStart, workedMs, type Progress } from './progress'
+import {
+  currentTask,
+  estimateLeftMs,
+  isOlderThanStart,
+  workedMs,
+  type AgentSummary,
+  type Progress,
+} from './progress'
 import { doneCount, paneTaskText } from './tasks'
 
 export const HIDE_BACKGROUND_AFTER_MS = 24 * 60 * 60_000
@@ -37,7 +44,7 @@ export type CardTask =
 
 export type CardTime = { kind: 'worked' | 'elapsed'; ms: number } | { kind: 'ended' } | null
 
-export type AgentCounts = { count: number; failed: number }
+export type AgentCounts = { count: number; failed: number; needYou: number }
 
 export type SessionCard = {
   key: string
@@ -53,6 +60,7 @@ export type SessionCard = {
   time: CardTime
   estMs: number | null
   agents: AgentCounts | null
+  agentRows: readonly AgentSummary[]
 }
 
 export type CardsView = {
@@ -110,6 +118,26 @@ export function agentCounts(agents: readonly AgentInfo[]): AgentCounts | null {
   return {
     count: active.length,
     failed: active.filter((agent) => agent.status === 'failed').length,
+    needYou: 0,
+  }
+}
+
+function byNeedsYou(agents: readonly AgentSummary[]): AgentSummary[] {
+  return [...agents].sort((a, b) => Number(b.needsYou === true) - Number(a.needsYou === true))
+}
+
+function sharedAgents(progress: Progress | undefined, isShown: boolean) {
+  if (progress === undefined || !isShown || progress.agentCount === 0) {
+    return { agents: null, agentRows: [] }
+  }
+  const rows = byNeedsYou(progress.agents)
+  return {
+    agents: {
+      count: progress.agentCount,
+      failed: rows.filter((agent) => agent.isFailed).length,
+      needYou: rows.filter((agent) => agent.needsYou === true).length,
+    },
+    agentRows: rows,
   }
 }
 
@@ -171,7 +199,7 @@ function otherCard(
     place: placeOf(row, cache),
     time,
     estMs: progress && !row.isEnded && !isStale ? estimateLeftMs(progress, now) : null,
-    agents: null,
+    ...sharedAgents(progress, !row.isEnded && !isStale),
   }
 }
 
@@ -204,6 +232,7 @@ export function ownCard(
     time: ownTime(own, row, now),
     estMs: own.progress ? estimateLeftMs(own.progress, now) : null,
     agents: agentCounts(own.agents),
+    agentRows: [],
   }
 }
 

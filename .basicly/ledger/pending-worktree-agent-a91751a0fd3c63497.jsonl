@@ -1,0 +1,2 @@
+{"actor":"agent:claude-code_2-1-296_agent","id":"handily-fwkt.8.11#ev-63d863d4af","kind":"field","payload":{"name":"assignee","value":"Niksa Visic"},"record":"handily-fwkt.8.11","seq":12,"totals":{"attempts":0,"events":12,"spend_micros":0,"status":"open"},"ts":"2026-10-13T15:20:42.971946Z"}
+{"actor":"agent:claude-code_2-1-296_agent","id":"handily-fwkt.8.11#ev-f56aa4c32a","kind":"status","payload":{"status":"in_progress"},"record":"handily-fwkt.8.11","seq":13,"totals":{"attempts":0,"events":13,"spend_micros":0,"status":"in_progress"},"ts":"2026-10-13T15:20:42.971985Z"}

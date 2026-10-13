@@ -1,5 +1,13 @@
-import type { BoxProps, ElementConstructor, RenderElement, TextProps, ThemeKey } from 'claude-code'
+import type {
+  BoxProps,
+  ButtonProps,
+  ElementConstructor,
+  RenderElement,
+  TextProps,
+  ThemeKey,
+} from 'claude-code'
 import { elapsedText } from './activity'
+import { numberedNames } from './agent-rows'
 import { POLL_INTERVAL_MS, type AgentsFailure, type SessionKind } from './agents-json'
 import type {
   AgentCounts,
@@ -10,6 +18,7 @@ import type {
   MachineView,
   SessionCard,
 } from './cards'
+import type { AgentSummary } from './progress'
 import { SIGNALS, type SignalLook } from './signals'
 import { escaped, statusLook } from './tasks'
 import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './width'
@@ -17,8 +26,11 @@ import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './wid
 export type MachineElements = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
+  Button: ElementConstructor<ButtonProps>
   bodyColumns: number
   isInline: boolean
+  expanded: ReadonlySet<string>
+  toggle: (key: string) => void
 }
 
 type Layout = { columns: number; isNarrow: boolean; isRow: boolean }
@@ -43,9 +55,13 @@ const NAME_KEEP = 4
 const ROW_BADGE_WIDTH = 6
 const ROW_TIME_WIDTH = 3
 const NO_TIME = '—'
+const NEEDS_YOU_STATE = 'needs you'
 const STALE_MARK = ' (stale)'
 const RETRY_TEXT = `retry in ${elapsedText(POLL_INTERVAL_MS)}`
 const NOT_LISTED = 'not listed (stale)'
+const AGENT_ROWS_AT_MOST = 4
+const AGENT_COUNT_WIDTH = 5
+const NARROW_NAME_WIDTH = 10
 const DESKTOP_LINE = 'Other sessions are listed only in a terminal session.'
 
 const ATTENTION_LOOKS: Record<Attention, SignalLook> = {
@@ -190,9 +206,14 @@ function taskParts(task: CardTask, columns: number): Part[] {
   ]
 }
 
+function needYouParts(count: number): Part[] {
+  return count > 0 ? [{ text: needsYouText(count), color: SIGNALS.waitsForYou.color }] : []
+}
+
 function agentParts(agents: AgentCounts): Part[] {
   return joined([
     { text: `agents ${String(agents.count)}`, dimColor: true },
+    ...needYouParts(agents.needYou),
     ...(agents.failed > 0
       ? [{ text: `${String(agents.failed)} failed`, color: SIGNALS.blocked.color }]
       : []),
@@ -220,6 +241,149 @@ function cardHeadParts(card: SessionCard, layout: Layout): Part[] {
     { text: fitted(escaped(card.name), Math.max(room, 1)), bold: true },
     ...badges,
     state,
+  ]
+}
+
+function agentLook(agent: AgentSummary): SignalLook {
+  if (agent.needsYou === true) return SIGNALS.waitsForYou
+  return agent.isFailed ? SIGNALS.blocked : SIGNALS.doing
+}
+
+function agentTask(agent: AgentSummary): Part {
+  if (agent.needsYou === true) return { text: NEEDS_YOU_STATE, color: SIGNALS.waitsForYou.color }
+  if (agent.total === 0) return { text: 'no tasks', dimColor: true }
+  if (agent.task === null) return { text: `all ${String(agent.total)} done`, dimColor: true }
+  return { text: escaped(agent.task) }
+}
+
+function agentCount(agent: AgentSummary): string {
+  return agent.total === 0 ? '' : `${String(agent.done)}/${String(agent.total)}`
+}
+
+function agentRowParts(
+  agent: AgentSummary,
+  name: string,
+  columns: number,
+  widths: { name: number; count: number },
+): Part[] {
+  const look = agentLook(agent)
+  const mark = `${look.mark} `
+  const task = agentTask(agent)
+  const room = Math.max(columns - displayWidth(mark) - widths.name - GAP.length - widths.count, 0)
+  return [
+    { text: mark, color: look.color },
+    { text: padToWidth(name, widths.name), bold: true },
+    { ...task, text: padToWidth(fitted(task.text, room), room) },
+    { text: `${GAP}${agentCount(agent)}`, dimColor: true },
+  ]
+}
+
+function moreText(card: SessionCard, isOpen: boolean): string {
+  const hidden = (card.agents?.count ?? 0) - AGENT_ROWS_AT_MOST
+  if (isOpen) return `hide ${String(hidden)} more agents`
+  const needYou = card.agentRows
+    .slice(AGENT_ROWS_AT_MOST)
+    .filter((agent) => agent.needsYou === true).length
+  const more = `+${String(hidden)} more agents`
+  return needYou > 0 ? `${more}${SEPARATOR}${needsYouText(needYou)}` : more
+}
+
+function buttonLine(
+  elements: MachineElements,
+  key: string,
+  label: string,
+  indent: number,
+): RenderElement {
+  return elements.Box({
+    key: `${key}:box`,
+    paddingLeft: indent,
+    children: [
+      elements.Button({
+        key,
+        label,
+        onPress: () => {
+          elements.toggle(key)
+        },
+      }),
+    ],
+  })
+}
+
+function agentRowLines(
+  elements: MachineElements,
+  card: SessionCard,
+  layout: Layout,
+  indent: number,
+): RenderElement[] {
+  const count = card.agents?.count ?? 0
+  if (card.agentRows.length === 0) return []
+  const moreKey = `machine:more:${card.key}`
+  const isOpen = elements.expanded.has(moreKey)
+  const shown = isOpen ? card.agentRows : card.agentRows.slice(0, AGENT_ROWS_AT_MOST)
+  const names = numberedNames(card.agentRows.map((agent) => escaped(agent.name)))
+  const widths = {
+    name: layout.isNarrow ? NARROW_NAME_WIDTH : ROW_NAME_WIDTH,
+    count: Math.max(
+      AGENT_COUNT_WIDTH,
+      ...card.agentRows.map((agent) => displayWidth(agentCount(agent))),
+    ),
+  }
+  const notKept = count - card.agentRows.length
+  return [
+    ...shown.map((agent, index) =>
+      drawParts(
+        elements,
+        `card:${card.key}:agent:${String(index)}`,
+        agentRowParts(agent, names[index] ?? '', layout.columns - indent, widths),
+        layout.columns,
+        indent,
+      ),
+    ),
+    ...(count > AGENT_ROWS_AT_MOST
+      ? [buttonLine(elements, moreKey, moreText(card, isOpen), indent)]
+      : []),
+    ...(isOpen && notKept > 0
+      ? [
+          drawParts(
+            elements,
+            `card:${card.key}:not-kept`,
+            [{ text: `${String(notKept)} more agents over the store limit`, dimColor: true }],
+            layout.columns,
+            indent,
+          ),
+        ]
+      : []),
+  ]
+}
+
+function foldText(agents: AgentCounts, isOpen: boolean): string {
+  const all = `${String(agents.count)} agents`
+  if (isOpen) return `hide ${all}`
+  return agents.needYou > 0 ? `${all}${SEPARATOR}${needsYouText(agents.needYou)}` : all
+}
+
+function rowAgentLines(
+  elements: MachineElements,
+  card: SessionCard,
+  layout: Layout,
+): RenderElement[] {
+  if (card.agents === null) return []
+  if (card.agentRows.length === 0) {
+    return [
+      drawParts(
+        elements,
+        `card:${card.key}:agents`,
+        agentParts(card.agents),
+        layout.columns,
+        ROW_INDENT,
+      ),
+    ]
+  }
+  const foldKey = `machine:agents:${card.key}`
+  const isOpen = elements.expanded.has(foldKey)
+  return [
+    buttonLine(elements, foldKey, foldText(card.agents, isOpen), ROW_INDENT),
+    ...(isOpen ? agentRowLines(elements, card, layout, ROW_INDENT) : []),
   ]
 }
 
@@ -273,6 +437,7 @@ function cardLines(elements: MachineElements, card: SessionCard, layout: Layout)
       ...(card.agents === null
         ? []
         : [drawParts(elements, `${key}:agents`, agentParts(card.agents), columns, CARD_INDENT)]),
+      ...agentRowLines(elements, card, layout, CARD_INDENT),
     ],
   })
 }
@@ -329,17 +494,7 @@ function rowLines(
     children: [
       drawParts(elements, `${key}:head`, rowParts(card, widths, layout.columns), layout.columns),
       ...detailLines(elements, card, layout, ROW_INDENT),
-      ...(card.agents === null
-        ? []
-        : [
-            drawParts(
-              elements,
-              `${key}:agents`,
-              agentParts(card.agents),
-              layout.columns,
-              ROW_INDENT,
-            ),
-          ]),
+      ...rowAgentLines(elements, card, layout),
     ],
   })
 }

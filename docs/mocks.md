@@ -932,10 +932,10 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │   ▶ Build the tab pane ▰▰▰▱▱▱ 3/6         │
 │   app.wt/lane-a1 · lane/a1 · 22m worked   │
 │   agents 6 · 1 needs you                  │  8.11 8.10
-│   ◆ scout      needs you          4/9     │  8.11 8.10
-│   ▶ Explore    Map the hooks      2/5     │  8.11
-│   ▶ tester     Run the unit tes…  0/1     │  8.11
-│   ▶ reviewer   Review board.tsx   1/3     │  8.11
+│   ◆ scout      needs you            4/9   │  8.11 8.10
+│   ▶ Explore    Map the hooks        2/5   │  8.11
+│   ▶ tester     Run the unit tests   0/1   │  8.11
+│   ▶ reviewer   Review board.tsx     1/3   │  8.11
 │   [ +2 more agents ]                      │  8.11
 │ ───────────────────────────────────────── │
 │ ✓ docs-pass  background  done             │
@@ -952,6 +952,9 @@ A cut title, opened, shows the full title wrapped first, then these lines.
   agent `scout` in `mocks` and in `lane-a1`.
 - Other sessions' agent rows: name, current task, done/total. No current tool, no time (8.11 has
   none). An agent with no task list shows `no tasks`.
+- As built in 8.11: a failed agent row has the mark `■`. `[ +2 more agents ]` opens the other
+  agent rows and becomes `[ hide 2 more agents ]`. When the 4096-byte store key could not hold
+  every agent, the opened fold ends with `N more agents over the store limit`.
 - Bar: at most 8 cells; one cell per task up to 8, then each cell a share: `▰▰▱▱▱▱▱▱ 25/100`.
 
 ### 8.3 Docked, body 30 (a narrow dock the person dragged)
@@ -990,9 +993,11 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 │ ▶ lane-a1  working             │
 │   ▶ Build the tab… ▰▰▰▱▱▱ 3/6  │
 │   agents 6 · 1 needs you       │
-│   ◆ scout     needs you   4/9  │
-│   ▶ Explore   Map the h…  2/5  │
-│   [ +4 more agents ]           │
+│   ◆ scout     needs you  4/9   │
+│   ▶ Explore   Map the …  2/5   │
+│   ▶ tester    Run the …  0/1   │
+│   ▶ reviewer  Review b…  1/3   │
+│   [ +2 more agents ]           │
 ╰────────────────────────────────╯
 ```
 
@@ -1037,6 +1042,7 @@ A cut title, opened, shows the full title wrapped first, then these lines.
   fraction. Pressing a session name opens its card (8.2f). `[ 6 agents · 1 needs you ]` unfolds the
   agents under the row, needs you first, at most 4, then `[ +2 more agents ]`.
 - Inline, an agent that needs you or failed fits on one line, because 76 columns hold the reason.
+- As built in 8.11: pressed, `[ 6 agents · 1 needs you ]` becomes `[ hide 6 agents ]`.
 - `inter`/`bg` are the short badges inline; docked uses `interactive`/`background` (session-board README).
 
 ### 8.5 Empty, loading, stale and error states (body 41)

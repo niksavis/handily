@@ -287,12 +287,30 @@ Sessions  4 · 1 needs you · 12s ago
   started. `est. <time> left` follows when the board has an estimate.
 - This session's card reads the task list, the time worked and the agents of this session, not
   the poll. Its `agents` line counts the agents that did not end, and the failed ones.
+- A card of another session that has not ended, with a key that is not stale and lists agents,
+  has an `agents` line and at most 4 agent rows: the mark, the name, the current task and the
+  done count. An agent that has no task list shows `no tasks`. A failed agent has the mark `■`.
+  The other agents fold into a `+N more agents` button, which adds `· N need you` when a hidden
+  agent needs you. A capture from the tests, docked at 41 columns:
+
+  ```text
+  agents 6 · 1 needs you · 1 failed
+  ◆ scout      needs you            4/9
+  ▶ Explore    Map the hooks        2/5
+  ▶ tester     Run the unit tests   0/1
+  ▶ reviewer   Review board.tsx     1/3
+  [ +2 more agents ]
+  ```
+
+- The rows that need you come first. No source marks an agent as one that needs you yet; the
+  board reads a `needsYou` flag in the store key when one is there.
 - A background session whose state has not changed for over 24 hours is hidden, and a footer
   counts it.
 - Below 36 columns, the badge, the age of the list and the words `worked` and `elapsed` drop.
 - Inline above the prompt, from 60 columns, each session is one row: the name, `inter` or `bg`,
   the state, the place, the task count and the time. A name of more than 9 characters keeps its
-  first 4 and last 4 characters.
+  first 4 and last 4 characters. The agents of another session fold into one `N agents` button
+  under the row. Pressed, it shows the agent rows and becomes `hide N agents`.
 
 ### Where the data comes from
 
@@ -304,6 +322,14 @@ Sessions  4 · 1 needs you · 12s ago
 - Each session that runs the board writes its store key `session:<session id>`: the current
   task, the done and total counts, and the time worked. Other sessions read it from the same
   store. A poll removes a key of a session that is not listed and is older than 24 hours.
+- The key also lists the active subagents of the session: the name, the current task, the done
+  and total counts and whether the agent failed. The board writes it when a subagent task list
+  changes, when an agent starts and when an agent turn ends. The name keeps 40 characters and
+  the task 80.
+- A key is at most 4096 bytes. When it is larger, the board drops agents from the end of the
+  list until it fits, and keeps the count of all agents. The opened fold then says how many are
+  over the store limit. A key that is larger with no agent is not written, and the debug log
+  says so.
 - A key written more than 60 seconds before its session started is from an earlier run. Its task
   shows `(stale)`, with no estimate, and the card shows the elapsed time.
 - The estimate divides the done tasks by all tasks and applies the result to the time since the

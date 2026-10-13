@@ -9,7 +9,15 @@ import {
   type Mounted,
 } from 'claude-code/testing'
 import { AGENTS_ARGV, AGENTS_CACHE_KEY, parseAgents, POLL_INTERVAL_MS } from './hooks/agents-json'
-import { progressKey, readProgress, type Progress } from './hooks/progress'
+import {
+  ENTRY_BYTES_AT_MOST,
+  entryBytes,
+  progressKey,
+  readProgress,
+  withinLimit,
+  type AgentSummary,
+  type Progress,
+} from './hooks/progress'
 import { displayWidth } from './hooks/width'
 import { MACHINE_AGENTS, MACHINE_NOW, RECORDED_AGENTS, type AgentEntry } from './fixtures/agents'
 
@@ -101,6 +109,8 @@ function progressOf(sessionId: string, fields: Partial<Progress>): Progress {
     taskIds: [],
     firstTaskAt: null,
     lastAddedAt: null,
+    agents: [],
+    agentCount: 0,
     ...fields,
   }
 }
@@ -297,12 +307,11 @@ function drawnOf(value: unknown): Drawn | null {
   const raw = Array.isArray(value.children) ? (value.children as unknown[]) : []
   const children = raw.map(drawnOf).filter((child) => child !== null)
   const own = raw.map((child) => (typeof child === 'string' ? child : '')).join('')
-  return {
-    type: value.type,
-    props,
-    text: `${own}${children.map((child) => child.text).join('')}`,
-    children,
-  }
+  const text =
+    value.type === 'Button' && typeof props.label === 'string'
+      ? `[ ${props.label} ]`
+      : `${own}${children.map((child) => child.text).join('')}`
+  return { type: value.type, props, text, children }
 }
 
 function numberProp(element: Drawn, name: string): number {
@@ -318,7 +327,7 @@ function wrapped(text: string, width: number): string[] {
 }
 
 function screenOf(element: Drawn, width: number): string[] {
-  if (element.type === 'Text') return wrapped(element.text, width)
+  if (element.type === 'Text' || element.type === 'Button') return wrapped(element.text, width)
   const indent = numberProp(element, 'paddingLeft')
   const inner = width - indent
   const lines =
@@ -943,5 +952,202 @@ describe(STATES_CRITERION, () => {
       await $.tool.call({ tool: TOOL_UPDATE, id, status: 'completed' })
     await showMachine($, seen)
     expect((await screenAt($, 'terminal', 'dock', 41))[3]).toBe('  ○ Step 6 ▰▰▰▰▱▱▱▱ 5/10')
+  })
+})
+
+function shared(name: string, fields: Partial<AgentSummary> = {}): AgentSummary {
+  return { name, task: null, done: 0, total: 0, isFailed: false, ...fields }
+}
+
+const LANE_AGENTS: AgentSummary[] = [
+  shared('Explore', { task: 'Map the hooks', done: 2, total: 5 }),
+  shared('tester', { task: 'Run the unit tests', done: 0, total: 1 }),
+  shared('reviewer', { task: 'Review board.tsx', done: 1, total: 3 }),
+  shared('scout', { task: 'Ask about the plan', done: 4, total: 9, needsYou: true }),
+  shared('lane-b'),
+  shared('implementer', { task: 'Edit b.ts', done: 1, total: 2, isFailed: true }),
+]
+
+const SHARED_CRITERION =
+  'When a subagent task list changes, handily-board writes the agent name, its current task and its done and total counts into its session store key, at most 4096 bytes for each session'
+
+describe(SHARED_CRITERION, () => {
+  test('a subagent task list change writes each active agent of this session into its store key', async ($, on) => {
+    const seen = world(on)
+    seen.subagents = [
+      subagent('x1', 'Explore', 'running'),
+      subagent('x2', 'tester', 'running'),
+      subagent('x3', 'lane-b', 'failed'),
+      subagent('x4', 'Plan', 'completed'),
+    ]
+    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+    await $.tool.call({ tool: TOOL_ADD, title: 'Read the design', agentId: 'x1' })
+    await $.tool.call({ tool: TOOL_ADD, title: 'Map the hooks', agentId: 'x1' })
+    await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed', agentId: 'x1' })
+    const kept = readProgress(seen.store.get(progressKey(OWN_ID)))
+    expect(kept?.agentCount).toBe(3)
+    expect(kept?.agents).toEqual([
+      shared('lane-b', { isFailed: true }),
+      shared('Explore', { task: 'Map the hooks', done: 1, total: 2 }),
+      shared('tester'),
+    ])
+  })
+
+  test('the writer drops agents from the end until the entry is at most 4096 bytes, and keeps the full count', async ($, on) => {
+    const seen = world(on)
+    const ids = Array.from({ length: 30 }, (_, index) => `x${String(index + 10)}`)
+    seen.subagents = ids.map((id) => subagent(id, `${id}-${'n'.repeat(60)}`, 'running'))
+    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+    for (const id of ids) {
+      await $.tool.call({ tool: TOOL_ADD, title: `${id} ${'t'.repeat(150)}`, agentId: id })
+    }
+    const raw = seen.store.get(progressKey(OWN_ID))
+    const kept = readProgress(raw)
+    if (kept === null) throw new Error('the session key was not written')
+    expect(new TextEncoder().encode(JSON.stringify(raw)).length).toBeLessThanOrEqual(
+      ENTRY_BYTES_AT_MOST,
+    )
+    expect(kept.agentCount).toBe(30)
+    expect(kept.agents.length).toBeGreaterThan(0)
+    expect(kept.agents.length).toBeLessThan(30)
+    expect(kept.agents.map((agent) => agent.name.slice(0, 3))).toEqual(
+      ids.slice(0, kept.agents.length),
+    )
+    expect(kept.agents[0]?.name).toHaveLength(40)
+    expect(kept.agents[0]?.task).toHaveLength(80)
+  })
+
+  test('an entry over 4096 bytes with no agent is refused by name', () => {
+    const entry = progressOf(OWN_ID, { cwd: `/${'d'.repeat(ENTRY_BYTES_AT_MOST)}` })
+    expect(() => withinLimit(entry)).toThrow(/bytes with no agent, over the limit of 4096/)
+    expect(entryBytes(progressOf(OWN_ID, {}))).toBeLessThan(ENTRY_BYTES_AT_MOST)
+  })
+
+  test('a key without agents, from an earlier version, reads as no agents', () => {
+    const old = Object.fromEntries(
+      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'agents' && key !== 'agentCount'),
+    )
+    expect(readProgress(old)).toMatchObject({ agents: [], agentCount: 0 })
+    expect(readProgress({ ...LANE_PROGRESS, agents: [{ name: 1 }] })).toBeNull()
+  })
+})
+
+const ROWS_CRITERION =
+  'When the this machine tab draws a card whose store key lists agents, the card shows at most 4 agent rows, those that need the person first, then a fold that names how many more agents and how many of them need the person'
+
+describe(ROWS_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`docked at 41 and 30 columns on ${surface}: 4 agent rows, needs you first, then the fold, and this session keeps counts only`, async ($, on) => {
+      const seen = world(
+        on,
+        storeWith(API_PROGRESS, { ...LANE_PROGRESS, agents: LANE_AGENTS, agentCount: 6 }),
+        ['terminal', surface],
+      )
+      await mockWork($, seen)
+      await showMachine($, seen)
+      const ui = await mountTab($, surface, 'dock', 41)
+      const lines = await screen(ui, 41)
+      const lane = lines.indexOf('▶ lane-a1  background  working')
+      expect(lines.slice(lane + 3, lane + 9)).toEqual([
+        '  agents 6 · 1 needs you · 1 failed',
+        '  ◆ scout      needs you            4/9',
+        '  ▶ Explore    Map the hooks        2/5',
+        '  ▶ tester     Run the unit tests   0/1',
+        '  ▶ reviewer   Review board.tsx     1/3',
+        '  [ +2 more agents ]',
+      ])
+      const mocks = lines.indexOf('▶ mocks  interactive  this  busy')
+      expect(lines[mocks + 3]).toBe('  agents 3 · 1 failed')
+      expect(lines[mocks + 4]).toBe(RULE_41)
+      const more = await ui.find({ type: 'Button', text: '+2 more agents' })
+      await ui.press({ key: more?.key ?? '' })
+      const opened = await screen(ui, 41)
+      expect(opened.slice(lane + 8, lane + 11)).toEqual([
+        '  ▶ lane-b     no tasks',
+        '  ■ impl…nter  Edit b.ts            1/2',
+        '  [ hide 2 more agents ]',
+      ])
+      await ui.unmount()
+      const narrow = await screenAt($, surface, 'dock', 30)
+      const narrowLane = narrow.indexOf('▶ lane-a1  working')
+      expect(narrow.slice(narrowLane + 4, narrowLane + 11)).toEqual([
+        '  ◆ scout     needs you  4/9',
+        '  ▶ Explore   Map the …  2/5',
+        '  ▶ tester    Run the …  0/1',
+        '  ▶ reviewer  Review b…  1/3',
+        '  ▶ lane-b    no tasks',
+        '  ■ impl…nter Edit b.ts  1/2',
+        '  [ hide 2 more agents ]',
+      ])
+    })
+  }
+
+  test('the fold counts the agents it hides that need the person', async ($, on) => {
+    const waiting = LANE_AGENTS.map((agent) => ({ ...agent, needsYou: true as const }))
+    const seen = world(on, storeWith({ ...LANE_PROGRESS, agents: waiting, agentCount: 6 }))
+    await mockWork($, seen)
+    await showMachine($, seen)
+    const lines = await screenAt($, 'terminal', 'dock', 41)
+    expect(lines).toContain('  agents 6 · 6 need you · 1 failed')
+    expect(lines).toContain('  [ +2 more agents · 2 need you ]')
+  })
+
+  test('inline at 76 columns: the row folds its agents into one button that unfolds them', async ($, on) => {
+    const seen = world(
+      on,
+      storeWith(API_PROGRESS, { ...LANE_PROGRESS, agents: LANE_AGENTS, agentCount: 6 }),
+    )
+    await mockWork($, seen)
+    await showMachine($, seen)
+    await seen.clock.advance(12 * SECOND)
+    const ui = await mountTab($, 'terminal', 'inline', 76)
+    const lines = await screen(ui, 76)
+    const lane = lines.findIndex((line) => line.startsWith('▶ lane-a1'))
+    expect(lines[lane + 1]).toBe('    [ 6 agents · 1 needs you ]')
+    expect(lines[lane + 2]).toMatch(/^✓ docs-pass/)
+    const fold = await ui.find({ type: 'Button', text: '6 agents · 1 needs you' })
+    await ui.press({ key: fold?.key ?? '' })
+    const opened = await screen(ui, 76)
+    expect(opened.slice(lane + 1, lane + 7)).toEqual([
+      '    [ hide 6 agents ]',
+      '    ◆ scout      needs you                                             4/9',
+      '    ▶ Explore    Map the hooks                                         2/5',
+      '    ▶ tester     Run the unit tests                                    0/1',
+      '    ▶ reviewer   Review board.tsx                                      1/3',
+      '    [ +2 more agents ]',
+    ])
+    await ui.unmount()
+  })
+})
+
+const WIDTH_CRITERION =
+  'A test with 10 sessions of 5 agents draws every card within the tab at 41 columns'
+
+describe(WIDTH_CRITERION, () => {
+  test('10 sessions of 5 agents with long names and titles stay within 41 columns', async ($, on) => {
+    const sessions = Array.from({ length: 10 }, (_, index) => `lane-${String(index)}`)
+    const agents = Array.from({ length: 5 }, (_, index) =>
+      shared(`general-purpose-${String(index)}`, {
+        task: `Write the ${'very '.repeat(12)}long title ${String(index)}`,
+        done: 10 + index,
+        total: 100,
+      }),
+    )
+    const entries = sessions.map((name) =>
+      progressOf(`${name}-id`, { agents, agentCount: 5, updatedAt: NOW - MINUTE }),
+    )
+    const seen = world(on, storeWith(...entries))
+    seen.agents = agentsJson(
+      sessions.map((name, index) =>
+        session(name, { id: `c${String(index)}`, kind: 'background', state: 'working' }),
+      ),
+    )
+    await mockWork($, seen)
+    await showMachine($, seen)
+    const lines = await screenAt($, 'terminal', 'dock', 41)
+    expect(lines.filter((line) => line.startsWith('  ▶ gene…'))).toHaveLength(40)
+    expect(lines.filter((line) => line === '  [ +1 more agents ]')).toHaveLength(10)
+    expect(lines).toContain('  ▶ gene…se-0  Write the very ve…  10/100')
+    for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(41)
   })
 })
