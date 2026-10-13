@@ -18,9 +18,14 @@ import {
   PROGRESS_PREFIX,
   readProgress,
   type Progress,
+  withinLimit,
 } from './progress'
 
-export type ProgressChange = (progress: Progress, now: number, list: BoardList) => Progress
+export type ProgressChange = (
+  progress: Progress,
+  now: number,
+  list: BoardList,
+) => Progress | Promise<Progress>
 
 export type SessionsHost = {
   now: () => Promise<number>
@@ -131,7 +136,7 @@ async function writeProgress(host: SessionsHost, change: ProgressChange, list?: 
   const key = progressKey(sessionId)
   const current =
     readProgress(await host.storeGet(key)) ?? emptyProgress(sessionId, await host.cwd(), now)
-  await host.storeSet(key, change(current, now, list ?? (await host.list())))
+  await host.storeSet(key, withinLimit(await change(current, now, list ?? (await host.list()))))
 }
 
 export function updateProgress(

@@ -73,18 +73,21 @@ export function cutName(name: string, width: number): string {
   return `${head}…${tailToWidth(name, Math.max(width - displayWidth(head) - 1, 0))}`
 }
 
-export function shownNames(rows: readonly AgentRow[]): Map<string, string> {
-  const names = new Map<string, string>()
+export function numberedNames(labels: readonly string[]): string[] {
   const seen = new Map<string, number>()
-  for (const row of [...rows].sort((a, b) => a.startedAt - b.startedAt)) {
-    const label = escaped(row.label)
+  return labels.map((label) => {
     const base = cutName(label, NAME_CUT_ABOVE)
     const count = (seen.get(base) ?? 0) + 1
     seen.set(base, count)
     const suffix = count === 1 ? '' : ` ${String(count)}`
-    names.set(row.id, `${cutName(label, NAME_CUT_ABOVE - suffix.length)}${suffix}`)
-  }
-  return names
+    return `${cutName(label, NAME_CUT_ABOVE - suffix.length)}${suffix}`
+  })
+}
+
+export function shownNames(rows: readonly AgentRow[]): Map<string, string> {
+  const sorted = [...rows].sort((a, b) => a.startedAt - b.startedAt)
+  const names = numberedNames(sorted.map((row) => escaped(row.label)))
+  return new Map(sorted.map((row, index) => [row.id, names[index] ?? '']))
 }
 
 function callText(sight: BoardToolSight): string {

@@ -50,13 +50,21 @@ import {
 } from './commands'
 import { drawMachine } from './machine'
 import {
+  type Machine,
   type SessionsHost,
   newMachine,
   readMachine,
   removeExpiredKeys,
   updateProgress,
 } from './sessions'
-import { completeTurn, startTurn, withTasks } from './progress'
+import {
+  type AgentSummary,
+  agentSummary,
+  completeTurn,
+  startTurn,
+  withAgents,
+  withTasks,
+} from './progress'
 import { type PaneWork, drawPane } from './pane'
 import type { BoardCallRow, BoardList, BoardTask } from '../types'
 import {
@@ -265,6 +273,19 @@ function agentHostOf($: EngineInterface): AgentHost {
     plan: async (agentId) =>
       (await $.state.get({ plugin: 'handily-board', key: 'agentList', id: agentId })).value,
   }
+}
+
+async function agentSummaries($: EngineInterface): Promise<AgentSummary[]> {
+  const rows = await agentView(agentHostOf($), await $.clock.now())
+  return rows
+    .filter((row) => !row.isEnded)
+    .map((row) => agentSummary(row.label, row.plan, row.look === 'failed'))
+}
+
+function shareAgents($: EngineInterface, machine: Machine): Promise<void> {
+  return updateProgress(sessionsHost($), machine, async (progress, now) =>
+    withAgents(progress, await agentSummaries($), now),
+  )
 }
 
 type Redraw = { timer: Timer | undefined }
@@ -581,6 +602,7 @@ export const register: Register = (on, options) => {
       )
     } else {
       await noteTurnEnd(agentHostOf($), e.agentId)
+      await shareAgents($, machine)
     }
     return completed
   }).catch((_$, e, next) => next(e))
@@ -593,6 +615,12 @@ export const register: Register = (on, options) => {
         withTasks(progress, list, now),
       )
     }
+    return result
+  })
+
+  on('state.set', { plugin: 'handily-board', key: 'agentList' }, async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny === undefined && result.value.isSet) await shareAgents($, machine)
     return result
   })
 
@@ -664,6 +692,7 @@ export const register: Register = (on, options) => {
       parentId: e.parentAgentId,
     }
     await noteSpawn(agentHostOf($), spawned.agentId, facts, at)
+    await shareAgents($, machine)
     return spawned
   }).catch((_$, e, next) => next(e))
 
@@ -739,10 +768,30 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const host = hostOf($)
+    const expanded = new Set(await host.expanded())
     const { view, now } = await readMachine(sessionsHost($), machine)
     startRedraw($, redraw)
     const { bodyColumns, placement } = e.props
-    return drawMachine({ Box, Text, bodyColumns, isInline: placement === 'inline' }, view, now)
+    const toggle = (key: string) => {
+      host
+        .editExpanded((keys) =>
+          keys.includes(key) ? keys.filter((one) => one !== key) : [...keys, key],
+        )
+        .catch((error: unknown) => {
+          $.ui.log(`handily-board: the fold did not change: ${String(error)}`)
+        })
+    }
+    const elements = {
+      Box,
+      Text,
+      Button,
+      bodyColumns,
+      isInline: placement === 'inline',
+      expanded,
+      toggle,
+    }
+    return drawMachine(elements, view, now)
   })
 }
