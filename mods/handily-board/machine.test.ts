@@ -463,6 +463,39 @@ describe(CARD_CRITERION, () => {
     expect(seen.agentsRuns).toBe(3)
   })
 
+  test('polls at once when the tab becomes shown with data older than 15 seconds', async ($, on) => {
+    const seen = world(on)
+    await mockWork($, seen)
+    await showMachine($, seen)
+    expect(seen.agentsRuns).toBe(1)
+    await board($, '')
+    expect(seen.shown).toBe(TASKS)
+    await seen.clock.advance(POLL_INTERVAL_MS + 5 * SECOND)
+    expect(seen.agentsRuns).toBe(1)
+    await showMachine($, seen)
+    expect(seen.shown).toBe(MACHINE)
+    expect(seen.agentsRuns).toBe(2)
+    expect((await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
+      'Sessions  4 · 1 needs you · 0s ago',
+    )
+  })
+
+  test('does not poll again when the tab becomes shown with data newer than 15 seconds', async ($, on) => {
+    const seen = world(on)
+    await mockWork($, seen)
+    await showMachine($, seen)
+    expect(seen.agentsRuns).toBe(1)
+    await board($, '')
+    expect(seen.shown).toBe(TASKS)
+    await seen.clock.advance(5 * SECOND)
+    await showMachine($, seen)
+    expect(seen.shown).toBe(MACHINE)
+    expect(seen.agentsRuns).toBe(1)
+    expect((await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
+      'Sessions  4 · 1 needs you · 5s ago',
+    )
+  })
+
   test('reuses the result that another session polled less than 15 seconds ago', async ($, on) => {
     const seen = world(on, {
       [AGENTS_CACHE_KEY]: {
