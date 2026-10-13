@@ -406,6 +406,9 @@ Toggle:
 
 ### 4.3 task-pane (mod 2)
 
+Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
+record of the design until handily-board ships.
+
 - Commands come first: `/task add` and `/task rm`. The `Pane` is optional, because the mobile
   app has no `Input`.
 - The mod owns the task list (user decision, 2026-10-07). A default session has no task tool:
@@ -430,6 +433,9 @@ Toggle:
 - Risk: Claude can ignore a task added mid-turn until the turn ends.
 
 ### 4.4 session-board (mod 3)
+
+Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
+record of the design until handily-board ships.
 
 - Main source: `claude agents --json`. It lists interactive and background sessions on
   this machine.
@@ -471,6 +477,9 @@ Dropped (review decision 7).
 A toast when a work item changes state outside this session. It needs a rate limit.
 
 ### 4.7 agent-board (handily-cr7r)
+
+Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
+record of the design until handily-board ships.
 
 - Purpose: one pane that shows what each subagent of this session does. `session-board` shows
   the sessions of the machine. `agent-board` shows the subagents inside one session.
@@ -574,6 +583,30 @@ Defer to quiet-items:
   sets `count` to 0. Each kept call holds its generation, and each time record is keyed
   `<generation>:<tool_use_id>`, so nothing of an ended session is reachable. `$.state` has no
   delete. The slots are written over, so they stay at 50. One time record stays per `Bash` call.
+
+### 4.9 handily-board (handily-fwkt.8.19)
+
+- Decision of the person (2026-10-13): one plugin, `handily-board`, replaces `task-pane`,
+  `agent-board` and `session-board`. It has two panes, which the engine shows as two tabs:
+  `this session` (tasks and this session's agents) and `this machine` (every local session).
+- The old plugins are removed with no alias and no deprecation version. A release note tells a
+  person who installed one how to uninstall it and install `handily-board`.
+- Command: `/board`. `/board machine` shows the second tab. `/task` is dropped, because it sits
+  next to the built-in `/tasks` (background jobs) in the slash menu.
+- One plugin, not two, because each plugin has its own `$.store`, and a plugin opens only its own
+  panes. With two plugins, the agent data of other sessions would sit in two stores, and
+  `/board` could not show the machine tab.
+- Facts measured in tmux on Claude Code 2.1.296:
+  - A pane in a hidden tab does not draw. The poll of `claude agents --json` also runs only while
+    its pane `isShown` (`index.d.ts`, `UiPane`).
+  - A command that opens both panes gets both placed at 90 and at 120 columns in fullscreen.
+  - A second `ui.open` of a hidden pane without `focus` does not bring it forward. With
+    `focus: true` it does, and the pane takes the keyboard. So `/board` passes `focus` only when
+    the asked tab is hidden.
+- Release 1 needs neither handily-fwkt.8.10 (needs you) nor handily-fwkt.8.11 (agents of other
+  sessions). An agent with the status `waiting` draws as `on hold` until 8.10 proves which waits
+  are the person's.
+- The approved mock is `docs/mocks.md` section 8.
 
 ## 5. Repo layout (proposed)
 

@@ -178,6 +178,9 @@ Look choices (approved as proposed):
 
 ## 2. task-pane
 
+Replaced by the this session tab of section 8, `handily-board` (decision of the person, 2026-10-13,
+handily-fwkt.8.19). This section stays as the record of the task-pane design until handily-board ships.
+
 Commands come first; the Pane is optional (`/task pane`). The same list text is the command
 reply, so mobile (no `Input`) and a closed pane lose nothing.
 
@@ -357,149 +360,8 @@ Look choices (approved as proposed):
 
 ## 3. session-board
 
-Opened with `/session-board`; polled while visible (every 15 s, one shared cache file).
-
-### Terminal: one card per session (decision of 2026-10-08, handily-hw07)
-
-The person found the earlier rows hard to scan. Each session is now a card at every width: a
-header line, two indented detail lines, and a dim rule line between two cards. The capture
-below is a 45 column terminal (body 41 columns):
-
-```text
-╭─────────────────────────────────────────✕─╮
-│ Sessions  4 local · polled 12 s ago       │
-│ ● mocks  inter  this  busy                │
-│   ▶ Draw quiet-items mocks ▰▰▱▱▱ 2/5      │
-│   app · main · 41m worked · est. 30m left │
-│ ───────────────────────────────────────── │
-│ ◐ lane-a1  bg  blocked: permission        │
-│   ▶ Write the beads reader ▱▱▱ 0/3        │
-│   app.wt/lane-a1 · lane/app-x1y2 · 18m w… │
-│ ───────────────────────────────────────── │
-│ ○ api-login  inter  idle                  │
-│   no tasks                                │
-│   api · feat/login · 2h 03m elapsed       │
-│ ───────────────────────────────────────── │
-│ ○ docs-pass  bg  done                     │
-│   —                                       │
-│   docs · main · ended                     │
-│ 1 older background job hidden             │
-╰───────────────────────────────────────────╯
-```
-
-Looks, by the legend: the name is `*bold*`; the kind badge, the `▶`, the detail line, the rule
-lines and the footer are `~dim~`; `this` is in the theme colour `suggestion`; the state word is
-in the colour of its mark.
-
-| Mark | State                                      | Colour    |
-| ---- | ------------------------------------------ | --------- |
-| `●`  | `busy`, `working`                          | `success` |
-| `◐`  | `waiting`, `blocked`, or any `waitingFor`  | `warning` |
-| `○`  | `idle`, an unknown word, `done`, `stopped` | dim       |
-| `✕`  | `failed`                                   | `error`   |
-
-- Order: this session first (it carries `this`), then working, waiting, idle, and the ended
-  sessions last. Inside a group, the order of `claude agents --json`.
-- The task line: `▶ <current task> <bar> <done>/<total>`. The bar has one cell per task, at
-  most 8 cells: `▰▰▱▱ 2/4`, `▰▰▱▱▱▱▱▱ 5/20`. The title is cut with `…` to fit, and the bar
-  never moves to a second line.
-- A session that runs `session-board` (its store key exists) with no task list or an empty one
-  shows `~no tasks~`. A session with no key shows a dim `~—~`.
-- A background session whose state has not changed for over 24 h is hidden. The board measures
-  from `startedAt`, or from the last state change that a poll saw. A dim footer counts them:
-  `~1 older background job hidden~`, `~2 older background jobs hidden~`. An interactive session
-  and this session are never hidden.
-- The count in `Sessions  4 local` is the number of cards shown.
-- A rule line costs one row and no columns. A rounded border per card cost 4 columns and 2
-  rows per card at 45 columns, inside the frame of the pane. Both were captured live at 45
-  columns for handily-hw07, and the rule lines were chosen.
-
-At 80 columns (body 76 columns) the cards are the same, with room for the whole title and place:
-
-```text
-╭────────────────────────────────────────────────────────────────────────────✕─╮
-│ Sessions  4 local · polled 12 s ago                                          │
-│ ● mocks  inter  this  busy                                                   │
-│   ▶ Draw quiet-items mocks ▰▰▱▱▱ 2/5                                         │
-│   app · main · 41m worked · est. 30m left                                    │
-│ ──────────────────────────────────────────────────────────────────────────── │
-│ ◐ lane-a1  bg  blocked: permission                                           │
-│   ▶ Write the beads reader ▱▱▱ 0/3                                           │
-│   app.wt/lane-a1 · lane/app-x1y2 · 18m worked                                │
-│ ──────────────────────────────────────────────────────────────────────────── │
-│ ○ api-login  inter  idle                                                     │
-│   no tasks                                                                   │
-│   api · feat/login · 2h 03m elapsed                                          │
-│ ──────────────────────────────────────────────────────────────────────────── │
-│ ○ docs-pass  bg  done                                                        │
-│   —                                                                          │
-│   docs · main · ended                                                        │
-│ 1 older background job hidden                                                │
-╰──────────────────────────────────────────────────────────────────────────────╯
-```
-
-- `state` is the word `claude agents --json` gives (`state` for background, `status` for
-  interactive), `waitingFor` appended after a colon.
-- `task` and `n/m` come from the store key of a session that runs session-board. A key whose
-  session is absent from `claude agents` gets no card. A listed session whose key was written
-  more than 60 s before its `startedAt` is stale: `~(stale)~` after the task, and no estimate.
-- `worked` = sum of turn spans (handily sessions); `elapsed` = since `startedAt` (others).
-- `est. 30m left` only with at least one completed task, measured from the first task, and
-  hidden for N minutes after a task is added.
-
-### Terminal, empty and error
-
-```text
-│ *Sessions*  ~polled 3 s ago~                      │
-│ ~Only this session is running.~                   │
-│ ● *mocks*  ~inter~  this  +busy+                  │
-│   …(as above)                                     │
-
-│ *Sessions*                                        │
-│ #claude agents --json failed: exit 1.#            │
-│ #Run it in a shell to see why.#  ~retry in 15 s~  │
-
-│ *Sessions*                                        │
-│ #claude is not on PATH, so other sessions#        │
-│ #cannot be listed.#                               │
-```
-
-### Desktop
-
-`claude agents` needs `$.process.run`, so the board cannot list other sessions. It shows this
-session and its own subagents (`$.agent.list()`):
-
-```text
-│ *Sessions*                                        │
-│ ~Other sessions are listed only in a terminal~    │
-│ ~session (claude agents needs a CLI).~            │
-│                                                   │
-│ +●+ *this session*  +working+                     │
-│   ~▶~ Draw quiet-items mocks ▰▰▱▱▱ 2/5            │
-│   ~41m worked · est. 30m left~                    │
-│ ~subagents~                                       │
-│   Explore  ~running~  ~find the element table~    │
-│   Plan     ~done~                                 │
-```
-
-### Command replies
-
-```text
-/session-board        -> Session board opened.
-/session-board        -> Session board opened. Other sessions are listed only in a terminal session.
-   (desktop)
-/session-board close  -> Session board closed.
-/session-board x      -> Unknown argument "x". Use /session-board or /session-board close.
-```
-
-Look choices (approved as proposed):
-
-1. Layout: one card per session at every width (the person, 2026-10-08). It replaces the first
-   choice of two lines below 100 body columns and one table line from 100.
-2. Kind as `inter` / `bg`, as a dim badge after the name.
-3. State colours: working success, waiting warning, idle dim, failed error, ended dim.
-
----
+Replaced by section 8, `handily-board` (decision of the person, 2026-10-13, handily-fwkt.8.19). The
+plugin is removed when handily-board ships.
 
 ## 4. item-toasts
 
@@ -566,158 +428,8 @@ Look choices (approved as proposed):
 
 ## 5. agent-board
 
-Opened with `/agent-board` (handily-cr7r). One pane that shows the subagents of this session, a
-tab beside `session-board`. It redraws every second while it is the shown tab.
-
-### Terminal: one card per subagent
-
-Mock, 45 column terminal (body 41 columns), built from the test fixtures:
-
-```text
-╭─────────────────────────────────────────✕─╮
-│ Subagents  2 active · 1 done · 1 not lis… │
-│ ● Explore  running  1m 05s                │
-│   find the element table                  │
-│   ▸ Read docs/design.md · 3 tools         │
-│ ───────────────────────────────────────── │
-│ ◐ scout  Explore  waiting  40s            │
-│   check links  under find the element t…  │
-│   last Bash npm test · 7 tools            │
-│ ───────────────────────────────────────── │
-│ ○ Plan  done  30s                         │
-│   map the code                            │
-│   last Read src/app.ts · 2 tools          │
-│ ───────────────────────────────────────── │
-│ ? f0000009  not listed  unknown  0s       │
-│   last AskUserQuestion · 1 tool           │
-╰───────────────────────────────────────────╯
-```
-
-Looks, by the legend: the name or type is `*bold*`; the badge, the time, `under …`, `▸`, `last`
-and the count are `~dim~`; the state word has the colour of its mark.
-
-| Mark | State                                    | Colour    |
-| ---- | ---------------------------------------- | --------- |
-| `●`  | `running`                                | `success` |
-| `◐`  | `waiting`                                | `warning` |
-| `○`  | `pending`, `idle`, `done`, `killed`      | dim       |
-| `✕`  | `failed`                                 | `error`   |
-| `?`  | `unknown`: the engine no longer lists it | dim       |
-
-- Title: the agent name when it has one, with the type as a dim badge. Else the type. A loop
-  that `$.agent.list()` never names shows the first 8 characters of its id and `not listed`. A
-  spawned agent with no list row and no loop event (a remote workflow agent) shows its type
-  and `not listed`. At most 20 such rows with no call in flight stay.
-- `/clear` or a resume (`session.end`) empties the pane: `No subagents in this session yet.`
-- First detail line: the description of the Agent call, then `under <parent>` when the agent
-  has a `parentId`. `<parent>` is the name of the parent, else its description, else its id.
-- Second detail line: `▸ <tool> <target> · N tools` while a call runs, `last <tool> <target> ·
-N tools` after it, and `no tool calls yet` before the first call.
-- Time: since the spawn, at the second. It stops when the agent ends.
-- Order: active, then `unknown`, then ended, then not listed. Inside a group, the first sight.
-
-### Terminal: a card with a plan (handily-fwkt.8.3)
-
-A subagent that keeps a task list in `task-pane` gets the list on its card. Mock, 45 column
-terminal (body 41 columns), built from the test fixtures: a list of 8 tasks, 4 done, the 5th in
-progress. Folded:
-
-```text
-╭─────────────────────────────────────────✕─╮
-│ Subagents  1 active                       │
-│ ● Explore  running  0s                    │
-│   find the element table                  │
-│   last Read docs/design.md · 1 tool       │
-│   plan 4/8 done · 5 of 8 shown            │
-│   ✓ Draw the plan                         │
-│   ✓ Test the fold                         │
-│   ▶ Update the mock                       │
-│   ○ Bump the version                      │
-│   ○ Write the changelog                   │
-╰───────────────────────────────────────────╯
-```
-
-After a click on `plan 4/8 done`:
-
-```text
-╭─────────────────────────────────────────✕─╮
-│ Subagents  1 active                       │
-│ ● Explore  running  0s                    │
-│   find the element table                  │
-│   last Read docs/design.md · 1 tool       │
-│   plan 4/8 done · all 8 shown             │
-│   ✓ Read the design                       │
-│   ✓ Map the hooks                         │
-│   ✓ Draw the plan                         │
-│   ✓ Test the fold                         │
-│   ▶ Update the mock                       │
-│   ○ Bump the version                      │
-│   ○ Write the changelog                   │
-│   ○ Run the gates                         │
-╰───────────────────────────────────────────╯
-```
-
-| Mark | Task        | Looks                                  |
-| ---- | ----------- | -------------------------------------- |
-| `✓`  | done        | mark in `success`, title `~dim~`       |
-| `▶`  | in progress | title `*bold*`                         |
-| `○`  | open        | mark `~dim~`, title plain              |
-
-- `plan N/M done` is `~dim~`. It counts the done tasks of the whole list.
-- A list of 5 tasks or fewer shows every task, and `plan N/M done` is text, not a button.
-- A list of more than 5 folds to the task in progress, the 2 tasks before it and the 2 tasks
-  after it. With no task in progress, it folds around the first open task, else the last task.
-- On a folded list, `plan N/M done` is a plain dim `Button`. A click unfolds the list, and a
-  second click folds it. The fold is kept per agent until `session.end`.
-- A subagent with no list, an empty list, or no `task-pane` in the session draws the card as
-  above, with no plan line.
-
-Captured live (Claude Code 2.1.294, 150 column terminal, docked pane), one background Explore
-subagent:
-
-```text
-│Subagents  1 active
-│● Explore  running  3s
-│  List agent-board folder
-│  last Bash ls mods/agent-board · 1 tool
-
-│Subagents  all 1 done
-│○ Explore  done  4s
-│  List agent-board folder
-│  last SubagentHandback · 2 tools
-```
-
-This capture predates handily-yxfev. A done row now keeps the tool and target of the last
-other call, here `last Bash ls mods/agent-board · 2 tools`.
-
-### Terminal, empty and all done
-
-```text
-│ *Subagents*                                       │
-│ ~No subagents in this session yet.~               │
-
-│ *Subagents*  ~all 3 done~                         │
-│ ○ *Explore*  ~done~  ~30s~                        │
-│   …(as above)                                     │
-```
-
-When every listed subagent ended, the header reads `all N done`. A loop that is not listed adds
-`· N not listed` and does not block it.
-
-### Desktop
-
-The same pane. `$.agent.list()` and the tool events need no CLI, so the desktop board has no
-fallback text.
-
-### Command replies
-
-```text
-/agent-board          -> Agent board opened.
-/agent-board close    -> Agent board closed.
-/agent-board x        -> Unknown argument "x". Use /agent-board or /agent-board close.
-```
-
----
+Replaced by section 8, `handily-board` (decision of the person, 2026-10-13, handily-fwkt.8.19). The
+plugin is removed when handily-board ships.
 
 ## 6. simple-view (handily-v921)
 
@@ -975,3 +687,535 @@ A fenced block gets a title line from its tag and a copy button:
 1. A reply folds after 30 lines.
 2. The task pane lists the running subagents, so one pane shows all the work.
 3. Done tasks stay folded by default.
+
+## 8. handily-board: this session and this machine (approved 2026-10-13)
+
+Approved by the person on 2026-10-13 (handily-fwkt.8.19), after a review of the code and a UX
+review. One plugin `handily-board` replaces handily-task-pane, handily-agent-board and
+handily-session-board. The old plugins are removed, with no aliases. `/board` shows "this session",
+`/board machine` shows "this machine", and `/board add` and `/board rm` change this session's tasks.
+The model tools become `mcp__handily-board__task_add` and so on.
+
+Measured facts (tmux, Claude Code 2.1.296):
+
+- A pane in a hidden tab does not draw.
+- With two panes open, the engine shows them as tabs. Both panes were placed in fullscreen at 90
+  and at 120 columns.
+- With both panes open and pane-b shown, `ui.open` on pane-a without `focus` does not bring pane-a
+  forward. With `focus: true` it does (pane-a drew, pane-b stopped). The pane then also holds the keyboard.
+- `/board` is free. Built-ins `/tasks`, `/agents`, `/plan` and `/status` exist.
+
+### 8.0 Conventions
+
+- Signals (docs/design.md, signals.ts): `▶` doing (`claude`), `✓` done (`success`), `○` to do (`subtle`),
+  `■` failed (`error`), `◆` needs you (`warning`), `?` an agent the engine no longer lists (`subtle`).
+- Looks: names bold; badges, times, counts, `▸` lines and rule lines dim; a state word and an
+  attention count (`1 needs you`, `1 failed`) take the colour of their mark. The blocks below are plain,
+  so each width is checked by a script (docked 41 and 30, inline 76).
+- Selected tab: drawn by the engine; the mocks write it as `[this session]`. The real look is the engine's.
+- Time: one short form everywhere, at most 3 columns, right-aligned: `9s`, `59s`, `5m`, `59m`, `1h`,
+  `23h`, `2d`. It rounds down. The opened row spells the age as `spawned 1m ago`.
+- Name cut: a name of more than 9 characters keeps its first 4 and last 4 around `…`:
+  `general-purpose` -> `gene…pose`, `implementer` -> `impl…nter`, `code-reviewer` -> `code…ewer`.
+  Two rows that still show the same name get a space and `2`, `3` in spawn order, cut further to fit:
+  `Explore`, `Explore 2`; `gene…se 2`.
+- Agent row (41): mark, name 9, state 9, detail 15, time 3. A running agent is one line. An agent
+  that needs you or failed gets a second line: what it waits for, or what failed.
+- Attention first, everywhere: needs you, then failed, then doing, to do, done. A fold that hides an
+  agent that needs you says so: `[ +2 ended ]` never hides one (an ended agent cannot wait);
+  `[ +2 more agents · 1 needs you ]`, `[ 6 agents · 1 needs you ]`.
+- Card order on "this machine": by attention (a session or any of its agents needs you, then failed,
+  then working, idle, ended). This session goes first inside its group, not first overall. The tab
+  exists to find what waits elsewhere; this session already has its own tab.
+- Record tags right of a frame: `8.10` = handily-fwkt.8.10 (needs-you signal), `8.11` =
+  handily-fwkt.8.11 (agents of other sessions: current task and done/total only, no current tool).
+
+### 8.1 Release 1: without 8.10 and 8.11
+
+What has a source today: the agent status (`pending`, `running`, `waiting`, `idle`, `completed`,
+`failed`, `killed`; index.d.ts AgentStatus), the tool calls of this session's agents, and the session
+state and `waitingFor` from `claude agents --json`. So a *session* can need you in release 1, but an
+*agent* cannot. An agent with status `waiting` is held (on background work, a plan approval or an
+Agent call). It is drawn as doing, `on hold`, not as needs you.
+
+#### 8.1a Docked, body 41, "this session"
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Tasks  1 of 4 done · 14m                  │
+│ ▶ 2 Write the tab mocks       4m [ rm ]   │
+│     ▸ Edit docs/mocks.md         9 tools  │
+│ ○ 3 Review the mocks with Codex           │
+│ ○ 4 You: Ask the person about tabs        │
+│ [ +1 done ]                               │
+│ ───────────────────────────────────────── │
+│ Agents  3 · 1 failed                      │
+│ ■ lane-b    failed                     4m │
+│     failed after Bash npm test            │
+│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ ▶ scout     on hold   ▸ Agent          2m │
+│ [ +2 ended ]                              │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.1b Docked, body 41, "this machine"
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  [this machine]              │  (engine tab row)
+│ Sessions  4 · 1 needs you · 12s ago       │
+│ ◆ api-login  interactive  needs you       │
+│   waits for: permission                   │
+│   ▶ Fix the login redirect ▰▰▱ 2/3        │
+│   api · feat/login · 2h elapsed           │
+│ ───────────────────────────────────────── │
+│ ▶ mocks  interactive  this  busy          │
+│   ▶ Write the tab mocks ▰▱▱▱ 1/4          │
+│   app · main · 14m worked · est. 30m left │
+│   agents 3 · 1 failed                     │
+│ ───────────────────────────────────────── │
+│ ▶ lane-a1  background  working            │
+│   ▶ Build the tab pane ▰▰▰▱▱▱ 3/6         │
+│   app.wt/lane-a1 · lane/a1 · 22m worked   │
+│ ───────────────────────────────────────── │
+│ ✓ docs-pass  background  done             │
+│   docs · main · ended                     │
+│ 1 older background job hidden             │
+╰───────────────────────────────────────────╯
+```
+
+- Only this session's card has an `agents` line in release 1; it comes from this session's own data.
+- `mocks` sorts after `api-login`: a needs-you session comes before this session.
+
+### 8.2 Full: with 8.10 and 8.11
+
+#### 8.2a Docked, fullscreen, body 41, "this session"
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Tasks  1 of 4 done · 14m                  │
+│ ▶ 2 Write the tab mocks       4m [ rm ]   │
+│     ▸ Edit docs/mocks.md         9 tools  │
+│ ○ 3 Review the mocks with Codex           │
+│ ○ 4 You: Ask the person about tabs        │
+│ [ +1 done ]                               │
+│ ───────────────────────────────────────── │
+│ Agents  3 · 1 needs you · 1 failed        │  8.10
+│ ◆ scout     needs you                  2m │  8.10
+│     waits for: permission · Bash npm t…   │  8.10
+│ ■ lane-b    failed                     4m │
+│     failed after Bash npm test            │
+│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ [ +2 ended ]                              │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.2b The Explore row pressed open (no field repeats the row)
+
+```text
+│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│     find the element table                │
+│     under scout · spawned 1m ago          │
+│     7 tool calls                          │
+│     ✓ Read the design                     │
+│     ✓ Map the hooks                       │
+│     ▶ Draw the plan                       │
+│     ○ Test the fold                       │
+│     ○ Bump the version                    │
+│     [ all 7 ]                             │
+│ [ +2 ended ]                              │
+```
+
+After `[ all 7 ]`: the 7 tasks show and the button reads `[ fold ]  all 7 shown`. A plan of 5 or fewer
+shows every task and no button. Opened, `scout` adds `under main · spawned 2m ago · 3 tools`; its
+waits-for line is already on the row.
+
+#### 8.2c `[ +2 ended ]` pressed, and an unlisted agent that still runs
+
+```text
+│ ◆ scout     needs you                  2m │
+│     waits for: permission · Bash npm t…   │
+│ ? f0000010 not listed ▸ AskUserQ…      0s │
+│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ [ hide 2 ended ]                          │
+│ ✓ Plan      done      Read src/app.ts 30s │
+│ ? f0000009 not listed AskUserQuestion  5m │
+```
+
+- An unlisted agent with a call in flight (`f0000010`) stays with the active agents, never under ended.
+- Header variants: `Agents  all 3 done`, `Agents  2 · 1 not listed`, `Agents  all 3 done · 1 not listed`.
+
+#### 8.2d A task title pressed open (reorder buttons are new; they reuse `task_move`)
+
+```text
+│ ○ 3 Review the mocks with Codex           │
+│     not started yet                       │
+│     [ up ] [ down ] [ rm ]                │
+│ ▶ 2 Write the tab mocks       4m [ rm ]   │
+│     ▸ Edit docs/mocks.md         9 tools  │
+│     started 4m ago · 14 tools in all      │
+```
+
+A cut title, opened, shows the full title wrapped first, then these lines.
+
+#### 8.2e Many agents: 20 in this session
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Tasks  1 of 4 done · 14m                  │
+│ ▶ 2 Write the tab mocks       4m [ rm ]   │
+│ ○ 3 Review the mocks with Codex           │
+│ [ +1 done ]                               │
+│ ───────────────────────────────────────── │
+│ Agents  20 · 2 need you · 1 failed        │  8.10
+│ ◆ scout     needs you                  2m │  8.10
+│     waits for: permission · Bash npm t…   │  8.10
+│ ◆ gene…pose needs you                  1m │  8.10
+│     waits for: an answer                  │  8.10
+│ ■ lane-b    failed                     4m │
+│     failed after Bash npm test            │
+│ ▶ Explore   plan 2/7  ▸ Grep hooks/    1m │
+│ ▶ Explore 2 running   ▸ Read a.ts      1m │
+│ ▶ impl…nter plan 0/3  ▸ Edit b.ts      9s │
+│ [ +10 more agents ]  [ +5 ended ]         │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+- At most 6 agent rows before the fold, so the Add input stays on screen. The rows that need you
+  and the failed ones are always among the 6. When more than 6 need you, the fold says
+  `[ +N more agents · M need you ]`.
+
+#### 8.2f Docked, body 41, "this machine": 4 sessions, one with 6 agents, one waits for you
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  [this machine]              │  (engine tab row)
+│ Sessions  4 · 3 need you · 12s ago        │  8.10
+│ ◆ api-login  interactive  needs you       │
+│   waits for: permission                   │
+│   ▶ Fix the login redirect ▰▰▱ 2/3        │
+│   api · feat/login · 2h elapsed           │
+│ ───────────────────────────────────────── │
+│ ▶ mocks  interactive  this  busy          │
+│   ▶ Write the tab mocks ▰▱▱▱ 1/4          │
+│   app · main · 14m worked · est. 30m left │
+│   agents 3 · 1 needs you · 1 failed       │  8.10
+│ ───────────────────────────────────────── │
+│ ▶ lane-a1  background  working            │
+│   ▶ Build the tab pane ▰▰▰▱▱▱ 3/6         │
+│   app.wt/lane-a1 · lane/a1 · 22m worked   │
+│   agents 6 · 1 needs you                  │  8.11 8.10
+│   ◆ scout      needs you          4/9     │  8.11 8.10
+│   ▶ Explore    Map the hooks      2/5     │  8.11
+│   ▶ tester     Run the unit tes…  0/1     │  8.11
+│   ▶ reviewer   Review board.tsx   1/3     │  8.11
+│   [ +2 more agents ]                      │  8.11
+│ ───────────────────────────────────────── │
+│ ✓ docs-pass  background  done             │
+│   docs · main · ended                     │
+│ 1 older background job hidden             │
+╰───────────────────────────────────────────╯
+```
+
+- Order: `api-login` first, because the session itself needs you. Then the sessions whose agent
+  needs you: `mocks` first in that group, because it is this session, then `lane-a1`. Then working,
+  idle and ended sessions.
+- This session's card shows counts only; its agents are on the other tab.
+- `3 need you` in the header counts every session and agent that needs you: `api-login`, and the
+  agent `scout` in `mocks` and in `lane-a1`.
+- Other sessions' agent rows: name, current task, done/total. No current tool, no time (8.11 has
+  none). An agent with no task list shows `no tasks`.
+- Bar: at most 8 cells; one cell per task up to 8, then each cell a share: `▰▰▱▱▱▱▱▱ 25/100`.
+
+### 8.3 Docked, body 30 (a narrow dock the person dragged)
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │  (engine tab row)
+│ Tasks  1 of 4 done · 14m       │
+│ ▶ 2 Write the tab… 4m [ rm ]   │
+│     ▸ Edit mocks.md  9 tools   │
+│ ○ 3 Review the mocks with C…   │
+│ ○ 4 You: Ask the person abo…   │
+│ [ +1 done ]                    │
+│ ────────────────────────────── │
+│ Agents 3 · 1 you · 1 failed    │
+│ ◆ scout     needs you       2m │
+│     waits for: permission ·…   │
+│ ■ lane-b    failed          4m │
+│     failed after Bash npm t…   │
+│ ▶ Explore   plan 2/7        1m │
+│ [ +2 ended ]                   │
+│                                │
+│ [ Add a task ___ ][Add]        │
+╰────────────────────────────────╯
+```
+
+```text
+╭──────────────────────────────✕─╮
+│ this session  [this machine]   │  (engine tab row)
+│ Sessions  4 · 3 need you       │
+│ ◆ api-login  needs you         │
+│   waits for: permission        │
+│   ▶ Fix the login… ▰▰▱ 2/3     │
+│   api · feat/login · 2h        │
+│ ────────────────────────────── │
+│ ▶ lane-a1  working             │
+│   ▶ Build the tab… ▰▰▰▱▱▱ 3/6  │
+│   agents 6 · 1 needs you       │
+│   ◆ scout     needs you   4/9  │
+│   ▶ Explore   Map the h…  2/5  │
+│   [ +4 more agents ]           │
+╰────────────────────────────────╯
+```
+
+- Below 36 columns: the type badge, the agent tool column, the `polled` age and the place line of
+  other sessions drop, in that order. `this` stays. Titles cut; ids never cut.
+
+### 8.4 Inline above the prompt, 80 columns (body 76)
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ Tasks  1 of 4 done · 14m                                                     │
+│ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
+│ ○ 3 Review the mocks with Codex                                              │
+│ ○ 4 You: Ask the person about tabs                                           │
+│ [ +1 done ]                                                                  │
+│ Agents  3 · 1 needs you · 1 failed                                           │  8.10
+│ ◆ scout      needs you  waits for: permission · Bash npm test             2m │  8.10
+│ ■ lane-b     failed     failed after Bash npm test                        4m │
+│ ▶ Explore    plan 2/7   ▸ Grep hooks/                                     1m │
+│ [ +2 ended ]                                                                 │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ this session  [this machine]                                                 │  (engine tab row)
+│ Sessions  4 · 3 need you · polled 12s ago                                    │  8.10
+│ ◆ api-login  inter needs you   api · feat/login                  2/3  2h     │
+│     waits for: permission                                                    │
+│ ▶ mocks      inter this · busy app · main                        1/4 14m     │
+│     agents 3 · 1 needs you · 1 failed                                        │  8.10
+│ ▶ lane-a1    bg    working     app.wt/lane-a1 · lane/a1          3/6 22m     │
+│     [ 6 agents · 1 needs you ]                                               │  8.11 8.10
+│ ✓ docs-pass  bg    done        docs · main                             —     │
+│ 1 older background job hidden                                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+- Inline, each session is one row and keeps repo and branch; the task count replaces bar plus
+  fraction. Pressing a session name opens its card (8.2f). `[ 6 agents · 1 needs you ]` unfolds the
+  agents under the row, needs you first, at most 4, then `[ +2 more agents ]`.
+- Inline, an agent that needs you or failed fits on one line, because 76 columns hold the reason.
+- `inter`/`bg` are the short badges inline; docked uses `interactive`/`background` (session-board README).
+
+### 8.5 Empty, loading, stale and error states (body 41)
+
+"this session":
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Tasks  none in this session yet           │
+│ Open in tracker: basicly · 29 open        │
+│ P1 handily-ab12 Draw text mocks … [ add ] │
+│ P2 handily-cd34 Write the beads … [ add ] │
+│ …(first 10)                               │
+│ [ all 29 open ]  [ Add 10 as tasks ]      │
+│ No agents yet.                            │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+`[ all 29 open ]` shows every item and becomes `[ first 10 ]`. "No agents yet." shows only while the
+task list is empty too; otherwise the Agents section is left out.
+
+```text
+│ Tasks  none kept by Claude                │
+│ ▶ Now  Edit docs/mocks.md · 14 tools · 3m │
+│   Read 4 · Edit 6 · Bash 4                │
+│ No plan from Claude for 14 tool calls.    │
+│ [ Ask Claude for a plan ]                 │
+```
+
+```text
+│ Tasks  1 of 4 done · 14m                  │
+│ No plan update for 22 tool calls.         │
+│ [ Ask Claude for a plan ]                 │
+```
+
+Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
+
+"this machine":
+
+```text
+│ Sessions                                  │
+│ Listing the local sessions…               │
+```
+
+```text
+│ Sessions                                  │
+│ No local sessions are listed.             │
+│ ▶ mocks  interactive  this  busy          │
+│   not listed (stale)                      │
+│   ▶ Write the tab mocks ▰▱▱▱ 1/4          │
+```
+
+```text
+│ Sessions  4 · 1 needs you · 2m ago        │
+│ Last poll failed; showing 2m old data.    │
+│   retry in 15s                            │
+│ ◆ api-login  interactive  needs you       │
+│   …                                       │
+```
+
+```text
+│ Sessions                                  │
+│ claude agents --json failed: exit 1.      │
+│ Run it in a shell to see why.             │
+│ retry in 15s                              │
+```
+
+```text
+│ Sessions                                  │
+│ claude agents --json failed: the output   │
+│ is not a JSON list.                       │
+```
+
+```text
+│ Sessions                                  │
+│ claude agents --json failed: the output   │
+│ is over 4 MiB and was cut.                │
+```
+
+```text
+│ Sessions                                  │
+│ claude is not on PATH, so other           │
+│ sessions cannot be listed.                │
+```
+
+```text
+│ ○ api-docs  interactive  idle             │
+│   no tasks                                │
+│   api · main · 40m elapsed                │
+│ ───────────────────────────────────────── │
+│ ▶ lane-b1  background  working            │
+│   ▶ Write the reader (stale) ▰▱▱ 1/3      │
+│   app.wt/lane-b1 · lane/b1 · 2h elapsed   │
+```
+
+```text
+│ Sessions  1                               │
+│ Only this session is running.             │
+│ ▶ mocks  interactive  this  busy          │
+│   …                                       │
+```
+
+- `Listing the local sessions…`: the first poll has not answered yet.
+- `No local sessions are listed.`: the poll answered with an empty list. This session still shows its
+  card, marked `not listed (stale)`.
+- A poll older than 30s, after a failure, puts the warning line under the header and keeps the cards.
+- `(stale)` after a task: the store key was written more than 60s before the session's `startedAt`;
+  no estimate then. A session that runs the board with an empty list shows `no tasks`; a session
+  without the board shows no task line.
+- `est. 30m left` shows only after one task is done, and not for 5 minutes after a task is added.
+- Desktop: `Other sessions are listed only in a terminal session.` above this session's card.
+
+### 8.6 Commands and replies
+
+```text
+/board                   -> Board opened: this session.     (shows the tab: ui.open with focus)
+/board   (toggle, shown)  -> Board closed.
+/board machine           -> Board opened: this machine.     (shows the tab: ui.open with focus)
+/board close             -> Board closed.
+/board add Write it      -> Added task 5: Write it. Claude is told the list changed.
+/board add handily-cd34  -> Added task 6: "handily-cd34": "Write the beads reader".
+/board add handily-f5u   -> handily-f5u is closed in basicly. Add it as text:
+                            /board add -- handily-f5u
+/board add -- app-x1     -> Added task 7: app-x1. (the text, not an item)
+/board rm 4              -> Removed task 4: "Review the mocks". Claude is told the list changed.
+/board rm 9              -> No task 9. This session has tasks 1-7; /board list prints them.
+/board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
+                            /board rm <n>, /board list or /board close.
+/board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
+                            /board list prints the tasks.
+/board list              -> the task list as text (as /task printed it; mobile and a closed board)
+```
+
+- `/board` and `/board machine` open both panes, so the tab row exists. When the asked tab is hidden,
+  they bring it forward with `focus: true` (measured: without `focus` a second open does not bring
+  a hidden tab forward), so the pane also gets the keyboard and Esc hands it back. When the asked
+  tab is already shown (`$.ui.panes()` `isShown`), they pass no `focus`, and the keyboard stays at
+  the prompt.
+- `/board list` is new: it keeps the reply-as-list path of `/task` that mobile and a closed pane need.
+- Old commands `/task`, `/agent-board` and `/session-board` are gone with their plugins; no aliases.
+
+`userConfig` `mode`:
+
+| mode | effect |
+| --- | --- |
+| `off` | The board opens only on `/board` or `/board machine`. |
+| `toggle` (default) | As `off`; `/board` on a shown "this session" tab closes the board. |
+| `always` | The board opens at session start, unasked. |
+
+`always` opens without the person's input, so the engine places it only from 144 columns (110 once the
+person opened it in an earlier session). Below that it waits undrawn and the mod shows one toast:
+
+```text
+Board waits for a wider terminal. Run /board to open it here.
+```
+
+### 8.7 Keys
+
+- Switch tabs: click a tab, or put the focus on the tab row and press Enter. `/board` and
+  `/board machine` switch too.
+- ctrl+x tab gives the keyboard to the pane (or the band above the prompt). It does not switch tabs.
+- In a pane that holds the keyboard: Tab walks the buttons, Enter presses, the arrows scroll, Esc hands
+  the keyboard back. ctrl+x x closes the pane.
+- No mod hotkeys in release 1. A Button `hotkey` works only while the pane holds the keyboard.
+
+### 8.8 Tab labels
+
+The tabs are `this session` and `this machine` (decision of the person, 2026-10-13). `this machine`
+pairs with `this session` and holds the sessions and their agents. `Local sessions` was the rejected
+choice.
+
+Each pane's first line names it too (`Tasks`, `Sessions`), because the engine draws no tab row while
+only one pane is open.
+
+### 8.9 Which rows need which record
+
+| row | release 1 | needs |
+| --- | --- | --- |
+| agent `◆ needs you` and its `waits for:` line, `N need you` in agent counts | no | 8.10 |
+| session `◆ needs you` from `waitingFor`, `waits for: permission` on a card | yes | - |
+| agent rows under another session, `[ N agents ]`, `agents N` on another card | no | 8.11 |
+| `agents N · 1 failed` on this session's card | yes | - |
+| agent `■ failed` and `failed after <last tool>` | yes | - |
+
+### Risks
+
+- Width: the 41-column agent row has no spare column; a dock dragged below 36 drops columns
+  (section 8.3).
+- Cost: `claude agents --json` takes 0.73s every 15s, only while "this machine" is shown (a hidden tab
+  does not draw, measured). Every `/board` opens both panes, which is free while hidden.
+- Stale between tabs: "this session" is live; "this machine" may be 15s old plus the store-key delay.
+  This session's card reads local state, not the poll, so the two tabs agree about it.
+- `focus: true` takes the keyboard when `/board` brings a hidden tab forward; a person typing right
+  after it types into the pane until Esc. If the engine reports `isShown` late, one `/board` does
+  nothing and a second one shows the tab.
+- Upgrade: removing the old plugins without aliases leaves `/task` users with an unknown command; only
+  the release note tells them.
