@@ -633,14 +633,17 @@ A tool call stays one row, as in simple-view, and gets two buttons:
 ● Run the unit tests  ~npm~  +exit 0+  ~140 lines~  ~3.0s~        [ more ] [ copy ]
 ```
 
-After `[ more ]`, the output opens under the row, at most 20 lines:
+After `[ more ]`, the output opens under the row, at most 20 lines, between two dim divider
+lines (handily-fwkt.16). `[ less ]` folds it and removes both lines:
 
 ```text
 ● Run the unit tests  ~npm~  +exit 0+  ~140 lines~  ~3.0s~        [ less ] [ copy ]
+  ~────────────────────────────────────────────────────────────────~
   ~ 38 pass~
   ~  0 fail~
   ~…~
   [ all 140 lines ]
+  ~────────────────────────────────────────────────────────────────~
 ```
 
 A long reply folds after 30 lines:
@@ -649,6 +652,18 @@ A long reply folds after 30 lines:
 ● The release is done. task-pane 0.3.0 and agent-board 0.2.0 are
   published, and every gate passed.
   ~… 42 more lines~                                          [ more ] [ copy reply ]
+```
+
+After `[ more ]`, the whole reply opens between two dim divider lines, and `[ less ]` folds it
+and removes both lines (handily-fwkt.16):
+
+```text
+● ~────────────────────────────────────────────────────────────────────────────~
+  The release is done. task-pane 0.3.0 and agent-board 0.2.0 are
+  published, and every gate passed.
+  …
+  ~────────────────────────────────────────────────────────────────────────────~
+                                                             [ less ] [ copy reply ]
 ```
 
 A table loses its box lines and keeps aligned columns. The header is bold:

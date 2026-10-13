@@ -25,6 +25,7 @@ import { bashRow, changesBlock, fileRow, readingRow, type BashState, type RowLoo
 
 const COMMAND = 'simple'
 const TICK_MS = 1000
+const DEFAULT_COLUMNS = 80
 const COUNT_TRIES = 5
 const DEFAULT_MODE: SimpleViewMode = 'on'
 const MODE = { plugin: 'handily-simple-view', key: 'mode' } as const
@@ -481,7 +482,11 @@ export const register: Register = (on) => {
     let drawn: RenderElement | null = null
     try {
       if (await isSimple($, e.props.tool_use_id)) {
-        const look = { elements: $.ui.resolve(e), hasToolMarker: e.surface === 'terminal' }
+        const look = {
+          elements: $.ui.resolve(e),
+          hasToolMarker: e.surface === 'terminal',
+          columns: e.viewport?.columns ?? DEFAULT_COLUMNS,
+        }
         drawn =
           e.component === 'ToolUse'
             ? await useDrawing($, e.props, look)

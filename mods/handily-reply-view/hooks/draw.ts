@@ -535,14 +535,18 @@ export function replyTree(
       ? foldedPieces(pieces)
       : pieces.map((piece) => ({ element: piece.whole(), rows: piece.rows }))
   const hidden = total - sum(shown.map((drawing) => drawing.rows))
+  const isOpened = isLong && fold === 'open'
+  const divider = (key: string) => (isOpened ? ruleRow(context, RULE.repeat(width), key) : null)
   const body = Box({
     flexDirection: 'column',
     children: [
+      divider('opened-top'),
       Box({
         flexDirection: 'column',
         gap: 1,
         children: shown.map((drawing) => drawing.element),
       }),
+      divider('opened-bottom'),
       isLong ? foldRow(context, fold, text, hidden) : null,
     ],
   })

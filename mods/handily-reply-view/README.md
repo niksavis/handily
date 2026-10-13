@@ -29,8 +29,19 @@ buttons at the right edge:
   … 15 more lines                                       [ more ] [ copy reply ]
 ```
 
-- `more` shows the whole reply, with `less` and `copy reply` under its last line. `less` folds it
-  again.
+- `more` shows the whole reply between two dim divider lines, with `less` and `copy reply` under
+  the lower line. The lines show where the opened reply starts and ends, which is the text that
+  `copy reply` takes. `less` folds it again and removes both lines:
+
+```text
+● ──────────────────────────────────────────────────────────────────────────────
+  The release is done. task-pane 0.3.0 and agent-board 0.2.0 are published, and every gate passed.
+  …
+  - Step 42 of the release ran without a warning.
+  ──────────────────────────────────────────────────────────────────────────────
+                                                        [ less ] [ copy reply ]
+```
+
 - `copy reply` copies the whole reply as markdown, as Claude wrote it. Its label differs from the
   `copy` button of a code block, so a reply that ends with a code block shows which button takes
   the block and which takes the reply.

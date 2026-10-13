@@ -124,16 +124,19 @@ dim until the pointer is on them.
 ● Run the unit tests  npm  exit 0  140 lines  3.0s                          [ more ] [ copy ]
 ```
 
-`more` opens the output under the row, at most 20 lines. Then `all 140 lines` opens every line,
-and `less` on the row folds the output again:
+`more` opens the output under the row, at most 20 lines, between two dim divider lines that show
+where the opened output starts and ends. Then `all 140 lines` opens every line, and `less` on the
+row folds the output again and removes both lines:
 
 ```text
 ● Run the unit tests  npm  exit 0  140 lines  3.0s                          [ less ] [ copy ]
+  ──────────────────────────────────────────────────────────────────────────────────────────
   line 1
   …
   line 20
   …
   [ all 140 lines ]
+  ──────────────────────────────────────────────────────────────────────────────────────────
 ```
 
 - `copy` copies the full output of the call: stdout, then stderr, exactly as the engine gave

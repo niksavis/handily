@@ -8,6 +8,7 @@ export const OPEN_LINES = 20
 export const DRAWN_CHARACTERS_AT_MOST = 60_000
 const TAB_STOP = 8
 const RESULT_INDENT = 2
+const RULE = '─'
 // eslint-disable-next-line no-control-regex -- an ANSI colour code starts with the escape character
 const COLOR_CODE = /\u001b\[[0-9;:]*m/g
 const HIDDEN_CHARACTER = /(?!\t)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
@@ -170,10 +171,21 @@ export function outputBlock(
       children: Text({ dimColor: true, wrap: 'truncate-end', children: text === '' ? ' ' : text }),
     })
   const hasAllButton = fold === 'open' && output.lines.length > OPEN_LINES
+  const indent = look.hasToolMarker ? RESULT_INDENT : 0
+  const divider = (key: string) =>
+    Box({
+      key,
+      children: Text({
+        dimColor: true,
+        wrap: 'truncate-end',
+        children: RULE.repeat(Math.max(look.columns - indent, 1)),
+      }),
+    })
   return Box({
     flexDirection: 'column',
-    paddingLeft: look.hasToolMarker ? RESULT_INDENT : 0,
+    paddingLeft: indent,
     children: [
+      divider('opened-top'),
       ...drawn.map((text, index) => textLine(text, index, 'line')),
       ...noteLines(output, fold, drawn.length).map((text, index) => textLine(text, index, 'note')),
       hasAllButton
@@ -189,6 +201,7 @@ export function outputBlock(
             }),
           })
         : null,
+      divider('opened-bottom'),
     ],
   })
 }

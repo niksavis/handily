@@ -803,6 +803,12 @@ async function mountUse($: Engine, props: RenderPropsOf['ToolUse'], surface: Sur
   return $.ui.mount({ plugin: 'handily-simple-view', surface, component: 'ToolUse', props })
 }
 
+const DIVIDER = `  ~${'─'.repeat(80 - 2)}~`
+
+function opened(lines: readonly string[]): string[] {
+  return [DIVIDER, ...lines, DIVIDER]
+}
+
 function numbered(from: number, to: number): string[] {
   return Array.from({ length: to - from + 1 }, (_, index) => `  ~line ${String(from + index)}~`)
 }
@@ -830,18 +836,42 @@ describe('tool row fold and copy', () => {
       await ui.press({ key: 'fold' })
       expect(sketch(await ui.drawn())).toEqual([
         edges(FOLDED_ROW, '[ less ] [ copy ]'),
-        ...numbered(1, 20),
-        '  ~…~',
-        '  [ all 140 lines ]',
+        ...opened([...numbered(1, 20), '  ~…~', '  [ all 140 lines ]']),
       ])
       await ui.press({ key: 'all' })
       const all = sketch(await ui.drawn())
-      expect(all).toEqual([edges(FOLDED_ROW, '[ less ] [ copy ]'), ...numbered(1, 140)])
+      expect(all).toEqual([edges(FOLDED_ROW, '[ less ] [ copy ]'), ...opened(numbered(1, 140))])
       await ui.press({ key: 'fold' })
       expect(sketch(await ui.drawn())).toEqual([edges(FOLDED_ROW, '[ more ] [ copy ]')])
       await ui.unmount()
     },
   )
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `more draws a dim divider line above and below the opened output across the screen and less removes both on ${surface}`,
+      async (world, $) => {
+        const ui = await $.ui.mount({
+          plugin: 'handily-simple-view',
+          surface,
+          component: 'ToolUse',
+          props: await longCall(world, $),
+          viewport: { columns: 60, rows: 40 },
+        })
+        const indent = surface === 'terminal' ? 2 : 0
+        const divider = `${' '.repeat(indent)}~${'─'.repeat(60 - indent)}~`
+        await ui.press({ key: 'fold' })
+        const open = sketch(await ui.drawn())
+        expect([open[1], open.at(-1)]).toEqual([divider, divider])
+        expect(await ui.find({ key: 'opened-top' })).toBeDefined()
+        await ui.press({ key: 'fold' })
+        expect(sketch(await ui.drawn())).toHaveLength(1)
+        expect(await ui.find({ key: 'opened-top' })).toBeUndefined()
+        expect(await ui.find({ key: 'opened-bottom' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+  }
 
   viewTest('more on one row leaves every other row folded', async (world, $) => {
     const first = await mountUse($, await longCall(world, $))
@@ -858,7 +888,7 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(['  ~alpha~', '  ~        beta~'])
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(opened(['  ~alpha~', '  ~        beta~']))
     expect(await ui.find({ key: 'all' })).toBeUndefined()
     await ui.unmount()
   })
@@ -877,7 +907,7 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(['  ~abc~'])
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(opened(['  ~abc~']))
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['abc  \n\n'])
     expect(world.toasts).toEqual(['Copied 1 line of output.'])
@@ -912,10 +942,9 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual([
-      '  ~  src/app.ts(3,1): error TS2304~',
-      '  ~more~',
-    ])
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(
+      opened(['  ~  src/app.ts(3,1): error TS2304~', '  ~more~']),
+    )
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore\n'])
     await ui.unmount()
@@ -929,10 +958,9 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual([
-      '  ~all~',
-      `  ~The full output is in ${path}. Copy takes all of it.~`,
-    ])
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(
+      opened(['  ~all~', `  ~The full output is in ${path}. Copy takes all of it.~`]),
+    )
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['all\nof\nit\n'])
     expect(world.toasts).toEqual(['Copied 3 lines of output.'])
@@ -969,7 +997,7 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(['  ~ok\\u200b~', '  ~100%~'])
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(opened(['  ~ok\\u200b~', '  ~100%~']))
     await ui.unmount()
   })
 
@@ -982,10 +1010,9 @@ describe('tool row fold and copy', () => {
       const id = await runBash(world, $, input)
       const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
       await ui.press({ key: 'fold' })
-      expect(sketch(await ui.drawn()).slice(1)).toEqual([
-        `  ~${family}${' '.repeat(6)}X~`,
-        '  ~a\\u200db~',
-      ])
+      expect(sketch(await ui.drawn()).slice(1)).toEqual(
+        opened([`  ~${family}${' '.repeat(6)}X~`, '  ~a\\u200db~']),
+      )
       await ui.unmount()
     },
   )
@@ -997,15 +1024,17 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual([
-      `  ~界${' '.repeat(6)}X~`,
-      `  ~\u00e9${' '.repeat(7)}X~`,
-      `  ~e\u0301${' '.repeat(7)}X~`,
-      `  ~🙂${' '.repeat(6)}X~`,
-      `  ~👍🏽${' '.repeat(6)}X~`,
-      `  ~\u0301${' '.repeat(8)}X~`,
-      `  ~\\u200b${' '.repeat(2)}X~`,
-    ])
+    expect(sketch(await ui.drawn()).slice(1)).toEqual(
+      opened([
+        `  ~界${' '.repeat(6)}X~`,
+        `  ~\u00e9${' '.repeat(7)}X~`,
+        `  ~e\u0301${' '.repeat(7)}X~`,
+        `  ~🙂${' '.repeat(6)}X~`,
+        `  ~👍🏽${' '.repeat(6)}X~`,
+        `  ~\u0301${' '.repeat(8)}X~`,
+        `  ~\\u200b${' '.repeat(2)}X~`,
+      ]),
+    )
     await ui.unmount()
   })
 
@@ -1050,9 +1079,7 @@ describe('tool row fold and copy', () => {
       await ui.press({ key: 'fold' })
       expect(sketch(await ui.drawn())).toEqual([
         edges(row, '[ less ]'),
-        '  ~git add -A~',
-        '  ~git commit -m "save"~',
-        '  ~git push~',
+        ...opened(['  ~git add -A~', '  ~git commit -m "save"~', '  ~git push~']),
       ])
       await ui.unmount()
       await world.clock.advance(1000)
