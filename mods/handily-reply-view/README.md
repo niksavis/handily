@@ -1,4 +1,4 @@
-# reply-view
+# handily-reply-view
 
 `reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
 30 lines folds to its first lines. A markdown table draws with dim rules between its columns and
@@ -9,11 +9,7 @@ the full reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3.
 
-## Install
-
-```text
-/plugin install handily-reply-view --marketplace niksavis/handily
-```
+[docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
 
 ## A long reply
 

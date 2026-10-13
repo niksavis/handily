@@ -1,7 +1,7 @@
 # handily — research and design
 
-Status: revision 3 (record `handily-0m93`). Research and the plan review are done. No mod code
-exists yet. The implementation session starts from this file.
+Status: revision 3 (record `handily-0m93`), with later decisions added in place. The mods are
+built and released. `CHANGELOG.md` lists each release. Sections 4.3, 4.4 and 4.7 are historical.
 Claude Code build used for the research: 2.1.293.
 
 Revision 3 corrects errors in revision 2 and adds the decisions from the plan review and the
@@ -406,8 +406,8 @@ Toggle:
 
 ### 4.3 task-pane (mod 2)
 
-Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
-record of the design. The plugin `handily-task-pane` is removed.
+Historical. Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section
+stays as the record of the design. The plugin `handily-task-pane` is removed.
 
 - Commands come first: `/task add` and `/task rm`. The `Pane` is optional, because the mobile
   app has no `Input`.
@@ -434,8 +434,8 @@ record of the design. The plugin `handily-task-pane` is removed.
 
 ### 4.4 session-board (mod 3)
 
-Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
-record of the design. The plugin `handily-session-board` is removed.
+Historical. Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section
+stays as the record of the design. The plugin `handily-session-board` is removed.
 
 - Main source: `claude agents --json`. It lists interactive and background sessions on
   this machine.
@@ -478,8 +478,8 @@ A toast when a work item changes state outside this session. It needs a rate lim
 
 ### 4.7 agent-board (handily-cr7r)
 
-Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
-record of the design. The plugin `handily-agent-board` is removed.
+Historical. Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section
+stays as the record of the design. The plugin `handily-agent-board` is removed.
 
 - Purpose: one pane that shows what each subagent of this session does. `session-board` shows
   the sessions of the machine. `agent-board` shows the subagents inside one session.
