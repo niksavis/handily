@@ -81,6 +81,13 @@ repos:
     stages:
     - commit-msg
     pass_filenames: true
+  - id: changelog-gate
+    name: changelog-gate
+    entry: node scripts/changelog-gate.mjs
+    language: system
+    stages:
+    - commit-msg
+    pass_filenames: true
   - id: tracker-commit-msg-script
     name: tracker-commit-msg-script
     entry: uv run --no-project python .basicly/core/hooks/tracker-commit-msg.py
