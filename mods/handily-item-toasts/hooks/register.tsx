@@ -26,7 +26,7 @@ const ON_TEXT = 'item-toasts on for this session. A work item that changes elsew
 const OFF_TEXT =
   'item-toasts off for this session. No work item change draws a toast until /item-toasts on.'
 const USAGE_TEXT =
-  '/item-toasts takes on or off. /item-toasts on and /item-toasts off set this session.'
+  '/item-toasts takes on, off or no argument. /item-toasts on and /item-toasts off set this session, and /item-toasts toggles it.'
 
 function hostOf($: EngineInterface): ToastHost {
   return {
@@ -78,6 +78,13 @@ function startToasts($: EngineInterface, toasts: Toasts): Toaster {
 async function isOn($: EngineInterface): Promise<boolean> {
   const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
   return mode === 'on'
+}
+
+function modeFor(args: string, isCurrentlyOn: boolean): ItemToastsMode | null {
+  const asked = args.trim()
+  if (asked === '') return isCurrentlyOn ? 'off' : 'on'
+  if (asked === 'on' || asked === 'off') return asked
+  return null
 }
 
 async function toasterOf($: EngineInterface, toasts: Toasts): Promise<Toaster | undefined> {
@@ -174,8 +181,8 @@ export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'handily · Set the toasts for work item changes on or off for this session',
-      argumentHint: 'on|off',
+      description: 'handily · Set or toggle the toasts for work item changes for this session',
+      argumentHint: '[on|off]',
     })
     const started = await next(e)
     if (await isOn($)) await startToasts($, toasts).tick()
@@ -184,9 +191,9 @@ export const register: Register = (on) => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    const asked = e.args.trim()
-    if (asked !== 'on' && asked !== 'off') return { text: USAGE_TEXT }
-    return { text: await setMode($, toasts, asked) }
+    const mode = modeFor(e.args, await isOn($))
+    if (mode === null) return { text: USAGE_TEXT }
+    return { text: await setMode($, toasts, mode) }
   })
 
   on('session.end', (_$, e, next) => {
