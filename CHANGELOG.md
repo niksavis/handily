@@ -15,9 +15,32 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
   `this machine` tab shows every local Claude Code session, the ones that wait for you first,
   with a `waits for:` line. The tab polls `claude agents --json` only while it is shown.
   `/board add`, `/board rm`, `/board list` and `/board close` replace the `/task` forms. The
-  model tools are `mcp__handily-board__task_add`, `task_update`, `task_move` and `task_list`. A
-  coming release removes the three old mods. Until then, do not install `handily-board` beside
-  the bundle, because both draw a task pane (handily-fwkt.8.19).
+  model tools are `mcp__handily-board__task_add`, `task_update`, `task_move` and `task_list`
+  (handily-fwkt.8.19).
+
+### Changed
+
+- **handily 0.5.0 lists `handily-board` in place of `handily-task-pane`,
+  `handily-session-board` and `handily-agent-board`.** `/handily` now reports 6 mods, such as
+  `handily: 6 of 6 mods loaded`. It names `handily-task-pane@handily`,
+  `handily-session-board@handily` and `handily-agent-board@handily` as old ids of
+  `handily-board`, in the same way as the ids from before handily 0.4.0, and prints
+  `claude plugin uninstall <old id> --scope <scope>` for each (handily-fwkt.8.19.4).
+
+### Removed
+
+- **Breaking change: `handily-task-pane`, `handily-agent-board` and `handily-session-board`
+  are removed, with no alias and no deprecation version.** `/task`, `/agent-board` and
+  `/session-board` are gone. `/board` replaces them, and `/board machine` shows the board of
+  every local session. An update does not remove an old plugin. With an old plugin and
+  `handily-board` both installed, two task panes draw. To move, run this line in a shell, then
+  type `/reload-plugins` in each open session. It updates the marketplace, installs
+  `handily-board`, uninstalls the three old plugins and updates the bundle. A command for a
+  plugin that you did not install fails for that plugin only (handily-fwkt.8.19.4).
+
+  ```sh
+  claude plugin marketplace update handily; claude plugin install handily-board@handily; for p in handily-task-pane handily-agent-board handily-session-board; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
+  ```
 
 ## handily-reply-view 0.5.1 - 2026-10-09
 

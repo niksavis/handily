@@ -182,22 +182,22 @@ describe('restoredBundleFailures', () => {
   test('a bundle without errorDetails has no failure', () => {
     const bundle = plugin({ id: 'handily@handily' })
     assert.deepEqual(
-      restoredBundleFailures(state(bundle), 'handily@handily', 'handily-agent-board@handily'),
+      restoredBundleFailures(state(bundle), 'handily@handily', 'handily-board@handily'),
       [],
     )
   })
 
   test('a missing bundle entry names the installed field', () => {
-    assert.deepEqual(restoredBundleFailures({}, 'handily@handily', 'handily-agent-board@handily'), [
-      'handily@handily: installed is false after handily-agent-board@handily is enabled again; expected true',
+    assert.deepEqual(restoredBundleFailures({}, 'handily@handily', 'handily-board@handily'), [
+      'handily@handily: installed is false after handily-board@handily is enabled again; expected true',
     ])
   })
 
   test('a bundle with errorDetails names the errorDetails field', () => {
     const bundle = plugin({ id: 'handily@handily', errorDetails: [] })
     assert.deepEqual(
-      restoredBundleFailures(state(bundle), 'handily@handily', 'handily-agent-board@handily'),
-      ['handily@handily: errorDetails remain after handily-agent-board@handily is enabled again'],
+      restoredBundleFailures(state(bundle), 'handily@handily', 'handily-board@handily'),
+      ['handily@handily: errorDetails remain after handily-board@handily is enabled again'],
     )
   })
 })
