@@ -339,14 +339,16 @@ its `plugin.json`, and the engine lays the contract into that mod's types folder
 | Part                                                            | Use                                                                                            |
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `$.state.get({ plugin: 'handily-workitems', key: 'snapshot' })` | The last snapshot. A render that reads it draws again on a change                              |
-| `$.workitems.refresh({ since })`                                | Reads again. Returns the created, updated and closed items and the `version`                   |
+| `$.workitems.refresh({ since })`                                | Reads again. Returns the created, updated and closed items, the `version` and the `state`      |
 | `$.workitems.lines({ snapshot, now })`                          | The state lines of `docs/mocks.md` section 0, with their tone                                  |
 | `$.workitems.writeVerbs()`                                      | The write verbs of each tracker CLI that the mod knows                                         |
 | `$.workitems.classify(command)`                                 | Reads a shell command: `write`, `echoed`, `opaque` or `none`, with the tracker writes it found |
 | `$.workitems.trackerFile({ path, root })`                       | The tracker file that `path` names, relative to `root`, or `null`                              |
 
-The snapshot `state` is one of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker` and
-`terminal-only`. This version produces each of them except `stale`.
+The snapshot `state` is one of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker`,
+`terminal-only` and `paused`. This version produces each of them except `stale`. A `paused`
+snapshot keeps the items, the root and the source of the last read (see
+[Pause and resume](#pause-and-resume)). It is not an error.
 
 Each snapshot also carries these fields:
 
@@ -362,6 +364,8 @@ Each snapshot also carries these fields:
   `since`, it returns the changes since the version at the time of the call.
 - The result also holds `version`, the snapshot version that the refresh reached. The changes
   are those from `since` to this `version`.
+- The result `state` is `read` after a read, and `paused` while the reads are paused. A paused
+  refresh reads nothing and returns only the changes that the mod already holds.
 - To see what one tool call changed, run `const { version } = await $.workitems.refresh()`
   before the call. Then call `refresh({ since: version })` after it. A poll that reads the
   change first does not hide it.
@@ -377,6 +381,25 @@ Each snapshot also carries these fields:
   this. It reads `.handily.json` once per poll.
 - The poll starts before the first refresh at session start, so a failed first refresh does
   not stop it.
+
+## Pause and resume
+
+`/workitems` takes one of these forms:
+
+| Form                | What it does                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `/workitems`        | Says if the mod polls the tracker or is paused                                      |
+| `/workitems pause`  | Stops the poll and every tracker read, and publishes a snapshot with state `paused` |
+| `/workitems resume` | Polls again and reads the tracker once                                              |
+
+- The pause holds for the session. The mod keeps it in the snapshot in `$.state`, so a reload
+  of the mod or a second session start stays paused and reads nothing.
+- While paused, the mod runs no command and reads no tracker file, not at a poll, not after a
+  directory change and not for a refresh that another mod asks for.
+- `$.workitems.lines()` gives one dim line for a paused snapshot:
+  `Work items paused: no tracker reads until /workitems resume.`
+- An unknown argument gets the reply
+  `Unknown argument "<argument>". Use /workitems, /workitems pause or /workitems resume.`
 
 ## Develop
 

@@ -68,6 +68,8 @@ export function onReply(snapshot: Snapshot | undefined): string {
       return `${prefix} work items need your approval to run ${shortReason(snapshot.reason)}, ${FULL_TAIL}`
     case 'no-tracker':
       return `${prefix} no tracker was found at the repo root, ${FULL_TAIL}`
+    case 'paused':
+      return `${prefix} workitems is paused (/workitems resume reads the tracker again), ${FULL_TAIL}`
   }
 }
 

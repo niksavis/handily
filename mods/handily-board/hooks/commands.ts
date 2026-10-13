@@ -131,6 +131,10 @@ async function lookupItem(host: TaskHost, id: string): Promise<ItemLookup> {
       return {
         refusal: `Cannot read ${id}: work items need your approval to run ${snapshot.reason}. ${asText}`,
       }
+    case 'paused':
+      return {
+        refusal: `Cannot read ${id}: workitems is paused (/workitems resume reads the tracker again). ${asText}`,
+      }
   }
 }
 

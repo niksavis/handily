@@ -1,5 +1,5 @@
 export type WorkitemsState =
-  'ok' | 'failed' | 'approval-needed' | 'stale' | 'no-tracker' | 'terminal-only'
+  'ok' | 'failed' | 'approval-needed' | 'stale' | 'no-tracker' | 'terminal-only' | 'paused'
 
 export type WorkitemsStatus = 'open' | 'in_progress' | 'blocked' | 'deferred' | 'closed' | 'other'
 
@@ -58,6 +58,7 @@ export type WorkitemsSnapshot = WorkitemsSnapshotBase &
     | ({ state: 'approval-needed'; reason: string } & WorkitemsSourced)
     | ({ state: 'terminal-only'; reason: null } & WorkitemsSourced)
     | ({ state: 'no-tracker'; reason: `looked for ${string}` } & WorkitemsUnsourced)
+    | ({ state: 'paused'; reason: null } & (WorkitemsSourced | WorkitemsUnsourced))
   )
 
 export type WorkitemsDiff = {
@@ -150,6 +151,7 @@ export type WorkitemsLineTexts = {
   'approval-hint': 'Asked at the next refresh in an interactive session.'
   'no-tracker': `No tracker found at the repo root (${string}).`
   'terminal-only': `${string} is read through a CLI, which only a terminal session can run. Open this repo in a terminal to see its items.`
+  paused: 'Work items paused: no tracker reads until /workitems resume.'
 }
 
 export type WorkitemsLine = {
@@ -162,6 +164,7 @@ export type WorkitemsRefreshArgs = {
 
 export type WorkitemsRefreshResult = WorkitemsDiff & {
   version: number
+  state: 'read' | 'paused'
 }
 
 export type WorkitemsLinesArgs = {

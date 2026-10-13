@@ -31,7 +31,8 @@ const fakeWorkitems: Plugin = {
       return {
         ...built,
         workitems: {
-          refresh: () => Promise.resolve({ created: [], updated: [], closed: [], version: 1 }),
+          refresh: () =>
+            Promise.resolve({ created: [], updated: [], closed: [], version: 1, state: 'read' }),
           writeVerbs: () => Promise.reject(new Error('the fake workitems has no write verbs')),
           classify: () => Promise.reject(new Error('the fake workitems classifies no command')),
           trackerFile: () => Promise.reject(new Error('the fake workitems names no tracker file')),
@@ -51,6 +52,14 @@ const fakeWorkitems: Plugin = {
                     kind: 'no-tracker' as const,
                     tone: 'dim' as const,
                     text: `No tracker found at the repo root (${snapshot.reason}).` as const,
+                  },
+                ])
+              case 'paused':
+                return Promise.resolve([
+                  {
+                    kind: 'paused' as const,
+                    tone: 'dim' as const,
+                    text: 'Work items paused: no tracker reads until /workitems resume.' as const,
                   },
                 ])
               default:
@@ -242,6 +251,10 @@ function failedSnapshot(): Snapshot {
     sourceLabel: 'basicly',
     caveat: null,
   }
+}
+
+function pausedSnapshot(): Snapshot {
+  return { ...okSnapshot(OPEN_ITEMS), state: 'paused', reason: null }
 }
 
 function terminalOnlySnapshot(): Snapshot {
@@ -582,6 +595,31 @@ describe('no tasks yet', () => {
     expect(await board($, 'list')).toBe(
       'No tasks in this session yet. Work items unavailable: basicly tracker list exited 2. Run it in a shell to see why.',
     )
+  })
+
+  test('a paused workitems shows a dim paused line and no error', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    await publish($, pausedSnapshot())
+    expect(await board($, 'list')).toBe(
+      'No tasks in this session yet. Work items paused: no tracker reads until /workitems resume.',
+    )
+    expect(await board($, 'add app-cd34')).toBe(
+      'Cannot read app-cd34: workitems is paused (/workitems resume reads the tracker again). Add it as text: /board add -- app-cd34',
+    )
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({
+        plugin: PLUGIN,
+        surface,
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('dock'),
+      })
+      const line = await ui.find({ type: 'Text', text: /Work items paused/ })
+      expect(line?.props.color).not.toBe('error')
+      expect(await ui.find({ type: 'Text', text: /unavailable/ })).toBeUndefined()
+      await ui.unmount()
+    }
   })
 
   test(

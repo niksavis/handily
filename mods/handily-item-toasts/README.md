@@ -104,6 +104,7 @@ failure then draws no toast either.
 | `failed` after `ok`                                       | `Work items unavailable: <first sentence of the reason>.`, once |
 | `failed` that stays `failed`                              | None                                                            |
 | `no-tracker`, `approval-needed`, `terminal-only`, `stale` | None. The mod drops the waiting changes                         |
+| `paused`                                                  | None. The mod drops the waiting changes                         |
 
 - A state toast also waits for the 30 s limit. A failure that recovers before its toast shows
   draws no toast.

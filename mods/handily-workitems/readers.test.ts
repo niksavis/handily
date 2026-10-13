@@ -157,6 +157,7 @@ function fakeRepo(on: On, files: Record<string, string>, outside: Record<string,
   for (const [path, text] of Object.entries(outside)) world.files.set(path, { text, mtimeMs: 10 })
   mock.env(on, {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('classic.CwdChanged', () => ({}))
   on('session.root', () => ({ value: ROOT }))
   on('fs.exists', (_$, e) => {

@@ -227,6 +227,7 @@ function fakeWorld(
   }
   mock.env(on, options.environment ?? { PATH: path, HOME })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('classic.CwdChanged', () => ({}))
   on('session.root', () => ({ value: world.sessionRoot }))
   on('session.surfaces', () => ({ value: world.surfaces }))
