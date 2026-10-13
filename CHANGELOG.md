@@ -6,6 +6,75 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-workitems 0.6.0 - 2026-10-13
+
+### Added
+
+- **handily-workitems 0.6.0 pauses and resumes every tracker read with `/workitems pause` and
+  `/workitems resume`.** A pause stops the poll and every tracker read, and the snapshot state
+  becomes `paused`. A refresh that another mod asks for then reads nothing and answers with the
+  state `paused`. A resume polls again and reads the tracker once. A bare `/workitems` says if
+  the reads run or are paused, and an unknown argument gets a reply that names the valid forms.
+  quiet-items draws tracker commands in full, item-toasts shows no toast, and handily-board
+  0.3.1 shows a dim paused line in place of the items. None of them shows an error for the
+  pause (handily-fwkt.8.5.3).
+
+## handily-item-toasts 0.5.0 - 2026-10-13
+
+### Added
+
+- **handily-item-toasts 0.5.0 adds `/item-toasts on` and `/item-toasts off`.** Off stores the
+  mode in the mod's `mode` state key, and no work item change draws a toast until
+  `/item-toasts on`. The reply names the new mode. **handily-simple-view 0.5.0 and
+  handily-quiet-items 0.5.0 take `on` and `off` too:** `/simple on`, `/simple off`,
+  `/quiet-items on` and `/quiet-items off` set the mode and reply with it, and the bare command
+  still toggles. An unknown argument changes nothing, and the reply names the valid forms
+  (handily-fwkt.8.5.2).
+
+### Changed
+
+- **A bare `/item-toasts` now toggles the mode between on and off**, as `/quiet-items` and
+  `/simple` do. It stores the new mode and replies as `/item-toasts on` and `/item-toasts off`
+  do. An unknown argument still changes nothing, and its reply now names the bare form too
+  (handily-fwkt.8.5.4).
+
+## handily-simple-view 0.5.0 - 2026-10-13
+
+### Added
+
+- **handily-item-toasts 0.5.0 adds `/item-toasts on` and `/item-toasts off`.** Off stores the
+  mode in the mod's `mode` state key, and no work item change draws a toast until
+  `/item-toasts on`. The reply names the new mode. **handily-simple-view 0.5.0 and
+  handily-quiet-items 0.5.0 take `on` and `off` too:** `/simple on`, `/simple off`,
+  `/quiet-items on` and `/quiet-items off` set the mode and reply with it, and the bare command
+  still toggles. An unknown argument changes nothing, and the reply names the valid forms
+  (handily-fwkt.8.5.2).
+
+## handily-quiet-items 0.5.0 - 2026-10-13
+
+### Added
+
+- **handily-item-toasts 0.5.0 adds `/item-toasts on` and `/item-toasts off`.** Off stores the
+  mode in the mod's `mode` state key, and no work item change draws a toast until
+  `/item-toasts on`. The reply names the new mode. **handily-simple-view 0.5.0 and
+  handily-quiet-items 0.5.0 take `on` and `off` too:** `/simple on`, `/simple off`,
+  `/quiet-items on` and `/quiet-items off` set the mode and reply with it, and the bare command
+  still toggles. An unknown argument changes nothing, and the reply names the valid forms
+  (handily-fwkt.8.5.2).
+
+## handily-board 0.3.1 - 2026-10-13
+
+### Added
+
+- **handily-workitems 0.6.0 pauses and resumes every tracker read with `/workitems pause` and
+  `/workitems resume`.** A pause stops the poll and every tracker read, and the snapshot state
+  becomes `paused`. A refresh that another mod asks for then reads nothing and answers with the
+  state `paused`. A resume polls again and reads the tracker once. A bare `/workitems` says if
+  the reads run or are paused, and an unknown argument gets a reply that names the valid forms.
+  quiet-items draws tracker commands in full, item-toasts shows no toast, and handily-board
+  0.3.1 shows a dim paused line in place of the items. None of them shows an error for the
+  pause (handily-fwkt.8.5.3).
+
 ## handily-board 0.3.0 - 2026-10-13
 
 ### Added
