@@ -1,10 +1,8 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import type { HandilyModState, HandilyReport } from '../types'
-import { isAllWell, oldMarketplaceRows, summaryOf } from './status'
+import { actionLine, isAllWell, modRowsOf, oldRowsOf, summaryOf } from './status'
 
 type ReportElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
-
-type Row = { key: string; name: string; version: string; color: ThemeKey; detail: string }
 
 const STATE_COLOR: Record<HandilyModState, ThemeKey> = {
   loaded: 'success',
@@ -15,66 +13,41 @@ const STATE_COLOR: Record<HandilyModState, ThemeKey> = {
 
 const OLD_ID_COLOR: ThemeKey = 'warning'
 
-function widest(texts: readonly string[]): number {
-  return Math.max(0, ...texts.map((text) => text.length))
-}
-
-function rowsOf(report: HandilyReport): Row[] {
-  const modRows = report.mods.map((status) => ({
-    key: status.name,
-    name: status.name,
-    version: status.version ?? '',
-    color: STATE_COLOR[status.state],
-    detail: status.detail,
-  }))
-  const oldIdRows = report.oldIds.map((oldId) => ({
-    key: `${oldId.id} ${oldId.scope}`,
-    name: oldId.id,
-    version: '',
-    color: OLD_ID_COLOR,
-    detail: oldId.detail,
-  }))
-  const marketplaceRows = oldMarketplaceRows(report).map((row) => ({
-    key: row.name,
-    name: row.name,
-    version: '',
-    color: OLD_ID_COLOR,
-    detail: row.detail,
-  }))
-  return [...modRows, ...oldIdRows, ...marketplaceRows]
-}
+const COLUMN_GAP = 2
 
 export function drawReport({ Box, Text }: ReportElements, report: HandilyReport): RenderElement {
-  const rows = rowsOf(report)
-  const nameWidth = widest(rows.map((row) => row.name))
-  const versionWidth = widest(rows.map((row) => row.version))
-  const drawn = rows.map((row) =>
+  const cell = (
+    children: string,
+    props: { bold?: boolean; dimColor?: boolean; color?: ThemeKey },
+  ) => Box({ flexShrink: 0, children: Text({ ...props, children }) })
+  const line = (key: string, children: RenderElement[]) =>
+    Box({ key, flexDirection: 'row', gap: COLUMN_GAP, children })
+  const action = (key: string, text: string, color: ThemeKey) =>
+    Box({ key, children: Text({ color, children: actionLine(text) }) })
+  const modLines = modRowsOf(report).flatMap((row) => {
+    const color = STATE_COLOR[row.state]
+    const main = line(row.key, [
+      cell(row.name, { bold: true }),
+      cell(row.version, { dimColor: true }),
+      cell(row.stateText, { color }),
+      cell(row.mode, {}),
+      Box({ flexShrink: 1, children: Text({ dimColor: true, children: row.about }) }),
+    ])
+    return row.action === null ? [main] : [main, action(`${row.key} action`, row.action, color)]
+  })
+  const oldLines = oldRowsOf(report).flatMap((row) => [
+    line(row.key, [
+      cell(row.name, { bold: true }),
+      Box({ flexShrink: 1, children: Text({ color: OLD_ID_COLOR, children: row.detail }) }),
+    ]),
+    action(`${row.key} action`, row.action, OLD_ID_COLOR),
+  ])
+  const summaryColor: ThemeKey = isAllWell(report) ? 'success' : 'warning'
+  const summary = summaryOf(report).map((text, index) =>
     Box({
-      key: row.key,
-      flexDirection: 'row',
-      gap: 2,
-      children: [
-        Box({
-          flexShrink: 0,
-          children: Text({ bold: true, children: row.name.padEnd(nameWidth) }),
-        }),
-        Box({
-          flexShrink: 0,
-          children: Text({ dimColor: true, children: row.version.padEnd(versionWidth) }),
-        }),
-        Box({
-          flexShrink: 1,
-          children: Text({ color: row.color, children: row.detail }),
-        }),
-      ],
+      key: `summary ${String(index)}`,
+      children: Text({ color: summaryColor, children: text }),
     }),
   )
-  const summary = Box({
-    key: 'summary',
-    children: Text({
-      color: isAllWell(report) ? 'success' : 'warning',
-      children: summaryOf(report),
-    }),
-  })
-  return Box({ flexDirection: 'column', children: [...drawn, summary] })
+  return Box({ flexDirection: 'column', children: [...modLines, ...oldLines, ...summary] })
 }

@@ -424,6 +424,8 @@ export const register: Register = (on) => {
       argumentHint: '[on|off|show N]',
     })
     await $.state.set({ plugin: 'handily-simple-view', key: 'ready' }, { root: $.plugin.root })
+    const { value: mode, version } = await $.state.get(MODE)
+    if (mode === undefined) await $.state.set(MODE, DEFAULT_MODE, { ifVersion: version })
     return next(e)
   })
 

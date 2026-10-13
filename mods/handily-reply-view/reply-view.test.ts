@@ -1272,6 +1272,20 @@ describe('/replies', () => {
     )
   })
 
+  test('stores on as its mode when the session starts, and keeps off when it starts again', async ($, on) => {
+    engineBeneath(on)
+    const written: unknown[] = []
+    on('state.set', { plugin: 'handily-reply-view', key: 'mode' }, (_$, e, next) => {
+      written.push(e.value)
+      return next(e)
+    })
+    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    await commandText($)
+    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    expect(written).toEqual(['on', 'off'])
+    expect(await commandText($)).toMatch(/^on for this session/)
+  })
+
   test('writes the ready value that /handily reads when the session starts', async ($, on) => {
     engineBeneath(on)
     const ready: unknown[] = []

@@ -185,6 +185,8 @@ export const register: Register = (on) => {
       argumentHint: '[on|off]',
     })
     const started = await next(e)
+    const { value: mode, version } = await $.state.get(MODE)
+    if (mode === undefined) await $.state.set(MODE, DEFAULT_MODE, { ifVersion: version })
     if (await isOn($)) await startToasts($, toasts).tick()
     await $.state.set({ plugin: 'handily-item-toasts', key: 'ready' }, { root: $.plugin.root })
     return started

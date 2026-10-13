@@ -1282,7 +1282,7 @@ async function toastsCommand($: Engine, args: string): Promise<string> {
 describe('/item-toasts', () => {
   for (const surface of SURFACES) {
     test(
-      `stores off in its mode state key, replies with the new mode and draws no toast for a tracker change until /item-toasts on on ${surface}`,
+      `stores on in its mode state key when the session starts, stores off, replies with the new mode and draws no toast for a tracker change until /item-toasts on on ${surface}`,
       { plugins: [fakeWorkitems] },
       async ($, on) => {
         const world = newWorld()
@@ -1294,7 +1294,7 @@ describe('/item-toasts', () => {
         })
         await startSession($, surface)
         expect(await toastsCommand($, 'off')).toBe(OFF_REPLY)
-        expect(written).toEqual(['off'])
+        expect(written).toEqual(['on', 'off'])
         elsewhere(world, closeAb12())
         await pollAndTick($, clock)
         await call($)
@@ -1302,7 +1302,7 @@ describe('/item-toasts', () => {
         await pollAndTick($, clock)
         expect(world.toasts).toEqual([])
         expect(await toastsCommand($, 'on')).toBe(ON_REPLY)
-        expect(written).toEqual(['off', 'on'])
+        expect(written).toEqual(['on', 'off', 'on'])
         await pollAndTick($, clock)
         expect(world.toasts).toEqual([])
         elsewhere(world, closeEf56())

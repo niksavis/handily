@@ -1,6 +1,14 @@
 import type { On, RenderSurface, SettingsSource } from 'claude-code'
 import { describe, expect, test, type Engine, type Plugin } from 'claude-code/testing'
-import { bundledMods, manifestVersion, replyText, statusesOf } from './hooks/status'
+import type { WorkitemsSnapshot } from './.claude-plugin/types/handily-workitems'
+import {
+  bundledMods,
+  manifestDescription,
+  manifestVersion,
+  replyText,
+  shortened,
+  statusesOf,
+} from './hooks/status'
 
 const SURFACES: RenderSurface[] = ['terminal', 'desktop']
 const MODS = [
@@ -13,13 +21,22 @@ const MODS = [
 ]
 const MANIFEST = JSON.stringify({ name: 'handily', version: '0.1.0', dependencies: MODS })
 const ALL_ENABLED = Object.fromEntries(MODS.map((name) => [`${name}@niksavis`, true]))
-const MOD_VERSIONS: Record<string, string> = {
-  'handily-workitems': '0.1.0',
-  'handily-quiet-items': '0.2.0',
-  'handily-board': '0.1.1',
-  'handily-item-toasts': '1.0.0',
-  'handily-simple-view': '0.4.0',
-  'handily-reply-view': '0.1.0',
+const MOD_MANIFESTS: Record<string, { version: string; description: string }> = {
+  'handily-workitems': {
+    version: '0.1.0',
+    description: 'Provider of one typed work item list over any tracker, for other handily mods.',
+  },
+  'handily-quiet-items': {
+    version: '0.2.0',
+    description: 'One short row in place of each tracker write in the transcript.',
+  },
+  'handily-board': { version: '0.1.1', description: 'A board with two tabs.' },
+  'handily-item-toasts': { version: '1.0.0', description: 'A toast when a work item changes.' },
+  'handily-simple-view': { version: '0.4.0', description: 'One short row for each tool call.' },
+  'handily-reply-view': {
+    version: '0.1.0',
+    description: 'Long replies fold to their first lines.',
+  },
 }
 const OLD_IDS: Record<string, string> = {
   'workitems@handily': 'handily-workitems',
@@ -34,11 +51,35 @@ const OLD_IDS: Record<string, string> = {
   'handily-session-board@handily': 'handily-board',
   'handily-agent-board@handily': 'handily-board',
 }
+const ALL_LOADED_REPLY = [
+  'handily-workitems    0.1.0  loaded  polling  Provider of one typed work item…',
+  'handily-quiet-items  0.2.0  loaded  on       One short row in place of each…',
+  'handily-board        0.1.1  loaded  -        A board with two tabs',
+  'handily-item-toasts  1.0.0  loaded  on       A toast when a work item changes',
+  'handily-simple-view  0.4.0  loaded  on       One short row for each tool call',
+  'handily-reply-view   0.1.0  loaded  on       Long replies fold to their first…',
+  '',
+  'handily: 6 of 6 mods loaded, 0 off or paused',
+]
 
 const WORKITEMS: Plugin = {
   name: 'handily-workitems',
   register(on) {
     on('session.start', async ($, e, next) => {
+      const snapshot: WorkitemsSnapshot = {
+        at: 0,
+        root: '/work/app',
+        items: [],
+        ignored: [],
+        version: 1,
+        checkedAt: 0,
+        source: 'tracker',
+        sourceLabel: 'tracker',
+        caveat: null,
+        state: 'ok',
+        reason: null,
+      }
+      await $.state.set({ plugin: 'handily-workitems', key: 'snapshot' }, snapshot)
       await $.state.set({ plugin: 'handily-workitems', key: 'ready' }, { root: $.plugin.root })
       return next(e)
     })
@@ -49,6 +90,7 @@ const QUIET_ITEMS: Plugin = {
   name: 'handily-quiet-items',
   register(on) {
     on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'handily-quiet-items', key: 'mode' }, 'on')
       await $.state.set({ plugin: 'handily-quiet-items', key: 'ready' }, { root: $.plugin.root })
       return next(e)
     })
@@ -69,6 +111,7 @@ const ITEM_TOASTS: Plugin = {
   name: 'handily-item-toasts',
   register(on) {
     on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'handily-item-toasts', key: 'mode' }, 'on')
       await $.state.set({ plugin: 'handily-item-toasts', key: 'ready' }, { root: $.plugin.root })
       return next(e)
     })
@@ -79,6 +122,7 @@ const SIMPLE_VIEW: Plugin = {
   name: 'handily-simple-view',
   register(on) {
     on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'handily-simple-view', key: 'mode' }, 'on')
       await $.state.set({ plugin: 'handily-simple-view', key: 'ready' }, { root: $.plugin.root })
       return next(e)
     })
@@ -89,7 +133,65 @@ const REPLY_VIEW: Plugin = {
   name: 'handily-reply-view',
   register(on) {
     on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'handily-reply-view', key: 'mode' }, 'on')
       await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
+      return next(e)
+    })
+  },
+}
+
+const PAUSED_WORKITEMS: Plugin = {
+  name: 'handily-workitems',
+  register(on) {
+    on('session.start', async ($, e, next) => {
+      const snapshot: WorkitemsSnapshot = {
+        at: 0,
+        root: '/work/app',
+        items: [],
+        ignored: [],
+        version: 1,
+        checkedAt: 0,
+        source: 'tracker',
+        sourceLabel: 'tracker',
+        caveat: null,
+        state: 'paused',
+        reason: null,
+      }
+      await $.state.set({ plugin: 'handily-workitems', key: 'snapshot' }, snapshot)
+      await $.state.set({ plugin: 'handily-workitems', key: 'ready' }, { root: $.plugin.root })
+      return next(e)
+    })
+  },
+}
+
+const OFF_ITEM_TOASTS: Plugin = {
+  name: 'handily-item-toasts',
+  register(on) {
+    on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'handily-item-toasts', key: 'mode' }, 'off')
+      await $.state.set({ plugin: 'handily-item-toasts', key: 'ready' }, { root: $.plugin.root })
+      return next(e)
+    })
+  },
+}
+
+const MODELESS_REPLY_VIEW: Plugin = {
+  name: 'handily-reply-view',
+  register(on) {
+    on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
+      return next(e)
+    })
+  },
+}
+
+const SIDEWAYS_SIMPLE_VIEW: Plugin = {
+  name: 'handily-simple-view',
+  register(on) {
+    on('session.start', async ($, e, next) => {
+      const stored: unknown = 'sideways'
+      await $.state.set({ plugin: 'handily-simple-view', key: 'mode' }, stored as 'on')
+      await $.state.set({ plugin: 'handily-simple-view', key: 'ready' }, { root: $.plugin.root })
       return next(e)
     })
   },
@@ -97,8 +199,8 @@ const REPLY_VIEW: Plugin = {
 
 const HEARTBEATS = [WORKITEMS, QUIET_ITEMS, BOARD, ITEM_TOASTS, SIMPLE_VIEW, REPLY_VIEW]
 
-function heartbeatsWithout(name: string): Plugin[] {
-  return HEARTBEATS.filter((plugin) => plugin.name !== name)
+function heartbeatsWithout(...names: string[]): Plugin[] {
+  return HEARTBEATS.filter((plugin) => !names.includes(plugin.name))
 }
 
 function silent(name: string): Plugin {
@@ -115,6 +217,7 @@ type World = {
   sourcesRead: string[]
   descriptions: string[]
   reads: string[]
+  debugLines: string[]
   sessionStarts: number
 }
 
@@ -125,6 +228,7 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
     sourcesRead: [],
     descriptions: [],
     reads: [],
+    debugLines: [],
     sessionStarts: 0,
     ...world,
   }
@@ -146,9 +250,13 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
     full.reads.push(e.path)
     const folder = e.path.split(/[\\/]/).at(-3) ?? ''
     if (folder === 'handily') return { value: MANIFEST }
-    const version = MOD_VERSIONS[folder]
-    if (version === undefined) throw new Error(`no fixture for ${e.path}`)
-    return { value: JSON.stringify({ name: folder, version }) }
+    const manifest = MOD_MANIFESTS[folder]
+    if (manifest === undefined) throw new Error(`no fixture for ${e.path}`)
+    return { value: JSON.stringify({ name: folder, ...manifest }) }
+  })
+  on('ui.log', (_$, e) => {
+    if (e.to === 'debug') full.debugLines.push(e.text)
+    return { value: undefined }
   })
   return full
 }
@@ -172,6 +280,21 @@ async function runHandily(engine: Engine, args = ''): Promise<string> {
   return handily(engine, args)
 }
 
+function cellsOf(text: string, name: string): string[] {
+  const line = text.split('\n').find((row) => row.startsWith(`${name} `) || row === name)
+  if (line === undefined) throw new Error(`no line for ${name} in:\n${text}`)
+  return line.split(/ {2,}/)
+}
+
+function lineAfter(text: string, name: string): string | undefined {
+  const lines = text.split('\n')
+  return lines[lines.findIndex((row) => row.startsWith(`${name} `)) + 1]
+}
+
+function lastLine(text: string): string | undefined {
+  return text.split('\n').at(-1)
+}
+
 function engineRowText(reply: string): string {
   return `handily: ${reply}`
 }
@@ -190,33 +313,69 @@ async function shownRows(engine: Engine, surface: RenderSurface, shownText: stri
 
 describe('/handily reply', () => {
   test(
-    'names each mod whose session start wrote its ready value as loaded, with its version',
+    'shows each loaded mod with its version, its mode and its description cut to fit 80 columns',
     { plugins: HEARTBEATS },
     async ($, on) => {
       fakeWorld(on)
-      expect(await runHandily($)).toBe(
-        [
-          '- handily-workitems 0.1.0: loaded',
-          '- handily-quiet-items 0.2.0: loaded',
-          '- handily-board 0.1.1: loaded',
-          '- handily-item-toasts 1.0.0: loaded',
-          '- handily-simple-view 0.4.0: loaded',
-          '- handily-reply-view 0.1.0: loaded',
-          '',
-          'handily: 6 of 6 mods loaded',
-        ].join('\n'),
-      )
+      expect(await runHandily($)).toBe(ALL_LOADED_REPLY.join('\n'))
     },
   )
 
   test(
-    'reads the handily-board ready key and reports every mod of the bundle as loaded',
-    { plugins: HEARTBEATS },
+    'shows paused and off modes and counts them in the summary',
+    {
+      plugins: [
+        PAUSED_WORKITEMS,
+        OFF_ITEM_TOASTS,
+        ...heartbeatsWithout('handily-workitems', 'handily-item-toasts'),
+      ],
+    },
     async ($, on) => {
       fakeWorld(on)
       const text = await runHandily($)
-      expect(text).toContain('- handily-board 0.1.1: loaded')
-      expect(text.split('\n').at(-1)).toBe('handily: 6 of 6 mods loaded')
+      expect(cellsOf(text, 'handily-workitems').slice(0, 4)).toEqual([
+        'handily-workitems',
+        '0.1.0',
+        'loaded',
+        'paused',
+      ])
+      expect(cellsOf(text, 'handily-item-toasts').slice(0, 4)).toEqual([
+        'handily-item-toasts',
+        '1.0.0',
+        'loaded',
+        'off',
+      ])
+      expect(lastLine(text)).toBe('handily: 6 of 6 mods loaded, 2 off or paused')
+    },
+  )
+
+  test(
+    'shows a dash as the mode of a mod that stores no mode',
+    { plugins: [MODELESS_REPLY_VIEW, ...heartbeatsWithout('handily-reply-view')] },
+    async ($, on) => {
+      fakeWorld(on)
+      const text = await runHandily($)
+      expect(cellsOf(text, 'handily-board')[3]).toBe('-')
+      expect(cellsOf(text, 'handily-reply-view')[3]).toBe('-')
+    },
+  )
+
+  test(
+    'shows a question mark as a mode it cannot read and writes the reason to the debug log',
+    { plugins: [SIDEWAYS_SIMPLE_VIEW, ...heartbeatsWithout('handily-simple-view')] },
+    async ($, on) => {
+      const world = fakeWorld(on)
+      const text = await runHandily($)
+      expect(cellsOf(text, 'handily-simple-view').slice(0, 4)).toEqual([
+        'handily-simple-view',
+        '0.4.0',
+        'loaded',
+        '?',
+      ])
+      expect(world.debugLines).toEqual([
+        'handily: cannot read the mode of handily-simple-view: the stored mode "sideways" is neither on nor off',
+      ])
+      expect(lastLine(text)).toBe('handily: 6 of 6 mods loaded, 0 off or paused')
     },
   )
 
@@ -226,10 +385,9 @@ describe('/handily reply', () => {
     async ($, on) => {
       fakeWorld(on)
       const text = await runHandily($)
-      expect(text).toContain(
-        '- handily-board: enabled, but it did not load. Run claude --debug to see why',
-      )
-      expect(text.split('\n').at(-1)).toBe('handily: 5 of 6 mods loaded')
+      expect(cellsOf(text, 'handily-board')).toEqual(['handily-board', '-', 'not loaded', '-'])
+      expect(lineAfter(text, 'handily-board')).toBe('  Run claude --debug to see why')
+      expect(lastLine(text)).toBe('handily: 5 of 6 mods loaded, 0 off or paused')
     },
   )
 
@@ -239,10 +397,14 @@ describe('/handily reply', () => {
     async ($, on) => {
       fakeWorld(on)
       const text = await runHandily($)
-      expect(text).toContain(
-        '- handily-workitems: enabled, but it did not load. Run claude --debug to see why',
-      )
-      expect(text.split('\n').at(-1)).toBe('handily: 5 of 6 mods loaded')
+      expect(cellsOf(text, 'handily-workitems')).toEqual([
+        'handily-workitems',
+        '-',
+        'not loaded',
+        '-',
+      ])
+      expect(lineAfter(text, 'handily-workitems')).toBe('  Run claude --debug to see why')
+      expect(lastLine(text)).toBe('handily: 5 of 6 mods loaded, 0 off or paused')
     },
   )
 
@@ -252,10 +414,9 @@ describe('/handily reply', () => {
     async ($, on) => {
       fakeWorld(on, { enabledPlugins: enabledWithout('handily-board') })
       const text = await runHandily($)
-      expect(text).toContain(
-        '- handily-board: not installed. Run /plugin install handily-board@niksavis',
-      )
-      expect(text.split('\n').at(-1)).toBe('handily: 5 of 6 mods loaded')
+      expect(cellsOf(text, 'handily-board')).toEqual(['handily-board', '-', 'not installed', '-'])
+      expect(lineAfter(text, 'handily-board')).toBe('  Run /plugin install handily-board@niksavis')
+      expect(lastLine(text)).toBe('handily: 5 of 6 mods loaded, 0 off or paused')
     },
   )
 
@@ -265,10 +426,16 @@ describe('/handily reply', () => {
     async ($, on) => {
       fakeWorld(on, { enabledPlugins: { ...ALL_ENABLED, 'handily-item-toasts@niksavis': false } })
       const text = await runHandily($)
-      expect(text).toContain(
-        '- handily-item-toasts: disabled. Run /plugin enable handily-item-toasts@niksavis',
+      expect(cellsOf(text, 'handily-item-toasts')).toEqual([
+        'handily-item-toasts',
+        '-',
+        'disabled',
+        '-',
+      ])
+      expect(lineAfter(text, 'handily-item-toasts')).toBe(
+        '  Run /plugin enable handily-item-toasts@niksavis',
       )
-      expect(text.split('\n').at(-1)).toBe('handily: 5 of 6 mods loaded')
+      expect(lastLine(text)).toBe('handily: 5 of 6 mods loaded, 0 off or paused')
     },
   )
 
@@ -276,10 +443,28 @@ describe('/handily reply', () => {
     fakeWorld(on, { enabledPlugins: {} })
     const text = await runHandily($)
     for (const name of MODS) {
-      expect(text).toContain(`- ${name}: not installed. Run /plugin install ${name}@niksavis`)
+      expect(lineAfter(text, name)).toBe(`  Run /plugin install ${name}@niksavis`)
     }
-    expect(text.split('\n').at(-1)).toBe('handily: 0 of 6 mods loaded')
+    expect(lastLine(text)).toBe('handily: 0 of 6 mods loaded, 0 off or paused')
   })
+
+  test(
+    'keeps every line within 80 columns with a missing mod, a disabled mod and every old id',
+    { plugins: heartbeatsWithout('handily-board', 'handily-item-toasts') },
+    async ($, on) => {
+      fakeWorld(on, {
+        enabledPlugins: {
+          ...enabledWithout('handily-board'),
+          'handily-item-toasts@niksavis': false,
+        },
+        enabledByScope: {
+          project: Object.fromEntries(Object.keys(OLD_IDS).map((id) => [id, true])),
+        },
+      })
+      const text = await runHandily($)
+      expect(text.split('\n').filter((line) => line.length > 80)).toEqual([])
+    },
+  )
 
   test(
     'keeps every mod loaded when a reload starts the sessions again',
@@ -290,7 +475,7 @@ describe('/handily reply', () => {
       await startSession($)
       expect(world.sessionStarts).toBe(2)
       expect(await handily($)).toBe(before)
-      expect(before.split('\n').at(-1)).toBe('handily: 6 of 6 mods loaded')
+      expect(lastLine(before)).toBe('handily: 6 of 6 mods loaded, 0 off or paused')
     },
   )
 
@@ -304,7 +489,7 @@ describe('/handily reply', () => {
   test('refuses an argument and says what the command does', async ($, on) => {
     fakeWorld(on)
     expect(await runHandily($, 'all')).toBe(
-      '/handily takes no argument; it lists the handily mods and whether each loaded.',
+      '/handily takes no argument; it lists each handily mod with its version, state and mode.',
     )
   })
 
@@ -312,7 +497,7 @@ describe('/handily reply', () => {
     const world = fakeWorld(on)
     await startSession($)
     expect(world.descriptions).toEqual([
-      'handily · Show which handily mods are installed and loaded',
+      'handily · Show the version, state, mode and purpose of each handily mod',
     ])
   })
 })
@@ -331,36 +516,19 @@ describe('/handily old plugin ids', () => {
       })
       const text = await runHandily($)
       expect(text.split('\n').slice(6)).toEqual([
-        '- workitems@handily: old id of handily-workitems, in the user settings. Run claude plugin uninstall workitems@handily --scope user',
-        '- workitems@handily: old id of handily-workitems, in the project settings. Run claude plugin uninstall workitems@handily --scope project',
-        '- task-pane@handily: old id of handily-board, in the user settings. Run claude plugin uninstall task-pane@handily --scope user',
-        '- reply-view@handily: old id of handily-reply-view, in the local settings. Run claude plugin uninstall reply-view@handily --scope local',
-        '- handily marketplace: old marketplace of these ids. Run claude plugin marketplace remove handily',
+        'workitems@handily    old id of handily-workitems, user settings',
+        '  Run claude plugin uninstall workitems@handily --scope user',
+        'workitems@handily    old id of handily-workitems, project settings',
+        '  Run claude plugin uninstall workitems@handily --scope project',
+        'task-pane@handily    old id of handily-board, user settings',
+        '  Run claude plugin uninstall task-pane@handily --scope user',
+        'reply-view@handily   old id of handily-reply-view, local settings',
+        '  Run claude plugin uninstall reply-view@handily --scope local',
+        'handily marketplace  old marketplace of these ids',
+        '  Run claude plugin marketplace remove handily',
         '',
-        'handily: 6 of 6 mods loaded. Run each command above, then type /reload-plugins',
-      ])
-    },
-  )
-
-  test(
-    'lists the removed plugin ids with the uninstall command',
-    { plugins: HEARTBEATS },
-    async ($, on) => {
-      fakeWorld(on, {
-        enabledByScope: {
-          user: { 'handily-task-pane@handily': true, 'handily-board@niksavis': true },
-          project: { 'handily-agent-board@handily': true },
-          local: { 'handily-session-board@handily': false },
-        },
-      })
-      const text = await runHandily($)
-      expect(text.split('\n').slice(6)).toEqual([
-        '- handily-task-pane@handily: old id of handily-board, in the user settings. Run claude plugin uninstall handily-task-pane@handily --scope user',
-        '- handily-session-board@handily: old id of handily-board, in the local settings. Run claude plugin uninstall handily-session-board@handily --scope local',
-        '- handily-agent-board@handily: old id of handily-board, in the project settings. Run claude plugin uninstall handily-agent-board@handily --scope project',
-        '- handily marketplace: old marketplace of these ids. Run claude plugin marketplace remove handily',
-        '',
-        'handily: 6 of 6 mods loaded. Run each command above, then type /reload-plugins',
+        'handily: 6 of 6 mods loaded, 0 off or paused',
+        'Run each command above, then type /reload-plugins',
       ])
     },
   )
@@ -380,11 +548,15 @@ describe('/handily old plugin ids', () => {
       })
       const text = await runHandily($)
       expect(text.split('\n').slice(6)).toEqual([
-        '- handily@handily: old id of handily, in the user settings. Run claude plugin uninstall handily@handily --scope user',
-        '- handily-board@handily: old id of handily-board, in the user settings. Run claude plugin uninstall handily-board@handily --scope user',
-        '- handily marketplace: old marketplace of these ids. Run claude plugin marketplace remove handily',
+        'handily@handily        old id of handily, user settings',
+        '  Run claude plugin uninstall handily@handily --scope user',
+        'handily-board@handily  old id of handily-board, user settings',
+        '  Run claude plugin uninstall handily-board@handily --scope user',
+        'handily marketplace    old marketplace of these ids',
+        '  Run claude plugin marketplace remove handily',
         '',
-        'handily: 6 of 6 mods loaded. Run each command above, then type /reload-plugins',
+        'handily: 6 of 6 mods loaded, 0 off or paused',
+        'Run each command above, then type /reload-plugins',
       ])
     },
   )
@@ -406,9 +578,7 @@ describe('/handily old plugin ids', () => {
           flag: { 'quiet-items@handily': true },
         },
       })
-      const text = await runHandily($)
-      expect(text).not.toContain('quiet-items@handily:')
-      expect(text.split('\n').at(-1)).toBe('handily: 6 of 6 mods loaded')
+      expect(await runHandily($)).toBe(ALL_LOADED_REPLY.join('\n'))
     },
   )
 
@@ -419,21 +589,21 @@ describe('/handily old plugin ids', () => {
     })
     const text = await runHandily($)
     for (const [id, replacement] of Object.entries(OLD_IDS)) {
-      expect(text).toContain(
-        `- ${id}: old id of ${replacement}, in the user settings. Run claude plugin uninstall ${id} --scope user`,
-      )
+      expect(cellsOf(text, id)).toEqual([id, `old id of ${replacement}, user settings`])
+      expect(lineAfter(text, id)).toBe(`  Run claude plugin uninstall ${id} --scope user`)
     }
-    expect(text.split('\n')).toHaveLength(MODS.length + oldIds.length + 3)
-    expect(text.split('\n').at(-1)).toBe(
-      'handily: 0 of 6 mods loaded. Run each command above, then type /reload-plugins',
-    )
+    expect(text.split('\n')).toHaveLength(MODS.length * 2 + oldIds.length * 2 + 2 + 3)
+    expect(text.split('\n').slice(-2)).toEqual([
+      'handily: 0 of 6 mods loaded, 0 off or paused',
+      'Run each command above, then type /reload-plugins',
+    ])
   })
 })
 
 describe('/handily colours', () => {
   for (const surface of SURFACES) {
     test(
-      `draws each row in a theme colour on ${surface}`,
+      `draws the state, the action and the summary in a theme colour on ${surface}`,
       { plugins: [WORKITEMS, QUIET_ITEMS, SIMPLE_VIEW, REPLY_VIEW] },
       async ($, on) => {
         fakeWorld(on, {
@@ -446,11 +616,29 @@ describe('/handily colours', () => {
         expect(rows.filter((row) => row.color !== undefined)).toEqual([
           { text: 'loaded', color: 'success' },
           { text: 'loaded', color: 'success' },
-          { text: 'not installed. Run /plugin install handily-board@niksavis', color: 'error' },
-          { text: 'disabled. Run /plugin enable handily-item-toasts@niksavis', color: 'error' },
+          { text: 'not installed', color: 'error' },
+          { text: '  Run /plugin install handily-board@niksavis', color: 'error' },
+          { text: 'disabled', color: 'error' },
+          { text: '  Run /plugin enable handily-item-toasts@niksavis', color: 'error' },
           { text: 'loaded', color: 'success' },
           { text: 'loaded', color: 'success' },
-          { text: 'handily: 4 of 6 mods loaded', color: 'warning' },
+          { text: 'handily: 4 of 6 mods loaded, 0 off or paused', color: 'warning' },
+        ])
+      },
+    )
+
+    test(
+      `draws the same columns as the reply text on ${surface}`,
+      { plugins: HEARTBEATS },
+      async ($, on) => {
+        fakeWorld(on)
+        const rows = await shownRows($, surface, engineRowText(await runHandily($)))
+        expect(rows.slice(0, 5).map((row) => row.text)).toEqual([
+          'handily-workitems',
+          '0.1.0',
+          'loaded',
+          'polling',
+          'Provider of one typed work item…',
         ])
       },
     )
@@ -461,30 +649,30 @@ describe('/handily colours', () => {
       async ($, on) => {
         fakeWorld(on)
         const rows = await shownRows($, surface, engineRowText(await runHandily($)))
-        expect(rows.at(-1)).toEqual({ text: 'handily: 6 of 6 mods loaded', color: 'success' })
+        expect(rows.at(-1)).toEqual({
+          text: 'handily: 6 of 6 mods loaded, 0 off or paused',
+          color: 'success',
+        })
       },
     )
 
     test(
-      `draws an old plugin id and the summary in the warning colour on ${surface}`,
+      `draws an old plugin id, its command and the summary in the warning colour on ${surface}`,
       { plugins: HEARTBEATS },
       async ($, on) => {
         fakeWorld(on, { enabledByScope: { project: { 'simple-view@handily': true } } })
         const rows = await shownRows($, surface, engineRowText(await runHandily($)))
         expect(rows.map((row) => row.text)).toContain('simple-view@handily')
-        expect(rows.filter((row) => row.color !== undefined).slice(-3)).toEqual([
+        expect(rows.filter((row) => row.color !== undefined).slice(-6)).toEqual([
+          { text: 'old id of handily-simple-view, project settings', color: 'warning' },
           {
-            text: 'old id of handily-simple-view, in the project settings. Run claude plugin uninstall simple-view@handily --scope project',
+            text: '  Run claude plugin uninstall simple-view@handily --scope project',
             color: 'warning',
           },
-          {
-            text: 'old marketplace of these ids. Run claude plugin marketplace remove handily',
-            color: 'warning',
-          },
-          {
-            text: 'handily: 6 of 6 mods loaded. Run each command above, then type /reload-plugins',
-            color: 'warning',
-          },
+          { text: 'old marketplace of these ids', color: 'warning' },
+          { text: '  Run claude plugin marketplace remove handily', color: 'warning' },
+          { text: 'handily: 6 of 6 mods loaded, 0 off or paused', color: 'warning' },
+          { text: 'Run each command above, then type /reload-plugins', color: 'warning' },
         ])
       },
     )
@@ -502,14 +690,14 @@ describe('/handily colours', () => {
           rows.filter((row) => row.color !== undefined)
         const firstRows = coloured(await shownRows($, surface, engineRowText(first)))
         const secondRows = coloured(await shownRows($, surface, engineRowText(second)))
-        expect(firstRows.at(-3)).toEqual({
-          text: 'enabled, but it did not load. Run claude --debug to see why',
-          color: 'warning',
-        })
-        expect(secondRows.at(-3)).toEqual({
-          text: 'disabled. Run /plugin enable handily-simple-view@niksavis',
-          color: 'error',
-        })
+        expect(firstRows.slice(4, 6)).toEqual([
+          { text: 'not loaded', color: 'warning' },
+          { text: '  Run claude --debug to see why', color: 'warning' },
+        ])
+        expect(secondRows.slice(4, 6)).toEqual([
+          { text: 'disabled', color: 'error' },
+          { text: '  Run /plugin enable handily-simple-view@niksavis', color: 'error' },
+        ])
       },
     )
 
@@ -534,19 +722,30 @@ describe('status rows', () => {
     expect(status?.state).toBe('not installed')
   })
 
-  test('shows the version beside a loaded mod and none beside a missing one', () => {
+  test('shows the version and mode beside a loaded mod and dashes beside a missing one', () => {
     const statuses = statusesOf(
       ['handily-workitems', 'handily-board'],
-      new Map([['handily-workitems', '0.1.0']]),
+      new Map([
+        ['handily-workitems', { version: '0.1.0', description: 'Work items.', mode: 'polling' }],
+      ]),
       {},
     )
     expect(replyText({ mods: statuses, oldIds: [] })).toBe(
       [
-        '- handily-workitems 0.1.0: loaded',
-        '- handily-board: not installed. Run /plugin install handily-board@niksavis',
+        'handily-workitems  0.1.0  loaded         polling  Work items',
+        'handily-board      -      not installed  -',
+        '  Run /plugin install handily-board@niksavis',
         '',
-        'handily: 1 of 2 mods loaded',
+        'handily: 1 of 2 mods loaded, 0 off or paused',
       ].join('\n'),
+    )
+  })
+
+  test('keeps the first sentence of a description and cuts it at a word with an ellipsis', () => {
+    expect(shortened('One short row in place of each tracker write.', 20)).toBe('One short row in…')
+    expect(shortened('Short.', 20)).toBe('Short')
+    expect(shortened('A board with two tabs: this session and this machine.', 40)).toBe(
+      'A board with two tabs',
     )
   })
 })
@@ -571,6 +770,12 @@ describe('manifests', () => {
   test('refuses a mod manifest without a version', () => {
     expect(() => manifestVersion('{"name":"handily-workitems"}', 'handily-workitems')).toThrow(
       'the plugin.json of handily-workitems has no "version"',
+    )
+  })
+
+  test('refuses a mod manifest without a description', () => {
+    expect(() => manifestDescription('{"name":"handily-workitems"}', 'handily-workitems')).toThrow(
+      'the plugin.json of handily-workitems has no "description"',
     )
   })
 })

@@ -1475,7 +1475,7 @@ describe('/simple', () => {
   })
 
   test(
-    'writes off and then on, the mode values that quiet-items reads',
+    'writes on when the session starts, then off and on, the mode values that quiet-items reads',
     { plugins: [fakeQuietItems] },
     async ($, on) => {
       engineBeneath(on)
@@ -1487,7 +1487,7 @@ describe('/simple', () => {
       await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
       await commandText($, '')
       await commandText($, '')
-      const quietItemsReads: QuietItemsSimpleViewMode[] = ['off', 'on']
+      const quietItemsReads: QuietItemsSimpleViewMode[] = ['on', 'off', 'on']
       expect(written).toEqual(quietItemsReads)
     },
   )
@@ -1514,7 +1514,7 @@ describe('/simple', () => {
   )
 
   test(
-    'writes the mode that /simple on or /simple off names, the values that quiet-items reads',
+    'writes on when the session starts, then the mode that /simple on or /simple off names, the values that quiet-items reads',
     { plugins: [fakeQuietItems] },
     async ($, on) => {
       engineBeneath(on)
@@ -1526,7 +1526,7 @@ describe('/simple', () => {
       await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
       await commandText($, 'off')
       await commandText($, 'on')
-      const quietItemsReads: QuietItemsSimpleViewMode[] = ['off', 'on']
+      const quietItemsReads: QuietItemsSimpleViewMode[] = ['on', 'off', 'on']
       expect(written).toEqual(quietItemsReads)
     },
   )

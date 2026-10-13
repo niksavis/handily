@@ -1,7 +1,7 @@
 # handily
 
 `handily` is the bundle. One install of it installs and enables every handily mod. It also adds
-the `/handily` command, which shows which mods are installed and loaded.
+the `/handily` command, which shows the version, the state, the mode and the purpose of each mod.
 [docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
 
 ## What the bundle installs
@@ -20,38 +20,101 @@ each mod in the list with the bundle:
 
 ## What /handily prints
 
-`/handily` takes no argument. It prints one row for each mod in the list, with the version that
-loaded and a state:
+`/handily` takes no argument. It prints one line for each mod in the list, in five columns:
 
-| State         | Row text                                                      | Theme colour |
-| ------------- | ------------------------------------------------------------- | ------------ |
-| loaded        | `loaded`                                                      | `success`    |
-| disabled      | `disabled. Run /plugin enable <id>`                           | `error`      |
-| not installed | `not installed. Run /plugin install <id>`                     | `error`      |
-| not loaded    | `enabled, but it did not load. Run claude --debug to see why` | `warning`    |
+| Column      | What it shows                                                                   |
+| ----------- | ------------------------------------------------------------------------------- |
+| name        | The mod name                                                                    |
+| version     | The version in the `plugin.json` of the mod that loaded, or `-`                 |
+| state       | `loaded`, `disabled`, `not installed` or `not loaded`                           |
+| mode        | The mode that the mod stores for this session                                   |
+| description | The first sentence of the `description` in its `plugin.json`, cut to fit a line |
 
-The last line counts the mods that loaded, such as `handily: 6 of 6 mods loaded`. The line has
+The mode column has these values:
+
+| Mode        | Meaning                                                                                                  |
+| ----------- | -------------------------------------------------------------------------------------------------------- |
+| `on`, `off` | The mode of `handily-quiet-items`, `handily-item-toasts`, `handily-simple-view` and `handily-reply-view` |
+| `polling`   | `handily-workitems` reads the tracker                                                                    |
+| `paused`    | `handily-workitems` is paused with `/workitems pause`                                                    |
+| `-`         | The mod has no mode, such as `handily-board`, or it stored none yet                                      |
+| `?`         | `/handily` cannot read the mode. The debug log has the reason                                            |
+
+Each line fits in 80 columns. This is the output when every mod loaded:
+
+```text
+handily-workitems    0.6.0  loaded  polling  Provider of one typed work item…
+handily-quiet-items  0.5.0  loaded  on       One short row in place of each…
+handily-board        0.3.2  loaded  -        A board with two tabs
+handily-item-toasts  0.5.1  loaded  on       A toast when a work item changes…
+handily-simple-view  0.5.1  loaded  on       One short row for each Bash…
+handily-reply-view   0.5.4  loaded  on       Long replies fold to their first…
+
+handily: 6 of 6 mods loaded, 0 off or paused
+```
+
+A mod that did not load gets a second line with the command that fixes it. This is the output
+when `handily-board` is not installed and `/item-toasts off` turned the toasts off:
+
+```text
+handily-workitems    0.6.0  loaded         polling  Provider of one typed work…
+handily-quiet-items  0.5.0  loaded         on       One short row in place of…
+handily-board        -      not installed  -
+  Run /plugin install handily-board@niksavis
+handily-item-toasts  0.5.1  loaded         off      A toast when a work item…
+handily-simple-view  0.5.1  loaded         on       One short row for each…
+handily-reply-view   0.5.4  loaded         on       Long replies fold to their…
+
+handily: 5 of 6 mods loaded, 1 off or paused
+```
+
+| State         | Second line                     | Theme colour |
+| ------------- | ------------------------------- | ------------ |
+| loaded        | none                            | `success`    |
+| disabled      | `Run /plugin enable <id>`       | `error`      |
+| not installed | `Run /plugin install <id>`      | `error`      |
+| not loaded    | `Run claude --debug to see why` | `warning`    |
+
+`/handily` tells a disabled mod from a missing one by the `enabledPlugins` setting. A mod set to
+`false` there is disabled. A mod that is not there is not installed.
+
+The last line counts the mods that loaded and the mods that are `off` or `paused`. The line has
 the `success` colour when every mod loaded and no old plugin id is found. Otherwise it has the
 `warning` colour.
 
 ## Old plugin ids
 
 `/handily` reads the `enabledPlugins` setting in the user, project and local settings. It looks
-for each plugin id that a handily release replaced:
+for each plugin id from the old marketplace `handily`. These are the bundle, each mod, and each
+mod name that a handily release replaced:
 
-| Old plugin id                                                                               | Replaced by           |
-| ------------------------------------------------------------------------------------------- | --------------------- |
-| `workitems@handily`                                                                         | `handily-workitems`   |
-| `quiet-items@handily`                                                                       | `handily-quiet-items` |
-| `item-toasts@handily`                                                                       | `handily-item-toasts` |
-| `simple-view@handily`                                                                       | `handily-simple-view` |
-| `reply-view@handily`                                                                        | `handily-reply-view`  |
-| `task-pane@handily`, `session-board@handily`, `agent-board@handily`                         | `handily-board`       |
-| `handily-task-pane@handily`, `handily-session-board@handily`, `handily-agent-board@handily` | `handily-board`       |
+| Old plugin id                                                                               | Replaced by               |
+| ------------------------------------------------------------------------------------------- | ------------------------- |
+| `handily@handily` and each `handily-<mod>@handily`                                          | the same name `@niksavis` |
+| `workitems@handily`                                                                         | `handily-workitems`       |
+| `quiet-items@handily`                                                                       | `handily-quiet-items`     |
+| `item-toasts@handily`                                                                       | `handily-item-toasts`     |
+| `simple-view@handily`                                                                       | `handily-simple-view`     |
+| `reply-view@handily`                                                                        | `handily-reply-view`      |
+| `task-pane@handily`, `session-board@handily`, `agent-board@handily`                         | `handily-board`           |
+| `handily-task-pane@handily`, `handily-session-board@handily`, `handily-agent-board@handily` | `handily-board`           |
 
-For each old id that it finds, `/handily` prints one row with the scope and the command that
-uninstalls it, such as `claude plugin uninstall task-pane@handily --scope user`. The last line
-then adds `Run each uninstall command above, then type /reload-plugins`.
+For each old id that it finds, `/handily` prints the id and its scope, and under it the command
+that uninstalls it. Then it prints the command that removes the old marketplace. This is the
+end of the output when the user settings still hold `handily@handily` and
+`handily-workitems@handily`:
+
+```text
+handily@handily            old id of handily, user settings
+  Run claude plugin uninstall handily@handily --scope user
+handily-workitems@handily  old id of handily-workitems, user settings
+  Run claude plugin uninstall handily-workitems@handily --scope user
+handily marketplace        old marketplace of these ids
+  Run claude plugin marketplace remove handily
+
+handily: 6 of 6 mods loaded, 0 off or paused
+Run each command above, then type /reload-plugins
+```
 
 ## Develop
 
