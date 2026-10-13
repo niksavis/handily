@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 
 const root = join(import.meta.dirname, '..')
-const SIGNAL_MODS = ['handily-task-pane', 'handily-agent-board', 'handily-session-board']
+const SIGNAL_MODS = ['handily-board']
 
 const APPROVED = {
   doing: { name: 'Doing', mark: '▶', color: 'claude' },
@@ -27,10 +27,15 @@ async function tableOf(mod) {
 }
 
 const { displayWidth } = await import(
-  pathToFileURL(join(root, 'mods', 'handily-task-pane', 'hooks', 'width.ts')).href
+  pathToFileURL(join(root, 'mods', 'handily-board', 'hooks', 'width.ts')).href
 )
 
 describe('the table of signals', () => {
+  test('compares the signals table of every mod that keeps one, which is handily-board only', () => {
+    const keepers = readdirSync(join(root, 'mods')).filter((mod) => existsSync(signalsPath(mod)))
+    assert.deepEqual(keepers.sort(), [...SIGNAL_MODS].sort())
+  })
+
   for (const mod of SIGNAL_MODS) {
     test(`${mod} draws each state with the approved mark and theme colour`, async () => {
       const table = await tableOf(mod)

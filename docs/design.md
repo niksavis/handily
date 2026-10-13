@@ -113,18 +113,18 @@ The colours are theme colours of the engine, so they follow the person's theme: 
 handover of 2026-10-09 also names `suggestion`; which signal uses it is open. The task pane
 draws its author word in `suggestion`, so a title cannot imitate the author.
 
-Each of `task-pane`, `agent-board` and `session-board` keeps the first five signals in its own
-`hooks/signals.ts`, because mods share no code at run time. `scripts/signals.test.mjs` fails
-when a table differs from this one or from another mod, or when a mark is not one column wide.
-The mods map their states to the signals as follows. The aging dots, `2▶`, `⌀` and `↻` are not
-built yet.
+`handily-board` keeps the first five signals in its `hooks/signals.ts`, because mods share no
+code at run time. `scripts/signals.test.mjs` fails when the table differs from this one, when
+another mod keeps a `hooks/signals.ts` that the test does not compare, or when a mark is not one
+column wide. The tabs of `handily-board` map their states to the signals as follows. The aging
+dots, `2▶`, `⌀` and `↻` are not built yet.
 
-| Signal | task-pane | agent-board | session-board |
+| Signal | this session: tasks | this session: agents | this machine |
 | --- | --- | --- | --- |
-| Doing | a task in progress, `Now`, a running or waiting subagent | `running`, `waiting` | `busy`, `working` |
-| Done | a done task | `done`, `killed` | `done`, `stopped` |
-| To do | an open task, a pending subagent | `pending`, `idle` | `idle`, an unknown word |
-| Blocked | none | `failed` | `failed` |
+| Doing | a task in progress | `running`, `waiting` (drawn as `on hold`) | `busy`, `working` |
+| Done | a done task | `done`, `killed` | a session that ended without a failure |
+| To do | an open task | `pending`, `idle` | `idle`, an unknown word |
+| Blocked | none | `failed` | a session that ended with `failed` |
 | Waits for you | none | none | `waiting`, `blocked`, any `waitingFor` |
 
 On 2026-10-09 the person also asked the task pane to drop the author `claude` from each row.
@@ -407,7 +407,7 @@ Toggle:
 ### 4.3 task-pane (mod 2)
 
 Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
-record of the design until handily-board ships.
+record of the design. The plugin `handily-task-pane` is removed.
 
 - Commands come first: `/task add` and `/task rm`. The `Pane` is optional, because the mobile
   app has no `Input`.
@@ -435,7 +435,7 @@ record of the design until handily-board ships.
 ### 4.4 session-board (mod 3)
 
 Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
-record of the design until handily-board ships.
+record of the design. The plugin `handily-session-board` is removed.
 
 - Main source: `claude agents --json`. It lists interactive and background sessions on
   this machine.
@@ -479,7 +479,7 @@ A toast when a work item changes state outside this session. It needs a rate lim
 ### 4.7 agent-board (handily-cr7r)
 
 Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section stays as the
-record of the design until handily-board ships.
+record of the design. The plugin `handily-agent-board` is removed.
 
 - Purpose: one pane that shows what each subagent of this session does. `session-board` shows
   the sessions of the machine. `agent-board` shows the subagents inside one session.
@@ -591,6 +591,10 @@ Defer to quiet-items:
   `this session` (tasks and this session's agents) and `this machine` (every local session).
 - The old plugins are removed with no alias and no deprecation version. A release note tells a
   person who installed one how to uninstall it and install `handily-board`.
+- The bundle `handily` lists `handily-board` in place of the three old plugins. `/handily`
+  names `handily-task-pane@handily`, `handily-session-board@handily` and
+  `handily-agent-board@handily` as old ids of `handily-board`, with the command that uninstalls
+  each (handily-fwkt.8.19.4).
 - Command: `/board`. `/board machine` shows the second tab. `/task` is dropped, because it sits
   next to the built-in `/tasks` (background jobs) in the slash menu.
 - One plugin, not two, because each plugin has its own `$.store`, and a plugin opens only its own
@@ -617,10 +621,8 @@ handily/
     handily/                the bundle
     handily-workitems/      .claude-plugin/plugin.json, hooks/, types/index.d.ts, tests
     handily-quiet-items/
-    handily-task-pane/
-    handily-session-board/
+    handily-board/
     handily-item-toasts/
-    handily-agent-board/
     handily-simple-view/
     handily-reply-view/
   docs/design.md

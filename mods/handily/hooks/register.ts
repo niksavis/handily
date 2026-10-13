@@ -22,14 +22,10 @@ async function readyOf($: EngineInterface, name: string): Promise<Ready> {
       return (await $.state.get({ plugin: 'handily-workitems', key: 'ready' })).value
     case 'handily-quiet-items':
       return (await $.state.get({ plugin: 'handily-quiet-items', key: 'ready' })).value
-    case 'handily-task-pane':
-      return (await $.state.get({ plugin: 'handily-task-pane', key: 'ready' })).value
-    case 'handily-session-board':
-      return (await $.state.get({ plugin: 'handily-session-board', key: 'ready' })).value
+    case 'handily-board':
+      return (await $.state.get({ plugin: 'handily-board', key: 'ready' })).value
     case 'handily-item-toasts':
       return (await $.state.get({ plugin: 'handily-item-toasts', key: 'ready' })).value
-    case 'handily-agent-board':
-      return (await $.state.get({ plugin: 'handily-agent-board', key: 'ready' })).value
     case 'handily-simple-view':
       return (await $.state.get({ plugin: 'handily-simple-view', key: 'ready' })).value
     case 'handily-reply-view':

@@ -1,15 +1,13 @@
 {
   "name": "handily",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded.",
   "author": { "name": "niksavis" },
   "dependencies": [
     "handily-workitems",
     "handily-quiet-items",
-    "handily-task-pane",
-    "handily-session-board",
+    "handily-board",
     "handily-item-toasts",
-    "handily-agent-board",
     "handily-simple-view",
     "handily-reply-view"
   ],

@@ -47,25 +47,22 @@ mod can stop working after a Claude Code update, until a new mod release follows
 ## Mods
 
 Each mod has a plugin name that starts with `handily-`. Its slash commands keep their short
-names, such as `/task` and `/simple`. Each command description in the menu starts with
+names, such as `/board` and `/simple`. Each command description in the menu starts with
 `handily ·`.
 
 | Mod | What you see | Command |
 | --- | --- | --- |
 | [`handily-workitems`](mods/handily-workitems/README.md) | Nothing. It reads the work items of your tracker for the other mods | none |
 | [`handily-quiet-items`](mods/handily-quiet-items/README.md) | One short row in place of each tracker write in the transcript | `/quiet-items` |
-| [`handily-task-pane`](mods/handily-task-pane/README.md) | A task list that Claude and you share, with an optional pane | `/task` |
-| [`handily-session-board`](mods/handily-session-board/README.md) | A board of every local Claude Code session: state, task, worktree, time worked | `/session-board` |
 | [`handily-item-toasts`](mods/handily-item-toasts/README.md) | A toast when a work item changes outside your session | none |
-| [`handily-agent-board`](mods/handily-agent-board/README.md) | A pane that shows what each subagent of this session does | `/agent-board` |
 | [`handily-simple-view`](mods/handily-simple-view/README.md) | One short row for each Bash, Edit, Write, Read, Grep and Glob call | `/simple` |
 | [`handily-reply-view`](mods/handily-reply-view/README.md) | Long replies fold, tables draw without box lines, copy buttons, a rule above each prompt | `/replies` |
 | [`handily-board`](mods/handily-board/README.md) | A board with two tabs: your tasks and agents, and every local session | `/board` |
-| `handily` | The bundle of all the mods above, except `handily-board` | `/handily` |
+| `handily` | The bundle of all the mods above | `/handily` |
 
 `handily-board` replaces `handily-task-pane`, `handily-session-board` and `handily-agent-board`.
-A coming release removes the three old mods and puts `handily-board` in the bundle. Until then,
-install `handily-board` alone, or the bundle alone. Both together draw two task panes.
+The three old mods are removed. To move from them, see
+[Move from the old plugin names](#move-from-the-old-plugin-names).
 
 Some mods need another mod. Claude Code installs a dependency with the mod that needs it.
 
@@ -73,14 +70,11 @@ Some mods need another mod. Claude Code installs a dependency with the mod that 
 | --- | --- |
 | `handily-workitems` | n/a |
 | `handily-quiet-items` | `handily-workitems` |
-| `handily-task-pane` | `handily-workitems` |
-| `handily-session-board` | n/a |
 | `handily-item-toasts` | `handily-workitems` |
-| `handily-agent-board` | n/a |
 | `handily-simple-view` | `handily-quiet-items`, and through it `handily-workitems` |
 | `handily-reply-view` | n/a |
 | `handily-board` | `handily-workitems` |
-| `handily` | every mod above, except `handily-board` |
+| `handily` | every mod above |
 
 ## Quick start
 
@@ -96,7 +90,7 @@ Each install line opens the details of the plugin. Select **Install**, then clos
 Then type `/reload-plugins`, or restart Claude Code.
 
 Then type `/handily`. It lists each mod with its version and whether it loaded. It ends with
-one line such as `handily: 8 of 8 mods loaded`. When a mod is missing, the list gives the line
+one line such as `handily: 6 of 6 mods loaded`. When a mod is missing, the list gives the line
 that installs it.
 
 ## Register the marketplace
@@ -166,31 +160,6 @@ Draws one short row in place of each tracker write. Needs `handily-workitems`.
 claude plugin install handily-quiet-items@handily
 ```
 
-### handily-task-pane
-
-A task list that Claude and you share: model tools, `/task` commands and an optional pane.
-Needs `handily-workitems`.
-
-```text
-/plugin install handily-task-pane@handily
-```
-
-```sh
-claude plugin install handily-task-pane@handily
-```
-
-### handily-session-board
-
-A board of every local Claude Code session. Needs nothing.
-
-```text
-/plugin install handily-session-board@handily
-```
-
-```sh
-claude plugin install handily-session-board@handily
-```
-
 ### handily-item-toasts
 
 A toast when a work item changes outside this session. Needs `handily-workitems`.
@@ -201,18 +170,6 @@ A toast when a work item changes outside this session. Needs `handily-workitems`
 
 ```sh
 claude plugin install handily-item-toasts@handily
-```
-
-### handily-agent-board
-
-A pane that shows what each subagent of this session does. Needs nothing.
-
-```text
-/plugin install handily-agent-board@handily
-```
-
-```sh
-claude plugin install handily-agent-board@handily
 ```
 
 ### handily-simple-view
@@ -257,12 +214,12 @@ claude plugin install handily-board@handily
 
 ## Install several mods
 
-Run one install line for each mod that you want. This example installs the task pane, the
-session board and the reply view:
+Run one install line for each mod that you want. This example installs the board, the simple
+view and the reply view:
 
 ```sh
-claude plugin install handily-task-pane@handily
-claude plugin install handily-session-board@handily
+claude plugin install handily-board@handily
+claude plugin install handily-simple-view@handily
 claude plugin install handily-reply-view@handily
 ```
 
@@ -288,7 +245,7 @@ Then update each mod that you installed. `claude plugin update` takes one plugin
 the bundle does not update a mod that is already installed, so update each mod:
 
 ```sh
-claude plugin update handily-task-pane@handily
+claude plugin update handily-board@handily
 ```
 
 To update the bundle and every mod, run this line in a shell. A mod that came into the bundle
@@ -296,7 +253,7 @@ after your install fails its update with `Plugin "<name>" is not installed`. The
 installs that mod by its name. The line is safe to run again.
 
 ```sh
-claude plugin marketplace update handily; for p in handily handily-workitems handily-quiet-items handily-task-pane handily-session-board handily-item-toasts handily-agent-board handily-simple-view handily-reply-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
+claude plugin marketplace update handily; for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view; do claude plugin update "$p@handily" || claude plugin install "$p@handily"; done
 ```
 
 After an update, type `/reload-plugins` in each open session, or restart Claude Code.
@@ -340,6 +297,25 @@ file existed, remove it with `codex plugin remove <name>@handily`.
 
 ## Move from the old plugin names
 
+### From handily-task-pane, handily-agent-board and handily-session-board
+
+handily 0.5.0 removes `handily-task-pane`, `handily-agent-board` and `handily-session-board`.
+`handily-board` replaces them. `/task`, `/agent-board` and `/session-board` are gone, and
+`/board` replaces them. An update does not remove the old plugins.
+
+To move, run this line in a shell, then type `/reload-plugins` in each open session. It updates
+the marketplace, installs `handily-board`, uninstalls the three old plugins and updates the
+bundle. A command for a plugin that you did not install fails for that plugin only.
+
+```sh
+claude plugin marketplace update handily; claude plugin install handily-board@handily; for p in handily-task-pane handily-agent-board handily-session-board; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
+```
+
+Then type `/handily`. It names each old plugin that is still installed, with its scope, and
+prints the command that uninstalls it.
+
+### From the names before handily 0.4.0
+
 Before handily 0.4.0 the mods had plugin names without `handily-`, such as `workitems@handily`.
 An update does not move an old name to the new one. Claude Code keeps the old plugin installed
 and does not install the new one. When both are installed, the two copies collide. Claude Code
@@ -350,10 +326,10 @@ the marketplace, installs each new name and uninstalls each old name. A command 
 that you did not install fails for that plugin only.
 
 ```sh
-claude plugin marketplace update handily; for p in workitems quiet-items task-pane session-board item-toasts agent-board simple-view reply-view; do claude plugin install "handily-$p@handily"; done; for p in reply-view simple-view agent-board item-toasts session-board task-pane quiet-items workitems; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
+claude plugin marketplace update handily; for p in workitems quiet-items board item-toasts simple-view reply-view; do claude plugin install "handily-$p@handily"; done; for p in reply-view simple-view agent-board item-toasts session-board task-pane quiet-items workitems; do claude plugin uninstall "$p@handily"; done; claude plugin update handily@handily
 ```
 
-Then type `/handily`. It must end with `handily: 8 of 8 mods loaded`. It names each old plugin
+Then type `/handily`. It must end with `handily: 6 of 6 mods loaded`. It names each old plugin
 that is still installed, with its scope, and prints the command that uninstalls it.
 [CHANGELOG.md](CHANGELOG.md) lists every old name and its new name.
 

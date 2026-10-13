@@ -10,14 +10,8 @@
     {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
-    },
-    {
-      "name": "handily-agent-board",
-      "source": "./mods/handily-agent-board",
-      "version": "0.4.0",
-      "description": "A pane that shows what each subagent of this session does: its tool, its tool count, its time and its task list."
     },
     {
       "name": "handily-board",
@@ -44,22 +38,10 @@
       "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
     {
-      "name": "handily-session-board",
-      "source": "./mods/handily-session-board",
-      "version": "0.4.0",
-      "description": "A board of every local Claude Code session: state, task, worktree and time worked."
-    },
-    {
       "name": "handily-simple-view",
       "source": "./mods/handily-simple-view",
       "version": "0.4.1",
       "description": "One short row for each Bash, Edit, Write, Read, Grep and Glob call, with buttons to open and copy its output, /simple to switch it and /simple show to print a call in full."
-    },
-    {
-      "name": "handily-task-pane",
-      "source": "./mods/handily-task-pane",
-      "version": "0.6.0",
-      "description": "A session task list that Claude and you share: model tools, /task commands and an optional pane."
     },
     {
       "name": "handily-workitems",

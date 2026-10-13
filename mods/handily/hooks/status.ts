@@ -2,15 +2,18 @@ import type { HandilyModStatus, HandilyOldId, HandilyOldIdScope, HandilyReport }
 
 const MARKETPLACE = 'handily'
 
-const RENAMED_MODS: ReadonlyMap<string, string> = new Map([
+const REPLACED_MODS: ReadonlyMap<string, string> = new Map([
   ['workitems', 'handily-workitems'],
   ['quiet-items', 'handily-quiet-items'],
-  ['task-pane', 'handily-task-pane'],
-  ['session-board', 'handily-session-board'],
+  ['task-pane', 'handily-board'],
+  ['session-board', 'handily-board'],
   ['item-toasts', 'handily-item-toasts'],
-  ['agent-board', 'handily-agent-board'],
+  ['agent-board', 'handily-board'],
   ['simple-view', 'handily-simple-view'],
   ['reply-view', 'handily-reply-view'],
+  ['handily-task-pane', 'handily-board'],
+  ['handily-session-board', 'handily-board'],
+  ['handily-agent-board', 'handily-board'],
 ])
 
 export const OLD_ID_SCOPES: readonly HandilyOldIdScope[] = ['user', 'project', 'local']
@@ -94,14 +97,14 @@ export function statusesOf(
 
 export function oldIdsOf(enabledByScope: ReadonlyMap<HandilyOldIdScope, unknown>): HandilyOldId[] {
   const found: HandilyOldId[] = []
-  for (const [oldName, renamedTo] of RENAMED_MODS) {
+  for (const [oldName, replacedBy] of REPLACED_MODS) {
     for (const scope of OLD_ID_SCOPES) {
       if (enabledEntry(enabledByScope.get(scope), oldName) === undefined) continue
       const id = pluginId(oldName)
       found.push({
         id,
         scope,
-        detail: `old id of ${renamedTo}, in the ${scope} settings. Run claude plugin uninstall ${id} --scope ${scope}`,
+        detail: `old id of ${replacedBy}, in the ${scope} settings. Run claude plugin uninstall ${id} --scope ${scope}`,
       })
     }
   }
