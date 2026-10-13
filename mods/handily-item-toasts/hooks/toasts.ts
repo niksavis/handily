@@ -148,14 +148,21 @@ export function createToaster(host: ToastHost): Toaster {
     }
   }
 
+  function takeBaseline(snapshot: Snapshot): number {
+    isFailed = snapshot.state === 'failed'
+    remember(snapshot.items)
+    return snapshot.version
+  }
+
   async function catchUp(isElsewhere: boolean, mustRead: boolean): Promise<void> {
     const snapshot = await host.snapshot()
     if (snapshot === undefined) return
-    if (seen === undefined) {
-      seen = snapshot.version
-      isFailed = snapshot.state === 'failed'
-      remember(snapshot.items)
+    const hasProviderRestarted = seen !== undefined && snapshot.version < seen
+    if (hasProviderRestarted) {
+      seen = takeBaseline(snapshot)
+      return
     }
+    seen ??= takeBaseline(snapshot)
     if (!mustRead && snapshot.version === seen) return
     let refreshed: Refreshed
     try {
