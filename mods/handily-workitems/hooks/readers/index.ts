@@ -26,6 +26,7 @@ export type TrackerCommands = {
 export type TrackerFiles = {
   root: string
   read: (relativePath: string) => Promise<string>
+  stream: (relativePath: string) => AsyncGenerator<string, void>
   exists: (relativePath: string) => Promise<boolean>
   list: (relativeDirectory: string) => Promise<FsEntry[]>
   realPath: (relativePath: string) => Promise<string | undefined>
