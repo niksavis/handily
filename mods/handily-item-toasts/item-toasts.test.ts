@@ -273,6 +273,11 @@ function answer(world: World, sinceText: string): Answer {
   if (isSince && world.rejectSince !== null && since <= world.rejectSince) {
     return { error: `since ${String(since)} is older than the oldest kept diff` }
   }
+  if (isSince && since > world.version) {
+    return {
+      error: `workitems refresh: since ${String(since)} is newer than the current version ${String(world.version)}`,
+    }
+  }
   if (isRead && sinceText === 'timer' && world.disk.length > 0) world.timerReads += 1
   if (isRead) readDisk(world)
   const diff = world.history
@@ -575,6 +580,46 @@ describe('a change that a tool call of this session caused', () => {
     await pollAndTick($, clock)
     expect(world.toasts).toEqual(['handily-cd34 closed: Write the beads reader'])
   })
+})
+
+function reloadProvider(world: World, edit: DiskEdit = {}): void {
+  world.version = 0
+  world.history = []
+  world.unreported = emptyDiff()
+  if (edit.diff !== undefined) world.items = applyItems(world.items, edit.diff)
+  world.disk.push({ state: edit.state })
+}
+
+describe('a reload of the workitems provider', () => {
+  toastTest(
+    'shows no logged error and no toast when the provider version restarts below the version item-toasts holds',
+    async (world, $, clock) => {
+      await startSession($)
+      reloadProvider(world)
+      await pollAndTick($, clock)
+      await clock.advance(WINDOW_MS)
+      expect(world.version).toBe(1)
+      expect(world.logs).toEqual([])
+      expect(world.toasts).toEqual([])
+    },
+  )
+
+  toastTest(
+    'takes the restarted snapshot as the new baseline and toasts the next change against it',
+    async (world, $, clock) => {
+      await startSession($)
+      reloadProvider(world, { diff: { ...emptyDiff(), updated: [updated(CD34, 'in_progress')] } })
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual([])
+      elsewhere(world, { diff: { ...emptyDiff(), updated: [updated(CD34, 'closed')] } })
+      await pollAndTick($, clock)
+      expect(world.sinces.at(-1)).toBe(1)
+      expect(world.logs).toEqual([])
+      expect(world.toasts).toEqual([
+        'handily-cd34 updated: Write the beads reader (in_progress -> closed)',
+      ])
+    },
+  )
 })
 
 describe('the rate limit', () => {
