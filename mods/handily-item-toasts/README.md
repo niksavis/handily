@@ -121,14 +121,14 @@ failure then draws no toast either.
 | ------------------ | ----------------------------------------------------------------------- |
 | `/item-toasts off` | Stops the toasts for this session, and replies with the new mode        |
 | `/item-toasts on`  | Starts the toasts again for this session, and replies with the new mode |
+| `/item-toasts`     | Toggles the mode for this session, and replies with the new mode        |
 
 - The mod keeps the mode in the `mode` key of its `$.state`, so a change does not reach other
   sessions, and the mode outlives a reload of the mod. A session starts with the mode on.
 - While the mode is off, no work item change and no snapshot state draws a toast. A change made
   while the mode was off draws no toast after `/item-toasts on` either: the mod reads the work
   items again from that point.
-- `/item-toasts` without an argument, or with any other argument, changes nothing. The reply
-  names the valid forms.
+- `/item-toasts` with any other argument changes nothing. The reply names the valid forms.
 
 ## Develop
 

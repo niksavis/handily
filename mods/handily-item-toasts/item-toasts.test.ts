@@ -1267,7 +1267,7 @@ const ON_REPLY =
 const OFF_REPLY =
   'item-toasts off for this session. No work item change draws a toast until /item-toasts on.'
 const USAGE_REPLY =
-  '/item-toasts takes on or off. /item-toasts on and /item-toasts off set this session.'
+  '/item-toasts takes on, off or no argument. /item-toasts on and /item-toasts off set this session, and /item-toasts toggles it.'
 
 async function toastsCommand($: Engine, args: string): Promise<string> {
   const result = await $.command.run({
@@ -1329,11 +1329,23 @@ describe('/item-toasts', () => {
     expect(await toastsCommand($, 'off')).toBe(OFF_REPLY)
   })
 
+  toastTest('toggles from on to off and back with the bare command', async (world, $, clock) => {
+    await startSession($)
+    expect(await toastsCommand($, '')).toBe(OFF_REPLY)
+    elsewhere(world, closeAb12())
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual([])
+    expect(await toastsCommand($, '  ')).toBe(ON_REPLY)
+    elsewhere(world, closeEf56())
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+  })
+
   toastTest(
     'replies with the valid forms by name to an unknown argument and keeps the mode',
     async (world, $, clock) => {
       await startSession($)
-      for (const args of ['', 'of', 'on off', 'toggle']) {
+      for (const args of ['of', 'on off', 'toggle']) {
         expect(await toastsCommand($, args)).toBe(USAGE_REPLY)
       }
       elsewhere(world, closeAb12())
