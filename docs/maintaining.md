@@ -83,7 +83,7 @@ one tag for the whole repository.
 
 | Tool | Version | Where it is pinned |
 | --- | --- | --- |
-| Claude Code CLI | 2.1.299 | `.github/workflows/basicly-gates.yml` and `.github/workflows/release.yml` |
+| Claude Code CLI | 2.1.300 | `.github/workflows/basicly-gates.yml` and `.github/workflows/release.yml` |
 | basicly | v0.23.1 | `.github/workflows/basicly-gates.yml`, `.vscode/tasks.json` and the setup command in [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Node.js | 24 | `node-version` in both workflows |
 | npm dev dependencies | exact versions | `package.json` and `package-lock.json` |
