@@ -10,7 +10,7 @@
     {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {
@@ -22,7 +22,7 @@
     {
       "name": "handily-item-toasts",
       "source": "./mods/handily-item-toasts",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "description": "A toast when a work item changes outside this session, at most one every 30 s."
     },
     {
@@ -34,13 +34,13 @@
     {
       "name": "handily-reply-view",
       "source": "./mods/handily-reply-view",
-      "version": "0.5.4",
+      "version": "0.6.0",
       "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
     {
       "name": "handily-simple-view",
       "source": "./mods/handily-simple-view",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "description": "One short row for each Bash, Edit, Write, Read, Grep and Glob call, with buttons to open and copy its output, /simple to switch it and /simple show to print a call in full."
     },
     {

@@ -6,6 +6,40 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily 0.7.0 - 2026-10-14
+
+### Added
+
+- **`/handily` shows the `mode` setting of a mod beside its session mode when the two differ**,
+  such as `off (default on)`. It reads the setting from the rows of the `/config` menu
+  (handily-fwkt.8.13).
+
+## handily-item-toasts 0.6.0 - 2026-10-14
+
+### Added
+
+- **A `mode` setting sets the mode of the toasts when a session starts.** The new `userConfig`
+  field `mode` takes `on`, the default, or `off`. Each session starts from it, and `/item-toasts`
+  toggles from there. The reply to an unknown argument now names the setting (handily-fwkt.8.13).
+
+## handily-reply-view 0.6.0 - 2026-10-14
+
+### Added
+
+- **A `mode` setting sets the mode of the reply view when a session starts.** The new
+  `userConfig` field `mode` takes `on`, the default, or `off`. Each session starts from it, and
+  `/replies` toggles from there. The reply to an argument now names the setting
+  (handily-fwkt.8.13).
+
+## handily-simple-view 0.6.0 - 2026-10-14
+
+### Added
+
+- **A `mode` setting sets the mode of the one-row view when a session starts.** The new
+  `userConfig` field `mode` takes `on`, the default, or `off`. Each session starts from it, and
+  `/simple` toggles from there. The reply to an unknown argument now names the setting
+  (handily-fwkt.8.13).
+
 ## handily-workitems 0.8.0 - 2026-10-14
 
 ### Changed
