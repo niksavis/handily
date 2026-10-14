@@ -1201,6 +1201,8 @@ const DRAW_WORK_CRITERION =
 const TASKS_PER_AGENT = 20
 const ROWS_OF_ACTIVE_AGENTS = 6
 const STATE_READS_PER_DRAW = 5
+const SLOW_RUNNER_FILL_TIMEOUT_MS = 30_000
+const withRoomToFillAgents = { ...withWorkitems, timeoutMs: SLOW_RUNNER_FILL_TIMEOUT_MS }
 
 async function fillAgents($: Engine, seen: World, count: number): Promise<void> {
   for (let index = 0; index < count; index += 1) {
@@ -1219,7 +1221,7 @@ describe(DRAW_WORK_CRITERION, () => {
   for (const agents of [1, 30]) {
     test(
       `a draw with ${String(agents)} agents of ${String(TASKS_PER_AGENT)} tasks reads the state ${String(STATE_READS_PER_DRAW)} times`,
-      withWorkitems,
+      withRoomToFillAgents,
       async ($, on) => {
         const seen = world(on)
         const reads: string[] = []
@@ -1249,7 +1251,7 @@ describe(DRAW_WORK_CRITERION, () => {
 
   test(
     'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 5 times from the second',
-    withWorkitems,
+    withRoomToFillAgents,
     async ($, on) => {
       const agents = 30
       const seen = world(on)
