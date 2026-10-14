@@ -1247,6 +1247,52 @@ describe(DRAW_WORK_CRITERION, () => {
     )
   }
 
+  test(
+    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 5 times from the second',
+    withWorkitems,
+    async ($, on) => {
+      const agents = 30
+      const seen = world(on)
+      const reads: string[] = []
+      let isCounting = false
+      let isOlderVersion = true
+      on('state.get', (_$, e, next) => {
+        if (isCounting) reads.push(`${e.plugin}:${e.key}`)
+        return next(e)
+      })
+      on('state.set', (_$, e, next) =>
+        isOlderVersion && e.plugin === PLUGIN && e.key === 'agentPlans'
+          ? { value: { isSet: true, version: 0 } }
+          : next(e),
+      )
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Lead the lanes' })
+      await fillAgents($, seen, agents)
+      isOlderVersion = false
+      const planRows = (lines: readonly string[]) =>
+        lines.filter((line) => line.includes(`plan 0/${String(TASKS_PER_AGENT)}`))
+      isCounting = true
+      const first = await mountTab($, 'terminal', 'dock', 41)
+      isCounting = false
+      expect(planRows(await screen(first, 41))).toHaveLength(ROWS_OF_ACTIVE_AGENTS)
+      expect(reads.filter((read) => read === `${PLUGIN}:agentList`)).toHaveLength(agents)
+      expect(reads).toHaveLength(STATE_READS_PER_DRAW + agents)
+      await first.press({ key: 'group:more-agents' })
+      expect(planRows(await screen(first, 41))).toHaveLength(agents)
+      await first.unmount()
+      await seen.clock.advance(0)
+      for (const surface of SURFACES) {
+        reads.length = 0
+        isCounting = true
+        const ui = await mountTab($, surface, 'dock', 41)
+        isCounting = false
+        expect(planRows(await screen(ui, 41))).toHaveLength(agents)
+        expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW)
+        await ui.unmount()
+      }
+    },
+  )
+
   test('a plan that lands after a newer plan of the same agent keeps the newer plan', () => {
     const task: BoardTask = { id: 1, title: 'Step 1', status: 'pending', by: 'model', item: null }
     const older = [task]

@@ -51,7 +51,11 @@ export type AgentHost = {
   stored: () => Promise<Agents>
   change: (step: (agents: Agents) => Agents) => Promise<void>
   plans: () => Promise<BoardAgentPlans>
+  plan: (agentId: string) => Promise<FoundPlan>
+  keepPlans: (found: readonly FoundPlan[]) => void
 }
+
+export type FoundPlan = { agentId: string; tasks: readonly BoardTask[]; version: number }
 
 function created(id: string, now: number): BoardAgent {
   return {
@@ -335,9 +339,30 @@ export function withAgentPlan(
   return { ...plans, [agentId]: { version, tasks } }
 }
 
+export function withFoundPlans(
+  plans: BoardAgentPlans,
+  found: readonly FoundPlan[],
+): BoardAgentPlans {
+  return found.reduce(
+    (kept, one) => withAgentPlan(kept, one.agentId, one.tasks, one.version),
+    plans,
+  )
+}
+
+async function plansOf(host: AgentHost, agents: Agents): Promise<BoardAgentPlans> {
+  const kept = await host.plans()
+  const found: FoundPlan[] = []
+  for (const agent of agents) {
+    if (kept[agent.id] === undefined) found.push(await host.plan(agent.id))
+  }
+  if (found.length === 0) return kept
+  host.keepPlans(found)
+  return withFoundPlans(kept, found)
+}
+
 export async function agentView(host: AgentHost, now: number): Promise<AgentRow[]> {
   const agents = withList(await host.stored(), await host.listed(), now)
-  const kept = await host.plans()
+  const kept = await plansOf(host, agents)
   const plans = new Map<string, readonly BoardTask[]>()
   for (const agent of agents) {
     const plan = kept[agent.id]

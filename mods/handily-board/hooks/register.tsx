@@ -25,6 +25,7 @@ import {
   noteTurnEnd,
   trackAgentCall,
   withAgentPlan,
+  withFoundPlans,
 } from './agents'
 import {
   BOARD_PANES,
@@ -273,6 +274,25 @@ function agentHostOf($: EngineInterface): AgentHost {
       await update($, AGENTS, (current = []) => step(current))
     },
     plans: async () => (await $.state.get(AGENT_PLANS)).value ?? {},
+    plan: async (agentId) => {
+      const { value, version } = await $.state.get({
+        plugin: 'handily-board',
+        key: 'agentList',
+        id: agentId,
+      })
+      return { agentId, tasks: value?.tasks ?? [], version }
+    },
+    keepPlans: (found) => {
+      $.clock.after(0, () => {
+        update($, AGENT_PLANS, (current = {}) => withFoundPlans(current, found)).catch(
+          (error: unknown) => {
+            $.ui.log(`handily-board: the agent plans were not kept: ${String(error)}`, {
+              to: 'debug',
+            })
+          },
+        )
+      })
+    },
   }
 }
 
