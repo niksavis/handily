@@ -220,21 +220,18 @@ function unlistedDependencies(mod, dependencies) {
   )
 }
 
-function needsTypes(mod, dependencies, installedVersion) {
+function needsTypes(mod, dependencies) {
   if (!hasLaidTypes(mod)) return true
-  if (laidEngineVersion(mod) !== installedVersion) return true
   return unlistedDependencies(mod, dependencies).length > 0
 }
 
-function layTypes(mods, { force }) {
-  const installedVersion = readInstalledVersion()
-  if (installedVersion === undefined) return
+function layTypes(mods, { force, installedVersion }) {
   const configDir = mkdtempSync(join(tmpdir(), 'handily-types-'))
   try {
     for (const mod of mods) {
       const dependencies = dependenciesOf(mod, mods)
       layContracts(mod, dependencies)
-      if (!force && !needsTypes(mod, dependencies, installedVersion)) continue
+      if (!force && !needsTypes(mod, dependencies)) continue
       const pluginDirs = [mod, ...dependencies].flatMap((loaded) => ['--plugin-dir', loaded.dir])
       const result = spawnSync('claude', [...pluginDirs, '-p', 'ok'], {
         cwd: root,
@@ -262,7 +259,7 @@ function layTypes(mods, { force }) {
           )
         }
         const laidVersion = laidEngineVersion(mod)
-        if (laidVersion !== installedVersion) {
+        if (installedVersion !== undefined && laidVersion !== installedVersion) {
           fail(
             `${mod.name}: the header of ${relative(root, engineTypesPath(mod))} names Claude Code ${laidVersion ?? 'no version'}, and the installed Claude Code is ${installedVersion}; load the mod once in an interactive session: ${layCommand(mod, dependencies)}`,
           )
@@ -279,6 +276,12 @@ function layTypes(mods, { force }) {
   } finally {
     rmSync(configDir, { recursive: true, force: true })
   }
+}
+
+function layTypesOfInstalledVersion(mods) {
+  const installedVersion = readInstalledVersion()
+  if (installedVersion === undefined) return
+  layTypes(mods, { force: true, installedVersion })
 }
 
 function marketplaceText(mods) {
@@ -510,7 +513,7 @@ function test(mods) {
 
 const tasks = {
   marketplace: generateMarketplace,
-  types: (mods) => layTypes(mods, { force: true }),
+  types: layTypesOfInstalledVersion,
   typecheck,
   lint,
   validate,

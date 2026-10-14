@@ -134,11 +134,9 @@ const answersVersion = `if (process.argv[2] === '--version') {
 }`
 const headlessClaude = makeFakeClaude(`${answersVersion}\n${notLoggedIn}`)
 const versionlessClaude = makeFakeClaude(notLoggedIn)
-const versionOnlyClaude = makeFakeClaude(`${answersVersion}
-console.error('the engine loaded the mod')
+const refusingClaude = makeFakeClaude(`console.error('claude ran with', process.argv.slice(2))
 process.exit(3)`)
-const layingClaude = makeFakeClaude(`${answersVersion}
-const { writeFileSync } = require('node:fs')
+const layingClaude = makeFakeClaude(`const { writeFileSync } = require('node:fs')
 const { basename, join } = require('node:path')
 const args = process.argv.slice(2)
 const pluginDirs = args.filter((_, index) => args[index - 1] === '--plugin-dir')
@@ -147,7 +145,6 @@ writeFileSync(
   join(mod, '.claude-plugin', 'types', 'tsconfig.json'),
   JSON.stringify({ compilerOptions: { ...${JSON.stringify(engineCompilerOptions)}, types: dependencies.map((dir) => basename(dir)) } }),
 )
-writeFileSync(join(mod, '.claude-plugin', 'types', 'claude-code', 'index.d.ts'), ${JSON.stringify(engineHeader(installedVersion))})
 ${notLoggedIn}`)
 
 function runMods(repo, task, bin) {
@@ -159,7 +156,7 @@ function runMods(repo, task, bin) {
 }
 
 const contractRepo = makeRepoWithUnlaidContract({ listsDependency: true })
-const contractResult = runMods(contractRepo, 'typecheck', versionOnlyClaude)
+const contractResult = runMods(contractRepo, 'typecheck', refusingClaude)
 
 test('typecheck lays a missing dependency contract as a regular file and passes without an engine load', () => {
   assert.equal(contractResult.status, 0, contractResult.stdout + contractResult.stderr)
@@ -216,17 +213,21 @@ test('typecheck lays the types again when the laid tsconfig does not list a depe
   assert.deepEqual(laid.compilerOptions.types, ['base'])
 })
 
-const relaidRepo = makeRepoWithUnlaidContract({
+const outdatedTypecheckRepo = makeRepoWithUnlaidContract({
   listsDependency: true,
   engineVersion: staleVersion,
 })
-const relaidResult = runMods(relaidRepo, 'typecheck', layingClaude)
+const outdatedTypecheckResult = runMods(outdatedTypecheckRepo, 'typecheck', refusingClaude)
 
-test('typecheck lays the types again when a laid header names another version', () => {
-  assert.equal(relaidResult.status, 0, relaidResult.stdout + relaidResult.stderr)
-  assert.match(
-    readFileSync(relaidRepo.laidEngineTypes, 'utf8'),
-    new RegExp(`^// Written by Claude Code ${installedVersion}\\.`),
+test('typecheck neither runs claude nor fails when a laid header names another version', () => {
+  assert.equal(
+    outdatedTypecheckResult.status,
+    0,
+    outdatedTypecheckResult.stdout + outdatedTypecheckResult.stderr,
+  )
+  assert.equal(
+    readFileSync(outdatedTypecheckRepo.laidEngineTypes, 'utf8'),
+    engineHeader(staleVersion),
   )
 })
 
