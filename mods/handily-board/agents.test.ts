@@ -9,6 +9,8 @@ import {
   type Mounted,
   type Plugin,
 } from 'claude-code/testing'
+import type { BoardTask } from './types'
+import { withAgentPlan } from './hooks/agents'
 
 const ROOT = '/work/app'
 const PANE = 'tasks'
@@ -1191,4 +1193,66 @@ describe(KEYBOARD_PLAN_CRITERION, () => {
       await land(scene)
     },
   )
+})
+
+const DRAW_WORK_CRITERION =
+  'When the this session tab draws 30 agents of 20 tasks each, a test pins the number of state reads per draw, and that number does not grow with the number of agents'
+
+const TASKS_PER_AGENT = 20
+const ROWS_OF_ACTIVE_AGENTS = 6
+const STATE_READS_PER_DRAW = 5
+
+async function fillAgents($: Engine, seen: World, count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    const id = `a${String(index).padStart(7, '0')}lane`
+    const description = `lane ${String(index)}`
+    await spawn($, id, 'general-purpose', description)
+    for (let task = 1; task <= TASKS_PER_AGENT; task += 1) {
+      await $.tool.call({ tool: TOOL_ADD, title: `Step ${String(task)}`, agentId: id })
+    }
+    await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress', agentId: id })
+    seen.agents.push(listed(id, 'general-purpose', 'running', { description }))
+  }
+}
+
+describe(DRAW_WORK_CRITERION, () => {
+  for (const agents of [1, 30]) {
+    test(
+      `a draw with ${String(agents)} agents of ${String(TASKS_PER_AGENT)} tasks reads the state ${String(STATE_READS_PER_DRAW)} times`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const reads: string[] = []
+        let isCounting = false
+        on('state.get', (_$, e, next) => {
+          if (isCounting) reads.push(`${e.plugin}:${e.key}`)
+          return next(e)
+        })
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Lead the lanes' })
+        await fillAgents($, seen, agents)
+        for (const surface of SURFACES) {
+          reads.length = 0
+          isCounting = true
+          const ui = await mountTab($, surface, 'dock', 41)
+          isCounting = false
+          const lines = await screen(ui, 41)
+          expect(lines).toContain(`Agents  ${String(agents)}`)
+          const plans = lines.filter((line) => line.includes(`plan 0/${String(TASKS_PER_AGENT)}`))
+          expect(plans).toHaveLength(Math.min(agents, ROWS_OF_ACTIVE_AGENTS))
+          expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW)
+          await ui.unmount()
+        }
+      },
+    )
+  }
+
+  test('a plan that lands after a newer plan of the same agent keeps the newer plan', () => {
+    const task: BoardTask = { id: 1, title: 'Step 1', status: 'pending', by: 'model', item: null }
+    const older = [task]
+    const newer = [{ ...task, status: 'completed' as const }]
+    const kept = withAgentPlan({}, LANE, newer, 3)
+    expect(withAgentPlan(kept, LANE, older, 2)).toEqual({ [LANE]: { version: 3, tasks: newer } })
+    expect(withAgentPlan(kept, SCOUT, older, 2)[SCOUT]).toEqual({ version: 2, tasks: older })
+  })
 })

@@ -18,6 +18,10 @@ export type BoardList = {
 
 export type BoardToolSight = { tool: string; target: string | null }
 
+export type BoardAgentPlan = { version: number; tasks: readonly BoardTask[] }
+
+export type BoardAgentPlans = Readonly<Partial<Record<string, BoardAgentPlan>>>
+
 export type BoardToolCount = { tool: string; calls: number }
 
 export type BoardTaskClock = {
@@ -73,6 +77,7 @@ declare module 'claude-code' {
       list: BoardList
       agentList: StateFamily<BoardList>
       agentIds: readonly string[]
+      agentPlans: BoardAgentPlans
       expanded: readonly string[]
       activity: BoardActivity
       agents: readonly BoardAgent[]

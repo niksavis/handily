@@ -1,5 +1,11 @@
 import type { AgentInfo, AgentStatus } from 'claude-code'
-import type { BoardAgent, BoardAgentCall, BoardList, BoardTask, BoardToolSight } from '../types'
+import type {
+  BoardAgent,
+  BoardAgentCall,
+  BoardAgentPlans,
+  BoardTask,
+  BoardToolSight,
+} from '../types'
 
 export const UNLISTED_KEPT_AT_MOST = 20
 
@@ -44,7 +50,7 @@ export type AgentHost = {
   listed: () => Promise<readonly AgentInfo[]>
   stored: () => Promise<Agents>
   change: (step: (agents: Agents) => Agents) => Promise<void>
-  plan: (agentId: string) => Promise<BoardList | undefined>
+  plans: () => Promise<BoardAgentPlans>
 }
 
 function created(id: string, now: number): BoardAgent {
@@ -318,11 +324,23 @@ export async function noteAgentList(host: AgentHost): Promise<void> {
   await host.change((agents) => withList(agents, listed, now))
 }
 
+export function withAgentPlan(
+  plans: BoardAgentPlans,
+  agentId: string,
+  tasks: readonly BoardTask[],
+  version: number,
+): BoardAgentPlans {
+  const kept = plans[agentId]
+  if (kept !== undefined && kept.version >= version) return plans
+  return { ...plans, [agentId]: { version, tasks } }
+}
+
 export async function agentView(host: AgentHost, now: number): Promise<AgentRow[]> {
   const agents = withList(await host.stored(), await host.listed(), now)
+  const kept = await host.plans()
   const plans = new Map<string, readonly BoardTask[]>()
   for (const agent of agents) {
-    const plan = await host.plan(agent.id)
+    const plan = kept[agent.id]
     if (plan !== undefined && plan.tasks.length > 0) plans.set(agent.id, plan.tasks)
   }
   return agentRows(agents, plans, now)

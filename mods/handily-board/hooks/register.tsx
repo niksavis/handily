@@ -24,6 +24,7 @@ import {
   noteSpawn,
   noteTurnEnd,
   trackAgentCall,
+  withAgentPlan,
 } from './agents'
 import {
   BOARD_PANES,
@@ -93,6 +94,7 @@ const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
 const LIST = { plugin: 'handily-board', key: 'list' } as const
 const AGENT_IDS = { plugin: 'handily-board', key: 'agentIds' } as const
+const AGENT_PLANS = { plugin: 'handily-board', key: 'agentPlans' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
 const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 const REDRAW_INTERVAL_MS = 10_000
@@ -270,8 +272,7 @@ function agentHostOf($: EngineInterface): AgentHost {
     change: async (step) => {
       await update($, AGENTS, (current = []) => step(current))
     },
-    plan: async (agentId) =>
-      (await $.state.get({ plugin: 'handily-board', key: 'agentList', id: agentId })).value,
+    plans: async () => (await $.state.get(AGENT_PLANS)).value ?? {},
   }
 }
 
@@ -280,6 +281,17 @@ async function agentSummaries($: EngineInterface): Promise<AgentSummary[]> {
   return rows
     .filter((row) => !row.isEnded)
     .map((row) => agentSummary(row.label, row.plan, row.look === 'failed'))
+}
+
+async function keepAgentPlan(
+  $: EngineInterface,
+  agentId: string,
+  list: BoardList,
+  version: number,
+): Promise<void> {
+  await update($, AGENT_PLANS, (current = {}) =>
+    withAgentPlan(current, agentId, list.tasks, version),
+  )
 }
 
 function shareAgents($: EngineInterface, machine: Machine): Promise<void> {
@@ -370,6 +382,7 @@ async function resetAgentLists($: EngineInterface): Promise<void> {
   for (const id of agentIds) {
     await $.state.set({ plugin: 'handily-board', key: 'agentList', id }, EMPTY_LIST)
   }
+  await $.state.set(AGENT_PLANS, {})
 }
 
 function uiOf($: EngineInterface): PaneUi {
@@ -623,7 +636,10 @@ export const register: Register = (on, options) => {
 
   on('state.set', { plugin: 'handily-board', key: 'agentList' }, async ($, e, next) => {
     const result = await next(e)
-    if (result.deny === undefined && result.value.isSet) await shareAgents($, machine)
+    if (result.deny === undefined && result.value.isSet) {
+      await keepAgentPlan($, e.id, e.value, result.value.version)
+      await shareAgents($, machine)
+    }
     return result
   })
 
