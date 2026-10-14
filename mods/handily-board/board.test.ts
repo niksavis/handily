@@ -3035,7 +3035,7 @@ describe('each task tool call is one row in the transcript', () => {
         )
         for (const call of calls) {
           expect(await resultBlock($, surface, call)).toEqual({
-            tree: { type: 'Box' },
+            tree: { type: 'Box', part: { plugin: PLUGIN } },
             textCount: 0,
           })
         }

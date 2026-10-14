@@ -85,7 +85,7 @@ jobs:
       - name: Install dev dependencies
         run: npm ci --no-fund --no-audit
       - name: Install the pinned Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.296
+        run: npm install -g @anthropic-ai/claude-code@2.1.299
       - name: Check the tag with claude plugin tag
         shell: bash
         env:
