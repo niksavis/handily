@@ -29,6 +29,7 @@ declare module 'claude-code' {
       mode: SimpleViewMode
       generation: number
       timing: StateFamily<SimpleViewTiming>
+      resultLines: StateFamily<number>
       count: number
       calls: StateFamily<SimpleViewCall>
       folds: StateFamily<SimpleViewFold>

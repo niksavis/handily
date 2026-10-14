@@ -7,6 +7,7 @@ import {
   type Engine,
   type MockClock,
   type Plugin,
+  type PluginTier,
 } from 'claude-code/testing'
 import type { QuietItemsSimpleViewMode } from './.claude-plugin/types/handily-quiet-items'
 import { commandLabel, programOf, segments } from './hooks/command'
@@ -14,6 +15,7 @@ import { commandLabel, programOf, segments } from './hooks/command'
 const ROOT = '/work/app'
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
+const RENUMBERED_ENGINE_ROW = { type: 'engine', ref: 1 } as const
 const MARKER = { terminal: '● ', desktop: '' } as const
 const QUIET_COMMAND = 'br close handily-ab12'
 const QUIET_MODE_COMMAND = 'quiet-items-mode'
@@ -37,6 +39,7 @@ type World = {
   copyRefusal: 'no-surface' | 'no-clipboard' | 'refused' | null
   files: Record<string, string>
   commandDescriptions: string[]
+  renumberedUseId: string | null
 }
 
 function bashOutput(stdout: string, extra: Record<string, unknown> = {}) {
@@ -101,6 +104,7 @@ function engineBeneath(on: On): World {
     copyRefusal: null,
     files: {},
     commandDescriptions: [],
+    renumberedUseId: null,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -128,6 +132,9 @@ function engineBeneath(on: On): World {
   })
   on('ui.render', (_$, e) => {
     if (e.component === 'ToolGroup') world.groups.push(e.props.isExpanded)
+    if (e.component === 'ToolUse' && e.props.tool_use_id === world.renumberedUseId) {
+      return RENUMBERED_ENGINE_ROW
+    }
     return ENGINE_ROW
   })
   on('ui.log', (_$, e) => {
@@ -421,6 +428,18 @@ const SEARCHED = {
   tool: 'WebSearch',
   input: { query: 'ink flexShrink' },
   output: { query: 'ink flexShrink', results: [] },
+}
+const BROWSERS_LISTED = {
+  ...groupCall('toolu_g6', 'unused', answered('')),
+  tool: 'mcp__claude-in-chrome__list_connected_browsers',
+  input: {},
+  output: [{ type: 'text', text: 'No browsers are connected.' }],
+}
+const PLANNED = {
+  ...groupCall('toolu_g7', 'unused', answered('')),
+  tool: 'TodoWrite',
+  input: { todos: [] },
+  output: { oldTodos: [], newTodos: [] },
 }
 const READ_CALL = {
   ...groupCall('toolu_g4', 'unused', answered('')),
@@ -1408,6 +1427,306 @@ describe('Read, Grep and Glob rows', () => {
   })
 })
 
+const PAGE_URL = 'https://example.com/guide'
+const FETCH_INPUT = { url: PAGE_URL, prompt: 'Summarise the page' }
+const FETCH_ANSWER: Answer = {
+  result: { bytes: 5120, code: 200, codeText: 'OK', result: 'Three lines', durationMs: 900 },
+  text: 'The guide has three parts.\nPart one installs.\nPart two configures.\n',
+}
+const MCP_TOOL = 'mcp__github__search_issues'
+const ENGINE_ROW_TOOL_INPUTS: readonly [string, Record<string, unknown>][] = [
+  ['AskUserQuestion', { questions: [{ question: 'Which colour?', header: 'Colour' }] }],
+  ['EnterPlanMode', {}],
+  ['ExitPlanMode', {}],
+  ['SendUserMessage', { message: 'The release is done.' }],
+  ['ToolSearch', { query: 'select:WebFetch', max_results: 1 }],
+]
+
+async function genericCall(
+  world: World,
+  $: Engine,
+  tool: string,
+  input: Record<string, unknown>,
+  answer: Answer,
+): Promise<RenderPropsOf['ToolUse']> {
+  world.answer = () => answer
+  const id = await runTool(world, $, { tool, ...input })
+  return useProps(id, tool, input, answer)
+}
+
+describe('generic tool row', () => {
+  for (const surface of SURFACES) {
+    viewTest(`draws a built-in tool as one row on ${surface}`, async (world, $) => {
+      world.delayMs = 1500
+      const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, FETCH_ANSWER)
+      expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+        `${MARKER[surface]}WebFetch ${PAGE_URL} done 3 lines 1.5s`,
+      ])
+      const result = await drawn($, {
+        component: 'ToolResult',
+        props: resultProps(use.tool_use_id, 'WebFetch', FETCH_ANSWER),
+      })
+      expect(result.tree).toMatchObject({ type: 'Box' })
+      expect(result.textCount).toBe(0)
+    })
+
+    viewTest(`draws an MCP tool as its server and tool on ${surface}`, async (world, $) => {
+      const input = { per_page: 5, query: 'is:open label:bug', repo: 'niksavis/handily' }
+      const answer = { result: [{ type: 'text', text: '2 issues' }], text: '2 issues' }
+      const use = await genericCall(world, $, MCP_TOOL, input, answer)
+      expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+        `${MARKER[surface]}github · search_issues is:open label:bug done 1 line`,
+      ])
+    })
+
+    viewTest(
+      `leaves the row of a tool that asks you or that the engine hides on ${surface}`,
+      async (_w, $) => {
+        for (const [tool, input] of ENGINE_ROW_TOOL_INPUTS) {
+          const answer = { result: { answers: {} }, text: 'answered' }
+          const cases = [
+            useProps('toolu_k1', tool, input, answer),
+            streamingProps('toolu_k1', tool, input),
+            streamingProps('toolu_k1', tool, input, { isRunning: true }),
+          ]
+          for (const props of cases) {
+            const ui = await $.ui.mount({
+              plugin: 'handily-simple-view',
+              surface,
+              component: 'ToolUse',
+              props,
+            })
+            expect(await ui.drawn()).toEqual(ENGINE_ROW)
+            await ui.unmount()
+          }
+          const result = resultProps('toolu_k1', tool, answer)
+          const ui = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolResult',
+            props: result,
+          })
+          expect(await ui.drawn()).toEqual(ENGINE_ROW)
+          await ui.unmount()
+        }
+      },
+    )
+
+    viewTest(`draws an error state and leaves the error text on ${surface}`, async (world, $) => {
+      const refused = failed('Request failed with status code 404')
+      const use = await genericCall(world, $, 'WebFetch', { url: PAGE_URL }, refused)
+      expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+        `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
+      ])
+      const result = resultProps(use.tool_use_id, 'WebFetch', refused)
+      expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
+        ENGINE_ROW,
+      )
+    })
+
+    viewTest(`draws its own row while the input streams on ${surface}`, async (_world, $) => {
+      const rowOf = async (input: unknown) => {
+        const ui = await mountUse($, streamingProps('toolu_s4', 'WebSearch', input), surface)
+        const lines = sketch(await ui.drawn())
+        await ui.unmount()
+        return lines
+      }
+      const marker = MARKER[surface]
+      expect(await rowOf({})).toEqual([`${marker}WebSearch  ~…~`])
+      expect(await rowOf({ query: 'ink flexShrink' })).toEqual([
+        `${marker}WebSearch  ink flexShrink  ~…~`,
+      ])
+    })
+  }
+
+  viewTest('marks the state with the colours of the other rows', async (world, $) => {
+    const done = await genericCall(world, $, 'WebFetch', FETCH_INPUT, FETCH_ANSWER)
+    const errored = await genericCall(world, $, 'WebFetch', FETCH_INPUT, failed('timeout'))
+    const rowOf = async (props: RenderPropsOf['ToolUse']) => {
+      const ui = await mountUse($, props)
+      const lines = sketch(await ui.drawn())
+      await ui.unmount()
+      return lines
+    }
+    expect(await rowOf(done)).toEqual([`+●+ WebFetch  ${PAGE_URL}  +done+  ~3 lines~`])
+    expect(await rowOf(errored)).toEqual([`#●# WebFetch  ${PAGE_URL}  #error#`])
+  })
+
+  viewTest('shows running and the time since its tool.call', async (world, $) => {
+    world.delayMs = 4000
+    world.answer = () => FETCH_ANSWER
+    const pending = $.tool.call({ tool: 'WebFetch', ...FETCH_INPUT })
+    await world.clock.settle()
+    const id = world.ids.at(-1) ?? ''
+    const running = useProps(
+      id,
+      'WebFetch',
+      FETCH_INPUT,
+      { result: undefined },
+      { isRunning: true, output: undefined },
+    )
+    expect(await texts($, 'terminal', { component: 'ToolUse', props: running })).toEqual([
+      `● WebFetch ${PAGE_URL} running`,
+    ])
+    await world.clock.advance(2000)
+    expect(await texts($, 'terminal', { component: 'ToolUse', props: running })).toEqual([
+      `● WebFetch ${PAGE_URL} running 2.0s`,
+    ])
+    await world.clock.advance(2000)
+    await pending
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps(id, 'WebFetch', FETCH_INPUT, FETCH_ANSWER),
+      }),
+    ).toEqual([`● WebFetch ${PAGE_URL} done 3 lines 4.0s`])
+  })
+
+  viewTest('draws a tool it has never seen, with an empty or odd input', async (world, $) => {
+    const said = { result: { ok: true }, text: 'ok' }
+    const rowOf = async (input: Record<string, unknown>) => {
+      const use = await genericCall(world, $, 'FutureTool', input, said)
+      return texts($, 'terminal', { component: 'ToolUse', props: use })
+    }
+    expect(await rowOf({})).toEqual(['● FutureTool done 1 line'])
+    expect(await rowOf({ ids: [1, 2], options: { deep: true }, count: 3 })).toEqual([
+      '● FutureTool done 1 line',
+    ])
+    expect(await rowOf({ note: '\n first\n\tsecond \u001b[31mred\u001b[0m\u{200B}' })).toEqual([
+      '● FutureTool first second red\\u200b done 1 line',
+    ])
+    expect(await rowOf({ prompt: 'Summarise', url: PAGE_URL, blank: '  ' })).toEqual([
+      `● FutureTool ${PAGE_URL} done 1 line`,
+    ])
+    const notRecord = useProps('toolu_o1', 'FutureTool', 'plain text', said)
+    expect(await texts($, 'terminal', { component: 'ToolUse', props: notRecord })).toEqual([
+      '● FutureTool done',
+    ])
+  })
+
+  viewTest('names an MCP tool name that has no tool part in full', async (world, $) => {
+    const use = await genericCall(world, $, 'mcp__lonely', {}, { result: 'x', text: 'x' })
+    expect(await texts($, 'terminal', { component: 'ToolUse', props: use })).toEqual([
+      '● mcp__lonely done 1 line',
+    ])
+  })
+
+  viewTest('leaves the generic row to the engine while the mode is off', async (world, $) => {
+    const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, FETCH_ANSWER)
+    await commandText($, 'off')
+    expect((await drawn($, { component: 'ToolUse', props: use })).tree).toEqual(ENGINE_ROW)
+    const result = resultProps(use.tool_use_id, 'WebFetch', FETCH_ANSWER)
+    expect((await drawn($, { component: 'ToolResult', props: result })).tree).toEqual(ENGINE_ROW)
+  })
+
+  viewTest('leaves an interrupted call to the engine', async (_world, $) => {
+    const props = streamingProps('toolu_i1', 'WebFetch', FETCH_INPUT, { isInterrupted: true })
+    expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
+  })
+
+  viewTest('/simple show N prints a generic call in full', async (world, $) => {
+    await genericCall(world, $, 'WebFetch', FETCH_INPUT, FETCH_ANSWER)
+    await genericCall(world, $, MCP_TOOL, { query: 'is:open' }, { result: [], text: '0 issues' })
+    const fetched = await commandText($, 'show 2')
+    expect(fetched).toContain('Call 2 of the last 2 (1 is the last): WebFetch, answered')
+    expect(fetched).toContain(`"url": "${PAGE_URL}"`)
+    expect(fetched).toContain('"prompt": "Summarise the page"')
+    expect(fetched).toContain('Part one installs.\nPart two configures.')
+    expect(fetched).toContain('File diff: not reported by the engine.')
+    expect(fetched).not.toContain('File diff: none.')
+    const searched = await commandText($, 'show 1')
+    expect(searched).toContain(`Call 1 of the last 2 (1 is the last): ${MCP_TOOL}, answered`)
+    expect(searched).toContain('"query": "is:open"')
+    expect(searched).toContain('0 issues')
+  })
+})
+
+const BOARD_TOOL = 'mcp__handily-board__task_add'
+const OWNED_ID = 'toolu_owned'
+
+function fakeBoard(tier: PluginTier): Plugin {
+  return {
+    name: 'handily-board',
+    tier,
+    register(on) {
+      on('ui.render', { component: ['ToolUse', 'ToolResult'] }, ($, e, next) => {
+        const isOwned = e.props.tool_use_id === 'toolu_owned'
+        if (e.props.tool !== 'mcp__handily-board__task_add' && !isOwned) return next(e)
+        if (e.props.isErrored) return next(e)
+        if (e.component === 'ToolUse' && (e.props.isRunning || e.props.output === undefined)) {
+          return next(e)
+        }
+        const { Box, Text } = $.ui.resolve(e)
+        if (e.component === 'ToolResult') return Box({})
+        return Box({ key: 'board-row', children: Text({ children: 'board row' }) })
+      })
+    },
+  }
+}
+
+const OTHER_MOD_TIERS = ['prepend', 'user', 'append'] as const
+
+describe('rows that another mod draws', () => {
+  for (const tier of OTHER_MOD_TIERS) {
+    for (const surface of SURFACES) {
+      test(
+        `keep the board row of a task tool, the board in the ${tier} tier, on ${surface}`,
+        { plugins: [fakeQuietItems, fakeBoard(tier)] },
+        async ($, on) => {
+          const world = engineBeneath(on)
+          await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+          const input = { title: 'Write the tests' }
+          const answer = { result: { tasks: [] }, text: 'Added task 3.' }
+          const use = await genericCall(world, $, BOARD_TOOL, input, answer)
+          const row = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolUse',
+            props: use,
+          })
+          expect(sketch(await row.drawn())).toEqual(['board row'])
+          await row.unmount()
+          const result = resultProps(use.tool_use_id, BOARD_TOOL, answer)
+          const block = await drawn($, { component: 'ToolResult', props: result }, surface)
+          expect(block.tree).toMatchObject({ type: 'Box' })
+          expect(block.textCount).toBe(0)
+          const running = streamingProps(use.tool_use_id, BOARD_TOOL, input, { isRunning: true })
+          expect(await texts($, surface, { component: 'ToolUse', props: running })).toEqual([
+            `${MARKER[surface]}handily-board · task_add Write the tests running`,
+          ])
+        },
+      )
+    }
+
+    test(
+      `keep a row that another mod draws for a Bash call, the mod in the ${tier} tier`,
+      { plugins: [fakeQuietItems, fakeBoard(tier)] },
+      async ($, on) => {
+        engineBeneath(on)
+        await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+        const props = useProps(OWNED_ID, 'Bash', { command: 'ls' }, answered('a\n'))
+        const ui = await mountUse($, props)
+        expect(sketch(await ui.drawn())).toEqual(['board row'])
+        await ui.unmount()
+      },
+    )
+  }
+
+  viewTest(
+    'count an engine row of any ref number as no mod row, as 2.1.300 answers ref 1',
+    async (world, $) => {
+      world.renumberedUseId = 'toolu_renumbered'
+      for (const [tool, input] of [
+        ['WebFetch', FETCH_INPUT],
+        ['Bash', { command: 'ls', description: 'List files' }],
+      ] as const) {
+        const props = useProps('toolu_renumbered', tool, input, answered('a\n'))
+        expect(await texts($, 'terminal', { component: 'ToolUse', props })).toHaveLength(1)
+      }
+    },
+  )
+})
+
 describe('quiet-items rows', () => {
   viewTest('pass ToolUse and ToolResult on unchanged', async (world, $) => {
     const input = { command: QUIET_COMMAND, description: 'Close the item' }
@@ -1449,7 +1768,7 @@ describe('quiet-items rows', () => {
 
 const OFF_REPLY = 'off for this session. Tool calls draw as Claude Code draws them.'
 const ON_REPLY =
-  'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.'
+  'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, where 1 is the last call.'
 
 describe('/simple', () => {
   viewTest('toggles the mode and every row follows it', async (world, $) => {
@@ -1464,7 +1783,7 @@ describe('/simple', () => {
     expect((await drawn($, use)).tree).toEqual(ENGINE_ROW)
     expect((await drawn($, result)).tree).toEqual(ENGINE_ROW)
     expect(await commandText($, '')).toBe(
-      'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.',
+      'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, where 1 is the last call.',
     )
     expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines'])
   })
@@ -1762,6 +2081,18 @@ describe('folded tool group', () => {
   }
 
   for (const surface of SURFACES) {
+    viewTest(`unfolds a group of calls that draw the generic row on ${surface}`, async (w, $) => {
+      expect(await groupExpansion(w, $, group([BROWSERS_LISTED]), surface)).toEqual([true])
+      const loaded = { ...BROWSERS_LISTED, tool: 'ToolSearch', input: { query: 'select:x' } }
+      expect(await groupExpansion(w, $, group([loaded, BROWSERS_LISTED]), surface)).toEqual([true])
+      expect(await groupExpansion(w, $, group([SEARCHED, READ_CALL]), surface)).toEqual([true])
+      const streamingSearch = { ...STREAMING_BASH, tool: 'WebSearch' }
+      const live = { ...group([STREAMING_BASH, streamingSearch]), isActive: true }
+      expect(await groupExpansion(w, $, live, surface)).toEqual([true])
+    })
+  }
+
+  for (const surface of SURFACES) {
     viewTest(
       `unfolds the live group while the input of its calls streams on ${surface}`,
       async (world, $) => {
@@ -1783,8 +2114,8 @@ describe('folded tool group', () => {
       ...group(calls),
       isActive: true,
     })
-    const streamingSearch = { ...STREAMING_BASH, tool: 'WebSearch' }
-    expect(await groupExpansion(w, $, live([STREAMING_BASH, streamingSearch]))).toEqual([false])
+    const streamingPlan = { ...STREAMING_BASH, tool: 'TodoWrite' }
+    expect(await groupExpansion(w, $, live([STREAMING_BASH, streamingPlan]))).toEqual([false])
     const background = { command: 'npm run dev', run_in_background: true }
     expect(await groupExpansion(w, $, live([{ ...STREAMING_BASH, input: background }]))).toEqual([
       false,
@@ -1794,12 +2125,12 @@ describe('folded tool group', () => {
   })
 
   viewTest('leaves a group folded that holds a call it does not draw', async (world, $) => {
-    expect(await groupExpansion(world, $, group([LISTED, SEARCHED]))).toEqual([false])
+    expect(await groupExpansion(world, $, group([LISTED, PLANNED]))).toEqual([false])
   })
 
   viewTest('leaves a group folded while its failed call still runs', async (world, $) => {
     const running = { ...MISSING, isRunning: true, output: undefined }
-    expect(await groupExpansion(world, $, group([SEARCHED, running]))).toEqual([false])
+    expect(await groupExpansion(world, $, group([PLANNED, running]))).toEqual([false])
   })
 
   viewTest('unfolds the live group while a Bash call in it runs', async (world, $) => {
@@ -1809,9 +2140,7 @@ describe('folded tool group', () => {
   })
 
   viewTest('leaves the live group folded when no call in it runs', async (world, $) => {
-    expect(await groupExpansion(world, $, { ...group([SEARCHED]), isActive: true })).toEqual([
-      false,
-    ])
+    expect(await groupExpansion(world, $, { ...group([PLANNED]), isActive: true })).toEqual([false])
   })
 
   viewTest(
@@ -1928,7 +2257,6 @@ describe('fallback to the engine row', () => {
       ['Grep', { pattern: 'x', path: 3 }],
       ['Glob', { pattern: ['*'] }],
       ['Edit', {}],
-      ['WebSearch', {}],
     ]
     for (const [tool, input] of cases) {
       const props = streamingProps('toolu_s2', tool, input)

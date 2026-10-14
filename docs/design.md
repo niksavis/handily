@@ -547,12 +547,40 @@ Limits:
 
 ### 4.8 simple-view (handily-v921)
 
-One row for each `Bash`, `Edit` and `Write` call, one `/simple` switch per session, and
-`/simple show N` to print a call in full. The mocks are in `docs/mocks.md`, section 6.
+One row for each tool call, one `/simple` switch per session, and `/simple show N` to print a
+call in full. The mocks are in `docs/mocks.md`, section 6.
 
 Measured usage (2026-10-08, 94 local session transcripts, top level only): 13356 tool calls.
-`Bash` made 11744 of them (88 percent), `Edit` 327 and `Write` 239. So the mod starts with
-these three tools.
+`Bash` made 11744 of them (88 percent), `Edit` 327 and `Write` 239. So the mod started with
+these three tools. `Read`, `Grep` and `Glob` followed.
+
+Generic row (handily-fwkt.8.23, 2026-10-14). The person asked for a row for every tool, with no
+list of supported tools. The 6 tools above keep their rich rows. Every other tool draws one
+generic row: the tool name (`server · tool` for `mcp__server__tool`), a summary of the input,
+the state (`…`, `running`, `done`, `error`), and the line count of the result and the time.
+
+- The summary is the first non-empty text of a fixed list of common field names (`title`,
+  `description`, `url`, `query`, `path`, `prompt` and others, in `hooks/generic.ts`), else the
+  first non-empty text value of the input. It reads any input shape, so a tool that a new
+  release adds gets the row with no change to the mod.
+- The line count is the count of lines of `text` in the `tool.call` answer. The API documents
+  that field for every tool, while the shape of `result` changes per tool. The mod keeps it in
+  `$.state` beside the time.
+- An exclusion list keeps the engine row for each tool of the 2.1.300 tool table whose row you
+  must read or answer. That covers questions, plans, messages and files to you, findings,
+  offers and approvals, and `request_computer`, whose schema has no description. The mod README
+  lists each tool and the reason.
+- The tests assert what the mod returns: its row, an empty result block, or the element that
+  `next(e)` gave. They do not pin the output shape of a tool, so a change of an engine-owned
+  output does not break them.
+
+Hand-off to other mods. The order of two plugins in the `user` tier is not in the types. In a
+live check on 2.1.300 the chain was `handily-board`, `handily-reply-view`,
+`handily-simple-view`, `handily-quiet-items`, then `cc-plugin-diff@builtin`. So the `ToolUse`
+and `ToolResult` hook calls `next(e)` first. It draws only when the answer is the engine row
+(`type: 'engine'`), and returns any other tree unchanged. A plugin above simple-view draws
+before simple-view is asked. So a `handily-board` task row and a `quiet-items` row stay in
+either order. The tests load an inline board in the `prepend`, `user` and `append` tiers.
 
 Engine facts (Claude Code 2.1.294, from the generated types and two live probes):
 
@@ -571,6 +599,10 @@ Engine facts (Claude Code 2.1.294, from the generated types and two live probes)
 | ctrl+o reuses the settled render | No row can expand in place, so `/simple show N` prints the call |
 | The normal view folds runs of `Bash` calls into one `ToolGroup` line | While the mode is on, the mod unfolds a group whose calls are all foreground `Bash`, `Read`, `Grep` or `Glob` calls (`isExpanded: true` on `ToolGroup`), so each call draws as its own row (handily-vxxvq). Any other group stays as the engine draws it |
 | `$.state.set` on another plugin's key is refused (`quiet-items owns that value and only its owner writes it`) | `/simple` cannot set the `quiet-items` mode. It switches only its own mode |
+| The engine folds MCP calls too, as `Called claude-in-chrome` (live, 2.1.300) | The unfold rule also takes a group whose calls draw the generic row (handily-fwkt.8.23) |
+| `next(e)` answered `{ type: 'engine', ref: 1 }` for a row that no plugin changed (live probe, 2.1.300). The types say that `ref` 0 draws the original props | The mod reads `type` only. It cannot see a plugin beneath it that only rewrites the props of the engine row |
+| The engine draws no row for `ToolSearch` (live, 2.1.300) | `ToolSearch` keeps the engine row and does not keep a group folded |
+| A plugin that serves its own tool and stands above simple-view answers `tool.call` without `next` (`handily-board`, live, 2.1.300) | simple-view sees no such call: `/simple show N` does not keep it, and its generic row has no time and no line count |
 
 Defer to quiet-items:
 
@@ -590,7 +622,9 @@ Defer to quiet-items:
 - `session.end` (every reason, `/clear` and resume included) raises a `generation` key and
   sets `count` to 0. Each kept call holds its generation, and each time record is keyed
   `<generation>:<tool_use_id>`, so nothing of an ended session is reachable. `$.state` has no
-  delete. The slots are written over, so they stay at 50. One time record stays per `Bash` call.
+  delete. The slots are written over, so they stay at 50. One time record stays per `Bash` call
+  and per call with the generic row, and one line count per call with the generic row.
+- A call of a tool other than the 6 rich tools prints `File diff: not reported by the engine.`
 
 ### 4.9 handily-board (handily-fwkt.8.19)
 

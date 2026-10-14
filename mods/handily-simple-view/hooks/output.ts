@@ -2,6 +2,8 @@ import type { SimpleViewDiffGap } from '../types'
 
 export const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
 
+export const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
+
 export type Totals = { added: number; removed: number }
 
 export type StderrSummary = { lines: number; first: string }

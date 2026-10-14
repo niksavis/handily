@@ -1,4 +1,5 @@
 import type { SimpleViewCall, SimpleViewDiffGap } from '../types'
+import { isRichTool } from './generic'
 import { contentLines, diffGap, hunksOf, isRecord } from './output'
 
 export const KEPT_CALLS = 50
@@ -79,7 +80,7 @@ export type CallFacts = {
 }
 
 export function callRecord(facts: CallFacts): SimpleViewCall {
-  const gap = diffGap(facts.tool, facts.answer.result)
+  const gap = isRichTool(facts.tool) ? diffGap(facts.tool, facts.answer.result) : 'unreported'
   return {
     generation: facts.generation,
     seq: facts.seq,

@@ -1,7 +1,10 @@
 # handily-simple-view
 
-`simple-view` draws one short row for each `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`
-call in the transcript.
+`simple-view` draws one short row for each tool call in the transcript: a built-in tool, an MCP
+tool or a tool that a plugin adds. `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob` have rich
+rows. Every other tool has the generic row: the tool name, a short summary of the input, the
+state, and the size of the result and the time. A call that asks you or shows you a plan keeps
+the row of Claude Code.
 A `Bash` row with output has a `more` button that opens the output under the row, and a `copy`
 button that copies it. `/simple off` and `/simple on` switch the view for the session.
 `/simple show N` prints one call in full. The model still reads the full tool result. Only the
@@ -15,6 +18,8 @@ screen changes.
 ● Edit  src/app.ts  +2 -1
 ● Read  mods/handily/.claude-plugin/plugin.json  18 lines
 ● Read  docs/design.md  lines 160-239 of 674
+● WebSearch  handily claude code mods  done  16 lines  5.3s
+● claude-in-chrome · list_connected_browsers  done  1 line
 ```
 
 The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
@@ -35,6 +40,10 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 | `Grep`                                         | tool, pattern in quotes, `in` and the folder, the count of the output mode | empty                               |
 | `Glob`                                         | tool, pattern, `in` and the folder, the count of matched files             | empty                               |
 | `Read`, `Grep`, `Glob`, running                | tool, the path or the pattern from the input, dim `…`                      | as the engine draws it              |
+| Any other tool, before the run                 | tool name, input summary, dim `…`                                          | as the engine draws it              |
+| Any other tool, running                        | tool name, input summary, dim `running`, time since the call started       | as the engine draws it              |
+| Any other tool, no error                       | tool name, input summary, `done`, line count of the result, time           | empty                               |
+| Any other tool, error                          | tool name, input summary, `error`                                          | as the engine draws it              |
 
 - The description is the `description` that the model gave. Without one, the row shows the
   first command segment. An ellipsis (`…`) marks a cut or a segment that follows.
@@ -84,6 +93,72 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
   its diff does. When the engine gives no diff for an
   update (for example, the old content was too large to diff), the row shows the path only,
   with no totals.
+
+## The generic row
+
+Every tool that is not `Bash`, `Edit`, `Write`, `Read`, `Grep` or `Glob` and not on the list
+below draws the generic row. The mod keeps no list of supported tools, so a tool that a new
+Claude Code release adds, and any MCP tool, gets the generic row.
+
+```text
+● WebSearch  ink flexbox text truncate end  running  3.0s
+● WebSearch  ink flexbox text truncate end  done  14 lines  5.3s
+● WebFetch  https://example.com  done  1 line  1.6s
+● claude-in-chrome · list_connected_browsers  done  1 line
+● Skill  no-comments  error
+  ⎿  Initializing…
+  ⎿  Error: Unknown skill: no-comments
+```
+
+- The tool name of an MCP tool, `mcp__server__tool`, shows as `server · tool`. A name with no
+  tool part shows in full.
+- The input summary is the first text that is not empty in these fields, in this order:
+  `title`, `subject`, `description`, `summary`, `url`, `query`, `pattern`, `skill`, `command`,
+  `file_path`, `filePath`, `notebook_path`, `path`, `uri`, `prompt`, `message`, `name`. Without
+  one, it is the first text value of the input that is not empty. An input with no text value
+  shows no summary.
+- In the summary, each run of spaces and line breaks becomes one space. Colour codes are
+  dropped, and other hidden characters show as escapes such as `​`. The terminal cuts the
+  summary at the row end first. The tool name and the state stay.
+- The marker is green after `done`, red after `error` and dim before the run and while the call
+  runs. `done` is green and `error` is red.
+- The line count is the count of lines in the result as the model read it. The time shows from
+  1 second. The mod clock measures it around the call, as for `Bash`.
+- After `error`, the engine draws the error text under the row. `/simple show N` prints the
+  call in full.
+- A call has no line count and no time when a subagent made it, when it is from an ended
+  session, or when a plugin above simple-view answered it.
+
+These tools keep the row of Claude Code, because you must read or answer what the row shows:
+
+| Tool                                                         | Why the engine row stays                              |
+| ------------------------------------------------------------ | ----------------------------------------------------- |
+| `AskUserQuestion`                                            | It asks you questions, and the row shows your answers |
+| `EnterPlanMode`, `ExitPlanMode`                              | It asks you to approve plan mode or the plan          |
+| `ProposeGoal`                                                | It asks you to approve a goal                         |
+| `TodoWrite`                                                  | The row shows the plan as a list                      |
+| `SendUserMessage`, `SendUserFile`, `PushNotification`        | It sends a message or a file to you                   |
+| `ReportFindings`                                             | It reports review findings to you                     |
+| `propose_skills`, `PublishPlugin`                            | It asks you to save a skill or to publish a plugin    |
+| `SuggestPluginInstall`, `SuggestSkills`, `SuggestConnectors` | It offers you a choice                                |
+| `OfferChromeSetup`, `ShowOnboardingRolePicker`               | It asks you to set up a browser or to pick a role     |
+| `request_computer`                                           | Its schema has no description, so the mod stays safe  |
+
+`ToolSearch` also keeps the row of Claude Code. Claude Code 2.1.300 draws no row for it, and
+simple-view does not add one.
+
+## Rows of other mods
+
+simple-view asks the plugins beneath it and the engine first. It draws its row only when the
+answer is the engine row. When a plugin beneath it draws its own row, that row stays. A plugin
+above it draws before simple-view is asked. So the rows of `handily-board` for its task tools
+and the tracker rows of `quiet-items` stay, in either order of the plugins.
+
+- When such a plugin passes a call on to the engine, simple-view draws its row for the call.
+  `handily-board` passes a running or failed task call on, so that call draws the generic row.
+- In a live check with Claude Code 2.1.300, the engine answered `ref` 1 for a row that no plugin
+  had changed. So simple-view cannot see a plugin beneath it that only changes the props of the
+  engine row, and it draws its own row in that case.
 
 ## While the input streams
 
@@ -159,9 +234,11 @@ simple-view draws the engine row unchanged in each of these cases:
 - `quiet-items` stored a row for the call, and the `quiet-items` mode is on. The tracker row
   of `quiet-items` wins. While `/quiet-items` has turned its mode off, simple-view draws its own
   row for the call.
+- Another mod drew its own row for the call. [Rows of other mods](#rows-of-other-mods) says
+  how.
 - The call was interrupted, refused or ran in the background.
-- The call errored without the `Error: Exit code N` text, for example a timeout or a refusal at
-  the permission question.
+- A `Bash` call errored without the `Error: Exit code N` text, for example a timeout or a refusal
+  at the permission question.
 - The output or the input is not a shape that the mod reads, or a staged `Edit` or `Write` that
   did not change the file. A `Read` of an image, a PDF, a notebook or an unchanged file is not a
   shape that the mod reads.
@@ -169,12 +246,14 @@ simple-view draws the engine row unchanged in each of these cases:
 - An input field of the wrong type, also while the input streams, such as a `command` that is
   not text.
 - Drawing the row failed. The mod writes the reason to the debug log.
-- Any tool other than `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`.
+- A tool that keeps the row of Claude Code. [The generic row](#the-generic-row) lists them.
 
 In the normal view the engine folds runs of read-only calls into one group line, such as
-`Read 2 files, listed 1 directory, ran 1 shell command`. While its mode is on, simple-view
-unfolds a group when each call of the group draws as one row: a `Bash` call in the foreground,
-a `Read`, a `Grep` or a `Glob`. The calls of the group then draw as their rows in its place:
+`Read 2 files, listed 1 directory, ran 1 shell command` or `Called claude-in-chrome`. While its
+mode is on, simple-view unfolds a group when each call of the group draws as one row: a `Bash`
+call in the foreground, a `Read`, a `Grep`, a `Glob` or a call with the generic row. A
+`ToolSearch` call, which the engine does not draw, does not keep a group folded. The calls of
+the group then draw as their rows in its place:
 
 ```text
 ● Read  README.md  123 lines
@@ -230,8 +309,8 @@ When a session ends for any reason (`/exit`, `/clear`, a resume or a finished ru
 resets the count of kept calls. The calls and the times of the ended session are no longer
 reachable: `/simple show` refuses them, and an old row draws without its time. `$.state` has
 no delete, so the mod writes each new call over a slot of the ended session. The 50 slots stay
-the upper limit. One small time record (three numbers) stays for each `Bash` call of the
-process.
+the upper limit. One small time record (three numbers) stays for each `Bash` call and each call
+with the generic row of the process. A call with the generic row also keeps one line count.
 
 A press on `more`, `all N lines` or `less` keeps one small value for that call in `$.state`, so
 the row stays open or folded when it draws again.
@@ -242,3 +321,9 @@ the row stays open or folded when it draws again.
   of another plugin: `handily-quiet-items owns that value and only its owner writes it`. Use
   `/quiet-items` to switch the tracker rows.
 - The running time is updated once per second while the call runs.
+- `/simple show N` does not keep a call that a plugin above simple-view answers itself, such as
+  a `handily-board` task tool. In a live check with Claude Code 2.1.300, `handily-board` stood
+  above simple-view, so its task calls were not kept.
+- `/simple show N` prints `File diff: not reported by the engine.` for a call of a tool other
+  than `Bash`, `Edit`, `Write`, `Read`, `Grep` and `Glob`. The mod reads a file diff only from
+  those 6 tools, and another tool can still change a file.

@@ -98,8 +98,11 @@ More: [mods/handily-item-toasts/README.md](../mods/handily-item-toasts/README.md
 
 ## handily-simple-view
 
-It draws one short row for each Bash, Edit, Write, Read, Grep and Glob call. A Bash row with
-output has a `more` button and a `copy` button.
+It draws one short row for each tool call: a built-in tool, an MCP tool or a tool that a plugin
+adds. Bash, Edit, Write, Read, Grep and Glob have rich rows. Every other tool has one row with its
+name, a short summary of the input, its state, and the size of its result and its time. A call
+that asks you or shows you a plan keeps the row of Claude Code. The row of another mod, such as a
+`handily-board` task row, stays. A Bash row with output has a `more` button and a `copy` button.
 
 | Command | What it does |
 | --- | --- |

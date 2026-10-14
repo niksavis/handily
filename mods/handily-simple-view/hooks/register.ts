@@ -19,9 +19,27 @@ import {
   type CallOutput,
   type FoldActions,
 } from './fold'
-import { bashChanges, bashEnd, fileEdit, isRecord, lineCount, shownPath } from './output'
+import { drawsGenericRow, inputSummary, isHiddenByEngine, toolLabel } from './generic'
+import {
+  FILE_TOOLS,
+  bashChanges,
+  bashEnd,
+  fileEdit,
+  isRecord,
+  lineCount,
+  shownPath,
+} from './output'
 import { READING_TOOLS, readingCount, readingTarget, streamingTarget } from './reading'
-import { bashRow, changesBlock, fileRow, readingRow, type BashState, type RowLook } from './row'
+import {
+  bashRow,
+  changesBlock,
+  fileRow,
+  genericRow,
+  readingRow,
+  type BashState,
+  type GenericState,
+  type RowLook,
+} from './row'
 
 const COMMAND = 'simple'
 const TICK_MS = 1000
@@ -32,10 +50,9 @@ const COUNT = { plugin: 'handily-simple-view', key: 'count' } as const
 const GENERATION = { plugin: 'handily-simple-view', key: 'generation' } as const
 const QUIET_ITEMS_MODE = { plugin: 'handily-quiet-items', key: 'mode' } as const
 const RESERVED_KEYS: ReadonlySet<string> = new Set(['tool', 'tool_use_id', 'agentId', 'consent'])
-const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 
 const ON_TEXT =
-  'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.'
+  'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, where 1 is the last call.'
 const OFF_TEXT = 'off for this session. Tool calls draw as Claude Code draws them.'
 const USAGE_TEXT =
   '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full. Set the default with the plugin\'s "mode" setting.'
@@ -203,7 +220,18 @@ async function recordCall($: EngineInterface, { facts, startedAt, timing }: Ende
     return
   }
   if (timing !== null) await settleTiming($, timing, startedAt, elapsedMs)
+  if (timing !== null && drawsGenericRow(facts.tool) && facts.answer.text !== undefined) {
+    await keepResultLines($, timing, lineCount(facts.answer.text))
+  }
   await remember($, { ...facts, elapsedMs })
+}
+
+async function keepResultLines($: EngineInterface, id: string, lines: number): Promise<void> {
+  try {
+    await $.state.set({ plugin: 'handily-simple-view', key: 'resultLines', id }, lines)
+  } catch (error) {
+    logFailure($, `no result size for ${id}`, error)
+  }
 }
 
 function inputOf(e: object): Record<string, unknown> {
@@ -338,6 +366,35 @@ async function readingUse(
   return readingRow(look, props.tool, target, count)
 }
 
+function genericState(props: RenderPropsOf['ToolUse']): GenericState {
+  if (isPending(props)) return 'pending'
+  if (props.isRunning) return 'running'
+  return props.isErrored ? 'error' : 'done'
+}
+
+async function genericUse(
+  $: EngineInterface,
+  props: RenderPropsOf['ToolUse'],
+  look: RowLook,
+): Promise<RenderElement> {
+  const view = {
+    label: toolLabel(props.tool),
+    summary: inputSummary(props.input),
+    state: genericState(props),
+    lines: null,
+    elapsedMs: null,
+  }
+  if (view.state === 'pending') return genericRow(look, view)
+  const id = timingKey(await generationOf($), props.tool_use_id)
+  const { value: timing } = await $.state.get({ plugin: 'handily-simple-view', key: 'timing', id })
+  const { value: lines = null } = await $.state.get({
+    plugin: 'handily-simple-view',
+    key: 'resultLines',
+    id,
+  })
+  return genericRow(look, { ...view, lines, elapsedMs: timing?.elapsedMs ?? null })
+}
+
 async function useDrawing(
   $: EngineInterface,
   props: RenderPropsOf['ToolUse'],
@@ -347,6 +404,7 @@ async function useDrawing(
   if (props.tool === 'Bash') return bashUse($, props, look)
   if (FILE_TOOLS.has(props.tool)) return fileUse($, props, look)
   if (READING_TOOLS.has(props.tool)) return readingUse($, props, look)
+  if (drawsGenericRow(props.tool)) return genericUse($, props, look)
   return null
 }
 
@@ -377,6 +435,7 @@ async function resultDrawing(
   if (READING_TOOLS.has(props.tool)) {
     return readingCount(props.tool, props.output) === null ? null : look.elements.Box({})
   }
+  if (drawsGenericRow(props.tool)) return look.elements.Box({})
   if (!FILE_TOOLS.has(props.tool)) return null
   return fileEdit(props.tool, props.output) === null ? null : look.elements.Box({})
 }
@@ -394,6 +453,10 @@ async function isSimple(
   return quietMode === 'off'
 }
 
+function isEngineOwnRow(element: RenderElement): boolean {
+  return element.type === 'engine'
+}
+
 function isFailed(call: ToolGroupCall): boolean {
   return call.isErrored && !call.isRunning
 }
@@ -407,6 +470,7 @@ function isRunningForeground(call: ToolGroupCall): boolean {
 }
 
 function isDrawnAsRow(call: ToolGroupCall): boolean {
+  if (drawsGenericRow(call.tool) || isHiddenByEngine(call.tool)) return true
   if (call.tool !== 'Bash') return READING_TOOLS.has(call.tool)
   const { input } = call
   if (!isStreamingBashInput(input) || input.run_in_background === true) return false
@@ -456,7 +520,9 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const id = e.tool_use_id
     if (e.agentId !== undefined) return next(e)
-    const isTimed = e.tool === 'Bash' && e.run_in_background !== true
+    const input = inputOf(e)
+    const isTimed =
+      (e.tool === 'Bash' || drawsGenericRow(e.tool)) && input.run_in_background !== true
     let startedAt: number
     let timing: string | null
     let ticker: Timer | null
@@ -475,7 +541,7 @@ export const register: Register = (on, options) => {
       ticker?.cancel()
     }
     await recordCall($, {
-      facts: { tool_use_id: id, tool: e.tool, input: inputOf(e), answer },
+      facts: { tool_use_id: id, tool: e.tool, input, answer },
       startedAt,
       timing,
     })
@@ -495,6 +561,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
+    const beneath = await next(e)
+    if (!isEngineOwnRow(beneath)) return beneath
     let drawn: RenderElement | null = null
     try {
       if (await isSimple($, e.props.tool_use_id, defaultMode)) {
@@ -511,6 +579,6 @@ export const register: Register = (on, options) => {
     } catch (error) {
       logFailure($, `the engine draws ${e.props.tool_use_id}`, error)
     }
-    return drawn ?? next(e)
+    return drawn ?? beneath
   })
 }

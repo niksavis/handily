@@ -178,6 +178,37 @@ export function readingRow(
   ])
 }
 
+export type GenericState = 'pending' | 'running' | 'done' | 'error'
+
+export type GenericView = {
+  label: string
+  summary: string
+  state: GenericState
+  lines: number | null
+  elapsedMs: number | null
+}
+
+const GENERIC_STATES: Readonly<Record<GenericState, { marker: ThemeKey; cell: Cell }>> = {
+  pending: { marker: 'subtle', cell: { text: PENDING_TEXT, style: { dimColor: true } } },
+  running: { marker: 'subtle', cell: { text: 'running', style: { dimColor: true } } },
+  done: { marker: 'success', cell: { text: 'done', style: { color: 'success' } } },
+  error: { marker: 'error', cell: { text: 'error', style: { color: 'error' } } },
+}
+
+export function genericRow(look: RowLook, view: GenericView): RenderElement {
+  const { marker, cell: stateCell } = GENERIC_STATES[view.state]
+  return line(look, 'row', marker, [
+    { text: view.label },
+    { text: view.summary, style: { wrap: 'truncate-end' }, canShrink: true },
+    stateCell,
+    {
+      text: view.state === 'done' && view.lines !== null ? plural(view.lines, 'line') : '',
+      style: { dimColor: true },
+    },
+    { text: view.state === 'pending' ? '' : timeText(view.elapsedMs), style: { dimColor: true } },
+  ])
+}
+
 export type ChangeLines = { files: readonly FileChange[]; moreFiles: number } | null
 
 const RESULT_INDENT = 2
