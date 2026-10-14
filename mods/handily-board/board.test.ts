@@ -87,6 +87,7 @@ type World = {
   panes: Set<string>
   opened: string[]
   opens: PaneOpen[]
+  dialogOpens: string[]
   shown: string | undefined
   agents: AgentInfo[]
   toasts: string[]
@@ -113,6 +114,7 @@ function world(on: On, options: WorldOptions = {}): World {
     panes: new Set(),
     opened: [],
     opens: [],
+    dialogOpens: [],
     shown: undefined,
     agents: [],
     toasts: [],
@@ -143,6 +145,7 @@ function world(on: On, options: WorldOptions = {}): World {
     state.panes.add(e.id)
     state.opened.push(e.id)
     state.opens.push({ id: e.id, title: e.title, focus: e.focus === true })
+    if (e.closeOnEscape === true || e.holdToasts === true) state.dialogOpens.push(e.id)
     if (state.shown === undefined || e.focus === true) state.shown = e.id
     if (options.unplacedReason !== undefined) {
       return { value: { isPlaced: false as const, reason: options.unplacedReason } }
@@ -3592,6 +3595,141 @@ describe('a tool call that another plugin raises, such as the workitems approval
       expect((await screen(worked, WIDTH))[0]).toBe('Tasks  none kept by Claude')
       expect(await worked.find({ type: 'Text', text: /AskUserQuestion/ })).toBeUndefined()
       await worked.unmount()
+    },
+  )
+})
+
+const RING_MARK = 0xe000
+
+function ringMarked(element: Drawn, count: { buttons: number }): Drawn {
+  if (element.type === 'Button') {
+    const mark = String.fromCodePoint(RING_MARK + count.buttons)
+    count.buttons += 1
+    return { ...element, text: mark.repeat(element.text.length) }
+  }
+  return { ...element, children: element.children.map((child) => ringMarked(child, count)) }
+}
+
+function isOutOfFlow(element: Drawn): boolean {
+  const direction = element.props.flexDirection
+  const isReversed = typeof direction === 'string' && direction.endsWith('-reverse')
+  return isReversed || element.props.position === 'absolute'
+}
+
+function outOfFlow(element: Drawn): Drawn[] {
+  return [...(isOutOfFlow(element) ? [element] : []), ...element.children.flatMap(outOfFlow)]
+}
+
+type Ring = { keys: string[]; read: string[]; inputs: string[] }
+
+async function ringOf(ui: Pick<Mounted, 'find' | 'findAll'>, columns: number): Promise<Ring> {
+  const root = drawnOf(await ui.find({ type: 'Box' }))
+  if (root === null) throw new Error('the pane drew no Box')
+  expect(outOfFlow(root), 'a reversed or absolute Box draws out of document order').toEqual([])
+  const count = { buttons: 0 }
+  const marks = screenOf(ringMarked(root, count), columns)
+    .flatMap((line) => Array.from(line))
+    .map((character) => (character.codePointAt(0) ?? 0) - RING_MARK)
+    .filter((index) => index >= 0 && index < count.buttons)
+  const keys = (await ui.findAll({ type: 'Button' })).map((button) => button.key ?? '')
+  const read = [...new Set(marks)].map((index) => keys[index] ?? '')
+  const inputs = (await ui.findAll({ type: 'Input' })).map((input) => input.key ?? '')
+  return { keys, read, inputs }
+}
+
+async function itemRowIds(ui: Pick<Mounted, 'findAll'>): Promise<string[]> {
+  const rows = await ui.findAll({ type: 'Box' })
+  return rows
+    .map((row) => row.key ?? '')
+    .filter((key) => key.startsWith('row:item:'))
+    .map((key) => key.slice('row:item:'.length))
+}
+
+function itemButtons(ids: readonly string[], keys: readonly string[]): string[] {
+  return ids.flatMap((id) => {
+    const more = `more:item:${id}`
+    return keys.includes(more) ? [more, `add:${id}`] : [`add:${id}`]
+  })
+}
+
+const RING_CRITERION =
+  'When a board tab has the keyboard, Tab reaches every Button on it in reading order and Enter presses it, on terminal and desktop'
+
+const RING_ITEMS = [
+  ...PANE_ITEMS,
+  ...Array.from({ length: 6 }, (_, index) =>
+    item(`handily-e${String(index)}`, `Check the fold ${String(index)}`, 4, 'open'),
+  ),
+]
+
+describe(RING_CRITERION, () => {
+  test(
+    'with no tasks, the tab reaches the plan request, each open item, the folds and then the Add input, in reading order',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await publish($, basiclySnapshot(RING_ITEMS))
+      await readsOf($, 20)
+      for (const surface of ['terminal', 'desktop'] as const) {
+        const ui = await $.ui.mount({
+          plugin: PLUGIN,
+          surface,
+          component: 'Pane',
+          requestId: PANE,
+          props: paneProps('dock', 45),
+        })
+        const ring = await ringOf(ui, 45)
+        const ids = await itemRowIds(ui)
+        expect(ids).toHaveLength(10)
+        expect(ring.keys).toContain('more:item:handily-hw07')
+        expect(ring.keys).toEqual([
+          'ask-plan',
+          ...itemButtons(ids, ring.keys),
+          'all-items',
+          'add-all',
+        ])
+        expect(ring.read).toEqual(ring.keys)
+        expect(ring.inputs).toEqual(['add'])
+        await ui.press({ key: 'all-items' })
+        const all = await ringOf(ui, 45)
+        const allIds = await itemRowIds(ui)
+        expect(allIds).toHaveLength(12)
+        expect(all.keys).toEqual([
+          'ask-plan',
+          ...itemButtons(allIds, all.keys),
+          'all-items',
+          'add-all',
+        ])
+        expect(all.read).toEqual(all.keys)
+        await ui.press({ key: 'more:item:handily-hw07' })
+        expect(await ui.find({ type: 'Text', text: LONG_TITLE })).toBeDefined()
+        expect((await ringOf(ui, 45)).keys).toEqual(all.keys)
+        await ui.press({ key: 'more:item:handily-hw07' })
+        await ui.press({ key: 'all-items' })
+        await ui.unmount()
+      }
+    },
+  )
+})
+
+const ESCAPE_CRITERION =
+  'When the person presses Esc in a board tab, the keyboard goes back to the prompt'
+
+describe(ESCAPE_CRITERION, () => {
+  test(
+    '/board and /board machine ask for the keyboard with focus alone, not as a dialog, so Esc gives the keyboard back and the board stays open',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await board($, '')
+      await board($, 'machine')
+      expect(seen.opens.filter((open) => open.focus).map((open) => open.id)).toEqual([
+        PANE,
+        MACHINE,
+      ])
+      expect(seen.dialogOpens).toEqual([])
     },
   )
 })

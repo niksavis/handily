@@ -1171,3 +1171,118 @@ describe(WIDTH_CRITERION, () => {
     })
   }
 })
+
+const RING_MARK = 0xe000
+
+function ringMarked(element: Drawn, count: { buttons: number }): Drawn {
+  if (element.type === 'Button') {
+    const mark = String.fromCodePoint(RING_MARK + count.buttons)
+    count.buttons += 1
+    return { ...element, text: mark.repeat(element.text.length) }
+  }
+  return { ...element, children: element.children.map((child) => ringMarked(child, count)) }
+}
+
+function isOutOfFlow(element: Drawn): boolean {
+  const direction = element.props.flexDirection
+  const isReversed = typeof direction === 'string' && direction.endsWith('-reverse')
+  return isReversed || element.props.position === 'absolute'
+}
+
+function outOfFlow(element: Drawn): Drawn[] {
+  return [...(isOutOfFlow(element) ? [element] : []), ...element.children.flatMap(outOfFlow)]
+}
+
+type Ring = { keys: string[]; read: string[]; lines: string[] }
+
+async function ringOf(ui: Pick<Mounted, 'find' | 'findAll'>, columns: number): Promise<Ring> {
+  const root = drawnOf(await ui.find({ type: 'Box' }))
+  if (root === null) throw new Error('the pane drew no Box')
+  expect(outOfFlow(root), 'a reversed or absolute Box draws out of document order').toEqual([])
+  const count = { buttons: 0 }
+  const lines = screenOf(ringMarked(root, count), columns)
+  const marks = lines
+    .flatMap((line) => Array.from(line))
+    .map((character) => (character.codePointAt(0) ?? 0) - RING_MARK)
+    .filter((index) => index >= 0 && index < count.buttons)
+  const keys = (await ui.findAll({ type: 'Button' })).map((button) => button.key ?? '')
+  const read = [...new Set(marks)].map((index) => keys[index] ?? '')
+  return { keys, read, lines: await screen(ui, columns) }
+}
+
+const RING_CRITERION =
+  'When a board tab has the keyboard, Tab reaches every Button on it in reading order and Enter presses it, on terminal and desktop'
+
+function twoFoldingCards(on: On, surface: RenderSurface): World {
+  return world(
+    on,
+    storeWith(
+      { ...API_PROGRESS, agents: LANE_AGENTS, agentCount: 6 },
+      { ...LANE_PROGRESS, agents: LANE_AGENTS, agentCount: 6 },
+    ),
+    ['terminal', surface],
+  )
+}
+
+function cardLine(lines: readonly string[], name: string): number {
+  return lines.findIndex((line) => line.includes(` ${name} `))
+}
+
+describe(RING_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`docked on ${surface}: each card fold is one Button under its own key, in the order of the cards`, async ($, on) => {
+      const seen = twoFoldingCards(on, surface)
+      await mockWork($, seen)
+      await showMachine($, seen)
+      const ui = await mountTab($, surface, 'dock', 41)
+      const ring = await ringOf(ui, 41)
+      expect(ring.keys).toHaveLength(2)
+      expect(ring.keys.every((key) => key.startsWith('machine:more:'))).toBe(true)
+      expect(new Set(ring.keys).size).toBe(2)
+      expect(ring.read).toEqual(ring.keys)
+      const [first, second] = ring.keys
+      await ui.press({ key: first ?? '' })
+      const opened = await ringOf(ui, 41)
+      expect(opened.keys).toEqual(ring.keys)
+      const hide = opened.lines.indexOf('  [ hide 2 more agents ]')
+      expect(hide).toBeGreaterThan(cardLine(opened.lines, 'api-login'))
+      expect(hide).toBeLessThan(cardLine(opened.lines, 'lane-a1'))
+      expect(opened.lines.indexOf('  [ +2 more agents ]')).toBeGreaterThan(
+        cardLine(opened.lines, 'lane-a1'),
+      )
+      await ui.press({ key: second ?? '' })
+      const both = await ringOf(ui, 41)
+      expect(both.lines.filter((line) => line === '  [ hide 2 more agents ]')).toHaveLength(2)
+      await ui.press({ key: first ?? '' })
+      await ui.press({ key: second ?? '' })
+      expect(
+        (await ringOf(ui, 41)).lines.filter((line) => line === '  [ +2 more agents ]'),
+      ).toHaveLength(2)
+      await ui.unmount()
+    })
+
+    test(`inline at 76 columns on ${surface}: a pressed agents fold brings its more fold right after its rows`, async ($, on) => {
+      const seen = twoFoldingCards(on, surface)
+      await mockWork($, seen)
+      await showMachine($, seen)
+      await seen.clock.advance(12 * SECOND)
+      const ui = await mountTab($, surface, 'inline', 76)
+      const ring = await ringOf(ui, 76)
+      expect(ring.keys).toHaveLength(2)
+      expect(ring.keys.every((key) => key.startsWith('machine:agents:'))).toBe(true)
+      expect(ring.read).toEqual(ring.keys)
+      const [first, second] = ring.keys
+      await ui.press({ key: first ?? '' })
+      const opened = await ringOf(ui, 76)
+      expect(opened.read).toEqual(opened.keys)
+      expect(opened.keys).toEqual([
+        first,
+        first?.replace('machine:agents:', 'machine:more:'),
+        second,
+      ])
+      await ui.press({ key: first ?? '' })
+      expect((await ringOf(ui, 76)).keys).toEqual(ring.keys)
+      await ui.unmount()
+    })
+  }
+})

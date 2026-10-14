@@ -1029,3 +1029,166 @@ describe(ORIGIN_CRITERION, () => {
     },
   )
 })
+
+const RING_MARK = 0xe000
+
+function ringMarked(element: Drawn, count: { buttons: number }): Drawn {
+  if (element.type === 'Button') {
+    const mark = String.fromCodePoint(RING_MARK + count.buttons)
+    count.buttons += 1
+    return { ...element, text: mark.repeat(element.text.length) }
+  }
+  return { ...element, children: element.children.map((child) => ringMarked(child, count)) }
+}
+
+type Ring = { keys: string[]; read: string[]; inputs: string[] }
+
+function isOutOfFlow(element: Drawn): boolean {
+  const direction = element.props.flexDirection
+  const isReversed = typeof direction === 'string' && direction.endsWith('-reverse')
+  return isReversed || element.props.position === 'absolute'
+}
+
+function outOfFlow(element: Drawn): Drawn[] {
+  return [...(isOutOfFlow(element) ? [element] : []), ...element.children.flatMap(outOfFlow)]
+}
+
+async function ringOf(ui: Pick<Mounted, 'find' | 'findAll'>, columns: number): Promise<Ring> {
+  const root = drawnOf(await ui.find({ type: 'Box' }))
+  if (root === null) throw new Error('the pane drew no Box')
+  expect(outOfFlow(root), 'a reversed or absolute Box draws out of document order').toEqual([])
+  const count = { buttons: 0 }
+  const marks = screenOf(ringMarked(root, count), columns)
+    .flatMap((line) => Array.from(line))
+    .map((character) => (character.codePointAt(0) ?? 0) - RING_MARK)
+    .filter((index) => index >= 0 && index < count.buttons)
+  const keys = (await ui.findAll({ type: 'Button' })).map((button) => button.key ?? '')
+  const read = [...new Set(marks)].map((index) => keys[index] ?? '')
+  const inputs = (await ui.findAll({ type: 'Input' })).map((input) => input.key ?? '')
+  return { keys, read, inputs }
+}
+
+const RING_CRITERION =
+  'When a board tab has the keyboard, Tab reaches every Button on it in reading order and Enter presses it, on terminal and desktop'
+
+const OPENED_ONLY = ['up:3', 'down:3', 'rm:3', `plan:${EXPLORE}`]
+
+const SCENE_RING = [
+  'open:task:2',
+  'rm:2',
+  'open:task:3',
+  'up:3',
+  'down:3',
+  'rm:3',
+  'open:task:4',
+  'done',
+  `open:agent:${LANE}`,
+  `open:agent:${EXPLORE}`,
+  `tasks:agent:${EXPLORE}`,
+  `plan:${EXPLORE}`,
+  `open:agent:${SCOUT}`,
+  'group:ended-agents',
+]
+
+describe(RING_CRITERION, () => {
+  test(
+    'the this session tab draws each Button once, under its own key, in the order a person reads the tab, before the Add input',
+    withWorkitems,
+    async ($, on) => {
+      const scene = await mockScene($, on)
+      for (const surface of SURFACES) {
+        for (const { placement, columns } of SCENE_SCREENS) {
+          const ui = await mountTab($, surface, placement, columns)
+          await ui.press({ key: 'open:task:3' })
+          await ui.press({ key: `open:agent:${EXPLORE}` })
+          const ring = await ringOf(ui, columns)
+          expect(ring.keys).toEqual(SCENE_RING)
+          expect(ring.read).toEqual(ring.keys)
+          expect(ring.inputs).toEqual(['add'])
+          await ui.press({ key: `open:agent:${EXPLORE}` })
+          await ui.press({ key: 'open:task:3' })
+          const closed = await ringOf(ui, columns)
+          expect(closed.keys).toEqual(SCENE_RING.filter((key) => !OPENED_ONLY.includes(key)))
+          expect(closed.read).toEqual(closed.keys)
+          await ui.unmount()
+        }
+      }
+      await land(scene)
+    },
+  )
+
+  test(
+    'unfolding the done and ended folds adds their rows after the fold, in reading order',
+    withWorkitems,
+    async ($, on) => {
+      const scene = await mockScene($, on)
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        await ui.press({ key: 'done' })
+        await ui.press({ key: 'group:ended-agents' })
+        const ring = await ringOf(ui, 41)
+        expect(ring.read).toEqual(ring.keys)
+        expect(new Set(ring.keys).size).toBe(ring.keys.length)
+        const done = ring.keys.indexOf('done')
+        expect(ring.keys.slice(done, done + 2)).toEqual(['done', 'open:task:1'])
+        expect(ring.keys.slice(-3)).toEqual([
+          'group:ended-agents',
+          `open:agent:${PLAN}`,
+          `open:agent:${REVIEW}`,
+        ])
+        await ui.press({ key: 'done' })
+        await ui.press({ key: 'group:ended-agents' })
+        await ui.unmount()
+      }
+      await land(scene)
+    },
+  )
+})
+
+const KEYBOARD_PLAN_CRITERION =
+  'When the this session tab has the keyboard and an agent plan is folded, the keyboard alone unfolds and folds that plan'
+
+async function shownPlan(ui: Pick<Mounted, 'find'>): Promise<string[]> {
+  return (await textsUnder(ui, `under:agent:${EXPLORE}`)).filter((text) =>
+    PLAN_TITLES.includes(text),
+  )
+}
+
+describe(KEYBOARD_PLAN_CRITERION, () => {
+  test(
+    'the agent name and the plan button keep their key and their place among the Buttons when pressed, so Enter in the same place unfolds and folds the plan',
+    withWorkitems,
+    async ($, on) => {
+      const scene = await mockScene($, on)
+      const name = `open:agent:${EXPLORE}`
+      const plan = `plan:${EXPLORE}`
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        const closed = await ringOf(ui, 41)
+        expect(closed.keys).not.toContain(plan)
+        const namePlace = closed.keys.indexOf(name)
+        expect(namePlace).toBeGreaterThan(-1)
+        await ui.press({ key: name })
+        const folded = await ringOf(ui, 41)
+        expect(folded.keys.indexOf(name)).toBe(namePlace)
+        expect(folded.read).toEqual(folded.keys)
+        const planPlace = folded.keys.indexOf(plan)
+        expect(planPlace).toBe(namePlace + 2)
+        expect((await ui.find({ key: plan }))?.text).toBe('all 7')
+        expect(await shownPlan(ui)).toEqual(PLAN_TITLES.slice(0, 5))
+        await ui.press({ key: plan })
+        expect((await ringOf(ui, 41)).keys.indexOf(plan)).toBe(planPlace)
+        expect((await ui.find({ key: plan }))?.text).toBe('fold')
+        expect(await shownPlan(ui)).toEqual(PLAN_TITLES)
+        await ui.press({ key: plan })
+        expect((await ringOf(ui, 41)).keys.indexOf(plan)).toBe(planPlace)
+        expect((await ui.find({ key: plan }))?.text).toBe('all 7')
+        expect(await shownPlan(ui)).toEqual(PLAN_TITLES.slice(0, 5))
+        await ui.press({ key: name })
+        expect(await ui.find({ key: plan })).toBeUndefined()
+        await ui.unmount()
+      }
+      await land(scene)
+    },
+  )
+})

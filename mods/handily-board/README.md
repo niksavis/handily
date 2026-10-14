@@ -56,6 +56,37 @@ Replies, from the tests:
 - Task numbers do not move when a task is removed. `/board rm` of a missing number lists the
   numbers that exist.
 
+## Keyboard
+
+You can press every button on both tabs with the keyboard alone. A live check on Claude Code
+2.1.300 in a terminal measured these keys:
+
+| Key                        | Effect                                                               |
+| -------------------------- | -------------------------------------------------------------------- |
+| `/board`, `/board machine` | A hidden tab comes forward and takes the keyboard                    |
+| ctrl+x, then Tab           | Gives the keyboard to the tab that is shown                          |
+| Tab, Shift+Tab             | Moves the focus to the next or the previous button, in reading order |
+| Enter                      | Presses the button that has the focus                                |
+| Esc                        | Gives the keyboard back to the prompt. The board stays open          |
+
+- Claude Code keeps the focus at the same place in the order of the buttons, not on the same
+  button. The live check measured this with `up` and `down`: the task moves, and the focus is
+  on the next or the previous button of the task. The `+N more agents` and `all N open` folds
+  add their rows before the button, so by the same rule the focus goes to the first row that
+  the fold shows. Use Tab or Shift+Tab to go back to the button.
+- The focus shows as inverted text. Reading order is top to bottom, and left to right on a line.
+  After the last button, Tab goes to the `Add a task` input, then to the tab row and the close
+  mark of Claude Code, and then to the first button again.
+- To unfold the plan of an agent, move to the agent name and press Enter. When the plan has more
+  than 5 tasks, the opened row ends with a button such as `[ all 7 ]`. Move to it and press
+  Enter to show every task. The button becomes `[ fold ]` in the same place, so the next Enter
+  folds the plan.
+- The `+N done` and `+N ended` folds add their rows after the button. The plan button adds only
+  rows of text, which take no focus. So for these buttons the focus stays on the button.
+- The tests check each tab on the terminal and desktop surfaces. Each button has its own key,
+  the buttons come in reading order, and `/board` asks for the keyboard with `focus` only. The
+  live check covered the terminal. The desktop app was not checked live.
+
 ## What Claude gets
 
 | Tool          | Input                                                                  | Effect                               |
