@@ -6,6 +6,30 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.4.0 - 2026-10-14
+
+### Added
+
+- **handily-board documents and tests keyboard use of the board.** Tab and Shift+Tab reach
+  every button of the `this session` and `this machine` tabs in reading order, Enter presses the
+  button, and Esc gives the keyboard back to the prompt. The keyboard alone unfolds and folds
+  the plan of an agent. The mod code did not change. New tests hold this on the terminal and
+  desktop surfaces, and a live check on Claude Code 2.1.300 confirmed it in a terminal. The
+  README names one limit: after `up`, `down` or a fold of more rows, the focus stays at the
+  same place in the order of the buttons, not on the same button (handily-fwkt.8.15).
+
+### Changed
+
+- **handily-board draws the this session tab with the same work for 1 agent and for 30
+  agents.** Before, each draw read the task list of every subagent, one state read for each
+  agent. Now the board keeps a copy of the subagent lists in one state value, so the number
+  of state reads in a draw does not grow with the agents. A new test pins 5 reads for 1 and
+  for 30 agents of 20 tasks. The board draws the same rows as before. A session that reloads
+  into this version from an older one reads the list of each agent once, draws it, and keeps
+  it, so no plan goes missing after the update. Measured live on Claude
+  Code 2.1.300 with 30 agents of 20 tasks, the draw hook of the tab took a median of 10.05 ms
+  before the change and 3.98 ms after it (handily-fwkt.8.17).
+
 ## handily 0.7.0 - 2026-10-14
 
 ### Added
