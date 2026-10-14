@@ -185,17 +185,26 @@ theme:
   rule, so a copy of that text holds no rule characters.
 - The desktop app draws each prompt as it draws it.
 
-## Command
+## Settings and the command
 
-| Command    | Effect                                                                                       |
-| ---------- | -------------------------------------------------------------------------------------------- |
-| `/replies` | Turns the reply view off or on for this session, and replies with the new mode. It starts on |
+| Setting | Default | Use                                           |
+| ------- | ------- | --------------------------------------------- |
+| `mode`  | `on`    | The mode when a session starts: `on` or `off` |
+
+| Command    | Effect                                                                         |
+| ---------- | ------------------------------------------------------------------------------ |
+| `/replies` | Turns the reply view off or on for this session, and replies with the new mode |
 
 While the view is off, Claude Code draws every reply and every prompt unchanged.
 
+The mod keeps the mode in the `mode` key of its `$.state`, so a change does not reach other
+sessions. When the session starts and the key is unset, the mod writes the `mode` setting to it.
+So a session starts with the mode of the setting, and `/replies` toggles from there. `/handily`
+shows the setting beside the mode when the two differ.
+
 ## When the reply stays as Claude Code draws it
 
-- `/replies` turned the view off for this session.
+- The mode is off. `/replies` turned it off for this session, or the `mode` setting is `off`.
 - The reply is 30 lines or fewer and holds no table and no fenced block.
 - The block is a summary of the text that Claude wrote between two tool calls.
 - The reply is longer than 60000 characters.

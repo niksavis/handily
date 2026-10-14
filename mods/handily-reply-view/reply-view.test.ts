@@ -1268,9 +1268,32 @@ describe('/replies', () => {
 
   viewTest('refuses an argument', async (_world, $) => {
     expect(await commandText($, 'off')).toBe(
-      '/replies takes no argument. It turns the reply view off or on for this session.',
+      '/replies takes no argument. It turns the reply view off or on for this session. Set the default with the plugin\'s "mode" setting.',
     )
   })
+
+  for (const surface of SURFACES) {
+    test(
+      `starts off from the mode setting off, and /replies turns the reply view on on ${surface}`,
+      { options: { mode: 'off' } },
+      async ($, on) => {
+        engineBeneath(on)
+        const written: unknown[] = []
+        on('state.set', { plugin: 'handily-reply-view', key: 'mode' }, (_$, e, next) => {
+          written.push(e.value)
+          return next(e)
+        })
+        await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+        expect(written).toEqual(['off'])
+        const ui = await mountReply($, reply(LONG_REPLY), surface)
+        expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        expect(await commandText($)).toMatch(/^on for this session/)
+        expect(written).toEqual(['off', 'on'])
+        expect(await ui.drawn()).not.toEqual(ENGINE_ROW)
+        await ui.unmount()
+      },
+    )
+  }
 
   test('stores on as its mode when the session starts, and keeps off when it starts again', async ($, on) => {
     engineBeneath(on)

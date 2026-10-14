@@ -1267,7 +1267,7 @@ const ON_REPLY =
 const OFF_REPLY =
   'item-toasts off for this session. No work item change draws a toast until /item-toasts on.'
 const USAGE_REPLY =
-  '/item-toasts takes on, off or no argument. /item-toasts on and /item-toasts off set this session, and /item-toasts toggles it.'
+  '/item-toasts takes on, off or no argument. /item-toasts on and /item-toasts off set this session, and /item-toasts toggles it. Set the default with the plugin\'s "mode" setting.'
 
 async function toastsCommand($: Engine, args: string): Promise<string> {
   const result = await $.command.run({
@@ -1305,6 +1305,32 @@ describe('/item-toasts', () => {
         expect(written).toEqual(['on', 'off', 'on'])
         await pollAndTick($, clock)
         expect(world.toasts).toEqual([])
+        elsewhere(world, closeEf56())
+        await pollAndTick($, clock)
+        expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+        expect(world.unanswered).toEqual([])
+      },
+    )
+
+    test(
+      `starts off from the mode setting off, draws no toast and turns on with the bare /item-toasts on ${surface}`,
+      { plugins: [fakeWorkitems], options: { mode: 'off' } },
+      async ($, on) => {
+        const world = newWorld()
+        const clock = engineBeneath(on, world)
+        const written: unknown[] = []
+        on('state.set', { plugin: 'handily-item-toasts', key: 'mode' }, (_$, e, next) => {
+          written.push(e.value)
+          return next(e)
+        })
+        await startSession($, surface)
+        expect(written).toEqual(['off'])
+        elsewhere(world, closeAb12())
+        await pollAndTick($, clock)
+        expect(world.toasts).toEqual([])
+        expect(await toastsCommand($, '')).toBe(ON_REPLY)
+        expect(written).toEqual(['off', 'on'])
+        await pollAndTick($, clock)
         elsewhere(world, closeEf56())
         await pollAndTick($, clock)
         expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])

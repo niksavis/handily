@@ -27,18 +27,19 @@ each mod in the list with the bundle:
 | name        | The mod name                                                                    |
 | version     | The version in the `plugin.json` of the mod that loaded, or `-`                 |
 | state       | `loaded`, `disabled`, `not installed` or `not loaded`                           |
-| mode        | The mode that the mod stores for this session                                   |
+| mode        | The mode that the mod stores for this session, and its setting when they differ |
 | description | The first sentence of the `description` in its `plugin.json`, cut to fit a line |
 
 The mode column has these values:
 
-| Mode        | Meaning                                                                                                  |
-| ----------- | -------------------------------------------------------------------------------------------------------- |
-| `on`, `off` | The mode of `handily-quiet-items`, `handily-item-toasts`, `handily-simple-view` and `handily-reply-view` |
-| `polling`   | `handily-workitems` reads the tracker                                                                    |
-| `paused`    | `handily-workitems` is paused with `/workitems pause`                                                    |
-| `-`         | The mod has no mode, such as `handily-board`, or it stored none yet                                      |
-| `?`         | `/handily` cannot read the mode. The debug log has the reason                                            |
+| Mode                                   | Meaning                                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `on`, `off`                            | The mode of `handily-quiet-items`, `handily-item-toasts`, `handily-simple-view` and `handily-reply-view`   |
+| `off (default on)`, `on (default off)` | The mode of this session differs from the `mode` setting of the mod. A new session starts from the setting |
+| `polling`                              | `handily-workitems` reads the tracker                                                                      |
+| `paused`                               | `handily-workitems` is paused with `/workitems pause`                                                      |
+| `-`                                    | The mod has no mode, such as `handily-board`, or it stored none yet                                        |
+| `?`                                    | `/handily` cannot read the mode. The debug log has the reason                                              |
 
 Each line fits in 80 columns. This is the output when every mod loaded:
 
@@ -66,6 +67,22 @@ handily-simple-view  0.5.1  loaded         on       One short row for each…
 handily-reply-view   0.5.4  loaded         on       Long replies fold to their…
 
 handily: 5 of 6 mods loaded, 1 off or paused
+```
+
+`/handily` reads the `mode` setting of each mod from the rows of the `/config` menu. When the
+mode of this session differs from the setting, the mode column shows both. This is the output
+when `/item-toasts`, `/simple` and `/replies` turned their mode off and each `mode` setting is
+`on`:
+
+```text
+handily-workitems    0.8.0  loaded  polling           Provider of one typed…
+handily-quiet-items  0.5.0  loaded  on                One short row in place…
+handily-board        0.3.2  loaded  -                 A board with two tabs
+handily-item-toasts  0.5.1  loaded  off (default on)  A toast when a work item…
+handily-simple-view  0.5.1  loaded  off (default on)  One short row for each…
+handily-reply-view   0.5.4  loaded  off (default on)  Long replies fold to…
+
+handily: 6 of 6 mods loaded, 3 off or paused
 ```
 
 | State         | Second line                     | Theme colour |

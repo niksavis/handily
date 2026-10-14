@@ -5,5 +5,14 @@
   "author": {
     "name": "niksavis"
   },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "Whether replies and typed prompts draw in the reply view (on) or as Claude Code draws them (off) when a session starts. /replies toggles one session.",
+      "options": ["on", "off"],
+      "default": "on"
+    }
+  }
 }

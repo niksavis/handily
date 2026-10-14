@@ -1535,13 +1535,40 @@ describe('/simple', () => {
     'replies with the valid forms by name to an unknown argument and keeps the mode',
     async (_world, $) => {
       const usage =
-        '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full.'
+        '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full. Set the default with the plugin\'s "mode" setting.'
       expect(await commandText($, 'of')).toBe(usage)
       expect(await commandText($, 'on now')).toBe(usage)
       expect(await commandText($, 'show 1 2')).toBe(usage)
       expect(await commandText($, '')).toBe(OFF_REPLY)
     },
   )
+
+  for (const surface of SURFACES) {
+    test(
+      `starts off from the mode setting off, and the bare /simple turns the rows on on ${surface}`,
+      { plugins: [fakeQuietItems], options: { mode: 'off' } },
+      async ($, on) => {
+        const world = engineBeneath(on)
+        const written: unknown[] = []
+        on('state.set', { plugin: 'handily-simple-view', key: 'mode' }, (_$, e, next) => {
+          written.push(e.value)
+          return next(e)
+        })
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        expect(written).toEqual(['off'])
+        const input = { command: 'ls', description: 'List files' }
+        const id = await runBash(world, $, input)
+        const use = {
+          component: 'ToolUse',
+          props: useProps(id, 'Bash', input, world.answer(input)),
+        } as const
+        expect((await drawn($, use, surface)).tree).toEqual(ENGINE_ROW)
+        expect(await commandText($, '')).toBe(ON_REPLY)
+        expect(written).toEqual(['off', 'on'])
+        expect((await drawn($, use, surface)).tree).not.toEqual(ENGINE_ROW)
+      },
+    )
+  }
 })
 
 describe('/simple show', () => {

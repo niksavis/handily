@@ -155,7 +155,7 @@ row folds the output again and removes both lines:
 
 simple-view draws the engine row unchanged in each of these cases:
 
-- `/simple` turned the view off for this session.
+- The mode is off. `/simple` turned it off for this session, or the `mode` setting is `off`.
 - `quiet-items` stored a row for the call, and the `quiet-items` mode is on. The tracker row
   of `quiet-items` wins. While `/quiet-items` has turned its mode off, simple-view draws its own
   row for the call.
@@ -198,15 +198,23 @@ The running call draws as one row instead, and its `more` button opens the comma
 of the group runs, the group folds again to the line of the engine, unless a call of the group
 failed.
 
-## Commands
+## Settings and the commands
+
+| Setting | Default | Use                                           |
+| ------- | ------- | --------------------------------------------- |
+| `mode`  | `on`    | The mode when a session starts: `on` or `off` |
 
 | Command          | Effect                                                                                   |
 | ---------------- | ---------------------------------------------------------------------------------------- |
 | `/simple on`     | Turns the view on for this session, and replies with the new mode                        |
 | `/simple off`    | Turns the view off for this session, and replies with the new mode                       |
-| `/simple`        | Turns the view off or on for this session, and replies with the new mode. It starts on   |
+| `/simple`        | Turns the view off or on for this session, and replies with the new mode                 |
 | `/simple show N` | Prints the input, the output and the file diff of the N-th last tool call. 1 is the last |
 
+- The mod keeps the mode in the `mode` key of its `$.state`, so a change does not reach other
+  sessions. When the session starts and the key is unset, the mod writes the `mode` setting to
+  it. So a session starts with the mode of the setting, and `/simple` toggles from there.
+  `/handily` shows the setting beside the mode when the two differ.
 - `/simple show N` refuses a number outside the kept calls, and gives the valid range.
 - Any other argument changes nothing, and the reply names the valid forms.
 - ctrl+o cannot expand a single row. The engine reuses the drawn row and does not call the mod

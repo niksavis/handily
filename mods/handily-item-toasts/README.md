@@ -115,7 +115,11 @@ failure then draws no toast either.
 - On desktop, a `basicly` source is `terminal-only`, so the mod shows nothing. A `beads` or
   `beans` source works as in a terminal.
 
-## The command
+## Settings and the command
+
+| Setting | Default | Use                                           |
+| ------- | ------- | --------------------------------------------- |
+| `mode`  | `on`    | The mode when a session starts: `on` or `off` |
 
 | Command            | Effect                                                                  |
 | ------------------ | ----------------------------------------------------------------------- |
@@ -124,7 +128,10 @@ failure then draws no toast either.
 | `/item-toasts`     | Toggles the mode for this session, and replies with the new mode        |
 
 - The mod keeps the mode in the `mode` key of its `$.state`, so a change does not reach other
-  sessions, and the mode outlives a reload of the mod. A session starts with the mode on.
+  sessions, and the mode outlives a reload of the mod.
+- When the session starts and the `mode` key is unset, the mod writes the `mode` setting to it.
+  So a session starts with the mode of the setting, and `/item-toasts` toggles from there.
+  `/handily` shows the setting beside the mode when the two differ.
 - While the mode is off, no work item change and no snapshot state draws a toast. A change made
   while the mode was off draws no toast after `/item-toasts on` either: the mod reads the work
   items again from that point.

@@ -34,7 +34,8 @@ The bundle. One install of it installs and enables every other mod on this page.
 `/handily` takes no argument. A mod that did not load gets a second line with the command that
 fixes it, such as `Run /plugin install handily-board@niksavis`. The mode is `on` or `off`,
 `polling` or `paused` for `handily-workitems`, `-` for a mod with no mode, and `?` when
-`/handily` cannot read it. The install id of the bundle is `handily@niksavis`.
+`/handily` cannot read it. When the mode differs from the `mode` setting of the mod, the line
+shows both, such as `off (default on)`. The install id of the bundle is `handily@niksavis`.
 
 Settings: none.
 
@@ -89,7 +90,9 @@ It shows a toast when a work item changes outside this session. It shows at most
 | `/item-toasts on` | Turns the toasts on for this session |
 | `/item-toasts off` | Turns the toasts off for this session |
 
-Settings: none.
+Settings:
+
+- `mode`: `on` (default) or `off`. The mode when a session starts.
 
 More: [mods/handily-item-toasts/README.md](../mods/handily-item-toasts/README.md).
 
@@ -105,7 +108,9 @@ output has a `more` button and a `copy` button.
 | `/simple off` | Turns the short rows off for this session. Tool calls draw as Claude Code draws them |
 | `/simple show N` | Prints the input, the output and the file diff of the N-th last tool call. 1 is the last call |
 
-Settings: none.
+Settings:
+
+- `mode`: `on` (default) or `off`. The mode when a session starts.
 
 More: [mods/handily-simple-view/README.md](../mods/handily-simple-view/README.md).
 
@@ -121,7 +126,9 @@ table and code block gets a `copy` button. Each prompt that you type opens under
 
 `/replies` takes no argument.
 
-Settings: none.
+Settings:
+
+- `mode`: `on` (default) or `off`. The mode when a session starts.
 
 More: [mods/handily-reply-view/README.md](../mods/handily-reply-view/README.md).
 

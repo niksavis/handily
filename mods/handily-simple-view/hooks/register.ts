@@ -27,7 +27,6 @@ const COMMAND = 'simple'
 const TICK_MS = 1000
 const DEFAULT_COLUMNS = 80
 const COUNT_TRIES = 5
-const DEFAULT_MODE: SimpleViewMode = 'on'
 const MODE = { plugin: 'handily-simple-view', key: 'mode' } as const
 const COUNT = { plugin: 'handily-simple-view', key: 'count' } as const
 const GENERATION = { plugin: 'handily-simple-view', key: 'generation' } as const
@@ -39,7 +38,7 @@ const ON_TEXT =
   'on for this session. Bash, Edit, Write, Read, Grep and Glob calls draw as one row. /simple show N prints call N in full, where 1 is the last call.'
 const OFF_TEXT = 'off for this session. Tool calls draw as Claude Code draws them.'
 const USAGE_TEXT =
-  '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full.'
+  '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full. Set the default with the plugin\'s "mode" setting.'
 const NO_CALL_TEXT = '/simple show has no tool call to print yet in this session.'
 
 type Answer = Awaited<ReturnType<EngineInterface['tool']['call']>>
@@ -80,8 +79,12 @@ function isMode(word: string): word is SimpleViewMode {
   return word === 'on' || word === 'off'
 }
 
-async function setMode($: EngineInterface, asked: SimpleViewMode | null): Promise<string> {
-  const { value: current = DEFAULT_MODE } = await $.state.get(MODE)
+async function setMode(
+  $: EngineInterface,
+  asked: SimpleViewMode | null,
+  defaultMode: SimpleViewMode,
+): Promise<string> {
+  const { value: current = defaultMode } = await $.state.get(MODE)
   const mode: SimpleViewMode = asked ?? (current === 'on' ? 'off' : 'on')
   await $.state.set(MODE, mode)
   return mode === 'on' ? ON_TEXT : OFF_TEXT
@@ -378,8 +381,12 @@ async function resultDrawing(
   return fileEdit(props.tool, props.output) === null ? null : look.elements.Box({})
 }
 
-async function isSimple($: EngineInterface, id: string): Promise<boolean> {
-  const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
+async function isSimple(
+  $: EngineInterface,
+  id: string,
+  defaultMode: SimpleViewMode,
+): Promise<boolean> {
+  const { value: mode = defaultMode } = await $.state.get(MODE)
   if (mode === 'off') return false
   const { value: rows } = await $.state.get({ plugin: 'handily-quiet-items', key: 'rows', id })
   if (rows === undefined || rows.length === 0) return true
@@ -415,7 +422,8 @@ function shouldUnfold(props: RenderPropsOf['ToolGroup']): boolean {
   )
 }
 
-export const register: Register = (on) => {
+export const register: Register = (on, options) => {
+  const defaultMode: SimpleViewMode = options.mode === 'off' ? 'off' : 'on'
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -425,7 +433,7 @@ export const register: Register = (on) => {
     })
     await $.state.set({ plugin: 'handily-simple-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
-    if (mode === undefined) await $.state.set(MODE, DEFAULT_MODE, { ifVersion: version })
+    if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
     return next(e)
   })
 
@@ -434,8 +442,8 @@ export const register: Register = (on) => {
       .trim()
       .split(/\s+/)
       .filter((word) => word !== '')
-    if (verb === undefined) return { text: await setMode($, null) }
-    if (isMode(verb) && number === undefined) return { text: await setMode($, verb) }
+    if (verb === undefined) return { text: await setMode($, null, defaultMode) }
+    if (isMode(verb) && number === undefined) return { text: await setMode($, verb, defaultMode) }
     if (verb === 'show' && rest.length === 0) return { text: await show($, number) }
     return { text: USAGE_TEXT }
   })
@@ -478,7 +486,7 @@ export const register: Register = (on) => {
     if (!shouldUnfold(e.props)) return next(e)
     let isOn = false
     try {
-      const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
+      const { value: mode = defaultMode } = await $.state.get(MODE)
       isOn = mode === 'on'
     } catch (error) {
       logFailure($, 'the engine folds the group', error)
@@ -489,7 +497,7 @@ export const register: Register = (on) => {
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
     let drawn: RenderElement | null = null
     try {
-      if (await isSimple($, e.props.tool_use_id)) {
+      if (await isSimple($, e.props.tool_use_id, defaultMode)) {
         const look = {
           elements: $.ui.resolve(e),
           hasToolMarker: e.surface === 'terminal',

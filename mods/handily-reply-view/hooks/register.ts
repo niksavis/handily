@@ -5,14 +5,14 @@ import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
 
 const COMMAND = 'replies'
-const DEFAULT_MODE: ReplyViewMode = 'on'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
 const DRAWN_CHARACTERS_AT_MOST = 60_000
 
 const ON_TEXT =
   'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
-const USAGE_TEXT = '/replies takes no argument. It turns the reply view off or on for this session.'
+const USAGE_TEXT =
+  '/replies takes no argument. It turns the reply view off or on for this session. Set the default with the plugin\'s "mode" setting.'
 
 const COPY_REFUSALS: Readonly<Record<'no-surface' | 'no-clipboard' | 'refused', string>> = {
   'no-surface': 'no screen is attached to this session',
@@ -29,8 +29,8 @@ function logFailure($: EngineInterface, what: string, error: unknown): void {
   $.ui.log(`reply-view: ${what}: ${String(error)}`)
 }
 
-async function toggle($: EngineInterface): Promise<string> {
-  const { value: current = DEFAULT_MODE } = await $.state.get(MODE)
+async function toggle($: EngineInterface, defaultMode: ReplyViewMode): Promise<string> {
+  const { value: current = defaultMode } = await $.state.get(MODE)
   const mode: ReplyViewMode = current === 'on' ? 'off' : 'on'
   await $.state.set(MODE, mode)
   return mode === 'on' ? ON_TEXT : OFF_TEXT
@@ -75,7 +75,8 @@ async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   return value
 }
 
-export const register: Register = (on) => {
+export const register: Register = (on, options) => {
+  const defaultMode: ReplyViewMode = options.mode === 'off' ? 'off' : 'on'
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -84,13 +85,13 @@ export const register: Register = (on) => {
     })
     await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
-    if (mode === undefined) await $.state.set(MODE, DEFAULT_MODE, { ifVersion: version })
+    if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
     return next(e)
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     if (e.args.trim() !== '') return { text: USAGE_TEXT }
-    return { text: await toggle($) }
+    return { text: await toggle($, defaultMode) }
   })
 
   on('session.append', { door: ['prompt', 'delivery'] }, async ($, e, next) => {
@@ -120,7 +121,7 @@ export const register: Register = (on) => {
     if (!isFramed) return next(e)
     const engineRow = await next(e)
     try {
-      const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
+      const { value: mode = defaultMode } = await $.state.get(MODE)
       if (mode === 'off') return engineRow
       const { value: submittedAt } = await $.state.get({
         plugin: 'handily-reply-view',
@@ -143,7 +144,7 @@ export const register: Register = (on) => {
     if (e.props.isSummary === true || e.props.text.length > DRAWN_CHARACTERS_AT_MOST) return next(e)
     let drawn: RenderElement | null = null
     try {
-      const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
+      const { value: mode = defaultMode } = await $.state.get(MODE)
       if (mode === 'on') {
         drawn = replyTree(
           $.ui.resolve(e),

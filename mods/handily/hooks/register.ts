@@ -1,5 +1,5 @@
-import type { EngineInterface, Register } from 'claude-code'
-import type { HandilyModMode, HandilyOldIdScope } from '../types'
+import type { ConfigRow, EngineInterface, Register } from 'claude-code'
+import type { HandilyDefaultMode, HandilyModMode, HandilyOldIdScope } from '../types'
 import { drawReport } from './draw'
 import {
   bundledMods,
@@ -13,6 +13,7 @@ import {
 } from './status'
 
 const COMMAND = 'handily'
+const MODE_FIELD_SUFFIX = '.mode'
 const NO_ARGUMENT_TEXT =
   '/handily takes no argument; it lists each handily mod with its version, state and mode.'
 
@@ -79,6 +80,37 @@ async function modeOf($: EngineInterface, name: string): Promise<HandilyModMode>
   }
 }
 
+function withoutMarketplace(pluginId: string): string {
+  return pluginId.replace(/@.*$/, '')
+}
+
+function configuredMode(rows: readonly ConfigRow[], name: string): HandilyDefaultMode | null {
+  const row = rows.find(
+    (candidate) =>
+      withoutMarketplace(candidate.provider.plugin) === name &&
+      candidate.key.endsWith(MODE_FIELD_SUFFIX),
+  )
+  if (row === undefined) return null
+  if (row.value === 'on' || row.value === 'off') return row.value
+  throw new Error(`the mode setting ${JSON.stringify(row.value)} is neither on nor off`)
+}
+
+function defaultModeOf(
+  $: EngineInterface,
+  rows: readonly ConfigRow[],
+  name: string,
+  mode: HandilyModMode,
+): HandilyDefaultMode | null {
+  if (mode !== 'on' && mode !== 'off') return null
+  try {
+    return configuredMode(rows, name)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    $.ui.log(`handily: cannot read the default mode of ${name}: ${reason}`, { to: 'debug' })
+    return null
+  }
+}
+
 function manifestPath(root: string): string {
   return `${root}/.claude-plugin/plugin.json`
 }
@@ -92,14 +124,17 @@ async function loadedMods(
   mods: readonly string[],
 ): Promise<Map<string, LoadedMod>> {
   const loaded = new Map<string, LoadedMod>()
+  const configRows = await $.config.list()
   for (const name of mods) {
     const ready = await readyOf($, name)
     if (ready === undefined) continue
     const manifest = await $.fs.read(manifestPath(ready.root))
+    const mode = await modeOf($, name)
     loaded.set(name, {
       version: manifestVersion(manifest, name),
       description: manifestDescription(manifest, name),
-      mode: await modeOf($, name),
+      mode,
+      defaultMode: defaultModeOf($, configRows, name, mode),
     })
   }
   return loaded

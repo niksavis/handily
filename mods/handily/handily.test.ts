@@ -1,4 +1,4 @@
-import type { On, RenderSurface, SettingsSource } from 'claude-code'
+import type { ConfigRow, ConfigValue, On, RenderSurface, SettingsSource } from 'claude-code'
 import { describe, expect, test, type Engine, type Plugin } from 'claude-code/testing'
 import type { WorkitemsSnapshot } from './.claude-plugin/types/handily-workitems'
 import {
@@ -21,6 +21,13 @@ const MODS = [
 ]
 const MANIFEST = JSON.stringify({ name: 'handily', version: '0.1.0', dependencies: MODS })
 const ALL_ENABLED = Object.fromEntries(MODS.map((name) => [`${name}@niksavis`, true]))
+const MODE_SETTINGS: Readonly<Record<string, ConfigValue>> = {
+  'handily-quiet-items': 'on',
+  'handily-board': 'toggle',
+  'handily-item-toasts': 'on',
+  'handily-simple-view': 'on',
+  'handily-reply-view': 'on',
+}
 const MOD_MANIFESTS: Record<string, { version: string; description: string }> = {
   'handily-workitems': {
     version: '0.1.0',
@@ -212,6 +219,7 @@ function enabledWithout(name: string): Record<string, boolean> {
 }
 
 type World = {
+  modeSettings: Readonly<Record<string, ConfigValue>>
   enabledPlugins: unknown
   enabledByScope: Partial<Record<SettingsSource, unknown>>
   sourcesRead: string[]
@@ -223,6 +231,7 @@ type World = {
 
 function fakeWorld(on: On, world: Partial<World> = {}): World {
   const full: World = {
+    modeSettings: MODE_SETTINGS,
     enabledPlugins: ALL_ENABLED,
     enabledByScope: {},
     sourcesRead: [],
@@ -246,6 +255,7 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
     const scoped = full.enabledByScope[e.source]
     return { value: scoped === undefined ? {} : { enabledPlugins: scoped } }
   })
+  on('config.list', () => ({ value: configRows(full.modeSettings) }))
   on('fs.read', (_$, e) => {
     full.reads.push(e.path)
     const folder = e.path.split(/[\\/]/).at(-3) ?? ''
@@ -259,6 +269,28 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
     return { value: undefined }
   })
   return full
+}
+
+function configRows(modeSettings: Readonly<Record<string, ConfigValue>>): ConfigRow[] {
+  const theme: ConfigRow = {
+    key: 'theme',
+    label: 'Theme',
+    kind: 'choice',
+    value: 'dark',
+    provider: { plugin: 'engine', tier: 'core' },
+    isLocked: false,
+  }
+  return [
+    theme,
+    ...Object.entries(modeSettings).map(([plugin, value]) => ({
+      key: `${plugin}.mode`,
+      label: 'Mode',
+      kind: 'choice' as const,
+      value,
+      provider: { plugin: `${plugin}@niksavis`, tier: 'user' as const },
+      isLocked: false,
+    })),
+  ]
 }
 
 async function startSession(engine: Engine): Promise<void> {
@@ -331,7 +363,7 @@ describe('/handily reply', () => {
       ],
     },
     async ($, on) => {
-      fakeWorld(on)
+      fakeWorld(on, { modeSettings: { ...MODE_SETTINGS, 'handily-item-toasts': 'off' } })
       const text = await runHandily($)
       expect(cellsOf(text, 'handily-workitems').slice(0, 4)).toEqual([
         'handily-workitems',
@@ -376,6 +408,40 @@ describe('/handily reply', () => {
         'handily: cannot read the mode of handily-simple-view: the stored mode "sideways" is neither on nor off',
       ])
       expect(lastLine(text)).toBe('handily: 6 of 6 mods loaded, 0 off or paused')
+    },
+  )
+
+  test(
+    'shows the mode setting beside a session mode that differs from it',
+    { plugins: [OFF_ITEM_TOASTS, ...heartbeatsWithout('handily-item-toasts')] },
+    async ($, on) => {
+      fakeWorld(on, { modeSettings: { ...MODE_SETTINGS, 'handily-simple-view': 'off' } })
+      expect(await runHandily($)).toBe(
+        [
+          'handily-workitems    0.1.0  loaded  polling           Provider of one typed…',
+          'handily-quiet-items  0.2.0  loaded  on                One short row in place…',
+          'handily-board        0.1.1  loaded  -                 A board with two tabs',
+          'handily-item-toasts  1.0.0  loaded  off (default on)  A toast when a work item…',
+          'handily-simple-view  0.4.0  loaded  on (default off)  One short row for each…',
+          'handily-reply-view   0.1.0  loaded  on                Long replies fold to…',
+          '',
+          'handily: 6 of 6 mods loaded, 1 off or paused',
+        ].join('\n'),
+      )
+    },
+  )
+
+  test(
+    'shows no default beside a mode whose setting is neither on nor off and writes the reason to the debug log',
+    { plugins: HEARTBEATS },
+    async ($, on) => {
+      const world = fakeWorld(on, {
+        modeSettings: { ...MODE_SETTINGS, 'handily-reply-view': 'sideways' },
+      })
+      expect(await runHandily($)).toBe(ALL_LOADED_REPLY.join('\n'))
+      expect(world.debugLines).toEqual([
+        'handily: cannot read the default mode of handily-reply-view: the mode setting "sideways" is neither on nor off',
+      ])
     },
   )
 
@@ -462,6 +528,22 @@ describe('/handily reply', () => {
         },
       })
       const text = await runHandily($)
+      expect(text.split('\n').filter((line) => line.length > 80)).toEqual([])
+    },
+  )
+
+  test(
+    'keeps every line within 80 columns with a missing mod, every old id and a mode that differs from its setting',
+    { plugins: [OFF_ITEM_TOASTS, ...heartbeatsWithout('handily-board', 'handily-item-toasts')] },
+    async ($, on) => {
+      fakeWorld(on, {
+        enabledPlugins: enabledWithout('handily-board'),
+        enabledByScope: {
+          project: Object.fromEntries(Object.keys(OLD_IDS).map((id) => [id, true])),
+        },
+      })
+      const text = await runHandily($)
+      expect(cellsOf(text, 'handily-item-toasts')[3]).toBe('off (default on)')
       expect(text.split('\n').filter((line) => line.length > 80)).toEqual([])
     },
   )
@@ -644,6 +726,17 @@ describe('/handily colours', () => {
     )
 
     test(
+      `draws the mode setting beside a session mode that differs from it on ${surface}`,
+      { plugins: [OFF_ITEM_TOASTS, ...heartbeatsWithout('handily-item-toasts')] },
+      async ($, on) => {
+        fakeWorld(on)
+        const rows = await shownRows($, surface, engineRowText(await runHandily($)))
+        expect(rows.map((row) => row.text)).toContain('off (default on)')
+        expect(rows.map((row) => row.text)).not.toContain('on (default on)')
+      },
+    )
+
+    test(
       `draws the summary in the success colour when every mod loaded on ${surface}`,
       { plugins: HEARTBEATS },
       async ($, on) => {
@@ -726,7 +819,10 @@ describe('status rows', () => {
     const statuses = statusesOf(
       ['handily-workitems', 'handily-board'],
       new Map([
-        ['handily-workitems', { version: '0.1.0', description: 'Work items.', mode: 'polling' }],
+        [
+          'handily-workitems',
+          { version: '0.1.0', description: 'Work items.', mode: 'polling', defaultMode: null },
+        ],
       ]),
       {},
     )

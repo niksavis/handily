@@ -2,11 +2,14 @@ export type HandilyModState = 'loaded' | 'disabled' | 'not installed' | 'not loa
 
 export type HandilyModMode = 'on' | 'off' | 'polling' | 'paused' | '-' | '?'
 
+export type HandilyDefaultMode = 'on' | 'off'
+
 export type HandilyModStatus = {
   name: string
   version: string | null
   state: HandilyModState
   mode: HandilyModMode
+  defaultMode: HandilyDefaultMode | null
   about: string | null
   action: string | null
 }

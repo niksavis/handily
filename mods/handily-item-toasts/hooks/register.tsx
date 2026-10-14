@@ -20,13 +20,12 @@ const TASK_ID_TAG = /<task-id>([^<]*)<\/task-id>/g
 const TOOL_USE_ID_TAG = /<tool-use-id>([^<]*)<\/tool-use-id>/g
 const NOT_OWN = 'item-toasts: not counting the call as own;'
 const COMMAND = 'item-toasts'
-const DEFAULT_MODE: ItemToastsMode = 'on'
 const MODE = { plugin: 'handily-item-toasts', key: 'mode' } as const
 const ON_TEXT = 'item-toasts on for this session. A work item that changes elsewhere draws a toast.'
 const OFF_TEXT =
   'item-toasts off for this session. No work item change draws a toast until /item-toasts on.'
 const USAGE_TEXT =
-  '/item-toasts takes on, off or no argument. /item-toasts on and /item-toasts off set this session, and /item-toasts toggles it.'
+  '/item-toasts takes on, off or no argument. /item-toasts on and /item-toasts off set this session, and /item-toasts toggles it. Set the default with the plugin\'s "mode" setting.'
 
 function hostOf($: EngineInterface): ToastHost {
   return {
@@ -75,8 +74,8 @@ function startToasts($: EngineInterface, toasts: Toasts): Toaster {
   return toaster
 }
 
-async function isOn($: EngineInterface): Promise<boolean> {
-  const { value: mode = DEFAULT_MODE } = await $.state.get(MODE)
+async function isOn($: EngineInterface, defaultMode: ItemToastsMode): Promise<boolean> {
+  const { value: mode = defaultMode } = await $.state.get(MODE)
   return mode === 'on'
 }
 
@@ -87,9 +86,13 @@ function modeFor(args: string, isCurrentlyOn: boolean): ItemToastsMode | null {
   return null
 }
 
-async function toasterOf($: EngineInterface, toasts: Toasts): Promise<Toaster | undefined> {
+async function toasterOf(
+  $: EngineInterface,
+  toasts: Toasts,
+  defaultMode: ItemToastsMode,
+): Promise<Toaster | undefined> {
   if (toasts.toaster !== undefined) return toasts.toaster
-  return (await isOn($)) ? startToasts($, toasts) : undefined
+  return (await isOn($, defaultMode)) ? startToasts($, toasts) : undefined
 }
 
 async function setMode($: EngineInterface, toasts: Toasts, mode: ItemToastsMode): Promise<string> {
@@ -170,7 +173,8 @@ function isNamedIn(text: string, toolUseId: string, task: BackgroundTask): boole
   return task.taskId !== null && idsIn(text, TASK_ID_TAG).has(task.taskId)
 }
 
-export const register: Register = (on) => {
+export const register: Register = (on, options) => {
+  const defaultMode: ItemToastsMode = options.mode === 'off' ? 'off' : 'on'
   const toasts: Toasts = {
     toaster: undefined,
     ticks: undefined,
@@ -186,14 +190,14 @@ export const register: Register = (on) => {
     })
     const started = await next(e)
     const { value: mode, version } = await $.state.get(MODE)
-    if (mode === undefined) await $.state.set(MODE, DEFAULT_MODE, { ifVersion: version })
-    if (await isOn($)) await startToasts($, toasts).tick()
+    if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
+    if (await isOn($, defaultMode)) await startToasts($, toasts).tick()
     await $.state.set({ plugin: 'handily-item-toasts', key: 'ready' }, { root: $.plugin.root })
     return started
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    const mode = modeFor(e.args, await isOn($))
+    const mode = modeFor(e.args, await isOn($, defaultMode))
     if (mode === null) return { text: USAGE_TEXT }
     return { text: await setMode($, toasts, mode) }
   })
@@ -205,7 +209,7 @@ export const register: Register = (on) => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (!(await isOwnCall($, { tool: 'Bash', command: e.command }))) return next(e)
-    const toaster = await toasterOf($, toasts)
+    const toaster = await toasterOf($, toasts, defaultMode)
     if (toaster === undefined) return next(e)
     const generation = toasts.generation
     await toaster.enterCall()
@@ -231,7 +235,7 @@ export const register: Register = (on) => {
     }
     const use: ToolUse = { tool: e.tool, filePath: e.file_path, root: snapshot.root }
     if (!(await isOwnCall($, use))) return next(e)
-    const toaster = await toasterOf($, toasts)
+    const toaster = await toasterOf($, toasts, defaultMode)
     if (toaster === undefined) return next(e)
     await toaster.enterCall()
     try {

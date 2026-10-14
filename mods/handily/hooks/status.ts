@@ -1,4 +1,5 @@
 import type {
+  HandilyDefaultMode,
   HandilyModMode,
   HandilyModState,
   HandilyModStatus,
@@ -35,7 +36,12 @@ const REPLACED_MODS: ReadonlyMap<string, string> = new Map([
 
 export const OLD_ID_SCOPES: readonly HandilyOldIdScope[] = ['user', 'project', 'local']
 
-export type LoadedMod = { version: string; description: string; mode: HandilyModMode }
+export type LoadedMod = {
+  version: string
+  description: string
+  mode: HandilyModMode
+  defaultMode: HandilyDefaultMode | null
+}
 
 export type ModRow = {
   key: string
@@ -101,7 +107,7 @@ function enabledEntry(enabledPlugins: unknown, id: string): unknown {
 }
 
 function missingStatus(name: string, enabled: unknown): HandilyModStatus {
-  const missing = { name, version: null, mode: '-' as const, about: null }
+  const missing = { name, version: null, mode: '-' as const, defaultMode: null, about: null }
   if (enabled === false) {
     return { ...missing, state: 'disabled', action: `Run /plugin enable ${pluginId(name)}` }
   }
@@ -124,6 +130,7 @@ export function statusesOf(
       version: mod.version,
       state: 'loaded',
       mode: mod.mode,
+      defaultMode: mod.defaultMode,
       about: mod.description,
       action: null,
     }
@@ -164,13 +171,18 @@ export function shortened(text: string, width: number): string {
   return `${cut.replace(/[\s,.;:]+$/, '')}…`
 }
 
+function modeText({ mode, defaultMode }: HandilyModStatus): string {
+  if (defaultMode === null || defaultMode === mode) return mode
+  return `${mode} (default ${defaultMode})`
+}
+
 export function modRowsOf(report: HandilyReport): ModRow[] {
   const cells = report.mods.map((status) => ({
     status,
     name: status.name,
     version: status.version ?? '-',
     stateText: status.state,
-    mode: status.mode,
+    mode: modeText(status),
   }))
   const nameWidth = widest(cells.map((cell) => cell.name))
   const versionWidth = widest(cells.map((cell) => cell.version))
