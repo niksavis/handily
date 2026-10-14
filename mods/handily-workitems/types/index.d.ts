@@ -61,6 +61,11 @@ export type WorkitemsSnapshot = WorkitemsSnapshotBase &
     | ({ state: 'paused'; reason: null } & (WorkitemsSourced | WorkitemsUnsourced))
   )
 
+export type WorkitemsChecked = {
+  version: number
+  at: number
+}
+
 export type WorkitemsDiff = {
   created: readonly WorkitemsItem[]
   updated: readonly WorkitemsItem[]
@@ -185,6 +190,10 @@ declare module 'claude-code' {
     workitems: Workitems
   }
   interface PluginState {
-    'handily-workitems': { snapshot: WorkitemsSnapshot; ready: { root: string } }
+    'handily-workitems': {
+      snapshot: WorkitemsSnapshot
+      checked: WorkitemsChecked
+      ready: { root: string }
+    }
   }
 }

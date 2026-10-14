@@ -299,6 +299,7 @@ its `plugin.json`, and the engine lays the contract into that mod's types folder
 | Part                                                            | Use                                                                                            |
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `$.state.get({ plugin: 'handily-workitems', key: 'snapshot' })` | The last snapshot. A render that reads it draws again on a change                              |
+| `$.state.get({ plugin: 'handily-workitems', key: 'checked' })`  | The `version` of the snapshot and the time `at` of the last check. Each poll writes it         |
 | `$.workitems.refresh({ since })`                                | Reads again. Returns the created, updated and closed items, the `version` and the `state`      |
 | `$.workitems.lines({ snapshot, now })`                          | The state lines of `docs/mocks.md` section 0, with their tone                                  |
 | `$.workitems.writeVerbs()`                                      | The write verbs of each tracker CLI that the mod knows                                         |
@@ -312,11 +313,11 @@ snapshot keeps the items, the root and the source of the last read (see
 
 Each snapshot also carries these fields:
 
-| Field       | Meaning                                                                |
-| ----------- | ---------------------------------------------------------------------- |
-| `version`   | A number that rises by 1 each time the data changes                    |
-| `at`        | The time of the read that gave this data                               |
-| `checkedAt` | The time of the last check of the tracker file. The header age uses it |
+| Field       | Meaning                                             |
+| ----------- | --------------------------------------------------- |
+| `version`   | A number that rises by 1 each time the data changes |
+| `at`        | The time of the read that gave this data            |
+| `checkedAt` | The time of the check that made this snapshot       |
 
 ## Refresh
 
@@ -339,6 +340,9 @@ Each snapshot also carries these fields:
   when the modification time or the size of a tracker file changed, or when the list of
   ignored sources changed. For beans and `files`, it lists the item files at each poll to see
   this. It reads `.handily.json` once per poll.
+- A poll that finds no change does not write the snapshot again. It writes only `checked`.
+  The header age of `$.workitems.lines` uses the newer of `checkedAt` and `checked.at` when
+  `checked` has the version of the snapshot.
 - The poll starts before the first refresh at session start, so a failed first refresh does
   not stop it.
 

@@ -122,6 +122,9 @@ export const register: Register = (on) => {
         publish: async (snapshot) => {
           await built.state.set({ plugin: 'handily-workitems', key: 'snapshot' }, snapshot)
         },
+        publishChecked: async (checked) => {
+          await built.state.set({ plugin: 'handily-workitems', key: 'checked' }, checked)
+        },
       },
       createReaders(),
     )
@@ -133,7 +136,7 @@ export const register: Register = (on) => {
         writeVerbs: () => Promise.resolve(writeVerbs),
         classify: (command) => Promise.resolve(classify(command)),
         trackerFile: (args) => Promise.resolve(trackerFileOf(args)),
-        lines: (args) => Promise.resolve(stateLines(args)),
+        lines: (args) => Promise.resolve(stateLines(args, created.checked())),
       },
     }
   })

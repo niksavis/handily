@@ -213,6 +213,16 @@ Snapshot, published as a typed `$.state` ref:
 | `source` | The adapter name |
 | `items` | The normalized work items |
 
+A poll that finds no change does not publish the snapshot again. It publishes only the small
+`$.state` value `checked`: the snapshot `version` and the time `at` of the check. The header
+age of `lines()` uses the newer of `snapshot.checkedAt` and `checked.at` when both have the same
+version (handily-fwkt.2.5).
+
+A poll sends its checks at once: the root, the time, the detection of every source and the
+signature of the last source at the last root. When the root or the source changed, it checks
+the new one again before it reads. An unchanged poll of a 26 MB beads file took 2 to 4 ms in a
+live session, measured with a probe that times `await $.workitems.refresh()` (handily-fwkt.2.5).
+
 Normalized work item:
 
 | Field | Meaning |

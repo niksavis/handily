@@ -1,4 +1,5 @@
 import type {
+  WorkitemsChecked,
   WorkitemsLine,
   WorkitemsLinesArgs,
   WorkitemsSnapshotBase,
@@ -20,13 +21,22 @@ export function ageText(elapsedMs: number): string {
   return `${numeral(Math.floor(elapsed / HOUR_MS))} h`
 }
 
+function lastCheckOf(
+  snapshot: WorkitemsSnapshotBase,
+  checked: WorkitemsChecked | undefined,
+): number {
+  if (checked?.version !== snapshot.version) return snapshot.checkedAt
+  return Math.max(snapshot.checkedAt, checked.at)
+}
+
 function headerLines(
   snapshot: WorkitemsSnapshotBase & WorkitemsSourced,
   now: number,
+  checked: WorkitemsChecked | undefined,
 ): WorkitemsLine[] {
   const label = snapshot.sourceLabel
   const open = numeral(snapshot.items.filter((item) => item.status !== 'closed').length)
-  const age = ageText(now - snapshot.checkedAt)
+  const age = ageText(now - lastCheckOf(snapshot, checked))
   const header: WorkitemsLine =
     snapshot.caveat === null
       ? { kind: 'header', tone: 'dim', text: `${label} · ${open} open · read ${age} ago` }
@@ -46,10 +56,13 @@ function headerLines(
   ]
 }
 
-export function stateLines({ snapshot, now }: WorkitemsLinesArgs): WorkitemsLine[] {
+export function stateLines(
+  { snapshot, now }: WorkitemsLinesArgs,
+  checked: WorkitemsChecked | undefined,
+): WorkitemsLine[] {
   switch (snapshot.state) {
     case 'ok':
-      return headerLines(snapshot, now)
+      return headerLines(snapshot, now, checked)
     case 'failed':
       return [{ kind: 'failed', tone: 'error', text: `Work items unavailable: ${snapshot.reason}` }]
     case 'stale':

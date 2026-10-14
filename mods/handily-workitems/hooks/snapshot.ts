@@ -6,6 +6,7 @@ import type {
   ProcessSpawnResult,
 } from 'claude-code'
 import type {
+  WorkitemsChecked,
   WorkitemsDiff,
   WorkitemsFailedReason,
   WorkitemsItem,
@@ -21,7 +22,7 @@ import {
   type SearchPath,
 } from './approval'
 import { FileProblem, FileTooLarge, isInside, isUnsafeCharacter } from './config'
-import { detect } from './detect'
+import { detect, type Detection } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
 
 export const MAX_FILE_BYTES = 4 * 1024 * 1024
@@ -60,6 +61,7 @@ export type ProviderHost = {
   homeFolder: () => Promise<string | undefined>
   commands: CommandHost
   publish: (snapshot: WorkitemsSnapshot) => Promise<void>
+  publishChecked: (checked: WorkitemsChecked) => Promise<void>
 }
 
 export type Provider = {
@@ -67,6 +69,7 @@ export type Provider = {
   pause: (last: WorkitemsSnapshot | undefined) => Promise<void>
   resume: () => void
   isPaused: () => boolean
+  checked: () => WorkitemsChecked | undefined
 }
 
 function emptyDiff(): WorkitemsDiff {
@@ -453,7 +456,18 @@ function pausedOf(from: WorkitemsSnapshot, version: number): WorkitemsSnapshot {
   return { ...base, source: from.source, sourceLabel: from.sourceLabel, caveat: from.caveat }
 }
 
+type Inspection = {
+  root: string
+  files: TrackerFiles
+  detection: Detection
+  signature: string
+}
+
 function deliveredToItsOwnCallers(): undefined {
+  return undefined
+}
+
+function inspectedAgainAtTheRoot(): undefined {
   return undefined
 }
 
@@ -469,6 +483,8 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
       }
     | undefined
   let lastSignature: string | undefined
+  let lastCheck: WorkitemsChecked | undefined
+  let lastInspected: { root: string; reader: Reader | undefined } | undefined
   let version = 0
   const history: { version: number; diff: WorkitemsDiff }[] = []
   let tail: Promise<void> = Promise.resolve()
@@ -501,22 +517,42 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     return mergeDiffs(history.filter((entry) => entry.version > since).map((entry) => entry.diff))
   }
 
-  async function readOnce(): Promise<void> {
-    if (paused) return
-    const root = await host.root()
+  async function noteCheck(at: number): Promise<void> {
+    lastCheck = { version, at }
+    await host.publishChecked(lastCheck)
+  }
+
+  async function inspect(root: string): Promise<Inspection> {
     const files = filesAtRoot(host, root)
-    const detection = await detect(readers, files)
+    const lastFound = lastInspected?.root === root ? lastInspected.reader : undefined
+    const [detection, lastFoundSignature] = await Promise.all([
+      detect(readers, files),
+      lastFound && signatureOf(host, files, root, lastFound),
+    ])
     const signature = detection.found
       ? [
-          await signatureOf(host, files, root, detection.reader),
+          detection.reader === lastFound && lastFoundSignature !== undefined
+            ? lastFoundSignature
+            : await signatureOf(host, files, root, detection.reader),
           `ignored ${detection.ignored.join(' ')}`,
         ].join('\n')
       : [root, 'no-tracker'].join('\n')
-    const checkedAt = await host.now()
+    return { root, files, detection, signature }
+  }
+
+  async function readOnce(): Promise<void> {
+    if (paused) return
+    const lastRoot = lastInspected?.root
+    const [root, checkedAt, atLastRoot] = await Promise.all([
+      host.root(),
+      host.now(),
+      lastRoot === undefined ? undefined : inspect(lastRoot).catch(inspectedAgainAtTheRoot),
+    ])
+    const { files, detection, signature } =
+      atLastRoot?.root === root ? atLastRoot : await inspect(root)
+    lastInspected = { root, reader: detection.found ? detection.reader : undefined }
     if (current && signature === lastSignature) {
-      const checked: WorkitemsSnapshot = { ...current, checkedAt }
-      await host.publish(checked)
-      current = checked
+      await noteCheck(checkedAt)
       return
     }
     const result = detection.found
@@ -557,6 +593,7 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     if (history.length > DIFF_HISTORY_LIMIT) history.shift()
     lastSignature = signature
     current = snapshot
+    await noteCheck(checkedAt)
   }
 
   function requestRead(): Promise<void> {
@@ -609,5 +646,6 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
       lastSignature = undefined
     },
     isPaused: () => paused,
+    checked: () => lastCheck,
   }
 }

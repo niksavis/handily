@@ -14,7 +14,9 @@ import type {
   WorkitemsDiff,
   WorkitemsRefreshResult,
   WorkitemsItem,
+  WorkitemsChecked,
   WorkitemsLine,
+  WorkitemsLinesArgs,
   WorkitemsParsedCommand,
   WorkitemsSnapshot,
   WorkitemsTrackerFileArgs,
@@ -46,6 +48,7 @@ type World = {
   rootCalls: number
   readDelayMs: number
   statDelayMs: number
+  unreachableRoot: string | undefined
 }
 
 function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): World {
@@ -57,6 +60,7 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
     rootCalls: 0,
     readDelayMs: 0,
     statDelayMs: 0,
+    unreachableRoot: undefined,
   }
   mock.env(on, {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -68,6 +72,9 @@ function fakeWorld(on: On, clock: MockClock, files: Record<string, FakeFile>): W
   })
   on('fs.exists', (_$, e) => {
     world.touched.push(e.path)
+    if (world.unreachableRoot !== undefined && e.path.startsWith(`${world.unreachableRoot}/`)) {
+      return { deny: `network location: ${e.path}` }
+    }
     return { value: world.files.has(e.path) }
   })
   on('fs.stat', async (_$, e) => {
@@ -101,6 +108,19 @@ const consumer: Plugin = {
       if (e.command === 'snapshot') {
         const { value } = await $.state.get({ plugin: 'handily-workitems', key: 'snapshot' })
         return { text: JSON.stringify(value ?? null) }
+      }
+      if (e.command === 'snapshot-state') {
+        return {
+          text: JSON.stringify(await $.state.get({ plugin: 'handily-workitems', key: 'snapshot' })),
+        }
+      }
+      if (e.command === 'checked') {
+        const { value } = await $.state.get({ plugin: 'handily-workitems', key: 'checked' })
+        return { text: JSON.stringify(value ?? null) }
+      }
+      if (e.command === 'lines-of') {
+        const args = JSON.parse(e.args) as WorkitemsLinesArgs
+        return { text: JSON.stringify(await $.workitems.lines(args)) }
       }
       const refreshArgs = e.args === '' ? {} : { since: Number(e.args) }
       if (e.command === 'refresh') {
@@ -153,6 +173,19 @@ async function commandText(engine: Engine, command: string, args?: string): Prom
 
 async function snapshotOf(engine: Engine): Promise<WorkitemsSnapshot> {
   return JSON.parse(await commandText(engine, 'snapshot')) as WorkitemsSnapshot
+}
+
+async function snapshotStateVersionOf(engine: Engine): Promise<number> {
+  return (JSON.parse(await commandText(engine, 'snapshot-state')) as { version: number }).version
+}
+
+async function checkedOf(engine: Engine): Promise<WorkitemsChecked | null> {
+  return JSON.parse(await commandText(engine, 'checked')) as WorkitemsChecked | null
+}
+
+async function headerTexts(engine: Engine, args: WorkitemsLinesArgs): Promise<string[]> {
+  const text = await commandText(engine, 'lines-of', JSON.stringify(args))
+  return (JSON.parse(text) as WorkitemsLine[]).map((line) => line.text)
 }
 
 async function startSession(engine: Engine): Promise<void> {
@@ -783,22 +816,138 @@ describe('session start and directory changes', () => {
     },
   )
 
+  test(
+    'a poll after a directory change reads the new root when the old root can no longer be checked',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on)
+      const world = fakeWorld(on, clock, {
+        [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 },
+        [`${OTHER_ROOT}/.beads/issues.jsonl`]: {
+          text: '{"id":"o-1","title":"Other","status":"open"}',
+          mtimeMs: 10,
+        },
+      })
+      await startSession($)
+      world.root = OTHER_ROOT
+      world.unreachableRoot = ROOT
+      const snapshot = await pollUntil(
+        $,
+        clock,
+        POLL_INTERVAL_MS,
+        (current) => current.root === OTHER_ROOT,
+        'a read of the new root',
+      )
+      expect(keysOf(snapshot.items)).toEqual(['beads:o-1'])
+    },
+  )
+
   test('the header counts the age from the last check', { plugins: [consumer] }, async ($, on) => {
     const clock = mock.clock(on, { now: 100_000 })
     fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
     await startSession($)
-    const snapshot = await pollUntil(
-      $,
+    await advanceUntil(
       clock,
       10_000,
-      (current) => current.checkedAt === 110_000,
+      () => checkedOf($),
+      (checked) => checked?.at === 110_000,
       'a check at 110 s',
     )
+    const snapshot = await snapshotOf($)
     expect(snapshot.at).toBe(100_000)
-    expect(snapshot.checkedAt).toBe(110_000)
+    expect(snapshot.checkedAt).toBe(100_000)
     const lines = JSON.parse(await commandText($, 'lines', '122000')) as WorkitemsLine[]
     expect(lines.map((line) => line.text)).toEqual(['beads · 2 open · read 12 s ago'])
   })
+
+  test(
+    'the header of a snapshot from another version counts from its own check',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 100_000 })
+      fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      await advanceUntil(
+        clock,
+        10_000,
+        () => checkedOf($),
+        (checked) => checked?.at === 110_000,
+        'a check at 110 s',
+      )
+      const snapshot = await snapshotOf($)
+      const older = { ...snapshot, version: snapshot.version - 1 }
+      expect(await headerTexts($, { snapshot: older, now: 122_000 })).toEqual([
+        'beads · 2 open · read 22 s ago',
+      ])
+      expect(await headerTexts($, { snapshot, now: 122_000 })).toEqual([
+        'beads · 2 open · read 12 s ago',
+      ])
+    },
+  )
+})
+
+describe('unchanged poll', () => {
+  test('publishes no snapshot', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on, { now: 100_000 })
+    fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+    await startSession($)
+    const published = await snapshotStateVersionOf($)
+    const before = await snapshotOf($)
+    await advanceUntil(
+      clock,
+      3 * POLL_INTERVAL_MS,
+      () => checkedOf($),
+      (checked) => checked?.at === 100_000 + 3 * POLL_INTERVAL_MS,
+      'three unchanged polls',
+    )
+    expect(await snapshotStateVersionOf($)).toBe(published)
+    expect(await snapshotOf($)).toEqual(before)
+  })
+
+  test('publishes the time of each check', { plugins: [consumer] }, async ($, on) => {
+    const clock = mock.clock(on, { now: 100_000 })
+    fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+    await startSession($)
+    const { version } = await snapshotOf($)
+    expect(await checkedOf($)).toEqual({ version, at: 100_000 })
+    const times: number[] = []
+    for (let poll = 1; poll <= 3; poll += 1) {
+      const expected = 100_000 + poll * POLL_INTERVAL_MS
+      const checked = await advanceUntil(
+        clock,
+        POLL_INTERVAL_MS,
+        () => checkedOf($),
+        (current) => current?.at === expected,
+        `a check at ${String(expected)}`,
+      )
+      expect(checked?.version).toBe(version)
+      times.push(checked?.at ?? 0)
+    }
+    expect(times).toEqual([102_000, 104_000, 106_000])
+  })
+
+  test(
+    'a changed tracker publishes a snapshot and a check of its new version',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 100_000 })
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      const published = await snapshotStateVersionOf($)
+      const { version } = await snapshotOf($)
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      const changed = await pollUntil(
+        $,
+        clock,
+        POLL_INTERVAL_MS,
+        (snapshot) => snapshot.version === version + 1,
+        'a new version',
+      )
+      expect(changed.checkedAt).toBe(102_000)
+      expect(await snapshotStateVersionOf($)).toBe(published + 1)
+      expect(await checkedOf($)).toEqual({ version: version + 1, at: 102_000 })
+    },
+  )
 })
 
 describe('ready value for /handily', () => {

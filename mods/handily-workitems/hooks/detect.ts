@@ -23,12 +23,12 @@ async function isPresent(reader: Reader, files: TrackerFiles): Promise<boolean> 
 }
 
 export async function detect(readers: readonly Reader[], files: TrackerFiles): Promise<Detection> {
-  const config = await readConfig(files)
+  const [config, presence] = await Promise.all([
+    readConfig(files),
+    Promise.all(readers.map((reader) => isPresent(reader, files))),
+  ])
   if (!config.ok) return configProblem(config.reason)
-  const present: Reader[] = []
-  for (const reader of readers) {
-    if (await isPresent(reader, files)) present.push(reader)
-  }
+  const present = readers.filter((_, index) => presence[index])
   const named = config.config.source
   const chosen = named === null ? present[0] : readers.find((reader) => reader.name === named)
   if (named !== null && !chosen) {
