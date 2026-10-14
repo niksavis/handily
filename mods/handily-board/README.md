@@ -130,6 +130,9 @@ You can press every button on both tabs with the keyboard alone. A live check on
   `[handily-board]` notes act only on the list of the main loop.
 - Another mod reads the agent ids in `{ plugin: 'handily-board', key: 'agentIds' }`.
 - The session keeps the lists of at most 100 agents.
+- The board also copies each agent list into one value, `{ plugin: 'handily-board', key:
+'agentPlans' }`, so a draw reads every plan at once. `agentList` stays the source. Each plan
+  change rewrites that one value: about 150 KB with 30 agents of 20 tasks.
 
 ## The this session tab
 
