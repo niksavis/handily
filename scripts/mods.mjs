@@ -139,10 +139,48 @@ function layContracts(mod, dependencies) {
 }
 
 const layTimeoutMs = 120_000
+const versionTimeoutMs = 30_000
 const headlessExitMessage = 'Not logged in'
+const versionPattern = /^\d+\.\d+\.\d+\S*$/
+const engineHeaderPattern = /^\/\/ Written by Claude Code (\S+)\.$/
 
 function firstLine(text) {
   return text.trim().split('\n')[0] ?? ''
+}
+
+function versionReadProblem(result, printed) {
+  if (result.error) return result.error.message
+  if (result.status !== 0) {
+    return `exit ${result.status}: ${firstLine(result.stderr || result.stdout)}`
+  }
+  if (!versionPattern.test(printed)) return `it printed "${firstLine(result.stdout)}"`
+  return undefined
+}
+
+function readInstalledVersion() {
+  const result = spawnSync('claude', ['--version'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: versionTimeoutMs,
+  })
+  const printed = firstLine(result.stdout ?? '').split(' ')[0]
+  const problem = versionReadProblem(result, printed)
+  if (problem === undefined) return printed
+  fail(
+    `claude --version: cannot read the installed Claude Code version (${problem}); is the claude CLI on PATH?`,
+  )
+  return undefined
+}
+
+function engineTypesPath(mod) {
+  return join(typesDir(mod), 'claude-code', 'index.d.ts')
+}
+
+function laidEngineVersion(mod) {
+  const path = engineTypesPath(mod)
+  if (!existsSync(path)) return undefined
+  return engineHeaderPattern.exec(firstLine(readFileSync(path, 'utf8')))?.[1]
 }
 
 function layingRunProblem(result) {
@@ -182,18 +220,21 @@ function unlistedDependencies(mod, dependencies) {
   )
 }
 
-function needsTypes(mod, dependencies) {
+function needsTypes(mod, dependencies, installedVersion) {
   if (!hasLaidTypes(mod)) return true
+  if (laidEngineVersion(mod) !== installedVersion) return true
   return unlistedDependencies(mod, dependencies).length > 0
 }
 
 function layTypes(mods, { force }) {
+  const installedVersion = readInstalledVersion()
+  if (installedVersion === undefined) return
   const configDir = mkdtempSync(join(tmpdir(), 'handily-types-'))
   try {
     for (const mod of mods) {
       const dependencies = dependenciesOf(mod, mods)
       layContracts(mod, dependencies)
-      if (!force && !needsTypes(mod, dependencies)) continue
+      if (!force && !needsTypes(mod, dependencies, installedVersion)) continue
       const pluginDirs = [mod, ...dependencies].flatMap((loaded) => ['--plugin-dir', loaded.dir])
       const result = spawnSync('claude', [...pluginDirs, '-p', 'ok'], {
         cwd: root,
@@ -218,6 +259,12 @@ function layTypes(mods, { force }) {
         if (unlisted.length > 0) {
           fail(
             `${mod.name}: the laid ${relative(root, join(typesDir(mod), 'tsconfig.json'))} does not list the types of its dependencies ${unlisted.join(', ')}; load the mod once in an interactive session: ${layCommand(mod, dependencies)}`,
+          )
+        }
+        const laidVersion = laidEngineVersion(mod)
+        if (laidVersion !== installedVersion) {
+          fail(
+            `${mod.name}: the header of ${relative(root, engineTypesPath(mod))} names Claude Code ${laidVersion ?? 'no version'}, and the installed Claude Code is ${installedVersion}; load the mod once in an interactive session: ${layCommand(mod, dependencies)}`,
           )
         }
       }

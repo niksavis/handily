@@ -26,10 +26,11 @@ uvx --from git+https://github.com/niksavis/basicly@v0.23.1 basicly hooks-build
 ```
 
 Each mod commits its engine type snapshot in `mods/<name>/.claude-plugin/types/`. `npm run
-types` loads each mod once, headless and without login, to lay the types again. When Claude
-Code writes no types that way, the command fails and prints the `claude --plugin-dir` command
-that lays them in an interactive session. `npm run check` refuses a snapshot file that git does
-not track.
+types` loads each mod once, headless and without login, to lay the types again. A headless run
+lays no types. So after a Claude Code upgrade, the command fails for each mod whose
+`claude-code/index.d.ts` header names a version other than `claude --version`. It prints the
+`claude --plugin-dir` command that lays the types in an interactive session. `npm run check`
+refuses a snapshot file that git does not track.
 
 On WSL, use a Linux `node` on `PATH`. A Windows Node.js install does not work for the hooks.
 

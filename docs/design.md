@@ -664,11 +664,15 @@ Measured facts behind these choices:
 - typescript-eslint 8.71.1 accepts TypeScript `>=4.8.4 <6.1.0` (from `npm view`), so
   TypeScript is pinned to 6.0.3, not 7.
 - A headless `claude --plugin-dir <mod> -p ok` with an empty config folder and no login
-  writes no types (measured on Claude Code 2.1.295 and 2.1.296). Only an interactive load
-  of a logged-in session lays them, so each mod commits its engine type snapshot and CI
-  typechecks against it. `npm run check` refuses a snapshot file that git does not track
-  (handily-b1heu), and `npm run types` fails with the lay command when a laid tsconfig
-  misses a dependency (handily-1fp3v).
+  writes no types (measured on Claude Code 2.1.295, 2.1.296 and 2.1.299). The 2.1.299
+  plugin-authoring reference says that Claude Code never writes in a `--plugin-dir` folder
+  under `claude -p`. Only an interactive load of a logged-in session lays them, so each mod
+  commits its engine type snapshot and CI typechecks against it. `npm run check` refuses a
+  snapshot file that git does not track (handily-b1heu), and `npm run types` fails with the
+  lay command when a laid tsconfig misses a dependency (handily-1fp3v). The types step also
+  compares the `// Written by Claude Code X.` header of each laid `claude-code/index.d.ts`
+  with `claude --version`. A header that names another version, or no header, fails by name
+  with the lay command (handily-fwkt.24).
 - `no-misused-promises` with its default `checksVoidReturn` ran over 80 s on a 9-line mod,
   because it compares callbacks with the large overloads of `on`. With
   `checksVoidReturn: false` it takes about 0.5 s. `no-floating-promises` stays at full

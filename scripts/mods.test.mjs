@@ -66,12 +66,18 @@ test('typecheck writes no .js file into mods/ when the types are missing', () =>
 })
 
 const engineCompilerOptions = { strict: true, noEmit: true, typeRoots: ['.'] }
+const installedVersion = '2.1.299'
+const staleVersion = '2.1.296'
+
+function engineHeader(version) {
+  return `// Written by Claude Code ${version}.\nexport {}\n`
+}
 
 function engineTsconfig(types) {
   return JSON.stringify({ compilerOptions: { ...engineCompilerOptions, types } })
 }
 
-function makeRepoWithUnlaidContract({ listsDependency }) {
+function makeRepoWithUnlaidContract({ listsDependency, engineVersion = installedVersion }) {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-contract-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
@@ -83,6 +89,11 @@ function makeRepoWithUnlaidContract({ listsDependency }) {
     mkdirSync(join(mod, 'hooks'))
     writeFileSync(join(mod, '.claude-plugin', 'plugin.json'), JSON.stringify(manifest))
     writeFileSync(join(mod, '.claude-plugin', 'types', 'tsconfig.json'), engineTsconfig(laidTypes))
+    mkdirSync(join(mod, '.claude-plugin', 'types', 'claude-code'))
+    writeFileSync(
+      join(mod, '.claude-plugin', 'types', 'claude-code', 'index.d.ts'),
+      engineHeader(engineVersion),
+    )
     writeFileSync(
       join(mod, 'tsconfig.json'),
       JSON.stringify({ extends: './.claude-plugin/types/tsconfig.json', include: ['hooks'] }),
@@ -103,6 +114,7 @@ function makeRepoWithUnlaidContract({ listsDependency }) {
     root,
     laid: join(laidTypes, 'base', 'index.d.ts'),
     laidTsconfig: join(laidTypes, 'tsconfig.json'),
+    laidEngineTypes: join(laidTypes, 'claude-code', 'index.d.ts'),
   }
 }
 
@@ -116,8 +128,17 @@ function makeFakeClaude(body) {
 }
 
 const notLoggedIn = "console.log('Not logged in')\nprocess.exit(1)"
-const headlessClaude = makeFakeClaude(notLoggedIn)
-const layingClaude = makeFakeClaude(`const { writeFileSync } = require('node:fs')
+const answersVersion = `if (process.argv[2] === '--version') {
+  console.log('${installedVersion} (Claude Code)')
+  process.exit(0)
+}`
+const headlessClaude = makeFakeClaude(`${answersVersion}\n${notLoggedIn}`)
+const versionlessClaude = makeFakeClaude(notLoggedIn)
+const versionOnlyClaude = makeFakeClaude(`${answersVersion}
+console.error('the engine loaded the mod')
+process.exit(3)`)
+const layingClaude = makeFakeClaude(`${answersVersion}
+const { writeFileSync } = require('node:fs')
 const { basename, join } = require('node:path')
 const args = process.argv.slice(2)
 const pluginDirs = args.filter((_, index) => args[index - 1] === '--plugin-dir')
@@ -126,6 +147,7 @@ writeFileSync(
   join(mod, '.claude-plugin', 'types', 'tsconfig.json'),
   JSON.stringify({ compilerOptions: { ...${JSON.stringify(engineCompilerOptions)}, types: dependencies.map((dir) => basename(dir)) } }),
 )
+writeFileSync(join(mod, '.claude-plugin', 'types', 'claude-code', 'index.d.ts'), ${JSON.stringify(engineHeader(installedVersion))})
 ${notLoggedIn}`)
 
 function runMods(repo, task, bin) {
@@ -137,9 +159,9 @@ function runMods(repo, task, bin) {
 }
 
 const contractRepo = makeRepoWithUnlaidContract({ listsDependency: true })
-const contractResult = runMods(contractRepo, 'typecheck', emptyBin)
+const contractResult = runMods(contractRepo, 'typecheck', versionOnlyClaude)
 
-test('typecheck lays a missing dependency contract as a regular file and passes without the engine', () => {
+test('typecheck lays a missing dependency contract as a regular file and passes without an engine load', () => {
   assert.equal(contractResult.status, 0, contractResult.stdout + contractResult.stderr)
   assert.equal(lstatSync(contractRepo.laid).isSymbolicLink(), false)
   assert.equal(readFileSync(contractRepo.laid, 'utf8'), 'export type BaseValue = number\n')
@@ -148,9 +170,41 @@ test('typecheck lays a missing dependency contract as a regular file and passes 
 const typesRepo = makeRepoWithUnlaidContract({ listsDependency: true })
 const typesResult = runMods(typesRepo, 'types', headlessClaude)
 
-test('types lays the dependency contracts and passes when the headless engine lays nothing', () => {
+test('types lays the dependency contracts and passes when every laid header names the installed version', () => {
   assert.equal(typesResult.status, 0, typesResult.stdout + typesResult.stderr)
   assert.equal(readFileSync(typesRepo.laid, 'utf8'), 'export type BaseValue = number\n')
+})
+
+const outdatedRepo = makeRepoWithUnlaidContract({
+  listsDependency: true,
+  engineVersion: staleVersion,
+})
+const outdatedResult = runMods(outdatedRepo, 'types', headlessClaude)
+
+test('types fails by name with the lay command when a laid header names another version after the run', () => {
+  assert.equal(outdatedResult.status, 1, outdatedResult.stdout + outdatedResult.stderr)
+  const failures = outdatedResult.stderr.split('\n').filter((line) => line.startsWith('FAIL '))
+  assert.equal(failures.length, 2, outdatedResult.stderr)
+  for (const name of ['base', 'dependent']) {
+    assert.match(
+      outdatedResult.stderr,
+      new RegExp(
+        `FAIL ${name}: the header of \\S+claude-code/index\\.d\\.ts names Claude Code ${staleVersion}, and the installed Claude Code is ${installedVersion};`,
+      ),
+    )
+  }
+  assert.match(outdatedResult.stderr, /claude --plugin-dir mods\/dependent --plugin-dir mods\/base/)
+})
+
+const versionlessRepo = makeRepoWithUnlaidContract({ listsDependency: true })
+const versionlessResult = runMods(versionlessRepo, 'types', versionlessClaude)
+
+test('types fails by name when claude --version cannot be read', () => {
+  assert.equal(versionlessResult.status, 1, versionlessResult.stdout + versionlessResult.stderr)
+  assert.match(
+    versionlessResult.stderr,
+    /FAIL claude --version: cannot read the installed Claude Code version \(exit 1: Not logged in\)/,
+  )
 })
 
 const staleRepo = makeRepoWithUnlaidContract({ listsDependency: false })
@@ -160,6 +214,20 @@ test('typecheck lays the types again when the laid tsconfig does not list a depe
   assert.equal(staleResult.status, 0, staleResult.stdout + staleResult.stderr)
   const laid = JSON.parse(readFileSync(staleRepo.laidTsconfig, 'utf8'))
   assert.deepEqual(laid.compilerOptions.types, ['base'])
+})
+
+const relaidRepo = makeRepoWithUnlaidContract({
+  listsDependency: true,
+  engineVersion: staleVersion,
+})
+const relaidResult = runMods(relaidRepo, 'typecheck', layingClaude)
+
+test('typecheck lays the types again when a laid header names another version', () => {
+  assert.equal(relaidResult.status, 0, relaidResult.stdout + relaidResult.stderr)
+  assert.match(
+    readFileSync(relaidRepo.laidEngineTypes, 'utf8'),
+    new RegExp(`^// Written by Claude Code ${installedVersion}\\.`),
+  )
 })
 
 const unlistedRepo = makeRepoWithUnlaidContract({ listsDependency: false })
