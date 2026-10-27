@@ -27,6 +27,7 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board done <n>`      | Marks task `n` done                                                     |
 | `/board start <n>`     | Marks task `n` in progress                                              |
 | `/board open <n>`      | Marks task `n` pending                                                  |
+| `/board clear`         | Removes every done task                                                 |
 | `/board list`          | Prints the list as text. With no tasks, it lists the open tracker items |
 | `/board close`         | Closes the board                                                        |
 
@@ -42,7 +43,9 @@ Replies, from the tests:
 /board done 2            Task 2 is now done: app-x1. Claude is told at your next prompt.
 /board done 2            Task 2 is already done. Nothing changed.
 /board start 9           No task 9. This session has tasks 1-2; /board list prints them.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board list or /board close.
+/board clear             Cleared 1 done task: 2. Claude is told at your next prompt.
+/board clear             No done task to clear. Nothing changed.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.
 ```
 
 - `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
@@ -121,7 +124,9 @@ You can press every button on both tabs with the keyboard alone. A live check on
 - A bad input is refused with the reason and the correct form. The list does not change.
 - A title must be one line with no control character and no bidi control character. It has at
   most 200 characters. A run of spaces in a title becomes one space. The list holds at most 100
-  tasks. The model and the person get the same refusal, by name.
+  tasks, done tasks included. The model and the person get the same refusal, by name. When
+  some of the 100 tasks are done, the refusal counts them and names `/board clear`. A refused
+  add removes no task.
 - Each row of a `/board list` reply and of a model tool answer shows the task number, the
   status, the author and the title. The author is `you`, `claude` or `tracker`, and it comes
   before the title, so a title cannot imitate it.
@@ -184,7 +189,9 @@ Tasks  1 of 4 done · 14m
 - The task in progress comes first, in bold, with its time and an `[ rm ]` button. Docked, the
   line under it shows the last tool and the count of tool calls since the task started. Inline,
   the same text is on the task line.
-- Open tasks follow in list order. Done tasks fold into a `+N done` button.
+- Open tasks follow in list order. Done tasks fold into a `+N done` button. Pressed, the
+  button shows the done tasks and a `[ clear done ]` button after them. It acts as
+  `/board clear`: every done task leaves the list, and the toast is the reply.
 - Press a task title to open it. An opened task shows its full title when the row cut it, then
   `not started yet`, `started 4m ago · 9 tools in all` or `took 3m · 2 tools in all`.
 - An opened task then shows a line of status buttons: the two statuses that the task does not

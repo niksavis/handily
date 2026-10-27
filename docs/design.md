@@ -662,6 +662,10 @@ Defer to quiet-items:
   change, as `prompt.submit` context. So the person can make many changes in one turn, and
   Claude reads them once. The cost: Claude does not see a change during the turn in which the
   person makes it, unless a task tool answer shows the list.
+- `/board clear` and `[ clear done ]` remove every done task (handily-9uj3n.2). Done tasks still
+  count against the limit of 100 tasks, so the limit stays one simple rule. When the list is full
+  and holds done tasks, the refusal counts them and names `/board clear`. An add never removes a
+  task to make room.
 
 ## 5. Repo layout (proposed)
 

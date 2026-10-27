@@ -45,6 +45,7 @@ import {
   listReply,
   parseBoardCommand,
   personAdd,
+  personClear,
   personNote,
   personRemove,
   personStatus,
@@ -578,7 +579,7 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promis
   }
   const outcome = await host.edit<{ task: BoardTask | undefined; numbers: string }>((list) => {
     const task = findTask(list, id)
-    if (!task) return { list, value: { task, numbers: numbersText(list) } }
+    if (!task) return { list, value: { task, numbers: numbersText(list.tasks) } }
     const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
     return { list: next, value: { task, numbers: '' } }
   })
@@ -619,7 +620,7 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<
     if (task && findTask(list, before)) {
       return { list: moveTask(list, id, before), value: { missing: undefined, task } }
     }
-    return { list, value: { missing: task ? before : id, numbers: numbersText(list) } }
+    return { list, value: { missing: task ? before : id, numbers: numbersText(list.tasks) } }
   })
   if (outcome.missing !== undefined) {
     const known = knownIds(outcome.numbers)
@@ -650,7 +651,7 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | done <n> | start <n> | open <n> | list | close]',
+        '[machine | add <text|id> | rm <n> | done <n> | start <n> | open <n> | clear | list | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -805,6 +806,8 @@ export const register: Register = (on, options) => {
         return { text: await openBoard(uiOf($), SESSIONS_PANE) }
       case 'close':
         return { text: await closeBoard(uiOf($)) }
+      case 'clear':
+        return { text: await personClear(host) }
       case 'list':
         return { text: await listReply(host) }
       case 'add':

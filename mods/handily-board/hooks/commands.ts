@@ -19,6 +19,7 @@ import {
   taskForItem,
   taskText,
   withTrackerNotice,
+  withoutDone,
   type WorkItem,
 } from './tasks'
 
@@ -30,6 +31,7 @@ export type BoardCommand =
   | { kind: 'machine' }
   | { kind: 'list' }
   | { kind: 'close' }
+  | { kind: 'clear' }
   | { kind: 'add'; text: string }
   | { kind: 'rm'; text: string }
   | { kind: 'status'; word: StatusWord; text: string }
@@ -98,12 +100,14 @@ export function parseBoardCommand(args: string): BoardCommand {
   if (word === 'add' || word === 'rm') return { kind: word, text }
   if (isStatusWord(word)) return { kind: 'status', word, text }
   if (text !== '') return { kind: 'unknown', word: trimmed }
-  if (word === 'machine' || word === 'list' || word === 'close') return { kind: word }
+  if (word === 'machine' || word === 'list' || word === 'close' || word === 'clear') {
+    return { kind: word }
+  }
   return { kind: 'unknown', word }
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board list or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {
@@ -296,7 +300,7 @@ function missingTaskReply(id: string, list: BoardList): string {
   if (list.tasks.length === 0) {
     return `No task ${id}. This session has no tasks yet; add one with /board add <text>.`
   }
-  const numbers = numbersText(list)
+  const numbers = numbersText(list.tasks)
   const noun = list.tasks.length === 1 ? 'task' : 'tasks'
   return `No task ${id}. This session has ${noun} ${numbers}; /board list prints them.`
 }
@@ -351,6 +355,18 @@ export async function personStatus(
   const noteRefusal = await tellModel(host, change, [task])
   const reply = `Task ${number} is now ${shown}: ${taskText(task)}${toldSuffix(noteRefusal)}`
   return withTrackerNotice(reply, [task])
+}
+
+export async function personClear(host: TaskHost): Promise<string> {
+  const cleared = await host.edit((list) => {
+    const done = list.tasks.filter((task) => task.status === 'completed')
+    return { list: done.length === 0 ? list : withoutDone(list), value: done }
+  })
+  if (cleared.length === 0) return 'No done task to clear. Nothing changed.'
+  const numbers = numbersText(cleared)
+  const tasks = cleared.length === 1 ? 'done task' : 'done tasks'
+  const noteRefusal = await tellModel(host, `it removed the ${tasks} ${numbers}.`, [])
+  return `Cleared ${String(cleared.length)} ${tasks}: ${numbers}${toldSuffix(noteRefusal)}`
 }
 
 type MoveOutcome =

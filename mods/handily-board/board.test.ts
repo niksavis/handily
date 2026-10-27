@@ -577,9 +577,9 @@ describe('/board add and /board rm', () => {
       expect(await board($, 'add')).toBe(
         '/board add needs text or an item id, for example:\n/board add Write the summary   or   /board add handily-cd34',
       )
-      for (const args of ['frob', 'pane', 'machine now', 'close all', 'list 2']) {
+      for (const args of ['frob', 'pane', 'machine now', 'close all', 'list 2', 'clear all']) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board list or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`,
         )
       }
     },
@@ -3291,6 +3291,10 @@ describe(COMMANDS_CRITERION, () => {
     expect(await board($, 'start 9')).toBe(
       'No task 9. This session has tasks 1-2; /board list prints them.',
     )
+    expect(await board($, 'clear')).toBe(
+      'Cleared 1 done task: 2. Claude is told at your next prompt.',
+    )
+    expect(await board($, 'clear')).toBe('No done task to clear. Nothing changed.')
     expect(await board($, 'rm 1')).toBe(
       'Removed task 1: Write it. Claude is told at your next prompt.',
     )
@@ -3810,11 +3814,12 @@ describe(PRESS_DONE_CRITERION, () => {
           ['Review the mocks with Codex', undefined],
         ])
         expect(texts(row).at(-1)?.props.dimColor).toBe(true)
-        expect((await screen(ui, 41)).slice(-6, -2)).toEqual([
+        expect((await screen(ui, 41)).slice(-7, -2)).toEqual([
           '✓ 3 Review the mocks with Codex',
           '    done; never seen in progress',
           '    [ start ] [ open ]',
           '    [ up ] [ down ] [ rm ]',
+          '[ clear done ]',
         ])
         expect(session.appended()).toEqual([])
         expect(await toldAtNextPrompt($)).toEqual([
@@ -4013,6 +4018,143 @@ describe(ONE_NOTE_CRITERION, () => {
         [note],
         [expect.stringContaining('your task list did not change in 20 tool calls')],
       ])
+    },
+  )
+})
+
+const CLEAR_CRITERION =
+  'When the person presses clear done or runs /board clear, every done task leaves the list and the reply names the count'
+
+async function doneWork($: Engine, seen: World): Promise<void> {
+  await mockWork($, seen)
+  await $.tool.call({ tool: TOOL_ADD, title: 'Draw the narrow dock' })
+  await $.tool.call({ tool: TOOL_UPDATE, id: 5, status: 'completed' })
+  await toldAtNextPrompt($)
+}
+
+describe(CLEAR_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `clear done after the unfolded done tasks removes them on ${surface}, and the next prompt names them`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        await doneWork($, seen)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await ui.find({ key: 'clear-done' })).toBeUndefined()
+        await ui.press({ key: 'done' })
+        expect((await screen(ui, 41)).slice(4, 9)).toEqual([
+          '○ 4 You: Ask the person about tabs',
+          '[ hide 2 done ]',
+          '✓ 1 Read the design',
+          '✓ 5 Draw the narrow dock',
+          '[ clear done ]',
+        ])
+        const ring = (await ui.findAll({ type: 'Button' })).map((button) => button.key)
+        expect(ring.slice(ring.indexOf('done'))).toEqual([
+          'done',
+          'open:task:1',
+          'open:task:5',
+          'clear-done',
+        ])
+        await ui.press({ key: 'clear-done' })
+        expect(seen.toasts.at(-1)).toBe(
+          'Cleared 2 done tasks: 1, 5. Claude is told at your next prompt.',
+        )
+        expect((await screen(ui, 41)).slice(0, 1)).toEqual(['Tasks  0 of 3 done · 14m'])
+        expect(await ui.find({ key: 'done' })).toBeUndefined()
+        expect(await ui.find({ key: 'clear-done' })).toBeUndefined()
+        expect(await toldAtNextPrompt($)).toEqual([
+          [
+            `${CHANGED} it removed the done tasks 1, 5.`,
+            '',
+            'Tasks (0 of 3 done)',
+            '  2  in progress  claude   "Write the tab mocks"',
+            '  3  pending      claude   "Review the mocks with Codex"',
+            '  4  pending      you      Ask the person about tabs',
+          ].join('\n'),
+        ])
+        await ui.unmount()
+      },
+    )
+  }
+
+  test('/board clear removes every done task and names the count', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    await doneWork($, seen)
+    await board($, 'done 3')
+    expect(await board($, 'clear')).toBe(
+      'Cleared 3 done tasks: 1, 3, 5. Claude is told at your next prompt.',
+    )
+    expect(await modelTool($, {})).toBe(
+      [
+        'Tasks (0 of 2 done)',
+        '  2  in progress  claude   "Write the tab mocks"',
+        '  4  pending      you      Ask the person about tabs',
+      ].join('\n'),
+    )
+    await board($, 'done 4')
+    expect(await board($, 'clear')).toBe(
+      'Cleared 1 done task: 4. Claude is told at your next prompt.',
+    )
+  })
+})
+
+const FULL_LIST_CRITERION =
+  'When the list holds 100 tasks of which some are done, adding a task removes no open task and the refusal names /board clear'
+
+describe(FULL_LIST_CRITERION, () => {
+  test(
+    'a full list with done tasks refuses the person and Claude by name, names /board clear, and keeps every task',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      for (let index = 1; index <= 100; index += 1) {
+        await $.tool.call({ tool: TOOL_ADD, title: `Task ${String(index)}` })
+      }
+      await $.tool.call({ tool: TOOL_UPDATE, id: 7, status: 'completed' })
+      await board($, 'done 9')
+      const before = String(await modelTool($, {}))
+      const refusal =
+        'the list is full at 100 tasks, and 2 of them are done. Run /board clear to remove the done tasks, or remove one first.'
+      expect(await board($, 'add One more')).toBe(`Not added: ${refusal}`)
+      expect((await $.tool.call({ tool: TOOL_ADD, title: 'One more' })).deny).toBe(
+        `task_add refused: ${refusal}`,
+      )
+      expect(await modelTool($, {})).toBe(before)
+      expect(before.split('\n')).toHaveLength(101)
+      expect(await board($, 'clear')).toBe(
+        'Cleared 2 done tasks: 7, 9. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'add One more')).toBe(
+        'Added task 101: One more. Claude is told at your next prompt.',
+      )
+    },
+  )
+})
+
+const NOTHING_TO_CLEAR_CRITERION =
+  'When there is no done task, /board clear answers that there is nothing to clear and changes nothing'
+
+describe(NOTHING_TO_CLEAR_CRITERION, () => {
+  test(
+    '/board clear with no done task changes no task and tells Claude nothing',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      expect(await board($, 'clear')).toBe('No done task to clear. Nothing changed.')
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+      await board($, 'add Ask about tabs')
+      await toldAtNextPrompt($)
+      const before = await modelTool($, {})
+      expect(await board($, 'clear')).toBe('No done task to clear. Nothing changed.')
+      expect(await modelTool($, {})).toBe(before)
+      expect(await toldAtNextPrompt($)).toEqual([])
     },
   )
 })

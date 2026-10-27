@@ -910,6 +910,20 @@ the task does not have, in the order `done`, `start`, `open`. `done` marks the t
 `/board open` do. The task moves to its new status group at once, and the toast is the reply
 of the command.
 
+#### 8.2d2 `[ +2 done ]` pressed: the done tasks and `[ clear done ]` (handily-9uj3n.2)
+
+```text
+│ ○ 4 You: Ask the person about tabs        │
+│ [ hide 2 done ]                           │
+│ ✓ 1 Read the design                       │
+│ ✓ 5 Draw the narrow dock                  │
+│ [ clear done ]                            │
+```
+
+`[ clear done ]` comes after the last done task, so the person sees what it removes. It acts as
+`/board clear`: every done task leaves the list, and the toast is the reply of the command. The
+fold button goes away with the last done task. A folded done group shows no `[ clear done ]`.
+
 #### 8.2e Many agents: 20 in this session
 
 ```text
@@ -1208,9 +1222,13 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board done 3 (again)    -> Task 3 is already done. Nothing changed.
 /board done 9            -> No task 9. This session has tasks 1-7; /board list prints them.
 /board done three        -> /board done needs a task number, for example /board done 2.
+/board clear             -> Cleared 2 done tasks: 1, 5. Claude is told at your next prompt.
+/board clear (none done) -> No done task to clear. Nothing changed.
+/board add Write it      -> Not added: the list is full at 100 tasks, and 2 of them are done.
+  (100 tasks)               Run /board clear to remove the done tasks, or remove one first.
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
                             /board rm <n>, /board done <n>, /board start <n>, /board open <n>,
-                            /board list or /board close.
+                            /board clear, /board list or /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
 /board list              -> the task list as text (as /task printed it; mobile and a closed board)

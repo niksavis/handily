@@ -20,6 +20,7 @@ import {
   type StatusWord,
   type TaskHost,
   personAdd,
+  personClear,
   personMove,
   personRemove,
   personStatus,
@@ -513,6 +514,15 @@ function drawTasks(
         })
       : null,
     ...(isDoneShown ? done.map(draw) : []),
+    isDoneShown && done.length > 0
+      ? Button({
+          key: 'clear-done',
+          label: 'clear done',
+          onPress: () => {
+            act(() => personClear(host))
+          },
+        })
+      : null,
   ].filter((element) => element !== null)
 }
 
