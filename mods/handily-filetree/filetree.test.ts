@@ -338,6 +338,40 @@ describe('the files tab, docked', () => {
     await ui.unmount()
   })
 
+  test('a redraw lists no folder again, and opening a folder lists it again', async ($, on) => {
+    const seen = world(on, APP)
+    await start($)
+    const ui = await mountFiles($, 'terminal')
+    await ui.press({ key: 'open:docs' })
+    await ui.press({ key: 'open:hooks' })
+    const before = seen.listed.length
+    for (let offset = 1; offset <= 10; offset += 1) {
+      await ui.redraw({ ...paneProps('dock', 41), scroll: { offset, bodyRows: 40 } })
+    }
+    expect(seen.listed.length).toBe(before)
+    seen.folders.set('docs', [file('design.md'), file('new.md')])
+    await ui.press({ key: 'open:docs' })
+    expect(seen.listed.length).toBe(before)
+    await ui.press({ key: 'open:docs' })
+    expect(seen.listed.slice(before)).toEqual(['docs'])
+    expect(await treeLines(ui)).toContain('    new.md')
+    await ui.unmount()
+  })
+
+  test('a closed and opened tab lists the working folder again', async ($, on) => {
+    const seen = world(on, APP)
+    await start($)
+    await tree($, '')
+    const first = await mountFiles($, 'terminal')
+    await first.unmount()
+    seen.folders.set('.', [...(APP[0]?.[1] ?? []), file('NOTES.md')])
+    expect(await tree($, '')).toBe('Tree closed.')
+    expect(await tree($, '')).toBe('Tree opened: files.')
+    const ui = await mountFiles($, 'terminal')
+    expect(await treeLines(ui)).toContain('  NOTES.md')
+    await ui.unmount()
+  })
+
   test('an empty folder says so', async ($, on) => {
     world(on, [['.', []]])
     await start($)
@@ -358,12 +392,30 @@ describe('the files tab, docked', () => {
     await ui.press({ key: 'open:hooks' })
     expect(await treeLines(ui)).toEqual([
       '▾ hooks/',
-      'Cannot list hooks/: permission denied.',
+      '  Cannot list hooks/: permission denied.',
       '  README.md',
     ])
     const line = await ui.find({ type: 'Text', text: /Cannot list/ })
     expect(line?.props.color).toBe('error')
     expect(seen.logs.some((log) => log.includes('EACCES'))).toBe(true)
+    await ui.unmount()
+  })
+
+  test('a nested folder that cannot be listed shows its name at its indent, cut to fit', async ($, on) => {
+    world(on, [
+      ['.', [folder('src')]],
+      ['src', [folder('deeply-nested-folder-name')]],
+      ['src/deeply-nested-folder-name', 'EACCES: permission denied, scandir'],
+    ])
+    await start($)
+    const ui = await mountFiles($, 'terminal', 'dock', 24)
+    await ui.press({ key: 'open:src' })
+    await ui.press({ key: 'open:src/deeply-nested-folder-name' })
+    expect(await treeLines(ui, 24)).toEqual([
+      '▾ src/',
+      '  ▾ deeply-nested-folde…',
+      '    Cannot list deeply-…',
+    ])
     await ui.unmount()
   })
 
@@ -433,6 +485,33 @@ describe('the 200 entry cap', () => {
     const lines = await treeLines(ui)
     expect(lines).toHaveLength(201)
     expect(lines.at(-1)).toBe('  [ +1 more in app/ ]')
+    await ui.unmount()
+  })
+
+  test('the cap cuts the sorted listing, so folders after 200 files still come first', async ($, on) => {
+    world(on, [['.', [...numbered(205), folder('zeta'), folder('alpha'), folder('node_modules')]]])
+    await start($)
+    const ui = await mountFiles($, 'terminal')
+    const lines = await treeLines(ui)
+    expect(lines.slice(0, 4)).toEqual([
+      '▸ node_modules/  not listed',
+      '▸ alpha/',
+      '▸ zeta/',
+      '  a0001.ts',
+    ])
+    expect(lines.at(-1)).toBe('  [ +8 more in app/ ]')
+    await ui.unmount()
+  })
+
+  test('the more button is cut to fit a narrow dock', async ($, on) => {
+    world(on, [
+      ['.', [folder('a-folder-with-a-very-long-name')]],
+      ['a-folder-with-a-very-long-name', numbered(1201)],
+    ])
+    await start($)
+    const ui = await mountFiles($, 'terminal', 'dock', 24)
+    await ui.press({ key: 'open:a-folder-with-a-very-long-name' })
+    expect((await treeLines(ui, 24)).at(-1)).toBe('    [ +1,001 more in … ]')
     await ui.unmount()
   })
 

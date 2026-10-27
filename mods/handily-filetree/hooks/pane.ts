@@ -13,7 +13,6 @@ import {
   ROOT_PATH,
   childPath,
   entryRow,
-  sortedEntries,
 } from './tree'
 import { displayWidth, fitted } from './width'
 
@@ -135,31 +134,45 @@ function drawEntry(elements: PaneElements, row: EntryRow, actions: PaneActions):
   }
 }
 
-function failedText(name: string, reason: string): string {
-  return `Cannot list ${shownName(name)}/: ${reason}.`
+function drawFailed(
+  elements: PaneElements,
+  failed: { name: string; depth: number; reason: string },
+): RenderElement {
+  const text = `${indentOf(failed.depth)}Cannot list ${shownName(failed.name)}/: ${failed.reason}.`
+  return elements.Text({ color: 'error', children: fitted(text, elements.bodyColumns) })
+}
+
+function drawMore(
+  elements: PaneElements,
+  row: TreeRow & { kind: 'more' },
+  actions: PaneActions,
+): RenderElement {
+  const { Box, Button, bodyColumns } = elements
+  const indent = displayWidth(indentOf(row.depth) + INDENT)
+  const label = `+${countText(row.hidden)} more in ${shownName(row.name)}/`
+  return Box({
+    key: `more-row:${row.path}`,
+    paddingLeft: indent,
+    children: [
+      Button({
+        key: `more:${row.path}`,
+        label: fitted(label, bodyColumns - indent - BUTTON_CHROME),
+        onPress: () => {
+          actions.showAll(row.path)
+        },
+      }),
+    ],
+  })
 }
 
 function drawRow(elements: PaneElements, row: TreeRow, actions: PaneActions): RenderElement {
-  const { Box, Text, Button } = elements
   switch (row.kind) {
     case 'more':
-      return Box({
-        key: `more-row:${row.path}`,
-        paddingLeft: displayWidth(indentOf(row.depth) + INDENT),
-        children: [
-          Button({
-            key: `more:${row.path}`,
-            label: `+${countText(row.hidden)} more in ${shownName(row.name)}/`,
-            onPress: () => {
-              actions.showAll(row.path)
-            },
-          }),
-        ],
-      })
+      return drawMore(elements, row, actions)
     case 'failed':
-      return Text({ color: 'error', children: failedText(row.name, row.reason) })
+      return drawFailed(elements, row)
     case 'empty':
-      return Text({ dimColor: true, children: 'This folder is empty.' })
+      return elements.Text({ dimColor: true, children: 'This folder is empty.' })
     default:
       return drawEntry(elements, row, actions)
   }
@@ -199,13 +212,13 @@ function flatRow(elements: PaneElements, row: EntryRow): RenderElement {
 function inlineRows(elements: PaneElements, root: Listing, rootName: string): RenderElement[] {
   const { Text, bodyColumns } = elements
   if (root.kind === 'failed') {
-    return [Text({ color: 'error', children: failedText(rootName, root.reason) })]
+    return [drawFailed(elements, { name: rootName, depth: 0, reason: root.reason })]
   }
-  if (root.entries.length === 0) {
+  if (root.sorted.length === 0) {
     return [Text({ dimColor: true, children: 'This folder is empty.' })]
   }
   const closed: Folders = { open: new Set(), whole: new Set() }
-  const rows = sortedEntries(root.entries).map((entry) =>
+  const rows = root.sorted.map((entry) =>
     entryRow(entry, childPath(ROOT_PATH, entry.name), 0, closed),
   )
   if (rows.length <= INLINE_ROWS) return rows.map((row) => flatRow(elements, row))

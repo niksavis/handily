@@ -9,7 +9,7 @@ import {
   unknownReply,
 } from './commands'
 import { type PaneActions, drawInline, drawTree } from './pane'
-import { type ListFolder, type Listing, ROOT_PATH, treeRows } from './tree'
+import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows } from './tree'
 import type { FiletreePaths } from '../types'
 
 const OPEN = { plugin: 'handily-filetree', key: 'open' } as const
@@ -34,14 +34,25 @@ function absolutePath(cwd: string, path: string): string {
   return /[\\/]$/.test(cwd) ? `${cwd}${path}` : `${cwd}/${path}`
 }
 
-function listerOf($: EngineInterface, cwd: string): ListFolder {
+type Listings = Map<string, Listing>
+
+async function readListing($: EngineInterface, at: string, path: string): Promise<Listing> {
+  try {
+    return listed(await $.fs.list(at))
+  } catch (error) {
+    $.ui.log(`handily-filetree: cannot list ${path}: ${String(error)}`)
+    return { kind: 'failed', reason: reasonOf(error) }
+  }
+}
+
+function listerOf($: EngineInterface, cwd: string, listings: Listings): ListFolder {
   return async (path) => {
-    try {
-      return { kind: 'listed', entries: await $.fs.list(absolutePath(cwd, path)) } satisfies Listing
-    } catch (error) {
-      $.ui.log(`handily-filetree: cannot list ${path}: ${String(error)}`)
-      return { kind: 'failed', reason: reasonOf(error) } satisfies Listing
-    }
+    const at = absolutePath(cwd, path)
+    const kept = listings.get(at)
+    if (kept !== undefined) return kept
+    const listing = await readListing($, at, path)
+    listings.set(at, listing)
+    return listing
   }
 }
 
@@ -57,14 +68,17 @@ function toggled(paths: FiletreePaths, path: string): FiletreePaths {
   return paths.includes(path) ? paths.filter((one) => one !== path) : [...paths, path]
 }
 
-function actionsOf($: EngineInterface): PaneActions {
+function actionsOf($: EngineInterface, cwd: string, listings: Listings): PaneActions {
   const failed = (error: unknown) => {
     $.ui.log(`handily-filetree: the tree did not change: ${String(error)}`)
     $.ui.toast('handily-filetree: the tree did not change; see the transcript log.')
   }
   return {
     toggle: (path) => {
-      update($, OPEN, (current = []) => toggled(current, path)).catch(failed)
+      update($, OPEN, (current = []) => {
+        if (!current.includes(path)) listings.delete(absolutePath(cwd, path))
+        return toggled(current, path)
+      }).catch(failed)
     },
     showAll: (path) => {
       update($, WHOLE, (current = []) =>
@@ -72,12 +86,15 @@ function actionsOf($: EngineInterface): PaneActions {
       ).catch(failed)
     },
     refresh: () => {
+      listings.clear()
       $.ui.invalidate('ui.render')
     },
   }
 }
 
 export const register: Register = (on) => {
+  const listings: Listings = new Map()
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'tree',
@@ -86,6 +103,17 @@ export const register: Register = (on) => {
       immediate: true,
     })
     return next(e)
+  })
+
+  on('session.end', async (_$, e, next) => {
+    listings.clear()
+    return next(e)
+  })
+
+  on('ui.close', async (_$, e, next) => {
+    const closed = await next(e)
+    if (e.id === FILES_PANE.id) listings.clear()
+    return closed
   })
 
   on('command.run', { command: 'tree' }, async ($, e) => {
@@ -110,8 +138,8 @@ export const register: Register = (on) => {
     const elements = { Box, Text, Button, bodyColumns: e.props.bodyColumns }
     const cwd = await $.session.cwd()
     const rootName = folderName(cwd)
-    const list = listerOf($, cwd)
-    const actions = actionsOf($)
+    const list = listerOf($, cwd, listings)
+    const actions = actionsOf($, cwd, listings)
     if (e.props.placement === 'inline') {
       return drawInline(elements, rootName, await list(ROOT_PATH), actions)
     }

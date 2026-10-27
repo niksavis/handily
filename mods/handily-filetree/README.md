@@ -57,10 +57,14 @@ Files  app
 - A file whose name starts with a dot is dim.
 - A folder draws at most 200 entries. A button `[ +1,640 more in gen/ ]` draws the rest of that
   folder.
-- `[ refresh ]`, or `r` while the tab has the keyboard, lists the open folders again. Claude Code
-  gives a mod no file watch, so a new file shows after a refresh or the next draw.
-- A folder that the mod cannot list shows `Cannot list hooks/: permission denied.` in the error
-  colour. The rest of the tree stays.
+- The mod keeps each listing for the session. A redraw, such as a scroll step, lists nothing
+  again. The mod lists a folder again when you open it, and every folder again on
+  `[ refresh ]`, on `r` while the tab has the keyboard, and after the tab closes. Claude Code
+  gives a mod no file watch, so a new file shows only after one of these.
+- A folder that the mod cannot list shows `Cannot list hooks/: permission denied.` under it, in
+  the error colour. The rest of the tree stays.
+- A row that is wider than the pane ends with `…`. This includes the more button and the
+  cannot-list row.
 - A link shows as an entry, and the mod does not follow it.
 - A control or bidi character in a name shows as `\u202e`, so a name cannot change how the row
   reads.
@@ -84,4 +88,5 @@ a.md
 ## State
 
 The mod keeps two lists in `$.state`: the open folders and the folders that show all entries.
-`types/index.d.ts` declares them. The lists last for the session.
+`types/index.d.ts` declares them. The lists last for the session. The folder listings stay in the
+memory of the mod, not in `$.state`.

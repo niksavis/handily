@@ -15,7 +15,7 @@ export const PRUNED: ReadonlySet<string> = new Set([
 ])
 
 export type Listing =
-  { kind: 'listed'; entries: readonly FsEntry[] } | { kind: 'failed'; reason: string }
+  { kind: 'listed'; sorted: readonly FsEntry[] } | { kind: 'failed'; reason: string }
 
 export type ListFolder = (path: string) => Promise<Listing>
 
@@ -29,7 +29,7 @@ export type EntryRow =
 export type TreeRow =
   | EntryRow
   | { kind: 'more'; path: string; name: string; depth: number; hidden: number }
-  | { kind: 'failed'; name: string; reason: string }
+  | { kind: 'failed'; name: string; depth: number; reason: string }
   | { kind: 'empty' }
 
 const FOLDER_RANK = { pruned: 0, folder: 1, file: 2 } as const
@@ -51,8 +51,11 @@ function byName(a: string, b: string): number {
   return a < b ? -1 : 1
 }
 
-export function sortedEntries(entries: readonly FsEntry[]): FsEntry[] {
-  return [...entries].sort((a, b) => rankOf(a) - rankOf(b) || byName(a.name, b.name))
+export function listed(entries: readonly FsEntry[]): Listing {
+  return {
+    kind: 'listed',
+    sorted: [...entries].sort((a, b) => rankOf(a) - rankOf(b) || byName(a.name, b.name)),
+  }
 }
 
 export function childPath(parent: string, name: string): string {
@@ -72,9 +75,8 @@ type Walk = { rows: TreeRow[]; list: ListFolder; folders: Folders }
 async function addFolder(
   walk: Walk,
   folder: { path: string; name: string; depth: number },
-  entries: readonly FsEntry[],
+  sorted: readonly FsEntry[],
 ): Promise<void> {
-  const sorted = sortedEntries(entries)
   const drawn = walk.folders.whole.has(folder.path) ? sorted : sorted.slice(0, ENTRIES_DRAWN)
   for (const entry of drawn) {
     const row = entryRow(entry, childPath(folder.path, entry.name), folder.depth, walk.folders)
@@ -99,10 +101,10 @@ async function addOpenFolder(
 ): Promise<void> {
   const listing = await walk.list(row.path)
   if (listing.kind === 'failed') {
-    walk.rows.push({ kind: 'failed', name: row.path, reason: listing.reason })
+    walk.rows.push({ kind: 'failed', name: row.name, depth: row.depth + 1, reason: listing.reason })
     return
   }
-  await addFolder(walk, { path: row.path, name: row.name, depth: row.depth + 1 }, listing.entries)
+  await addFolder(walk, { path: row.path, name: row.name, depth: row.depth + 1 }, listing.sorted)
 }
 
 export async function treeRows(
@@ -111,9 +113,11 @@ export async function treeRows(
   rootName: string,
 ): Promise<TreeRow[]> {
   const root = await list(ROOT_PATH)
-  if (root.kind === 'failed') return [{ kind: 'failed', name: rootName, reason: root.reason }]
-  if (root.entries.length === 0) return [{ kind: 'empty' }]
+  if (root.kind === 'failed') {
+    return [{ kind: 'failed', name: rootName, depth: 0, reason: root.reason }]
+  }
+  if (root.sorted.length === 0) return [{ kind: 'empty' }]
   const walk: Walk = { rows: [], list, folders }
-  await addFolder(walk, { path: ROOT_PATH, name: rootName, depth: 0 }, root.entries)
+  await addFolder(walk, { path: ROOT_PATH, name: rootName, depth: 0 }, root.sorted)
   return walk.rows
 }
