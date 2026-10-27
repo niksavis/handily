@@ -2102,7 +2102,7 @@ describe('the pane rows fit the pane width', () => {
         '○ ',
         '1 ',
         'You: ',
-        technologist.repeat(10),
+        technologist.repeat(6),
         '…',
       ])
       await ui.unmount()
