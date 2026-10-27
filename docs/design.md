@@ -715,6 +715,54 @@ Settings and commands:
   measured before the release.
 - A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.
 
+### 4.11 handily-filetree (handily-02b2v)
+
+The person approved the design on 2026-10-27 (handily-02b2v.1). handily-filetree shows a file
+tree that marks which agent read or edited each file, and the git state of each file. The
+approved mocks are in `docs/mocks.md`, section 10.
+
+Reference: claude-code-filetree (github.com/data-goblin/claude-code-filetree) at commit
+`b98495f8`, MIT licence, by Kurt Buhler. handily copies no code from it.
+
+Decisions:
+
+- Command: `/tree`. The tab label is `files`.
+- handily-filetree is a new mod in the `handily` bundle, because a tree needs the full width of
+  a pane.
+- handily-filetree depends on handily-board. The board owns the task ids and the agent labels.
+  So a row of the tree shows the same agent label as the board, and the board links a task to
+  the files that were touched while it ran.
+- The default view is the work view: only the files that an agent touched or that git shows
+  as changed. `[ all files ]` shows the whole tree.
+- Marks: `✎` an agent edited the file, `◦` an agent read it. The agent label and the age follow
+  the mark.
+- Release 1 marks no read by a Bash call.
+- One `git status --porcelain=v2` call runs for each change. No call runs while nothing changes.
+- The mod reads no environment variable.
+- Out of scope: `find`, `du`, a treemap, a preview of media files, and open in an editor.
+
+Keys, only while the pane has the focus:
+
+| Key | Action |
+| --- | --- |
+| `p` | Preview |
+| `d` | Diff |
+| `y` | Copy the path |
+| `v` | View |
+| `r` | Refresh |
+| `b` | Back |
+| `c` | Clear the task filter |
+
+Limits of release 1:
+
+| Limit | Value |
+| --- | --- |
+| Entries drawn per folder, before a more button | 200 |
+| Rows of the tree | 1000, to be measured |
+| Rows of the work view | 40 |
+| Rows inline above the prompt | 8 |
+| Files revealed per Grep call | 12 |
+
 ## 5. Repo layout (proposed)
 
 ```text
