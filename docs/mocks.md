@@ -424,6 +424,33 @@ Look choices (approved as proposed):
 2. Show the status move `(open -> in_progress)` on updates, or the verb only.
 3. A toast on failed and recovered (proposed), or silent.
 
+### Measured toast surface (2026-10-27, Claude Code 2.1.312)
+
+Measured in tmux with two probe plugins that call `$.ui.toast`. These facts hold for every
+handily toast (handily-ftx0x.1).
+
+| Fact | Measured |
+| --- | --- |
+| Where | A box at the top right, also outside fullscreen, headed by the plugin name |
+| Text width | 40 columns at terminal widths 160, 80 and 50; the text wraps |
+| Lines | At most 3; more text is cut with `…` |
+| Line break in the text | Drawn as `�`, not as a new line |
+| Padding a part with spaces to 40 columns | The next part starts on its own line |
+| Padding with non-breaking spaces | Does not start a new line |
+| `timeoutMs: 15000` | The toast stayed 15.0 s |
+| Several toasts | At most 3 show, the newest at the bottom; the older ones sit behind `+N more` |
+| Box size | Each box shrinks to its text |
+
+The approved layout uses one line for each part, padded with spaces to 40 columns:
+
+```text
+╭──────────────────────────────────────────╮
+│ handily-item-toasts                      │
+│ ✓ handily-ab12 closed                    │
+│ "Draw text mocks for the mods"           │
+╰──────────────────────────────────────────╯
+```
+
 ---
 
 ## 5. agent-board
@@ -1699,7 +1726,7 @@ docs/design.md section 4.11.
 │     mocks.md            M ✎ main +1    1m │
 │ ▸ hooks/  M1 D1           ✎ main       4s │
 │ ▸ scripts/                                │
-│   .gitignore                              │
+│   ~.gitignore~                            │
 │   README.md             M                 │
 ╰───────────────────────────────────────────╯
 ```
@@ -1715,7 +1742,7 @@ docs/design.md section 4.11.
 │ [ work only ] {agent: all} [ refresh ]    │
 │ Now  1 agent                              │
 │ ◦ main      src/gen/a0193.ts           9s │
-│   and 39 more files from one Grep         │
+│   and 28 more files from one Grep         │
 │ ───────────────────────────────────────── │
 │ ▸ .git/                                   │
 │ ▸ node_modules/  not listed               │
@@ -1794,7 +1821,7 @@ docs/design.md section 4.11.
 │ this session  this machine  [files]       │  (engine tab row)
 │ Files  app · main ↑1 · 6 changed          │
 │ [ back ] [ diff ] [ copy path ]           │
-│ docs/mocks.md  M · 1,261 lines            │
+│ docs/mocks.md  M · 9,410 lines            │
 │ ~first 2,000 lines shown of 9,410~        │
 │ ───────────────────────────────────────── │
 │ (engine Markdown, wrapped to 41)          │
