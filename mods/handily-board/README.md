@@ -176,6 +176,7 @@ You can press every button on both tabs with the keyboard alone. A live check on
 Captures from the tests, docked at 41 columns:
 
 ```text
+Session  ctx — until the first reply
 Tasks  1 of 4 done · 14m
 ▶ 2 Write the tab mocks         4m [ rm ]
     ▸ Edit docs/mocks.md          9 tools
@@ -189,6 +190,7 @@ Tasks  1 of 4 done · 14m
 The same list inline above the prompt, at 80 columns:
 
 ```text
+Session  ctx — until the first reply
 Tasks  1 of 4 done · 14m
 ▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]
 ○ 3 Review the mocks with Codex                                           [ rm ]
@@ -198,6 +200,7 @@ Tasks  1 of 4 done · 14m
 [ Add a task ][Add]
 ```
 
+- The first line is the Session line. The next section describes it.
 - The header shows the done count and the time since the first tool call of the main loop.
   Times use one short form: `9s`, `5m`, `1h`, `2d`. They round down.
 - Each task is one line: a mark (`✓` done in `success`, `▶` in progress in `claude`, `○`
@@ -226,6 +229,53 @@ Tasks  1 of 4 done · 14m
 - The mobile app has no input, so the tab says `Add tasks with /board add <text>.`
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
+
+### The Session line
+
+The Session line shows the context and the cost of this session. Captures from the tests, docked
+at 41 columns. A main turn runs:
+
+```text
+Session  ctx 62% · $4.49 · turn +$0.31
+```
+
+The turn ended:
+
+```text
+Session  ctx 62% · $4.80 · last +$0.62
+```
+
+The context is at 80 percent or more:
+
+```text
+Session  ctx 80% high · $12.40
+```
+
+- `ctx 62%` is the context percent of the engine event `session.measure`. It is the figure that
+  the Claude Code status line shows. `$4.49` is the cost of the session, to the cent.
+- From 80 percent, the percent shows the word `high`, and both take the theme colour `warning`.
+- While a main turn runs, `turn +$0.31` is the cost that the turn added since it started. It
+  shows when the turn added one cent or more. After the turn, `last +$0.62` is the cost of the
+  last turn. When the turn ends before its measure, `last` waits for that measure. A subagent
+  turn does not start or end a turn here.
+- When the cost total goes down, the turn counts from the new total, so the line never shows a
+  negative cost.
+- Before the first reply, the line reads `ctx — until the first reply`, also when the engine
+  reports a cost of `$0.00`. A resumed session shows the figures that `$.session.usage()` gives
+  at session start.
+- `/clear` empties the line to `ctx — until the first reply`. When no measure comes between
+  `/clear` and the next turn, that turn shows no turn cost, because the board does not know the
+  cost at its start.
+- When the host gives no usage, the line reads `no context or cost on this host` and draws no
+  number. This is the case when `$.session.usage()` refuses at session start and no measure
+  came.
+- A narrow tab cuts whole pieces from the right: the turn cost first, then the cost. At 30
+  columns, `Session  ctx 62% · $4.18 · turn +$0.31` reads `Session  ctx 62% · $4.18`. The first
+  piece stays, and a body too narrow for it cuts it with `…`. The tests check the line at 30,
+  41, 76 and 89 columns.
+- A measure changes only the units that it names as changed. The board draws again only when
+  the text of the line changes, so a cost change under one cent does not redraw it. The line
+  adds no timer.
 
 ### Agents
 
@@ -291,6 +341,7 @@ With no tasks, the tab lists the open tracker items. The first and the last line
 with 12 open items, docked at 41 columns:
 
 ```text
+Session  ctx — until the first reply
 Tasks  none in this session yet
 Open in tracker: beads · 12 open
 P2 app-10 Open item 10            [ add ]
@@ -449,6 +500,8 @@ Sessions  4 · 1 needs you · 12s ago
 ## Lifetime
 
 - The list and the tool calls live in `$.state`, so they survive a hot reload of the mod.
+- The figures of the Session line live in memory. A hot reload or a new process asks
+  `$.session.usage()` again at session start.
 - `/clear` ends the session with the reason `clear`. The list of the main loop, the lists of all
   subagents and the tool calls reset.
 - Each end of the session, `/clear` and a resume included, clears the agent rows.

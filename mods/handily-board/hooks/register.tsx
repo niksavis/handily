@@ -91,6 +91,17 @@ import {
   withTrackerNotice,
 } from './tasks'
 import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from './transcript'
+import {
+  EMPTY_VITALS,
+  type Vitals,
+  sessionText,
+  withMeasure,
+  withTurnEnd,
+  withClear,
+  withTurnStart,
+  withUsage,
+  withoutUsage,
+} from './vitals'
 
 const TOOL_ADD = 'mcp__handily-board__task_add'
 const TOOL_UPDATE = 'mcp__handily-board__task_update'
@@ -432,10 +443,29 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
   }
 }
 
-async function workOf($: EngineInterface): Promise<PaneWork> {
+async function workOf($: EngineInterface, vitals: Vitals): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
-  return { now, activity: activity ?? EMPTY_ACTIVITY, agents: await agentView(agentHostOf($), now) }
+  const agents = await agentView(agentHostOf($), now)
+  return { now, activity: activity ?? EMPTY_ACTIVITY, agents, vitals }
+}
+
+type VitalsKeep = { current: Vitals }
+
+function noteVitals($: EngineInterface, keep: VitalsKeep, change: (vitals: Vitals) => Vitals) {
+  const drawn = sessionText(keep.current)
+  keep.current = change(keep.current)
+  if (sessionText(keep.current) !== drawn) $.ui.invalidate('ui.render')
+}
+
+async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
+  try {
+    const usage = await $.session.usage()
+    noteVitals($, keep, (vitals) => withUsage(vitals, usage))
+  } catch (error) {
+    $.ui.log(`handily-board: no context or cost on this host: ${String(error)}`, { to: 'debug' })
+    noteVitals($, keep, withoutUsage)
+  }
 }
 
 async function resetAgentLists($: EngineInterface): Promise<void> {
@@ -661,6 +691,7 @@ export const register: Register = (on, options) => {
   const mode = boardMode(options)
   const redraw: Redraw = { timer: undefined }
   const machine = newMachine(SESSIONS_PANE.id)
+  const vitals: VitalsKeep = { current: EMPTY_VITALS }
 
   on('session.start', async ($, e, next) => {
     for (const tool of TOOLS) await $.tool.register(tool)
@@ -677,10 +708,18 @@ export const register: Register = (on, options) => {
     const host = sessionsHost($)
     await removeExpiredKeys(host)
     await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
+    await readUsage($, vitals)
     return started
   })
 
+  on('session.measure', async ($, e, next) => {
+    const measured = await next(e)
+    noteVitals($, vitals, (current) => withMeasure(current, e))
+    return measured
+  })
+
   on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) noteVitals($, vitals, withTurnStart)
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
     )
@@ -690,6 +729,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
+      noteVitals($, vitals, withTurnEnd)
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
       )
@@ -723,6 +763,7 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
     if (e.reason === 'clear') {
+      noteVitals($, vitals, withClear)
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await resetAgentLists($)
@@ -876,7 +917,7 @@ export const register: Register = (on, options) => {
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
     const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
-    const work = await workOf($)
+    const work = await workOf($, vitals.current)
     startRedraw($, redraw)
     return drawPane(elements, hostOf($), uiOf($), work)
   })

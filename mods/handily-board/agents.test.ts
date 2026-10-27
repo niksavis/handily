@@ -1,4 +1,11 @@
-import type { AgentInfo, On, RenderPropsOf, ToolCallArgs, ToolCallResult } from 'claude-code'
+import type {
+  AgentInfo,
+  On,
+  RenderPropsOf,
+  SessionUsage,
+  ToolCallArgs,
+  ToolCallResult,
+} from 'claude-code'
 import {
   describe,
   expect,
@@ -84,6 +91,13 @@ function hold(): Hold {
   return { flight, arrive, gate }
 }
 
+const FRESH_USAGE: SessionUsage = {
+  startedAt: START,
+  context: { window: 200_000 },
+  rateLimits: [],
+  cost: { usd: 0 },
+}
+
 function world(on: On, heldTools: readonly string[] = []): World {
   const holds = new Map(heldTools.map((tool) => [tool, hold()]))
   const state: World = {
@@ -96,6 +110,8 @@ function world(on: On, heldTools: readonly string[] = []): World {
     logs: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({ value: FRESH_USAGE }))
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.cwd', () => ({ value: ROOT }))
   on('agent.list', () => ({ value: state.agents }))
   on('agent.spawn', (_$, e) => ({ model: 'opus', agentId: e.tool_use_id.slice('spawn:'.length) }))
@@ -423,6 +439,7 @@ const SCENE_SCREENS: readonly {
     placement: 'dock',
     columns: 41,
     lines: [
+      'Session  ctx — until the first reply',
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
@@ -444,6 +461,7 @@ const SCENE_SCREENS: readonly {
     placement: 'dock',
     columns: 30,
     lines: [
+      'Session  ctx —',
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
@@ -465,6 +483,7 @@ const SCENE_SCREENS: readonly {
     placement: 'inline',
     columns: 76,
     lines: [
+      'Session  ctx — until the first reply',
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab mocks             ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
       '○ 3 Review the mocks with Codex                                       [ rm ]',
@@ -802,6 +821,7 @@ describe(FOLD_CRITERION, () => {
         await manyAgents($, on)
         const ui = await mountTab($, surface, 'dock', 41)
         expect(await screen(ui, 41)).toEqual([
+          'Session  ctx — until the first reply',
           'Tasks  0 of 1 done',
           '○ 1 Write the tab mocks            [ rm ]',
           '─────────────────────────────────────────',
