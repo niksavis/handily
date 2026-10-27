@@ -6,6 +6,73 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.5.0 - 2026-10-27
+
+### Added
+
+- **board lets you mark a task done, started or open.** `/board done <n>`, `/board start <n>`
+  and `/board open <n>` set the status of task `n`, and an opened task row has the same
+  buttons. A number that does not exist is refused with the numbers that exist. Each change of
+  yours, a status, an add, a removal or a move, now waits for your next prompt. That prompt
+  carries one note for Claude with every change since the last prompt, so three changes in one
+  turn reach Claude as one note. The replies say `Claude is told at your next prompt.`
+  (handily-9uj3n.1).
+- **board clears the done tasks in one action.** `/board clear` removes every done task and
+  names how many it removed, and `[ clear done ]` under the unfolded done tasks does the same.
+  With no done task, it says that there is nothing to clear. When the list is full at 100 tasks
+  and some are done, the refusal of a new task counts the done tasks and names `/board clear`.
+  The refusal to Claude names `task_update` with the status `removed` instead. An add never
+  removes a task (handily-9uj3n.2).
+- **board removes a task in one press and moves a task to any place.** Every task row now ends
+  with `[ rm ]`, also a pending or a done task, so one press removes it. `/board mv <n> before
+  <m>`, `/board mv <n> top` and `/board mv <n> bottom` place a task anywhere in the list. After
+  `up` or `down` on the board, the mod asks Claude Code to keep the keyboard focus on the moved
+  task. Only the request is tested. No live check has confirmed the focus (handily-9uj3n.3).
+
+### Fixed
+
+- **handily-board measures an emoji sequence as 2 columns.** Before, the board counted each code
+  point of a sequence. The technologist emoji took 4 columns, a family of three 6, a family of
+  four 8, a flag 4 and a thumbs up with a skin tone 4. The warning sign with VS16 and the keycap
+  one took 1. So a task title with such an emoji was cut at the wrong column. The board now
+  measures one grapheme at a time, the same way as handily-reply-view and handily-simple-view.
+  An emoji sequence, a flag, a keycap and an emoji with VS16 take 2 columns. A pictograph with
+  no emoji presentation, such as the thermometer without VS16, took 2 columns and now takes 1.
+  Every character that Unicode 16 East Asian Width marks wide or fullwidth now takes 2 columns,
+  such as Tangut, the Kana supplements, the small form variants and the Yijing hexagrams. The
+  circled numbers on a black square, U+3248 to U+324F, are ambiguous width and now take 1
+  column. A long agent name that ends in an emoji sequence is now cut between graphemes, so the
+  cut never leaves half of a keycap. `scripts/width.test.mjs` runs one table of cases against
+  the width file of each mod (handily-5zzxk.1).
+
+## handily-reply-view 0.6.1 - 2026-10-27
+
+### Fixed
+
+- **handily-reply-view measures the keycap one emoji as 2 columns.** Before, it took 1 column,
+  so the border of a table after it was one column off. The reply view also counted every
+  character from U+8C48 to U+FAFF as 2 columns, because its wide range started at the wrong
+  ideograph. So a Latin Extended-D letter, a Vai letter or a private use character, such as a
+  Nerd Font icon, took 2 columns, and now takes 1. A pictograph with no emoji presentation, such
+  as the thermometer without VS16, took 2 columns and now takes 1. Every character that Unicode
+  16 East Asian Width marks wide or fullwidth now takes 2 columns, such as Tangut, the Kana
+  supplements and the Yijing hexagrams. The circled numbers on a black square, U+3248 to U+324F,
+  are ambiguous width and now take 1 column. The reply view now measures a grapheme the same way
+  as handily-board and handily-simple-view. `scripts/width.test.mjs` runs one table of cases
+  against the width file of each mod (handily-5zzxk.1).
+
+## handily-simple-view 0.7.2 - 2026-10-27
+
+### Fixed
+
+- **handily-simple-view measures every wide character as 2 columns.** Before, some characters
+  that Unicode 16 East Asian Width marks wide took 1 column, such as the trigrams, the Yijing
+  hexagrams, the Tai Xuan Jing symbols, the counting rod numerals, Kana Extended-B and the
+  Tangut supplement. They now take 2. The circled numbers on a black square, U+3248 to U+324F,
+  are ambiguous width, so they now take 1 column, not 2. The simple view measures a grapheme the
+  same way as handily-board and handily-reply-view. `scripts/width.test.mjs` runs one table of
+  cases against the width file of each mod (handily-5zzxk.1).
+
 ## handily-simple-view 0.7.1 - 2026-10-27
 
 ### Fixed

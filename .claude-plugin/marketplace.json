@@ -16,7 +16,7 @@
     {
       "name": "handily-board",
       "source": "./mods/handily-board",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, and four model tools keep the list."
     },
     {
@@ -34,13 +34,13 @@
     {
       "name": "handily-reply-view",
       "source": "./mods/handily-reply-view",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
     {
       "name": "handily-simple-view",
       "source": "./mods/handily-simple-view",
-      "version": "0.7.1",
+      "version": "0.7.2",
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
     {
