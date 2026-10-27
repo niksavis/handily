@@ -2058,6 +2058,26 @@ describe('the pane rows fit the pane width', () => {
   )
 
   test(
+    'a title of ZWJ emoji sequences counts each sequence as two columns, so the row fits 30 columns',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      const technologist = '\u{1F469}\u{200D}\u{1F4BB}'
+      await board($, `add -- ${technologist.repeat(30)}`)
+      const ui = await mountPane($, 30)
+      expect(texts(await rowOf(ui, 'task:1')).map((cell) => cell.text)).toEqual([
+        '○ ',
+        '1 ',
+        'You: ',
+        technologist.repeat(10),
+        '…',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  test(
     'a cut title opens to its full text under the row, stays open in the session state and closes again',
     { plugins: [fakeWorkitems, readExpanded] },
     async ($, on) => {
