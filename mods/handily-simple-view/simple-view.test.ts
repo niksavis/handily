@@ -1626,6 +1626,21 @@ describe('generic tool row', () => {
     })
 
     viewTest(
+      `leaves the error text of an Error: answer that no hook refused on ${surface}`,
+      async (world, $) => {
+        const errored = failed('Error: Unknown skill: no-comments')
+        const use = await genericCall(world, $, 'Skill', { skill: 'no-comments' }, errored)
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Skill no-comments error`,
+        ])
+        const result = resultProps(use.tool_use_id, 'Skill', errored)
+        expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
+          ENGINE_ROW,
+        )
+      },
+    )
+
+    viewTest(
       `draws a call that a hook refused as one error row with no error text on ${surface}`,
       async (world, $) => {
         const refused = failed(
