@@ -99,15 +99,23 @@ function stateCells(state: BashState): Cell[] {
         ...stderrCells(state.stderr),
       ]
     case 'exit':
-      return [
-        { text: `exit ${String(state.code)}`, style: { color: 'error' } },
-        { text: state.line, style: { color: 'error', wrap: 'truncate-end' }, canShrink: true },
-      ]
+      return errorCells(`exit ${String(state.code)}`, state.line)
+    case 'refused':
+    case 'error':
+      return errorCells(state.kind, state.line)
   }
 }
 
+function errorCells(word: string, line: string): Cell[] {
+  return [
+    { text: word, style: { color: 'error' } },
+    { text: line, style: { color: 'error', wrap: 'truncate-end' }, canShrink: true },
+  ]
+}
+
 function hasCutText(state: BashState): boolean {
-  return state.kind === 'exit' ? state.line !== '' : state.kind === 'done' && state.stderr !== null
+  if (state.kind === 'done') return state.stderr !== null
+  return 'line' in state && state.line !== ''
 }
 
 function timeText(elapsedMs: number | null): string {
@@ -120,6 +128,8 @@ const MARKERS: Readonly<Record<BashState['kind'], ThemeKey>> = {
   running: 'subtle',
   done: 'success',
   exit: 'error',
+  refused: 'error',
+  error: 'error',
 }
 
 export function bashRow(

@@ -24,6 +24,7 @@ import {
   FILE_TOOLS,
   bashChanges,
   bashEnd,
+  erroredOutput,
   fileEdit,
   isRecord,
   lineCount,
@@ -415,7 +416,7 @@ async function bashResult(
 ): Promise<RenderElement | null> {
   const end = bashEnd(props.output, props.isErrored)
   if (end === null) return null
-  if (end.kind === 'exit') return look.elements.Box({})
+  if (end.kind !== 'done') return look.elements.Box({})
   const changes = bashChanges(props.output)
   if (changes === null) return null
   if (changes.kind === 'unreported') return look.elements.Box({})
@@ -425,13 +426,17 @@ async function bashResult(
   return changesBlock(look, { files, moreFiles: changes.moreFiles })
 }
 
+function isHookRefusalRow(props: RenderPropsOf['ToolResult']): boolean {
+  return drawsGenericRow(props.tool) && erroredOutput(props.output)?.end.kind === 'refused'
+}
+
 async function resultDrawing(
   $: EngineInterface,
   props: RenderPropsOf['ToolResult'],
   look: RowLook,
 ): Promise<RenderElement | null> {
   if (props.tool === 'Bash') return bashResult($, props, look)
-  if (props.isErrored) return null
+  if (props.isErrored) return isHookRefusalRow(props) ? look.elements.Box({}) : null
   if (READING_TOOLS.has(props.tool)) {
     return readingCount(props.tool, props.output) === null ? null : look.elements.Box({})
   }

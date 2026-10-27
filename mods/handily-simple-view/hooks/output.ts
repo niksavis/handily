@@ -1,12 +1,18 @@
 import type { SimpleViewDiffGap } from '../types'
 
-export const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
+const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
+const HOOK_REFUSAL_PREFIX = /^Error: \w+:\S+ hook error: \[[^\n]*?\]: /
+const ERROR_PREFIX = 'Error: '
 
 export const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 
 export type Totals = { added: number; removed: number }
 
 export type StderrSummary = { lines: number; first: string }
+
+export type ErrorEnd = { kind: 'exit'; code: number } | { kind: 'refused' } | { kind: 'error' }
+
+export type ErroredOutput = { end: ErrorEnd; body: string }
 
 export type BashEnd =
   | {
@@ -16,7 +22,7 @@ export type BashEnd =
       stderr: StderrSummary | null
       savedTo: string | null
     }
-  | { kind: 'exit'; code: number; line: string }
+  | (ErrorEnd & { line: string })
 
 export type FileChange = { path: string; verb: 'Updated' | 'Created' | 'Deleted'; totals: Totals }
 
@@ -87,16 +93,23 @@ function stderrSummary(stderr: unknown): StderrSummary | null {
   return { lines: lineCount(stderr.trim()), first: firstNonEmptyLine(stderr) }
 }
 
+export function erroredOutput(output: unknown): ErroredOutput | null {
+  if (typeof output !== 'string') return null
+  const exit = EXIT_PREFIX.exec(output)
+  if (exit?.[1] !== undefined) {
+    return { end: { kind: 'exit', code: Number(exit[1]) }, body: output.slice(exit[0].length) }
+  }
+  const refusal = HOOK_REFUSAL_PREFIX.exec(output)
+  if (refusal !== null) return { end: { kind: 'refused' }, body: output.slice(refusal[0].length) }
+  if (!output.startsWith(ERROR_PREFIX)) return null
+  return { end: { kind: 'error' }, body: output.slice(ERROR_PREFIX.length) }
+}
+
 export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
   if (isErrored) {
-    if (typeof output !== 'string') return null
-    const found = EXIT_PREFIX.exec(output)
-    if (found?.[1] === undefined) return null
-    return {
-      kind: 'exit',
-      code: Number(found[1]),
-      line: firstNonEmptyLine(output.slice(found[0].length)),
-    }
+    const errored = erroredOutput(output)
+    if (errored === null) return null
+    return { ...errored.end, line: firstNonEmptyLine(errored.body) }
   }
   if (!isRecord(output) || typeof output.stdout !== 'string') return null
   if (output.interrupted !== false || output.isImage === true) return null

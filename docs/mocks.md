@@ -456,6 +456,8 @@ After:
 ● List the mods  ~ls~  +exit 0+  ~7 lines~  ~1.1s~                                              (live)
 ● sleep 4 …  ~sleep~  +exit 0+  ~1 line~  ~4.3s~                                               (live)
 ● List a missing folder  ~ls~  #exit 2#  #ls: cannot access '/nonexistent-folder': No such file or directory#  ~0.4s~  (live)
+● Print x after a pipe  ~true~  #refused#  #pipe-status-guard: refusing a status read after `tail`: the pipeline's exit status …#
+● Remove the notes  ~rm~  #error#  #Permission to use Bash with command rm notes.md has been denied.#
 ● Append a probe line  ~printf~  +exit 0+  ~0 lines~  ~2.8s~                                    (live)
   Updated README.md (+1 -0)
 ● Run the unit tests  ~npm~  !running!  ~3.0s~
@@ -478,6 +480,13 @@ After:
   also drawn empty when the engine sent no `bashEditDiff`, because then the mod cannot tell
   whether the call changed a file.
 - After `exit N`, and under an `Edit` or `Write` row, the result block is drawn empty.
+- A call that a hook refused before the run shows `refused` and the first line of the hook
+  message (handily-fwkt.8.26). The row leaves out the text before the message:
+  `Error: PreToolUse:Bash hook error: [<hook command>]:`. Another errored text that starts with
+  `Error:` shows `error` and its first line.
+  The result block is drawn empty, and `[ more ]` opens the full message.
+- A generic row of a call that a hook refused shows `#error#`, and its result block is drawn
+  empty. Another error of a generic row keeps the error text of the engine under the row.
 - `Write /elsewhere/big.json` with no totals: the engine gave no diff, so the mod shows the path
   only.
 - A call without an error that wrote to stderr adds the stderr line count and the first
@@ -489,8 +498,8 @@ After:
 
 ```text
 ● Bash(br close handily-ab12)          <- quiet-items stored a row and its mode is on: its row wins
-● Bash(sleep 60)                       <- interrupted (Esc), refused, or run in the background
-● Bash(npm test)                       <- errored without "Error: Exit code N" (a timeout)
+● Bash(sleep 60)                       <- interrupted (Esc) or run in the background
+● Bash(npm test)                       <- errored with a text that does not start with "Error: "
   Listed 2 directories, ran 2 shell commands    <- a folded group: drawn as the engine draws it
 ```
 

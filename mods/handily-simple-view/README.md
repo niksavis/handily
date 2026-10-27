@@ -13,6 +13,7 @@ screen changes.
 ```text
 ● List the mods  ls  exit 0  7 lines  1.1s                                  [ more ] [ copy ]
 ● List a folder that does not exist  ls  exit 2  ls: cannot access '/n…  [ more ] [ copy ]
+● Print x after a pipe  true  refused  pipe-status-guard: refusing a st…  [ more ] [ copy ]
 ● Append a probe line  printf  exit 0  0 lines  2.8s
   Updated README.md (+1 -0)
 ● Edit  src/app.ts  +2 -1
@@ -35,6 +36,8 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 | `Bash`, running                                | description, program, dim `running`, time since the call started           | as the engine draws it              |
 | `Bash`, no error                               | description, program, `exit 0`, stdout line count, time                    | one `Updated` line per changed file |
 | `Bash`, `Exit code N`                          | description, program, `exit N`, the first non-empty error line, time       | empty                               |
+| `Bash`, refused by a hook                      | description, program, `refused`, the first line of the hook message, time  | empty                               |
+| `Bash`, another `Error:` text                  | description, program, `error`, the first non-empty line of the text, time  | empty                               |
 | `Edit`, `Write`                                | tool, file path, added and removed line totals                             | empty                               |
 | `Read`                                         | tool, file path, line count, or the range of lines that the call read      | empty                               |
 | `Grep`                                         | tool, pattern in quotes, `in` and the folder, the count of the output mode | empty                               |
@@ -44,6 +47,7 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 | Any other tool, running                        | tool name, input summary, dim `running`, time since the call started       | as the engine draws it              |
 | Any other tool, no error                       | tool name, input summary, `done`, line count of the result, time           | empty                               |
 | Any other tool, error                          | tool name, input summary, `error`                                          | as the engine draws it              |
+| Any other tool, refused by a hook              | tool name, input summary, `error`                                          | empty                               |
 
 - The description is the `description` that the model gave. Without one, the row shows the
   first command segment. An ellipsis (`…`) marks a cut or a segment that follows.
@@ -65,6 +69,12 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
   error, and only when Bash edit tracking was on for that call. With tracking off, the engine
   sends no diff, also for a call that wrote a file. The block is then empty, and
   `/simple show N` prints `File diff: not reported by the engine.`
+- A hook that refuses a call before it runs sends `Error: PreToolUse:Bash hook error:`, the
+  hook command in brackets and its message. The row leaves out all of that text up to the
+  message, and shows the first line of the message after `refused`.
+- Any other errored `Bash` text that starts with `Error:` and is not an exit code, such as a
+  permission denial or a refusal at the permission question, shows `error` and the first
+  non-empty line after `Error:`.
 - After `exit N`, the engine sends no diff, but the command can still have changed a file.
   `/simple show N` then prints `File diff: not reported by the engine.`
 - `/simple show N` prints `File diff: none.` for a `Bash` call only when the engine tracked the
@@ -124,8 +134,9 @@ Claude Code release adds, and any MCP tool, gets the generic row.
   runs. `done` is green and `error` is red.
 - The line count is the count of lines in the result as the model read it. The time shows from
   1 second. The mod clock measures it around the call, as for `Bash`.
-- After `error`, the engine draws the error text under the row. `/simple show N` prints the
-  call in full.
+- After `error`, the engine draws the error text under the row. When a hook refused the call,
+  the result block is empty, as for a refused `Bash` call. `/simple show N` prints the call in
+  full.
 - A call has no line count and no time when a subagent made it, when it is from an ended
   session, or when a plugin above simple-view answered it.
 
@@ -210,7 +221,9 @@ row folds the output again and removes both lines:
 
 - `copy` copies the full output of the call: stdout, then stderr, exactly as the engine gave
   them. Trailing spaces and blank lines stay. After `exit N` it copies the error output under the
-  `Error: Exit code N` line. A toast says how many lines it copied, or why the copy failed.
+  `Error: Exit code N` line. After `refused` it copies the message of the hook, and after
+  `error` the text after `Error:`. `more` opens the same text. A toast says how many lines it
+  copied, or why the copy failed.
 - When the engine saved a large output to a file, the row shows only the preview that the engine
   kept. `copy` reads the saved file and copies all of it.
 - The opened lines are dim and never wrap: a long line is cut at the row end. `copy` keeps the
@@ -236,9 +249,8 @@ simple-view draws the engine row unchanged in each of these cases:
   row for the call.
 - Another mod drew its own row for the call. [Rows of other mods](#rows-of-other-mods) says
   how.
-- The call was interrupted, refused or ran in the background.
-- A `Bash` call errored without the `Error: Exit code N` text, for example a timeout or a refusal
-  at the permission question.
+- The call was interrupted or ran in the background.
+- A `Bash` call errored with a text that does not start with `Error:`.
 - The output or the input is not a shape that the mod reads, or a staged `Edit` or `Write` that
   did not change the file. A `Read` of an image, a PDF, a notebook or an unchanged file is not a
   shape that the mod reads.

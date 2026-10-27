@@ -509,6 +509,20 @@ describe('command reading', () => {
   })
 })
 
+const HOOK_MESSAGE_LINES = [
+  "pipe-status-guard: refusing a status read after `tail`: the pipeline's exit status is the FILTER's, not the command's, so a failing gate reports success — head is this repo's most-used tool at 16394 calls and tail is third at 13960, which is why this is a hook and not a note.",
+  'Use one of:',
+  '  <cmd> > out.txt 2>&1; echo $?; tail -5 out.txt   # no pipe to mis-read',
+  '  set -o pipefail; <cmd> | tail -5                 # leftmost failure wins',
+  '  <cmd> | tail -5; <next>                          # status not needed: ; not &&',
+  'Then confirm the result from the explicit pass/fail summary line, not from the exit code alone — truncated output hides failures.',
+] as const
+const HOOK_MESSAGE = `${HOOK_MESSAGE_LINES.join('\n')}\n`
+const HOOK_REFUSAL =
+  'Error: PreToolUse:Bash hook error: [uv run --no-project --no-python-downloads python "${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/lefthook-runtime.py" claude pretooluse]: ' +
+  HOOK_MESSAGE
+const REFUSED_INPUT = { command: 'true | tail -1 && echo x', description: 'Print x after a pipe' }
+
 describe('Bash row', () => {
   for (const surface of SURFACES) {
     viewTest(`draws a finished call as one row on ${surface}`, async (world, $) => {
@@ -691,6 +705,67 @@ describe('Bash row', () => {
       }),
     ).toEqual(['● Fail false exit 1'])
   })
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `a call that a hook refused shows refused and the first line of the hook message on ${surface}`,
+      async (world, $) => {
+        world.answer = () => failed(HOOK_REFUSAL)
+        const id = await runBash(world, $, REFUSED_INPUT)
+        const answer = world.answer(REFUSED_INPUT)
+        const use = useProps(id, 'Bash', REFUSED_INPUT, answer)
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Print x after a pipe true refused ${HOOK_MESSAGE_LINES[0]}`,
+        ])
+        const ui = await mountUse($, use, surface)
+        expect((await ui.find({ type: 'Text', text: 'refused' }))?.props.color).toBe('error')
+        const line = await ui.find({ type: 'Text', text: HOOK_MESSAGE_LINES[0] })
+        expect(line?.props).toMatchObject({ color: 'error', wrap: 'truncate-end' })
+        await ui.unmount()
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: resultProps(id, 'Bash', answer) },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `another error text before the run shows error and its first line on ${surface}`,
+      async (world, $) => {
+        const cases = [
+          [
+            'Error: Permission to use Bash with command rm notes.md has been denied.',
+            'Permission to use Bash with command rm notes.md has been denied.',
+          ],
+          [
+            "Error: The user doesn't want to proceed with this tool use. The tool use was rejected.\nSTOP what you are doing.",
+            "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+          ],
+        ] as const
+        const input = { command: 'rm notes.md', description: 'Remove the notes' }
+        for (const [text, first] of cases) {
+          world.answer = () => failed(text)
+          const id = await runBash(world, $, input)
+          const use = useProps(id, 'Bash', input, failed(text))
+          expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+            `${MARKER[surface]}Remove the notes rm error ${first}`,
+          ])
+          const result = await drawn(
+            $,
+            { component: 'ToolResult', props: resultProps(id, 'Bash', failed(text)) },
+            surface,
+          )
+          expect(result.tree).toMatchObject({ type: 'Box' })
+          expect(result.textCount).toBe(0)
+        }
+      },
+    )
+  }
 
   viewTest('shows no time under one second and the time from one second', async (world, $) => {
     const input = { command: 'ls', description: 'List files' }
@@ -968,6 +1043,32 @@ describe('tool row fold and copy', () => {
     expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore\n'])
     await ui.unmount()
   })
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `a refused row opens and copies the full hook message on ${surface}`,
+      async (world, $) => {
+        world.answer = () => failed(HOOK_REFUSAL)
+        const id = await runBash(world, $, REFUSED_INPUT)
+        const ui = await mountUse(
+          $,
+          useProps(id, 'Bash', REFUSED_INPUT, failed(HOOK_REFUSAL)),
+          surface,
+        )
+        await ui.press({ key: 'fold' })
+        const indent = surface === 'terminal' ? '  ' : ''
+        const divider = `${indent}~${'─'.repeat(80 - indent.length)}~`
+        expect(sketch(await ui.drawn()).slice(1)).toEqual([
+          divider,
+          ...HOOK_MESSAGE_LINES.map((line) => `${indent}~${line}~`),
+          divider,
+        ])
+        await ui.press({ key: 'copy' })
+        expect(world.copies).toEqual([HOOK_MESSAGE])
+        await ui.unmount()
+      },
+    )
+  }
 
   viewTest('copy of an output saved to a file copies the file', async (world, $) => {
     const path = `${ROOT}/.tool-results/out.txt`
@@ -1523,6 +1624,41 @@ describe('generic tool row', () => {
         ENGINE_ROW,
       )
     })
+
+    viewTest(
+      `leaves the error text of an Error: answer that no hook refused on ${surface}`,
+      async (world, $) => {
+        const errored = failed('Error: Unknown skill: no-comments')
+        const use = await genericCall(world, $, 'Skill', { skill: 'no-comments' }, errored)
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Skill no-comments error`,
+        ])
+        const result = resultProps(use.tool_use_id, 'Skill', errored)
+        expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
+          ENGINE_ROW,
+        )
+      },
+    )
+
+    viewTest(
+      `draws a call that a hook refused as one error row with no error text on ${surface}`,
+      async (world, $) => {
+        const refused = failed(
+          'Error: PreToolUse:WebFetch hook error: [python3 "${CLAUDE_PROJECT_DIR}/hooks/fetch-guard.py"]: fetch-guard: refusing a fetch outside the allowed hosts\nAllowed: docs.example.com\n',
+        )
+        const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, refused)
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
+        ])
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: resultProps(use.tool_use_id, 'WebFetch', refused) },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+      },
+    )
 
     viewTest(`draws its own row while the input streams on ${surface}`, async (_world, $) => {
       const rowOf = async (input: unknown) => {
@@ -2198,8 +2334,8 @@ describe('fallback to the engine row', () => {
     ).toEqual(ENGINE_ROW)
   })
 
-  viewTest('when the call was refused', async (world, $) => {
-    const refusal = failed("The user doesn't want to proceed with this tool use.")
+  viewTest('when the error text does not start with Error:', async (world, $) => {
+    const refusal = failed('User rejected tool use')
     world.answer = () => refusal
     const input = { command: 'rm notes.md', description: 'Remove the notes' }
     const id = await runBash(world, $, input)

@@ -1,6 +1,6 @@
 import type { RenderElement, RenderSurface } from 'claude-code'
 import type { SimpleViewFold } from '../types'
-import { EXIT_PREFIX, isRecord } from './output'
+import { erroredOutput, isRecord } from './output'
 import type { RowLook } from './row'
 import { graphemesOf, isEmoji } from './width'
 
@@ -82,10 +82,9 @@ function stdoutThenStderr(stdout: string, stderr: string): string {
 
 export function callOutput(output: unknown, isErrored: boolean): CallOutput | null {
   if (isErrored) {
-    if (typeof output !== 'string') return null
-    const found = EXIT_PREFIX.exec(output)
-    if (found === null) return null
-    const errorOutput = output.slice(found[0].length).replace(LEADING_BLANK_LINES, '')
+    const errored = erroredOutput(output)
+    if (errored === null) return null
+    const errorOutput = errored.body.replace(LEADING_BLANK_LINES, '')
     return outputOf(errorOutput, errorOutput, null)
   }
   if (!isRecord(output) || typeof output.stdout !== 'string') return null
