@@ -912,8 +912,9 @@ of the command.
 
 Every task row has `[ rm ]` at its end (handily-9uj3n.3), so one press removes a task of any
 status. The opened row keeps `[ up ] [ down ]` for a task that is not in progress. After `up`
-or `down` the mod moves the keyboard focus onto the same button of the moved task, so the next
-Enter moves the same task again.
+or `down` the mod asks Claude Code to move the keyboard focus onto the same button of the moved
+task, so the next Enter moves the same task again. This is tested through the requested key
+only, not live.
 
 #### 8.2d2 `[ +2 done ]` pressed: the done tasks and `[ clear done ]` (handily-9uj3n.2)
 
@@ -1234,6 +1235,8 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board done 3 (again)    -> Task 3 is already done. Nothing changed.
 /board done 9            -> No task 9. This session has tasks 1-7; /board list prints them.
 /board done three        -> /board done needs a task number, for example /board done 2.
+/board done 1000000000000000000000 -> 1000000000000000000000 is too large for a task number.
+                            /board list prints the task numbers.
 /board clear             -> Cleared 2 done tasks: 1, 5. Claude is told at your next prompt.
 /board clear (none done) -> No done task to clear. Nothing changed.
 /board add Write it      -> Not added: the list is full at 100 tasks, and 2 of them are done.

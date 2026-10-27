@@ -4487,3 +4487,33 @@ describe(QUEUE_CRITERION, () => {
     expect(await toldAtNextPrompt($)).toEqual([])
   })
 })
+
+const HUGE = '1000000000000000000000'
+
+test(
+  'a task number past the safe integers is refused by name, and a missing number is echoed as typed',
+  withWorkitems,
+  async ($, on) => {
+    world(on)
+    await start($)
+    await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+    await $.tool.call({ tool: TOOL_ADD, title: 'Ship it' })
+    const tooLarge = `${HUGE} is too large for a task number. /board list prints the task numbers.`
+    for (const args of [
+      `done ${HUGE}`,
+      `start ${HUGE}`,
+      `open ${HUGE}`,
+      `rm ${HUGE}`,
+      `mv ${HUGE} top`,
+      `mv 1 before ${HUGE}`,
+    ]) {
+      expect(await board($, args)).toBe(tooLarge)
+    }
+    const missing = 'No task 007. This session has tasks 1-2; /board list prints them.'
+    expect(await board($, 'done 007')).toBe(missing)
+    expect(await board($, 'mv 007 top')).toBe(missing)
+    expect(await board($, 'mv 1 before 007')).toBe(missing)
+    expect(await board($, 'rm 007')).toBe(missing)
+    expect(await toldAtNextPrompt($)).toEqual([])
+  },
+)

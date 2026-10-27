@@ -675,7 +675,9 @@ Defer to quiet-items:
   draws again (measured on 2.1.300). So the key of an `up` or `down` button holds the place of
   its task, and after a move the mod calls `$.ui.focus` with the key at the new place. That key
   exists only in the next drawing, so the engine waits for it and moves the focus after the
-  draw. This rests on the documented wait of `$.ui.focus`. A live check must confirm it.
+  draw. This rests on the documented wait of `$.ui.focus`. It is tested through the requested
+  key only. A tmux check on 2.1.311 could not reach the task buttons (Tab cycled only the tab row
+  and the close mark), so no live check has confirmed it.
 
 ## 5. Repo layout (proposed)
 

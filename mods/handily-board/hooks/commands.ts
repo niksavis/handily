@@ -315,9 +315,23 @@ function numberNeeded(word: string): string {
   return `/board ${word} needs a task number, for example /board ${word} 2.`
 }
 
+function tooLarge(text: string): string | undefined {
+  if (Number.isSafeInteger(Number(text))) return undefined
+  return `${text} is too large for a task number. /board list prints the task numbers.`
+}
+
+type TaskNumber = { id: number } | { refusal: string }
+
+function taskNumber(word: string, text: string): TaskNumber {
+  if (!isTaskNumber(text)) return { refusal: numberNeeded(word) }
+  const refusal = tooLarge(text)
+  return refusal === undefined ? { id: Number(text) } : { refusal }
+}
+
 export async function personRemove(host: TaskHost, text: string): Promise<string> {
-  if (!isTaskNumber(text)) return numberNeeded('rm')
-  const id = Number(text)
+  const number = taskNumber('rm', text)
+  if ('refusal' in number) return number.refusal
+  const { id } = number
   const outcome = await host.edit<{ task: BoardTask | undefined; list: BoardList }>((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { task: undefined, list } }
@@ -339,8 +353,9 @@ export async function personStatus(
   text: string,
   word: StatusWord,
 ): Promise<string> {
-  if (!isTaskNumber(text)) return numberNeeded(word)
-  const id = Number(text)
+  const number = taskNumber(word, text)
+  if ('refusal' in number) return number.refusal
+  const { id } = number
   const status = statusOfWord(word)
   const outcome = await host.edit<StatusOutcome>((list) => {
     const task = findTask(list, id)
@@ -348,14 +363,14 @@ export async function personStatus(
     if (task.status === status) return { list, value: { kind: 'same', task } }
     return { list: setStatus(list, id, status), value: { kind: 'set', task } }
   })
-  const number = String(id)
-  if (outcome.kind === 'missing') return missingTaskReply(number, outcome.list)
+  if (outcome.kind === 'missing') return missingTaskReply(text, outcome.list)
   const shown = statusWord(status)
-  if (outcome.kind === 'same') return `Task ${number} is already ${shown}. Nothing changed.`
   const { task } = outcome
+  const lead = `Task ${String(task.id)}`
+  if (outcome.kind === 'same') return `${lead} is already ${shown}. Nothing changed.`
   const change = `it set the status ${status} on ${changedTask(task)}`
   const noteRefusal = await tellModel(host, change, [task])
-  const reply = `Task ${number} is now ${shown}: ${taskText(task)}${toldSuffix(noteRefusal)}`
+  const reply = `${lead} is now ${shown}: ${taskText(task)}${toldSuffix(noteRefusal)}`
   return withTrackerNotice(reply, [task])
 }
 
@@ -374,13 +389,13 @@ export async function personClear(host: TaskHost): Promise<string> {
 const PLACE_NEEDED =
   '/board mv needs a task number and a place, for example /board mv 5 before 2, /board mv 5 top or /board mv 5 bottom.'
 
-type Place = { before: number } | { end: 'top' | 'bottom' }
+type Place = { before: number; typed: string } | { end: 'top' | 'bottom' }
 
 function placeOf(words: readonly string[]): Place | undefined {
   const [word, number, ...rest] = words
   if (rest.length > 0) return undefined
   if (word === 'before' && number !== undefined && isTaskNumber(number)) {
-    return { before: Number(number) }
+    return { before: Number(number), typed: number }
   }
   if (number !== undefined) return undefined
   return word === 'top' || word === 'bottom' ? { end: word } : undefined
@@ -416,6 +431,8 @@ export async function personPlace(host: TaskHost, text: string): Promise<string>
   const [number = '', ...words] = text.split(/\s+/)
   const place = placeOf(words)
   if (!isTaskNumber(number) || place === undefined) return PLACE_NEEDED
+  const large = tooLarge(number) ?? ('before' in place ? tooLarge(place.typed) : undefined)
+  if (large !== undefined) return large
   const id = Number(number)
   if ('before' in place && place.before === id) {
     return `/board mv needs two different tasks, for example /board mv ${number} before 2.`
@@ -425,7 +442,10 @@ export async function personPlace(host: TaskHost, text: string): Promise<string>
     return { list: moved.list, value: moved }
   })
   const shown = String(id)
-  if (outcome.kind === 'missing') return missingTaskReply(String(outcome.id), outcome.list)
+  if (outcome.kind === 'missing') {
+    const typed = outcome.id === id || !('before' in place) ? number : place.typed
+    return missingTaskReply(typed, outcome.list)
+  }
   const where = placeText(place)
   if (outcome.kind === 'same') {
     return `Task ${shown} is already ${alreadyText(place)}. Nothing changed.`

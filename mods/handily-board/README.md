@@ -79,8 +79,9 @@ Replies, from the tests:
   `/board add -- <id>`.
 - An item that is closed or deferred is not open. `/board add <item id>` refuses it by name, and
   `/board list` and the board do not count or list it.
-- Task numbers do not move when a task is removed. A command with a missing number lists the
-  numbers that exist.
+- Task numbers do not move when a task is removed. A command with a missing number echoes it as
+  you typed it and lists the numbers that exist. A number too large for an exact integer is
+  refused as too large.
 
 ## Keyboard
 
@@ -100,10 +101,12 @@ You can press every button on both tabs with the keyboard alone. A live check on
   focus went to the next or the previous button of the task. Now, after `up` or `down`, the
   mod asks Claude Code to put the focus on the same button of the moved task. The key of an
   `up` or `down` button holds the place of the task, so the mod asks for a button that only
-  the next drawing has. The tests check the request. They cannot check the focus, because the
-  test kit has no focus ring. The `+N more agents` and `all N open` folds add their rows before
-  the button, so by the same rule the focus goes to the first row that the fold shows. Use Tab
-  or Shift+Tab to go back to the button.
+  the next drawing has. This is tested through the requested key only. No live check has
+  confirmed it: the test kit has no focus ring, and a tmux check on 2.1.311 could not reach the
+  task buttons, because Tab cycled only the tab row and the close mark.
+- The `+N more agents` and `all N open` folds add their rows before the button, so by the same
+  rule the focus goes to the first row that the fold shows. Use Tab or Shift+Tab to go back to
+  the button.
 - The focus shows as inverted text. Reading order is top to bottom, and left to right on a line.
   After the last button, Tab goes to the `Add a task` input, then to the tab row and the close
   mark of Claude Code, and then to the first button again.
@@ -216,7 +219,8 @@ Tasks  1 of 4 done · 14m
   keeps its clock, as when Claude does it.
 - A task that is not in progress also gets `[ up ] [ down ]` on the next line. `up` and `down`
   move the task past its neighbour with the same status, as `task_move` does, and Claude is
-  told. The focus goes to the same button of the moved task.
+  told. The mod then asks Claude Code for the focus on the same button of the moved task. The
+  Keyboard section says what is tested.
 - The columns before the title have a fixed width. The title fills the room that is left and is
   cut with `…`, so a row never wraps. The tests check this at 30, 41 and 80 columns.
 - The mobile app has no input, so the tab says `Add tasks with /board add <text>.`
