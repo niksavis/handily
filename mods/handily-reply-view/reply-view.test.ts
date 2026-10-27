@@ -1,6 +1,7 @@
 import type { On, PromptOrigin, RenderPropsOf, UiCopyResult } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import { displayWidth, graphemesOf } from './hooks/width'
+import { parseMermaid, type Flowchart, type Refusal, type SequenceDiagram } from './hooks/mermaid'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -1616,5 +1617,518 @@ describe('/replies', () => {
     })
     await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
     expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]handily-reply-view$/) }])
+  })
+})
+
+function flowchartOf(source: string): Flowchart {
+  const result = parseMermaid(source)
+  if (result.kind !== 'flowchart') throw new Error(`not a flowchart: ${JSON.stringify(result)}`)
+  return result
+}
+
+function sequenceOf(source: string): SequenceDiagram {
+  const result = parseMermaid(source)
+  if (result.kind !== 'sequence') throw new Error(`not a sequence: ${JSON.stringify(result)}`)
+  return result
+}
+
+function refusedLine(line: number, reason: string): Refusal {
+  return { kind: 'refused', reason, line, limit: null }
+}
+
+type LimitOf = NonNullable<Refusal['limit']>
+
+function overLimit(name: LimitOf['name'], count: number, most: number, noun: string = name) {
+  return {
+    kind: 'refused',
+    reason: `${String(count)} ${noun}, at most ${String(most)} draw`,
+    line: null,
+    limit: { name, count, most },
+  }
+}
+
+function numbered(prefix: string, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `${prefix}${String(index + 1)}`)
+}
+
+function linesOf(...lines: string[]): string {
+  return lines.join('\n')
+}
+
+describe('mermaid flowcharts', () => {
+  test('a flowchart reads each node shape as a box, a rounded box or a decision', () => {
+    const chart = flowchartOf(
+      linesOf(
+        'flowchart TD',
+        '  A[Box] --> B(Round)',
+        '  C([Stadium]) --> D((Circle))',
+        '  E{Decide} --> F[[Sub]]',
+        '  G{{Hex}} --> H>Flag]',
+        '  I[(Store)] --> J[/Lean/]',
+        '  K[\\Back\\] --> L(((Double)))',
+        '  M --> N',
+      ),
+    )
+    expect(chart.nodes.map(({ id, shape, label }) => [id, shape, label])).toEqual([
+      ['A', 'box', ['Box']],
+      ['B', 'rounded', ['Round']],
+      ['C', 'rounded', ['Stadium']],
+      ['D', 'rounded', ['Circle']],
+      ['E', 'decision', ['Decide']],
+      ['F', 'box', ['Sub']],
+      ['G', 'box', ['Hex']],
+      ['H', 'box', ['Flag']],
+      ['I', 'box', ['Store']],
+      ['J', 'box', ['Lean']],
+      ['K', 'box', ['Back']],
+      ['L', 'box', ['Double']],
+      ['M', 'box', ['M']],
+      ['N', 'box', ['N']],
+    ])
+  })
+
+  test('TD and TB draw top down, LR draws left to right, and graph is a flowchart', () => {
+    const directions = ['flowchart TD', 'flowchart TB', 'flowchart LR', 'graph TB', 'graph LR'].map(
+      (header) => flowchartOf(`${header}\n  A --> B`).direction,
+    )
+    expect(directions).toEqual(['TD', 'TD', 'LR', 'TD', 'LR'])
+  })
+
+  test('each edge keeps its stroke and whether it has an arrow', () => {
+    const chart = flowchartOf(
+      linesOf(
+        'flowchart LR',
+        '  A --> B',
+        '  B --- C',
+        '  C -.-> D',
+        '  D -.- E',
+        '  E ==> F',
+        '  F-->G',
+      ),
+    )
+    expect(chart.edges).toEqual([
+      { from: 'A', to: 'B', stroke: 'solid', arrow: true, label: [] },
+      { from: 'B', to: 'C', stroke: 'solid', arrow: false, label: [] },
+      { from: 'C', to: 'D', stroke: 'dashed', arrow: true, label: [] },
+      { from: 'D', to: 'E', stroke: 'dashed', arrow: false, label: [] },
+      { from: 'E', to: 'F', stroke: 'solid', arrow: true, label: [] },
+      { from: 'F', to: 'G', stroke: 'solid', arrow: true, label: [] },
+    ])
+  })
+
+  test('an edge label comes from pipes or from the text between the dashes', () => {
+    const chart = flowchartOf(
+      linesOf(
+        'flowchart TD',
+        '  A -->|yes| B',
+        '  A -- no --> C',
+        '  B -.->|"maybe | later"| C',
+        '  C ---|plain| D',
+      ),
+    )
+    expect(chart.edges).toEqual([
+      { from: 'A', to: 'B', stroke: 'solid', arrow: true, label: ['yes'] },
+      { from: 'A', to: 'C', stroke: 'solid', arrow: true, label: ['no'] },
+      { from: 'B', to: 'C', stroke: 'dashed', arrow: true, label: ['maybe | later'] },
+      { from: 'C', to: 'D', stroke: 'solid', arrow: false, label: ['plain'] },
+    ])
+  })
+
+  test('a quoted label keeps its brackets and a br tag starts a new line in the box', () => {
+    const chart = flowchartOf(
+      linesOf(
+        'flowchart TD',
+        '  A["Parse (the subset) [now]"] --> B[One<br>Two<br/>Three<BR />Four]',
+        '  C("a {b}") --> D{"Fits?<br>Yes"}',
+      ),
+    )
+    expect(chart.nodes.map(({ shape, label }) => [shape, label])).toEqual([
+      ['box', ['Parse (the subset) [now]']],
+      ['box', ['One', 'Two', 'Three', 'Four']],
+      ['rounded', ['a {b}']],
+      ['decision', ['Fits?', 'Yes']],
+    ])
+  })
+
+  test('a chain links each neighbour and a fan-out links every pair in source order', () => {
+    const chart = flowchartOf(linesOf('flowchart TD', '  A --> B --> C', '  D & E --> F & G'))
+    expect(chart.edges.map(({ from, to }) => `${from}${to}`)).toEqual([
+      'AB',
+      'BC',
+      'DF',
+      'DG',
+      'EF',
+      'EG',
+    ])
+  })
+
+  test('a later shape of a node replaces its label and keeps its first place', () => {
+    const chart = flowchartOf(linesOf('flowchart TD', '  A --> B', '  B{Ready?} --> A[Start]'))
+    expect(chart.nodes).toEqual([
+      { id: 'A', shape: 'box', label: ['Start'] },
+      { id: 'B', shape: 'decision', label: ['Ready?'] },
+    ])
+    expect(chart.edges.map(({ from, to }) => `${from}${to}`)).toEqual(['AB', 'BA'])
+  })
+
+  test('comments, styles, classes, clicks and semicolons add nothing to the model', () => {
+    const chart = flowchartOf(
+      linesOf(
+        '%% a leading comment',
+        'flowchart TD;',
+        '  %% a comment',
+        '  A:::hot --> B[Two]:::cold;',
+        '  classDef hot fill:#f00',
+        '  class A hot',
+        '  style B stroke:#333',
+        '  linkStyle 0 stroke:#0f0',
+        '  click A "https://example.com"',
+      ),
+    )
+    expect(chart).toEqual({
+      kind: 'flowchart',
+      direction: 'TD',
+      nodes: [
+        { id: 'A', shape: 'box', label: ['A'] },
+        { id: 'B', shape: 'box', label: ['Two'] },
+      ],
+      edges: [{ from: 'A', to: 'B', stroke: 'solid', arrow: true, label: [] }],
+    })
+  })
+
+  test('labels and ids with emoji and CJK keep every grapheme', () => {
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}'
+    const chart = flowchartOf(
+      linesOf('flowchart LR', `  開始["🚀 発射"] -->|はい ✅| B[データ ${family}]`, '  B --> 終了'),
+    )
+    expect(chart.nodes).toEqual([
+      { id: '開始', shape: 'box', label: ['🚀 発射'] },
+      { id: 'B', shape: 'box', label: [`データ ${family}`] },
+      { id: '終了', shape: 'box', label: ['終了'] },
+    ])
+    expect(chart.edges[0]?.label).toEqual(['はい ✅'])
+  })
+
+  test('the mock source of 9.8 names line 3 and draws nothing', () => {
+    expect(
+      parseMermaid(linesOf('flowchart TD', '  A[Start] --> B[Parse]', '  B => C[Draw]')),
+    ).toEqual(refusedLine(3, 'line 3 does not parse'))
+  })
+
+  for (const line of [
+    'A --o B',
+    'A <--> B',
+    'A === B',
+    'A ---> B',
+    'A -->> B',
+    'A -. text .-> B',
+    'A -- yes --- B',
+    'A[foo (bar)]',
+    'A []',
+    'end --> A',
+    'A -->',
+    'A B',
+    'A@{ shape: rect }',
+  ]) {
+    test(`the flowchart line ${line} is outside the subset and names its line`, () => {
+      expect(parseMermaid(linesOf('flowchart TD', '  A --> B', `  ${line}`))).toEqual(
+        refusedLine(3, 'line 3 does not parse'),
+      )
+    })
+  }
+
+  for (const [source, line, reason] of [
+    [linesOf('flowchart TD', '  A --> B', '  subgraph one', '  C', '  end'), 3, 'subgraph'],
+    [linesOf('flowchart TD', '  direction LR'), 2, 'direction'],
+    [linesOf('flowchart RL', '  A --> B'), 1, 'flowchart RL'],
+    [linesOf('graph BT', '  A --> B'), 1, 'graph BT'],
+    [linesOf('flowchart TD', '  A[fa:fa-car Car]'), 2, 'icons'],
+    [linesOf('flowchart TD', '  A --> B', '  B@{ icon: "fa:user" }'), 3, 'icons'],
+    [linesOf('flowchart TD', '  A["`**bold**`"]'), 2, 'markdown strings'],
+    [linesOf('flowchart TD', '  A -->|"`md`"| B'), 2, 'markdown strings'],
+    [linesOf('classDiagram', '  A <|-- B'), 1, 'classDiagram'],
+    [linesOf('pie title Pets', '  "Dogs" : 3'), 1, 'pie'],
+    [linesOf('stateDiagram-v2', '  [*] --> A'), 1, 'stateDiagram-v2'],
+  ] as const) {
+    test(`${reason} is refused by name on line ${String(line)}`, () => {
+      expect(parseMermaid(source)).toEqual(refusedLine(line, `${reason} does not draw yet`))
+    })
+  }
+
+  test('a first line that names no diagram does not parse', () => {
+    expect(parseMermaid('A --> B')).toEqual(refusedLine(1, 'line 1 does not parse'))
+    expect(parseMermaid('flowchart XY\n  A')).toEqual(refusedLine(1, 'line 1 does not parse'))
+  })
+})
+
+describe('mermaid sequence diagrams', () => {
+  test('participants and actors keep their aliases and the place of their first appearance', () => {
+    const diagram = sequenceOf(
+      linesOf(
+        'sequenceDiagram',
+        '  participant U as You',
+        '  actor C as Claude',
+        '  participant R as reply-view',
+        '  U->>C: prompt',
+        '  X->>U: hi',
+        '  participant X as Late',
+        '  participant Plain',
+      ),
+    )
+    expect(diagram.participants).toEqual([
+      { id: 'U', kind: 'participant', label: ['You'] },
+      { id: 'C', kind: 'actor', label: ['Claude'] },
+      { id: 'R', kind: 'participant', label: ['reply-view'] },
+      { id: 'X', kind: 'participant', label: ['Late'] },
+      { id: 'Plain', kind: 'participant', label: ['Plain'] },
+    ])
+  })
+
+  test('each message arrow keeps its stroke and its head, and drops the activation marks', () => {
+    const diagram = sequenceOf(
+      linesOf(
+        'sequenceDiagram',
+        '  A->B: solid line',
+        '  A-->B: dashed line',
+        '  A->>+B: solid arrow',
+        '  B-->>-A: dashed arrow',
+        '  A-xB: solid cross',
+        '  A--xB: dashed cross',
+        '  A-)B: solid open',
+        '  A--)B: dashed open',
+      ),
+    )
+    expect(diagram.participants.map(({ id }) => id)).toEqual(['A', 'B'])
+    const message = (from: string, to: string, stroke: string, head: string, text: string) => ({
+      kind: 'message',
+      from,
+      to,
+      stroke,
+      head,
+      text: [text],
+      number: null,
+    })
+    expect(diagram.events).toEqual([
+      message('A', 'B', 'solid', 'none', 'solid line'),
+      message('A', 'B', 'dashed', 'none', 'dashed line'),
+      message('A', 'B', 'solid', 'arrow', 'solid arrow'),
+      message('B', 'A', 'dashed', 'arrow', 'dashed arrow'),
+      message('A', 'B', 'solid', 'cross', 'solid cross'),
+      message('A', 'B', 'dashed', 'cross', 'dashed cross'),
+      message('A', 'B', 'solid', 'open', 'solid open'),
+      message('A', 'B', 'dashed', 'open', 'dashed open'),
+    ])
+  })
+
+  test('a note takes one side or spans two participants, and adds a participant it names', () => {
+    const diagram = sequenceOf(
+      linesOf(
+        'sequenceDiagram',
+        '  A->>A: self',
+        '  Note left of A: left',
+        '  note right of A: right',
+        '  Note over A,B: both<br>lines',
+        '  Note over C: alone',
+      ),
+    )
+    expect(diagram.participants.map(({ id }) => id)).toEqual(['A', 'B', 'C'])
+    expect(diagram.events.slice(1)).toEqual([
+      { kind: 'note', placement: 'left of', participants: ['A'], text: ['left'] },
+      { kind: 'note', placement: 'right of', participants: ['A'], text: ['right'] },
+      { kind: 'note', placement: 'over', participants: ['A', 'B'], text: ['both', 'lines'] },
+      { kind: 'note', placement: 'over', participants: ['C'], text: ['alone'] },
+    ])
+  })
+
+  test('autonumber numbers each message after it and skips the notes', () => {
+    const diagram = sequenceOf(
+      linesOf(
+        'sequenceDiagram',
+        '  A->>B: before',
+        '  autonumber',
+        '  A->>B: one',
+        '  Note over A: not counted',
+        '  B-->>A: two',
+      ),
+    )
+    expect(
+      diagram.events.map((event) => (event.kind === 'message' ? event.number : 'note')),
+    ).toEqual([null, 1, 'note', 2])
+  })
+
+  test('a block holds its sections as ranges of events, with the depth of its nesting', () => {
+    const diagram = sequenceOf(
+      linesOf(
+        'sequenceDiagram',
+        '  loop every minute',
+        '    A->>B: ping',
+        '    alt hit',
+        '      B-->>A: value',
+        '    else miss',
+        '      B-->>A: none',
+        '    end',
+        '  end',
+        '  opt cached',
+        '  end',
+        '  par first',
+        '    A->>B: one',
+        '  and second',
+        '    A->>C: two',
+        '  end',
+        '  critical lock',
+        '    A->>B: write',
+        '  end',
+        '  break failed',
+        '    A->>B: stop',
+        '  end',
+        '  rect rgb(0, 0, 0)',
+        '    A->>B: inside',
+        '  end',
+      ),
+    )
+    expect(diagram.events.map((event) => event.text[0])).toEqual([
+      'ping',
+      'value',
+      'none',
+      'one',
+      'two',
+      'write',
+      'stop',
+      'inside',
+    ])
+    expect(diagram.blocks).toEqual([
+      { kind: 'loop', depth: 0, sections: [{ label: ['every minute'], from: 0, to: 3 }] },
+      {
+        kind: 'alt',
+        depth: 1,
+        sections: [
+          { label: ['hit'], from: 1, to: 2 },
+          { label: ['miss'], from: 2, to: 3 },
+        ],
+      },
+      { kind: 'opt', depth: 0, sections: [{ label: ['cached'], from: 3, to: 3 }] },
+      {
+        kind: 'par',
+        depth: 0,
+        sections: [
+          { label: ['first'], from: 3, to: 4 },
+          { label: ['second'], from: 4, to: 5 },
+        ],
+      },
+      { kind: 'critical', depth: 0, sections: [{ label: ['lock'], from: 5, to: 6 }] },
+      { kind: 'break', depth: 0, sections: [{ label: ['failed'], from: 6, to: 7 }] },
+      { kind: 'rect', depth: 0, sections: [{ label: ['rgb(0, 0, 0)'], from: 7, to: 8 }] },
+    ])
+  })
+
+  for (const [source, line] of [
+    [linesOf('sequenceDiagram', '  A->>B hi'), 2],
+    [linesOf('sequenceDiagram', '  else'), 2],
+    [linesOf('sequenceDiagram', '  loop x', '  and y', '  end'), 3],
+    [linesOf('sequenceDiagram', '  alt x', '  A->>B: hi', '  end', '  end'), 5],
+    [linesOf('sequenceDiagram', '  activate A'), 2],
+    [linesOf('sequenceDiagram', '  A<<->>B: both'), 2],
+    [linesOf('sequenceDiagram', '  Note over A,B,C: three'), 2],
+    [linesOf('sequenceDiagram', '  Note left of A,B: two'), 2],
+    [linesOf('sequenceDiagram', '  autonumber 10 5'), 2],
+    [linesOf('sequenceDiagram', '  critical x', '  option y', '  end'), 3],
+  ] as const) {
+    const shown = source.split('\n')[line - 1]?.trim() ?? ''
+    test(`the sequence line ${shown} names line ${String(line)}`, () => {
+      expect(parseMermaid(source)).toEqual(refusedLine(line, `line ${String(line)} does not parse`))
+    })
+  }
+
+  test('a block with no end names the line that opens it', () => {
+    expect(
+      parseMermaid(linesOf('sequenceDiagram', '  A->>B: hi', '  loop forever', '  A->>B: again')),
+    ).toEqual(refusedLine(3, 'line 3 opens a block with no end'))
+  })
+
+  for (const [source, line, name] of [
+    [linesOf('sequenceDiagram', '  box Aqua Group', '  participant A', '  end'), 2, 'box'],
+    [linesOf('sequenceDiagram', '  A->>B: hi', '  create participant C'), 3, 'create'],
+    [linesOf('sequenceDiagram', '  A->>B: hi', '  destroy B'), 3, 'destroy'],
+  ] as const) {
+    test(`${name} is refused by name on line ${String(line)}`, () => {
+      expect(parseMermaid(source)).toEqual(refusedLine(line, `${name} does not draw yet`))
+    })
+  }
+})
+
+describe('mermaid input and limits', () => {
+  test('CRLF input reads like LF input and keeps its line numbers', () => {
+    const flow = linesOf('flowchart TD', '  A[Start] --> B', '  B --> C', '')
+    const sequence = linesOf('sequenceDiagram', '  A->>B: hi', '  Note over B: ok', '')
+    expect(flowchartOf(flow.replace(/\n/g, '\r\n'))).toEqual(flowchartOf(flow))
+    expect(sequenceOf(sequence.replace(/\n/g, '\r\n'))).toEqual(sequenceOf(sequence))
+    expect(flowchartOf(flow).nodes.map(({ label }) => label)).toEqual([['Start'], ['B'], ['C']])
+    expect(parseMermaid('flowchart TD\r\n  A --> B\r\n  B => C\r\n')).toEqual(
+      refusedLine(3, 'line 3 does not parse'),
+    )
+  })
+
+  for (const [name, source] of [
+    ['no text', ''],
+    ['two line breaks', '\n\n'],
+    ['spaces, a CRLF and a tab', '   \r\n\t'],
+    ['a comment only', '%% only a comment'],
+    ['90 blank lines over the line limit', '\n'.repeat(90)],
+  ] as const) {
+    test(`a block of ${name} is refused as empty`, () => {
+      expect(parseMermaid(source)).toEqual({
+        kind: 'refused',
+        reason: 'the block is empty',
+        line: null,
+        limit: null,
+      })
+    })
+  }
+
+  test('80 lines draw and 81 lines name the limit, and a final line break is no line', () => {
+    const lines = (count: number) => ['flowchart TD', ...Array<string>(count - 1).fill('%% c')]
+    expect(flowchartOf(linesOf(...lines(80))).kind).toBe('flowchart')
+    expect(flowchartOf(`${linesOf(...lines(80))}\n`).kind).toBe('flowchart')
+    expect(parseMermaid(linesOf(...lines(81)))).toEqual(overLimit('lines', 81, 80))
+  })
+
+  test('8000 characters draw and 8001 name the limit, and a CR adds no character', () => {
+    const source = (count: number) => `flowchart TD\nA[${'x'.repeat(count - 16)}]`
+    expect(source(8000)).toHaveLength(8000)
+    expect(flowchartOf(source(8000)).nodes).toHaveLength(1)
+    expect(flowchartOf(source(8000).replace('\n', '\r\n')).nodes).toHaveLength(1)
+    expect(parseMermaid(source(8001))).toEqual(overLimit('characters', 8001, 8000))
+  })
+
+  test('40 boxes draw and 41 boxes name the limit', () => {
+    const source = (count: number) => linesOf('flowchart TD', ...numbered('  N', count))
+    expect(flowchartOf(source(40)).nodes).toHaveLength(40)
+    expect(parseMermaid(source(41))).toEqual(overLimit('boxes', 41, 40))
+  })
+
+  test('60 edges draw and 61 edges name the limit', () => {
+    const fan = `  ${numbered('A', 6).join(' & ')} --> ${numbered('B', 10).join(' & ')}`
+    expect(flowchartOf(linesOf('flowchart TD', fan)).edges).toHaveLength(60)
+    expect(parseMermaid(linesOf('flowchart TD', fan, '  A1 --> A2'))).toEqual(
+      overLimit('edges', 61, 60),
+    )
+  })
+
+  test('12 participants draw and 13 participants name the limit', () => {
+    const source = (count: number) =>
+      linesOf('sequenceDiagram', ...numbered('  participant P', count))
+    expect(sequenceOf(source(12)).participants).toHaveLength(12)
+    expect(parseMermaid(source(13))).toEqual(overLimit('participants', 13, 12))
+  })
+
+  test('60 messages and notes draw and 61 name the limit', () => {
+    const source = (notes: number) =>
+      linesOf(
+        'sequenceDiagram',
+        ...Array<string>(30).fill('  A->>B: ask'),
+        ...Array<string>(notes).fill('  Note over A: wait'),
+      )
+    expect(sequenceOf(source(30)).events).toHaveLength(60)
+    expect(parseMermaid(source(31))).toEqual(overLimit('events', 61, 60, 'messages and notes'))
   })
 })
