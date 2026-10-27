@@ -20,6 +20,12 @@
       "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, and four model tools keep the list."
     },
     {
+      "name": "handily-filetree",
+      "source": "./mods/handily-filetree",
+      "version": "0.1.0",
+      "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
+    },
+    {
       "name": "handily-item-toasts",
       "source": "./mods/handily-item-toasts",
       "version": "0.6.0",
