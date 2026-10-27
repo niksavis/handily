@@ -362,7 +362,7 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
 function columnsFor(context: Context, look: TableLook): number[] | null {
   const isNarrow = context.columns < BLOCKS_BELOW_COLUMNS
   if (isNarrow && tableWidth(look.widths) > context.width) return null
-  return columnWidths(look.widths, context.width)
+  return columnWidths(look, context.width)
 }
 
 function tablePiece(context: Context, table: Table, key: string): Piece {
