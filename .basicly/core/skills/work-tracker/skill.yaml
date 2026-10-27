@@ -82,9 +82,18 @@ instructions: |
 
   ```sh
   basicly loop status <id>                  # phase, worktree, gates, checkpoints, rework
-  basicly policy grant <id>                 # the integrity level and budget of the session
+  basicly policy gate <id>                  # required gates and their recorded results
   basicly policy dor <id>                   # Definition of Ready
   ```
+
+  For an older run, inspect compatibility state only when needed. These reads are not authorization prerequisites:
+
+  ```sh
+  basicly policy grant <id>
+  basicly policy checkpoint <id> classify
+  ```
+
+  The user task request authorizes normal work; do not issue another grant to resume it.
 
   The kit CLI does the same with no engine. Its first positional is always the ledger
   directory:
@@ -140,10 +149,11 @@ instructions: |
 
   ## Refine a record
 
-  Before refinement, read the **INVEST** and **Card, Conversation, Confirmation** sections
-  in `.basicly/core/kit/tracker/GUIDANCE.md`. They define the shared review and evidence
-  workflow. Use this skill's engine commands to record the same card, conversation and
-  confirmation. `dor` enforces recorded evidence; the agent judges semantic quality.
+  Before refinement, read the review forms in `.basicly/core/kit/tracker/GUIDANCE.md`.
+  Explicit tasks, bugs and chores accept a compact checks-only review. Other types require
+  the full review; existing full reviews stay valid. Keep intent, criteria, ownership and
+  actual outcomes. Record real questions and decisions when needed. `dor` enforces recorded
+  evidence; the agent judges semantic quality.
   Use `basicly tracker write -- review <id> --evidence '<JSON>'` before claim and
   `basicly tracker write -- confirm <id> --evidence '<JSON>'` after the agreed checks.
   The shared guidance defines both JSON shapes. Completed close needs current evidence;
@@ -216,12 +226,13 @@ instructions: |
   ```
 
   - Run it as its own pull request when `fsck` warns about the shard count, or when the hook
-    printed *the pending shards are not folded*.
+    reports pending shards.
   - It refuses while the tree has a change outside the ledger. Commit your work first.
   - Its commit takes a record id from the events in the shard, so the commit hook admits it.
-  - `basicly install` adds a `post-merge` fold hook only when `[tracker] fold_on_merge =
-    true`. The hook folds only on the default branch. Leave it off where the default branch
-    takes pull requests, because two folds conflict on the forge.
+  - `[tracker] fold_on_merge = true` opts into a read-only post-merge reminder on the
+    default branch. It reports the explicit command without folding, staging or committing.
+    The loop folds shards at its explicit tracker commit boundaries. Run a manual fold
+    outside Git hooks; a hook must never create another commit.
 
   ## Bulk queries with `jq`
 

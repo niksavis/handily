@@ -15,7 +15,7 @@ Cut a release with `basicly release`, which does every step up to the annotated 
 - **Write the notes before the cut.** The release commit and the tag are one step, so a later commit never reaches the tagged notes.
 - **Never clear a refusal by a manual run of the named tool.** That records a witness for a check that the gate did not see pass.
 - **Never delete a changelog fragment to clear a refusal.** A release note must not disappear without notice.
-- **The command never pushes.** Publication cannot be undone, so a person pushes.
+- **The command never pushes.** Push only when the user release request includes publication.
 
 ## 1. Check that the repository uses it
 
@@ -87,9 +87,9 @@ The dry run writes nothing and reports every refusal at once. It lists the fragm
 
 IMPORTANT: the dry run checks preconditions, not the commit gates. The release commit changes the tree, and only the commit gates see that tree. Before you give the command to anyone, prove the release in a scratch clone:
 
-1. Clone the repository and run `uv sync --group dev`. Copy any `node_modules` that the hooks need.
+1. Clone the repository and run `uv sync --group dev`. When this is basicly itself, run `uv run python src/basicly/lefthook_artifacts.py --download`, or use `--from-dir <artifacts>` for supplied archives. Copy any `node_modules` that the hooks need.
 2. Run the release in the clone.
-3. Run `git add -A`, then `uv run pre-commit run --hook-stage pre-commit`. No file may change, because a hook that edits a file fails even at exit 0.
+3. Run `git add -A`, then `uv run --no-project --no-python-downloads python .basicly/core/hooks/lefthook-runtime.py git pre-commit`. Inspect the index and working tree for mechanical fixes before tagging.
 4. Run the whole test suite. A test fixed in a later commit never reaches the tag.
 
 ## 5. Cut the release
@@ -100,7 +100,9 @@ uv run basicly release <version> --issue <record-id>
 
 It bumps `__version__`, regenerates the projections, rewrites the `vX.Y.Z` install pins in `README.md` and the other pin files, assembles the changelog, commits and creates the annotated tag. Add `--date YYYY-MM-DD` to set the changelog date. The default is today.
 
-For a delegated run, add `--autonomous --root <root-id>`. It needs a green L3 grant on the root. Add `--shipping <node>` to name the node whose gates must be green, because the verify gate of an open epic is never green.
+The user release request authorizes the requested cut and publication. No L-level grant or mandatory budget is needed.
+Required release gates must still pass. Use `--shipping <node>` when the verified shipping node differs from the root.
+Keep publication inside the version and scope the user requested.
 
 ## 6. Push and confirm
 

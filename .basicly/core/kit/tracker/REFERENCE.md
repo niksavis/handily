@@ -15,7 +15,7 @@ Every tracker setting, with its value, its `source` and its `home`. The source i
 | --- | --- |
 | `prefix`, `stale_days`, `mode`, `sections`, `types` | `template.json` in the ledger, committed with it |
 | `holder` | `git config basicly.holder`; `BASICLY_HOLDER` overrides it for one shell |
-| `fold_on_merge` | the post-merge git hook that `init --fold-on-merge` writes |
+| `fold_on_merge` | the read-only post-merge reminder that `init --fold-on-merge` writes |
 | `pin` | `.kit-version` in the ledger, which `init` and `update` write |
 
 ```sh
@@ -320,6 +320,22 @@ Fold the whole log and report anything broken. Exit 0 clean, 1 stale derivative,
 python3 .basicly/kit/tracker/cli.py fsck .basicly/ledger
 ```
 
+### acknowledge-loss
+
+Record proven unrecoverable history without inventing a missing event.
+Pass the exact missing sequence set in ascending order. Repeat `--sequence`
+and `--evidence` as needed. The reason and each historical reference must be nonempty.
+The example requires a confirmed missing sequence 9 with later surviving history.
+On healthy history, the command refuses with a nonzero exit and writes nothing.
+
+```sh
+python3 .basicly/kit/tracker/cli.py acknowledge-loss .basicly/ledger acme-a1b2 --sequence 9 --reason "Original content unavailable" --evidence "git:COMMIT"
+```
+
+The command appends a present-day artifact bound to the surviving history digest.
+`fsck` retains a warning that the original content remains unknown.
+Changed history, malformed acknowledgments, and new gaps still fail.
+
 ### shards
 
 The pending writer shards the ledger holds.
@@ -331,7 +347,10 @@ python3 .basicly/kit/tracker/cli.py shards .basicly/ledger
 ### compact
 
 Fold every pending shard into the trunk log. Run it on the default branch as its own
-pull request; `init --fold-on-merge` runs it after a merge where one writer pushes there.
+pull request. `init --fold-on-merge` reports this command after a merge; it never runs
+compaction or creates a commit from a Git hook.
+Compaction also removes byte-identical copies from trunk logs. It validates all
+copies first and refuses differing stored bytes before changing any file.
 
 ```sh
 python3 .basicly/kit/tracker/cli.py compact .basicly/ledger
@@ -352,10 +371,12 @@ python3 .basicly/kit/tracker/cli.py board .basicly/ledger --out tracker-board.ht
 
 ### review
 
-`review <ledger> <id> --evidence '<JSON>'` records the six INVEST rationales, actual
-same-card comment `seq` references, and one planned command argv and expected result per
-criterion. `confirm <ledger> <id> --evidence '<JSON>'` records exact matching argv,
-observed results and exit code 0 for every criterion. `GUIDANCE.md` gives both JSON shapes.
+`review <ledger> <id> --evidence '<JSON>'` records one planned command argv and expected
+result per criterion. Explicit tasks, bugs and chores may submit `checks` only. The full
+review also records six INVEST rationales and actual same-card comment `seq` references;
+other or missing types require that form. `confirm <ledger> <id> --evidence '<JSON>'`
+records exact matching argv, observed results and exit code 0 for every criterion.
+`GUIDANCE.md` gives both review forms and the completion shape.
 The tracker computes revisions and writer identities; these keys cannot be supplied.
 
 ### confirm

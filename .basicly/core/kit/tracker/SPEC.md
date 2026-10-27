@@ -49,8 +49,10 @@ tracker: wrote the skill to .agents/skills/tracker/SKILL.md
   block sits in a marked region. A second run does not duplicate it, and `uninstall` removes
   it byte for byte. Without the flag, the installer only tells where the block is, because
   an installer must not edit an instruction file unasked.
-- `--fold-on-merge` wires a `post-merge` git hook that runs `compact` on the default branch
-  and commits the result (§4.0). Without it, the installer says that no fold is wired.
+- `--fold-on-merge` wires a read-only `post-merge` reminder on the default branch.
+  It reports the explicit compaction command when shards remain and never folds, stages
+  or commits. The installer replaces an older automatic-fold block while keeping foreign
+  hook content. Without the flag, no reminder is wired.
 
 After the install, plain `python3` runs the kit, with no `uvx`, no network and nothing on
 `PATH`. Each subcommand takes the ledger directory as its first argument. The command refuses
@@ -84,13 +86,15 @@ unready card. Under the default template, `ready`, `dor`, `claim`, and a move to
 A trigger sentence includes three filled parts: situation or persona, motivation or goal,
 and outcome or benefit. The parser retains the complete sentence, including its outcome.
 It refuses empty parts, punctuation alone, and named placeholders. A filled trigger does
-not prove value, independence, or testability. The agent reviews INVEST and records Card,
-Conversation, Confirmation as described in `GUIDANCE.md`. Acceptance criteria and
+not prove value, independence, or testability. The agent records a current review and
+criterion checks as described in `GUIDANCE.md`. Acceptance criteria and
 requirements are typed fields. Every entry in a list must be filled.
 
-New claims require six filled INVEST rationales, actual same-card comment sequence
-references, and one planned argv and expected result per criterion. `review --evidence`
-records these with an internally computed semantic revision and generic writer identity.
+New claims require one planned argv and expected result per criterion. Explicit `task`,
+`bug` and `chore` types may use checks-only review evidence. The full review requires six
+filled INVEST rationales and actual same-card comment sequence references; it remains
+valid for every type and required for other or missing types. `review --evidence` records
+either form with an internally computed semantic revision and generic writer identity.
 Card, dependency edge or direct dependency contract edits invalidate the evidence; holder and status changes do not.
 These checks establish recorded evidence, not automated proof of semantic INVEST quality.
 
@@ -126,6 +130,9 @@ sources of truth: two branches each rebuild it, and git cannot union-merge a rec
 changed on both sides. That breaks requirement 1 in §4.3.
 
 - A reader rebuilds the snapshot when it finds the snapshot stale.
+- If access controls prevent snapshot publication, a reader returns the current fold
+  and reports the unavailable cache on stderr. It never serves a stale snapshot instead.
+  Explicit refresh and rebuild commands still require write access; other I/O errors fail.
 - The first line of the snapshot is a header. It carries the id of the last folded event,
   the event count, the log line count and the snapshot format version, which is 2.
 - A snapshot is stale when its line count, last event or format version differs from the
@@ -231,6 +238,12 @@ fold silently falls back to the whole history. Shards also use their own
 `pending-*` namespace. `period_of` reads all text after `events-` as a period, so a writer
 name there would corrupt both `period_of` and `rotate`.
 
+Compaction validates every stored copy before it changes a log or deletes a shard.
+It removes a duplicate only when another stored line holds the same bytes.
+It also removes identical copies already present in trunk logs. A differing copy
+with the same event id refuses the whole operation. `fsck` reports identical copies
+as a warning and differing copies as broken history.
+
 ### 4.1 Ordering — the per-item sequence
 
 Each event carries a **per-item integer sequence number**. The writer reads the item's
@@ -252,6 +265,25 @@ warning when its events set nothing in common, such as two comments. It is broke
 `conflicting-fork`, when two of its events set one status or one field to different values
 and no later event sets that key again. `resolve` appends that later event with the current
 value, so the tie becomes a decision.
+
+A missing sequence blocks `fsck`. Recover the original event when evidence permits.
+When the content cannot be recovered, explicitly record the known loss:
+
+```sh
+basicly-tracker acknowledge-loss DIR RECORD --sequence 9 --reason "Original content unavailable" --evidence "git:COMMIT"
+```
+
+Repeat `--sequence` for the exact missing sequence set, in ascending order.
+Repeat `--evidence` for each historical reference. The command refuses an unknown
+record, an incomplete sequence set, or an empty reason or evidence reference.
+It appends a present-day `sequence-loss` artifact. Its body binds the record,
+missing sequences, reason, evidence, sequence boundary, and surviving history digest.
+It does not recreate the missing event or claim to know its content.
+
+`fsck` retains a visible warning for acknowledged loss. Changed surviving history
+invalidates the acknowledgment. New gaps and malformed acknowledgments still block.
+Carried totals remain void across the historical gap; acknowledgment does not make
+those cached totals authoritative.
 
 ### 4.2 Secrets, size, and the committed-ledger trust boundary
 
@@ -280,6 +312,14 @@ cap's exact rules.
 `events.withdraw` removes the free text of one event from the log. It rewrites that line
 under the ledger lock and appends a `withdrawn` event that names the new line and the reason.
 Git history still holds the old line.
+
+For a `field` event, withdrawal clears a string value only when the field table
+marks it as prose or an unknown field is a declared template section.
+Known structural fields remain protected even when a template names them.
+The fold reads the placeholder, and the audit keeps the field name and event identity.
+Withdrawal validates its audit reason before rewriting. It refuses duplicate target
+copies with the `compact` remedy, so successful withdrawal cannot leave another
+stored copy of that event's disclosed text behind.
 
 ### 4.3 The ten requirements, and the weakest link in each
 

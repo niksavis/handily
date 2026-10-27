@@ -1,0 +1,11 @@
+commit-msg:
+  commands:
+    changelog-gate:
+      run: node scripts/changelog-gate.mjs {1}
+pre-commit:
+  commands:
+    basicly-dispatch:
+      env:
+        BASICLY_SECRET_EXCLUDE: ^mods/[^/]+/\.claude-plugin/types/
+extends:
+- .basicly/lefthook.yml
