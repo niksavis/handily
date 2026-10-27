@@ -14,6 +14,7 @@ import {
   planLag,
   planNote,
   toolTarget,
+  withClocks,
   withMainCall,
   withPlanUpdate,
 } from './activity'
@@ -44,7 +45,9 @@ import {
   listReply,
   parseBoardCommand,
   personAdd,
+  personNote,
   personRemove,
+  personStatus,
   readList,
   resetList,
   unknownReply,
@@ -97,6 +100,7 @@ const LIST = { plugin: 'handily-board', key: 'list' } as const
 const AGENT_IDS = { plugin: 'handily-board', key: 'agentIds' } as const
 const AGENT_PLANS = { plugin: 'handily-board', key: 'agentPlans' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
+const PERSON_CHANGES = { plugin: 'handily-board', key: 'personChanges' } as const
 const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 const REDRAW_INTERVAL_MS = 10_000
 const ENGINE_ORIGIN = 'engine'
@@ -188,13 +192,28 @@ function listEditor(write: ListWrite): TaskHost['edit'] {
   }
 }
 
+async function keepClocks($: EngineInterface): Promise<void> {
+  try {
+    const list = (await $.state.get(LIST)).value ?? EMPTY_LIST
+    const now = await $.clock.now()
+    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withClocks(current, list, now))
+  } catch (error) {
+    $.ui.log(`handily-board: the task clocks were not updated: ${String(error)}`, { to: 'debug' })
+  }
+}
+
 function hostOf($: EngineInterface): TaskHost {
+  const editList = listEditor((step) => update($, LIST, step))
   return {
     read: async () => {
       const { value } = await $.state.get({ plugin: 'handily-board', key: 'list' })
       return value
     },
-    edit: listEditor((step) => update($, { plugin: 'handily-board', key: 'list' }, step)),
+    edit: async (change) => {
+      const value = await editList(change)
+      await keepClocks($)
+      return value
+    },
     snapshot: async () => {
       const { value } = await $.state.get({ plugin: 'handily-workitems', key: 'snapshot' })
       return value
@@ -212,11 +231,14 @@ function hostOf($: EngineInterface): TaskHost {
         change(current ?? []),
       )
     },
-    note: async (text) => {
-      const appended = await $.session.append({
-        message: { type: 'user', content: [{ type: 'text', text }] },
-      })
-      return appended.deny
+    tell: async (change) => {
+      try {
+        await update($, PERSON_CHANGES, (current = []) => [...current, change])
+        return undefined
+      } catch (error) {
+        $.ui.log(`handily-board: the change was not kept for Claude: ${String(error)}`)
+        return 'the board could not keep the note; see the transcript log'
+      }
     },
   }
 }
@@ -370,6 +392,22 @@ async function notePlanChange($: EngineInterface): Promise<void> {
 }
 
 type DueNote = { text: string; calls: number }
+
+type ChangesNote = { text: string; count: number }
+
+async function changesNote($: EngineInterface): Promise<ChangesNote | undefined> {
+  const { value: changes = [] } = await $.state.get(PERSON_CHANGES)
+  if (changes.length === 0) return undefined
+  return { text: personNote(changes, await readList(hostOf($))), count: changes.length }
+}
+
+async function dropToldChanges($: EngineInterface, count: number): Promise<void> {
+  try {
+    await update($, PERSON_CHANGES, (current = []) => current.slice(count))
+  } catch (error) {
+    $.ui.log(`handily-board: the told changes were not dropped: ${String(error)}`)
+  }
+}
 
 async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
   const list = await readList(hostOf($))
@@ -611,7 +649,8 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
-      argumentHint: '[machine | add <text|id> | rm <n> | list | close]',
+      argumentHint:
+        '[machine | add <text|id> | rm <n> | done <n> | start <n> | open <n> | list | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -667,6 +706,7 @@ export const register: Register = (on, options) => {
     await $.state.set(AGENTS, [])
     if (e.reason === 'clear') {
       await resetList(hostOf($))
+      await $.state.set(PERSON_CHANGES, [])
       await resetAgentLists($)
       await resetActivity($)
     }
@@ -685,15 +725,18 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (!PERSON_ORIGINS.has(e.origin.kind)) return next(e)
-    const note = await dueNote($)
-    if (note === undefined) return next(e)
-    const entered = await next({ ...e, context: [...(e.context ?? []), note.text] })
-    if (entered.drop === undefined) await recordNote($, note.calls)
+    const changes = await changesNote($)
+    const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
+    const notes = [changes?.text, plan?.text].filter((text) => text !== undefined)
+    if (notes.length === 0) return next(e)
+    const entered = await next({ ...e, context: [...(e.context ?? []), ...notes] })
+    if (entered.drop !== undefined) return entered
+    if (changes) await dropToldChanges($, changes.count)
+    if (plan) await recordNote($, plan.calls)
     return entered
   }).catch(($, e, next) => {
     $.ui.log(
-      `handily-board: no plan note (${next.error.kind}): ${next.error.message ?? 'no message'}`,
+      `handily-board: no note for Claude (${next.error.kind}): ${next.error.message ?? 'no message'}`,
     )
     return next(e)
   })
@@ -768,6 +811,8 @@ export const register: Register = (on, options) => {
         return { text: await personAdd(host, command.text) }
       case 'rm':
         return { text: await personRemove(host, command.text) }
+      case 'status':
+        return { text: await personStatus(host, command.text, command.word) }
       case 'unknown':
         return { text: unknownReply(command.word) }
     }

@@ -16,11 +16,15 @@ import {
   OPEN_ITEMS_SHOWN,
   addItemsAsTasks,
   type MoveDirection,
+  STATUS_WORDS,
+  type StatusWord,
   type TaskHost,
   personAdd,
   personMove,
   personRemove,
+  personStatus,
   readList,
+  statusOfWord,
   trackerView,
   withoutFinalPeriod,
   type TrackerLine,
@@ -98,7 +102,7 @@ type RowAction = { key: string; label: string; onPress: () => void }
 type RowOpening =
   | { kind: 'none' }
   | { kind: 'cut' }
-  | { kind: 'details'; lines: readonly Cell[]; actions: readonly RowAction[] }
+  | { kind: 'details'; lines: readonly Cell[]; actions: readonly (readonly RowAction[])[] }
 
 type PaneRow = {
   key: string
@@ -201,7 +205,9 @@ function drawOpened(
     children: [
       isCut ? Text({ ...row.titleStyle, children: row.title }) : null,
       ...lines.map((line) => Text({ ...line.style, children: line.text })),
-      actions.length === 0 ? null : drawActions(elements, row.key, actions),
+      ...actions
+        .filter((line) => line.length > 0)
+        .map((line, index) => drawActions(elements, `${String(index)}:${row.key}`, line)),
     ],
   })
 }
@@ -377,6 +383,14 @@ function taskRow(
       act(() => personMove(host, task.id, direction))
     },
   })
+  const mark = (word: StatusWord): RowAction => ({
+    key: `${word}:${id}`,
+    label: word,
+    onPress: () => {
+      act(() => personStatus(host, id, word))
+    },
+  })
+  const marks = STATUS_WORDS.filter((word) => statusOfWord(word) !== task.status).map(mark)
   const cells = taskCells(task, numberWidth)
   return {
     key: `task:${id}`,
@@ -390,7 +404,7 @@ function taskRow(
     opening: {
       kind: 'details',
       lines: [{ text: clockLine(task, work), style: { dimColor: true } }],
-      actions: isActive ? [] : [move('up'), move('down'), removal],
+      actions: [marks, isActive ? [] : [move('up'), move('down'), removal]],
     },
   }
 }

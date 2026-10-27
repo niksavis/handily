@@ -94,11 +94,7 @@ function clockOf(
   return clock.endedAt === null ? { ...clock, endedAt: now, endCalls: calls } : clock
 }
 
-export function withPlanUpdate(
-  activity: BoardActivity,
-  list: BoardList,
-  now: number,
-): BoardActivity {
+export function withClocks(activity: BoardActivity, list: BoardList, now: number): BoardActivity {
   const clocks: Record<string, BoardTaskClock> = {}
   for (const task of list.tasks) {
     const key = String(task.id)
@@ -106,7 +102,15 @@ export function withPlanUpdate(
     const clock = clockOf(activity.clocks[key], isRunning, now, activity.calls)
     if (clock !== undefined) clocks[key] = clock
   }
-  return { ...activity, sincePlan: 0, clocks }
+  return { ...activity, clocks }
+}
+
+export function withPlanUpdate(
+  activity: BoardActivity,
+  list: BoardList,
+  now: number,
+): BoardActivity {
+  return { ...withClocks(activity, list, now), sincePlan: 0 }
 }
 
 export function planLag(activity: BoardActivity): number | undefined {

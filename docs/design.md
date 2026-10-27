@@ -655,6 +655,13 @@ Defer to quiet-items:
   sessions). An agent with the status `waiting` draws as `on hold` until 8.10 proves which waits
   are the person's.
 - The approved mock is `docs/mocks.md` section 8.
+- The person drives the list as Claude does (handily-9uj3n). `/board done`, `/board start` and
+  `/board open`, and the same buttons on an opened task, set a status through the `setStatus`
+  that `task_update` uses. A change of the person no longer appends a note at once. It waits in
+  `$.state` under `personChanges`, and the next prompt that enters carries one note with every
+  change, as `prompt.submit` context. So the person can make many changes in one turn, and
+  Claude reads them once. The cost: Claude does not see a change during the turn in which the
+  person makes it, unless a task tool answer shows the list.
 
 ## 5. Repo layout (proposed)
 

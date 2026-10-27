@@ -1073,12 +1073,14 @@ async function ringOf(ui: Pick<Mounted, 'find' | 'findAll'>, columns: number): P
 const RING_CRITERION =
   'When a board tab has the keyboard, Tab reaches every Button on it in reading order and Enter presses it, on terminal and desktop'
 
-const OPENED_ONLY = ['up:3', 'down:3', 'rm:3', `plan:${EXPLORE}`]
+const OPENED_ONLY = ['done:3', 'start:3', 'up:3', 'down:3', 'rm:3', `plan:${EXPLORE}`]
 
 const SCENE_RING = [
   'open:task:2',
   'rm:2',
   'open:task:3',
+  'done:3',
+  'start:3',
   'up:3',
   'down:3',
   'rm:3',

@@ -24,6 +24,9 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board add <item id>` | Adds a `tracker` task with the title of that open item, once            |
 | `/board add -- <text>` | Adds the text as a task, also when it looks like an item id             |
 | `/board rm <n>`        | Removes task `n`                                                        |
+| `/board done <n>`      | Marks task `n` done                                                     |
+| `/board start <n>`     | Marks task `n` in progress                                              |
+| `/board open <n>`      | Marks task `n` pending                                                  |
 | `/board list`          | Prints the list as text. With no tasks, it lists the open tracker items |
 | `/board close`         | Closes the board                                                        |
 
@@ -33,10 +36,13 @@ Replies, from the tests:
 /board                   Board opened: this session.
 /board machine           Board opened: this machine.
 /board close             Board closed.
-/board add Write it      Added task 1: Write it. Claude is told the list changed.
-/board add -- app-x1     Added task 2: app-x1. Claude is told the list changed.
+/board add Write it      Added task 1: Write it. Claude is told at your next prompt.
+/board add -- app-x1     Added task 2: app-x1. Claude is told at your next prompt.
 /board rm 9              No task 9. This session has tasks 1-2; /board list prints them.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board list or /board close.
+/board done 2            Task 2 is now done: app-x1. Claude is told at your next prompt.
+/board done 2            Task 2 is already done. Nothing changed.
+/board start 9           No task 9. This session has tasks 1-2; /board list prints them.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board list or /board close.
 ```
 
 - `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
@@ -44,16 +50,24 @@ Replies, from the tests:
   the keyboard. Esc gives the keyboard back. When the tab is already shown, the mod opens it
   without `focus`, and the keyboard stays at the prompt.
 - When Claude Code does not show the board yet, the reply says why and names `/board list`.
-- A change that you make appends a note that starts with `[handily-board]`, so Claude reads the
-  new list. Claude Code lists the note at once, also during a turn. When a plugin refuses the
-  note, the change stays and the reply says that Claude was not told, and why.
+- A change that you make, by a command or a button, waits for your next prompt. That prompt
+  carries one note for Claude, beside the prompt, that starts with `[handily-board]`. The note
+  names each change since the last prompt, in order, and then shows the list as it is now. So
+  three changes in one turn reach Claude as one note. A prompt that another hook drops keeps
+  the note for the prompt after it. Any prompt that enters carries the note, also a prompt that
+  Claude Code typed for a background task.
+- Claude does not see a change during the turn in which you make it, unless it reads the list
+  with a task tool. When the board cannot keep the note, the change stays, and the reply says
+  that Claude was not told. The transcript log says why.
+- `/board done`, `/board start` and `/board open` set the same statuses as `task_update`:
+  `completed`, `in_progress` and `pending`. A task that already has the status does not change.
 - An argument of one word with a hyphen, such as `app-cd34`, is read as an item id. When the
   tracker has no such item, the mod adds the word as text and says so.
 - `/board add <item id>` says why by name when `workitems` cannot read the item, and names
   `/board add -- <id>`.
 - An item that is closed or deferred is not open. `/board add <item id>` refuses it by name, and
   `/board list` and the board do not count or list it.
-- Task numbers do not move when a task is removed. `/board rm` of a missing number lists the
+- Task numbers do not move when a task is removed. A command with a missing number lists the
   numbers that exist.
 
 ## Keyboard
@@ -172,9 +186,14 @@ Tasks  1 of 4 done · 14m
   the same text is on the task line.
 - Open tasks follow in list order. Done tasks fold into a `+N done` button.
 - Press a task title to open it. An opened task shows its full title when the row cut it, then
-  `not started yet`, `started 4m ago · 9 tools in all` or `took 3m · 2 tools in all`. A task that
-  is not in progress also gets `[ up ] [ down ] [ rm ]`. `up` and `down` move the task past its
-  neighbour with the same status, as `task_move` does, and Claude is told.
+  `not started yet`, `started 4m ago · 9 tools in all` or `took 3m · 2 tools in all`.
+- An opened task then shows a line of status buttons: the two statuses that the task does not
+  have, in the order `done`, `start` and `open`. They act as `/board done`, `/board start` and
+  `/board open`, and the toast is the reply of the command. A task that you start or finish
+  keeps its clock, as when Claude does it.
+- A task that is not in progress also gets `[ up ] [ down ] [ rm ]` on the next line. `up` and
+  `down` move the task past its neighbour with the same status, as `task_move` does, and Claude
+  is told.
 - The columns before the title have a fixed width. The title fills the room that is left and is
   cut with `…`, so a row never wraps. The tests check this at 30, 41 and 80 columns.
 - The mobile app has no input, so the tab says `Add tasks with /board add <text>.`

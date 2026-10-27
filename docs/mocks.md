@@ -890,13 +890,25 @@ waits-for line is already on the row.
 ```text
 │ ○ 3 Review the mocks with Codex           │
 │     not started yet                       │
+│     [ done ] [ start ]                    │
 │     [ up ] [ down ] [ rm ]                │
 │ ▶ 2 Write the tab mocks       4m [ rm ]   │
 │     ▸ Edit docs/mocks.md         9 tools  │
 │     started 4m ago · 9 tools in all       │
+│     [ done ] [ open ]                     │
+│ ✓ 1 Read the design                       │
+│     took 10m · 1 tool in all              │
+│     [ start ] [ open ]                    │
+│     [ up ] [ down ] [ rm ]                │
 ```
 
 A cut title, opened, shows the full title wrapped first, then these lines.
+
+The status buttons (handily-9uj3n.1) come first, on a line of their own: the two statuses that
+the task does not have, in the order `done`, `start`, `open`. `done` marks the task done,
+`start` marks it in progress and `open` marks it pending, as `/board done`, `/board start` and
+`/board open` do. The task moves to its new status group at once, and the toast is the reply
+of the command.
 
 #### 8.2e Many agents: 20 in this session
 
@@ -1181,15 +1193,24 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board   (toggle, shown)  -> Board closed.
 /board machine           -> Board opened: this machine.     (shows the tab: ui.open with focus)
 /board close             -> Board closed.
-/board add Write it      -> Added task 5: Write it. Claude is told the list changed.
+/board add Write it      -> Added task 5: Write it. Claude is told at your next prompt.
 /board add handily-cd34  -> Added task 6: "handily-cd34": "Write the beads reader".
 /board add handily-f5u   -> handily-f5u is closed in basicly. Add it as text:
                             /board add -- handily-f5u
 /board add -- app-x1     -> Added task 7: app-x1. (the text, not an item)
-/board rm 4              -> Removed task 4: "Review the mocks". Claude is told the list changed.
+/board rm 4              -> Removed task 4: "Review the mocks". Claude is told at your next prompt.
 /board rm 9              -> No task 9. This session has tasks 1-7; /board list prints them.
+/board done 3            -> Task 3 is now done: "Review the mocks". Claude is told at your next prompt.
+/board start 3           -> Task 3 is now in progress: "Review the mocks". Claude is told at your
+                            next prompt.
+/board open 3            -> Task 3 is now pending: "Review the mocks". Claude is told at your next
+                            prompt.
+/board done 3 (again)    -> Task 3 is already done. Nothing changed.
+/board done 9            -> No task 9. This session has tasks 1-7; /board list prints them.
+/board done three        -> /board done needs a task number, for example /board done 2.
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
-                            /board rm <n>, /board list or /board close.
+                            /board rm <n>, /board done <n>, /board start <n>, /board open <n>,
+                            /board list or /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
 /board list              -> the task list as text (as /task printed it; mobile and a closed board)
@@ -1202,6 +1223,23 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
   the prompt.
 - `/board list` is new: it keeps the reply-as-list path of `/task` that mobile and a closed pane need.
 - Old commands `/task`, `/agent-board` and `/session-board` are gone with their plugins; no aliases.
+
+Each change of the person, by a command or a button, waits for the next prompt (handily-9uj3n.1).
+That prompt carries one note for Claude, beside the prompt. The note names every change since the
+last prompt, in order, and then the list as it is now. The note is one line up to the blank line.
+The block below wraps it to fit the page. A prompt that a hook drops does not use up the note.
+
+```text
+[handily-board] The person changed the session task list: it set the status completed on task 3
+by claude, titled "Review the mocks". it set the status in_progress on task 4 by the person: Ask
+the person about tabs.
+
+Tasks (2 of 4 done)
+  1  done         claude   "Read the design"
+  2  pending      claude   "Write the tab mocks"
+  3  done         claude   "Review the mocks"
+  4  in progress  you      Ask the person about tabs
+```
 
 `userConfig` `mode`:
 
