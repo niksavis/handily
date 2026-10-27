@@ -505,6 +505,7 @@ const isCiRunner = process.env.GITHUB_ACTIONS === 'true'
 const testFileHeaderPattern = /^(\S.*\.test\.tsx?):$/
 const testTimePattern = /^\((?:pass|fail)\) (.+) \[(\d+(?:\.\d+)?)ms\]$/
 const regExpSyntaxPattern = /[.*+?^${}()|[\]\\]/g
+const anyTitlePart = '.*'
 
 function readTestTimes(output) {
   const times = []
@@ -549,7 +550,7 @@ function readDeclaredTestLimits(path) {
     if (isConstant) {
       constants.set(node.name.text, constants.has(node.name.text) ? undefined : node.initializer)
     }
-    if (isCallOf(node, 'test') && node.arguments.length === 3) testCalls.push(node)
+    if (isCallOf(node, 'test') && node.arguments.length >= 2) testCalls.push(node)
     ts.forEachChild(node, visit)
   }
   visit(source)
@@ -593,18 +594,20 @@ function readDeclaredTestLimits(path) {
     const literals = [node.head, ...node.templateSpans.map((span) => span.literal)]
     return literals.map((literal) => escapeRegExp(literal.text)).join('.*')
   }
-  const titlePattern = (call) => {
+  const titlePattern = (call, unreadablePart) => {
     const parts = [titlePart(call.arguments[0])]
     for (let node = call.parent; node !== undefined; node = node.parent) {
       if (isCallOf(node, 'describe')) parts.unshift(titlePart(node.arguments[0]))
     }
-    if (parts.some((part) => part === undefined)) return undefined
-    return new RegExp(`^${parts.join(' > ')}$`)
+    if (parts.some((part) => part === undefined) && unreadablePart === undefined) return undefined
+    return new RegExp(`^${parts.map((part) => part ?? unreadablePart).join(' > ')}$`)
   }
   return testCalls.flatMap((call) => {
-    const limitMs = timeoutOf(call.arguments[1])
-    const pattern = titlePattern(call)
-    return limitMs === undefined || pattern === undefined ? [] : [{ pattern, limitMs }]
+    const declaredMs = call.arguments.length === 3 ? timeoutOf(call.arguments[1]) : undefined
+    const limitMs = declaredMs ?? defaultTestLimitMs
+    const isDefaultLimit = limitMs === defaultTestLimitMs
+    const pattern = titlePattern(call, isDefaultLimit ? anyTitlePart : undefined)
+    return pattern === undefined ? [] : [{ pattern, limitMs }]
   })
 }
 

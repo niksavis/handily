@@ -328,7 +328,7 @@ function testOutput(lines) {
   return `\ntimed.test.ts:\n${lines.join('\n')}\n\n ${lines.length} pass\n 0 fail\nRan ${lines.length} tests across 1 file. [3.21s]\n`
 }
 
-function makeRepoWithTimedMod(output) {
+function makeRepoWithTimedMod(output, source) {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-times-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
@@ -341,12 +341,12 @@ function makeRepoWithTimedMod(output) {
   const mod = join(root, 'mods', 'timed')
   mkdirSync(join(mod, '.claude-plugin'), { recursive: true })
   writeFileSync(join(mod, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'timed' }))
-  writeFileSync(join(mod, 'timed.test.ts'), timedTestSource)
+  writeFileSync(join(mod, 'timed.test.ts'), source)
   return { root, bin: makeFakeClaude(`process.stdout.write(${JSON.stringify(output)})`) }
 }
 
-function runTimedTests(output, runnerEnv = {}) {
-  const repo = makeRepoWithTimedMod(output)
+function runTimedTests(output, { runnerEnv = {}, source = timedTestSource } = {}) {
+  const repo = makeRepoWithTimedMod(output, source)
   const env = { ...process.env, PATH: repo.bin }
   delete env.GITHUB_ACTIONS
   return spawnSync(process.execPath, [join(repo.root, 'scripts', 'mods.mjs'), 'test'], {
@@ -392,7 +392,9 @@ test('test passes when every test takes at most a third of its default or declar
   assert.match(underShareResult.stdout, /^test: passed$/m)
 })
 
-const ciRunnerResult = runTimedTests(overShareOutput, { GITHUB_ACTIONS: 'true' })
+const ciRunnerResult = runTimedTests(overShareOutput, {
+  runnerEnv: { GITHUB_ACTIONS: 'true' },
+})
 
 test('test on a GitHub Actions runner names a test over a third of its limit in a note and passes', () => {
   assert.equal(ciRunnerResult.status, 0, ciRunnerResult.stdout + ciRunnerResult.stderr)
@@ -401,6 +403,50 @@ test('test on a GitHub Actions runner names a test over a third of its limit in 
     ciRunnerResult.stdout,
     /^NOTE timed: timed\.test\.ts test ".+ > a default draw" took 1667\.67 ms of its 5000 ms limit, more than a third,/m,
   )
+})
+
+const sharedTitleSource = `import { describe, test } from 'claude-code/testing'
+const nextTitle = (): string => 'a draw with lots of agents'
+describe('D', () => {
+  for (const agents of [1, 30]) {
+    test(\`a draw with \${String(agents)} agents\`, { timeoutMs: 30000 }, async () => {})
+  }
+  test('a draw with many agents', async () => {})
+  describe('a draw with', () => {
+    test('no agents', async () => {})
+  })
+  test('the same draw', { timeoutMs: 30000 }, async () => {})
+  test('the same draw', async () => {})
+})
+describe('E', () => {
+  test(\`a draw with \${String(2)} agents\`, { timeoutMs: 30000 }, async () => {})
+  test(nextTitle(), async () => {})
+})
+`
+const sharedTitleResult = runTimedTests(
+  testOutput([
+    '(pass) D > a draw with 1 agents [12.00ms]',
+    '(pass) D > a draw with 30 agents [9000.00ms]',
+    '(pass) D > a draw with many agents [4000.00ms]',
+    '(pass) D > a draw with > no agents [4000.00ms]',
+    '(pass) D > the same draw [100.00ms]',
+    '(pass) D > the same draw [4000.00ms]',
+    '(pass) E > a draw with 2 agents [100.00ms]',
+    '(pass) E > a draw with lots of agents [4000.00ms]',
+  ]),
+  { source: sharedTitleSource },
+)
+
+test('test keeps the 5000 ms limit of a test without timeoutMs whose title a declared title also matches', () => {
+  assert.equal(sharedTitleResult.status, 1, sharedTitleResult.stdout + sharedTitleResult.stderr)
+  const refused = (title) =>
+    `FAIL timed: timed.test.ts test "${title}" took 4000 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 12000 ms`
+  assert.deepEqual(failLines(sharedTitleResult), [
+    refused('D > a draw with many agents'),
+    refused('D > a draw with > no agents'),
+    refused('D > the same draw'),
+    refused('E > a draw with lots of agents'),
+  ])
 })
 
 const untimedResult = runTimedTests('\ntimed.test.ts:\n\n 4 pass\n 0 fail\n')

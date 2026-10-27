@@ -65,7 +65,9 @@ slower, and there the time limit of each test is the gate.
 The gate reads `timeoutMs` from the `test` call in the source of the test file. It reads a
 number, or a `const` of a number in the same file, also through an object spread. It finds the
 test by its `describe` and `test` names. A name can be a string, a template or a `const`
-string. When the gate cannot read the limit of a test, it uses 5000 ms.
+string. When the gate cannot read the limit of a test, it uses 5000 ms. When the names of
+two tests can match one test title, the gate uses the smaller limit. A test whose name the gate
+cannot read keeps 5000 ms for every title in its `describe`.
 
 The share is a third, not the half in the tracker record:
 
