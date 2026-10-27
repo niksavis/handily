@@ -655,6 +655,29 @@ Defer to quiet-items:
   sessions). An agent with the status `waiting` draws as `on hold` until 8.10 proves which waits
   are the person's.
 - The approved mock is `docs/mocks.md` section 8.
+- The person drives the list as Claude does (handily-9uj3n). `/board done`, `/board start` and
+  `/board open`, and the same buttons on an opened task, set a status through the `setStatus`
+  that `task_update` uses. A change of the person no longer appends a note at once. It waits in
+  `$.state` under `personChanges`, and the next prompt that enters carries one note with every
+  change, as `prompt.submit` context. So the person can make many changes in one turn, and
+  Claude reads them once. The cost: Claude does not see a change during the turn in which the
+  person makes it, unless a task tool answer shows the list. A prompt takes the queue in one
+  state update, which stores an empty queue. A prompt that is dropped or fails puts its changes
+  back in front. So two prompts that overlap never tell one change twice or lose one.
+- `/board clear` and `[ clear done ]` remove every done task (handily-9uj3n.2). Done tasks still
+  count against the limit of 100 tasks, so the limit stays one simple rule. When the list is full
+  and holds done tasks, the refusal counts them and names the remedy of the caller. The person
+  gets `/board clear`. Claude and a subagent get `task_update` with the status `removed`. An
+  add never removes a task to make room.
+- Every task row has `[ rm ]`, and `/board mv` places a task before another task or at an end
+  of the list (handily-9uj3n.3). `/board mv` and `task_move` share `moveTask`, which now also
+  takes the end of the list. Claude Code keeps the focus ring at the same index when a pane
+  draws again (measured on 2.1.300). So the key of an `up` or `down` button holds the place of
+  its task, and after a move the mod calls `$.ui.focus` with the key at the new place. That key
+  exists only in the next drawing, so the engine waits for it and moves the focus after the
+  draw. This rests on the documented wait of `$.ui.focus`. It is tested through the requested
+  key only. A tmux check on 2.1.311 could not reach the task buttons (Tab cycled only the tab row
+  and the close mark), so no live check has confirmed it.
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 

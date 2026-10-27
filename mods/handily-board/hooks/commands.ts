@@ -1,10 +1,11 @@
 import type { PluginState } from 'claude-code'
-import type { BoardList, BoardTask } from '../types'
+import type { BoardList, BoardPersonChange, BoardStatus, BoardTask } from '../types'
 import {
   EMPTY_LIST,
   addTask,
   findTask,
   isOpenItem,
+  LIST_END,
   listText,
   looksLikeItemId,
   moveTask,
@@ -13,10 +14,13 @@ import {
   priorityText,
   quoted,
   removeTask,
+  setStatus,
+  statusWord,
   TRACKER_TEXT_IS_DATA,
   taskForItem,
   taskText,
   withTrackerNotice,
+  withoutDone,
   type WorkItem,
 } from './tasks'
 
@@ -28,11 +32,32 @@ export type BoardCommand =
   | { kind: 'machine' }
   | { kind: 'list' }
   | { kind: 'close' }
+  | { kind: 'clear' }
   | { kind: 'add'; text: string }
   | { kind: 'rm'; text: string }
+  | { kind: 'mv'; text: string }
+  | { kind: 'status'; word: StatusWord; text: string }
   | { kind: 'unknown'; word: string }
 
 export type MoveDirection = 'up' | 'down'
+
+export type StatusWord = 'done' | 'start' | 'open'
+
+export const STATUS_WORDS: readonly StatusWord[] = ['done', 'start', 'open']
+
+const STATUS_OF_WORD: Record<StatusWord, BoardStatus> = {
+  done: 'completed',
+  start: 'in_progress',
+  open: 'pending',
+}
+
+export function statusOfWord(word: StatusWord): BoardStatus {
+  return STATUS_OF_WORD[word]
+}
+
+function isStatusWord(word: string): word is StatusWord {
+  return STATUS_WORDS.some((known) => known === word)
+}
 
 export type TrackerLine = { tone: 'dim' | 'warning' | 'error'; text: string }
 
@@ -50,7 +75,7 @@ export type TaskHost = {
   edit: <T>(change: ListEdit<T>) => Promise<T>
   snapshot: () => Promise<Snapshot | undefined>
   lines: (snapshot: Snapshot) => Promise<readonly TrackerLine[]>
-  note: (text: string) => Promise<string | undefined>
+  tell: (change: BoardPersonChange) => Promise<string | undefined>
   expanded: () => Promise<readonly string[]>
   editExpanded: (change: (keys: readonly string[]) => readonly string[]) => Promise<void>
 }
@@ -74,14 +99,17 @@ export function parseBoardCommand(args: string): BoardCommand {
   const space = trimmed.search(/\s/)
   const word = space === -1 ? trimmed : trimmed.slice(0, space)
   const text = space === -1 ? '' : trimmed.slice(space).trim()
-  if (word === 'add' || word === 'rm') return { kind: word, text }
+  if (word === 'add' || word === 'rm' || word === 'mv') return { kind: word, text }
+  if (isStatusWord(word)) return { kind: 'status', word, text }
   if (text !== '') return { kind: 'unknown', word: trimmed }
-  if (word === 'machine' || word === 'list' || word === 'close') return { kind: word }
+  if (word === 'machine' || word === 'list' || word === 'close' || word === 'clear') {
+    return { kind: word }
+  }
   return { kind: 'unknown', word }
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board list or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {
@@ -154,22 +182,25 @@ function changedTasks(verb: 'added' | 'removed', tasks: readonly BoardTask[]): s
   return tasks.map((task) => `it ${verb} ${changedTask(task)}`).join(' ')
 }
 
+export function personNote(changes: readonly BoardPersonChange[], list: BoardList): string {
+  const current = list.tasks.length === 0 ? 'The list is now empty.' : listText(list)
+  const told = changes.map((change) => change.text).join(' ')
+  return withTrackerNotice(
+    `[handily-board] The person changed the session task list: ${told}\n\n${current}`,
+    [...changes.flatMap((change) => change.tasks), ...list.tasks],
+  )
+}
+
 async function tellModel(
   host: TaskHost,
-  change: string,
+  text: string,
   tasks: readonly BoardTask[],
-  list: BoardList,
 ): Promise<string | undefined> {
-  const current = list.tasks.length === 0 ? 'The list is now empty.' : listText(list)
-  const text = withTrackerNotice(
-    `[handily-board] The person changed the session task list: ${change}\n\n${current}`,
-    [...tasks, ...list.tasks],
-  )
-  return host.note(text)
+  return host.tell({ text, tasks })
 }
 
 function toldSuffix(refusal: string | undefined): string {
-  if (refusal === undefined) return '. Claude is told the list changed.'
+  if (refusal === undefined) return '. Claude is told at your next prompt.'
   return `; Claude was not told: ${withoutFinalPeriod(refusal)}.`
 }
 
@@ -211,11 +242,11 @@ export async function addItemsAsTasks(
       list = next.list
       added.push(next.task)
     }
-    return { list, value: { added, existing, refusal, list } }
+    return { list, value: { added, existing, refusal } }
   })
-  const { added, existing, refusal, list } = outcome
+  const { added, existing, refusal } = outcome
   if (added.length === 0) return { added, existing, refusal, noteRefusal: undefined }
-  const noteRefusal = await tellModel(host, changedTasks('added', added), added, list)
+  const noteRefusal = await tellModel(host, changedTasks('added', added), added)
   return { added, existing, refusal, noteRefusal }
 }
 
@@ -225,8 +256,8 @@ async function addText(host: TaskHost, text: string, notice: string): Promise<st
     return { list: 'refusal' in added ? current : added.list, value: added }
   })
   if ('refusal' in outcome) return `Not added: ${outcome.refusal}`
-  const { task, list } = outcome
-  const noteRefusal = await tellModel(host, changedTasks('added', [task]), [task], list)
+  const { task } = outcome
+  const noteRefusal = await tellModel(host, changedTasks('added', [task]), [task])
   const lead = `Added task ${String(task.id)}: ${task.title}`
   if (notice === '') return `${lead}${toldSuffix(noteRefusal)}`
   return `${lead}. ${withoutFinalPeriod(notice)}${toldSuffix(noteRefusal)}`
@@ -271,14 +302,36 @@ function missingTaskReply(id: string, list: BoardList): string {
   if (list.tasks.length === 0) {
     return `No task ${id}. This session has no tasks yet; add one with /board add <text>.`
   }
-  const numbers = numbersText(list)
+  const numbers = numbersText(list.tasks)
   const noun = list.tasks.length === 1 ? 'task' : 'tasks'
   return `No task ${id}. This session has ${noun} ${numbers}; /board list prints them.`
 }
 
+function isTaskNumber(text: string): boolean {
+  return /^\d+$/.test(text)
+}
+
+function numberNeeded(word: string): string {
+  return `/board ${word} needs a task number, for example /board ${word} 2.`
+}
+
+function tooLarge(text: string): string | undefined {
+  if (Number.isSafeInteger(Number(text))) return undefined
+  return `${text} is too large for a task number. /board list prints the task numbers.`
+}
+
+type TaskNumber = { id: number } | { refusal: string }
+
+function taskNumber(word: string, text: string): TaskNumber {
+  if (!isTaskNumber(text)) return { refusal: numberNeeded(word) }
+  const refusal = tooLarge(text)
+  return refusal === undefined ? { id: Number(text) } : { refusal }
+}
+
 export async function personRemove(host: TaskHost, text: string): Promise<string> {
-  if (!/^\d+$/.test(text)) return '/board rm needs a task number, for example /board rm 2.'
-  const id = Number(text)
+  const number = taskNumber('rm', text)
+  if ('refusal' in number) return number.refusal
+  const { id } = number
   const outcome = await host.edit<{ task: BoardTask | undefined; list: BoardList }>((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { task: undefined, list } }
@@ -286,10 +339,119 @@ export async function personRemove(host: TaskHost, text: string): Promise<string
     return { list: next, value: { task, list: next } }
   })
   if (!outcome.task) return missingTaskReply(text, outcome.list)
-  const { task, list } = outcome
-  const noteRefusal = await tellModel(host, changedTasks('removed', [task]), [task], list)
+  const { task } = outcome
+  const noteRefusal = await tellModel(host, changedTasks('removed', [task]), [task])
   const reply = `Removed task ${String(task.id)}: ${taskText(task)}${toldSuffix(noteRefusal)}`
   return withTrackerNotice(reply, [task])
+}
+
+type StatusOutcome =
+  { kind: 'missing'; list: BoardList } | { kind: 'same' | 'set'; task: BoardTask }
+
+export async function personStatus(
+  host: TaskHost,
+  text: string,
+  word: StatusWord,
+): Promise<string> {
+  const number = taskNumber(word, text)
+  if ('refusal' in number) return number.refusal
+  const { id } = number
+  const status = statusOfWord(word)
+  const outcome = await host.edit<StatusOutcome>((list) => {
+    const task = findTask(list, id)
+    if (!task) return { list, value: { kind: 'missing', list } }
+    if (task.status === status) return { list, value: { kind: 'same', task } }
+    return { list: setStatus(list, id, status), value: { kind: 'set', task } }
+  })
+  if (outcome.kind === 'missing') return missingTaskReply(text, outcome.list)
+  const shown = statusWord(status)
+  const { task } = outcome
+  const lead = `Task ${String(task.id)}`
+  if (outcome.kind === 'same') return `${lead} is already ${shown}. Nothing changed.`
+  const change = `it set the status ${status} on ${changedTask(task)}`
+  const noteRefusal = await tellModel(host, change, [task])
+  const reply = `${lead} is now ${shown}: ${taskText(task)}${toldSuffix(noteRefusal)}`
+  return withTrackerNotice(reply, [task])
+}
+
+export async function personClear(host: TaskHost): Promise<string> {
+  const cleared = await host.edit((list) => {
+    const done = list.tasks.filter((task) => task.status === 'completed')
+    return { list: done.length === 0 ? list : withoutDone(list), value: done }
+  })
+  if (cleared.length === 0) return 'No done task to clear. Nothing changed.'
+  const numbers = numbersText(cleared)
+  const tasks = cleared.length === 1 ? 'done task' : 'done tasks'
+  const noteRefusal = await tellModel(host, `it removed the ${tasks} ${numbers}.`, [])
+  return `Cleared ${String(cleared.length)} ${tasks}: ${numbers}${toldSuffix(noteRefusal)}`
+}
+
+const PLACE_NEEDED =
+  '/board mv needs a task number and a place, for example /board mv 5 before 2, /board mv 5 top or /board mv 5 bottom.'
+
+type Place = { before: number; typed: string } | { end: 'top' | 'bottom' }
+
+function placeOf(words: readonly string[]): Place | undefined {
+  const [word, number, ...rest] = words
+  if (rest.length > 0) return undefined
+  if (word === 'before' && number !== undefined && isTaskNumber(number)) {
+    return { before: Number(number), typed: number }
+  }
+  if (number !== undefined) return undefined
+  return word === 'top' || word === 'bottom' ? { end: word } : undefined
+}
+
+type PlaceOutcome =
+  | { kind: 'missing'; id: number; list: BoardList }
+  | { kind: 'same'; list: BoardList }
+  | { kind: 'moved'; list: BoardList }
+
+function placed(list: BoardList, id: number, place: Place): PlaceOutcome {
+  const target = 'before' in place ? place.before : undefined
+  const missing = [id, target].find((one) => one !== undefined && !findTask(list, one))
+  if (missing !== undefined) return { kind: 'missing', id: missing, list }
+  const others = list.tasks.filter((task) => task.id !== id)
+  const before = 'end' in place && place.end === 'top' ? others[0]?.id : target
+  const moved = moveTask(list, id, before ?? LIST_END)
+  const isSame = moved.tasks.every((task, index) => task.id === list.tasks[index]?.id)
+  return isSame ? { kind: 'same', list } : { kind: 'moved', list: moved }
+}
+
+function placeText(place: Place): string {
+  if ('before' in place) return `before task ${String(place.before)}`
+  return `to the ${place.end}`
+}
+
+function alreadyText(place: Place): string {
+  if ('before' in place) return placeText(place)
+  return place.end === 'top' ? 'first' : 'last'
+}
+
+export async function personPlace(host: TaskHost, text: string): Promise<string> {
+  const [number = '', ...words] = text.split(/\s+/)
+  const place = placeOf(words)
+  if (!isTaskNumber(number) || place === undefined) return PLACE_NEEDED
+  const large = tooLarge(number) ?? ('before' in place ? tooLarge(place.typed) : undefined)
+  if (large !== undefined) return large
+  const id = Number(number)
+  if ('before' in place && place.before === id) {
+    return `/board mv needs two different tasks, for example /board mv ${number} before 2.`
+  }
+  const outcome = await host.edit((list) => {
+    const moved = placed(list, id, place)
+    return { list: moved.list, value: moved }
+  })
+  const shown = String(id)
+  if (outcome.kind === 'missing') {
+    const typed = outcome.id === id || !('before' in place) ? number : place.typed
+    return missingTaskReply(typed, outcome.list)
+  }
+  const where = placeText(place)
+  if (outcome.kind === 'same') {
+    return `Task ${shown} is already ${alreadyText(place)}. Nothing changed.`
+  }
+  const noteRefusal = await tellModel(host, `it moved task ${shown} ${where}.`, [])
+  return `Moved task ${shown} ${where}${toldSuffix(noteRefusal)}`
 }
 
 type MoveOutcome =
@@ -322,10 +484,10 @@ export async function personMove(
   if (outcome.kind === 'missing') return missingTaskReply(number, outcome.list)
   const place = direction === 'up' ? 'first' : 'last'
   if (outcome.kind === 'edge') return `Task ${number} is already ${place}. Nothing changed.`
-  const { neighbour, list } = outcome
+  const { neighbour } = outcome
   const where = direction === 'up' ? 'before' : 'after'
   const change = `it moved task ${number} ${where} task ${String(neighbour.id)}.`
-  const noteRefusal = await tellModel(host, change, [], list)
+  const noteRefusal = await tellModel(host, change, [])
   return `Moved task ${number} ${direction}${toldSuffix(noteRefusal)}`
 }
 

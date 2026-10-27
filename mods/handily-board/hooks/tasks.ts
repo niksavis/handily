@@ -163,9 +163,7 @@ export function withTrackerNotice(text: string, tasks: readonly BoardTask[]): st
 export function addTask(list: BoardList, title: string, source: BoardSource): Added | AddRefused {
   const refusal = titleRefusal(title)
   if (refusal !== undefined) return { refusal }
-  if (list.tasks.length >= MAX_TASKS) {
-    return { refusal: `the list is full at ${String(MAX_TASKS)} tasks. Remove one first.` }
-  }
+  if (list.tasks.length >= MAX_TASKS) return { refusal: fullListRefusal(list, source.by) }
   const task: BoardTask = {
     id: list.nextId,
     title: title.replace(WHITESPACE_RUN, ' '),
@@ -173,6 +171,19 @@ export function addTask(list: BoardList, title: string, source: BoardSource): Ad
     ...source,
   }
   return { list: { tasks: [...list.tasks, task], nextId: list.nextId + 1 }, task }
+}
+
+const DONE_REMOVAL: Record<BoardAuthor, string> = {
+  person: 'Run /board clear to remove the done tasks, or remove one first.',
+  tracker: 'Run /board clear to remove the done tasks, or remove one first.',
+  model: 'Remove a done task with task_update and the status removed, then add the task.',
+}
+
+function fullListRefusal(list: BoardList, by: BoardAuthor): string {
+  const full = `the list is full at ${String(MAX_TASKS)} tasks`
+  const done = doneCount(list)
+  if (done === 0) return `${full}. Remove one first.`
+  return `${full}, and ${String(done)} of them are done. ${DONE_REMOVAL[by]}`
 }
 
 export function setStatus(list: BoardList, id: number, status: BoardStatus): BoardList {
@@ -186,10 +197,16 @@ export function removeTask(list: BoardList, id: number): BoardList {
   return { ...list, tasks: list.tasks.filter((task) => task.id !== id) }
 }
 
-export function moveTask(list: BoardList, id: number, before: number): BoardList {
+export function withoutDone(list: BoardList): BoardList {
+  return { ...list, tasks: list.tasks.filter((task) => task.status !== 'completed') }
+}
+
+export const LIST_END = 'end'
+
+export function moveTask(list: BoardList, id: number, before: number | typeof LIST_END): BoardList {
   const task = findTask(list, id)
   const rest = list.tasks.filter((other) => other.id !== id)
-  const at = rest.findIndex((other) => other.id === before)
+  const at = before === LIST_END ? rest.length : rest.findIndex((other) => other.id === before)
   if (!task || at === -1) return list
   return { ...list, tasks: [...rest.slice(0, at), task, ...rest.slice(at)] }
 }
@@ -198,7 +215,7 @@ export function doneCount(list: BoardList): number {
   return list.tasks.filter((task) => task.status === 'completed').length
 }
 
-export function numbersText(list: BoardList): string {
+export function numbersText(tasks: readonly BoardTask[]): string {
   const ranges: string[] = []
   let start: number | undefined
   let previous: number | undefined
@@ -206,7 +223,7 @@ export function numbersText(list: BoardList): string {
     if (start === undefined || previous === undefined) return
     ranges.push(start === previous ? String(start) : `${String(start)}-${String(previous)}`)
   }
-  for (const id of list.tasks.map((task) => task.id).sort((a, b) => a - b)) {
+  for (const id of tasks.map((task) => task.id).sort((a, b) => a - b)) {
     if (previous !== undefined && id === previous + 1) {
       previous = id
       continue

@@ -14,6 +14,7 @@ import {
   planLag,
   planNote,
   toolTarget,
+  withClocks,
   withMainCall,
   withPlanUpdate,
 } from './activity'
@@ -44,7 +45,11 @@ import {
   listReply,
   parseBoardCommand,
   personAdd,
+  personClear,
+  personNote,
+  personPlace,
   personRemove,
+  personStatus,
   readList,
   resetList,
   unknownReply,
@@ -68,7 +73,7 @@ import {
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
-import type { BoardCallRow, BoardList, BoardTask } from '../types'
+import type { BoardCallRow, BoardList, BoardPersonChange, BoardTask } from '../types'
 import {
   EMPTY_LIST,
   MAX_AGENT_LISTS,
@@ -97,6 +102,7 @@ const LIST = { plugin: 'handily-board', key: 'list' } as const
 const AGENT_IDS = { plugin: 'handily-board', key: 'agentIds' } as const
 const AGENT_PLANS = { plugin: 'handily-board', key: 'agentPlans' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
+const PERSON_CHANGES = { plugin: 'handily-board', key: 'personChanges' } as const
 const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 const REDRAW_INTERVAL_MS = 10_000
 const ENGINE_ORIGIN = 'engine'
@@ -188,13 +194,28 @@ function listEditor(write: ListWrite): TaskHost['edit'] {
   }
 }
 
+async function keepClocks($: EngineInterface): Promise<void> {
+  try {
+    const list = (await $.state.get(LIST)).value ?? EMPTY_LIST
+    const now = await $.clock.now()
+    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withClocks(current, list, now))
+  } catch (error) {
+    $.ui.log(`handily-board: the task clocks were not updated: ${String(error)}`, { to: 'debug' })
+  }
+}
+
 function hostOf($: EngineInterface): TaskHost {
+  const editList = listEditor((step) => update($, LIST, step))
   return {
     read: async () => {
       const { value } = await $.state.get({ plugin: 'handily-board', key: 'list' })
       return value
     },
-    edit: listEditor((step) => update($, { plugin: 'handily-board', key: 'list' }, step)),
+    edit: async (change) => {
+      const value = await editList(change)
+      await keepClocks($)
+      return value
+    },
     snapshot: async () => {
       const { value } = await $.state.get({ plugin: 'handily-workitems', key: 'snapshot' })
       return value
@@ -212,11 +233,14 @@ function hostOf($: EngineInterface): TaskHost {
         change(current ?? []),
       )
     },
-    note: async (text) => {
-      const appended = await $.session.append({
-        message: { type: 'user', content: [{ type: 'text', text }] },
-      })
-      return appended.deny
+    tell: async (change) => {
+      try {
+        await update($, PERSON_CHANGES, (current = []) => [...current, change])
+        return undefined
+      } catch (error) {
+        $.ui.log(`handily-board: the change was not kept for Claude: ${String(error)}`)
+        return 'the board could not keep the note; see the transcript log'
+      }
     },
   }
 }
@@ -371,6 +395,27 @@ async function notePlanChange($: EngineInterface): Promise<void> {
 
 type DueNote = { text: string; calls: number }
 
+async function takeChanges($: EngineInterface): Promise<readonly BoardPersonChange[]> {
+  let taken: readonly BoardPersonChange[] = []
+  await update($, PERSON_CHANGES, (current = []) => {
+    taken = current
+    return []
+  })
+  return taken
+}
+
+async function putBackChanges(
+  $: EngineInterface,
+  taken: readonly BoardPersonChange[],
+): Promise<void> {
+  if (taken.length === 0) return
+  try {
+    await update($, PERSON_CHANGES, (current = []) => [...taken, ...current])
+  } catch (error) {
+    $.ui.log(`handily-board: the changes for Claude were lost: ${String(error)}`)
+  }
+}
+
 async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
   const list = await readList(hostOf($))
   const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
@@ -420,6 +465,17 @@ function uiOf($: EngineInterface): PaneUi {
     },
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
+    },
+    focus: async (key) => {
+      const stayed = (reason: string) => {
+        $.ui.log(`handily-board: the focus did not move to ${key}: ${reason}`, { to: 'debug' })
+      }
+      try {
+        const moved = await $.ui.focus({ requestId: TASKS_PANE.id, key })
+        if (moved.deny !== undefined) stayed(moved.deny)
+      } catch (error) {
+        stayed(String(error))
+      }
     },
     toast: (text) => {
       $.ui.toast(text)
@@ -540,7 +596,7 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promis
   }
   const outcome = await host.edit<{ task: BoardTask | undefined; numbers: string }>((list) => {
     const task = findTask(list, id)
-    if (!task) return { list, value: { task, numbers: numbersText(list) } }
+    if (!task) return { list, value: { task, numbers: numbersText(list.tasks) } }
     const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
     return { list: next, value: { task, numbers: '' } }
   })
@@ -581,7 +637,7 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<
     if (task && findTask(list, before)) {
       return { list: moveTask(list, id, before), value: { missing: undefined, task } }
     }
-    return { list, value: { missing: task ? before : id, numbers: numbersText(list) } }
+    return { list, value: { missing: task ? before : id, numbers: numbersText(list.tasks) } }
   })
   if (outcome.missing !== undefined) {
     const known = knownIds(outcome.numbers)
@@ -611,7 +667,8 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
-      argumentHint: '[machine | add <text|id> | rm <n> | list | close]',
+      argumentHint:
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | done <n> | start <n> | open <n> | clear | list | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -667,6 +724,7 @@ export const register: Register = (on, options) => {
     await $.state.set(AGENTS, [])
     if (e.reason === 'clear') {
       await resetList(hostOf($))
+      await $.state.set(PERSON_CHANGES, [])
       await resetAgentLists($)
       await resetActivity($)
     }
@@ -685,15 +743,26 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (!PERSON_ORIGINS.has(e.origin.kind)) return next(e)
-    const note = await dueNote($)
-    if (note === undefined) return next(e)
-    const entered = await next({ ...e, context: [...(e.context ?? []), note.text] })
-    if (entered.drop === undefined) await recordNote($, note.calls)
-    return entered
+    const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
+    const taken = await takeChanges($)
+    try {
+      const changes = taken.length === 0 ? undefined : personNote(taken, await readList(hostOf($)))
+      const notes = [changes, plan?.text].filter((text) => text !== undefined)
+      if (notes.length === 0) return await next(e)
+      const entered = await next({ ...e, context: [...(e.context ?? []), ...notes] })
+      if (entered.drop !== undefined) {
+        await putBackChanges($, taken)
+        return entered
+      }
+      if (plan) await recordNote($, plan.calls)
+      return entered
+    } catch (error) {
+      await putBackChanges($, taken)
+      throw error
+    }
   }).catch(($, e, next) => {
     $.ui.log(
-      `handily-board: no plan note (${next.error.kind}): ${next.error.message ?? 'no message'}`,
+      `handily-board: no note for Claude (${next.error.kind}): ${next.error.message ?? 'no message'}`,
     )
     return next(e)
   })
@@ -762,12 +831,18 @@ export const register: Register = (on, options) => {
         return { text: await openBoard(uiOf($), SESSIONS_PANE) }
       case 'close':
         return { text: await closeBoard(uiOf($)) }
+      case 'clear':
+        return { text: await personClear(host) }
       case 'list':
         return { text: await listReply(host) }
       case 'add':
         return { text: await personAdd(host, command.text) }
       case 'rm':
         return { text: await personRemove(host, command.text) }
+      case 'mv':
+        return { text: await personPlace(host, command.text) }
+      case 'status':
+        return { text: await personStatus(host, command.text, command.word) }
       case 'unknown':
         return { text: unknownReply(command.word) }
     }

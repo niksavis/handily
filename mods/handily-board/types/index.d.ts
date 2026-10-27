@@ -16,6 +16,8 @@ export type BoardList = {
   nextId: number
 }
 
+export type BoardPersonChange = { text: string; tasks: readonly BoardTask[] }
+
 export type BoardToolSight = { tool: string; target: string | null }
 
 export type BoardAgentPlan = { version: number; tasks: readonly BoardTask[] }
@@ -75,6 +77,7 @@ declare module 'claude-code' {
   interface PluginState {
     'handily-board': {
       list: BoardList
+      personChanges: readonly BoardPersonChange[]
       agentList: StateFamily<BoardList>
       agentIds: readonly string[]
       agentPlans: BoardAgentPlans

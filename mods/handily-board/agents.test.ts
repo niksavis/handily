@@ -426,8 +426,8 @@ const SCENE_SCREENS: readonly {
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
-      '○ 3 Review the mocks with Codex',
-      '○ 4 Ask the person about tabs',
+      '○ 3 Review the mocks with Codex    [ rm ]',
+      '○ 4 Ask the person about tabs      [ rm ]',
       '[ +1 done ]',
       '─────────────────────────────────────────',
       'Agents  3 · 1 failed',
@@ -447,8 +447,8 @@ const SCENE_SCREENS: readonly {
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
-      '○ 3 Review the mocks with Cod…',
-      '○ 4 Ask the person about tabs',
+      '○ 3 Review the mocks w… [ rm ]',
+      '○ 4 Ask the person abo… [ rm ]',
       '[ +1 done ]',
       '──────────────────────────────',
       'Agents  3 · 1 failed',
@@ -467,8 +467,8 @@ const SCENE_SCREENS: readonly {
     lines: [
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab mocks             ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
-      '○ 3 Review the mocks with Codex',
-      '○ 4 Ask the person about tabs',
+      '○ 3 Review the mocks with Codex                                       [ rm ]',
+      '○ 4 Ask the person about tabs                                         [ rm ]',
       '[ +1 done ]',
       'Agents  3 · 1 failed',
       '■ lane-b     failed     failed after Bash npm test                        4m',
@@ -803,7 +803,7 @@ describe(FOLD_CRITERION, () => {
         const ui = await mountTab($, surface, 'dock', 41)
         expect(await screen(ui, 41)).toEqual([
           'Tasks  0 of 1 done',
-          '○ 1 Write the tab mocks',
+          '○ 1 Write the tab mocks            [ rm ]',
           '─────────────────────────────────────────',
           'Agents  16 · 1 failed',
           '■ lane-b    failed                     0s',
@@ -1080,16 +1080,19 @@ async function ringOf(ui: Pick<Mounted, 'find' | 'findAll'>, columns: number): P
 const RING_CRITERION =
   'When a board tab has the keyboard, Tab reaches every Button on it in reading order and Enter presses it, on terminal and desktop'
 
-const OPENED_ONLY = ['up:3', 'down:3', 'rm:3', `plan:${EXPLORE}`]
+const OPENED_ONLY = ['done:3', 'start:3', 'up:3:2', 'down:3:2', `plan:${EXPLORE}`]
 
 const SCENE_RING = [
   'open:task:2',
   'rm:2',
   'open:task:3',
-  'up:3',
-  'down:3',
   'rm:3',
+  'done:3',
+  'start:3',
+  'up:3:2',
+  'down:3:2',
   'open:task:4',
+  'rm:4',
   'done',
   `open:agent:${LANE}`,
   `open:agent:${EXPLORE}`,
