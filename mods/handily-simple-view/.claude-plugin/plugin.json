@@ -1,6 +1,6 @@
 {
   "name": "handily-simple-view",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full.",
   "author": {
     "name": "niksavis"

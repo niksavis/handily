@@ -40,13 +40,13 @@
     {
       "name": "handily-reply-view",
       "source": "./mods/handily-reply-view",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
     {
       "name": "handily-simple-view",
       "source": "./mods/handily-simple-view",
-      "version": "0.7.2",
+      "version": "0.8.0",
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
     {
