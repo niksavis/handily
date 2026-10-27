@@ -5,12 +5,19 @@ person at a shell or a sync can make that change. A change that a tool call of t
 made draws no toast, because `quiet-items` and the transcript already show it.
 
 ```text
-handily-ab12 closed: Draw text mocks for the mods
-handily-cd34 created: Write the beads reader
-handily-cd34 updated: Write the beads reader (open -> in_progress)
-3 work items changed: 2 closed, 1 created (handily-ab12, handily-cd34, +1)
-Work items unavailable: basicly tracker items exited 2.
-Work items are back: basicly · 14 open.
+✓ handily-ab12 closed
+"Draw text mocks for the mods"
+
+▶ handily-cd34 open → in_progress
+"Write the beads reader"
+
+3 items changed
+✓ 2 closed  ○ 1 created
+handily-ab12 handily-cd34 +1
+
+■ Work items unavailable
+basicly tracker items exited 2.
+Run it in a shell to see why.
 ```
 
 The approved mocks are in `docs/mocks.md`, section 4.
@@ -87,24 +94,33 @@ failure then draws no toast either.
 
 ## The toast
 
-- One change draws `<id> <created|updated|closed>: <title>`. An update that moved the status
-  adds `(<old status> -> <new status>)`. The title is cut to 40 characters with `…`.
+Each part of a toast starts its own line in the box, which is 40 columns wide. `hooks/toast.ts`
+draws every toast of the mod: it pads each part with spaces to 40 columns, cuts a longer part
+with `…`, and sets `timeoutMs`.
+
+- One change draws `<mark> <id> <event>`, then the title in double quotes. The event is
+  `created`, `closed`, `updated`, or `<old status> → <new status>` for an update that moved the
+  status. The title is escaped as the board quotes tracker text, and cut with `…` to fit its line.
+- The mark comes from the new status: `✓` closed, `▶` in progress, `■` blocked, `○` open,
+  deferred or other.
 - The mod shows at most one toast every 30 s. A change inside that time waits, and every
-  waiting change goes into the next toast: `N work items changed: <counts> (<id>, <id>, +N)`.
-  The larger count comes first.
+  waiting change goes into the next toast: `N items changed`, then the counts such as
+  `✓ 2 closed  ○ 1 created`, then the first two ids and `+N`. The larger count comes first.
+- A toast stays `2000 + 80` ms for each visible cell, at least 6 s and at most 15 s. A toast with
+  `■` stays at least 10 s.
 - When an item changes more than once before its toast, `created` wins over `closed`, and
   `closed` wins over `updated`, as in `workitems`. An update shows the status from before the
   first change.
 
 ## The snapshot state
 
-| State                                                     | Toast                                                           |
-| --------------------------------------------------------- | --------------------------------------------------------------- |
-| `ok` after `failed`                                       | `Work items are back: <source> · <N> open.`, once               |
-| `failed` after `ok`                                       | `Work items unavailable: <first sentence of the reason>.`, once |
-| `failed` that stays `failed`                              | None                                                            |
-| `no-tracker`, `approval-needed`, `terminal-only`, `stale` | None. The mod drops the waiting changes                         |
-| `paused`                                                  | None. The mod drops the waiting changes                         |
+| State                                                     | Toast                                                     |
+| --------------------------------------------------------- | --------------------------------------------------------- |
+| `ok` after `failed`                                       | `✓ Work items are back`, then `<source> · <N> open`, once |
+| `failed` after `ok`                                       | `■ Work items unavailable`, then the reason, once         |
+| `failed` that stays `failed`                              | None                                                      |
+| `no-tracker`, `approval-needed`, `terminal-only`, `stale` | None. The mod drops the waiting changes                   |
+| `paused`                                                  | None. The mod drops the waiting changes                   |
 
 - A state toast also waits for the 30 s limit. A failure that recovers before its toast shows
   draws no toast.

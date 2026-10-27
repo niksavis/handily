@@ -8,7 +8,9 @@ import {
   type MockClock,
   type Plugin,
 } from 'claude-code/testing'
-import { changesText, type Change } from './hooks/toasts'
+import { toastMs, toastText } from './hooks/toast'
+import { changesParts, failedParts, type Change } from './hooks/toasts'
+import { displayWidth } from './hooks/width'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -26,7 +28,34 @@ const TICK_MS = 2000
 const WINDOW_MS = 30_000
 const SURFACES = ['terminal', 'desktop'] as const
 const MALFORMED = '.beads/issues.jsonl line 4 is malformed.'
-const FAILED_TOAST = 'Work items unavailable: .beads/issues.jsonl line 4 is malformed.'
+const FAILED_TOAST = ['■ Work items unavailable', '.beads/issues.jsonl line 4 is malformed.']
+const AB12_CLOSED = ['✓ handily-ab12 closed', '"Draw text mocks for the mods"']
+const EF56_CLOSED = ['✓ handily-ef56 closed', '"Fix the parser"']
+const CD34_CLOSED = ['✓ handily-cd34 closed', '"Write the beads reader"']
+const BOX_COLUMNS = 40
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+function boxLines(text: string): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const { segment } of GRAPHEMES.segment(text)) {
+    if (displayWidth(line + segment) > BOX_COLUMNS) {
+      lines.push(line.trimEnd())
+      line = ''
+    }
+    line += segment
+  }
+  return [...lines, line.trimEnd()]
+}
+
+function backToast(open: number): string[] {
+  return ['✓ Work items are back', `beads \u00b7 ${String(open)} open`]
+}
+
+function lengthRuleMs(lines: readonly string[]): number {
+  const cells = lines.reduce((sum, line) => sum + displayWidth(line), 0)
+  return Math.min(Math.max(2000 + 80 * cells, 6000), 15000)
+}
 const BEADS_FILE = `${ROOT}/.beads/issues.jsonl`
 const POLL_COMMAND = 'workitems-poll'
 
@@ -173,7 +202,8 @@ type World = {
   unreported: Diff
   sinces: number[]
   rejectSince: number | null
-  toasts: string[]
+  toasts: (readonly string[])[]
+  toastMs: (number | undefined)[]
   logs: string[]
   callEdit: DiskEdit | null
   callMs: number
@@ -301,6 +331,7 @@ function newWorld(): World {
     sinces: [],
     rejectSince: null,
     toasts: [],
+    toastMs: [],
     logs: [],
     callEdit: null,
     callMs: 0,
@@ -338,7 +369,8 @@ function engineBeneath(on: On, world: World): MockClock {
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.toast', (_$, e) => {
-    world.toasts.push(e.text)
+    world.toasts.push(boxLines(e.text))
+    world.toastMs.push(e.timeoutMs)
     return { value: undefined }
   })
   on('ui.log', (_$, e) => {
@@ -456,7 +488,9 @@ describe('a change made elsewhere', () => {
       await startSession($, surface)
       elsewhere(world, { diff: { ...emptyDiff(), closed: [updated(AB12, 'closed')] } })
       await pollAndTick($, clock)
-      expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+      expect(world.toasts).toEqual([AB12_CLOSED])
+      expect(world.toastMs).toEqual([lengthRuleMs(AB12_CLOSED)])
+      expect(world.toastMs).toEqual([2000 + 80 * (21 + 30)])
     })
   }
 
@@ -464,7 +498,7 @@ describe('a change made elsewhere', () => {
     await startSession($)
     elsewhere(world, { diff: { ...emptyDiff(), created: [item('handily-ij90', 'New', 'open')] } })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ij90 created: New'])
+    expect(world.toasts).toEqual([['○ handily-ij90 created', '"New"']])
   })
 
   toastTest('shows the status move of an updated item', async (world, $, clock) => {
@@ -472,7 +506,7 @@ describe('a change made elsewhere', () => {
     elsewhere(world, { diff: { ...emptyDiff(), updated: [updated(CD34, 'in_progress')] } })
     await pollAndTick($, clock)
     expect(world.toasts).toEqual([
-      'handily-cd34 updated: Write the beads reader (open -> in_progress)',
+      ['▶ handily-cd34 open → in_progress', '"Write the beads reader"'],
     ])
   })
 
@@ -480,7 +514,7 @@ describe('a change made elsewhere', () => {
     await startSession($)
     elsewhere(world, { diff: { ...emptyDiff(), updated: [updated(CD34, 'open', 'Renamed')] } })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-cd34 updated: Renamed'])
+    expect(world.toasts).toEqual([['○ handily-cd34 updated', '"Renamed"']])
   })
 
   toastTest('cuts the title to 40 characters', async (world, $, clock) => {
@@ -489,8 +523,17 @@ describe('a change made elsewhere', () => {
     elsewhere(world, { diff: { ...emptyDiff(), closed: [updated(LONG, 'closed')] } })
     await pollAndTick($, clock)
     expect(world.toasts).toEqual([
-      'handily-gh78 closed: Write the beads reader so the provider r\u2026',
+      ['✓ handily-gh78 closed', '"Write the beads reader so the provide…"'],
     ])
+  })
+
+  toastTest('keeps a blocked item on screen for at least 10 s', async (world, $, clock) => {
+    await startSession($)
+    elsewhere(world, { diff: { ...emptyDiff(), updated: [updated(CD34, 'blocked')] } })
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual([['■ handily-cd34 open → blocked', '"Write the beads reader"']])
+    expect(lengthRuleMs(world.toasts[0] ?? [])).toBeLessThan(10_000)
+    expect(world.toastMs).toEqual([10_000])
   })
 
   toastTest('toasts nothing when nothing changed', async (world, $, clock) => {
@@ -507,7 +550,7 @@ describe('a change made elsewhere', () => {
     expect(world.toasts).toEqual([])
     await poll($)
     await clock.advance(TICK_MS)
-    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(world.toasts).toEqual([AB12_CLOSED])
   })
 })
 
@@ -547,7 +590,7 @@ describe('a change that a tool call of this session caused', () => {
     world.callEdit = { diff: { ...emptyDiff(), closed: [updated(AB12, 'closed')] } }
     await call($)
     await clock.advance(TICK_MS)
-    expect(world.toasts).toEqual(['handily-zz00 created: Other'])
+    expect(world.toasts).toEqual([['○ handily-zz00 created', '"Other"']])
   })
 
   toastTest('still toasts a change made elsewhere after the call', async (world, $, clock) => {
@@ -556,7 +599,7 @@ describe('a change that a tool call of this session caused', () => {
     await call($)
     elsewhere(world, { diff: { ...emptyDiff(), updated: [updated(CD34, 'blocked')] } })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-cd34 updated: Write the beads reader (open -> blocked)'])
+    expect(world.toasts).toEqual([['■ handily-cd34 open → blocked', '"Write the beads reader"']])
   })
 
   toastTest('draws no toast for overlapping calls', async (world, $, clock) => {
@@ -583,7 +626,7 @@ describe('a change that a tool call of this session caused', () => {
     await clock.advance(TICK_MS)
     elsewhere(world, { diff: { ...emptyDiff(), closed: [updated(CD34, 'closed')] } })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-cd34 closed: Write the beads reader'])
+    expect(world.toasts).toEqual([CD34_CLOSED])
   })
 })
 
@@ -621,7 +664,7 @@ describe('a reload of the workitems provider', () => {
       expect(world.sinces.at(-1)).toBe(1)
       expect(world.logs).toEqual([])
       expect(world.toasts).toEqual([
-        'handily-cd34 updated: Write the beads reader (in_progress -> closed)',
+        ['✓ handily-cd34 in_progress → closed', '"Write the beads reader"'],
       ])
     },
   )
@@ -632,7 +675,7 @@ describe('the rate limit', () => {
     await startSession($)
     elsewhere(world, { diff: { ...emptyDiff(), closed: [updated(AB12, 'closed')] } })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(world.toasts).toEqual([AB12_CLOSED])
     elsewhere(world, { diff: { ...emptyDiff(), closed: [updated(CD34, 'closed')] } })
     await pollAndTick($, clock)
     elsewhere(world, { diff: { ...emptyDiff(), created: [item('handily-ij90', 'New', 'open')] } })
@@ -644,8 +687,8 @@ describe('the rate limit', () => {
     expect(world.toasts).toHaveLength(1)
     await clock.advance(TICK_MS * 2)
     expect(world.toasts).toEqual([
-      'handily-ab12 closed: Draw text mocks for the mods',
-      '3 work items changed: 2 closed, 1 created (handily-cd34, handily-ij90, +1)',
+      AB12_CLOSED,
+      ['3 items changed', '✓ 2 closed  ○ 1 created', 'handily-cd34 handily-ij90 +1'],
     ])
   })
 
@@ -660,7 +703,7 @@ describe('the rate limit', () => {
     })
     await pollAndTick($, clock)
     expect(world.toasts).toEqual([
-      '2 work items changed: 1 created, 1 updated (handily-ij90, handily-cd34)',
+      ['2 items changed', '○ 1 created  ▶ 1 updated', 'handily-ij90 handily-cd34'],
     ])
   })
 
@@ -674,22 +717,30 @@ describe('the rate limit', () => {
     await pollAndTick($, clock)
     await clock.advance(WINDOW_MS)
     expect(world.toasts).toEqual([
-      'handily-ef56 closed: Fix the parser',
-      'handily-cd34 updated: Write the beads reader (open -> blocked)',
+      EF56_CLOSED,
+      ['■ handily-cd34 open → blocked', '"Write the beads reader"'],
     ])
   })
 
   test('counts the larger group first in the merged text', () => {
-    const change = (kind: Change['kind'], id: string): Change => ({
+    const change = (kind: Change['kind'], id: string, status: Change['status']): Change => ({
       kind,
       id,
       title: 'x',
+      status,
       from: null,
-      to: 'open',
+      to: status,
     })
-    expect(
-      changesText([change('updated', 'a-1'), change('closed', 'a-2'), change('closed', 'a-3')]),
-    ).toBe('3 work items changed: 2 closed, 1 updated (a-1, a-2, +1)')
+    const parts = changesParts([
+      change('updated', 'a-1', 'open'),
+      change('closed', 'a-2', 'closed'),
+      change('closed', 'a-3', 'closed'),
+    ])
+    expect(boxLines(toastText(parts))).toEqual([
+      '3 items changed',
+      '✓ 2 closed  ○ 1 updated',
+      'a-1 a-2 +1',
+    ])
   })
 })
 
@@ -701,6 +752,7 @@ describe('the snapshot state', () => {
       elsewhere(world, { state: 'failed' })
       await pollAndTick($, clock)
       expect(world.toasts).toEqual([FAILED_TOAST])
+      expect(world.toastMs).toEqual([10_000])
       for (let poll = 0; poll < 20; poll += 1) {
         elsewhere(world, { state: 'failed' })
         await pollAndTick($, clock)
@@ -709,7 +761,7 @@ describe('the snapshot state', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(TICK_MS * 5)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 3 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, backToast(3)])
     },
   )
 
@@ -719,12 +771,9 @@ describe('the snapshot state', () => {
     await pollAndTick($, clock)
     elsewhere(world, { state: 'failed' })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(world.toasts).toEqual([AB12_CLOSED])
     await clock.advance(WINDOW_MS)
-    expect(world.toasts).toEqual([
-      'handily-ab12 closed: Draw text mocks for the mods',
-      FAILED_TOAST,
-    ])
+    expect(world.toasts).toEqual([AB12_CLOSED, FAILED_TOAST])
   })
 
   toastTest(
@@ -738,7 +787,7 @@ describe('the snapshot state', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS * 2)
-      expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+      expect(world.toasts).toEqual([AB12_CLOSED])
     },
   )
 
@@ -782,7 +831,7 @@ describe('the snapshot state', () => {
     await pollAndTick($, clock)
     elsewhere(world, { state: 'ok', diff: { ...emptyDiff(), closed: [updated(CD34, 'closed')] } })
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-cd34 closed: Write the beads reader'])
+    expect(world.toasts).toEqual([CD34_CLOSED])
   })
 })
 
@@ -820,7 +869,7 @@ describe('a call that runs on in the background', () => {
     await clock.advance(WINDOW_MS)
     elsewhere(world, closeEf56())
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+    expect(world.toasts).toEqual([EF56_CLOSED])
   })
 
   toastTest(
@@ -841,7 +890,7 @@ describe('a call that runs on in the background', () => {
       await clock.advance(WINDOW_MS)
       elsewhere(world, closeEf56())
       await pollAndTick($, clock)
-      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+      expect(world.toasts).toEqual([EF56_CLOSED])
     },
   )
 
@@ -870,7 +919,7 @@ describe('a change of this session during a failure', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS * 2)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 2 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, backToast(2)])
     },
   )
 
@@ -891,7 +940,7 @@ describe('a change of this session during a failure', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS * 2)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 2 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, backToast(2)])
     },
   )
 
@@ -907,11 +956,7 @@ describe('a change of this session during a failure', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS * 2)
-      expect(world.toasts).toEqual([
-        FAILED_TOAST,
-        'Work items are back: beads \u00b7 2 open.',
-        'handily-ab12 closed: Draw text mocks for the mods',
-      ])
+      expect(world.toasts).toEqual([FAILED_TOAST, backToast(2), AB12_CLOSED])
     },
   )
 })
@@ -964,7 +1009,7 @@ describe('a second session start', () => {
       elsewhere(world, { state: 'ok' })
       await pollAndTick($, clock)
       await clock.advance(WINDOW_MS)
-      expect(world.toasts).toEqual([FAILED_TOAST, 'Work items are back: beads \u00b7 3 open.'])
+      expect(world.toasts).toEqual([FAILED_TOAST, backToast(3)])
     },
   )
 })
@@ -995,7 +1040,7 @@ async function changeElsewhereWhileRunning(
   elsewhere(world, closeEf56())
   await poll($)
   await clock.advance(TICK_MS)
-  expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+  expect(world.toasts).toEqual([EF56_CLOSED])
   await clock.advance(TICK_MS * 10)
   await running
 }
@@ -1038,7 +1083,7 @@ describe('a call that is not a tracker write', () => {
     world.plans['bash close.sh'] = { edit: closeAb12() }
     await bash($, 'bash close.sh')
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(world.toasts).toEqual([AB12_CLOSED])
   })
 
   toastTest('toasts the Edit of .beans/README.md', async (world, $, clock) => {
@@ -1046,7 +1091,7 @@ describe('a call that is not a tracker write', () => {
     world.plans[`${ROOT}/.beans/README.md`] = { edit: closeAb12() }
     await edit($, `${ROOT}/.beans/README.md`)
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(world.toasts).toEqual([AB12_CLOSED])
   })
 })
 
@@ -1105,7 +1150,7 @@ describe('a call that is a tracker write', () => {
       expect(world.toasts).toEqual([])
       elsewhere(world, closeEf56())
       await pollAndTick($, clock)
-      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+      expect(world.toasts).toEqual([EF56_CLOSED])
     },
   )
 
@@ -1122,7 +1167,7 @@ describe('a call that is a tracker write', () => {
       elsewhere(world, closeEf56())
       await poll($)
       await clock.advance(TICK_MS)
-      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+      expect(world.toasts).toEqual([EF56_CLOSED])
       await clock.advance(TICK_MS * 10)
       await outer
     },
@@ -1136,7 +1181,7 @@ describe('a failed check of the workitems rules', () => {
     world.plans[CLOSE_AB12] = { edit: closeAb12() }
     await bash($, CLOSE_AB12)
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(world.toasts).toEqual([AB12_CLOSED])
     expect(
       world.logs.some((line) =>
         line.startsWith('item-toasts: not counting the call as own; the command check failed:'),
@@ -1150,7 +1195,7 @@ describe('a failed check of the workitems rules', () => {
     world.plans[BEADS_FILE] = { edit: closeAb12() }
     await write($, BEADS_FILE)
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+    expect(world.toasts).toEqual([AB12_CLOSED])
     expect(
       world.logs.some((line) =>
         line.startsWith(
@@ -1185,7 +1230,7 @@ describe('the time limit of a background call', () => {
       await clock.advance(TICK_MS * 2)
       elsewhere(world, closeEf56())
       await pollAndTick($, clock)
-      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+      expect(world.toasts).toEqual([EF56_CLOSED])
     },
   )
 })
@@ -1209,7 +1254,7 @@ describe('review repairs of the second round', () => {
       await notify($, notificationText('b1', first))
       elsewhere(world, closeEf56())
       await pollAndTick($, clock)
-      expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+      expect(world.toasts).toEqual([EF56_CLOSED])
     },
   )
 
@@ -1223,10 +1268,7 @@ describe('review repairs of the second round', () => {
     await pollAndTick($, clock)
     expect(world.toasts).toHaveLength(1)
     await clock.advance(WINDOW_MS)
-    expect(world.toasts).toEqual([
-      'handily-ab12 closed: Draw text mocks for the mods',
-      'handily-ef56 closed: Fix the parser',
-    ])
+    expect(world.toasts).toEqual([AB12_CLOSED, EF56_CLOSED])
   })
 
   toastTest('ignores a call that completes after its session ended', async (world, $, clock) => {
@@ -1241,7 +1283,7 @@ describe('review repairs of the second round', () => {
     await clock.advance(30 * 60 * 1000)
     elsewhere(world, closeEf56())
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+    expect(world.toasts).toEqual([EF56_CLOSED])
   })
 })
 
@@ -1307,7 +1349,7 @@ describe('/item-toasts', () => {
         expect(world.toasts).toEqual([])
         elsewhere(world, closeEf56())
         await pollAndTick($, clock)
-        expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+        expect(world.toasts).toEqual([EF56_CLOSED])
         expect(world.unanswered).toEqual([])
       },
     )
@@ -1333,7 +1375,7 @@ describe('/item-toasts', () => {
         await pollAndTick($, clock)
         elsewhere(world, closeEf56())
         await pollAndTick($, clock)
-        expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+        expect(world.toasts).toEqual([EF56_CLOSED])
         expect(world.unanswered).toEqual([])
       },
     )
@@ -1364,7 +1406,7 @@ describe('/item-toasts', () => {
     expect(await toastsCommand($, '  ')).toBe(ON_REPLY)
     elsewhere(world, closeEf56())
     await pollAndTick($, clock)
-    expect(world.toasts).toEqual(['handily-ef56 closed: Fix the parser'])
+    expect(world.toasts).toEqual([EF56_CLOSED])
   })
 
   toastTest(
@@ -1376,7 +1418,80 @@ describe('/item-toasts', () => {
       }
       elsewhere(world, closeAb12())
       await pollAndTick($, clock)
-      expect(world.toasts).toEqual(['handily-ab12 closed: Draw text mocks for the mods'])
+      expect(world.toasts).toEqual([AB12_CLOSED])
     },
   )
+})
+
+describe('the toast layout', () => {
+  test('cuts only a long quoted title, and the head and the hint keep their own lines', () => {
+    const text = toastText([
+      '✓ handily-gh78 closed',
+      { quoted: LONG.title },
+      'Run it in a shell to see why.',
+    ])
+    expect(boxLines(text)).toEqual([
+      '✓ handily-gh78 closed',
+      '"Write the beads reader so the provid…"',
+      'Run it in a shell to see why.',
+    ])
+  })
+
+  test('cuts a head that is longer than its line with an ellipsis', () => {
+    const head = `✓ handily-${'x'.repeat(40)} closed`
+    expect(boxLines(toastText([head, { quoted: 'Fix the parser' }]))).toEqual([
+      `✓ handily-${'x'.repeat(28)}…`,
+      '"Fix the parser"',
+    ])
+  })
+
+  test('escapes a quote, a backslash and a line break of the title', () => {
+    expect(boxLines(toastText(['○ a-1 created', { quoted: 'Say "hi"\\\nnow' }]))).toEqual([
+      '○ a-1 created',
+      '"Say \\"hi\\"\\\\\\nnow"',
+    ])
+  })
+
+  test('cuts a title before an escape, never inside it', () => {
+    const title = `${'a'.repeat(36)}\nb`
+    expect(boxLines(toastText(['○ a-1 created', { quoted: title }]))).toEqual([
+      '○ a-1 created',
+      `"${'a'.repeat(36)}…"`,
+    ])
+  })
+
+  test('cuts a wide title at a whole grapheme', () => {
+    const title = '\u6f22'.repeat(25)
+    const [, line = ''] = boxLines(toastText(['○ a-1 created', { quoted: title }]))
+    expect(line).toBe(`"${'\u6f22'.repeat(18)}…"`)
+    expect(displayWidth(line)).toBe(39)
+  })
+
+  test('puts the first sentence of a failure on its own line and the rest as the hint', () => {
+    const parts = failedParts('basicly tracker items exited 2. Run it in a shell to see why.')
+    expect(boxLines(toastText(parts))).toEqual([
+      '■ Work items unavailable',
+      'basicly tracker items exited 2.',
+      'Run it in a shell to see why.',
+    ])
+    expect(toastMs(parts)).toBe(10_000)
+  })
+
+  test('keeps a mark that the tracker title holds from raising the time', () => {
+    const parts = ['○ a-1 created', { quoted: '◆ ■ x' }] as const
+    expect(toastMs(parts)).toBe(lengthRuleMs(boxLines(toastText(parts))))
+    expect(toastMs(parts)).toBe(6000)
+  })
+
+  test('counts each visible cell of three full lines', () => {
+    const line = 'x'.repeat(39)
+    const parts = [line, line, `${line}y`] as const
+    expect(toastMs(parts)).toBe(2000 + 80 * 118)
+  })
+
+  test('refuses a fourth part by name', () => {
+    expect(() => toastText(['a', 'b', 'c', 'd'])).toThrow(
+      'a toast shows at most 3 lines; it got 4 parts',
+    )
+  })
 })
