@@ -309,3 +309,151 @@ test('validate fails and names the mod and the file when an engine types file is
 test('validate passes when every laid engine types file is tracked', () => {
   assert.equal(trackedResult.status, 0, trackedResult.stdout + trackedResult.stderr)
 })
+
+const criterionTitle = 'When the tab draws 30 agents, the draw reads the state 5 times'
+const timedTestSource = `import { describe, test } from 'claude-code/testing'
+const CRITERION = '${criterionTitle}'
+const ROOM_TO_FILL_MS = 30_000
+const withRoomToFill = { ...withWorkitems, timeoutMs: ROOM_TO_FILL_MS }
+describe(CRITERION, () => {
+  for (const agents of [1, 30]) {
+    test(\`a draw with \${String(agents)} agents\`, withRoomToFill, async () => {})
+  }
+  test('a short draw', { timeoutMs: 600 }, async () => {})
+  test('a default draw', async () => {})
+})
+`
+
+function testOutput(lines) {
+  return `\ntimed.test.ts:\n${lines.join('\n')}\n\n ${lines.length} pass\n 0 fail\nRan ${lines.length} tests across 1 file. [3.21s]\n`
+}
+
+function makeRepoWithTimedMod(output, source) {
+  const root = mkdtempSync(join(tmpdir(), 'handily-mods-times-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  writeFileSync(
+    join(root, 'scripts', 'passing.test.mjs'),
+    "import { test } from 'node:test'\ntest('passes', () => {})\n",
+  )
+  symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
+  const mod = join(root, 'mods', 'timed')
+  mkdirSync(join(mod, '.claude-plugin'), { recursive: true })
+  writeFileSync(join(mod, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'timed' }))
+  writeFileSync(join(mod, 'timed.test.ts'), source)
+  return { root, bin: makeFakeClaude(`process.stdout.write(${JSON.stringify(output)})`) }
+}
+
+function runTimedTests(output, { runnerEnv = {}, source = timedTestSource } = {}) {
+  const repo = makeRepoWithTimedMod(output, source)
+  const env = { ...process.env, PATH: repo.bin }
+  delete env.GITHUB_ACTIONS
+  return spawnSync(process.execPath, [join(repo.root, 'scripts', 'mods.mjs'), 'test'], {
+    cwd: repo.root,
+    encoding: 'utf8',
+    env: { ...env, ...runnerEnv },
+  })
+}
+
+function failLines(result) {
+  return result.stderr.split('\n').filter((line) => line.startsWith('FAIL '))
+}
+
+const overShareOutput = testOutput([
+  `(pass) ${criterionTitle} > a draw with 1 agents [1667.01ms]`,
+  `(pass) ${criterionTitle} > a draw with 30 agents [9999.00ms]`,
+  `(pass) ${criterionTitle} > a short draw [200.01ms]`,
+  `(pass) ${criterionTitle} > a default draw [1667.67ms]`,
+])
+const overShareResult = runTimedTests(overShareOutput)
+
+test('test fails and names the mod, the test, its time and its limit when a test takes more than a third of its limit', () => {
+  assert.equal(overShareResult.status, 1, overShareResult.stdout + overShareResult.stderr)
+  assert.deepEqual(failLines(overShareResult), [
+    `FAIL timed: timed.test.ts test "${criterionTitle} > a short draw" took 200.01 ms of its 600 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 601 ms`,
+    `FAIL timed: timed.test.ts test "${criterionTitle} > a default draw" took 1667.67 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 5004 ms`,
+  ])
+  assert.match(overShareResult.stdout, /^\(pass\) .+ > a default draw \[1667\.67ms\]$/m)
+})
+
+const underShareResult = runTimedTests(
+  testOutput([
+    `(pass) ${criterionTitle} > a draw with 1 agents [12.50ms]`,
+    `(pass) ${criterionTitle} > a draw with 30 agents [10000.00ms]`,
+    `(pass) ${criterionTitle} > a short draw [200.00ms]`,
+    `(pass) ${criterionTitle} > a default draw [1666.66ms]`,
+  ]),
+)
+
+test('test passes when every test takes at most a third of its default or declared limit', () => {
+  assert.equal(underShareResult.status, 0, underShareResult.stdout + underShareResult.stderr)
+  assert.deepEqual(failLines(underShareResult), [])
+  assert.match(underShareResult.stdout, /^test: passed$/m)
+})
+
+const ciRunnerResult = runTimedTests(overShareOutput, {
+  runnerEnv: { GITHUB_ACTIONS: 'true' },
+})
+
+test('test on a GitHub Actions runner names a test over a third of its limit in a note and passes', () => {
+  assert.equal(ciRunnerResult.status, 0, ciRunnerResult.stdout + ciRunnerResult.stderr)
+  assert.deepEqual(failLines(ciRunnerResult), [])
+  assert.match(
+    ciRunnerResult.stdout,
+    /^NOTE timed: timed\.test\.ts test ".+ > a default draw" took 1667\.67 ms of its 5000 ms limit, more than a third,/m,
+  )
+})
+
+const sharedTitleSource = `import { describe, test } from 'claude-code/testing'
+const nextTitle = (): string => 'a draw with lots of agents'
+describe('D', () => {
+  for (const agents of [1, 30]) {
+    test(\`a draw with \${String(agents)} agents\`, { timeoutMs: 30000 }, async () => {})
+  }
+  test('a draw with many agents', async () => {})
+  describe('a draw with', () => {
+    test('no agents', async () => {})
+  })
+  test('the same draw', { timeoutMs: 30000 }, async () => {})
+  test('the same draw', async () => {})
+})
+describe('E', () => {
+  test(\`a draw with \${String(2)} agents\`, { timeoutMs: 30000 }, async () => {})
+  test(nextTitle(), async () => {})
+})
+`
+const sharedTitleResult = runTimedTests(
+  testOutput([
+    '(pass) D > a draw with 1 agents [12.00ms]',
+    '(pass) D > a draw with 30 agents [9000.00ms]',
+    '(pass) D > a draw with many agents [4000.00ms]',
+    '(pass) D > a draw with > no agents [4000.00ms]',
+    '(pass) D > the same draw [100.00ms]',
+    '(pass) D > the same draw [4000.00ms]',
+    '(pass) E > a draw with 2 agents [100.00ms]',
+    '(pass) E > a draw with lots of agents [4000.00ms]',
+  ]),
+  { source: sharedTitleSource },
+)
+
+test('test keeps the 5000 ms limit of a test without timeoutMs whose title a declared title also matches', () => {
+  assert.equal(sharedTitleResult.status, 1, sharedTitleResult.stdout + sharedTitleResult.stderr)
+  const refused = (title) =>
+    `FAIL timed: timed.test.ts test "${title}" took 4000 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 12000 ms`
+  assert.deepEqual(failLines(sharedTitleResult), [
+    refused('D > a draw with many agents'),
+    refused('D > a draw with > no agents'),
+    refused('D > the same draw'),
+    refused('E > a draw with lots of agents'),
+  ])
+})
+
+const untimedResult = runTimedTests('\ntimed.test.ts:\n\n 4 pass\n 0 fail\n')
+
+test('test fails by name when claude plugin test prints no test time', () => {
+  assert.equal(untimedResult.status, 1, untimedResult.stdout + untimedResult.stderr)
+  assert.deepEqual(failLines(untimedResult), [
+    'FAIL timed: claude plugin test printed no test time such as "(pass) name [12.34ms]", so the test time gate read no test',
+  ])
+})

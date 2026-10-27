@@ -51,7 +51,44 @@ through `basicly verify --mode full`.
 | Type check | `npm run typecheck` | A type error against the Claude Code mod API |
 | Lint | `npm run lint` | typescript-eslint strict type-checked findings, such as a promise that is not awaited |
 | Format | `npm run format:check` | Code that Prettier would change. `npm run check` does not run it |
-| Test | `npm test` | A failing test, or a mod with no `*.test.ts` |
+| Test | `npm test` | A failing test, a mod with no `*.test.ts`, or a test that takes more than a third of its time limit |
+
+### Test time limit
+
+A mod test has a time limit of 5000 ms, unless its `TestOptions` set `timeoutMs`. `npm test`
+refuses a test that takes more than a third of its time limit. The refusal names the mod, the
+test file, the test, its time and its limit. Make the test faster, or set its `timeoutMs`.
+
+On GitHub Actions, the gate prints the same line as a `NOTE` and does not fail. A CI runner is
+slower, and there the time limit of each test is the gate.
+
+The gate reads `timeoutMs` from the `test` call in the source of the test file. It reads a
+number, or a `const` of a number in the same file, also through an object spread. It finds the
+test by its `describe` and `test` names. A name can be a string, a template or a `const`
+string. When the gate cannot read the limit of a test, it uses 5000 ms. When the names of
+two tests can match one test title, the gate uses the smaller limit. A test whose name the gate
+cannot read keeps 5000 ms for every title in its `describe`.
+
+The share is a third, not the half in the tracker record:
+
+- In handily-fwkt.8.24, one handily-board test took about 2100 ms on a developer machine. On
+  CI it took 4445 ms in a green run, and 5436 and 5964 ms in two red runs. So a CI runner took
+  2.1 to 2.8 times as long. The red runs stopped at the limit, so their real factor was 2.8 or more.
+- Half of 5000 ms is 2500 ms. Half does not refuse that 2100 ms test, which timed out on CI.
+- A third of 5000 ms is 1667 ms. At 2.8 times, a 1667 ms test takes about 4700 ms on CI.
+- A quarter leaves more room on CI. But then a developer machine 1.4 times slower than the
+  measured one refuses the 900 ms item-toasts test, which passes on CI.
+
+The five slowest tests, measured with `npm test` in three runs on one Linux developer machine on
+2026-10-27. No test takes more than a third of its time limit.
+
+| Mod | Test | Time (ms) | Limit (ms) |
+| --- | --- | --- | --- |
+| handily-board | a draw with 30 agents of 20 tasks reads the state 5 times | 1826 to 1887 | 30000 |
+| handily-board | a session from a version that kept no agentPlans draws every plan on the first draw | 1100 to 1161 | 30000 |
+| handily-item-toasts | ignores a call that completes after its session ended | 831 to 900 | 5000 |
+| handily-item-toasts | closes a background call after 30 minutes without a notification | 548 to 596 | 5000 |
+| handily-board | the this session tab draws each Button once, under its own key | 400 to 436 | 5000 |
 
 The `markdownlint` pre-commit hook lints the Markdown files with the rules in
 `.markdownlint-cli2.jsonc`. To run it by hand, use `npx --no-install markdownlint-cli2`.

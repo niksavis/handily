@@ -33,15 +33,13 @@ function fail(message) {
 
 function run(label, command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', ...options })
+  if (typeof result.stdout === 'string') process.stdout.write(result.stdout)
   if (result.error) {
     fail(`${label}: cannot run ${command} (${result.error.message})`)
-    return false
+    return undefined
   }
-  if (result.status !== 0) {
-    fail(`${label}: exit ${result.status}`)
-    return false
-  }
-  return true
+  if (result.status !== 0) fail(`${label}: exit ${result.status}`)
+  return result
 }
 
 function readJson(path, label) {
@@ -500,13 +498,162 @@ function hasTests(dir) {
   return false
 }
 
+const defaultTestLimitMs = 5000
+const testTimeShare = { divisor: 3, name: 'a third' }
+const testOutputMaxBytes = 64 * 1024 * 1024
+const isCiRunner = process.env.GITHUB_ACTIONS === 'true'
+const testFileHeaderPattern = /^(\S.*\.test\.tsx?):$/
+const testTimePattern = /^\((?:pass|fail)\) (.+) \[(\d+(?:\.\d+)?)ms\]$/
+const regExpSyntaxPattern = /[.*+?^${}()|[\]\\]/g
+const anyTitlePart = '.*'
+
+function readTestTimes(output) {
+  const times = []
+  let file
+  for (const line of output.split(/\r?\n/)) {
+    const header = testFileHeaderPattern.exec(line)
+    if (header) {
+      file = header[1]
+      continue
+    }
+    const timed = testTimePattern.exec(line)
+    if (timed) times.push({ file, title: timed[1], ms: Number(timed[2]) })
+  }
+  return times
+}
+
+function escapeRegExp(text) {
+  return text.replace(regExpSyntaxPattern, '\\$&')
+}
+
+function readDeclaredTestLimits(path) {
+  if (!existsSync(path)) return []
+  const ts = require('typescript')
+  const kind = path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  const source = ts.createSourceFile(
+    path,
+    readFileSync(path, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    kind,
+  )
+  const constants = new Map()
+  const testCalls = []
+  const isCallOf = (node, name) =>
+    ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name
+  const visit = (node) => {
+    const isConstant =
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      (ts.getCombinedNodeFlags(node) & ts.NodeFlags.Const) !== 0
+    if (isConstant) {
+      constants.set(node.name.text, constants.has(node.name.text) ? undefined : node.initializer)
+    }
+    if (isCallOf(node, 'test') && node.arguments.length >= 2) testCalls.push(node)
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  const resolve = (node, seen = new Set()) => {
+    if (node === undefined || seen.has(node)) return undefined
+    seen.add(node)
+    const isWrapper =
+      ts.isParenthesizedExpression(node) ||
+      ts.isAsExpression(node) ||
+      ts.isSatisfiesExpression(node)
+    if (isWrapper) return resolve(node.expression, seen)
+    if (ts.isIdentifier(node)) return resolve(constants.get(node.text), seen)
+    return node
+  }
+  const numberOf = (node) => {
+    const value = resolve(node)
+    return value !== undefined && ts.isNumericLiteral(value) ? Number(value.text) : undefined
+  }
+  const timeoutOf = (options) => {
+    const object = resolve(options)
+    if (object === undefined || !ts.isObjectLiteralExpression(object)) return undefined
+    let timeoutMs
+    for (const property of object.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        timeoutMs = timeoutOf(property.expression) ?? timeoutMs
+      } else if (property.name?.text === 'timeoutMs') {
+        timeoutMs = numberOf(
+          ts.isShorthandPropertyAssignment(property) ? property.name : property.initializer,
+        )
+      }
+    }
+    return timeoutMs
+  }
+  const titlePart = (name) => {
+    const node = resolve(name)
+    if (node === undefined) return undefined
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      return escapeRegExp(node.text)
+    }
+    if (!ts.isTemplateExpression(node)) return undefined
+    const literals = [node.head, ...node.templateSpans.map((span) => span.literal)]
+    return literals.map((literal) => escapeRegExp(literal.text)).join('.*')
+  }
+  const titlePattern = (call, unreadablePart) => {
+    const parts = [titlePart(call.arguments[0])]
+    for (let node = call.parent; node !== undefined; node = node.parent) {
+      if (isCallOf(node, 'describe')) parts.unshift(titlePart(node.arguments[0]))
+    }
+    if (parts.some((part) => part === undefined) && unreadablePart === undefined) return undefined
+    return new RegExp(`^${parts.map((part) => part ?? unreadablePart).join(' > ')}$`)
+  }
+  return testCalls.flatMap((call) => {
+    const declaredMs = call.arguments.length === 3 ? timeoutOf(call.arguments[1]) : undefined
+    const limitMs = declaredMs ?? defaultTestLimitMs
+    const isDefaultLimit = limitMs === defaultTestLimitMs
+    const pattern = titlePattern(call, isDefaultLimit ? anyTitlePart : undefined)
+    return pattern === undefined ? [] : [{ pattern, limitMs }]
+  })
+}
+
+function testLimitMs(title, declared) {
+  const limits = declared.filter(({ pattern }) => pattern.test(title)).map(({ limitMs }) => limitMs)
+  return limits.length === 0 ? defaultTestLimitMs : Math.min(...limits)
+}
+
+function note(message) {
+  console.log(`NOTE ${message}`)
+}
+
+function checkTestTimes(mod, output) {
+  const times = readTestTimes(output)
+  if (times.length === 0) {
+    fail(
+      `${mod.name}: claude plugin test printed no test time such as "(pass) name [12.34ms]", so the test time gate read no test`,
+    )
+    return
+  }
+  const report = isCiRunner ? note : fail
+  const declaredByFile = new Map()
+  for (const { file, title, ms } of times) {
+    if (file !== undefined && !declaredByFile.has(file)) {
+      declaredByFile.set(file, readDeclaredTestLimits(join(mod.dir, file)))
+    }
+    const limitMs = testLimitMs(title, declaredByFile.get(file) ?? [])
+    if (ms * testTimeShare.divisor <= limitMs) continue
+    report(
+      `${mod.name}: ${file ?? 'a test file'} test "${title}" took ${ms} ms of its ${limitMs} ms limit, more than ${testTimeShare.name}, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least ${Math.ceil(ms * testTimeShare.divisor)} ms`,
+    )
+  }
+}
+
 function test(mods) {
   for (const mod of mods) {
     if (!hasTests(mod.dir)) {
       fail(`${mod.name}: no *.test.ts file; every mod ships tests`)
       continue
     }
-    run(`${mod.name}: claude plugin test`, 'claude', ['plugin', 'test', mod.dir])
+    const result = run(`${mod.name}: claude plugin test`, 'claude', ['plugin', 'test', mod.dir], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+      maxBuffer: testOutputMaxBytes,
+    })
+    if (result?.status === 0) checkTestTimes(mod, result.stdout)
   }
   run('scripts: node --test', process.execPath, ['--test', 'scripts/*.test.mjs'])
 }
