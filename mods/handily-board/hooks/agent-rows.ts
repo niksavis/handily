@@ -5,7 +5,7 @@ import type { AgentLook, AgentRow } from './agents'
 import type { PaneElements, RowLayout } from './pane'
 import { SIGNALS } from './signals'
 import { escaped, paneTaskText, statusLook } from './tasks'
-import { cutToWidth, displayWidth, fitted } from './width'
+import { cutToWidth, displayWidth, fitted, lastToWidth } from './width'
 
 export const AGENT_ROWS_AT_MOST = 6
 export const NAME_CUT_ABOVE = 9
@@ -57,21 +57,10 @@ const STATE_WORDS: Record<AgentLook, string> = {
   unlisted: 'not listed',
 }
 
-function tailToWidth(text: string, width: number): string {
-  const characters = Array.from(text)
-  let kept = ''
-  for (let index = characters.length - 1; index >= 0; index -= 1) {
-    const next = `${characters[index] ?? ''}${kept}`
-    if (displayWidth(next) > width) break
-    kept = next
-  }
-  return kept
-}
-
 export function cutName(name: string, width: number): string {
   if (displayWidth(name) <= width) return name
   const head = cutToWidth(name, NAME_HEAD)
-  return `${head}…${tailToWidth(name, Math.max(width - displayWidth(head) - 1, 0))}`
+  return `${head}…${lastToWidth(name, Math.max(width - displayWidth(head) - 1, 0))}`
 }
 
 export function numberedNames(labels: readonly string[], cutAbove: number): string[] {

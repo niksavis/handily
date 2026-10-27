@@ -10,6 +10,7 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import type { BoardTask } from './types'
+import { cutName } from './hooks/agent-rows'
 import { withAgentPlan } from './hooks/agents'
 
 const ROOT = '/work/app'
@@ -974,6 +975,12 @@ describe(NAME_CRITERION, () => {
       await ui.unmount()
     },
   )
+
+  test('a cut name keeps a whole keycap at its end or none of it', () => {
+    const name = 'abcdef1\u{FE0F}\u{20E3}'
+    expect(cutName(name, 6)).toBe('abcd…')
+    expect(cutName(name, 7)).toBe('abcd…1\u{FE0F}\u{20E3}')
+  })
 })
 
 const askingPlugin: Plugin = {
