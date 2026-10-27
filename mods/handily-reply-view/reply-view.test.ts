@@ -1775,9 +1775,9 @@ describe('mermaid flowcharts', () => {
     const chart = flowchartOf(
       linesOf(
         '%% a leading comment',
-        'flowchart TD;',
+        'flowchart TD ;',
         '  %% a comment',
-        '  A:::hot --> B[Two]:::cold;',
+        '  A:::hot --> B[Two]:::cold ;',
         '  classDef hot fill:#f00',
         '  class A hot',
         '  style B stroke:#333',
@@ -1794,6 +1794,40 @@ describe('mermaid flowcharts', () => {
       ],
       edges: [{ from: 'A', to: 'B', stroke: 'solid', arrow: true, label: [] }],
     })
+  })
+
+  test('a node named like an ignored statement keeps its edge', () => {
+    const chart = flowchartOf(
+      linesOf(
+        'flowchart TD',
+        '  style --> B',
+        '  class & C --> D',
+        '  click --- E',
+        '  linkStyle -.-> F',
+        '  classDef ==> G',
+      ),
+    )
+    expect(chart.nodes.map(({ id }) => id)).toEqual([
+      'style',
+      'B',
+      'class',
+      'C',
+      'D',
+      'click',
+      'E',
+      'linkStyle',
+      'F',
+      'classDef',
+      'G',
+    ])
+    expect(chart.edges.map(({ from, to, stroke, arrow }) => [from, to, stroke, arrow])).toEqual([
+      ['style', 'B', 'solid', true],
+      ['class', 'D', 'solid', true],
+      ['C', 'D', 'solid', true],
+      ['click', 'E', 'solid', false],
+      ['linkStyle', 'F', 'dashed', true],
+      ['classDef', 'G', 'solid', true],
+    ])
   })
 
   test('labels and ids with emoji and CJK keep every grapheme', () => {
@@ -2057,6 +2091,52 @@ describe('mermaid sequence diagrams', () => {
 })
 
 describe('mermaid input and limits', () => {
+  const PARSE_BUDGET_MS = 50
+  const SPACES = ' '.repeat(7950)
+  const FAN = Array<string>(1990).fill('A').join('&')
+
+  for (const [name, source, expected] of [
+    [
+      'a text edge label with no closing arrow',
+      `flowchart TD\nA --${SPACES}x`,
+      refusedLine(2, 'line 2 does not parse'),
+    ],
+    [
+      'a pipe edge label with no closing pipe',
+      `flowchart TD\nA -->|${SPACES}x`,
+      refusedLine(2, 'line 2 does not parse'),
+    ],
+    [
+      'a note with no colon',
+      `sequenceDiagram\nNote over A${SPACES}x`,
+      refusedLine(2, 'line 2 does not parse'),
+    ],
+    [
+      'a participant with no alias',
+      `sequenceDiagram\nparticipant a${SPACES}x`,
+      {
+        kind: 'sequence',
+        participants: [{ id: `a${SPACES}x`, kind: 'participant', label: [`a${SPACES}x`] }],
+        events: [],
+        blocks: [],
+      },
+    ],
+    [
+      'a fan-out of 1990 boxes to 1990 boxes',
+      `flowchart TD\n${FAN}-->${FAN}`,
+      overLimit('edges', 1990 * 1990, 60),
+    ],
+  ] as const) {
+    test(`${name} over 7900 characters parses within the budget`, () => {
+      expect(Array.from(source).length).toBeGreaterThan(7900)
+      const started = performance.now()
+      const result = parseMermaid(source)
+      const elapsed = performance.now() - started
+      expect(result).toEqual(expected)
+      expect(elapsed).toBeLessThan(PARSE_BUDGET_MS)
+    })
+  }
+
   test('CRLF input reads like LF input and keeps its line numbers', () => {
     const flow = linesOf('flowchart TD', '  A[Start] --> B', '  B --> C', '')
     const sequence = linesOf('sequenceDiagram', '  A->>B: hi', '  Note over B: ok', '')

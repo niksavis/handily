@@ -84,12 +84,9 @@ export type MermaidDiagram = Flowchart | SequenceDiagram
 
 type Statement = { line: number; text: string }
 
-class LineFault extends Error {
-  constructor(
-    readonly line: number,
-    reason: string,
-  ) {
-    super(reason)
+class DiagramFault extends Error {
+  constructor(readonly refusal: Refusal) {
+    super(refusal.reason)
   }
 }
 
@@ -102,7 +99,7 @@ const SEQUENCE_HEADER = 'sequenceDiagram'
 const DIAGRAM_KIND = /^([A-Za-z][\w-]*)(?:\s[^-[\](){}|<>&]*)?$/
 const DRAWN_DIRECTIONS: Readonly<Record<string, FlowDirection>> = { TD: 'TD', TB: 'TD', LR: 'LR' }
 const REFUSED_DIRECTIONS: ReadonlySet<string> = new Set(['RL', 'BT'])
-const IGNORED_FLOW_STATEMENT = /^(?:classDef|class|style|linkStyle|click)\s/
+const IGNORED_FLOW_STATEMENT = /^(?:classDef|class|style|linkStyle|click)\s+(?=[^\s=&-])/
 const REFUSED_FLOW_STATEMENT = /^(subgraph|direction)(?:\s|$)/
 const REFUSED_SEQUENCE_STATEMENT = /^(box|create|destroy)(?:\s|$)/
 const NODE_ID = /[\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*/uy
@@ -111,20 +108,25 @@ const NODE_PROPERTIES = /@\{[^}]*\}/y
 const IMAGE_PROPERTY = /\b(?:icon|img)\s*:/
 const NODE_CLASS = /:::[\p{L}\p{N}_-]+/uy
 const FAN_OUT = /\s*&\s*/y
-const LABELLED_LINK = /\s*--(?![->.])\s*("[^"]*"|[^"|]*?)\s*-->\s*/y
+const SPACES = /\s*/y
+const TEXT_LINK_OPENING = /\s*--(?![->.])/y
+const TEXT_LINK_CLOSING = '-->'
 const PLAIN_LINK = /\s*(-\.->|-\.-|-->|---|==>)\s*/y
-const PIPE_LABEL = /\|\s*("[^"]*"|[^"|]+?)\s*\|\s*/y
+const PIPE = '|'
+const QUOTED_TEXT = /"[^"]*"/y
+const EDGE_LABEL = /^(?:"[^"]*"|[^"|]+)$/
 const QUOTED = /^"([^"]*)"$/
 const MARKDOWN_STRING = /^`[\s\S]*`$/
 const ICON = /\bfa[bklrs]?:fa-/
-const PARTICIPANT = /^(participant|actor)\s+(.+?)(?:\s+as\s+(.+))?$/
+const PARTICIPANT = /^(participant|actor)\s/
+const ALIAS = /\sas\s/
 const PARTICIPANT_ID = /^[^\s<>=:,;+"{}@-](?:[^<>=:,;"{}@]*[^\s<>=:,;"{}@-])?$/
 const AUTONUMBER = 'autonumber'
-const NOTE = /^note\s+(left\s+of|right\s+of|over)\s+([^:]+?)\s*:(.*)$/i
+const NOTE = /^note\s+(left\s+of|right\s+of|over)\s/i
 const MESSAGE_ARROW = /-->>|->>|-->|--x|--\)|->|-x|-\)/
 const ACTIVATION = /^\s*[+-]?/
-const BLOCK_OPENING = /^(loop|alt|opt|par|critical|break|rect)(?:\s+(.*))?$/
-const BLOCK_SECTION = /^(else|and)(?:\s+(.*))?$/
+const BLOCK_OPENING = /^(loop|alt|opt|par|critical|break|rect)(?:\s(.*))?$/
+const BLOCK_SECTION = /^(else|and)(?:\s(.*))?$/
 const BLOCK_END = 'end'
 const SECTION_BLOCK: Readonly<Record<string, BlockKind>> = { else: 'alt', and: 'par' }
 
@@ -184,12 +186,16 @@ const MESSAGE_ARROWS: Readonly<Record<string, ArrowSyntax>> = {
   '--)': { stroke: 'dashed', head: 'open' },
 }
 
-function doesNotParse(line: number): LineFault {
-  return new LineFault(line, `line ${String(line)} does not parse`)
+function lineFault(line: number, reason: string): DiagramFault {
+  return new DiagramFault({ kind: 'refused', reason, line, limit: null })
 }
 
-function notDrawnYet(line: number, name: string): LineFault {
-  return new LineFault(line, `${name} does not draw yet`)
+function doesNotParse(line: number): DiagramFault {
+  return lineFault(line, `line ${String(line)} does not parse`)
+}
+
+function notDrawnYet(line: number, name: string): DiagramFault {
+  return lineFault(line, `${name} does not draw yet`)
 }
 
 function sourceLines(source: string): string[] {
@@ -200,7 +206,10 @@ function sourceLines(source: string): string[] {
 
 function statementsOf(lines: readonly string[]): Statement[] {
   return lines
-    .map((text, index) => ({ line: index + 1, text: text.trim().replace(TRAILING_SEMICOLON, '') }))
+    .map((text, index) => ({
+      line: index + 1,
+      text: text.trim().replace(TRAILING_SEMICOLON, '').trimEnd(),
+    }))
     .filter(({ text }) => text !== '' && !COMMENT.test(text))
 }
 
@@ -229,6 +238,13 @@ function limitRefusal(name: LimitName, count: number): Refusal | null {
   }
 }
 
+function refuseOverLimits(counts: readonly (readonly [LimitName, number])[]): void {
+  for (const [name, count] of counts) {
+    const refusal = limitRefusal(name, count)
+    if (refusal !== null) throw new DiagramFault(refusal)
+  }
+}
+
 class Cursor {
   private at = 0
 
@@ -244,6 +260,20 @@ class Cursor {
     return found
   }
 
+  skip(text: string): boolean {
+    if (!this.text.startsWith(text, this.at)) return false
+    this.at += text.length
+    return true
+  }
+
+  takeThrough(closing: string): string | null {
+    const end = this.text.indexOf(closing, this.at)
+    if (end < 0) return null
+    const taken = this.text.slice(this.at, end)
+    this.at = end + closing.length
+    return taken
+  }
+
   get done(): boolean {
     return this.at >= this.text.length
   }
@@ -252,6 +282,7 @@ class Cursor {
 class FlowchartBuilder {
   private readonly nodes = new Map<string, FlowNode>()
   private readonly edges: FlowEdge[] = []
+  private edgeCount = 0
 
   constructor(private readonly direction: FlowDirection) {}
 
@@ -265,14 +296,21 @@ class FlowchartBuilder {
     while (!cursor.done) {
       const link = this.link(cursor)
       const targets = this.group(cursor)
-      for (const from of sources) {
-        for (const to of targets) this.edges.push({ from, to, ...link, label: [...link.label] })
+      this.edgeCount += sources.length * targets.length
+      if (this.edgeCount <= DIAGRAM_LIMITS.edges) {
+        for (const from of sources) {
+          for (const to of targets) this.edges.push({ from, to, ...link, label: [...link.label] })
+        }
       }
       sources = targets
     }
   }
 
   build(): Flowchart {
+    refuseOverLimits([
+      ['boxes', this.nodes.size],
+      ['edges', this.edgeCount],
+    ])
     return {
       kind: 'flowchart',
       direction: this.direction,
@@ -314,14 +352,29 @@ class FlowchartBuilder {
   }
 
   private link(cursor: Cursor): LinkSyntax & { label: string[] } {
-    const labelled = cursor.take(LABELLED_LINK)
-    if (labelled !== null) {
-      return { stroke: 'solid', arrow: true, label: labelLines(labelled[1] ?? '', cursor.line) }
+    if (cursor.take(TEXT_LINK_OPENING) !== null) {
+      return { stroke: 'solid', arrow: true, label: this.edgeLabel(cursor, TEXT_LINK_CLOSING) }
     }
     const syntax = LINKS[cursor.take(PLAIN_LINK)?.[1] ?? '']
     if (syntax === undefined) throw doesNotParse(cursor.line)
-    const piped = cursor.take(PIPE_LABEL)
-    return { ...syntax, label: piped === null ? [] : labelLines(piped[1] ?? '', cursor.line) }
+    if (!cursor.skip(PIPE)) return { ...syntax, label: [] }
+    return { ...syntax, label: this.edgeLabel(cursor, PIPE) }
+  }
+
+  private edgeLabel(cursor: Cursor, closing: string): string[] {
+    cursor.take(SPACES)
+    const text = this.quotedEdgeLabel(cursor, closing) ?? cursor.takeThrough(closing)?.trim()
+    if (text === undefined || !EDGE_LABEL.test(text)) throw doesNotParse(cursor.line)
+    cursor.take(SPACES)
+    return labelLines(text, cursor.line)
+  }
+
+  private quotedEdgeLabel(cursor: Cursor, closing: string): string | undefined {
+    const quoted = cursor.take(QUOTED_TEXT)?.[0]
+    if (quoted === undefined) return undefined
+    cursor.take(SPACES)
+    if (!cursor.skip(closing)) throw doesNotParse(cursor.line)
+    return quoted
   }
 }
 
@@ -358,8 +411,12 @@ class SequenceBuilder {
   build(): SequenceDiagram {
     const unclosed = this.open.at(0)
     if (unclosed !== undefined) {
-      throw new LineFault(unclosed.line, `line ${String(unclosed.line)} opens a block with no end`)
+      throw lineFault(unclosed.line, `line ${String(unclosed.line)} opens a block with no end`)
     }
+    refuseOverLimits([
+      ['participants', this.participants.size],
+      ['events', this.events.length],
+    ])
     return {
       kind: 'sequence',
       participants: [...this.participants.values()],
@@ -379,21 +436,35 @@ class SequenceBuilder {
   private declare({ line, text }: Statement): boolean {
     const found = PARTICIPANT.exec(text)
     if (found === null) return false
-    const id = this.participant(found[2] ?? '', line)
+    const named = text.slice(found[0].length).trim()
+    const alias = ALIAS.exec(named)
+    const id = this.participant(named.slice(0, alias?.index).trim(), line)
+    const label = alias === null ? id : named.slice(alias.index + alias[0].length).trim()
     const kind = found[1] === 'actor' ? 'actor' : 'participant'
-    this.participants.set(id, { id, kind, label: textLines(found[3] ?? id) })
+    this.participants.set(id, { id, kind, label: textLines(label) })
     return true
   }
 
   private note({ line, text }: Statement): boolean {
     const found = NOTE.exec(text)
     if (found === null) return false
+    const rest = text.slice(found[0].length)
+    const colon = rest.indexOf(':')
+    if (colon < 0) throw doesNotParse(line)
     const placement = (found[1] ?? '').toLowerCase().replace(/\s+/, ' ') as NotePlacement
-    const named = (found[2] ?? '').split(',').map((id) => id.trim())
+    const named = rest
+      .slice(0, colon)
+      .split(',')
+      .map((id) => id.trim())
     const most = placement === 'over' ? 2 : 1
     if (named.length > most) throw doesNotParse(line)
     const participants = named.map((id) => this.participant(id, line))
-    this.events.push({ kind: 'note', placement, participants, text: textLines(found[3] ?? '') })
+    this.events.push({
+      kind: 'note',
+      placement,
+      participants,
+      text: textLines(rest.slice(colon + 1)),
+    })
     return true
   }
 
@@ -472,7 +543,7 @@ function flowDirection(
   throw doesNotParse(header.line)
 }
 
-function unknownHeader(header: Statement): LineFault {
+function unknownHeader(header: Statement): DiagramFault {
   const kind = DIAGRAM_KIND.exec(header.text)?.[1]
   if (kind === undefined || kind === SEQUENCE_HEADER) return doesNotParse(header.line)
   return notDrawnYet(header.line, kind)
@@ -487,18 +558,6 @@ function builderOf(header: Statement): FlowchartBuilder | SequenceBuilder {
   throw unknownHeader(header)
 }
 
-function countRefusal(diagram: MermaidDiagram): Refusal | null {
-  if (diagram.kind === 'flowchart') {
-    return (
-      limitRefusal('boxes', diagram.nodes.length) ?? limitRefusal('edges', diagram.edges.length)
-    )
-  }
-  return (
-    limitRefusal('participants', diagram.participants.length) ??
-    limitRefusal('events', diagram.events.length)
-  )
-}
-
 function parsed(statements: readonly Statement[]): MermaidDiagram | Refusal {
   const [header, ...body] = statements
   if (header === undefined) {
@@ -507,11 +566,10 @@ function parsed(statements: readonly Statement[]): MermaidDiagram | Refusal {
   try {
     const builder = builderOf(header)
     for (const statement of body) builder.add(statement)
-    const diagram = builder.build()
-    return countRefusal(diagram) ?? diagram
+    return builder.build()
   } catch (error) {
-    if (!(error instanceof LineFault)) throw error
-    return { kind: 'refused', reason: error.message, line: error.line, limit: null }
+    if (!(error instanceof DiagramFault)) throw error
+    return error.refusal
   }
 }
 
