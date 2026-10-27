@@ -75,6 +75,6 @@ jobs:
       - name: Install dev dependencies
         run: npm ci --no-fund --no-audit
       - name: Install the pinned Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.300
+        run: npm install -g @anthropic-ai/claude-code@2.1.312
       - name: Configured verify checks
         run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.29.0/basicly-0.29.0-py3-none-any.whl basicly verify --mode full

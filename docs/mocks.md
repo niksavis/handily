@@ -1392,6 +1392,321 @@ only one pane is open.
 | `agents N · 1 failed` on this session's card | yes | - |
 | agent `■ failed` and `failed after <last tool>` | yes | - |
 
+### 8.10 The Session line, the checks and the agent states (handily-xsjad, approved 2026-10-27)
+
+Approved by the person on 2026-10-27 (handily-xsjad.2). The design rebuilds the flightdeck
+reference inside `/board`. The board shows engine facts only. docs/design.md section 4.9 names
+the engine event behind each number, the numbers that the engine does not give, and the
+thresholds.
+
+Decisions of the person (2026-10-27):
+
+- The "this session" tab starts with a `Session` line. It shows the waits, the context percent,
+  the cost, the cost of the turn and the limits, in that order.
+- A narrow body cuts the Session line from the right. The waits are never cut.
+- The details of the Session line are folded under it. A press on the line opens them.
+- `[ last 5 checks ]` opens the last 5 permission checks. The board masks the credentials in a
+  check before it draws the check.
+- An agent has three new states:
+  - `needs you`: only after a signal that a permission dialog is open. handily-xsjad.1 probes
+    that signal. Without the signal, an agent that waits stays `on hold` (section 8.1).
+  - `slow`: the current tool call of the agent runs for more than 30 s.
+  - `quiet`: the agent sent no event for 2 minutes.
+- An opened agent row shows the context and the output tokens of the agent.
+- From body 80, each agent row has a `ctx` column and a lane.
+- The status line names a wait and a high context by default. The setting `statusLine` takes
+  `attention` (the default) or `off`.
+- `/board stats` prints the same figures as text.
+- The hotkeys `s` and `c` ship only if the probe of handily-xsjad.1 shows that they fire in tmux.
+  Until then, section 8.7 holds.
+- Release 1 shows no percent of the compaction window.
+- The board shows no cost for each agent, because the engine gives none.
+
+The blocks follow 8.0. `NEW` right of a frame marks a new line. `approved 8.2a` marks a line that
+8.2a approved for handily-fwkt.8.10.
+
+Width check (2026-10-27): a script measured each framed line of 8.10a to 8.10o, 189 lines
+in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wider or narrower.
+
+#### 8.10a Docked, body 41, empty: session start, no reply yet, no tasks, no agents
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx — until the first reply      │  NEW
+│ Tasks  none in this session yet           │
+│ Open in tracker: basicly · 29 open        │
+│ P1 handily-ab12 Draw text mocks … [ add ] │
+│ [ all 29 open ]  [ Add 10 as tasks ]      │
+│ No agents yet.                            │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10b Docked, body 41, no subagent, a turn runs and the cost rises
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 62% · $4.18 · turn +$0.31    │  NEW
+│ Tasks  1 of 4 done · 14m                  │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│     ▸ Edit docs/mocks.md          9 tools │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
+│ ○ 4 You: Ask the person about tabs [ rm ] │
+│ [ +1 done ]                               │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10c Docked, body 41, the Session line pressed open (idle, after the turn)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 62% · $4.80 · last +$0.62    │  NEW
+│     context 124k of 200k · 1 compaction   │  NEW
+│     last turn 3m · +$0.62 · 3 edits       │  NEW
+│     0 errors · 2 agents spawned           │  NEW
+│     limits 5h 31% · 7d 13%                │  NEW
+│     resets 5h in 2h · 7d in 4d            │  NEW
+│     checks 25 · 8 allowed · 16 asked      │  NEW
+│     1 denied                              │  NEW  "denied" in error
+│     [ last 5 checks ]                     │  NEW
+│ Tasks  1 of 4 done · 14m                  │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10d Docked, body 41, `[ last 5 checks ]` pressed
+
+```text
+╭─────────────────────────────────────────✕─╮
+│     checks 25 · 8 allowed · 16 asked      │
+│     1 denied                              │
+│     [ hide checks ]                       │
+│     denied   Bash git push --force o…     │  verdict word first; error colour + word
+│     asked    Edit docs/mocks.md           │
+│     asked    Bash npm test   scout        │
+│     allowed  Read hooks/pane.tsx          │
+│     allowed  Grep hooks/   Explore        │
+│ Tasks  1 of 4 done · 14m                  │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10e Docked, body 41, 1 subagent that waits for permission
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ◆ 1 waits · ctx 62% · $4.18      │  NEW: ◆ and "waits" in warning
+│ Tasks  1 of 4 done · 14m                  │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│     ▸ Edit docs/mocks.md          9 tools │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
+│ [ +1 done ]                               │
+│ ───────────────────────────────────────── │
+│ Agents  1 · 1 needs you                   │  approved 8.2a, now live
+│ ◆ scout     needs you            open  2m │  approved 8.2a + open
+│     waits for: permission · Bash npm t…   │  approved 8.2a
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10f Docked, body 41, 6 subagents: one waits, one failed, one slow, one quiet
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ◆ 1 waits · ctx 71% · $9.02      │
+│ Tasks  2 of 6 done · 41m                  │
+│ ▶ 3 Build the vitals line       6m [ rm ] │
+│ ○ 4 Wire the permission waits      [ rm ] │
+│ [ +2 done ]                               │
+│ ───────────────────────────────────────── │
+│ Agents  6 · 1 needs you · 1 failed        │
+│ ◆ scout     needs you            open  2m │
+│     waits for: permission · Bash npm t…   │
+│ ■ lane-b    failed                     4m │
+│     failed after Bash npm test            │
+│ ▶ Explore   slow 45s  ▸ Bash np… open  3m │  NEW: slow = this call 45s
+│ ▶ tester    quiet 3m  Read src/… open  5m │  NEW: quiet = no event 3m
+│ ▶ impl…nter plan 0/3  ▸ Edit b.… open  9s │
+│ ▶ Explore 2 running   ▸ Read a.… open  1m │
+│ [ +2 ended ]                              │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10g Docked, body 41, an agent row pressed open (the tokens are new)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ▶ Explore   plan 2/7  ▸ Grep ho… open  1m │
+│     find the element table                │
+│     under scout · spawned 1m ago          │
+│     7 tool calls · ctx 48k · out 6.1k     │  NEW: ctx and out
+│     ✓ Read the design                     │
+│     ▶ Draw the plan                       │
+│     ○ Test the fold                       │
+│ [ +2 ended ]                              │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10h Docked, body 41, the context near the limit
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │
+│ Session  ctx 91% high · $12.40            │  "91% high" in warning: colour + word
+│     context 182k of 200k · 2 compactions  │
+│     Claude Code compacts it near the      │  pressed open
+│     limit. /compact or /clear frees it.   │
+│     last turn 6m · +$1.90 · 9 edits       │
+│ Tasks  3 of 6 done · 1h                   │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10i Docked, body 41, error states (each line replaces the Session line)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Session  no context or cost on this host  │  usage() refused: no session bound, SDK host
+│ Session  ctx 62% · $4.18 · 3m old         │  last reading old: a measure hook failed
+│ Session  ctx 62% · no cost ledger         │  cost absent
+│     limits: none reported                 │  off a subscription
+│     stopped at max_tokens · ctx 198k      │  opened agent row: a step stopped at max_tokens
+│     checks 25 · 1 denied                  │  "denied" in error colour
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10j Docked, body 30 (a narrow dock), 6 subagents
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │  (engine tab row)
+│ Session  ◆ 1 waits · ctx 71%   │  cost cut first, then ctx
+│ Tasks  2 of 6 done · 41m       │
+│ ▶ 3 Build the vit… 6m [ rm ]   │
+│ ○ 4 Wire the permis… [ rm ]    │
+│ [ +2 done ]                    │
+│ ────────────────────────────── │
+│ Agents 6 · 1 you · 1 failed    │
+│ ◆ scout     needs you open  2m │
+│     waits for: permission ·…   │
+│ ■ lane-b    failed          4m │
+│     failed after Bash npm t…   │
+│ ▶ Explore   slow 45s  open  3m │
+│ ▶ tester    quiet 3m  open  5m │
+│ ▶ impl…nter plan 0/3  open  9s │
+│ ▶ Explore 2 running   open  1m │
+│ [ +2 ended ]                   │
+╰────────────────────────────────╯
+```
+
+#### 8.10k Docked, body 89 (a wide dock), 6 subagents, the gauge, the ctx column and the lanes
+
+```text
+╭─────────────────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                              │  (engine tab row)
+│ Session  ◆ 1 waits · ctx 71% ▰▰▰▰▰▰▰▱▱▱ 142k/200k · $9.02 · turn +$1.26 · 5h 31% · 7d 13% │  NEW
+│ Tasks  2 of 6 done · 41m                                                                  │
+│ ▶ 3 Build the vitals line                                                       6m [ rm ] │
+│     ▸ Edit hooks/vitals.ts                                                       12 tools │
+│ ○ 4 Wire the permission waits                                                      [ rm ] │
+│ [ +2 done ]                                                                               │
+│ ───────────────────────────────────────────────────────────────────────────────────────── │  NEW lanes legend
+│ Agents  6 · 1 needs you · 1 failed · lanes from 14m ago to now                            │  lane ends ◆: waits now
+│ ◆ scout     needs you waits for: permission · Bash… ctx 31k ············━━━━━━━◆ open  2m │
+│ ■ lane-b    failed    failed after Bash npm test    ctx 62k ━━━━━━━━━━━■········       4m │
+│ ▶ Explore   slow 45s  ▸ Bash npm run check          ctx 48k ················━━━━ open  3m │
+│ ▶ tester    quiet 3m  Read src/a.ts                 ctx 12k ·············━━━━━━━ open  5m │
+│ ▶ impl…nter plan 0/3  ▸ Edit b.ts                   ctx 3k  ···················━ open  9s │
+│ ▶ Explore 2 running   ▸ Read a.ts                   ctx 20k ··················━━ open  1m │
+│ [ +2 ended ]                                                                              │
+│                                                                                           │
+│ [ Add a task ________________________________ ][Add]                                      │
+╰───────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.10l Inline above the prompt, 80 columns (body 76), 1 subagent waits
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ Session  ◆ 1 waits · ctx 62% ▰▰▰▰▰▰▱▱▱▱ · $4.18 · turn +$0.31 · 5h 31%       │  NEW
+│ Tasks  1 of 4 done · 14m                                                     │
+│ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
+│ ○ 3 Review the mocks with Codex                                       [ rm ] │
+│ [ +1 done ]                                                                  │
+│ Agents  2 · 1 needs you                                                      │
+│ ◆ scout      needs you  waits for: permission · Bash npm test       open  2m │
+│ ▶ Explore    slow 45s   ▸ Bash npm run check                        open  3m │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.10m Inline, body 76, no subagent, idle
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ Session  ctx 28% ▰▰▰▱▱▱▱▱▱▱ · $1.02 · last turn +$0.40 in 2m · 5h 9%         │
+│ Tasks  0 of 2 done · 3m                                                      │
+│ ○ 1 Read the design                                                   [ rm ] │
+│ ○ 2 Draw the plan                                                     [ rm ] │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.10n Desktop app, body 41, 1 subagent waits (the same tree, native buttons)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tabs)
+│ Session  ◆ 1 waits · ctx 62% · $4.18      │  Session is a native button
+│ Tasks  1 of 4 done · 14m                  │
+│ ▶ 2 Write the tab mocks         4m [rm]   │
+│     ▸ Edit docs/mocks.md          9 tools │
+│ ───────────────────────────────────────── │
+│ Agents  1 · 1 needs you                   │
+│ ◆ scout     needs you            open  2m │  "open" is a native button
+│     waits for: permission · Bash npm t…   │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10o The this machine tab, body 41: the card of this session with a high context
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ▶ mocks  interactive  this  busy          │
+│   ▶ Write the tab mocks ▰▱▱▱ 1/4          │
+│   app · main · 14m worked · est. 30m left │
+│   ctx 91% high · $12.40                   │  NEW, only at 80% or more
+│   agents 3 · 1 needs you · 1 failed       │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.10p The status line
+
+```text
+◆ scout waits for permission: Bash npm test · ctx 91% high
+◆ 2 agents wait for permission · ctx 91% high
+ctx 91% high · /compact frees it
+◆ scout waits for permission: Bash npm t…
+```
+
+- One agent waits: 58 columns.
+- Two agents wait: 45 columns.
+- Nothing waits, the context is high: 32 columns.
+- The first line cut to 41 columns: 41 columns.
+- With the setting `statusLine` at `off`, the board sets no status line.
+
 ### Risks
 
 - Width: the 41-column agent row has no spare column; a dock dragged below 36 drops columns

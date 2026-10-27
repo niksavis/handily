@@ -12,8 +12,8 @@ declare module 'claude-code' {
       subagent_type?: string
       /** Optional model override for this agent. Takes precedence over the agent definition's model frontmatter and the configured default subagent model. If omitted, uses the agent definition's model, else the default (inherits from the parent unless a default subagent model is configured). Ignored for subagent_type: "fork" — forks always inherit the parent model. */
       model?: "sonnet" | "opus" | "haiku" | "fable"
-      /** Reasoning effort for this agent. Set this ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly ask that this agent or delegated work run at a specific effort level, never on your own judgment; otherwise omit it and the agent runs at its usual effort. Ignored for subagent_type: "fork": a fork runs at your own effort. */
-      effort?: "low" | "medium" | "high" | "xhigh" | "max"
+      /** Reasoning effort for this agent. "lower" or "higher" is one step from the effort the agent would otherwise run at (normally yours), on whatever model it would otherwise use. Pass "lower" when the brief is mechanical and checkable against itself — bounded search, grep-and-report, a pattern you spelled out. Pass "higher" when one well-specified piece needs more reasoning than the work around it. Omit when neither clearly applies. Name a level (low, medium, high, xhigh, max) ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly ask for that level. "lower" and "higher" are ignored for subagent_type: "fork", isolation: "remote", and teammates. */
+      effort?: "lower" | "higher" | "low" | "medium" | "high" | "xhigh" | "max"
       /** Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running. */
       name?: string
       /** Deprecated; ignored. The session has a single implicit team. */
@@ -47,14 +47,7 @@ declare module 'claude-code' {
         /** Servable media type; inferred from the extension for common types (css/js/json/png/…) — pass explicitly otherwise. */
         contentType?: string
       }> | {}
-      /** publish: small changes Claude makes to the file at `file_path` in this same call, instead of editing the file with Edit and publishing after. Use it on a page (add `url` to update an artifact from another conversation) or on one data file of an artifact made from a type (its `url`, with that file as `file_path`). Not allowed with `type_url`, `files` or `root`. Each old_str is text copied exactly from the file as it now stands and must occur in it exactly once; new_str takes its place (empty deletes it). The edits apply in order, all or none: the file is published with them and then saved with them on disk, so it stays the source for later changes; on a miss nothing is changed or published, and the result says which edit failed and why. */
-      edits?: Array<{
-        /** Text copied exactly from the file; must occur once. */
-        old_str: string
-        /** Its replacement; empty deletes old_str. */
-        new_str: string
-      }>
-      /** The base directory that relative `files` sources resolve against, like a bundler root. It never changes published paths. It is relative to the working directory, or absolute within it or within Claude's scratchpad directory. It requires `files`, except on an Artifact made from a type, where a data `file_path` under it is served at its path relative to it. */
+      /** The base directory that relative `files` sources resolve against, like a bundler root. It never changes the published path of a `files` entry. It is relative to the working directory, or absolute within it or within Claude's scratchpad directory. It requires `files`, except on an Artifact made from a type, where a data `file_path` is served at its path relative to `root`, unless a `files` map entry states its served path. Claude sends it with every such publish, set to the folder that holds the Artifact's files at their served paths. */
       root?: string
       /** publish only: true also pins the published artifact to the person's claude.ai sidebar once it is published. Claude passes it only when the person asked for that. A failed pin never fails the publish, and the result says so. */
       pin?: boolean
@@ -66,7 +59,7 @@ declare module 'claude-code' {
       type_query?: string
       /** list only: the name of a published Artifact type, as a 'types' listing shows it (case does not matter). The listing then shows the Artifacts made from that type instead of the person's gallery. Claude passes this or `type_url`, not both. */
       type?: string
-      /** quickstart only (required): what is being made — 'document' (text to read or edit together), 'slides' (a deck or one slide), 'design' (a visual design or prototype on a canvas), 'other' (anything else, or unsure). */
+      /** quickstart only (required): what is being made — 'document' (writing people will keep editing or pass around as text, such as a memo, plan, spec, proposal or notes), 'slides' (a deck or one slide), 'design' (a visual design or prototype on a canvas), 'other' (a page to look at or use: an explainer, a diagram, anything interactive, a dashboard that shows data, anything else, or unsure). */
       intent?: "document" | "slides" | "design" | "other"
       /** quickstart only: false when a design system's link is already in hand (it is then read with its own call) or one was declined. Omitted or true, the result lists the design systems (not for a document) and, for slides or a design, attaches the default one's README. */
       design_systems?: boolean
@@ -868,6 +861,7 @@ declare module 'claude-code' {
         } | null
         fallback_credit?: unknown
       }
+      toolsUsed?: string[]
       toolStats?: {
         readCount: number
         searchCount: number
@@ -939,6 +933,8 @@ declare module 'claude-code' {
           data: string
         }>
       }>
+      /** The tools the script's artifact calls reached whose names this conversation's prompt did not yet carry: the tool_result opens with a tools-used-before-summary line naming them */
+      toolsUsed?: string[]
     }
     Artifact: {
       created_from_type: true
@@ -954,6 +950,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       files_written?: {
         path: string
         sha256: string
@@ -1092,6 +1090,10 @@ declare module 'claude-code' {
       }
       own_files?: string[]
       type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
     } | {
       artifacts: Array<{
         title: string
@@ -1200,6 +1202,7 @@ declare module 'claude-code' {
           tier?: string
         }
         match_of?: number
+        ask_first?: boolean
         types?: {
           title: string
           type_url: string
@@ -1811,6 +1814,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       files_written?: {
         path: string
         sha256: string
@@ -1949,6 +1954,10 @@ declare module 'claude-code' {
       }
       own_files?: string[]
       type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
     } | {
       artifacts: Array<{
         title: string
@@ -2057,6 +2066,7 @@ declare module 'claude-code' {
           tier?: string
         }
         match_of?: number
+        ask_first?: boolean
         types?: {
           title: string
           type_url: string
@@ -2668,6 +2678,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       files_written?: {
         path: string
         sha256: string
@@ -2806,6 +2818,10 @@ declare module 'claude-code' {
       }
       own_files?: string[]
       type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
     } | {
       artifacts: Array<{
         title: string
@@ -2914,6 +2930,7 @@ declare module 'claude-code' {
           tier?: string
         }
         match_of?: number
+        ask_first?: boolean
         types?: {
           title: string
           type_url: string
@@ -3525,6 +3542,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       files_written?: {
         path: string
         sha256: string
@@ -3663,6 +3682,10 @@ declare module 'claude-code' {
       }
       own_files?: string[]
       type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
     } | {
       artifacts: Array<{
         title: string
@@ -3771,6 +3794,7 @@ declare module 'claude-code' {
           tier?: string
         }
         match_of?: number
+        ask_first?: boolean
         types?: {
           title: string
           type_url: string
@@ -4427,6 +4451,8 @@ declare module 'claude-code' {
       isImage?: boolean
       /** ID of the background task if command is running in background */
       backgroundTaskId?: string
+      /** @internal Path of the background task's output file on the machine that keeps the command, when that is not this process */
+      backgroundOutputPath?: string
       /** True if the user manually backgrounded the command with Ctrl+B */
       backgroundedByUser?: boolean
       /** @internal True if a plugin's turn abort moved the running command to the background */
@@ -4435,6 +4461,8 @@ declare module 'claude-code' {
       backgroundedToDeliverMessage?: boolean
       /** Set when the command hit its timeout and was auto-backgrounded; the timeout value in ms */
       timedOutAfterMs?: number
+      /** @internal True if the async subagent foreground cap shortened the command's timeout */
+      subagentCapApplied?: true
       /** Model-facing note that the session cwd was not changed by a backgrounded command containing a directory-change builtin (cd/pushd/popd/chdir) */
       backgroundCwdHint?: string
       /** True when this backgrounded command is terminated at its caller's final response, so no completion notification can follow (a synchronous subagent's command, or a headless session that takes no further input and is not waiting for background commands); absent when the command survives */
@@ -4890,6 +4918,7 @@ declare module 'claude-code' {
           data: string
         }
       }>>
+      toolsUsed?: string[]
       provenance?: Array<{
         authority: "human-principal" | "human-other" | "peer-agent" | "world-event"
         senderId?: string
@@ -4904,6 +4933,7 @@ declare module 'claude-code' {
     Projects: {
       method: "project_info"
       notice?: string
+      local_file?: string
       name: string
       description: string
       instructions: string
@@ -5321,6 +5351,8 @@ declare module 'claude-code' {
       result: string
       /** True when the sub-agent was launched in the background: `result` describes the launch, and the skill outcome arrives later as a task notification. */
       background?: boolean
+      /** The tools-used-before-summary line the tool_result opens with: the tools the sub-agent called that this conversation's requests did not yet name */
+      toolsUsedLine?: string
     }
     SuggestConnectors: {
       connectors: {

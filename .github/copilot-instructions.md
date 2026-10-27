@@ -97,6 +97,8 @@ claude --plugin-dir mods/<name>
 - The commit-msg hook refuses `merge:` as a type. It also refuses an apostrophe in the description. Use `chore:` for a merge commit, and write the description without an apostrophe.
 - The Definition of Ready trigger parser ends the situation at the first "I want". So "When I want my list, I want to" reads as an empty situation. Write the situation without "I want". A `<word>` in a comment that the review cites also reads as a placeholder, so write the thing by name there too.
 - A new comment or dependency edge on a record makes its recorded review stale. The record then leaves the ready set. Record the review again after such an edit.
+- An edit of an epic's description makes the recorded reviews of all its children stale. Edit the epic before you review its children, or record each child review again before its claim.
+- Check the exit code of the ledger commit before you dispatch a lane. A refused claim commit leaves the claim only in `pending-main.jsonl`, and the lane's commit-msg hook then refuses its commit. A comma or a capital letter in the description is a common cause.
 - A session started with `--plugin-dir mods` writes `.claude-plugin/types` into a removed mod folder. Then `npm run check` fails with "a folder under mods/ is a mod". Delete the regenerated folder and run the check again.
 - `/reload-plugins` unloads an uninstalled plugin but keeps a disabled one loaded, as measured on Claude Code 2.1.296. To drop a mod from a running session, uninstall it before you reload.
 
