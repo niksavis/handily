@@ -256,9 +256,16 @@ Session  ctx 80% high · $12.40
 - From 80 percent, the percent shows the word `high`, and both take the theme colour `warning`.
 - While a main turn runs, `turn +$0.31` is the cost that the turn added since it started. It
   shows when the turn added one cent or more. After the turn, `last +$0.62` is the cost of the
-  last turn. A subagent turn does not start or end a turn here.
-- Before the first measure, the line reads `ctx — until the first reply`. A resumed session
-  shows the figures that `$.session.usage()` gives at session start.
+  last turn. When the turn ends before its measure, `last` waits for that measure. A subagent
+  turn does not start or end a turn here.
+- When the cost total goes down, the turn counts from the new total, so the line never shows a
+  negative cost.
+- Before the first reply, the line reads `ctx — until the first reply`, also when the engine
+  reports a cost of `$0.00`. A resumed session shows the figures that `$.session.usage()` gives
+  at session start.
+- `/clear` empties the line to `ctx — until the first reply`. When no measure comes between
+  `/clear` and the next turn, that turn shows no turn cost, because the board does not know the
+  cost at its start.
 - When the host gives no usage, the line reads `no context or cost on this host` and draws no
   number. This is the case when `$.session.usage()` refuses at session start and no measure
   came.

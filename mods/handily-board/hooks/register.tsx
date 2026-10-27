@@ -97,6 +97,7 @@ import {
   sessionText,
   withMeasure,
   withTurnEnd,
+  withClear,
   withTurnStart,
   withUsage,
   withoutUsage,
@@ -762,6 +763,7 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
     if (e.reason === 'clear') {
+      noteVitals($, vitals, withClear)
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await resetAgentLists($)

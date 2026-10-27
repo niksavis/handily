@@ -2537,7 +2537,8 @@ describe('the pane follows the work', () => {
       await ui.unmount()
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       const cleared = await mountPane($)
-      expect((await screen(cleared, WIDTH)).slice(1, 3)).toEqual([
+      expect((await screen(cleared, WIDTH)).slice(0, 3)).toEqual([
+        'Session  ctx — until the first reply',
         'Tasks  none in this session yet',
         'Open in tracker: beads · no open items',
       ])
@@ -4719,6 +4720,51 @@ describe(SESSION_LINE_CRITERION, () => {
     },
   )
 
+  test(
+    'a first measure that reports a cost of 0 before any reply still reads ctx — until the first reply, as mock 8.10a',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await measure($, { usd: 0 })
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'dock', 41)).toBe(
+          'Session  ctx — until the first reply',
+        )
+        expect(await sessionLine($, surface, 'dock', 89)).toBe(
+          'Session  ctx — until the first reply',
+        )
+      }
+    },
+  )
+
+  test(
+    '/clear empties the line to ctx — until the first reply, and a turn after it draws no turn cost that it cannot know',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await measure($, { percent: 91, usd: 4.18 })
+      await mainTurnStarts($, 'turn-1')
+      await measure($, { usd: 4.8 })
+      await mainTurnEnds($, 'turn-1')
+      expect(await sessionLine($, 'terminal', 'dock', 89)).toBe(
+        'Session  ctx 91% high · $4.80 · last +$0.62',
+      )
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'dock', 41)).toBe(
+          'Session  ctx — until the first reply',
+        )
+      }
+      await mainTurnStarts($, 'turn-2')
+      await measure($, { percent: 3, usd: 4.85 })
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 3% · $4.85')
+      await mainTurnEnds($, 'turn-2')
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 3% · $4.85')
+    },
+  )
+
   test('a measure changes only the units it names in changed', withWorkitems, async ($, on) => {
     world(on)
     await start($)
@@ -4854,6 +4900,62 @@ describe(TURN_COST_CRITERION, () => {
       expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(
         'Session  ctx 62% · $5.05 · turn +$0.25',
       )
+    },
+  )
+
+  test(
+    'a cost total that goes down starts the turn again from the new total and never draws a negative cost',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await measure($, { percent: 62, usd: 4.8 })
+      await mainTurnStarts($, 'turn-1')
+      await measure($, { usd: 0.05 })
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 62% · $0.05')
+      await measure($, { usd: 0.3 })
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(
+        'Session  ctx 62% · $0.30 · turn +$0.25',
+      )
+      await mainTurnEnds($, 'turn-1')
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(
+        'Session  ctx 62% · $0.30 · last +$0.25',
+      )
+      await measure($, { usd: 0.1 })
+      for (const surface of SURFACES) {
+        const line = await sessionLine($, surface, 'dock', 89)
+        expect(line).toBe('Session  ctx 62% · $0.10 · last +$0.00')
+        expect(line).not.toContain('-')
+      }
+    },
+  )
+
+  test(
+    'last +$ waits for a measure after the turn when the turn ends first, and shows at once when the measure came first',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await measure($, { percent: 62, usd: 4.18 })
+      await mainTurnStarts($, 'turn-1')
+      await mainTurnEnds($, 'turn-1')
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 62% · $4.18')
+      }
+      await measure($, { usd: 4.8 })
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'dock', 41)).toBe(
+          'Session  ctx 62% · $4.80 · last +$0.62',
+        )
+      }
+      await mainTurnStarts($, 'turn-2')
+      await measure($, { usd: 5.05 })
+      await mainTurnEnds($, 'turn-2')
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'dock', 41)).toBe(
+          'Session  ctx 62% · $5.05 · last +$0.25',
+        )
+      }
     },
   )
 })

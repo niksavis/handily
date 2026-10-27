@@ -17,6 +17,7 @@ export type Vitals = {
   usd: number | undefined
   turnStartUsd: number | undefined
   isTurnRunning: boolean
+  isTurnMeasured: boolean
 }
 
 export const EMPTY_VITALS: Vitals = {
@@ -26,18 +27,15 @@ export const EMPTY_VITALS: Vitals = {
   usd: undefined,
   turnStartUsd: undefined,
   isTurnRunning: false,
+  isTurnMeasured: false,
 }
 
 export type VitalsUsage = Pick<SessionUsage, 'context' | 'cost'>
 
 export type VitalsMeasure = Pick<SessionMeasureInput, 'context' | 'cost' | 'changed'>
 
-function hasHistory(usage: VitalsUsage): boolean {
-  return usage.context.percent !== undefined || (usage.cost?.usd ?? 0) > 0
-}
-
 export function withUsage(vitals: Vitals, usage: VitalsUsage): Vitals {
-  if (vitals.isMeasured || !hasHistory(usage)) return vitals
+  if (vitals.isMeasured) return vitals
   return { ...vitals, percent: usage.context.percent, usd: usage.cost?.usd }
 }
 
@@ -45,23 +43,38 @@ export function withoutUsage(vitals: Vitals): Vitals {
   return vitals.isMeasured ? vitals : { ...vitals, hasNoUsage: true }
 }
 
+function turnStartAfter(vitals: Vitals, usd: number | undefined): number | undefined {
+  const { turnStartUsd } = vitals
+  if (turnStartUsd === undefined || usd === undefined) return turnStartUsd
+  const isDropped = vitals.usd !== undefined && usd < vitals.usd
+  return isDropped || usd < turnStartUsd ? usd : turnStartUsd
+}
+
 export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
   const changed = new Set(measure.changed)
+  const usd = changed.has('cost') ? measure.cost?.usd : vitals.usd
+  const isTurnMeasure = changed.has('cost') || changed.has('context')
   return {
     ...vitals,
     isMeasured: true,
     hasNoUsage: false,
     percent: changed.has('context') ? measure.context.percent : vitals.percent,
-    usd: changed.has('cost') ? measure.cost?.usd : vitals.usd,
+    usd,
+    turnStartUsd: turnStartAfter(vitals, usd),
+    isTurnMeasured: vitals.isTurnMeasured || isTurnMeasure,
   }
 }
 
 export function withTurnStart(vitals: Vitals): Vitals {
-  return { ...vitals, isTurnRunning: true, turnStartUsd: vitals.usd ?? 0 }
+  return { ...vitals, isTurnRunning: true, turnStartUsd: vitals.usd, isTurnMeasured: false }
 }
 
 export function withTurnEnd(vitals: Vitals): Vitals {
   return { ...vitals, isTurnRunning: false }
+}
+
+export function withClear(vitals: Vitals): Vitals {
+  return { ...EMPTY_VITALS, hasNoUsage: vitals.hasNoUsage }
 }
 
 type Span = { text: string; isWarning: boolean }
@@ -100,10 +113,10 @@ function contextPiece(percent: number): Piece {
 }
 
 function turnPiece(vitals: Vitals): Piece | undefined {
-  const { usd, turnStartUsd, isTurnRunning } = vitals
+  const { usd, turnStartUsd, isTurnRunning, isTurnMeasured } = vitals
   if (usd === undefined || turnStartUsd === undefined) return undefined
   const added = cents(usd) - cents(turnStartUsd)
-  if (!isTurnRunning) return plain(`last +${dollars(added)}`)
+  if (!isTurnRunning) return isTurnMeasured ? plain(`last +${dollars(added)}`) : undefined
   return added > 0 ? plain(`turn +${dollars(added)}`) : undefined
 }
 
@@ -111,7 +124,7 @@ function sessionPieces(vitals: Vitals): Piece[] {
   if (vitals.hasNoUsage) return [plain(NO_USAGE, '')]
   const { percent, usd } = vitals
   const context = percent === undefined ? plain('ctx —', '') : contextPiece(percent)
-  if (percent === undefined && usd === undefined) return [context, plain(NO_REPLY_YET, ' ')]
+  if (percent === undefined && (usd ?? 0) === 0) return [context, plain(NO_REPLY_YET, ' ')]
   const turn = turnPiece(vitals)
   return [
     context,
