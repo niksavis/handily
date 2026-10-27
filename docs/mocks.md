@@ -1259,3 +1259,867 @@ only one pane is open.
   nothing and a second one shows the tab.
 - Upgrade: removing the old plugins without aliases leaves `/task` users with an unknown command; only
   the release note tells them.
+
+## 9. handily-reply-view: tables, code and diagrams (approved 2026-10-27)
+
+Approved by the person on 2026-10-27 (handily-5zzxk.2). The decisions behind these mocks are in
+docs/design.md section 4.10.
+
+The designer numbered these mocks 2.1 to 2.11. Mock 9.n here is mock 2.n there. The records
+handily-5zzxk.5, handily-5zzxk.6 and handily-5zzxk.7 cite the old numbers.
+
+### 9.0 Conventions
+
+- The blocks are plain text, with no look markup. A script checked the width of each line with
+  the grapheme widths of handily-5zzxk.1: a ZWJ emoji, a flag, a keycap and an emoji with VS16
+  take two columns.
+- The width of the screen is in each heading. A reply is indented by 2 columns, so a block in a
+  reply has 2 columns less.
+- `[ copy ]`, `[ copy as text ]`, `[ copy drawing ]`, `[ more ]`, `[ less ]` and
+  `[ copy reply ]` are buttons.
+
+### 9.1 A table at 120 columns
+
+```text
+● The three mods passed every gate but one:
+
+  Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step                [ copy ] [ copy as text ]
+  ────────────────────┼─────────┼───────┼───────┼──────┼───────┼─────────────────────────
+  handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the terminal
+  handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for every tool
+  handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of other sessions
+```
+
+### 9.2 The same table at 80 columns
+
+The long cells wrap, and each word stays whole. A dotted `┄` line separates the rows when a cell
+wraps:
+
+```text
+● The three mods passed every gate but one:
+
+  Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step
+  ────────────────────┼─────────┼───────┼───────┼──────┼───────┼────────────────
+  handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the
+                      │         │       │       │      │       │ terminal
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for
+                      │         │       │       │      │       │ every tool
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of other
+                      │         │       │       │      │       │ sessions
+                                                       [ copy ] [ copy as text ]
+```
+
+Today the first column splits inside a word:
+
+```text
+  Mod             │ Version │ Tests │ Lines │ Gate │ Owner │ Next step
+  ────────────────┼─────────┼───────┼───────┼──────┼───────┼────────────────────
+  handily-reply-v │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the
+  iew             │         │       │       │      │       │ terminal
+```
+
+Each long cell cut to one line with `…`:
+
+```text
+  Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step
+  ────────────────────┼─────────┼───────┼───────┼──────┼───────┼────────────────
+  handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in th…
+  handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for ev…
+  handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of othe…
+                                                       [ copy ] [ copy as text ]
+```
+
+### 9.3 Emoji and wide characters in cells, 80 columns
+
+```text
+● Who holds which check:
+
+  Owner  │ Status   │ Note            [ copy ] [ copy as text ]
+  ───────┼──────────┼───────────────
+  👩‍💻 Ana │ ✅ done  │ 表格对齐
+  🇦🇹 Bo  │ ⚠️ waits │ 日本語のテスト
+  Cy 1️⃣  │ ○ to do  │ plain text
+```
+
+### 9.4 Code blocks, 80 columns
+
+The tag of a block names its title line. A line longer than the width splits at the width. A
+block with no tag gets a title line with no name:
+
+```text
+● Add the width rule to every mod:
+
+  ── ts ──────────────────────────────────────────────────────────────  [ copy ]
+  const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}️/u
+  export function displayWidth(text: string): number {
+    let width = 0
+    for (const grapheme of graphemesOf(text)) width += columnsOf(grapheme)
+    return width
+  }
+
+  ── sh ──────────────────────────────────────────────────────────────  [ copy ]
+  npm test -- --grep "a ZWJ emoji takes two columns" && claude plugin test mods/
+  handily-board
+
+  ────────────────────────────────────────────────────────────────────  [ copy ]
+  plain text without a tag
+```
+
+### 9.5 A flowchart TD, 80 columns
+
+```text
+● This is how a reply with a diagram reaches the screen:
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+                 ╭────────────────╮
+                 │ Reply complete │
+                 ╰────────┬───────╯
+                          ▼
+            ┌──────────────────────────┐
+            │ ◇ Holds a mermaid block? │
+            └─────────────┬────────────┘
+               ┌──────────┴────────────────┐
+               │ yes                       │ no
+               ▼                           ▼
+     ┌──────────────────┐          ┌───────────────┐
+     │ Parse the subset │          │ Draw as today │
+     └─────────┬────────┘          └───────────────┘
+               ▼
+     ┌───────────────────┐
+     │ ◇ Fits the width? │
+     └─────────┬─────────┘
+           ┌───┴─────────────────────┐
+           │ yes                     │ no
+           ▼                         ▼
+     ┌──────────────┐      ┌───────────────────┐
+     │ Draw the art │      │ Source and a note │
+     └──────────────┘      └───────────────────┘
+```
+
+### 9.6 A flowchart LR, 80 columns
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  ╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐
+  │ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
+  ╰────────╯   └───────┘   └──────────┘  │   └─────────┘
+                                         │no ┌────────┐
+                                         └──▶│ Engine │
+                                             └────────┘
+```
+
+An edge back to an earlier box:
+
+```text
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  ┌───────┐
+  │ Build │◀───────┐
+  └───┬───┘        │
+      ▼            │
+  ┌────────┐       │
+  │ ◇ Test │───────┘ fail
+  └───┬────┘
+      │ pass
+      ▼
+  ┌─────────┐
+  │ Release │
+  └─────────┘
+```
+
+### 9.7 A sequence diagram, 80 columns
+
+```text
+● The reply takes three steps:
+
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ┌─────┐        ┌────────┐        ┌────────────┐
+  │ You │        │ Claude │        │ reply-view │
+  └──┬──┘        └────┬───┘        └──────┬─────┘
+     │    prompt      │                   │
+     │───────────────▶│                   │
+     │                │    reply text     │
+     │                │──────────────────▶│
+     │  drawn reply   │                   │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+     │                │                   │──┐ cache by width
+     │                │                   │◀─┘
+     │                │       ┌───────────┴───────────┐
+     │                │       │ layout once per width │
+     │                │       └───────────┬───────────┘
+```
+
+With numbered messages and an `alt` block:
+
+```text
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ┌─────┐        ┌───────┐
+  │ App │        │ Cache │
+  └──┬──┘        └───┬───┘
+     │   1. get key  │
+     │──────────────▶│
+  ┄┄ alt: hit ┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+     │   2. value    │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+  ┄┄ else: miss ┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+     │   3. none     │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+  ┄┄ end ┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+```
+
+### 9.8 A diagram that does not draw, 80 columns
+
+A line that does not parse. The dim note names the reason, and the source follows:
+
+```text
+● Here is the flow:
+
+  diagram not drawn: line 3 does not parse. The source follows.
+  ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
+  flowchart TD
+    A[Start] --> B[Parse]
+    B => C[Draw]
+```
+
+The note for other reasons:
+
+```text
+  diagram not drawn: it takes 151 columns, the screen has 78.
+  diagram not drawn: classDiagram does not draw yet.
+  diagram not drawn: 52 boxes, at most 40 draw.
+  diagram not drawn: subgraph does not draw yet.
+```
+
+An empty block:
+
+```text
+  diagram not drawn: the block is empty.
+  ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
+```
+
+While the reply streams:
+
+```text
+● Here is the flow:
+
+  ```mermaid
+  flowchart TD
+    A[Start] --> B[Pa
+```
+
+### 9.9 A narrow screen, 40 columns
+
+A table draws one block for each row:
+
+```text
+● Mods:
+
+  task-pane  [ copy ] [ copy as text ]
+    State: released
+    Next:  follows the work
+
+  simple-view
+    State: released
+    Next:  click to expand
+```
+
+A code line splits at the width:
+
+```text
+  ── ts ──────────────────────  [ copy ]
+  export function displayWidth(text: str
+  ing): number {
+```
+
+The flowchart LR of 9.6 turns to TD:
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ───────────────
+               [ copy ] [ copy drawing ]
+     ╭────────╮
+     │ Prompt │
+     ╰────┬───╯
+          ▼
+      ┌───────┐
+      │ Reply │
+      └───┬───┘
+          ▼
+    ┌──────────┐
+    │ ◇ Table? │
+    └─────┬────┘
+         ┌┴──────────┐
+         │ yes       │ no
+         ▼           ▼
+    ┌─────────┐ ┌────────┐
+    │ Columns │ │ Engine │
+    └─────────┘ └────────┘
+```
+
+A sequence diagram that is too wide:
+
+```text
+  diagram not drawn: it takes 48
+  columns, the screen has 38.
+  ── mermaid ─────────────────  [ copy ]
+  sequenceDiagram
+    You->>Claude: prompt
+```
+
+### 9.10 The flowchart LR of 9.6 with no reply indent, 80 columns
+
+```text
+The view decides per block:
+
+── mermaid · flowchart ──────────────────────────────  [ copy ] [ copy drawing ]
+╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐
+│ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
+╰────────╯   └───────┘   └──────────┘  │   └─────────┘
+                                       │no ┌────────┐
+                                       └──▶│ Engine │
+                                           └────────┘
+```
+
+### 9.11 A long reply with a diagram, 80 columns
+
+Folded, the diagram shows only its title line:
+
+```text
+● This is how a reply with a diagram reaches the screen. The view draws a
+  reply once, when it is complete, and keeps the drawing for this width.
+  …
+  - Step 21 of the plan.
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  … 27 more lines                                       [ more ] [ copy reply ]
+```
+
+Opened:
+
+```text
+● ────────────────────────────────────────────────────────────────────────────
+  This is how a reply with a diagram reaches the screen. The view draws a
+  …
+     ┌──────────────┐      ┌───────────────────┐
+     │ Draw the art │      │ Source and a note │
+     └──────────────┘      └───────────────────┘
+  ────────────────────────────────────────────────────────────────────────────
+                                                        [ less ] [ copy reply ]
+```
+
+## 10. handily-filetree: where the agents work (approved 2026-10-27)
+
+Approved by the person on 2026-10-27 (handily-02b2v.1). The decisions behind these mocks are in
+docs/design.md section 4.11.
+
+### 10.0 Conventions
+
+- The legend at the top of this file applies: `~dim~`, `*bold*`, `!warning!`, `#error#` and
+  `[ button ]`. The frame counts these marks, so a drawn line with a look is shorter by them.
+- A note right of a frame, such as `(engine tab row)`, explains the mock. The mod does not draw it.
+- Marks: `✎` an agent edited the file, `◦` an agent read it. The agent label and the age follow
+  the mark. The agent label and the age use the rules of section 8.0.
+- The letter after the name is the git state: `M` modified, `?` untracked, `D` deleted, `U`
+  conflict, `R` renamed. A folder row counts the states of the files under it.
+- `{agent: all}` is the agent filter. The desktop app draws it as a select (10.8a).
+- A script checked the width of each line. The frame is 45 columns at body 41, 34 at body 30, 28
+  at body 24 and 80 at body 76.
+
+### 10.1 The work view and the all files view, docked, body 41
+
+#### 10.1a Docked, body 41, work view: two agents, git dirty, untracked and deleted
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
+│     design.md           M ◦ scout      2s │
+│     mocks.md            M ✎ main +1    1m │
+│     filetree.md         ? ✎ main      30s │
+│ ▾ hooks/  M1 D1           ✎ main       4s │
+│     pane.tsx            M ✎ main       4s │
+│     old-pane.tsx        D ✎ gene…se 2  3m │
+│     register.tsx          ◦ scout     40s │
+│ ▸ scratch/  ?             ✎ Explore    5m │
+│   README.md             M                 │
+│ ~work view: touched and changed files~    │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.1b The row mocks.md pressed open (two agents touched it)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
+│     design.md           M ◦ scout      2s │
+│     mocks.md            M ✎ main +1    1m │
+│       edited by main 1m ago               │
+│       read by scout 3m ago                │
+│       modified, not staged                │
+│       [ preview ] [ diff ] [ copy path ]  │
+│       [ @ to prompt ]                     │
+│     filetree.md         ? ✎ main      30s │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.1c All files view, the same repo (folders closed by the person)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ work only ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▸ .git/                                   │
+│ ▸ node_modules/  not listed               │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
+│     design.md           M ◦ scout      2s │
+│     guide.md                              │
+│     install.md                            │
+│     mocks.md            M ✎ main +1    1m │
+│ ▸ hooks/  M1 D1           ✎ main       4s │
+│ ▸ scripts/                                │
+│   .gitignore                              │
+│   README.md             M                 │
+╰───────────────────────────────────────────╯
+```
+
+### 10.2 A large repo, body 41
+
+#### 10.2a Large repo, all files view: a folder of 1,840 entries, a Grep that read 40 files
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  big · main · 2,140 changed         │
+│ [ work only ] {agent: all} [ refresh ]    │
+│ Now  1 agent                              │
+│ ◦ main      src/gen/a0193.ts           9s │
+│   and 39 more files from one Grep         │
+│ ───────────────────────────────────────── │
+│ ▸ .git/                                   │
+│ ▸ node_modules/  not listed               │
+│ ▾ src/  M2140             ◦ main       9s │
+│   ▾ gen/  M2100           ◦ main       9s │
+│       a0001.ts          M                 │
+│       a0002.ts          M                 │
+│       …                                   │
+│       a0193.ts          M ◦ main       9s │
+│       a0200.ts          M                 │
+│       [ +1,640 more in gen/ ]             │
+│   ▸ api/  M40             ✎ main       2m │
+│ !git status is over 4 MiB; the first!     │  only when cut
+│ !61,204 entries are marked.!              │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.2b Large repo, work view (the default): only touched and changed files, folder chains joined
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  big · main · 14 changed            │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  3 agents                             │
+│ ✎ main      src/api/routes/users.ts    9s │
+│ ◦ Explore   src/api/auth/session.ts    3s │
+│ ◦ Explore 2 test/api/users.test.ts     1s │
+│ ───────────────────────────────────────── │
+│ ▾ src/api/  M5            ✎ main       9s │
+│     routes/users.ts     M ✎ main       9s │
+│     auth/session.ts       ◦ Explore    3s │
+│ ▾ test/api/  ?1           ◦ Explore 2  1s │
+│     users.test.ts       ? ◦ Explore 2  1s │
+│ [ +9 changed in 6 folders ]               │
+│ ~work view: touched and changed files~    │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.2c The row cap: the tree ends with a note, never a silent cut
+
+```text
+│ … rows above …                            │
+│   ▸ vendor/  ?                            │
+│ 1,000 rows drawn, the most a pane takes.  │
+│ Close a folder, or [ work only ].         │
+╰───────────────────────────────────────────╯
+```
+
+### 10.3 Preview, body 41
+
+#### 10.3a Preview of a file (Code element, engine highlighter, line gutter)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ back ] [ diff ] [ copy path ]           │
+│ hooks/pane.tsx  M · 711 lines             │
+│ ~edited by main 4s ago~                   │
+│ ───────────────────────────────────────── │
+│   1 import type {                         │  (engine Code: colours and gutter)
+│   2   BoxProps,                           │
+│   3   ButtonProps,                        │
+│   4   ElementConstructor,                 │
+│   5 } from 'claude-code'                  │
+│   6 import { drawAgents } from './ag…     │
+│   …                                       │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.3b Preview of a long Markdown file (Markdown element), cut with a note
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ back ] [ diff ] [ copy path ]           │
+│ docs/mocks.md  M · 1,261 lines            │
+│ ~first 2,000 lines shown of 9,410~        │
+│ ───────────────────────────────────────── │
+│ (engine Markdown, wrapped to 41)          │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.3c Preview: binary, too large, unreadable, gone
+
+```text
+│ assets/logo.png  · 48K                    │
+│ ~binary file, no preview~                 │
+│                                           │
+│ data/dump.sql  · 210M                     │
+│ ~over 4 MiB, no preview~                  │
+│                                           │
+│ secrets/key.pem                           │
+│ #Cannot read it: permission denied.#      │
+│                                           │
+│ hooks/old-pane.tsx  D                     │
+│ ~deleted; [ diff ] shows what it held~    │
+```
+
+### 10.4 Diff, body 41
+
+#### 10.4a Diff of a file against HEAD (Code format diff)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ back ] [ preview ] [ copy path ]        │
+│ hooks/pane.tsx  M · +12 -3 vs HEAD        │
+│ ───────────────────────────────────────── │
+│ @@ -40,7 +40,9 @@                         │  (engine Code: +/- markers, colours)
+│  40 const DONE_GROUP = 'group:done'       │
+│ -41 const ITEMS = 'group:items'           │
+│ +41 const ITEMS_GROUP = 'group:items'     │
+│ +42 const FILES_GROUP = 'group:files'     │
+│  43 const AUTHOR_COLOR: ThemeKey = 'su…   │
+│   …                                       │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.4b Diff of a folder: every changed file under it, one Code per file
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ back ] [ copy path ]                    │
+│ docs/  3 changed files vs HEAD            │
+│ ───────────────────────────────────────── │
+│ *docs/design.md*  M +4 -1                 │
+│ @@ -631,6 +631,10 @@                      │
+│  …                                        │
+│ *docs/mocks.md*  M +80 -0                 │
+│ @@ -1261,0 +1262,80 @@                    │
+│  …                                        │
+│ *docs/filetree.md*  ? new, 42 lines       │
+│ @@ -0,0 +1,42 @@                          │
+│  …                                        │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.4c Diff edge cases
+
+```text
+│ hooks/pane.tsx                            │
+│ ~no change against HEAD~                  │
+│                                           │
+│ assets/logo.png  M                        │
+│ ~binary file changed~                     │
+│                                           │
+│ app/  · no commits yet                    │
+│ ~every file is new; diff shows it whole~  │
+│                                           │
+│ src/gen/  M2100                           │
+│ ~first 50 of 2,100 changed files shown~   │
+│ [ copy the git diff command ]             │
+```
+
+### 10.5 Empty, loading, not a repo and errors, body 41
+
+#### 10.5a Empty repo: git init, no commit, no file
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main · no commits yet        │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  nothing read or edited yet           │
+│ ───────────────────────────────────────── │
+│ ~This folder is empty.~                   │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.5b A repo with files, clean, nothing touched yet (work view)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main · clean                 │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  nothing read or edited yet           │
+│ ───────────────────────────────────────── │
+│ No changed or touched files.              │
+│ [ all files ] shows the whole tree.       │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.5c Loading: first listing and first git status
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app                                │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  nothing read or edited yet           │
+│ ───────────────────────────────────────── │
+│ ~Listing app/…~                           │
+│ ~Reading git status…~                     │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.5d Not a git repo
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  scratch · not a git repo           │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ ~No git status here; git init adds it.~   │
+│ Now  1 agent                              │
+│ ✎ main      notes/plan.md              6s │
+│ ───────────────────────────────────────── │
+│ ▾ notes/                  ✎ main       6s │
+│     plan.md               ✎ main       6s │
+│   run.sh                  ◦ main       2m │
+│ ~A Bash write shows only in an open~      │
+│ ~folder; [ refresh ] lists again.~        │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.5e Git errors (the line replaces the git part of the header; the tree stays)
+
+```text
+│ Files  app · git status failed            │
+│ #git status failed: exit 128.#            │
+│ Run git status in a shell to see why.     │
+│ ~retry in 10s~  [ retry ]                 │
+│                                           │
+│ Files  app · main · 6 changed · 2m old    │
+│ !git status took over 5 s; showing!       │
+│ !the status of 2m ago.!  [ retry ]        │
+│                                           │
+│ Files  app · git not found                │
+│ git is not on PATH, so git status         │
+│ is not shown.                             │
+│                                           │
+│ #Cannot list hooks/: permission denied.#  │
+│ ~The rows of 3m ago stay.~                │
+```
+
+#### 10.5f Git conflict and rename
+
+```text
+│ ▾ src/  U1 R1                             │
+│     merge.ts            U ✎ main       1m │
+│     routes.ts           R                 │
+│       renamed from api.ts · staged        │
+```
+
+### 10.6 A narrow dock
+
+#### 10.6a Docked, body 30 (a dock dragged narrow): the age drops, the agent cuts to 5
+
+```text
+╭──────────────────────────────✕─╮
+│ this session  this machi…  [f… │  (engine tab row, cut by the engine)
+│ Files  app · main ↑1 · 6 chg   │
+│ [ all files ] [ refresh ]      │
+│ {agent: all}                   │
+│ Now  2 agents                  │
+│ ✎ main  hooks/pane.tsx         │
+│ ◦ scout docs/design.md         │
+│ ────────────────────────────── │
+│ ▾ docs/  M2 ?1         ◦ scout │
+│     design.md        M ◦ scout │
+│     mocks.md         M ✎ main+ │
+│     filetree.md      ? ✎ main  │
+│ ▾ hooks/  M1 D1        ✎ main  │
+│     pane.tsx         M ✎ main  │
+│     old-pane.tsx     D ✎ ge…2  │
+│   README.md          M         │
+╰────────────────────────────────╯
+```
+
+#### 10.6b Docked, body 24: the agent drops, the mark and the git letter stay
+
+```text
+╭────────────────────────✕─╮
+│ Files  app · main · 6    │
+│ [ all files ]            │
+│ [ refresh ] {agent: all} │
+│ Now  2 agents            │
+│ ✎ main  hooks/pane.tsx   │
+│ ◦ scout docs/design.md   │
+│ ──────────────────────── │
+│ ▾ docs/                ◦ │
+│     design.md        M ◦ │
+│     mocks.md         M ✎ │
+│     filetree.md      ? ✎ │
+│ ▾ hooks/               ✎ │
+│     old-pane.tsx     D ✎ │
+╰──────────────────────────╯
+```
+
+### 10.7 Inline above the prompt, 80 columns (body 76): the work view only, flat, at most 8 rows
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Files  app · main ↑1 · 6 changed              {agent: all}  [ refresh ]      │
+│ hooks/pane.tsx                                          M ✎ main          4s │
+│ docs/design.md                                          M ◦ scout         2s │
+│ docs/mocks.md                                           M ✎ main +1       1m │
+│ docs/filetree.md                                        ? ✎ main         30s │
+│ hooks/old-pane.tsx                                      D ✎ gene…se 2     3m │
+│ hooks/register.tsx                                        ◦ scout        40s │
+│ scratch/                                                ? ✎ Explore       5m │
+│ [ +1 more ]  ~a dock (fullscreen, 110 columns) shows the tree~               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### 10.8 Desktop
+
+#### 10.8a Desktop app, docked pane (body as the app gives it; drawn at 41)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session · this machine · [files]     │  (app tab strip)
+│ Files  app · main ↑1 · 6 changed          │
+│ [all files] [agent: all ▾] [refresh]      │  (native buttons and select)
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
+│     design.md           M ◦ scout      2s │
+│     mocks.md            M ✎ main +1    1m │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.8b Desktop where the engine runs no git (if the probe shows $.process is CLI only)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app · main                         │  branch from .git/HEAD, no process
+│ ~Git status shows only in a terminal~     │
+│ ~session.~                                │
+│ Now  1 agent                              │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ───────────────────────────────────────── │
+│ ▾ hooks/                  ✎ main       4s │
+│     pane.tsx              ✎ main       4s │
+╰───────────────────────────────────────────╯
+```
+
+### 10.9 The board links a task to its files, body 41
+
+#### 10.9a Board, a task pressed open: the new [ files ] button (shown only when /tree is listed)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine  files       │  (engine tab row)
+│ ▶ 2 Write the tab mocks       4m [ rm ]   │
+│     ▸ Edit docs/mocks.md         9 tools  │
+│     started 4m ago · 9 tools in all       │
+│     [ files ]                             │  new: runs /tree task 2
+╰───────────────────────────────────────────╯
+```
+
+#### 10.9b The files tab after [ files ] on task 2: the tree narrowed to that task
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ Task 2  Write the tab mocks  [ clear ]    │
+│ {agent: all} [ refresh ]                  │
+│ ✎ 2 edited · ◦ 5 read while task 2 ran    │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2               ✎ main       1m │
+│     mocks.md            M ✎ main       1m │
+│     design.md           M ◦ main       3m │
+│ ▾ hooks/                  ◦ main       4m │
+│     pane.tsx              ◦ main       4m │
+│ [ +3 read ]                               │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.9c A task with no file touched, and a subagent task
+
+```text
+│ Task 3  Review the mocks  [ clear ]       │
+│ ~No file touched while task 3 ran.~       │
+│                                           │
+│ Task scout 2  Map the hooks  [ clear ]    │
+│ ◦ 9 read while scout ran task 2           │
+```
+
+### 10.10 The person opens the scout transcript: the files tab follows the agent in view
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ all files ] {agent: scout} [ refresh ]  │
+│ ~scout is in view, so only scout shows~   │
+│ Now  scout                                │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▾ docs/                   ◦ scout      2s │
+│     design.md           M ◦ scout      2s │
+│     mocks.md            M ◦ scout      3m │
+│ ▾ hooks/                  ◦ scout     40s │
+│     register.tsx          ◦ scout     40s │
+╰───────────────────────────────────────────╯
+```
