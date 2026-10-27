@@ -9,11 +9,10 @@ import type {
 } from 'claude-code'
 import type { SimpleViewFold, SimpleViewMode } from '../types'
 import { commandLabel, programOf } from './command'
+import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import { KEPT_CALLS, callRecord, showText, slotOf, type CallFacts } from './detail'
 import {
-  COPY_FAILED,
   callOutput,
-  copyRefusalParts,
   foldButtons,
   outputBlock,
   plural,
@@ -42,7 +41,7 @@ import {
   type GenericState,
   type RowLook,
 } from './row'
-import { TOAST_MARKS, showToast } from './toast'
+import { showToast } from './toast'
 
 const COMMAND = 'simple'
 const TICK_MS = 1000
@@ -258,7 +257,7 @@ async function copyOutput(
     showToast(
       $,
       result.isCopied
-        ? [`${TOAST_MARKS.done} Copied the output`, plural(lineCount(text), 'line')]
+        ? copiedParts('the output', plural(lineCount(text), 'line'))
         : copyRefusalParts(result.reason),
     )
   } catch (error) {

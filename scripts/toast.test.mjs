@@ -34,6 +34,12 @@ const TOAST_MODS = [
   'handily-reply-view',
   'handily-simple-view',
 ]
+const COPY_TOAST_FILE = 'copy-toast.ts'
+const COPY_TOAST_MODS = ['handily-reply-view', 'handily-simple-view']
+const SHARED_FILES = [
+  { file: TOAST_FILE, mods: TOAST_MODS, list: 'TOAST_MODS' },
+  { file: COPY_TOAST_FILE, mods: COPY_TOAST_MODS, list: 'COPY_TOAST_MODS' },
+]
 const TOAST_USES = [
   /(?<!['"`]ui)\.toast\b/,
   /\[\s*(['"`])toast\1\s*\]/,
@@ -96,22 +102,22 @@ function toastPath(dir, mod) {
   return join(dir, mod, 'hooks', TOAST_FILE)
 }
 
-function toastKeepers(dir) {
+function keepersOf(dir, file) {
   return readdirSync(dir)
-    .filter((mod) => existsSync(toastPath(dir, mod)))
+    .filter((mod) => existsSync(join(dir, mod, 'hooks', file)))
     .sort()
 }
 
-function differingCopies(dir) {
-  const [first, ...rest] = toastKeepers(dir).map((mod) => ({
+function differingCopies(dir, file) {
+  const [first, ...rest] = keepersOf(dir, file).map((mod) => ({
     mod,
-    bytes: readFileSync(toastPath(dir, mod)),
+    bytes: readFileSync(join(dir, mod, 'hooks', file)),
   }))
   return rest
     .filter(({ bytes }) => !bytes.equals(first.bytes))
     .map(
       ({ mod }) =>
-        `mods/${first.mod}/hooks/${TOAST_FILE} and mods/${mod}/hooks/${TOAST_FILE} differ; copy one over the other`,
+        `mods/${first.mod}/hooks/${file} and mods/${mod}/hooks/${file} differ; copy one over the other`,
     )
 }
 
@@ -175,17 +181,19 @@ function boxLines(text, displayWidth) {
 }
 
 describe('the copies of hooks/toast.ts', () => {
-  test('lists every mod that keeps a hooks/toast.ts', () => {
-    assert.deepEqual(
-      toastKeepers(modsDir),
-      [...TOAST_MODS].sort(),
-      'scripts/toast.test.mjs lists the mods that keep hooks/toast.ts; add or remove the mod in TOAST_MODS',
-    )
-  })
+  for (const { file, mods, list } of SHARED_FILES) {
+    test(`lists every mod that keeps a hooks/${file}`, () => {
+      assert.deepEqual(
+        keepersOf(modsDir, file),
+        [...mods].sort(),
+        `scripts/toast.test.mjs lists the mods that keep hooks/${file}; add or remove the mod in ${list}`,
+      )
+    })
 
-  test('every copy is byte-identical', () => {
-    assert.deepEqual(differingCopies(modsDir), [])
-  })
+    test(`every copy of hooks/${file} is byte-identical`, () => {
+      assert.deepEqual(differingCopies(modsDir, file), [])
+    })
+  }
 
   test('names both mods when two copies differ by one byte', () => {
     withModsTree(
@@ -194,8 +202,22 @@ describe('the copies of hooks/toast.ts', () => {
         'mods/mod-b/hooks/toast.ts': 'export const TOAST_COLUMNS = 41\n',
       },
       (dir) => {
-        assert.deepEqual(differingCopies(dir), [
+        assert.deepEqual(differingCopies(dir, TOAST_FILE), [
           'mods/mod-a/hooks/toast.ts and mods/mod-b/hooks/toast.ts differ; copy one over the other',
+        ])
+      },
+    )
+  })
+
+  test('names both mods when two copy toast texts differ by one word', () => {
+    withModsTree(
+      {
+        'mods/mod-a/hooks/copy-toast.ts': "const REASON = 'another plugin refused the copy'\n",
+        'mods/mod-b/hooks/copy-toast.ts': "const REASON = 'another plugin blocked the copy'\n",
+      },
+      (dir) => {
+        assert.deepEqual(differingCopies(dir, COPY_TOAST_FILE), [
+          'mods/mod-a/hooks/copy-toast.ts and mods/mod-b/hooks/copy-toast.ts differ; copy one over the other',
         ])
       },
     )

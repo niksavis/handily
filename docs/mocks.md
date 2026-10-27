@@ -772,8 +772,8 @@ A fenced block gets a title line from its tag and a copy button:
 ```
 
 - `[ copy reply ]` copies the whole reply as markdown, and its label differs from the `[ copy ]`
-  of a code block above it (handily-fwkt.15). A toast names the copied part and its line count:
-  `Copied the plan block (2 lines).`
+  of a code block above it (handily-fwkt.15). A toast names the copied part, then the line count
+  on its own line: `✓ Copied the plan block`, then `2 lines` (handily-ftx0x.3).
 - `[ copy ]` copies the text as markdown. `[ copy as text ]` copies a table as label and value
   lines for an email.
 - A click on `[ copy ]` was proven in normal mode on 2026-10-09 and in fullscreen mode on

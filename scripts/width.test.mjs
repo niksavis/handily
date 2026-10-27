@@ -144,6 +144,16 @@ const CUT_CASES = {
     { name: 'leaves a text that fits', args: ['abc', 3], result: 'abc' },
     { name: 'cuts a long text with the cut mark', args: ['abcdef', 4], result: `abc${CUT_MARK}` },
     {
+      name: 'drops a wide ideograph that does not fit before the cut mark',
+      args: ['\u{4E2D}a', 2],
+      result: CUT_MARK,
+    },
+    {
+      name: 'stops at a wide ideograph and keeps no later letter',
+      args: ['a\u{4E2D}b', 3],
+      result: `a${CUT_MARK}`,
+    },
+    {
       name: 'cuts between ZWJ sequences',
       args: [TECHNOLOGIST.repeat(3), 5],
       result: `${TECHNOLOGIST.repeat(2)}${CUT_MARK}`,

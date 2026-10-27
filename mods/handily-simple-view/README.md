@@ -261,7 +261,7 @@ simple-view draws the engine row unchanged in each of these cases:
 - A `Read`, `Grep` or `Glob` call that errored.
 - An input field of the wrong type, also while the input streams, such as a `command` that is
   not text.
-- Drawing the row failed. The mod writes the reason to the debug log.
+- Drawing the row failed. The mod writes the reason to the transcript.
 - A tool that keeps the row of Claude Code. [The generic row](#the-generic-row) lists them.
 
 In the normal view the engine folds runs of read-only calls into one group line, such as

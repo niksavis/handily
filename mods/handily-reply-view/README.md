@@ -210,7 +210,7 @@ shows the setting beside the mode when the two differ.
 - The reply is 30 lines or fewer and holds no table and no fenced block.
 - The block is a summary of the text that Claude wrote between two tool calls.
 - The reply is longer than 60000 characters.
-- Drawing the reply failed. The mod writes the reason to the debug log.
+- Drawing the reply failed. The mod writes the reason to the transcript.
 
 ## Known limits
 
