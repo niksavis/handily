@@ -715,6 +715,54 @@ Defer to quiet-items:
   key only. A tmux check on 2.1.311 could not reach the task buttons (Tab cycled only the tab row
   and the close mark), so no live check has confirmed it.
 
+#### The Session line, the checks and the agent states (handily-xsjad)
+
+The person approved the design on 2026-10-27 (handily-xsjad.2). The approved mock is
+`docs/mocks.md` section 8.10. The board draws a number only when an engine event or an engine
+call reports it. The event names and fields come from the generated `index.d.ts` that Claude Code
+2.1.300 wrote.
+
+The engine event behind each number:
+
+| Number on the board | Engine source |
+| --- | --- |
+| `ctx 62%`, `context 124k of 200k` | `session.measure`: `context.percent`, `context.tokens` and `context.window` |
+| `$4.18` | `session.measure`: `cost.usd`, the total of the session |
+| `turn +$0.31`, `last +$0.62` | `session.measure`: the growth of `cost.usd` since `turn.start` |
+| `last turn 3m` | `turn.start` and `turn.complete` |
+| `limits 5h 31% · 7d 13%`, `resets 5h in 2h` | `session.measure`: `rateLimits`, each with `kind`, `percentUsed` and `resetsAt` |
+| `ctx 48k · out 6.1k` on an agent | `turn.step`: `usage` of the last step with that `agentId`. Input tokens of all three kinds, and `output_tokens` |
+| `stopped at max_tokens` | `turn.step`: `stopReason` |
+| `checks 25 · 8 allowed · 16 asked · 1 denied` | `tool.check`: `decision`, with `tool`, `input` and `agentId` |
+| `slow 45s`, `3 edits`, `0 errors` | `tool.call`: the time until `next(e)` settles, the count of edit calls, and `isError` |
+| `quiet 3m` | the time since the last `turn.step`, `tool.check` or `tool.call` with the `agentId` of the agent |
+| `failed`, `running`, `2 agents spawned` | `$.agent.list()`: `status` |
+| `1 compaction` | `session.compact` |
+
+The numbers that the engine does not give:
+
+- No cost for each agent. `cost.usd` is the total of the session. `turn.step` gives tokens, not
+  dollars, and the board does not price tokens.
+- No context percent for an agent. `turn.step` gives no context window, so an agent row shows
+  tokens only.
+- No percent of the compaction window. `session.measure` never carries the breakdown, and only
+  the breakdown measures against the compaction window. Release 1 shows no such percent.
+- No sure signal that a permission dialog is open. A `tool.check` answer of `ask` is a verdict,
+  and a classifier or a host can answer it with no dialog. handily-xsjad.1 probes which signal
+  fires. Until the probe names one, no agent shows `needs you`.
+- No cost and no context where the host gives no usage. Then the Session line reads
+  `no context or cost on this host` and draws no number.
+
+The named thresholds:
+
+| Name | Value | Effect |
+| --- | --- | --- |
+| `CONTEXT_HIGH` | 80 (percent) | From this context percent, the board adds `high` in the warning colour |
+| `SLOW_CALL_MS` | 30000 | A call of an agent that runs longer makes the agent `slow` |
+| `QUIET_MS` | 120000 | A running agent with no event for this time is `quiet` |
+| `LANES_FROM` | body 80 | From this body width, the agent rows have a `ctx` column and a lane |
+| `CHECKS_KEPT` | 20 | The board keeps the last 20 checks. `[ last 5 checks ]` shows 5 of them |
+
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
 The person approved the design on 2026-10-27 (handily-5zzxk.2). reply-view draws the tables,
