@@ -320,6 +320,18 @@ const PATHS_TABLE = [
   '| mods/handily-reply-view/hooks/table-of-the-reply-view.ts | the note names handily-simple-view-and-handily-board as one long word |',
 ].join('\n')
 
+const FILES_TABLE = [
+  '| File | Change | Note |',
+  '| --- | --- | --- |',
+  '| mods/handily-reply-view/hooks/table-of-the-reply-view.ts | keeps every word whole when room allows | the note is plain words |',
+].join('\n')
+
+const SIX_CELLS_TABLE = [
+  '| Name | Note |',
+  '| --- | --- |',
+  `| handily-reply-view/hooks/table | ${Array<string>(10).fill('abc').join(' ')} |`,
+].join('\n')
+
 function bordersOf(line: string): number[] {
   const borders: number[] = []
   let column = 0
@@ -1004,6 +1016,54 @@ describe('tables', () => {
         `  ${ruled('mods/handily-reply-view/hooks/tabl │ the note names')}`,
         `  ${ruled('e-of-the-reply-view.ts             │ handily-simple-view-and-handily-board as')}`,
         `  ${ruled('                                   │ one long word')}`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column keeps its longest word whole when the words fit but the 12 cell width of each long column does not',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(FILES_TABLE))
+      expect(await sketchOf(ui)).toEqual([
+        `● ${headed('File                                                     │ Change     │ Note')}`,
+        `  ${dim('─────────────────────────────────────────────────────────┼────────────┼───────')}`,
+        `  ${ruled('mods/handily-reply-view/hooks/table-of-the-reply-view.ts │ keeps      │ the')}`,
+        `  ${ruled('                                                         │ every word │ note')}`,
+        `  ${ruled('                                                         │ whole when │ is')}`,
+        `  ${ruled('                                                         │ room       │ plain')}`,
+        `  ${ruled('                                                         │ allows     │ words')}`,
+        `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column keeps its longest word whole when the other long column keeps 6 cells',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 41)
+      expect(await sketchOf(ui, 41)).toEqual([
+        `● ${headed('Name                           │ Note')}`,
+        `  ${dim('───────────────────────────────┼───────')}`,
+        `  ${ruled('handily-reply-view/hooks/table │ abc')}`,
+        ...Array.from({ length: 9 }, () => `  ${ruled('                               │ abc')}`),
+        `${' '.repeat(41 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column splits a word as before when a whole word leaves another long column under 6 cells',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 40)
+      expect(await sketchOf(ui, 40)).toEqual([
+        `● ${headed('Name            │ Note')}`,
+        `  ${dim('────────────────┼─────────────────────')}`,
+        `  ${ruled('handily-reply-v │ abc abc abc abc abc')}`,
+        `  ${ruled('iew/hooks/table │ abc abc abc abc abc')}`,
+        `${' '.repeat(40 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },

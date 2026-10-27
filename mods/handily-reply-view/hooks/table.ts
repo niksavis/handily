@@ -109,8 +109,11 @@ function wholeWordsOrLeast(
   left: number,
   least: number,
 ): (index: number) => number {
-  const wholeWord = (index: number) => Math.max(least, words[index] ?? 0)
-  return sum(long.map(wholeWord)) <= left ? wholeWord : () => least
+  const wholeWordAtLeast = (floor: number) => (index: number) => Math.max(floor, words[index] ?? 0)
+  const fitting = [least, COLUMN_CELLS_AT_LEAST]
+    .map(wholeWordAtLeast)
+    .find((leastOf) => sum(long.map(leastOf)) <= left)
+  return fitting ?? (() => least)
 }
 
 export function columnWidths(look: TableLook, room: number): number[] | null {
