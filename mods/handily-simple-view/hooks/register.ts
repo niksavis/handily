@@ -9,10 +9,10 @@ import type {
 } from 'claude-code'
 import type { SimpleViewFold, SimpleViewMode } from '../types'
 import { commandLabel, programOf } from './command'
+import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import { KEPT_CALLS, callRecord, showText, slotOf, type CallFacts } from './detail'
 import {
   callOutput,
-  copyRefusalText,
   foldButtons,
   outputBlock,
   plural,
@@ -41,6 +41,7 @@ import {
   type GenericState,
   type RowLook,
 } from './row'
+import { showToast } from './toast'
 
 const COMMAND = 'simple'
 const TICK_MS = 1000
@@ -253,14 +254,15 @@ async function copyOutput(
   try {
     const text = output.savedTo === null ? output.text : await $.fs.read(output.savedTo)
     const result = await $.ui.copy({ text, surface })
-    $.ui.toast(
+    showToast(
+      $,
       result.isCopied
-        ? `Copied ${plural(lineCount(text), 'line')} of output.`
-        : copyRefusalText(result.reason),
+        ? copiedParts('the output', plural(lineCount(text), 'line'))
+        : copyRefusalParts(result.reason),
     )
   } catch (error) {
     logFailure($, 'the output was not copied', error)
-    $.ui.toast('Not copied. The debug log says why.')
+    showToast($, COPY_FAILED)
   }
 }
 

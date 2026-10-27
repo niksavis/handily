@@ -15,16 +15,6 @@ const HIDDEN_CHARACTER = /(?!\t)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 const LEADING_BLANK_LINES = /^(?:[ \t]*\r?\n)+/
 
-const COPY_REFUSALS: Readonly<Record<'no-surface' | 'no-clipboard' | 'refused', string>> = {
-  'no-surface': 'no screen is attached to this session',
-  'no-clipboard': 'the clipboard took nothing. The text may be too long for this terminal',
-  refused: 'another plugin refused the copy',
-}
-
-export function copyRefusalText(reason: keyof typeof COPY_REFUSALS): string {
-  return `Not copied: ${COPY_REFUSALS[reason]}.`
-}
-
 export type CallOutput = { text: string; lines: string[]; savedTo: string | null }
 
 export type FoldActions = {

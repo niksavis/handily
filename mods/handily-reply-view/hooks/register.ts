@@ -1,8 +1,10 @@
 import type { EngineInterface, Register, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold, ReplyViewMode } from '../types'
+import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import { DEFAULT_COLUMNS, plural, replyTree, type ReplyActions } from './draw'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
+import { showToast } from './toast'
 
 const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
@@ -13,12 +15,6 @@ const ON_TEXT =
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
 const USAGE_TEXT =
   '/replies takes no argument. It turns the reply view off or on for this session. Set the default with the plugin\'s "mode" setting.'
-
-const COPY_REFUSALS: Readonly<Record<'no-surface' | 'no-clipboard' | 'refused', string>> = {
-  'no-surface': 'no screen is attached to this session',
-  'no-clipboard': 'the clipboard took nothing. The text may be too long for this terminal',
-  refused: 'another plugin refused the copy',
-}
 
 function lineCount(text: string): number {
   const kept = text.replace(/\r?\n$/, '')
@@ -44,14 +40,15 @@ async function copyText(
 ): Promise<void> {
   try {
     const result = await $.ui.copy({ text, surface })
-    $.ui.toast(
+    showToast(
+      $,
       result.isCopied
-        ? `Copied ${what} (${plural(lineCount(text), 'line')}).`
-        : `Not copied: ${COPY_REFUSALS[result.reason]}.`,
+        ? copiedParts(what, plural(lineCount(text), 'line'))
+        : copyRefusalParts(result.reason),
     )
   } catch (error) {
     logFailure($, `${what} was not copied`, error)
-    $.ui.toast('Not copied. The debug log says why.')
+    showToast($, COPY_FAILED)
   }
 }
 

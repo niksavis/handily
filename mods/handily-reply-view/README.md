@@ -41,9 +41,11 @@ buttons at the right edge:
 - `copy reply` copies the whole reply as markdown, as Claude wrote it. Its label differs from the
   `copy` button of a code block, so a reply that ends with a code block shows which button takes
   the block and which takes the reply.
-- A toast names what a copy button copied and its line count, such as
-  `Copied the sh block (2 lines).` or `Copied the reply as markdown (61 lines).`, or says why the
-  copy failed.
+- A toast names what a copy button copied on its first line and the line count on the next
+  line, such as `✓ Copied the sh block` and `2 lines`. It stays 6 seconds.
+- A copy that fails draws `■ Not copied`, then the reason, such as
+  `no screen is attached to this session`. It stays 10 seconds. When the copy throws, the reason
+  is `the transcript shows why`, and the transcript holds the error.
 - On a narrow screen the count of hidden lines is cut at its end, so the buttons stay on its line.
 - A line counts as the rows that it takes on the screen. A long paragraph counts as several
   rows. When the 30 rows end inside a line, that line is cut at a word and ends with `…`.
@@ -208,7 +210,7 @@ shows the setting beside the mode when the two differ.
 - The reply is 30 lines or fewer and holds no table and no fenced block.
 - The block is a summary of the text that Claude wrote between two tool calls.
 - The reply is longer than 60000 characters.
-- Drawing the reply failed. The mod writes the reason to the debug log.
+- Drawing the reply failed. The mod writes the reason to the transcript.
 
 ## Known limits
 

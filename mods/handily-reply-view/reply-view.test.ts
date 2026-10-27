@@ -12,15 +12,34 @@ const COLOR_MARKS: Readonly<Record<string, string>> = {
   suggestion: '^',
 }
 const ENGINE_MARGIN_AND_ROW = ['', '(engine)']
+const BOX_COLUMNS = 40
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 type Surface = (typeof SURFACES)[number]
 
+type Toast = { lines: string[]; timeoutMs: number | undefined }
+
 type World = {
   copies: string[]
-  toasts: string[]
+  toasts: Toast[]
   logs: string[]
+  transcript: string[]
   copyResult: UiCopyResult
+  copyError: Error | null
   commandDescriptions: string[]
+}
+
+function toastLines(text: string): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const { segment } of GRAPHEMES.segment(text)) {
+    if (displayWidth(line + segment) > BOX_COLUMNS) {
+      lines.push(line.trimEnd())
+      line = ''
+    }
+    line += segment
+  }
+  return [...lines, line.trimEnd()]
 }
 
 function engineBeneath(on: On): World {
@@ -28,7 +47,9 @@ function engineBeneath(on: On): World {
     copies: [],
     toasts: [],
     logs: [],
+    transcript: [],
     copyResult: { isCopied: true },
+    copyError: null,
     commandDescriptions: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -38,15 +59,17 @@ function engineBeneath(on: On): World {
   })
   on('ui.render', () => ENGINE_ROW)
   on('ui.copy', (_$, e) => {
+    if (world.copyError !== null) throw world.copyError
     if (world.copyResult.isCopied) world.copies.push(e.text)
     return { value: world.copyResult }
   })
   on('ui.toast', (_$, e) => {
-    world.toasts.push(e.text)
+    world.toasts.push({ lines: toastLines(e.text), timeoutMs: e.timeoutMs })
     return { value: undefined }
   })
   on('ui.log', (_$, e) => {
     world.logs.push(e.text)
+    if (e.to === 'transcript') world.transcript.push(e.text)
     return { value: undefined }
   })
   return world
@@ -428,7 +451,9 @@ describe('long reply', () => {
     const ui = await mountReply($, reply(LONG_REPLY))
     await ui.press({ key: 'copy-reply' })
     expect(world.copies).toEqual([LONG_REPLY])
-    expect(world.toasts).toEqual(['Copied the reply as markdown (54 lines).'])
+    expect(world.toasts).toEqual([
+      { lines: ['✓ Copied the reply as markdown', '54 lines'], timeoutMs: 6000 },
+    ])
     await ui.unmount()
   })
 
@@ -451,8 +476,8 @@ describe('long reply', () => {
       await ui.press({ key: 'copy-reply' })
       expect(world.copies).toEqual(['npm ci\nnpm test', text])
       expect(world.toasts).toEqual([
-        'Copied the sh block (2 lines).',
-        'Copied the reply as markdown (61 lines).',
+        { lines: ['✓ Copied the sh block', '2 lines'], timeoutMs: 6000 },
+        { lines: ['✓ Copied the reply as markdown', '61 lines'], timeoutMs: 6000 },
       ])
       await ui.unmount()
     },
@@ -470,9 +495,56 @@ describe('long reply', () => {
     world.copyResult = { isCopied: false, reason: 'no-surface' }
     const ui = await mountReply($, reply(LONG_REPLY))
     await ui.press({ key: 'copy-reply' })
-    expect(world.toasts).toEqual(['Not copied: no screen is attached to this session.'])
+    expect(world.toasts).toEqual([
+      { lines: ['■ Not copied', 'no screen is attached to this session'], timeoutMs: 10000 },
+    ])
     await ui.unmount()
   })
+
+  viewTest(
+    'a clipboard that takes nothing draws the failed mark and Not copied for 10000 ms',
+    async (world, $) => {
+      world.copyResult = { isCopied: false, reason: 'no-clipboard' }
+      const ui = await mountReply($, reply(FENCE))
+      await ui.press({ key: 'block-1-copy' })
+      expect(world.toasts).toEqual([
+        {
+          lines: [
+            '■ Not copied',
+            'the clipboard took nothing',
+            'a long text may not fit this terminal',
+          ],
+          timeoutMs: 10000,
+        },
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest('a copy that another plugin refuses says so', async (world, $) => {
+    world.copyResult = { isCopied: false, reason: 'refused' }
+    const ui = await mountReply($, reply(FENCE))
+    await ui.press({ key: 'block-1-copy' })
+    expect(world.toasts).toEqual([
+      { lines: ['■ Not copied', 'another plugin refused the copy'], timeoutMs: 10000 },
+    ])
+    await ui.unmount()
+  })
+
+  viewTest(
+    'a copy that throws says the transcript shows why and logs the detail there',
+    async (world, $) => {
+      world.copyError = new Error('the clipboard tool crashed')
+      const ui = await mountReply($, reply(FENCE))
+      await ui.press({ key: 'block-1-copy' })
+      expect(world.toasts).toEqual([
+        { lines: ['■ Not copied', 'the transcript shows why'], timeoutMs: 10000 },
+      ])
+      expect(world.transcript).toHaveLength(1)
+      expect(world.transcript[0]).toStartWith('reply-view: the plan block was not copied: ')
+      await ui.unmount()
+    },
+  )
 
   viewTest(
     'counts a long line by the rows it wraps to and cuts it at a word',
@@ -835,8 +907,8 @@ describe('tables', () => {
         ].join('\n'),
       ])
       expect(world.toasts).toEqual([
-        'Copied the table as markdown (4 lines).',
-        'Copied the table as text (7 lines).',
+        { lines: ['✓ Copied the table as markdown', '4 lines'], timeoutMs: 6000 },
+        { lines: ['✓ Copied the table as text', '7 lines'], timeoutMs: 6000 },
       ])
       await ui.unmount()
     },
@@ -1221,7 +1293,9 @@ describe('fenced blocks', () => {
       expect((await ui.find({ type: 'Code' }))?.props.language).toBe('plan')
       await ui.press({ key: 'block-1-copy' })
       expect(world.copies).toEqual(['1. Write the mocks\n2. Ask the person'])
-      expect(world.toasts).toEqual(['Copied the plan block (2 lines).'])
+      expect(world.toasts).toEqual([
+        { lines: ['✓ Copied the plan block', '2 lines'], timeoutMs: 6000 },
+      ])
       await ui.unmount()
     },
   )

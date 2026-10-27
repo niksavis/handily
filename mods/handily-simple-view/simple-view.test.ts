@@ -11,6 +11,7 @@ import {
 } from 'claude-code/testing'
 import type { QuietItemsSimpleViewMode } from './.claude-plugin/types/handily-quiet-items'
 import { commandLabel, programOf, segments } from './hooks/command'
+import { displayWidth } from './hooks/width'
 
 const ROOT = '/work/app'
 const SURFACES = ['terminal', 'desktop'] as const
@@ -18,16 +19,21 @@ const ENGINE_ROW = { type: 'engine', ref: 0 } as const
 const RENUMBERED_ENGINE_ROW = { type: 'engine', ref: 1 } as const
 const MARKER = { terminal: '● ', desktop: '' } as const
 const QUIET_COMMAND = 'br close handily-ab12'
+const BOX_COLUMNS = 40
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 const QUIET_MODE_COMMAND = 'quiet-items-mode'
 
 type Surface = (typeof SURFACES)[number]
 type Answer = ToolCallResult
 type BashCall = { command: string; description?: string; run_in_background?: boolean }
 
+type Toast = { lines: string[]; timeoutMs: number | undefined }
+
 type World = {
   clock: MockClock
   ids: string[]
   logs: string[]
+  transcript: string[]
   answer: (input: Record<string, unknown>) => Answer
   delayMs: number
   isRootRefused: boolean
@@ -35,7 +41,7 @@ type World = {
   isModeReadRefused: boolean
   groups: boolean[]
   copies: string[]
-  toasts: string[]
+  toasts: Toast[]
   copyRefusal: 'no-surface' | 'no-clipboard' | 'refused' | null
   files: Record<string, string>
   commandDescriptions: string[]
@@ -88,11 +94,25 @@ const fakeQuietItems: Plugin = {
   },
 }
 
+function toastLines(text: string): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const { segment } of GRAPHEMES.segment(text)) {
+    if (displayWidth(line + segment) > BOX_COLUMNS) {
+      lines.push(line.trimEnd())
+      line = ''
+    }
+    line += segment
+  }
+  return [...lines, line.trimEnd()]
+}
+
 function engineBeneath(on: On): World {
   const world: World = {
     clock: mock.clock(on, { now: 1_000_000 }),
     ids: [],
     logs: [],
+    transcript: [],
     answer: () => answered('one\ntwo\n'),
     delayMs: 0,
     isRootRefused: false,
@@ -139,6 +159,7 @@ function engineBeneath(on: On): World {
   })
   on('ui.log', (_$, e) => {
     world.logs.push(e.text)
+    if (e.to === 'transcript') world.transcript.push(e.text)
     return { value: undefined }
   })
   on('ui.copy', (_$, e) => {
@@ -149,7 +170,7 @@ function engineBeneath(on: On): World {
     return { value: { isCopied: true as const } }
   })
   on('ui.toast', (_$, e) => {
-    world.toasts.push(e.text)
+    world.toasts.push({ lines: toastLines(e.text), timeoutMs: e.timeoutMs })
     return { value: undefined }
   })
   on('fs.read', (_$, e) => {
@@ -991,7 +1012,7 @@ describe('tool row fold and copy', () => {
     const ui = await mountUse($, await longCall(world, $))
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual([LONG_STDOUT])
-    expect(world.toasts).toEqual(['Copied 140 lines of output.'])
+    expect(world.toasts).toEqual([{ lines: ['✓ Copied the output', '140 lines'], timeoutMs: 6000 }])
     await ui.unmount()
   })
 
@@ -1004,7 +1025,7 @@ describe('tool row fold and copy', () => {
     expect(sketch(await ui.drawn()).slice(1)).toEqual(opened(['  ~abc~']))
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['abc  \n\n'])
-    expect(world.toasts).toEqual(['Copied 1 line of output.'])
+    expect(world.toasts).toEqual([{ lines: ['✓ Copied the output', '1 line'], timeoutMs: 6000 }])
     await ui.unmount()
   })
 
@@ -1025,7 +1046,7 @@ describe('tool row fold and copy', () => {
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['built\nwarning: old option'])
-    expect(world.toasts).toEqual(['Copied 2 lines of output.'])
+    expect(world.toasts).toEqual([{ lines: ['✓ Copied the output', '2 lines'], timeoutMs: 6000 }])
     await ui.unmount()
   })
 
@@ -1083,7 +1104,7 @@ describe('tool row fold and copy', () => {
     )
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['all\nof\nit\n'])
-    expect(world.toasts).toEqual(['Copied 3 lines of output.'])
+    expect(world.toasts).toEqual([{ lines: ['✓ Copied the output', '3 lines'], timeoutMs: 6000 }])
     await ui.unmount()
   })
 
@@ -1092,24 +1113,58 @@ describe('tool row fold and copy', () => {
     world.copyRefusal = 'no-clipboard'
     await ui.press({ key: 'copy' })
     expect(world.toasts).toEqual([
-      'Not copied: the clipboard took nothing. The text may be too long for this terminal.',
+      {
+        lines: [
+          '■ Not copied',
+          'the clipboard took nothing',
+          'a long text may not fit this terminal',
+        ],
+        timeoutMs: 10000,
+      },
     ])
     await ui.unmount()
   })
 
-  viewTest('says that a saved output it cannot read was not copied', async (world, $) => {
-    world.answer = () => answered('x\n', { persistedOutputPath: `${ROOT}/gone.txt` })
-    const input = { command: 'cat big.log', description: 'Print the log' }
-    const id = await runBash(world, $, input)
-    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-    await ui.press({ key: 'copy' })
-    expect(world.copies).toEqual([])
-    expect(world.toasts).toEqual(['Not copied. The debug log says why.'])
-    expect(
-      world.logs.some((line) => line.startsWith('simple-view: the output was not copied')),
-    ).toBe(true)
-    await ui.unmount()
-  })
+  for (const reason of ['no-surface', 'refused'] as const) {
+    viewTest(`says why a copy failed when the copy is ${reason}`, async (world, $) => {
+      const ui = await mountUse($, await longCall(world, $))
+      world.copyRefusal = reason
+      await ui.press({ key: 'copy' })
+      expect(world.toasts).toEqual([
+        {
+          lines: [
+            '■ Not copied',
+            reason === 'no-surface'
+              ? 'no screen is attached to this session'
+              : 'another plugin refused the copy',
+          ],
+          timeoutMs: 10000,
+        },
+      ])
+      await ui.unmount()
+    })
+  }
+
+  viewTest(
+    'a copy that throws says the transcript shows why and logs the detail there',
+    async (world, $) => {
+      world.answer = () => answered('x\n', { persistedOutputPath: `${ROOT}/gone.txt` })
+      const input = { command: 'cat big.log', description: 'Print the log' }
+      const id = await runBash(world, $, input)
+      const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
+      await ui.press({ key: 'copy' })
+      expect(world.copies).toEqual([])
+      expect(world.toasts).toEqual([
+        { lines: ['■ Not copied', 'the transcript shows why'], timeoutMs: 10000 },
+      ])
+      const notCopied = world.transcript.filter((line) =>
+        line.startsWith('simple-view: the output was not copied: '),
+      )
+      expect(notCopied).toHaveLength(1)
+      expect(notCopied[0]).toContain(`no fixture file ${ROOT}/gone.txt`)
+      await ui.unmount()
+    },
+  )
 
   viewTest('shows hidden characters as escapes and drops colour codes', async (world, $) => {
     world.answer = () => answered('\u001b[32mok\u001b[0m\u200b\n10%\r100%\n')

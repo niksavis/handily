@@ -34,3 +34,25 @@ export function graphemesOf(text: string): { grapheme: string; cells: number }[]
 export function displayWidth(text: string): number {
   return graphemesOf(text).reduce((sum, part) => sum + part.cells, 0)
 }
+
+function cutToWidth(text: string, width: number): string {
+  let kept = ''
+  let used = 0
+  for (const { grapheme, cells } of graphemesOf(text)) {
+    if (used + cells > width) break
+    kept += grapheme
+    used += cells
+  }
+  return kept
+}
+
+const CUT_MARK = '…'
+
+export function fitted(text: string, width: number): string {
+  if (displayWidth(text) <= width) return text
+  return `${cutToWidth(text, Math.max(width - displayWidth(CUT_MARK), 0))}${CUT_MARK}`
+}
+
+export function padToWidth(text: string, width: number): string {
+  return text + ' '.repeat(Math.max(width - displayWidth(text), 0))
+}

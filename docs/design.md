@@ -515,10 +515,15 @@ part padded with spaces to 40 columns starts the next part on its own line.
 - `scripts/toast.test.mjs` refuses a mod with a `hooks/toast.ts` that its keeper list does not
   name, two copies that differ, and any use of the `toast` of `ui` in any other file under
   `mods/*/hooks`: a call, a `bind`, a bracket, a plain read or a destructure. The
-  board, reply-view and simple-view still call `$.ui.toast` directly. The gate lists them as known
-  exceptions until handily-ftx0x.3 and handily-ftx0x.4 move them. `TOAST_MARKS` must equal the
-  approved signal marks in `scripts/fixtures/signals.mjs`, which `scripts/signals.test.mjs` also
-  reads.
+  board still calls `$.ui.toast` directly. The gate lists it as a known exception until
+  handily-ftx0x.4 moves it. `TOAST_MARKS` must equal the approved signal marks in
+  `scripts/fixtures/signals.mjs`, which `scripts/signals.test.mjs` also reads.
+- reply-view and simple-view draw their copy toasts with `showToast` (handily-ftx0x.3). A copy
+  toast is `✓ Copied the plan block` or `✓ Copied the output`, then the line count, such as
+  `2 lines`. A refused copy is `■ Not copied`, then the reason. A copy that throws is
+  `■ Not copied`, then `the transcript shows why`, and the transcript holds the error. The texts
+  are in `hooks/copy-toast.ts` of each mod. `scripts/toast.test.mjs` keeps the copies of that
+  file equal, as it does for `hooks/toast.ts`.
 
 ### 4.7 agent-board (handily-cr7r)
 
