@@ -166,7 +166,13 @@ function shownOrigin(path: string, origin: string, prefix: string): string {
   return parentOf(inCwd) === parentOf(path) ? nameOf(inCwd) : inCwd
 }
 
+function holdsPrefix(entry: GitEntry, prefix: string): boolean {
+  if (prefix === '' || entry.letter !== '?' || !entry.isFolder) return false
+  return prefix === entry.path || prefix.startsWith(`${entry.path}/`)
+}
+
 export function gitMarks(status: GitStatus, prefix: string): GitMarks {
+  const isAllUntracked = status.entries.some((entry) => holdsPrefix(entry, prefix))
   const byPath = new Map<string, GitEntry>()
   const untrackedFolders: string[] = []
   const counts = new Map<string, Map<GitLetter, number>>()
@@ -192,6 +198,7 @@ export function gitMarks(status: GitStatus, prefix: string): GitMarks {
     }
   }
   const isUntracked = (path: string) =>
+    isAllUntracked ||
     untrackedFolders.some((folder) => path === folder || path.startsWith(`${folder}/`))
   return {
     letterOf: (path) => byPath.get(path)?.letter ?? (isUntracked(path) ? '?' : undefined),

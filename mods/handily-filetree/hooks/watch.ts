@@ -42,10 +42,12 @@ export type GitWatch = {
   gap: Timer | undefined
   retry: Timer | undefined
   slowMark: Timer | undefined
+  generation: number
 }
 
 export function newWatch(): GitWatch {
   return {
+    generation: 0,
     cwd: undefined,
     repo: undefined,
     branch: undefined,
@@ -90,7 +92,7 @@ export function stopWatch(watch: GitWatch): void {
 export function resetWatch(watch: GitWatch): void {
   stopWatch(watch)
   watch.slowMark?.cancel()
-  Object.assign(watch, newWatch())
+  Object.assign(watch, newWatch(), { generation: watch.generation + 1 })
 }
 
 export function forgetRepo(watch: GitWatch): void {
@@ -149,17 +151,25 @@ async function isFilesShown($: EngineInterface): Promise<boolean> {
 }
 
 async function checkStamps($: EngineInterface, watch: GitWatch): Promise<boolean> {
-  const repo = watch.repo
+  const { repo, generation } = watch
   if (repo === null || repo === undefined) return false
   const stamps = await readStamps($, repo)
+  if (watch.generation !== generation) return false
   const before = watch.stamps
   watch.stamps = stamps
-  if (before?.head !== stamps.head) watch.branch = await readBranch($, repo)
+  if (before?.head !== stamps.head) {
+    const branch = await readBranch($, repo)
+    if (watch.generation !== generation) return false
+    watch.branch = branch
+  }
   return before?.index !== stamps.index || before.head !== stamps.head
 }
 
 async function tick($: EngineInterface, watch: GitWatch): Promise<void> {
-  if (!(await isFilesShown($))) {
+  const { generation } = watch
+  const isShown = await isFilesShown($)
+  if (watch.generation !== generation) return
+  if (!isShown) {
     stopWatch(watch)
     return
   }
@@ -247,7 +257,12 @@ function countSlowRun(watch: GitWatch, tookMs: number): void {
   if (watch.slowRuns >= SLOW_RUNS_BEFORE_NO_UNTRACKED) watch.isUntrackedSkipped = true
 }
 
-async function runStatus($: EngineInterface, watch: GitWatch, startedAt: number): Promise<void> {
+async function runStatus(
+  $: EngineInterface,
+  watch: GitWatch,
+  run: { generation: number; startedAt: number },
+): Promise<void> {
+  const { generation, startedAt } = run
   watch.lastStartAt = startedAt
   watch.isSlow = false
   const slowMark = $.clock.after(SLOW_MS, () => {
@@ -263,7 +278,7 @@ async function runStatus($: EngineInterface, watch: GitWatch, startedAt: number)
   )
   const endedAt = await $.clock.now()
   slowMark.cancel()
-  if (watch.cwd !== cwd) return
+  if (watch.generation !== generation) return
   watch.slowMark = undefined
   watch.isSlow = false
   countSlowRun(watch, endedAt - startedAt)
@@ -271,8 +286,11 @@ async function runStatus($: EngineInterface, watch: GitWatch, startedAt: number)
 }
 
 async function startRun($: EngineInterface, watch: GitWatch): Promise<void> {
+  const { generation } = watch
+  const isCurrent = () => watch.generation === generation
   try {
     const now = await $.clock.now()
+    if (!isCurrent()) return
     const wait = watch.lastStartAt === undefined ? 0 : watch.lastStartAt + RUN_GAP_MS - now
     if (wait > 0) {
       watch.gap = $.clock.after(wait, () => {
@@ -281,12 +299,12 @@ async function startRun($: EngineInterface, watch: GitWatch): Promise<void> {
       })
       return
     }
-    await runStatus($, watch, now)
-    redraw($)
+    await runStatus($, watch, { generation, startedAt: now })
+    if (isCurrent()) redraw($)
   } finally {
-    watch.isRunning = false
+    if (isCurrent()) watch.isRunning = false
   }
-  if (watch.isWanted) {
+  if (isCurrent() && watch.isWanted) {
     watch.isWanted = false
     requestStatus($, watch)
   }

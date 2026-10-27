@@ -34,6 +34,9 @@ type World = {
   stats: string[]
   runs: GitRun[]
   runStarts: number[]
+  inFlight: number
+  mostInFlight: number
+  cwd: string
   answer: GitAnswer
   clock: MockClock
   commands: string[]
@@ -72,7 +75,10 @@ function fakeGit(on: On, seen: World): void {
     const answer = seen.answer
     if (answer.kind === 'exit')
       return { value: gitResult('', answer.exitCode, answer.stderr, false) }
+    seen.inFlight += 1
+    seen.mostInFlight = Math.max(seen.mostInFlight, seen.inFlight)
     if (answer.tookMs !== undefined) await seen.clock.sleep(answer.tookMs)
+    seen.inFlight -= 1
     if (answer.kind === 'reject') return { deny: answer.message }
     return { value: gitResult(answer.stdout, 0, '', answer.isCut === true) }
   })
@@ -127,6 +133,9 @@ function world(on: On, entries: readonly [string, FakeFolder][], options: WorldO
     stats: [],
     runs: [],
     runStarts: [],
+    inFlight: 0,
+    mostInFlight: 0,
+    cwd: ROOT,
     answer: NO_CHANGES,
     clock: mock.clock(on, { now: 1_000_000 }),
     commands: [],
@@ -137,7 +146,8 @@ function world(on: On, entries: readonly [string, FakeFolder][], options: WorldO
     logs: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('session.cwd', () => ({ value: ROOT }))
+  on('session.cwd', () => ({ value: seen.cwd }))
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('fs.list', (_$, e) => {
     const path = relativeOf(e.path)
     seen.listed.push(path)
@@ -878,6 +888,59 @@ describe('git status: letters and counts', () => {
     await ui.unmount()
   })
 
+  for (const [depth, gitDir, untrackedFolder] of [
+    ['the working folder', '/work/.git', 'app/'],
+    ['a folder above the working folder', '/.git', 'work/'],
+  ] as const) {
+    test(`when ${depth} is untracked, every entry shows ? and the header counts it`, async ($, on) => {
+      const seen = world(on, [
+        ['.', [folder('deep'), file('a.ts')]],
+        ['deep', [file('g.ts')]],
+      ])
+      seen.files.set(gitDir, { kind: 'dir', text: '', mtimeMs: 1 })
+      gitFolder(seen, gitDir)
+      seen.answer = {
+        kind: 'ok',
+        stdout: statusOf([untracked(untrackedFolder)]),
+      }
+      const ui = await openFiles($, seen)
+      await ui.press({ key: 'open:deep' })
+      expect((await headerOf(ui))[0]).toBe('Files  app · main · 1 changed')
+      expect(await treeLines(ui)).toEqual([
+        '▾ deep/  ?',
+        '    g.ts                ?',
+        '  a.ts                  ?',
+      ])
+      await ui.unmount()
+    })
+  }
+
+  test('a name with a space, a line break or a non-ASCII letter, and a staged rename to a name with a space, keep their letters', async ($, on) => {
+    const seen = gitWorld(
+      on,
+      [['.', [file('a b.md'), file('line\nbreak.md'), file('naïve.md'), file('new name.md')]]],
+      {
+        kind: 'ok',
+        stdout: statusOf([
+          changed('.M', 'a b.md'),
+          changed('A.', 'line\nbreak.md'),
+          untracked('naïve.md'),
+          renamed('R.', 'new name.md', 'old name.md'),
+        ]),
+      },
+    )
+    const ui = await openFiles($, seen)
+    expect(await treeLines(ui)).toEqual([
+      '  a b.md                M',
+      '  line\\u000abreak.md    A',
+      '  naïve.md              ?',
+      '  new name.md           R',
+      '    renamed from old name.md · staged',
+    ])
+    expect((await headerOf(ui))[0]).toBe('Files  app · main · 4 changed')
+    await ui.unmount()
+  })
+
   for (const [kind, pointer] of [
     ['relative', 'gitdir: ../main/.git/worktrees/app'],
     ['absolute', 'gitdir: /work/main/.git/worktrees/app'],
@@ -1071,6 +1134,78 @@ describe('git status: when it runs', () => {
     await seen.clock.advance(30_000)
     expect(seen.stats.length).toBe(statsAfterClose)
     expect(seen.runs).toHaveLength(1)
+  })
+
+  test('session end cancels the poll, the 2 s gap and the retry', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'exit', exitCode: 128, stderr: 'fatal' })
+    underTool(on)
+    const ui = await openFiles($, seen)
+    expect((await headerOf(ui)).at(-1)).toBe('retry in 10s  [ retry ]')
+    seen.answer = { kind: 'ok', stdout: CLEAN }
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await seen.clock.settle()
+    expect(seen.runs).toHaveLength(1)
+    await ui.unmount()
+    await $.session.end({ reason: 'other', sessionId: 's1', resume: { id: 's1' } })
+    await start($)
+    const next = await mountSettled($, seen, 'terminal')
+    expect(seen.runs).toHaveLength(2)
+    const statsOfNewSession = seen.stats.length
+    await seen.clock.advance(12_000)
+    expect(seen.stats.length - statsOfNewSession).toBe(12)
+    expect(seen.runs).toHaveLength(2)
+    expect(await headerOf(next)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    await next.unmount()
+  })
+
+  test('session end during a slow run: the old run neither marks the new tab slow nor overwrites its status', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, {
+      kind: 'ok',
+      stdout: statusOf([changed('.M', 'README.md')]),
+      tookMs: 8000,
+    })
+    const first = await openFiles($, seen)
+    await first.unmount()
+    await seen.clock.advance(1000)
+    await $.session.end({ reason: 'other', sessionId: 's1', resume: { id: 's1' } })
+    seen.answer = { kind: 'ok', stdout: CLEAN }
+    await start($)
+    const ui = await mountSettled($, seen, 'terminal')
+    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    await seen.clock.advance(4000)
+    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    await seen.clock.advance(3000)
+    expect(seen.inFlight).toBe(0)
+    await ui.redraw()
+    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    expect(await treeLines(ui)).toContain('  README.md')
+    expect(seen.runs).toHaveLength(2)
+    await ui.unmount()
+  })
+
+  test('a change of working folder during a run: the next run waits for the run of the new folder', async ($, on) => {
+    const seen = gitWorld(on, [...GIT_APP, ['sub', [file('s.ts')]]], {
+      kind: 'ok',
+      stdout: CLEAN,
+      tookMs: 5000,
+    })
+    underTool(on)
+    const ui = await openFiles($, seen)
+    seen.cwd = `${ROOT}/sub`
+    seen.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'sub/s.ts')]), tookMs: 8000 }
+    await ui.redraw()
+    await seen.clock.settle()
+    expect(seen.runs.map((run) => run.cwd)).toEqual([ROOT, `${ROOT}/sub`])
+    await seen.clock.advance(5000)
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await seen.clock.settle()
+    expect(seen.runs).toHaveLength(2)
+    await seen.clock.advance(3000)
+    expect(seen.runs).toHaveLength(3)
+    expect(seen.mostInFlight).toBe(2)
+    expect(await treeLines(ui)).toEqual(['  s.ts                  M'])
+    await seen.clock.advance(8000)
+    await ui.unmount()
   })
 })
 
