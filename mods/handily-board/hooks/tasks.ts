@@ -163,7 +163,7 @@ export function withTrackerNotice(text: string, tasks: readonly BoardTask[]): st
 export function addTask(list: BoardList, title: string, source: BoardSource): Added | AddRefused {
   const refusal = titleRefusal(title)
   if (refusal !== undefined) return { refusal }
-  if (list.tasks.length >= MAX_TASKS) return { refusal: fullListRefusal(list) }
+  if (list.tasks.length >= MAX_TASKS) return { refusal: fullListRefusal(list, source.by) }
   const task: BoardTask = {
     id: list.nextId,
     title: title.replace(WHITESPACE_RUN, ' '),
@@ -173,11 +173,17 @@ export function addTask(list: BoardList, title: string, source: BoardSource): Ad
   return { list: { tasks: [...list.tasks, task], nextId: list.nextId + 1 }, task }
 }
 
-function fullListRefusal(list: BoardList): string {
+const DONE_REMOVAL: Record<BoardAuthor, string> = {
+  person: 'Run /board clear to remove the done tasks, or remove one first.',
+  tracker: 'Run /board clear to remove the done tasks, or remove one first.',
+  model: 'Remove a done task with task_update and the status removed, then add the task.',
+}
+
+function fullListRefusal(list: BoardList, by: BoardAuthor): string {
   const full = `the list is full at ${String(MAX_TASKS)} tasks`
   const done = doneCount(list)
   if (done === 0) return `${full}. Remove one first.`
-  return `${full}, and ${String(done)} of them are done. Run /board clear to remove the done tasks, or remove one first.`
+  return `${full}, and ${String(done)} of them are done. ${DONE_REMOVAL[by]}`
 }
 
 export function setStatus(list: BoardList, id: number, status: BoardStatus): BoardList {

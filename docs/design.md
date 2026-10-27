@@ -666,8 +666,9 @@ Defer to quiet-items:
   back in front. So two prompts that overlap never tell one change twice or lose one.
 - `/board clear` and `[ clear done ]` remove every done task (handily-9uj3n.2). Done tasks still
   count against the limit of 100 tasks, so the limit stays one simple rule. When the list is full
-  and holds done tasks, the refusal counts them and names `/board clear`. An add never removes a
-  task to make room.
+  and holds done tasks, the refusal counts them and names the remedy of the caller. The person
+  gets `/board clear`. Claude and a subagent get `task_update` with the status `removed`. An
+  add never removes a task to make room.
 - Every task row has `[ rm ]`, and `/board mv` places a task before another task or at an end
   of the list (handily-9uj3n.3). `/board mv` and `task_move` share `moveTask`, which now also
   takes the end of the list. Claude Code keeps the focus ring at the same index when a pane

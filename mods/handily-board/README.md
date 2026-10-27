@@ -138,8 +138,10 @@ You can press every button on both tabs with the keyboard alone. A live check on
 - A title must be one line with no control character and no bidi control character. It has at
   most 200 characters. A run of spaces in a title becomes one space. The list holds at most 100
   tasks, done tasks included. The model and the person get the same refusal, by name. When
-  some of the 100 tasks are done, the refusal counts them and names `/board clear`. A refused
-  add removes no task.
+  some of the 100 tasks are done, the refusal counts them and names the remedy of the caller.
+  Your refusal names `/board clear`. The refusal of Claude or a subagent names `task_update`
+  with the status `removed`, because `/board clear` is your command and clears only the list
+  of the main loop. A refused add removes no task.
 - Each row of a `/board list` reply and of a model tool answer shows the task number, the
   status, the author and the title. The author is `you`, `claude` or `tracker`, and it comes
   before the title, so a title cannot imitate it.

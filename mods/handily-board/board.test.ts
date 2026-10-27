@@ -4118,7 +4118,7 @@ const FULL_LIST_CRITERION =
 
 describe(FULL_LIST_CRITERION, () => {
   test(
-    'a full list with done tasks refuses the person and Claude by name, names /board clear, and keeps every task',
+    'a full list with done tasks refuses the person by name with /board clear, Claude with task_update, and keeps every task',
     withWorkitems,
     async ($, on) => {
       world(on)
@@ -4129,11 +4129,11 @@ describe(FULL_LIST_CRITERION, () => {
       await $.tool.call({ tool: TOOL_UPDATE, id: 7, status: 'completed' })
       await board($, 'done 9')
       const before = String(await modelTool($, {}))
-      const refusal =
-        'the list is full at 100 tasks, and 2 of them are done. Run /board clear to remove the done tasks, or remove one first.'
-      expect(await board($, 'add One more')).toBe(`Not added: ${refusal}`)
+      expect(await board($, 'add One more')).toBe(
+        'Not added: the list is full at 100 tasks, and 2 of them are done. Run /board clear to remove the done tasks, or remove one first.',
+      )
       expect((await $.tool.call({ tool: TOOL_ADD, title: 'One more' })).deny).toBe(
-        `task_add refused: ${refusal}`,
+        `task_add refused: ${MODEL_FULL_REFUSAL}`,
       )
       expect(await modelTool($, {})).toBe(before)
       expect(before.split('\n')).toHaveLength(101)
@@ -4146,6 +4146,31 @@ describe(FULL_LIST_CRITERION, () => {
     },
   )
 })
+
+const MODEL_FULL_REFUSAL =
+  'the list is full at 100 tasks, and 2 of them are done. Remove a done task with task_update and the status removed, then add the task.'
+
+test(
+  'a full subagent list with done tasks names task_update, not /board clear, which clears only the list of the main loop',
+  withWorkitems,
+  async ($, on) => {
+    world(on)
+    await start($)
+    for (let index = 1; index <= 100; index += 1) {
+      await $.tool.call({ tool: TOOL_ADD, title: `Task ${String(index)}`, agentId: 'a1' })
+    }
+    for (const id of [7, 9]) {
+      await $.tool.call({ tool: TOOL_UPDATE, id, status: 'completed', agentId: 'a1' })
+    }
+    expect((await $.tool.call({ tool: TOOL_ADD, title: 'One more', agentId: 'a1' })).deny).toBe(
+      `task_add refused: ${MODEL_FULL_REFUSAL}`,
+    )
+    await $.tool.call({ tool: TOOL_UPDATE, id: 7, status: 'removed', agentId: 'a1' })
+    expect(
+      (await $.tool.call({ tool: TOOL_ADD, title: 'One more', agentId: 'a1' })).deny,
+    ).toBeUndefined()
+  },
+)
 
 const NOTHING_TO_CLEAR_CRITERION =
   'When there is no done task, /board clear answers that there is nothing to clear and changes nothing'
