@@ -41,6 +41,7 @@ import {
   statusLook,
   type WorkItem,
 } from './tasks'
+import { type Vitals, drawSessionLine } from './vitals'
 import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
 
 const DONE_GROUP = 'group:done'
@@ -60,6 +61,7 @@ export type PaneWork = {
   now: number
   activity: BoardActivity
   agents: readonly AgentRow[]
+  vitals: Vitals
 }
 
 type Act = (work: () => Promise<string | undefined>) => void
@@ -739,6 +741,7 @@ export async function drawPane(
   return Box({
     flexDirection: 'column',
     children: [
+      drawSessionLine(elements, work.vitals),
       header,
       ...body,
       ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),
