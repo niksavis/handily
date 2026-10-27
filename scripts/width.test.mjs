@@ -10,8 +10,15 @@ const WIDTH_EXPORTS = {
   'handily-board': ['cutToWidth', 'displayWidth', 'fitted', 'lastToWidth', 'padToWidth'],
   'handily-filetree': ['displayWidth', 'fitted', 'padToWidth'],
   'handily-item-toasts': ['displayWidth', 'fitted', 'padToWidth'],
-  'handily-reply-view': ['cutToWidth', 'displayWidth', 'graphemesOf', 'isEmoji', 'padToWidth'],
-  'handily-simple-view': ['displayWidth', 'graphemesOf', 'isEmoji'],
+  'handily-reply-view': [
+    'cutToWidth',
+    'displayWidth',
+    'fitted',
+    'graphemesOf',
+    'isEmoji',
+    'padToWidth',
+  ],
+  'handily-simple-view': ['displayWidth', 'fitted', 'graphemesOf', 'isEmoji', 'padToWidth'],
 }
 const WIDTH_MODS = Object.keys(WIDTH_EXPORTS)
 

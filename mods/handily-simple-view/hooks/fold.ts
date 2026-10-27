@@ -2,6 +2,7 @@ import type { RenderElement, RenderSurface } from 'claude-code'
 import type { SimpleViewFold } from '../types'
 import { erroredOutput, isRecord } from './output'
 import type { RowLook } from './row'
+import { TOAST_MARKS, type ToastParts } from './toast'
 import { displayWidth, graphemesOf, isEmoji } from './width'
 
 export const OPEN_LINES = 20
@@ -15,14 +16,18 @@ const HIDDEN_CHARACTER = /(?!\t)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 const LEADING_BLANK_LINES = /^(?:[ \t]*\r?\n)+/
 
-const COPY_REFUSALS: Readonly<Record<'no-surface' | 'no-clipboard' | 'refused', string>> = {
-  'no-surface': 'no screen is attached to this session',
-  'no-clipboard': 'the clipboard took nothing. The text may be too long for this terminal',
-  refused: 'another plugin refused the copy',
+const NOT_COPIED = `${TOAST_MARKS.blocked} Not copied`
+export const COPY_FAILED: ToastParts = [NOT_COPIED, 'the transcript shows why']
+const COPY_REFUSALS: Readonly<
+  Record<'no-surface' | 'no-clipboard' | 'refused', readonly [string] | readonly [string, string]>
+> = {
+  'no-surface': ['no screen is attached to this session'],
+  'no-clipboard': ['the clipboard took nothing', 'a long text may not fit this terminal'],
+  refused: ['another plugin refused the copy'],
 }
 
-export function copyRefusalText(reason: keyof typeof COPY_REFUSALS): string {
-  return `Not copied: ${COPY_REFUSALS[reason]}.`
+export function copyRefusalParts(reason: keyof typeof COPY_REFUSALS): ToastParts {
+  return [NOT_COPIED, ...COPY_REFUSALS[reason]]
 }
 
 export type CallOutput = { text: string; lines: string[]; savedTo: string | null }

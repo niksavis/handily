@@ -222,8 +222,12 @@ row folds the output again and removes both lines:
 - `copy` copies the full output of the call: stdout, then stderr, exactly as the engine gave
   them. Trailing spaces and blank lines stay. After `exit N` it copies the error output under the
   `Error: Exit code N` line. After `refused` it copies the message of the hook, and after
-  `error` the text after `Error:`. `more` opens the same text. A toast says how many lines it
-  copied, or why the copy failed.
+  `error` the text after `Error:`. `more` opens the same text.
+- A toast says `✓ Copied the output`, then the line count on the next line, such as
+  `140 lines`. It stays 6 seconds.
+- A copy that fails draws `■ Not copied`, then the reason, such as
+  `the clipboard took nothing`. It stays 10 seconds. When the copy throws, the reason is
+  `the transcript shows why`, and the transcript holds the error.
 - When the engine saved a large output to a file, the row shows only the preview that the engine
   kept. `copy` reads the saved file and copies all of it.
 - The opened lines are dim and never wrap: a long line is cut at the row end. `copy` keeps the

@@ -28,7 +28,12 @@ registerHooks({
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const TOAST_FILE = 'toast.ts'
-const TOAST_MODS = ['handily-filetree', 'handily-item-toasts']
+const TOAST_MODS = [
+  'handily-filetree',
+  'handily-item-toasts',
+  'handily-reply-view',
+  'handily-simple-view',
+]
 const TOAST_USES = [
   /(?<!['"`]ui)\.toast\b/,
   /\[\s*(['"`])toast\1\s*\]/,
@@ -40,8 +45,6 @@ const KNOWN_DIRECT_CALLS = {
   'mods/handily-board/hooks/board.ts': 'handily-ftx0x.4',
   'mods/handily-board/hooks/pane.tsx': 'handily-ftx0x.4',
   'mods/handily-board/hooks/register.tsx': 'handily-ftx0x.4',
-  'mods/handily-reply-view/hooks/register.ts': 'handily-ftx0x.3',
-  'mods/handily-simple-view/hooks/register.ts': 'handily-ftx0x.3',
 }
 
 const TOAST_CASES = [
