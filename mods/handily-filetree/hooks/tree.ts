@@ -58,6 +58,18 @@ export function listed(entries: readonly FsEntry[]): Listing {
   }
 }
 
+export function withDeleted(
+  listing: Listing,
+  deleted: readonly FsEntry[],
+  isDeletedFolder: boolean,
+): Listing {
+  if (deleted.length === 0) return listing
+  if (listing.kind === 'failed') return isDeletedFolder ? listed(deleted) : listing
+  const names = new Set(listing.sorted.map((entry) => entry.name))
+  const missing = deleted.filter((entry) => !names.has(entry.name))
+  return missing.length === 0 ? listing : listed([...listing.sorted, ...missing])
+}
+
 export function childPath(parent: string, name: string): string {
   return parent === ROOT_PATH ? name : `${parent}/${name}`
 }

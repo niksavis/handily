@@ -8,15 +8,29 @@ import {
   toggleTree,
   unknownReply,
 } from './commands'
+import { gitView } from './gitview'
 import { type PaneActions, drawInline, drawTree } from './pane'
-import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows } from './tree'
+import type { GitMarks } from './status'
+import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows, withDeleted } from './tree'
 import { showToast } from './toast'
+import {
+  type GitWatch,
+  forgetRepo,
+  newWatch,
+  noticeFocus,
+  requestStatus,
+  resetWatch,
+  stopWatch,
+  syncRepo,
+  watchShown,
+} from './watch'
 import type { FiletreePaths } from '../types'
 
 const OPEN = { plugin: 'handily-filetree', key: 'open' } as const
 const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
 const PERMISSION_DENIED = /\b(EACCES|EPERM)\b/
 const GONE = /\bENOENT\b/
+const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
 
 function folderName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter((part) => part !== '')
@@ -46,14 +60,29 @@ async function readListing($: EngineInterface, at: string, path: string): Promis
   }
 }
 
-function listerOf($: EngineInterface, cwd: string, listings: Listings): ListFolder {
+async function keptListing(
+  $: EngineInterface,
+  at: string,
+  path: string,
+  listings: Listings,
+): Promise<Listing> {
+  const kept = listings.get(at)
+  if (kept !== undefined) return kept
+  const listing = await readListing($, at, path)
+  listings.set(at, listing)
+  return listing
+}
+
+function listerOf(
+  $: EngineInterface,
+  cwd: string,
+  listings: Listings,
+  marks: GitMarks | undefined,
+): ListFolder {
   return async (path) => {
-    const at = absolutePath(cwd, path)
-    const kept = listings.get(at)
-    if (kept !== undefined) return kept
-    const listing = await readListing($, at, path)
-    listings.set(at, listing)
-    return listing
+    const listing = await keptListing($, absolutePath(cwd, path), path, listings)
+    if (marks === undefined) return listing
+    return withDeleted(listing, marks.deletedIn(path), marks.isDeletedFolder(path))
   }
 }
 
@@ -69,7 +98,12 @@ function toggled(paths: FiletreePaths, path: string): FiletreePaths {
   return paths.includes(path) ? paths.filter((one) => one !== path) : [...paths, path]
 }
 
-function actionsOf($: EngineInterface, cwd: string, listings: Listings): PaneActions {
+function actionsOf(
+  $: EngineInterface,
+  cwd: string,
+  listings: Listings,
+  watch: GitWatch,
+): PaneActions {
   const failed = (error: unknown) => {
     $.ui.log(`handily-filetree: the tree did not change: ${String(error)}`)
     showToast($, ['■ Tree did not change', 'the transcript shows why'])
@@ -88,13 +122,18 @@ function actionsOf($: EngineInterface, cwd: string, listings: Listings): PaneAct
     },
     refresh: () => {
       listings.clear()
+      forgetRepo(watch)
       $.ui.invalidate('ui.render')
+    },
+    retry: () => {
+      requestStatus($, watch)
     },
   }
 }
 
 export const register: Register = (on) => {
   const listings: Listings = new Map()
+  const watch = newWatch()
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -108,13 +147,30 @@ export const register: Register = (on) => {
 
   on('session.end', async (_$, e, next) => {
     listings.clear()
+    resetWatch(watch)
     return next(e)
   })
 
   on('ui.close', async (_$, e, next) => {
     const closed = await next(e)
-    if (e.id === FILES_PANE.id) listings.clear()
+    if (e.id === FILES_PANE.id) {
+      listings.clear()
+      stopWatch(watch)
+    }
     return closed
+  })
+
+  on('tool.call', async ($, e, next) => {
+    try {
+      return await next(e)
+    } finally {
+      if (CHANGING_TOOLS.has(e.tool)) requestStatus($, watch)
+    }
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    requestStatus($, watch)
+    return next(e)
   })
 
   on('command.run', { command: 'tree' }, async ($, e) => {
@@ -138,15 +194,19 @@ export const register: Register = (on) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const elements = { Box, Text, Button, bodyColumns: e.props.bodyColumns }
     const cwd = await $.session.cwd()
+    await syncRepo($, watch, cwd)
+    watchShown($, watch)
+    noticeFocus($, watch, e.props.isFocused)
+    const git = gitView(watch, await $.clock.now())
     const rootName = folderName(cwd)
-    const list = listerOf($, cwd, listings)
-    const actions = actionsOf($, cwd, listings)
+    const list = listerOf($, cwd, listings, git.marks)
+    const view = { git, actions: actionsOf($, cwd, listings, watch) }
     if (e.props.placement === 'inline') {
-      return drawInline(elements, rootName, await list(ROOT_PATH), actions)
+      return drawInline(elements, rootName, await list(ROOT_PATH), view)
     }
     const open = new Set((await $.state.get(OPEN)).value ?? [])
     const whole = new Set((await $.state.get(WHOLE)).value ?? [])
     const rows = await treeRows(list, { open, whole }, rootName)
-    return drawTree(elements, rootName, rows, actions)
+    return drawTree(elements, rootName, rows, view)
   })
 }
