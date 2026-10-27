@@ -4360,3 +4360,105 @@ describe(FOCUS_CRITERION, () => {
     )
   }
 })
+
+const QUEUE_CRITERION =
+  'Each change of the person reaches Claude exactly once, in order, also when prompts overlap'
+
+type HeldPrompt = { release: (isDropped: boolean) => void }
+
+function holdingPrompts(on: On): {
+  rows: { text: string; context: readonly string[] }[]
+  held: Map<string, HeldPrompt>
+} {
+  const rows: { text: string; context: readonly string[] }[] = []
+  const held = new Map<string, HeldPrompt>()
+  on('prompt.submit', async (_$, e) => {
+    if (e.text.startsWith('hold ')) {
+      const isDropped = await new Promise<boolean>((resolve) => {
+        held.set(e.text, { release: resolve })
+      })
+      if (isDropped) return { drop: 'a hook refused the prompt' }
+    }
+    rows.push({ text: e.text, context: e.context ?? [] })
+    return { text: e.text, context: e.context }
+  })
+  return { rows, held }
+}
+
+async function waitForHold(held: Map<string, HeldPrompt>, text: string): Promise<HeldPrompt> {
+  for (let tries = 0; tries < 1000; tries += 1) {
+    const prompt = held.get(text)
+    if (prompt) return prompt
+    await Promise.resolve()
+  }
+  throw new Error(`the prompt ${text} never reached the hook beneath`)
+}
+
+function submitText($: Engine, text: string) {
+  return $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+}
+
+const DONE_ONE = `${CHANGED} it set the status completed on task 1 by claude, titled "Write the mocks".`
+const OPEN_ONE = `${CHANGED} it set the status pending on task 1 by claude, titled "Write the mocks".`
+
+describe(QUEUE_CRITERION, () => {
+  test(
+    'a change made while an earlier prompt is still entering reaches the next prompt once, and the note of the earlier prompt is not told twice',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const { rows, held } = holdingPrompts(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await board($, 'done 1')
+      const first = submitText($, 'hold A')
+      const holdA = await waitForHold(held, 'hold A')
+      await submitText($, 'B')
+      await board($, 'open 1')
+      holdA.release(false)
+      await first
+      await submitText($, 'C')
+      expect(rows.map((row) => [row.text, row.context.map((note) => note.split('\n')[0])])).toEqual(
+        [
+          ['B', []],
+          ['hold A', [DONE_ONE]],
+          ['C', [OPEN_ONE]],
+        ],
+      )
+    },
+  )
+
+  test(
+    'a prompt dropped while a change was queued puts its changes back in front, so the next prompt names both in order',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const { rows, held } = holdingPrompts(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await board($, 'done 1')
+      const first = submitText($, 'hold A')
+      const holdA = await waitForHold(held, 'hold A')
+      await board($, 'open 1')
+      holdA.release(true)
+      expect((await first).drop).toBe('a hook refused the prompt')
+      await submitText($, 'C')
+      expect(rows).toEqual([
+        {
+          text: 'C',
+          context: [
+            `${DONE_ONE} it set the status pending on task 1 by claude, titled "Write the mocks".\n\nTasks (0 of 1 done)\n  1  pending      claude   "Write the mocks"`,
+          ],
+        },
+      ])
+    },
+  )
+
+  test('/clear drops the changes that wait for the next prompt', withWorkitems, async ($, on) => {
+    world(on)
+    await start($)
+    await board($, 'add Write the mocks')
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+    expect(await toldAtNextPrompt($)).toEqual([])
+  })
+})

@@ -73,7 +73,7 @@ import {
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
-import type { BoardCallRow, BoardList, BoardTask } from '../types'
+import type { BoardCallRow, BoardList, BoardPersonChange, BoardTask } from '../types'
 import {
   EMPTY_LIST,
   MAX_AGENT_LISTS,
@@ -395,19 +395,24 @@ async function notePlanChange($: EngineInterface): Promise<void> {
 
 type DueNote = { text: string; calls: number }
 
-type ChangesNote = { text: string; count: number }
-
-async function changesNote($: EngineInterface): Promise<ChangesNote | undefined> {
-  const { value: changes = [] } = await $.state.get(PERSON_CHANGES)
-  if (changes.length === 0) return undefined
-  return { text: personNote(changes, await readList(hostOf($))), count: changes.length }
+async function takeChanges($: EngineInterface): Promise<readonly BoardPersonChange[]> {
+  let taken: readonly BoardPersonChange[] = []
+  await update($, PERSON_CHANGES, (current = []) => {
+    taken = current
+    return []
+  })
+  return taken
 }
 
-async function dropToldChanges($: EngineInterface, count: number): Promise<void> {
+async function putBackChanges(
+  $: EngineInterface,
+  taken: readonly BoardPersonChange[],
+): Promise<void> {
+  if (taken.length === 0) return
   try {
-    await update($, PERSON_CHANGES, (current = []) => current.slice(count))
+    await update($, PERSON_CHANGES, (current = []) => [...taken, ...current])
   } catch (error) {
-    $.ui.log(`handily-board: the told changes were not dropped: ${String(error)}`)
+    $.ui.log(`handily-board: the changes for Claude were lost: ${String(error)}`)
   }
 }
 
@@ -738,15 +743,23 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    const changes = await changesNote($)
     const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
-    const notes = [changes?.text, plan?.text].filter((text) => text !== undefined)
-    if (notes.length === 0) return next(e)
-    const entered = await next({ ...e, context: [...(e.context ?? []), ...notes] })
-    if (entered.drop !== undefined) return entered
-    if (changes) await dropToldChanges($, changes.count)
-    if (plan) await recordNote($, plan.calls)
-    return entered
+    const taken = await takeChanges($)
+    try {
+      const changes = taken.length === 0 ? undefined : personNote(taken, await readList(hostOf($)))
+      const notes = [changes, plan?.text].filter((text) => text !== undefined)
+      if (notes.length === 0) return await next(e)
+      const entered = await next({ ...e, context: [...(e.context ?? []), ...notes] })
+      if (entered.drop !== undefined) {
+        await putBackChanges($, taken)
+        return entered
+      }
+      if (plan) await recordNote($, plan.calls)
+      return entered
+    } catch (error) {
+      await putBackChanges($, taken)
+      throw error
+    }
   }).catch(($, e, next) => {
     $.ui.log(
       `handily-board: no note for Claude (${next.error.kind}): ${next.error.message ?? 'no message'}`,
