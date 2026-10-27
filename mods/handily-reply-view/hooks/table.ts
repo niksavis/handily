@@ -14,6 +14,7 @@ export type TableLook = {
   rows: string[][]
   alignments: Alignment[]
   widths: number[]
+  words: number[]
 }
 
 type CellText = (cell: string) => string
@@ -30,13 +31,24 @@ function rowsOf(table: Table, text: CellText): string[][] {
   return table.rows.map((row) => row.map(text))
 }
 
+function longestWord(cell: string): number {
+  return Math.max(0, ...cell.split(' ').map(displayWidth))
+}
+
 export function tableLook(table: Table): TableLook {
   const header = headerOf(table, plainCell).map(shownText)
   const rows = rowsOf(table, plainCell).map((row) => row.map(shownText))
-  const widths = header.map((cell, index) =>
-    Math.max(displayWidth(cell), ...rows.map((row) => displayWidth(row[index] ?? ''))),
-  )
-  return { header, rows, alignments: table.alignments, widths }
+  const widestBy = (measure: (cell: string) => number) =>
+    header.map((cell, index) =>
+      Math.max(measure(cell), ...rows.map((row) => measure(row[index] ?? ''))),
+    )
+  return {
+    header,
+    rows,
+    alignments: table.alignments,
+    widths: widestBy(displayWidth),
+    words: widestBy(longestWord),
+  }
 }
 
 function gapsOf(columns: number): number {
@@ -66,7 +78,7 @@ function sharedWidths(
   naturals: readonly number[],
   long: readonly number[],
   room: number,
-  least: number,
+  leastOf: (index: number) => number,
 ): Map<number, number> {
   const widths = new Map<number, number>()
   const natural = (index: number) => naturals[index] ?? 0
@@ -74,10 +86,10 @@ function sharedWidths(
   let left = room
   for (;;) {
     const weight = sum(open.map(natural))
-    const under = open.filter((index) => (left * natural(index)) / weight < least)
+    const under = open.filter((index) => (left * natural(index)) / weight < leastOf(index))
     if (under.length === 0 || under.length === open.length) break
-    for (const index of under) widths.set(index, least)
-    left -= least * under.length
+    for (const index of under) widths.set(index, leastOf(index))
+    left -= sum(under.map(leastOf))
     open = open.filter((index) => !under.includes(index))
   }
   const weight = sum(open.map(natural))
@@ -91,13 +103,32 @@ function sharedWidths(
   return widths
 }
 
-export function columnWidths(naturals: readonly number[], room: number): number[] | null {
+function wholeWordsOrLeast(
+  words: readonly number[],
+  long: readonly number[],
+  left: number,
+  least: number,
+): (index: number) => number {
+  const wholeWordAtLeast = (floor: number) => (index: number) => Math.max(floor, words[index] ?? 0)
+  const fitting = [least, COLUMN_CELLS_AT_LEAST]
+    .map(wholeWordAtLeast)
+    .find((leastOf) => sum(long.map(leastOf)) <= left)
+  return fitting ?? (() => least)
+}
+
+export function columnWidths(look: TableLook, room: number): number[] | null {
+  const naturals = look.widths
   const free = room - gapsOf(naturals.length)
   if (sum(naturals) <= free) return [...naturals]
   const { long, left } = longColumns(naturals, free)
   const least = Math.min(LONG_COLUMN_CELLS_AT_LEAST, Math.floor(left / long.length))
   if (least < COLUMN_CELLS_AT_LEAST) return null
-  const shared = sharedWidths(naturals, long, left, least)
+  const shared = sharedWidths(
+    naturals,
+    long,
+    left,
+    wholeWordsOrLeast(look.words, long, left, least),
+  )
   return naturals.map((natural, index) => shared.get(index) ?? natural)
 }
 

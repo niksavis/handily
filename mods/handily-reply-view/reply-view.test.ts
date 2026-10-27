@@ -1,6 +1,6 @@
 import type { On, PromptOrigin, RenderPropsOf, UiCopyResult } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
-import { displayWidth } from './hooks/width'
+import { displayWidth, graphemesOf } from './hooks/width'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -283,6 +283,64 @@ const CHANGES_TABLE = [
 ].join('\n')
 
 const RULE_CHARACTERS = ['─', '│', '┼', '┄'] as const
+
+const MODS_TABLE = [
+  'The three mods passed every gate but one:',
+  '',
+  '| Mod | Version | Tests | Lines | Gate | Owner | Next step |',
+  '| --- | --: | --: | --: | --- | --- | --- |',
+  '| handily-reply-view | 0.6.0 | 212 | 2638 | pass | Ana | diagrams in the terminal |',
+  '| handily-simple-view | 0.9.1 | 341 | 4120 | pass | Bo | one row for every tool |',
+  '| handily-board | 1.2.0 | 98 | 3310 | fail | Cy | agents of other sessions |',
+].join('\n')
+
+const TECHIE = '\u{1F469}\u200d\u{1F4BB}'
+const AUSTRIA = '\u{1F1E6}\u{1F1F9}'
+const KEYCAP_ONE = '1\ufe0f\u20e3'
+const WARNING = '\u26a0\ufe0f'
+
+const WHO_TABLE = [
+  'Who holds which check:',
+  '',
+  '| Owner | Status | Note |',
+  '| --- | --- | --- |',
+  `| ${TECHIE} Ana | ✅ done | 表格对齐 |`,
+  `| ${AUSTRIA} Bo | ${WARNING} waits | 日本語のテスト |`,
+  `| Cy ${KEYCAP_ONE} | ○ to do | plain text |`,
+].join('\n')
+
+const WIDE_WHO_TABLE = [
+  WHO_TABLE,
+  `| ${AUSTRIA} Bo handily-simple-view | ${WARNING} waits | 日本語のテスト ${KEYCAP_ONE} 表格对齐 handily-reply-view keeps every border of the table in line |`,
+].join('\n')
+
+const PATHS_TABLE = [
+  '| Path | Note |',
+  '| --- | --- |',
+  '| mods/handily-reply-view/hooks/table-of-the-reply-view.ts | the note names handily-simple-view-and-handily-board as one long word |',
+].join('\n')
+
+const FILES_TABLE = [
+  '| File | Change | Note |',
+  '| --- | --- | --- |',
+  '| mods/handily-reply-view/hooks/table-of-the-reply-view.ts | keeps every word whole when room allows | the note is plain words |',
+].join('\n')
+
+const SIX_CELLS_TABLE = [
+  '| Name | Note |',
+  '| --- | --- |',
+  `| handily-reply-view/hooks/table | ${Array<string>(10).fill('abc').join(' ')} |`,
+].join('\n')
+
+function bordersOf(line: string): number[] {
+  const borders: number[] = []
+  let column = 0
+  for (const grapheme of graphemesOf(line.replace(/[~*]/g, ''))) {
+    if (grapheme === '│' || grapheme === '┼') borders.push(column)
+    column += displayWidth(grapheme)
+  }
+  return borders
+}
 
 function ruled(line: string): string {
   return line.split('│').join('~│~')
@@ -897,6 +955,172 @@ describe('tables', () => {
       await ui.unmount()
     },
   )
+
+  viewTest(
+    'a long column keeps its longest word whole when the longest words of the long columns fit together',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(MODS_TABLE))
+      const dotted = `  ${dim('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`
+      expect(await sketchOf(ui)).toEqual([
+        '● The three mods passed every gate but one:',
+        '',
+        `  ${headed('Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step')}`,
+        `  ${dim('────────────────────┼─────────┼───────┼───────┼──────┼───────┼────────────────')}`,
+        `  ${ruled('handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the')}`,
+        `  ${ruled('                    │         │       │       │      │       │ terminal')}`,
+        dotted,
+        `  ${ruled('handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for')}`,
+        `  ${ruled('                    │         │       │       │      │       │ every tool')}`,
+        dotted,
+        `  ${ruled('handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of other')}`,
+        `  ${ruled('                    │         │       │       │      │       │ sessions')}`,
+        `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column keeps its longest word whole on desktop, where the table has two columns more',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(MODS_TABLE), 'desktop')
+      const dotted = dim(
+        '┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄',
+      )
+      expect(await sketchOf(ui)).toEqual([
+        'The three mods passed every gate but one:',
+        '',
+        headed('Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step'),
+        dim('────────────────────┼─────────┼───────┼───────┼──────┼───────┼──────────────────'),
+        ruled('handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the'),
+        ruled('                    │         │       │       │      │       │ terminal'),
+        dotted,
+        ruled('handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for every'),
+        ruled('                    │         │       │       │      │       │ tool'),
+        dotted,
+        ruled('handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of other'),
+        ruled('                    │         │       │       │      │       │ sessions'),
+        `${' '.repeat(80 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column splits a word at its width as before when the longest words of the long columns do not fit together',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(PATHS_TABLE))
+      expect(await sketchOf(ui)).toEqual([
+        `● ${headed('Path                               │ Note')}      [ copy ] [ copy as text ]`,
+        `  ${dim('───────────────────────────────────┼──────────────────────────────────────────')}`,
+        `  ${ruled('mods/handily-reply-view/hooks/tabl │ the note names')}`,
+        `  ${ruled('e-of-the-reply-view.ts             │ handily-simple-view-and-handily-board as')}`,
+        `  ${ruled('                                   │ one long word')}`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column keeps its longest word whole when the words fit but the 12 cell width of each long column does not',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(FILES_TABLE))
+      expect(await sketchOf(ui)).toEqual([
+        `● ${headed('File                                                     │ Change     │ Note')}`,
+        `  ${dim('─────────────────────────────────────────────────────────┼────────────┼───────')}`,
+        `  ${ruled('mods/handily-reply-view/hooks/table-of-the-reply-view.ts │ keeps      │ the')}`,
+        `  ${ruled('                                                         │ every word │ note')}`,
+        `  ${ruled('                                                         │ whole when │ is')}`,
+        `  ${ruled('                                                         │ room       │ plain')}`,
+        `  ${ruled('                                                         │ allows     │ words')}`,
+        `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column keeps its longest word whole when the other long column keeps 6 cells',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 41)
+      expect(await sketchOf(ui, 41)).toEqual([
+        `● ${headed('Name                           │ Note')}`,
+        `  ${dim('───────────────────────────────┼───────')}`,
+        `  ${ruled('handily-reply-view/hooks/table │ abc')}`,
+        ...Array.from({ length: 9 }, () => `  ${ruled('                               │ abc')}`),
+        `${' '.repeat(41 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a long column splits a word as before when a whole word leaves another long column under 6 cells',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 40)
+      expect(await sketchOf(ui, 40)).toEqual([
+        `● ${headed('Name            │ Note')}`,
+        `  ${dim('────────────────┼─────────────────────')}`,
+        `  ${ruled('handily-reply-v │ abc abc abc abc abc')}`,
+        `  ${ruled('iew/hooks/table │ abc abc abc abc abc')}`,
+        `${' '.repeat(40 - 25)}[ copy ] [ copy as text ]`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  for (const surface of SURFACES) {
+    const indent = surface === 'terminal' ? 2 : 0
+    const lead = ' '.repeat(indent)
+
+    viewTest(
+      `every column border of a table of emoji, flags, keycaps and CJK text lines up on ${surface}`,
+      async (_world, $) => {
+        const ui = await mountReply($, reply(WHO_TABLE), surface)
+        const drawn = await sketchOf(ui)
+        expect(drawn.slice(2)).toEqual([
+          `${lead}${headed('Owner  │ Status   │ Note')}  [ copy ] [ copy as text ]`,
+          `${lead}${dim('───────┼──────────┼───────────────')}`,
+          `${lead}${ruled(`${TECHIE} Ana │ ✅ done  │ 表格对齐`)}`,
+          `${lead}${ruled(`${AUSTRIA} Bo  │ ${WARNING} waits │ 日本語のテスト`)}`,
+          `${lead}${ruled(`Cy ${KEYCAP_ONE}  │ ○ to do  │ plain text`)}`,
+        ])
+        expect(drawn.map(bordersOf).filter((borders) => borders.length > 0)).toEqual(
+          Array.from({ length: 5 }, () => [indent + 7, indent + 18]),
+        )
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `a table of emoji, flags, keycaps and CJK text keeps each word whole and its borders in line when it wraps on ${surface}`,
+      async (_world, $) => {
+        const ui = await mountReply($, reply(WIDE_WHO_TABLE), surface, 60)
+        const drawn = await sketchOf(ui, 60)
+        const dotted = `${lead}${dim('┄'.repeat(20) + '┼' + '┄'.repeat(10) + '┼' + '┄'.repeat(60 - indent - 32))}`
+        expect(drawn.slice(2, 12)).toEqual([
+          `${lead}${headed('Owner               │ Status   │ Note')}`,
+          `${lead}${dim('─'.repeat(20) + '┼' + '─'.repeat(10) + '┼' + '─'.repeat(60 - indent - 32))}`,
+          `${lead}${ruled(`${TECHIE} Ana              │ ✅ done  │ 表格对齐`)}`,
+          dotted,
+          `${lead}${ruled(`${AUSTRIA} Bo               │ ${WARNING} waits │ 日本語のテスト`)}`,
+          dotted,
+          `${lead}${ruled(`Cy ${KEYCAP_ONE}               │ ○ to do  │ plain text`)}`,
+          dotted,
+          `${lead}${ruled(`${AUSTRIA} Bo               │ ${WARNING} waits │ 日本語のテスト ${KEYCAP_ONE}${surface === 'terminal' ? '' : ' 表格对齐'}`)}`,
+          `${lead}${ruled(`handily-simple-view │          │ ${surface === 'terminal' ? '表格对齐' : 'handily-reply-view keeps'}`)}`,
+        ])
+        expect(drawn.join('\n')).toContain('handily-reply-view keeps')
+        expect(drawn.map(bordersOf).filter((borders) => borders.length > 0)).toEqual(
+          Array.from({ length: surface === 'terminal' ? 13 : 12 }, () => [
+            indent + 20,
+            indent + 31,
+          ]),
+        )
+        await ui.unmount()
+      },
+    )
+  }
 
   viewTest('an emoji takes two columns when the columns of a table align', async (_world, $) => {
     const text = [
