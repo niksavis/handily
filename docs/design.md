@@ -748,8 +748,20 @@ The numbers that the engine does not give:
 - No percent of the compaction window. `session.measure` never carries the breakdown, and only
   the breakdown measures against the compaction window. Release 1 shows no such percent.
 - No sure signal that a permission dialog is open. A `tool.check` answer of `ask` is a verdict,
-  and a classifier or a host can answer it with no dialog. handily-xsjad.1 probes which signal
-  fires. Until the probe names one, no agent shows `needs you`.
+  and a classifier or a host can answer it with no dialog. The handily-xsjad.1 probe measured
+  this on Claude Code 2.1.312 in tmux, with a subagent Bash call:
+  - In the default mode, `tool.check` answered `ask` with the agent id and the tool use id. The
+    dialog showed, and the `tool.call` of the same id ended 11 s later, after the approval.
+  - `classic.PermissionRequest` never reached the probe. Claude Code said that the organisation
+    plugin `cc-plugin-sec-default` runs first and sends the event on. `classic.Notification`
+    recorded nothing.
+  - While the dialog waited, `$.agent.list()` reported the agent as `running`, not `waiting`.
+  - In auto mode, `tool.check` also answered `ask`, and the classifier settled the call in about
+    0.6 s with no dialog.
+  - With the files pane given the keyboard by ctrl+x tab, the hotkey `r` did not fire. So the
+    hotkeys `s` and `c` are not adopted, and section 8.7 holds.
+
+  So an `ask` that stays unsettled is the only sign of a waiting person.
 - No cost and no context where the host gives no usage. Then the Session line reads
   `no context or cost on this host` and draws no number.
 
