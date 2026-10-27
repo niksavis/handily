@@ -1836,7 +1836,7 @@ docs/design.md section 4.11.
 │ ✎ main      hooks/pane.tsx             4s │
 │ ◦ scout     docs/design.md             2s │
 │ ───────────────────────────────────────── │
-│ ▸ .git/                                   │
+│ ▸ .git/  not listed                       │
 │ ▸ node_modules/  not listed               │
 │ ▾ docs/  M2 ?1            ◦ scout      2s │
 │     design.md           M ◦ scout      2s │
@@ -1863,7 +1863,7 @@ docs/design.md section 4.11.
 │ ◦ main      src/gen/a0193.ts           9s │
 │   and 28 more files from one Grep         │
 │ ───────────────────────────────────────── │
-│ ▸ .git/                                   │
+│ ▸ .git/  not listed                       │
 │ ▸ node_modules/  not listed               │
 │ ▾ src/  M2140             ◦ main       9s │
 │   ▾ gen/  M2100           ◦ main       9s │
@@ -2170,7 +2170,7 @@ docs/design.md section 4.11.
 │ hooks/old-pane.tsx                                      D ✎ gene…se 2     3m │
 │ hooks/register.tsx                                        ◦ scout        40s │
 │ scratch/                                                ? ✎ Explore       5m │
-│ [ +1 more ]  ~a dock (fullscreen, 110 columns) shows the tree~               │
+│ ~+1 more: a dock (fullscreen, 110 columns) shows the tree~                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

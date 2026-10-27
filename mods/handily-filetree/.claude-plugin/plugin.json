@@ -1,0 +1,10 @@
+{
+  "name": "handily-filetree",
+  "version": "0.1.0",
+  "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it.",
+  "author": {
+    "name": "niksavis"
+  },
+  "dependencies": ["handily-board"],
+  "types": "./types/index.d.ts"
+}

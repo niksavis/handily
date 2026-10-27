@@ -28,7 +28,7 @@ registerHooks({
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const TOAST_FILE = 'toast.ts'
-const TOAST_MODS = ['handily-item-toasts']
+const TOAST_MODS = ['handily-filetree', 'handily-item-toasts']
 const TOAST_USES = [
   /(?<!['"`]ui)\.toast\b/,
   /\[\s*(['"`])toast\1\s*\]/,
