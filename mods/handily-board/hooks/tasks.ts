@@ -195,10 +195,12 @@ export function withoutDone(list: BoardList): BoardList {
   return { ...list, tasks: list.tasks.filter((task) => task.status !== 'completed') }
 }
 
-export function moveTask(list: BoardList, id: number, before: number): BoardList {
+export const LIST_END = 'end'
+
+export function moveTask(list: BoardList, id: number, before: number | typeof LIST_END): BoardList {
   const task = findTask(list, id)
   const rest = list.tasks.filter((other) => other.id !== id)
-  const at = rest.findIndex((other) => other.id === before)
+  const at = before === LIST_END ? rest.length : rest.findIndex((other) => other.id === before)
   if (!task || at === -1) return list
   return { ...list, tasks: [...rest.slice(0, at), task, ...rest.slice(at)] }
 }

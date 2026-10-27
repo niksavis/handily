@@ -47,6 +47,7 @@ import {
   personAdd,
   personClear,
   personNote,
+  personPlace,
   personRemove,
   personStatus,
   readList,
@@ -460,6 +461,17 @@ function uiOf($: EngineInterface): PaneUi {
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
     },
+    focus: async (key) => {
+      const stayed = (reason: string) => {
+        $.ui.log(`handily-board: the focus did not move to ${key}: ${reason}`, { to: 'debug' })
+      }
+      try {
+        const moved = await $.ui.focus({ requestId: TASKS_PANE.id, key })
+        if (moved.deny !== undefined) stayed(moved.deny)
+      } catch (error) {
+        stayed(String(error))
+      }
+    },
     toast: (text) => {
       $.ui.toast(text)
     },
@@ -651,7 +663,7 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | done <n> | start <n> | open <n> | clear | list | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | done <n> | start <n> | open <n> | clear | list | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -814,6 +826,8 @@ export const register: Register = (on, options) => {
         return { text: await personAdd(host, command.text) }
       case 'rm':
         return { text: await personRemove(host, command.text) }
+      case 'mv':
+        return { text: await personPlace(host, command.text) }
       case 'status':
         return { text: await personStatus(host, command.text, command.word) }
       case 'unknown':

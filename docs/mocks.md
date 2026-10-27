@@ -778,10 +778,10 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
 │ Tasks  1 of 4 done · 14m                  │
-│ ▶ 2 Write the tab mocks       4m [ rm ]   │
-│     ▸ Edit docs/mocks.md         9 tools  │
-│ ○ 3 Review the mocks with Codex           │
-│ ○ 4 You: Ask the person about tabs        │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│     ▸ Edit docs/mocks.md          9 tools │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
+│ ○ 4 You: Ask the person about tabs [ rm ] │
 │ [ +1 done ]                               │
 │ ───────────────────────────────────────── │
 │ Agents  3 · 1 failed                      │
@@ -832,10 +832,10 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
 │ Tasks  1 of 4 done · 14m                  │
-│ ▶ 2 Write the tab mocks       4m [ rm ]   │
-│     ▸ Edit docs/mocks.md         9 tools  │
-│ ○ 3 Review the mocks with Codex           │
-│ ○ 4 You: Ask the person about tabs        │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│     ▸ Edit docs/mocks.md          9 tools │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
+│ ○ 4 You: Ask the person about tabs [ rm ] │
 │ [ +1 done ]                               │
 │ ───────────────────────────────────────── │
 │ Agents  3 · 1 needs you · 1 failed        │  8.10
@@ -888,18 +888,18 @@ waits-for line is already on the row.
 #### 8.2d A task title pressed open (reorder buttons are new; they reuse `task_move`)
 
 ```text
-│ ○ 3 Review the mocks with Codex           │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
 │     not started yet                       │
 │     [ done ] [ start ]                    │
-│     [ up ] [ down ] [ rm ]                │
-│ ▶ 2 Write the tab mocks       4m [ rm ]   │
-│     ▸ Edit docs/mocks.md         9 tools  │
+│     [ up ] [ down ]                       │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│     ▸ Edit docs/mocks.md          9 tools │
 │     started 4m ago · 9 tools in all       │
 │     [ done ] [ open ]                     │
-│ ✓ 1 Read the design                       │
+│ ✓ 1 Read the design                [ rm ] │
 │     took 10m · 1 tool in all              │
 │     [ start ] [ open ]                    │
-│     [ up ] [ down ] [ rm ]                │
+│     [ up ] [ down ]                       │
 ```
 
 A cut title, opened, shows the full title wrapped first, then these lines.
@@ -910,13 +910,18 @@ the task does not have, in the order `done`, `start`, `open`. `done` marks the t
 `/board open` do. The task moves to its new status group at once, and the toast is the reply
 of the command.
 
+Every task row has `[ rm ]` at its end (handily-9uj3n.3), so one press removes a task of any
+status. The opened row keeps `[ up ] [ down ]` for a task that is not in progress. After `up`
+or `down` the mod moves the keyboard focus onto the same button of the moved task, so the next
+Enter moves the same task again.
+
 #### 8.2d2 `[ +2 done ]` pressed: the done tasks and `[ clear done ]` (handily-9uj3n.2)
 
 ```text
-│ ○ 4 You: Ask the person about tabs        │
+│ ○ 4 You: Ask the person about tabs [ rm ] │
 │ [ hide 2 done ]                           │
-│ ✓ 1 Read the design                       │
-│ ✓ 5 Draw the narrow dock                  │
+│ ✓ 1 Read the design                [ rm ] │
+│ ✓ 5 Draw the narrow dock           [ rm ] │
 │ [ clear done ]                            │
 ```
 
@@ -930,8 +935,8 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
 │ Tasks  1 of 4 done · 14m                  │
-│ ▶ 2 Write the tab mocks       4m [ rm ]   │
-│ ○ 3 Review the mocks with Codex           │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
 │ [ +1 done ]                               │
 │ ───────────────────────────────────────── │
 │ Agents  20 · 2 need you · 1 failed        │  8.10
@@ -1007,8 +1012,8 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 │ Tasks  1 of 4 done · 14m       │
 │ ▶ 2 Write the tab… 4m [ rm ]   │
 │     ▸ Edit mocks.md  9 tools   │
-│ ○ 3 Review the mocks with C…   │
-│ ○ 4 You: Ask the person abo…   │
+│ ○ 3 Review the mocks w… [ rm ] │
+│ ○ 4 You: Ask the perso… [ rm ] │
 │ [ +1 done ]                    │
 │ ────────────────────────────── │
 │ Agents 3 · 1 you · 1 failed    │
@@ -1053,8 +1058,8 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 │ [this session]  this machine                                                 │  (engine tab row)
 │ Tasks  1 of 4 done · 14m                                                     │
 │ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
-│ ○ 3 Review the mocks with Codex                                              │
-│ ○ 4 You: Ask the person about tabs                                           │
+│ ○ 3 Review the mocks with Codex                                       [ rm ] │
+│ ○ 4 You: Ask the person about tabs                                    [ rm ] │
 │ [ +1 done ]                                                                  │
 │ Agents  3 · 1 needs you · 1 failed                                           │  8.10
 │ ◆ scout      needs you  waits for: permission · Bash npm test             2m │  8.10
@@ -1214,6 +1219,13 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board add -- app-x1     -> Added task 7: app-x1. (the text, not an item)
 /board rm 4              -> Removed task 4: "Review the mocks". Claude is told at your next prompt.
 /board rm 9              -> No task 9. This session has tasks 1-7; /board list prints them.
+/board mv 5 before 2     -> Moved task 5 before task 2. Claude is told at your next prompt.
+/board mv 5 top          -> Moved task 5 to the top. Claude is told at your next prompt.
+/board mv 5 bottom       -> Moved task 5 to the bottom. Claude is told at your next prompt.
+/board mv 5 bottom (again) -> Task 5 is already last. Nothing changed.
+/board mv 5 before 9     -> No task 9. This session has tasks 1-7; /board list prints them.
+/board mv 5 up           -> /board mv needs a task number and a place, for example /board mv 5
+                            before 2, /board mv 5 top or /board mv 5 bottom.
 /board done 3            -> Task 3 is now done: "Review the mocks". Claude is told at your next prompt.
 /board start 3           -> Task 3 is now in progress: "Review the mocks". Claude is told at your
                             next prompt.
@@ -1227,8 +1239,9 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board add Write it      -> Not added: the list is full at 100 tasks, and 2 of them are done.
   (100 tasks)               Run /board clear to remove the done tasks, or remove one first.
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
-                            /board rm <n>, /board done <n>, /board start <n>, /board open <n>,
-                            /board clear, /board list or /board close.
+                            /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>,
+                            /board start <n>, /board open <n>, /board clear, /board list or
+                            /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
 /board list              -> the task list as text (as /task printed it; mobile and a closed board)
@@ -1240,6 +1253,9 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
   tab is already shown (`$.ui.panes()` `isShown`), they pass no `focus`, and the keyboard stays at
   the prompt.
 - `/board list` is new: it keeps the reply-as-list path of `/task` that mobile and a closed pane need.
+- `/board mv` (handily-9uj3n.3) places a task anywhere in the list, as `task_move` does. `top` and
+  `bottom` are the ends of the whole list. The board draws the tasks by status, so on the board the
+  task moves inside its status group.
 - Old commands `/task`, `/agent-board` and `/session-board` are gone with their plugins; no aliases.
 
 Each change of the person, by a command or a button, waits for the next prompt (handily-9uj3n.1).

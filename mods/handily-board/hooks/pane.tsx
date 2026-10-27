@@ -358,12 +358,20 @@ function cellsWidth(cells: readonly Cell[]): number {
   return cells.reduce((sum, cell) => sum + displayWidth(cell.text), 0)
 }
 
+type Focus = (key: string) => Promise<void>
+
+function moveKey(direction: MoveDirection, id: number, place: number): string {
+  return `${direction}:${String(id)}:${String(place)}`
+}
+
 function taskRow(
   host: TaskHost,
   task: BoardTask,
   numberWidth: number,
   work: PaneWork,
   act: Act,
+  focus: Focus,
+  place: number,
   detail: Cell | undefined,
 ): PaneRow {
   const isDone = task.status === 'completed'
@@ -378,10 +386,15 @@ function taskRow(
     },
   }
   const move = (direction: MoveDirection): RowAction => ({
-    key: `${direction}:${id}`,
+    key: moveKey(direction, task.id, place),
     label: direction,
     onPress: () => {
-      act(() => personMove(host, task.id, direction))
+      act(async () => {
+        const reply = await personMove(host, task.id, direction)
+        const moved = (await readList(host)).tasks.findIndex((one) => one.id === task.id)
+        if (moved !== -1 && moved !== place) await focus(moveKey(direction, task.id, moved))
+        return reply
+      })
     },
   })
   const mark = (word: StatusWord): RowAction => ({
@@ -401,11 +414,11 @@ function taskRow(
     titleStyle: { dimColor: isDone, bold: isActive },
     ...(detail ? { detail } : {}),
     ...(aside ? { aside } : {}),
-    ...(isActive ? { action: removal } : {}),
+    action: removal,
     opening: {
       kind: 'details',
       lines: [{ text: clockLine(task, work), style: { dimColor: true } }],
-      actions: [marks, isActive ? [] : [move('up'), move('down'), removal]],
+      actions: [marks, isActive ? [] : [move('up'), move('down')]],
     },
   }
 }
@@ -481,6 +494,7 @@ function drawTasks(
   work: PaneWork,
   act: Act,
   layout: RowLayout,
+  focus: Focus,
 ): RenderElement[] {
   const { Button } = elements
   const running = list.tasks.filter((task) => task.status === 'in_progress')
@@ -489,7 +503,7 @@ function drawTasks(
   const isDoneShown = layout.expanded.has(DONE_GROUP)
   const numberWidth = column(list.tasks.map((task) => String(task.id)))
   const rowOf = (task: BoardTask, detail?: Cell) =>
-    taskRow(host, task, numberWidth, work, act, detail)
+    taskRow(host, task, numberWidth, work, act, focus, list.tasks.indexOf(task), detail)
   const draw = (task: BoardTask) => drawRow(elements, rowOf(task), layout)
   const first = running[0]
   const doneCountText = String(done.length)
@@ -702,7 +716,7 @@ export async function drawPane(
   const layout = rowLayout(host, await host.expanded(), act)
   const warning = drawPlanWarning(elements, ui, work, hasList, act)
   const body = hasList
-    ? [...drawTasks(elements, host, list, work, act, layout), ...warning]
+    ? [...drawTasks(elements, host, list, work, act, layout, ui.focus), ...warning]
     : [
         ...drawNow(elements, work, layout),
         ...warning,

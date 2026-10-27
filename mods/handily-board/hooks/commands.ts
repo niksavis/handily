@@ -5,6 +5,7 @@ import {
   addTask,
   findTask,
   isOpenItem,
+  LIST_END,
   listText,
   looksLikeItemId,
   moveTask,
@@ -34,6 +35,7 @@ export type BoardCommand =
   | { kind: 'clear' }
   | { kind: 'add'; text: string }
   | { kind: 'rm'; text: string }
+  | { kind: 'mv'; text: string }
   | { kind: 'status'; word: StatusWord; text: string }
   | { kind: 'unknown'; word: string }
 
@@ -97,7 +99,7 @@ export function parseBoardCommand(args: string): BoardCommand {
   const space = trimmed.search(/\s/)
   const word = space === -1 ? trimmed : trimmed.slice(0, space)
   const text = space === -1 ? '' : trimmed.slice(space).trim()
-  if (word === 'add' || word === 'rm') return { kind: word, text }
+  if (word === 'add' || word === 'rm' || word === 'mv') return { kind: word, text }
   if (isStatusWord(word)) return { kind: 'status', word, text }
   if (text !== '') return { kind: 'unknown', word: trimmed }
   if (word === 'machine' || word === 'list' || word === 'close' || word === 'clear') {
@@ -107,7 +109,7 @@ export function parseBoardCommand(args: string): BoardCommand {
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {
@@ -367,6 +369,69 @@ export async function personClear(host: TaskHost): Promise<string> {
   const tasks = cleared.length === 1 ? 'done task' : 'done tasks'
   const noteRefusal = await tellModel(host, `it removed the ${tasks} ${numbers}.`, [])
   return `Cleared ${String(cleared.length)} ${tasks}: ${numbers}${toldSuffix(noteRefusal)}`
+}
+
+const PLACE_NEEDED =
+  '/board mv needs a task number and a place, for example /board mv 5 before 2, /board mv 5 top or /board mv 5 bottom.'
+
+type Place = { before: number } | { end: 'top' | 'bottom' }
+
+function placeOf(words: readonly string[]): Place | undefined {
+  const [word, number, ...rest] = words
+  if (rest.length > 0) return undefined
+  if (word === 'before' && number !== undefined && isTaskNumber(number)) {
+    return { before: Number(number) }
+  }
+  if (number !== undefined) return undefined
+  return word === 'top' || word === 'bottom' ? { end: word } : undefined
+}
+
+type PlaceOutcome =
+  | { kind: 'missing'; id: number; list: BoardList }
+  | { kind: 'same'; list: BoardList }
+  | { kind: 'moved'; list: BoardList }
+
+function placed(list: BoardList, id: number, place: Place): PlaceOutcome {
+  const target = 'before' in place ? place.before : undefined
+  const missing = [id, target].find((one) => one !== undefined && !findTask(list, one))
+  if (missing !== undefined) return { kind: 'missing', id: missing, list }
+  const others = list.tasks.filter((task) => task.id !== id)
+  const before = 'end' in place && place.end === 'top' ? others[0]?.id : target
+  const moved = moveTask(list, id, before ?? LIST_END)
+  const isSame = moved.tasks.every((task, index) => task.id === list.tasks[index]?.id)
+  return isSame ? { kind: 'same', list } : { kind: 'moved', list: moved }
+}
+
+function placeText(place: Place): string {
+  if ('before' in place) return `before task ${String(place.before)}`
+  return `to the ${place.end}`
+}
+
+function alreadyText(place: Place): string {
+  if ('before' in place) return placeText(place)
+  return place.end === 'top' ? 'first' : 'last'
+}
+
+export async function personPlace(host: TaskHost, text: string): Promise<string> {
+  const [number = '', ...words] = text.split(/\s+/)
+  const place = placeOf(words)
+  if (!isTaskNumber(number) || place === undefined) return PLACE_NEEDED
+  const id = Number(number)
+  if ('before' in place && place.before === id) {
+    return `/board mv needs two different tasks, for example /board mv ${number} before 2.`
+  }
+  const outcome = await host.edit((list) => {
+    const moved = placed(list, id, place)
+    return { list: moved.list, value: moved }
+  })
+  const shown = String(id)
+  if (outcome.kind === 'missing') return missingTaskReply(String(outcome.id), outcome.list)
+  const where = placeText(place)
+  if (outcome.kind === 'same') {
+    return `Task ${shown} is already ${alreadyText(place)}. Nothing changed.`
+  }
+  const noteRefusal = await tellModel(host, `it moved task ${shown} ${where}.`, [])
+  return `Moved task ${shown} ${where}${toldSuffix(noteRefusal)}`
 }
 
 type MoveOutcome =

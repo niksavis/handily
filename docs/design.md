@@ -666,6 +666,13 @@ Defer to quiet-items:
   count against the limit of 100 tasks, so the limit stays one simple rule. When the list is full
   and holds done tasks, the refusal counts them and names `/board clear`. An add never removes a
   task to make room.
+- Every task row has `[ rm ]`, and `/board mv` places a task before another task or at an end
+  of the list (handily-9uj3n.3). `/board mv` and `task_move` share `moveTask`, which now also
+  takes the end of the list. Claude Code keeps the focus ring at the same index when a pane
+  draws again (measured on 2.1.300). So the key of an `up` or `down` button holds the place of
+  its task, and after a move the mod calls `$.ui.focus` with the key at the new place. That key
+  exists only in the next drawing, so the engine waits for it and moves the focus after the
+  draw. This rests on the documented wait of `$.ui.focus`. A live check must confirm it.
 
 ## 5. Repo layout (proposed)
 

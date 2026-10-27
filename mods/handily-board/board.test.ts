@@ -579,7 +579,7 @@ describe('/board add and /board rm', () => {
       )
       for (const args of ['frob', 'pane', 'machine now', 'close all', 'list 2', 'clear all']) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`,
         )
       }
     },
@@ -737,7 +737,7 @@ describe('no tasks yet', () => {
 
 describe('the this session tab', () => {
   test(
-    'draws each task with its signal mark, the author only when it is not claude, rm on the task in progress and on an opened task, and rm removes it',
+    'draws each task with its signal mark, the author only when it is not claude, rm on every task row, and rm removes it',
     withWorkitems,
     async ($, on) => {
       world(on)
@@ -785,11 +785,10 @@ describe('the this session tab', () => {
         ])
         const removable = async () =>
           (await ui.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key)
-        expect(await removable()).toEqual(['rm:2'])
+        expect(await removable()).toEqual(['rm:2', 'rm:3', 'rm:1'])
         await ui.press({ key: 'open:task:3' })
-        expect(await removable()).toEqual(['rm:2', 'rm:3'])
+        expect(await removable()).toEqual(['rm:2', 'rm:3', 'rm:1'])
         await ui.press({ key: 'open:task:3' })
-        expect(await removable()).toEqual(['rm:2'])
         expect((await ui.find({ type: 'Input' }))?.props.submitLabel).toBe('Add')
         await ui.press({ key: 'done' })
         await ui.unmount()
@@ -1961,6 +1960,7 @@ async function expandedState($: Engine): Promise<unknown> {
 }
 
 const PANE_WIDTHS = [30, 45, 80] as const
+const RM_WIDTH = ' [ rm ]'.length
 const LONG_TITLE = 'Mods match the terminal palette, such as a WezTerm theme on navy'
 
 function basiclySnapshot(items: readonly Item[]): Snapshot {
@@ -2056,11 +2056,11 @@ describe('the pane rows fit the pane width', () => {
         expect(texts(long).map((cell) => cell.text)).toEqual([
           '○ ',
           '1 ',
-          title.slice(0, columns - 4 - 1),
+          title.slice(0, columns - 4 - RM_WIDTH - 1),
           '…',
         ])
         expect((await ui.find({ key: 'open:task:1' }))?.text).toBe(
-          `${title.slice(0, columns - 4 - 1)}…`,
+          `${title.slice(0, columns - 4 - RM_WIDTH - 1)}…`,
         )
         const short = await rowOf(ui, 'task:2')
         expect(drawnWidth(short) <= columns).toBe(true)
@@ -2082,7 +2082,7 @@ describe('the pane rows fit the pane width', () => {
       expect(texts(await rowOf(ui, 'task:1')).map((cell) => cell.text)).toEqual([
         '○ ',
         '1 ',
-        '\u26A1'.repeat(12),
+        '\u26A1'.repeat(9),
         '…',
       ])
       await ui.unmount()
@@ -2353,7 +2353,7 @@ describe('the pane follows the work', () => {
         'Tasks  1 of 3 done · 4m',
         '▶ 2 Write the mocks                4m [ rm ]',
         '    ▸ Edit docs/mocks.md             3 tools',
-        '○ 3 Commit the mocks',
+        '○ 3 Commit the mocks                  [ rm ]',
         '[ +1 done ]',
         '────────────────────────────────────────────',
         'Agents  1 not listed',
@@ -2415,7 +2415,7 @@ describe('the pane follows the work', () => {
           '    a WezTerm theme on navy',
           '    started 4m ago · 9 tools in all',
           '    [ done ] [ open ]',
-          '○ 3 Push after approval',
+          '○ 3 Push after approval               [ rm ]',
           '[ +1 done ]',
           '',
           '[ Add a task ][Add]',
@@ -2559,7 +2559,7 @@ describe('the pane follows the work', () => {
       expect(await screen(ui, WIDTH)).toEqual([
         'Tasks  0 of 1 done · 0s',
         '▶ Now  Read src/file19.ts      20 tools · 0s',
-        '○ 1 Write the mocks',
+        '○ 1 Write the mocks                   [ rm ]',
         'No plan update for 20 tool calls.',
         '[ Ask Claude for a plan ]',
         '',
@@ -3295,6 +3295,15 @@ describe(COMMANDS_CRITERION, () => {
       'Cleared 1 done task: 2. Claude is told at your next prompt.',
     )
     expect(await board($, 'clear')).toBe('No done task to clear. Nothing changed.')
+    expect(await board($, 'add Ship it')).toBe(
+      'Added task 3: Ship it. Claude is told at your next prompt.',
+    )
+    expect(await board($, 'mv 3 top')).toBe(
+      'Moved task 3 to the top. Claude is told at your next prompt.',
+    )
+    expect(await board($, 'mv 3 before 1')).toBe(
+      'Task 3 is already before task 1. Nothing changed.',
+    )
     expect(await board($, 'rm 1')).toBe(
       'Removed task 1: Write it. Claude is told at your next prompt.',
     )
@@ -3405,8 +3414,8 @@ const SESSION_SCREENS: readonly {
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
-      '○ 3 Review the mocks with Codex',
-      '○ 4 You: Ask the person about tabs',
+      '○ 3 Review the mocks with Codex    [ rm ]',
+      '○ 4 You: Ask the person about tabs [ rm ]',
       '[ +1 done ]',
       '',
       '[ Add a task ][Add]',
@@ -3419,8 +3428,8 @@ const SESSION_SCREENS: readonly {
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
-      '○ 3 Review the mocks with Cod…',
-      '○ 4 You: Ask the person about…',
+      '○ 3 Review the mocks w… [ rm ]',
+      '○ 4 You: Ask the perso… [ rm ]',
       '[ +1 done ]',
       '',
       '[ Add a task ][Add]',
@@ -3432,8 +3441,8 @@ const SESSION_SCREENS: readonly {
     lines: [
       'Tasks  1 of 4 done · 14m',
       '▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
-      '○ 3 Review the mocks with Codex',
-      '○ 4 You: Ask the person about tabs',
+      '○ 3 Review the mocks with Codex                                           [ rm ]',
+      '○ 4 You: Ask the person about tabs                                        [ rm ]',
       '[ +1 done ]',
       '',
       '[ Add a task ][Add]',
@@ -3460,7 +3469,7 @@ describe(SESSION_TAB_CRITERION, () => {
   }
 
   test(
-    'an opened task row shows its status buttons, then up, down and rm, and up and down move the task among its neighbours',
+    'an opened task row shows its status buttons, then up and down, which move the task among its neighbours',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
@@ -3472,13 +3481,13 @@ describe(SESSION_TAB_CRITERION, () => {
         await toldAtNextPrompt($)
         await ui.press({ key: 'open:task:4' })
         expect((await screen(ui, 41)).slice(3, 8)).toEqual([
-          '○ 3 Review the mocks with Codex',
-          '○ 4 You: Ask the person about tabs',
+          '○ 3 Review the mocks with Codex    [ rm ]',
+          '○ 4 You: Ask the person about tabs [ rm ]',
           '    not started yet',
           '    [ done ] [ start ]',
-          '    [ up ] [ down ] [ rm ]',
+          '    [ up ] [ down ]',
         ])
-        await ui.press({ key: 'up:4' })
+        await ui.press({ key: 'up:4:3' })
         expect(seen.toasts.at(-1)).toBe('Moved task 4 up. Claude is told at your next prompt.')
         expect(session.appended()).toEqual([])
         expect(await toldAtNextPrompt($)).toEqual([
@@ -3493,29 +3502,29 @@ describe(SESSION_TAB_CRITERION, () => {
           ].join('\n'),
         ])
         expect((await screen(ui, 41)).slice(3, 8)).toEqual([
-          '○ 4 You: Ask the person about tabs',
+          '○ 4 You: Ask the person about tabs [ rm ]',
           '    not started yet',
           '    [ done ] [ start ]',
-          '    [ up ] [ down ] [ rm ]',
-          '○ 3 Review the mocks with Codex',
+          '    [ up ] [ down ]',
+          '○ 3 Review the mocks with Codex    [ rm ]',
         ])
-        await ui.press({ key: 'up:4' })
+        await ui.press({ key: 'up:4:2' })
         expect(seen.toasts.at(-1)).toBe('Task 4 is already first. Nothing changed.')
-        await ui.press({ key: 'down:4' })
+        await ui.press({ key: 'down:4:2' })
         expect(seen.toasts.at(-1)).toBe('Moved task 4 down. Claude is told at your next prompt.')
         expect(await modelTool($, {})).toContain(
           '  3  pending      claude   "Review the mocks with Codex"\n  4  pending      you      Ask the person about tabs',
         )
-        await ui.press({ key: 'down:4' })
+        await ui.press({ key: 'down:4:3' })
         expect(seen.toasts.at(-1)).toBe('Task 4 is already last. Nothing changed.')
         await ui.unmount()
         const narrow = await mountTab($, surface, PANE, 'dock', 30)
         expect((await screen(narrow, 30)).slice(4, 9)).toEqual([
-          '○ 4 You: Ask the person about…',
+          '○ 4 You: Ask the perso… [ rm ]',
           '    Ask the person about tabs',
           '    not started yet',
           '    [ done ] [ start ]',
-          '    [ up ] [ down ] [ rm ]',
+          '    [ up ] [ down ]',
         ])
         await narrow.press({ key: 'open:task:4' })
         await narrow.unmount()
@@ -3815,10 +3824,10 @@ describe(PRESS_DONE_CRITERION, () => {
         ])
         expect(texts(row).at(-1)?.props.dimColor).toBe(true)
         expect((await screen(ui, 41)).slice(-7, -2)).toEqual([
-          '✓ 3 Review the mocks with Codex',
+          '✓ 3 Review the mocks with Codex    [ rm ]',
           '    done; never seen in progress',
           '    [ start ] [ open ]',
-          '    [ up ] [ down ] [ rm ]',
+          '    [ up ] [ down ]',
           '[ clear done ]',
         ])
         expect(session.appended()).toEqual([])
@@ -4045,17 +4054,19 @@ describe(CLEAR_CRITERION, () => {
         expect(await ui.find({ key: 'clear-done' })).toBeUndefined()
         await ui.press({ key: 'done' })
         expect((await screen(ui, 41)).slice(4, 9)).toEqual([
-          '○ 4 You: Ask the person about tabs',
+          '○ 4 You: Ask the person about tabs [ rm ]',
           '[ hide 2 done ]',
-          '✓ 1 Read the design',
-          '✓ 5 Draw the narrow dock',
+          '✓ 1 Read the design                [ rm ]',
+          '✓ 5 Draw the narrow dock           [ rm ]',
           '[ clear done ]',
         ])
         const ring = (await ui.findAll({ type: 'Button' })).map((button) => button.key)
         expect(ring.slice(ring.indexOf('done'))).toEqual([
           'done',
           'open:task:1',
+          'rm:1',
           'open:task:5',
+          'rm:5',
           'clear-done',
         ])
         await ui.press({ key: 'clear-done' })
@@ -4157,4 +4168,195 @@ describe(NOTHING_TO_CLEAR_CRITERION, () => {
       expect(await toldAtNextPrompt($)).toEqual([])
     },
   )
+})
+
+const ONE_PRESS_RM_CRITERION =
+  'When the person presses rm on any task row, the task leaves the list with one press'
+
+describe(ONE_PRESS_RM_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `a pending, a done and an in progress task each leave with one press of rm on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        await mockWork($, seen)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await ui.press({ key: 'done' })
+        expect(
+          (await ui.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key),
+        ).toEqual(['rm:2', 'rm:3', 'rm:4', 'rm:1'])
+        await ui.press({ key: 'rm:3' })
+        expect(seen.toasts.at(-1)).toBe(
+          'Removed task 3: "Review the mocks with Codex". Claude is told at your next prompt.',
+        )
+        await ui.press({ key: 'rm:1' })
+        expect(seen.toasts.at(-1)).toBe(
+          'Removed task 1: "Read the design". Claude is told at your next prompt.',
+        )
+        await ui.press({ key: 'rm:2' })
+        expect(seen.toasts.at(-1)).toBe(
+          'Removed task 2: "Write the tab mocks". Claude is told at your next prompt.',
+        )
+        expect(await screen(ui, 41)).toEqual([
+          'Tasks  0 of 1 done · 14m',
+          '▶ Now  Edit docs/mocks.md  10 tools · 14m',
+          '○ 4 You: Ask the person about tabs [ rm ]',
+          '',
+          '[ Add a task ][Add]',
+        ])
+        expect(await modelTool($, {})).toBe(
+          'Tasks (0 of 1 done)\n  4  pending      you      Ask the person about tabs',
+        )
+        await ui.unmount()
+      },
+    )
+  }
+})
+
+const MV_CRITERION =
+  'When the person runs /board mv 5 before 2, task 5 sits before task 2, and /board mv 5 top and /board mv 5 bottom move it to the ends'
+
+async function fiveTasks($: Engine): Promise<void> {
+  for (const title of ['One', 'Two', 'Three', 'Four', 'Five']) {
+    await $.tool.call({ tool: TOOL_ADD, title })
+  }
+  await toldAtNextPrompt($)
+}
+
+async function order($: Engine): Promise<string> {
+  const rows = String(await modelTool($, {}))
+    .split('\n')
+    .slice(1)
+  return rows.map((row) => row.trim().split(' ')[0]).join(' ')
+}
+
+describe(MV_CRITERION, () => {
+  test(
+    '/board mv places a task before another task, at the top and at the bottom, and Claude reads every move in one note',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await fiveTasks($)
+      expect(await board($, 'mv 5 before 2')).toBe(
+        'Moved task 5 before task 2. Claude is told at your next prompt.',
+      )
+      expect(await order($)).toBe('1 5 2 3 4')
+      expect(await board($, 'mv 5 bottom')).toBe(
+        'Moved task 5 to the bottom. Claude is told at your next prompt.',
+      )
+      expect(await order($)).toBe('1 2 3 4 5')
+      expect(await board($, 'mv 5 top')).toBe(
+        'Moved task 5 to the top. Claude is told at your next prompt.',
+      )
+      expect(await order($)).toBe('5 1 2 3 4')
+      expect(await toldAtNextPrompt($)).toEqual([
+        [
+          `${CHANGED} it moved task 5 before task 2. it moved task 5 to the bottom. it moved task 5 to the top.`,
+          '',
+          'Tasks (0 of 5 done)',
+          '  5  pending      claude   "Five"',
+          '  1  pending      claude   "One"',
+          '  2  pending      claude   "Two"',
+          '  3  pending      claude   "Three"',
+          '  4  pending      claude   "Four"',
+        ].join('\n'),
+      ])
+    },
+  )
+
+  test(
+    '/board mv to the place a task already has changes nothing and tells Claude nothing',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await fiveTasks($)
+      expect(await board($, 'mv 1 top')).toBe('Task 1 is already first. Nothing changed.')
+      expect(await board($, 'mv 5 bottom')).toBe('Task 5 is already last. Nothing changed.')
+      expect(await board($, 'mv 2 before 3')).toBe(
+        'Task 2 is already before task 3. Nothing changed.',
+      )
+      expect(await order($)).toBe('1 2 3 4 5')
+      expect(await toldAtNextPrompt($)).toEqual([])
+    },
+  )
+
+  test(
+    '/board mv refuses a missing task, a wrong form and one task twice by name, with the correct form',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      expect(await board($, 'mv 5 top')).toBe(
+        'No task 5. This session has no tasks yet; add one with /board add <text>.',
+      )
+      await fiveTasks($)
+      await board($, 'rm 3')
+      expect(await board($, 'mv 3 top')).toBe(
+        'No task 3. This session has tasks 1-2, 4-5; /board list prints them.',
+      )
+      expect(await board($, 'mv 5 before 9')).toBe(
+        'No task 9. This session has tasks 1-2, 4-5; /board list prints them.',
+      )
+      const form =
+        '/board mv needs a task number and a place, for example /board mv 5 before 2, /board mv 5 top or /board mv 5 bottom.'
+      for (const args of ['mv', 'mv 5', 'mv five top', 'mv 5 up', 'mv 5 before', 'mv 5 top 2']) {
+        expect(await board($, args)).toBe(form)
+      }
+      expect(await board($, 'mv 5 before 5')).toBe(
+        '/board mv needs two different tasks, for example /board mv 5 before 2.',
+      )
+      expect(await order($)).toBe('1 2 4 5')
+    },
+  )
+})
+
+const FOCUS_CRITERION =
+  'When the person moves a task with a button, the focus stays on the moved task'
+
+const FOCUS_ASKED = 'handily-board: the focus did not move to '
+
+describe(FOCUS_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `up and down ask for the focus on the same button of the moved task, at its new place, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const asked = () =>
+          seen.logs
+            .filter((line) => line.startsWith(FOCUS_ASKED))
+            .map((line) => line.slice(FOCUS_ASKED.length).split(':', 3).join(':'))
+        await start($)
+        await mockWork($, seen)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await ui.press({ key: 'open:task:4' })
+        const buttons = async () =>
+          (await ui.findAll({ type: 'Button' })).map((button) => button.key ?? '')
+        const before = await buttons()
+        expect(before.slice(before.indexOf('open:task:4'))).toContain('up:4:3')
+        await ui.press({ key: 'up:4:3' })
+        expect(asked()).toEqual(['up:4:2'])
+        const moved = await buttons()
+        expect(moved.slice(moved.indexOf('open:task:4'), moved.indexOf('open:task:3'))).toEqual([
+          'open:task:4',
+          'rm:4',
+          'done:4',
+          'start:4',
+          'up:4:2',
+          'down:4:2',
+        ])
+        await ui.press({ key: 'up:4:2' })
+        expect(asked()).toHaveLength(1)
+        await ui.press({ key: 'down:4:2' })
+        expect(asked()).toEqual(['up:4:2', 'down:4:3'])
+        expect(await buttons()).toContain('down:4:3')
+        await ui.press({ key: 'open:task:4' })
+        await ui.unmount()
+      },
+    )
+  }
 })
