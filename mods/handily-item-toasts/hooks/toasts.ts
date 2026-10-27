@@ -1,24 +1,39 @@
 import type { EngineInterface, PluginState } from 'claude-code'
 import type { ItemToastsHealth as Health } from '../types'
+import { TOAST_MARKS, type ToastParts } from './toast'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Refreshed = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
 type Item = Refreshed['created'][number]
 type Line = Awaited<ReturnType<EngineInterface['workitems']['lines']>>[number]
 type ChangeKind = 'created' | 'updated' | 'closed'
+type Status = Item['status']
 
-export const TITLE_LENGTH = 40
 export const QUIET_WINDOW_MS = 30_000
 
 const NAMED_IDS = 2
 const KINDS_IN_DIFF_ORDER: readonly ChangeKind[] = ['created', 'updated', 'closed']
 const KINDS_BY_STRENGTH: readonly ChangeKind[] = ['updated', 'closed', 'created']
 const HEADER_AGE_PART = ' \u00b7 read '
+const SENTENCE_END = '. '
+const QUOTE = '"'
+const ESCAPE = '\\'
+const COUNT_SEPARATOR = '  '
+
+const STATUS_MARKS: Readonly<Record<Status, string>> = {
+  open: TOAST_MARKS.toDo,
+  in_progress: TOAST_MARKS.doing,
+  blocked: TOAST_MARKS.blocked,
+  deferred: TOAST_MARKS.toDo,
+  closed: TOAST_MARKS.done,
+  other: TOAST_MARKS.toDo,
+}
 
 export type Change = {
   kind: ChangeKind
   id: string
   title: string
+  status: Status
   from: string | null
   to: string
 }
@@ -28,7 +43,7 @@ export type ToastHost = {
   refresh: (since: number) => Promise<Refreshed>
   lines: (snapshot: Snapshot) => Promise<readonly Line[]>
   now: () => Promise<number>
-  toast: (text: string) => void
+  show: (parts: ToastParts) => void
   log: (text: string) => void
   announced: () => Promise<Health | undefined>
   announce: (health: Health) => Promise<void>
@@ -42,43 +57,45 @@ export type Toaster = {
   leaveCall: () => Promise<void>
 }
 
-export function cutTitle(title: string, length: number): string {
-  const graphemes = Array.from(new Intl.Segmenter().segment(title), (part) => part.segment)
-  if (graphemes.length <= length) return title
-  return `${graphemes.slice(0, length).join('').trimEnd()}\u2026`
+function eventText(change: Change): string {
+  if (change.kind !== 'updated') return change.kind
+  if (change.from === null || change.from === change.to) return change.kind
+  return `${change.from} \u2192 ${change.to}`
 }
 
-function statusMove(change: Change): string {
-  if (change.kind !== 'updated' || change.from === null || change.from === change.to) return ''
-  return ` (${change.from} -> ${change.to})`
-}
-
-export function changeText(change: Change): string {
-  return `${change.id} ${change.kind}: ${cutTitle(change.title, TITLE_LENGTH)}${statusMove(change)}`
+function changeParts(change: Change): ToastParts {
+  return [
+    `${STATUS_MARKS[change.status]} ${change.id} ${eventText(change)}`,
+    { quoted: change.title },
+  ]
 }
 
 function countsText(changes: readonly Change[]): string {
-  const counts = KINDS_IN_DIFF_ORDER.map((kind) => ({
-    kind,
-    count: changes.filter((change) => change.kind === kind).length,
-  }))
-  return counts
-    .filter(({ count }) => count > 0)
+  const groups = new Map<string, { mark: string; kind: ChangeKind; count: number }>()
+  for (const kind of KINDS_IN_DIFF_ORDER) {
+    for (const change of changes.filter((each) => each.kind === kind)) {
+      const mark = STATUS_MARKS[change.status]
+      const key = `${mark} ${kind}`
+      const held = groups.get(key)
+      groups.set(key, { mark, kind, count: (held?.count ?? 0) + 1 })
+    }
+  }
+  return [...groups.values()]
     .sort((a, b) => b.count - a.count)
-    .map(({ kind, count }) => `${String(count)} ${kind}`)
-    .join(', ')
+    .map(({ mark, kind, count }) => `${mark} ${String(count)} ${kind}`)
+    .join(COUNT_SEPARATOR)
 }
 
 function idsText(changes: readonly Change[]): string {
   const named = changes.slice(0, NAMED_IDS).map((change) => change.id)
   const rest = changes.length - named.length
-  return rest > 0 ? [...named, `+${String(rest)}`].join(', ') : named.join(', ')
+  return (rest > 0 ? [...named, `+${String(rest)}`] : named).join(' ')
 }
 
-export function changesText(changes: readonly Change[]): string {
+export function changesParts(changes: readonly Change[]): ToastParts {
   const [only] = changes
-  if (changes.length === 1 && only !== undefined) return changeText(only)
-  return `${String(changes.length)} work items changed: ${countsText(changes)} (${idsText(changes)})`
+  if (changes.length === 1 && only !== undefined) return changeParts(only)
+  return [`${String(changes.length)} items changed`, countsText(changes), idsText(changes)]
 }
 
 function healthOf(snapshot: Snapshot): Health | null {
@@ -87,21 +104,29 @@ function healthOf(snapshot: Snapshot): Health | null {
   return null
 }
 
-function firstSentence(text: string): string {
-  const [first = text] = text.split('. ')
-  return `${first.replace(/\.$/, '')}.`
+function sentenceEndOutsideQuotes(text: string): number {
+  let isQuoted = false
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+    if (isQuoted && character === ESCAPE) index += 1
+    else if (character === QUOTE) isQuoted = !isQuoted
+    else if (!isQuoted && text.startsWith(SENTENCE_END, index)) return index
+  }
+  return -1
 }
 
-export function healthText(lines: readonly Line[], health: Health): string {
-  if (health === 'failed') {
-    const failed = lines.find((line) => line.kind === 'failed')
-    if (!failed) throw new Error('item-toasts: workitems drew no failed line for a failed snapshot')
-    return firstSentence(failed.text)
-  }
+export function failedParts(reason: string): ToastParts {
+  const head = `${TOAST_MARKS.blocked} Work items unavailable`
+  const sentenceEnd = sentenceEndOutsideQuotes(reason)
+  if (sentenceEnd < 0) return [head, reason]
+  return [head, reason.slice(0, sentenceEnd + 1), reason.slice(sentenceEnd + SENTENCE_END.length)]
+}
+
+function backParts(lines: readonly Line[]): ToastParts {
   const header = lines.find((line) => line.kind === 'header')
   if (!header) throw new Error('item-toasts: workitems drew no header line for an ok snapshot')
   const [label = header.text] = header.text.split(HEADER_AGE_PART)
-  return `Work items are back: ${label}.`
+  return [`${TOAST_MARKS.done} Work items are back`, label]
 }
 
 function strongerKind(held: ChangeKind, next: ChangeKind): ChangeKind {
@@ -136,6 +161,7 @@ export function createToaster(host: ToastHost): Toaster {
           kind,
           id: item.id,
           title: item.title,
+          status: item.status,
           from: knownStatus.get(item.key) ?? null,
           to: item.rawStatus,
         }
@@ -185,16 +211,21 @@ export function createToaster(host: ToastHost): Toaster {
     if (isFailed) hasOwnCallDuringFailure = true
   }
 
-  async function nextText(snapshot: Snapshot, health: Health): Promise<string | null> {
+  async function healthParts(snapshot: Snapshot): Promise<ToastParts> {
+    if (snapshot.state === 'failed') return failedParts(snapshot.reason)
+    return backParts(await host.lines(snapshot))
+  }
+
+  async function nextParts(snapshot: Snapshot, health: Health): Promise<ToastParts | null> {
     if (health !== ((await host.announced()) ?? 'ok')) {
-      const text = healthText(await host.lines(snapshot), health)
+      const parts = await healthParts(snapshot)
       await host.announce(health)
-      return text
+      return parts
     }
     if (pending.size === 0) return null
-    const text = changesText([...pending.values()])
+    const parts = changesParts([...pending.values()])
     pending.clear()
-    return text
+    return parts
   }
 
   async function flush(): Promise<void> {
@@ -208,9 +239,9 @@ export function createToaster(host: ToastHost): Toaster {
     const now = await host.now()
     const lastToastAt = await host.lastToastAt()
     if (lastToastAt !== undefined && now - lastToastAt < QUIET_WINDOW_MS) return
-    const text = await nextText(snapshot, health)
-    if (text === null) return
-    host.toast(text)
+    const parts = await nextParts(snapshot, health)
+    if (parts === null) return
+    host.show(parts)
     await host.noteToast(now)
   }
 

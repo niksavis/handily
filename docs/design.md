@@ -484,6 +484,42 @@ Dropped (review decision 7).
 
 A toast when a work item changes state outside this session. It needs a rate limit.
 
+The toast layout (approved 2026-10-27, handily-ftx0x.2) rests on the measured toast surface in
+`docs/mocks.md` section 4. `$.ui.toast` takes plain text and `{ timeoutMs }` only. The box text
+is 40 columns wide and shows at most 3 lines. A line break draws as a replacement mark, but a
+part padded with spaces to 40 columns starts the next part on its own line.
+
+| Line | Item change | Merged changes |
+| --- | --- | --- |
+| 1 | `✓ handily-ab12 closed` or `▶ handily-cd34 open → in_progress` | `3 items changed` |
+| 2 | `"Draw text mocks for the mods"`, the tracker title, quoted | `✓ 2 closed  ○ 1 created` |
+| 3 | A hint, only when there is one | `handily-ab12 handily-cd34 +1` |
+
+- The marks are the approved signals: `✓` done, `○` new or open, `▶` in progress, `■` failed or
+  refused, `◆` you must act. An item change takes the mark of the normalised status of its new
+  state. `deferred` and `other` take `○`. The status words are the tracker's raw words.
+- The title is escaped as the board quotes tracker text, and cut at a whole grapheme with `…`
+  to fit its line. Any part longer than its line is cut with `…`, never wrapped into the next
+  part. A part that a next part follows keeps 39 columns, so that its line ends in a space. A
+  part of exactly 40 columns wraps a word onto the next line (measured on Claude Code 2.1.312,
+  handily-ftx0x.2 record comment).
+- `timeoutMs` is `2000 + 80` for each visible cell of all parts, at least 6000 and at most 15000.
+  A toast with `■` or `◆` outside a quoted title stays at least 10000.
+- A failure toast is `■ Work items unavailable`, then the first sentence of the reason, then the
+  rest of the reason as the hint. A sentence end inside double quotes, such as quoted adapter
+  text, does not split the reason. A recovery toast is `✓ Work items are back`, then the source
+  and the open count.
+- The 40-column width is `TOAST_COLUMNS` in `hooks/toast.ts`. That file is the one call site of
+  `$.ui.toast` in the mod. It exports `TOAST_MARKS`, `toastText`, `toastMs` and `showToast`, and
+  it measures width with the mod's copy of `width.ts`.
+- `scripts/toast.test.mjs` refuses a mod with a `hooks/toast.ts` that its keeper list does not
+  name, two copies that differ, and any use of the `toast` of `ui` in any other file under
+  `mods/*/hooks`: a call, a `bind`, a bracket, a plain read or a destructure. The
+  board, reply-view and simple-view still call `$.ui.toast` directly. The gate lists them as known
+  exceptions until handily-ftx0x.3 and handily-ftx0x.4 move them. `TOAST_MARKS` must equal the
+  approved signal marks in `scripts/fixtures/signals.mjs`, which `scripts/signals.test.mjs` also
+  reads.
+
 ### 4.7 agent-board (handily-cr7r)
 
 Historical. Replaced by 4.9, `handily-board` (decision of the person, 2026-10-13). This section

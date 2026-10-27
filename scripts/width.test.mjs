@@ -8,6 +8,7 @@ const root = join(import.meta.dirname, '..')
 
 const WIDTH_EXPORTS = {
   'handily-board': ['cutToWidth', 'displayWidth', 'fitted', 'lastToWidth', 'padToWidth'],
+  'handily-item-toasts': ['displayWidth', 'fitted', 'padToWidth'],
   'handily-reply-view': ['cutToWidth', 'displayWidth', 'graphemesOf', 'isEmoji', 'padToWidth'],
   'handily-simple-view': ['displayWidth', 'graphemesOf', 'isEmoji'],
 }

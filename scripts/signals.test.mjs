@@ -3,17 +3,10 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
+import { APPROVED } from './fixtures/signals.mjs'
 
 const root = join(import.meta.dirname, '..')
 const SIGNAL_MODS = ['handily-board']
-
-const APPROVED = {
-  doing: { name: 'Doing', mark: '▶', color: 'claude' },
-  done: { name: 'Done', mark: '✓', color: 'success' },
-  toDo: { name: 'To do', mark: '○', color: 'subtle' },
-  blocked: { name: 'Blocked', mark: '■', color: 'error' },
-  waitsForYou: { name: 'Waits for you', mark: '◆', color: 'warning' },
-}
 
 function signalsPath(mod) {
   return join(root, 'mods', mod, 'hooks', 'signals.ts')

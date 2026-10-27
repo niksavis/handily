@@ -367,8 +367,8 @@ handily-fwkt.8.19). handily 0.5.1 removed the plugin `handily-session-board`.
 
 A toast when a work item changes outside this session (a diff not caused by a tool call that
 quiet-items matched here). Rate limit: at most one toast per 30 s; changes inside the window merge
-into the next toast. Engine draws the box (top right over the transcript, under the plugin name;
-one line on the notification bar when not fullscreen).
+into the next toast. The engine draws the box at the top right over the transcript, under the
+plugin name. It draws the box also outside fullscreen (measured 2026-10-27).
 
 A call of this session counts as a tracker write, and its change draws no toast, when:
 
@@ -383,31 +383,74 @@ most 30 minutes.
 
 ### Terminal, normal
 
-```text
-                                                    ┌ item-toasts ──────────────────────────────┐
-                                                    │ handily-ab12 closed: Draw text mocks for… │
-                                                    └───────────────────────────────────────────┘
-```
-
-Toast texts (title cut to 40):
+The engine draws the box at the top right, headed by the plugin name. Each part of the toast
+starts its own line (see "Measured toast surface" below).
 
 ```text
-handily-ab12 closed: Draw text mocks for the mods
-handily-cd34 created: Write the beads reader
-handily-cd34 updated: Write the beads reader (open -> in_progress)
-3 work items changed: 2 closed, 1 created (handily-ab12, handily-cd34, +1)
-Work items unavailable: basicly tracker items exited 2.          (once per failure, not repeated)
+╭──────────────────────────────────────────╮
+│ handily-item-toasts                      │
+│ ✓ handily-ab12 closed                    │
+│ "Draw text mocks for the mods"           │
+╰──────────────────────────────────────────╯
 ```
+
+Toast texts (one part per line) and their `timeoutMs` (handily-ftx0x.2):
+
+```text
+✓ handily-ab12 closed                                   6080 ms
+"Draw text mocks for the mods"
+
+○ handily-cd34 created                                  6000 ms
+"Write the beads reader"
+
+▶ handily-cd34 open → in_progress                       6560 ms
+"Write the beads reader"
+
+○ handily-cd34 updated                                  6000 ms  (only the title changed)
+"Write the beads reader"
+
+■ handily-cd34 open → blocked                          10000 ms
+"Write the beads reader"
+
+✓ handily-gh78 closed                                   6880 ms  (title cut to its line)
+"Write the beads reader so the provide…"
+
+3 items changed                                         7280 ms
+✓ 2 closed  ○ 1 created
+handily-ab12 handily-cd34 +1
+
+■ Work items unavailable                               10000 ms  (once per failure)
+basicly tracker items exited 2.
+Run it in a shell to see why.
+
+✓ Work items are back                                   6000 ms
+basicly · 14 open
+```
+
+The layout of every handily toast (approved 2026-10-27, handily-ftx0x):
+
+- Line 1 is the mark, the id and the event. Line 2 is the tracker title in double quotes,
+  escaped as the board quotes tracker text. Line 3 is a hint, only when there is one.
+- A part longer than its line is cut with `…` at a whole grapheme. A cut never moves text to the
+  next part. A part that a next part follows keeps 39 columns, so that its line ends in a space.
+  The measurement in the table below shows why.
+- The mark comes from the normalised status of the new state: `✓` closed, `▶` in progress,
+  `■` blocked, `○` open, deferred and other. The status words are the tracker's own words.
+- `timeoutMs` is 2000 plus 80 for each visible cell of all parts, at least 6000 and at most
+  15000. A toast with `■` or `◆` outside a quoted title stays at least 10000.
+- `hooks/toast.ts` of the mod draws every toast. `scripts/toast.test.mjs` keeps the copies equal
+  and refuses any use of the `toast` of `ui` in any other hooks file: a call, a `bind`, a
+  bracket, a plain read or a destructure.
 
 ### Empty / error
 
 - No change, no toast. `no-tracker`: silent. `approval-needed`: silent (the ask covers it).
-- `failed`: one toast when the state turns failed, one `Work items are back: basicly · 14 open.`
-  when it recovers; nothing in between.
+- `failed`: one toast `■ Work items unavailable` when the state turns failed, one toast
+  `✓ Work items are back` when it recovers; nothing in between.
 
 ### Narrow terminal
 
-Same text; the engine wraps or cuts the box. Keep each toast under 60 characters before the title.
+Same text. The box text is 40 columns wide at every terminal width that was measured.
 
 ### Desktop
 
@@ -420,8 +463,8 @@ None proposed. If wanted: `/item-toasts` -> `item-toasts off for this session.` 
 
 Look choices (approved as proposed):
 
-1. Rate limit 30 s and merge format `3 work items changed: 2 closed, 1 created (…)`.
-2. Show the status move `(open -> in_progress)` on updates, or the verb only.
+1. Rate limit 30 s and a merged toast for the changes inside it.
+2. Show the status move on updates, now drawn as `open → in_progress`.
 3. A toast on failed and recovered (proposed), or silent.
 
 ### Measured toast surface (2026-10-27, Claude Code 2.1.312)
@@ -436,6 +479,7 @@ handily toast (handily-ftx0x.1).
 | Lines | At most 3; more text is cut with `…` |
 | Line break in the text | Drawn as `�`, not as a new line |
 | Padding a part with spaces to 40 columns | The next part starts on its own line |
+| A part of exactly 40 columns before another part | A word of the first part wraps onto the next line. 39 columns and one space keep the parts apart (handily-ftx0x.2 record comment) |
 | Padding with non-breaking spaces | Does not start a new line |
 | `timeoutMs: 15000` | The toast stayed 15.0 s |
 | Several toasts | At most 3 show, the newest at the bottom; the older ones sit behind `+N more` |

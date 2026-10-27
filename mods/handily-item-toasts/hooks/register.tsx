@@ -1,6 +1,7 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { ItemToastsMode } from '../types'
 import { isTrackerWrite, type ToolUse, type TrackerRules } from './match'
+import { showToast } from './toast'
 import { createToaster, type ToastHost, type Toaster } from './toasts'
 
 const TICK_MS = 2000
@@ -34,8 +35,8 @@ function hostOf($: EngineInterface): ToastHost {
     refresh: (since) => $.workitems.refresh({ since }),
     lines: async (snapshot) => $.workitems.lines({ snapshot, now: await $.clock.now() }),
     now: () => $.clock.now(),
-    toast: (text) => {
-      $.ui.toast(text)
+    show: (parts) => {
+      showToast($, parts)
     },
     log: (text) => {
       $.ui.log(text)
