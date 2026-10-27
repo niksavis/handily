@@ -2,7 +2,7 @@ import type { RenderElement, RenderSurface } from 'claude-code'
 import type { SimpleViewFold } from '../types'
 import { erroredOutput, isRecord } from './output'
 import type { RowLook } from './row'
-import { graphemesOf, isEmoji } from './width'
+import { displayWidth, graphemesOf, isEmoji } from './width'
 
 export const OPEN_LINES = 20
 export const DRAWN_CHARACTERS_AT_MOST = 60_000
@@ -58,8 +58,7 @@ function shownWithTabs(line: string): string {
     }
     const drawn = shownGrapheme(grapheme)
     shown += drawn
-    column +=
-      drawn === grapheme ? cells : graphemesOf(drawn).reduce((sum, part) => sum + part.cells, 0)
+    column += drawn === grapheme ? cells : displayWidth(drawn)
   }
   return shown
 }

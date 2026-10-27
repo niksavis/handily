@@ -1,7 +1,7 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import { elapsedText } from './detail'
 import type { BashEnd, FileChange, StderrSummary, Totals } from './output'
-import { graphemesOf } from './width'
+import { displayWidth } from './width'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 type CellStyle = Omit<Parameters<RowElements['Text']>[0], 'children'>
@@ -31,10 +31,6 @@ function cell(
     ...(keptCells === undefined ? {} : { minWidth: keptCells }),
     children: Text({ ...style, children: text }),
   })
-}
-
-function cellsOf(text: string): number {
-  return graphemesOf(text).reduce((sum, part) => sum + part.cells, 0)
 }
 
 function trailing(elements: RowElements, actions: RenderElement | null): RenderElement[] {
@@ -147,7 +143,7 @@ export function bashRow(
         style: { wrap: 'truncate-end' },
         canShrink: true,
         keptCells: hasCutText(view.state)
-          ? Math.min(cellsOf(view.label), LABEL_KEPT_CELLS)
+          ? Math.min(displayWidth(view.label), LABEL_KEPT_CELLS)
           : undefined,
       },
       { text: view.program, style: { dimColor: true } },
