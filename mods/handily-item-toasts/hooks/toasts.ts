@@ -16,6 +16,8 @@ const KINDS_IN_DIFF_ORDER: readonly ChangeKind[] = ['created', 'updated', 'close
 const KINDS_BY_STRENGTH: readonly ChangeKind[] = ['updated', 'closed', 'created']
 const HEADER_AGE_PART = ' \u00b7 read '
 const SENTENCE_END = '. '
+const QUOTE = '"'
+const ESCAPE = '\\'
 const COUNT_SEPARATOR = '  '
 
 const STATUS_MARKS: Readonly<Record<Status, string>> = {
@@ -102,9 +104,20 @@ function healthOf(snapshot: Snapshot): Health | null {
   return null
 }
 
+function sentenceEndOutsideQuotes(text: string): number {
+  let isQuoted = false
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+    if (isQuoted && character === ESCAPE) index += 1
+    else if (character === QUOTE) isQuoted = !isQuoted
+    else if (!isQuoted && text.startsWith(SENTENCE_END, index)) return index
+  }
+  return -1
+}
+
 export function failedParts(reason: string): ToastParts {
   const head = `${TOAST_MARKS.blocked} Work items unavailable`
-  const sentenceEnd = reason.indexOf(SENTENCE_END)
+  const sentenceEnd = sentenceEndOutsideQuotes(reason)
   if (sentenceEnd < 0) return [head, reason]
   return [head, reason.slice(0, sentenceEnd + 1), reason.slice(sentenceEnd + SENTENCE_END.length)]
 }

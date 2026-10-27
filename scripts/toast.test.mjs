@@ -29,7 +29,11 @@ const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const TOAST_FILE = 'toast.ts'
 const TOAST_MODS = ['handily-item-toasts']
-const DIRECT_CALL = /\.toast\s*\(/
+const TOAST_USES = [
+  /(?<!['"`]ui)\.toast\b/,
+  /\[\s*(['"`])toast\1\s*\]/,
+  /\{[^{}]*\btoast\b[^{}]*\}\s*(?:=(?![=>])|:|\))/,
+]
 const BOX_COLUMNS = 40
 
 const KNOWN_DIRECT_CALLS = {
@@ -115,13 +119,18 @@ function filesUnder(dir) {
   })
 }
 
+function usesToast(path) {
+  const text = readFileSync(path, 'utf8')
+  return TOAST_USES.some((use) => use.test(text))
+}
+
 function directToastCalls(dir) {
   return readdirSync(dir)
-    .map((mod) => join(dir, mod, 'hooks'))
-    .filter((hooks) => existsSync(hooks))
-    .flatMap(filesUnder)
-    .filter((path) => !path.endsWith(`${sep}${TOAST_FILE}`))
-    .filter((path) => DIRECT_CALL.test(readFileSync(path, 'utf8')))
+    .filter((mod) => existsSync(join(dir, mod, 'hooks')))
+    .flatMap((mod) =>
+      filesUnder(join(dir, mod, 'hooks')).filter((path) => path !== toastPath(dir, mod)),
+    )
+    .filter(usesToast)
     .map((path) => relative(dirname(dir), path).split(sep).join('/'))
     .sort()
 }
@@ -210,12 +219,12 @@ describe('the copies of hooks/toast.ts', () => {
 })
 
 describe('a toast outside hooks/toast.ts', () => {
-  test('no file under mods/*/hooks calls toast outside hooks/toast.ts, but the known ones', () => {
+  test('no file under mods/*/hooks uses toast outside hooks/toast.ts, but the known ones', () => {
     const unknown = directToastCalls(modsDir).filter((path) => !(path in KNOWN_DIRECT_CALLS))
     assert.deepEqual(
       unknown,
       [],
-      `${unknown.join(', ')} calls .toast( directly; call showToast of the mod's hooks/toast.ts`,
+      `${unknown.join(', ')} uses the toast of ui directly; call showToast of the mod's hooks/toast.ts`,
     )
   })
 
@@ -229,19 +238,34 @@ describe('a toast outside hooks/toast.ts', () => {
     )
   })
 
-  test('names a hooks file that calls toast, and not toast.ts or a test outside hooks', () => {
+  test('names a hooks file that calls, binds, reads or destructures toast, and not hooks/toast.ts or a test', () => {
     withModsTree(
       {
         'mods/mod-a/hooks/register.ts': "$.ui.toast('done')\n",
         'mods/mod-a/hooks/nested/pane.tsx': "ui.toast ('done')\n",
-        'mods/mod-a/hooks/quiet.ts': "on('ui.toast', hook)\n",
+        'mods/mod-a/hooks/destructured.ts': "const { toast } = $.ui\ntoast('done')\n",
+        'mods/mod-a/hooks/renamed.ts': "const { log, toast: show } = $.ui\nshow('done')\n",
+        'mods/mod-a/hooks/parameter.ts': "export const tell = ({ toast }: Ui) => toast('done')\n",
+        'mods/mod-a/hooks/bound.ts': 'const show = $.ui.toast.bind($.ui)\n',
+        'mods/mod-a/hooks/bracket.ts': '$.ui["toast"]("done")\n',
+        'mods/mod-a/hooks/read.ts': 'const show = $.ui.toast\n',
+        'mods/mod-a/hooks/ui/toast.ts': "$.ui.toast('done')\n",
+        'mods/mod-a/hooks/quiet.ts':
+          "on('ui.toast', hook)\nimport { showToast } from './toast'\nconst toasts = 1\n",
         'mods/mod-a/hooks/toast.ts': "$.ui.toast('done')\n",
         'mods/mod-a/mod-a.test.ts': "$.ui.toast('done')\n",
       },
       (dir) => {
         assert.deepEqual(directToastCalls(dir), [
+          'mods/mod-a/hooks/bound.ts',
+          'mods/mod-a/hooks/bracket.ts',
+          'mods/mod-a/hooks/destructured.ts',
           'mods/mod-a/hooks/nested/pane.tsx',
+          'mods/mod-a/hooks/parameter.ts',
+          'mods/mod-a/hooks/read.ts',
           'mods/mod-a/hooks/register.ts',
+          'mods/mod-a/hooks/renamed.ts',
+          'mods/mod-a/hooks/ui/toast.ts',
         ])
       },
     )

@@ -52,6 +52,10 @@ function backToast(open: number): string[] {
   return ['✓ Work items are back', `beads \u00b7 ${String(open)} open`]
 }
 
+function change(kind: Change['kind'], id: string, status: Change['status']): Change {
+  return { kind, id, title: 'x', status, from: null, to: status }
+}
+
 function lengthRuleMs(lines: readonly string[]): number {
   const cells = lines.reduce((sum, line) => sum + displayWidth(line), 0)
   return Math.min(Math.max(2000 + 80 * cells, 6000), 15000)
@@ -723,14 +727,6 @@ describe('the rate limit', () => {
   })
 
   test('counts the larger group first in the merged text', () => {
-    const change = (kind: Change['kind'], id: string, status: Change['status']): Change => ({
-      kind,
-      id,
-      title: 'x',
-      status,
-      from: null,
-      to: status,
-    })
     const parts = changesParts([
       change('updated', 'a-1', 'open'),
       change('closed', 'a-2', 'closed'),
@@ -742,6 +738,48 @@ describe('the rate limit', () => {
       'a-1 a-2 +1',
     ])
   })
+
+  test('counts updates with different marks as separate groups', () => {
+    const parts = changesParts([
+      change('updated', 'a-1', 'open'),
+      change('updated', 'a-2', 'in_progress'),
+    ])
+    expect(boxLines(toastText(parts))).toEqual([
+      '2 items changed',
+      '○ 1 updated  ▶ 1 updated',
+      'a-1 a-2',
+    ])
+  })
+
+  test('keeps a merged toast with a blocked item for at least 10 s', () => {
+    const parts = changesParts([
+      change('closed', 'a-1', 'closed'),
+      change('closed', 'a-2', 'closed'),
+      change('updated', 'a-3', 'blocked'),
+    ])
+    expect(boxLines(toastText(parts))).toEqual([
+      '3 items changed',
+      '✓ 2 closed  ■ 1 updated',
+      'a-1 a-2 +1',
+    ])
+    expect(lengthRuleMs(boxLines(toastText(parts)))).toBeLessThan(10_000)
+    expect(toastMs(parts)).toBe(10_000)
+  })
+
+  const STATUS_MARKS: readonly [Change['status'], string][] = [
+    ['open', '○'],
+    ['in_progress', '▶'],
+    ['blocked', '■'],
+    ['deferred', '○'],
+    ['closed', '✓'],
+    ['other', '○'],
+  ]
+  for (const [status, mark] of STATUS_MARKS) {
+    test(`marks an item whose new status is ${status} with ${mark}`, () => {
+      const [head] = changesParts([change('updated', 'a-1', status)])
+      expect(head).toBe(`${mark} a-1 updated`)
+    })
+  }
 })
 
 describe('the snapshot state', () => {
@@ -1475,6 +1513,24 @@ describe('the toast layout', () => {
       'Run it in a shell to see why.',
     ])
     expect(toastMs(parts)).toBe(10_000)
+  })
+
+  test('keeps a sentence end inside quoted adapter text in the reason line', () => {
+    const reason =
+      '.handily/adapter.json says contract "1. beta", which is not the number 1, so it could not be read.'
+    expect(boxLines(toastText(failedParts(reason)))).toEqual([
+      '■ Work items unavailable',
+      '.handily/adapter.json says contract "1.…',
+    ])
+  })
+
+  test('splits a failure after quoted text at the sentence end that follows it', () => {
+    const parts = failedParts('x says contract "a. b\\". c". Run it in a shell.')
+    expect(boxLines(toastText(parts))).toEqual([
+      '■ Work items unavailable',
+      'x says contract "a. b\\". c".',
+      'Run it in a shell.',
+    ])
   })
 
   test('keeps a mark that the tracker title holds from raising the time', () => {

@@ -433,12 +433,14 @@ The layout of every handily toast (approved 2026-10-27, handily-ftx0x):
   escaped as the board quotes tracker text. Line 3 is a hint, only when there is one.
 - A part longer than its line is cut with `…` at a whole grapheme. A cut never moves text to the
   next part. A part that a next part follows keeps 39 columns, so that its line ends in a space.
+  The measurement in the table below shows why.
 - The mark comes from the normalised status of the new state: `✓` closed, `▶` in progress,
   `■` blocked, `○` open, deferred and other. The status words are the tracker's own words.
 - `timeoutMs` is 2000 plus 80 for each visible cell of all parts, at least 6000 and at most
   15000. A toast with `■` or `◆` outside a quoted title stays at least 10000.
 - `hooks/toast.ts` of the mod draws every toast. `scripts/toast.test.mjs` keeps the copies equal
-  and refuses a direct `.toast(` call in any other hooks file.
+  and refuses any use of the `toast` of `ui` in any other hooks file: a call, a `bind`, a
+  bracket, a plain read or a destructure.
 
 ### Empty / error
 
@@ -477,6 +479,7 @@ handily toast (handily-ftx0x.1).
 | Lines | At most 3; more text is cut with `…` |
 | Line break in the text | Drawn as `�`, not as a new line |
 | Padding a part with spaces to 40 columns | The next part starts on its own line |
+| A part of exactly 40 columns before another part | A word of the first part wraps onto the next line. 39 columns and one space keep the parts apart (handily-ftx0x.2 record comment) |
 | Padding with non-breaking spaces | Does not start a new line |
 | `timeoutMs: 15000` | The toast stayed 15.0 s |
 | Several toasts | At most 3 show, the newest at the bottom; the older ones sit behind `+N more` |

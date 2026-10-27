@@ -500,17 +500,21 @@ part padded with spaces to 40 columns starts the next part on its own line.
   state. `deferred` and `other` take `○`. The status words are the tracker's raw words.
 - The title is escaped as the board quotes tracker text, and cut at a whole grapheme with `…`
   to fit its line. Any part longer than its line is cut with `…`, never wrapped into the next
-  part. A part that a next part follows keeps 39 columns, so that its line ends in a space.
+  part. A part that a next part follows keeps 39 columns, so that its line ends in a space. A
+  part of exactly 40 columns wraps a word onto the next line (measured on Claude Code 2.1.312,
+  handily-ftx0x.2 record comment).
 - `timeoutMs` is `2000 + 80` for each visible cell of all parts, at least 6000 and at most 15000.
   A toast with `■` or `◆` outside a quoted title stays at least 10000.
 - A failure toast is `■ Work items unavailable`, then the first sentence of the reason, then the
-  rest of the reason as the hint. A recovery toast is `✓ Work items are back`, then the source
+  rest of the reason as the hint. A sentence end inside double quotes, such as quoted adapter
+  text, does not split the reason. A recovery toast is `✓ Work items are back`, then the source
   and the open count.
 - The 40-column width is `TOAST_COLUMNS` in `hooks/toast.ts`. That file is the one call site of
   `$.ui.toast` in the mod. It exports `TOAST_MARKS`, `toastText`, `toastMs` and `showToast`, and
   it measures width with the mod's copy of `width.ts`.
 - `scripts/toast.test.mjs` refuses a mod with a `hooks/toast.ts` that its keeper list does not
-  name, two copies that differ, and a `.toast(` call in any other file under `mods/*/hooks`. The
+  name, two copies that differ, and any use of the `toast` of `ui` in any other file under
+  `mods/*/hooks`: a call, a `bind`, a bracket, a plain read or a destructure. The
   board, reply-view and simple-view still call `$.ui.toast` directly. The gate lists them as known
   exceptions until handily-ftx0x.3 and handily-ftx0x.4 move them. `TOAST_MARKS` must equal the
   approved signal marks in `scripts/fixtures/signals.mjs`, which `scripts/signals.test.mjs` also
