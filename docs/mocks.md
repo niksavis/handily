@@ -1259,3 +1259,354 @@ only one pane is open.
   nothing and a second one shows the tab.
 - Upgrade: removing the old plugins without aliases leaves `/task` users with an unknown command; only
   the release note tells them.
+
+## 9. handily-reply-view: tables, code and diagrams (approved 2026-10-27)
+
+Approved by the person on 2026-10-27 (handily-5zzxk.2). The decisions behind these mocks are in
+docs/design.md section 4.10.
+
+The designer numbered these mocks 2.1 to 2.11. Mock 9.n here is mock 2.n there. The records
+handily-5zzxk.5, handily-5zzxk.6 and handily-5zzxk.7 cite the old numbers.
+
+### 9.0 Conventions
+
+- The blocks are plain text, with no look markup. A script checked the width of each line with
+  the grapheme widths of handily-5zzxk.1: a ZWJ emoji, a flag, a keycap and an emoji with VS16
+  take two columns.
+- The width of the screen is in each heading. A reply is indented by 2 columns, so a block in a
+  reply has 2 columns less.
+- `[ copy ]`, `[ copy as text ]`, `[ copy drawing ]`, `[ more ]`, `[ less ]` and
+  `[ copy reply ]` are buttons.
+
+### 9.1 A table at 120 columns
+
+```text
+● The three mods passed every gate but one:
+
+  Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step                [ copy ] [ copy as text ]
+  ────────────────────┼─────────┼───────┼───────┼──────┼───────┼─────────────────────────
+  handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the terminal
+  handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for every tool
+  handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of other sessions
+```
+
+### 9.2 The same table at 80 columns
+
+The long cells wrap, and each word stays whole. A dotted `┄` line separates the rows when a cell
+wraps:
+
+```text
+● The three mods passed every gate but one:
+
+  Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step
+  ────────────────────┼─────────┼───────┼───────┼──────┼───────┼────────────────
+  handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the
+                      │         │       │       │      │       │ terminal
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for
+                      │         │       │       │      │       │ every tool
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of other
+                      │         │       │       │      │       │ sessions
+                                                       [ copy ] [ copy as text ]
+```
+
+Today the first column splits inside a word:
+
+```text
+  Mod             │ Version │ Tests │ Lines │ Gate │ Owner │ Next step
+  ────────────────┼─────────┼───────┼───────┼──────┼───────┼────────────────────
+  handily-reply-v │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in the
+  iew             │         │       │       │      │       │ terminal
+```
+
+Each long cell cut to one line with `…`:
+
+```text
+  Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step
+  ────────────────────┼─────────┼───────┼───────┼──────┼───────┼────────────────
+  handily-reply-view  │   0.6.0 │   212 │  2638 │ pass │ Ana   │ diagrams in th…
+  handily-simple-view │   0.9.1 │   341 │  4120 │ pass │ Bo    │ one row for ev…
+  handily-board       │   1.2.0 │    98 │  3310 │ fail │ Cy    │ agents of othe…
+                                                       [ copy ] [ copy as text ]
+```
+
+### 9.3 Emoji and wide characters in cells, 80 columns
+
+```text
+● Who holds which check:
+
+  Owner  │ Status   │ Note            [ copy ] [ copy as text ]
+  ───────┼──────────┼───────────────
+  👩‍💻 Ana │ ✅ done  │ 表格对齐
+  🇦🇹 Bo  │ ⚠️ waits │ 日本語のテスト
+  Cy 1️⃣  │ ○ to do  │ plain text
+```
+
+### 9.4 Code blocks, 80 columns
+
+The tag of a block names its title line. A line longer than the width splits at the width. A
+block with no tag gets a title line with no name:
+
+```text
+● Add the width rule to every mod:
+
+  ── ts ──────────────────────────────────────────────────────────────  [ copy ]
+  const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}️/u
+  export function displayWidth(text: string): number {
+    let width = 0
+    for (const grapheme of graphemesOf(text)) width += columnsOf(grapheme)
+    return width
+  }
+
+  ── sh ──────────────────────────────────────────────────────────────  [ copy ]
+  npm test -- --grep "a ZWJ emoji takes two columns" && claude plugin test mods/
+  handily-board
+
+  ────────────────────────────────────────────────────────────────────  [ copy ]
+  plain text without a tag
+```
+
+### 9.5 A flowchart TD, 80 columns
+
+```text
+● This is how a reply with a diagram reaches the screen:
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+                 ╭────────────────╮
+                 │ Reply complete │
+                 ╰────────┬───────╯
+                          ▼
+            ┌──────────────────────────┐
+            │ ◇ Holds a mermaid block? │
+            └─────────────┬────────────┘
+               ┌──────────┴────────────────┐
+               │ yes                       │ no
+               ▼                           ▼
+     ┌──────────────────┐          ┌───────────────┐
+     │ Parse the subset │          │ Draw as today │
+     └─────────┬────────┘          └───────────────┘
+               ▼
+     ┌───────────────────┐
+     │ ◇ Fits the width? │
+     └─────────┬─────────┘
+           ┌───┴─────────────────────┐
+           │ yes                     │ no
+           ▼                         ▼
+     ┌──────────────┐      ┌───────────────────┐
+     │ Draw the art │      │ Source and a note │
+     └──────────────┘      └───────────────────┘
+```
+
+### 9.6 A flowchart LR, 80 columns
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  ╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐
+  │ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
+  ╰────────╯   └───────┘   └──────────┘  │   └─────────┘
+                                         │no ┌────────┐
+                                         └──▶│ Engine │
+                                             └────────┘
+```
+
+An edge back to an earlier box:
+
+```text
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  ┌───────┐
+  │ Build │◀───────┐
+  └───┬───┘        │
+      ▼            │
+  ┌────────┐       │
+  │ ◇ Test │───────┘ fail
+  └───┬────┘
+      │ pass
+      ▼
+  ┌─────────┐
+  │ Release │
+  └─────────┘
+```
+
+### 9.7 A sequence diagram, 80 columns
+
+```text
+● The reply takes three steps:
+
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ┌─────┐        ┌────────┐        ┌────────────┐
+  │ You │        │ Claude │        │ reply-view │
+  └──┬──┘        └────┬───┘        └──────┬─────┘
+     │    prompt      │                   │
+     │───────────────▶│                   │
+     │                │    reply text     │
+     │                │──────────────────▶│
+     │  drawn reply   │                   │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+     │                │                   │──┐ cache by width
+     │                │                   │◀─┘
+     │                │       ┌───────────┴───────────┐
+     │                │       │ layout once per width │
+     │                │       └───────────┬───────────┘
+```
+
+With numbered messages and an `alt` block:
+
+```text
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ┌─────┐        ┌───────┐
+  │ App │        │ Cache │
+  └──┬──┘        └───┬───┘
+     │   1. get key  │
+     │──────────────▶│
+  ┄┄ alt: hit ┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+     │   2. value    │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+  ┄┄ else: miss ┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+     │   3. none     │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+  ┄┄ end ┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+```
+
+### 9.8 A diagram that does not draw, 80 columns
+
+A line that does not parse. The dim note names the reason, and the source follows:
+
+```text
+● Here is the flow:
+
+  diagram not drawn: line 3 does not parse. The source follows.
+  ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
+  flowchart TD
+    A[Start] --> B[Parse]
+    B => C[Draw]
+```
+
+The note for other reasons:
+
+```text
+  diagram not drawn: it takes 151 columns, the screen has 78.
+  diagram not drawn: classDiagram does not draw yet.
+  diagram not drawn: 52 boxes, at most 40 draw.
+  diagram not drawn: subgraph does not draw yet.
+```
+
+An empty block:
+
+```text
+  diagram not drawn: the block is empty.
+  ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
+```
+
+While the reply streams:
+
+```text
+● Here is the flow:
+
+  ```mermaid
+  flowchart TD
+    A[Start] --> B[Pa
+```
+
+### 9.9 A narrow screen, 40 columns
+
+A table draws one block for each row:
+
+```text
+● Mods:
+
+  task-pane  [ copy ] [ copy as text ]
+    State: released
+    Next:  follows the work
+
+  simple-view
+    State: released
+    Next:  click to expand
+```
+
+A code line splits at the width:
+
+```text
+  ── ts ──────────────────────  [ copy ]
+  export function displayWidth(text: str
+  ing): number {
+```
+
+The flowchart LR of 9.6 turns to TD:
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ───────────────
+               [ copy ] [ copy drawing ]
+     ╭────────╮
+     │ Prompt │
+     ╰────┬───╯
+          ▼
+      ┌───────┐
+      │ Reply │
+      └───┬───┘
+          ▼
+    ┌──────────┐
+    │ ◇ Table? │
+    └─────┬────┘
+         ┌┴──────────┐
+         │ yes       │ no
+         ▼           ▼
+    ┌─────────┐ ┌────────┐
+    │ Columns │ │ Engine │
+    └─────────┘ └────────┘
+```
+
+A sequence diagram that is too wide:
+
+```text
+  diagram not drawn: it takes 48
+  columns, the screen has 38.
+  ── mermaid ─────────────────  [ copy ]
+  sequenceDiagram
+    You->>Claude: prompt
+```
+
+### 9.10 The flowchart LR of 9.6 with no reply indent, 80 columns
+
+```text
+The view decides per block:
+
+── mermaid · flowchart ──────────────────────────────  [ copy ] [ copy drawing ]
+╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐
+│ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
+╰────────╯   └───────┘   └──────────┘  │   └─────────┘
+                                       │no ┌────────┐
+                                       └──▶│ Engine │
+                                           └────────┘
+```
+
+### 9.11 A long reply with a diagram, 80 columns
+
+Folded, the diagram shows only its title line:
+
+```text
+● This is how a reply with a diagram reaches the screen. The view draws a
+  reply once, when it is complete, and keeps the drawing for this width.
+  …
+  - Step 21 of the plan.
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  … 27 more lines                                       [ more ] [ copy reply ]
+```
+
+Opened:
+
+```text
+● ────────────────────────────────────────────────────────────────────────────
+  This is how a reply with a diagram reaches the screen. The view draws a
+  …
+     ┌──────────────┐      ┌───────────────────┐
+     │ Draw the art │      │ Source and a note │
+     └──────────────┘      └───────────────────┘
+  ────────────────────────────────────────────────────────────────────────────
+                                                        [ less ] [ copy reply ]
+```

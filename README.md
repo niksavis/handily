@@ -118,6 +118,12 @@ uninstall, and move from the old plugin names.
 
 Open a GitHub issue for a bug or an idea. [CONTRIBUTING.md](CONTRIBUTING.md) gives the setup.
 
+## Credits
+
+The design of the tables, code blocks and diagrams of `handily-reply-view` uses
+[prismantis](https://github.com/NahumLitvin/prismantis) by Nahum Litvin (MIT License), at
+commit `ed085d7c`, as a reference. handily copies no code from it and adds no dependency.
+
 ## License
 
 Released under the [MIT License](LICENSE).

@@ -656,6 +656,65 @@ Defer to quiet-items:
   are the person's.
 - The approved mock is `docs/mocks.md` section 8.
 
+### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
+
+The person approved the design on 2026-10-27 (handily-5zzxk.2). reply-view draws the tables,
+the code blocks and the mermaid diagrams of a reply for the terminal. The approved mocks are in
+`docs/mocks.md`, section 9.
+
+Reference: prismantis (github.com/NahumLitvin/prismantis) at commit `ed085d7c`, MIT licence,
+by Nahum Litvin. handily copies no code from it and adds no dependency. prismantis bundles
+diagram code of a third party, so handily writes its own text renderer.
+
+Tables:
+
+- A long cell wraps inside its column. A word stays whole when the column has room for it.
+  Else the word splits at the column width.
+- Below 40 columns, a table draws one block for each row.
+- A table never scrolls sideways. `BoxProps.overflow` has only `visible` and `hidden`, and no
+  `scroll` (engine types of reply-view, 2.1.300).
+
+Code:
+
+- The engine `Code` element highlights the code. reply-view has no highlighter of its own.
+
+Diagrams:
+
+- reply-view has its own text renderer for mermaid `flowchart` with `TD`, `TB` or `LR`, and for
+  `sequenceDiagram`.
+- Another diagram kind draws as its source. So do `subgraph`, `direction`, `box`, `create` and
+  `destroy`. One dim note above the source names the reason.
+- A diagram draws whole or as its source. It never draws in part.
+- A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16
+  columns, then to 12 columns.
+- A drawn diagram has two buttons: `[ copy ]` and `[ copy drawing ]`.
+- When the fold of a reply ends inside a diagram, only the title line of the diagram shows.
+
+Limits of one diagram. Over a limit, the diagram draws as its source, and the note names the limit:
+
+| Limit | Value |
+| --- | --- |
+| Source lines | 80 |
+| Source characters | 8000 |
+| Boxes | 40 |
+| Edges | 60 |
+| Participants | 12 |
+| Drawn rows | 120 |
+
+Settings and commands:
+
+| Setting or command | Default or use | Record |
+| --- | --- | --- |
+| `diagrams` | On. Off, a mermaid block draws as today | handily-5zzxk.6 |
+| `diagramHints` | Off. On, a typed prompt carries one hint about diagrams | handily-5zzxk.8 |
+| `/replies hints` | The command of the diagram hints | handily-5zzxk.8 |
+| `/replies copy diagram`, `/replies copy table`, `/replies copy code` | Copies a block of the last reply from the keyboard | handily-5zzxk.9 |
+
+- The hint text is about 365 characters (estimate of the designer, 2026-10-27). prismantis states
+  about 630 prompt tokens for its diagram hints (its README). The cost of the handily hint is
+  measured before the release.
+- A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.
+
 ## 5. Repo layout (proposed)
 
 ```text
