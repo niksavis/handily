@@ -5,6 +5,7 @@ import type {
   PromptComposeInput,
   RenderPropsOf,
   SessionUsage,
+  UiNotifyResult,
   UsageUnit,
 } from 'claude-code'
 import {
@@ -103,6 +104,7 @@ type World = {
   toasts: string[]
   logs: string[]
   statuses: (string | undefined)[]
+  notices: string[]
   clock: MockClock
   panesAsked: number
 }
@@ -123,6 +125,7 @@ type WorldOptions = {
   closeKeepsOpen?: boolean
   unplacedReason?: string
   hasOwnPromptHook?: boolean
+  notice?: UiNotifyResult | 'denied'
 }
 
 function world(on: On, options: WorldOptions = {}): World {
@@ -140,6 +143,7 @@ function world(on: On, options: WorldOptions = {}): World {
     toasts: [],
     logs: [],
     statuses: [],
+    notices: [],
     clock: mock.clock(on, { now: 1_000 }),
     panesAsked: 0,
   }
@@ -208,6 +212,11 @@ function world(on: On, options: WorldOptions = {}): World {
   on('ui.status', (_$, e) => {
     state.statuses.push(e.text)
     return { value: undefined }
+  })
+  on('ui.notify', (_$, e) => {
+    state.notices.push(e.text)
+    if (options.notice === 'denied') return { deny: 'a hook of the test refused the notice' }
+    return { value: options.notice ?? { isSent: true as const, channel: 'kitty' as const } }
   })
   on('tool.call', () => ({ result: '' }))
   if (options.hasOwnPromptHook !== true) {
@@ -5247,3 +5256,125 @@ test('the board refuses a statusLine setting it does not know, by name', () => {
     'handily-board: userConfig statusLine is "sometimes"; set it to attention or off in /config.',
   )
 })
+
+const NOTICE_CRITERION =
+  'When a permission ask of this session stays unsettled for the needs-you delay, the board sends one notice through $.ui.notify that names the session and the tool'
+const NOTICE_TOAST_CRITERION =
+  'When $.ui.notify reports that it sent nothing, the board shows a toast in its place'
+
+const SCOUT_NOTICE = 'app needs you: scout waits for permission: Bash npm test'
+const MAIN_NOTICE = 'app needs you: Claude waits for permission: Bash npm test'
+
+for (const surface of SURFACES) {
+  describe(NOTICE_CRITERION, () => {
+    test(
+      `a subagent ask unsettled for 3 s sends one notice with the session, the agent and the tool, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        seen.agents.push(runningAgent(SCOUT, 'scout'))
+        const call = askAs($, SCOUT, 'npm test')
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS - 1)
+        expect(seen.notices).toEqual([])
+        await seen.clock.advance(1)
+        expect(seen.notices).toEqual([SCOUT_NOTICE])
+        await seen.clock.advance(10 * MINUTE)
+        expect(seen.notices).toEqual([SCOUT_NOTICE])
+        expect(seen.toasts).toEqual([])
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `an ask of the main loop unsettled for 3 s sends one notice that names Claude, and the next wait sends its own, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        const first = $.tool.call({ tool: 'Bash', command: 'npm test' })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.notices).toEqual([MAIN_NOTICE])
+        dialog.allow()
+        await first
+        const second = $.tool.call({ tool: 'Bash', command: 'npm run lint' })
+        await dialog.opened(2)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.notices).toEqual([
+          MAIN_NOTICE,
+          'app needs you: Claude waits for permission: Bash npm run lint',
+        ])
+        dialog.refuse()
+        await second
+      },
+    )
+
+    test(
+      `an ask settled before 3 s, a classifier ask and a wait while the this session tab is shown send no notice, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        seen.agents.push(runningAgent(SCOUT, 'scout'))
+        const quick = askAs($, SCOUT, 'npm test')
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS - 1)
+        dialog.allow()
+        await quick
+        const classified = $.tool.call({ tool: 'Bash', command: CLASSIFIED_COMMAND })
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS * 2)
+        expect(await classified).toEqual({ result: '' })
+        expect(await board($, '')).toBe('Board opened: this session.')
+        const shown = askAs($, SCOUT, 'npm test')
+        await dialog.opened(2)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS * 2)
+        expect(seen.notices).toEqual([])
+        dialog.allow()
+        await shown
+        expect(await board($, 'close')).toBe('Board closed.')
+        const away = askAs($, SCOUT, 'npm run lint')
+        await dialog.opened(3)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.notices).toEqual([
+          'app needs you: scout waits for permission: Bash npm run lint',
+        ])
+        dialog.allow()
+        await away
+      },
+    )
+  })
+
+  describe(NOTICE_TOAST_CRITERION, () => {
+    const unsent: readonly { name: string; notice: UiNotifyResult | 'denied' }[] = [
+      { name: 'a notice with no surface', notice: { isSent: false, reason: 'no-surface' } },
+      { name: 'a turned off notice', notice: { isSent: false, reason: 'disabled' } },
+      { name: 'a notice a hook refused', notice: 'denied' },
+    ]
+    for (const { name, notice } of unsent) {
+      test(
+        `${name} shows the same text once as a toast, on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          const seen = world(on, { notice })
+          const dialog = personDialog(on, seen.clock)
+          await startOn($, surface)
+          seen.agents.push(runningAgent(SCOUT, 'scout'))
+          const call = askAs($, SCOUT, 'npm test')
+          await dialog.opened(1)
+          await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+          await seen.clock.advance(10 * MINUTE)
+          expect(seen.notices).toEqual([SCOUT_NOTICE])
+          expect(seen.toasts).toEqual([SCOUT_NOTICE])
+          dialog.allow()
+          await call
+        },
+      )
+    }
+  })
+}

@@ -1,4 +1,5 @@
 import type { PluginOptions } from 'claude-code'
+import type { BoardToolSight } from '../types'
 import { callText } from './agent-rows'
 import type { AgentRow } from './agents'
 import { SIGNALS } from './signals'
@@ -10,6 +11,7 @@ const STATUS_LINE_SETTINGS: readonly StatusLineSetting[] = ['attention', 'off']
 const WAIT_MARK = SIGNALS.waitsForYou.mark
 const PIECE_LEAD = ' · '
 const COMPACT_HINT = '/compact frees it'
+const MAIN_LOOP = 'Claude'
 
 export function statusLineSetting(options: PluginOptions): StatusLineSetting {
   const setting = options.statusLine ?? 'attention'
@@ -22,16 +24,28 @@ export function statusLineSetting(options: PluginOptions): StatusLineSetting {
   return known
 }
 
-function waitText(row: AgentRow): string {
-  const lead = `${row.shownName} waits for permission`
-  return row.call === null ? lead : `${lead}: ${callText(row.call)}`
+function waitText(who: string, call: BoardToolSight | null): string {
+  const lead = `${who} waits for permission`
+  return call === null ? lead : `${lead}: ${callText(call)}`
+}
+
+export function agentWaitText(row: AgentRow): string {
+  return waitText(row.shownName, row.call)
+}
+
+export function mainWaitText(call: BoardToolSight): string {
+  return waitText(MAIN_LOOP, call)
+}
+
+export function noticeText(session: string, wait: string): string {
+  return `${session} needs you: ${wait}`
 }
 
 function waitsText(rows: readonly AgentRow[]): string | undefined {
   const waiting = rows.filter((row) => row.look === 'needsYou')
   const [first] = waiting
   if (first === undefined) return undefined
-  if (waiting.length === 1) return `${WAIT_MARK} ${waitText(first)}`
+  if (waiting.length === 1) return `${WAIT_MARK} ${agentWaitText(first)}`
   return `${WAIT_MARK} ${String(waiting.length)} agents wait for permission`
 }
 

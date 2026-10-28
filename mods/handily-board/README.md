@@ -304,6 +304,31 @@ ctx 91% high · /compact frees it
 - The call target is masked as in the permission checks.
 - The setting `statusLine` turns the line off. The Settings section names it.
 
+### The desktop notice
+
+When a permission ask of this session is still not settled after 3 seconds, and the
+`this session` tab is not shown, the board sends one desktop notice through `$.ui.notify`.
+Captures from the tests, for a session in the folder `app`:
+
+```text
+app needs you: scout waits for permission: Bash npm test
+app needs you: Claude waits for permission: Bash npm test
+```
+
+- The notice names the folder of the session, who waits and the call. `Claude` is the main
+  loop. A subagent is named as on its agent row.
+- Each wait sends at most one notice. The board decides at the 3 second mark. A wait that starts
+  while the `this session` tab is shown sends no notice, also when the tab closes later.
+- An ask that is settled before 3 seconds, such as an ask that the auto mode classifier settles
+  in about 0.6 seconds, sends no notice. A classifier that takes longer than 3 seconds looks like
+  a wait, because Claude Code gives a mod no event for an open permission dialog.
+- Claude Code sends the notice through the notification channel of your settings
+  (`preferredNotifChannel`). When it reports that it sent nothing, for example on the desktop
+  app, with notifications turned off, or when a hook refused it, the board shows the same text as
+  a toast.
+- Claude Code gives a mod no signal that you left the terminal window. So while the board is
+  closed, every wait sends a notice, also when you look at the terminal.
+
 ### Permission checks
 
 The board keeps the last 20 permission checks of the session, from the engine event
