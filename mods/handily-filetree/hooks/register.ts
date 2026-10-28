@@ -142,6 +142,7 @@ export const register: Register = (on) => {
       argumentHint: '[close]',
       immediate: true,
     })
+    await $.state.set({ plugin: 'handily-filetree', key: 'ready' }, { root: $.plugin.root })
     return next(e)
   })
 

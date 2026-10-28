@@ -282,6 +282,17 @@ describe('/tree', () => {
     expect(seen.commands).toEqual(['tree'])
   })
 
+  test('writes the ready value that /handily reads when the session starts', async ($, on) => {
+    world(on, APP)
+    const ready: unknown[] = []
+    on('state.set', { plugin: PLUGIN, key: 'ready' }, (_$, e, next) => {
+      ready.push(e.value)
+      return next(e)
+    })
+    await start($)
+    expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]handily-filetree$/) }])
+  })
+
   test('/tree opens the files tab with the focus, and /tree on the shown tab closes it', async ($, on) => {
     const seen = world(on, APP)
     await start($)

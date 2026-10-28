@@ -124,7 +124,7 @@ bundle after your install fails its update with `Plugin "<name>" is not installe
 then installs that mod by its name.
 
 ```sh
-claude plugin marketplace update niksavis; for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view; do claude plugin update "$p@niksavis" || claude plugin install "$p@niksavis"; done
+claude plugin marketplace update niksavis; for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view handily-filetree; do claude plugin update "$p@niksavis" || claude plugin install "$p@niksavis"; done
 ```
 
 After an update, type `/reload-plugins` in each open session, or restart Claude Code.
@@ -239,7 +239,7 @@ To move, do these steps in a shell. Skip a line for a plugin that you did not in
 ## Troubleshooting
 
 Type `/handily` in a session. It lists each mod of the bundle with its version, its state and
-its mode. It ends with one line such as `handily: 6 of 6 mods loaded, 0 off or paused`.
+its mode. It ends with one line such as `handily: 7 of 7 mods loaded, 0 off or paused`.
 
 | The list says | Do this |
 | --- | --- |

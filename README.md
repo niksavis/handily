@@ -44,7 +44,7 @@ Type these two lines at the prompt of a Claude Code session:
 
 1. The install line opens the details of the plugin. Select **Install**, then close the panel.
 2. Type `/reload-plugins`.
-3. Type `/handily`. It lists each mod and ends with `handily: 6 of 6 mods loaded, 0 off or paused`.
+3. Type `/handily`. It lists each mod and ends with `handily: 7 of 7 mods loaded, 0 off or paused`.
 
 To install from a shell, run these two lines, then start Claude Code:
 
@@ -71,7 +71,7 @@ in bash or zsh:
 
 ```sh
 claude plugin marketplace update niksavis
-for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view; do claude plugin update "$p@niksavis"; done
+for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view handily-filetree; do claude plugin update "$p@niksavis"; done
 ```
 
 After an update, type `/reload-plugins` in each open session, or restart Claude Code.
@@ -95,6 +95,7 @@ After an update, type `/reload-plugins` in each open session, or restart Claude 
 | [`handily-simple-view`](mods/handily-simple-view/README.md) | One short row for each tool call, except a call that asks you or shows you a plan | `/simple` |
 | [`handily-reply-view`](mods/handily-reply-view/README.md) | Long replies fold, tables draw without box lines, copy buttons, a rule above each prompt | `/replies` |
 | [`handily-board`](mods/handily-board/README.md) | A board with two tabs: your tasks and agents, and every local session with its agents | `/board` |
+| [`handily-filetree`](mods/handily-filetree/README.md) | A files tab beside the board: the working folder as a tree, with the git state of each file | `/tree` |
 | [`handily`](mods/handily/README.md) | The bundle of all the mods above | `/handily` |
 
 [docs/guide.md](docs/guide.md) lists every command of each mod, with its arguments and its
@@ -123,6 +124,11 @@ Open a GitHub issue for a bug or an idea. [CONTRIBUTING.md](CONTRIBUTING.md) giv
 The design of the tables, code blocks and diagrams of `handily-reply-view` uses
 [prismantis](https://github.com/NahumLitvin/prismantis) by Nahum Litvin (MIT License), at
 commit `ed085d7c`, as a reference. handily copies no code from it and adds no dependency.
+
+The design of `handily-filetree` uses
+[claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) by Kurt Buhler
+(MIT License), at commit `b98495f8`, as a reference. handily copies no code from it and adds
+no dependency.
 
 ## License
 

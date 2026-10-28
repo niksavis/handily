@@ -9,7 +9,8 @@
     "handily-board",
     "handily-item-toasts",
     "handily-simple-view",
-    "handily-reply-view"
+    "handily-reply-view",
+    "handily-filetree"
   ],
   "types": "./types/index.d.ts"
 }

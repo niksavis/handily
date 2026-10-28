@@ -15,6 +15,7 @@ each mod in the list with the bundle:
 - `handily-item-toasts`
 - `handily-simple-view`
 - `handily-reply-view`
+- `handily-filetree`
 
 `/handily` reads the same list, so it always checks the mods that the bundle installs.
 
@@ -50,12 +51,14 @@ handily-board        0.4.0  loaded  -        A board with two tabs
 handily-item-toasts  0.6.0  loaded  on       A toast when a work item changes…
 handily-simple-view  0.7.0  loaded  on       One short row for each tool call…
 handily-reply-view   0.6.0  loaded  on       Long replies fold to their first…
+handily-filetree     0.2.0  loaded  -        A files tab beside the board
 
-handily: 6 of 6 mods loaded, 0 off or paused
+handily: 7 of 7 mods loaded, 0 off or paused
 ```
 
 A mod that did not load gets a second line with the command that fixes it. This is the output
-when `handily-board` is not installed and `/item-toasts off` turned the toasts off:
+when `handily-board` is not installed and `/item-toasts off` turned the toasts off.
+`handily-filetree` needs `handily-board`, so it does not load either:
 
 ```text
 handily-workitems    0.8.0  loaded         polling  Provider of one typed work…
@@ -65,8 +68,10 @@ handily-board        -      not installed  -
 handily-item-toasts  0.6.0  loaded         off      A toast when a work item…
 handily-simple-view  0.7.0  loaded         on       One short row for each…
 handily-reply-view   0.6.0  loaded         on       Long replies fold to their…
+handily-filetree     -      not loaded     -
+  Run claude --debug to see why
 
-handily: 5 of 6 mods loaded, 1 off or paused
+handily: 5 of 7 mods loaded, 1 off or paused
 ```
 
 `/handily` reads the `mode` setting of each mod from the rows of the `/config` menu. When the
@@ -81,8 +86,9 @@ handily-board        0.4.0  loaded  -                 A board with two tabs
 handily-item-toasts  0.6.0  loaded  off (default on)  A toast when a work item…
 handily-simple-view  0.7.0  loaded  off (default on)  One short row for each…
 handily-reply-view   0.6.0  loaded  off (default on)  Long replies fold to…
+handily-filetree     0.2.0  loaded  -                 A files tab beside the…
 
-handily: 6 of 6 mods loaded, 3 off or paused
+handily: 7 of 7 mods loaded, 3 off or paused
 ```
 
 | State         | Second line                     | Theme colour |
@@ -129,7 +135,7 @@ handily-workitems@handily  old id of handily-workitems, user settings
 handily marketplace        old marketplace of these ids
   Run claude plugin marketplace remove handily
 
-handily: 6 of 6 mods loaded, 0 off or paused
+handily: 7 of 7 mods loaded, 0 off or paused
 Run each command above, then type /reload-plugins
 ```
 

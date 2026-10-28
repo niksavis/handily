@@ -5,6 +5,7 @@ declare module 'claude-code' {
     'handily-filetree': {
       open: FiletreePaths
       whole: FiletreePaths
+      ready: { root: string }
     }
   }
 }

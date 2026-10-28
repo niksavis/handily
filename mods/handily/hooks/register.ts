@@ -33,6 +33,8 @@ async function readyOf($: EngineInterface, name: string): Promise<Ready> {
       return (await $.state.get({ plugin: 'handily-simple-view', key: 'ready' })).value
     case 'handily-reply-view':
       return (await $.state.get({ plugin: 'handily-reply-view', key: 'ready' })).value
+    case 'handily-filetree':
+      return (await $.state.get({ plugin: 'handily-filetree', key: 'ready' })).value
     default:
       throw new Error(
         `handily: plugin.json lists "${name}", but /handily has no ready value to read for it`,
@@ -62,6 +64,7 @@ async function storedMode($: EngineInterface, name: string): Promise<HandilyModM
     case 'handily-reply-view':
       return onOrOff((await $.state.get({ plugin: 'handily-reply-view', key: 'mode' })).value)
     case 'handily-board':
+    case 'handily-filetree':
       return '-'
     default:
       throw new Error(
