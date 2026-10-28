@@ -5,6 +5,7 @@ import type {
   BoardToolCount,
   BoardToolSight,
 } from '../types'
+import { maskedCredentials } from './credentials'
 
 export const PLAN_WARNING_CALLS = 20
 
@@ -49,14 +50,19 @@ function underCwd(target: string, cwd: string): string {
   return rest.slice(1)
 }
 
-export function toolTarget(input: Readonly<Record<string, unknown>>, cwd: string): string | null {
+function targetLine(input: Readonly<Record<string, unknown>>, cwd: string): string | null {
   for (const key of TARGET_KEYS) {
     const value = input[key]
     if (typeof value !== 'string') continue
     const line = firstLine(value)
-    if (line !== '') return underCwd(line, cwd).slice(0, TARGET_CHARS_AT_MOST)
+    if (line !== '') return underCwd(line, cwd)
   }
   return null
+}
+
+export function toolTarget(input: Readonly<Record<string, unknown>>, cwd: string): string | null {
+  const line = targetLine(input, cwd)
+  return line === null ? null : maskedCredentials(line).slice(0, TARGET_CHARS_AT_MOST)
 }
 
 function counted(perTool: readonly BoardToolCount[], tool: string): BoardToolCount[] {

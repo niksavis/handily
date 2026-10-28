@@ -1,11 +1,13 @@
 import type {
   BoxProps,
+  ButtonProps,
   ElementConstructor,
   RenderElement,
   SessionMeasureInput,
   SessionUsage,
   TextProps,
 } from 'claude-code'
+import { SIGNALS } from './signals'
 import { cutToWidth, displayWidth } from './width'
 
 export const CONTEXT_HIGH = 80
@@ -120,7 +122,7 @@ function turnPiece(vitals: Vitals): Piece | undefined {
   return added > 0 ? plain(`turn +${dollars(added)}`) : undefined
 }
 
-function sessionPieces(vitals: Vitals): Piece[] {
+function usagePieces(vitals: Vitals): Piece[] {
   if (vitals.hasNoUsage) return [plain(NO_USAGE, '')]
   const { percent, usd } = vitals
   const context = percent === undefined ? plain('ctx —', '') : contextPiece(percent)
@@ -131,6 +133,21 @@ function sessionPieces(vitals: Vitals): Piece[] {
     ...(usd === undefined ? [] : [plain(dollars(cents(usd)))]),
     ...(turn === undefined ? [] : [turn]),
   ]
+}
+
+function waitsPiece(waits: number): Piece {
+  const verb = waits === 1 ? 'waits' : 'wait'
+  return {
+    lead: '',
+    spans: [{ text: `${SIGNALS.waitsForYou.mark} ${String(waits)} ${verb}`, isWarning: true }],
+  }
+}
+
+function sessionPieces(vitals: Vitals, waits = 0): Piece[] {
+  const usage = usagePieces(vitals)
+  if (waits === 0) return usage
+  const [first, ...rest] = usage
+  return [waitsPiece(waits), ...(first ? [{ ...first, lead: PIECE_LEAD }] : []), ...rest]
 }
 
 function pieceText(piece: Piece): string {
@@ -175,23 +192,25 @@ function lineSpans(pieces: readonly Piece[], room: number): Span[] {
 export type VitalsElements = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
+  Button: ElementConstructor<ButtonProps>
   bodyColumns: number
 }
 
-export function drawSessionLine(elements: VitalsElements, vitals: Vitals): RenderElement {
-  const { Box, Text } = elements
+export type SessionLine = { vitals: Vitals; waits: number; open: (() => void) | undefined }
+
+export function drawSessionLine(elements: VitalsElements, line: SessionLine): RenderElement {
+  const { Box, Text, Button } = elements
   const room = elements.bodyColumns - displayWidth(`${SESSION_TITLE}${TITLE_GAP}`)
-  return Box({
-    key: 'session',
-    flexDirection: 'row',
-    children: [
-      Text({ bold: true, children: SESSION_TITLE }),
-      Text({ children: TITLE_GAP }),
-      ...lineSpans(sessionPieces(vitals), room).map((span) =>
-        span.isWarning
-          ? Text({ color: 'warning', children: span.text })
-          : Text({ dimColor: true, children: span.text }),
-      ),
-    ],
-  })
+  const pieces = sessionPieces(line.vitals, line.waits)
+  const children = [
+    Text({ bold: true, children: SESSION_TITLE }),
+    Text({ children: TITLE_GAP }),
+    ...lineSpans(pieces, room).map((span) =>
+      span.isWarning
+        ? Text({ color: 'warning', children: span.text })
+        : Text({ dimColor: true, children: span.text }),
+    ),
+  ]
+  if (line.open === undefined) return Box({ key: 'session', flexDirection: 'row', children })
+  return Button({ key: 'session', plain: true, onPress: line.open, children })
 }

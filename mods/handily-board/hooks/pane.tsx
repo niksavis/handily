@@ -7,11 +7,12 @@ import type {
   TextProps,
   ThemeKey,
 } from 'claude-code'
-import type { BoardActivity, BoardList, BoardTask, BoardToolSight } from '../types'
+import type { BoardActivity, BoardChecks, BoardList, BoardTask, BoardToolSight } from '../types'
 import { PLAN_REQUEST, callsText, elapsedText, planLag } from './activity'
-import { drawAgents } from './agent-rows'
-import type { AgentRow } from './agents'
+import { drawAgents, shownNames } from './agent-rows'
+import { type AgentRow, waitingCount } from './agents'
 import type { PaneUi } from './board'
+import { SESSION_DETAILS, drawSessionDetails } from './checks'
 import {
   OPEN_ITEMS_SHOWN,
   addItemsAsTasks,
@@ -62,6 +63,7 @@ export type PaneWork = {
   activity: BoardActivity
   agents: readonly AgentRow[]
   vitals: Vitals
+  checks: BoardChecks
 }
 
 type Act = (work: () => Promise<string | undefined>) => void
@@ -696,6 +698,21 @@ function drawFooter(elements: PaneElements, host: TaskHost, act: Act): RenderEle
     : Text({ dimColor: true, children: 'Add tasks with /board add <text>.' })
 }
 
+function drawSession(elements: PaneElements, work: PaneWork, layout: RowLayout): RenderElement[] {
+  const isOpenable = work.checks.last.length > 0
+  const line = drawSessionLine(elements, {
+    vitals: work.vitals,
+    waits: waitingCount(work.agents),
+    open: isOpenable
+      ? () => {
+          layout.toggle(SESSION_DETAILS)
+        }
+      : undefined,
+  })
+  if (!isOpenable || !layout.expanded.has(SESSION_DETAILS)) return [line]
+  return [line, drawSessionDetails(elements, work.checks, shownNames(work.agents), layout)]
+}
+
 function summaryText(list: BoardList, work: PaneWork): string {
   const { activity } = work
   const total = list.tasks.length
@@ -741,7 +758,7 @@ export async function drawPane(
   return Box({
     flexDirection: 'column',
     children: [
-      drawSessionLine(elements, work.vitals),
+      ...drawSession(elements, work, layout),
       header,
       ...body,
       ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),

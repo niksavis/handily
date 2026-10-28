@@ -11,3 +11,7 @@ export const SIGNALS: Readonly<Record<Signal, SignalLook>> = {
   blocked: { mark: '■', color: 'error' },
   waitsForYou: { mark: '◆', color: 'warning' },
 }
+
+export function needsYouText(count: number): string {
+  return count === 1 ? '1 needs you' : `${String(count)} need you`
+}

@@ -5,6 +5,8 @@ import type {
   PromptOrigin,
   Register,
   Timer,
+  ToolCheckInput,
+  ToolCheckResult,
   ToolSpec,
 } from 'claude-code'
 import {
@@ -20,9 +22,11 @@ import {
 } from './activity'
 import {
   type AgentHost,
+  NEEDS_YOU_AFTER_MS,
   agentView,
   labelledAgents,
   noteAgentList,
+  noteAsk,
   noteSpawn,
   noteTurnEnd,
   trackAgentCall,
@@ -40,6 +44,7 @@ import {
   openUnasked,
   sessionCommand,
 } from './board'
+import { EMPTY_CHECKS, withCheck } from './checks'
 import {
   type ListEdit,
   type TaskHost,
@@ -74,7 +79,7 @@ import {
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
-import type { BoardCallRow, BoardList, BoardPersonChange, BoardTask } from '../types'
+import type { BoardCallRow, BoardChecks, BoardList, BoardPersonChange, BoardTask } from '../types'
 import {
   EMPTY_LIST,
   MAX_AGENT_LISTS,
@@ -444,11 +449,36 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
   }
 }
 
-async function workOf($: EngineInterface, vitals: Vitals): Promise<PaneWork> {
+async function workOf($: EngineInterface, vitals: Vitals, checks: BoardChecks): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
   const agents = await agentView(agentHostOf($), now)
-  return { now, activity: activity ?? EMPTY_ACTIVITY, agents, vitals }
+  return { now, activity: activity ?? EMPTY_ACTIVITY, agents, vitals, checks }
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null
+}
+
+type CheckedCall = ToolCheckInput & { tool_use_id: string }
+
+type ChecksKeep = { current: BoardChecks }
+
+async function noteCheck(
+  $: EngineInterface,
+  keep: ChecksKeep,
+  e: CheckedCall,
+  verdict: ToolCheckResult,
+) {
+  const target = isRecord(e.input) ? toolTarget(e.input, await $.session.cwd()) : null
+  const check = { decision: verdict.decision, tool: e.tool, target, agentId: e.agentId ?? null }
+  keep.current = withCheck(keep.current, check)
+  $.ui.invalidate('ui.render')
+  if (verdict.decision !== 'ask' || e.agentId === undefined) return
+  await noteAsk(agentHostOf($), e.agentId, e.tool_use_id, target)
+  $.clock.after(NEEDS_YOU_AFTER_MS, () => {
+    $.ui.invalidate('ui.render')
+  })
 }
 
 type VitalsKeep = { current: Vitals }
@@ -693,6 +723,7 @@ export const register: Register = (on, options) => {
   const redraw: Redraw = { timer: undefined }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
+  const checks: ChecksKeep = { current: EMPTY_CHECKS }
 
   on('session.start', async ($, e, next) => {
     for (const tool of TOOLS) await $.tool.register(tool)
@@ -765,6 +796,7 @@ export const register: Register = (on, options) => {
     await $.state.set(AGENTS, [])
     if (e.reason === 'clear') {
       noteVitals($, vitals, withClear)
+      checks.current = EMPTY_CHECKS
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await resetAgentLists($)
@@ -828,6 +860,17 @@ export const register: Register = (on, options) => {
     return trackAgentCall(agentHostOf($), agentId, { id: e.tool_use_id, ...sight }, () => next(e))
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the work was not tracked (${next.error.kind})`, { to: 'debug' })
+    return next(e)
+  })
+
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    const { tool_use_id: callId } = e
+    if (callId === undefined || next.origin.plugin !== ENGINE_ORIGIN) return verdict
+    await noteCheck($, checks, { ...e, tool_use_id: callId }, verdict)
+    return verdict
+  }).catch(($, e, next) => {
+    $.ui.log(`handily-board: the check was not kept (${next.error.kind})`, { to: 'debug' })
     return next(e)
   })
 
@@ -918,7 +961,7 @@ export const register: Register = (on, options) => {
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
     const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
-    const work = await workOf($, vitals.current)
+    const work = await workOf($, vitals.current, checks.current)
     startRedraw($, redraw)
     return drawPane(elements, hostOf($), uiOf($), work)
   })

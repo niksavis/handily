@@ -3,6 +3,7 @@ import type {
   BoardAgent,
   BoardAgentCall,
   BoardAgentPlans,
+  BoardCallAsk,
   BoardTask,
   BoardToolSight,
 } from '../types'
@@ -10,6 +11,7 @@ import { NAME_CUT_ABOVE, numberedNames } from './agent-rows'
 import { escaped } from './tasks'
 
 export const UNLISTED_KEPT_AT_MOST = 20
+export const NEEDS_YOU_AFTER_MS = 3_000
 
 const HANDBACK_TOOL = 'SubagentHandback'
 const ENDED_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
@@ -19,7 +21,16 @@ const ENDED_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
 ])
 
 export type AgentLook =
-  'failed' | 'running' | 'held' | 'pending' | 'idle' | 'done' | 'killed' | 'unlisted'
+  | 'needsYou'
+  | 'asked'
+  | 'failed'
+  | 'running'
+  | 'held'
+  | 'pending'
+  | 'idle'
+  | 'done'
+  | 'killed'
+  | 'unlisted'
 
 export type AgentRow = {
   id: string
@@ -162,6 +173,26 @@ export function withCallDropped(agents: Agents, agentId: string, callId: string)
   )
 }
 
+export function withCallAsked(
+  agents: Agents,
+  agentId: string,
+  callId: string,
+  asked: BoardCallAsk,
+): BoardAgent[] {
+  return agents.map((agent) =>
+    agent.id === agentId
+      ? {
+          ...agent,
+          running: agent.running.map((call) => (call.id === callId ? { ...call, asked } : call)),
+        }
+      : agent,
+  )
+}
+
+function unasked(call: BoardAgentCall): BoardAgentCall {
+  return { id: call.id, tool: call.tool, target: call.target }
+}
+
 export function withTurnEnd(agents: Agents, agentId: string, now: number): BoardAgent[] {
   return pruned(
     withAgent(agents, agentId, now, (agent) => ({
@@ -169,6 +200,7 @@ export function withTurnEnd(agents: Agents, agentId: string, now: number): Board
       seenAt: now,
       endedAt: now,
       hasLoopEvents: true,
+      running: agent.running.map(unasked),
     })),
   )
 }
@@ -219,6 +251,8 @@ const STATUS_LOOKS: Record<AgentStatus, AgentLook> = {
 }
 
 const LOOK_RANKS: Record<AgentLook, number> = {
+  needsYou: -1,
+  asked: 1,
   failed: 0,
   running: 1,
   unlisted: 1,
@@ -266,14 +300,35 @@ export function labelledAgents(agents: readonly BoardAgent[]): BoardAgent[] {
   return agents.map((agent) => ({ ...agent, label: byId.get(agent.id) ?? '' }))
 }
 
+type WaitingAsk = { call: BoardAgentCall; asked: BoardCallAsk }
+
+function waitingAsk(agent: BoardAgent): WaitingAsk | undefined {
+  for (const call of agent.running) {
+    if (call.asked !== undefined) return { call, asked: call.asked }
+  }
+  return undefined
+}
+
+function askLook(asked: BoardCallAsk, now: number): AgentLook {
+  return now - asked.at >= NEEDS_YOU_AFTER_MS ? 'needsYou' : 'asked'
+}
+
+function sightOf(agent: BoardAgent, waiting: WaitingAsk | undefined): BoardToolSight | null {
+  if (waiting) return { tool: waiting.call.tool, target: waiting.asked.target }
+  const running = agent.running.at(-1)
+  return running ? { tool: running.tool, target: running.target } : agent.last
+}
+
 function rowOf(
   agent: BoardAgent,
   plan: readonly BoardTask[] | undefined,
   now: number,
 ): { row: AgentRow; rank: number } {
   const status = statusOf(agent)
-  const look = lookOf(agent, status)
-  const isEnded = isEndedRow(agent, look)
+  const listedLook = lookOf(agent, status)
+  const isEnded = isEndedRow(agent, listedLook)
+  const waiting = isEnded || listedLook === 'failed' ? undefined : waitingAsk(agent)
+  const look = waiting === undefined ? listedLook : askLook(waiting.asked, now)
   const running = agent.running.at(-1)
   const row: AgentRow = {
     id: agent.id,
@@ -281,7 +336,7 @@ function rowOf(
     shownName: agent.label ?? escaped(baseLabel(agent)),
     look,
     isEnded,
-    call: running ? { tool: running.tool, target: running.target } : agent.last,
+    call: sightOf(agent, waiting),
     isCallRunning: running !== undefined,
     tools: agent.tools,
     plan: plan ?? null,
@@ -304,6 +359,10 @@ export function agentRows(
     .map((agent) => rowOf(agent, plans.get(agent.id), now))
     .sort((a, b) => a.rank - b.rank || a.row.startedAt - b.row.startedAt)
     .map(({ row }) => row)
+}
+
+export function waitingCount(rows: readonly AgentRow[]): number {
+  return rows.filter((row) => row.look === 'needsYou').length
 }
 
 export async function trackAgentCall<R>(
@@ -332,6 +391,16 @@ export async function noteSpawn(
   at: number,
 ): Promise<void> {
   await host.change((agents) => withSpawn(agents, agentId, facts, at))
+}
+
+export async function noteAsk(
+  host: AgentHost,
+  agentId: string,
+  callId: string,
+  target: string | null,
+): Promise<void> {
+  const at = await host.now()
+  await host.change((agents) => withCallAsked(agents, agentId, callId, { at, target }))
 }
 
 export async function noteTurnEnd(host: AgentHost, agentId: string): Promise<void> {

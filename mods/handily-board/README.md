@@ -274,8 +274,43 @@ Session  ctx 80% high · $12.40
   piece stays, and a body too narrow for it cuts it with `…`. The tests check the line at 30,
   41, 76 and 89 columns.
 - A measure changes only the units that it names as changed. The board draws again only when
-  the text of the line changes, so a cost change under one cent does not redraw it. The line
-  adds no timer.
+  the text of the line changes, so a cost change under one cent does not redraw it.
+- When a subagent needs you, the line starts with the count of the waits, in the theme colour
+  `warning`. A narrow tab never cuts the waits. At 30 columns the line reads
+  `Session  ◆ 1 waits · ctx 62%`. Two waits read `◆ 2 wait`.
+- After the first permission check of the session, the line is a button. A press opens the
+  checks under it. The next section describes them.
+
+### Permission checks
+
+The board keeps the last 20 permission checks of the session, from the engine event
+`tool.check`, with their verdict. Press the Session line, then `last 5 checks`. A capture from
+the tests, docked at 41 columns:
+
+```text
+Session  ctx — until the first reply
+    checks 6 · 3 allowed · 2 asked
+    1 denied
+    [ hide checks ]
+    denied   Bash GITHUB_TOKEN=*** git p…
+    allowed  Bash curl -H "Authorization…
+    asked    Edit docs/mocks.md
+    asked    Bash npm test   scout
+    allowed  Read hooks/agents…   Explore
+```
+
+- The first line counts every check of the session, and each verdict that is not zero:
+  `allowed`, `asked` and `denied`. `denied` takes the theme colour `error`.
+- Each check shows the verdict word, the tool and the target, newest first. A check of a
+  subagent ends with the agent name.
+- The board masks the credentials in a target before it keeps the check, with `***`: a
+  password in a URL, a value after a key such as `token=`, `password:` or `--api-key`, a
+  `Bearer` or `Basic` value, `-u user:password`, and token shapes such as `ghp_…`, `sk-…`,
+  `AKIA…` and a JSON Web Token. The tests check each kind.
+- The board counts only the checks of the calls that Claude Code raises for the model. It keeps
+  the checks in memory, so a reload of the mod or `/clear` empties them.
+- The masking covers the checks and the `waits for:` line. The agent rows and the task rows draw
+  the target of a call as the call gives it.
 
 ### Agents
 
@@ -290,19 +325,30 @@ Agents  3 · 1 failed
 [ +2 ended ]
 ```
 
+A subagent that waits for your permission answer, captured from the tests, docked at 41 columns:
+
+```text
+Agents  1 · 1 needs you
+◆ scout     needs you            open  2m
+    waits for: permission · Bash npm test
+```
+
+In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.18`.
+
 - Each agent is one row: the mark, the name, the state, the current tool and the time since the
   spawn. The time stops when the agent ends.
 - The name is the name of the Agent call, else the agent type, else the first 8 characters of
   the id. A name of more than 9 characters keeps its first 4 and its last characters around `…`,
   such as `gene…pose`. When two rows show the same name, the later one gets a number, such as
   `Explore 2` or `gene…se 2`.
-- The state is `running`, `plan 2/7` while a running agent keeps a task list, `on hold`,
-  `pending`, `idle`, `failed`, `done`, `killed` or `not listed`.
+- The state is `needs you`, `asked`, `running`, `plan 2/7` while a running agent keeps a task
+  list, `on hold`, `pending`, `idle`, `failed`, `done`, `killed` or `not listed`.
 
   | Mark | State                                      | Colour    |
   | ---- | ------------------------------------------ | --------- |
+  | `◆`  | `needs you`                                | `warning` |
   | `■`  | `failed`                                   | `error`   |
-  | `▶`  | `running`, `on hold`                       | `claude`  |
+  | `▶`  | `asked`, `running`, `on hold`              | `claude`  |
   | `○`  | `pending`, `idle`                          | `subtle`  |
   | `✓`  | `done`, `killed`                           | `success` |
   | `?`  | `not listed`: Claude Code does not list it | `subtle`  |
@@ -310,18 +356,32 @@ Agents  3 · 1 failed
 - `on hold` is the engine status `waiting`: the agent waits for its own background work, an
   Agent call or a plan approval. The status does not say which, so the board does not draw it
   as a wait for you.
+- `asked` and `needs you` come from the engine event `tool.check`. When the verdict for a call of
+  a subagent is `ask`, the row says `asked`. When the call is still not settled 3 seconds later,
+  the row says `needs you`, the header counts it, and the Session line counts it as a wait.
+  Docked, the row gets a second line, `waits for: permission ·` and the call. Inline, that text
+  is in the tool column.
+- The mark clears when the call ends, because it ran or because the answer refused it, and when
+  the turn of the agent ends. An ask that the auto mode classifier settles before 3 seconds, as
+  it does in about 0.6 seconds (measured on Claude Code 2.1.312), never shows `needs you`.
+- Claude Code gives a mod no event when a permission dialog opens or when its answer comes. So
+  the board reads an ask that is not settled after 3 seconds as a wait for you. An allowed call
+  ends only after it ran. While it runs, the row still says `needs you`. A call that the
+  classifier allows and that then runs longer than 3 seconds also shows `needs you` until it
+  ends.
 - The tool column shows `▸` and the call that runs now, or the last call. Below 36 columns the
   tool column is left out. Docked, a failed agent gets a second line, `failed after` its last
   call. Inline, that text is in the tool column.
-- Order: failed first, then running, on hold, pending and idle, each in spawn order. Ended
-  agents fold into `+N ended`. At most 6 active agents show. The rest fold into
-  `+N more agents`, so the Add input stays on screen.
-- A running agent row has an `open` button before the time. A press runs `/tasks`, which opens
-  Claude Code's view of the background agents: with one running agent its detail view, with more
-  the list, where you pick the agent. Claude Code has no way for a plugin to pick the agent. An
-  agent that is on hold, pending, idle, failed or ended has no button. When Claude Code refuses
-  the run, the board logs why and says so in a toast. At 30 columns the button takes the place
-  of the tool column: `▶ Explore   plan 2/7  open  1m`.
+- Order: needs you first, then failed, then asked and running, on hold, pending and idle, each
+  in spawn order. Ended agents fold into `+N ended`. At most 6 active agents show. The rest fold
+  into `+N more agents`, so the Add input stays on screen.
+- A running agent row, and an agent row that says `asked` or `needs you`, has an `open` button
+  before the time. A press runs `/tasks`, which opens Claude Code's view of the background
+  agents: with one running agent its detail view, with more the list, where you pick the agent.
+  Claude Code has no way for a plugin to pick the agent. An agent that is on hold, pending, idle,
+  failed or ended has no button. When Claude Code refuses the run, the board logs why and says so
+  in a toast. At 30 columns the button takes the place of the tool column:
+  `▶ Explore   plan 2/7  open  1m`.
 - Press an agent name to open it. The opened row shows the task description, the parent and the
   spawn age (`under scout · spawned 1m ago`), the count of finished tool calls and the task list
   of the agent. A list of more than 5 tasks shows the task in progress with 2 tasks before and

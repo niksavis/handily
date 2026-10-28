@@ -3792,6 +3792,7 @@ describe(RING_CRITERION, () => {
         expect(ids).toHaveLength(10)
         expect(ring.keys).toContain('more:item:handily-hw07')
         expect(ring.keys).toEqual([
+          'session',
           'ask-plan',
           ...itemButtons(ids, ring.keys),
           'all-items',
@@ -3804,6 +3805,7 @@ describe(RING_CRITERION, () => {
         const allIds = await itemRowIds(ui)
         expect(allIds).toHaveLength(12)
         expect(all.keys).toEqual([
+          'session',
           'ask-plan',
           ...itemButtons(allIds, all.keys),
           'all-items',

@@ -19,7 +19,7 @@ import type {
   SessionCard,
 } from './cards'
 import type { AgentSummary } from './progress'
-import { SIGNALS, type SignalLook } from './signals'
+import { SIGNALS, type SignalLook, needsYouText } from './signals'
 import { escaped, statusLook } from './tasks'
 import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './width'
 
@@ -86,10 +86,6 @@ export function progressBar(done: number, total: number): string {
 function shortName(name: string): string {
   if (displayWidth(name) <= ROW_NAME_AT_MOST) return name
   return `${cutToWidth(name, NAME_KEEP)}…${lastToWidth(name, NAME_KEEP)}`
-}
-
-function needsYouText(count: number): string {
-  return count === 1 ? '1 needs you' : `${String(count)} need you`
 }
 
 function fitParts(parts: readonly Part[], columns: number): Part[] {

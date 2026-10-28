@@ -18,7 +18,8 @@ import {
 } from 'claude-code/testing'
 import type { BoardAgent, BoardTask } from './types'
 import { cutName } from './hooks/agent-rows'
-import { withAgentPlan } from './hooks/agents'
+import { NEEDS_YOU_AFTER_MS, withAgentPlan } from './hooks/agents'
+import { maskedCredentials } from './hooks/credentials'
 
 const ROOT = '/work/app'
 const PANE = 'tasks'
@@ -1125,6 +1126,7 @@ const RING_CRITERION =
 const OPENED_ONLY = ['done:3', 'start:3', 'up:3:2', 'down:3:2', `plan:${EXPLORE}`]
 
 const SCENE_RING = [
+  'session',
   'open:task:2',
   'rm:2',
   'open:task:3',
@@ -1355,4 +1357,499 @@ describe(DRAW_WORK_CRITERION, () => {
     expect(withAgentPlan(kept, LANE, older, 2)).toEqual({ [LANE]: { version: 3, tasks: newer } })
     expect(withAgentPlan(kept, SCOUT, older, 2)[SCOUT]).toEqual({ version: 2, tasks: older })
   })
+})
+
+type Verdict = 'allow' | 'ask' | 'deny'
+
+type Answer = 'allow' | 'deny'
+
+type Dialog = { opened: (count: number) => Promise<void>; answer: (behavior: Answer) => void }
+
+function verdictOf(verdicts: Readonly<Record<string, Verdict>>, input: unknown): Verdict {
+  if (!isRecord(input)) return 'allow'
+  const asked = [input.command, input.file_path].find((value) => typeof value === 'string')
+  return typeof asked === 'string' ? (verdicts[asked] ?? 'allow') : 'allow'
+}
+
+function decisionOf(behavior: Answer) {
+  return behavior === 'allow'
+    ? { decision: { behavior: 'allow' as const } }
+    : { decision: { behavior: 'deny' as const, message: 'The person refused it.' } }
+}
+
+function personDialog(on: On, verdicts: Readonly<Record<string, Verdict>>): Dialog {
+  const open: ((behavior: Answer) => void)[] = []
+  const waiters: { count: number; resolve: () => void }[] = []
+  let opened = 0
+  on('tool.check', (_$, e) => ({ decision: verdictOf(verdicts, e.input) }))
+  on('classic.PermissionRequest', async () => {
+    const behavior = await new Promise<Answer>((resolve) => {
+      open.push(resolve)
+      opened += 1
+      for (const waiter of waiters) if (waiter.count <= opened) waiter.resolve()
+    })
+    return decisionOf(behavior)
+  })
+  return {
+    opened: (count) =>
+      new Promise<void>((resolve) => {
+        if (opened >= count) resolve()
+        else waiters.push({ count, resolve })
+      }),
+    answer: (behavior) => {
+      const first = open.shift()
+      if (first === undefined) throw new Error('no permission dialog is open')
+      first(behavior)
+    },
+  }
+}
+
+function classifier(
+  on: On,
+  clock: MockClock,
+  verdicts: Readonly<Record<string, Verdict>>,
+  answerAfterMs: number,
+): void {
+  on('tool.check', (_$, e) => ({ decision: verdictOf(verdicts, e.input) }))
+  on('classic.PermissionRequest', async () => {
+    if (answerAfterMs > 0) await clock.sleep(answerAfterMs)
+    return decisionOf('allow')
+  })
+}
+
+async function measureSession($: Engine): Promise<void> {
+  await $.session.measure({
+    context: { window: 200_000, percent: 62, tokens: 124_000 },
+    rateLimits: [],
+    cost: { usd: 4.18 },
+    changed: ['context', 'cost'],
+  })
+}
+
+type Asking = { call: Promise<ToolCallResult> }
+
+async function scoutAsks($: Engine, seen: World): Promise<Asking> {
+  await start($)
+  await measureSession($)
+  await spawn($, SCOUT, 'general-purpose', 'scout the hooks', { name: 'scout' })
+  seen.agents.push(
+    listed(SCOUT, 'general-purpose', 'running', { name: 'scout', description: 'scout the hooks' }),
+  )
+  await seen.clock.advance(2 * MINUTE)
+  return { call: $.tool.call(inLoop({ tool: 'Bash', command: 'npm test' }, SCOUT)) }
+}
+
+async function scoutTurnEnds($: Engine): Promise<void> {
+  await $.turn.complete({
+    turnId: 'scout-turn',
+    reason: 'answer',
+    answer: 'done',
+    durationMs: 1,
+    isAborted: false,
+    agentId: SCOUT,
+  })
+}
+
+const NEEDS_YOU_CRITERION =
+  'When a subagent call waits for the permission dialog, its row shows needs you with the waits for line, and the Session line counts it'
+
+const WAIT_SCREENS: readonly {
+  placement: 'dock' | 'inline'
+  columns: number
+  session: string
+  agents: readonly string[]
+}[] = [
+  {
+    placement: 'dock',
+    columns: 41,
+    session: 'Session  ◆ 1 waits · ctx 62% · $4.18',
+    agents: [
+      'Agents  1 · 1 needs you',
+      '◆ scout     needs you            open  2m',
+      '    waits for: permission · Bash npm test',
+      '',
+    ],
+  },
+  {
+    placement: 'dock',
+    columns: 30,
+    session: 'Session  ◆ 1 waits · ctx 62%',
+    agents: [
+      'Agents  1 · 1 needs you',
+      '◆ scout     needs you open  2m',
+      '    waits for: permission · B…',
+      '',
+    ],
+  },
+  {
+    placement: 'inline',
+    columns: 76,
+    session: 'Session  ◆ 1 waits · ctx 62% · $4.18',
+    agents: [
+      'Agents  1 · 1 needs you',
+      '◆ scout      needs you  waits for: permission · Bash npm test       open  2m',
+      '',
+    ],
+  },
+]
+
+describe(NEEDS_YOU_CRITERION, () => {
+  for (const { placement, columns, session, agents } of WAIT_SCREENS) {
+    test(
+      `an ask that stays unsettled for 3 s draws needs you, the waits for line and the wait on the Session line, as mock 8.10e, at ${String(columns)} columns, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, { 'npm test': 'ask' })
+        const { call } = await scoutAsks($, seen)
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        for (const surface of SURFACES) {
+          const ui = await mountTab($, surface, placement, columns)
+          const lines = await screen(ui, columns)
+          expect(lines[0]).toBe(session)
+          expect(agentLines(lines)).toEqual(agents)
+          await ui.unmount()
+        }
+        dialog.answer('allow')
+        await call
+      },
+    )
+  }
+
+  test(
+    'before 3 s the row says asked with no mark, and a shown tab turns it into needs you at the 3 s mark',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const dialog = personDialog(on, { 'npm test': 'ask' })
+      const { call } = await scoutAsks($, seen)
+      await dialog.opened(1)
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS - 1)
+      const shown = await Promise.all(SURFACES.map((surface) => mountTab($, surface, 'dock', 41)))
+      for (const ui of shown) {
+        const asked = await screen(ui, 41)
+        expect(asked[0]).toBe('Session  ctx 62% · $4.18')
+        expect(agentLines(asked)).toEqual([
+          'Agents  1',
+          '▶ scout     asked     ▸ Bash np… open  2m',
+          '',
+        ])
+      }
+      await seen.clock.advance(1)
+      for (const ui of shown) {
+        const waits = await screen(ui, 41)
+        expect(waits[0]).toBe('Session  ◆ 1 waits · ctx 62% · $4.18')
+        expect(agentLines(waits).slice(0, 2)).toEqual([
+          'Agents  1 · 1 needs you',
+          '◆ scout     needs you            open  2m',
+        ])
+        await ui.unmount()
+      }
+      dialog.answer('allow')
+      await call
+    },
+  )
+
+  test(
+    'two waiting agents come first in the rows and the Session line counts both',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, ['Read'])
+      const dialog = personDialog(on, { 'npm test': 'ask', 'npm run lint': 'ask' })
+      const { call: scout } = await scoutAsks($, seen)
+      await spawn($, LANE, 'general-purpose', 'run the lint', { name: 'lane-b' })
+      await spawn($, EXPLORE, 'Explore', 'find the element table')
+      seen.agents.push(
+        listed(LANE, 'general-purpose', 'running', { name: 'lane-b' }),
+        listed(EXPLORE, 'Explore', 'running'),
+      )
+      const reading = $.tool.call(inLoop({ tool: 'Read', file_path: `${ROOT}/a.ts` }, EXPLORE))
+      const lane = $.tool.call(inLoop({ tool: 'Bash', command: 'npm run lint' }, LANE))
+      await dialog.opened(2)
+      await flightOf(seen, 'Read').arrived(1)
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        const lines = await screen(ui, 41)
+        expect(lines[0]).toBe('Session  ◆ 2 wait · ctx 62% · $4.18')
+        expect(agentLines(lines)).toEqual([
+          'Agents  3 · 2 need you',
+          '◆ scout     needs you            open  2m',
+          '    waits for: permission · Bash npm test',
+          '◆ lane-b    needs you            open  3s',
+          '    waits for: permission · Bash npm run…',
+          '▶ Explore   running   ▸ Read a.… open  3s',
+          '',
+        ])
+        await ui.unmount()
+      }
+      dialog.answer('allow')
+      dialog.answer('allow')
+      flightOf(seen, 'Read').release()
+      await Promise.all([scout, lane, reading])
+    },
+  )
+})
+
+const CLEARS_CRITERION =
+  'When that call runs, is refused or its turn ends, the needs you mark clears'
+
+async function waitingShown($: Engine): Promise<void> {
+  for (const surface of SURFACES) {
+    const ui = await mountTab($, surface, 'dock', 41)
+    const lines = await screen(ui, 41)
+    expect(lines[0]).toBe('Session  ◆ 1 waits · ctx 62% · $4.18')
+    expect(agentLines(lines)[1]).toBe('◆ scout     needs you            open  2m')
+    await ui.unmount()
+  }
+}
+
+async function clearedRow($: Engine, row: string): Promise<void> {
+  for (const surface of SURFACES) {
+    const ui = await mountTab($, surface, 'dock', 41)
+    const lines = await screen(ui, 41)
+    expect(lines[0]).toBe('Session  ctx 62% · $4.18')
+    expect(agentLines(lines)).toEqual(['Agents  1', row, ''])
+    expect(lines.join('\n')).not.toContain('◆')
+    await ui.unmount()
+  }
+}
+
+describe(CLEARS_CRITERION, () => {
+  test(
+    'the mark clears when the person allows the call and it runs',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const dialog = personDialog(on, { 'npm test': 'ask' })
+      const { call } = await scoutAsks($, seen)
+      await dialog.opened(1)
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+      await waitingShown($)
+      dialog.answer('allow')
+      expect(await call).toEqual({ result: '' })
+      await clearedRow($, '▶ scout     running   Bash npm … open  2m')
+    },
+  )
+
+  test('the mark clears when the person refuses the call', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    const dialog = personDialog(on, { 'npm test': 'ask' })
+    const { call } = await scoutAsks($, seen)
+    await dialog.opened(1)
+    await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+    await waitingShown($)
+    dialog.answer('deny')
+    expect((await call).isError).toBe(true)
+    await clearedRow($, '▶ scout     running   Bash npm … open  2m')
+  })
+
+  test(
+    'the mark clears when the turn of the agent ends, while the call still waits',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const dialog = personDialog(on, { 'npm test': 'ask' })
+      const { call } = await scoutAsks($, seen)
+      await dialog.opened(1)
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+      await waitingShown($)
+      await scoutTurnEnds($)
+      await clearedRow($, '▶ scout     running   ▸ Bash np… open  2m')
+      dialog.answer('deny')
+      await call
+    },
+  )
+})
+
+const CHECKS_CRITERION =
+  'When the person opens the last 5 checks, each shows the verdict word, the tool and the target with credentials masked'
+
+function fake(...parts: readonly string[]): string {
+  return parts.join('')
+}
+
+const BEARER = fake('abcdef', '1234567890')
+const URL_PASSWORD = fake('hunter', '22')
+const QUERY_TOKEN = fake('s3cr3t', 'value')
+const GITHUB_TOKEN = fake('ghp', '_abcdefghijklmnopqrstuvwxyz0123456789')
+const CURL = `curl -H "Authorization: Bearer ${BEARER}" https://deploy:${URL_PASSWORD}@example.com/api?token=${QUERY_TOKEN}`
+const PUSH = `GITHUB_TOKEN=${GITHUB_TOKEN} git push --force origin main`
+const SECRETS = [BEARER, URL_PASSWORD, QUERY_TOKEN, GITHUB_TOKEN]
+
+async function sixChecks($: Engine, on: On): Promise<void> {
+  const seen = world(on)
+  classifier(
+    on,
+    seen.clock,
+    { 'npm test': 'ask', [`${ROOT}/docs/mocks.md`]: 'ask', [PUSH]: 'deny' },
+    0,
+  )
+  await start($)
+  await spawn($, SCOUT, 'general-purpose', 'scout the hooks', { name: 'scout' })
+  await spawn($, EXPLORE, 'Explore', 'find the element table')
+  seen.agents.push(
+    listed(SCOUT, 'general-purpose', 'running', { name: 'scout' }),
+    listed(EXPLORE, 'Explore', 'running'),
+  )
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/hooks/pane.tsx` })
+  await $.tool.call(inLoop({ tool: 'Read', file_path: `${ROOT}/hooks/agents.ts` }, EXPLORE))
+  await bashAs($, SCOUT, 'npm test')
+  await $.tool.call({
+    tool: 'Edit',
+    file_path: `${ROOT}/docs/mocks.md`,
+    old_string: 'a',
+    new_string: 'b',
+  })
+  await $.tool.call({ tool: 'Bash', command: CURL })
+  expect((await $.tool.call({ tool: 'Bash', command: PUSH })).isError).toBe(true)
+}
+
+for (const surface of SURFACES) {
+  test(
+    `the Now row and an agent row draw a credential in a call target masked on ${surface}`,
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await spawn($, SCOUT, 'general-purpose', 'scout the hooks', { name: 'scout' })
+      seen.agents.push(listed(SCOUT, 'general-purpose', 'running', { name: 'scout' }))
+      await bashAs($, SCOUT, `GITHUB_TOKEN=${GITHUB_TOKEN} gh pr list`)
+      await $.tool.call({ tool: 'Bash', command: `GITHUB_TOKEN=${GITHUB_TOKEN} gh run list` })
+      const ui = await mountTab($, surface, 'dock', 100)
+      const lines = await screen(ui, 100)
+      expect(lines.some((text) => text.includes('ghp_'))).toBe(false)
+      expect(lines.some((text) => text.includes('▶ Now  Bash GITHUB_TOKEN=*** gh run list'))).toBe(
+        true,
+      )
+      expect(lines.some((text) => text.includes('GITHUB_TOKEN=*** gh pr list'))).toBe(true)
+      await ui.unmount()
+    },
+  )
+}
+
+const CHECK_SCREENS: readonly { columns: number; lines: readonly string[] }[] = [
+  {
+    columns: 41,
+    lines: [
+      'Session  ctx — until the first reply',
+      '    checks 6 · 3 allowed · 2 asked',
+      '    1 denied',
+      '    [ hide checks ]',
+      '    denied   Bash GITHUB_TOKEN=*** git p…',
+      '    allowed  Bash curl -H "Authorization…',
+      '    asked    Edit docs/mocks.md',
+      '    asked    Bash npm test   scout',
+      '    allowed  Read hooks/agents…   Explore',
+    ],
+  },
+  {
+    columns: 100,
+    lines: [
+      'Session  ctx — until the first reply',
+      '    checks 6 · 3 allowed · 2 asked · 1 denied',
+      '    [ hide checks ]',
+      '    denied   Bash GITHUB_TOKEN=*** git push --force origin main',
+      '    allowed  Bash curl -H "Authorization: ***" https://***@example.com/api?token=***',
+      '    asked    Edit docs/mocks.md',
+      '    asked    Bash npm test   scout',
+      '    allowed  Read hooks/agents.ts   Explore',
+    ],
+  },
+]
+
+describe(CHECKS_CRITERION, () => {
+  for (const { columns, lines } of CHECK_SCREENS) {
+    test(
+      `a press on the Session line and on last 5 checks shows the newest 5 checks, the verdict word first and the credentials masked, as mock 8.10d, at ${String(columns)} columns`,
+      withWorkitems,
+      async ($, on) => {
+        await sixChecks($, on)
+        for (const surface of SURFACES) {
+          const ui = await mountTab($, surface, 'dock', columns)
+          expect(await ui.find({ key: 'session:checks' })).toBeUndefined()
+          await ui.press({ key: 'session' })
+          expect((await ui.find({ key: 'session:checks' }))?.text).toBe('last 5 checks')
+          await ui.press({ key: 'session:checks' })
+          const shown = await screen(ui, columns)
+          expect(shown.slice(0, lines.length)).toEqual(lines)
+          const rows = shown.slice(0, lines.length).join('\n')
+          for (const secret of SECRETS) expect(rows).not.toContain(secret)
+          const denied = await ui.find({ type: 'Text', text: /^denied/ })
+          expect(denied?.props.color).toBe('error')
+          await ui.press({ key: 'session:checks' })
+          await ui.press({ key: 'session' })
+          await ui.unmount()
+        }
+      },
+    )
+  }
+
+  test(
+    'before any check the Session line is no Button and has no details',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        expect(await ui.find({ type: 'Button', key: 'session' })).toBeUndefined()
+        expect(await ui.find({ type: 'Box', key: 'session' })).toBeDefined()
+        await ui.unmount()
+      }
+    },
+  )
+
+  test('the board masks each kind of credential in a check target and leaves plain words', () => {
+    const cases: readonly (readonly [string, string])[] = [
+      [CURL, 'curl -H "Authorization: ***" https://***@example.com/api?token=***'],
+      [PUSH, 'GITHUB_TOKEN=*** git push --force origin main'],
+      ['mysql --password hunter2 -h db', 'mysql --password *** -h db'],
+      ["psql --token='abc def' -d app", 'psql --token=*** -d app'],
+      ['gh auth login --with-token "abc def"', 'gh auth login --with-token ***'],
+      ['curl -u deploy:hunter22 https://x.dev', 'curl -u deploy:*** https://x.dev'],
+      ['echo sk-ant-abcdefghijklmnopqrstuvwx', 'echo ***'],
+      [`aws s3 ls ${fake('AKIA', 'ABCDEFGHIJKLMNOP')}`, 'aws s3 ls ***'],
+      [
+        'npm config set //r.npmjs.org/:_authToken=npm_abc123',
+        'npm config set //r.npmjs.org/:_authToken=***',
+      ],
+      ['git clone https://me:pa55w0rd@github.com/a/b', 'git clone https://***@github.com/a/b'],
+      [
+        `curl -H "x: Bearer ${fake('eyJ', 'hbGciOiJIUzI1NiJ9.', 'eyJ', 'zdWIiOiIxMjM0In0.abcdefghijk')}"`,
+        'curl -H "x: Bearer ***"',
+      ],
+      ['git log --author=me hooks/tokens.ts', 'git log --author=me hooks/tokens.ts'],
+      ['npm test', 'npm test'],
+    ]
+    for (const [text, masked] of cases) expect(maskedCredentials(text)).toBe(masked)
+  })
+})
+
+const CLASSIFIER_CRITERION =
+  'When the classifier answers an ask with no dialog, no needs you mark is drawn'
+
+describe(CLASSIFIER_CRITERION, () => {
+  test(
+    'an ask that the classifier settles in 0.6 s draws asked while it waits and no needs you mark before or after the 3 s mark',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      classifier(on, seen.clock, { 'npm test': 'ask' }, 600)
+      const { call } = await scoutAsks($, seen)
+      await seen.clock.settle()
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        expect(agentLines(await screen(ui, 41))[1]).toBe(
+          '▶ scout     asked     ▸ Bash np… open  2m',
+        )
+        await ui.unmount()
+      }
+      await seen.clock.advance(600)
+      expect(await call).toEqual({ result: '' })
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+      await clearedRow($, '▶ scout     running   Bash npm … open  2m')
+    },
+  )
 })

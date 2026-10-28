@@ -3,7 +3,7 @@ import type { BoardTask, BoardToolSight } from '../types'
 import { elapsedText } from './activity'
 import type { AgentLook, AgentRow } from './agents'
 import type { PaneElements, RowLayout } from './pane'
-import { SIGNALS } from './signals'
+import { SIGNALS, needsYouText } from './signals'
 import { escaped, paneTaskText, statusLook } from './tasks'
 import { cutToWidth, displayWidth, fitted, lastToWidth } from './width'
 
@@ -26,6 +26,8 @@ const FOLD_GAP = 2
 const BUTTON_CHROME = 4
 const OPEN_LABEL = 'open'
 const MAIN_LOOP = 'main'
+const WAITS_LEAD = 'waits for: '
+const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
   mark: string
   color: ThemeKey
@@ -36,6 +38,8 @@ type TextStyle = Omit<TextProps, 'children'>
 type Look = { mark: string; color: ThemeKey }
 
 const LOOKS: Record<AgentLook, Look> = {
+  needsYou: SIGNALS.waitsForYou,
+  asked: SIGNALS.doing,
   failed: SIGNALS.blocked,
   running: SIGNALS.doing,
   held: SIGNALS.doing,
@@ -47,6 +51,8 @@ const LOOKS: Record<AgentLook, Look> = {
 }
 
 const STATE_WORDS: Record<AgentLook, string> = {
+  needsYou: 'needs you',
+  asked: 'asked',
   failed: 'failed',
   running: 'running',
   held: 'on hold',
@@ -89,6 +95,10 @@ function failureText(row: AgentRow): string {
     : `failed after ${callText(row.call)}`
 }
 
+function waitsText(row: AgentRow): string {
+  return row.call === null ? 'permission' : `permission · ${callText(row.call)}`
+}
+
 function stateText(row: AgentRow): { text: string; style: TextStyle } {
   if (row.look === 'running' && row.plan !== null) {
     const done = row.plan.filter((task) => task.status === 'completed').length
@@ -99,6 +109,7 @@ function stateText(row: AgentRow): { text: string; style: TextStyle } {
 
 function detailText(row: AgentRow, isInline: boolean): string {
   if (row.look === 'failed') return isInline ? failureText(row) : ''
+  if (row.look === 'needsYou') return isInline ? `${WAITS_LEAD}${waitsText(row)}` : ''
   if (row.call === null) return ''
   return row.isCallRunning ? `▸ ${callText(row.call)}` : callText(row.call)
 }
@@ -123,7 +134,7 @@ function agentLine(
   const time = elapsedText(row.ageMs)
   const timeWidth = NAME_GAP + Math.max(TIME_COLUMNS, displayWidth(time))
   const hasToolColumn = elements.isInline || elements.bodyColumns >= TOOL_COLUMN_FROM
-  const isOpenable = row.look === 'running'
+  const isOpenable = OPENABLE_LOOKS.has(row.look)
   const openWidth = isOpenable ? displayWidth(OPEN_LABEL) + (hasToolColumn ? NAME_GAP : 0) : 0
   const detailWidth = Math.max(
     elements.bodyColumns - MARK_COLUMNS - nameWidth - stateWidth - openWidth - timeWidth,
@@ -169,6 +180,19 @@ function agentLine(
           })
         : null,
       fixedBox(elements, timeWidth, Text({ dimColor: true, children: time.padStart(timeWidth) })),
+    ],
+  })
+}
+
+function waitsLine(elements: PaneElements, row: AgentRow): RenderElement {
+  const { Box, Text } = elements
+  const room = elements.bodyColumns - DETAIL_INDENT - displayWidth(WAITS_LEAD)
+  return Box({
+    key: `waits:agent:${row.id}`,
+    flexDirection: 'row',
+    children: [
+      Text({ dimColor: true, children: WAITS_LEAD }),
+      Text({ children: fitted(waitsText(row), room) }),
     ],
   })
 }
@@ -282,8 +306,9 @@ function drawAgent(
     row.look === 'failed' && !elements.isInline
       ? line(elements, failureText(row), { dimColor: true })
       : null
+  const waits = row.look === 'needsYou' && !elements.isInline ? waitsLine(elements, row) : null
   const isOpen = layout.expanded.has(`agent:${row.id}`)
-  const under = [failure, ...(isOpen ? openedLines(elements, row, names, layout, now) : [])]
+  const under = [failure, waits, ...(isOpen ? openedLines(elements, row, names, layout, now) : [])]
   const shown = under.filter((element) => element !== null)
   if (shown.length === 0) return head
   return elements.Box({
@@ -303,9 +328,11 @@ export function headerParts(rows: readonly AgentRow[]): { text: string; color?: 
   const active = listed.filter((row) => !row.isEnded).length
   const ended = listed.length - active
   const failed = rows.filter((row) => row.look === 'failed').length
+  const waiting = rows.filter((row) => row.look === 'needsYou').length
   const count = active === 0 && ended > 0 ? `all ${String(ended)} done` : String(active)
   const parts = [
     active === 0 && ended === 0 ? null : { text: count },
+    waiting > 0 ? { text: needsYouText(waiting), color: SIGNALS.waitsForYou.color } : null,
     failed > 0 ? { text: `${String(failed)} failed`, color: SIGNALS.blocked.color } : null,
     unlisted > 0 ? { text: countPart(unlisted, 'not listed') ?? '' } : null,
   ]

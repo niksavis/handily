@@ -6,6 +6,29 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.8.0 - 2026-10-28
+
+### Added
+
+- **board shows a subagent that waits for your permission answer as needs you, and the last 5
+  permission checks.** When the verdict of the engine event `tool.check` for a subagent call is
+  `ask`, the agent row says `asked`. When the call is still not settled 3 seconds later, the row
+  says `needs you` with a `waits for: permission · Bash npm test` line, the Agents header counts
+  it, and the Session line starts with `◆ 1 waits`. The mark clears when the call runs, when the
+  answer refuses it, and when the turn of the agent ends. An ask that the auto mode classifier
+  settles before 3 seconds draws no mark. Claude Code gives no event when the dialog opens or
+  closes, so the mark stays while an allowed call runs. After the first check, a press on the
+  Session line shows the counts of the checks, and `last 5 checks` shows the newest 5 with the
+  verdict word, the tool and the target. The board masks the credentials in each target
+  (handily-xsjad.5).
+
+### Security
+
+- **board masks a credential in a call target on every row.** Before, the `▶ Now` row and the
+  agent rows drew the target of a call as it came, so a command such as
+  `GITHUB_TOKEN=ghp_… gh pr list` showed its token. Every row now masks it by the same rule as
+  the checks list: `GITHUB_TOKEN=*** gh pr list` (handily-ygiyf).
+
 ## handily-filetree 0.4.0 - 2026-10-28
 
 ### Added

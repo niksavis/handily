@@ -46,7 +46,30 @@ export type BoardActivity = {
 export type BoardAgentStatus =
   'pending' | 'running' | 'waiting' | 'idle' | 'completed' | 'failed' | 'killed'
 
-export type BoardAgentCall = { id: string; tool: string; target: string | null }
+export type BoardCallAsk = { at: number; target: string | null }
+
+export type BoardAgentCall = {
+  id: string
+  tool: string
+  target: string | null
+  asked?: BoardCallAsk
+}
+
+export type BoardCheckDecision = 'allow' | 'ask' | 'deny'
+
+export type BoardCheck = {
+  decision: BoardCheckDecision
+  tool: string
+  target: string | null
+  agentId: string | null
+}
+
+export type BoardChecks = {
+  allowed: number
+  asked: number
+  denied: number
+  last: readonly BoardCheck[]
+}
 
 export type BoardAgent = {
   id: string
