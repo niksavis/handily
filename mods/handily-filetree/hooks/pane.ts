@@ -3,9 +3,12 @@ import type {
   ButtonProps,
   ElementConstructor,
   RenderElement,
+  SelectProps,
   TextProps,
 } from 'claude-code'
+import { filterValue } from './agents'
 import type { GitView, NoteLine, NoteTone } from './gitview'
+import { type MarkColumn, hiddenText, markCell, markWidth, sightCells } from './marks'
 import type { GitCount, GitLetter, GitMarks } from './status'
 import {
   type EntryRow,
@@ -16,14 +19,32 @@ import {
   childPath,
   entryRow,
 } from './tree'
+import type { Mark, Sight } from './touches'
 import { displayWidth, fitted } from './width'
 
 export type PaneElements = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
   Button: ElementConstructor<ButtonProps>
+  Select: ElementConstructor<SelectProps> | undefined
   bodyColumns: number
 }
+
+export type TouchDraw = {
+  column: MarkColumn
+  fileMark: (path: string) => Mark | undefined
+  folderMark: (path: string) => Mark | undefined
+  labelOf: (agent: string) => string
+  shownPath: (path: string) => string
+  sights: readonly Sight[]
+  agents: readonly string[]
+  agent: string | undefined
+  inView: string | undefined
+  pick: (value: string) => void
+  now: number
+}
+
+type PaneView = { git: GitView; actions: PaneActions; touched: TouchDraw }
 
 export type PaneActions = {
   toggle: (path: string) => void
@@ -39,6 +60,14 @@ const REFRESH = 'refresh'
 const RETRY = 'retry'
 const BUTTON_CHROME = 4
 const BUTTON_GAP = 1
+const MARK_GAP = 1
+const SELECT_CHROME = 2
+const FILTER_KEY = 'agent'
+const FILTER_LABEL = 'agent'
+const ALL_LABEL = 'all'
+const NOW_TITLE = 'Now'
+const NOTHING_YET = 'nothing read or edited yet'
+const INLINE_GAP = '  '
 const NOTE_GAP = '  '
 const INDENT = '  '
 const DETAIL_INDENT = '  '
@@ -144,6 +173,103 @@ function retryButton(elements: PaneElements, actions: PaneActions): RenderElemen
   })
 }
 
+function agentOptions(touched: TouchDraw): { value: string; label: string }[] {
+  const agents = touched.agent === undefined ? touched.agents : [...touched.agents, touched.agent]
+  const options = [...new Set(agents)].map((agent) => ({
+    value: filterValue(agent),
+    label: shownName(touched.labelOf(agent)),
+  }))
+  return [{ value: filterValue(undefined), label: ALL_LABEL }, ...options]
+}
+
+function filterSelect(elements: PaneElements, touched: TouchDraw): RenderElement[] {
+  const { Select } = elements
+  if (Select === undefined) return []
+  return [
+    Select({
+      key: FILTER_KEY,
+      label: FILTER_LABEL,
+      options: agentOptions(touched),
+      value: filterValue(touched.agent),
+      onSelect: (value) => {
+        touched.pick(value)
+      },
+    }),
+  ]
+}
+
+function filterWidth(elements: PaneElements, touched: TouchDraw): number {
+  if (elements.Select === undefined) return 0
+  const shown = touched.agent === undefined ? ALL_LABEL : touched.labelOf(touched.agent)
+  return displayWidth(`${FILTER_LABEL}: ${shownName(shown)}`) + SELECT_CHROME
+}
+
+function drawControls(
+  elements: PaneElements,
+  actions: PaneActions,
+  touched: TouchDraw,
+): RenderElement[] {
+  const { Box, Text, bodyColumns } = elements
+  const select = filterSelect(elements, touched)
+  const refresh = refreshButton(elements, actions)
+  const width = filterWidth(elements, touched) + BUTTON_GAP + displayWidth(REFRESH) + BUTTON_CHROME
+  if (select.length === 0 || width <= bodyColumns) {
+    const gap = select.length === 0 ? [] : [Text({ children: ' ' })]
+    return [Box({ flexDirection: 'row', children: [...select, ...gap, refresh] })]
+  }
+  return [
+    Box({ flexDirection: 'row', children: [refresh] }),
+    Box({ flexDirection: 'row', children: select }),
+  ]
+}
+
+function inViewNote(elements: PaneElements, touched: TouchDraw): RenderElement[] {
+  if (touched.inView === undefined) return []
+  const label = shownName(touched.labelOf(touched.inView))
+  return wrapped(`${label} is in view, so only ${label} shows`, elements.bodyColumns).map((part) =>
+    elements.Text({ dimColor: true, children: part }),
+  )
+}
+
+function nowSummary(touched: TouchDraw): string {
+  const count = touched.sights.length
+  if (count === 0) return NOTHING_YET
+  if (touched.agent !== undefined) return shownName(touched.labelOf(touched.agent))
+  return `${String(count)} ${count === 1 ? 'agent' : 'agents'}`
+}
+
+function drawSight(elements: PaneElements, sight: Sight, touched: TouchDraw): RenderElement[] {
+  const { Box, Text, bodyColumns } = elements
+  const cells = sightCells(touched.column, sight, {
+    label: shownName(touched.labelOf(sight.agent)),
+    path: shownName(touched.shownPath(sight.path)),
+    bodyColumns,
+    now: touched.now,
+  })
+  const age = cells.age === '' ? [] : [Text({ dimColor: true, children: cells.age })]
+  const line = Box({
+    key: `now:${sight.agent}`,
+    flexDirection: 'row',
+    children: [Text({ children: cells.mark }), Text({ children: cells.path }), ...age],
+  })
+  if (sight.hidden === 0) return [line]
+  return [line, Text({ children: fitted(hiddenText(sight.hidden), bodyColumns) })]
+}
+
+function drawNow(elements: PaneElements, touched: TouchDraw): RenderElement[] {
+  const { Box, Text, bodyColumns } = elements
+  const head = Box({
+    flexDirection: 'row',
+    children: [
+      Text({ bold: true, children: NOW_TITLE }),
+      Text({
+        children: fitted(`  ${nowSummary(touched)}`, bodyColumns - displayWidth(NOW_TITLE)),
+      }),
+    ],
+  })
+  return [head, ...touched.sights.flatMap((sight) => drawSight(elements, sight, touched))]
+}
+
 function drawNote(elements: PaneElements, note: NoteLine, actions: PaneActions): RenderElement[] {
   const { Box, Text, bodyColumns } = elements
   if (!note.hasRetry) {
@@ -210,6 +336,35 @@ function markedParts(letter: GitLetter, name: string): Part[] {
   return [{ text: letter, color }, { text: ' ' }, { text: name, color }]
 }
 
+function partsWidth(parts: readonly Part[]): number {
+  return parts.reduce((sum, part) => sum + displayWidth(part.text), 0)
+}
+
+function nameRoom(width: number, touched: TouchDraw, mark: Mark | undefined): number {
+  return mark === undefined ? width : width - markWidth(touched.column) - MARK_GAP
+}
+
+function markParts(touched: TouchDraw, mark: Mark): Part[] {
+  const label = shownName(touched.labelOf(mark.agent))
+  const cell = markCell(touched.column, mark, label, touched.now)
+  return cell.age === ''
+    ? [{ text: cell.mark }]
+    : [{ text: cell.mark }, { text: cell.age, dimColor: true }]
+}
+
+function markedLine(
+  parts: readonly Part[],
+  width: number,
+  touched: TouchDraw,
+  mark: Mark | undefined,
+): { head: Part[]; tail: Part[] } {
+  const room = nameRoom(width, touched, mark)
+  const head = fittedParts(parts, room)
+  if (mark === undefined) return { head, tail: [] }
+  const gap = ' '.repeat(Math.max(room - partsWidth(head), 0) + MARK_GAP)
+  return { head, tail: [{ text: gap }, ...markParts(touched, mark)] }
+}
+
 function drawFolder(
   elements: PaneElements,
   row: EntryRow & { kind: 'folder' },
@@ -222,6 +377,12 @@ function drawFolder(
     { text: `${mark} ${shownName(row.name)}/` },
     ...countParts(draw.marks?.countsOf(row.path) ?? []),
   ]
+  const line = markedLine(
+    label,
+    bodyColumns - indent,
+    draw.touched,
+    draw.touched.folderMark(row.path),
+  )
   return Box({
     key: `folder:${row.path}`,
     flexDirection: 'row',
@@ -233,8 +394,9 @@ function drawFolder(
         onPress: () => {
           draw.actions.toggle(row.path)
         },
-        children: drawParts(Text, fittedParts(label, bodyColumns - indent)),
+        children: drawParts(Text, line.head),
       }),
+      ...drawParts(Text, line.tail),
     ],
   })
 }
@@ -254,29 +416,36 @@ function renameDetail(
 function drawFile(
   elements: PaneElements,
   row: EntryRow & { kind: 'file' },
-  marks: GitMarks | undefined,
+  draw: TreeDraw,
 ): RenderElement[] {
   const { Box, Text, bodyColumns } = elements
+  const { marks, touched } = draw
+  const mark = touched.fileMark(row.path)
   const name = `${indentOf(row.depth)}${INDENT}${shownName(row.name)}`
   const letter = marks?.letterOf(row.path)
-  if (letter === undefined || marks === undefined) {
+  if (letter === undefined && mark === undefined) {
     return [Text({ dimColor: row.isDot, children: fitted(name, bodyColumns) })]
   }
-  const indent = indentOf(
-    Math.min(row.depth, Math.floor(Math.max(bodyColumns - MARKED_ROOM, 0) / 2)),
-  )
-  const parts = [{ text: indent }, ...markedParts(letter, shownName(row.name))]
+  const room = nameRoom(bodyColumns, touched, mark)
+  const parts =
+    letter === undefined
+      ? [{ text: name, dimColor: row.isDot }]
+      : [
+          { text: indentOf(Math.min(row.depth, Math.floor(Math.max(room - MARKED_ROOM, 0) / 2))) },
+          ...markedParts(letter, shownName(row.name)),
+        ]
+  const line = markedLine(parts, bodyColumns, touched, mark)
   return [
     Box({
       key: `file:${row.path}`,
       flexDirection: 'row',
-      children: drawParts(Text, fittedParts(parts, bodyColumns)),
+      children: drawParts(Text, [...line.head, ...line.tail]),
     }),
-    ...renameDetail(elements, row, marks),
+    ...(marks === undefined ? [] : renameDetail(elements, row, marks)),
   ]
 }
 
-type TreeDraw = { actions: PaneActions; marks: GitMarks | undefined }
+type TreeDraw = { actions: PaneActions; marks: GitMarks | undefined; touched: TouchDraw }
 
 function drawEntry(elements: PaneElements, row: EntryRow, draw: TreeDraw): RenderElement[] {
   const { Text, bodyColumns } = elements
@@ -288,7 +457,7 @@ function drawEntry(elements: PaneElements, row: EntryRow, draw: TreeDraw): Rende
         }),
       ]
     case 'file':
-      return drawFile(elements, row, draw.marks)
+      return drawFile(elements, row, draw)
     case 'folder':
       return [drawFolder(elements, row, draw)]
   }
@@ -342,17 +511,19 @@ export function drawTree(
   elements: PaneElements,
   rootName: string,
   rows: readonly TreeRow[],
-  view: { git: GitView; actions: PaneActions },
+  view: PaneView,
 ): RenderElement {
   const { Box, Text, bodyColumns } = elements
-  const { git, actions } = view
-  const draw: TreeDraw = { actions, marks: git.marks }
+  const { git, actions, touched } = view
+  const draw: TreeDraw = { actions, marks: git.marks, touched }
   return Box({
     flexDirection: 'column',
     children: [
       drawHeader(elements, rootName, git.header, bodyColumns),
-      Box({ flexDirection: 'row', children: [refreshButton(elements, actions)] }),
+      ...drawControls(elements, actions, touched),
       ...drawNotes(elements, git.notes, actions),
+      ...inViewNote(elements, touched),
+      ...drawNow(elements, touched),
       Text({ children: RULE.repeat(Math.max(bodyColumns, 0)) }),
       ...rows.flatMap((row) => drawRow(elements, row, draw)),
       ...drawNotes(elements, git.footer, actions),
@@ -360,8 +531,20 @@ export function drawTree(
   })
 }
 
-function flatRow(elements: PaneElements, row: EntryRow, git: GitView): RenderElement {
+function flatMark(row: EntryRow, touched: TouchDraw): Mark | undefined {
+  switch (row.kind) {
+    case 'file':
+      return touched.fileMark(row.path)
+    case 'folder':
+      return touched.folderMark(row.path)
+    case 'pruned':
+      return undefined
+  }
+}
+
+function flatRow(elements: PaneElements, row: EntryRow, view: PaneView): RenderElement {
   const { Box, Text, bodyColumns } = elements
+  const { git, touched } = view
   const { marks } = git
   const name = shownName(row.name)
   const slot = git.isRepo ? INDENT : ''
@@ -378,10 +561,11 @@ function flatRow(elements: PaneElements, row: EntryRow, git: GitView): RenderEle
           : markedParts(letter, name)
     }
   })()
+  const line = markedLine(parts, bodyColumns, touched, flatMark(row, touched))
   return Box({
     key: `flat:${row.path}`,
     flexDirection: 'row',
-    children: drawParts(Text, fittedParts(parts, bodyColumns)),
+    children: drawParts(Text, [...line.head, ...line.tail]),
   })
 }
 
@@ -389,7 +573,7 @@ function inlineRows(
   elements: PaneElements,
   root: Listing,
   rootName: string,
-  git: GitView,
+  view: PaneView,
 ): RenderElement[] {
   const { Text, bodyColumns } = elements
   if (root.kind === 'failed') {
@@ -402,11 +586,11 @@ function inlineRows(
   const rows = root.sorted.map((entry) =>
     entryRow(entry, childPath(ROOT_PATH, entry.name), 0, closed),
   )
-  if (rows.length <= INLINE_ROWS) return rows.map((row) => flatRow(elements, row, git))
+  if (rows.length <= INLINE_ROWS) return rows.map((row) => flatRow(elements, row, view))
   const shown = rows.slice(0, INLINE_ROWS - 1)
   const hidden = countText(rows.length - shown.length)
   return [
-    ...shown.map((row) => flatRow(elements, row, git)),
+    ...shown.map((row) => flatRow(elements, row, view)),
     Text({ dimColor: true, children: fitted(`+${hidden} more: ${DOCK_HINT}`, bodyColumns) }),
   ]
 }
@@ -415,10 +599,14 @@ export function drawInline(
   elements: PaneElements,
   rootName: string,
   root: Listing,
-  view: { git: GitView; actions: PaneActions },
+  view: PaneView,
 ): RenderElement {
-  const { Box, bodyColumns } = elements
-  const headerWidth = bodyColumns - displayWidth(REFRESH) - BUTTON_CHROME - BUTTON_GAP
+  const { Box, Text, bodyColumns } = elements
+  const select = filterSelect(elements, view.touched)
+  const filterRoom =
+    select.length === 0 ? 0 : filterWidth(elements, view.touched) + displayWidth(INLINE_GAP)
+  const headerWidth = bodyColumns - displayWidth(REFRESH) - BUTTON_CHROME - BUTTON_GAP - filterRoom
+  const gap = select.length === 0 ? [] : [Text({ children: INLINE_GAP })]
   return Box({
     flexDirection: 'column',
     children: [
@@ -427,10 +615,13 @@ export function drawInline(
         justifyContent: 'space-between',
         children: [
           drawHeader(elements, rootName, view.git.header, headerWidth),
-          refreshButton(elements, view.actions),
+          Box({
+            flexDirection: 'row',
+            children: [...select, ...gap, refreshButton(elements, view.actions)],
+          }),
         ],
       }),
-      ...inlineRows(elements, root, rootName, view.git),
+      ...inlineRows(elements, root, rootName, view),
     ],
   })
 }

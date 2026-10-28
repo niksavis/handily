@@ -3,9 +3,9 @@
 `filetree` shows the working folder of the session as a tree in a pane tab named `files`. Folders
 come first. The mod lists a folder only when you open it.
 
-The tab shows the git state of each file and a count on each folder. It does not mark which agent
-read or edited a file yet. [docs/design.md](../../docs/design.md), section 4.11, gives the plan
-for that.
+The tab shows the git state of each file and a count on each folder. It marks which agent read or
+edited each file, and how long ago. [docs/design.md](../../docs/design.md), section 4.11, gives
+the design.
 
 `filetree` depends on `handily-board`. Load both with `claude --plugin-dir mods`.
 [docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
@@ -36,8 +36,9 @@ draws it:
 
 ```text
 Files  app · not a git repo
-[ refresh ]
+{agent: all} [ refresh ]
 No git status here; git init adds it.
+Now  nothing read or edited yet
 ─────────────────────────────────────────
 ▸ .git/  not listed
 ▸ node_modules/  not listed
@@ -76,7 +77,7 @@ the folder holds more entries, the last row says how many more there are. The te
 body 76:
 
 ```text
-Files  app · not a git repo                                      [ refresh ]
+Files  app · not a git repo                        {agent: all}  [ refresh ]
 .git/  not listed
 node_modules/  not listed
 docs/
@@ -91,7 +92,7 @@ In a git repo, each inline row starts with two columns for the git letter. A cha
 its letter there, and a folder shows its counts after its name:
 
 ```text
-Files  app · main ↑1 · 6 changed                                 [ refresh ]
+Files  app · main ↑1 · 6 changed                   {agent: all}  [ refresh ]
   .git/  not listed
   node_modules/  not listed
   docs/  M2 ?1
@@ -110,7 +111,8 @@ each count draws in the colour of its letter. The test fixture, with `docs/` and
 
 ```text
 Files  app · main ↑1 · 6 changed
-[ refresh ]
+{agent: all} [ refresh ]
+Now  nothing read or edited yet
 ─────────────────────────────────────────
 ▸ .git/  not listed
 ▸ node_modules/  not listed
@@ -163,7 +165,7 @@ When git fails, the tree stays, and the header says what failed:
 
 ```text
 Files  app · git status failed
-[ refresh ]
+{agent: all} [ refresh ]
 git status failed: exit 128.
 Run git status in a shell to see why.
 retry in 10s  [ retry ]
@@ -176,6 +178,70 @@ retry in 10s  [ retry ]
 - While a run takes over 5 s, the header shows the age of the last status, such as `2m old`.
 - When the output of git is over 4 MiB, the mod drops the record that the limit cut. The tree
   ends with `git status is over 4 MiB; the first 61,204 entries are marked.`
+
+## Marks: which agent read or edited a file
+
+A file that an agent read shows `◦`, and a file that an agent edited shows `✎`. The agent label
+and the age follow the mark. A folder shows the latest mark of the files under it. The `Now`
+block above the rule shows the latest file of each agent. The test fixture, after `main` edited
+`hooks/pane.tsx` and the subagent `scout` read `docs/design.md`:
+
+```text
+Files  app · main ↑1 · 6 changed
+{agent: all} [ refresh ]
+Now  2 agents
+✎ main      hooks/pane.tsx             4s
+◦ scout     docs/design.md             2s
+─────────────────────────────────────────
+▸ .git/  not listed
+▸ node_modules/  not listed
+▾ docs/  M2 ?1            ◦ scout      2s
+  M design.md             ◦ scout      2s
+  ? filetree.md
+    guide.md
+    install.md
+  M mocks.md
+▾ hooks/  M1 D1           ✎ main       4s
+  ▸ dist/  not listed
+  D old-pane.tsx
+  M pane.tsx              ✎ main       4s
+    register.tsx
+▸ scripts/
+  .gitignore
+M README.md
+```
+
+| Tool                            | Mark                                    |
+| ------------------------------- | --------------------------------------- |
+| `Read`                          | `◦` on the file                         |
+| `Edit`, `Write`, `NotebookEdit` | `✎` on the file                         |
+| `Grep`                          | `◦` on the first 12 files that it found |
+
+- The main loop is `main`. A subagent shows the label that `handily-board` draws for it. When
+  the board has no label for it yet, the mark shows its name, its type or the first 8
+  characters of its id.
+- A file that two or more agents touched shows the latest agent and a count: `✎ main +1`.
+- The age uses the short form of the board: `9s`, `5m`, `1h`, `2d`. It rounds down.
+- The mark shows while the call runs. When the call is denied, fails or ends in an error, the
+  mark goes, and an earlier mark of the file shows again.
+- A `Grep` that found 40 files marks 12. The `Now` line of the agent then reads
+  `and 28 more files from one Grep`.
+- A `Bash` call marks no file in this release.
+- At body 30 the age drops and the label cuts to 5 characters. Below body 28 the label drops,
+  and the mark and the git letter stay. Inline, each flat row carries its mark.
+
+The agent filter `{agent: all}` shows the marks of one agent or of all. On the desktop app it is
+a select. When you open the transcript of a subagent, the tab shows only that agent and says so:
+
+```text
+{agent: scout} [ refresh ]
+scout is in view, so only scout shows
+Now  scout
+◦ scout     docs/design.md             2s
+```
+
+The marks and the filter stay in the memory of the mod for the session. They are not in
+`$.state`, so a reload of the plugins clears them.
 
 ## State
 

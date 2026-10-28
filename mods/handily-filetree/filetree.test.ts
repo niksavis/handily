@@ -15,6 +15,8 @@ const PLUGIN = 'handily-filetree'
 const PANE = 'files'
 const SURFACES: readonly RenderSurface[] = ['terminal', 'desktop']
 const RULE_41 = '─'.repeat(41)
+const CONTROLS = '{agent: all} [ refresh ]'
+const NOW_EMPTY = 'Now  nothing read or edited yet'
 
 type FakeFolder = FsEntry[] | string
 
@@ -239,6 +241,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+function selectText(props: Record<string, unknown>): string {
+  const options = Array.isArray(props.options) ? (props.options as unknown[]) : []
+  const picked = options.filter(isRecord).find((option) => option.value === props.value)
+  const label = typeof picked?.label === 'string' ? picked.label : ''
+  return `{${typeof props.label === 'string' ? props.label : ''}: ${label}}`
+}
+
 function drawnOf(value: unknown): Drawn | null {
   if (!isRecord(value) || typeof value.type !== 'string') return null
   const props = isRecord(value.props) ? value.props : {}
@@ -246,9 +255,11 @@ function drawnOf(value: unknown): Drawn | null {
   const children = raw.map(drawnOf).filter((child) => child !== null)
   const own = raw.map((child) => (typeof child === 'string' ? child : '')).join('')
   const text =
-    value.type === 'Button' && props.plain !== true && typeof props.label === 'string'
-      ? `[ ${props.label} ]`
-      : `${own}${children.map((child) => child.text).join('')}`
+    value.type === 'Select'
+      ? selectText(props)
+      : value.type === 'Button' && props.plain !== true && typeof props.label === 'string'
+        ? `[ ${props.label} ]`
+        : `${own}${children.map((child) => child.text).join('')}`
   return { type: value.type, props, text, children }
 }
 
@@ -352,8 +363,9 @@ describe('the files tab, docked', () => {
       const ui = await mountFiles($, surface)
       expect(await screen(ui)).toEqual([
         'Files  app · not a git repo',
-        '[ refresh ]',
+        CONTROLS,
         'No git status here; git init adds it.',
+        NOW_EMPTY,
         RULE_41,
         '▸ .git/  not listed',
         '▸ node_modules/  not listed',
@@ -620,7 +632,7 @@ describe('the files tab, inline above the prompt', () => {
       const ui = await mountFiles($, surface, 'inline', 76)
       const lines = await screen(ui, 76)
       expect(lines).toEqual([
-        'Files  app · not a git repo[ refresh ]',
+        'Files  app · not a git repo{agent: all}  [ refresh ]',
         '.git/  not listed',
         'node_modules/  not listed',
         'docs/',
@@ -781,7 +793,7 @@ describe('git status: letters and counts', () => {
       const ui = await openFiles($, seen, surface)
       await ui.press({ key: 'open:docs' })
       await ui.press({ key: 'open:hooks' })
-      expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', '[ refresh ]'])
+      expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
       expect(await treeLines(ui)).toEqual([
         '▸ .git/  not listed',
         '▸ node_modules/  not listed',
@@ -884,11 +896,11 @@ describe('git status: letters and counts', () => {
   test('the header says clean, and no commits yet in a new repo', async ($, on) => {
     const seen = gitWorld(on, [['.', [file('README.md')]]], { kind: 'ok', stdout: CLEAN })
     const ui = await openFiles($, seen)
-    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', CONTROLS, NOW_EMPTY])
     seen.answer = { kind: 'ok', stdout: statusOf([], { oid: '(initial)' }) }
     await ui.press({ key: 'refresh' })
     await seen.clock.advance(2000)
-    expect(await headerOf(ui)).toEqual(['Files  app · main · no commits yet', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main · no commits yet', CONTROLS, NOW_EMPTY])
     expect(seen.runs).toHaveLength(2)
     await ui.unmount()
   })
@@ -902,7 +914,7 @@ describe('git status: letters and counts', () => {
       stdout: statusOf([changed('.M', 'app/a.ts'), changed('.M', 'a.ts')]),
     }
     const ui = await openFiles($, seen)
-    expect(await headerOf(ui)).toEqual(['Files  app · lane-a1 · 2 changed', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · lane-a1 · 2 changed', CONTROLS, NOW_EMPTY])
     expect(await treeLines(ui)).toEqual(['M a.ts', '  b.ts'])
     expect(seen.stats.slice(0, 2)).toEqual([GIT_DIR, '/work/.git'])
     await ui.unmount()
@@ -969,7 +981,7 @@ describe('git status: letters and counts', () => {
       seen.answer = { kind: 'ok', stdout: CLEAN }
       const ui = await openFiles($, seen)
       expect(seen.logs).toEqual([])
-      expect(await headerOf(ui)).toEqual(['Files  app · aaaaaaa · clean', '[ refresh ]'])
+      expect(await headerOf(ui)).toEqual(['Files  app · aaaaaaa · clean', CONTROLS, NOW_EMPTY])
       const before = seen.runs.length
       touch(seen, `${gitDir}/index`)
       await seen.clock.advance(2000)
@@ -981,7 +993,9 @@ describe('git status: letters and counts', () => {
   test('inline above the prompt, the header shows the git summary', async ($, on) => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
     const ui = await openFiles($, seen, 'desktop', 'inline', 76)
-    expect((await screen(ui, 76))[0]).toBe('Files  app · main ↑1 · 6 changed[ refresh ]')
+    expect((await screen(ui, 76))[0]).toBe(
+      'Files  app · main ↑1 · 6 changed{agent: all}  [ refresh ]',
+    )
     await ui.unmount()
   })
 
@@ -1074,7 +1088,7 @@ describe('git status: when it runs', () => {
     touch(seen, `${GIT_DIR}/index`)
     await seen.clock.advance(2000)
     expect(seen.runs).toHaveLength(2)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
     expect(await treeLines(ui)).toContain('M README.md')
     await seen.clock.advance(20_000)
     expect(seen.runs).toHaveLength(2)
@@ -1106,8 +1120,9 @@ describe('git status: when it runs', () => {
       const ui = await mountSettled($, seen, surface)
       expect(await headerOf(ui)).toEqual([
         'Files  app · not a git repo',
-        '[ refresh ]',
+        CONTROLS,
         'No git status here; git init adds it.',
+        NOW_EMPTY,
       ])
       expect((await ui.find({ type: 'Text', text: /No git status/ }))?.props.dimColor).toBe(true)
       expect(await ui.find({ type: 'Text', text: /^M$/ })).toBeUndefined()
@@ -1233,7 +1248,7 @@ describe('git status: when it runs', () => {
     const seen = gitWorld(on, GIT_APP, { kind: 'exit', exitCode: 128, stderr: 'fatal' })
     underTool(on)
     const ui = await openFiles($, seen)
-    expect((await headerOf(ui)).at(-1)).toBe('retry in 10s  [ retry ]')
+    expect((await headerOf(ui)).slice(-2)).toEqual(['retry in 10s  [ retry ]', NOW_EMPTY])
     seen.answer = { kind: 'ok', stdout: CLEAN }
     await $.tool.call({ tool: 'Bash', command: 'npm test' })
     await seen.clock.settle()
@@ -1247,7 +1262,7 @@ describe('git status: when it runs', () => {
     await seen.clock.advance(12_000)
     expect(seen.stats.length - statsOfNewSession).toBe(12)
     expect(seen.runs).toHaveLength(2)
-    expect(await headerOf(next)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    expect(await headerOf(next)).toEqual(['Files  app · main · clean', CONTROLS, NOW_EMPTY])
     await next.unmount()
   })
 
@@ -1264,13 +1279,13 @@ describe('git status: when it runs', () => {
     seen.answer = { kind: 'ok', stdout: CLEAN }
     await start($)
     const ui = await mountSettled($, seen, 'terminal')
-    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', CONTROLS, NOW_EMPTY])
     await seen.clock.advance(4000)
-    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', CONTROLS, NOW_EMPTY])
     await seen.clock.advance(3000)
     expect(seen.inFlight).toBe(0)
     await ui.redraw()
-    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main · clean', CONTROLS, NOW_EMPTY])
     expect(await treeLines(ui)).toContain('  README.md')
     expect(seen.runs).toHaveLength(2)
     await ui.unmount()
@@ -1314,10 +1329,11 @@ describe('git status: errors', () => {
       const ui = await mountSettled($, seen, surface)
       expect(await headerOf(ui)).toEqual([
         'Files  app · git status failed',
-        '[ refresh ]',
+        CONTROLS,
         'git status failed: exit 128.',
         'Run git status in a shell to see why.',
         'retry in 10s  [ retry ]',
+        NOW_EMPTY,
       ])
       expect((await ui.find({ type: 'Text', text: /exit 128/ }))?.props.color).toBe('error')
       expect(await treeLines(ui)).toContain('▸ docs/')
@@ -1326,11 +1342,11 @@ describe('git status: errors', () => {
     expect(seen.logs.some((log) => log.includes('dubious ownership'))).toBe(true)
     const ui = await mountFiles($, 'terminal')
     await seen.clock.advance(2000)
-    expect((await headerOf(ui)).at(-1)).toBe('retry in 8s  [ retry ]')
+    expect((await headerOf(ui)).slice(-2)).toEqual(['retry in 8s  [ retry ]', NOW_EMPTY])
     seen.answer = { kind: 'ok', stdout: APP_CHANGES }
     await seen.clock.advance(8000)
     expect(seen.runs).toHaveLength(2)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
     await ui.unmount()
   })
 
@@ -1339,7 +1355,7 @@ describe('git status: errors', () => {
     const ui = await openFiles($, seen)
     await seen.clock.advance(10_000)
     expect(seen.runs).toHaveLength(2)
-    expect((await headerOf(ui)).at(-1)).toBe('[ retry ]')
+    expect((await headerOf(ui)).slice(-2)).toEqual(['[ retry ]', NOW_EMPTY])
     await seen.clock.advance(30_000)
     expect(seen.runs).toHaveLength(2)
     seen.answer = { kind: 'ok', stdout: CLEAN }
@@ -1357,13 +1373,13 @@ describe('git status: errors', () => {
       tookMs: 10_000,
     })
     const ui = await openFiles($, seen)
-    expect(await headerOf(ui)).toEqual(['Files  app', '[ refresh ]', 'Reading git status…'])
+    expect(await headerOf(ui)).toEqual(['Files  app', CONTROLS, 'Reading git status…', NOW_EMPTY])
     await seen.clock.advance(6000)
-    expect(await headerOf(ui)).toEqual(['Files  app', '[ refresh ]', 'Reading git status…'])
+    expect(await headerOf(ui)).toEqual(['Files  app', CONTROLS, 'Reading git status…', NOW_EMPTY])
     await seen.clock.advance(4000)
     expect((await headerOf(ui)).slice(0, 3)).toEqual([
       'Files  app · git status failed',
-      '[ refresh ]',
+      CONTROLS,
       'git status failed: no answer in 10 s.',
     ])
     expect(await treeLines(ui)).toContain('▸ docs/')
@@ -1375,9 +1391,10 @@ describe('git status: errors', () => {
     const ui = await openFiles($, seen)
     expect(await headerOf(ui)).toEqual([
       'Files  app · git not found',
-      '[ refresh ]',
+      CONTROLS,
       'git is not on PATH, so git status',
       'is not shown.',
+      NOW_EMPTY,
     ])
     expect(await ui.find({ key: 'retry' })).toBeUndefined()
     touch(seen, `${GIT_DIR}/index`)
@@ -1402,14 +1419,15 @@ describe('git status: errors', () => {
     await seen.clock.advance(1)
     expect(await headerOf(ui)).toEqual([
       'Files  app · main · 1 changed · 2m old',
-      '[ refresh ]',
+      CONTROLS,
       'git status took over 5 s; showing',
       'the status of 2m ago.  [ retry ]',
+      NOW_EMPTY,
     ])
     expect((await ui.find({ type: 'Text', text: /took over 5 s/ }))?.props.color).toBe('warning')
     expect(await treeLines(ui)).toContain('M README.md')
     await seen.clock.advance(1000)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
     await ui.unmount()
   })
 
@@ -1417,7 +1435,7 @@ describe('git status: errors', () => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES, tookMs: 5001 })
     const ui = await openFiles($, seen)
     await seen.clock.advance(5001)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', '[ refresh ]'])
+    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
     touch(seen, `${GIT_DIR}/index`)
     await seen.clock.advance(2000)
     await seen.clock.advance(5001)
@@ -1428,6 +1446,7 @@ describe('git status: errors', () => {
     expect((await headerOf(ui)).slice(2)).toEqual([
       'git status took over 5 s twice, so',
       'untracked files are not shown.',
+      NOW_EMPTY,
     ])
     seen.answer = { kind: 'ok', stdout: CLEAN }
     touch(seen, `${GIT_DIR}/index`)
@@ -1474,6 +1493,406 @@ describe('git status: errors', () => {
     touch(seen, `${GIT_DIR}/index`)
     await seen.clock.advance(2000)
     expect(await treeLines(ui)).not.toContain('2 entries are marked.')
+    await ui.unmount()
+  })
+})
+
+type ToolAnswer = 'ok' | 'deny' | 'error' | 'throw'
+
+type FakeTool = { answer: ToolAnswer; tookMs?: number; result?: unknown }
+
+const SCOUT = 'a1b2c3d4e5f6'
+const HELPER = 'f00dfeed0123'
+
+function boardAgent(id: string, names: { type: string; label?: string }) {
+  return {
+    id,
+    startedAt: 1,
+    isSpawnSeen: true,
+    seenAt: 1,
+    endedAt: null,
+    tools: 0,
+    running: [],
+    last: null,
+    description: null,
+    type: names.type,
+    name: null,
+    parentId: null,
+    listedStatus: 'running' as const,
+    isListed: true,
+    hasLoopEvents: true,
+    ...(names.label === undefined ? {} : { label: names.label }),
+  }
+}
+
+function boardKnowsScout(on: On): void {
+  on('state.get', { plugin: 'handily-board', key: 'agents' }, () => ({
+    value: { value: [boardAgent(SCOUT, { type: 'Explore', label: 'scout' })], version: 1 },
+  }))
+}
+
+type ToolThisBuildLacks = (input: { tool: string } & Record<string, unknown>) => Promise<unknown>
+
+async function grep($: Engine, input: Record<string, unknown>): Promise<void> {
+  const call = $.tool.call as unknown as ToolThisBuildLacks
+  await call({ tool: 'Grep', ...input })
+}
+
+function fakeTools(on: On, seen: World, tools: ReadonlyMap<string, FakeTool>): void {
+  on('tool.call', async (_$, e) => {
+    const tool = tools.get(e.tool) ?? { answer: 'ok' }
+    if (tool.tookMs !== undefined) await seen.clock.sleep(tool.tookMs)
+    switch (tool.answer) {
+      case 'ok':
+        return { result: tool.result ?? '' }
+      case 'deny':
+        return { deny: 'The person refused the call.' }
+      case 'error':
+        return { isError: true as const, result: 'boom', text: 'boom' }
+      case 'throw':
+        throw new Error('the tool broke')
+    }
+  })
+}
+
+async function edit($: Engine, path: string, agentId?: string): Promise<void> {
+  await $.tool.call({
+    tool: 'Edit',
+    file_path: `${ROOT}/${path}`,
+    old_string: 'a',
+    new_string: 'b',
+    ...(agentId === undefined ? {} : { agentId }),
+  })
+}
+
+async function read($: Engine, path: string, agentId?: string): Promise<void> {
+  await $.tool.call({
+    tool: 'Read',
+    file_path: `${ROOT}/${path}`,
+    ...(agentId === undefined ? {} : { agentId }),
+  })
+}
+
+async function mainEditsScoutReads($: Engine, seen: World): Promise<void> {
+  await edit($, 'hooks/pane.tsx')
+  await seen.clock.advance(2000)
+  await read($, 'docs/design.md', SCOUT)
+  await seen.clock.advance(2000)
+}
+
+describe('marks: which agent read or edited each file', () => {
+  for (const surface of SURFACES) {
+    test(`an edit by main and a read by a subagent mark both rows with label and age, and Now lists both agents on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await mainEditsScoutReads($, seen)
+      await ui.press({ key: 'open:docs' })
+      await ui.press({ key: 'open:hooks' })
+      expect(await screen(ui)).toEqual([
+        'Files  app · main ↑1 · 6 changed',
+        CONTROLS,
+        'Now  2 agents',
+        '✎ main      hooks/pane.tsx             4s',
+        '◦ scout     docs/design.md             2s',
+        RULE_41,
+        '▸ .git/  not listed',
+        '▸ node_modules/  not listed',
+        '▾ docs/  M2 ?1            ◦ scout      2s',
+        '  M design.md             ◦ scout      2s',
+        '  ? filetree.md',
+        '    guide.md',
+        '    install.md',
+        '  M mocks.md',
+        '▾ hooks/  M1 D1           ✎ main       4s',
+        '  ▸ dist/  not listed',
+        '  D old-pane.tsx',
+        '  M pane.tsx              ✎ main       4s',
+        '    register.tsx',
+        '▸ scripts/',
+        '  .gitignore',
+        'M README.md',
+      ])
+      expect((await ui.find({ type: 'Text', text: 'Now' }))?.props.bold).toBe(true)
+      expect((await ui.find({ type: 'Text', text: /^ {2}4s$/ }))?.props.dimColor).toBe(true)
+      expect((await ui.find({ type: 'Text', text: /^pane\.tsx$/ }))?.props.color).toBe('warning')
+      await ui.unmount()
+    })
+  }
+
+  test('a file two agents touched shows the latest with +1, and an agent the board has not labelled shows the first 8 characters of its id', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    fakeTools(on, seen, new Map())
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    await read($, 'docs/mocks.md', SCOUT)
+    await seen.clock.advance(60_000)
+    await edit($, 'docs/mocks.md')
+    await read($, 'hooks/register.tsx', HELPER)
+    await seen.clock.advance(1000)
+    await ui.press({ key: 'open:docs' })
+    await ui.press({ key: 'open:hooks' })
+    const lines = await screen(ui)
+    expect(lines).toContain('  M mocks.md              ✎ main +1    1s')
+    expect(lines).toContain('    register.tsx          ◦ f00dfeed   1s')
+    expect(lines.slice(2, 6)).toEqual([
+      'Now  3 agents',
+      '✎ main      docs/mocks.md              1s',
+      '◦ scout     docs/mocks.md              1m',
+      '◦ f00dfeed  hooks/register.tsx         1s',
+    ])
+    await ui.unmount()
+  })
+
+  test('the ages follow the short form of the board: seconds, minutes, hours, days, rounded down', async ($, on) => {
+    const seen = world(on, APP)
+    fakeTools(on, seen, new Map())
+    await openTab($)
+    const ui = await mountSettled($, seen, 'terminal')
+    await read($, 'README.md')
+    const ages: string[] = []
+    for (const wait of [59_999, 1, 3_480_000, 60_000, 79_200_000, 3_600_000]) {
+      await seen.clock.advance(wait)
+      await ui.redraw(DOCKED_PANE)
+      ages.push(
+        (await treeLines(ui)).find((line) => line.startsWith('  README.md'))?.slice(-3) ?? '',
+      )
+    }
+    expect(ages).toEqual(['59s', ' 1m', '59m', ' 1h', '23h', ' 1d'])
+    await ui.unmount()
+  })
+})
+
+describe('marks: narrow docks and inline', () => {
+  async function touched($: Engine, seen: World): Promise<void> {
+    await read($, 'docs/mocks.md', SCOUT)
+    await mainEditsScoutReads($, seen)
+    await edit($, 'docs/mocks.md')
+    await seen.clock.advance(1000)
+  }
+
+  for (const surface of SURFACES) {
+    test(`at body 30 the age drops and the agent cuts to 5 on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface, 'dock', 30)
+      await touched($, seen)
+      await ui.press({ key: 'open:docs' })
+      const lines = await screen(ui, 30)
+      expect(lines.slice(1, 5)).toEqual([
+        CONTROLS,
+        'Now  2 agents',
+        '✎ main  docs/mocks.md',
+        '◦ scout docs/design.md',
+      ])
+      expect(lines).toContain('▾ docs/  M2 ?1         ✎ main')
+      expect(lines).toContain('  M design.md          ◦ scout')
+      expect(lines).toContain('  M mocks.md           ✎ main+')
+      expect(lines).toContain('▸ hooks/  M1 D1        ✎ main')
+      await ui.unmount()
+    })
+
+    test(`at body 24 the agent drops from the rows, and the mark and the git letter stay on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface, 'dock', 24)
+      await touched($, seen)
+      await ui.press({ key: 'open:docs' })
+      const lines = await screen(ui, 24)
+      expect(lines.slice(1, 5)).toEqual([
+        CONTROLS,
+        'Now  2 agents',
+        '✎ main  docs/mocks.md',
+        '◦ scout docs/design.md',
+      ])
+      expect(lines).toContain('  M design.md          ◦')
+      expect(lines).toContain('  M mocks.md           ✎')
+      await ui.redraw({ ...paneProps('dock', 24), view: { agentId: SCOUT } })
+      expect((await screen(ui, 24)).slice(1, 6)).toEqual([
+        '[ refresh ]',
+        '{agent: scout}',
+        'scout is in view, so',
+        'only scout shows',
+        'Now  scout',
+      ])
+      await ui.unmount()
+    })
+
+    test(`inline above the prompt, the flat rows carry the marks and the header the agent filter on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface, 'inline', 76)
+      await touched($, seen)
+      await ui.redraw(paneProps('inline', 76))
+      const lines = await screen(ui, 76)
+      expect(lines[0]).toBe('Files  app · main ↑1 · 6 changed{agent: all}  [ refresh ]')
+      expect(lines).toContain(`  docs/  M2 ?1${' '.repeat(44)}✎ main          1s`)
+      expect(lines).toContain(`  hooks/  M1 D1${' '.repeat(43)}✎ main          5s`)
+      expect(lines).toContain('M README.md')
+      expect(lines.some((line) => line.startsWith('Now'))).toBe(false)
+      await ui.unmount()
+    })
+  }
+})
+
+describe('marks: a call that is denied or fails', () => {
+  for (const surface of SURFACES) {
+    for (const answer of ['deny', 'error', 'throw'] as const) {
+      test(`a ${answer} removes the mark of the call, and an earlier read of the file shows again on the ${surface}`, async ($, on) => {
+        const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+        fakeTools(on, seen, new Map([['Edit', { answer, tookMs: 1000 }]]))
+        const ui = await openFiles($, seen, surface)
+        await ui.press({ key: 'open:hooks' })
+        await read($, 'hooks/pane.tsx')
+        await seen.clock.advance(5000)
+        const call = edit($, 'hooks/register.tsx', SCOUT).catch(() => undefined)
+        const again = edit($, 'hooks/pane.tsx').catch(() => undefined)
+        await seen.clock.advance(500)
+        expect(await treeLines(ui)).toContain('    register.tsx          ✎ a1b2c3d4   0s')
+        expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ main       0s')
+        expect(await headerOf(ui)).toContain('Now  2 agents')
+        await seen.clock.advance(500)
+        await Promise.all([call, again])
+        await ui.redraw(DOCKED_PANE)
+        expect(await treeLines(ui)).toContain('    register.tsx')
+        expect(await treeLines(ui)).toContain('  M pane.tsx              ◦ main       6s')
+        expect((await headerOf(ui)).slice(2)).toEqual([
+          'Now  1 agent',
+          '◦ main      hooks/pane.tsx             6s',
+        ])
+        await ui.unmount()
+      })
+    }
+  }
+
+  test('a denied call that was the only touch leaves Now empty', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    fakeTools(on, seen, new Map([['Read', { answer: 'deny' }]]))
+    const ui = await openFiles($, seen)
+    await read($, 'README.md', SCOUT)
+    expect((await headerOf(ui)).at(-1)).toBe(NOW_EMPTY)
+    expect(await treeLines(ui)).toContain('  README.md')
+    await ui.unmount()
+  })
+})
+
+describe('marks: the agent filter', () => {
+  for (const surface of SURFACES) {
+    test(`when the person opens the scout transcript, only scout shows, and the main view shows all again on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await read($, 'hooks/register.tsx', SCOUT)
+      await mainEditsScoutReads($, seen)
+      await ui.press({ key: 'open:docs' })
+      await ui.press({ key: 'open:hooks' })
+      await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
+      expect(await headerOf(ui)).toEqual([
+        'Files  app · main ↑1 · 6 changed',
+        '{agent: scout} [ refresh ]',
+        'scout is in view, so only scout shows',
+        'Now  scout',
+        '◦ scout     docs/design.md             2s',
+      ])
+      const tree = await treeLines(ui)
+      expect(tree).toContain('▾ docs/  M2 ?1            ◦ scout      2s')
+      expect(tree).toContain('▾ hooks/  M1 D1           ◦ scout      4s')
+      expect(tree).toContain('  M pane.tsx')
+      expect(tree).toContain('    register.tsx          ◦ scout      4s')
+      expect(tree.filter((line) => line.includes('main'))).toEqual([])
+      await ui.redraw(DOCKED_PANE)
+      expect((await headerOf(ui)).slice(1, 3)).toEqual([CONTROLS, 'Now  2 agents'])
+      expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ main       4s')
+      await ui.unmount()
+    })
+  }
+
+  test('the person picks an agent in the filter, and the view of a transcript wins over the pick', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    fakeTools(on, seen, new Map())
+    boardKnowsScout(on)
+    await openTab($)
+    const ui = await $.ui.mount({
+      plugin: PLUGIN,
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: PANE,
+      props: DOCKED_PANE,
+    })
+    await seen.clock.settle()
+    await mainEditsScoutReads($, seen)
+    const filter = await ui.find({ key: 'agent' })
+    expect(filter?.props.options).toEqual([
+      { value: 'all', label: 'all' },
+      { value: 'main', label: 'main' },
+      { value: `agent:${SCOUT}`, label: 'scout' },
+    ])
+    await ui.select({ key: 'agent', value: 'main' })
+    expect((await headerOf(ui)).slice(1)).toEqual([
+      '{agent: main} [ refresh ]',
+      'Now  main',
+      '✎ main      hooks/pane.tsx             4s',
+    ])
+    await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
+    expect((await headerOf(ui))[1]).toBe('{agent: scout} [ refresh ]')
+    await ui.redraw(DOCKED_PANE)
+    expect((await headerOf(ui))[1]).toBe('{agent: main} [ refresh ]')
+    await ui.select({ key: 'agent', value: 'all' })
+    expect((await headerOf(ui))[2]).toBe('Now  2 agents')
+    await ui.unmount()
+  })
+})
+
+describe('marks: a Grep', () => {
+  const GEN = numbered(40).map((entry) => `src/gen/${entry.name}`)
+  const BIG: [string, FsEntry[]][] = [
+    ['.', [folder('src'), file('README.md')]],
+    ['src', [folder('gen')]],
+    ['src/gen', numbered(40)],
+  ]
+  const forms = [
+    { surface: 'terminal' as const, form: 'relative', names: GEN },
+    { surface: 'desktop' as const, form: 'absolute', names: GEN.map((name) => `${ROOT}/${name}`) },
+  ]
+
+  for (const { surface, form, names } of forms) {
+    test(`a Grep that returns 40 files with ${form} paths reveals 12, and Now counts the other 28 on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, BIG, { kind: 'ok', stdout: CLEAN })
+      const result = { mode: 'files_with_matches', numFiles: names.length, filenames: names }
+      fakeTools(on, seen, new Map([['Grep', { answer: 'ok', result }]]))
+      const ui = await openFiles($, seen, surface)
+      await grep($, { pattern: 'export', output_mode: 'files_with_matches' })
+      await seen.clock.advance(9000)
+      await ui.press({ key: 'open:src' })
+      await ui.press({ key: 'open:src/gen' })
+      expect((await headerOf(ui)).slice(2)).toEqual([
+        'Now  1 agent',
+        '◦ main      src/gen/a0001.ts           9s',
+        '  and 28 more files from one Grep',
+      ])
+      const tree = await treeLines(ui)
+      const marked = tree.filter((line) => line.includes('◦ main'))
+      expect(marked).toEqual([
+        '▾ src/                    ◦ main       9s',
+        '  ▾ gen/                  ◦ main       9s',
+        ...numbered(12).map((entry) => `      ${entry.name}${' '.repeat(12)}◦ main       9s`),
+      ])
+      expect(tree).toContain('      a0013.ts')
+      await ui.unmount()
+    })
+  }
+
+  test('a Grep that fails or finds nothing marks no file', async ($, on) => {
+    const seen = gitWorld(on, BIG, { kind: 'ok', stdout: CLEAN })
+    fakeTools(on, seen, new Map([['Grep', { answer: 'ok', result: { filenames: [] } }]]))
+    const ui = await openFiles($, seen)
+    await grep($, { pattern: 'nothing' })
+    expect((await headerOf(ui)).at(-1)).toBe(NOW_EMPTY)
     await ui.unmount()
   })
 })

@@ -1,5 +1,6 @@
 import { update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from 'claude-code'
+import { agentOfFilter, labelsOf } from './agents'
 import {
   FILES_PANE,
   type TreeUi,
@@ -9,10 +10,23 @@ import {
   unknownReply,
 } from './commands'
 import { gitView } from './gitview'
-import { type PaneActions, drawInline, drawTree } from './pane'
+import { markColumnOf } from './marks'
+import { type PaneActions, type TouchDraw, drawInline, drawTree } from './pane'
+import { resolvedPath, shownPath } from './paths'
 import type { GitMarks } from './status'
 import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows, withDeleted } from './tree'
 import { showToast } from './toast'
+import { type ToolTouch, isAnswered, searchedFiles, toolTouchOf } from './toolcall'
+import {
+  MAIN_AGENT,
+  type Touches,
+  beginTouch,
+  clearTouches,
+  endTouch,
+  newTouches,
+  revealSearch,
+  touchView,
+} from './touches'
 import {
   type GitWatch,
   forgetRepo,
@@ -31,6 +45,9 @@ const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
 const PERMISSION_DENIED = /\b(EACCES|EPERM)\b/
 const GONE = /\bENOENT\b/
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
+const BOARD_AGENTS = { plugin: 'handily-board', key: 'agents' } as const
+
+type AgentFilter = { picked: string | undefined }
 
 function folderName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter((part) => part !== '')
@@ -131,9 +148,82 @@ function actionsOf(
   }
 }
 
+function redraw($: EngineInterface): void {
+  $.ui.invalidate('ui.render')
+}
+
+type SeenCall = { touch: ToolTouch; agent: string; cwd: string }
+
+async function seenCallOf($: EngineInterface, e: ToolCallInput): Promise<SeenCall | undefined> {
+  const touch = toolTouchOf(e)
+  if (touch === undefined) return undefined
+  return { touch, agent: e.agentId ?? MAIN_AGENT, cwd: await $.session.cwd() }
+}
+
+async function beginCall(
+  $: EngineInterface,
+  touches: Touches,
+  callId: string,
+  seen: SeenCall,
+): Promise<void> {
+  if (seen.touch.kind !== 'file') return
+  const path = resolvedPath(seen.cwd, seen.touch.path)
+  beginTouch(touches, callId, {
+    kind: seen.touch.touch,
+    agent: seen.agent,
+    at: await $.clock.now(),
+    path,
+  })
+  redraw($)
+}
+
+async function endCall(
+  $: EngineInterface,
+  touches: Touches,
+  call: { id: string; seen: SeenCall; answer: ToolCallResult | undefined },
+): Promise<void> {
+  const { id, seen, answer } = call
+  const answered = answer !== undefined && isAnswered(answer)
+  endTouch(touches, id, answered)
+  if (answered && seen.touch.kind === 'search') {
+    const paths = searchedFiles(answer.result).map((path) => resolvedPath(seen.cwd, path))
+    revealSearch(touches, { agent: seen.agent, at: await $.clock.now(), paths })
+  }
+  redraw($)
+}
+
+async function touchDrawOf(
+  $: EngineInterface,
+  site: { cwd: string; bodyColumns: number; inView: string | undefined },
+  touches: Touches,
+  filter: AgentFilter,
+): Promise<TouchDraw> {
+  const { cwd, inView } = site
+  const agent = inView ?? filter.picked
+  const touched = touchView(touches, agent)
+  return {
+    column: markColumnOf(site.bodyColumns),
+    fileMark: (path) => touched.files.get(resolvedPath(cwd, path)),
+    folderMark: (path) => touched.folders.get(resolvedPath(cwd, path)),
+    labelOf: labelsOf((await $.state.get(BOARD_AGENTS)).value),
+    shownPath: (path) => shownPath(cwd, path),
+    sights: touched.sights,
+    agents: touched.agents,
+    agent,
+    inView,
+    pick: (value) => {
+      filter.picked = agentOfFilter(value)
+      redraw($)
+    },
+    now: await $.clock.now(),
+  }
+}
+
 export const register: Register = (on) => {
   const listings: Listings = new Map()
   const watch = newWatch()
+  const touches = newTouches()
+  const filter: AgentFilter = { picked: undefined }
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -149,6 +239,8 @@ export const register: Register = (on) => {
   on('session.end', async (_$, e, next) => {
     listings.clear()
     resetWatch(watch)
+    clearTouches(touches)
+    filter.picked = undefined
     return next(e)
   })
 
@@ -162,9 +254,14 @@ export const register: Register = (on) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    const seen = await seenCallOf($, e)
+    if (seen !== undefined) await beginCall($, touches, e.tool_use_id, seen)
+    let answer: ToolCallResult | undefined
     try {
-      return await next(e)
+      answer = await next(e)
+      return answer
     } finally {
+      if (seen !== undefined) await endCall($, touches, { id: e.tool_use_id, seen, answer })
       if (CHANGING_TOOLS.has(e.tool)) requestStatus($, watch)
     }
   })
@@ -192,8 +289,11 @@ export const register: Register = (on) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: FILES_PANE.id }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const elements = { Box, Text, Button, bodyColumns: e.props.bodyColumns }
+    const resolved = $.ui.resolve(e)
+    const { Box, Text, Button } = resolved
+    const Select = 'Select' in resolved ? resolved.Select : undefined
+    const { bodyColumns } = e.props
+    const elements = { Box, Text, Button, Select, bodyColumns }
     const cwd = await $.session.cwd()
     await syncRepo($, watch, cwd)
     watchShown($, watch)
@@ -201,7 +301,12 @@ export const register: Register = (on) => {
     const git = gitView(watch, await $.clock.now())
     const rootName = folderName(cwd)
     const list = listerOf($, cwd, listings, git.marks)
-    const view = { git, actions: actionsOf($, cwd, listings, watch) }
+    const site = { cwd, bodyColumns, inView: e.props.view.agentId }
+    const view = {
+      git,
+      actions: actionsOf($, cwd, listings, watch),
+      touched: await touchDrawOf($, site, touches, filter),
+    }
     if (e.props.placement === 'inline') {
       return drawInline(elements, rootName, await list(ROOT_PATH), view)
     }

@@ -6,6 +6,25 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-filetree 0.4.0 - 2026-10-28
+
+### Added
+
+- **filetree marks which agent read or edited each file.** A row shows `◦` for a read and `✎`
+  for an edit, then the agent label of the board and the age. A folder shows the latest mark
+  under it. A `Now` block lists the latest file of each agent. A denied or failed call removes
+  its mark. A `Grep` marks its first 12 files, and the `Now` line counts the rest. The agent
+  filter `{agent: all}` picks one agent, and it follows the transcript that you open
+  (handily-02b2v.5).
+
+## handily-board 0.7.0 - 2026-10-28
+
+### Added
+
+- **board stores the label it draws for each agent.** Each agent in the `agents` state of the
+  board now carries `label`, cut and numbered by the rule of the agent rows, such as
+  `gene…se 2`. Another mod can name an agent the same way the board does (handily-02b2v.4).
+
 ## handily-filetree 0.3.0 - 2026-10-28
 
 ### Changed
