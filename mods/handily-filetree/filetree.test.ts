@@ -20,7 +20,13 @@ const NOW_EMPTY = 'Now  nothing read or edited yet'
 
 type FakeFolder = FsEntry[] | string
 
-type FakeFile = { kind: 'file' | 'dir'; text: string; mtimeMs: number }
+type FakeFile = {
+  kind: 'file' | 'dir'
+  text: string
+  mtimeMs: number
+  size?: number
+  denial?: string
+}
 
 type GitAnswer =
   | { kind: 'ok'; stdout: string; isCut?: boolean; tookMs?: number }
@@ -35,6 +41,8 @@ type World = {
   listed: string[]
   stats: string[]
   runs: GitRun[]
+  reads: string[]
+  diffAnswer: GitAnswer
   runStarts: number[]
   inFlight: number
   mostInFlight: number
@@ -62,11 +70,13 @@ function fakeGit(on: On, seen: World): void {
     seen.stats.push(e.path)
     const found = seen.files.get(e.path)
     if (found === undefined) return { deny: `ENOENT: no such file or directory, stat '${e.path}'` }
-    const size = found.text.length
+    const size = found.size ?? found.text.length
     return { value: { kind: found.kind, size, mtimeMs: found.mtimeMs, isLink: false } }
   })
   on('fs.read', (_$, e) => {
+    seen.reads.push(e.path)
     const found = seen.files.get(e.path)
+    if (found?.denial !== undefined) return { deny: found.denial }
     if (found?.kind !== 'file')
       return { deny: `ENOENT: no such file or directory, open '${e.path}'` }
     return { value: found.text }
@@ -74,7 +84,7 @@ function fakeGit(on: On, seen: World): void {
   on('process.run', async (_$, e) => {
     seen.runs.push({ argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
     seen.runStarts.push(seen.clock.now())
-    const answer = seen.answer
+    const answer = e.argv[1] === 'diff' ? seen.diffAnswer : seen.answer
     if (answer.kind === 'exit')
       return { value: gitResult('', answer.exitCode, answer.stderr, false) }
     seen.inFlight += 1
@@ -134,6 +144,8 @@ function world(on: On, entries: readonly [string, FakeFolder][], options: WorldO
     listed: [],
     stats: [],
     runs: [],
+    reads: [],
+    diffAnswer: { kind: 'ok', stdout: '' },
     runStarts: [],
     inFlight: 0,
     mostInFlight: 0,
@@ -257,9 +269,11 @@ function drawnOf(value: unknown): Drawn | null {
   const text =
     value.type === 'Select'
       ? selectText(props)
-      : value.type === 'Button' && props.plain !== true && typeof props.label === 'string'
-        ? `[ ${props.label} ]`
-        : `${own}${children.map((child) => child.text).join('')}`
+      : value.type === 'Code' || value.type === 'Markdown'
+        ? `(${value.type})`
+        : value.type === 'Button' && props.plain !== true && typeof props.label === 'string'
+          ? `[ ${props.label} ]`
+          : `${own}${children.map((child) => child.text).join('')}`
   return { type: value.type, props, text, children }
 }
 
@@ -383,6 +397,8 @@ describe('the files tab, docked', () => {
         'open:docs',
         'open:hooks',
         'open:scripts',
+        'file:.gitignore',
+        'file:README.md',
       ])
       await ui.unmount()
     }
@@ -1893,6 +1909,594 @@ describe('marks: a Grep', () => {
     const ui = await openFiles($, seen)
     await grep($, { pattern: 'nothing' })
     expect((await headerOf(ui)).at(-1)).toBe(NOW_EMPTY)
+    await ui.unmount()
+  })
+})
+
+const MIB = 1024 * 1024
+const DIFF_ARGV = ['git', 'diff', 'HEAD', '--no-color', '--no-ext-diff', '--']
+const BACKSLASH = String.fromCharCode(0x5c)
+const ESCAPE = String.fromCharCode(0x1b)
+const RIGHT_TO_LEFT = String.fromCharCode(0x202e)
+const NUL = String.fromCharCode(0)
+const HUNK_A = [
+  '@@ -1,3 +1,4 @@',
+  ' const a = 1',
+  '-const b = 2',
+  '+const b = 3',
+  '+const c = 4',
+  ' const d = 5',
+].join('\n')
+const HUNK_B = ['@@ -40,2 +41,2 @@', '-old', '+new', ' same'].join('\n')
+
+function textFile(seen: World, path: string, text: string, extra: Partial<FakeFile> = {}): void {
+  seen.files.set(`${ROOT}/${path}`, { kind: 'file', text, mtimeMs: 1, ...extra })
+}
+
+function lineText(count: number, width = 0): string {
+  return Array.from({ length: count }, (_, index) =>
+    `line ${String(index + 1)}`.padEnd(width, 'x'),
+  ).join('\n')
+}
+
+function fileDiff(path: string, hunks: readonly string[]): string {
+  return [
+    `diff --git a/${path} b/${path}`,
+    'index 1111111..2222222 100644',
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    ...hunks,
+    '',
+  ].join('\n')
+}
+
+function addingHunk(start: number, lines: number): string {
+  const context = Array.from({ length: lines - 1 }, (_, index) => ` c${String(index)}`)
+  const header = `@@ -${String(start)},${String(lines - 1)} +${String(start)},${String(lines)} @@`
+  return [header, ...context, '+added'].join('\n')
+}
+
+function diffRuns(seen: World): GitRun[] {
+  return seen.runs.filter((run) => run.argv[1] === 'diff')
+}
+
+async function codeOf(ui: { find: Mounted['find'] }): Promise<Record<string, unknown> | undefined> {
+  return (await ui.find({ type: 'Code' }))?.props
+}
+
+async function openRow(
+  ui: { press: Mounted['press'] },
+  folders: readonly string[],
+  path: string,
+): Promise<void> {
+  for (const one of folders) await ui.press({ key: `open:${one}` })
+  await ui.press({ key: `file:${path}` })
+}
+
+describe('preview and diff: the open row', () => {
+  for (const surface of SURFACES) {
+    test(`a press on a file row opens it with its agents, its git state and four buttons, one row at a time, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await read($, 'docs/mocks.md', SCOUT)
+      await seen.clock.advance(120_000)
+      await edit($, 'docs/mocks.md')
+      await seen.clock.advance(60_000)
+      await openRow(ui, ['docs'], 'docs/mocks.md')
+      const lines = await treeLines(ui)
+      const row = lines.indexOf('  M mocks.md              ✎ main +1    1m')
+      expect(lines.slice(row, row + 7)).toEqual([
+        '  M mocks.md              ✎ main +1    1m',
+        '      edited by main 1m ago',
+        '      read by scout 3m ago',
+        '      modified, not staged',
+        '      [ preview ] [ diff ] [ copy path ]',
+        '      [ @ to prompt ]',
+        '▸ hooks/  M1 D1',
+      ])
+      expect((await ui.findAll({ type: 'Button' })).map((button) => button.key)).toEqual(
+        expect.arrayContaining(['preview', 'diff', 'copy-path', 'to-prompt']),
+      )
+      expect((await ui.find({ key: 'preview' }))?.props.hotkey).toBeUndefined()
+      await ui.press({ key: 'file:docs/design.md' })
+      const other = await treeLines(ui)
+      expect(other).not.toContain('      edited by main 1m ago')
+      expect(other.slice(other.indexOf('  M design.md') + 1).slice(0, 2)).toEqual([
+        '      modified, not staged',
+        '      [ preview ] [ diff ] [ copy path ]',
+      ])
+      await ui.press({ key: 'file:docs/design.md' })
+      expect(await treeLines(ui)).not.toContain('      modified, not staged')
+      expect(await ui.find({ key: 'preview' })).toBeUndefined()
+      await ui.unmount()
+    })
+  }
+
+  test('outside a git repo the open row has no diff button', async ($, on) => {
+    const seen = world(on, APP)
+    const ui = await openFiles($, seen)
+    await openRow(ui, [], 'README.md')
+    expect((await treeLines(ui)).slice(-2)).toEqual([
+      '    [ preview ] [ copy path ]',
+      '    [ @ to prompt ]',
+    ])
+    expect(await ui.find({ key: 'diff' })).toBeUndefined()
+    await ui.unmount()
+  })
+})
+
+describe('preview and diff: preview', () => {
+  for (const surface of SURFACES) {
+    test(`preview of a long file shows a Code element with a gutter, at most 2000 lines and a note, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      textFile(seen, 'hooks/pane.tsx', `${lineText(3000)}\n`)
+      const ui = await openFiles($, seen, surface)
+      await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+      await ui.press({ key: 'preview' })
+      expect(await screen(ui)).toEqual([
+        'Files  app · main ↑1 · 6 changed',
+        '[ back ] [ diff ] [ copy path ]',
+        'hooks/pane.tsx  M · 3,000 lines',
+        'first 2,000 lines shown of 3,000',
+        RULE_41,
+        '(Code)',
+      ])
+      expect(await codeOf(ui)).toMatchObject({
+        source: lineText(2000),
+        path: 'hooks/pane.tsx',
+        startLine: 1,
+      })
+      expect((await codeOf(ui))?.format).toBeUndefined()
+      expect((await ui.find({ type: 'Text', text: /^first 2,000/ }))?.props.dimColor).toBe(true)
+      expect((await ui.find({ type: 'Text', text: 'M' }))?.props.color).toBe('warning')
+      await ui.press({ key: 'back' })
+      expect(await treeLines(ui)).toContain('  M pane.tsx')
+      expect(await ui.find({ type: 'Code' })).toBeUndefined()
+      await ui.unmount()
+    })
+  }
+
+  test('preview of a file of 2000 lines or fewer has no cut note', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    textFile(seen, 'hooks/pane.tsx', lineText(2000))
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    await ui.press({ key: 'preview' })
+    expect((await screen(ui)).slice(2, 4)).toEqual(['hooks/pane.tsx  M · 2,000 lines', RULE_41])
+    expect((await codeOf(ui))?.source).toBe(lineText(2000))
+    await ui.unmount()
+  })
+
+  test('preview stops below 100000 characters in the whole drawing, on a line boundary, and says how many lines it shows', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    textFile(seen, 'hooks/pane.tsx', lineText(1500, 99))
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    await ui.press({ key: 'preview' })
+    const source = String((await codeOf(ui))?.source)
+    const shown = source.split('\n').length
+    expect(shown).toBeGreaterThan(900)
+    expect(shown).toBeLessThan(1000)
+    expect(source).toBe(lineText(shown, 99))
+    expect((await screen(ui))[3]).toBe(
+      `first ${shown.toLocaleString('en-US')} lines shown of 1,500`,
+    )
+    await ui.drawn()
+    expect(seen.logs.filter((line) => line.includes('characters of text'))).toEqual([])
+    await ui.unmount()
+  })
+
+  test('preview of a file with one very long line shows the start of it and says the line is cut', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    textFile(seen, 'hooks/pane.tsx', 'x'.repeat(150_000))
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    await ui.press({ key: 'preview' })
+    expect((await screen(ui)).slice(2, 5)).toEqual([
+      'hooks/pane.tsx  M · 1 line',
+      'the first line is too long; it is cut',
+      RULE_41,
+    ])
+    const source = String((await codeOf(ui))?.source)
+    expect(source.length).toBeGreaterThan(90_000)
+    expect(source.length).toBeLessThan(100_000)
+    await ui.drawn()
+    await ui.unmount()
+  })
+
+  test('preview of a Markdown file uses the Markdown element and shows the latest agent', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    fakeTools(on, seen, new Map())
+    textFile(seen, 'docs/mocks.md', '# Mocks\n\nThe tree.\n')
+    const ui = await openFiles($, seen, 'desktop')
+    await read($, 'docs/mocks.md')
+    await seen.clock.advance(4000)
+    await openRow(ui, ['docs'], 'docs/mocks.md')
+    await ui.press({ key: 'preview' })
+    expect((await screen(ui)).slice(2)).toEqual([
+      'docs/mocks.md  M · 3 lines',
+      'read by main 4s ago',
+      RULE_41,
+      '(Markdown)',
+    ])
+    expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('# Mocks\n\nThe tree.')
+    await ui.unmount()
+  })
+
+  test('preview escapes control and bidi characters and drops the carriage return of a line end', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    textFile(seen, 'hooks/pane.tsx', `a${ESCAPE}b\r\nc${RIGHT_TO_LEFT}d\r\n`)
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    await ui.press({ key: 'preview' })
+    expect((await codeOf(ui))?.source).toBe(`a${BACKSLASH}u001bb\nc${BACKSLASH}u202ed`)
+    await ui.drawn()
+    await ui.unmount()
+  })
+
+  for (const surface of SURFACES) {
+    test(`a binary, an over 4 MiB, an unreadable and a deleted file each show their one-line note on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [file('dump.sql'), file('key.pem'), file('logo.png')]]], {
+        kind: 'ok',
+        stdout: statusOf([changed('.D', 'old.tsx')]),
+      })
+      textFile(seen, 'logo.png', `PNG${NUL}x`, { size: 48 * 1024 })
+      textFile(seen, 'dump.sql', 'select 1;', { size: 210 * MIB })
+      textFile(seen, 'key.pem', 'secret', { denial: "EACCES: permission denied, open 'key.pem'" })
+      const ui = await openFiles($, seen, surface)
+      const notes: string[][] = []
+      for (const name of ['logo.png', 'dump.sql', 'key.pem', 'old.tsx']) {
+        await ui.press({ key: `file:${name}` })
+        await ui.press({ key: 'preview' })
+        const lines = await screen(ui)
+        notes.push(lines.slice(2, lines.indexOf(RULE_41)))
+        expect(await ui.find({ type: 'Code' })).toBeUndefined()
+        await ui.press({ key: 'back' })
+      }
+      expect(notes).toEqual([
+        ['logo.png  · 48K', 'binary file, no preview'],
+        ['dump.sql  · 210M', 'over 4 MiB, no preview'],
+        ['key.pem', 'Cannot read it: permission denied.'],
+        ['old.tsx  D', 'deleted; [ diff ] shows what it held'],
+      ])
+      expect(seen.reads).not.toContain(`${ROOT}/dump.sql`)
+      expect(seen.reads).not.toContain(`${ROOT}/old.tsx`)
+      await ui.unmount()
+    })
+  }
+
+  test('the unreadable note draws in the error colour and the binary note draws dim', async ($, on) => {
+    const seen = gitWorld(on, [['.', [file('key.pem'), file('logo.png')]]], {
+      kind: 'ok',
+      stdout: CLEAN,
+    })
+    textFile(seen, 'key.pem', 'secret', { denial: "EACCES: permission denied, open 'key.pem'" })
+    textFile(seen, 'logo.png', `PNG${NUL}`)
+    const ui = await openFiles($, seen)
+    await openRow(ui, [], 'key.pem')
+    await ui.press({ key: 'preview' })
+    expect((await ui.find({ type: 'Text', text: /^Cannot read it/ }))?.props.color).toBe('error')
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'file:logo.png' })
+    await ui.press({ key: 'preview' })
+    expect((await ui.find({ type: 'Text', text: /^binary file/ }))?.props.dimColor).toBe(true)
+    await ui.unmount()
+  })
+})
+
+describe('preview and diff: diff', () => {
+  for (const surface of SURFACES) {
+    test(`diff of a changed file runs one git diff and shows its hunks in a Code element in diff format on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      seen.diffAnswer = { kind: 'ok', stdout: fileDiff('hooks/pane.tsx', [HUNK_A, HUNK_B]) }
+      const ui = await openFiles($, seen, surface)
+      await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+      await ui.press({ key: 'diff' })
+      expect(diffRuns(seen)).toEqual([
+        { argv: [...DIFF_ARGV, 'hooks/pane.tsx'], cwd: ROOT, timeoutMs: 10_000 },
+      ])
+      expect(await screen(ui)).toEqual([
+        'Files  app · main ↑1 · 6 changed',
+        '[ back ] [ preview ] [ copy path ]',
+        'hooks/pane.tsx  M · +3 -2 vs HEAD',
+        RULE_41,
+        '(Code)',
+      ])
+      expect(await codeOf(ui)).toMatchObject({
+        source: `${HUNK_A}\n${HUNK_B}`,
+        path: 'hooks/pane.tsx',
+        format: 'diff',
+      })
+      await ui.press({ key: 'preview' })
+      expect((await screen(ui))[1]).toBe('[ back ] [ diff ] [ copy path ]')
+      expect(diffRuns(seen)).toHaveLength(1)
+      await ui.unmount()
+    })
+  }
+
+  test('a diff over 2000 lines is cut at a hunk boundary and says how many hunks it shows', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    const hunks = [addingHunk(1, 1000), addingHunk(2000, 900), addingHunk(5000, 500)]
+    seen.diffAnswer = { kind: 'ok', stdout: fileDiff('hooks/pane.tsx', hunks) }
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    await ui.press({ key: 'diff' })
+    expect((await screen(ui)).slice(2, 4)).toEqual([
+      'hooks/pane.tsx  M · +3 -0 vs HEAD',
+      'first 2 of 3 hunks shown',
+    ])
+    expect((await codeOf(ui))?.source).toBe(hunks.slice(0, 2).join('\n'))
+    await ui.unmount()
+  })
+
+  test('a git diff cut at 4 MiB drops the hunk that the limit cut and says so', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    const whole = fileDiff('hooks/pane.tsx', [HUNK_A, HUNK_B])
+    seen.diffAnswer = { kind: 'ok', stdout: whole.slice(0, whole.indexOf('+new')), isCut: true }
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    await ui.press({ key: 'diff' })
+    expect((await screen(ui)).slice(2, 5)).toEqual([
+      'hooks/pane.tsx  M · +2 -1 vs HEAD',
+      'git diff is over 4 MiB; the rest is not',
+      'shown.',
+    ])
+    expect((await codeOf(ui))?.source).toBe(HUNK_A)
+    await ui.unmount()
+  })
+
+  for (const surface of SURFACES) {
+    test(`diff of an untracked file builds one added hunk from the file text and runs no process on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      textFile(seen, 'docs/filetree.md', 'one\ntwo\nthree\n')
+      const ui = await openFiles($, seen, surface)
+      const before = seen.runs.length
+      await openRow(ui, ['docs'], 'docs/filetree.md')
+      await ui.press({ key: 'diff' })
+      expect(seen.runs).toHaveLength(before)
+      expect((await screen(ui)).slice(1)).toEqual([
+        '[ back ] [ preview ] [ copy path ]',
+        'docs/filetree.md  ? · new, 3 lines',
+        RULE_41,
+        '(Code)',
+      ])
+      expect(await codeOf(ui)).toMatchObject({
+        source: '@@ -0,0 +1,3 @@\n+one\n+two\n+three',
+        format: 'diff',
+      })
+      await ui.unmount()
+    })
+  }
+
+  test('in a repo with no commit, the diff shows the file whole from its text and runs no process', async ($, on) => {
+    const seen = gitWorld(on, [['.', [file('README.md')]]], {
+      kind: 'ok',
+      stdout: statusOf([changed('A.', 'README.md')], { oid: '(initial)' }),
+    })
+    textFile(seen, 'README.md', 'hello\n')
+    const ui = await openFiles($, seen)
+    const before = seen.runs.length
+    await openRow(ui, [], 'README.md')
+    await ui.press({ key: 'diff' })
+    expect(seen.runs).toHaveLength(before)
+    expect((await screen(ui)).slice(2, 5)).toEqual([
+      'README.md  A · new, 1 line',
+      'every file is new; diff shows it whole',
+      RULE_41,
+    ])
+    expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+hello')
+    await ui.unmount()
+  })
+
+  test('a long untracked file is cut to a hunk whose header counts the lines it shows', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    textFile(seen, 'docs/filetree.md', lineText(2500))
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['docs'], 'docs/filetree.md')
+    await ui.press({ key: 'diff' })
+    expect((await screen(ui)).slice(2, 4)).toEqual([
+      'docs/filetree.md  ? · new, 2,500 lines',
+      'first 1,999 lines shown of 2,500',
+    ])
+    const source = String((await codeOf(ui))?.source)
+    expect(source.split('\n')).toHaveLength(2000)
+    expect(source.startsWith('@@ -0,0 +1,1999 @@\n+line 1\n')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('a deleted file shows what it held through the diff', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    const removed = ['@@ -1,2 +0,0 @@', '-export const old = 1', '-export const gone = 2'].join(
+      '\n',
+    )
+    seen.diffAnswer = { kind: 'ok', stdout: fileDiff('hooks/old-pane.tsx', [removed]) }
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/old-pane.tsx')
+    await ui.press({ key: 'diff' })
+    expect((await screen(ui))[2]).toBe('hooks/old-pane.tsx  D · +0 -2 vs HEAD')
+    expect((await codeOf(ui))?.source).toBe(removed)
+    await ui.unmount()
+  })
+
+  test('a binary change, no change, a failed git diff and a repo whose HEAD is missing each say so', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    textFile(seen, 'hooks/pane.tsx', 'const a = 1\n')
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    const binary = [
+      'diff --git a/hooks/pane.tsx b/hooks/pane.tsx',
+      'Binary files a/hooks/pane.tsx and b/hooks/pane.tsx differ',
+      '',
+    ].join('\n')
+    const answers: GitAnswer[] = [
+      { kind: 'ok', stdout: binary },
+      { kind: 'ok', stdout: '' },
+      { kind: 'exit', exitCode: 129, stderr: 'usage: git diff' },
+      { kind: 'exit', exitCode: 128, stderr: "fatal: bad revision 'HEAD'" },
+    ]
+    const shown: string[][] = []
+    for (const answer of answers) {
+      seen.diffAnswer = answer
+      await ui.press({ key: 'diff' })
+      const lines = await screen(ui)
+      shown.push(lines.slice(2, lines.indexOf(RULE_41)))
+      await ui.press({ key: 'back' })
+    }
+    expect(shown).toEqual([
+      ['hooks/pane.tsx  M', 'binary file changed'],
+      ['hooks/pane.tsx  M', 'no change against HEAD'],
+      ['hooks/pane.tsx', 'git diff failed: exit 129.', 'Run git diff in a shell to see why.'],
+      ['hooks/pane.tsx  M · new, 1 line', 'every file is new; diff shows it whole'],
+    ])
+    expect(diffRuns(seen)).toHaveLength(4)
+    await ui.unmount()
+  })
+})
+
+describe('preview and diff: a folder', () => {
+  for (const surface of SURFACES) {
+    test(`a press on the counts of a folder shows one Code per changed file, from one git diff, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      const design = ['@@ -1 +1 @@', '-a', '+b'].join('\n')
+      const mocks = ['@@ -0,0 +1 @@', '+c'].join('\n')
+      seen.diffAnswer = {
+        kind: 'ok',
+        stdout: `${fileDiff('docs/design.md', [design])}${fileDiff('docs/mocks.md', [mocks])}`,
+      }
+      textFile(seen, 'docs/filetree.md', 'new\n')
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'diff:docs' })
+      expect(diffRuns(seen)).toEqual([
+        {
+          argv: [...DIFF_ARGV, 'docs/design.md', 'docs/mocks.md'],
+          cwd: ROOT,
+          timeoutMs: 10_000,
+        },
+      ])
+      expect((await screen(ui)).slice(1)).toEqual([
+        '[ back ] [ copy path ]',
+        'docs/  3 changed files vs HEAD',
+        RULE_41,
+        'docs/design.md  M +1 -1',
+        '(Code)',
+        'docs/filetree.md  ? new, 1 line',
+        '(Code)',
+        'docs/mocks.md  M +1 -0',
+        '(Code)',
+      ])
+      const codes = await ui.findAll({ type: 'Code' })
+      expect(codes.map((code) => code.props.source)).toEqual([
+        design,
+        '@@ -0,0 +1,1 @@\n+new',
+        mocks,
+      ])
+      expect(codes.every((code) => code.props.format === 'diff')).toBe(true)
+      expect((await ui.find({ type: 'Text', text: 'docs/design.md' }))?.props.bold).toBe(true)
+      await ui.unmount()
+    })
+  }
+
+  test('a folder of 60 changed files shows the first 50 and copies the git diff command', async ($, on) => {
+    const names = numbered(60).map((entry) => `src/gen/${entry.name}`)
+    const seen = gitWorld(
+      on,
+      [
+        ['.', [folder('src')]],
+        ['src', [folder('gen')]],
+        ['src/gen', numbered(60)],
+      ],
+      { kind: 'ok', stdout: statusOf(names.map((name) => changed('.M', name))) },
+    )
+    const context = Array.from({ length: 60 }, (_, index) => ` ${String(index).padEnd(79, 'y')}`)
+    const hunk = ['@@ -1,60 +1,60 @@', ...context].join('\n')
+    seen.diffAnswer = {
+      kind: 'ok',
+      stdout: names
+        .slice(0, 50)
+        .map((name) => fileDiff(name, [hunk]))
+        .join(''),
+    }
+    const copies: { text: string; surface: string | undefined }[] = []
+    on('ui.copy', (_$, e) => {
+      copies.push({ text: e.text, surface: e.surface })
+      return { value: { isCopied: true as const } }
+    })
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'diff:src' })
+    const codes = await ui.findAll({ type: 'Code' })
+    expect(codes.length).toBeGreaterThan(10)
+    expect(codes.length).toBeLessThan(50)
+    expect(codes.every((code) => code.props.source === hunk)).toBe(true)
+    const lines = await screen(ui)
+    expect(lines.filter((line) => line === 'not shown; the pane is full')).toHaveLength(
+      50 - codes.length,
+    )
+    await ui.drawn()
+    expect(diffRuns(seen).map((run) => run.argv.slice(DIFF_ARGV.length))).toEqual([
+      names.slice(0, 50),
+    ])
+    expect((await screen(ui)).slice(2, 5)).toEqual([
+      'src/  60 changed files vs HEAD',
+      'first 50 of 60 changed files shown',
+      '[ copy the git diff command ]',
+    ])
+    await ui.press({ key: 'copy-command' })
+    expect(copies).toEqual([
+      { text: 'git diff HEAD --no-color --no-ext-diff -- src', surface: 'terminal' },
+    ])
+    await ui.unmount()
+  })
+})
+
+describe('preview and diff: copy path and @ to prompt', () => {
+  for (const surface of SURFACES) {
+    test(`copy path copies the path on the surface that pressed it, and @ to prompt fills it without sending, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      const copies: { text: string; surface: string | undefined }[] = []
+      const fills: { text: string; mode: string | undefined }[] = []
+      const submitted: string[] = []
+      on('ui.copy', (_$, e) => {
+        copies.push({ text: e.text, surface: e.surface })
+        return { value: { isCopied: true as const } }
+      })
+      on('prompt.fill', (_$, e) => {
+        fills.push({ text: e.text, mode: e.mode })
+        return { isFilled: true }
+      })
+      on('prompt.submit', (_$, e) => {
+        submitted.push(e.text)
+        return { text: e.text }
+      })
+      textFile(seen, 'docs/design.md', 'text\n')
+      const ui = await openFiles($, seen, surface)
+      await openRow(ui, ['docs'], 'docs/design.md')
+      await ui.press({ key: 'copy-path' })
+      await ui.press({ key: 'to-prompt' })
+      await ui.press({ key: 'preview' })
+      await ui.press({ key: 'copy-path' })
+      expect(copies).toEqual([
+        { text: 'docs/design.md', surface },
+        { text: 'docs/design.md', surface },
+      ])
+      expect(fills).toEqual([{ text: '@docs/design.md', mode: 'insert' }])
+      expect(submitted).toEqual([])
+      await ui.unmount()
+    })
+  }
+
+  test('@ to prompt quotes a path with a space', async ($, on) => {
+    const seen = gitWorld(on, [['.', [file('a b.md')]]], { kind: 'ok', stdout: CLEAN })
+    const fills: string[] = []
+    on('prompt.fill', (_$, e) => {
+      fills.push(e.text)
+      return { isFilled: true }
+    })
+    const ui = await openFiles($, seen)
+    await openRow(ui, [], 'a b.md')
+    await ui.press({ key: 'to-prompt' })
+    expect(fills).toEqual(['@"a b.md"'])
     await ui.unmount()
   })
 })

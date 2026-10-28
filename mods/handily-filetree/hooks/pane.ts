@@ -1,14 +1,18 @@
 import type {
   BoxProps,
   ButtonProps,
+  CodeProps,
   ElementConstructor,
+  MarkdownProps,
   RenderElement,
+  RenderSurface,
   SelectProps,
   TextProps,
 } from 'claude-code'
 import { filterValue } from './agents'
+import { BUTTON_CHROME, BUTTON_GAP, type ButtonSpec, buttonRows } from './buttons'
 import type { GitView, NoteLine, NoteTone } from './gitview'
-import { type MarkColumn, hiddenText, markCell, markWidth, sightCells } from './marks'
+import { type MarkColumn, hiddenText, markCell, markWidth, sightCells, touchText } from './marks'
 import type { GitCount, GitLetter, GitMarks } from './status'
 import {
   type EntryRow,
@@ -19,7 +23,7 @@ import {
   childPath,
   entryRow,
 } from './tree'
-import type { Mark, Sight } from './touches'
+import type { Mark, Sight, Touch } from './touches'
 import { displayWidth, fitted } from './width'
 
 export type PaneElements = {
@@ -27,6 +31,8 @@ export type PaneElements = {
   Text: ElementConstructor<TextProps>
   Button: ElementConstructor<ButtonProps>
   Select: ElementConstructor<SelectProps> | undefined
+  Code: ElementConstructor<CodeProps>
+  Markdown: ElementConstructor<MarkdownProps>
   bodyColumns: number
 }
 
@@ -35,6 +41,7 @@ export type TouchDraw = {
   fileMark: (path: string) => Mark | undefined
   folderMark: (path: string) => Mark | undefined
   labelOf: (agent: string) => string
+  touchesOf: (path: string) => readonly Touch[]
   shownPath: (path: string) => string
   sights: readonly Sight[]
   agents: readonly string[]
@@ -44,13 +51,24 @@ export type TouchDraw = {
   now: number
 }
 
-type PaneView = { git: GitView; actions: PaneActions; touched: TouchDraw }
+type PaneView = {
+  git: GitView
+  actions: PaneActions
+  touched: TouchDraw
+  opened: string | undefined
+}
 
 export type PaneActions = {
   toggle: (path: string) => void
   showAll: (path: string) => void
   refresh: () => void
   retry: () => void
+  openFile: (path: string) => void
+  preview: (path: string) => void
+  diff: (path: string, isFolder: boolean) => void
+  back: () => void
+  copy: (text: string, surface: RenderSurface) => void
+  mention: (path: string) => void
 }
 
 export const INLINE_ROWS = 8
@@ -58,8 +76,6 @@ export const INLINE_ROWS = 8
 const FILES_TITLE = 'Files'
 const REFRESH = 'refresh'
 const RETRY = 'retry'
-const BUTTON_CHROME = 4
-const BUTTON_GAP = 1
 const MARK_GAP = 1
 const SELECT_CHROME = 2
 const FILTER_KEY = 'agent'
@@ -81,9 +97,20 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 
 type LetterColor = 'success' | 'warning' | 'error'
 
-type Part = { text: string; color?: LetterColor; dimColor?: boolean }
+export type Part = { text: string; color?: LetterColor; dimColor?: boolean; bold?: boolean }
 
-const LETTER_COLORS: Readonly<Record<GitLetter, LetterColor>> = {
+const STATE_WORDS: Readonly<Record<GitLetter, string>> = {
+  M: 'modified',
+  A: 'added',
+  '?': 'untracked',
+  D: 'deleted',
+  R: 'renamed',
+  U: 'conflict',
+}
+
+const UNSTAGED_LETTERS: ReadonlySet<GitLetter> = new Set(['?', 'U'])
+
+export const LETTER_COLORS: Readonly<Record<GitLetter, LetterColor>> = {
   M: 'warning',
   A: 'success',
   '?': 'success',
@@ -106,7 +133,7 @@ function escapedUnits(text: string): string {
   ).join('')
 }
 
-function shownName(name: string): string {
+export function shownName(name: string): string {
   return name.replace(UNSAFE, escapedUnits)
 }
 
@@ -118,7 +145,7 @@ function indentOf(depth: number): string {
   return INDENT.repeat(depth)
 }
 
-function wrapped(text: string, width: number): string[] {
+export function wrapped(text: string, width: number): string[] {
   const lines: string[] = []
   let current = ''
   for (const word of text.split(' ')) {
@@ -134,7 +161,7 @@ function wrapped(text: string, width: number): string[] {
   return lines.map((part) => fitted(part, width))
 }
 
-function drawHeader(
+export function drawHeader(
   elements: PaneElements,
   rootName: string,
   gitHeader: string,
@@ -302,7 +329,7 @@ function folderText(row: { name: string; depth: number }, mark: string): string 
   return `${indentOf(row.depth)}${mark} ${shownName(row.name)}/`
 }
 
-function fittedParts(parts: readonly Part[], width: number): Part[] {
+export function fittedParts(parts: readonly Part[], width: number): Part[] {
   let rest = fitted(parts.map((part) => part.text).join(''), width)
   const kept: Part[] = []
   for (const part of parts) {
@@ -318,9 +345,9 @@ function fittedParts(parts: readonly Part[], width: number): Part[] {
   return kept
 }
 
-function drawParts(Text: PaneElements['Text'], parts: readonly Part[]): RenderElement[] {
+export function drawParts(Text: PaneElements['Text'], parts: readonly Part[]): RenderElement[] {
   return parts.map((part) =>
-    Text({ color: part.color, dimColor: part.dimColor, children: part.text }),
+    Text({ color: part.color, dimColor: part.dimColor, bold: part.bold, children: part.text }),
   )
 }
 
@@ -383,6 +410,20 @@ function drawFolder(
     draw.touched,
     draw.touched.folderMark(row.path),
   )
+  const [name, ...counts] = line.head
+  const countButton =
+    counts.length === 0
+      ? []
+      : [
+          Button({
+            key: `diff:${row.path}`,
+            plain: true,
+            onPress: () => {
+              draw.actions.diff(row.path, true)
+            },
+            children: drawParts(Text, counts),
+          }),
+        ]
   return Box({
     key: `folder:${row.path}`,
     flexDirection: 'row',
@@ -394,8 +435,9 @@ function drawFolder(
         onPress: () => {
           draw.actions.toggle(row.path)
         },
-        children: drawParts(Text, line.head),
+        children: drawParts(Text, name === undefined ? [] : [name]),
       }),
+      ...countButton,
       ...drawParts(Text, line.tail),
     ],
   })
@@ -413,12 +455,12 @@ function renameDetail(
   return [elements.Text({ children: fitted(text, elements.bodyColumns) })]
 }
 
-function drawFile(
+function fileLine(
   elements: PaneElements,
   row: EntryRow & { kind: 'file' },
   draw: TreeDraw,
 ): RenderElement[] {
-  const { Box, Text, bodyColumns } = elements
+  const { Text, bodyColumns } = elements
   const { marks, touched } = draw
   const mark = touched.fileMark(row.path)
   const name = `${indentOf(row.depth)}${INDENT}${shownName(row.name)}`
@@ -435,17 +477,111 @@ function drawFile(
           ...markedParts(letter, shownName(row.name)),
         ]
   const line = markedLine(parts, bodyColumns, touched, mark)
+  return drawParts(Text, [...line.head, ...line.tail])
+}
+
+function stateText(marks: GitMarks, path: string): string | undefined {
+  const letter = marks.letterOf(path)
+  if (letter === undefined) return undefined
+  const word = STATE_WORDS[letter]
+  if (UNSTAGED_LETTERS.has(letter)) return word
+  return `${word}, ${marks.isStagedOf(path) ? 'staged' : 'not staged'}`
+}
+
+function rowButtons(path: string, draw: TreeDraw): ButtonSpec[] {
+  const { actions } = draw
+  const diff: ButtonSpec[] = draw.isRepo
+    ? [
+        {
+          key: 'diff',
+          label: 'diff',
+          onPress: () => {
+            actions.diff(path, false)
+          },
+        },
+      ]
+    : []
   return [
-    Box({
-      key: `file:${row.path}`,
-      flexDirection: 'row',
-      children: drawParts(Text, [...line.head, ...line.tail]),
-    }),
-    ...(marks === undefined ? [] : renameDetail(elements, row, marks)),
+    {
+      key: 'preview',
+      label: 'preview',
+      onPress: () => {
+        actions.preview(path)
+      },
+    },
+    ...diff,
+    {
+      key: 'copy-path',
+      label: 'copy path',
+      onPress: (e) => {
+        actions.copy(path, e.surface)
+      },
+    },
+    {
+      key: 'to-prompt',
+      label: '@ to prompt',
+      onPress: () => {
+        actions.mention(path)
+      },
+    },
   ]
 }
 
-type TreeDraw = { actions: PaneActions; marks: GitMarks | undefined; touched: TouchDraw }
+function openedDetail(
+  elements: PaneElements,
+  row: EntryRow & { kind: 'file' },
+  draw: TreeDraw,
+): RenderElement[] {
+  const { Text, bodyColumns } = elements
+  const { touched, marks } = draw
+  const indent = displayWidth(`${indentOf(row.depth)}${INDENT}${DETAIL_INDENT}`)
+  const room = Math.max(bodyColumns - indent, 1)
+  const touches = touched
+    .touchesOf(row.path)
+    .map((touch) => touchText(touch, shownName(touched.labelOf(touch.agent)), touched.now))
+  const state = marks === undefined ? undefined : stateText(marks, row.path)
+  const lines = state === undefined ? touches : [...touches, state]
+  return [
+    ...lines.map((text) => Text({ children: fitted(`${' '.repeat(indent)}${text}`, bodyColumns) })),
+    ...buttonRows(elements, rowButtons(row.path, draw), { room, indent, key: 'opened' }),
+  ]
+}
+
+function drawFile(
+  elements: PaneElements,
+  row: EntryRow & { kind: 'file' },
+  draw: TreeDraw,
+): RenderElement[] {
+  const { Box, Button } = elements
+  const { marks } = draw
+  const isOpened = draw.opened === row.path
+  return [
+    Box({
+      key: `file-row:${row.path}`,
+      flexDirection: 'row',
+      children: [
+        Button({
+          key: `file:${row.path}`,
+          plain: true,
+          onPress: () => {
+            draw.actions.openFile(row.path)
+          },
+          children: fileLine(elements, row, draw),
+        }),
+      ],
+    }),
+    ...(marks === undefined ? [] : renameDetail(elements, row, marks)),
+    ...(isOpened ? openedDetail(elements, row, draw) : []),
+  ]
+}
+
+type TreeDraw = {
+  actions: PaneActions
+  marks: GitMarks | undefined
+  touched: TouchDraw
+  opened: string | undefined
+  isRepo: boolean
+}
 
 function drawEntry(elements: PaneElements, row: EntryRow, draw: TreeDraw): RenderElement[] {
   const { Text, bodyColumns } = elements
@@ -514,8 +650,8 @@ export function drawTree(
   view: PaneView,
 ): RenderElement {
   const { Box, Text, bodyColumns } = elements
-  const { git, actions, touched } = view
-  const draw: TreeDraw = { actions, marks: git.marks, touched }
+  const { git, actions, touched, opened } = view
+  const draw: TreeDraw = { actions, marks: git.marks, touched, opened, isRepo: git.isRepo }
   return Box({
     flexDirection: 'column',
     children: [

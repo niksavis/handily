@@ -1,4 +1,4 @@
-import type { Mark, Sight, TouchKind } from './touches'
+import type { Mark, Sight, Touch, TouchKind } from './touches'
 import { displayWidth, fitted, padToWidth } from './width'
 
 export type MarkColumn = { label: number; hasAge: boolean }
@@ -6,6 +6,7 @@ export type MarkColumn = { label: number; hasAge: boolean }
 export type MarkCell = { mark: string; age: string }
 
 const SYMBOLS: Readonly<Record<TouchKind, string>> = { edit: '✎', read: '◦' }
+const VERBS: Readonly<Record<TouchKind, string>> = { edit: 'edited', read: 'read' }
 const SYMBOL_COLUMNS = 1
 const AGE_COLUMNS = 3
 const WIDE_BODY = 70
@@ -94,4 +95,8 @@ export function sightCells(
 export function hiddenText(hidden: number): string {
   const files = hidden === 1 ? 'file' : 'files'
   return `  and ${hidden.toLocaleString('en-US')} more ${files} from one Grep`
+}
+
+export function touchText(touch: Touch, label: string, now: number): string {
+  return `${VERBS[touch.kind]} by ${label} ${ageText(now - touch.at)} ago`
 }

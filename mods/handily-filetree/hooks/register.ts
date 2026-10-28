@@ -10,10 +10,14 @@ import {
   unknownReply,
 } from './commands'
 import { gitView } from './gitview'
+import type { LookSite } from './look'
+import { lookActionsOf, newLooking, resetLooking } from './looking'
+import { drawLook } from './lookpane'
 import { markColumnOf } from './marks'
 import { type PaneActions, type TouchDraw, drawInline, drawTree } from './pane'
-import { resolvedPath, shownPath } from './paths'
-import type { GitMarks } from './status'
+import { absolutePath, resolvedPath, shownPath } from './paths'
+import { reasonOf } from './reason'
+import { type GitMarks, gitMarks } from './status'
 import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows, withDeleted } from './tree'
 import { showToast } from './toast'
 import { type ToolTouch, isAnswered, searchedFiles, toolTouchOf } from './toolcall'
@@ -26,6 +30,7 @@ import {
   newTouches,
   revealSearch,
   touchView,
+  touchesOf,
 } from './touches'
 import {
   type GitWatch,
@@ -42,8 +47,6 @@ import type { FiletreePaths } from '../types'
 
 const OPEN = { plugin: 'handily-filetree', key: 'open' } as const
 const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
-const PERMISSION_DENIED = /\b(EACCES|EPERM)\b/
-const GONE = /\bENOENT\b/
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
 const BOARD_AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 
@@ -52,18 +55,6 @@ type AgentFilter = { picked: string | undefined }
 function folderName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter((part) => part !== '')
   return parts.at(-1) ?? cwd
-}
-
-function reasonOf(error: unknown): string {
-  const text = String(error)
-  if (PERMISSION_DENIED.test(text)) return 'permission denied'
-  if (GONE.test(text)) return 'it is not there any more'
-  return 'see the transcript log'
-}
-
-function absolutePath(cwd: string, path: string): string {
-  if (path === ROOT_PATH) return cwd
-  return /[\\/]$/.test(cwd) ? `${cwd}${path}` : `${cwd}/${path}`
 }
 
 type Listings = Map<string, Listing>
@@ -115,12 +106,14 @@ function toggled(paths: FiletreePaths, path: string): FiletreePaths {
   return paths.includes(path) ? paths.filter((one) => one !== path) : [...paths, path]
 }
 
+type BaseActions = Pick<PaneActions, 'toggle' | 'showAll' | 'refresh' | 'retry'>
+
 function actionsOf(
   $: EngineInterface,
   cwd: string,
   listings: Listings,
   watch: GitWatch,
-): PaneActions {
+): BaseActions {
   const failed = (error: unknown) => {
     $.ui.log(`handily-filetree: the tree did not change: ${String(error)}`)
     showToast($, ['■ Tree did not change', 'the transcript shows why'])
@@ -150,6 +143,13 @@ function actionsOf(
 
 function redraw($: EngineInterface): void {
   $.ui.invalidate('ui.render')
+}
+
+function lookSiteOf(watch: GitWatch, cwd: string): LookSite {
+  const { repo, shown } = watch
+  if (repo === null || repo === undefined) return { cwd, prefix: '', marks: undefined }
+  const marks = shown === undefined ? undefined : gitMarks(shown.status, repo.prefix)
+  return { cwd, prefix: repo.prefix, marks }
 }
 
 type SeenCall = { touch: ToolTouch; agent: string; cwd: string }
@@ -206,6 +206,7 @@ async function touchDrawOf(
     fileMark: (path) => touched.files.get(resolvedPath(cwd, path)),
     folderMark: (path) => touched.folders.get(resolvedPath(cwd, path)),
     labelOf: labelsOf((await $.state.get(BOARD_AGENTS)).value),
+    touchesOf: (path) => touchesOf(touches, resolvedPath(cwd, path)),
     shownPath: (path) => shownPath(cwd, path),
     sights: touched.sights,
     agents: touched.agents,
@@ -224,6 +225,7 @@ export const register: Register = (on) => {
   const watch = newWatch()
   const touches = newTouches()
   const filter: AgentFilter = { picked: undefined }
+  const looking = newLooking()
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -240,6 +242,7 @@ export const register: Register = (on) => {
     listings.clear()
     resetWatch(watch)
     clearTouches(touches)
+    resetLooking(looking)
     filter.picked = undefined
     return next(e)
   })
@@ -249,6 +252,7 @@ export const register: Register = (on) => {
     if (e.id === FILES_PANE.id) {
       listings.clear()
       stopWatch(watch)
+      resetLooking(looking)
     }
     return closed
   })
@@ -290,10 +294,10 @@ export const register: Register = (on) => {
 
   on('ui.render', { component: 'Pane', requestId: FILES_PANE.id }, async ($, e) => {
     const resolved = $.ui.resolve(e)
-    const { Box, Text, Button } = resolved
+    const { Box, Text, Button, Code, Markdown } = resolved
     const Select = 'Select' in resolved ? resolved.Select : undefined
     const { bodyColumns } = e.props
-    const elements = { Box, Text, Button, Select, bodyColumns }
+    const elements = { Box, Text, Button, Select, Code, Markdown, bodyColumns }
     const cwd = await $.session.cwd()
     await syncRepo($, watch, cwd)
     watchShown($, watch)
@@ -304,12 +308,17 @@ export const register: Register = (on) => {
     const site = { cwd, bodyColumns, inView: e.props.view.agentId }
     const view = {
       git,
-      actions: actionsOf($, cwd, listings, watch),
+      actions: {
+        ...actionsOf($, cwd, listings, watch),
+        ...lookActionsOf($, looking, () => lookSiteOf(watch, cwd)),
+      },
       touched: await touchDrawOf($, site, touches, filter),
+      opened: looking.opened,
     }
     if (e.props.placement === 'inline') {
       return drawInline(elements, rootName, await list(ROOT_PATH), view)
     }
+    if (looking.look !== undefined) return drawLook({ ...view, elements }, rootName, looking.look)
     const open = new Set((await $.state.get(OPEN)).value ?? [])
     const whole = new Set((await $.state.get(WHOLE)).value ?? [])
     const rows = await treeRows(list, { open, whole }, rootName)
