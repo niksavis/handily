@@ -1314,11 +1314,13 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
   (100 tasks)               Run /board clear to remove the done tasks, or remove one first.
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
                             /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>,
-                            /board start <n>, /board open <n>, /board clear, /board list or
-                            /board close.
+                            /board start <n>, /board open <n>, /board clear, /board list,
+                            /board stats or /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
 /board list              -> the task list as text (as /task printed it; mobile and a closed board)
+/board stats             -> the Session line, its details, the waits, the checks and each agent as
+                            text (mobile and a closed board)
 ```
 
 - `/board` and `/board machine` open both panes, so the tab row exists. When the asked tab is hidden,
