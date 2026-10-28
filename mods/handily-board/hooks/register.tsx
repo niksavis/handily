@@ -4,10 +4,12 @@ import type {
   HookFailure,
   PromptOrigin,
   Register,
+  SessionEndReason,
   Timer,
   ToolCheckInput,
   ToolCheckResult,
   ToolSpec,
+  TurnStepResult,
 } from 'claude-code'
 import {
   type StatusLineSetting,
@@ -30,6 +32,7 @@ import {
 } from './activity'
 import {
   type AgentHost,
+  type AgentStep,
   NEEDS_YOU_AFTER_MS,
   agentView,
   labelledAgents,
@@ -37,9 +40,11 @@ import {
   noteAsk,
   noteSpawn,
   noteTurnEnd,
+  stepOf,
   trackAgentCall,
   withAgentPlan,
   withFoundPlans,
+  withSteps,
 } from './agents'
 import {
   BOARD_PANES,
@@ -54,6 +59,7 @@ import {
   sessionCommand,
 } from './board'
 import { EMPTY_CHECKS, withCheck } from './checks'
+import { detailsText } from './details'
 import {
   type ListEdit,
   type TaskHost,
@@ -71,6 +77,7 @@ import {
   withoutFinalPeriod,
 } from './commands'
 import { lastSegment } from './agents-json'
+import { stepText } from './agent-rows'
 import { drawMachine } from './machine'
 import {
   type Machine,
@@ -121,13 +128,20 @@ import {
   highPercent,
   sessionText,
   withMeasure,
-  withTurnEnd,
   withClear,
+  withCompaction,
+  withTurnCall,
+  withTurnEnd,
+  withTurnSpawn,
   withTurnStart,
   withUsage,
   withoutUsage,
 } from './vitals'
 
+const NEW_SESSION_REASONS: ReadonlySet<SessionEndReason> = new Set<SessionEndReason>([
+  'clear',
+  'resume',
+])
 const TOOL_ADD = 'mcp__handily-board__task_add'
 const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
@@ -469,11 +483,34 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
   }
 }
 
-async function workOf($: EngineInterface, vitals: Vitals, checks: BoardChecks): Promise<PaneWork> {
+type StepsKeep = Map<string, AgentStep>
+
+type SessionKeeps = { vitals: VitalsKeep; checks: ChecksKeep; steps: StepsKeep }
+
+async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
-  const agents = await agentView(agentHostOf($), now)
-  return { now, activity: activity ?? EMPTY_ACTIVITY, agents, vitals, checks }
+  const agents = withSteps(await agentView(agentHostOf($), now), keeps.steps)
+  return {
+    now,
+    activity: activity ?? EMPTY_ACTIVITY,
+    agents,
+    vitals: keeps.vitals.current,
+    checks: keeps.checks.current,
+  }
+}
+
+function noteStep(
+  $: EngineInterface,
+  steps: StepsKeep,
+  agentId: string,
+  stepped: TurnStepResult,
+): void {
+  const step = stepOf(stepped)
+  if (step === undefined) return
+  const drawn = stepText(steps.get(agentId) ?? null)
+  steps.set(agentId, step)
+  if (stepText(step) !== drawn) $.ui.invalidate('ui.render')
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -624,10 +661,14 @@ async function noteVitals(
   change: (vitals: Vitals) => Vitals,
 ): Promise<void> {
   const keep = attention.vitals
+  const now = await $.clock.now()
   const drawn = sessionText(keep.current)
+  const details = detailsText(keep.current, now)
   const high = highPercent(keep.current)
   keep.current = change(keep.current)
-  if (sessionText(keep.current) !== drawn) $.ui.invalidate('ui.render')
+  if (sessionText(keep.current) !== drawn || detailsText(keep.current, now) !== details) {
+    $.ui.invalidate('ui.render')
+  }
   if (highPercent(keep.current) !== high) await refreshStatus($, attention)
 }
 
@@ -866,6 +907,7 @@ export const register: Register = (on, options) => {
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
+  const steps: StepsKeep = new Map()
   const attention: AttentionKeep = {
     setting: statusLineSetting(options),
     vitals,
@@ -899,6 +941,15 @@ export const register: Register = (on, options) => {
     return measured
   })
 
+  on('session.compact', async ($, e, next) => {
+    const compacted = await next(e)
+    const isMainCompaction = e.agentId === undefined && e.trigger !== 'precompute'
+    if (isMainCompaction && compacted.skip === undefined) {
+      await noteVitals($, attention, withCompaction)
+    }
+    return compacted
+  }).catch((_$, e, next) => next(e))
+
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) await noteVitals($, attention, withTurnStart)
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
@@ -907,10 +958,18 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('turn.step', async function* ($, e, next) {
+    const { agentId } = e
+    if (agentId === undefined) return yield* next(e)
+    const stepped = yield* next(e)
+    noteStep($, steps, agentId, stepped)
+    return stepped
+  })
+
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
-      await noteVitals($, attention, withTurnEnd)
+      await noteVitals($, attention, (current) => withTurnEnd(current, e.durationMs))
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
       )
@@ -945,10 +1004,13 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
-    if (e.reason === 'clear') {
-      attention.asks.clear()
+    steps.clear()
+    if (e.reason === 'clear') attention.asks.clear()
+    if (NEW_SESSION_REASONS.has(e.reason)) {
       await noteVitals($, attention, withClear)
       await refreshStatus($, attention)
+    }
+    if (e.reason === 'clear') {
       checks.current = EMPTY_CHECKS
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
@@ -1008,7 +1070,11 @@ export const register: Register = (on, options) => {
     if (agentId === undefined) {
       const now = await $.clock.now()
       await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withMainCall(current, sight, now))
-      return untilSettled($, attention, e.tool_use_id, () => next(e))
+      const answer = await untilSettled($, attention, e.tool_use_id, () => next(e))
+      await noteVitals($, attention, (current) =>
+        withTurnCall(current, e.tool, answer.isError === true),
+      )
+      return answer
     }
     return untilSettled($, attention, e.tool_use_id, () =>
       trackAgentCall(agentHostOf($), agentId, { id: e.tool_use_id, ...sight }, () => next(e)),
@@ -1040,6 +1106,7 @@ export const register: Register = (on, options) => {
       parentId: e.parentAgentId,
     }
     await noteSpawn(agentHostOf($), spawned.agentId, facts, at)
+    if (e.parentAgentId === undefined) await noteVitals($, attention, withTurnSpawn)
     await shareAgents($, machine)
     return spawned
   }).catch((_$, e, next) => next(e))
@@ -1117,7 +1184,7 @@ export const register: Register = (on, options) => {
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
     const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
-    const work = await workOf($, vitals.current, checks.current)
+    const work = await workOf($, { vitals, checks, steps })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     return drawPane(elements, hostOf($), uiOf($), work)

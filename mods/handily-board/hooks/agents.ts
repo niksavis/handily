@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentStatus } from 'claude-code'
+import type { AgentInfo, AgentStatus, TurnStepResult } from 'claude-code'
 import type {
   BoardAgent,
   BoardAgentCall,
@@ -32,6 +32,14 @@ export type AgentLook =
   | 'killed'
   | 'unlisted'
 
+export type AgentStep = {
+  context: number
+  output: number
+  stopReason: TurnStepResult['stopReason']
+}
+
+export type AgentSteps = ReadonlyMap<string, AgentStep>
+
 export type AgentRow = {
   id: string
   label: string
@@ -48,6 +56,7 @@ export type AgentRow = {
   isSpawnSeen: boolean
   startedAt: number
   ageMs: number
+  step: AgentStep | null
 }
 
 export type SpawnFacts = {
@@ -346,6 +355,7 @@ function rowOf(
     isSpawnSeen: agent.isSpawnSeen,
     startedAt: agent.startedAt,
     ageMs: Math.max(endOf(agent, status, now) - agent.startedAt, 0),
+    step: null,
   }
   return { row, rank: look === 'unlisted' && isEnded ? UNLISTED_ENDED_RANK : LOOK_RANKS[look] }
 }
@@ -359,6 +369,20 @@ export function agentRows(
     .map((agent) => rowOf(agent, plans.get(agent.id), now))
     .sort((a, b) => a.rank - b.rank || a.row.startedAt - b.row.startedAt)
     .map(({ row }) => row)
+}
+
+export function stepOf(
+  stepped: Pick<TurnStepResult, 'usage' | 'stopReason'>,
+): AgentStep | undefined {
+  const { usage } = stepped
+  if (usage === null) return undefined
+  const context =
+    usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
+  return { context, output: usage.output_tokens, stopReason: stepped.stopReason }
+}
+
+export function withSteps(rows: readonly AgentRow[], steps: AgentSteps): AgentRow[] {
+  return rows.map((row) => ({ ...row, step: steps.get(row.id) ?? null }))
 }
 
 export function waitingCount(rows: readonly AgentRow[]): number {

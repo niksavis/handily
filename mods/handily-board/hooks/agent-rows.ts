@@ -1,10 +1,12 @@
 import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardTask, BoardToolSight } from '../types'
 import { elapsedText } from './activity'
-import type { AgentLook, AgentRow } from './agents'
+import type { AgentLook, AgentRow, AgentStep } from './agents'
 import type { PaneElements, RowLayout } from './pane'
+import { type Part, drawPartLines } from './parts'
 import { SIGNALS, needsYouText } from './signals'
 import { escaped, paneTaskText, statusLook } from './tasks'
+import { tokensText } from './tokens'
 import { cutToWidth, displayWidth, fitted, lastToWidth } from './width'
 
 export const AGENT_ROWS_AT_MOST = 6
@@ -27,6 +29,7 @@ const BUTTON_CHROME = 4
 const OPEN_LABEL = 'open'
 const MAIN_LOOP = 'main'
 const WAITS_LEAD = 'waits for: '
+const STOPPED_AT_LIMIT = 'max_tokens'
 const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
   mark: string
@@ -267,6 +270,35 @@ function toolCountText(tools: number): string {
   return tools === 1 ? '1 tool call' : `${String(tools)} tool calls`
 }
 
+function contextPart(step: AgentStep): Part {
+  return { text: `ctx ${tokensText(step.context)}` }
+}
+
+function stepGroups(toolCalls: number, step: AgentStep | null): Part[][] {
+  const tools = { text: toolCountText(toolCalls) }
+  if (step === null) return [[tools]]
+  if (step.stopReason !== STOPPED_AT_LIMIT) {
+    return [[tools, contextPart(step), { text: `out ${tokensText(step.output)}` }]]
+  }
+  return [
+    [tools],
+    [{ text: `stopped at ${STOPPED_AT_LIMIT}`, color: 'warning' }, contextPart(step)],
+  ]
+}
+
+export function stepText(step: AgentStep | null): string {
+  return stepGroups(0, step)
+    .map((parts) => parts.map((part) => part.text).join(' '))
+    .join('\n')
+}
+
+function stepLines(elements: PaneElements, row: AgentRow): RenderElement[] {
+  const room = elements.bodyColumns - DETAIL_INDENT
+  return stepGroups(row.tools, row.step).flatMap((parts, index) =>
+    drawPartLines(elements, `step:${String(index)}:agent:${row.id}`, parts, room),
+  )
+}
+
 function parentText(row: AgentRow, names: ReadonlyMap<string, string>): string | null {
   if (!row.isParentKnown) return null
   if (row.parentId === null) return MAIN_LOOP
@@ -287,7 +319,7 @@ function openedLines(
   return [
     description === null || description === escaped(row.label) ? null : line(elements, description),
     line(elements, parent === null ? since : `under ${parent} · ${since}`, { dimColor: true }),
-    line(elements, toolCountText(row.tools), { dimColor: true }),
+    ...stepLines(elements, row),
     ...planLines(elements, row, layout),
   ].filter((element) => element !== null)
 }

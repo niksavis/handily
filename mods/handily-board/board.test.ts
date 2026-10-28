@@ -4,7 +4,11 @@ import type {
   PluginState,
   PromptComposeInput,
   RenderPropsOf,
+  SessionMessage,
+  SessionRateLimit,
   SessionUsage,
+  TurnStepChunk,
+  TurnStepResult,
   UiNotifyResult,
   UsageUnit,
 } from 'claude-code'
@@ -127,7 +131,11 @@ type WorldOptions = {
   unplacedReason?: string
   hasOwnPromptHook?: boolean
   notice?: UiNotifyResult | 'denied'
+  failingTool?: string
 }
+
+const SKIPPED_COMPACTION = 'skip this compaction'
+const SUMMARY: SessionMessage = { role: 'user', text: 'the summary', toolUses: [] }
 
 function world(on: On, options: WorldOptions = {}): World {
   const state: World = {
@@ -162,6 +170,12 @@ function world(on: On, options: WorldOptions = {}): World {
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('session.compact', (_$, e) =>
+    e.instructions === SKIPPED_COMPACTION
+      ? { skip: 'the test skipped the compaction' }
+      : { messages: e.messages },
+  )
+  on('agent.spawn', (_$, e) => ({ model: 'opus', agentId: e.tool_use_id.slice('spawn:'.length) }))
   on('tool.register', (_$, e) => {
     state.tools.push(e.name)
     state.descriptions.set(e.name, e.description)
@@ -219,7 +233,11 @@ function world(on: On, options: WorldOptions = {}): World {
     if (options.notice === 'denied') return { deny: 'a hook of the test refused the notice' }
     return { value: options.notice ?? { isSent: true as const, channel: 'kitty' as const } }
   })
-  on('tool.call', () => ({ result: '' }))
+  on('tool.call', (_$, e) =>
+    e.tool === options.failingTool
+      ? { isError: true as const, result: 'exit 1', text: 'exit 1' }
+      : { result: '' },
+  )
   if (options.hasOwnPromptHook !== true) {
     on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
   }
@@ -4597,13 +4615,19 @@ const CONTEXT_HIGH_CRITERION =
 const TURN_COST_CRITERION =
   'When a main turn runs, the line shows the cost this turn added since it started'
 
-type Measured = { percent?: number; usd?: number; changed?: readonly UsageUnit[] }
+type Measured = {
+  percent?: number
+  usd?: number
+  limits?: SessionRateLimit[]
+  changed?: readonly UsageUnit[]
+}
 
 function unitsOf(measured: Measured): UsageUnit[] {
   if (measured.changed !== undefined) return [...measured.changed]
   return [
     ...(measured.percent === undefined ? [] : (['context'] as const)),
     ...(measured.usd === undefined ? [] : (['cost'] as const)),
+    ...(measured.limits === undefined ? [] : (['rateLimits'] as const)),
   ]
 }
 
@@ -4614,7 +4638,7 @@ async function measure($: Engine, measured: Measured): Promise<void> {
       window: 200_000,
       ...(percent === undefined ? {} : { percent, tokens: percent * 2_000 }),
     },
-    rateLimits: [],
+    rateLimits: measured.limits ?? [],
     ...(usd === undefined ? {} : { cost: { usd } }),
     changed: unitsOf(measured),
   })
@@ -4978,6 +5002,756 @@ describe(TURN_COST_CRITERION, () => {
       }
     },
   )
+})
+
+const DETAILS_CRITERION =
+  'When the person presses the Session line, the details show the context of the window, the compactions, the last turn time, the cost it added, its edits, errors and spawned agents, and the rate limits with their resets'
+const NO_LIMITS_CRITERION =
+  'When the plan reports no rate limits, the details say limits: none reported'
+
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+function limitsAt(now: number): SessionRateLimit[] {
+  return [
+    {
+      kind: 'five_hour',
+      percentUsed: 31,
+      resetsAt: new Date(now + 2 * HOUR + 5 * MINUTE).toISOString(),
+    },
+    {
+      kind: 'seven_day',
+      percentUsed: 12.6,
+      resetsAt: new Date(now + 4 * DAY + HOUR).toISOString(),
+    },
+  ]
+}
+
+async function spawnFrom($: Engine, id: string, parentAgentId?: string): Promise<void> {
+  await $.agent.spawn({
+    tool_use_id: `spawn:${id}`,
+    prompt: 'look around',
+    description: 'look around',
+    subagentType: 'Explore',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'opus',
+    background: true,
+    fork: false,
+    ...(parentAgentId === undefined ? {} : { parentAgentId }),
+  })
+}
+
+async function editAs($: Engine, agentId: string, file: string): Promise<void> {
+  await $.tool.call({
+    tool: 'Edit',
+    file_path: `${ROOT}/${file}`,
+    old_string: 'a',
+    new_string: 'b',
+    agentId,
+  })
+}
+
+async function mainTurnTakes($: Engine, turnId: string, durationMs: number): Promise<void> {
+  await $.turn.complete({ turnId, reason: 'answer', answer: 'done', durationMs, isAborted: false })
+}
+
+async function compacts($: Engine): Promise<void> {
+  await $.session.compact({ trigger: 'auto', messages: [SUMMARY] })
+}
+
+async function detailsScene($: Engine, seen: World): Promise<void> {
+  await start($)
+  await measure($, { percent: 62, usd: 4.18, limits: limitsAt(seen.clock.now()) })
+  await compacts($)
+  await mainTurnStarts($, 'turn-1')
+  await edit($, 'docs/mocks.md')
+  await edit($, 'docs/design.md')
+  await read($, 'README.md')
+  await edit($, 'README.md')
+  await spawnFrom($, 'a1')
+  await spawnFrom($, 'a2')
+  await spawnFrom($, 'a3', 'a1')
+  await editAs($, 'a1', 'hooks/pane.tsx')
+  await measure($, { usd: 4.8 })
+  await mainTurnTakes($, 'turn-1', 3 * MINUTE + 5_000)
+}
+
+async function sessionDetails(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline',
+  columns: number,
+): Promise<string[]> {
+  const ui = await mountTab($, surface, PANE, placement, columns)
+  if ((await ui.find({ key: 'session-details' })) === undefined) {
+    await ui.press({ key: 'session' })
+  }
+  const lines = await screen(ui, columns)
+  await ui.unmount()
+  return lines.slice(
+    0,
+    lines.findIndex((line) => line.startsWith('Tasks')),
+  )
+}
+
+const DETAIL_SCREENS: readonly {
+  placement: 'dock' | 'inline'
+  columns: number
+  lines: readonly string[]
+}[] = [
+  {
+    placement: 'dock',
+    columns: 30,
+    lines: [
+      'Session  ctx 62% · $4.80',
+      '    context 124k of 200k',
+      '    1 compaction',
+      '    last turn 3m · +$0.62',
+      '    3 edits · 0 errors',
+      '    2 agents spawned',
+      '    limits 5h 31% · 7d 13%',
+      '    resets 5h in 2h · 7d in 4d',
+      '    checks 5 · 5 allowed',
+      '    [ last 5 checks ]',
+    ],
+  },
+  {
+    placement: 'dock',
+    columns: 41,
+    lines: [
+      'Session  ctx 62% · $4.80 · last +$0.62',
+      '    context 124k of 200k · 1 compaction',
+      '    last turn 3m · +$0.62 · 3 edits',
+      '    0 errors · 2 agents spawned',
+      '    limits 5h 31% · 7d 13%',
+      '    resets 5h in 2h · 7d in 4d',
+      '    checks 5 · 5 allowed',
+      '    [ last 5 checks ]',
+    ],
+  },
+  {
+    placement: 'inline',
+    columns: 76,
+    lines: [
+      'Session  ctx 62% · $4.80 · last +$0.62',
+      '    context 124k of 200k · 1 compaction',
+      '    last turn 3m · +$0.62 · 3 edits · 0 errors · 2 agents spawned',
+      '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
+      '    checks 5 · 5 allowed',
+      '    [ last 5 checks ]',
+    ],
+  },
+]
+
+describe(DETAILS_CRITERION, () => {
+  for (const { placement, columns, lines } of DETAIL_SCREENS) {
+    test(
+      `a press on the Session line opens the context, the compactions, the last turn and the limits, as mock 8.10c, at ${String(columns)} columns, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await detailsScene($, seen)
+        for (const surface of SURFACES) {
+          expect(await sessionDetails($, surface, placement, columns)).toEqual(lines)
+          const ui = await mountTab($, surface, PANE, placement, columns)
+          await ui.press({ key: 'session' })
+          expect(await ui.find({ key: 'session-details' })).toBeUndefined()
+          await ui.unmount()
+        }
+      },
+    )
+  }
+
+  test(
+    'near the limit the details add that /compact or /clear frees the context, as mock 8.10h, and at 79 percent they do not',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await measure($, { percent: 79, usd: 10.5 })
+      await compacts($)
+      await compacts($)
+      await mainTurnStarts($, 'turn-1')
+      for (let index = 0; index < 9; index += 1) await edit($, `docs/file${String(index)}.md`)
+      await measure($, { percent: 91, usd: 12.4 })
+      await mainTurnTakes($, 'turn-1', 6 * MINUTE)
+      for (const surface of SURFACES) {
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 5)).toEqual([
+          'Session  ctx 91% high · $12.40',
+          '    context 182k of 200k · 2 compactions',
+          '    Claude Code compacts it near the',
+          '    limit. /compact or /clear frees it.',
+          '    last turn 6m · +$1.90 · 9 edits',
+        ])
+        expect((await sessionDetails($, surface, 'inline', 76)).slice(1, 3)).toEqual([
+          '    context 182k of 200k · 2 compactions',
+          '    Claude Code compacts it near the limit. /compact or /clear frees it.',
+        ])
+      }
+      await measure($, { percent: 79 })
+      for (const surface of SURFACES) {
+        const lines = await sessionDetails($, surface, 'dock', 41)
+        expect(lines.slice(1, 3)).toEqual([
+          '    context 158k of 200k · 2 compactions',
+          '    last turn 6m · +$1.90 · 9 edits',
+        ])
+        expect(lines.join('\n')).not.toContain('/compact')
+      }
+    },
+  )
+
+  test(
+    'only the main loop counts: an error of the main loop takes the error colour, and a subagent call, a subagent compaction, a precompute and a skipped compaction count nothing',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { failingTool: 'Bash' })
+      await start($)
+      await measure($, { percent: 40, usd: 1 })
+      await $.session.compact({ trigger: 'precompute', messages: [SUMMARY] })
+      await $.session.compact({ trigger: 'auto', messages: [SUMMARY], agentId: 'a1' })
+      await $.session.compact({
+        trigger: 'manual',
+        messages: [SUMMARY],
+        instructions: SKIPPED_COMPACTION,
+      })
+      await mainTurnStarts($, 'turn-1')
+      await $.tool.call({ tool: 'Bash', command: 'npm test' })
+      await $.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'a1' })
+      await editAs($, 'a1', 'docs/mocks.md')
+      await spawnFrom($, 'a2', 'a1')
+      await measure($, { usd: 1.25 })
+      await mainTurnTakes($, 'turn-1', 45_000)
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  ctx 40% · $1.25 · last +$0.25',
+          '    context 80k of 200k · 0 compactions',
+          '    last turn 45s · +$0.25 · 0 edits',
+          '    1 error · 0 agents spawned',
+          '    limits: none reported',
+          '    checks 3 · 3 allowed',
+          '    [ last 3 checks ]',
+        ])
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        const errors = await ui.find({ type: 'Text', text: '1 error' })
+        expect(errors?.props.color).toBe('error')
+        const edits = await ui.find({ type: 'Text', text: '0 edits' })
+        expect(edits?.props.color).toBeUndefined()
+        await ui.unmount()
+      }
+    },
+  )
+
+  test(
+    'while the next turn runs the details keep the last turn and its cost, and /clear empties them',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await detailsScene($, seen)
+      await mainTurnStarts($, 'turn-2')
+      await edit($, 'docs/mocks.md')
+      await measure($, { usd: 5.05 })
+      for (const surface of SURFACES) {
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 4)).toEqual([
+          'Session  ctx 62% · $5.05 · turn +$0.25',
+          '    context 124k of 200k · 1 compaction',
+          '    last turn 3m · +$0.62 · 3 edits',
+          '    0 errors · 2 agents spawned',
+        ])
+      }
+      await mainTurnTakes($, 'turn-2', 20_000)
+      expect((await sessionDetails($, 'terminal', 'dock', 41)).slice(2, 4)).toEqual([
+        '    last turn 20s · +$0.25 · 1 edit',
+        '    0 errors · 0 agents spawned',
+      ])
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await ui.find({ type: 'Button', key: 'session' })).toBeUndefined()
+        await ui.unmount()
+      }
+    },
+  )
+
+  test(
+    'a compaction and a moved rate limit redraw the board, because the details changed',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      let redraws = 0
+      on('ui.invalidate', (_$, e, next) => {
+        if (e.event === 'ui.render') redraws += 1
+        return next(e)
+      })
+      await start($)
+      await measure($, { percent: 62, usd: 4.18 })
+      const before = redraws
+      await compacts($)
+      expect(redraws).toBe(before + 1)
+      await measure($, { limits: limitsAt(seen.clock.now()) })
+      expect(redraws).toBe(before + 2)
+    },
+  )
+})
+
+describe('the Session details keep only the facts of the session that runs now', () => {
+  test(
+    'a failed Edit of the main loop counts as an error and not as an edit',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { failingTool: 'Edit' })
+      await start($)
+      await measure($, { percent: 40, usd: 1 })
+      await mainTurnStarts($, 'turn-1')
+      await edit($, 'docs/mocks.md')
+      await mainTurnTakes($, 'turn-1', 45_000)
+      for (const surface of SURFACES) {
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(2, 4)).toEqual([
+          '    last turn 45s · 0 edits · 1 error',
+          '    0 agents spawned',
+        ])
+      }
+    },
+  )
+
+  test(
+    'the limits stay after /clear when the next measure carries them and names only the context and the cost',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const limits = limitsAt(seen.clock.now())
+      await measure($, { percent: 62, usd: 4.18, limits })
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      await measure($, { percent: 3, usd: 4.2, limits, changed: ['context', 'cost'] })
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  ctx 3% · $4.20',
+          '    context 6k of 200k · 0 compactions',
+          '    limits 5h 31% · 7d 13%',
+          '    resets 5h in 2h · 7d in 4d',
+        ])
+      }
+    },
+  )
+
+  test(
+    'a resume starts the figures over: no context, no limits, no compaction and no last turn of the session before',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await detailsScene($, seen)
+      await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } })
+      await start($)
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  ctx — until the first reply',
+          '    checks 5 · 5 allowed',
+          '    [ last 5 checks ]',
+        ])
+      }
+    },
+  )
+
+  test('a limit whose reset time is past reads now, not in 0s', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    const now = seen.clock.now()
+    const limits = [
+      { kind: 'five_hour', percentUsed: 31, resetsAt: new Date(now - 3 * HOUR).toISOString() },
+      {
+        kind: 'seven_day',
+        percentUsed: 13,
+        resetsAt: new Date(now + 4 * DAY + HOUR).toISOString(),
+      },
+    ]
+    await measure($, { percent: 62, usd: 4.18, limits })
+    for (const surface of SURFACES) {
+      const lines = await sessionDetails($, surface, 'dock', 41)
+      expect(lines.slice(-2)).toEqual([
+        '    limits 5h 31% · 7d 13%',
+        '    resets 5h now · 7d in 4d',
+      ])
+    }
+  })
+
+  test(
+    'a measure that carries the limits and no context fill still shows the limits',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await measure($, { usd: 2, limits: limitsAt(seen.clock.now()) })
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  ctx — · $2.00',
+          '    limits 5h 31% · 7d 13%',
+          '    resets 5h in 2h · 7d in 4d',
+        ])
+      }
+    },
+  )
+})
+
+describe(NO_LIMITS_CRITERION, () => {
+  for (const { placement, columns } of DETAIL_SCREENS) {
+    test(
+      `a plan that reports no rate limits shows limits: none reported, as mock 8.10i, at ${String(columns)} columns, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($)
+        await measure($, { percent: 62, usd: 4.18 })
+        for (const surface of SURFACES) {
+          const lines = await sessionDetails($, surface, placement, columns)
+          expect(lines.at(-1)).toBe('    limits: none reported')
+          expect(lines.join('\n')).not.toContain('resets')
+        }
+      },
+    )
+  }
+
+  test(
+    'on a host with no usage the details say nothing about the context and the limits',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { usage: 'refused' })
+      await start($)
+      await mainTurnStarts($, 'turn-1')
+      await mainTurnTakes($, 'turn-1', 5_000)
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  no context or cost on this host',
+          '    last turn 5s · 0 edits · 0 errors',
+          '    0 agents spawned',
+        ])
+      }
+    },
+  )
+})
+
+const AGENT_TOKENS_CRITERION =
+  'When a subagent step completes, the opened row shows that agent context and its output tokens'
+const MAX_TOKENS_CRITERION =
+  'When a step stops at max_tokens, the opened row says stopped at max_tokens'
+const MAIN_STEP_CRITERION =
+  'When a main loop step streams, the hook passes the stream on without reading its chunks'
+
+const STEP_AGENT = 'a0000007explore'
+
+type StepUsage = { fresh: number; written: number; read: number; output: number }
+
+function stepped(
+  turnId: string,
+  usage: StepUsage | null,
+  stopReason: TurnStepResult['stopReason'],
+): TurnStepResult {
+  return {
+    turnId,
+    index: 0,
+    answer: '',
+    toolUses: [],
+    stopReason,
+    usage:
+      usage === null
+        ? null
+        : {
+            model: 'opus',
+            input_tokens: usage.fresh,
+            cache_creation_input_tokens: usage.written,
+            cache_read_input_tokens: usage.read,
+            output_tokens: usage.output,
+          },
+  }
+}
+
+type StepWorld = { next: TurnStepResult; chunks: TurnStepChunk[]; gate: Promise<void> }
+
+function stepWorld(on: On): StepWorld {
+  const steps: StepWorld = {
+    next: stepped('turn-0', null, null),
+    chunks: [],
+    gate: Promise.resolve(),
+  }
+  on('turn.step', async function* () {
+    const [first, ...rest] = steps.chunks
+    if (first !== undefined) yield first
+    await steps.gate
+    for (const chunk of rest) yield chunk
+    return steps.next
+  })
+  return steps
+}
+
+async function step(
+  $: Engine,
+  steps: StepWorld,
+  agentId: string | undefined,
+  result: TurnStepResult,
+): Promise<TurnStepResult> {
+  steps.next = result
+  const stream = $.turn.step({
+    turnId: result.turnId,
+    index: result.index,
+    model: 'opus',
+    messageCount: 3,
+    ...(agentId === undefined ? {} : { agentId }),
+  })
+  let read = await stream.next()
+  while (read.done !== true) read = await stream.next()
+  return read.value
+}
+
+async function stepAgentWorks($: Engine, seen: World, calls: number): Promise<void> {
+  await start($)
+  await spawnFrom($, STEP_AGENT)
+  seen.agents.push({
+    id: STEP_AGENT,
+    type: 'Explore',
+    status: 'running',
+    description: 'find the element table',
+  })
+  for (let index = 0; index < calls; index += 1) {
+    await $.tool.call({
+      tool: 'Read',
+      file_path: `${ROOT}/hooks/file${String(index)}.ts`,
+      agentId: STEP_AGENT,
+    })
+  }
+}
+
+async function openedAgent(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline',
+  columns: number,
+): Promise<string[]> {
+  const ui = await mountTab($, surface, PANE, placement, columns)
+  if ((await ui.find({ key: `under:agent:${STEP_AGENT}` })) === undefined) {
+    await ui.press({ key: `open:agent:${STEP_AGENT}` })
+  }
+  const lines = await screen(ui, columns)
+  await ui.unmount()
+  const row = lines.findIndex((line) => line.startsWith('▶ Explore'))
+  return lines.slice(row + 1).filter((line) => line.startsWith('    '))
+}
+
+const TOKEN_SCREENS: readonly {
+  placement: 'dock' | 'inline'
+  columns: number
+  lines: readonly string[]
+}[] = [
+  { placement: 'dock', columns: 30, lines: ['    7 tool calls · ctx 48k', '    out 6.1k'] },
+  { placement: 'dock', columns: 41, lines: ['    7 tool calls · ctx 48k · out 6.1k'] },
+  { placement: 'inline', columns: 76, lines: ['    7 tool calls · ctx 48k · out 6.1k'] },
+]
+
+describe(AGENT_TOKENS_CRITERION, () => {
+  for (const { placement, columns, lines } of TOKEN_SCREENS) {
+    test(
+      `the opened row shows the context of the latest step and its output tokens, as mock 8.10g, at ${String(columns)} columns, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const steps = stepWorld(on)
+        await stepAgentWorks($, seen, 7)
+        const early = { fresh: 300, written: 900, read: 3_000, output: 450 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', early, 'tool_use'))
+        const late = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', late, 'tool_use'))
+        await step($, steps, STEP_AGENT, stepped('turn-1', null, null))
+        await step($, steps, undefined, stepped('turn-main', late, 'end_turn'))
+        for (const surface of SURFACES) {
+          const opened = await openedAgent($, surface, placement, columns)
+          expect(opened.slice(2, 2 + lines.length)).toEqual(lines)
+        }
+      },
+    )
+  }
+
+  test(
+    'an agent with no step yet keeps the tool count alone, and a main loop step adds no agent row and no tokens',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const steps = stepWorld(on)
+      await stepAgentWorks($, seen, 1)
+      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+      await step($, steps, undefined, stepped('turn-main', usage, 'end_turn'))
+      await step($, steps, 'a0000099other', stepped('turn-9', usage, 'end_turn'))
+      for (const surface of SURFACES) {
+        const opened = await openedAgent($, surface, 'dock', 41)
+        expect(opened[2]).toBe('    1 tool call')
+        expect(opened.join('\n')).not.toContain('ctx')
+      }
+    },
+  )
+})
+
+describe('the tokens of an agent step redraw the board only when they change, and a session end clears them', () => {
+  test(
+    'a step redraws the board when the drawn tokens change, and a step with the same drawn tokens, a step with no usage or a main loop step does not',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const steps = stepWorld(on)
+      let redraws = 0
+      on('ui.invalidate', (_$, e, next) => {
+        if (e.event === 'ui.render') redraws += 1
+        return next(e)
+      })
+      await stepAgentWorks($, seen, 1)
+      const before = redraws
+      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+      await step($, steps, STEP_AGENT, stepped('turn-1', usage, 'tool_use'))
+      expect(redraws).toBe(before + 1)
+      const same = { ...usage, read: 40_200, output: 6_120 }
+      await step($, steps, STEP_AGENT, stepped('turn-1', same, 'end_turn'))
+      await step($, steps, STEP_AGENT, stepped('turn-1', null, null))
+      await step($, steps, undefined, stepped('turn-main', { ...usage, read: 90_000 }, 'end_turn'))
+      expect(redraws).toBe(before + 1)
+      await step($, steps, STEP_AGENT, stepped('turn-1', { ...usage, read: 90_000 }, 'tool_use'))
+      expect(redraws).toBe(before + 2)
+    },
+  )
+
+  test(
+    'a session end clears the tokens, so an agent that the engine still lists shows no old tokens',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const steps = stepWorld(on)
+      await stepAgentWorks($, seen, 1)
+      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+      await step($, steps, STEP_AGENT, stepped('turn-1', usage, 'tool_use'))
+      expect((await openedAgent($, 'terminal', 'dock', 41)).join('\n')).toContain('ctx 48k')
+      await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } })
+      await start($)
+      for (const surface of SURFACES) {
+        const opened = await openedAgent($, surface, 'dock', 41)
+        expect(opened.length).toBeGreaterThan(0)
+        expect(opened.join('\n')).not.toContain('ctx')
+      }
+    },
+  )
+})
+
+describe(MAX_TOKENS_CRITERION, () => {
+  for (const { placement, columns } of TOKEN_SCREENS) {
+    test(
+      `a step that stopped at max_tokens shows stopped at max_tokens with the context in the warning colour, as mock 8.10i, at ${String(columns)} columns, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const steps = stepWorld(on)
+        await stepAgentWorks($, seen, 7)
+        const full = { fresh: 1_000, written: 5_000, read: 192_000, output: 32_000 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', full, 'max_tokens'))
+        const wide = columns > 30
+        for (const surface of SURFACES) {
+          const opened = await openedAgent($, surface, placement, columns)
+          expect(opened.slice(2, wide ? 4 : 5)).toEqual(
+            wide
+              ? ['    7 tool calls', '    stopped at max_tokens · ctx 198k']
+              : ['    7 tool calls', '    stopped at max_tokens', '    ctx 198k'],
+          )
+          const ui = await mountTab($, surface, PANE, placement, columns)
+          const stopped = await ui.find({ type: 'Text', text: 'stopped at max_tokens' })
+          expect(stopped?.props.color).toBe('warning')
+          await ui.unmount()
+        }
+        const next = { fresh: 1_000, written: 5_000, read: 150_000, output: 900 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', next, 'end_turn'))
+        for (const surface of SURFACES) {
+          const opened = await openedAgent($, surface, placement, columns)
+          expect(opened.join('\n')).not.toContain('max_tokens')
+          expect(opened.join(' ')).toContain('ctx 156k')
+        }
+      },
+    )
+  }
+})
+
+const STEP_LINKS_LOG = 'step links '
+
+const watchSteps: Plugin = {
+  name: 'watch-steps',
+  tier: 'prepend',
+  register(on) {
+    on('turn.step', async function* ($, e, next) {
+      const result = yield* next(e)
+      const links = next.trace.map((link) => ({ plugin: link.plugin, outcome: link.outcome }))
+      $.ui.log(`step links ${JSON.stringify({ agentId: e.agentId ?? null, links })}`)
+      return result
+    })
+  },
+}
+
+type StepLinks = {
+  agentId: string | null
+  links: { plugin: string; outcome: string }[]
+}
+
+function stepLinks(seen: World): StepLinks[] {
+  return seen.logs
+    .filter((text) => text.startsWith(STEP_LINKS_LOG))
+    .map((text) => JSON.parse(text.slice(STEP_LINKS_LOG.length)) as StepLinks)
+}
+
+const STREAM_LOOPS: readonly { loop: string; agentId: string | undefined }[] = [
+  { loop: 'a main loop step', agentId: undefined },
+  { loop: 'a subagent step', agentId: STEP_AGENT },
+]
+
+describe(MAIN_STEP_CRITERION, () => {
+  for (const { loop, agentId } of STREAM_LOOPS) {
+    test(
+      `${loop} passes each chunk on as it arrives and the result unchanged, through the board link that the chain ran`,
+      { plugins: [fakeWorkitems, watchSteps] },
+      async ($, on) => {
+        const seen = world(on)
+        const steps = stepWorld(on)
+        await start($)
+        let open = (): void => undefined
+        steps.gate = new Promise((resolve) => {
+          open = resolve
+        })
+        steps.chunks = [
+          { kind: 'text', index: 0, text: 'one' },
+          { kind: 'text', index: 0, text: ' two' },
+          { kind: 'text', index: 0, text: ' three' },
+        ]
+        const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+        steps.next = stepped('turn-1', usage, 'end_turn')
+        const stream = $.turn.step({
+          turnId: 'turn-1',
+          index: 0,
+          model: 'opus',
+          messageCount: 3,
+          ...(agentId === undefined ? {} : { agentId }),
+        })
+        const first = await stream.next()
+        expect(first.value).toEqual({ kind: 'text', index: 0, text: 'one' })
+        open()
+        const rest: unknown[] = []
+        let read = await stream.next()
+        while (read.done !== true) {
+          rest.push(read.value)
+          read = await stream.next()
+        }
+        expect(rest).toEqual([
+          { kind: 'text', index: 0, text: ' two' },
+          { kind: 'text', index: 0, text: ' three' },
+        ])
+        expect(read.value).toEqual(stepped('turn-1', usage, 'end_turn'))
+        const [watched] = stepLinks(seen)
+        expect(watched?.agentId).toBe(agentId ?? null)
+        expect(watched?.links.map((link) => [link.plugin, link.outcome])).toEqual([
+          [PLUGIN, 'returned'],
+          ['test', 'returned'],
+        ])
+      },
+    )
+  }
 })
 
 const STATUS_WAIT_CRITERION =

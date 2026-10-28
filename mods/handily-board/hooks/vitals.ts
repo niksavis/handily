@@ -4,6 +4,7 @@ import type {
   ElementConstructor,
   RenderElement,
   SessionMeasureInput,
+  SessionRateLimit,
   SessionUsage,
   TextProps,
 } from 'claude-code'
@@ -12,33 +13,61 @@ import { cutToWidth, displayWidth } from './width'
 
 export const CONTEXT_HIGH = 80
 
+const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'NotebookEdit'])
+
+export type TurnCounts = { edits: number; errors: number; spawned: number }
+
+export type LastTurn = TurnCounts & { durationMs: number; heldCents: number | undefined }
+
 export type Vitals = {
   isMeasured: boolean
   hasNoUsage: boolean
   percent: number | undefined
+  tokens: number | undefined
+  window: number | undefined
+  limits: readonly SessionRateLimit[]
   usd: number | undefined
   turnStartUsd: number | undefined
   isTurnRunning: boolean
   isTurnMeasured: boolean
+  compactions: number
+  turn: TurnCounts
+  lastTurn: LastTurn | undefined
 }
+
+const NO_COUNTS: TurnCounts = { edits: 0, errors: 0, spawned: 0 }
 
 export const EMPTY_VITALS: Vitals = {
   isMeasured: false,
   hasNoUsage: false,
   percent: undefined,
+  tokens: undefined,
+  window: undefined,
+  limits: [],
   usd: undefined,
   turnStartUsd: undefined,
   isTurnRunning: false,
   isTurnMeasured: false,
+  compactions: 0,
+  turn: NO_COUNTS,
+  lastTurn: undefined,
 }
 
-export type VitalsUsage = Pick<SessionUsage, 'context' | 'cost'>
+export type VitalsUsage = Pick<SessionUsage, 'context' | 'cost' | 'rateLimits'>
 
-export type VitalsMeasure = Pick<SessionMeasureInput, 'context' | 'cost' | 'changed'>
+export type VitalsMeasure = Pick<SessionMeasureInput, 'context' | 'cost' | 'changed' | 'rateLimits'>
 
 export function withUsage(vitals: Vitals, usage: VitalsUsage): Vitals {
   if (vitals.isMeasured) return vitals
-  return { ...vitals, percent: usage.context.percent, usd: usage.cost?.usd }
+  const { context } = usage
+  return {
+    ...vitals,
+    percent: context.percent,
+    tokens: context.tokens,
+    window: context.window,
+    limits: usage.rateLimits,
+    usd: usage.cost?.usd,
+  }
 }
 
 export function withoutUsage(vitals: Vitals): Vitals {
@@ -52,15 +81,28 @@ function turnStartAfter(vitals: Vitals, usd: number | undefined): number | undef
   return isDropped || usd < turnStartUsd ? usd : turnStartUsd
 }
 
+function limitsAfter(
+  vitals: Vitals,
+  measure: VitalsMeasure,
+  changed: ReadonlySet<string>,
+): readonly SessionRateLimit[] {
+  const isCarried = changed.has('rateLimits') || measure.rateLimits.length > 0
+  return isCarried ? measure.rateLimits : vitals.limits
+}
+
 export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
   const changed = new Set(measure.changed)
   const usd = changed.has('cost') ? measure.cost?.usd : vitals.usd
   const isTurnMeasure = changed.has('cost') || changed.has('context')
+  const context = changed.has('context') ? measure.context : vitals
   return {
     ...vitals,
     isMeasured: true,
     hasNoUsage: false,
-    percent: changed.has('context') ? measure.context.percent : vitals.percent,
+    percent: context.percent,
+    tokens: context.tokens,
+    window: context.window,
+    limits: limitsAfter(vitals, measure, changed),
     usd,
     turnStartUsd: turnStartAfter(vitals, usd),
     isTurnMeasured: vitals.isTurnMeasured || isTurnMeasure,
@@ -68,11 +110,44 @@ export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
 }
 
 export function withTurnStart(vitals: Vitals): Vitals {
-  return { ...vitals, isTurnRunning: true, turnStartUsd: vitals.usd, isTurnMeasured: false }
+  const { lastTurn } = vitals
+  return {
+    ...vitals,
+    isTurnRunning: true,
+    turnStartUsd: vitals.usd,
+    isTurnMeasured: false,
+    turn: NO_COUNTS,
+    lastTurn: lastTurn === undefined ? undefined : { ...lastTurn, heldCents: lastCents(vitals) },
+  }
 }
 
-export function withTurnEnd(vitals: Vitals): Vitals {
-  return { ...vitals, isTurnRunning: false }
+export function withTurnEnd(vitals: Vitals, durationMs: number): Vitals {
+  return {
+    ...vitals,
+    isTurnRunning: false,
+    turn: NO_COUNTS,
+    lastTurn: { ...vitals.turn, durationMs, heldCents: undefined },
+  }
+}
+
+function withCount(vitals: Vitals, change: (counts: TurnCounts) => TurnCounts): Vitals {
+  return vitals.isTurnRunning ? { ...vitals, turn: change(vitals.turn) } : vitals
+}
+
+export function withTurnCall(vitals: Vitals, tool: string, isError: boolean): Vitals {
+  return withCount(vitals, (counts) => ({
+    ...counts,
+    edits: counts.edits + (EDIT_TOOLS.has(tool) && !isError ? 1 : 0),
+    errors: counts.errors + (isError ? 1 : 0),
+  }))
+}
+
+export function withTurnSpawn(vitals: Vitals): Vitals {
+  return withCount(vitals, (counts) => ({ ...counts, spawned: counts.spawned + 1 }))
+}
+
+export function withCompaction(vitals: Vitals): Vitals {
+  return { ...vitals, compactions: vitals.compactions + 1 }
 }
 
 export function withClear(vitals: Vitals): Vitals {
@@ -94,7 +169,7 @@ function cents(usd: number): number {
   return Math.round(usd * 100)
 }
 
-function dollars(amount: number): string {
+export function dollars(amount: number): string {
   return `$${(amount / 100).toFixed(2)}`
 }
 
@@ -104,6 +179,10 @@ function plain(text: string, lead = PIECE_LEAD): Piece {
 
 function isHighPercent(shown: number): boolean {
   return shown >= CONTEXT_HIGH
+}
+
+export function hasReading(vitals: Vitals): boolean {
+  return !vitals.hasNoUsage && vitals.tokens !== undefined
 }
 
 export function highPercent(vitals: Vitals): number | undefined {
@@ -124,12 +203,24 @@ function contextPiece(percent: number): Piece {
   }
 }
 
-function turnPiece(vitals: Vitals): Piece | undefined {
-  const { usd, turnStartUsd, isTurnRunning, isTurnMeasured } = vitals
+function addedCents(vitals: Vitals): number | undefined {
+  const { usd, turnStartUsd } = vitals
   if (usd === undefined || turnStartUsd === undefined) return undefined
-  const added = cents(usd) - cents(turnStartUsd)
-  if (!isTurnRunning) return isTurnMeasured ? plain(`last +${dollars(added)}`) : undefined
-  return added > 0 ? plain(`turn +${dollars(added)}`) : undefined
+  return cents(usd) - cents(turnStartUsd)
+}
+
+export function lastCents(vitals: Vitals): number | undefined {
+  if (vitals.isTurnRunning) return vitals.lastTurn?.heldCents
+  return vitals.isTurnMeasured ? addedCents(vitals) : undefined
+}
+
+function turnPiece(vitals: Vitals): Piece | undefined {
+  if (!vitals.isTurnRunning) {
+    const last = lastCents(vitals)
+    return last === undefined ? undefined : plain(`last +${dollars(last)}`)
+  }
+  const added = addedCents(vitals)
+  return added !== undefined && added > 0 ? plain(`turn +${dollars(added)}`) : undefined
 }
 
 function usagePieces(vitals: Vitals): Piece[] {

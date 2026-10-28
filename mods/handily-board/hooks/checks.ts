@@ -1,19 +1,17 @@
 import type { RenderElement, ThemeKey } from 'claude-code'
 import type { BoardCheck, BoardCheckDecision, BoardChecks } from '../types'
 import type { PaneElements, RowLayout } from './pane'
+import { type Part, drawPartLines } from './parts'
 import { escaped } from './tasks'
 import { displayWidth, fitted } from './width'
 
 export const CHECKS_KEPT = 20
 export const CHECKS_SHOWN = 5
-export const SESSION_DETAILS = 'session:details'
 
 const CHECKS_OPEN = 'session:checks'
-const DETAIL_INDENT = 4
 const WORD_COLUMNS = 9
 const LABEL_GAP = 3
 const CALL_COLUMNS_AT_LEAST = 10
-const PART_LEAD = ' · '
 const DENIED_COLOR: ThemeKey = 'error'
 
 export const EMPTY_CHECKS: BoardChecks = { allowed: 0, asked: 0, denied: 0, last: [] }
@@ -37,8 +35,6 @@ export function checksTotal(checks: BoardChecks): number {
   return checks.allowed + checks.asked + checks.denied
 }
 
-type Part = { text: string; color?: ThemeKey }
-
 function countParts(count: number, word: string): Part[] {
   return count === 0 ? [] : [{ text: `${String(count)} ${word}` }]
 }
@@ -53,39 +49,6 @@ function summaryParts(checks: BoardChecks): Part[] {
       color: DENIED_COLOR,
     })),
   ]
-}
-
-function partsWidth(parts: readonly Part[]): number {
-  return displayWidth(parts.map((part) => part.text).join(PART_LEAD))
-}
-
-function wrappedParts(parts: readonly Part[], room: number): Part[][] {
-  const lines: Part[][] = []
-  for (const part of parts) {
-    const current = lines.at(-1)
-    if (current !== undefined && partsWidth([...current, part]) <= room) current.push(part)
-    else lines.push([part])
-  }
-  return lines
-}
-
-function summaryLine(
-  elements: PaneElements,
-  parts: readonly Part[],
-  index: number,
-  room: number,
-): RenderElement {
-  const { Box, Text } = elements
-  return Box({
-    key: `checks-summary:${String(index)}`,
-    flexDirection: 'row',
-    children: parts.flatMap((part, at) => [
-      at === 0 ? null : Text({ dimColor: true, children: PART_LEAD }),
-      part.color === undefined
-        ? Text({ dimColor: true, children: fitted(part.text, room) })
-        : Text({ color: part.color, children: fitted(part.text, room) }),
-    ]),
-  })
 }
 
 function callText(check: BoardCheck): string {
@@ -128,37 +91,31 @@ function openLabel(shown: number): string {
   return shown === 1 ? 'last check' : `last ${String(shown)} checks`
 }
 
-export function drawSessionDetails(
+export function drawChecks(
   elements: PaneElements,
   checks: BoardChecks,
   names: ReadonlyMap<string, string>,
   layout: RowLayout,
-): RenderElement {
+  room: number,
+): RenderElement[] {
+  if (checks.last.length === 0) return []
   const { Box, Button } = elements
-  const room = elements.bodyColumns - DETAIL_INDENT
   const isOpen = layout.expanded.has(CHECKS_OPEN)
   const shown = checks.last.slice(-CHECKS_SHOWN).reverse()
-  return Box({
-    key: 'session-details',
-    flexDirection: 'column',
-    paddingLeft: DETAIL_INDENT,
-    children: [
-      ...wrappedParts(summaryParts(checks), room).map((parts, index) =>
-        summaryLine(elements, parts, index, room),
-      ),
-      Box({
-        flexDirection: 'row',
-        children: [
-          Button({
-            key: CHECKS_OPEN,
-            label: isOpen ? 'hide checks' : openLabel(shown.length),
-            onPress: () => {
-              layout.toggle(CHECKS_OPEN)
-            },
-          }),
-        ],
-      }),
-      ...(isOpen ? shown.map((check, index) => checkRow(elements, check, index, names, room)) : []),
-    ],
-  })
+  return [
+    ...drawPartLines(elements, 'checks-summary', summaryParts(checks), room),
+    Box({
+      flexDirection: 'row',
+      children: [
+        Button({
+          key: CHECKS_OPEN,
+          label: isOpen ? 'hide checks' : openLabel(shown.length),
+          onPress: () => {
+            layout.toggle(CHECKS_OPEN)
+          },
+        }),
+      ],
+    }),
+    ...(isOpen ? shown.map((check, index) => checkRow(elements, check, index, names, room)) : []),
+  ]
 }
