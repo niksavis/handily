@@ -303,10 +303,24 @@ hooks/pane.tsx  M · +3 -2 vs HEAD
 (the hunks in the Code element of Claude Code, in diff format)
 ```
 
-- The mod runs `git diff HEAD --no-color --no-ext-diff -- hooks/pane.tsx` once, with no shell.
-  The counts `+3 -2` come from the lines of the diff.
-- The diff ends only at the end of a hunk, because a cut hunk does not draw. The note then reads
-  `first 2 of 3 hunks shown`.
+- The mod runs this command once, with no shell. The counts `+3 -2` come from the lines of the
+  diff.
+
+  ```text
+  git -c core.quotePath=false --literal-pathspecs diff HEAD --no-color --no-ext-diff --no-renames
+      --src-prefix=a/ --dst-prefix=b/ --no-relative -- hooks/pane.tsx
+  ```
+
+  The options make the output the same under every git configuration. git prints each name as
+  it is, and a name that starts with `:` or holds `*` is a path, not a pattern. A file moved by
+  hand shows as a deleted file and a new file. The mod also reads a name that git still quotes,
+  such as a name with `"`, a tab or a line break.
+
+- The diff ends only at the end of a hunk. The note then reads `first 2 of 3 hunks shown`. When
+  the first hunk of a file is larger than the pane, the mod shows its first lines under a header
+  that counts them, and the note reads `hunk cut: 1,999 of 3,000 lines shown`.
+- When the output of git is over 4 MiB, a file that git did not reach reads
+  `not shown; git diff was cut at 4 MiB`.
 - An untracked file, and every file in a repo with no commit, shows as one added hunk that the
   mod builds from the file text. No process runs for it.
 - A deleted file shows what it held as removed lines.
@@ -330,7 +344,10 @@ docs/mocks.md  M +1 -0
 
 - One `git diff` runs for the tracked files of the folder. The mod reads each untracked file.
 - The diff shows at most 50 files. Over 50, the note reads `first 50 of 60 changed files shown`,
-  and `[ copy the git diff command ]` copies the command for the whole folder.
+  and `[ copy the git diff command ]` copies the command for the whole folder. Each argument
+  that a shell would split or expand is in single quotes.
+- The counts of an untracked folder, `?`, are not a button, because git status does not list the
+  files in it. Open the folder and press a file in it: its diff is the whole file.
 - When the 2,000 lines or the 100,000 characters are used, the next files read
   `not shown; the pane is full`.
 

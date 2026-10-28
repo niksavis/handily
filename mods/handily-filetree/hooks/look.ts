@@ -21,6 +21,7 @@ export type FileChange =
   | { kind: 'new-folder' }
   | { kind: 'binary' }
   | { kind: 'none' }
+  | { kind: 'cut' }
   | { kind: 'too-large'; size: number }
   | { kind: 'unreadable'; reason: string }
 
@@ -123,10 +124,10 @@ async function addedChange($: EngineInterface, cwd: string, path: string): Promi
   return { kind: 'new', source: sourceLines(read.text) }
 }
 
-function hunksChange(diff: FileDiff | undefined): FileChange {
-  if (diff === undefined) return { kind: 'none' }
-  if (diff.isBinary) return { kind: 'binary' }
-  if (diff.hunks.length === 0) return { kind: 'none' }
+function hunksChange(diff: FileDiff | undefined, isCut: boolean): FileChange {
+  if (diff?.isBinary === true) return { kind: 'binary' }
+  if (diff === undefined || diff.hunks.length === 0)
+    return isCut ? { kind: 'cut' } : { kind: 'none' }
   return { kind: 'hunks', hunks: diff.hunks, added: diff.added, removed: diff.removed }
 }
 
@@ -160,6 +161,7 @@ export async function loadDiff(
   if (run.kind === 'failed') return run
   if (run.kind === 'no-head') isInitial = true
   const byName = new Map(run.kind === 'files' ? run.files.map((diff) => [diff.name, diff]) : [])
+  const isCut = run.kind === 'files' && run.isCut
   const files: ChangedFile[] = []
   for (const entry of shown) {
     const letter = target.isFolder ? entry.letter : site.marks?.letterOf(entry.path)
@@ -167,9 +169,8 @@ export async function loadDiff(
       ? { kind: 'new-folder' as const }
       : isReadWhole(entry, isInitial)
         ? await addedChange($, site.cwd, entry.path)
-        : hunksChange(byName.get(topPath(site.prefix, entry.path)))
+        : hunksChange(byName.get(topPath(site.prefix, entry.path)), isCut)
     files.push({ path: entry.path, letter, change })
   }
-  const isCut = run.kind === 'files' && run.isCut
   return { kind: 'files', files, total: entries.length, isInitial, isCut }
 }

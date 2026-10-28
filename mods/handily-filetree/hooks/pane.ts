@@ -351,6 +351,10 @@ export function drawParts(Text: PaneElements['Text'], parts: readonly Part[]): R
   )
 }
 
+function hasChangeList(counts: readonly GitCount[]): boolean {
+  return counts.every(({ count }) => count !== null)
+}
+
 function countParts(counts: readonly GitCount[]): Part[] {
   return counts.flatMap(({ letter, count }, index) => [
     { text: index === 0 ? '  ' : ' ' },
@@ -400,10 +404,8 @@ function drawFolder(
   const { Box, Text, Button, bodyColumns } = elements
   const indent = displayWidth(indentOf(row.depth))
   const mark = row.isOpen ? OPEN_MARK : CLOSED_MARK
-  const label = [
-    { text: `${mark} ${shownName(row.name)}/` },
-    ...countParts(draw.marks?.countsOf(row.path) ?? []),
-  ]
+  const gitCounts = draw.marks?.countsOf(row.path) ?? []
+  const label = [{ text: `${mark} ${shownName(row.name)}/` }, ...countParts(gitCounts)]
   const line = markedLine(
     label,
     bodyColumns - indent,
@@ -412,8 +414,8 @@ function drawFolder(
   )
   const [name, ...counts] = line.head
   const countButton =
-    counts.length === 0
-      ? []
+    counts.length === 0 || !hasChangeList(gitCounts)
+      ? drawParts(Text, counts)
       : [
           Button({
             key: `diff:${row.path}`,

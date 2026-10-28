@@ -84,7 +84,7 @@ function fakeGit(on: On, seen: World): void {
   on('process.run', async (_$, e) => {
     seen.runs.push({ argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
     seen.runStarts.push(seen.clock.now())
-    const answer = e.argv[1] === 'diff' ? seen.diffAnswer : seen.answer
+    const answer = e.argv[4] === 'diff' ? seen.diffAnswer : seen.answer
     if (answer.kind === 'exit')
       return { value: gitResult('', answer.exitCode, answer.stderr, false) }
     seen.inFlight += 1
@@ -1914,7 +1914,22 @@ describe('marks: a Grep', () => {
 })
 
 const MIB = 1024 * 1024
-const DIFF_ARGV = ['git', 'diff', 'HEAD', '--no-color', '--no-ext-diff', '--']
+const DIFF_ARGV = [
+  'git',
+  '-c',
+  'core.quotePath=false',
+  '--literal-pathspecs',
+  'diff',
+  'HEAD',
+  '--no-color',
+  '--no-ext-diff',
+  '--no-renames',
+  '--src-prefix=a/',
+  '--dst-prefix=b/',
+  '--no-relative',
+  '--',
+]
+const DIFF_COMMAND = DIFF_ARGV.join(' ')
 const BACKSLASH = String.fromCharCode(0x5c)
 const ESCAPE = String.fromCharCode(0x1b)
 const RIGHT_TO_LEFT = String.fromCharCode(0x202e)
@@ -1957,7 +1972,7 @@ function addingHunk(start: number, lines: number): string {
 }
 
 function diffRuns(seen: World): GitRun[] {
-  return seen.runs.filter((run) => run.argv[1] === 'diff')
+  return seen.runs.filter((run) => run.argv[4] === 'diff')
 }
 
 async function codeOf(ui: { find: Mounted['find'] }): Promise<Record<string, unknown> | undefined> {
@@ -2428,8 +2443,14 @@ describe('preview and diff: a folder', () => {
     const codes = await ui.findAll({ type: 'Code' })
     expect(codes.length).toBeGreaterThan(10)
     expect(codes.length).toBeLessThan(50)
-    expect(codes.every((code) => code.props.source === hunk)).toBe(true)
+    expect(codes.slice(0, -1).every((code) => code.props.source === hunk)).toBe(true)
+    const last = String(codes.at(-1)?.props.source)
+    const [lastHeader, ...lastBody] = last.split('\n')
+    const shownCount = String(lastBody.length)
+    expect(lastHeader).toBe(`@@ -1,${shownCount} +1,${shownCount} @@`)
+    expect(lastBody).toEqual(context.slice(0, lastBody.length))
     const lines = await screen(ui)
+    expect(lines.filter((line) => /^hunk cut: \d+ of 60 lines shown$/.test(line))).toHaveLength(1)
     expect(lines.filter((line) => line === 'not shown; the pane is full')).toHaveLength(
       50 - codes.length,
     )
@@ -2443,9 +2464,7 @@ describe('preview and diff: a folder', () => {
       '[ copy the git diff command ]',
     ])
     await ui.press({ key: 'copy-command' })
-    expect(copies).toEqual([
-      { text: 'git diff HEAD --no-color --no-ext-diff -- src', surface: 'terminal' },
-    ])
+    expect(copies).toEqual([{ text: `${DIFF_COMMAND} src`, surface: 'terminal' }])
     await ui.unmount()
   })
 })
@@ -2497,6 +2516,245 @@ describe('preview and diff: copy path and @ to prompt', () => {
     await openRow(ui, [], 'a b.md')
     await ui.press({ key: 'to-prompt' })
     expect(fills).toEqual(['@"a b.md"'])
+    await ui.unmount()
+  })
+})
+
+const ONE_LINE_HUNK = ['@@ -1 +1 @@', '-x', '+X'].join('\n')
+
+function quotedDiff(quoted: string): string {
+  return [
+    `diff --git "a/${quoted}" "b/${quoted}"`,
+    'index 587be6b..62d8fe9 100644',
+    `--- "a/${quoted}"`,
+    `+++ "b/${quoted}"`,
+    ONE_LINE_HUNK,
+    '',
+  ].join('\n')
+}
+
+describe('preview and diff: names, renames and cuts as git prints them', () => {
+  test('a diff finds the files whose names git quotes, escapes or ends with a tab', async ($, on) => {
+    const names = ['café.txt', 'nl\nname.txt', 'q"uote.txt', 'sp ace.txt']
+    const seen = gitWorld(
+      on,
+      [
+        ['.', [folder('n')]],
+        ['n', names.map(file)],
+      ],
+      {
+        kind: 'ok',
+        stdout: statusOf(names.map((name) => changed('.M', `n/${name}`))),
+      },
+    )
+    const space = [
+      'diff --git a/n/sp ace.txt b/n/sp ace.txt',
+      'index 587be6b..62d8fe9 100644',
+      '--- a/n/sp ace.txt\t',
+      '+++ b/n/sp ace.txt\t',
+      ONE_LINE_HUNK,
+      '',
+    ].join('\n')
+    seen.diffAnswer = {
+      kind: 'ok',
+      stdout: [
+        quotedDiff(`n/caf${BACKSLASH}303${BACKSLASH}251.txt`),
+        quotedDiff(`n/nl${BACKSLASH}nname.txt`),
+        quotedDiff(`n/q${BACKSLASH}"uote.txt`),
+        space,
+      ].join(''),
+    }
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'diff:n' })
+    expect(diffRuns(seen).map((run) => run.argv)).toEqual([
+      [...DIFF_ARGV, ...names.map((name) => `n/${name}`)],
+    ])
+    const lines = await screen(ui)
+    expect(lines).not.toContain('no change against HEAD')
+    expect(lines.filter((line) => line.endsWith('M +1 -1'))).toHaveLength(4)
+    const codes = await ui.findAll({ type: 'Code' })
+    expect(codes.map((code) => code.props.source)).toEqual(names.map(() => ONE_LINE_HUNK))
+    await ui.unmount()
+  })
+
+  test('a name that starts with a colon or holds a glob goes to git as a literal path', async ($, on) => {
+    const seen = gitWorld(on, [['.', [file(':k.txt')]]], {
+      kind: 'ok',
+      stdout: statusOf([changed('.M', ':k.txt')]),
+    })
+    seen.diffAnswer = { kind: 'ok', stdout: fileDiff(':k.txt', [ONE_LINE_HUNK]) }
+    const ui = await openFiles($, seen)
+    await openRow(ui, [], ':k.txt')
+    await ui.press({ key: 'diff' })
+    expect(diffRuns(seen).map((run) => run.argv)).toEqual([[...DIFF_ARGV, ':k.txt']])
+    expect(DIFF_ARGV.indexOf('--literal-pathspecs')).toBeLessThan(DIFF_ARGV.indexOf('diff'))
+    expect((await codeOf(ui))?.source).toBe(ONE_LINE_HUNK)
+    await ui.unmount()
+  })
+
+  test('a file moved by hand shows the deleted file and the new file, each with its lines', async ($, on) => {
+    const seen = gitWorld(
+      on,
+      [
+        ['.', [folder('r')]],
+        ['r', [file('new.txt')]],
+      ],
+      {
+        kind: 'ok',
+        stdout: statusOf([changed('A.', 'r/new.txt'), changed('.D', 'r/old.txt')]),
+      },
+    )
+    const added = ['@@ -0,0 +1,3 @@', '+moved', '+lines', '+here'].join('\n')
+    const removed = ['@@ -1,3 +0,0 @@', '-moved', '-lines', '-here'].join('\n')
+    seen.diffAnswer = {
+      kind: 'ok',
+      stdout: [
+        'diff --git a/r/new.txt b/r/new.txt',
+        'new file mode 100644',
+        'index 0000000..147176a',
+        '--- /dev/null',
+        '+++ b/r/new.txt',
+        added,
+        'diff --git a/r/old.txt b/r/old.txt',
+        'deleted file mode 100644',
+        'index 147176a..0000000',
+        '--- a/r/old.txt',
+        '+++ /dev/null',
+        removed,
+        '',
+      ].join('\n'),
+    }
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'diff:r' })
+    expect(diffRuns(seen)[0]?.argv).toContain('--no-renames')
+    expect((await ui.findAll({ type: 'Code' })).map((code) => code.props.source)).toEqual([
+      added,
+      removed,
+    ])
+    expect((await screen(ui)).slice(4)).toEqual([
+      'r/new.txt  A +3 -0',
+      '(Code)',
+      'r/old.txt  D +0 -3',
+      '(Code)',
+    ])
+    await ui.unmount()
+  })
+
+  test('the copied git diff command quotes each argument for a shell', async ($, on) => {
+    const folderName = "it's src"
+    const names = numbered(51).map((entry) => `${folderName}/${entry.name}`)
+    const seen = gitWorld(
+      on,
+      [
+        ['.', [folder(folderName)]],
+        [folderName, numbered(51)],
+      ],
+      {
+        kind: 'ok',
+        stdout: statusOf(names.map((name) => changed('.M', name))),
+      },
+    )
+    const copies: string[] = []
+    on('ui.copy', (_$, e) => {
+      copies.push(e.text)
+      return { value: { isCopied: true as const } }
+    })
+    const ui = await openFiles($, seen)
+    await ui.press({ key: `diff:${folderName}` })
+    await ui.press({ key: 'copy-command' })
+    expect(copies).toEqual([`${DIFF_COMMAND} 'it'${BACKSLASH}''s src'`])
+    await ui.unmount()
+  })
+
+  test('after the 4 MiB cut, the files that git did not reach say so, not no change', async ($, on) => {
+    const names = ['c/a.ts', 'c/b.ts', 'c/d.ts']
+    const seen = gitWorld(
+      on,
+      [
+        ['.', [folder('c')]],
+        ['c', [file('a.ts'), file('b.ts'), file('d.ts')]],
+      ],
+      { kind: 'ok', stdout: statusOf(names.map((name) => changed('.M', name))) },
+    )
+    const whole = `${fileDiff('c/a.ts', [ONE_LINE_HUNK])}${fileDiff('c/b.ts', [HUNK_A])}`
+    seen.diffAnswer = { kind: 'ok', stdout: whole.slice(0, whole.indexOf('+const c')), isCut: true }
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'diff:c' })
+    const lines = await screen(ui)
+    expect(lines.slice(lines.indexOf(RULE_41) + 1)).toEqual([
+      'c/a.ts  M +1 -1',
+      '(Code)',
+      'c/b.ts  M',
+      'not shown; git diff was cut at 4 MiB',
+      'c/d.ts  M',
+      'not shown; git diff was cut at 4 MiB',
+    ])
+    await ui.unmount()
+  })
+
+  test('one hunk larger than the pane shows its first lines under a recounted header and says the hunk is cut', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    const removed = Array.from({ length: 1500 }, (_, index) => `-old ${String(index)}`)
+    const added = Array.from({ length: 1500 }, (_, index) => `+new ${String(index)}`)
+    const big = ['@@ -1,1500 +1,1500 @@ export function pane', ...removed, ...added].join('\n')
+    seen.diffAnswer = { kind: 'ok', stdout: fileDiff('hooks/pane.tsx', [big, HUNK_B]) }
+    const ui = await openFiles($, seen)
+    await openRow(ui, ['hooks'], 'hooks/pane.tsx')
+    await ui.press({ key: 'diff' })
+    expect((await screen(ui)).slice(2, 5)).toEqual([
+      'hooks/pane.tsx  M · +1,501 -1,501 vs HEAD',
+      'hunk cut: 1,999 of 3,000 lines shown',
+      'first 1 of 2 hunks shown',
+    ])
+    const source = String((await codeOf(ui))?.source)
+    expect(source).toBe(
+      ['@@ -1,1500 +1,499 @@ export function pane', ...removed, ...added.slice(0, 499)].join('\n'),
+    )
+    await ui.unmount()
+  })
+
+  test('an untracked folder and a folder inside it draw their counts with no diff button, and a file in it diffs from its text', async ($, on) => {
+    const seen = gitWorld(
+      on,
+      [
+        ['.', [folder('scratch')]],
+        ['scratch', [file('notes.md'), folder('deep')]],
+        ['scratch/deep', [file('g.ts')]],
+      ],
+      { kind: 'ok', stdout: statusOf([untracked('scratch/')]) },
+    )
+    textFile(seen, 'scratch/deep/g.ts', 'g\n')
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'open:scratch' })
+    await ui.press({ key: 'open:scratch/deep' })
+    expect((await treeLines(ui)).slice(0, 2)).toEqual(['▾ scratch/  ?', '  ▾ deep/  ?'])
+    expect(await ui.find({ key: 'diff:scratch' })).toBeUndefined()
+    expect(await ui.find({ key: 'diff:scratch/deep' })).toBeUndefined()
+    const before = seen.runs.length
+    await ui.press({ key: 'file:scratch/deep/g.ts' })
+    await ui.press({ key: 'diff' })
+    expect(seen.runs).toHaveLength(before)
+    expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+g')
+    await ui.unmount()
+  })
+
+  test('when the session folder is inside an untracked folder, no folder has a diff button and a file diffs from its text', async ($, on) => {
+    const seen = world(on, [
+      ['.', [folder('deep'), file('a.ts')]],
+      ['deep', [file('g.ts')]],
+    ])
+    seen.files.set('/work/.git', { kind: 'dir', text: '', mtimeMs: 1 })
+    gitFolder(seen, '/work/.git')
+    seen.answer = { kind: 'ok', stdout: statusOf([untracked('app/')]) }
+    textFile(seen, 'a.ts', 'a\n')
+    const ui = await openFiles($, seen)
+    expect(await treeLines(ui)).toEqual(['▸ deep/  ?', '? a.ts'])
+    expect(await ui.find({ key: 'diff:deep' })).toBeUndefined()
+    const before = seen.runs.length
+    await openRow(ui, [], 'a.ts')
+    await ui.press({ key: 'diff' })
+    expect(seen.runs).toHaveLength(before)
+    expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+a')
     await ui.unmount()
   })
 })

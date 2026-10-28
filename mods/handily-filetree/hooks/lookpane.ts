@@ -11,6 +11,7 @@ import {
   type PreviewResult,
 } from './look'
 import { touchText } from './marks'
+import { shellQuoted } from './quoting'
 import {
   LETTER_COLORS,
   type PaneActions,
@@ -164,7 +165,18 @@ function takenChange(change: FileChange, budget: Budget): Taken {
   switch (change.kind) {
     case 'hunks': {
       const taken = takenHunks(change.hunks, budget)
-      return { source: taken.source, notes: hunksNote(taken.shownHunks, change.hunks.length) }
+      const cut =
+        taken.cut === undefined
+          ? []
+          : [
+              note(
+                `hunk cut: ${countText(taken.cut.shownLines)} of ${countText(taken.cut.lines)} lines shown`,
+              ),
+            ]
+      return {
+        source: taken.source,
+        notes: [...cut, ...hunksNote(taken.shownHunks, change.hunks.length)],
+      }
     }
     case 'new': {
       if (change.source.total === 0) return { source: '', notes: [note('new empty file')] }
@@ -185,6 +197,8 @@ function changeNotes(change: FileChange): Note[] {
       return [note('its files are not listed by git status')]
     case 'binary':
       return [note('binary file changed')]
+    case 'cut':
+      return [note('not shown; git diff was cut at 4 MiB')]
     case 'none':
       return [note(NO_CHANGE)]
     case 'too-large':
@@ -300,7 +314,7 @@ function shownFolderDiff(draw: LookDraw, path: string, result: DiffResult | unde
 }
 
 function diffCommand(path: string): string {
-  return diffArgv([path]).join(' ')
+  return diffArgv([path]).map(shellQuoted).join(' ')
 }
 
 function lookButtons(draw: LookDraw, look: Look): ButtonSpec[] {
