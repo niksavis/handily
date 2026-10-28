@@ -17,6 +17,8 @@ import {
   type Mounted,
   type Plugin,
 } from 'claude-code/testing'
+import { NEEDS_YOU_AFTER_MS } from './hooks/agents'
+import { statusLineSetting } from './hooks/attention'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -100,6 +102,7 @@ type World = {
   agents: AgentInfo[]
   toasts: string[]
   logs: string[]
+  statuses: (string | undefined)[]
   clock: MockClock
   panesAsked: number
 }
@@ -136,6 +139,7 @@ function world(on: On, options: WorldOptions = {}): World {
     agents: [],
     toasts: [],
     logs: [],
+    statuses: [],
     clock: mock.clock(on, { now: 1_000 }),
     panesAsked: 0,
   }
@@ -199,6 +203,10 @@ function world(on: On, options: WorldOptions = {}): World {
   })
   on('ui.log', (_$, e) => {
     state.logs.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.status', (_$, e) => {
+    state.statuses.push(e.text)
     return { value: undefined }
   })
   on('tool.call', () => ({ result: '' }))
@@ -4959,5 +4967,283 @@ describe(TURN_COST_CRITERION, () => {
         )
       }
     },
+  )
+})
+
+const STATUS_WAIT_CRITERION =
+  'When a subagent waits for permission and the this session tab is not shown, the status line names the agent and the tool'
+const STATUS_CLEAR_CRITERION =
+  'When nothing waits and the context is under 80 percent, the board clears its status line'
+const STATUS_OFF_CRITERION =
+  'When the setting statusLine is off, the board never sets a status line'
+const STATUS_FACTS_CRITERION =
+  'The board shows the session state and every wait from engine facts only'
+
+const SCOUT = 'a0000002scout'
+const LANE = 'a0000001lane'
+const EXPLORE = 'a0000003explore'
+const CLASSIFIED_COMMAND = 'npm run e2e'
+const CLASSIFIER_MS = 600
+const ASKED_COMMANDS = ['npm test', 'npm run lint', CLASSIFIED_COMMAND]
+const SCOUT_WAITS = '◆ scout waits for permission: Bash npm test'
+
+type PersonDialog = {
+  opened: (count: number) => Promise<void>
+  allow: () => void
+  refuse: () => void
+}
+
+function commandOf(input: unknown): string | undefined {
+  return isRecord(input) && typeof input.command === 'string' ? input.command : undefined
+}
+
+function isAsked(input: unknown): boolean {
+  return ASKED_COMMANDS.includes(commandOf(input) ?? '')
+}
+
+function personDialog(on: On, clock: MockClock): PersonDialog {
+  const open: ((isAllowed: boolean) => void)[] = []
+  const waiters: { count: number; resolve: () => void }[] = []
+  let opened = 0
+  on('tool.check', (_$, e) => ({ decision: isAsked(e.input) ? 'ask' : 'allow' }))
+  on('classic.PermissionRequest', async (_$, e) => {
+    if (commandOf(e.tool_input) === CLASSIFIED_COMMAND) {
+      await clock.sleep(CLASSIFIER_MS)
+      return { decision: { behavior: 'allow' as const } }
+    }
+    const isAllowed = await new Promise<boolean>((resolve) => {
+      open.push(resolve)
+      opened += 1
+      for (const waiter of waiters) if (waiter.count <= opened) waiter.resolve()
+    })
+    return isAllowed
+      ? { decision: { behavior: 'allow' as const } }
+      : { decision: { behavior: 'deny' as const, message: 'The person refused it.' } }
+  })
+  const answer = (isAllowed: boolean) => {
+    const first = open.shift()
+    if (first === undefined) throw new Error('no permission dialog is open')
+    first(isAllowed)
+  }
+  return {
+    opened: (count) =>
+      new Promise<void>((resolve) => {
+        if (opened >= count) resolve()
+        else waiters.push({ count, resolve })
+      }),
+    allow: () => {
+      answer(true)
+    },
+    refuse: () => {
+      answer(false)
+    },
+  }
+}
+
+function runningAgent(id: string, name: string): AgentInfo {
+  return { id, name, type: 'general-purpose', status: 'running', description: name }
+}
+
+async function startOn($: Engine, surface: Surface): Promise<void> {
+  await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+}
+
+function askAs($: Engine, agentId: string, command: string) {
+  return $.tool.call({ tool: 'Bash', command, agentId })
+}
+
+async function scoutWaits($: Engine, seen: World, dialog: PersonDialog) {
+  seen.agents.push(runningAgent(SCOUT, 'scout'))
+  const call = askAs($, SCOUT, 'npm test')
+  await dialog.opened(1)
+  await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+  return { call }
+}
+
+for (const surface of SURFACES) {
+  describe(STATUS_WAIT_CRITERION, () => {
+    test(
+      `an ask unsettled for 3 s names the agent and the tool, as mock 8.10p, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        seen.agents.push(runningAgent(SCOUT, 'scout'))
+        const call = askAs($, SCOUT, 'npm test')
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS - 1)
+        expect(seen.statuses).toEqual([])
+        await seen.clock.advance(1)
+        expect(seen.statuses).toEqual([SCOUT_WAITS])
+        await measure($, { percent: 91, usd: 12.4 })
+        expect(seen.statuses.at(-1)).toBe(`${SCOUT_WAITS} · ctx 91% high`)
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `two waiting agents are counted, and the line names the one left when the other is refused, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        await measure($, { percent: 91, usd: 12.4 })
+        seen.agents.push(runningAgent(SCOUT, 'scout'), runningAgent(LANE, 'lane-b'))
+        const scout = askAs($, SCOUT, 'npm test')
+        const lane = askAs($, LANE, 'npm run lint')
+        await dialog.opened(2)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.statuses.at(-1)).toBe('◆ 2 agents wait for permission · ctx 91% high')
+        dialog.refuse()
+        expect((await scout).isError).toBe(true)
+        expect(seen.statuses.at(-1)).toBe(
+          '◆ lane-b waits for permission: Bash npm run lint · ctx 91% high',
+        )
+        dialog.allow()
+        await lane
+      },
+    )
+
+    test(
+      `a shown this session tab holds the line clear, and the line comes back when the board closes, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        expect(await board($, '')).toBe('Board opened: this session.')
+        const { call } = await scoutWaits($, seen, dialog)
+        expect(seen.statuses).toEqual([])
+        expect(await board($, 'close')).toBe('Board closed.')
+        expect(seen.statuses).toEqual([SCOUT_WAITS])
+        expect(await board($, '')).toBe('Board opened: this session.')
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(seen.statuses).toEqual([SCOUT_WAITS, undefined])
+        await ui.unmount()
+        expect(await board($, 'machine')).toBe('Board opened: this machine.')
+        await seen.clock.advance(10_000)
+        expect(seen.statuses).toEqual([SCOUT_WAITS, undefined, SCOUT_WAITS])
+        dialog.allow()
+        await call
+      },
+    )
+  })
+
+  describe(STATUS_CLEAR_CRITERION, () => {
+    test(
+      `the line clears when the call runs, when the turn of the agent ends, and when the context drops under 80 percent, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        const { call: first } = await scoutWaits($, seen, dialog)
+        dialog.allow()
+        await first
+        expect(seen.statuses).toEqual([SCOUT_WAITS, undefined])
+        const second = askAs($, SCOUT, 'npm test')
+        await dialog.opened(2)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.statuses.at(-1)).toBe(SCOUT_WAITS)
+        await $.turn.complete({
+          turnId: 'scout-turn',
+          reason: 'answer',
+          answer: 'done',
+          durationMs: 1,
+          isAborted: false,
+          agentId: SCOUT,
+        })
+        expect(seen.statuses.at(-1)).toBeUndefined()
+        await measure($, { percent: 91, usd: 12.4 })
+        expect(seen.statuses.at(-1)).toBe('ctx 91% high · /compact frees it')
+        await measure($, { percent: 79, usd: 12.4 })
+        expect(seen.statuses).toEqual([
+          SCOUT_WAITS,
+          undefined,
+          SCOUT_WAITS,
+          undefined,
+          'ctx 91% high · /compact frees it',
+          undefined,
+        ])
+        dialog.allow()
+        await second
+      },
+    )
+
+    test(
+      `a session with nothing to say never sets the line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await measure($, { percent: 62, usd: 4.18 })
+        await mainTurnStarts($, 'turn-1')
+        await measure($, { percent: 79, usd: 4.49 })
+        await mainTurnEnds($, 'turn-1')
+        expect(seen.statuses).toEqual([])
+      },
+    )
+  })
+
+  describe(STATUS_OFF_CRITERION, () => {
+    test(
+      `with statusLine off, a wait and a high context set no line, while the tab still draws the wait, on ${surface}`,
+      { ...withWorkitems, options: { statusLine: 'off' } },
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        await measure($, { percent: 91, usd: 12.4 })
+        const { call } = await scoutWaits($, seen, dialog)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ctx 91% high')
+        await ui.unmount()
+        dialog.allow()
+        await call
+        expect(seen.statuses).toEqual([])
+      },
+    )
+  })
+
+  describe(STATUS_FACTS_CRITERION, () => {
+    test(
+      `the line names only the ask a person must answer, not an agent that the list calls waiting or a classifier ask settled in 0.6 s, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        seen.agents.push(
+          { ...runningAgent(EXPLORE, 'held'), status: 'waiting' },
+          runningAgent(SCOUT, 'scout'),
+          runningAgent(LANE, 'lane-b'),
+        )
+        const classified = askAs($, SCOUT, CLASSIFIED_COMMAND)
+        await seen.clock.advance(CLASSIFIER_MS / 2)
+        await measure($, { percent: 91, usd: 12.4 })
+        await seen.clock.advance(CLASSIFIER_MS / 2)
+        expect(await classified).toEqual({ result: '' })
+        const lane = askAs($, LANE, 'npm run lint')
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS * 2)
+        expect(seen.statuses).toEqual([
+          'ctx 91% high · /compact frees it',
+          '◆ lane-b waits for permission: Bash npm run lint · ctx 91% high',
+        ])
+        dialog.allow()
+        await lane
+      },
+    )
+  })
+}
+
+test('the board refuses a statusLine setting it does not know, by name', () => {
+  expect(statusLineSetting({})).toBe('attention')
+  expect(statusLineSetting({ statusLine: 'off' })).toBe('off')
+  expect(() => statusLineSetting({ statusLine: 'sometimes' })).toThrow(
+    'handily-board: userConfig statusLine is "sometimes"; set it to attention or off in /config.',
   )
 })

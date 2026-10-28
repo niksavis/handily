@@ -9,6 +9,7 @@ import type {
   ToolCheckResult,
   ToolSpec,
 } from 'claude-code'
+import { type StatusLineSetting, attentionText, statusLineSetting } from './attention'
 import {
   EMPTY_ACTIVITY,
   isNoteDue,
@@ -100,6 +101,7 @@ import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from 
 import {
   EMPTY_VITALS,
   type Vitals,
+  highPercent,
   sessionText,
   withMeasure,
   withTurnEnd,
@@ -387,12 +389,13 @@ async function redrawShownPane($: EngineInterface, redraw: Redraw): Promise<void
   $.ui.invalidate('ui.render')
 }
 
-function startRedraw($: EngineInterface, redraw: Redraw): void {
+function startRedraw($: EngineInterface, redraw: Redraw, status: StatusKeep): void {
   if (redraw.timer) return
   redraw.timer = $.clock.every(REDRAW_INTERVAL_MS, () => {
     redrawShownPane($, redraw).catch((error: unknown) => {
       $.ui.log(`handily-board: the redraw failed: ${String(error)}`, { to: 'debug' })
     })
+    void refreshStatus($, status)
   })
 }
 
@@ -464,9 +467,68 @@ type CheckedCall = ToolCheckInput & { tool_use_id: string }
 
 type ChecksKeep = { current: BoardChecks }
 
+type VitalsKeep = { current: Vitals }
+
+type StatusKeep = {
+  setting: StatusLineSetting
+  vitals: VitalsKeep
+  text: string | undefined
+  refreshes: number
+  agentAsks: Map<string, string>
+}
+
+async function isSessionTabShown($: EngineInterface): Promise<boolean> {
+  return (await $.ui.panes()).some((pane) => pane.id === TASKS_PANE.id && pane.isShown)
+}
+
+async function attentionNow($: EngineInterface, status: StatusKeep): Promise<string | undefined> {
+  const rows =
+    status.agentAsks.size === 0 ? [] : await agentView(agentHostOf($), await $.clock.now())
+  const text = attentionText(rows, status.vitals.current)
+  if (text === undefined || (await isSessionTabShown($))) return undefined
+  return text
+}
+
+function showStatus($: EngineInterface, status: StatusKeep, text: string | undefined): void {
+  if (text === status.text) return
+  status.text = text
+  $.ui.status(text)
+}
+
+function clearStatus($: EngineInterface, status: StatusKeep): void {
+  if (status.setting === 'off') return
+  status.refreshes += 1
+  showStatus($, status, undefined)
+}
+
+async function refreshStatus($: EngineInterface, status: StatusKeep): Promise<void> {
+  if (status.setting === 'off') return
+  status.refreshes += 1
+  const refresh = status.refreshes
+  try {
+    const text = await attentionNow($, status)
+    if (refresh === status.refreshes) showStatus($, status, text)
+  } catch (error) {
+    $.ui.log(`handily-board: the status line was not updated: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+async function forgetAsks(
+  $: EngineInterface,
+  status: StatusKeep,
+  isForgotten: (callId: string, agentId: string) => boolean,
+): Promise<void> {
+  const forgotten = [...status.agentAsks].filter(([callId, agentId]) =>
+    isForgotten(callId, agentId),
+  )
+  for (const [callId] of forgotten) status.agentAsks.delete(callId)
+  if (forgotten.length > 0) await refreshStatus($, status)
+}
+
 async function noteCheck(
   $: EngineInterface,
   keep: ChecksKeep,
+  status: StatusKeep,
   e: CheckedCall,
   verdict: ToolCheckResult,
 ) {
@@ -476,26 +538,33 @@ async function noteCheck(
   $.ui.invalidate('ui.render')
   if (verdict.decision !== 'ask' || e.agentId === undefined) return
   await noteAsk(agentHostOf($), e.agentId, e.tool_use_id, target)
+  status.agentAsks.set(e.tool_use_id, e.agentId)
   $.clock.after(NEEDS_YOU_AFTER_MS, () => {
     $.ui.invalidate('ui.render')
+    void refreshStatus($, status)
   })
 }
 
-type VitalsKeep = { current: Vitals }
-
-function noteVitals($: EngineInterface, keep: VitalsKeep, change: (vitals: Vitals) => Vitals) {
+async function noteVitals(
+  $: EngineInterface,
+  status: StatusKeep,
+  change: (vitals: Vitals) => Vitals,
+): Promise<void> {
+  const keep = status.vitals
   const drawn = sessionText(keep.current)
+  const high = highPercent(keep.current)
   keep.current = change(keep.current)
   if (sessionText(keep.current) !== drawn) $.ui.invalidate('ui.render')
+  if (highPercent(keep.current) !== high) await refreshStatus($, status)
 }
 
-async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
+async function readUsage($: EngineInterface, status: StatusKeep): Promise<void> {
   try {
     const usage = await $.session.usage()
-    noteVitals($, keep, (vitals) => withUsage(vitals, usage))
+    await noteVitals($, status, (vitals) => withUsage(vitals, usage))
   } catch (error) {
     $.ui.log(`handily-board: no context or cost on this host: ${String(error)}`, { to: 'debug' })
-    noteVitals($, keep, withoutUsage)
+    await noteVitals($, status, withoutUsage)
   }
 }
 
@@ -724,6 +793,13 @@ export const register: Register = (on, options) => {
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
+  const status: StatusKeep = {
+    setting: statusLineSetting(options),
+    vitals,
+    text: undefined,
+    refreshes: 0,
+    agentAsks: new Map(),
+  }
 
   on('session.start', async ($, e, next) => {
     for (const tool of TOOLS) await $.tool.register(tool)
@@ -740,18 +816,18 @@ export const register: Register = (on, options) => {
     const host = sessionsHost($)
     await removeExpiredKeys(host)
     await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
-    await readUsage($, vitals)
+    await readUsage($, status)
     return started
   })
 
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
-    noteVitals($, vitals, (current) => withMeasure(current, e))
+    await noteVitals($, status, (current) => withMeasure(current, e))
     return measured
   })
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) noteVitals($, vitals, withTurnStart)
+    if (e.agentId === undefined) await noteVitals($, status, withTurnStart)
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
     )
@@ -761,12 +837,14 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
-      noteVitals($, vitals, withTurnEnd)
+      await noteVitals($, status, withTurnEnd)
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
       )
     } else {
-      await noteTurnEnd(agentHostOf($), e.agentId)
+      const { agentId } = e
+      await noteTurnEnd(agentHostOf($), agentId)
+      await forgetAsks($, status, (_callId, askedBy) => askedBy === agentId)
       await shareAgents($, machine)
     }
     return completed
@@ -795,7 +873,9 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
     if (e.reason === 'clear') {
-      noteVitals($, vitals, withClear)
+      status.agentAsks.clear()
+      await noteVitals($, status, withClear)
+      await refreshStatus($, status)
       checks.current = EMPTY_CHECKS
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
@@ -857,7 +937,13 @@ export const register: Register = (on, options) => {
       await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withMainCall(current, sight, now))
       return next(e)
     }
-    return trackAgentCall(agentHostOf($), agentId, { id: e.tool_use_id, ...sight }, () => next(e))
+    try {
+      return await trackAgentCall(agentHostOf($), agentId, { id: e.tool_use_id, ...sight }, () =>
+        next(e),
+      )
+    } finally {
+      await forgetAsks($, status, (callId) => callId === e.tool_use_id)
+    }
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the work was not tracked (${next.error.kind})`, { to: 'debug' })
     return next(e)
@@ -867,7 +953,7 @@ export const register: Register = (on, options) => {
     const verdict = await next(e)
     const { tool_use_id: callId } = e
     if (callId === undefined || next.origin.plugin !== ENGINE_ORIGIN) return verdict
-    await noteCheck($, checks, { ...e, tool_use_id: callId }, verdict)
+    await noteCheck($, checks, status, { ...e, tool_use_id: callId }, verdict)
     return verdict
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the check was not kept (${next.error.kind})`, { to: 'debug' })
@@ -942,6 +1028,7 @@ export const register: Register = (on, options) => {
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
     if (isBoardPaneId(e.id) && (await openBoardPanes($)).length === 0) stopRedraw(redraw)
+    if (isBoardPaneId(e.id)) await refreshStatus($, status)
     return closed
   })
 
@@ -962,7 +1049,8 @@ export const register: Register = (on, options) => {
     const { bodyColumns, placement } = e.props
     const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
     const work = await workOf($, vitals.current, checks.current)
-    startRedraw($, redraw)
+    clearStatus($, status)
+    startRedraw($, redraw, status)
     return drawPane(elements, hostOf($), uiOf($), work)
   })
 
@@ -971,7 +1059,7 @@ export const register: Register = (on, options) => {
     const host = hostOf($)
     const expanded = new Set(await host.expanded())
     const { view, now } = await readMachine(sessionsHost($), machine)
-    startRedraw($, redraw)
+    startRedraw($, redraw, status)
     const { bodyColumns, placement } = e.props
     const toggle = (key: string) => {
       host

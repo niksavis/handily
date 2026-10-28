@@ -84,7 +84,7 @@ export function shownNames(rows: readonly AgentRow[]): Map<string, string> {
   return new Map(rows.map((row) => [row.id, row.shownName]))
 }
 
-function callText(sight: BoardToolSight): string {
+export function callText(sight: BoardToolSight): string {
   const tool = escaped(sight.tool)
   return sight.target === null ? tool : `${tool} ${escaped(sight.target)}`
 }

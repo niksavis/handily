@@ -102,9 +102,19 @@ function plain(text: string, lead = PIECE_LEAD): Piece {
   return { lead, spans: [{ text, isWarning: false }] }
 }
 
+function isHighPercent(shown: number): boolean {
+  return shown >= CONTEXT_HIGH
+}
+
+export function highPercent(vitals: Vitals): number | undefined {
+  if (vitals.hasNoUsage || vitals.percent === undefined) return undefined
+  const shown = Math.round(vitals.percent)
+  return isHighPercent(shown) ? shown : undefined
+}
+
 function contextPiece(percent: number): Piece {
   const shown = Math.round(percent)
-  if (shown < CONTEXT_HIGH) return plain(`ctx ${String(shown)}%`, '')
+  if (!isHighPercent(shown)) return plain(`ctx ${String(shown)}%`, '')
   return {
     lead: '',
     spans: [
