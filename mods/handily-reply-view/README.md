@@ -3,7 +3,9 @@
 `reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
 30 lines folds to its first lines. A markdown table draws with dim rules between its columns and
 under its header, and without a box around it. Each table and each fenced code block gets a
-`copy` button. Each prompt that you type opens under a coloured rule labelled `you`, so you find
+`copy` button. A mermaid flowchart draws as a diagram, with a `copy` button for its source and a
+`copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
+labelled `you`, so you find
 it when you scroll. `/replies` switches the view off and on for the session. The model still reads
 the full reply and the prompt as you typed it. Only the screen changes.
 
@@ -152,6 +154,63 @@ content draws with the highlighting of Claude Code for that language:
 `copy` copies the content of the block only, without the fences. A block without a tag draws a
 rule with no title.
 
+## A diagram
+
+A fenced block with the tag `mermaid` that holds a flowchart draws as a diagram. The diagram has a
+dim title line and two buttons at the right edge. The drawing replaces the source:
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  ╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐
+  │ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
+  ╰────────╯   └───────┘   └──────────┘  │   └─────────┘
+                                         │no ┌────────┐
+                                         └──▶│ Engine │
+                                             └────────┘
+```
+
+- `copy` copies the mermaid source, without the fences. The toast names it, such as
+  `✓ Copied the flowchart source`.
+- `copy drawing` copies the drawn lines. The toast names it, such as
+  `✓ Copied the flowchart drawing`.
+- The view draws `flowchart` and `graph` with the directions `TD`, `TB` and `LR`. A flowchart `LR`
+  that is too wide for the screen draws top down.
+- When the title line and the buttons do not fit on one line, the buttons stand on a line of
+  their own under the title line.
+- On the desktop app, the drawing draws in a code block, so its lines keep their columns.
+- A diagram draws whole or as its source. It never draws in part.
+- When a long reply folds inside a diagram, the folded reply shows only the title line of the
+  diagram and its buttons. `more` shows the drawing.
+- The view keeps the last 32 drawings for this session, one for each source, width and surface.
+  So a reply that draws again at the same width does not lay out its diagram again.
+
+A block that does not draw keeps the look of a fenced block. One dim note above it names the
+reason:
+
+```text
+● Here is the flow:
+
+  diagram not drawn: line 3 does not parse.
+  ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
+  flowchart TD
+    A[Start] --> B[Parse]
+    B => C[Draw]
+```
+
+Other reasons that the note names:
+
+- `sequenceDiagram does not draw yet.` A later version draws sequence diagrams.
+- `classDiagram does not draw yet.`, and the same for each other kind of diagram.
+- `subgraph does not draw yet.`, and the same for `direction`.
+- `it takes 59 columns, the screen has 38.`
+- `52 boxes, at most 40 draw.` The limits of one diagram are 80 source lines, 8000 source
+  characters, 40 boxes, 60 edges and 120 drawn rows.
+- `the block is empty.`
+
+The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
+
 ## A prompt that you type
 
 A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
@@ -189,9 +248,10 @@ theme:
 
 ## Settings and the command
 
-| Setting | Default | Use                                           |
-| ------- | ------- | --------------------------------------------- |
-| `mode`  | `on`    | The mode when a session starts: `on` or `off` |
+| Setting    | Default | Use                                                                       |
+| ---------- | ------- | ------------------------------------------------------------------------- |
+| `mode`     | `on`    | The mode when a session starts: `on` or `off`                             |
+| `diagrams` | `on`    | `on` draws a mermaid flowchart as a diagram. `off` draws it as its source |
 
 | Command    | Effect                                                                         |
 | ---------- | ------------------------------------------------------------------------------ |
@@ -225,3 +285,4 @@ shows the setting beside the mode when the two differ.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
   stays open or folded when it draws again.
 - Each prompt that you type keeps its time in `$.state` for this session.
+- A sequence diagram, a `subgraph` and every other kind of diagram draw as their source.
