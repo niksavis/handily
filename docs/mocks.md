@@ -1738,6 +1738,10 @@ handily-5zzxk.5, handily-5zzxk.6 and handily-5zzxk.7 cite the old numbers.
   reply has 2 columns less.
 - `[ copy ]`, `[ copy as text ]`, `[ copy drawing ]`, `[ more ]`, `[ less ]` and
   `[ copy reply ]` are buttons.
+- In a drawing, a line that crosses another line draws the vertical line through, as `─│─`. A
+  `┼` is a join, where links meet. Each link with a label keeps its own drop to its box.
+- The drawings of mock 9.5 and of the flowchart TD in mock 9.9 are the lines that
+  `hooks/flowchart.ts` draws for their sources (approved by the person on 2026-10-28).
 
 ### 9.1 A table at 120 columns
 
@@ -1834,29 +1838,29 @@ block with no tag gets a title line with no name:
 ● This is how a reply with a diagram reaches the screen:
 
   ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
-                 ╭────────────────╮
-                 │ Reply complete │
-                 ╰────────┬───────╯
-                          ▼
-            ┌──────────────────────────┐
-            │ ◇ Holds a mermaid block? │
-            └─────────────┬────────────┘
-               ┌──────────┴────────────────┐
-               │ yes                       │ no
-               ▼                           ▼
-     ┌──────────────────┐          ┌───────────────┐
-     │ Parse the subset │          │ Draw as today │
-     └─────────┬────────┘          └───────────────┘
-               ▼
-     ┌───────────────────┐
-     │ ◇ Fits the width? │
-     └─────────┬─────────┘
-           ┌───┴─────────────────────┐
-           │ yes                     │ no
-           ▼                         ▼
-     ┌──────────────┐      ┌───────────────────┐
-     │ Draw the art │      │ Source and a note │
-     └──────────────┘      └───────────────────┘
+                    ╭────────────────╮
+                    │ Reply complete │
+                    ╰────────┬───────╯
+                             ▼
+               ┌──────────────────────────┐
+               │ ◇ Holds a mermaid block? │
+               └─────────────┬────────────┘
+                   ┌─────────┴─────────┐
+                   │ yes               │ no
+                   ▼                   ▼
+         ┌──────────────────┐  ┌───────────────┐
+         │ Parse the subset │  │ Draw as today │
+         └─────────┬────────┘  └───────────────┘
+                   ▼
+         ┌───────────────────┐
+         │ ◇ Fits the width? │
+         └─────────┬─────────┘
+         ┌─────────┴─────────┐
+         │ yes               │ no
+         ▼                   ▼
+  ┌──────────────┐ ┌───────────────────┐
+  │ Draw the art │ │ Source and a note │
+  └──────────────┘ └───────────────────┘
 ```
 
 ### 9.6 A flowchart LR, 80 columns
@@ -2002,23 +2006,23 @@ The flowchart LR of 9.6 turns to TD:
 
   ── mermaid · flowchart ───────────────
                [ copy ] [ copy drawing ]
-     ╭────────╮
-     │ Prompt │
-     ╰────┬───╯
-          ▼
-      ┌───────┐
-      │ Reply │
-      └───┬───┘
-          ▼
-    ┌──────────┐
-    │ ◇ Table? │
-    └─────┬────┘
-         ┌┴──────────┐
-         │ yes       │ no
-         ▼           ▼
-    ┌─────────┐ ┌────────┐
-    │ Columns │ │ Engine │
-    └─────────┘ └────────┘
+       ╭────────╮
+       │ Prompt │
+       ╰────┬───╯
+            ▼
+        ┌───────┐
+        │ Reply │
+        └───┬───┘
+            ▼
+      ┌──────────┐
+      │ ◇ Table? │
+      └─────┬────┘
+      ┌─────┴──────┐
+      │ yes        │ no
+      ▼            ▼
+  ┌─────────┐ ┌────────┐
+  │ Columns │ │ Engine │
+  └─────────┘ └────────┘
 ```
 
 A sequence diagram that is too wide:
