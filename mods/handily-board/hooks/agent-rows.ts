@@ -75,12 +75,7 @@ export function numberedNames(labels: readonly string[], cutAbove: number): stri
 }
 
 export function shownNames(rows: readonly AgentRow[]): Map<string, string> {
-  const sorted = [...rows].sort((a, b) => a.startedAt - b.startedAt)
-  const names = numberedNames(
-    sorted.map((row) => escaped(row.label)),
-    NAME_CUT_ABOVE,
-  )
-  return new Map(sorted.map((row, index) => [row.id, names[index] ?? '']))
+  return new Map(rows.map((row) => [row.id, row.shownName]))
 }
 
 function callText(sight: BoardToolSight): string {

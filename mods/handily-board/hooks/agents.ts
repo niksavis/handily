@@ -6,6 +6,8 @@ import type {
   BoardTask,
   BoardToolSight,
 } from '../types'
+import { NAME_CUT_ABOVE, numberedNames } from './agent-rows'
+import { escaped } from './tasks'
 
 export const UNLISTED_KEPT_AT_MOST = 20
 
@@ -22,6 +24,7 @@ export type AgentLook =
 export type AgentRow = {
   id: string
   label: string
+  shownName: string
   look: AgentLook
   isEnded: boolean
   call: BoardToolSight | null
@@ -249,6 +252,20 @@ function shortId(id: string): string {
   return id.slice(0, 8)
 }
 
+function baseLabel(agent: BoardAgent): string {
+  return agent.name ?? agent.type ?? shortId(agent.id)
+}
+
+export function labelledAgents(agents: readonly BoardAgent[]): BoardAgent[] {
+  const sorted = [...agents].sort((a, b) => a.startedAt - b.startedAt)
+  const labels = numberedNames(
+    sorted.map((agent) => escaped(baseLabel(agent))),
+    NAME_CUT_ABOVE,
+  )
+  const byId = new Map(sorted.map((agent, index) => [agent.id, labels[index] ?? '']))
+  return agents.map((agent) => ({ ...agent, label: byId.get(agent.id) ?? '' }))
+}
+
 function rowOf(
   agent: BoardAgent,
   plan: readonly BoardTask[] | undefined,
@@ -260,7 +277,8 @@ function rowOf(
   const running = agent.running.at(-1)
   const row: AgentRow = {
     id: agent.id,
-    label: agent.name ?? agent.type ?? shortId(agent.id),
+    label: baseLabel(agent),
+    shownName: agent.label ?? escaped(baseLabel(agent)),
     look,
     isEnded,
     call: running ? { tool: running.tool, target: running.target } : agent.last,
@@ -361,7 +379,7 @@ async function plansOf(host: AgentHost, agents: Agents): Promise<BoardAgentPlans
 }
 
 export async function agentView(host: AgentHost, now: number): Promise<AgentRow[]> {
-  const agents = withList(await host.stored(), await host.listed(), now)
+  const agents = labelledAgents(withList(await host.stored(), await host.listed(), now))
   const kept = await plansOf(host, agents)
   const plans = new Map<string, readonly BoardTask[]>()
   for (const agent of agents) {

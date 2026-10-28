@@ -64,6 +64,7 @@ export type BoardAgent = {
   listedStatus: BoardAgentStatus | null
   isListed: boolean
   hasLoopEvents: boolean
+  label?: string
 }
 
 export type BoardCallRow =

@@ -21,6 +21,7 @@ import {
 import {
   type AgentHost,
   agentView,
+  labelledAgents,
   noteAgentList,
   noteSpawn,
   noteTurnEnd,
@@ -306,7 +307,7 @@ function agentHostOf($: EngineInterface): AgentHost {
     listed: () => $.agent.list(),
     stored: async () => (await $.state.get(AGENTS)).value ?? [],
     change: async (step) => {
-      await update($, AGENTS, (current = []) => step(current))
+      await update($, AGENTS, (current = []) => labelledAgents(step(current)))
     },
     plans: async () => (await $.state.get(AGENT_PLANS)).value ?? {},
     plan: async (agentId) => {

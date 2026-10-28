@@ -16,7 +16,7 @@ import {
   type Mounted,
   type Plugin,
 } from 'claude-code/testing'
-import type { BoardTask } from './types'
+import type { BoardAgent, BoardTask } from './types'
 import { cutName } from './hooks/agent-rows'
 import { withAgentPlan } from './hooks/agents'
 
@@ -980,6 +980,28 @@ describe(NAME_CRITERION, () => {
       await ui.unmount()
     })
   }
+
+  test('the agents state carries the label the board draws', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    const stored: (readonly BoardAgent[])[] = []
+    on('state.set', { plugin: 'handily-board', key: 'agents' }, (_$, e, next) => {
+      stored.push(e.value)
+      return next(e)
+    })
+    await start($)
+    await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+    for (const [index, type] of ['general-purpose', 'Explore', 'general-purpose'].entries()) {
+      const id = `s${String(index)}`
+      await spawn($, id, type, `part ${String(index)}`)
+      await seen.clock.advance(1_000)
+      seen.agents.push(listed(id, type, 'running'))
+    }
+    expect(stored.at(-1)?.map((agent) => [agent.id, agent.label])).toEqual([
+      ['s0', 'gene…pose'],
+      ['s1', 'Explore'],
+      ['s2', 'gene…se 2'],
+    ])
+  })
 
   test(
     'a name with a line separator is escaped and cut on its one line',
