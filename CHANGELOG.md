@@ -6,6 +6,36 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.10.0 - 2026-10-28
+
+### Added
+
+- **board opens the Session details under the Session line: the context, the compactions, the
+  last turn and the rate limits.** Press the Session line. The details show
+  `context 124k of 200k · 1 compaction`, the duration and the cost of the last main turn with its
+  edits, errors and spawned agents, and `limits 5h 31% · 7d 13%` with the time until each limit
+  resets. A plan that reports no rate limits shows `limits: none reported`. From 80 percent, the
+  details add that `/compact` or `/clear` frees the context. The permission checks follow
+  (handily-xsjad.4).
+- **board shows the context and the output tokens of a subagent on its opened row.** The line of
+  the tool calls reads `7 tool calls · ctx 48k · out 6.1k`, from the usage of the latest model
+  request of the agent that the engine event `turn.step` reports. A request that stopped at its
+  output limit shows `stopped at max_tokens · ctx 198k`. The board passes the response of a main
+  loop request on as it arrives and reads none of it (handily-xsjad.7).
+
+## handily-filetree 0.6.0 - 2026-10-28
+
+### Added
+
+- **filetree marks the files that a Bash call changed.** At the start of a `Bash` or
+  `PowerShell` call the mod takes a fresh git status, and after the call it compares. Each file
+  whose git state or time stamp changed while the call ran gets `✎` with the agent that ran it.
+  Outside a git repo, the mod lists the open folders at the start and the end of the call, with
+  no process. The mod reads no command text and runs no `find`. It never guesses one agent: a
+  change that came before the call or after its end gets no mark. When calls of two or more
+  agents ran at the same time, the row shows `2 agents`, and the open row says
+  `changed while Bash of main and scout ran` (handily-02b2v.6).
+
 ## handily-reply-view 0.9.0 - 2026-10-28
 
 ### Added
