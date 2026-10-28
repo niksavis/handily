@@ -336,22 +336,22 @@ Session  ctx 91% high · $12.40
 ### The status line
 
 While you do not see the `this session` tab, the board sets the Claude Code status line under
-the prompt when a subagent needs you or the context is high. You see the tab when it is shown and
-placed. Captures from the tests:
+the prompt when a subagent needs you. You see the tab when it is shown and placed. Captures from
+the tests:
 
 ```text
-◆ scout waits for permission: Bash npm test · ctx 91% high
-◆ 2 agents wait for permission · ctx 91% high
-ctx 91% high · /compact frees it
+◆ scout waits for permission: Bash npm test
+◆ 2 agents wait for permission
 ```
 
 - A wait is the same wait that the agent rows show as `needs you`: an ask of a subagent that is
   not settled after 3 seconds. One wait names the agent and the call. Two or more waits show
   their count. An agent that the engine lists as `waiting` (`on hold`) is no wait, and an ask
   that the auto mode classifier settles before 3 seconds sets no line.
-- The context is high from 80 percent, as on the Session line.
-- The board clears the line when nothing waits and the context is under 80 percent, and while
-  the `this session` tab is shown and placed. When the board closes, the line comes back. A tab
+- The line never names the context, because the Claude Code status line already shows it. A
+  context of 80 percent or more shows `high` on the Session line of the board.
+- The board clears the line when nothing waits, and while the `this session` tab is shown and
+  placed. When the board closes, the line comes back. A tab
   that waits undrawn, as with the mode `always` on a narrow terminal, does not clear it. The board checks
   which tab is shown every 10 seconds while a tab is open, so a switch to `this machine` shows the
   line within 10 seconds.
@@ -674,10 +674,10 @@ Sessions  4 · 1 needs you · 12s ago
   from 144 columns, or 110 once you opened it before. Below that, the board waits undrawn, and the
   mod shows one toast: `Board waits for a wider terminal. Run /board to open it here.`
 
-| `userConfig` `statusLine` | Effect                                                                   |
-| ------------------------- | ------------------------------------------------------------------------ |
-| `attention` (default)     | The status line names a wait and a high context, as The status line says |
-| `off`                     | The board never sets a status line                                       |
+| `userConfig` `statusLine` | Effect                                                |
+| ------------------------- | ----------------------------------------------------- |
+| `attention` (default)     | The status line names a wait, as The status line says |
+| `off`                     | The board never sets a status line                    |
 
 - When the mod loads, it refuses any other `statusLine` value by name, for example
   `handily-board: userConfig statusLine is "sometimes"; set it to attention or off in /config.`

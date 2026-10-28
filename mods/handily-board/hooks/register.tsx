@@ -125,7 +125,6 @@ import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from 
 import {
   EMPTY_VITALS,
   type Vitals,
-  highPercent,
   sessionText,
   withMeasure,
   withClear,
@@ -527,7 +526,6 @@ type WaitingAsk = { agentId: string | undefined; sight: BoardToolSight }
 
 type AttentionKeep = {
   setting: StatusLineSetting
-  vitals: VitalsKeep
   text: string | undefined
   refreshes: number
   asks: Map<string, WaitingAsk>
@@ -546,7 +544,7 @@ async function attentionNow(
   attention: AttentionKeep,
 ): Promise<string | undefined> {
   const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), await $.clock.now()) : []
-  const text = attentionText(rows, attention.vitals.current)
+  const text = attentionText(rows)
   if (text === undefined || (await isSessionTabSeen($))) return undefined
   return text
 }
@@ -657,28 +655,25 @@ async function noteCheck(
 
 async function noteVitals(
   $: EngineInterface,
-  attention: AttentionKeep,
+  keep: VitalsKeep,
   change: (vitals: Vitals) => Vitals,
 ): Promise<void> {
-  const keep = attention.vitals
   const now = await $.clock.now()
   const drawn = sessionText(keep.current)
   const details = detailsText(keep.current, now)
-  const high = highPercent(keep.current)
   keep.current = change(keep.current)
   if (sessionText(keep.current) !== drawn || detailsText(keep.current, now) !== details) {
     $.ui.invalidate('ui.render')
   }
-  if (highPercent(keep.current) !== high) await refreshStatus($, attention)
 }
 
-async function readUsage($: EngineInterface, attention: AttentionKeep): Promise<void> {
+async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
   try {
     const usage = await $.session.usage()
-    await noteVitals($, attention, (vitals) => withUsage(vitals, usage))
+    await noteVitals($, keep, (vitals) => withUsage(vitals, usage))
   } catch (error) {
     $.ui.log(`handily-board: no context or cost on this host: ${String(error)}`, { to: 'debug' })
-    await noteVitals($, attention, withoutUsage)
+    await noteVitals($, keep, withoutUsage)
   }
 }
 
@@ -910,7 +905,6 @@ export const register: Register = (on, options) => {
   const steps: StepsKeep = new Map()
   const attention: AttentionKeep = {
     setting: statusLineSetting(options),
-    vitals,
     text: undefined,
     refreshes: 0,
     asks: new Map(),
@@ -931,13 +925,13 @@ export const register: Register = (on, options) => {
     const host = sessionsHost($)
     await removeExpiredKeys(host)
     await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
-    await readUsage($, attention)
+    await readUsage($, vitals)
     return started
   })
 
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
-    await noteVitals($, attention, (current) => withMeasure(current, e))
+    await noteVitals($, vitals, (current) => withMeasure(current, e))
     return measured
   })
 
@@ -945,13 +939,13 @@ export const register: Register = (on, options) => {
     const compacted = await next(e)
     const isMainCompaction = e.agentId === undefined && e.trigger !== 'precompute'
     if (isMainCompaction && compacted.skip === undefined) {
-      await noteVitals($, attention, withCompaction)
+      await noteVitals($, vitals, withCompaction)
     }
     return compacted
   }).catch((_$, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) await noteVitals($, attention, withTurnStart)
+    if (e.agentId === undefined) await noteVitals($, vitals, withTurnStart)
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
     )
@@ -969,7 +963,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
-      await noteVitals($, attention, (current) => withTurnEnd(current, e.durationMs))
+      await noteVitals($, vitals, (current) => withTurnEnd(current, e.durationMs))
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
       )
@@ -1005,12 +999,10 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
     steps.clear()
-    if (e.reason === 'clear') attention.asks.clear()
-    if (NEW_SESSION_REASONS.has(e.reason)) {
-      await noteVitals($, attention, withClear)
-      await refreshStatus($, attention)
-    }
+    if (NEW_SESSION_REASONS.has(e.reason)) await noteVitals($, vitals, withClear)
     if (e.reason === 'clear') {
+      attention.asks.clear()
+      await refreshStatus($, attention)
       checks.current = EMPTY_CHECKS
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
@@ -1071,7 +1063,7 @@ export const register: Register = (on, options) => {
       const now = await $.clock.now()
       await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withMainCall(current, sight, now))
       const answer = await untilSettled($, attention, e.tool_use_id, () => next(e))
-      await noteVitals($, attention, (current) =>
+      await noteVitals($, vitals, (current) =>
         withTurnCall(current, e.tool, answer.isError === true),
       )
       return answer
@@ -1106,7 +1098,7 @@ export const register: Register = (on, options) => {
       parentId: e.parentAgentId,
     }
     await noteSpawn(agentHostOf($), spawned.agentId, facts, at)
-    if (e.parentAgentId === undefined) await noteVitals($, attention, withTurnSpawn)
+    if (e.parentAgentId === undefined) await noteVitals($, vitals, withTurnSpawn)
     await shareAgents($, machine)
     return spawned
   }).catch((_$, e, next) => next(e))

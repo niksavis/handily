@@ -5762,6 +5762,12 @@ const STATUS_OFF_CRITERION =
   'When the setting statusLine is off, the board never sets a status line'
 const STATUS_FACTS_CRITERION =
   'The board shows the session state and every wait from engine facts only'
+const STATUS_NO_CONTEXT_CRITERION =
+  'When the context is 80 percent or more and nothing waits, the board sets no status line.'
+const STATUS_WAIT_ONLY_CRITERION =
+  'When a subagent waits for permission, the status line names the agent and the tool and says nothing about the context.'
+const PANE_STILL_HIGH_CRITERION =
+  'When the context is high, the board pane still shows the word high on its Session line.'
 
 const SCOUT = 'a0000002scout'
 const LANE = 'a0000001lane'
@@ -5845,9 +5851,9 @@ async function scoutWaits($: Engine, seen: World, dialog: PersonDialog) {
 }
 
 for (const surface of SURFACES) {
-  describe(STATUS_WAIT_CRITERION, () => {
+  describe(STATUS_WAIT_ONLY_CRITERION, () => {
     test(
-      `an ask unsettled for 3 s names the agent and the tool, as mock 8.10p, on ${surface}`,
+      `an ask unsettled for 3 s names the agent and the tool, as mock 8.10p, and a high context adds nothing, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -5861,7 +5867,7 @@ for (const surface of SURFACES) {
         await seen.clock.advance(1)
         expect(seen.statuses).toEqual([SCOUT_WAITS])
         await measure($, { percent: 91, usd: 12.4 })
-        expect(seen.statuses.at(-1)).toBe(`${SCOUT_WAITS} · ctx 91% high`)
+        expect(seen.statuses).toEqual([SCOUT_WAITS])
         dialog.allow()
         await call
       },
@@ -5880,17 +5886,20 @@ for (const surface of SURFACES) {
         const lane = askAs($, LANE, 'npm run lint')
         await dialog.opened(2)
         await seen.clock.advance(NEEDS_YOU_AFTER_MS)
-        expect(seen.statuses.at(-1)).toBe('◆ 2 agents wait for permission · ctx 91% high')
+        expect(seen.statuses).toEqual(['◆ 2 agents wait for permission'])
         dialog.refuse()
         expect((await scout).isError).toBe(true)
-        expect(seen.statuses.at(-1)).toBe(
-          '◆ lane-b waits for permission: Bash npm run lint · ctx 91% high',
-        )
+        expect(seen.statuses).toEqual([
+          '◆ 2 agents wait for permission',
+          '◆ lane-b waits for permission: Bash npm run lint',
+        ])
         dialog.allow()
         await lane
       },
     )
+  })
 
+  describe(STATUS_WAIT_CRITERION, () => {
     test(
       `a shown this session tab holds the line clear, and the line comes back when the board closes, on ${surface}`,
       withWorkitems,
@@ -5918,7 +5927,7 @@ for (const surface of SURFACES) {
 
   describe(STATUS_CLEAR_CRITERION, () => {
     test(
-      `the line clears when the call runs, when the turn of the agent ends, and when the context drops under 80 percent, on ${surface}`,
+      `the line clears when the call runs and when the turn of the agent ends, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -5940,18 +5949,7 @@ for (const surface of SURFACES) {
           isAborted: false,
           agentId: SCOUT,
         })
-        expect(seen.statuses.at(-1)).toBeUndefined()
-        await measure($, { percent: 91, usd: 12.4 })
-        expect(seen.statuses.at(-1)).toBe('ctx 91% high · /compact frees it')
-        await measure($, { percent: 79, usd: 12.4 })
-        expect(seen.statuses).toEqual([
-          SCOUT_WAITS,
-          undefined,
-          SCOUT_WAITS,
-          undefined,
-          'ctx 91% high · /compact frees it',
-          undefined,
-        ])
+        expect(seen.statuses).toEqual([SCOUT_WAITS, undefined, SCOUT_WAITS, undefined])
         dialog.allow()
         await second
       },
@@ -6013,12 +6011,44 @@ for (const surface of SURFACES) {
         const lane = askAs($, LANE, 'npm run lint')
         await dialog.opened(1)
         await seen.clock.advance(NEEDS_YOU_AFTER_MS * 2)
-        expect(seen.statuses).toEqual([
-          'ctx 91% high · /compact frees it',
-          '◆ lane-b waits for permission: Bash npm run lint · ctx 91% high',
-        ])
+        expect(seen.statuses).toEqual(['◆ lane-b waits for permission: Bash npm run lint'])
         dialog.allow()
         await lane
+      },
+    )
+  })
+
+  describe(STATUS_NO_CONTEXT_CRITERION, () => {
+    test(
+      `a context at 80 and 91 percent with nothing waiting sets no line, before a wait and after it settles, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        await measure($, { percent: 80, usd: 12.4 })
+        await measure($, { percent: 91, usd: 12.4 })
+        expect(seen.statuses).toEqual([])
+        const { call } = await scoutWaits($, seen, dialog)
+        dialog.allow()
+        await call
+        await measure($, { percent: 95, usd: 12.4 })
+        expect(seen.statuses).toEqual([SCOUT_WAITS, undefined])
+      },
+    )
+  })
+
+  describe(PANE_STILL_HIGH_CRITERION, () => {
+    test(
+      `at 91 percent the Session line of the tab says high while the status line stays unset, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await measure($, { percent: 91, usd: 12.4 })
+        expect(seen.statuses).toEqual([])
+        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 91% high · $12.40')
+        expect(seen.statuses).toEqual([])
       },
     )
   })
