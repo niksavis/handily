@@ -6,6 +6,22 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.11.0 - 2026-10-28
+
+### Added
+
+- **board marks a slow or a quiet subagent on its row.** A running agent whose tool call has run
+  for more than 30 seconds reads `slow 45s`, with the time of that call. A running agent with no
+  event for 2 minutes reads `quiet 3m`, with the time since its last event. The word takes the
+  warning colour and the mark stays `▶`. The board starts no timer for these states: a shown tab
+  reads them when it draws again every 10 seconds (handily-xsjad.6).
+- **board prints the session figures and the agents as text with `/board stats`.** The reply
+  has the Session line with its waits, context and cost, the details with the context of the
+  window, the compactions, the last turn and the limits with their resets, the checks, each
+  waiting agent, and each agent with its state and context. The board does not need to be open.
+  When the host gives no usage, the reply says `no context or cost on this host` and shows no
+  context, cost or limit. `/board frob` now lists `/board stats` (handily-xsjad.10).
+
 ## handily-board 0.10.1 - 2026-10-28
 
 ### Changed
