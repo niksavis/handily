@@ -32,6 +32,7 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board open <n>`          | Marks task `n` pending                                                  |
 | `/board clear`             | Removes every done task                                                 |
 | `/board list`              | Prints the list as text. With no tasks, it lists the open tracker items |
+| `/board stats`             | Prints the session figures and the agents as text                       |
 | `/board close`             | Closes the board                                                        |
 
 Replies, from the tests:
@@ -51,7 +52,7 @@ Replies, from the tests:
 /board add Ship it       Added task 3: Ship it. Claude is told at your next prompt.
 /board mv 3 top          Moved task 3 to the top. Claude is told at your next prompt.
 /board mv 3 before 1     Task 3 is already before task 1. Nothing changed.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.
 ```
 
 - `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
@@ -59,6 +60,27 @@ Replies, from the tests:
   the keyboard. Esc gives the keyboard back. When the tab is already shown, the mod opens it
   without `focus`, and the keyboard stays at the prompt.
 - When Claude Code does not show the board yet, the reply says why and names `/board list`.
+- `/board stats` prints the figures of the Session line, its details and the agent rows as
+  text, for a screen reader or a session that cannot show the pane. The board does not need to
+  be open. A reply from the tests:
+
+  ```text
+  Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62
+      ◆ scout waits for permission: Bash npm test
+      context 124k of 200k · 1 compaction
+      last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned
+      limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d
+      checks 2 · 1 allowed · 1 asked
+  Agents  2 · 1 needs you
+      scout: needs you · ctx —
+      Explore: running · ctx 48k
+  ```
+
+  Each line follows the same rules as the board. The waits are the agents that need you. Each
+  agent line has the state of its row, such as `slow 45s`, and the context of its latest model
+  request, or `ctx —` before the first one. When the host gives no usage, the first line is
+  `Session  no context or cost on this host`, and the reply shows no context, cost or limit.
+
 - A change that you make, by a command or a button, waits for your next prompt. That prompt
   carries one note for Claude, beside the prompt, that starts with `[handily-board]`. The note
   names each change since the last prompt, in order, and then shows the list as it is now. So

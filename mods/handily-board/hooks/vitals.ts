@@ -259,8 +259,8 @@ function piecesText(pieces: readonly Piece[]): string {
   return pieces.map(pieceText).join('')
 }
 
-export function sessionText(vitals: Vitals): string {
-  return `${SESSION_TITLE}${TITLE_GAP}${piecesText(sessionPieces(vitals))}`
+export function sessionText(vitals: Vitals, waits = 0): string {
+  return `${SESSION_TITLE}${TITLE_GAP}${piecesText(sessionPieces(vitals, waits))}`
 }
 
 function fittedPieces(pieces: readonly Piece[], room: number): Piece[] {

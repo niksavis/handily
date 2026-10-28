@@ -423,8 +423,12 @@ export function withStalls(
   return rows.map((row) => ({ ...row, stall: stallOf(row, pulses, now) }))
 }
 
+export function waitingRows(rows: readonly AgentRow[]): AgentRow[] {
+  return rows.filter((row) => row.look === 'needsYou')
+}
+
 export function waitingCount(rows: readonly AgentRow[]): number {
-  return rows.filter((row) => row.look === 'needsYou').length
+  return waitingRows(rows).length
 }
 
 export async function trackAgentCall<R>(

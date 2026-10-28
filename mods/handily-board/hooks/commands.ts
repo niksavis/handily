@@ -33,6 +33,7 @@ export type BoardCommand =
   | { kind: 'list' }
   | { kind: 'close' }
   | { kind: 'clear' }
+  | { kind: 'stats' }
   | { kind: 'add'; text: string }
   | { kind: 'rm'; text: string }
   | { kind: 'mv'; text: string }
@@ -102,14 +103,20 @@ export function parseBoardCommand(args: string): BoardCommand {
   if (word === 'add' || word === 'rm' || word === 'mv') return { kind: word, text }
   if (isStatusWord(word)) return { kind: 'status', word, text }
   if (text !== '') return { kind: 'unknown', word: trimmed }
-  if (word === 'machine' || word === 'list' || word === 'close' || word === 'clear') {
+  if (
+    word === 'machine' ||
+    word === 'list' ||
+    word === 'close' ||
+    word === 'clear' ||
+    word === 'stats'
+  ) {
     return { kind: word }
   }
   return { kind: 'unknown', word }
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {

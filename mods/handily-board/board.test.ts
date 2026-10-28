@@ -634,9 +634,18 @@ describe('/board add and /board rm', () => {
       expect(await board($, 'add')).toBe(
         '/board add needs text or an item id, for example:\n/board add Write the summary   or   /board add handily-cd34',
       )
-      for (const args of ['frob', 'pane', 'machine now', 'close all', 'list 2', 'clear all']) {
+      const unknowns = [
+        'frob',
+        'pane',
+        'machine now',
+        'close all',
+        'list 2',
+        'clear all',
+        'stats 2',
+      ]
+      for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
         )
       }
     },
@@ -6439,6 +6448,99 @@ for (const surface of SURFACES) {
         expect(await timerWaits($)).toEqual(shown)
         held.release()
         await call
+      },
+    )
+  })
+}
+
+const STATS_CRITERION =
+  'When the person runs /board stats, the reply lists the context, the cost, the limits, the checks, the waits and each agent with its state and ctx.'
+const STATS_NO_USAGE_CRITERION =
+  'When the host gives no usage, the reply says so by name and shows no number.'
+
+const EXPLORE_USAGE = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+
+for (const surface of SURFACES) {
+  describe(STATS_CRITERION, () => {
+    test(
+      `the reply prints the Session line, its details, the wait, the checks and each agent with its state and ctx, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        const steps = stepWorld(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await measure($, { percent: 62, usd: 4.18, limits: limitsAt(seen.clock.now()) })
+        await compacts($)
+        await mainTurnStarts($, 'turn-1')
+        await edit($, 'docs/mocks.md')
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await step($, steps, EXPLORE, stepped('turn-e', EXPLORE_USAGE, 'tool_use'))
+        await measure($, { usd: 4.8 })
+        await mainTurnTakes($, 'turn-1', 3 * MINUTE)
+        const { call } = await scoutWaits($, seen, dialog)
+        expect(await board($, 'stats')).toBe(
+          [
+            'Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62',
+            '    ◆ scout waits for permission: Bash npm test',
+            '    context 124k of 200k · 1 compaction',
+            '    last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned',
+            '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
+            '    checks 2 · 1 allowed · 1 asked',
+            'Agents  2 · 1 needs you',
+            '    scout: needs you · ctx —',
+            '    Explore: running · ctx 48k',
+          ].join('\n'),
+        )
+        expect(seen.opened).toEqual([])
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `the reply names a slow agent as its row does, and an empty session says no agents yet, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        await exploreRuns($, seen, surface)
+        expect(await board($, 'stats')).toBe(
+          [
+            'Session  ctx — until the first reply',
+            'Agents  1',
+            '    Explore: running · ctx —',
+          ].join('\n'),
+        )
+        const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
+        await seen.clock.advance(45_000)
+        expect((await board($, 'stats')).split('\n').at(-1)).toBe('    Explore: slow 45s · ctx —')
+        held.release()
+        await call
+        seen.agents.splice(0)
+        await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+        await startOn($, surface)
+        expect(await board($, 'stats')).toBe(
+          ['Session  ctx — until the first reply', 'No agents yet.'].join('\n'),
+        )
+      },
+    )
+  })
+
+  describe(STATS_NO_USAGE_CRITERION, () => {
+    test(
+      `a host whose usage refuses gets a reply that names no context or cost on this host and has no number, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { usage: 'refused' })
+        await startOn($, surface)
+        const reply = await board($, 'stats')
+        expect(reply).toBe(
+          ['Session  no context or cost on this host', 'No agents yet.'].join('\n'),
+        )
+        expect(reply).not.toMatch(/\d/)
       },
     )
   })

@@ -9,7 +9,7 @@ import type {
 } from 'claude-code'
 import type { BoardActivity, BoardChecks, BoardList, BoardTask, BoardToolSight } from '../types'
 import { PLAN_REQUEST, callsText, elapsedText, planLag } from './activity'
-import { drawAgents, shownNames } from './agent-rows'
+import { NO_AGENTS, drawAgents, shownNames } from './agent-rows'
 import { type AgentRow, waitingCount } from './agents'
 import type { PaneUi } from './board'
 import { SESSION_DETAILS, drawSessionDetails, hasSessionDetails } from './details'
@@ -746,7 +746,7 @@ export async function drawPane(
         ...drawNow(elements, work, layout),
         ...warning,
         ...drawTracker(elements, host, await trackerView(host), act, layout),
-        work.agents.length === 0 ? Text({ dimColor: true, children: 'No agents yet.' }) : null,
+        work.agents.length === 0 ? Text({ dimColor: true, children: NO_AGENTS }) : null,
       ]
   const header = Box({
     flexDirection: 'row',

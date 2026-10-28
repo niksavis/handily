@@ -64,6 +64,7 @@ import {
 } from './board'
 import { EMPTY_CHECKS, withCheck } from './checks'
 import { detailsText } from './details'
+import { statsText } from './stats'
 import {
   type ListEdit,
   type TaskHost,
@@ -927,7 +928,7 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | done <n> | start <n> | open <n> | clear | list | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | done <n> | start <n> | open <n> | clear | list | stats | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -1161,6 +1162,8 @@ export const register: Register = (on, options) => {
         return { text: await personClear(host) }
       case 'list':
         return { text: await listReply(host) }
+      case 'stats':
+        return { text: statsText(await workOf($, { vitals, checks, steps, pulses })) }
       case 'add':
         return { text: await personAdd(host, command.text) }
       case 'rm':
