@@ -449,7 +449,8 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   such as `gene…pose`. When two rows show the same name, the later one gets a number, such as
   `Explore 2` or `gene…se 2`.
 - The state is `needs you`, `asked`, `running`, `plan 2/7` while a running agent keeps a task
-  list, `on hold`, `pending`, `idle`, `failed`, `done`, `killed` or `not listed`.
+  list, `slow 45s`, `quiet 3m`, `on hold`, `pending`, `idle`, `failed`, `done`, `killed` or
+  `not listed`.
 
   | Mark | State                                      | Colour    |
   | ---- | ------------------------------------------ | --------- |
@@ -459,6 +460,22 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   | `○`  | `pending`, `idle`                          | `subtle`  |
   | `✓`  | `done`, `killed`                           | `success` |
   | `?`  | `not listed`: Claude Code does not list it | `subtle`  |
+
+- A running agent whose current tool call has run for more than 30 seconds reads `slow` and the
+  time of that call. A running agent with no event for 2 minutes reads `quiet` and the time since
+  its last event. An event is a model request (`turn.step`), a permission check (`tool.check`) or
+  a tool call (`tool.call`) of the agent, or its spawn. `slow` comes before `quiet` and before
+  `plan 2/7`. The word takes the theme colour `warning`, and the mark stays `▶`. Captures from the
+  tests, docked at 41 columns:
+
+  ```text
+  ▶ Explore   slow 45s  ▸ Bash np… open  3m
+  ▶ Explore   quiet 2m  Read src/… open  5m
+  ```
+
+  The board starts no timer for these states. It reads them when it draws, and a shown tab draws
+  again every 10 seconds. The board keeps the times in memory, and each end of the session clears
+  them with the agent rows.
 
 - `on hold` is the engine status `waiting`: the agent waits for its own background work, an
   Agent call or a plan approval. The status does not say which, so the board does not draw it

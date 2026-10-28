@@ -1,7 +1,7 @@
 import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardTask, BoardToolSight } from '../types'
 import { elapsedText } from './activity'
-import type { AgentLook, AgentRow, AgentStep } from './agents'
+import type { AgentLook, AgentRow, AgentStall, AgentStep } from './agents'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
 import { SIGNALS, needsYouText } from './signals'
@@ -30,6 +30,7 @@ const OPEN_LABEL = 'open'
 const MAIN_LOOP = 'main'
 const WAITS_LEAD = 'waits for: '
 const STOPPED_AT_LIMIT = 'max_tokens'
+const STALL_COLOR: ThemeKey = 'warning'
 const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
   mark: string
@@ -102,7 +103,12 @@ function waitsText(row: AgentRow): string {
   return row.call === null ? 'permission' : `permission · ${callText(row.call)}`
 }
 
+function stallText(stall: AgentStall): string {
+  return `${stall.kind} ${elapsedText(stall.ms)}`
+}
+
 function stateText(row: AgentRow): { text: string; style: TextStyle } {
+  if (row.stall !== null) return { text: stallText(row.stall), style: { color: STALL_COLOR } }
   if (row.look === 'running' && row.plan !== null) {
     const done = row.plan.filter((task) => task.status === 'completed').length
     return { text: `plan ${String(done)}/${String(row.plan.length)}`, style: { dimColor: true } }
