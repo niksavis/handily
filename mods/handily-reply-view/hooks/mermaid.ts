@@ -71,7 +71,12 @@ export type BlockKind = 'loop' | 'alt' | 'opt' | 'par' | 'critical' | 'break' | 
 
 export type BlockSection = { label: string[]; from: number; to: number }
 
-export type SequenceBlock = { kind: BlockKind; depth: number; sections: BlockSection[] }
+export type SequenceBlock = {
+  kind: BlockKind
+  depth: number
+  section: number
+  sections: BlockSection[]
+}
 
 export type SequenceDiagram = {
   kind: 'sequence'
@@ -471,9 +476,11 @@ class SequenceBuilder {
   private openBlock({ line, text }: Statement): boolean {
     const found = BLOCK_OPENING.exec(text)
     if (found === null) return false
+    const enclosing = this.open.at(-1)?.block
     const block: SequenceBlock = {
       kind: found[1] as BlockKind,
       depth: this.open.length,
+      section: enclosing === undefined ? 0 : enclosing.sections.length - 1,
       sections: [this.newSection(found[2])],
     }
     this.blocks.push(block)

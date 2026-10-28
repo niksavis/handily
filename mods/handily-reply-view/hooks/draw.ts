@@ -3,6 +3,7 @@ import type { ReplyViewFold } from '../types'
 import { drawFlowchart } from './flowchart'
 import { shownText, type Block, type Fence, type Prose, type Table } from './markdown'
 import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
+import { drawSequence } from './sequence'
 import {
   columnWidths,
   fieldsOf,
@@ -36,7 +37,6 @@ const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const COPY_DRAWING_BUTTON_COLUMNS = '[ copy drawing ]'.length
 const DRAWINGS_KEPT = 32
-const SEQUENCE_NOT_DRAWN = 'sequenceDiagram does not draw yet'
 
 export type DiagramDrawing = { kind: 'drawing'; name: string; lines: string[] }
 
@@ -476,8 +476,12 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
         ? { kind: 'drawing', name: 'flowchart', lines: drawn.lines }
         : drawn
     }
-    case 'sequence':
-      return { kind: 'refused', reason: SEQUENCE_NOT_DRAWN, line: null, limit: null }
+    case 'sequence': {
+      const drawn = drawSequence(diagram, width)
+      return drawn.kind === 'drawing'
+        ? { kind: 'drawing', name: 'sequence', lines: drawn.lines }
+        : drawn
+    }
   }
 }
 

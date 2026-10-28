@@ -3,11 +3,11 @@
 `reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
 30 lines folds to its first lines. A markdown table draws with dim rules between its columns and
 under its header, and without a box around it. Each table and each fenced code block gets a
-`copy` button. A mermaid flowchart draws as a diagram, with a `copy` button for its source and a
-`copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
-labelled `you`, so you find
-it when you scroll. `/replies` switches the view off and on for the session. The model still reads
-the full reply and the prompt as you typed it. Only the screen changes.
+`copy` button. A mermaid flowchart or sequence diagram draws as a diagram, with a `copy` button
+for its source and a `copy drawing` button for the drawing. Each prompt that you type opens under
+a coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view off
+and on for the session. The model still reads the full reply and the prompt as you typed it. Only
+the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3.
 
@@ -156,8 +156,9 @@ rule with no title.
 
 ## A diagram
 
-A fenced block with the tag `mermaid` that holds a flowchart draws as a diagram. The diagram has a
-dim title line and two buttons at the right edge. The drawing replaces the source:
+A fenced block with the tag `mermaid` that holds a flowchart or a sequence diagram draws as a
+diagram. The diagram has a dim title line and two buttons at the right edge. The drawing replaces
+the source:
 
 ```text
 ● The view decides per block:
@@ -202,18 +203,61 @@ reason:
 
 Other reasons that the note names:
 
-- `sequenceDiagram does not draw yet.` A later version draws sequence diagrams.
 - `classDiagram does not draw yet.`, and the same for each other kind of diagram.
 - `subgraph does not draw yet.`, and the same for `direction`.
+- `box does not draw yet.`, and the same for `create` and `destroy` in a sequence diagram.
 - `it takes 59 columns, the screen has 38.`
 - `52 boxes, at most 40 draw.` The limits of one diagram are 80 source lines, 8000 source
-  characters, 40 boxes, 60 edges and 120 drawn rows.
+  characters, 40 boxes, 60 edges, 12 participants, 60 messages and notes, and 120 drawn rows.
 - `the block is empty.`
 
 A mermaid block with no closing fence draws as a fenced block, with no note. So a block
 that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
+
+## A sequence diagram
+
+A `sequenceDiagram` draws under the title line `── mermaid · sequence ──`:
+
+```text
+● The reply takes three steps:
+
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ┌─────┐        ┌────────┐        ┌────────────┐
+  │ You │        │ Claude │        │ reply-view │
+  └──┬──┘        └────┬───┘        └──────┬─────┘
+     │    prompt      │                   │
+     │───────────────▶│                   │
+     │                │    reply text     │
+     │                │──────────────────▶│
+     │  drawn reply   │                   │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+     │                │                   │──┐ cache by width
+     │                │                   │◀─┘
+     │                │       ┌───────────┴───────────┐
+     │                │       │ layout once per width │
+     │                │       └───────────┬───────────┘
+```
+
+- Each participant and actor gets a box and a lifeline `│`, in the order of its first mention.
+  The boxes keep at least 8 columns between them. The columns between two lifelines hold the
+  widest label between them plus 4.
+- A message takes one row for its label and one row for its arrow. The label stands between the
+  two lifelines at the left end of the arrow. `->>` draws a solid arrow `─▶`, and `-->>` draws a
+  dashed arrow `╌▶`. `-x` ends in `×`, `-)` ends in `▷`, and `->` has no head. An arrow that
+  passes a lifeline draws the lifeline through, as `╌│╌`.
+- A message from a participant to itself draws as a loop of 2 rows, with its label to the right.
+  A label of 3 lines makes the loop 3 rows high.
+- A note is a box: `left of` and `right of` a lifeline, or `over` one or two lifelines. A lifeline
+  that passes under a note joins it with `┴` and `┬`.
+- `autonumber` puts `1.`, `2.` and so on before each message.
+- `loop`, `alt`, `else`, `opt`, `par`, `and`, `critical`, `break` and `rect` draw as a dotted row
+  across the lifelines, such as `┄┄ alt: hit ┄┄`, and `end` draws as `┄┄ end ┄┄`. A block inside
+  a block draws its rows 2 columns in from each side. A block label too wide for the screen is
+  cut with `…`.
+- When the drawing is too wide, the labels of the messages and the notes wrap, each in at most 3
+  lines. The name of a participant does not wrap.
 
 ## A prompt that you type
 
@@ -252,10 +296,10 @@ theme:
 
 ## Settings and the command
 
-| Setting    | Default | Use                                                                       |
-| ---------- | ------- | ------------------------------------------------------------------------- |
-| `mode`     | `on`    | The mode when a session starts: `on` or `off`                             |
-| `diagrams` | `on`    | `on` draws a mermaid flowchart as a diagram. `off` draws it as its source |
+| Setting    | Default | Use                                                                                           |
+| ---------- | ------- | --------------------------------------------------------------------------------------------- |
+| `mode`     | `on`    | The mode when a session starts: `on` or `off`                                                 |
+| `diagrams` | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
 
 | Command    | Effect                                                                         |
 | ---------- | ------------------------------------------------------------------------------ |
@@ -289,4 +333,6 @@ shows the setting beside the mode when the two differ.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
   stays open or folded when it draws again.
 - Each prompt that you type keeps its time in `$.state` for this session.
-- A sequence diagram, a `subgraph` and every other kind of diagram draw as their source.
+- A `subgraph`, a sequence diagram with `box`, `create` or `destroy`, and every other kind of
+  diagram draw as their source.
+- A sequence diagram draws no participant boxes under its last row, and an actor draws as a box.
