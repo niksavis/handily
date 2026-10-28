@@ -500,6 +500,21 @@ function hasTests(dir) {
 
 const defaultTestLimitMs = 5000
 const testTimeShare = { divisor: 3, name: 'a third' }
+const referenceTestTimes = [
+  { title: 'a draw with 30 agents of 20 tasks reads the state 5 times', ms: 1856 },
+  {
+    title:
+      'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 5 times from the second',
+    ms: 1130,
+  },
+  { title: 'ignores a call that completes after its session ended', ms: 865 },
+  { title: 'closes a background call after 30 minutes without a notification', ms: 572 },
+  {
+    title:
+      'the this session tab draws each Button once, under its own key, in the order a person reads the tab, before the Add input',
+    ms: 418,
+  },
+]
 const testOutputMaxBytes = 64 * 1024 * 1024
 const isCiRunner = process.env.GITHUB_ACTIONS === 'true'
 const testFileHeaderPattern = /^(\S.*\.test\.tsx?):$/
@@ -620,8 +635,23 @@ function note(message) {
   console.log(`NOTE ${message}`)
 }
 
-function checkTestTimes(mod, output) {
-  const times = readTestTimes(output)
+function machineSlowness(timesByMod) {
+  const ratios = []
+  for (const { title, ms } of referenceTestTimes) {
+    const measured = timesByMod
+      .flatMap(({ times }) => times)
+      .find((time) => time.title === title || time.title.endsWith(` > ${title}`))
+    if (measured !== undefined) ratios.push(measured.ms / ms)
+  }
+  if (ratios.length === 0) return 1
+  ratios.sort((a, b) => a - b)
+  const middle = Math.floor(ratios.length / 2)
+  const median =
+    ratios.length % 2 === 1 ? ratios[middle] : (ratios[middle - 1] + ratios[middle]) / 2
+  return Math.max(1, median)
+}
+
+function checkTestTimes(mod, times, slowness) {
   if (times.length === 0) {
     fail(
       `${mod.name}: claude plugin test printed no test time such as "(pass) name [12.34ms]", so the test time gate read no test`,
@@ -629,20 +659,23 @@ function checkTestTimes(mod, output) {
     return
   }
   const report = isCiRunner ? note : fail
+  const machine =
+    slowness > 1 ? ` on a machine ${slowness.toFixed(2)} times slower than the reference times` : ''
   const declaredByFile = new Map()
   for (const { file, title, ms } of times) {
     if (file !== undefined && !declaredByFile.has(file)) {
       declaredByFile.set(file, readDeclaredTestLimits(join(mod.dir, file)))
     }
     const limitMs = testLimitMs(title, declaredByFile.get(file) ?? [])
-    if (ms * testTimeShare.divisor <= limitMs) continue
+    if (ms * testTimeShare.divisor <= limitMs * slowness) continue
     report(
-      `${mod.name}: ${file ?? 'a test file'} test "${title}" took ${ms} ms of its ${limitMs} ms limit, more than ${testTimeShare.name}, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least ${Math.ceil(ms * testTimeShare.divisor)} ms`,
+      `${mod.name}: ${file ?? 'a test file'} test "${title}" took ${ms} ms of its ${limitMs} ms limit, more than ${testTimeShare.name}${machine}, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least ${Math.ceil((ms * testTimeShare.divisor) / slowness)} ms`,
     )
   }
 }
 
 function test(mods) {
+  const timesByMod = []
   for (const mod of mods) {
     if (!hasTests(mod.dir)) {
       fail(`${mod.name}: no *.test.ts file; every mod ships tests`)
@@ -653,8 +686,15 @@ function test(mods) {
       stdio: ['ignore', 'pipe', 'inherit'],
       maxBuffer: testOutputMaxBytes,
     })
-    if (result?.status === 0) checkTestTimes(mod, result.stdout)
+    if (result?.status === 0) timesByMod.push({ mod, times: readTestTimes(result.stdout) })
   }
+  const slowness = machineSlowness(timesByMod)
+  if (slowness > 1) {
+    console.log(
+      `test: the reference tests ran ${slowness.toFixed(2)} times slower than their reference times, so the time share scales by that factor`,
+    )
+  }
+  for (const { mod, times } of timesByMod) checkTestTimes(mod, times, slowness)
   run('scripts: node --test', process.execPath, ['--test', 'scripts/*.test.mjs'])
 }
 

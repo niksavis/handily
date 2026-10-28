@@ -405,6 +405,47 @@ test('test on a GitHub Actions runner names a test over a third of its limit in 
   )
 })
 
+const referenceLines = (factor) =>
+  [
+    ['ignores a call that completes after its session ended', 865],
+    ['closes a background call after 30 minutes without a notification', 572],
+    [
+      'the this session tab draws each Button once, under its own key, in the order a person reads the tab, before the Add input',
+      418,
+    ],
+  ].map(([title, ms]) => `(pass) Reference > ${title} [${(ms * factor).toFixed(2)}ms]`)
+
+const slowMachineResult = runTimedTests(
+  testOutput([
+    ...referenceLines(4),
+    `(pass) ${criterionTitle} > a short draw [800.00ms]`,
+    `(pass) ${criterionTitle} > a default draw [6667.00ms]`,
+  ]),
+)
+
+test('test scales the share by the median ratio of the reference tests on a slower machine', () => {
+  assert.equal(slowMachineResult.status, 1, slowMachineResult.stdout + slowMachineResult.stderr)
+  assert.match(
+    slowMachineResult.stdout,
+    /^test: the reference tests ran 4\.00 times slower than their reference times, so the time share scales by that factor$/m,
+  )
+  assert.deepEqual(failLines(slowMachineResult), [
+    `FAIL timed: timed.test.ts test "${criterionTitle} > a default draw" took 6667 ms of its 5000 ms limit, more than a third on a machine 4.00 times slower than the reference times, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 5001 ms`,
+  ])
+})
+
+const fastMachineResult = runTimedTests(
+  testOutput([...referenceLines(0.5), `(pass) ${criterionTitle} > a default draw [1667.67ms]`]),
+)
+
+test('test keeps the share of a third when the reference tests run at or below their reference times', () => {
+  assert.equal(fastMachineResult.status, 1, fastMachineResult.stdout + fastMachineResult.stderr)
+  assert.doesNotMatch(fastMachineResult.stdout, /times slower than their reference times/)
+  assert.deepEqual(failLines(fastMachineResult), [
+    `FAIL timed: timed.test.ts test "${criterionTitle} > a default draw" took 1667.67 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 5004 ms`,
+  ])
+})
+
 const sharedTitleSource = `import { describe, test } from 'claude-code/testing'
 const nextTitle = (): string => 'a draw with lots of agents'
 describe('D', () => {

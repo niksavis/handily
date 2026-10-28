@@ -79,16 +79,13 @@ The share is a third, not the half in the tracker record:
 - A quarter leaves more room on CI. But then a developer machine 1.4 times slower than the
   measured one refuses the 900 ms item-toasts test, which passes on CI.
 
-The five slowest tests, measured with `npm test` in three runs on one Linux developer machine on
-2026-10-27. No test takes more than a third of its time limit.
-
-| Mod | Test | Time (ms) | Limit (ms) |
-| --- | --- | --- | --- |
-| handily-board | a draw with 30 agents of 20 tasks reads the state 5 times | 1826 to 1887 | 30000 |
-| handily-board | a session from a version that kept no agentPlans draws every plan on the first draw | 1100 to 1161 | 30000 |
-| handily-item-toasts | ignores a call that completes after its session ended | 831 to 900 | 5000 |
-| handily-item-toasts | closes a background call after 30 minutes without a notification | 548 to 596 | 5000 |
-| handily-board | the this session tab draws each Button once, under its own key | 400 to 436 | 5000 |
+A slower developer machine scales the share. `npm test` compares five reference tests with
+their reference times in `referenceTestTimes` in `scripts/mods.mjs`. These times were measured
+with `npm test` in three runs on one Linux developer machine on 2026-10-27. When the median
+ratio is above 1, the gate multiplies each limit by that ratio before it compares the share, and
+it prints the ratio. At a ratio of 3 or more, only the time limit itself refuses a test, as on CI.
+A ratio at or below 1 keeps the share of a third. Measure the reference times again when one
+of these tests changes, or when its title changes.
 
 The `markdownlint` pre-commit hook lints the Markdown files with the rules in
 `.markdownlint-cli2.jsonc`. To run it by hand, use `npx --no-install markdownlint-cli2`.
