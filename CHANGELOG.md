@@ -6,6 +6,26 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.9.0 - 2026-10-28
+
+### Added
+
+- **board sends a desktop notice when a session needs you.** When a permission ask of this
+  session, of the main loop or of a subagent, is still not settled after 3 seconds and the this
+  session tab is not shown, the board sends one notice through `$.ui.notify`, for example
+  `app needs you: scout waits for permission: Bash npm test`. Each wait sends at most one notice,
+  and an ask that the auto mode classifier settles before 3 seconds sends none. When Claude Code
+  reports that it sent nothing, as on the desktop app, the board shows the same text as a toast
+  (handily-8jno3).
+- **board names a waiting agent and a high context on the status line.** While the this
+  session tab is not shown, the status line reads, for example,
+  `◆ scout waits for permission: Bash npm test · ctx 91% high`, `◆ 2 agents wait for permission`
+  or `ctx 91% high · /compact frees it`. A wait is an ask of a subagent that is not settled after
+  3 seconds, the same wait that the agent rows show as `needs you`. The board clears the line
+  when nothing waits and the context is under 80 percent, and while the this session tab is
+  shown. The new setting `statusLine` takes `attention`, the default, or `off`, which never sets
+  a status line (handily-xsjad.9).
+
 ## handily-filetree 0.5.0 - 2026-10-28
 
 ### Added
