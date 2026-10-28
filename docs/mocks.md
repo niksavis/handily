@@ -1414,7 +1414,7 @@ Decisions of the person (2026-10-27):
   - `quiet`: the agent sent no event for 2 minutes.
 - An opened agent row shows the context and the output tokens of the agent.
 - From body 80, each agent row has a `ctx` column and a lane.
-- The status line names a wait and a high context by default. The setting `statusLine` takes
+- The status line names a wait by default, and never the context. The setting `statusLine` takes
   `attention` (the default) or `off`.
 - `/board stats` prints the same figures as text.
 - The hotkeys `s` and `c` ship only if the probe of handily-xsjad.1 shows that they fire in tmux.
@@ -1695,16 +1695,17 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 #### 8.10p The status line
 
 ```text
-◆ scout waits for permission: Bash npm test · ctx 91% high
-◆ 2 agents wait for permission · ctx 91% high
-ctx 91% high · /compact frees it
+◆ scout waits for permission: Bash npm test
+◆ 2 agents wait for permission
 ◆ scout waits for permission: Bash npm t…
 ```
 
-- One agent waits: 58 columns.
-- Two agents wait: 45 columns.
-- Nothing waits, the context is high: 32 columns.
+- One agent waits: 43 columns.
+- Two agents wait: 30 columns.
 - The first line cut to 41 columns: 41 columns.
+- The line never names the context. The Claude Code status line already shows it, and the
+  Session line of the board says `high` from 80 percent. When nothing waits, the board sets no
+  status line.
 - With the setting `statusLine` at `off`, the board sets no status line.
 
 ### Risks
