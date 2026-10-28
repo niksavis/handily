@@ -22,7 +22,7 @@
     {
       "name": "handily-filetree",
       "source": "./mods/handily-filetree",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
     },
     {
