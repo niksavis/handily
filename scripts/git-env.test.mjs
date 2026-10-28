@@ -7,18 +7,28 @@ const scriptsDir = import.meta.dirname
 const fixturesDir = join(scriptsDir, 'fixtures', 'git-env')
 const gitSpawnPattern =
   /\b(?:spawnSync|spawn|execFileSync|execFile|execSync|exec)\(\s*(['"`])git(?:\1|\s)/g
-const isolatedEnvPattern = /\benv:\s*environmentWithoutGit\b/
+const isolatedEnvPattern =
+  /\benv:\s*(?:environmentWithoutGit\b|(\{)\s*\.\.\.environmentWithoutGit\b)/
+const spreadPattern = /\.\.\./g
 const sharedEnvImportPattern =
   /import\s*\{[^}]*\benvironmentWithoutGit\b[^}]*\}\s*from\s*'(?:\.\.?\/)+git-env\.mjs'/
 
-function callText(source, start) {
+function bracketedText(source, start, open, close) {
   let depth = 0
-  for (let index = source.indexOf('(', start); index < source.length; index += 1) {
-    if (source[index] === '(') depth += 1
-    if (source[index] === ')') depth -= 1
+  for (let index = source.indexOf(open, start); index < source.length; index += 1) {
+    if (source[index] === open) depth += 1
+    if (source[index] === close) depth -= 1
     if (depth === 0) return source.slice(start, index + 1)
   }
   return source.slice(start)
+}
+
+function passesEnvironmentWithoutGit(call) {
+  const match = isolatedEnvPattern.exec(call)
+  if (match === null) return false
+  if (match[1] === undefined) return true
+  const environment = bracketedText(call, match.index + match[0].indexOf('{'), '{', '}')
+  return environment.match(spreadPattern).length === 1
 }
 
 function findLeakingGitSpawns(path) {
@@ -26,7 +36,8 @@ function findLeakingGitSpawns(path) {
   const importsSharedEnv = sharedEnvImportPattern.test(source)
   const leaks = []
   for (const match of source.matchAll(gitSpawnPattern)) {
-    if (importsSharedEnv && isolatedEnvPattern.test(callText(source, match.index))) continue
+    const call = bracketedText(source, match.index, '(', ')')
+    if (importsSharedEnv && passesEnvironmentWithoutGit(call)) continue
     const line = source.slice(0, match.index).split('\n').length
     leaks.push(
       `${relative(scriptsDir, path)}:${line}: git runs with the inherited GIT_ variables; pass env: environmentWithoutGit imported from scripts/git-env.mjs`,
@@ -51,4 +62,21 @@ test('a git spawn that keeps the GIT_ variables is refused with its file and lin
 
 test('a git spawn with every GIT_ variable removed passes', () => {
   assert.deepEqual(findLeakingGitSpawns(join(fixturesDir, 'clean.mjs')), [])
+})
+
+test('a git spawn with an environment that spreads environmentWithoutGit and adds values passes', () => {
+  assert.deepEqual(findLeakingGitSpawns(join(fixturesDir, 'extended.mjs')), [])
+})
+
+test('a git spawn that spreads process.env or passes no env is refused', () => {
+  assert.deepEqual(
+    findLeakingGitSpawns(join(fixturesDir, 'inherited.mjs')).map((leak) =>
+      leak.split(':').slice(0, 2).join(':'),
+    ),
+    [
+      'fixtures/git-env/inherited.mjs:5',
+      'fixtures/git-env/inherited.mjs:13',
+      'fixtures/git-env/inherited.mjs:17',
+    ],
+  )
 })
