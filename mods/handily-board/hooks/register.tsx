@@ -4,6 +4,7 @@ import type {
   HookFailure,
   PromptOrigin,
   Register,
+  SessionEndReason,
   Timer,
   ToolCheckInput,
   ToolCheckResult,
@@ -137,6 +138,10 @@ import {
   withoutUsage,
 } from './vitals'
 
+const NEW_SESSION_REASONS: ReadonlySet<SessionEndReason> = new Set<SessionEndReason>([
+  'clear',
+  'resume',
+])
 const TOOL_ADD = 'mcp__handily-board__task_add'
 const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
@@ -1000,10 +1005,12 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
     steps.clear()
-    if (e.reason === 'clear') {
-      attention.asks.clear()
+    if (e.reason === 'clear') attention.asks.clear()
+    if (NEW_SESSION_REASONS.has(e.reason)) {
       await noteVitals($, attention, withClear)
       await refreshStatus($, attention)
+    }
+    if (e.reason === 'clear') {
       checks.current = EMPTY_CHECKS
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])

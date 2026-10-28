@@ -81,6 +81,15 @@ function turnStartAfter(vitals: Vitals, usd: number | undefined): number | undef
   return isDropped || usd < turnStartUsd ? usd : turnStartUsd
 }
 
+function limitsAfter(
+  vitals: Vitals,
+  measure: VitalsMeasure,
+  changed: ReadonlySet<string>,
+): readonly SessionRateLimit[] {
+  const isCarried = changed.has('rateLimits') || measure.rateLimits.length > 0
+  return isCarried ? measure.rateLimits : vitals.limits
+}
+
 export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
   const changed = new Set(measure.changed)
   const usd = changed.has('cost') ? measure.cost?.usd : vitals.usd
@@ -93,7 +102,7 @@ export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
     percent: context.percent,
     tokens: context.tokens,
     window: context.window,
-    limits: changed.has('rateLimits') ? measure.rateLimits : vitals.limits,
+    limits: limitsAfter(vitals, measure, changed),
     usd,
     turnStartUsd: turnStartAfter(vitals, usd),
     isTurnMeasured: vitals.isTurnMeasured || isTurnMeasure,

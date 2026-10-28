@@ -71,15 +71,21 @@ function resetsInMs(limit: SessionRateLimit, now: number): number | undefined {
   return Number.isFinite(at) ? at - now : undefined
 }
 
+function resetText(limit: SessionRateLimit, now: number): string | undefined {
+  const inMs = resetsInMs(limit, now)
+  if (inMs === undefined) return undefined
+  const name = limitName(limit)
+  return inMs <= 0 ? `${name} now` : `${name} in ${elapsedText(inMs)}`
+}
+
 function limitsParts(vitals: Vitals, now: number): Part[] {
-  if (!hasReading(vitals)) return []
-  if (vitals.limits.length === 0) return [{ text: NO_LIMITS }]
+  if (vitals.limits.length === 0) return hasReading(vitals) ? [{ text: NO_LIMITS }] : []
   const used = vitals.limits.map(
     (limit) => `${limitName(limit)} ${String(Math.round(limit.percentUsed))}%`,
   )
   const resets = vitals.limits.flatMap((limit) => {
-    const inMs = resetsInMs(limit, now)
-    return inMs === undefined ? [] : [`${limitName(limit)} in ${elapsedText(inMs)}`]
+    const text = resetText(limit, now)
+    return text === undefined ? [] : [text]
   })
   return [
     ...used.map((text, index) => ({ text: index === 0 ? `limits ${text}` : text })),

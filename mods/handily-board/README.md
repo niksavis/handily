@@ -322,9 +322,12 @@ Session  ctx 91% high · $12.40
   that the main loop spawned in the last turn. The calls and the spawns of a subagent do not
   count.
 - `limits 5h 31% · 7d 13%` are the rate limits of `session.measure`, with the percent used, and
-  `resets 5h in 2h` is the time until each limit resets. A plan that reports no rate limits, as
-  off a subscription, shows `limits: none reported`. Before the first reply, and on a host that
-  gives no usage, the details show no context and no limits.
+  `resets 5h in 2h` is the time until each limit resets. A reset time that is past reads
+  `5h now`. A measure that names only the context and the cost but carries the limits updates
+  them too, so the limits stay after `/clear`. A plan that reports no rate limits, as off a
+  subscription, shows `limits: none reported`. Before the first reply, and on a host that gives
+  no usage, the details show no context, and they show the limits only when a measure carried
+  some.
 - The permission checks follow. A later section describes them.
 - A narrow tab moves each part that does not fit to the next line. The tests check the details
   at 30, 41 and 76 columns.
@@ -684,7 +687,8 @@ Sessions  4 · 1 needs you · 12s ago
 - The list and the tool calls live in `$.state`, so they survive a hot reload of the mod.
 - The figures of the Session line and of its details live in memory. A hot reload or a new
   process asks `$.session.usage()` again at session start, and counts the compactions and the
-  last turn from zero. `/clear` empties them.
+  last turn from zero. `/clear` and a resume empty them, because each starts a new session id.
+  The permission checks stay until `/clear`.
 - `/clear` ends the session with the reason `clear`. The list of the main loop, the lists of all
   subagents and the tool calls reset.
 - Each end of the session, `/clear` and a resume included, clears the agent rows.

@@ -5293,6 +5293,105 @@ describe(DETAILS_CRITERION, () => {
   )
 })
 
+describe('the Session details keep only the facts of the session that runs now', () => {
+  test(
+    'a failed Edit of the main loop counts as an error and not as an edit',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { failingTool: 'Edit' })
+      await start($)
+      await measure($, { percent: 40, usd: 1 })
+      await mainTurnStarts($, 'turn-1')
+      await edit($, 'docs/mocks.md')
+      await mainTurnTakes($, 'turn-1', 45_000)
+      for (const surface of SURFACES) {
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(2, 4)).toEqual([
+          '    last turn 45s · 0 edits · 1 error',
+          '    0 agents spawned',
+        ])
+      }
+    },
+  )
+
+  test(
+    'the limits stay after /clear when the next measure carries them and names only the context and the cost',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const limits = limitsAt(seen.clock.now())
+      await measure($, { percent: 62, usd: 4.18, limits })
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      await measure($, { percent: 3, usd: 4.2, limits, changed: ['context', 'cost'] })
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  ctx 3% · $4.20',
+          '    context 6k of 200k · 0 compactions',
+          '    limits 5h 31% · 7d 13%',
+          '    resets 5h in 2h · 7d in 4d',
+        ])
+      }
+    },
+  )
+
+  test(
+    'a resume starts the figures over: no context, no limits, no compaction and no last turn of the session before',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await detailsScene($, seen)
+      await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } })
+      await start($)
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  ctx — until the first reply',
+          '    checks 5 · 5 allowed',
+          '    [ last 5 checks ]',
+        ])
+      }
+    },
+  )
+
+  test('a limit whose reset time is past reads now, not in 0s', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    const now = seen.clock.now()
+    const limits = [
+      { kind: 'five_hour', percentUsed: 31, resetsAt: new Date(now - 3 * HOUR).toISOString() },
+      {
+        kind: 'seven_day',
+        percentUsed: 13,
+        resetsAt: new Date(now + 4 * DAY + HOUR).toISOString(),
+      },
+    ]
+    await measure($, { percent: 62, usd: 4.18, limits })
+    for (const surface of SURFACES) {
+      const lines = await sessionDetails($, surface, 'dock', 41)
+      expect(lines.slice(-2)).toEqual([
+        '    limits 5h 31% · 7d 13%',
+        '    resets 5h now · 7d in 4d',
+      ])
+    }
+  })
+
+  test(
+    'a measure that carries the limits and no context fill still shows the limits',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await measure($, { usd: 2, limits: limitsAt(seen.clock.now()) })
+      for (const surface of SURFACES) {
+        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
+          'Session  ctx — · $2.00',
+          '    limits 5h 31% · 7d 13%',
+          '    resets 5h in 2h · 7d in 4d',
+        ])
+      }
+    },
+  )
+})
+
 describe(NO_LIMITS_CRITERION, () => {
   for (const { placement, columns } of DETAIL_SCREENS) {
     test(
@@ -5488,6 +5587,54 @@ describe(AGENT_TOKENS_CRITERION, () => {
   )
 })
 
+describe('the tokens of an agent step redraw the board only when they change, and a session end clears them', () => {
+  test(
+    'a step redraws the board when the drawn tokens change, and a step with the same drawn tokens, a step with no usage or a main loop step does not',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const steps = stepWorld(on)
+      let redraws = 0
+      on('ui.invalidate', (_$, e, next) => {
+        if (e.event === 'ui.render') redraws += 1
+        return next(e)
+      })
+      await stepAgentWorks($, seen, 1)
+      const before = redraws
+      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+      await step($, steps, STEP_AGENT, stepped('turn-1', usage, 'tool_use'))
+      expect(redraws).toBe(before + 1)
+      const same = { ...usage, read: 40_200, output: 6_120 }
+      await step($, steps, STEP_AGENT, stepped('turn-1', same, 'end_turn'))
+      await step($, steps, STEP_AGENT, stepped('turn-1', null, null))
+      await step($, steps, undefined, stepped('turn-main', { ...usage, read: 90_000 }, 'end_turn'))
+      expect(redraws).toBe(before + 1)
+      await step($, steps, STEP_AGENT, stepped('turn-1', { ...usage, read: 90_000 }, 'tool_use'))
+      expect(redraws).toBe(before + 2)
+    },
+  )
+
+  test(
+    'a session end clears the tokens, so an agent that the engine still lists shows no old tokens',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const steps = stepWorld(on)
+      await stepAgentWorks($, seen, 1)
+      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+      await step($, steps, STEP_AGENT, stepped('turn-1', usage, 'tool_use'))
+      expect((await openedAgent($, 'terminal', 'dock', 41)).join('\n')).toContain('ctx 48k')
+      await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } })
+      await start($)
+      for (const surface of SURFACES) {
+        const opened = await openedAgent($, surface, 'dock', 41)
+        expect(opened.length).toBeGreaterThan(0)
+        expect(opened.join('\n')).not.toContain('ctx')
+      }
+    },
+  )
+})
+
 describe(MAX_TOKENS_CRITERION, () => {
   for (const { placement, columns } of TOKEN_SCREENS) {
     test(
@@ -5550,48 +5697,61 @@ function stepLinks(seen: World): StepLinks[] {
     .map((text) => JSON.parse(text.slice(STEP_LINKS_LOG.length)) as StepLinks)
 }
 
+const STREAM_LOOPS: readonly { loop: string; agentId: string | undefined }[] = [
+  { loop: 'a main loop step', agentId: undefined },
+  { loop: 'a subagent step', agentId: STEP_AGENT },
+]
+
 describe(MAIN_STEP_CRITERION, () => {
-  test(
-    'a main loop step passes each chunk on as it arrives and the result unchanged, through the board link that the chain ran',
-    { plugins: [fakeWorkitems, watchSteps] },
-    async ($, on) => {
-      const seen = world(on)
-      const steps = stepWorld(on)
-      await start($)
-      let open = (): void => undefined
-      steps.gate = new Promise((resolve) => {
-        open = resolve
-      })
-      steps.chunks = [
-        { kind: 'text', index: 0, text: 'one' },
-        { kind: 'text', index: 0, text: ' two' },
-        { kind: 'text', index: 0, text: ' three' },
-      ]
-      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
-      steps.next = stepped('turn-main', usage, 'end_turn')
-      const stream = $.turn.step({ turnId: 'turn-main', index: 0, model: 'opus', messageCount: 3 })
-      const first = await stream.next()
-      expect(first.value).toEqual({ kind: 'text', index: 0, text: 'one' })
-      open()
-      const rest: unknown[] = []
-      let read = await stream.next()
-      while (read.done !== true) {
-        rest.push(read.value)
-        read = await stream.next()
-      }
-      expect(rest).toEqual([
-        { kind: 'text', index: 0, text: ' two' },
-        { kind: 'text', index: 0, text: ' three' },
-      ])
-      expect(read.value).toEqual(stepped('turn-main', usage, 'end_turn'))
-      const [watched] = stepLinks(seen)
-      expect(watched?.agentId).toBeNull()
-      expect(watched?.links.map((link) => [link.plugin, link.outcome])).toEqual([
-        [PLUGIN, 'returned'],
-        ['test', 'returned'],
-      ])
-    },
-  )
+  for (const { loop, agentId } of STREAM_LOOPS) {
+    test(
+      `${loop} passes each chunk on as it arrives and the result unchanged, through the board link that the chain ran`,
+      { plugins: [fakeWorkitems, watchSteps] },
+      async ($, on) => {
+        const seen = world(on)
+        const steps = stepWorld(on)
+        await start($)
+        let open = (): void => undefined
+        steps.gate = new Promise((resolve) => {
+          open = resolve
+        })
+        steps.chunks = [
+          { kind: 'text', index: 0, text: 'one' },
+          { kind: 'text', index: 0, text: ' two' },
+          { kind: 'text', index: 0, text: ' three' },
+        ]
+        const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+        steps.next = stepped('turn-1', usage, 'end_turn')
+        const stream = $.turn.step({
+          turnId: 'turn-1',
+          index: 0,
+          model: 'opus',
+          messageCount: 3,
+          ...(agentId === undefined ? {} : { agentId }),
+        })
+        const first = await stream.next()
+        expect(first.value).toEqual({ kind: 'text', index: 0, text: 'one' })
+        open()
+        const rest: unknown[] = []
+        let read = await stream.next()
+        while (read.done !== true) {
+          rest.push(read.value)
+          read = await stream.next()
+        }
+        expect(rest).toEqual([
+          { kind: 'text', index: 0, text: ' two' },
+          { kind: 'text', index: 0, text: ' three' },
+        ])
+        expect(read.value).toEqual(stepped('turn-1', usage, 'end_turn'))
+        const [watched] = stepLinks(seen)
+        expect(watched?.agentId).toBe(agentId ?? null)
+        expect(watched?.links.map((link) => [link.plugin, link.outcome])).toEqual([
+          [PLUGIN, 'returned'],
+          ['test', 'returned'],
+        ])
+      },
+    )
+  }
 })
 
 const STATUS_WAIT_CRITERION =
