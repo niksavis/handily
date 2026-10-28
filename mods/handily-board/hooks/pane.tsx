@@ -16,6 +16,7 @@ import { SESSION_DETAILS, drawSessionDetails, hasSessionDetails } from './detail
 import {
   OPEN_ITEMS_SHOWN,
   addItemsAsTasks,
+  itemsAddedParts,
   type MoveDirection,
   STATUS_WORDS,
   type StatusWord,
@@ -28,10 +29,10 @@ import {
   readList,
   statusOfWord,
   trackerView,
-  withoutFinalPeriod,
   type TrackerLine,
   type TrackerView,
 } from './commands'
+import { AGENTS_VIEW_FAILED, CHANGE_FAILED, refusedParts } from './replies'
 import { SIGNALS } from './signals'
 import {
   doneCount,
@@ -42,6 +43,7 @@ import {
   statusLook,
   type WorkItem,
 } from './tasks'
+import type { ToastParts } from './toast'
 import { type Vitals, drawSessionLine } from './vitals'
 import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
 
@@ -66,17 +68,17 @@ export type PaneWork = {
   checks: BoardChecks
 }
 
-type Act = (work: () => Promise<string | undefined>) => void
+type Act = (work: () => Promise<ToastParts | undefined>) => void
 
 function actor(ui: PaneUi): Act {
   return (work) => {
     work().then(
-      (reply) => {
-        if (reply !== undefined) ui.toast(reply)
+      (parts) => {
+        if (parts !== undefined) ui.showToast(parts)
       },
       (error: unknown) => {
         ui.log(`handily-board: ${String(error)}`)
-        ui.toast('handily-board: the change failed; see the transcript log.')
+        ui.showToast(CHANGE_FAILED)
       },
     )
   }
@@ -88,7 +90,7 @@ function agentsOpener(ui: PaneUi): () => void {
       () => undefined,
       (error: unknown) => {
         ui.log(`handily-board: the agents view did not open: ${String(error)}`)
-        ui.toast('handily-board: the agents view did not open; see the transcript log.')
+        ui.showToast(AGENTS_VIEW_FAILED)
       },
     )
   }
@@ -386,7 +388,7 @@ function taskRow(
     key: `rm:${id}`,
     label: 'rm',
     onPress: () => {
-      act(() => personRemove(host, id))
+      act(async () => (await personRemove(host, id)).toastParts)
     },
   }
   const move = (direction: MoveDirection): RowAction => ({
@@ -397,7 +399,7 @@ function taskRow(
         const reply = await personMove(host, task.id, direction)
         const moved = (await readList(host)).tasks.findIndex((one) => one.id === task.id)
         if (moved !== -1 && moved !== place) await focus(moveKey(direction, task.id, moved))
-        return reply
+        return reply.toastParts
       })
     },
   })
@@ -405,7 +407,7 @@ function taskRow(
     key: `${word}:${id}`,
     label: word,
     onPress: () => {
-      act(() => personStatus(host, id, word))
+      act(async () => (await personStatus(host, id, word)).toastParts)
     },
   })
   const marks = STATUS_WORDS.filter((word) => statusOfWord(word) !== task.status).map(mark)
@@ -473,8 +475,11 @@ function drawPlanWarning(
     act(async () => {
       const filled = await ui.fillPrompt(PLAN_REQUEST)
       if (filled.isFilled) return undefined
-      const why = filled.refusal === undefined ? '' : ` (${filled.refusal})`
-      return `The prompt box did not take the plan request${why}. Ask Claude for a plan in your next prompt.`
+      return refusedParts(
+        'Plan request not sent',
+        filled.refusal ?? 'the prompt box did not take it',
+        'ask Claude for a plan in your prompt',
+      )
     })
   }
   return [
@@ -537,7 +542,7 @@ function drawTasks(
           key: 'clear-done',
           label: 'clear done',
           onPress: () => {
-            act(() => personClear(host))
+            act(async () => (await personClear(host)).toastParts)
           },
         })
       : null,
@@ -601,16 +606,7 @@ function drawTracker(
     return [Text({ dimColor: true, children: `Open in tracker: ${view.label} · no open items` })]
   }
   const addItems = (items: readonly WorkItem[]) => {
-    act(async () => {
-      const { added, existing, refusal, noteRefusal } = await addItemsAsTasks(host, items)
-      const parts = [`Added ${String(added.length)} as tasks`]
-      if (existing.length > 0) parts.push(`${String(existing.length)} already were`)
-      if (refusal !== undefined) parts.push(`not added: ${withoutFinalPeriod(refusal)}`)
-      if (noteRefusal !== undefined) {
-        parts.push(`Claude was not told: ${withoutFinalPeriod(noteRefusal)}`)
-      }
-      return `${parts.join('; ')}.`
-    })
+    act(async () => itemsAddedParts(await addItemsAsTasks(host, items)))
   }
   const openCount = String(view.items.length)
   const isAllShown = layout.expanded.has(ITEMS_GROUP)
@@ -692,7 +688,7 @@ function drawFooter(elements: PaneElements, host: TaskHost, act: Act): RenderEle
         placeholder: 'Add a task',
         submitLabel: 'Add',
         onSubmit: (value) => {
-          act(() => personAdd(host, value.trim()))
+          act(async () => (await personAdd(host, value.trim())).toastParts)
         },
       })
     : Text({ dimColor: true, children: 'Add tasks with /board add <text>.' })

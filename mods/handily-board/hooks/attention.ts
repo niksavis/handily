@@ -3,6 +3,7 @@ import type { BoardToolSight } from '../types'
 import { callText } from './agent-rows'
 import { type AgentRow, waitingRows } from './agents'
 import { SIGNALS } from './signals'
+import { TOAST_MARKS, type ToastParts } from './toast'
 
 export type StatusLineSetting = 'attention' | 'off'
 
@@ -21,25 +22,35 @@ export function statusLineSetting(options: PluginOptions): StatusLineSetting {
   return known
 }
 
-function waitText(who: string, call: BoardToolSight | null): string {
-  const lead = `${who} waits for permission`
-  return call === null ? lead : `${lead}: ${callText(call)}`
+export type Wait = { who: string; call: BoardToolSight | null }
+
+function waitLead(wait: Wait): string {
+  return `${wait.who} waits for permission`
 }
 
-export function agentWaitText(row: AgentRow): string {
-  return waitText(row.shownName, row.call)
+function waitText(wait: Wait): string {
+  return wait.call === null ? waitLead(wait) : `${waitLead(wait)}: ${callText(wait.call)}`
+}
+
+export function agentWait(row: AgentRow): Wait {
+  return { who: row.shownName, call: row.call }
 }
 
 export function agentWaitLine(row: AgentRow): string {
-  return `${WAIT_MARK} ${agentWaitText(row)}`
+  return `${WAIT_MARK} ${waitText(agentWait(row))}`
 }
 
-export function mainWaitText(call: BoardToolSight): string {
-  return waitText(MAIN_LOOP, call)
+export function mainWait(call: BoardToolSight): Wait {
+  return { who: MAIN_LOOP, call }
 }
 
-export function noticeText(session: string, wait: string): string {
-  return `${session} needs you: ${wait}`
+export function noticeText(session: string, wait: Wait): string {
+  return `${session} needs you: ${waitText(wait)}`
+}
+
+export function noticeParts(session: string, wait: Wait): ToastParts {
+  const head = `${TOAST_MARKS.waitsForYou} ${session} needs you`
+  return wait.call === null ? [head, waitLead(wait)] : [head, waitLead(wait), callText(wait.call)]
 }
 
 export function attentionText(rows: readonly AgentRow[]): string | undefined {

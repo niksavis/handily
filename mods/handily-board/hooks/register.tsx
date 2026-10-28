@@ -13,9 +13,11 @@ import type {
 } from 'claude-code'
 import {
   type StatusLineSetting,
-  agentWaitText,
+  type Wait,
+  agentWait,
   attentionText,
-  mainWaitText,
+  mainWait,
+  noticeParts,
   noticeText,
   statusLineSetting,
 } from './attention'
@@ -101,6 +103,7 @@ import {
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
+import { type ToastParts, showToast } from './toast'
 import type {
   BoardCallRow,
   BoardChecks,
@@ -607,15 +610,15 @@ async function untilSettled<R>(
   }
 }
 
-async function waitOf($: EngineInterface, ask: WaitingAsk): Promise<string | undefined> {
+async function waitOf($: EngineInterface, ask: WaitingAsk): Promise<Wait | undefined> {
   const { agentId } = ask
-  if (agentId === undefined) return mainWaitText(ask.sight)
+  if (agentId === undefined) return mainWait(ask.sight)
   const rows = await agentView(agentHostOf($), await $.clock.now())
   const row = rows.find((one) => one.id === agentId && one.look === 'needsYou')
-  return row === undefined ? undefined : agentWaitText(row)
+  return row === undefined ? undefined : agentWait(row)
 }
 
-async function notifyOrToast($: EngineInterface, text: string): Promise<void> {
+async function notifyOrToast($: EngineInterface, text: string, parts: ToastParts): Promise<void> {
   try {
     const sent = await $.ui.notify(text)
     if (sent.isSent) return
@@ -625,7 +628,7 @@ async function notifyOrToast($: EngineInterface, text: string): Promise<void> {
   } catch (error) {
     $.ui.log(`handily-board: the desktop notice failed: ${String(error)}`, { to: 'debug' })
   }
-  $.ui.toast(text)
+  showToast($, parts)
 }
 
 async function noticeWait($: EngineInterface, attention: AttentionKeep, callId: string) {
@@ -636,7 +639,7 @@ async function noticeWait($: EngineInterface, attention: AttentionKeep, callId: 
     if (wait === undefined || (await isSessionTabSeen($))) return
     const session = escaped(lastSegment(await $.session.cwd()))
     if (attention.asks.get(callId) !== ask) return
-    await notifyOrToast($, noticeText(session, wait))
+    await notifyOrToast($, noticeText(session, wait), noticeParts(session, wait))
   } catch (error) {
     $.ui.log(`handily-board: no notice for the wait: ${String(error)}`, { to: 'debug' })
   }
@@ -727,8 +730,8 @@ function uiOf($: EngineInterface): PaneUi {
         stayed(String(error))
       }
     },
-    toast: (text) => {
-      $.ui.toast(text)
+    showToast: (parts) => {
+      showToast($, parts)
     },
     log: (text) => {
       $.ui.log(text)
@@ -1159,19 +1162,19 @@ export const register: Register = (on, options) => {
       case 'close':
         return { text: await closeBoard(uiOf($)) }
       case 'clear':
-        return { text: await personClear(host) }
+        return { text: (await personClear(host)).text }
       case 'list':
         return { text: await listReply(host) }
       case 'stats':
         return { text: statsText(await workOf($, { vitals, checks, steps, pulses })) }
       case 'add':
-        return { text: await personAdd(host, command.text) }
+        return { text: (await personAdd(host, command.text)).text }
       case 'rm':
-        return { text: await personRemove(host, command.text) }
+        return { text: (await personRemove(host, command.text)).text }
       case 'mv':
         return { text: await personPlace(host, command.text) }
       case 'status':
-        return { text: await personStatus(host, command.text, command.word) }
+        return { text: (await personStatus(host, command.text, command.word)).text }
       case 'unknown':
         return { text: unknownReply(command.word) }
     }
