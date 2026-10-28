@@ -2282,6 +2282,173 @@ function notDrawn(reason: string): Refusal {
   return { kind: 'refused', reason, line: null, limit: null }
 }
 
+const LINE_UP = 1
+const LINE_DOWN = 2
+const LINE_LEFT = 4
+const LINE_RIGHT = 8
+
+const LINE_ENDS: Readonly<Record<string, number>> = {
+  '─': LINE_LEFT | LINE_RIGHT,
+  '╌': LINE_LEFT | LINE_RIGHT,
+  '│': LINE_UP | LINE_DOWN,
+  '╎': LINE_UP | LINE_DOWN,
+  '┌': LINE_DOWN | LINE_RIGHT,
+  '┐': LINE_DOWN | LINE_LEFT,
+  '└': LINE_UP | LINE_RIGHT,
+  '┘': LINE_UP | LINE_LEFT,
+  '├': LINE_UP | LINE_DOWN | LINE_RIGHT,
+  '┤': LINE_UP | LINE_DOWN | LINE_LEFT,
+  '┬': LINE_LEFT | LINE_RIGHT | LINE_DOWN,
+  '┴': LINE_LEFT | LINE_RIGHT | LINE_UP,
+  '┼': LINE_UP | LINE_DOWN | LINE_LEFT | LINE_RIGHT,
+}
+
+const LINE_STEPS = [
+  [LINE_UP, -1, 0, LINE_DOWN],
+  [LINE_DOWN, 1, 0, LINE_UP],
+  [LINE_LEFT, 0, -1, LINE_RIGHT],
+  [LINE_RIGHT, 0, 1, LINE_LEFT],
+] as const
+
+type DrawnBox = { name: string; top: number; left: number; bottom: number; right: number }
+
+function cellGrid(lines: readonly string[]): string[][] {
+  return lines.map((line) =>
+    graphemesOf(line).flatMap((grapheme) =>
+      displayWidth(grapheme) > 1 ? [grapheme, ''] : [grapheme],
+    ),
+  )
+}
+
+function drawnBoxes(grid: readonly string[][]): DrawnBox[] {
+  const at = (row: number, col: number) => grid[row]?.[col] ?? ' '
+  const boxes: DrawnBox[] = []
+  grid.forEach((cells, top) => {
+    cells.forEach((cell, left) => {
+      if (cell !== '┌' && cell !== '╭') return
+      let right = left + 1
+      while ('─┬┴'.includes(at(top, right))) right += 1
+      if (!'┐╮'.includes(at(top, right)) || right === left + 1) return
+      let bottom = top + 1
+      while (at(bottom, left) === '│' && at(bottom, right) === '│') bottom += 1
+      const closed = '└╰'.includes(at(bottom, left)) && '┘╯'.includes(at(bottom, right))
+      if (bottom === top + 1 || !closed) return
+      for (let col = left + 1; col < right; col++) if (!'─┬┴'.includes(at(bottom, col))) return
+      const row = (grid[top + 1] ?? []).slice(left + 1, right)
+      const name = row.join('').trim().replace(/^◇ /, '')
+      if (name !== '') boxes.push({ name, top, left, bottom, right })
+    })
+  })
+  return boxes
+}
+
+function drawnLinks(lines: readonly string[]): string[] {
+  const grid = cellGrid(lines)
+  const at = (row: number, col: number) => grid[row]?.[col] ?? ' '
+  const boxes = drawnBoxes(grid)
+  const inBox = (row: number, col: number) =>
+    boxes.some(
+      ({ top, left, bottom, right }) => row >= top && row <= bottom && col >= left && col <= right,
+    )
+  const ends = (row: number, col: number) => (inBox(row, col) ? 0 : (LINE_ENDS[at(row, col)] ?? 0))
+  const upright = (row: number, col: number) => ends(row, col) === (LINE_UP | LINE_DOWN)
+  const reaches = (row: number, col: number, step: number, bit: number) => {
+    let next = col + step
+    while (upright(row, next)) next += step
+    return (ends(row, next) & bit) !== 0
+  }
+  const crossing = (row: number, col: number) =>
+    upright(row, col) && reaches(row, col, -1, LINE_RIGHT) && reaches(row, col, 1, LINE_LEFT)
+  const keyOf = (row: number, col: number, across: number) =>
+    `${String(row)},${String(col)}${across !== 0 && crossing(row, col) ? ',across' : ''}`
+  const parent = new Map<string, string>()
+  const root = (key: string): string => {
+    const up = parent.get(key)
+    if (up === undefined || up === key) return key
+    const top = root(up)
+    parent.set(key, top)
+    return top
+  }
+  grid.forEach((cells, row) => {
+    cells.forEach((_, col) => {
+      const bits = crossing(row, col) ? ends(row, col) | LINE_LEFT | LINE_RIGHT : ends(row, col)
+      for (const [bit, down, across, back] of LINE_STEPS) {
+        const next = row + down
+        const beside = col + across
+        const meets = across !== 0 && crossing(next, beside) ? back : ends(next, beside)
+        if ((bits & bit) === 0 || (meets & back) === 0) continue
+        parent.set(root(keyOf(row, col, across)), root(keyOf(next, beside, across)))
+      }
+    })
+  })
+  const sources = new Map<string, Set<string>>()
+  const targets = new Map<string, Set<string>>()
+  const pairs = new Set<string>()
+  const attach = (
+    side: Map<string, Set<string>>,
+    row: number,
+    col: number,
+    bit: number,
+    name: string,
+  ) => {
+    if ((ends(row, col) & bit) === 0) return
+    const key = root(keyOf(row, col, 0))
+    side.set(key, new Set([...(side.get(key) ?? []), name]))
+  }
+  for (const box of boxes) {
+    for (let col = box.left + 1; col < box.right; col++) {
+      if (at(box.bottom, col) === '┬') attach(sources, box.bottom + 1, col, LINE_UP, box.name)
+      if (at(box.top, col) === '┴') attach(targets, box.top - 1, col, LINE_DOWN, box.name)
+      if (at(box.bottom + 1, col) === '▲') attach(targets, box.bottom + 2, col, LINE_UP, box.name)
+      if (at(box.top - 1, col) !== '▼') continue
+      const above = boxes.find(
+        (other) => other.bottom === box.top - 2 && col > other.left && col < other.right,
+      )
+      if (above !== undefined && at(box.top - 2, col) === '┬')
+        pairs.add(`${above.name}>${box.name}`)
+      else attach(targets, box.top - 2, col, LINE_DOWN, box.name)
+    }
+    for (let row = box.top + 1; row < box.bottom; row++) {
+      if (at(row, box.left - 1) === '▶') attach(targets, row, box.left - 2, LINE_RIGHT, box.name)
+      else attach(targets, row, box.left - 1, LINE_RIGHT, box.name)
+      if (at(row, box.right + 1) === '◀') attach(targets, row, box.right + 2, LINE_LEFT, box.name)
+      else attach(sources, row, box.right + 1, LINE_LEFT, box.name)
+    }
+  }
+  for (const [key, from] of sources) {
+    for (const source of from) {
+      for (const target of targets.get(key) ?? []) pairs.add(`${source}>${target}`)
+    }
+  }
+  return [...pairs].sort()
+}
+
+function chartLinks(chart: Flowchart): string[] {
+  return [...new Set(chart.edges.map((edge) => `${edge.from}>${edge.to}`))].sort()
+}
+
+function generatedCharts(seed: number, count: number): string[] {
+  let state = seed
+  const next = (below: number) => {
+    state = (state * 1103515245 + 12345) % 2147483648
+    return Math.floor((state / 2147483648) * below)
+  }
+  return Array.from({ length: count }, () => {
+    const direction = next(2) === 0 ? 'TD' : 'LR'
+    const boxes = 2 + next(7)
+    const lines = [`flowchart ${direction}`, `  ${numbered('N', boxes).join(' & ')}`]
+    const edges = 1 + next(11)
+    for (let index = 0; index < edges; index++) {
+      const from = 1 + next(boxes)
+      const to = 1 + next(boxes)
+      const arrow = next(5) === 0 ? '-.->' : '-->'
+      const label = next(10) < 3 ? `|e${String(index)}|` : ''
+      if (from !== to) lines.push(`  N${String(from)} ${arrow}${label} N${String(to)}`)
+    }
+    return linesOf(...lines)
+  })
+}
+
 function chain(count: number, direction = 'TD'): string[] {
   return [
     `flowchart ${direction}`,
@@ -2439,12 +2606,12 @@ describe('flowchart drawings', () => {
       '┌────────┐ │',
       `│ ${TECHIE} Ana │ │`,
       '└───┬────┘ │',
-      '    └───┬──┘',
-      '        │ 日本語',
-      '        ▼',
-      '  ┌──────────┐',
-      `  │ ${AUSTRIA} Bo ${KEYCAP_ONE} │`,
-      '  └──────────┘',
+      '    │      └─┐',
+      '    │ 日本語 │',
+      '    ▼        ▼',
+      ' ┌────────────┐',
+      ` │ ${AUSTRIA} Bo ${KEYCAP_ONE}   │`,
+      ' └────────────┘',
     ])
     for (const box of [lines.slice(0, 3), lines.slice(11, 14)]) {
       expect(new Set(box.map(displayWidth)).size).toBe(1)
@@ -2483,7 +2650,7 @@ describe('flowchart drawings', () => {
     ])
   })
 
-  test('an edge across two levels and two merging edges share one drop into the box', () => {
+  test('an edge across two levels keeps its own drop, and two boxes that link only that box share one', () => {
     expect(
       drawnLines(
         linesOf(
@@ -2505,8 +2672,8 @@ describe('flowchart drawings', () => {
       '┌──────┐ ┌───────┐  │',
       '│ Left │ │ Right │  │',
       '└──┬───┘ └───┬───┘  │',
-      '   └─────────┼──────┘',
-      '             ▼',
+      '   └────────┬┘┌─────┘',
+      '            ▼ ▼',
       '         ┌──────┐',
       '         │ Join │',
       '         └──────┘',
@@ -2528,12 +2695,11 @@ describe('flowchart drawings', () => {
       '┌───┐  ┌───┐  ┌───┐',
       '│ B │  │ D │  │ C │',
       '└─┬─┘  └─┬─┘  └─┬─┘',
-      '  └──────┤      │',
-      '         ├──────┤',
-      '         ▼      ▼',
-      '       ┌───┐  ┌───┐',
-      '       │ E │  │ F │',
-      '       └───┘  └───┘',
+      '  └─────┬┘┌─────┴┐',
+      '        ▼ ▼      ▼',
+      '      ┌─────┐  ┌───┐',
+      '      │ E   │  │ F │',
+      '      └─────┘  └───┘',
     ])
   })
 
@@ -2581,13 +2747,123 @@ describe('flowchart drawings', () => {
       '  ▼          │ │',
       '┌───┐        │ │',
       '│ C │◀─────┐ │ │',
-      '│   │──────┼─┼─┘ back to a',
+      '│   │──────│─│─┘ back to a',
       '└─┬─┘      │ │',
       '  ▼        │ │',
       '┌───┐      │ │',
       '│ D │──────┴─┘   again',
       '└───┘            back to b',
     ])
+  })
+
+  test('a link into a shared box shows no link the chart does not have', () => {
+    const down = linesOf('flowchart TD', '  A --> C', '  B --> C', '  B --> D')
+    const across = linesOf('flowchart LR', '  B --> A', '  C --> A', '  C --> D')
+    expect(drawnLines(down, REPLY_COLUMNS)).toEqual([
+      '┌───┐  ┌───┐',
+      '│ A │  │ B │',
+      '└─┬─┘  └─┬─┘',
+      '  │ ┌────┴─┐',
+      '  ▼ ▼      ▼',
+      '┌─────┐  ┌───┐',
+      '│ C   │  │ D │',
+      '└─────┘  └───┘',
+    ])
+    expect(drawnLines(across, REPLY_COLUMNS)).toEqual([
+      '┌───┐      ┌───┐',
+      '│ B │──┐   │ A │',
+      '└───┘  └──▶│   │',
+      '┌───┐  ┌──▶│   │',
+      '│ C │──┤   └───┘',
+      '└───┘  │   ┌───┐',
+      '       └──▶│ D │',
+      '           └───┘',
+    ])
+    for (const source of [down, across]) {
+      expect(drawnLinks(drawnLines(source, REPLY_COLUMNS))).toEqual(chartLinks(flowchartOf(source)))
+    }
+  })
+
+  test('the link reader finds the false link of two links that join', () => {
+    expect(
+      drawnLinks([
+        '┌───┐  ┌───┐',
+        '│ A │  │ B │',
+        '└─┬─┘  └─┬─┘',
+        '  └───┬──┴───┐',
+        '      ▼      ▼',
+        '    ┌───┐  ┌───┐',
+        '    │ C │  │ D │',
+        '    └───┘  └───┘',
+      ]),
+    ).toEqual(['A>C', 'A>D', 'B>C', 'B>D'])
+  })
+
+  test('each label and each arrowhead belongs to one link', () => {
+    expect(drawnLines('flowchart TD\n  A -->|yes| C\n  B --> C\n  B --> D', REPLY_COLUMNS)).toEqual(
+      [
+        '  ┌───┐  ┌───┐',
+        '  │ A │  │ B │',
+        '  └─┬─┘  └─┬─┘',
+        ' ┌──┘  ┌───┴──┐',
+        ' │ yes │      │',
+        ' ▼     ▼      ▼',
+        '┌─────────┐ ┌───┐',
+        '│ C       │ │ D │',
+        '└─────────┘ └───┘',
+      ],
+    )
+    expect(drawnLines('flowchart TD\n  A -->|yes| C\n  B -->|no| C', REPLY_COLUMNS)).toEqual([
+      '┌───┐  ┌───┐',
+      '│ A │  │ B │',
+      '└─┬─┘  └─┬─┘',
+      '  └┐     │',
+      '   │ yes │ no',
+      '   ▼     ▼',
+      ' ┌─────────┐',
+      ' │ C       │',
+      ' └─────────┘',
+    ])
+    expect(drawnLines('flowchart TD\n  A --- C\n  B --> C', REPLY_COLUMNS)).toEqual([
+      '┌───┐  ┌───┐',
+      '│ A │  │ B │',
+      '└─┬─┘  └─┬─┘',
+      '  └──┐ ┌─┘',
+      '     │ ▼',
+      '   ┌─┴───┐',
+      '   │ C   │',
+      '   └─────┘',
+    ])
+  })
+
+  test('a crossing draws the vertical line through, so it differs from a join', () => {
+    const source = linesOf('flowchart TD', '  A --> B & C & D', '  E --> C')
+    const lines = drawnLines(source, REPLY_COLUMNS)
+    expect(lines).toEqual([
+      '      ┌───┐  ┌───┐',
+      '      │ A │  │ E │',
+      '      └─┬─┘  └─┬─┘',
+      '  ┌─────┴┬─────│┐',
+      '  │      │     └│─┐',
+      '  ▼      ▼      ▼ ▼',
+      '┌───┐  ┌───┐  ┌─────┐',
+      '│ B │  │ D │  │ C   │',
+      '└───┘  └───┘  └─────┘',
+    ])
+    expect(lines.join('\n')).not.toContain('┼')
+    expect(drawnLinks(lines)).toEqual(chartLinks(flowchartOf(source)))
+  })
+
+  test('1000 generated charts draw only the links they hold', () => {
+    const drawn = generatedCharts(20261028, 1000).flatMap((source) => {
+      const chart = flowchartOf(source)
+      const result = drawFlowchart(chart, REPLY_COLUMNS)
+      return result.kind === 'drawing' ? [[drawnLinks(result.lines), chartLinks(chart)]] : []
+    })
+    expect(drawn.length).toBeGreaterThan(900)
+    expect(drawn.filter(([shown, held]) => JSON.stringify(shown) !== JSON.stringify(held))).toEqual(
+      [],
+    )
   })
 
   test('the label of a loop is cut to 12 columns when the labels must fit', () => {

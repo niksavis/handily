@@ -21,6 +21,9 @@ const BUS_SPACING = 2
 const STRAIGHT_LINK_COLUMNS = 3
 const BOX_PADDING = 4
 const SLIDING_WIDTH = 8
+const ENTRY_SPACING = 2
+const DOWN_ENTRY_ROOM = 5
+const ACROSS_ENTRY_ROOM = 4
 const DECISION_MARK = '◇ '
 const DECISION_INDENT = '  '
 const CONTROL = /\p{Cc}/gu
@@ -33,10 +36,12 @@ const RIGHT = 8
 const VERTICAL = UP | DOWN
 const HORIZONTAL = LEFT | RIGHT
 
+const SOLID_VERTICAL = '│'
+
 const SOLID_GLYPHS: Readonly<Record<number, string>> = {
-  [UP]: '│',
-  [DOWN]: '│',
-  [VERTICAL]: '│',
+  [UP]: SOLID_VERTICAL,
+  [DOWN]: SOLID_VERTICAL,
+  [VERTICAL]: SOLID_VERTICAL,
   [LEFT]: '─',
   [RIGHT]: '─',
   [HORIZONTAL]: '─',
@@ -95,14 +100,19 @@ type Graph = {
   incoming: Segment[][]
   loops: Link[]
   turns: Set<number>
+  real: Set<string>
+  reach: Map<number, string>
 }
 
 type Shape = { lines: string[]; width: number; height: number; shape: FlowShape }
 
+type Entry = { label: string[]; arrow: boolean; offset: number; sharing: string | null }
+
 type Plan = {
   graph: Graph
   shapes: (Shape | null)[]
-  labels: string[][]
+  entries: Entry[][]
+  entryOf: Map<Segment, Entry>
   cut: number | null
   meter: LayoutMeter
 }
@@ -113,15 +123,9 @@ type Band = { tracks: Map<number, number>; trackCount: number }
 
 type Point = { row: number; col: number }
 
-type Owner = { from: number; to: number }
+type Trace = { link: Link; bits: number; solid: boolean }
 
-type Cell = {
-  glyph: string | null
-  mask: number
-  solid: boolean
-  across: Owner[]
-  down: Owner[]
-}
+type Cell = { glyph: string | null; traces: Trace[] }
 
 class DrawingFault extends Error {
   constructor(readonly reason: string) {
@@ -147,17 +151,54 @@ function widest(lines: readonly string[]): number {
   return Math.max(0, ...lines.map(displayWidth))
 }
 
-type Linked = (from: number, to: number) => boolean
+function pairKey(from: number, to: number): string {
+  return `${String(from)}>${String(to)}`
+}
 
-function isRelated(one: Owner, other: Owner, linked: Linked): boolean {
-  if (one.from === other.from || one.to === other.to) return true
-  return linked(one.from, other.to) && linked(other.from, one.to)
+function maskOf(cell: Cell): number {
+  return cell.traces.reduce((mask, trace) => mask | trace.bits, 0)
+}
+
+function isCrossing(cell: Cell): boolean {
+  const across = cell.traces.filter((trace) => (trace.bits & HORIZONTAL) !== 0)
+  const down = cell.traces.filter((trace) => (trace.bits & VERTICAL) !== 0)
+  return across.length > 0 && down.length > 0 && !cell.traces.some(isTurning)
+}
+
+function isTurning(trace: Trace): boolean {
+  return (trace.bits & HORIZONTAL) !== 0 && (trace.bits & VERTICAL) !== 0
+}
+
+class Networks {
+  private readonly parent = new Map<Link, Link>()
+
+  join(links: readonly Link[]): void {
+    const [first, ...rest] = links
+    if (first === undefined) return
+    for (const link of rest) this.parent.set(this.root(link), this.root(first))
+  }
+
+  groups(): Link[][] {
+    const groups = new Map<Link, Link[]>()
+    for (const link of this.parent.keys()) {
+      const root = this.root(link)
+      groups.set(root, [...(groups.get(root) ?? []), link])
+    }
+    return [...groups.values()]
+  }
+
+  private root(link: Link): Link {
+    let at = link
+    for (let up = this.parent.get(at); up !== undefined && up !== at; up = this.parent.get(at)) {
+      at = up
+    }
+    if (!this.parent.has(at)) this.parent.set(at, at)
+    return at
+  }
 }
 
 class Canvas {
   private readonly rows = new Map<number, Map<number, Cell>>()
-
-  constructor(private readonly linked: Linked) {}
 
   put(row: number, col: number, text: string): void {
     let at = col
@@ -191,7 +232,7 @@ class Canvas {
     cell.glyph = glyph
   }
 
-  path(points: readonly Point[], owner: Owner, stroke: Stroke, leadIn: number, leadOut: number) {
+  path(points: readonly Point[], link: Link, stroke: Stroke, leadIn: number, leadOut: number) {
     const walk = walkOf(points)
     walk.forEach((point, index) => {
       let bits = 0
@@ -201,7 +242,36 @@ class Canvas {
       if (after !== undefined) bits |= directionOf(point, after)
       if (index === 0) bits |= leadIn
       if (index === walk.length - 1) bits |= leadOut
-      this.line(point, bits, owner, stroke)
+      this.line(point, { link, bits, solid: stroke === 'solid' })
+    })
+  }
+
+  falseLinks(real: ReadonlySet<string>, meter: LayoutMeter): Link[] {
+    const networks = new Networks()
+    for (const cells of this.rows.values()) {
+      for (const cell of cells.values()) {
+        tick(meter)
+        const links = cell.traces.map((trace) => trace.link)
+        if (!isCrossing(cell)) {
+          networks.join(links)
+          continue
+        }
+        networks.join(
+          cell.traces.filter((trace) => (trace.bits & HORIZONTAL) !== 0).map((t) => t.link),
+        )
+        networks.join(
+          cell.traces.filter((trace) => (trace.bits & VERTICAL) !== 0).map((t) => t.link),
+        )
+      }
+    }
+    return networks.groups().flatMap((group) => {
+      const sources = new Set(group.map((link) => link.from))
+      const targets = new Set(group.map((link) => link.to))
+      tick(meter, sources.size * targets.size)
+      const wrong = [...sources].some((from) =>
+        [...targets].some((to) => !real.has(pairKey(from, to))),
+      )
+      return wrong ? group : []
     })
   }
 
@@ -249,33 +319,17 @@ class Canvas {
 
   private claim(row: number, col: number, glyph: string): Cell {
     if (this.rows.get(row)?.has(col) === true) throw new DrawingFault(LINES_OVERLAP)
-    const cell: Cell = { glyph, mask: 0, solid: false, across: [], down: [] }
+    const cell: Cell = { glyph, traces: [] }
     this.cellsOf(row).set(col, cell)
     return cell
   }
 
-  private line(point: Point, bits: number, owner: Owner, stroke: Stroke): void {
+  private line(point: Point, trace: Trace): void {
     const cells = this.cellsOf(point.row)
-    const cell = cells.get(point.col) ?? {
-      glyph: null,
-      mask: 0,
-      solid: false,
-      across: [],
-      down: [],
-    }
+    const cell = cells.get(point.col) ?? { glyph: null, traces: [] }
     if (cell.glyph !== null) throw new DrawingFault(LINES_OVERLAP)
-    if ((bits & HORIZONTAL) !== 0) this.claimAxis(cell.across, owner)
-    if ((bits & VERTICAL) !== 0) this.claimAxis(cell.down, owner)
-    cell.mask |= bits
-    cell.solid ||= stroke === 'solid'
+    cell.traces.push(trace)
     cells.set(point.col, cell)
-  }
-
-  private claimAxis(owners: Owner[], owner: Owner): void {
-    if (owners.some((other) => !isRelated(other, owner, this.linked))) {
-      throw new DrawingFault(LINES_OVERLAP)
-    }
-    owners.push(owner)
   }
 
   private cellsOf(row: number): Map<number, Cell> {
@@ -290,9 +344,15 @@ class Canvas {
 function glyphOf(cell: Cell | undefined): string {
   if (cell === undefined) return ' '
   if (cell.glyph !== null) return cell.glyph
-  if (!cell.solid && (cell.mask & HORIZONTAL) === 0) return DASHED_VERTICAL
-  if (!cell.solid && (cell.mask & VERTICAL) === 0) return DASHED_HORIZONTAL
-  return SOLID_GLYPHS[cell.mask] ?? ' '
+  if (isCrossing(cell)) {
+    const solid = cell.traces.some((trace) => (trace.bits & VERTICAL) !== 0 && trace.solid)
+    return solid ? SOLID_VERTICAL : DASHED_VERTICAL
+  }
+  const mask = maskOf(cell)
+  const solid = cell.traces.some((trace) => trace.solid)
+  if (!solid && (mask & HORIZONTAL) === 0) return DASHED_VERTICAL
+  if (!solid && (mask & VERTICAL) === 0) return DASHED_HORIZONTAL
+  return SOLID_GLYPHS[mask] ?? ' '
 }
 
 function directionOf(from: Point, to: Point): number {
@@ -500,7 +560,14 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   keepLoopsOutside(layers, loops)
   const leaving = new Set(loops.map((link) => link.from))
   const turns = new Set(loops.map((link) => link.to).filter((vertex) => leaving.has(vertex)))
-  return { nodes: chart.nodes, layerOf, layers, outgoing, incoming, loops, turns }
+  const real = new Set(links.map((link) => pairKey(link.from, link.to)))
+  const reach = new Map(
+    chart.nodes.map((_, node) => {
+      const targets = forward.filter((link) => link.from === node).map((link) => link.to)
+      return [node, targets.sort((one, other) => one - other).join(' ')]
+    }),
+  )
+  return { nodes: chart.nodes, layerOf, layers, outgoing, incoming, loops, turns, real, reach }
 }
 
 function shapeOf(node: FlowNode, wrap: number | null, turning: boolean): Shape {
@@ -528,21 +595,85 @@ function edgeLabel(label: readonly string[], cut: number | null): string[] {
     .map((line) => (cut === null ? line : fitted(line, cut)))
 }
 
-function labelsOf(graph: Graph, cut: number | null): string[][] {
-  return graph.incoming.map((segments) =>
-    edgeLabel(
-      segments.filter((segment) => segment.first).flatMap((segment) => segment.link.label),
-      cut,
-    ),
-  )
+function entryGap(entries: readonly Entry[], at: number, direction: FlowDirection): number {
+  if (direction === 'LR') return (entries[at + 1]?.label.length ?? 0) + 1
+  const label = widest(entries[at]?.label ?? [])
+  return label === 0 ? ENTRY_SPACING : label + LABEL_INDENT + 1
 }
 
-function planOf(graph: Graph, attempt: Attempt, meter: LayoutMeter): Plan {
+function spreadEntries(entries: readonly Entry[], direction: FlowDirection): number {
+  const gaps = entries.slice(1).map((_, at) => entryGap(entries, at, direction))
+  const span = gaps.reduce((total, gap) => total + gap, 0)
+  let offset = -Math.floor(span / 2)
+  entries.forEach((entry, at) => {
+    entry.offset = offset
+    offset += gaps[at] ?? 0
+  })
+  return span
+}
+
+function grown(shape: Shape, direction: FlowDirection, span: number): Shape {
+  if (direction === 'TD') return { ...shape, width: Math.max(shape.width, span + DOWN_ENTRY_ROOM) }
+  const height = Math.max(shape.height, span + ACROSS_ENTRY_ROOM)
+  const lines = [...shape.lines]
+  while (lines.length < height - 2) lines.push('')
+  return { ...shape, lines, height }
+}
+
+function entriesOf(
+  graph: Graph,
+  vertex: number,
+  rank: ReadonlyMap<number, number>,
+  attempt: Attempt,
+  split: ReadonlySet<number>,
+): Map<Segment, Entry> {
+  const segments = [...(graph.incoming[vertex] ?? [])].sort(
+    (one, other) =>
+      (rank.get(one.from) ?? 0) - (rank.get(other.from) ?? 0) || one.from - other.from,
+  )
+  const entries = new Map<Segment, Entry>()
+  for (const segment of segments) {
+    const label = segment.first ? edgeLabel(segment.link.label, attempt.cut) : []
+    const arrow = segment.link.arrow
+    const sharing =
+      label.length === 0 && !split.has(vertex)
+        ? `${String(arrow)} ${graph.reach.get(segment.link.from) ?? ''}`
+        : null
+    const shared = [...entries.values()].find(
+      (entry) => sharing !== null && entry.sharing === sharing,
+    )
+    entries.set(segment, shared ?? { label, arrow, offset: 0, sharing })
+  }
+  return entries
+}
+
+function planOf(
+  graph: Graph,
+  attempt: Attempt,
+  split: ReadonlySet<number>,
+  meter: LayoutMeter,
+): Plan {
+  const rank = new Map(graph.layers.flatMap((layer) => layer.map((vertex, at) => [vertex, at])))
+  const entryOf = new Map<Segment, Entry>()
+  const entries = graph.layerOf.map((_, vertex) => {
+    const owned = entriesOf(graph, vertex, rank, attempt, split)
+    tick(meter, owned.size + 1)
+    owned.forEach((entry, segment) => entryOf.set(segment, entry))
+    return [...new Set(owned.values())]
+  })
   const shapes = graph.layerOf.map((_, vertex) => {
     const node = graph.nodes[vertex]
-    return node === undefined ? null : shapeOf(node, attempt.wrap, graph.turns.has(vertex))
+    if (node === undefined) return null
+    const shape = shapeOf(node, attempt.wrap, graph.turns.has(vertex))
+    const own = entries[vertex] ?? []
+    const span = spreadEntries(own, attempt.direction)
+    return own.length > 1 ? grown(shape, attempt.direction, span) : shape
   })
-  return { graph, shapes, labels: labelsOf(graph, attempt.cut), cut: attempt.cut, meter }
+  return { graph, shapes, entries, entryOf, cut: attempt.cut, meter }
+}
+
+function entryAt(plan: Plan, ports: readonly number[], segment: Segment): number {
+  return (ports[segment.to] ?? 0) + (plan.entryOf.get(segment)?.offset ?? 0)
 }
 
 function crossSize(plan: Plan, vertex: number, direction: FlowDirection): number {
@@ -561,12 +692,14 @@ function separation(plan: Plan, above: number, below: number, direction: FlowDir
     crossOffset(plan, above, direction) +
     (direction === 'TD' ? DOWN_BOX_GAP : ACROSS_BOX_GAP) +
     crossOffset(plan, below, direction)
+  const last = plan.entries[above]?.at(-1)
+  const first = plan.entries[below]?.[0]
+  const between = (first?.offset ?? 0) - (last?.offset ?? 0)
   if (direction === 'TD') {
-    const label = widest(plan.labels[above] ?? [])
-    return label === 0 ? boxes : Math.max(boxes, label + LABEL_INDENT + 1)
+    const label = widest(last?.label ?? [])
+    return Math.max(boxes, (label === 0 ? 1 : label + LABEL_INDENT + 1) - between)
   }
-  const lines = plan.labels[below]?.length ?? 0
-  return lines === 0 ? boxes : Math.max(boxes, lines + 1)
+  return Math.max(boxes, (first?.label.length ?? 0) + 1 - between)
 }
 
 type Block = { first: number; sum: number; count: number }
@@ -645,11 +778,11 @@ type BusItem = {
   low: number
   high: number
   port: number
-  drops: Map<number, number>
-  targets: Set<number>
+  drops: Map<number, Entry | undefined>
+  targets: Set<Entry | undefined>
 }
 
-function bandOf(segments: readonly Segment[], ports: readonly number[], meter: LayoutMeter): Band {
+function bandOf(plan: Plan, segments: readonly Segment[], ports: readonly number[]): Band {
   const bySource = new Map<number, Segment[]>()
   for (const segment of segments) {
     const known = bySource.get(segment.from) ?? []
@@ -659,7 +792,9 @@ function bandOf(segments: readonly Segment[], ports: readonly number[], meter: L
   const items: BusItem[] = []
   for (const [source, outgoing] of bySource) {
     const port = ports[source] ?? 0
-    const drops = new Map(outgoing.map((segment) => [ports[segment.to] ?? 0, segment.to]))
+    const drops = new Map(
+      outgoing.map((segment) => [entryAt(plan, ports, segment), plan.entryOf.get(segment)]),
+    )
     const only = outgoing[0]
     if (outgoing.length === 1 && only !== undefined && drops.has(port)) continue
     const columns = [port, ...drops.keys()]
@@ -672,7 +807,7 @@ function bandOf(segments: readonly Segment[], ports: readonly number[], meter: L
       targets: new Set(drops.values()),
     })
   }
-  return tracksOf(items, meter)
+  return tracksOf(items, plan.meter)
 }
 
 function sharesTargets(one: BusItem, other: BusItem): boolean {
@@ -742,23 +877,12 @@ function drawBox(canvas: Canvas, shape: Shape, row: number, col: number): void {
   canvas.put(row + shape.height - 1, col, `${bottomLeft}${across}${bottomRight}`)
 }
 
-function linkedIn(graph: Graph): Linked {
-  const pairs = new Set(
-    graph.outgoing.flat().map((segment) => `${String(segment.from)}>${String(segment.to)}`),
-  )
-  return (from, to) => pairs.has(`${String(from)}>${String(to)}`)
+function entriesIn(plan: Plan, vertex: number): Entry[] {
+  return plan.entries[vertex] ?? []
 }
 
-function isArrowed(graph: Graph, vertex: number): boolean {
-  return (graph.incoming[vertex] ?? []).some((segment) => segment.link.arrow)
-}
-
-function segmentOwner(segment: Segment): Owner {
-  return { from: segment.from, to: segment.to }
-}
-
-function loopOwner(link: Link): Owner {
-  return { from: -1 - link.from, to: -1 - link.to }
+function labelRowsOf(entry: Entry): number {
+  return entry.label.length
 }
 
 function sourcesOf(graph: Graph, layer: readonly number[]): Segment[] {
@@ -787,14 +911,14 @@ function drawDown(plan: Plan): Canvas {
   graph.layers.forEach((layer, at) => {
     tops.push(top)
     const depth = Math.max(1, ...layer.map((vertex) => plan.shapes[vertex]?.height ?? 1))
-    const band = bandOf(sourcesOf(graph, layer), ports, meter)
+    const band = bandOf(plan, sourcesOf(graph, layer), ports)
     const next = graph.layers[at + 1] ?? []
-    const rows = Math.max(0, ...next.map((vertex) => plan.labels[vertex]?.length ?? 0))
+    const rows = Math.max(0, ...next.flatMap((vertex) => entriesIn(plan, vertex).map(labelRowsOf)))
     bands.push(band)
     labelRows.push(rows)
     top += depth + band.trackCount + rows + 1
   })
-  const canvas = new Canvas(linkedIn(graph))
+  const canvas = new Canvas()
   graph.layers.forEach((layer, at) => {
     for (const vertex of layer) {
       const shape = plan.shapes[vertex]
@@ -814,13 +938,13 @@ function drawDown(plan: Plan): Canvas {
       const sourceShape = plan.shapes[source]
       const targetShape = plan.shapes[target]
       const from = ports[source] ?? 0
-      const to = ports[target] ?? 0
+      const to = entryAt(plan, ports, segment)
       const startRow = sourceShape == null ? layerTop : layerTop + sourceShape.height
       if (sourceShape != null && !marked.has(source)) {
         canvas.mark(startRow - 1, from, PORT_BELOW)
         marked.add(source)
       }
-      const arrowed = targetShape != null && isArrowed(graph, target)
+      const arrowed = targetShape != null && segment.link.arrow
       const endRow = arrowed ? arrowRow - 1 : arrowRow
       const track = band.tracks.get(source)
       const points =
@@ -835,19 +959,19 @@ function drawDown(plan: Plan): Canvas {
               { row: linkTop + track, col: to },
               { row: endRow, col: to },
             ]
-      if (endRow >= startRow)
-        canvas.path(points, segmentOwner(segment), segment.link.stroke, UP, DOWN)
+      if (endRow >= startRow) canvas.path(points, segment.link, segment.link.stroke, UP, DOWN)
     }
     for (const target of graph.layers[at + 1] ?? []) {
-      const to = ports[target] ?? 0
-      if (plan.shapes[target] != null) {
-        if (isArrowed(graph, target)) canvas.put(arrowRow, to, ARROW_DOWN)
-        else canvas.mark(arrowRow + 1, to, PORT_ABOVE)
+      for (const entry of entriesIn(plan, target)) {
+        const to = (ports[target] ?? 0) + entry.offset
+        if (plan.shapes[target] != null) {
+          if (entry.arrow) canvas.put(arrowRow, to, ARROW_DOWN)
+          else canvas.mark(arrowRow + 1, to, PORT_ABOVE)
+        }
+        entry.label.forEach((line, index) => {
+          canvas.put(linkTop + band.trackCount + index, to + LABEL_INDENT, line)
+        })
       }
-      const label = plan.labels[target] ?? []
-      label.forEach((line, index) => {
-        canvas.put(linkTop + band.trackCount + index, to + LABEL_INDENT, line)
-      })
     }
   })
   drawDownLoops(plan, canvas, tops, starts)
@@ -877,7 +1001,7 @@ function drawDownLoops(plan: Plan, canvas: Canvas, tops: number[], starts: numbe
       { row: targetRow, col: channel },
       { row: targetRow, col: link.arrow ? entry + 1 : entry },
     ]
-    canvas.path(points, loopOwner(link), link.stroke, LEFT, LEFT)
+    canvas.path(points, link, link.stroke, LEFT, LEFT)
     if (link.arrow && !arrowed.has(link.to)) {
       canvas.put(targetRow, entry, ARROW_LEFT)
       arrowed.add(link.to)
@@ -889,24 +1013,24 @@ function drawDownLoops(plan: Plan, canvas: Canvas, tops: number[], starts: numbe
   }
 }
 
-type AcrossBand = Band & { width: number; labelStarts: Map<number, number> }
+type AcrossBand = Band & { width: number; labelStarts: Map<Entry, number> }
 
 function labelStartOf(
   plan: Plan,
   band: Band,
   segments: readonly Segment[],
-  target: number,
+  entry: Entry,
   ports: readonly number[],
 ): number {
-  const lines = plan.labels[target] ?? []
-  const port = ports[target] ?? 0
-  const low = port - lines.length
+  const owned = segments.filter((segment) => plan.entryOf.get(segment) === entry)
+  const port = owned[0] === undefined ? 0 : entryAt(plan, ports, owned[0])
+  const low = port - entry.label.length
   const high = port - 1
-  const columns = widest(lines)
+  const columns = widest(entry.label)
   const busColumn = (source: number) => STUB_COLUMNS + BUS_SPACING * (band.tracks.get(source) ?? 0)
-  const runStarts = segments
-    .filter((segment) => segment.to === target)
-    .map((segment) => ((ports[segment.from] ?? 0) === port ? 0 : busColumn(segment.from)))
+  const runStarts = owned.map((segment) =>
+    (ports[segment.from] ?? 0) === port ? 0 : busColumn(segment.from),
+  )
   let start = Math.min(...runStarts) + 1
   const sources = [...new Set(segments.map((segment) => segment.from))]
   for (let moved = true; moved;) {
@@ -918,7 +1042,7 @@ function labelStartOf(
       const reach = bus === undefined ? Infinity : busColumn(source)
       const drops = segments
         .filter((segment) => segment.from === source)
-        .map((segment) => ports[segment.to] ?? 0)
+        .map((segment) => entryAt(plan, ports, segment))
       const top = Math.min(sourcePort, ...drops)
       const bottom = Math.max(sourcePort, ...drops)
       const stubHit = sourcePort >= low && sourcePort <= high && reach >= start
@@ -940,19 +1064,18 @@ function acrossBandOf(
   ports: readonly number[],
 ): AcrossBand {
   const segments = sourcesOf(plan.graph, layer)
-  const band = bandOf(segments, ports, plan.meter)
+  const band = bandOf(plan, segments, ports)
   const base =
     band.trackCount === 0
       ? STRAIGHT_LINK_COLUMNS
       : STUB_COLUMNS + BUS_SPACING * (band.trackCount - 1) + STRAIGHT_LINK_COLUMNS + 1
-  const labelStarts = new Map<number, number>()
+  const labelStarts = new Map<Entry, number>()
   let width = base
-  for (const target of next) {
-    const lines = plan.labels[target] ?? []
-    if (lines.length === 0) continue
-    const start = labelStartOf(plan, band, segments, target, ports)
-    labelStarts.set(target, start)
-    width = Math.max(width, start + widest(lines) + 1)
+  for (const entry of next.flatMap((target) => entriesIn(plan, target))) {
+    if (entry.label.length === 0) continue
+    const start = labelStartOf(plan, band, segments, entry, ports)
+    labelStarts.set(entry, start)
+    width = Math.max(width, start + widest(entry.label) + 1)
   }
   return { ...band, width, labelStarts }
 }
@@ -972,7 +1095,7 @@ function drawAcross(plan: Plan): Canvas {
     bands.push(band)
     left += width + band.width
   })
-  const canvas = new Canvas(linkedIn(graph))
+  const canvas = new Canvas()
   graph.layers.forEach((layer, at) => {
     for (const vertex of layer) {
       const shape = plan.shapes[vertex]
@@ -989,9 +1112,9 @@ function drawAcross(plan: Plan): Canvas {
       tick(meter)
       const sourceShape = plan.shapes[segment.from]
       const from = ports[segment.from] ?? 0
-      const to = ports[segment.to] ?? 0
+      const to = entryAt(plan, ports, segment)
       const startCol = sourceShape == null ? layerLeft : layerLeft + sourceShape.width
-      const arrowed = plan.shapes[segment.to] != null && isArrowed(graph, segment.to)
+      const arrowed = plan.shapes[segment.to] != null && segment.link.arrow
       const endCol = arrowed ? arrowCol - 1 : arrowCol
       const track = band.tracks.get(segment.from)
       const busCol = linkLeft + STUB_COLUMNS + BUS_SPACING * (track ?? 0)
@@ -1007,18 +1130,17 @@ function drawAcross(plan: Plan): Canvas {
               { row: to, col: busCol },
               { row: to, col: endCol },
             ]
-      canvas.path(points, segmentOwner(segment), segment.link.stroke, LEFT, RIGHT)
+      canvas.path(points, segment.link, segment.link.stroke, LEFT, RIGHT)
     }
     for (const target of graph.layers[at + 1] ?? []) {
-      const to = ports[target] ?? 0
-      if (plan.shapes[target] != null && isArrowed(graph, target)) {
-        canvas.put(to, arrowCol, ARROW_RIGHT)
+      for (const entry of entriesIn(plan, target)) {
+        const to = (ports[target] ?? 0) + entry.offset
+        if (plan.shapes[target] != null && entry.arrow) canvas.put(to, arrowCol, ARROW_RIGHT)
+        const start = band.labelStarts.get(entry) ?? 0
+        entry.label.forEach((line, index) => {
+          canvas.put(to - entry.label.length + index, linkLeft + start, line)
+        })
       }
-      const lines = plan.labels[target] ?? []
-      const start = band.labelStarts.get(target) ?? 0
-      lines.forEach((line, index) => {
-        canvas.put(to - lines.length + index, linkLeft + start, line)
-      })
     }
   })
   drawAcrossLoops(plan, canvas, lefts, starts)
@@ -1056,7 +1178,7 @@ function drawAcrossLoops(plan: Plan, canvas: Canvas, lefts: number[], starts: nu
       { row: channel, col: entry },
       { row: link.arrow ? below + 1 : below, col: entry },
     ]
-    canvas.path(points, loopOwner(link), link.stroke, UP, UP)
+    canvas.path(points, link, link.stroke, UP, UP)
     if (link.arrow && !arrowed.has(link.to)) {
       canvas.put(below, entry, ARROW_UP)
       arrowed.add(link.to)
@@ -1079,9 +1201,22 @@ function attemptsOf(direction: FlowDirection): Attempt[] {
   return [...plain, ...FITTED_LABELS.map((labels) => ({ direction: 'TD' as const, ...labels }))]
 }
 
-function drawAttempt(graph: Graph, attempt: Attempt, meter: LayoutMeter): Canvas {
-  const plan = planOf(graph, attempt, meter)
-  return attempt.direction === 'TD' ? drawDown(plan) : drawAcross(plan)
+function fitsScreen(canvas: Canvas, width: number): boolean {
+  return canvas.width <= width && canvas.height <= MOST_ROWS
+}
+
+function drawAttempt(graph: Graph, attempt: Attempt, width: number, meter: LayoutMeter): Canvas {
+  let split = new Set<number>()
+  for (;;) {
+    const plan = planOf(graph, attempt, split, meter)
+    const canvas = attempt.direction === 'TD' ? drawDown(plan) : drawAcross(plan)
+    if (!fitsScreen(canvas, width)) return canvas
+    const wrong = canvas.falseLinks(graph.real, meter)
+    if (wrong.length === 0) return canvas
+    const next = new Set([...split, ...wrong.map((link) => link.to)])
+    if (next.size === split.size) throw new DrawingFault(LINES_OVERLAP)
+    split = next
+  }
 }
 
 export function drawFlowchart(
@@ -1102,14 +1237,14 @@ export function drawFlowchart(
   for (const attempt of attemptsOf(chart.direction)) {
     let canvas: Canvas
     try {
-      canvas = drawAttempt(graph, attempt, meter)
+      canvas = drawAttempt(graph, attempt, width, meter)
     } catch (error) {
       if (!(error instanceof DrawingFault)) throw error
       fault ??= error.reason
       continue
     }
     const fitsWidth = canvas.width <= width
-    if (fitsWidth && canvas.height <= MOST_ROWS) return { kind: 'drawing', lines: canvas.lines() }
+    if (fitsScreen(canvas, width)) return { kind: 'drawing', lines: canvas.lines() }
     narrowest = Math.min(narrowest, canvas.width)
     if (fitsWidth) shortest = Math.min(shortest, canvas.height)
   }
