@@ -415,8 +415,8 @@ function planKey(e: ToolCallInput): string {
 
 type ToastBody = (world: World, $: Engine, clock: MockClock) => Promise<void>
 
-function toastTest(name: string, body: ToastBody): void {
-  test(name, { plugins: [fakeWorkitems] }, async ($, on) => {
+function toastTest(name: string, body: ToastBody, timeoutMs?: number): void {
+  test(name, { plugins: [fakeWorkitems], timeoutMs }, async ($, on) => {
     const world = newWorld()
     const clock = engineBeneath(on, world)
     await body(world, $, clock)
@@ -1053,6 +1053,7 @@ describe('a second session start', () => {
 })
 
 const BACKGROUND_LIMIT_MS = 30 * 60 * 1000
+const BACKGROUND_LIMIT_TEST_MS = 30_000
 const OWN_COMMANDS = [
   'br close handily-ab12',
   'uv run .basicly/core/kit/tracker/cli.py close handily-ab12',
@@ -1270,6 +1271,7 @@ describe('the time limit of a background call', () => {
       await pollAndTick($, clock)
       expect(world.toasts).toEqual([EF56_CLOSED])
     },
+    BACKGROUND_LIMIT_TEST_MS,
   )
 })
 
@@ -1309,20 +1311,24 @@ describe('review repairs of the second round', () => {
     expect(world.toasts).toEqual([AB12_CLOSED, EF56_CLOSED])
   })
 
-  toastTest('ignores a call that completes after its session ended', async (world, $, clock) => {
-    await startSession($)
-    world.plans[CLOSE_AB12] = { afterMs: TICK_MS * 2, output: { backgroundTaskId: 'b5' } }
-    const running = bash($, CLOSE_AB12, true)
-    await clock.settle()
-    await $.session.end({ reason: 'other', sessionId: 's1', resume: { id: 's1' } })
-    await startSession($)
-    await clock.advance(TICK_MS * 2)
-    await running
-    await clock.advance(30 * 60 * 1000)
-    elsewhere(world, closeEf56())
-    await pollAndTick($, clock)
-    expect(world.toasts).toEqual([EF56_CLOSED])
-  })
+  toastTest(
+    'ignores a call that completes after its session ended',
+    async (world, $, clock) => {
+      await startSession($)
+      world.plans[CLOSE_AB12] = { afterMs: TICK_MS * 2, output: { backgroundTaskId: 'b5' } }
+      const running = bash($, CLOSE_AB12, true)
+      await clock.settle()
+      await $.session.end({ reason: 'other', sessionId: 's1', resume: { id: 's1' } })
+      await startSession($)
+      await clock.advance(TICK_MS * 2)
+      await running
+      await clock.advance(BACKGROUND_LIMIT_MS)
+      elsewhere(world, closeEf56())
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual([EF56_CLOSED])
+    },
+    BACKGROUND_LIMIT_TEST_MS,
+  )
 })
 
 describe('ready value for /handily', () => {
