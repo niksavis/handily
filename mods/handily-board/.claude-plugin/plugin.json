@@ -18,7 +18,7 @@
     "statusLine": {
       "type": "string",
       "title": "Status line",
-      "description": "attention: while the this session tab is not shown, the status line names an agent that waits for permission and a context of 80 percent or more. off: the board sets no status line.",
+      "description": "attention: while the this session tab is not shown, the status line names an agent that waits for permission. off: the board sets no status line.",
       "options": ["attention", "off"],
       "default": "attention"
     }
