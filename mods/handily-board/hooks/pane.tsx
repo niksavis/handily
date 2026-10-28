@@ -12,7 +12,7 @@ import { PLAN_REQUEST, callsText, elapsedText, planLag } from './activity'
 import { drawAgents, shownNames } from './agent-rows'
 import { type AgentRow, waitingCount } from './agents'
 import type { PaneUi } from './board'
-import { SESSION_DETAILS, drawSessionDetails } from './checks'
+import { SESSION_DETAILS, drawSessionDetails, hasSessionDetails } from './details'
 import {
   OPEN_ITEMS_SHOWN,
   addItemsAsTasks,
@@ -699,7 +699,13 @@ function drawFooter(elements: PaneElements, host: TaskHost, act: Act): RenderEle
 }
 
 function drawSession(elements: PaneElements, work: PaneWork, layout: RowLayout): RenderElement[] {
-  const isOpenable = work.checks.last.length > 0
+  const details = {
+    vitals: work.vitals,
+    checks: work.checks,
+    names: shownNames(work.agents),
+    now: work.now,
+  }
+  const isOpenable = hasSessionDetails(details)
   const line = drawSessionLine(elements, {
     vitals: work.vitals,
     waits: waitingCount(work.agents),
@@ -710,7 +716,7 @@ function drawSession(elements: PaneElements, work: PaneWork, layout: RowLayout):
       : undefined,
   })
   if (!isOpenable || !layout.expanded.has(SESSION_DETAILS)) return [line]
-  return [line, drawSessionDetails(elements, work.checks, shownNames(work.agents), layout)]
+  return [line, drawSessionDetails(elements, details, layout)]
 }
 
 function summaryText(list: BoardList, work: PaneWork): string {

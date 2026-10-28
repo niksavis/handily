@@ -278,8 +278,57 @@ Session  ctx 80% high · $12.40
 - When a subagent needs you, the line starts with the count of the waits, in the theme colour
   `warning`. A narrow tab never cuts the waits. At 30 columns the line reads
   `Session  ◆ 1 waits · ctx 62%`. Two waits read `◆ 2 wait`.
-- After the first permission check of the session, the line is a button. A press opens the
-  checks under it. A later section describes them.
+- After the first reply, the first main turn, the first compaction or the first permission check
+  of the session, the line is a button. A press opens the details under it. The next section
+  describes them.
+
+### The Session details
+
+Press the Session line to open its details. A capture from the tests, docked at 41 columns:
+
+```text
+Session  ctx 62% · $4.80 · last +$0.62
+    context 124k of 200k · 1 compaction
+    last turn 3m · +$0.62 · 3 edits
+    0 errors · 2 agents spawned
+    limits 5h 31% · 7d 13%
+    resets 5h in 2h · 7d in 4d
+    checks 5 · 5 allowed
+    [ last 5 checks ]
+```
+
+Near the limit, captured from the tests at 41 columns:
+
+```text
+Session  ctx 91% high · $12.40
+    context 182k of 200k · 2 compactions
+    Claude Code compacts it near the
+    limit. /compact or /clear frees it.
+    last turn 6m · +$1.90 · 9 edits
+```
+
+- `context 124k of 200k` is the context of the window, from `context.tokens` and
+  `context.window` of `session.measure`. `1 compaction` counts each compaction of the main
+  conversation that the engine event `session.compact` reports as done. A compaction of a
+  subagent, a `precompute` and a skipped compaction do not count.
+- From 80 percent, the details add that Claude Code compacts the context near the limit, and that
+  `/compact` or `/clear` frees it.
+- `last turn 3m` is the duration of the last main turn, from `turn.complete`. `+$0.62` is the
+  cost that the turn added, as `last +$0.62` on the line. While the next turn runs, the details
+  keep the last turn and its cost.
+- `3 edits` counts the Edit, Write and NotebookEdit calls of the main loop in the last turn that
+  ended without an error. `0 errors` counts the tool calls of the main loop that ended with an
+  error. A count above 0 takes the theme colour `error`. `2 agents spawned` counts the subagents
+  that the main loop spawned in the last turn. The calls and the spawns of a subagent do not
+  count.
+- `limits 5h 31% · 7d 13%` are the rate limits of `session.measure`, with the percent used, and
+  `resets 5h in 2h` is the time until each limit resets. A plan that reports no rate limits, as
+  off a subscription, shows `limits: none reported`. Before the first reply, and on a host that
+  gives no usage, the details show no context and no limits.
+- The permission checks follow. A later section describes them.
+- A narrow tab moves each part that does not fit to the next line. The tests check the details
+  at 30, 41 and 76 columns.
+- The board draws again when a compaction or a measure changes the details.
 
 ### The status line
 
@@ -623,8 +672,9 @@ Sessions  4 · 1 needs you · 12s ago
 ## Lifetime
 
 - The list and the tool calls live in `$.state`, so they survive a hot reload of the mod.
-- The figures of the Session line live in memory. A hot reload or a new process asks
-  `$.session.usage()` again at session start.
+- The figures of the Session line and of its details live in memory. A hot reload or a new
+  process asks `$.session.usage()` again at session start, and counts the compactions and the
+  last turn from zero. `/clear` empties them.
 - `/clear` ends the session with the reason `clear`. The list of the main loop, the lists of all
   subagents and the tool calls reset.
 - Each end of the session, `/clear` and a resume included, clears the agent rows.
