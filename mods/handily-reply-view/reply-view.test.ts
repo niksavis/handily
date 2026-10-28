@@ -385,6 +385,20 @@ function dim(line: string): string {
   return `~${line}~`
 }
 
+const SMALL_TABLE = ['| A | B |', '| - | - |', '| 1 | 2 |'].join('\n')
+
+function screenColumns(surface: Surface, width: number): number {
+  return surface === 'terminal' ? width + 2 : width
+}
+
+function plainWidth(line: string): number {
+  return displayWidth(line.replace(/[~*]/g, ''))
+}
+
+function buttonLines(lines: readonly string[]): string[] {
+  return lines.filter((line) => line.includes('[ '))
+}
+
 const FAMILY = '👨\u200d👩\u200d👧'
 
 const FENCE = [
@@ -1234,7 +1248,8 @@ describe('tables', () => {
       expect(await sketchOf(ui, 26)).toEqual([
         '● *build*',
         `    State: ${'✅'.repeat(10)}`,
-        '  [ copy ] [ copy as text ]',
+        `  ${' '.repeat(16)}[ copy ]`,
+        `  ${' '.repeat(8)}[ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -1280,6 +1295,75 @@ describe('tables', () => {
       await ui.unmount()
     },
   )
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `a small table in a reply of 18 columns puts each button on its own line under it on ${surface}`,
+      async (_world, $) => {
+        const columns = screenColumns(surface, 18)
+        const ui = await mountReply($, reply(SMALL_TABLE), surface, columns)
+        const drawn = await sketchOf(ui, columns)
+        expect(drawn).toEqual(
+          onSurface(surface, [
+            headed('A \u2502 B'),
+            dim('\u2500\u2500\u253c\u2500\u2500'),
+            ruled('1 \u2502 2'),
+            '[ copy ]',
+            '[ copy as text ]',
+          ]),
+        )
+        expect(drawn.filter((line) => plainWidth(line) > columns)).toEqual([])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `the blocks of a table in a reply of 18 columns put each button on its own line under them on ${surface}`,
+      async (_world, $) => {
+        const columns = screenColumns(surface, 18)
+        const ui = await mountReply($, reply(TABLE), surface, columns)
+        const drawn = await sketchOf(ui, columns)
+        expect(drawn.slice(-2)).toEqual(
+          onSurface(surface, ['', `${' '.repeat(10)}[ copy ]`, '  [ copy as text ]']).slice(1),
+        )
+        expect(buttonLines(drawn).filter((line) => plainWidth(line) > columns)).toEqual([])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `a table button wider than a reply of 12 columns cuts its label to fit and still copies on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 12)
+        const cases = [
+          [SMALL_TABLE, '[ copy ]', 'block-0-text'],
+          [TABLE, '    [ copy ]', 'block-1-text'],
+        ] as const
+        for (const [table, copyLine, textKey] of cases) {
+          const ui = await mountReply($, reply(table), surface, columns)
+          const drawn = await sketchOf(ui, columns)
+          expect(drawn.slice(-2)).toEqual(
+            onSurface(surface, ['', copyLine, '[ copy as\u2026 ]']).slice(1),
+          )
+          expect(buttonLines(drawn).filter((line) => plainWidth(line) > columns)).toEqual([])
+          await ui.press({ key: textKey })
+          await ui.unmount()
+        }
+        expect(world.copies).toEqual([
+          'A: 1\nB: 2',
+          [
+            'Mod: task-pane',
+            'State: released',
+            'Next: follows the work',
+            '',
+            'Mod: simple-view',
+            'State: released',
+            'Next: click to expand',
+          ].join('\n'),
+        ])
+      },
+    )
+  }
 })
 
 describe('fenced blocks', () => {
@@ -3954,4 +4038,28 @@ describe('diagram blocks', () => {
     expect(folded.at(-1)).toContain(`~… ${String(drawing.length)} more lines~`)
     await ui.unmount()
   })
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `a diagram button wider than a reply of 12 columns cuts its label to fit and still copies on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 12)
+        const drawing = drawnLines(TINY_SOURCE, 12)
+        const ui = await mountReply($, reply(mermaidReply('Tiny:', TINY_SOURCE)), surface, columns)
+        const drawn = await sketchOf(ui, columns)
+        expect(drawn.slice(3, 5)).toEqual(
+          onSurface(surface, ['', '    [ copy ]', '[ copy dr… ]']).slice(1),
+        )
+        expect(drawn.slice(5)).toEqual(
+          onSurface(surface, ['', ...drawing])
+            .slice(1)
+            .map((line) => line.trimEnd()),
+        )
+        expect(buttonLines(drawn).filter((line) => plainWidth(line) > columns)).toEqual([])
+        await ui.press({ key: 'block-1-drawing' })
+        expect(world.copies).toEqual([drawing.join('\n')])
+        await ui.unmount()
+      },
+    )
+  }
 })
