@@ -10,7 +10,7 @@
     {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {
@@ -22,7 +22,7 @@
     {
       "name": "handily-filetree",
       "source": "./mods/handily-filetree",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
     },
     {
