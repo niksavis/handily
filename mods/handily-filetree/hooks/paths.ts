@@ -1,3 +1,5 @@
+import { ROOT_PATH } from './tree'
+
 const BACKSLASHES = /\\/g
 const TRAILING_SLASHES = /(?<=.)\/+$/
 const ABSOLUTE = /^(?:\/|[A-Za-z]:\/)/
@@ -22,4 +24,9 @@ export function resolvedPath(cwd: string, path: string): string {
 export function shownPath(cwd: string, path: string): string {
   const prefix = withSlash(normalPath(cwd))
   return path.startsWith(prefix) ? path.slice(prefix.length) : path
+}
+
+export function absolutePath(cwd: string, path: string): string {
+  if (path === ROOT_PATH) return cwd
+  return /[\\/]$/.test(cwd) ? `${cwd}${path}` : `${cwd}/${path}`
 }

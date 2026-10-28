@@ -243,6 +243,114 @@ Now  scout
 The marks and the filter stay in the memory of the mod for the session. They are not in
 `$.state`, so a reload of the plugins clears them.
 
+## Preview and diff
+
+A press on a file row opens it. One row is open at a time. A press on another row opens that
+row, and a second press on the open row closes it. The open row shows the agents that read or
+edited the file, its git state and four buttons. The test fixture, after `scout` read
+`docs/mocks.md` and `main` edited it 2 minutes later:
+
+```text
+  M mocks.md              ✎ main +1    1m
+      edited by main 1m ago
+      read by scout 3m ago
+      modified, not staged
+      [ preview ] [ diff ] [ copy path ]
+      [ @ to prompt ]
+```
+
+| Button            | Effect                                                                 |
+| ----------------- | ---------------------------------------------------------------------- |
+| `[ preview ]`     | Shows the file in the tab                                              |
+| `[ diff ]`        | Shows the change of the file against `HEAD`. Only in a git repo        |
+| `[ copy path ]`   | Copies the path, such as `docs/mocks.md`, to the clipboard             |
+| `[ @ to prompt ]` | Puts `@docs/mocks.md` in the prompt at the cursor. It does not send it |
+| `[ back ]`        | Goes back to the tree                                                  |
+
+The buttons have no key, because a key does not reach the tab inside tmux.
+
+The preview of a code file, as the test fixture draws it:
+
+```text
+Files  app · main ↑1 · 6 changed
+[ back ] [ diff ] [ copy path ]
+hooks/pane.tsx  M · 3,000 lines
+first 2,000 lines shown of 3,000
+─────────────────────────────────────────
+(the file in the Code element of Claude Code, with line numbers)
+```
+
+- The preview shows at most 2,000 lines. A drawing of a tab holds at most 100,000 characters, so
+  the preview ends at the last whole line that fits. The note says how many lines it shows.
+- A Markdown file shows in the Markdown element of Claude Code.
+- A control or bidi character in the file shows as `\u001b`.
+- A file that the mod does not show has a one-line note:
+
+| File                                          | Note                                   |
+| --------------------------------------------- | -------------------------------------- |
+| A NUL character in the first 8,000 characters | `binary file, no preview`              |
+| Over 4 MiB                                    | `over 4 MiB, no preview`               |
+| Cannot be read                                | `Cannot read it: permission denied.`   |
+| Deleted (`D`)                                 | `deleted; [ diff ] shows what it held` |
+
+The diff of a changed file, as the test fixture draws it:
+
+```text
+Files  app · main ↑1 · 6 changed
+[ back ] [ preview ] [ copy path ]
+hooks/pane.tsx  M · +3 -2 vs HEAD
+─────────────────────────────────────────
+(the hunks in the Code element of Claude Code, in diff format)
+```
+
+- The mod runs this command once, with no shell. The counts `+3 -2` come from the lines of the
+  diff.
+
+  ```text
+  git -c core.quotePath=false --literal-pathspecs diff HEAD --no-color --no-ext-diff --no-renames
+      --src-prefix=a/ --dst-prefix=b/ --no-relative -- hooks/pane.tsx
+  ```
+
+  The options make the output the same under every git configuration. git prints each name as
+  it is, and a name that starts with `:` or holds `*` is a path, not a pattern. A file moved by
+  hand shows as a deleted file and a new file. The mod also reads a name that git still quotes,
+  such as a name with `"`, a tab or a line break.
+
+- The diff ends only at the end of a hunk. The note then reads `first 2 of 3 hunks shown`. When
+  the first hunk of a file is larger than the pane, the mod shows its first lines under a header
+  that counts them, and the note reads `hunk cut: 1,999 of 3,000 lines shown`.
+- When the output of git is over 4 MiB, a file that git did not reach reads
+  `not shown; git diff was cut at 4 MiB`.
+- An untracked file, and every file in a repo with no commit, shows as one added hunk that the
+  mod builds from the file text. No process runs for it.
+- A deleted file shows what it held as removed lines.
+- A binary change reads `binary file changed`. A file with no change reads
+  `no change against HEAD`.
+
+A press on the counts of a folder, such as `M2 ?1`, shows the diff of each changed file under it,
+one Code element for each file:
+
+```text
+[ back ] [ copy path ]
+docs/  3 changed files vs HEAD
+─────────────────────────────────────────
+docs/design.md  M +1 -1
+(Code)
+docs/filetree.md  ? new, 1 line
+(Code)
+docs/mocks.md  M +1 -0
+(Code)
+```
+
+- One `git diff` runs for the tracked files of the folder. The mod reads each untracked file.
+- The diff shows at most 50 files. Over 50, the note reads `first 50 of 60 changed files shown`,
+  and `[ copy the git diff command ]` copies the command for the whole folder. Each argument
+  that a shell would split or expand is in single quotes.
+- The counts of an untracked folder, `?`, are not a button, because git status does not list the
+  files in it. Open the folder and press a file in it: its diff is the whole file.
+- When the 2,000 lines or the 100,000 characters are used, the next files read
+  `not shown; the pane is full`.
+
 ## State
 
 The mod keeps two lists in `$.state`: the open folders and the folders that show all entries.

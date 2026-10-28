@@ -122,8 +122,13 @@ export function parseStatus(stdout: string, isTruncated: boolean): GitStatus {
 
 export type GitCount = { letter: GitLetter; count: number | null }
 
+export type ChangedEntry = { path: string; letter: GitLetter; isFolder: boolean }
+
 export type GitMarks = {
+  isInitial: boolean
   letterOf: (path: string) => GitLetter | undefined
+  isStagedOf: (path: string) => boolean
+  changedIn: (folder: string) => readonly ChangedEntry[]
   countsOf: (folder: string) => readonly GitCount[]
   renamedFromOf: (path: string) => { from: string; isStaged: boolean } | undefined
   deletedIn: (folder: string) => readonly FsEntry[]
@@ -169,6 +174,17 @@ function shownOrigin(path: string, origin: string, prefix: string): string {
   return parentOf(inCwd) === parentOf(path) ? nameOf(inCwd) : inCwd
 }
 
+function isUnder(path: string, folder: string): boolean {
+  return folder === ROOT || path === folder || path.startsWith(`${folder}/`)
+}
+
+function changedUnder(byPath: ReadonlyMap<string, GitEntry>, folder: string): ChangedEntry[] {
+  return [...byPath]
+    .filter(([path]) => isUnder(path, folder))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([path, entry]) => ({ path, letter: entry.letter, isFolder: entry.isFolder }))
+}
+
 function holdsPrefix(entry: GitEntry, prefix: string): boolean {
   if (prefix === '' || entry.letter !== '?' || !entry.isFolder) return false
   return prefix === entry.path || prefix.startsWith(`${entry.path}/`)
@@ -204,7 +220,10 @@ export function gitMarks(status: GitStatus, prefix: string): GitMarks {
     isAllUntracked ||
     untrackedFolders.some((folder) => path === folder || path.startsWith(`${folder}/`))
   return {
+    isInitial: status.isInitial,
     letterOf: (path) => byPath.get(path)?.letter ?? (isUntracked(path) ? '?' : undefined),
+    isStagedOf: (path) => byPath.get(path)?.isStaged === true,
+    changedIn: (folder) => changedUnder(byPath, folder),
     countsOf: (folder) =>
       isUntracked(folder) ? [{ letter: '?', count: null }] : countsIn(counts.get(folder)),
     renamedFromOf: (path) => {

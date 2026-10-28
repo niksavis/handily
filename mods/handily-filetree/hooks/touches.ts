@@ -72,6 +72,10 @@ export function revealSearch(
   })
 }
 
+export function touchesOf(touches: Touches, path: string): Touch[] {
+  return [...(touches.files.get(path)?.values() ?? [])].sort((a, b) => b.at - a.at)
+}
+
 function isNewer(touch: Touch, than: Touch | undefined): boolean {
   return than === undefined || touch.at >= than.at
 }
