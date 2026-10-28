@@ -179,6 +179,7 @@ dim title line and two buttons at the right edge. The drawing replaces the sourc
   that is too wide for the screen draws top down.
 - When the title line and the buttons do not fit on one line, the buttons stand on a line of
   their own under the title line.
+  When the two buttons do not fit on one line, each button stands on its own line.
 - On the desktop app, the drawing draws in a code block, so its lines keep their columns.
 - A diagram draws whole or as its source. It never draws in part.
 - When a long reply folds inside a diagram, the folded reply shows only the title line of the
@@ -208,6 +209,9 @@ Other reasons that the note names:
 - `52 boxes, at most 40 draw.` The limits of one diagram are 80 source lines, 8000 source
   characters, 40 boxes, 60 edges and 120 drawn rows.
 - `the block is empty.`
+
+A mermaid block with no closing fence draws as a fenced block, with no note. So a block
+that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
 

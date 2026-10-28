@@ -1942,7 +1942,7 @@ A line that does not parse. The dim note names the reason, and the source follow
 ```text
 ● Here is the flow:
 
-  diagram not drawn: line 3 does not parse. The source follows.
+  diagram not drawn: line 3 does not parse.
   ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
   flowchart TD
     A[Start] --> B[Parse]

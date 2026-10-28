@@ -19,7 +19,7 @@ import {
   type Span,
   type TableLook,
 } from './table'
-import { cutToWidth, displayWidth } from './width'
+import { cutToWidth, displayWidth, fitted } from './width'
 
 export const FOLD_AFTER_ROWS = 30
 export const DEFAULT_COLUMNS = 80
@@ -34,7 +34,7 @@ const LANGUAGE_TAG = /^[\w+#.-]{1,32}$/
 const TAG_COLUMNS_AT_MOST = 24
 const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
-const DIAGRAM_BUTTONS_COLUMNS = '[ copy ] [ copy drawing ]'.length
+const COPY_DRAWING_BUTTON_COLUMNS = '[ copy drawing ]'.length
 const DRAWINGS_KEPT = 32
 const SEQUENCE_NOT_DRAWN = 'sequenceDiagram does not draw yet'
 
@@ -160,10 +160,11 @@ function lineWithButtons(
   text: RenderElement | null,
   buttons: Buttons,
   end: number,
+  key = 'buttons-line',
 ): RenderElement {
   const { Box } = context.elements
   return Box({
-    key: 'buttons-line',
+    key,
     flexDirection: 'row',
     width: Math.max(end, buttons.columns),
     children: [
@@ -497,49 +498,77 @@ export function diagramOf(source: string, width: number, surface: RenderSurface)
   return outcome
 }
 
+function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
+  return {
+    columns: sum(buttons.map((button) => button.columns)) + buttons.length - 1,
+    element: context.elements.Box({
+      flexDirection: 'row',
+      flexShrink: 0,
+      gap: 1,
+      children: buttons.map((button) => button.element),
+    }),
+  }
+}
+
 function diagramButtons(
   context: Context,
   fence: Fence,
   drawing: DiagramDrawing,
   key: string,
-): Buttons {
-  return {
-    columns: DIAGRAM_BUTTONS_COLUMNS,
-    element: context.elements.Box({
-      flexDirection: 'row',
-      flexShrink: 0,
-      gap: 1,
-      children: [
-        copyButton(context, `${key}-copy`, 'copy', fence.content, `the ${drawing.name} source`),
-        copyButton(
-          context,
-          `${key}-drawing`,
-          'copy drawing',
-          drawing.lines.join('\n'),
-          `the ${drawing.name} drawing`,
-        ),
-      ],
-    }),
-  }
+): Buttons[] {
+  return [
+    {
+      columns: COPY_BUTTON_COLUMNS,
+      element: copyButton(
+        context,
+        `${key}-copy`,
+        'copy',
+        fence.content,
+        `the ${drawing.name} source`,
+      ),
+    },
+    {
+      columns: COPY_DRAWING_BUTTON_COLUMNS,
+      element: copyButton(
+        context,
+        `${key}-drawing`,
+        'copy drawing',
+        drawing.lines.join('\n'),
+        `the ${drawing.name} drawing`,
+      ),
+    },
+  ]
 }
 
-function diagramTitle(context: Context, name: string, buttons: Buttons, key: string): Drawing {
+function diagramTitle(
+  context: Context,
+  name: string,
+  buttons: readonly Buttons[],
+  key: string,
+): Drawing {
   const title = `${MERMAID_TAG} · ${name}`
-  const room = context.width - buttons.columns - BUTTONS_GAP
+  const together = buttonRow(context, buttons)
+  const room = context.width - together.columns - BUTTONS_GAP
   if (displayWidth(titleRule(title, 0)) <= room) {
     return {
       rows: 1,
-      element: ruleWithButtons(context, titleRule(title, room), buttons.element, key),
+      element: ruleWithButtons(context, titleRule(title, room), together.element, key),
     }
   }
+  const lines =
+    together.columns <= context.width
+      ? [together]
+      : buttons.map((button) => buttonRow(context, [button]))
   return {
-    rows: 2,
+    rows: 1 + lines.length,
     element: context.elements.Box({
       key: `${key}-title`,
       flexDirection: 'column',
       children: [
-        ruleRow(context, titleRule(title, context.width), 'title-rule'),
-        lineWithButtons(context, null, buttons, context.width),
+        ruleRow(context, fitted(titleRule(title, context.width), context.width), 'title-rule'),
+        ...lines.map((line, index) =>
+          lineWithButtons(context, null, line, context.width, `buttons-${String(index)}`),
+        ),
       ],
     }),
   }
@@ -601,7 +630,7 @@ function pieceOf(context: Context, block: Block, index: number): Piece {
     case 'table':
       return tablePiece(context, block, key)
     case 'fence':
-      return context.drawsDiagrams && block.tag === MERMAID_TAG
+      return context.drawsDiagrams && block.isClosed && block.tag === MERMAID_TAG
         ? mermaidPiece(context, block, key)
         : fencePiece(context, block, key)
   }

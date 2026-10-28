@@ -3,7 +3,8 @@ import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import { displayWidth, graphemesOf } from './hooks/width'
 import { parseMermaid, type Flowchart, type Refusal, type SequenceDiagram } from './hooks/mermaid'
 import { drawFlowchart, type LayoutMeter } from './hooks/flowchart'
-import { diagramOf } from './hooks/draw'
+import { diagramOf, replyTree, type ReplyElements } from './hooks/draw'
+import { blocksOf } from './hooks/markdown'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -3036,6 +3037,49 @@ const WIDE_SOURCE = linesOf(
   '  A[Start] --> B[Alpha box] & C[Bravo box] & D[Charlie box] & E[Delta box]',
 )
 
+const PARTIAL_SOURCES = [
+  linesOf('flowchart TD', '  A[Start] --> B[Pa'),
+  linesOf('flowchart TD', '  A[Start] --> B[Parse]'),
+  'flow',
+] as const
+
+const UNSEEN_PARTIAL_SOURCES = [
+  linesOf('flowchart TD', '  Q[Queue] --> R[Re'),
+  linesOf('flowchart TD', '  Q[Queue] --> R[Read]'),
+  'flowc',
+] as const
+
+const TINY_SOURCE = linesOf('flowchart TD', '  A --> B')
+
+function openMermaidReply(partial: string): string {
+  return ['Here is the flow:', '', '```mermaid', partial].join('\n')
+}
+
+const ELEMENTS_NOT_DRAWN = {
+  Box: () => ({}),
+  Text: () => ({}),
+  Button: () => ({}),
+  Markdown: () => ({}),
+  Code: () => ({}),
+} as unknown as ReplyElements
+
+function laidOut(text: string): void {
+  replyTree(
+    ELEMENTS_NOT_DRAWN,
+    text,
+    blocksOf(text),
+    {
+      columns: COLUMNS,
+      hasBullet: true,
+      isFirstOfReply: true,
+      surface: 'terminal',
+      drawsDiagrams: true,
+    },
+    'folded',
+    { copy: () => undefined, fold: () => undefined },
+  )
+}
+
 describe('diagram blocks', () => {
   for (const surface of SURFACES) {
     for (const columns of DIAGRAM_COLUMNS) {
@@ -3250,5 +3294,81 @@ describe('diagram blocks', () => {
       diagramOf(other, 78, 'desktop')
     }
     expect(diagramOf(source, 78, 'terminal')).not.toBe(first)
+  })
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `a mermaid block that is still open draws as the fence of today with no note on ${surface}`,
+      async (_world, $) => {
+        const width = replyWidth(surface, COLUMNS)
+        for (const partial of PARTIAL_SOURCES) {
+          const ui = await mountReply($, reply(openMermaidReply(partial)), surface)
+          expect(await sketchOf(ui)).toEqual(
+            onSurface(surface, ['Here is the flow:', '', ...todaysFence(partial, width)]),
+          )
+          await ui.unmount()
+        }
+      },
+    )
+  }
+
+  test('a mermaid block that is still open takes no place among the kept drawings', () => {
+    const held = linesOf('flowchart TD', '  Held[Held drawing] --> Next[Next box]')
+    const fill = (name: string) => {
+      for (let index = 0; index < 31; index += 1) {
+        diagramOf(
+          linesOf('flowchart TD', `  ${name}${String(index)}[Filler] --> Next[Next box]`),
+          78,
+          'terminal',
+        )
+      }
+    }
+    const first = diagramOf(held, 78, 'terminal')
+    fill('F')
+    for (const partial of UNSEEN_PARTIAL_SOURCES) laidOut(openMermaidReply(partial))
+    expect(diagramOf(held, 78, 'terminal')).toBe(first)
+    fill('G')
+    laidOut(mermaidReply('Closed:', linesOf('flowchart TD', '  Closed[Closed] --> Next[Next box]')))
+    expect(diagramOf(held, 78, 'terminal')).not.toBe(first)
+  })
+
+  viewTest(
+    'at 20 columns each diagram button stands on its own line and no title line is wider than the reply',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(mermaidReply('Tiny:', TINY_SOURCE)), 'terminal', 20)
+      const drawn = await sketchOf(ui, 20)
+      expect(drawn.slice(0, 5)).toEqual([
+        '● Tiny:',
+        '',
+        '  ~── mermaid · flow…~',
+        `  ${' '.repeat(10)}[ copy ]`,
+        `  ${' '.repeat(2)}[ copy drawing ]`,
+      ])
+      expect(drawn.slice(5)).toEqual(
+        drawnLines(TINY_SOURCE, 18).map((line) => `  ${line}`.trimEnd()),
+      )
+      expect(drawn.filter((line) => cellsIn(line.replace(/~/g, '')) > 20)).toEqual([])
+      await ui.unmount()
+    },
+  )
+
+  viewTest('at 20 columns the fold counts the three title rows of a diagram', async (_world, $) => {
+    const lead = Array.from({ length: 26 }, (_, index) => `Line ${String(index + 1)}`)
+    const ui = await mountReply(
+      $,
+      reply(mermaidReply(lead.join('\n'), TINY_SOURCE)),
+      'terminal',
+      20,
+    )
+    const drawing = drawnLines(TINY_SOURCE, 18)
+    const folded = await sketchOf(ui, 20)
+    expect(folded.slice(-4, -1)).toEqual([
+      '  ~── mermaid · flow…~',
+      `  ${' '.repeat(10)}[ copy ]`,
+      `  ${' '.repeat(2)}[ copy drawing ]`,
+    ])
+    expect(folded).toHaveLength(26 + 1 + 3 + 1)
+    expect(folded.at(-1)).toContain(`~… ${String(drawing.length)} more lines~`)
+    await ui.unmount()
   })
 })
