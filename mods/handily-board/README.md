@@ -279,7 +279,62 @@ Session  ctx 80% high · $12.40
   `warning`. A narrow tab never cuts the waits. At 30 columns the line reads
   `Session  ◆ 1 waits · ctx 62%`. Two waits read `◆ 2 wait`.
 - After the first permission check of the session, the line is a button. A press opens the
-  checks under it. The next section describes them.
+  checks under it. A later section describes them.
+
+### The status line
+
+While you do not see the `this session` tab, the board sets the Claude Code status line under
+the prompt when a subagent needs you or the context is high. You see the tab when it is shown and
+placed. Captures from the tests:
+
+```text
+◆ scout waits for permission: Bash npm test · ctx 91% high
+◆ 2 agents wait for permission · ctx 91% high
+ctx 91% high · /compact frees it
+```
+
+- A wait is the same wait that the agent rows show as `needs you`: an ask of a subagent that is
+  not settled after 3 seconds. One wait names the agent and the call. Two or more waits show
+  their count. An agent that the engine lists as `waiting` (`on hold`) is no wait, and an ask
+  that the auto mode classifier settles before 3 seconds sets no line.
+- The context is high from 80 percent, as on the Session line.
+- The board clears the line when nothing waits and the context is under 80 percent, and while
+  the `this session` tab is shown and placed. When the board closes, the line comes back. A tab
+  that waits undrawn, as with the mode `always` on a narrow terminal, does not clear it. The board checks
+  which tab is shown every 10 seconds while a tab is open, so a switch to `this machine` shows the
+  line within 10 seconds.
+- The call target is masked as in the permission checks.
+- The setting `statusLine` turns the line off. The Settings section names it.
+
+### The desktop notice
+
+When a permission ask of this session is still not settled after 3 seconds, and you do not see
+the `this session` tab, the board sends one desktop notice through `$.ui.notify`.
+Captures from the tests, for a session in the folder `app`:
+
+```text
+app needs you: scout waits for permission: Bash npm test
+app needs you: Claude waits for permission: Bash npm test
+```
+
+- The notice names the folder of the session, who waits and the call. `Claude` is the main
+  loop. A subagent is named as on its agent row.
+- Each wait sends at most one notice. The board decides at the 3 second mark. A wait that starts
+  while the `this session` tab is shown and placed sends no notice, also when the tab closes
+  later.
+- An ask that is settled before 3 seconds, such as an ask that the auto mode classifier settles
+  in about 0.6 seconds, sends no notice. A classifier that takes longer than 3 seconds looks like
+  a wait, because Claude Code gives a mod no event for an open permission dialog.
+- Claude Code sends the notice through the notification channel of your settings
+  (`preferredNotifChannel`). When it reports that it sent nothing, for example on the desktop
+  app, with notifications turned off, or when a hook refused it, the board shows the same text as
+  a toast.
+- The notice and the status line escape a control character or a bidi control in the folder
+  name and in the agent name, as `\u001b` or `\u202e`.
+- Claude Code gives a mod no signal that you left the terminal window. So the board reads "you
+  are away" as "the `this session` tab is not shown and placed". While the board is closed, every
+  wait sends a notice, also when you look at the terminal. This reading waits for a decision of
+  the person.
 
 ### Permission checks
 
@@ -556,6 +611,14 @@ Sessions  4 · 1 needs you · 12s ago
 - With `always`, the mod opens the board without your input. Claude Code places such a pane only
   from 144 columns, or 110 once you opened it before. Below that, the board waits undrawn, and the
   mod shows one toast: `Board waits for a wider terminal. Run /board to open it here.`
+
+| `userConfig` `statusLine` | Effect                                                                   |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `attention` (default)     | The status line names a wait and a high context, as The status line says |
+| `off`                     | The board never sets a status line                                       |
+
+- When the mod loads, it refuses any other `statusLine` value by name, for example
+  `handily-board: userConfig statusLine is "sometimes"; set it to attention or off in /config.`
 
 ## Lifetime
 

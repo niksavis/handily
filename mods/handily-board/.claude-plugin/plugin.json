@@ -14,6 +14,13 @@
       "description": "off: the board opens only on /board or /board machine. toggle: as off, and /board on a shown this session tab closes the board. always: the board opens when the session starts.",
       "options": ["off", "toggle", "always"],
       "default": "toggle"
+    },
+    "statusLine": {
+      "type": "string",
+      "title": "Status line",
+      "description": "attention: while the this session tab is not shown, the status line names an agent that waits for permission and a context of 80 percent or more. off: the board sets no status line.",
+      "options": ["attention", "off"],
+      "default": "attention"
     }
   }
 }

@@ -1201,6 +1201,38 @@ describe(RING_CRITERION, () => {
   )
 })
 
+const CHECK_ENGINE_CRITERION =
+  'The keyboard ring tests, the needs you tests and the checks tests run on an engine that raises tool.check for a tool call of a test, so a missing session Button names its cause'
+
+const OLD_ENGINE =
+  'this engine raises no tool.check for a tool call of a test, so the board keeps no check and the Session line is no Button: run the tests on the Claude Code version that .github/workflows/basicly-gates.yml and .github/workflows/release.yml pin, and that scripts/pins.test.mjs keeps equal'
+
+describe(CHECK_ENGINE_CRITERION, () => {
+  test(
+    'a subagent call of a test reaches tool.check from the engine, and the kept check makes the Session line a Button',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const raised: string[] = []
+      on('tool.check', async (_$, e, next) => {
+        const verdict = await next(e)
+        raised.push(next.origin.plugin)
+        return verdict
+      })
+      await start($)
+      await spawn($, SCOUT, 'general-purpose', 'scout the hooks', { name: 'scout' })
+      seen.agents.push(listed(SCOUT, 'general-purpose', 'running', { name: 'scout' }))
+      await bashAs($, SCOUT, 'npm test')
+      expect(raised, OLD_ENGINE).toEqual(['engine'])
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        expect(await ui.find({ type: 'Button', key: 'session' }), OLD_ENGINE).toBeDefined()
+        await ui.unmount()
+      }
+    },
+  )
+})
+
 const KEYBOARD_PLAN_CRITERION =
   'When the this session tab has the keyboard and an agent plan is folded, the keyboard alone unfolds and folds that plan'
 
