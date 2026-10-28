@@ -74,6 +74,7 @@ async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
 
 export const register: Register = (on, options) => {
   const defaultMode: ReplyViewMode = options.mode === 'off' ? 'off' : 'on'
+  const drawsDiagrams = options.diagrams !== 'off'
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -151,6 +152,8 @@ export const register: Register = (on, options) => {
             columns: e.viewport?.columns ?? DEFAULT_COLUMNS,
             hasBullet: e.surface === 'terminal',
             isFirstOfReply: e.props.isFirstOfReply,
+            surface: e.surface,
+            drawsDiagrams,
           },
           await foldOf($, e.requestId),
           replyActions($, e.requestId),

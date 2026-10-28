@@ -12,7 +12,7 @@ export type Table = {
   alignments: Alignment[]
 }
 
-export type Fence = { kind: 'fence'; tag: string; content: string }
+export type Fence = { kind: 'fence'; tag: string; content: string; isClosed: boolean }
 
 export type Block = Prose | Table | Fence
 
@@ -219,7 +219,7 @@ function fenceAt(lines: readonly string[], start: number): { fence: Fence; end: 
   const tag = opening.info.trim().split(/\s+/)[0] ?? ''
   const content = lines.slice(start + 1, end).map((line) => withoutIndent(line, opening.indent))
   return {
-    fence: { kind: 'fence', tag, content: content.join('\n') },
+    fence: { kind: 'fence', tag, content: content.join('\n'), isClosed: end < lines.length },
     end: Math.min(end + 1, lines.length),
   }
 }

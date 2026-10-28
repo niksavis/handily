@@ -1,6 +1,8 @@
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
+import { drawFlowchart } from './flowchart'
 import { shownText, type Block, type Fence, type Prose, type Table } from './markdown'
+import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import {
   columnWidths,
   fieldsOf,
@@ -17,7 +19,7 @@ import {
   type Span,
   type TableLook,
 } from './table'
-import { cutToWidth, displayWidth } from './width'
+import { cutToWidth, displayWidth, fitted } from './width'
 
 export const FOLD_AFTER_ROWS = 30
 export const DEFAULT_COLUMNS = 80
@@ -30,6 +32,15 @@ const BLOCKS_BELOW_COLUMNS = 40
 const RULE = '─'
 const LANGUAGE_TAG = /^[\w+#.-]{1,32}$/
 const TAG_COLUMNS_AT_MOST = 24
+const RULE_COLUMNS_AT_LEAST = 2
+const MERMAID_TAG = 'mermaid'
+const COPY_DRAWING_BUTTON_COLUMNS = '[ copy drawing ]'.length
+const DRAWINGS_KEPT = 32
+const SEQUENCE_NOT_DRAWN = 'sequenceDiagram does not draw yet'
+
+export type DiagramDrawing = { kind: 'drawing'; name: string; lines: string[] }
+
+export type DiagramOutcome = DiagramDrawing | Refusal
 
 export type ReplyElements = Pick<
   Elements[RenderSurface],
@@ -41,13 +52,26 @@ export type ReplyActions = {
   fold: (next: ReplyViewFold) => void
 }
 
-export type ReplyLayout = { columns: number; hasBullet: boolean; isFirstOfReply: boolean }
+export type ReplyLayout = {
+  columns: number
+  hasBullet: boolean
+  isFirstOfReply: boolean
+  surface: RenderSurface
+  drawsDiagrams: boolean
+}
 
 type Drawing = { element: RenderElement; rows: number }
 
 type Piece = { rows: number; whole: () => RenderElement; cut: (rows: number) => Drawing | null }
 
-type Context = { elements: ReplyElements; width: number; columns: number; actions: ReplyActions }
+type Context = {
+  elements: ReplyElements
+  width: number
+  columns: number
+  surface: RenderSurface
+  drawsDiagrams: boolean
+  actions: ReplyActions
+}
 
 function rowsOf(line: string, width: number): number {
   return Math.max(1, Math.ceil(displayWidth(line) / Math.max(width, 1)))
@@ -136,10 +160,11 @@ function lineWithButtons(
   text: RenderElement | null,
   buttons: Buttons,
   end: number,
+  key = 'buttons-line',
 ): RenderElement {
   const { Box } = context.elements
   return Box({
-    key: 'buttons-line',
+    key,
     flexDirection: 'row',
     width: Math.max(end, buttons.columns),
     children: [
@@ -373,13 +398,18 @@ function tablePiece(context: Context, table: Table, key: string): Piece {
     : columnsPiece(context, table, look, widths, key)
 }
 
-function fenceTitle(context: Context, fence: Fence, key: string): RenderElement {
+function titleRule(title: string, columns: number): string {
+  const head = title === '' ? '' : `${RULE.repeat(2)} ${title} `
+  return head + RULE.repeat(Math.max(columns - displayWidth(head), RULE_COLUMNS_AT_LEAST))
+}
+
+function ruleWithButtons(
+  context: Context,
+  rule: string,
+  buttons: RenderElement,
+  key: string,
+): RenderElement {
   const { Box, Text } = context.elements
-  const room = Math.max(context.width - COPY_BUTTON_COLUMNS - 2, 4)
-  const tag = cutToWidth(shownText(fence.tag), TAG_COLUMNS_AT_MOST)
-  const head = tag === '' ? '' : `${RULE.repeat(2)} ${tag} `
-  const rule = head + RULE.repeat(Math.max(room - displayWidth(head), 2))
-  const what = tag === '' ? 'the block' : `the ${tag} block`
   return Box({
     key: `${key}-title`,
     flexDirection: 'row',
@@ -388,13 +418,21 @@ function fenceTitle(context: Context, fence: Fence, key: string): RenderElement 
         flexShrink: 1,
         children: Text({ dimColor: true, wrap: 'truncate-end', children: rule }),
       }),
-      Box({
-        flexShrink: 0,
-        marginLeft: 2,
-        children: copyButton(context, `${key}-copy`, 'copy', fence.content, what),
-      }),
+      Box({ flexShrink: 0, marginLeft: BUTTONS_GAP, children: buttons }),
     ],
   })
+}
+
+function fenceTitle(context: Context, fence: Fence, key: string): RenderElement {
+  const room = Math.max(context.width - COPY_BUTTON_COLUMNS - BUTTONS_GAP, 4)
+  const tag = cutToWidth(shownText(fence.tag), TAG_COLUMNS_AT_MOST)
+  const what = tag === '' ? 'the block' : `the ${tag} block`
+  return ruleWithButtons(
+    context,
+    titleRule(tag, room),
+    copyButton(context, `${key}-copy`, 'copy', fence.content, what),
+    key,
+  )
 }
 
 function fencePiece(context: Context, fence: Fence, key: string): Piece {
@@ -428,6 +466,162 @@ function fencePiece(context: Context, fence: Fence, key: string): Piece {
   }
 }
 
+function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): DiagramOutcome {
+  switch (diagram.kind) {
+    case 'refused':
+      return diagram
+    case 'flowchart': {
+      const drawn = drawFlowchart(diagram, width)
+      return drawn.kind === 'drawing'
+        ? { kind: 'drawing', name: 'flowchart', lines: drawn.lines }
+        : drawn
+    }
+    case 'sequence':
+      return { kind: 'refused', reason: SEQUENCE_NOT_DRAWN, line: null, limit: null }
+  }
+}
+
+const drawings = new Map<string, DiagramOutcome>()
+
+export function diagramOf(source: string, width: number, surface: RenderSurface): DiagramOutcome {
+  const key = JSON.stringify([surface, width, source])
+  const kept = drawings.get(key)
+  if (kept !== undefined) {
+    drawings.delete(key)
+    drawings.set(key, kept)
+    return kept
+  }
+  const outcome = drawnDiagram(parseMermaid(source), width)
+  drawings.set(key, outcome)
+  const oldest = drawings.keys().next()
+  if (drawings.size > DRAWINGS_KEPT && oldest.done !== true) drawings.delete(oldest.value)
+  return outcome
+}
+
+function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
+  return {
+    columns: sum(buttons.map((button) => button.columns)) + buttons.length - 1,
+    element: context.elements.Box({
+      flexDirection: 'row',
+      flexShrink: 0,
+      gap: 1,
+      children: buttons.map((button) => button.element),
+    }),
+  }
+}
+
+function diagramButtons(
+  context: Context,
+  fence: Fence,
+  drawing: DiagramDrawing,
+  key: string,
+): Buttons[] {
+  return [
+    {
+      columns: COPY_BUTTON_COLUMNS,
+      element: copyButton(
+        context,
+        `${key}-copy`,
+        'copy',
+        fence.content,
+        `the ${drawing.name} source`,
+      ),
+    },
+    {
+      columns: COPY_DRAWING_BUTTON_COLUMNS,
+      element: copyButton(
+        context,
+        `${key}-drawing`,
+        'copy drawing',
+        drawing.lines.join('\n'),
+        `the ${drawing.name} drawing`,
+      ),
+    },
+  ]
+}
+
+function diagramTitle(
+  context: Context,
+  name: string,
+  buttons: readonly Buttons[],
+  key: string,
+): Drawing {
+  const title = `${MERMAID_TAG} · ${name}`
+  const together = buttonRow(context, buttons)
+  const room = context.width - together.columns - BUTTONS_GAP
+  if (displayWidth(titleRule(title, 0)) <= room) {
+    return {
+      rows: 1,
+      element: ruleWithButtons(context, titleRule(title, room), together.element, key),
+    }
+  }
+  const lines =
+    together.columns <= context.width
+      ? [together]
+      : buttons.map((button) => buttonRow(context, [button]))
+  return {
+    rows: 1 + lines.length,
+    element: context.elements.Box({
+      key: `${key}-title`,
+      flexDirection: 'column',
+      children: [
+        ruleRow(context, fitted(titleRule(title, context.width), context.width), 'title-rule'),
+        ...lines.map((line, index) =>
+          lineWithButtons(context, null, line, context.width, `buttons-${String(index)}`),
+        ),
+      ],
+    }),
+  }
+}
+
+function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, key: string): Piece {
+  const { Box, Code } = context.elements
+  const title = diagramTitle(
+    context,
+    drawing.name,
+    diagramButtons(context, fence, drawing, key),
+    key,
+  )
+  const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
+  return {
+    rows: title.rows + drawing.lines.length,
+    whole: () => column([title.element, Code({ source: drawing.lines.join('\n') })]),
+    cut: (budget) =>
+      budget < title.rows ? null : { element: column([title.element]), rows: title.rows },
+  }
+}
+
+function notDrawnPiece(context: Context, fence: Fence, refusal: Refusal, key: string): Piece {
+  const { Box, Text } = context.elements
+  const note = `diagram not drawn: ${refusal.reason}.`
+  const noteRows = rowsOf(note, context.width)
+  const fenced = fencePiece(context, fence, key)
+  const noted = (element: RenderElement) =>
+    Box({
+      key: `${key}-noted`,
+      flexDirection: 'column',
+      children: [
+        Box({ key: `${key}-note`, children: Text({ dimColor: true, children: note }) }),
+        element,
+      ],
+    })
+  return {
+    rows: noteRows + fenced.rows,
+    whole: () => noted(fenced.whole()),
+    cut: (budget) => {
+      const cut = fenced.cut(budget - noteRows)
+      return cut === null ? null : { element: noted(cut.element), rows: noteRows + cut.rows }
+    },
+  }
+}
+
+function mermaidPiece(context: Context, fence: Fence, key: string): Piece {
+  const outcome = diagramOf(fence.content, context.width, context.surface)
+  return outcome.kind === 'drawing'
+    ? diagramPiece(context, fence, outcome, key)
+    : notDrawnPiece(context, fence, outcome, key)
+}
+
 function pieceOf(context: Context, block: Block, index: number): Piece {
   const key = `block-${String(index)}`
   switch (block.kind) {
@@ -436,7 +630,9 @@ function pieceOf(context: Context, block: Block, index: number): Piece {
     case 'table':
       return tablePiece(context, block, key)
     case 'fence':
-      return fencePiece(context, block, key)
+      return context.drawsDiagrams && block.isClosed && block.tag === MERMAID_TAG
+        ? mermaidPiece(context, block, key)
+        : fencePiece(context, block, key)
   }
 }
 
@@ -524,7 +720,14 @@ export function replyTree(
   actions: ReplyActions,
 ): RenderElement | null {
   const width = layout.columns - (layout.hasBullet ? BULLET_COLUMNS : 0)
-  const context: Context = { elements, width, columns: layout.columns, actions }
+  const context: Context = {
+    elements,
+    width,
+    columns: layout.columns,
+    surface: layout.surface,
+    drawsDiagrams: layout.drawsDiagrams,
+    actions,
+  }
   const pieces = blocks.map((block, index) => pieceOf(context, block, index))
   const total = sum(pieces.map((piece) => piece.rows)) + Math.max(pieces.length - 1, 0)
   const isLong = total > FOLD_AFTER_ROWS

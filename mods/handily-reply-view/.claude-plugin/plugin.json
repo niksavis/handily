@@ -13,6 +13,13 @@
       "description": "Whether replies and typed prompts draw in the reply view (on) or as Claude Code draws them (off) when a session starts. /replies toggles one session.",
       "options": ["on", "off"],
       "default": "on"
+    },
+    "diagrams": {
+      "type": "string",
+      "title": "Diagrams",
+      "description": "Whether a mermaid flowchart in a reply draws as a diagram (on) or as its source, as a code block (off).",
+      "options": ["on", "off"],
+      "default": "on"
     }
   }
 }
