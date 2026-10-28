@@ -6,7 +6,7 @@ export type FlowDrawing = { kind: 'drawing'; lines: string[] }
 
 export type LayoutMeter = { steps: number }
 
-const MOST_ROWS = 120
+export const MOST_ROWS = 120
 const MOST_LOOPS = 3
 const EDGE_LABEL_COLUMNS = 12
 const ORDER_PASSES = 4
@@ -139,15 +139,15 @@ function refusal(reason: string): Refusal {
   return { kind: 'refused', reason, line: null, limit: null }
 }
 
-function tick(meter: LayoutMeter, steps = 1): void {
+export function tick(meter: LayoutMeter, steps = 1): void {
   meter.steps += steps
 }
 
-function shown(text: string): string {
+export function shown(text: string): string {
   return text.replace(CONTROL, ' ').replace(BIDI_CONTROL, '')
 }
 
-function widest(lines: readonly string[]): number {
+export function widest(lines: readonly string[]): number {
   return Math.max(0, ...lines.map(displayWidth))
 }
 

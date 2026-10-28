@@ -3,6 +3,7 @@ import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import { displayWidth, graphemesOf } from './hooks/width'
 import { parseMermaid, type Flowchart, type Refusal, type SequenceDiagram } from './hooks/mermaid'
 import { drawFlowchart, type LayoutMeter } from './hooks/flowchart'
+import { drawSequence } from './hooks/sequence'
 import { diagramOf, replyTree, type ReplyElements } from './hooks/draw'
 import { blocksOf } from './hooks/markdown'
 
@@ -2974,6 +2975,422 @@ describe('flowchart drawings', () => {
   }
 })
 
+const MOCK_9_7_SOURCE = linesOf(
+  'sequenceDiagram',
+  '  You->>Claude: prompt',
+  '  Claude->>reply-view: reply text',
+  '  reply-view-->>You: drawn reply',
+  '  reply-view->>reply-view: cache by width',
+  '  Note over reply-view: layout once per width',
+)
+
+const MOCK_9_7_DRAWING = [
+  '┌─────┐        ┌────────┐        ┌────────────┐',
+  '│ You │        │ Claude │        │ reply-view │',
+  '└──┬──┘        └────┬───┘        └──────┬─────┘',
+  '   │    prompt      │                   │',
+  '   │───────────────▶│                   │',
+  '   │                │    reply text     │',
+  '   │                │──────────────────▶│',
+  '   │  drawn reply   │                   │',
+  '   │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
+  '   │                │                   │──┐ cache by width',
+  '   │                │                   │◀─┘',
+  '   │                │       ┌───────────┴───────────┐',
+  '   │                │       │ layout once per width │',
+  '   │                │       └───────────┬───────────┘',
+]
+
+const MOCK_9_7_ALT_SOURCE = linesOf(
+  'sequenceDiagram',
+  '  autonumber',
+  '  App->>Cache: get key',
+  '  alt hit',
+  '    Cache-->>App: value',
+  '  else miss',
+  '    Cache-->>App: none',
+  '  end',
+)
+
+const MOCK_9_7_ALT_DRAWING = [
+  '┌─────┐        ┌───────┐',
+  '│ App │        │ Cache │',
+  '└──┬──┘        └───┬───┘',
+  '   │  1. get key   │',
+  '   │──────────────▶│',
+  '┄┄ alt: hit ┄┄┄┄┄┄┄┼┄┄┄┄',
+  '   │   2. value    │',
+  '   │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
+  '┄┄ else: miss ┄┄┄┄┄┼┄┄┄┄',
+  '   │   3. none     │',
+  '   │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
+  '┄┄ end ┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄',
+]
+
+const MOCK_9_7_TOO_WIDE_COLUMNS = 50
+const SEQUENCE_STEP_BUDGET = 4000
+
+function drawnSequence(source: string, width: number): string[] {
+  const result = drawSequence(sequenceOf(source), width)
+  if (result.kind !== 'drawing') throw new Error(`not drawn: ${result.reason}`)
+  return result.lines
+}
+
+const ARROW_HEADS = '▶◀×▷◁'
+const ARROW_SHAFTS = '─╌'
+
+function drawnMessages(lines: readonly string[]): string[] {
+  const grid = cellGrid(lines)
+  const at = (row: number, col: number) => grid[row]?.[col] ?? ' '
+  const header = grid.findIndex((cells) => cells.includes('┬'))
+  const lifelines = (grid[header] ?? []).flatMap((cell, col) => (cell === '┬' ? [col] : []))
+  const isShaft = (row: number, col: number) => ARROW_SHAFTS.includes(at(row, col))
+  const senderOf = (row: number, from: number, step: number) => {
+    let col = from
+    for (;;) {
+      if (isShaft(row, col)) col += step
+      else if (lifelines.includes(col) && at(row, col) === '│' && isShaft(row, col + step))
+        col += step
+      else break
+    }
+    return lifelines.includes(col) && at(row, col) === '│' ? lifelines.indexOf(col) : -1
+  }
+  const found: string[] = []
+  grid.forEach((_, row) => {
+    if (row <= header) return
+    lifelines.forEach((lifeline, index) => {
+      const isLoop = at(row, lifeline) === '│' && at(row, lifeline + 3) === '┐'
+      if (isLoop && isShaft(row, lifeline + 1)) {
+        found.push(`${String(index)}>${String(index)}`)
+      }
+      if (ARROW_HEADS.includes(at(row, lifeline - 1)) && isShaft(row, lifeline - 2)) {
+        const from = senderOf(row, lifeline - 2, -1)
+        if (from >= 0) found.push(`${String(from)}>${String(index)}`)
+      }
+      if (ARROW_HEADS.includes(at(row, lifeline + 1)) && isShaft(row, lifeline + 2)) {
+        const from = senderOf(row, lifeline + 2, 1)
+        if (from >= 0) found.push(`${String(from)}>${String(index)}`)
+      }
+    })
+  })
+  return found
+}
+
+function heldMessages(diagram: SequenceDiagram): string[] {
+  const index = diagram.participants.map((participant) => participant.id)
+  return diagram.events.flatMap((event) =>
+    event.kind === 'message'
+      ? [`${String(index.indexOf(event.from))}>${String(index.indexOf(event.to))}`]
+      : [],
+  )
+}
+
+function generatedSequences(seed: number, count: number): string[] {
+  let state = seed
+  const next = (below: number) => {
+    state = (state * 1103515245 + 12345) % 2147483648
+    return Math.floor((state / 2147483648) * below)
+  }
+  const arrows = ['->>', '-->>', '-x', '--x', '-)', '--)']
+  return Array.from({ length: count }, () => {
+    const people = numbered('P', 2 + next(5))
+    const lines = ['sequenceDiagram', ...people.map((person) => `  participant ${person}`)]
+    const events = 1 + next(12)
+    for (let index = 0; index < events; index++) {
+      const from = people[next(people.length)] ?? 'P1'
+      const to = people[next(people.length)] ?? 'P1'
+      const label = next(3) === 0 ? '' : ` m${String(index)}`
+      if (next(5) === 0) lines.push(`  Note over ${from}: n${String(index)}`)
+      else lines.push(`  ${from}${arrows[next(arrows.length)] ?? '->>'}${to}:${label}`)
+    }
+    return linesOf(...lines)
+  })
+}
+
+function lifelineColumns(lines: readonly string[]): number[][] {
+  return lines.map(
+    (line) =>
+      graphemesOf(line).reduce<{ col: number; found: number[] }>(
+        (seen, grapheme) => ({
+          col: seen.col + displayWidth(grapheme),
+          found: '│┬┴┼'.includes(grapheme) ? [...seen.found, seen.col] : seen.found,
+        }),
+        { col: 0, found: [] },
+      ).found,
+  )
+}
+
+describe('sequence drawings', () => {
+  test('the source of mock 9.7 draws the mock at 78 columns, with the lifeline drawn through where the reply crosses it', () => {
+    expect(drawnSequence(MOCK_9_7_SOURCE, REPLY_COLUMNS)).toEqual(MOCK_9_7_DRAWING)
+  })
+
+  test('the source of mock 9.7 alt draws numbered messages and the alt rows at 78 columns', () => {
+    expect(drawnSequence(MOCK_9_7_ALT_SOURCE, REPLY_COLUMNS)).toEqual(MOCK_9_7_ALT_DRAWING)
+  })
+
+  test('labels wrap to fit the width in at most 3 lines, and a drawing still too wide names its width', () => {
+    expect(drawnSequence(MOCK_9_7_SOURCE, 53).slice(9, 15)).toEqual([
+      '   │                │                   │──┐ cache by',
+      '   │                │                   │◀─┘ width',
+      '   │                │            ┌──────┴──────┐',
+      '   │                │            │ layout once │',
+      '   │                │            │ per width   │',
+      '   │                │            └──────┬──────┘',
+    ])
+    expect(drawnSequence(MOCK_9_7_SOURCE, MOCK_9_7_TOO_WIDE_COLUMNS)).toEqual([
+      '┌─────┐        ┌────────┐        ┌────────────┐',
+      '│ You │        │ Claude │        │ reply-view │',
+      '└──┬──┘        └────┬───┘        └──────┬─────┘',
+      '   │    prompt      │                   │',
+      '   │───────────────▶│                   │',
+      '   │                │      reply        │',
+      '   │                │      text         │',
+      '   │                │──────────────────▶│',
+      '   │     drawn      │                   │',
+      '   │     reply      │                   │',
+      '   │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
+      '   │                │                   │──┐ cache',
+      '   │                │                   │  │ by',
+      '   │                │                   │◀─┘ width',
+      '   │                │             ┌─────┴────┐',
+      '   │                │             │ layout   │',
+      '   │                │             │ once per │',
+      '   │                │             │ width    │',
+      '   │                │             └─────┬────┘',
+    ])
+    expect(drawSequence(sequenceOf(MOCK_9_7_SOURCE), MOCK_9_7_TOO_WIDE_COLUMNS - 1)).toEqual(
+      notDrawn(`it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 49`),
+    )
+  })
+
+  test('each stroke and head, notes on each side and over two, a dashed loop and nested blocks', () => {
+    expect(
+      drawnSequence(
+        linesOf(
+          'sequenceDiagram',
+          '  participant A as Alice',
+          '  participant B as Bob',
+          '  actor C as Carol',
+          '  loop every minute',
+          '    A-xC: ping',
+          '    alt fine',
+          '      C--)A: pong',
+          '    else down',
+          '      Note left of A: retry',
+          '      Note right of C: wake up',
+          '    end',
+          '  end',
+          '  Note over A,C: all three hear it',
+          '  B-->B: think it over',
+          '  A->B: plain',
+          '  B--xA: lost',
+          '  A-)B: async',
+        ),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '      ┌───────┐        ┌─────┐           ┌───────┐',
+      '      │ Alice │        │ Bob │           │ Carol │',
+      '      └───┬───┘        └──┬──┘           └───┬───┘',
+      '┄┄ loop: every minute ┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄',
+      '          │     ping      │                  │',
+      '          │───────────────│─────────────────×│',
+      '  ┄┄ alt: fine ┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄',
+      '          │     pong      │                  │',
+      '          │◁╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
+      '  ┄┄ else: down ┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄',
+      '┌───────┐ │               │                  │',
+      '│ retry │ │               │                  │',
+      '└───────┘ │               │                  │',
+      '          │               │                  │ ┌─────────┐',
+      '          │               │                  │ │ wake up │',
+      '          │               │                  │ └─────────┘',
+      '  ┄┄ end ┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄',
+      '┄┄ end ┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄',
+      '        ┌─┴───────────────┴──────────────────┴─┐',
+      '        │          all three hear it           │',
+      '        └─┬───────────────┬──────────────────┬─┘',
+      '          │               │╌╌┐ think it over │',
+      '          │               │╌╌┘               │',
+      '          │    plain      │                  │',
+      '          │───────────────│                  │',
+      '          │     lost      │                  │',
+      '          │×╌╌╌╌╌╌╌╌╌╌╌╌╌╌│                  │',
+      '          │    async      │                  │',
+      '          │──────────────▷│                  │',
+    ])
+  })
+
+  test('par, opt, critical, break and rect rows name their word and label, and an empty section keeps its rows', () => {
+    expect(
+      drawnSequence(
+        linesOf(
+          'sequenceDiagram',
+          '  par to Bo',
+          '    A->>B: one',
+          '  and to Cy',
+          '    A->>C: two',
+          '  end',
+          '  opt',
+          '  end',
+          '  critical lock',
+          '    break full',
+          '      B->>A: stop',
+          '    end',
+          '  end',
+          '  rect rgb(1, 2, 3)',
+          '    C->>A: tint',
+          '  end',
+        ),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '┌───┐        ┌───┐        ┌───┐',
+      '│ A │        │ B │        │ C │',
+      '└─┬─┘        └─┬─┘        └─┬─┘',
+      '┄┄ par: to Bo ┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '  │    one     │            │',
+      '  │───────────▶│            │',
+      '┄┄ and: to Cy ┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '  │    two     │            │',
+      '  │────────────│───────────▶│',
+      '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '┄┄ opt ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '┄┄ critical: lock ┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '  ┄┄ break: full ┄┄┄┄┄┄┄┄┄┄┄┼',
+      '  │   stop     │            │',
+      '  │◀───────────│            │',
+      '  ┄┄ end ┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼',
+      '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '┄┄ rect: rgb(1, 2, 3) ┄┄┄┄┄┄┼┄┄',
+      '  │   tint     │            │',
+      '  │◀───────────│────────────│',
+      '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+    ])
+  })
+
+  test('a block label too wide for the screen is cut with an ellipsis', () => {
+    expect(
+      drawnSequence(
+        linesOf(
+          'sequenceDiagram',
+          '  loop while the cache holds no drawing for this width',
+          '    A->>B: hi',
+          '  end',
+        ),
+        30,
+      ),
+    ).toEqual([
+      '┌───┐        ┌───┐',
+      '│ A │        │ B │',
+      '└─┬─┘        └─┬─┘',
+      '┄┄ loop: while the cache h… ┄┄',
+      '  │    hi      │',
+      '  │───────────▶│',
+      '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄',
+    ])
+  })
+
+  test('CJK and emoji labels keep every lifeline in its column', () => {
+    const lines = drawnSequence(
+      linesOf(
+        'sequenceDiagram',
+        '  participant T as 表格对齐',
+        `  participant A as ${TECHIE} Ana`,
+        '  T->>A: 日本語のテスト',
+        `  A-->>T: ${AUSTRIA} Bo ${KEYCAP_ONE}`,
+        `  Note over A: ${WARNING} 表格`,
+        '  A->>A: tab\there',
+      ),
+      REPLY_COLUMNS,
+    )
+    expect(lines).toEqual([
+      '┌──────────┐        ┌────────┐',
+      `│ 表格对齐 │        │ ${TECHIE} Ana │`,
+      '└─────┬────┘        └────┬───┘',
+      '      │ 日本語のテスト   │',
+      '      │─────────────────▶│',
+      `      │    ${AUSTRIA} Bo ${KEYCAP_ONE}      │`,
+      '      │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
+      '      │             ┌────┴────┐',
+      `      │             │ ${WARNING} 表格 │`,
+      '      │             └────┬────┘',
+      '      │                  │──┐ tab here',
+      '      │                  │◀─┘',
+    ])
+    expect(
+      lifelineColumns(lines.slice(2)).map((found) => [6, 25].filter((col) => found.includes(col))),
+    ).toEqual([...Array<number[]>(6).fill([6, 25]), [6], ...Array<number[]>(3).fill([6, 25])])
+  })
+
+  test('119 drawn rows draw and 121 rows name the limit of 120', () => {
+    const source = (count: number) =>
+      linesOf('sequenceDiagram', ...Array<string>(count).fill('  A->>B: ask'))
+    expect(drawnSequence(source(58), REPLY_COLUMNS)).toHaveLength(119)
+    expect(drawSequence(sequenceOf(source(59)), REPLY_COLUMNS)).toEqual(
+      notDrawn('121 rows, at most 120 draw'),
+    )
+  })
+
+  test('a diagram with no participants and a message that names none are refused by name', () => {
+    expect(drawSequence(sequenceOf('sequenceDiagram'), REPLY_COLUMNS)).toEqual(
+      notDrawn('the sequence diagram has no participants'),
+    )
+    const diagram = sequenceOf(linesOf('sequenceDiagram', '  A->>B: hi'))
+    const unnamed: SequenceDiagram = {
+      ...diagram,
+      participants: diagram.participants.filter((participant) => participant.id === 'A'),
+    }
+    expect(drawSequence(unnamed, REPLY_COLUMNS)).toEqual(notDrawn('a message names no participant'))
+  })
+
+  test('the message reader tells a reply that crosses a lifeline from a reply that starts there', () => {
+    expect(drawnMessages(MOCK_9_7_DRAWING)).toEqual(['0>1', '1>2', '2>0', '2>2'])
+    const shorter = MOCK_9_7_DRAWING.map((line, row) =>
+      row === 8 ? `   │◀${'╌'.repeat(15)}│                   │` : line,
+    )
+    expect(drawnMessages(shorter)).toEqual(['0>1', '1>2', '1>0', '2>2'])
+  })
+
+  test('500 generated sequence diagrams draw each message between its own two lifelines', () => {
+    const drawn = generatedSequences(20261028, 500).flatMap((source) => {
+      const diagram = sequenceOf(source)
+      const result = drawSequence(diagram, REPLY_COLUMNS)
+      return result.kind === 'drawing' ? [[drawnMessages(result.lines), heldMessages(diagram)]] : []
+    })
+    expect(drawn.length).toBeGreaterThan(400)
+    expect(drawn.filter(([shown, held]) => JSON.stringify(shown) !== JSON.stringify(held))).toEqual(
+      [],
+    )
+  })
+
+  for (const [count, width, reason] of [
+    [12, REPLY_COLUMNS, 'it takes 387 columns, the screen has 78'],
+    [2, 60, '243 rows, at most 120 draw'],
+  ] as const) {
+    test(`${String(count)} participants and 60 long messages lay out within the step budget at ${String(width)} columns`, () => {
+      const people = numbered('P', count)
+      const diagram = sequenceOf(
+        linesOf(
+          'sequenceDiagram',
+          ...people.map((person) => `  participant ${person}`),
+          ...Array.from(
+            { length: 60 },
+            (_, index) =>
+              `  ${people[index % count] ?? 'P1'}->>${people[(index * 5 + 7) % count] ?? 'P2'}: ${'word '.repeat(20)}${String(index)}`,
+          ),
+        ),
+      )
+      const meter: LayoutMeter = { steps: 0 }
+      expect(drawSequence(diagram, width, meter)).toEqual(notDrawn(reason))
+      expect(meter.steps).toBeGreaterThan(0)
+      expect(meter.steps).toBeLessThan(SEQUENCE_STEP_BUDGET)
+    })
+  }
+})
+
 const DIAGRAM_COLUMNS = [78, 40] as const
 const DIAGRAM_BUTTONS = '[ copy ] [ copy drawing ]'
 const FENCE_BUTTON_ROOM = '  [ copy ]'.length
@@ -2999,8 +3416,8 @@ function titledRule(title: string, columns: number): string {
   return head + '─'.repeat(Math.max(columns - cellsIn(head), 2))
 }
 
-function diagramTitleLines(width: number): string[] {
-  const title = 'mermaid · flowchart'
+function diagramTitleLines(width: number, name = 'flowchart'): string[] {
+  const title = `mermaid · ${name}`
   const room = width - DIAGRAM_BUTTONS.length - 2
   if (cellsIn(titledRule(title, 0)) <= room) {
     return [`~${titledRule(title, room)}~  ${DIAGRAM_BUTTONS}`]
@@ -3031,6 +3448,8 @@ const SEQUENCE_SOURCE = linesOf(
   '  You->>Claude: prompt',
   '  Claude-->>You: reply',
 )
+
+const CLASS_SOURCE = linesOf('classDiagram', '  Animal <|-- Duck', '  Animal <|-- Fish')
 
 const WIDE_SOURCE = linesOf(
   'flowchart TD',
@@ -3125,7 +3544,7 @@ describe('diagram blocks', () => {
           const width = replyWidth(surface, columns)
           const ui = await mountReply(
             $,
-            reply(mermaidReply('Here is the flow:', MOCK_9_8_SOURCE, SEQUENCE_SOURCE, '')),
+            reply(mermaidReply('Here is the flow:', MOCK_9_8_SOURCE, CLASS_SOURCE, '')),
             surface,
             columns,
           )
@@ -3136,8 +3555,8 @@ describe('diagram blocks', () => {
               '~diagram not drawn: line 3 does not parse.~',
               ...todaysFence(MOCK_9_8_SOURCE, width),
               '',
-              '~diagram not drawn: sequenceDiagram does not draw yet.~',
-              ...todaysFence(SEQUENCE_SOURCE, width),
+              '~diagram not drawn: classDiagram does not draw yet.~',
+              ...todaysFence(CLASS_SOURCE, width),
               '',
               '~diagram not drawn: the block is empty.~',
               ...todaysFence('', width),
@@ -3145,7 +3564,7 @@ describe('diagram blocks', () => {
           )
           expect(await ui.find({ key: 'block-2-drawing' })).toBeUndefined()
           await ui.press({ key: 'block-2-copy' })
-          expect(world.copies).toEqual([SEQUENCE_SOURCE])
+          expect(world.copies).toEqual([CLASS_SOURCE])
           expect(world.toasts).toEqual([
             { lines: ['✓ Copied the mermaid block', '3 lines'], timeoutMs: 6000 },
           ])
@@ -3208,7 +3627,7 @@ describe('diagram blocks', () => {
     )
 
     diagramTest(
-      `with the diagrams setting on the same reply draws its flowchart on ${surface}`,
+      `with the diagrams setting on the same reply draws its flowchart and its sequence diagram on ${surface}`,
       { diagrams: 'on' },
       async (_world, $) => {
         const width = replyWidth(surface, COLUMNS)
@@ -3217,18 +3636,92 @@ describe('diagram blocks', () => {
           reply(mermaidReply('Two diagrams:', MOCK_9_6_SOURCE, SEQUENCE_SOURCE)),
           surface,
         )
-        expect((await sketchOf(ui)).slice(0, 3 + MOCK_9_6_DRAWING.length)).toEqual(
+        expect(await sketchOf(ui)).toEqual(
           onSurface(surface, [
             'Two diagrams:',
             '',
             ...diagramTitleLines(width),
-            ...drawnLines(MOCK_9_6_SOURCE, width).map((line) => line.trimEnd()),
+            ...drawnLines(MOCK_9_6_SOURCE, width),
+            '',
+            ...diagramTitleLines(width, 'sequence'),
+            '┌─────┐        ┌────────┐',
+            '│ You │        │ Claude │',
+            '└──┬──┘        └────┬───┘',
+            '   │    prompt      │',
+            '   │───────────────▶│',
+            '   │     reply      │',
+            '   │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
           ]),
         )
         await ui.unmount()
       },
     )
+
+    viewTest(
+      `the source of mock 9.7 draws its title, its drawing, copy and copy drawing on ${surface}`,
+      async (world, $) => {
+        const width = replyWidth(surface, COLUMNS)
+        const ui = await mountReply(
+          $,
+          reply(mermaidReply('The reply takes three steps:', MOCK_9_7_SOURCE)),
+          surface,
+        )
+        expect(await sketchOf(ui)).toEqual(
+          onSurface(surface, [
+            'The reply takes three steps:',
+            '',
+            ...diagramTitleLines(width, 'sequence'),
+            ...MOCK_9_7_DRAWING,
+          ]),
+        )
+        expect((await ui.find({ type: 'Code' }))?.props.source).toBe(MOCK_9_7_DRAWING.join('\n'))
+        await ui.press({ key: 'block-1-copy' })
+        await ui.press({ key: 'block-1-drawing' })
+        expect(world.copies).toEqual([MOCK_9_7_SOURCE, MOCK_9_7_DRAWING.join('\n')])
+        expect(world.toasts).toEqual([
+          { lines: ['✓ Copied the sequence source', '6 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the sequence drawing', '14 lines'], timeoutMs: 6000 },
+        ])
+        await ui.unmount()
+      },
+    )
   }
+
+  viewTest(
+    'the title line of a drawn sequence diagram at 80 columns is the line of mock 9.7',
+    async (_world, $) => {
+      const ui = await mountReply(
+        $,
+        reply(mermaidReply('The reply takes three steps:', MOCK_9_7_ALT_SOURCE)),
+      )
+      const title = (await sketchOf(ui))[2] ?? ''
+      expect(title.replace(/~/g, '')).toBe(
+        '  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]',
+      )
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a sequence diagram too wide for 40 columns draws whole as its source under the width note, as in mock 9.9',
+    async (_world, $) => {
+      const ui = await mountReply(
+        $,
+        reply(mermaidReply('The reply takes three steps:', MOCK_9_7_SOURCE)),
+        'terminal',
+        40,
+      )
+      expect(await sketchOf(ui, 40)).toEqual([
+        '● The reply takes three steps:',
+        '',
+        `  ~diagram not drawn: it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 38.~`,
+        '  ~── mermaid ─────────────────~  [ copy ]',
+        ...MOCK_9_7_SOURCE.split('\n').map((line) => `  ${line}`),
+      ])
+      expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
+      await ui.unmount()
+    },
+  )
 
   viewTest(
     'the title line of a drawn flowchart at 80 columns is the line of mock 9.5',
