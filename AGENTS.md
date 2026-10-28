@@ -103,6 +103,8 @@ claude --plugin-dir mods/<name>
 - Check the exit code of the ledger commit before you dispatch a lane. A refused claim commit leaves the claim only in `pending-main.jsonl`, and the lane's commit-msg hook then refuses its commit. A comma or a capital letter in the description is a common cause.
 - A session started with `--plugin-dir mods` writes `.claude-plugin/types` into a removed mod folder. Then `npm run check` fails with "a folder under mods/ is a mod". Delete the regenerated folder and run the check again.
 - `/reload-plugins` unloads an uninstalled plugin but keeps a disabled one loaded, as measured on Claude Code 2.1.296. To drop a mod from a running session, uninstall it before you reload.
+- The commit-msg hook refuses a `chore(release)` commit unless it names a record that you hold in progress. An epic cannot be claimed. Commit the release before you close its last record, then close the record.
+- Stage nothing else while a release is staged. A ledger commit with the staged `CHANGELOG.md` is refused by the changelog gate, because only a `chore(release)` commit may edit it.
 
 ### Knowledge Priming
 
