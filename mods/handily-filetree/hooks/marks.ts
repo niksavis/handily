@@ -1,4 +1,4 @@
-import type { Mark, Sight, Touch, TouchKind } from './touches'
+import type { Mark, Sight, SightSource, Touch, TouchKind } from './touches'
 import { displayWidth, fitted, padToWidth } from './width'
 
 export type MarkColumn = { label: number; hasAge: boolean }
@@ -92,11 +92,27 @@ export function sightCells(
   return { mark: name, path: column.hasAge ? padToWidth(path, room) : path, age }
 }
 
-export function hiddenText(hidden: number): string {
+export function hiddenText(hidden: number, source: SightSource): string {
   const files = hidden === 1 ? 'file' : 'files'
-  return `  and ${hidden.toLocaleString('en-US')} more ${files} from one Grep`
+  return `  and ${hidden.toLocaleString('en-US')} more ${files} from one ${source}`
 }
 
-export function touchText(touch: Touch, label: string, now: number): string {
-  return `${VERBS[touch.kind]} by ${label} ${ageText(now - touch.at)} ago`
+export function isShared(touch: Touch): boolean {
+  return (touch.shell?.length ?? 0) > 1
+}
+
+export function sharedLabel(touch: Touch): string {
+  return `${String(touch.shell?.length ?? 1)} agents`
+}
+
+function listed(labels: readonly string[]): string {
+  const last = labels.at(-1) ?? ''
+  return labels.length < 2 ? last : `${labels.slice(0, -1).join(', ')} and ${last}`
+}
+
+export function touchText(touch: Touch, labelOf: (agent: string) => string, now: number): string {
+  const labels = (touch.shell ?? [touch.agent]).map(labelOf)
+  const age = `${ageText(now - touch.at)} ago`
+  if (isShared(touch)) return `changed while Bash of ${listed(labels)} ran ${age}`
+  return `${VERBS[touch.kind]} by ${listed(labels)} ${age}`
 }

@@ -17,6 +17,18 @@ import { markColumnOf } from './marks'
 import { type PaneActions, type TouchDraw, drawInline, drawTree } from './pane'
 import { absolutePath, resolvedPath, shownPath } from './paths'
 import { reasonOf } from './reason'
+import {
+  type Listings,
+  type Shell,
+  type ShellSite,
+  beginShellRun,
+  clearShell,
+  endShellRun,
+  forgetListings,
+  newShell,
+  relistAfterShell,
+  startListings,
+} from './shellmarks'
 import { type GitMarks, gitMarks } from './status'
 import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows, withDeleted } from './tree'
 import { showToast } from './toast'
@@ -48,6 +60,7 @@ import type { FiletreePaths } from '../types'
 const OPEN = { plugin: 'handily-filetree', key: 'open' } as const
 const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
 const BOARD_AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 
 type AgentFilter = { picked: string | undefined }
@@ -56,8 +69,6 @@ function folderName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter((part) => part !== '')
   return parts.at(-1) ?? cwd
 }
-
-type Listings = Map<string, Listing>
 
 async function readListing($: EngineInterface, at: string, path: string): Promise<Listing> {
   try {
@@ -145,6 +156,44 @@ function redraw($: EngineInterface): void {
   $.ui.invalidate('ui.render')
 }
 
+function shellSiteOf(watch: GitWatch): ShellSite {
+  const { cwd, repo, shown } = watch
+  if (repo === null || repo === undefined) return { cwd, prefix: '', status: undefined }
+  return { cwd, prefix: repo.prefix, status: shown?.status }
+}
+
+async function beginShell(
+  $: EngineInterface,
+  context: { shell: Shell; watch: GitWatch },
+  e: ToolCallInput,
+): Promise<boolean> {
+  if (!SHELL_TOOLS.has(e.tool)) return false
+  const { shell, watch } = context
+  const site = shellSiteOf(watch)
+  await beginShellRun($, shell, {
+    id: e.tool_use_id,
+    agent: e.agentId ?? MAIN_AGENT,
+    site,
+  })
+  return true
+}
+
+async function endShell(
+  $: EngineInterface,
+  context: { shell: Shell; watch: GitWatch; listings: Listings },
+  call: { id: string; answer: ToolCallResult | undefined },
+): Promise<void> {
+  const { shell, watch, listings } = context
+  await endShellRun($, shell, { id: call.id, hasRun: call.answer?.deny === undefined })
+  if (watch.repo !== null || watch.cwd === undefined) return
+  const { cwd } = watch
+  relistAfterShell($, shell, {
+    cwd,
+    listings,
+    relist: (at) => readListing($, at, at),
+  })
+}
+
 function lookSiteOf(watch: GitWatch, cwd: string): LookSite {
   const { repo, shown } = watch
   if (repo === null || repo === undefined) return { cwd, prefix: '', marks: undefined }
@@ -222,8 +271,10 @@ async function touchDrawOf(
 
 export const register: Register = (on) => {
   const listings: Listings = new Map()
-  const watch = newWatch()
   const touches = newTouches()
+  const shell = newShell(touches)
+  const watch = newWatch(shell)
+  const context = { shell, watch, listings }
   const filter: AgentFilter = { picked: undefined }
   const looking = newLooking()
 
@@ -242,6 +293,7 @@ export const register: Register = (on) => {
     listings.clear()
     resetWatch(watch)
     clearTouches(touches)
+    clearShell(shell)
     resetLooking(looking)
     filter.picked = undefined
     return next(e)
@@ -251,6 +303,7 @@ export const register: Register = (on) => {
     const closed = await next(e)
     if (e.id === FILES_PANE.id) {
       listings.clear()
+      forgetListings(shell)
       stopWatch(watch)
       resetLooking(looking)
     }
@@ -260,12 +313,14 @@ export const register: Register = (on) => {
   on('tool.call', async ($, e, next) => {
     const seen = await seenCallOf($, e)
     if (seen !== undefined) await beginCall($, touches, e.tool_use_id, seen)
+    const isShell = await beginShell($, context, e)
     let answer: ToolCallResult | undefined
     try {
       answer = await next(e)
       return answer
     } finally {
       if (seen !== undefined) await endCall($, touches, { id: e.tool_use_id, seen, answer })
+      if (isShell) await endShell($, context, { id: e.tool_use_id, answer })
       if (CHANGING_TOOLS.has(e.tool)) requestStatus($, watch)
     }
   })
@@ -300,6 +355,7 @@ export const register: Register = (on) => {
     const elements = { Box, Text, Button, Select, Code, Markdown, bodyColumns }
     const cwd = await $.session.cwd()
     await syncRepo($, watch, cwd)
+    if (watch.repo === null) startListings(shell, await $.clock.now())
     watchShown($, watch)
     noticeFocus($, watch, e.props.isFocused)
     const git = gitView(watch, await $.clock.now())

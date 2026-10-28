@@ -1913,6 +1913,226 @@ describe('marks: a Grep', () => {
   })
 })
 
+type ShellRun = { tookMs: number; writesAt: number; write: (seen: World) => void }
+
+function shellTools(on: On, seen: World, runs: ReadonlyMap<string, ShellRun>): void {
+  on('tool.call', async (_$, e) => {
+    const input: Readonly<Record<string, unknown>> = e
+    const run = typeof input.command === 'string' ? runs.get(input.command) : undefined
+    if (run !== undefined) {
+      await seen.clock.sleep(run.writesAt)
+      run.write(seen)
+      await seen.clock.sleep(run.tookMs - run.writesAt)
+    }
+    return { result: '' }
+  })
+}
+
+async function bash($: Engine, command: string, agentId?: string): Promise<void> {
+  await $.tool.call({ tool: 'Bash', command, ...(agentId === undefined ? {} : { agentId }) })
+}
+
+function trackedFile(seen: World, path: string): void {
+  seen.files.set(`${ROOT}/${path}`, { kind: 'file', text: 'x', mtimeMs: 1 })
+}
+
+describe('marks: a Bash call', () => {
+  for (const surface of SURFACES) {
+    test(`a Bash call by a subagent that changes two tracked files marks both rows with that agent after one status run on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, {
+        kind: 'ok',
+        stdout: statusOf([changed('.M', 'docs/design.md')]),
+      })
+      trackedFile(seen, 'docs/design.md')
+      trackedFile(seen, 'hooks/pane.tsx')
+      trackedFile(seen, 'docs/mocks.md')
+      const build: ShellRun = {
+        tookMs: 0,
+        writesAt: 0,
+        write: (world) => {
+          touch(world, `${ROOT}/docs/design.md`)
+          touch(world, `${ROOT}/hooks/pane.tsx`)
+          world.answer = {
+            kind: 'ok',
+            stdout: statusOf([changed('.M', 'docs/design.md'), changed('.M', 'hooks/pane.tsx')]),
+          }
+        },
+      }
+      shellTools(on, seen, new Map([['npm run build', build]]))
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      const call = bash($, 'npm run build', SCOUT)
+      await seen.clock.advance(2000)
+      await call
+      expect(seen.runs).toHaveLength(2)
+      await ui.press({ key: 'open:docs' })
+      await ui.press({ key: 'open:hooks' })
+      expect((await headerOf(ui)).slice(2)).toEqual([
+        'Now  1 agent',
+        '✎ scout     docs/design.md             2s',
+        '  and 1 more file from one Bash',
+      ])
+      const tree = await treeLines(ui)
+      expect(tree.filter((line) => line.includes('✎'))).toEqual([
+        '▾ docs/  M1               ✎ scout      2s',
+        '  M design.md             ✎ scout      2s',
+        '▾ hooks/  M1              ✎ scout      2s',
+        '  M pane.tsx              ✎ scout      2s',
+      ])
+      expect(tree).toContain('    mocks.md')
+      await seen.clock.advance(60_000)
+      expect(seen.runs).toHaveLength(2)
+      await ui.unmount()
+    })
+
+    test(`two Bash calls that write and overlap mark the changed rows 2 agents, and the open row names both, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+      trackedFile(seen, 'docs/mocks.md')
+      trackedFile(seen, 'hooks/pane.tsx')
+      const generate: ShellRun = {
+        tookMs: 3000,
+        writesAt: 1000,
+        write: (world) => {
+          touch(world, `${ROOT}/hooks/pane.tsx`)
+          world.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'hooks/pane.tsx')]) }
+        },
+      }
+      const format: ShellRun = {
+        tookMs: 3000,
+        writesAt: 2000,
+        write: (world) => {
+          touch(world, `${ROOT}/docs/mocks.md`)
+          world.answer = {
+            kind: 'ok',
+            stdout: statusOf([changed('.M', 'docs/mocks.md'), changed('.M', 'hooks/pane.tsx')]),
+          }
+        },
+      }
+      shellTools(
+        on,
+        seen,
+        new Map([
+          ['npm run gen', generate],
+          ['npm run format', format],
+        ]),
+      )
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      const main = bash($, 'npm run gen')
+      await seen.clock.advance(500)
+      const scout = bash($, 'npm run format', SCOUT)
+      await seen.clock.advance(3500)
+      await Promise.all([main, scout])
+      await seen.clock.advance(2000)
+      expect(seen.runs).toHaveLength(3)
+      await openRow(ui, ['docs', 'hooks'], 'docs/mocks.md')
+      expect((await headerOf(ui)).slice(2)).toEqual([NOW_EMPTY])
+      const tree = await treeLines(ui)
+      const row = tree.indexOf('  M mocks.md              ✎ 2 agents   3s')
+      expect(tree.slice(row, row + 3)).toEqual([
+        '  M mocks.md              ✎ 2 agents   3s',
+        '      changed while Bash of main and',
+        '      scout ran 3s ago',
+      ])
+      expect(tree).toContain('  M pane.tsx              ✎ 2 agents   3s')
+      expect(tree.some((line) => / ✎ (main|scout) /.test(line))).toBe(false)
+      await ui.unmount()
+    })
+  }
+
+  test('an Edit and then a Bash call that writes nothing in the same status window leave the Edit mark alone', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    on('tool.call', { tool: 'Edit' }, (_$, e, next) => {
+      touch(seen, `${ROOT}/README.md`)
+      seen.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'README.md')]) }
+      return next(e)
+    })
+    shellTools(on, seen, new Map())
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    await edit($, 'README.md')
+    await bash($, 'npm test', SCOUT)
+    await seen.clock.advance(2000)
+    expect(seen.runs).toHaveLength(2)
+    expect(await treeLines(ui)).toContain('M README.md               ✎ main       2s')
+    expect((await headerOf(ui)).slice(2)).toEqual([
+      'Now  1 agent',
+      '✎ main      README.md                  2s',
+    ])
+    await ui.unmount()
+  })
+
+  test('a Bash call that the person denies marks no file', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    on('tool.call', { tool: 'Bash' }, () => {
+      touch(seen, `${ROOT}/README.md`)
+      seen.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'README.md')]) }
+      return { deny: 'The person refused the call.' }
+    })
+    const ui = await openFiles($, seen)
+    await bash($, 'npm run build', SCOUT).catch(() => undefined)
+    await seen.clock.advance(2000)
+    expect(seen.runs).toHaveLength(2)
+    expect(await treeLines(ui)).toContain('M README.md')
+    await ui.unmount()
+  })
+
+  for (const surface of SURFACES) {
+    test(`outside a git repo a Bash call lists the open folders again and marks the new and changed files, with no process, on the ${surface}`, async ($, on) => {
+      const seen = world(on, APP)
+      const write: ShellRun = {
+        tookMs: 1000,
+        writesAt: 500,
+        write: (world) => {
+          world.folders.set('docs', [
+            file('mocks.md'),
+            file('design.md'),
+            file('install.md'),
+            { ...file('guide.md'), size: 9, mtimeMs: 9 },
+            file('plan.md'),
+          ])
+          world.folders.set('hooks', [file('pane.tsx'), folder('dist'), file('new.tsx')])
+        },
+      }
+      shellTools(on, seen, new Map([['make notes', write]]))
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:docs' })
+      const listedBefore = seen.listed.length
+      const call = bash($, 'make notes', SCOUT)
+      await seen.clock.advance(6000)
+      await call
+      await ui.redraw(DOCKED_PANE)
+      expect(seen.listed.slice(listedBefore)).toEqual(['.', 'docs'])
+      expect(seen.runs).toEqual([])
+      expect(await screen(ui)).toEqual([
+        'Files  app · not a git repo',
+        CONTROLS,
+        'No git status here; git init adds it.',
+        'Now  1 agent',
+        '✎ scout     docs/guide.md              5s',
+        '  and 1 more file from one Bash',
+        RULE_41,
+        '▸ .git/  not listed',
+        '▸ node_modules/  not listed',
+        '▾ docs/                   ✎ scout      5s',
+        '    design.md',
+        '    guide.md              ✎ scout      5s',
+        '    install.md',
+        '    mocks.md',
+        '    plan.md               ✎ scout      5s',
+        '▸ hooks/',
+        '▸ scripts/',
+        '  .gitignore',
+        '  README.md',
+      ])
+      await ui.unmount()
+    })
+  }
+})
+
 const MIB = 1024 * 1024
 const DIFF_ARGV = [
   'git',

@@ -211,11 +211,12 @@ Now  2 agents
 M README.md
 ```
 
-| Tool                            | Mark                                    |
-| ------------------------------- | --------------------------------------- |
-| `Read`                          | `◦` on the file                         |
-| `Edit`, `Write`, `NotebookEdit` | `✎` on the file                         |
-| `Grep`                          | `◦` on the first 12 files that it found |
+| Tool                            | Mark                                       |
+| ------------------------------- | ------------------------------------------ |
+| `Read`                          | `◦` on the file                            |
+| `Edit`, `Write`, `NotebookEdit` | `✎` on the file                            |
+| `Grep`                          | `◦` on the first 12 files that it found    |
+| `Bash`, `PowerShell`            | `✎` on each file that changed while it ran |
 
 - The main loop is `main`. A subagent shows the label that `handily-board` draws for it. When
   the board has no label for it yet, the mark shows its name, its type or the first 8
@@ -226,9 +227,55 @@ M README.md
   mark goes, and an earlier mark of the file shows again.
 - A `Grep` that found 40 files marks 12. The `Now` line of the agent then reads
   `and 28 more files from one Grep`.
-- A `Bash` call marks no file in this release.
 - At body 30 the age drops and the label cuts to 5 characters. Below body 28 the label drops,
   and the mark and the git letter stay. Inline, each flat row carries its mark.
+
+### A Bash call
+
+The mod does not read the command of a `Bash` or `PowerShell` call. It compares the files
+before and after the call, and runs no `find` and no other process for it.
+
+- In a git repo, the mod keeps the last git status. When a call starts, it reads the time stamp
+  and the size of each changed file, and of each file that an `Edit`, a `Write` or a
+  `NotebookEdit` changed. After the call ends, the git status runs once, as for every change. A
+  file whose git state or time stamp changed gets `✎` with the agent that ran the call.
+- Outside a git repo, the mod lists each open folder again after the call ends. A new entry, or
+  a file whose size or time stamp changed, gets `✎`. A folder that is closed is not listed
+  again, so a change in it shows only after you open it or press `[ refresh ]`.
+- The age counts from the end of the call. For a call that still runs, it counts from the git
+  status that found the change.
+- The mod reads at most 1,000 time stamps for each snapshot. A file past that limit gets `✎`
+  only when its git state changes.
+- A call that the person denies marks no file.
+- In a git repo, git status does not run while the `files` tab is not shown, so a call then
+  marks no file. The next status starts a new comparison.
+
+The `Now` block and the marked rows of the test fixture, after the subagent `scout` ran a `Bash`
+call that changed `docs/design.md` and `hooks/pane.tsx`:
+
+```text
+Now  1 agent
+✎ scout     docs/design.md             2s
+  and 1 more file from one Bash
+
+▾ docs/  M1               ✎ scout      2s
+  M design.md             ✎ scout      2s
+▾ hooks/  M1              ✎ scout      2s
+  M pane.tsx              ✎ scout      2s
+```
+
+The mod never guesses one agent. When a file changed while calls of two or more agents ran,
+the row shows how many agents, and the open row names them. A file that an `Edit` changed and
+a later call did not change keeps the mark of the `Edit`. The test fixture, after a call of
+`main` and a call of `scout` that ran at the same time:
+
+```text
+  M mocks.md              ✎ 2 agents   3s
+      changed while Bash of main and
+      scout ran 3s ago
+```
+
+Such a change does not show in the `Now` block, because the block names one agent for each line.
 
 The agent filter `{agent: all}` shows the marks of one agent or of all. On the desktop app it is
 a select. When you open the transcript of a subagent, the tab shows only that agent and says so:

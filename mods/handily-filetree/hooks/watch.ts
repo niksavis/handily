@@ -1,6 +1,7 @@
 import type { EngineInterface, ProcessRunResult, Timer } from 'claude-code'
 import { FILES_PANE } from './commands'
 import { type GitRepo, branchOf, findRepo, joinPath } from './repo'
+import { type Shell, shellStatus, stampOf } from './shellmarks'
 import { type GitStatus, parseStatus, statusArgv } from './status'
 
 const POLL_MS = 2000
@@ -11,7 +12,6 @@ const RETRY_MS = 10_000
 const SLOW_RUNS_BEFORE_NO_UNTRACKED = 2
 
 const NOT_ON_PATH = /ENOENT|not found|no such file|cannot find/i
-const NO_FILE = 'none'
 
 export type GitFailure =
   { kind: 'exit'; exitCode: number } | { kind: 'timeout' } | { kind: 'did-not-run' }
@@ -19,6 +19,16 @@ export type GitFailure =
 export type ShownStatus = { status: GitStatus; at: number }
 
 type Stamps = { index: string; head: string }
+
+export type ShownRun = {
+  status: GitStatus
+  startedAt: number
+  isUntrackedSkipped: boolean
+  cwd: string
+  prefix: string
+  poll: Timer | undefined
+  isCurrent: () => boolean
+}
 
 export type GitWatch = {
   cwd: string | undefined
@@ -43,11 +53,13 @@ export type GitWatch = {
   retry: Timer | undefined
   slowMark: Timer | undefined
   generation: number
+  shell: Shell
 }
 
-export function newWatch(): GitWatch {
+export function newWatch(shell: Shell): GitWatch {
   return {
     generation: 0,
+    shell,
     cwd: undefined,
     repo: undefined,
     branch: undefined,
@@ -92,7 +104,7 @@ export function stopWatch(watch: GitWatch): void {
 export function resetWatch(watch: GitWatch): void {
   stopWatch(watch)
   watch.slowMark?.cancel()
-  Object.assign(watch, newWatch(), { generation: watch.generation + 1 })
+  Object.assign(watch, newWatch(watch.shell), { generation: watch.generation + 1 })
 }
 
 export function forgetRepo(watch: GitWatch): void {
@@ -101,15 +113,6 @@ export function forgetRepo(watch: GitWatch): void {
   watch.isGitMissing = false
   watch.failures = 0
   watch.isStale = true
-}
-
-async function stampOf($: EngineInterface, path: string): Promise<string> {
-  try {
-    const { size, mtimeMs } = await $.fs.stat(path)
-    return `${String(mtimeMs)} ${String(size)}`
-  } catch {
-    return NO_FILE
-  }
 }
 
 async function readStamps($: EngineInterface, repo: GitRepo): Promise<Stamps> {
@@ -229,26 +232,28 @@ function settle(
   watch: GitWatch,
   outcome: { result: ProcessRunResult } | { error: unknown },
   timing: { startedAt: number; endedAt: number },
-): void {
+): GitStatus | undefined {
   if ('error' in outcome) {
     log($, `git status did not run: ${String(outcome.error)}`)
     const failure = failureOf(outcome.error, timing.endedAt - timing.startedAt)
     if (failure === 'missing') watch.isGitMissing = true
     else fail($, watch, failure, timing.endedAt)
-    return
+    return undefined
   }
   const { result } = outcome
   if (result.exitCode !== 0) {
     log($, `git status exited ${String(result.exitCode)}: ${result.stderr.trim()}`)
     fail($, watch, { kind: 'exit', exitCode: result.exitCode }, timing.endedAt)
-    return
+    return undefined
   }
-  watch.shown = { status: parseStatus(result.stdout, result.isStdoutTruncated), at: timing.endedAt }
+  const status = parseStatus(result.stdout, result.isStdoutTruncated)
+  watch.shown = { status, at: timing.endedAt }
   watch.failure = undefined
   watch.failures = 0
   watch.retry?.cancel()
   watch.retry = undefined
   watch.retryAt = undefined
+  return status
 }
 
 function countSlowRun(watch: GitWatch, tookMs: number): void {
@@ -270,8 +275,8 @@ async function runStatus(
     redraw($)
   })
   watch.slowMark = slowMark
-  const { cwd } = watch
-  const argv = statusArgv(watch.isUntrackedSkipped)
+  const { cwd, isUntrackedSkipped, poll, repo } = watch
+  const argv = statusArgv(isUntrackedSkipped)
   const outcome = await $.process.run(argv, { cwd, timeoutMs: RUN_TIMEOUT_MS }).then(
     (result) => ({ result }),
     (error: unknown) => ({ error }),
@@ -282,7 +287,11 @@ async function runStatus(
   watch.slowMark = undefined
   watch.isSlow = false
   countSlowRun(watch, endedAt - startedAt)
-  settle($, watch, outcome, { startedAt, endedAt })
+  const status = settle($, watch, outcome, { startedAt, endedAt })
+  if (status === undefined || cwd === undefined || repo === null || repo === undefined) return
+  const isCurrent = () => watch.generation === generation
+  const shown = { status, startedAt, isUntrackedSkipped, cwd, prefix: repo.prefix, poll, isCurrent }
+  await shellStatus($, watch.shell, shown)
 }
 
 async function startRun($: EngineInterface, watch: GitWatch): Promise<void> {
