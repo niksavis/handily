@@ -352,6 +352,8 @@ const PLAN_TITLES = [
   'Ask for review',
 ]
 
+const READ_IN_FLIGHT_MS = 20_000
+
 type Scene = { seen: World; flights: Flight[]; calls: Promise<ToolCallResult>[] }
 
 async function mockScene($: Engine, on: On): Promise<Scene> {
@@ -404,9 +406,10 @@ async function mockScene($: Engine, on: On): Promise<Scene> {
   for (let index = 0; index < 7; index += 1) {
     await bashAs($, EXPLORE, `cat hooks/file${String(index)}.ts`)
   }
+  await seen.clock.advance(MINUTE - READ_IN_FLIGHT_MS)
   const readCall = $.tool.call(inLoop({ tool: 'Read', file_path: `${ROOT}/pane.tsx` }, EXPLORE))
   await read.arrived(1)
-  await seen.clock.advance(MINUTE)
+  await seen.clock.advance(READ_IN_FLIGHT_MS)
   seen.agents.push(
     listed(LANE, 'general-purpose', 'failed', {
       name: 'lane-b',
@@ -914,7 +917,7 @@ describe(UNLISTED_CRITERION, () => {
         await ui.press({ key: 'group:ended-agents' })
         expect(agentLines(await screen(ui, 41))).toEqual([
           'Agents  1 · 2 not listed',
-          '▶ Explore   running   Bash cat … open  5m',
+          '▶ Explore   quiet 5m  Bash cat … open  5m',
           '? f0000010  not listed ▸ AskUserQues…  0s',
           '[ hide 1 ended ]',
           '? f0000009  not listed Bash ls         0s',

@@ -12,6 +12,8 @@ import { escaped } from './tasks'
 
 export const UNLISTED_KEPT_AT_MOST = 20
 export const NEEDS_YOU_AFTER_MS = 3_000
+export const SLOW_CALL_MS = 30_000
+export const QUIET_MS = 120_000
 
 const HANDBACK_TOOL = 'SubagentHandback'
 const ENDED_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
@@ -40,6 +42,10 @@ export type AgentStep = {
 
 export type AgentSteps = ReadonlyMap<string, AgentStep>
 
+export type AgentStall = { kind: 'slow' | 'quiet'; ms: number }
+
+export type AgentPulses = { heardAt: Map<string, number>; callsFrom: Map<string, number> }
+
 export type AgentRow = {
   id: string
   label: string
@@ -47,6 +53,7 @@ export type AgentRow = {
   look: AgentLook
   isEnded: boolean
   call: BoardToolSight | null
+  callId: string | null
   isCallRunning: boolean
   tools: number
   plan: readonly BoardTask[] | null
@@ -57,6 +64,7 @@ export type AgentRow = {
   startedAt: number
   ageMs: number
   step: AgentStep | null
+  stall: AgentStall | null
 }
 
 export type SpawnFacts = {
@@ -346,6 +354,7 @@ function rowOf(
     look,
     isEnded,
     call: sightOf(agent, waiting),
+    callId: running?.id ?? null,
     isCallRunning: running !== undefined,
     tools: agent.tools,
     plan: plan ?? null,
@@ -356,6 +365,7 @@ function rowOf(
     startedAt: agent.startedAt,
     ageMs: Math.max(endOf(agent, status, now) - agent.startedAt, 0),
     step: null,
+    stall: null,
   }
   return { row, rank: look === 'unlisted' && isEnded ? UNLISTED_ENDED_RANK : LOOK_RANKS[look] }
 }
@@ -385,8 +395,40 @@ export function withSteps(rows: readonly AgentRow[], steps: AgentSteps): AgentRo
   return rows.map((row) => ({ ...row, step: steps.get(row.id) ?? null }))
 }
 
+export function newPulses(): AgentPulses {
+  return { heardAt: new Map(), callsFrom: new Map() }
+}
+
+export function heard(pulses: AgentPulses, agentId: string, at: number): void {
+  pulses.heardAt.set(agentId, Math.max(pulses.heardAt.get(agentId) ?? at, at))
+}
+
+function stallOf(row: AgentRow, pulses: AgentPulses, now: number): AgentStall | null {
+  if (row.look !== 'running') return null
+  const callFrom = row.callId === null ? undefined : pulses.callsFrom.get(row.callId)
+  if (callFrom !== undefined && now - callFrom > SLOW_CALL_MS) {
+    return { kind: 'slow', ms: now - callFrom }
+  }
+  const heardAt = pulses.heardAt.get(row.id)
+  if (heardAt !== undefined && now - heardAt >= QUIET_MS)
+    return { kind: 'quiet', ms: now - heardAt }
+  return null
+}
+
+export function withStalls(
+  rows: readonly AgentRow[],
+  pulses: AgentPulses,
+  now: number,
+): AgentRow[] {
+  return rows.map((row) => ({ ...row, stall: stallOf(row, pulses, now) }))
+}
+
+export function waitingRows(rows: readonly AgentRow[]): AgentRow[] {
+  return rows.filter((row) => row.look === 'needsYou')
+}
+
 export function waitingCount(rows: readonly AgentRow[]): number {
-  return rows.filter((row) => row.look === 'needsYou').length
+  return waitingRows(rows).length
 }
 
 export async function trackAgentCall<R>(

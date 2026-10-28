@@ -1,7 +1,7 @@
 import type { RenderElement, ThemeKey } from 'claude-code'
 import type { BoardCheck, BoardCheckDecision, BoardChecks } from '../types'
 import type { PaneElements, RowLayout } from './pane'
-import { type Part, drawPartLines } from './parts'
+import { type Part, PART_LEAD, drawPartLines } from './parts'
 import { escaped } from './tasks'
 import { displayWidth, fitted } from './width'
 
@@ -49,6 +49,13 @@ function summaryParts(checks: BoardChecks): Part[] {
       color: DENIED_COLOR,
     })),
   ]
+}
+
+export function checksText(checks: BoardChecks): string | undefined {
+  if (checks.last.length === 0) return undefined
+  return summaryParts(checks)
+    .map((part) => part.text)
+    .join(PART_LEAD)
 }
 
 function callText(check: BoardCheck): string {

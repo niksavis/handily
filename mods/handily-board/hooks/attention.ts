@@ -1,7 +1,7 @@
 import type { PluginOptions } from 'claude-code'
 import type { BoardToolSight } from '../types'
 import { callText } from './agent-rows'
-import type { AgentRow } from './agents'
+import { type AgentRow, waitingRows } from './agents'
 import { SIGNALS } from './signals'
 
 export type StatusLineSetting = 'attention' | 'off'
@@ -30,6 +30,10 @@ export function agentWaitText(row: AgentRow): string {
   return waitText(row.shownName, row.call)
 }
 
+export function agentWaitLine(row: AgentRow): string {
+  return `${WAIT_MARK} ${agentWaitText(row)}`
+}
+
 export function mainWaitText(call: BoardToolSight): string {
   return waitText(MAIN_LOOP, call)
 }
@@ -39,9 +43,9 @@ export function noticeText(session: string, wait: string): string {
 }
 
 export function attentionText(rows: readonly AgentRow[]): string | undefined {
-  const waiting = rows.filter((row) => row.look === 'needsYou')
+  const waiting = waitingRows(rows)
   const [first] = waiting
   if (first === undefined) return undefined
-  if (waiting.length === 1) return `${WAIT_MARK} ${agentWaitText(first)}`
+  if (waiting.length === 1) return agentWaitLine(first)
   return `${WAIT_MARK} ${String(waiting.length)} agents wait for permission`
 }

@@ -1,7 +1,7 @@
 import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardTask, BoardToolSight } from '../types'
 import { elapsedText } from './activity'
-import type { AgentLook, AgentRow, AgentStep } from './agents'
+import type { AgentLook, AgentRow, AgentStall, AgentStep } from './agents'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
 import { SIGNALS, needsYouText } from './signals'
@@ -10,6 +10,7 @@ import { tokensText } from './tokens'
 import { cutToWidth, displayWidth, fitted, lastToWidth } from './width'
 
 export const AGENT_ROWS_AT_MOST = 6
+export const NO_AGENTS = 'No agents yet.'
 export const NAME_CUT_ABOVE = 9
 
 const MORE_AGENTS = 'group:more-agents'
@@ -30,7 +31,10 @@ const OPEN_LABEL = 'open'
 const MAIN_LOOP = 'main'
 const WAITS_LEAD = 'waits for: '
 const STOPPED_AT_LIMIT = 'max_tokens'
+const STALL_COLOR: ThemeKey = 'warning'
 const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
+const AGENTS_TITLE = 'Agents'
+const NO_CONTEXT = 'ctx —'
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
   mark: string
   color: ThemeKey
@@ -102,7 +106,12 @@ function waitsText(row: AgentRow): string {
   return row.call === null ? 'permission' : `permission · ${callText(row.call)}`
 }
 
+function stallText(stall: AgentStall): string {
+  return `${stall.kind} ${elapsedText(stall.ms)}`
+}
+
 function stateText(row: AgentRow): { text: string; style: TextStyle } {
+  if (row.stall !== null) return { text: stallText(row.stall), style: { color: STALL_COLOR } }
   if (row.look === 'running' && row.plan !== null) {
     const done = row.plan.filter((task) => task.status === 'completed').length
     return { text: `plan ${String(done)}/${String(row.plan.length)}`, style: { dimColor: true } }
@@ -274,6 +283,11 @@ function contextPart(step: AgentStep): Part {
   return { text: `ctx ${tokensText(step.context)}` }
 }
 
+export function agentStatsText(row: AgentRow): string {
+  const context = row.step === null ? NO_CONTEXT : contextPart(row.step).text
+  return `${row.shownName}: ${stateText(row).text} · ${context}`
+}
+
 function stepGroups(toolCalls: number, step: AgentStep | null): Part[][] {
   const tools = { text: toolCountText(toolCalls) }
   if (step === null) return [[tools]]
@@ -371,11 +385,22 @@ export function headerParts(rows: readonly AgentRow[]): { text: string; color?: 
   return parts.filter((part) => part !== null)
 }
 
+function headerText(rows: readonly AgentRow[]): string {
+  return headerParts(rows)
+    .map((part) => part.text)
+    .join(' · ')
+}
+
+export function agentsTitleText(rows: readonly AgentRow[]): string {
+  const plain = headerText(rows)
+  return plain === '' ? AGENTS_TITLE : `${AGENTS_TITLE}  ${plain}`
+}
+
 function drawHeader(elements: PaneElements, rows: readonly AgentRow[]): RenderElement {
   const { Box, Text } = elements
-  const title = 'Agents'
+  const title = AGENTS_TITLE
   const parts = headerParts(rows)
-  const plain = parts.map((part) => part.text).join(' · ')
+  const plain = headerText(rows)
   const room = elements.bodyColumns - displayWidth(title)
   const isWhole = displayWidth(`  ${plain}`) <= room
   const tail = isWhole

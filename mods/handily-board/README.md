@@ -32,6 +32,7 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board open <n>`          | Marks task `n` pending                                                  |
 | `/board clear`             | Removes every done task                                                 |
 | `/board list`              | Prints the list as text. With no tasks, it lists the open tracker items |
+| `/board stats`             | Prints the session figures and the agents as text                       |
 | `/board close`             | Closes the board                                                        |
 
 Replies, from the tests:
@@ -51,7 +52,7 @@ Replies, from the tests:
 /board add Ship it       Added task 3: Ship it. Claude is told at your next prompt.
 /board mv 3 top          Moved task 3 to the top. Claude is told at your next prompt.
 /board mv 3 before 1     Task 3 is already before task 1. Nothing changed.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.
 ```
 
 - `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
@@ -59,6 +60,27 @@ Replies, from the tests:
   the keyboard. Esc gives the keyboard back. When the tab is already shown, the mod opens it
   without `focus`, and the keyboard stays at the prompt.
 - When Claude Code does not show the board yet, the reply says why and names `/board list`.
+- `/board stats` prints the figures of the Session line, its details and the agent rows as
+  text, for a screen reader or a session that cannot show the pane. The board does not need to
+  be open. A reply from the tests:
+
+  ```text
+  Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62
+      ◆ scout waits for permission: Bash npm test
+      context 124k of 200k · 1 compaction
+      last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned
+      limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d
+      checks 2 · 1 allowed · 1 asked
+  Agents  2 · 1 needs you
+      scout: needs you · ctx —
+      Explore: running · ctx 48k
+  ```
+
+  Each line follows the same rules as the board. The waits are the agents that need you. Each
+  agent line has the state of its row, such as `slow 45s`, and the context of its latest model
+  request, or `ctx —` before the first one. When the host gives no usage, the first line is
+  `Session  no context or cost on this host`, and the reply shows no context, cost or limit.
+
 - A change that you make, by a command or a button, waits for your next prompt. That prompt
   carries one note for Claude, beside the prompt, that starts with `[handily-board]`. The note
   names each change since the last prompt, in order, and then shows the list as it is now. So
@@ -449,7 +471,8 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   such as `gene…pose`. When two rows show the same name, the later one gets a number, such as
   `Explore 2` or `gene…se 2`.
 - The state is `needs you`, `asked`, `running`, `plan 2/7` while a running agent keeps a task
-  list, `on hold`, `pending`, `idle`, `failed`, `done`, `killed` or `not listed`.
+  list, `slow 45s`, `quiet 3m`, `on hold`, `pending`, `idle`, `failed`, `done`, `killed` or
+  `not listed`.
 
   | Mark | State                                      | Colour    |
   | ---- | ------------------------------------------ | --------- |
@@ -459,6 +482,22 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   | `○`  | `pending`, `idle`                          | `subtle`  |
   | `✓`  | `done`, `killed`                           | `success` |
   | `?`  | `not listed`: Claude Code does not list it | `subtle`  |
+
+- A running agent whose current tool call has run for more than 30 seconds reads `slow` and the
+  time of that call. A running agent with no event for 2 minutes reads `quiet` and the time since
+  its last event. An event is a model request (`turn.step`), a permission check (`tool.check`) or
+  a tool call (`tool.call`) of the agent, or its spawn. `slow` comes before `quiet` and before
+  `plan 2/7`. The word takes the theme colour `warning`, and the mark stays `▶`. Captures from the
+  tests, docked at 41 columns:
+
+  ```text
+  ▶ Explore   slow 45s  ▸ Bash np… open  3m
+  ▶ Explore   quiet 2m  Read src/… open  5m
+  ```
+
+  The board starts no timer for these states. It reads them when it draws, and a shown tab draws
+  again every 10 seconds. The board keeps the times in memory, and each end of the session clears
+  them with the agent rows.
 
 - `on hold` is the engine status `waiting`: the agent waits for its own background work, an
   Agent call or a plan approval. The status does not say which, so the board does not draw it

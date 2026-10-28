@@ -634,9 +634,18 @@ describe('/board add and /board rm', () => {
       expect(await board($, 'add')).toBe(
         '/board add needs text or an item id, for example:\n/board add Write the summary   or   /board add handily-cd34',
       )
-      for (const args of ['frob', 'pane', 'machine now', 'close all', 'list 2', 'clear all']) {
+      const unknowns = [
+        'frob',
+        'pane',
+        'machine now',
+        'close all',
+        'list 2',
+        'clear all',
+        'stats 2',
+      ]
+      for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
         )
       }
     },
@@ -6247,6 +6256,291 @@ for (const surface of SURFACES) {
         expect(seen.statuses).toEqual(['◆ sc\\u…7out waits for permission: Bash npm test'])
         dialog.allow()
         await call
+      },
+    )
+  })
+}
+
+const SLOW_CRITERION =
+  'When a subagent call has run for more than 30 seconds, its state reads slow with the time of that call.'
+const QUIET_CRITERION =
+  'When a running subagent has had no event for 2 minutes, its state reads quiet with the time since its last event.'
+const NO_TIMER_CRITERION = 'When no board tab is shown, no timer runs for these states.'
+
+const HELD_COMMAND = 'npm run check'
+
+type HeldCall = { release: () => void }
+
+function holdCommand(on: On): HeldCall {
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  on('tool.call', { tool: 'Bash' }, async (_$, e) => {
+    if (commandOf(e) === HELD_COMMAND) await gate
+    return { result: '' }
+  })
+  return {
+    release: () => {
+      release()
+    },
+  }
+}
+
+async function exploreRuns($: Engine, seen: World, surface: Surface): Promise<void> {
+  await startOn($, surface)
+  await seen.clock.set(START)
+  await spawnFrom($, EXPLORE)
+  seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+}
+
+async function exploreRow(
+  $: Engine,
+  surface: Surface,
+): Promise<{ line: string; state: Drawn | undefined; lines: string[] }> {
+  const ui = await mountTab($, surface, PANE, 'dock', 41)
+  const lines = await screen(ui, 41)
+  const row = drawnOf(await ui.find({ key: `row:agent:${EXPLORE}` }))
+  await ui.unmount()
+  const state = row === null ? undefined : texts(row)[2]
+  return { line: lines.find((one) => one.startsWith('▶ Explore')) ?? '', state, lines }
+}
+
+const timerSpy: Plugin = {
+  name: 'timer-spy',
+  register(on) {
+    const waits: number[] = []
+    on('clock.every', (_$, e, next) => {
+      waits.push(e.ms)
+      return next(e)
+    })
+    on('clock.after', (_$, e, next) => {
+      if (e.ms > 0) waits.push(e.ms)
+      return next(e)
+    })
+    on('command.run', { command: 'timer-waits' }, () => ({ text: JSON.stringify(waits) }))
+  },
+}
+
+async function timerWaits($: Engine): Promise<number[]> {
+  const result = await $.command.run({
+    command: 'timer-waits',
+    args: '',
+    origin: { kind: 'sdk' },
+    presentation: { isFullscreen: false, columns: 80 },
+  })
+  return JSON.parse(result.text ?? '[]') as number[]
+}
+
+async function exploreLine($: Engine, surface: Surface): Promise<string> {
+  return (await exploreRow($, surface)).line
+}
+
+for (const surface of SURFACES) {
+  describe(SLOW_CRITERION, () => {
+    test(
+      `a call past 30 s reads slow with its time in the warning colour, as mock 8.10f, and the mark stays, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        await exploreRuns($, seen, surface)
+        await seen.clock.advance(3 * MINUTE - 45_000)
+        const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
+        await seen.clock.advance(30_000)
+        expect(await exploreLine($, surface)).toBe('▶ Explore   running   ▸ Bash np… open  2m')
+        await seen.clock.advance(15_000)
+        const slow = await exploreRow($, surface)
+        expect(slow.line).toBe('▶ Explore   slow 45s  ▸ Bash np… open  3m')
+        expect(slow.state?.text).toBe('slow 45s')
+        expect(slow.state?.props.color).toBe('warning')
+        held.release()
+        await call
+        expect(await exploreLine($, surface)).toBe('▶ Explore   running   Bash npm … open  3m')
+      },
+    )
+
+    test(
+      `a slow call reads slow before quiet, and a plan of the agent does not hide it, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        await exploreRuns($, seen, surface)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Check the build', agentId: EXPLORE })
+        const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
+        await seen.clock.advance(3 * MINUTE)
+        expect(await exploreLine($, surface)).toBe('▶ Explore   slow 3m   ▸ Bash np… open  3m')
+        held.release()
+        await call
+        expect(await exploreLine($, surface)).toContain('plan 0/1')
+      },
+    )
+  })
+
+  describe(QUIET_CRITERION, () => {
+    test(
+      `a running agent with no event for 2 minutes reads quiet with that time, as mock 8.10f, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await exploreRuns($, seen, surface)
+        await seen.clock.advance(3 * MINUTE)
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+        await seen.clock.advance(2 * MINUTE - 1)
+        expect(await exploreLine($, surface)).toBe('▶ Explore   running   Read src/… open  4m')
+        await seen.clock.advance(1)
+        const quiet = await exploreRow($, surface)
+        expect(quiet.line).toBe('▶ Explore   quiet 2m  Read src/… open  5m')
+        expect(quiet.state?.props.color).toBe('warning')
+        await seen.clock.advance(MINUTE)
+        expect(await exploreLine($, surface)).toBe('▶ Explore   quiet 3m  Read src/… open  6m')
+      },
+    )
+
+    test(
+      `a step or a tool call of the agent ends the quiet, and an agent that no longer runs is never quiet, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const steps = stepWorld(on)
+        await exploreRuns($, seen, surface)
+        await seen.clock.advance(3 * MINUTE)
+        expect(await exploreLine($, surface)).toContain('quiet 3m')
+        await step($, steps, EXPLORE, stepped('turn-1', null, 'tool_use'))
+        expect(await exploreLine($, surface)).toContain('running')
+        await seen.clock.advance(3 * MINUTE)
+        expect(await exploreLine($, surface)).toContain('quiet 3m')
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+        expect(await exploreLine($, surface)).toContain('running')
+        await seen.clock.advance(3 * MINUTE)
+        seen.agents[0] = { ...runningAgent(EXPLORE, 'Explore'), status: 'idle' }
+        const idle = await exploreRow($, surface)
+        expect(idle.lines.some((line) => line.startsWith('○ Explore   idle'))).toBe(true)
+        expect(idle.lines.join('\n')).not.toContain('quiet')
+      },
+    )
+  })
+
+  describe(NO_TIMER_CRITERION, () => {
+    test(
+      `no timer runs while no board tab is shown, and the 10 s redraw of a shown tab moves the time, on ${surface}`,
+      { plugins: [fakeWorkitems, timerSpy] },
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        await exploreRuns($, seen, surface)
+        const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
+        await seen.clock.advance(35_000)
+        expect(await timerWaits($)).toEqual([])
+        expect(await board($, '')).toBe('Board opened: this session.')
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        const row = async () =>
+          (await screen(ui, 41)).find((line) => line.startsWith('▶ Explore')) ?? ''
+        expect(await row()).toContain('slow 35s')
+        await seen.clock.advance(10_000)
+        expect(await row()).toContain('slow 45s')
+        const shown = await timerWaits($)
+        expect(shown).toContain(10_000)
+        await ui.unmount()
+        expect(await board($, 'close')).toBe('Board closed.')
+        await seen.clock.advance(3 * MINUTE)
+        expect(await timerWaits($)).toEqual(shown)
+        held.release()
+        await call
+      },
+    )
+  })
+}
+
+const STATS_CRITERION =
+  'When the person runs /board stats, the reply lists the context, the cost, the limits, the checks, the waits and each agent with its state and ctx.'
+const STATS_NO_USAGE_CRITERION =
+  'When the host gives no usage, the reply says so by name and shows no number.'
+
+const EXPLORE_USAGE = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+
+for (const surface of SURFACES) {
+  describe(STATS_CRITERION, () => {
+    test(
+      `the reply prints the Session line, its details, the wait, the checks and each agent with its state and ctx, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on, seen.clock)
+        const steps = stepWorld(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await measure($, { percent: 62, usd: 4.18, limits: limitsAt(seen.clock.now()) })
+        await compacts($)
+        await mainTurnStarts($, 'turn-1')
+        await edit($, 'docs/mocks.md')
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await step($, steps, EXPLORE, stepped('turn-e', EXPLORE_USAGE, 'tool_use'))
+        await measure($, { usd: 4.8 })
+        await mainTurnTakes($, 'turn-1', 3 * MINUTE)
+        const { call } = await scoutWaits($, seen, dialog)
+        expect(await board($, 'stats')).toBe(
+          [
+            'Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62',
+            '    ◆ scout waits for permission: Bash npm test',
+            '    context 124k of 200k · 1 compaction',
+            '    last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned',
+            '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
+            '    checks 2 · 1 allowed · 1 asked',
+            'Agents  2 · 1 needs you',
+            '    scout: needs you · ctx —',
+            '    Explore: running · ctx 48k',
+          ].join('\n'),
+        )
+        expect(seen.opened).toEqual([])
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `the reply names a slow agent as its row does, and an empty session says no agents yet, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        await exploreRuns($, seen, surface)
+        expect(await board($, 'stats')).toBe(
+          [
+            'Session  ctx — until the first reply',
+            'Agents  1',
+            '    Explore: running · ctx —',
+          ].join('\n'),
+        )
+        const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
+        await seen.clock.advance(45_000)
+        expect((await board($, 'stats')).split('\n').at(-1)).toBe('    Explore: slow 45s · ctx —')
+        held.release()
+        await call
+        seen.agents.splice(0)
+        await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+        await startOn($, surface)
+        expect(await board($, 'stats')).toBe(
+          ['Session  ctx — until the first reply', 'No agents yet.'].join('\n'),
+        )
+      },
+    )
+  })
+
+  describe(STATS_NO_USAGE_CRITERION, () => {
+    test(
+      `a host whose usage refuses gets a reply that names no context or cost on this host and has no number, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { usage: 'refused' })
+        await startOn($, surface)
+        const reply = await board($, 'stats')
+        expect(reply).toBe(
+          ['Session  no context or cost on this host', 'No agents yet.'].join('\n'),
+        )
+        expect(reply).not.toMatch(/\d/)
       },
     )
   })

@@ -32,18 +32,22 @@ import {
 } from './activity'
 import {
   type AgentHost,
+  type AgentPulses,
   type AgentStep,
   NEEDS_YOU_AFTER_MS,
   agentView,
+  heard,
   labelledAgents,
   noteAgentList,
   noteAsk,
   noteSpawn,
+  newPulses,
   noteTurnEnd,
   stepOf,
   trackAgentCall,
   withAgentPlan,
   withFoundPlans,
+  withStalls,
   withSteps,
 } from './agents'
 import {
@@ -60,6 +64,7 @@ import {
 } from './board'
 import { EMPTY_CHECKS, withCheck } from './checks'
 import { detailsText } from './details'
+import { statsText } from './stats'
 import {
   type ListEdit,
   type TaskHost,
@@ -484,12 +489,18 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
 
 type StepsKeep = Map<string, AgentStep>
 
-type SessionKeeps = { vitals: VitalsKeep; checks: ChecksKeep; steps: StepsKeep }
+type SessionKeeps = {
+  vitals: VitalsKeep
+  checks: ChecksKeep
+  steps: StepsKeep
+  pulses: AgentPulses
+}
 
 async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
-  const agents = withSteps(await agentView(agentHostOf($), now), keeps.steps)
+  const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps)
+  const agents = withStalls(rows, keeps.pulses, now)
   return {
     now,
     activity: activity ?? EMPTY_ACTIVITY,
@@ -903,6 +914,7 @@ export const register: Register = (on, options) => {
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const steps: StepsKeep = new Map()
+  const pulses = newPulses()
   const attention: AttentionKeep = {
     setting: statusLineSetting(options),
     text: undefined,
@@ -916,7 +928,7 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | done <n> | start <n> | open <n> | clear | list | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | done <n> | start <n> | open <n> | clear | list | stats | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -955,7 +967,9 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     const { agentId } = e
     if (agentId === undefined) return yield* next(e)
+    heard(pulses, agentId, await $.clock.now())
     const stepped = yield* next(e)
+    heard(pulses, agentId, await $.clock.now())
     noteStep($, steps, agentId, stepped)
     return stepped
   })
@@ -999,6 +1013,8 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
     steps.clear()
+    pulses.heardAt.clear()
+    pulses.callsFrom.clear()
     if (NEW_SESSION_REASONS.has(e.reason)) await noteVitals($, vitals, withClear)
     if (e.reason === 'clear') {
       attention.asks.clear()
@@ -1050,6 +1066,7 @@ export const register: Register = (on, options) => {
 
   on('tool.call', async ($, e, next) => {
     if (isTaskTool(e.tool)) {
+      if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
       const answer = await next(e)
       if (e.agentId === undefined && e.tool !== TOOL_LIST && answer.deny === undefined) {
         await notePlanChange($)
@@ -1068,9 +1085,18 @@ export const register: Register = (on, options) => {
       )
       return answer
     }
-    return untilSettled($, attention, e.tool_use_id, () =>
-      trackAgentCall(agentHostOf($), agentId, { id: e.tool_use_id, ...sight }, () => next(e)),
-    )
+    const callId = e.tool_use_id
+    const from = await $.clock.now()
+    heard(pulses, agentId, from)
+    pulses.callsFrom.set(callId, from)
+    try {
+      return await untilSettled($, attention, callId, () =>
+        trackAgentCall(agentHostOf($), agentId, { id: callId, ...sight }, () => next(e)),
+      )
+    } finally {
+      pulses.callsFrom.delete(callId)
+      heard(pulses, agentId, await $.clock.now())
+    }
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the work was not tracked (${next.error.kind})`, { to: 'debug' })
     return next(e)
@@ -1080,6 +1106,7 @@ export const register: Register = (on, options) => {
     const verdict = await next(e)
     const { tool_use_id: callId } = e
     if (callId === undefined || next.origin.plugin !== ENGINE_ORIGIN) return verdict
+    if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
     await noteCheck($, checks, attention, { ...e, tool_use_id: callId }, verdict)
     return verdict
   }).catch(($, e, next) => {
@@ -1091,6 +1118,7 @@ export const register: Register = (on, options) => {
     const at = await $.clock.now()
     const spawned = await next(e)
     if (spawned.agentId === undefined) return spawned
+    heard(pulses, spawned.agentId, at)
     const facts = {
       description: e.description,
       type: e.subagentType,
@@ -1134,6 +1162,8 @@ export const register: Register = (on, options) => {
         return { text: await personClear(host) }
       case 'list':
         return { text: await listReply(host) }
+      case 'stats':
+        return { text: statsText(await workOf($, { vitals, checks, steps, pulses })) }
       case 'add':
         return { text: await personAdd(host, command.text) }
       case 'rm':
@@ -1176,7 +1206,7 @@ export const register: Register = (on, options) => {
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
     const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
-    const work = await workOf($, { vitals, checks, steps })
+    const work = await workOf($, { vitals, checks, steps, pulses })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     return drawPane(elements, hostOf($), uiOf($), work)
