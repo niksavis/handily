@@ -47,8 +47,8 @@ function isBoardPane(pane: OpenPane): boolean {
   return BOARD_PANES.some((board) => board.id === pane.id)
 }
 
-async function openOf(ui: PaneUi, pane: BoardPane): Promise<OpenPane | undefined> {
-  return (await ui.panes()).find((open) => open.id === pane.id)
+export function isTasksSeen(panes: readonly OpenPane[]): boolean {
+  return panes.some((open) => open.id === TASKS_PANE.id && open.isShown && open.isPlaced)
 }
 
 async function openUnopened(
@@ -85,8 +85,7 @@ export async function closeBoard(ui: PaneUi): Promise<string> {
 }
 
 export async function sessionCommand(ui: PaneUi, mode: BoardMode): Promise<string> {
-  const tasks = await openOf(ui, TASKS_PANE)
-  if (mode === 'toggle' && tasks?.isShown === true && tasks.isPlaced) return closeBoard(ui)
+  if (mode === 'toggle' && isTasksSeen(await ui.panes())) return closeBoard(ui)
   return openBoard(ui, TASKS_PANE)
 }
 

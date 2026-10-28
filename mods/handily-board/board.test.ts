@@ -122,6 +122,7 @@ type WorldOptions = {
   usage?: SessionUsage | 'refused'
   closeRefusal?: string
   cwdFailure?: string
+  cwd?: string
   closeKeepsOpen?: boolean
   unplacedReason?: string
   hasOwnPromptHook?: boolean
@@ -150,7 +151,7 @@ function world(on: On, options: WorldOptions = {}): World {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => {
     if (options.cwdFailure !== undefined) throw new Error(options.cwdFailure)
-    return { value: ROOT }
+    return { value: options.cwd ?? ROOT }
   })
   on('session.usage', () => {
     if (options.usage === 'refused') throw new Error('no session is bound on this host')
@@ -5376,5 +5377,73 @@ for (const surface of SURFACES) {
         },
       )
     }
+  })
+}
+
+const UNPLACED_CRITERION =
+  'When the this session tab is opened but waits undrawn, the person sees no board, so the status line and the notice still name the wait'
+
+const NOTICE_ESCAPE_CRITERION =
+  'A folder name or an agent name with a control character or a bidi control reaches the status line and the notice escaped'
+
+const HOSTILE_FOLDER = `${ROOT}/ev\u202eil\u001b]0;x\u0007`
+const HOSTILE_AGENT = 'sc\u0007out'
+const CONTROL_BELOW = 0x20
+const DELETE = 0x7f
+const BIDI_RANGES: readonly (readonly [number, number])[] = [
+  [0x202a, 0x202e],
+  [0x2066, 0x2069],
+]
+
+function hasRawControl(text: string): boolean {
+  return Array.from(text).some((character) => {
+    const code = character.codePointAt(0) ?? 0
+    const isBidi = BIDI_RANGES.some(([first, last]) => code >= first && code <= last)
+    return code < CONTROL_BELOW || code === DELETE || isBidi
+  })
+}
+
+for (const surface of SURFACES) {
+  describe(UNPLACED_CRITERION, () => {
+    test(
+      `with mode always on a narrow terminal, the board waits undrawn and a wait still sets the status line and sends the notice, on ${surface}`,
+      { ...withWorkitems, options: { mode: 'always' } },
+      async ($, on) => {
+        const seen = world(on, { unplacedReason: 'the terminal is 120 columns wide' })
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        expect(seen.opened).toContain(PANE)
+        const { call } = await scoutWaits($, seen, dialog)
+        expect(seen.statuses).toEqual([SCOUT_WAITS])
+        expect(seen.notices).toEqual([SCOUT_NOTICE])
+        dialog.allow()
+        await call
+      },
+    )
+  })
+
+  describe(NOTICE_ESCAPE_CRITERION, () => {
+    test(
+      `the notice and the status line escape the folder and the agent name, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { cwd: HOSTILE_FOLDER })
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        seen.agents.push(runningAgent(SCOUT, HOSTILE_AGENT))
+        const call = askAs($, SCOUT, 'npm test')
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        const shown = [...seen.notices, ...seen.statuses.filter((text) => text !== undefined)]
+        expect(shown).toHaveLength(2)
+        for (const text of shown) expect(hasRawControl(text), text).toBe(false)
+        expect(seen.notices).toEqual([
+          'ev\\u202eil\\u001b]0;x\\u0007 needs you: sc\\u…7out waits for permission: Bash npm test',
+        ])
+        expect(seen.statuses).toEqual(['◆ sc\\u…7out waits for permission: Bash npm test'])
+        dialog.allow()
+        await call
+      },
+    )
   })
 }

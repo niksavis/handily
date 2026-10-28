@@ -48,6 +48,7 @@ import {
   type PaneUi,
   boardMode,
   closeBoard,
+  isTasksSeen,
   openBoard,
   openUnasked,
   sessionCommand,
@@ -499,8 +500,8 @@ function hasAgentAsk(attention: AttentionKeep): boolean {
   return [...attention.asks.values()].some((ask) => ask.agentId !== undefined)
 }
 
-async function isSessionTabShown($: EngineInterface): Promise<boolean> {
-  return (await $.ui.panes()).some((pane) => pane.id === TASKS_PANE.id && pane.isShown)
+async function isSessionTabSeen($: EngineInterface): Promise<boolean> {
+  return isTasksSeen(await $.ui.panes())
 }
 
 async function attentionNow(
@@ -509,7 +510,7 @@ async function attentionNow(
 ): Promise<string | undefined> {
   const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), await $.clock.now()) : []
   const text = attentionText(rows, attention.vitals.current)
-  if (text === undefined || (await isSessionTabShown($))) return undefined
+  if (text === undefined || (await isSessionTabSeen($))) return undefined
   return text
 }
 
@@ -586,7 +587,7 @@ async function noticeWait($: EngineInterface, attention: AttentionKeep, callId: 
   if (ask === undefined) return
   try {
     const wait = await waitOf($, ask)
-    if (wait === undefined || (await isSessionTabShown($))) return
+    if (wait === undefined || (await isSessionTabSeen($))) return
     const session = escaped(lastSegment(await $.session.cwd()))
     if (attention.asks.get(callId) !== ask) return
     await notifyOrToast($, noticeText(session, wait))

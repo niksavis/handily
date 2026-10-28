@@ -1205,7 +1205,7 @@ const CHECK_ENGINE_CRITERION =
   'The keyboard ring tests, the needs you tests and the checks tests run on an engine that raises tool.check for a tool call of a test, so a missing session Button names its cause'
 
 const OLD_ENGINE =
-  'this engine raises no tool.check for a tool call of a test, so the board keeps no check and the Session line is no Button: run the tests on the Claude Code version that .github/workflows/basicly-gates.yml pins'
+  'this engine raises no tool.check for a tool call of a test, so the board keeps no check and the Session line is no Button: run the tests on the Claude Code version that .github/workflows/basicly-gates.yml and .github/workflows/release.yml pin, and that scripts/pins.test.mjs keeps equal'
 
 describe(CHECK_ENGINE_CRITERION, () => {
   test(

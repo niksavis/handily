@@ -283,8 +283,9 @@ Session  ctx 80% high · $12.40
 
 ### The status line
 
-While the `this session` tab is not shown, the board sets the Claude Code status line under the
-prompt when a subagent needs you or the context is high. Captures from the tests:
+While you do not see the `this session` tab, the board sets the Claude Code status line under
+the prompt when a subagent needs you or the context is high. You see the tab when it is shown and
+placed. Captures from the tests:
 
 ```text
 ◆ scout waits for permission: Bash npm test · ctx 91% high
@@ -298,7 +299,8 @@ ctx 91% high · /compact frees it
   that the auto mode classifier settles before 3 seconds sets no line.
 - The context is high from 80 percent, as on the Session line.
 - The board clears the line when nothing waits and the context is under 80 percent, and while
-  the `this session` tab is shown. When the board closes, the line comes back. The board checks
+  the `this session` tab is shown and placed. When the board closes, the line comes back. A tab
+  that waits undrawn, as with the mode `always` on a narrow terminal, does not clear it. The board checks
   which tab is shown every 10 seconds while a tab is open, so a switch to `this machine` shows the
   line within 10 seconds.
 - The call target is masked as in the permission checks.
@@ -306,8 +308,8 @@ ctx 91% high · /compact frees it
 
 ### The desktop notice
 
-When a permission ask of this session is still not settled after 3 seconds, and the
-`this session` tab is not shown, the board sends one desktop notice through `$.ui.notify`.
+When a permission ask of this session is still not settled after 3 seconds, and you do not see
+the `this session` tab, the board sends one desktop notice through `$.ui.notify`.
 Captures from the tests, for a session in the folder `app`:
 
 ```text
@@ -318,7 +320,8 @@ app needs you: Claude waits for permission: Bash npm test
 - The notice names the folder of the session, who waits and the call. `Claude` is the main
   loop. A subagent is named as on its agent row.
 - Each wait sends at most one notice. The board decides at the 3 second mark. A wait that starts
-  while the `this session` tab is shown sends no notice, also when the tab closes later.
+  while the `this session` tab is shown and placed sends no notice, also when the tab closes
+  later.
 - An ask that is settled before 3 seconds, such as an ask that the auto mode classifier settles
   in about 0.6 seconds, sends no notice. A classifier that takes longer than 3 seconds looks like
   a wait, because Claude Code gives a mod no event for an open permission dialog.
@@ -326,8 +329,12 @@ app needs you: Claude waits for permission: Bash npm test
   (`preferredNotifChannel`). When it reports that it sent nothing, for example on the desktop
   app, with notifications turned off, or when a hook refused it, the board shows the same text as
   a toast.
-- Claude Code gives a mod no signal that you left the terminal window. So while the board is
-  closed, every wait sends a notice, also when you look at the terminal.
+- The notice and the status line escape a control character or a bidi control in the folder
+  name and in the agent name, as `\u001b` or `\u202e`.
+- Claude Code gives a mod no signal that you left the terminal window. So the board reads "you
+  are away" as "the `this session` tab is not shown and placed". While the board is closed, every
+  wait sends a notice, also when you look at the terminal. This reading waits for a decision of
+  the person.
 
 ### Permission checks
 
