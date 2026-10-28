@@ -2,6 +2,7 @@ import type { On, PromptOrigin, RenderPropsOf, UiCopyResult } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import { displayWidth, graphemesOf } from './hooks/width'
 import { parseMermaid, type Flowchart, type Refusal, type SequenceDiagram } from './hooks/mermaid'
+import { drawFlowchart, type LayoutMeter } from './hooks/flowchart'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -2211,4 +2212,486 @@ describe('mermaid input and limits', () => {
     expect(sequenceOf(source(30)).events).toHaveLength(60)
     expect(parseMermaid(source(31))).toEqual(overLimit('events', 61, 60, 'messages and notes'))
   })
+})
+
+const MOCK_9_5_SOURCE = linesOf(
+  'flowchart TD',
+  '  A([Reply complete]) --> B{Holds a mermaid block?}',
+  '  B -->|yes| C[Parse the subset]',
+  '  B -->|no| D[Draw as today]',
+  '  C --> E{Fits the width?}',
+  '  E -->|yes| F[Draw the art]',
+  '  E -->|no| G[Source and a note]',
+)
+
+const MOCK_9_6_SOURCE = linesOf(
+  'flowchart LR',
+  '  A([Prompt]) --> B[Reply]',
+  '  B --> C{Table?}',
+  '  C -->|yes| D[Columns]',
+  '  C -->|no| E[Engine]',
+)
+
+const MOCK_9_6_DRAWING = [
+  '╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐',
+  '│ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │',
+  '╰────────╯   └───────┘   └──────────┘  │   └─────────┘',
+  '                                       │no ┌────────┐',
+  '                                       └──▶│ Engine │',
+  '                                           └────────┘',
+]
+
+const MOCK_9_6_LOOP_SOURCE = linesOf(
+  'flowchart TD',
+  '  A[Build] --> B{Test}',
+  '  B -->|pass| C[Release]',
+  '  B -->|fail| A',
+)
+
+const MOCK_9_6_LOOP_DRAWING = [
+  '┌───────┐',
+  '│ Build │◀───────┐',
+  '└───┬───┘        │',
+  '    ▼            │',
+  '┌────────┐       │',
+  '│ ◇ Test │───────┘ fail',
+  '└───┬────┘',
+  '    │ pass',
+  '    ▼',
+  '┌─────────┐',
+  '│ Release │',
+  '└─────────┘',
+]
+
+const REPLY_COLUMNS = 78
+const LAYOUT_STEP_BUDGET = 40000
+
+const LONG_LABELS_SOURCE = linesOf(
+  'flowchart TD',
+  '  A[Pick the next record from the ready set] -->|when the queue holds more work than fits| B[Build the record]',
+  '  A --> C[Write the change summary]',
+)
+
+function drawnLines(source: string, width: number): string[] {
+  const result = drawFlowchart(flowchartOf(source), width)
+  if (result.kind !== 'drawing') throw new Error(`not drawn: ${result.reason}`)
+  return result.lines
+}
+
+function notDrawn(reason: string): Refusal {
+  return { kind: 'refused', reason, line: null, limit: null }
+}
+
+function chain(count: number, direction = 'TD'): string[] {
+  return [
+    `flowchart ${direction}`,
+    ...numbered('  N', count - 1).map((node, index) => `${node} --> N${String(index + 2)}`),
+  ]
+}
+
+function loopsBack(count: number): string {
+  return linesOf(
+    ...chain(5),
+    ...['N2', 'N3', 'N4', 'N5'].slice(0, count).map((node) => `  ${node} --> N1`),
+  )
+}
+
+describe('flowchart drawings', () => {
+  test('the source of mock 9.6 draws the mock at 78 columns', () => {
+    expect(drawnLines(MOCK_9_6_SOURCE, REPLY_COLUMNS)).toEqual(MOCK_9_6_DRAWING)
+  })
+
+  test('the loop of mock 9.6 draws the mock at 78 columns, in a channel on the right', () => {
+    expect(drawnLines(MOCK_9_6_LOOP_SOURCE, REPLY_COLUMNS)).toEqual(MOCK_9_6_LOOP_DRAWING)
+  })
+
+  test('the flowchart LR of mock 9.10 draws the same lines at 80 columns with no indent', () => {
+    expect(drawnLines(MOCK_9_6_SOURCE, 80)).toEqual(MOCK_9_6_DRAWING)
+  })
+
+  test('the source of mock 9.5 draws top down at 78 columns with a bus under each decision', () => {
+    expect(drawnLines(MOCK_9_5_SOURCE, REPLY_COLUMNS)).toEqual([
+      '                  ╭────────────────╮',
+      '                  │ Reply complete │',
+      '                  ╰────────┬───────╯',
+      '                           ▼',
+      '             ┌──────────────────────────┐',
+      '             │ ◇ Holds a mermaid block? │',
+      '             └─────────────┬────────────┘',
+      '                 ┌─────────┴─────────┐',
+      '                 │ yes               │ no',
+      '                 ▼                   ▼',
+      '       ┌──────────────────┐  ┌───────────────┐',
+      '       │ Parse the subset │  │ Draw as today │',
+      '       └─────────┬────────┘  └───────────────┘',
+      '                 ▼',
+      '       ┌───────────────────┐',
+      '       │ ◇ Fits the width? │',
+      '       └─────────┬─────────┘',
+      '       ┌─────────┴─────────┐',
+      '       │ yes               │ no',
+      '       ▼                   ▼',
+      '┌──────────────┐ ┌───────────────────┐',
+      '│ Draw the art │ │ Source and a note │',
+      '└──────────────┘ └───────────────────┘',
+    ])
+  })
+
+  test('an LR flowchart draws LR when it fits and redraws as TD one column narrower', () => {
+    const width = Math.max(...MOCK_9_6_DRAWING.map(displayWidth))
+    expect(drawnLines(MOCK_9_6_SOURCE, width)).toEqual(MOCK_9_6_DRAWING)
+    const fallback = [
+      '     ╭────────╮',
+      '     │ Prompt │',
+      '     ╰────┬───╯',
+      '          ▼',
+      '      ┌───────┐',
+      '      │ Reply │',
+      '      └───┬───┘',
+      '          ▼',
+      '    ┌──────────┐',
+      '    │ ◇ Table? │',
+      '    └─────┬────┘',
+      '    ┌─────┴──────┐',
+      '    │ yes        │ no',
+      '    ▼            ▼',
+      '┌─────────┐ ┌────────┐',
+      '│ Columns │ │ Engine │',
+      '└─────────┘ └────────┘',
+    ]
+    expect(drawnLines(MOCK_9_6_SOURCE, width - 1)).toEqual(fallback)
+    expect(drawnLines(MOCK_9_6_SOURCE, 38)).toEqual(fallback)
+  })
+
+  test('box labels wrap at 16 columns, then at 12, and an edge label is cut to 12 with an ellipsis', () => {
+    expect(drawnLines(LONG_LABELS_SOURCE, REPLY_COLUMNS).slice(0, 5)).toEqual([
+      '         ┌─────────────────────────────────────────┐',
+      '         │ Pick the next record from the ready set │',
+      '         └────────────────────┬────────────────────┘',
+      '         ┌────────────────────┴─────────────────────┐',
+      '         │ when the queue holds more work than fits │',
+    ])
+    expect(drawnLines(LONG_LABELS_SOURCE, 41)).toEqual([
+      '           ┌─────────────────┐',
+      '           │ Pick the next   │',
+      '           │ record from the │',
+      '           │ ready set       │',
+      '           └────────┬────────┘',
+      '         ┌──────────┴──────────┐',
+      '         │ when the qu…        │',
+      '         ▼                     ▼',
+      '┌──────────────────┐ ┌──────────────────┐',
+      '│ Build the record │ │ Write the change │',
+      '└──────────────────┘ │ summary          │',
+      '                     └──────────────────┘',
+    ])
+    expect(drawnLines(LONG_LABELS_SOURCE, 40)).toEqual([
+      '     ┌─────────────┐',
+      '     │ Pick the    │',
+      '     │ next record │',
+      '     │ from the    │',
+      '     │ ready set   │',
+      '     └──────┬──────┘',
+      '     ┌──────┴───────┐',
+      '     │ when the qu… │',
+      '     ▼              ▼',
+      '┌───────────┐ ┌───────────┐',
+      '│ Build the │ │ Write the │',
+      '│ record    │ │ change    │',
+      '└───────────┘ │ summary   │',
+      '              └───────────┘',
+    ])
+  })
+
+  test('a flowchart still too wide after the cuts names its narrowest width', () => {
+    expect(drawnLines(LONG_LABELS_SOURCE, 27)).toHaveLength(14)
+    expect(drawFlowchart(flowchartOf(LONG_LABELS_SOURCE), 26)).toEqual(
+      notDrawn('it takes 27 columns, the screen has 26'),
+    )
+    expect(drawFlowchart(flowchartOf(MOCK_9_6_SOURCE), 20)).toEqual(
+      notDrawn('it takes 22 columns, the screen has 20'),
+    )
+  })
+
+  test('119 drawn rows draw and 123 rows name the limit of 120', () => {
+    expect(drawnLines(linesOf(...chain(30)), REPLY_COLUMNS)).toHaveLength(119)
+    expect(drawFlowchart(flowchartOf(linesOf(...chain(31))), REPLY_COLUMNS)).toEqual(
+      notDrawn('123 rows, at most 120 draw'),
+    )
+  })
+
+  test('CJK and emoji labels keep every border in its column', () => {
+    const lines = drawnLines(
+      linesOf(
+        'flowchart TD',
+        `  A[表格对齐] --> B[${TECHIE} Ana]`,
+        `  B -->|日本語| C[${AUSTRIA} Bo ${KEYCAP_ONE}]`,
+        '  A --> C',
+      ),
+      REPLY_COLUMNS,
+    )
+    expect(lines).toEqual([
+      ' ┌──────────┐',
+      ' │ 表格对齐 │',
+      ' └─────┬────┘',
+      '    ┌──┴───┐',
+      '    ▼      │',
+      '┌────────┐ │',
+      `│ ${TECHIE} Ana │ │`,
+      '└───┬────┘ │',
+      '    └───┬──┘',
+      '        │ 日本語',
+      '        ▼',
+      '  ┌──────────┐',
+      `  │ ${AUSTRIA} Bo ${KEYCAP_ONE} │`,
+      '  └──────────┘',
+    ])
+    for (const box of [lines.slice(0, 3), lines.slice(11, 14)]) {
+      expect(new Set(box.map(displayWidth)).size).toBe(1)
+    }
+    const middle = lines
+      .slice(5, 8)
+      .map((line) => displayWidth(line.slice(0, line.lastIndexOf('│'))))
+    expect(middle).toEqual([11, 11, 11])
+  })
+
+  test('a rounded box, a decision mark, dashed lines and edges with no arrow', () => {
+    expect(
+      drawnLines(
+        linesOf(
+          'flowchart TD',
+          '  A(Round) -.-> B{Pick}',
+          '  B ---|keep| C[Plain]',
+          '  B -.- D[Dashed]',
+        ),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '     ╭───────╮',
+      '     │ Round │',
+      '     ╰───┬───╯',
+      '         ▼',
+      '    ┌────────┐',
+      '    │ ◇ Pick │',
+      '    └────┬───┘',
+      '   ┌─────┴╌╌╌╌╌┐',
+      '   │ keep      ╎',
+      '   │           ╎',
+      '┌──┴────┐ ┌────┴───┐',
+      '│ Plain │ │ Dashed │',
+      '└───────┘ └────────┘',
+    ])
+  })
+
+  test('an edge across two levels and two merging edges share one drop into the box', () => {
+    expect(
+      drawnLines(
+        linesOf(
+          'flowchart TD',
+          '  A[Start] --> B[Left]',
+          '  A --> C[Right]',
+          '  B --> D[Join]',
+          '  C --> D',
+          '  A --> D',
+        ),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '        ┌───────┐',
+      '        │ Start │',
+      '        └───┬───┘',
+      '   ┌────────┴┬──────┐',
+      '   ▼         ▼      │',
+      '┌──────┐ ┌───────┐  │',
+      '│ Left │ │ Right │  │',
+      '└──┬───┘ └───┬───┘  │',
+      '   └─────────┼──────┘',
+      '             ▼',
+      '         ┌──────┐',
+      '         │ Join │',
+      '         └──────┘',
+    ])
+  })
+
+  test('a box moves beside the boxes it links, so its lines do not cross', () => {
+    expect(
+      drawnLines(
+        linesOf('flowchart TD', '  A --> B & C & D', '  B & C & D --> E', '  C --> F'),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '       ┌───┐',
+      '       │ A │',
+      '       └─┬─┘',
+      '  ┌──────┼──────┐',
+      '  ▼      ▼      ▼',
+      '┌───┐  ┌───┐  ┌───┐',
+      '│ B │  │ D │  │ C │',
+      '└─┬─┘  └─┬─┘  └─┬─┘',
+      '  └──────┤      │',
+      '         ├──────┤',
+      '         ▼      ▼',
+      '       ┌───┐  ┌───┐',
+      '       │ E │  │ F │',
+      '       └───┘  └───┘',
+    ])
+  })
+
+  test('boxes that link every box below share one bus row', () => {
+    expect(drawnLines('flowchart TD\n  A1 & A2 --> B1 & B2', REPLY_COLUMNS)).toEqual([
+      '┌────┐  ┌────┐',
+      '│ A1 │  │ A2 │',
+      '└──┬─┘  └──┬─┘',
+      '   ├───────┤',
+      '   ▼       ▼',
+      '┌────┐  ┌────┐',
+      '│ B1 │  │ B2 │',
+      '└────┘  └────┘',
+    ])
+  })
+
+  test('two edges between the same boxes draw as one line with both labels', () => {
+    expect(drawnLines('flowchart TD\n  A -->|first| B\n  A -.->|second| B', REPLY_COLUMNS)).toEqual(
+      ['┌───┐', '│ A │', '└─┬─┘', '  │ first', '  │ second', '  ▼', '┌───┐', '│ B │', '└───┘'],
+    )
+  })
+
+  test('three loops draw in channels on the right, and a box that a loop leaves and enters grows a row', () => {
+    expect(
+      drawnLines(
+        linesOf(
+          'flowchart TD',
+          '  A --> B',
+          '  B --> C',
+          '  C --> D',
+          '  D -->|back to b| B',
+          '  C -->|back to a| A',
+          '  D -->|again| C',
+        ),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '┌───┐',
+      '│ A │◀─────────┐',
+      '└─┬─┘          │',
+      '  ▼            │',
+      '┌───┐          │',
+      '│ B │◀───────┐ │',
+      '└─┬─┘        │ │',
+      '  ▼          │ │',
+      '┌───┐        │ │',
+      '│ C │◀─────┐ │ │',
+      '│   │──────┼─┼─┘ back to a',
+      '└─┬─┘      │ │',
+      '  ▼        │ │',
+      '┌───┐      │ │',
+      '│ D │──────┴─┘   again',
+      '└───┘            back to b',
+    ])
+  })
+
+  test('the label of a loop is cut to 12 columns when the labels must fit', () => {
+    const source = MOCK_9_6_LOOP_SOURCE.replace('|fail|', '|fail after the third retry|')
+    expect(drawnLines(source, REPLY_COLUMNS)[5]).toBe(
+      '│ ◇ Test │───────┘ fail after the third retry',
+    )
+    expect(drawnLines(source, 40)[5]).toBe('│ ◇ Test │───────┘ fail after …')
+  })
+
+  test('a loop of an LR flowchart draws in a channel below', () => {
+    expect(
+      drawnLines(
+        linesOf('flowchart LR', '  A --> B & C & D', '  B & C & D --> E', '  E -->|retry| A'),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '┌───┐      ┌───┐',
+      '│ A │──┬──▶│ B │──┐',
+      '└───┘  │   └───┘  │',
+      '  ▲    │   ┌───┐  │   ┌───┐',
+      '  │    ├──▶│ C │──┼──▶│ E │',
+      '  │    │   └───┘  │   └─┬─┘',
+      '  │    │   ┌───┐  │     │',
+      '  │    └──▶│ D │──┘     │',
+      '  │        └───┘        │',
+      '  │                     │',
+      '  └─────────────────────┘',
+      '                        retry',
+    ])
+  })
+
+  test('three loops draw and a fourth names the limit', () => {
+    expect(drawFlowchart(flowchartOf(loopsBack(3)), REPLY_COLUMNS).kind).toBe('drawing')
+    expect(drawFlowchart(flowchartOf(loopsBack(4)), REPLY_COLUMNS)).toEqual(
+      notDrawn('4 loops back, at most 3 draw'),
+    )
+  })
+
+  for (const [name, source, reason] of [
+    [
+      'an edge from a box to itself',
+      'flowchart TD\n  A --> A',
+      'an edge from a box to itself does not draw yet',
+    ],
+    [
+      'loops at two boxes of one level',
+      'flowchart TD\n  A --> B\n  A --> C\n  B --> A\n  C --> A',
+      'loops at 2 boxes of one level do not draw yet',
+    ],
+    ['a flowchart with no boxes', 'flowchart TD', 'the flowchart has no boxes'],
+    [
+      'a crossing that would show a link the source does not have',
+      linesOf(
+        'flowchart TD',
+        '  N1 --> N3',
+        '  N1 --> N7',
+        '  N2 --> N5',
+        '  N2 --> N6',
+        '  N3 --> N6',
+        '  N4 --> N6',
+        '  N5 --> N6',
+        '  N5 --> N7',
+      ),
+      'its lines overlap',
+    ],
+  ] as const) {
+    test(`${name} is refused by name`, () => {
+      expect(drawFlowchart(flowchartOf(source), REPLY_COLUMNS)).toEqual(notDrawn(reason))
+    })
+  }
+
+  test('a tab and a bidi control in a label do not move a border', () => {
+    expect(drawnLines('flowchart LR\n  A[Tab\there] --> B[Bidi\u202Ex]', REPLY_COLUMNS)).toEqual([
+      '┌──────────┐   ┌───────┐',
+      '│ Tab here │──▶│ Bidix │',
+      '└──────────┘   └───────┘',
+    ])
+  })
+
+  for (const [name, source] of [
+    [
+      'a chain of 40 with 21 edges into its last box, LR',
+      linesOf(...chain(40, 'LR'), ...numbered('  N', 21).map((node) => `${node} --> N40`)),
+    ],
+    [
+      'a chain of 40 with 21 edges that cross it, LR',
+      linesOf(
+        ...chain(40, 'LR'),
+        ...numbered('  N', 21).map((node, index) => `${node} --> N${String(40 - index)}`),
+      ),
+    ],
+    [
+      'a chain of 40 with 21 edges into its last box, TD',
+      linesOf(...chain(40), ...numbered('  N', 21).map((node) => `${node} --> N40`)),
+    ],
+  ] as const) {
+    test(`${name} lays out within the step budget`, () => {
+      const chart = flowchartOf(source)
+      expect([chart.nodes.length, chart.edges.length]).toEqual([40, 60])
+      const meter: LayoutMeter = { steps: 0 }
+      expect(drawFlowchart(chart, REPLY_COLUMNS, meter).kind).toBe('refused')
+      expect(meter.steps).toBeGreaterThan(0)
+      expect(meter.steps).toBeLessThan(LAYOUT_STEP_BUDGET)
+    })
+  }
 })
