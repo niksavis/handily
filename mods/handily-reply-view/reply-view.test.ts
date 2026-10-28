@@ -1994,7 +1994,7 @@ describe('mermaid sequence diagrams', () => {
     ).toEqual([null, 1, 'note', 2])
   })
 
-  test('a block holds its sections as ranges of events, with the depth of its nesting', () => {
+  test('a block holds its sections as ranges of events, with the depth of its nesting and the branch it opens in', () => {
     const diagram = sequenceOf(
       linesOf(
         'sequenceDiagram',
@@ -2035,27 +2035,66 @@ describe('mermaid sequence diagrams', () => {
       'inside',
     ])
     expect(diagram.blocks).toEqual([
-      { kind: 'loop', depth: 0, sections: [{ label: ['every minute'], from: 0, to: 3 }] },
+      {
+        kind: 'loop',
+        depth: 0,
+        section: 0,
+        sections: [{ label: ['every minute'], from: 0, to: 3 }],
+      },
       {
         kind: 'alt',
         depth: 1,
+        section: 0,
         sections: [
           { label: ['hit'], from: 1, to: 2 },
           { label: ['miss'], from: 2, to: 3 },
         ],
       },
-      { kind: 'opt', depth: 0, sections: [{ label: ['cached'], from: 3, to: 3 }] },
+      { kind: 'opt', depth: 0, section: 0, sections: [{ label: ['cached'], from: 3, to: 3 }] },
       {
         kind: 'par',
         depth: 0,
+        section: 0,
         sections: [
           { label: ['first'], from: 3, to: 4 },
           { label: ['second'], from: 4, to: 5 },
         ],
       },
-      { kind: 'critical', depth: 0, sections: [{ label: ['lock'], from: 5, to: 6 }] },
-      { kind: 'break', depth: 0, sections: [{ label: ['failed'], from: 6, to: 7 }] },
-      { kind: 'rect', depth: 0, sections: [{ label: ['rgb(0, 0, 0)'], from: 7, to: 8 }] },
+      { kind: 'critical', depth: 0, section: 0, sections: [{ label: ['lock'], from: 5, to: 6 }] },
+      { kind: 'break', depth: 0, section: 0, sections: [{ label: ['failed'], from: 6, to: 7 }] },
+      {
+        kind: 'rect',
+        depth: 0,
+        section: 0,
+        sections: [{ label: ['rgb(0, 0, 0)'], from: 7, to: 8 }],
+      },
+    ])
+  })
+
+  test('an empty block keeps the branch it opens in, where two branches meet at one event', () => {
+    const diagram = sequenceOf(
+      linesOf(
+        'sequenceDiagram',
+        '  alt first',
+        '    loop before',
+        '    end',
+        '  else second',
+        '    loop after',
+        '    end',
+        '  end',
+      ),
+    )
+    expect(
+      diagram.blocks.map(({ kind, depth, section, sections }) => [
+        kind,
+        depth,
+        section,
+        sections[0]?.from,
+      ]),
+    ).toEqual([
+      ['alt', 0, 0, 0],
+      ['loop', 1, 0, 0],
+      ['loop', 1, 1, 0],
     ])
   })
 
@@ -3268,6 +3307,57 @@ describe('sequence drawings', () => {
       '  │   tint     │            │',
       '  │◀───────────│────────────│',
       '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+    ])
+  })
+
+  test('an empty block at the end of an alt branch draws in that branch, before the else row', () => {
+    expect(
+      drawnSequence(
+        linesOf(
+          'sequenceDiagram',
+          'A->>B: a',
+          'alt first',
+          'loop inner',
+          'end',
+          'else second',
+          'B->>A: b',
+          'end',
+        ),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '┌───┐        ┌───┐',
+      '│ A │        │ B │',
+      '└─┬─┘        └─┬─┘',
+      '  │     a      │',
+      '  │───────────▶│',
+      '┄┄ alt: first ┄┼┄┄┄┄┄',
+      '  ┄┄ loop: inner ┄┄',
+      '  ┄┄ end ┄┄┄┄┄┄┼┄┄┄',
+      '┄┄ else: second ┄┄┄┄┄',
+      '  │     b      │',
+      '  │◀───────────│',
+      '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄',
+    ])
+  })
+
+  test('an empty block at the end of a par branch draws in that branch, before the and row', () => {
+    expect(
+      drawnSequence(
+        linesOf('sequenceDiagram', 'par one', 'opt o', 'end', 'and two', 'A->>B: y', 'end'),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '┌───┐        ┌───┐',
+      '│ A │        │ B │',
+      '└─┬─┘        └─┬─┘',
+      '┄┄ par: one ┄┄┄┼┄┄',
+      '  ┄┄ opt: o ┄┄┄┼',
+      '  ┄┄ end ┄┄┄┄┄┄┼',
+      '┄┄ and: two ┄┄┄┼┄┄',
+      '  │     y      │',
+      '  │───────────▶│',
+      '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄',
     ])
   })
 

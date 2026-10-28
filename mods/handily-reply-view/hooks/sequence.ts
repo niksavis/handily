@@ -211,11 +211,7 @@ function stepsOf(diagram: SequenceDiagram, width: number, meter: LayoutMeter): S
     tick(meter)
     while ((open.at(-1)?.depth ?? -1) >= block.depth) open.pop()
     const parent = open.at(-1)
-    const start = blockStart(block)
-    const section =
-      parent === undefined
-        ? top
-        : inner.get(parent)?.[parent.sections.findLastIndex((part) => part.from <= start)]
+    const section = parent === undefined ? top : inner.get(parent)?.[block.section]
     section?.push(block)
     inner.set(
       block,
