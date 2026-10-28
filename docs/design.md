@@ -692,6 +692,21 @@ Defer to quiet-items:
   - A second `ui.open` of a hidden pane without `focus` does not bring it forward. With
     `focus: true` it does, and the pane takes the keyboard. So `/board` passes `focus` only when
     the asked tab is hidden.
+- Facts measured in tmux on Claude Code 2.1.312 (handily-9uj3n.10), with a probe mod that logged
+  each `ui.focus` event:
+  - ctrl+x tab moves the keyboard in a cycle: from the prompt to the first pane in tab order, from
+    each pane to the next, and from the last pane back to the prompt. Each pane it reaches comes
+    forward.
+  - After `/board`, the shown pane already holds the keyboard, because the open passed `focus`.
+    Tab then reaches the Session line, the task rows and their buttons. After Esc, ctrl+x tab and
+    Tab do the same.
+  - ctrl+x tab pressed while the this session tab holds the keyboard gives it to the this machine
+    tab. That tab draws cards with no button, so its ring holds only the engine's tab row and close
+    mark. Every `ui.focus` event then named `requestId` `sessions`. This was the cause of the
+    report that Tab never reached a task row. Neither tmux nor the buttons of the mods caused it.
+  - The files pane behaves the same: Tab right after `/tree` reaches its agent filter. The earlier
+    finding that the hotkey `r` did not fire after ctrl+x tab may have the same cause and needs a
+    recheck.
 - Release 1 needs neither handily-fwkt.8.10 (needs you) nor handily-fwkt.8.11 (agents of other
   sessions). An agent with the status `waiting` draws as `on hold` until 8.10 proves which waits
   are the person's.

@@ -110,13 +110,18 @@ Replies, from the tests:
 You can press every button on both tabs with the keyboard alone. A live check on Claude Code
 2.1.300 in a terminal measured these keys:
 
-| Key                        | Effect                                                               |
-| -------------------------- | -------------------------------------------------------------------- |
-| `/board`, `/board machine` | A hidden tab comes forward and takes the keyboard                    |
-| ctrl+x, then Tab           | Gives the keyboard to the tab that is shown                          |
-| Tab, Shift+Tab             | Moves the focus to the next or the previous button, in reading order |
-| Enter                      | Presses the button that has the focus                                |
-| Esc                        | Gives the keyboard back to the prompt. The board stays open          |
+| Key                        | Effect                                                                                                                      |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `/board`, `/board machine` | A hidden tab comes forward and takes the keyboard                                                                           |
+| ctrl+x, then Tab           | From the prompt, gives the keyboard to the first tab. From a tab, to the next tab, and from the last tab back to the prompt |
+| Tab, Shift+Tab             | Moves the focus to the next or the previous button, in reading order                                                        |
+| Enter                      | Presses the button that has the focus                                                                                       |
+| Esc                        | Gives the keyboard back to the prompt. The board stays open                                                                 |
+
+- `/board` already gives the keyboard to the tab it brings forward. Press Tab, not ctrl+x tab.
+  ctrl+x tab there moves the keyboard to the this machine tab, whose cards have no button, so
+  Tab then walks only the tab row and the close mark. A live check in tmux on Claude Code
+  2.1.312 measured this (handily-9uj3n.10).
 
 - Claude Code keeps the focus at the same place in the order of the buttons, not on the same
   button. A live check on 2.1.300 measured this with `up` and `down`: the task moved, and the
