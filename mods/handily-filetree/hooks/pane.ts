@@ -6,7 +6,7 @@ import type {
   TextProps,
 } from 'claude-code'
 import type { GitView, NoteLine, NoteTone } from './gitview'
-import type { GitLetter, GitMarks } from './status'
+import type { GitCount, GitLetter, GitMarks } from './status'
 import {
   type EntryRow,
   type Folders,
@@ -16,7 +16,7 @@ import {
   childPath,
   entryRow,
 } from './tree'
-import { displayWidth, fitted, padToWidth } from './width'
+import { displayWidth, fitted } from './width'
 
 export type PaneElements = {
   Box: ElementConstructor<BoxProps>
@@ -42,6 +42,7 @@ const BUTTON_GAP = 1
 const NOTE_GAP = '  '
 const INDENT = '  '
 const DETAIL_INDENT = '  '
+const MARKED_ROOM = 3
 const OPEN_MARK = '▾'
 const CLOSED_MARK = '▸'
 const RULE = '─'
@@ -49,7 +50,11 @@ const NOT_LISTED = 'not listed'
 const DOCK_HINT = 'a dock (fullscreen, 110 columns) shows the tree'
 const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 
-const LETTER_COLORS: Readonly<Record<GitLetter, 'success' | 'warning' | 'error'>> = {
+type LetterColor = 'success' | 'warning' | 'error'
+
+type Part = { text: string; color?: LetterColor; dimColor?: boolean }
+
+const LETTER_COLORS: Readonly<Record<GitLetter, LetterColor>> = {
   M: 'warning',
   A: 'success',
   '?': 'success',
@@ -63,17 +68,6 @@ const TONES: Readonly<Record<NoteTone, TextProps>> = {
   dim: { dimColor: true },
   error: { color: 'error' },
   warning: { color: 'warning' },
-}
-
-const MARK_ROOM = [
-  { from: 41, columns: 16 },
-  { from: 30, columns: 8 },
-  { from: 0, columns: 2 },
-] as const
-
-function letterColumn(bodyColumns: number): number {
-  const room = MARK_ROOM.find((tier) => bodyColumns >= tier.from)?.columns ?? 0
-  return Math.max(bodyColumns - room - 1, 0)
 }
 
 function escapedUnits(text: string): string {
@@ -182,8 +176,38 @@ function folderText(row: { name: string; depth: number }, mark: string): string 
   return `${indentOf(row.depth)}${mark} ${shownName(row.name)}/`
 }
 
-function withCounts(text: string, counts: string): string {
-  return counts === '' ? text : `${text}  ${counts}`
+function fittedParts(parts: readonly Part[], width: number): Part[] {
+  let rest = fitted(parts.map((part) => part.text).join(''), width)
+  const kept: Part[] = []
+  for (const part of parts) {
+    if (rest === '') break
+    if (rest.startsWith(part.text)) {
+      kept.push(part)
+      rest = rest.slice(part.text.length)
+    } else {
+      kept.push({ ...part, text: rest })
+      break
+    }
+  }
+  return kept
+}
+
+function drawParts(Text: PaneElements['Text'], parts: readonly Part[]): RenderElement[] {
+  return parts.map((part) =>
+    Text({ color: part.color, dimColor: part.dimColor, children: part.text }),
+  )
+}
+
+function countParts(counts: readonly GitCount[]): Part[] {
+  return counts.flatMap(({ letter, count }, index) => [
+    { text: index === 0 ? '  ' : ' ' },
+    { text: `${letter}${count === null ? '' : String(count)}`, color: LETTER_COLORS[letter] },
+  ])
+}
+
+function markedParts(letter: GitLetter, name: string): Part[] {
+  const color = LETTER_COLORS[letter]
+  return [{ text: letter, color }, { text: ' ' }, { text: name, color }]
 }
 
 function drawFolder(
@@ -194,7 +218,10 @@ function drawFolder(
   const { Box, Text, Button, bodyColumns } = elements
   const indent = displayWidth(indentOf(row.depth))
   const mark = row.isOpen ? OPEN_MARK : CLOSED_MARK
-  const label = withCounts(`${mark} ${shownName(row.name)}/`, draw.marks?.countsOf(row.path) ?? '')
+  const label = [
+    { text: `${mark} ${shownName(row.name)}/` },
+    ...countParts(draw.marks?.countsOf(row.path) ?? []),
+  ]
   return Box({
     key: `folder:${row.path}`,
     flexDirection: 'row',
@@ -206,7 +233,7 @@ function drawFolder(
         onPress: () => {
           draw.actions.toggle(row.path)
         },
-        children: [Text({ children: fitted(label, bodyColumns - indent) })],
+        children: drawParts(Text, fittedParts(label, bodyColumns - indent)),
       }),
     ],
   })
@@ -235,15 +262,15 @@ function drawFile(
   if (letter === undefined || marks === undefined) {
     return [Text({ dimColor: row.isDot, children: fitted(name, bodyColumns) })]
   }
-  const column = letterColumn(bodyColumns)
+  const indent = indentOf(
+    Math.min(row.depth, Math.floor(Math.max(bodyColumns - MARKED_ROOM, 0) / 2)),
+  )
+  const parts = [{ text: indent }, ...markedParts(letter, shownName(row.name))]
   return [
     Box({
       key: `file:${row.path}`,
       flexDirection: 'row',
-      children: [
-        Text({ dimColor: row.isDot, children: padToWidth(fitted(name, column - 1), column) }),
-        Text({ color: LETTER_COLORS[letter], children: letter }),
-      ],
+      children: drawParts(Text, fittedParts(parts, bodyColumns)),
     }),
     ...renameDetail(elements, row, marks),
   ]
@@ -333,20 +360,37 @@ export function drawTree(
   })
 }
 
-function flatRow(elements: PaneElements, row: EntryRow): RenderElement {
-  const { Text, bodyColumns } = elements
+function flatRow(elements: PaneElements, row: EntryRow, git: GitView): RenderElement {
+  const { Box, Text, bodyColumns } = elements
+  const { marks } = git
   const name = shownName(row.name)
-  switch (row.kind) {
-    case 'pruned':
-      return Text({ children: fitted(`${name}/  ${NOT_LISTED}`, bodyColumns) })
-    case 'folder':
-      return Text({ children: fitted(`${name}/`, bodyColumns) })
-    case 'file':
-      return Text({ dimColor: row.isDot, children: fitted(name, bodyColumns) })
-  }
+  const slot = git.isRepo ? INDENT : ''
+  const letter = row.kind === 'file' ? marks?.letterOf(row.path) : undefined
+  const parts: Part[] = (() => {
+    switch (row.kind) {
+      case 'pruned':
+        return [{ text: `${slot}${name}/  ${NOT_LISTED}` }]
+      case 'folder':
+        return [{ text: `${slot}${name}/` }, ...countParts(marks?.countsOf(row.path) ?? [])]
+      case 'file':
+        return letter === undefined
+          ? [{ text: `${slot}${name}`, dimColor: row.isDot }]
+          : markedParts(letter, name)
+    }
+  })()
+  return Box({
+    key: `flat:${row.path}`,
+    flexDirection: 'row',
+    children: drawParts(Text, fittedParts(parts, bodyColumns)),
+  })
 }
 
-function inlineRows(elements: PaneElements, root: Listing, rootName: string): RenderElement[] {
+function inlineRows(
+  elements: PaneElements,
+  root: Listing,
+  rootName: string,
+  git: GitView,
+): RenderElement[] {
   const { Text, bodyColumns } = elements
   if (root.kind === 'failed') {
     return [drawFailed(elements, { name: rootName, depth: 0, reason: root.reason })]
@@ -358,11 +402,11 @@ function inlineRows(elements: PaneElements, root: Listing, rootName: string): Re
   const rows = root.sorted.map((entry) =>
     entryRow(entry, childPath(ROOT_PATH, entry.name), 0, closed),
   )
-  if (rows.length <= INLINE_ROWS) return rows.map((row) => flatRow(elements, row))
+  if (rows.length <= INLINE_ROWS) return rows.map((row) => flatRow(elements, row, git))
   const shown = rows.slice(0, INLINE_ROWS - 1)
   const hidden = countText(rows.length - shown.length)
   return [
-    ...shown.map((row) => flatRow(elements, row)),
+    ...shown.map((row) => flatRow(elements, row, git)),
     Text({ dimColor: true, children: fitted(`+${hidden} more: ${DOCK_HINT}`, bodyColumns) }),
   ]
 }
@@ -386,7 +430,7 @@ export function drawInline(
           refreshButton(elements, view.actions),
         ],
       }),
-      ...inlineRows(elements, root, rootName),
+      ...inlineRows(elements, root, rootName, view.git),
     ],
   })
 }

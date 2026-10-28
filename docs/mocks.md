@@ -2084,8 +2084,11 @@ docs/design.md section 4.11.
 - A note right of a frame, such as `(engine tab row)`, explains the mock. The mod does not draw it.
 - Marks: `✎` an agent edited the file, `◦` an agent read it. The agent label and the age follow
   the mark. The agent label and the age use the rules of section 8.0.
-- The letter after the name is the git state: `M` modified, `?` untracked, `D` deleted, `U`
-  conflict, `R` renamed. A folder row counts the states of the files under it.
+- The letter before the name is the git state: `M` modified, `?` untracked, `D` deleted, `U`
+  conflict, `R` renamed. It takes the column where a folder draws its arrow, so no name moves.
+  The letter and the name draw in the colour of the state: `M` and `R` warning, `?` and `A`
+  success, `D` and `U` error. A folder row counts the states of the files under it, and each
+  count draws in the colour of its letter. Without colour, the letter still names the state.
 - `{agent: all}` is the agent filter. The desktop app draws it as a select (10.8a).
 - A script checked the width of each line. The frame is 45 columns at body 41, 34 at body 30, 28
   at body 24 and 80 at body 76.
@@ -2104,15 +2107,15 @@ docs/design.md section 4.11.
 │ ◦ scout     docs/design.md             2s │
 │ ───────────────────────────────────────── │
 │ ▾ docs/  M2 ?1            ◦ scout      2s │
-│     design.md           M ◦ scout      2s │
-│     mocks.md            M ✎ main +1    1m │
-│     filetree.md         ? ✎ main      30s │
+│   M design.md             ◦ scout      2s │
+│   M mocks.md              ✎ main +1    1m │
+│   ? filetree.md           ✎ main      30s │
 │ ▾ hooks/  M1 D1           ✎ main       4s │
-│     pane.tsx            M ✎ main       4s │
-│     old-pane.tsx        D ✎ gene…se 2  3m │
+│   M pane.tsx              ✎ main       4s │
+│   D old-pane.tsx          ✎ gene…se 2  3m │
 │     register.tsx          ◦ scout     40s │
 │ ▸ scratch/  ?             ✎ Explore    5m │
-│   README.md             M                 │
+│ M README.md                               │
 │ ~work view: touched and changed files~    │
 ╰───────────────────────────────────────────╯
 ```
@@ -2129,14 +2132,14 @@ docs/design.md section 4.11.
 │ ◦ scout     docs/design.md             2s │
 │ ───────────────────────────────────────── │
 │ ▾ docs/  M2 ?1            ◦ scout      2s │
-│     design.md           M ◦ scout      2s │
-│     mocks.md            M ✎ main +1    1m │
+│   M design.md             ◦ scout      2s │
+│   M mocks.md              ✎ main +1    1m │
 │       edited by main 1m ago               │
 │       read by scout 3m ago                │
 │       modified, not staged                │
 │       [ preview ] [ diff ] [ copy path ]  │
 │       [ @ to prompt ]                     │
-│     filetree.md         ? ✎ main      30s │
+│   ? filetree.md           ✎ main      30s │
 ╰───────────────────────────────────────────╯
 ```
 
@@ -2154,14 +2157,14 @@ docs/design.md section 4.11.
 │ ▸ .git/  not listed                       │
 │ ▸ node_modules/  not listed               │
 │ ▾ docs/  M2 ?1            ◦ scout      2s │
-│     design.md           M ◦ scout      2s │
+│   M design.md             ◦ scout      2s │
 │     guide.md                              │
 │     install.md                            │
-│     mocks.md            M ✎ main +1    1m │
+│   M mocks.md              ✎ main +1    1m │
 │ ▸ hooks/  M1 D1           ✎ main       4s │
 │ ▸ scripts/                                │
 │   ~.gitignore~                            │
-│   README.md             M                 │
+│ M README.md                               │
 ╰───────────────────────────────────────────╯
 ```
 
@@ -2182,11 +2185,11 @@ docs/design.md section 4.11.
 │ ▸ node_modules/  not listed               │
 │ ▾ src/  M2140             ◦ main       9s │
 │   ▾ gen/  M2100           ◦ main       9s │
-│       a0001.ts          M                 │
-│       a0002.ts          M                 │
+│     M a0001.ts                            │
+│     M a0002.ts                            │
 │       …                                   │
-│       a0193.ts          M ◦ main       9s │
-│       a0200.ts          M                 │
+│     M a0193.ts            ◦ main       9s │
+│     M a0200.ts                            │
 │       [ +1,640 more in gen/ ]             │
 │   ▸ api/  M40             ✎ main       2m │
 │ !git status is over 4 MiB; the first!     │  only when cut
@@ -2207,10 +2210,10 @@ docs/design.md section 4.11.
 │ ◦ Explore 2 test/api/users.test.ts     1s │
 │ ───────────────────────────────────────── │
 │ ▾ src/api/  M5            ✎ main       9s │
-│     routes/users.ts     M ✎ main       9s │
+│   M routes/users.ts       ✎ main       9s │
 │     auth/session.ts       ◦ Explore    3s │
 │ ▾ test/api/  ?1           ◦ Explore 2  1s │
-│     users.test.ts       ? ◦ Explore 2  1s │
+│   ? users.test.ts         ◦ Explore 2  1s │
 │ [ +9 changed in 6 folders ]               │
 │ ~work view: touched and changed files~    │
 ╰───────────────────────────────────────────╯
@@ -2423,8 +2426,8 @@ docs/design.md section 4.11.
 
 ```text
 │ ▾ src/  U1 R1                             │
-│     merge.ts            U ✎ main       1m │
-│     routes.ts           R                 │
+│   U merge.ts              ✎ main       1m │
+│   R routes.ts                             │
 │       renamed from api.ts · staged        │
 ```
 
@@ -2443,13 +2446,13 @@ docs/design.md section 4.11.
 │ ◦ scout docs/design.md         │
 │ ────────────────────────────── │
 │ ▾ docs/  M2 ?1         ◦ scout │
-│     design.md        M ◦ scout │
-│     mocks.md         M ✎ main+ │
-│     filetree.md      ? ✎ main  │
+│   M design.md          ◦ scout │
+│   M mocks.md           ✎ main+ │
+│   ? filetree.md        ✎ main  │
 │ ▾ hooks/  M1 D1        ✎ main  │
-│     pane.tsx         M ✎ main  │
-│     old-pane.tsx     D ✎ ge…2  │
-│   README.md          M         │
+│   M pane.tsx           ✎ main  │
+│   D old-pane.tsx       ✎ ge…2  │
+│ M README.md                    │
 ╰────────────────────────────────╯
 ```
 
@@ -2465,11 +2468,11 @@ docs/design.md section 4.11.
 │ ◦ scout docs/design.md   │
 │ ──────────────────────── │
 │ ▾ docs/                ◦ │
-│     design.md        M ◦ │
-│     mocks.md         M ✎ │
-│     filetree.md      ? ✎ │
+│   M design.md          ◦ │
+│   M mocks.md           ✎ │
+│   ? filetree.md        ✎ │
 │ ▾ hooks/               ✎ │
-│     old-pane.tsx     D ✎ │
+│   D old-pane.tsx       ✎ │
 ╰──────────────────────────╯
 ```
 
@@ -2478,13 +2481,13 @@ docs/design.md section 4.11.
 ```text
 ╭────────────────────────────────────────────────────────────────────────────✕─╮
 │ Files  app · main ↑1 · 6 changed              {agent: all}  [ refresh ]      │
-│ hooks/pane.tsx                                          M ✎ main          4s │
-│ docs/design.md                                          M ◦ scout         2s │
-│ docs/mocks.md                                           M ✎ main +1       1m │
-│ docs/filetree.md                                        ? ✎ main         30s │
-│ hooks/old-pane.tsx                                      D ✎ gene…se 2     3m │
-│ hooks/register.tsx                                        ◦ scout        40s │
-│ scratch/                                                ? ✎ Explore       5m │
+│ M hooks/pane.tsx                                          ✎ main          4s │
+│ M docs/design.md                                          ◦ scout         2s │
+│ M docs/mocks.md                                           ✎ main +1       1m │
+│ ? docs/filetree.md                                        ✎ main         30s │
+│ D hooks/old-pane.tsx                                      ✎ gene…se 2     3m │
+│   hooks/register.tsx                                      ◦ scout        40s │
+│   scratch/  ?                                             ✎ Explore       5m │
 │ ~+1 more: a dock (fullscreen, 110 columns) shows the tree~                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
@@ -2503,8 +2506,8 @@ docs/design.md section 4.11.
 │ ◦ scout     docs/design.md             2s │
 │ ───────────────────────────────────────── │
 │ ▾ docs/  M2 ?1            ◦ scout      2s │
-│     design.md           M ◦ scout      2s │
-│     mocks.md            M ✎ main +1    1m │
+│   M design.md             ◦ scout      2s │
+│   M mocks.md              ✎ main +1    1m │
 ╰───────────────────────────────────────────╯
 ```
 
@@ -2548,8 +2551,8 @@ docs/design.md section 4.11.
 │ ✎ 2 edited · ◦ 5 read while task 2 ran    │
 │ ───────────────────────────────────────── │
 │ ▾ docs/  M2               ✎ main       1m │
-│     mocks.md            M ✎ main       1m │
-│     design.md           M ◦ main       3m │
+│   M mocks.md              ✎ main       1m │
+│   M design.md             ◦ main       3m │
 │ ▾ hooks/                  ◦ main       4m │
 │     pane.tsx              ◦ main       4m │
 │ [ +3 read ]                               │
@@ -2578,8 +2581,8 @@ docs/design.md section 4.11.
 │ ◦ scout     docs/design.md             2s │
 │ ───────────────────────────────────────── │
 │ ▾ docs/                   ◦ scout      2s │
-│     design.md           M ◦ scout      2s │
-│     mocks.md            M ◦ scout      3m │
+│   M design.md             ◦ scout      2s │
+│   M mocks.md              ◦ scout      3m │
 │ ▾ hooks/                  ◦ scout     40s │
 │     register.tsx          ◦ scout     40s │
 ╰───────────────────────────────────────────╯

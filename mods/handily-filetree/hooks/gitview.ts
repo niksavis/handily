@@ -10,6 +10,7 @@ export type GitView = {
   notes: readonly NoteLine[]
   footer: readonly NoteLine[]
   marks: GitMarks | undefined
+  isRepo: boolean
 }
 
 const SECOND_MS = 1000
@@ -111,18 +112,25 @@ function shownNotes(watch: GitWatch, age: string): NoteLine[] {
 
 export function gitView(watch: GitWatch, now: number): GitView {
   if (watch.repo === null || watch.repo === undefined) {
-    return { header: ' · not a git repo', notes: NOT_A_REPO, footer: [], marks: undefined }
+    return {
+      header: ' · not a git repo',
+      notes: NOT_A_REPO,
+      footer: [],
+      marks: undefined,
+      isRepo: false,
+    }
   }
   const shown = watch.shown
   const marks = shown === undefined ? undefined : gitMarks(shown.status, watch.repo.prefix)
   const footer = shown === undefined ? [] : cutNote(shown.status)
-  if (watch.isGitMissing) return { header: ' · git not found', notes: GIT_MISSING, footer, marks }
+  if (watch.isGitMissing)
+    return { header: ' · git not found', notes: GIT_MISSING, footer, marks, isRepo: true }
   if (watch.failure !== undefined) {
     const notes = failedNotes(watch, watch.failure, now)
-    return { header: ' · git status failed', notes, footer, marks }
+    return { header: ' · git status failed', notes, footer, marks, isRepo: true }
   }
-  if (shown === undefined) return { header: '', notes: READING, footer, marks }
+  if (shown === undefined) return { header: '', notes: READING, footer, marks, isRepo: true }
   const age = ageText(now - shown.at)
   const header = `${summary(watch.branch, shown.status)}${watch.isSlow ? ` · ${age} old` : ''}`
-  return { header, notes: shownNotes(watch, age), footer, marks }
+  return { header, notes: shownNotes(watch, age), footer, marks, isRepo: true }
 }

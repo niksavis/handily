@@ -120,9 +120,11 @@ export function parseStatus(stdout: string, isTruncated: boolean): GitStatus {
   return status
 }
 
+export type GitCount = { letter: GitLetter; count: number | null }
+
 export type GitMarks = {
   letterOf: (path: string) => GitLetter | undefined
-  countsOf: (folder: string) => string
+  countsOf: (folder: string) => readonly GitCount[]
   renamedFromOf: (path: string) => { from: string; isStaged: boolean } | undefined
   deletedIn: (folder: string) => readonly FsEntry[]
   isDeletedFolder: (folder: string) => boolean
@@ -153,11 +155,12 @@ function ghost(name: string, isFolder: boolean): FsEntry {
   return { name, kind: isFolder ? 'dir' : 'file', size: 0, mtimeMs: 0, isLink: false }
 }
 
-function countText(counts: ReadonlyMap<GitLetter, number> | undefined): string {
-  if (counts === undefined) return ''
-  return COUNT_ORDER.filter((letter) => counts.has(letter))
-    .map((letter) => `${letter}${String(counts.get(letter))}`)
-    .join(' ')
+function countsIn(counts: ReadonlyMap<GitLetter, number> | undefined): GitCount[] {
+  if (counts === undefined) return []
+  return COUNT_ORDER.filter((letter) => counts.has(letter)).map((letter) => ({
+    letter,
+    count: counts.get(letter) ?? 0,
+  }))
 }
 
 function shownOrigin(path: string, origin: string, prefix: string): string {
@@ -202,7 +205,8 @@ export function gitMarks(status: GitStatus, prefix: string): GitMarks {
     untrackedFolders.some((folder) => path === folder || path.startsWith(`${folder}/`))
   return {
     letterOf: (path) => byPath.get(path)?.letter ?? (isUntracked(path) ? '?' : undefined),
-    countsOf: (folder) => (isUntracked(folder) ? '?' : countText(counts.get(folder))),
+    countsOf: (folder) =>
+      isUntracked(folder) ? [{ letter: '?', count: null }] : countsIn(counts.get(folder)),
     renamedFromOf: (path) => {
       const entry = byPath.get(path)
       if (entry?.renamedFrom === undefined) return undefined

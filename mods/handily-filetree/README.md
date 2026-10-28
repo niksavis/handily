@@ -87,11 +87,26 @@ a.md
 +4 more: a dock (fullscreen, 110 columns) shows the tree
 ```
 
+In a git repo, each inline row starts with two columns for the git letter. A changed file shows
+its letter there, and a folder shows its counts after its name:
+
+```text
+Files  app · main ↑1 · 6 changed                                 [ refresh ]
+  .git/  not listed
+  node_modules/  not listed
+  docs/  M2 ?1
+  hooks/  M1 D1
+  scripts/
+  .gitignore
+M README.md
+```
+
 ## Git status
 
 In a git repo, the header shows the branch, the commits ahead and behind, and the count of
-changed entries. A file shows its git state as a letter, and a folder counts the states of the
-entries under it. The test fixture, with `docs/` and `hooks/` open:
+changed entries. A changed file shows its git state as a letter before its name. The letter and
+the name draw in the colour of the state. A folder counts the states of the entries under it, and
+each count draws in the colour of its letter. The test fixture, with `docs/` and `hooks/` open:
 
 ```text
 Files  app · main ↑1 · 6 changed
@@ -100,29 +115,29 @@ Files  app · main ↑1 · 6 changed
 ▸ .git/  not listed
 ▸ node_modules/  not listed
 ▾ docs/  M2 ?1
-    design.md           M
-    filetree.md         ?
+  M design.md
+  ? filetree.md
     guide.md
     install.md
-    mocks.md            M
+  M mocks.md
 ▾ hooks/  M1 D1
   ▸ dist/  not listed
-    old-pane.tsx        D
-    pane.tsx            M
+  D old-pane.tsx
+  M pane.tsx
     register.tsx
 ▸ scripts/
   .gitignore
-  README.md             M
+M README.md
 ```
 
-| Letter | State     | Colour  |
-| ------ | --------- | ------- |
-| `M`    | modified  | warning |
-| `A`    | added     | success |
-| `?`    | untracked | success |
-| `D`    | deleted   | error   |
-| `R`    | renamed   | warning |
-| `U`    | conflict  | error   |
+| Letter | State     | Colour of the letter and the name |
+| ------ | --------- | --------------------------------- |
+| `M`    | modified  | warning                           |
+| `A`    | added     | success                           |
+| `?`    | untracked | success                           |
+| `D`    | deleted   | error                             |
+| `R`    | renamed   | warning                           |
+| `U`    | conflict  | error                             |
 
 - A deleted file shows in its folder with `D`, although it is not on the disk.
 - A renamed file shows the file it came from under it: `renamed from api.ts · staged`.

@@ -786,23 +786,32 @@ describe('git status: letters and counts', () => {
         '▸ .git/  not listed',
         '▸ node_modules/  not listed',
         '▾ docs/  M2 ?1',
-        '    design.md           M',
-        '    filetree.md         ?',
+        '  M design.md',
+        '  ? filetree.md',
         '    guide.md',
         '    install.md',
-        '    mocks.md            M',
+        '  M mocks.md',
         '▾ hooks/  M1 D1',
         '  ▸ dist/  not listed',
-        '    old-pane.tsx        D',
-        '    pane.tsx            M',
+        '  D old-pane.tsx',
+        '  M pane.tsx',
         '    register.tsx',
         '▸ scripts/',
         '  .gitignore',
-        '  README.md             M',
+        'M README.md',
       ])
       expect((await ui.find({ type: 'Text', text: /^M$/ }))?.props.color).toBe('warning')
       expect((await ui.find({ type: 'Text', text: /^D$/ }))?.props.color).toBe('error')
       expect((await ui.find({ type: 'Text', text: /^\?$/ }))?.props.color).toBe('success')
+      const colorOf = async (text: string) => (await ui.find({ type: 'Text', text }))?.props.color
+      expect(await colorOf('design.md')).toBe('warning')
+      expect(await colorOf('filetree.md')).toBe('success')
+      expect(await colorOf('old-pane.tsx')).toBe('error')
+      expect(await colorOf('README.md')).toBe('warning')
+      expect(await colorOf('    guide.md')).toBeUndefined()
+      expect(await colorOf('M2')).toBe('warning')
+      expect(await colorOf('?1')).toBe('success')
+      expect(await colorOf('D1')).toBe('error')
       expect(seen.runs).toEqual([{ argv: STATUS_ARGV, cwd: ROOT, timeoutMs: 10_000 }])
       await ui.unmount()
     })
@@ -828,10 +837,10 @@ describe('git status: letters and counts', () => {
     await ui.press({ key: 'open:src' })
     expect(await treeLines(ui)).toEqual([
       '▾ src/  U1 R2',
-      '    merge.ts            U',
-      '    moved.ts            R',
+      '  U merge.ts',
+      '  R moved.ts',
       '      renamed from lib/moved.ts · not st…',
-      '    routes.ts           R',
+      '  R routes.ts',
       '      renamed from api.ts · staged',
     ])
     expect((await ui.find({ type: 'Text', text: /^U$/ }))?.props.color).toBe('error')
@@ -863,10 +872,10 @@ describe('git status: letters and counts', () => {
     expect(await treeLines(ui)).toEqual([
       '▾ lib/  D2',
       '  ▸ inner/  D1',
-      '    a.ts                D',
+      '  D a.ts',
       '▾ scratch/  ?',
       '  ▸ deep/  ?',
-      '    notes.md            ?',
+      '  ? notes.md',
       '▸ src/  M1',
     ])
     await ui.unmount()
@@ -894,7 +903,7 @@ describe('git status: letters and counts', () => {
     }
     const ui = await openFiles($, seen)
     expect(await headerOf(ui)).toEqual(['Files  app · lane-a1 · 2 changed', '[ refresh ]'])
-    expect(await treeLines(ui)).toEqual(['  a.ts                  M', '  b.ts'])
+    expect(await treeLines(ui)).toEqual(['M a.ts', '  b.ts'])
     expect(seen.stats.slice(0, 2)).toEqual([GIT_DIR, '/work/.git'])
     await ui.unmount()
   })
@@ -917,11 +926,7 @@ describe('git status: letters and counts', () => {
       const ui = await openFiles($, seen)
       await ui.press({ key: 'open:deep' })
       expect((await headerOf(ui))[0]).toBe('Files  app · main · 1 changed')
-      expect(await treeLines(ui)).toEqual([
-        '▾ deep/  ?',
-        '    g.ts                ?',
-        '  a.ts                  ?',
-      ])
+      expect(await treeLines(ui)).toEqual(['▾ deep/  ?', '  ? g.ts', '? a.ts'])
       await ui.unmount()
     })
   }
@@ -942,10 +947,10 @@ describe('git status: letters and counts', () => {
     )
     const ui = await openFiles($, seen)
     expect(await treeLines(ui)).toEqual([
-      '  a b.md                M',
-      '  line\\u000abreak.md    A',
-      '  naïve.md              ?',
-      '  new name.md           R',
+      'M a b.md',
+      'A line\\u000abreak.md',
+      '? naïve.md',
+      'R new name.md',
       '    renamed from old name.md · staged',
     ])
     expect((await headerOf(ui))[0]).toBe('Files  app · main · 4 changed')
@@ -979,6 +984,83 @@ describe('git status: letters and counts', () => {
     expect((await screen(ui, 76))[0]).toBe('Files  app · main ↑1 · 6 changed[ refresh ]')
     await ui.unmount()
   })
+
+  for (const surface of SURFACES) {
+    test(`inline above the prompt, each changed file shows its mark before its name in its colour on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      const ui = await openFiles($, seen, surface, 'inline', 76)
+      expect((await screen(ui, 76)).slice(1)).toEqual([
+        '  .git/  not listed',
+        '  node_modules/  not listed',
+        '  docs/  M2 ?1',
+        '  hooks/  M1 D1',
+        '  scripts/',
+        '  .gitignore',
+        'M README.md',
+      ])
+      expect((await ui.find({ type: 'Text', text: 'README.md' }))?.props.color).toBe('warning')
+      expect((await ui.find({ type: 'Text', text: '?1' }))?.props.color).toBe('success')
+      await ui.unmount()
+    })
+  }
+
+  test('a folder count of 1000 or more prints without a comma', async ($, on) => {
+    const many = Array.from({ length: 2140 }, (_, index) =>
+      changed('.M', `src/f${String(index)}.ts`),
+    )
+    const seen = gitWorld(on, [['.', [folder('src')]]], { kind: 'ok', stdout: statusOf(many) })
+    const ui = await openFiles($, seen)
+    expect(await treeLines(ui)).toEqual(['▸ src/  M2140'])
+    await ui.unmount()
+  })
+
+  test('a changed file deep in a narrow tab keeps its letter', async ($, on) => {
+    const depths = ['a', 'a/b', 'a/b/c', 'a/b/c/d', 'a/b/c/d/e', 'a/b/c/d/e/f']
+    const seen = gitWorld(
+      on,
+      [
+        ['.', [folder('a')]],
+        ...depths
+          .slice(0, -1)
+          .map((path, index): [string, FsEntry[]] => [
+            path,
+            [folder(depths[index + 1]?.split('/').at(-1) ?? '')],
+          ]),
+        ['a/b/c/d/e/f', [file('x.ts')]],
+      ],
+      { kind: 'ok', stdout: statusOf([changed('.M', 'a/b/c/d/e/f/x.ts')]) },
+    )
+    const ui = await openFiles($, seen, 'terminal', 'dock', 12)
+    for (const path of depths) await ui.press({ key: `open:${path}` })
+    expect((await treeLines(ui, 12)).at(-1)).toBe('        M x…')
+    await ui.unmount()
+  })
+
+  test('inline in a git repo, names keep their column while the first status is read', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES, tookMs: 8000 })
+    await openTab($)
+    const ui = await mountFiles($, 'terminal', 'inline', 76)
+    await seen.clock.advance(100)
+    expect((await screen(ui, 76)).slice(1, 4)).toEqual([
+      '  .git/  not listed',
+      '  node_modules/  not listed',
+      '  docs/',
+    ])
+    await seen.clock.advance(8000)
+    expect((await screen(ui, 76))[3]).toBe('  docs/  M2 ?1')
+    await ui.unmount()
+  })
+
+  test('a cut row keeps the colour of the part that it cuts', async ($, on) => {
+    const seen = gitWorld(on, [['.', [file('a-very-long-file-name-that-does-not-fit.md')]]], {
+      kind: 'ok',
+      stdout: statusOf([changed('.M', 'a-very-long-file-name-that-does-not-fit.md')]),
+    })
+    const ui = await openFiles($, seen, 'terminal', 'dock', 24)
+    expect(await treeLines(ui, 24)).toEqual(['M a-very-long-file-name…'])
+    expect((await ui.find({ type: 'Text', text: /^a-very.*…$/ }))?.props.color).toBe('warning')
+    await ui.unmount()
+  })
 })
 
 describe('git status: when it runs', () => {
@@ -993,7 +1075,7 @@ describe('git status: when it runs', () => {
     await seen.clock.advance(2000)
     expect(seen.runs).toHaveLength(2)
     expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', '[ refresh ]'])
-    expect(await treeLines(ui)).toContain('  README.md             M')
+    expect(await treeLines(ui)).toContain('M README.md')
     await seen.clock.advance(20_000)
     expect(seen.runs).toHaveLength(2)
     touch(seen, `${GIT_DIR}/HEAD`, 'ref: refs/heads/feature\n')
@@ -1131,7 +1213,7 @@ describe('git status: when it runs', () => {
     await seen.clock.settle()
     expect(seen.listed.length).toBe(listedBefore)
     expect(seen.runs).toHaveLength(1)
-    expect(await treeLines(ui)).toContain('    design.md           M')
+    expect(await treeLines(ui)).toContain('  M design.md')
     await ui.unmount()
   })
 
@@ -1214,7 +1296,7 @@ describe('git status: when it runs', () => {
     await seen.clock.advance(3000)
     expect(seen.runs).toHaveLength(3)
     expect(seen.mostInFlight).toBe(2)
-    expect(await treeLines(ui)).toEqual(['  s.ts                  M'])
+    expect(await treeLines(ui)).toEqual(['M s.ts'])
     await seen.clock.advance(8000)
     await ui.unmount()
   })
@@ -1325,7 +1407,7 @@ describe('git status: errors', () => {
       'the status of 2m ago.  [ retry ]',
     ])
     expect((await ui.find({ type: 'Text', text: /took over 5 s/ }))?.props.color).toBe('warning')
-    expect(await treeLines(ui)).toContain('  README.md             M')
+    expect(await treeLines(ui)).toContain('M README.md')
     await seen.clock.advance(1000)
     expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', '[ refresh ]'])
     await ui.unmount()
@@ -1367,11 +1449,11 @@ describe('git status: errors', () => {
     const lines = await treeLines(ui)
     expect(lines.slice(2, 8)).toEqual([
       '▾ docs/  M2',
-      '    design.md           M',
+      '  M design.md',
       '    filetree.md',
       '    guide.md',
       '    install.md',
-      '    mocks.md            M',
+      '  M mocks.md',
     ])
     expect(lines.slice(-2)).toEqual([
       'git status is over 4 MiB; the first',
