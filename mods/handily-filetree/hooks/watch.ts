@@ -10,13 +10,15 @@ export const RUN_TIMEOUT_MS = 10_000
 export const SLOW_MS = 5000
 const RETRY_MS = 10_000
 const SLOW_RUNS_BEFORE_NO_UNTRACKED = 2
+const FRESH_MS = 2000
+const BASELINE_WAIT_MS = 1000
 
 const NOT_ON_PATH = /ENOENT|not found|no such file|cannot find/i
 
 export type GitFailure =
   { kind: 'exit'; exitCode: number } | { kind: 'timeout' } | { kind: 'did-not-run' }
 
-export type ShownStatus = { status: GitStatus; at: number }
+export type ShownStatus = { status: GitStatus; at: number; startedAt: number; changes: number }
 
 type Stamps = { index: string; head: string }
 
@@ -54,12 +56,16 @@ export type GitWatch = {
   slowMark: Timer | undefined
   generation: number
   shell: Shell
+  changes: number
+  running: Promise<void>
 }
 
 export function newWatch(shell: Shell): GitWatch {
   return {
     generation: 0,
     shell,
+    changes: 0,
+    running: Promise.resolve(),
     cwd: undefined,
     repo: undefined,
     branch: undefined,
@@ -165,7 +171,13 @@ async function checkStamps($: EngineInterface, watch: GitWatch): Promise<boolean
     if (watch.generation !== generation) return false
     watch.branch = branch
   }
-  return before?.index !== stamps.index || before.head !== stamps.head
+  const hasChanged = before?.index !== stamps.index || before.head !== stamps.head
+  if (hasChanged) noteChange(watch)
+  return hasChanged
+}
+
+export function noteChange(watch: GitWatch): void {
+  watch.changes += 1
 }
 
 async function tick($: EngineInterface, watch: GitWatch): Promise<void> {
@@ -231,7 +243,7 @@ function settle(
   $: EngineInterface,
   watch: GitWatch,
   outcome: { result: ProcessRunResult } | { error: unknown },
-  timing: { startedAt: number; endedAt: number },
+  timing: { startedAt: number; endedAt: number; changes: number },
 ): GitStatus | undefined {
   if ('error' in outcome) {
     log($, `git status did not run: ${String(outcome.error)}`)
@@ -247,7 +259,7 @@ function settle(
     return undefined
   }
   const status = parseStatus(result.stdout, result.isStdoutTruncated)
-  watch.shown = { status, at: timing.endedAt }
+  watch.shown = { status, at: timing.endedAt, ...timing }
   watch.failure = undefined
   watch.failures = 0
   watch.retry?.cancel()
@@ -275,7 +287,7 @@ async function runStatus(
     redraw($)
   })
   watch.slowMark = slowMark
-  const { cwd, isUntrackedSkipped, poll, repo } = watch
+  const { cwd, isUntrackedSkipped, poll, repo, changes } = watch
   const argv = statusArgv(isUntrackedSkipped)
   const outcome = await $.process.run(argv, { cwd, timeoutMs: RUN_TIMEOUT_MS }).then(
     (result) => ({ result }),
@@ -287,20 +299,21 @@ async function runStatus(
   watch.slowMark = undefined
   watch.isSlow = false
   countSlowRun(watch, endedAt - startedAt)
-  const status = settle($, watch, outcome, { startedAt, endedAt })
+  const status = settle($, watch, outcome, { startedAt, endedAt, changes })
   if (status === undefined || cwd === undefined || repo === null || repo === undefined) return
   const isCurrent = () => watch.generation === generation
   const shown = { status, startedAt, isUntrackedSkipped, cwd, prefix: repo.prefix, poll, isCurrent }
   await shellStatus($, watch.shell, shown)
 }
 
-async function startRun($: EngineInterface, watch: GitWatch): Promise<void> {
+async function startRun($: EngineInterface, watch: GitWatch, hasGap: boolean): Promise<void> {
   const { generation } = watch
   const isCurrent = () => watch.generation === generation
   try {
     const now = await $.clock.now()
     if (!isCurrent()) return
-    const wait = watch.lastStartAt === undefined ? 0 : watch.lastStartAt + RUN_GAP_MS - now
+    const wait =
+      !hasGap || watch.lastStartAt === undefined ? 0 : watch.lastStartAt + RUN_GAP_MS - now
     if (wait > 0) {
       watch.gap = $.clock.after(wait, () => {
         watch.gap = undefined
@@ -330,8 +343,53 @@ export function requestStatus($: EngineInterface, watch: GitWatch): void {
     watch.isWanted = true
     return
   }
+  launch($, watch, true)
+}
+
+function launch($: EngineInterface, watch: GitWatch, hasGap: boolean): void {
   watch.isRunning = true
-  startRun($, watch).catch((error: unknown) => {
+  watch.running = startRun($, watch, hasGap).catch((error: unknown) => {
     log($, `git status failed: ${String(error)}`)
   })
+}
+
+function isFresh(watch: GitWatch, now: number): boolean {
+  const { shown } = watch
+  if (shown === undefined || watch.failure !== undefined) return false
+  return now - shown.at < FRESH_MS && shown.changes === watch.changes
+}
+
+async function settledWithin($: EngineInterface, watch: GitWatch): Promise<boolean> {
+  let timer: Timer | undefined
+  const late = new Promise<boolean>((resolve) => {
+    timer = $.clock.after(BASELINE_WAIT_MS, () => {
+      resolve(false)
+    })
+  })
+  const settled = (async () => {
+    while (watch.isRunning) await watch.running
+    return true
+  })()
+  const isSettled = await Promise.race([settled, late])
+  timer?.cancel()
+  return isSettled
+}
+
+export async function freshStatus(
+  $: EngineInterface,
+  watch: GitWatch,
+): Promise<ShownStatus | undefined> {
+  const { generation } = watch
+  const canRun = () =>
+    watch.generation === generation &&
+    watch.repo !== null &&
+    watch.repo !== undefined &&
+    !watch.isGitMissing &&
+    watch.poll !== undefined
+  if (!canRun()) return undefined
+  const now = await $.clock.now()
+  if (!(await settledWithin($, watch)) || !canRun()) return undefined
+  if (!isFresh(watch, now) && !watch.isRunning) launch($, watch, false)
+  if (!(await settledWithin($, watch)) || !canRun()) return undefined
+  return isFresh(watch, now) ? watch.shown : undefined
 }

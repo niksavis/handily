@@ -8,6 +8,8 @@ import {
   type MockClock,
   type Mounted,
 } from 'claude-code/testing'
+import { beginShellRun, endShellRun, endTurn, newShell } from './hooks/shellmarks'
+import { newTouches } from './hooks/touches'
 import { displayWidth } from './hooks/width'
 
 const ROOT = '/work/app'
@@ -1191,10 +1193,10 @@ describe('git status: when it runs', () => {
     const ui = await openFiles($, seen)
     seen.answer = { kind: 'ok', stdout: CLEAN, tookMs: 3000 }
     await seen.clock.advance(2000)
-    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await $.tool.call({ tool: 'Write', file_path: `${ROOT}/b.md`, content: 'b' })
     await seen.clock.settle()
     expect(seen.runs).toHaveLength(2)
-    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await $.tool.call({ tool: 'Write', file_path: `${ROOT}/b.md`, content: 'c' })
     await $.tool.call({
       tool: 'Edit',
       file_path: `${ROOT}/a.md`,
@@ -1266,7 +1268,7 @@ describe('git status: when it runs', () => {
     const ui = await openFiles($, seen)
     expect((await headerOf(ui)).slice(-2)).toEqual(['retry in 10s  [ retry ]', NOW_EMPTY])
     seen.answer = { kind: 'ok', stdout: CLEAN }
-    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await $.tool.call({ tool: 'Write', file_path: `${ROOT}/b.md`, content: 'b' })
     await seen.clock.settle()
     expect(seen.runs).toHaveLength(1)
     await ui.unmount()
@@ -1321,7 +1323,7 @@ describe('git status: when it runs', () => {
     await seen.clock.settle()
     expect(seen.runs.map((run) => run.cwd)).toEqual([ROOT, `${ROOT}/sub`])
     await seen.clock.advance(5000)
-    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await $.tool.call({ tool: 'Write', file_path: `${ROOT}/sub/t.ts`, content: 't' })
     await seen.clock.settle()
     expect(seen.runs).toHaveLength(2)
     await seen.clock.advance(3000)
@@ -1928,12 +1930,33 @@ function shellTools(on: On, seen: World, runs: ReadonlyMap<string, ShellRun>): v
   })
 }
 
-async function bash($: Engine, command: string, agentId?: string): Promise<void> {
-  await $.tool.call({ tool: 'Bash', command, ...(agentId === undefined ? {} : { agentId }) })
+const READ_ONLY: ShellRun = { tookMs: 0, writesAt: 0, write: () => undefined }
+
+function bash($: Engine, command: string, agentId?: string): Promise<unknown> {
+  return $.tool.call({ tool: 'Bash', command, ...(agentId === undefined ? {} : { agentId }) })
 }
 
 function trackedFile(seen: World, path: string): void {
   seen.files.set(`${ROOT}/${path}`, { kind: 'file', text: 'x', mtimeMs: 1 })
+}
+
+function written(seen: World, path: string): void {
+  const at = `${ROOT}/${path}`
+  const found = seen.files.get(at)
+  if (found === undefined) throw new Error(`no fake file ${at}`)
+  seen.files.set(at, { ...found, mtimeMs: seen.clock.now() })
+}
+
+function modified(seen: World, paths: readonly string[]): void {
+  seen.answer = { kind: 'ok', stdout: statusOf(paths.map((path) => changed('.M', path))) }
+}
+
+function editWrites(on: On, seen: World, path: string): void {
+  on('tool.call', { tool: 'Edit' }, (_$, e, next) => {
+    written(seen, path)
+    modified(seen, [path])
+    return next(e)
+  })
 }
 
 describe('marks: a Bash call', () => {
@@ -1950,12 +1973,9 @@ describe('marks: a Bash call', () => {
         tookMs: 0,
         writesAt: 0,
         write: (world) => {
-          touch(world, `${ROOT}/docs/design.md`)
-          touch(world, `${ROOT}/hooks/pane.tsx`)
-          world.answer = {
-            kind: 'ok',
-            stdout: statusOf([changed('.M', 'docs/design.md'), changed('.M', 'hooks/pane.tsx')]),
-          }
+          written(world, 'docs/design.md')
+          written(world, 'hooks/pane.tsx')
+          modified(world, ['docs/design.md', 'hooks/pane.tsx'])
         },
       }
       shellTools(on, seen, new Map([['npm run build', build]]))
@@ -1993,19 +2013,16 @@ describe('marks: a Bash call', () => {
         tookMs: 3000,
         writesAt: 1000,
         write: (world) => {
-          touch(world, `${ROOT}/hooks/pane.tsx`)
-          world.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'hooks/pane.tsx')]) }
+          written(world, 'hooks/pane.tsx')
+          modified(world, ['hooks/pane.tsx'])
         },
       }
       const format: ShellRun = {
         tookMs: 3000,
         writesAt: 2000,
         write: (world) => {
-          touch(world, `${ROOT}/docs/mocks.md`)
-          world.answer = {
-            kind: 'ok',
-            stdout: statusOf([changed('.M', 'docs/mocks.md'), changed('.M', 'hooks/pane.tsx')]),
-          }
+          written(world, 'docs/mocks.md')
+          modified(world, ['docs/mocks.md', 'hooks/pane.tsx'])
         },
       }
       shellTools(
@@ -2028,33 +2045,119 @@ describe('marks: a Bash call', () => {
       await openRow(ui, ['docs', 'hooks'], 'docs/mocks.md')
       expect((await headerOf(ui)).slice(2)).toEqual([NOW_EMPTY])
       const tree = await treeLines(ui)
-      const row = tree.indexOf('  M mocks.md              ✎ 2 agents   3s')
+      const row = tree.indexOf('  M mocks.md              ✎ 2 agents   2s')
       expect(tree.slice(row, row + 3)).toEqual([
-        '  M mocks.md              ✎ 2 agents   3s',
+        '  M mocks.md              ✎ 2 agents   2s',
         '      changed while Bash of main and',
-        '      scout ran 3s ago',
+        '      scout ran 2s ago',
       ])
-      expect(tree).toContain('  M pane.tsx              ✎ 2 agents   3s')
+      expect(tree).toContain('  M pane.tsx              ✎ 2 agents   2s')
       expect(tree.some((line) => / ✎ (main|scout) /.test(line))).toBe(false)
       await ui.unmount()
     })
   }
 
-  test('an Edit and then a Bash call that writes nothing in the same status window leave the Edit mark alone', async ($, on) => {
+  test('a file that the person changed before a read-only Bash call gets no mark', async ($, on) => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
     trackedFile(seen, 'README.md')
-    on('tool.call', { tool: 'Edit' }, (_$, e, next) => {
-      touch(seen, `${ROOT}/README.md`)
-      seen.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'README.md')]) }
-      return next(e)
-    })
+    shellTools(on, seen, new Map([['git diff', READ_ONLY]]))
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    await seen.clock.advance(10_000)
+    written(seen, 'README.md')
+    modified(seen, ['README.md'])
+    await seen.clock.advance(10_000)
+    expect(seen.runs).toHaveLength(1)
+    const call = bash($, 'git diff', SCOUT)
+    await seen.clock.advance(2000)
+    await call
+    expect(seen.runs).toHaveLength(3)
+    expect(await treeLines(ui)).toContain('M README.md')
+    expect((await headerOf(ui)).at(-1)).toBe(NOW_EMPTY)
+    await ui.unmount()
+  })
+
+  test('a file that a background writer changed after the Bash call ended gets no mark', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    shellTools(on, seen, new Map([['npm test', READ_ONLY]]))
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    const call = bash($, 'npm test', SCOUT)
+    await seen.clock.advance(1000)
+    await call
+    written(seen, 'README.md')
+    modified(seen, ['README.md'])
+    await seen.clock.advance(1000)
+    expect(seen.runs).toHaveLength(2)
+    expect(await treeLines(ui)).toContain('M README.md')
+    expect((await headerOf(ui)).at(-1)).toBe(NOW_EMPTY)
+    await ui.unmount()
+  })
+
+  test('a call that ended before the change is not counted, even when it overlaps the call that made it', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'hooks/pane.tsx')
+    const lint: ShellRun = { tookMs: 1000, writesAt: 0, write: () => undefined }
+    const generate: ShellRun = {
+      tookMs: 2500,
+      writesAt: 2000,
+      write: (world) => {
+        written(world, 'hooks/pane.tsx')
+        modified(world, ['hooks/pane.tsx'])
+      },
+    }
+    shellTools(
+      on,
+      seen,
+      new Map([
+        ['npm run lint', lint],
+        ['npm run gen', generate],
+      ]),
+    )
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    const main = bash($, 'npm run lint')
+    await seen.clock.advance(500)
+    const scout = bash($, 'npm run gen', SCOUT)
+    await seen.clock.advance(4500)
+    await Promise.all([main, scout])
+    expect(seen.runs).toHaveLength(3)
+    await ui.press({ key: 'open:hooks' })
+    expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ scout      2s')
+    await ui.unmount()
+  })
+
+  test('an Edit by a subagent during a read-only Bash call of main marks 2 agents, never main alone', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    editWrites(on, seen, 'README.md')
+    shellTools(on, seen, new Map([['npm run lint', { ...READ_ONLY, tookMs: 3000 }]]))
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    const main = bash($, 'npm run lint')
+    await seen.clock.advance(1000)
+    await edit($, 'README.md', SCOUT)
+    await seen.clock.advance(4000)
+    await main
+    await ui.redraw(DOCKED_PANE)
+    const tree = await treeLines(ui)
+    expect(tree).toContain('M README.md               ✎ 2 agents   2s')
+    expect(tree.some((line) => line.includes('✎ main'))).toBe(false)
+    await ui.unmount()
+  })
+
+  test('an Edit and then a Bash call that writes nothing leave the Edit mark alone', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    editWrites(on, seen, 'README.md')
     shellTools(on, seen, new Map())
     boardKnowsScout(on)
     const ui = await openFiles($, seen)
     await edit($, 'README.md')
     await bash($, 'npm test', SCOUT)
     await seen.clock.advance(2000)
-    expect(seen.runs).toHaveLength(2)
+    expect(seen.runs).toHaveLength(3)
     expect(await treeLines(ui)).toContain('M README.md               ✎ main       2s')
     expect((await headerOf(ui)).slice(2)).toEqual([
       'Now  1 agent',
@@ -2067,8 +2170,8 @@ describe('marks: a Bash call', () => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
     trackedFile(seen, 'README.md')
     on('tool.call', { tool: 'Bash' }, () => {
-      touch(seen, `${ROOT}/README.md`)
-      seen.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'README.md')]) }
+      written(seen, 'README.md')
+      modified(seen, ['README.md'])
       return { deny: 'The person refused the call.' }
     })
     const ui = await openFiles($, seen)
@@ -2076,6 +2179,126 @@ describe('marks: a Bash call', () => {
     await seen.clock.advance(2000)
     expect(seen.runs).toHaveLength(2)
     expect(await treeLines(ui)).toContain('M README.md')
+    await ui.unmount()
+  })
+
+  test('a Bash call that starts during a git status run waits for it and starts no run beside it', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    const build: ShellRun = {
+      tookMs: 0,
+      writesAt: 0,
+      write: (world) => {
+        written(world, 'README.md')
+        modified(world, ['README.md'])
+      },
+    }
+    shellTools(on, seen, new Map([['npm run build', build]]))
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    seen.answer = { kind: 'ok', stdout: CLEAN, tookMs: 500 }
+    await seen.clock.advance(2000)
+    await $.tool.call({ tool: 'Write', file_path: `${ROOT}/b.md`, content: 'b' })
+    const call = bash($, 'npm run build', SCOUT)
+    await seen.clock.advance(400)
+    expect(seen.runs).toHaveLength(2)
+    await seen.clock.advance(4000)
+    await call
+    expect(seen.runs).toHaveLength(3)
+    expect(seen.mostInFlight).toBe(1)
+    await ui.redraw(DOCKED_PANE)
+    expect(await treeLines(ui)).toContain('M README.md               ✎ scout      3s')
+    await ui.unmount()
+  })
+
+  test('a Bash call that waits over 1 s for a slow git status runs on with no baseline and marks no file', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    const build: ShellRun = {
+      tookMs: 1000,
+      writesAt: 500,
+      write: (world) => {
+        written(world, 'README.md')
+        modified(world, ['README.md'])
+      },
+    }
+    shellTools(on, seen, new Map([['npm run build', build]]))
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    seen.answer = { kind: 'ok', stdout: CLEAN, tookMs: 3000 }
+    await seen.clock.advance(2000)
+    await $.tool.call({ tool: 'Write', file_path: `${ROOT}/b.md`, content: 'b' })
+    const call = bash($, 'npm run build', SCOUT)
+    await seen.clock.advance(20_000)
+    await call
+    expect(seen.mostInFlight).toBe(1)
+    expect(await treeLines(ui)).toContain('M README.md')
+    expect((await screen(ui)).some((line) => line.includes('scout'))).toBe(false)
+    await ui.unmount()
+  })
+
+  test('a change while a call with no baseline ran gets no mark, even for the call that has one', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    const build: ShellRun = {
+      tookMs: 1000,
+      writesAt: 500,
+      write: (world) => {
+        written(world, 'README.md')
+        modified(world, ['README.md'])
+      },
+    }
+    shellTools(
+      on,
+      seen,
+      new Map([
+        ['npm run serve', { ...READ_ONLY, tookMs: 6000 }],
+        ['npm run build', build],
+      ]),
+    )
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    const main = bash($, 'npm run serve')
+    seen.answer = { kind: 'ok', stdout: CLEAN, tookMs: 3000 }
+    await seen.clock.advance(2000)
+    await $.tool.call({ tool: 'Write', file_path: `${ROOT}/b.md`, content: 'b' })
+    const scout = bash($, 'npm run build', SCOUT)
+    await seen.clock.advance(10_000)
+    await Promise.all([main, scout])
+    expect(seen.runs).toHaveLength(4)
+    const tree = await treeLines(ui)
+    expect(tree).toContain('M README.md')
+    expect(tree.some((line) => line.includes('✎'))).toBe(false)
+    await ui.unmount()
+  })
+
+  test('a Bash call that never ends stops counting at the end of the turn', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    trackedFile(seen, 'README.md')
+    shellTools(on, seen, new Map([['npm run serve', { ...READ_ONLY, tookMs: 600_000 }]]))
+    on('turn.complete', () => ({ text: '' }))
+    on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    const call = bash($, 'npm run serve', SCOUT)
+    await seen.clock.advance(1000)
+    await $.turn.complete({
+      turnId: 'main-turn',
+      reason: 'answer',
+      answer: 'done',
+      durationMs: 1,
+      isAborted: false,
+    })
+    await seen.clock.advance(1000)
+    written(seen, 'README.md')
+    modified(seen, ['README.md'])
+    await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
+    await seen.clock.settle()
+    expect(seen.runs).toHaveLength(2)
+    expect(await treeLines(ui)).toContain('M README.md')
+    expect((await headerOf(ui)).at(-1)).toBe(NOW_EMPTY)
+    await seen.clock.advance(600_000)
+    await call
     await ui.unmount()
   })
 
@@ -2090,8 +2313,8 @@ describe('marks: a Bash call', () => {
             file('mocks.md'),
             file('design.md'),
             file('install.md'),
-            { ...file('guide.md'), size: 9, mtimeMs: 9 },
-            file('plan.md'),
+            { ...file('guide.md'), size: 9, mtimeMs: world.clock.now() },
+            { ...file('plan.md'), mtimeMs: world.clock.now() },
           ])
           world.folders.set('hooks', [file('pane.tsx'), folder('dist'), file('new.tsx')])
         },
@@ -2105,7 +2328,7 @@ describe('marks: a Bash call', () => {
       await seen.clock.advance(6000)
       await call
       await ui.redraw(DOCKED_PANE)
-      expect(seen.listed.slice(listedBefore)).toEqual(['.', 'docs'])
+      expect(seen.listed.slice(listedBefore)).toEqual(['.', 'docs', '.', 'docs'])
       expect(seen.runs).toEqual([])
       expect(await screen(ui)).toEqual([
         'Files  app · not a git repo',
@@ -2131,6 +2354,59 @@ describe('marks: a Bash call', () => {
       await ui.unmount()
     })
   }
+
+  test('outside a git repo a file that the person added before a read-only Bash call gets no mark', async ($, on) => {
+    const seen = world(on, APP)
+    shellTools(on, seen, new Map([['ls', READ_ONLY]]))
+    boardKnowsScout(on)
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'open:docs' })
+    await seen.clock.advance(10_000)
+    seen.folders.set('docs', [
+      file('mocks.md'),
+      file('design.md'),
+      file('install.md'),
+      file('guide.md'),
+      { ...file('person.md'), mtimeMs: seen.clock.now() },
+    ])
+    await seen.clock.advance(60_000)
+    const call = bash($, 'ls', SCOUT)
+    await seen.clock.advance(1000)
+    await call
+    await ui.redraw(DOCKED_PANE)
+    const lines = await screen(ui)
+    expect(lines).toContain('    person.md')
+    expect(lines.some((line) => line.includes('✎'))).toBe(false)
+    expect(seen.runs).toEqual([])
+    await ui.unmount()
+  })
+
+  test('outside a git repo a Bash call lists again only the open folders, not a closed one', async ($, on) => {
+    const seen = world(on, APP)
+    shellTools(on, seen, new Map([['ls', READ_ONLY]]))
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'open:docs' })
+    await ui.press({ key: 'open:docs' })
+    const listedBefore = seen.listed.length
+    const call = bash($, 'ls')
+    await seen.clock.advance(1000)
+    await call
+    expect(seen.listed.slice(listedBefore)).toEqual(['.', '.'])
+    await ui.unmount()
+  })
+
+  test('the call records stay bounded while no baseline is taken, and a call that never ends goes at the turn end', () => {
+    const shell = newShell(newTouches())
+    beginShellRun(shell, { id: 'stuck', agent: SCOUT, baseline: undefined, startedAt: 0 })
+    for (let index = 1; index <= 200; index += 1) {
+      const id = `call-${String(index)}`
+      beginShellRun(shell, { id, agent: '', baseline: undefined, startedAt: index * 10 })
+      endShellRun(shell, { id, hasRun: true, endedAt: index * 10 + 5 })
+    }
+    expect(shell.runs.size).toBe(1)
+    endTurn(shell, { agent: SCOUT, at: 5000 })
+    expect(shell.runs.size).toBe(0)
+  })
 })
 
 const MIB = 1024 * 1024

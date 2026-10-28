@@ -99,16 +99,6 @@ export function editorsOf(touches: Touches, path: string, window: Window): strin
   return [...done, ...running].map((touch) => touch.agent)
 }
 
-export function editedPaths(touches: Touches): string[] {
-  const done = [...touches.files]
-    .filter(([, byAgent]) => [...byAgent.values()].some((touch) => touch.kind === 'edit'))
-    .map(([path]) => path)
-  const running = [...touches.calls.values()]
-    .filter((call) => call.kind === 'edit')
-    .map((call) => call.path)
-  return [...new Set([...running, ...done])]
-}
-
 export function markShell(
   touches: Touches,
   change: { paths: readonly string[]; agents: readonly string[]; at: number },
@@ -121,7 +111,9 @@ export function markShell(
   const touch: Touch = { kind: 'edit', agent: first, at: change.at, shell: agents }
   for (const path of paths) {
     for (const agent of agents) {
-      if (isNewer(touch, touches.files.get(path)?.get(agent))) kept(touches, path, touch, agent)
+      const own = touches.files.get(path)?.get(agent)
+      const isOwnEdit = agents.length > 1 && own?.kind === 'edit' && own.shell === undefined
+      if (!isOwnEdit && isNewer(touch, own)) kept(touches, path, touch, agent)
     }
   }
   if (agents.length !== 1 || !isNewer(touch, touches.sights.get(first))) return

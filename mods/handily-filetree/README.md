@@ -158,7 +158,8 @@ How the mod reads the state:
   It also runs it after a Bash, PowerShell, Edit or Write call ends, on a prompt, when the tab
   gets the keyboard, on `[ refresh ]` and on `[ retry ]`.
 - One run at a time, and at least 2 s from the start of one run to the start of the next. A
-  request during a run starts one more run after it.
+  request during a run starts one more run after it. The run at the start of a Bash call is the
+  only run that does not wait for the 2 s gap. [A Bash call](#a-bash-call) says when it runs.
 - After two runs that take over 5 s, the mod adds `--untracked-files=no` and says so.
 
 When git fails, the tree stays, and the header says what failed:
@@ -232,23 +233,33 @@ M README.md
 
 ### A Bash call
 
-The mod does not read the command of a `Bash` or `PowerShell` call. It compares the files
-before and after the call, and runs no `find` and no other process for it.
+The mod does not read the command of a `Bash` or `PowerShell` call. It compares the files at the
+start of the call with the files after it, and runs no `find` for it.
 
-- In a git repo, the mod keeps the last git status. When a call starts, it reads the time stamp
-  and the size of each changed file, and of each file that an `Edit`, a `Write` or a
-  `NotebookEdit` changed. After the call ends, the git status runs once, as for every change. A
-  file whose git state or time stamp changed gets `✎` with the agent that ran the call.
-- Outside a git repo, the mod lists each open folder again after the call ends. A new entry, or
-  a file whose size or time stamp changed, gets `✎`. A folder that is closed is not listed
-  again, so a change in it shows only after you open it or press `[ refresh ]`.
+- In a git repo, the call waits for a git status before it starts. The mod uses the last status
+  when it ended less than 2 s ago and no change came after it. Otherwise it runs git status
+  once, at most one run at a time, and does not wait for the 2 s gap. The call waits at most
+  1 s. The mod also reads the time stamp and the size of each changed file.
+- After the call ends, git status runs once, as for every change. A file whose git state or time
+  stamp changed after the start of the call gets `✎` with the agent that ran the call.
+- Outside a git repo, the mod lists each open folder at the start of the call and again after it
+  ends, with no process. A new entry, or a file whose size or time stamp changed, gets `✎`. A
+  closed folder is not listed, so a change in it shows only after you open it or press
+  `[ refresh ]`.
+- A file whose time stamp is later than the end of the call gets no mark for that call, so a
+  write by another process after the call does not count.
+- A deleted file gets no mark, because it has no time stamp.
 - The age counts from the end of the call. For a call that still runs, it counts from the git
   status that found the change.
-- The mod reads at most 1,000 time stamps for each snapshot. A file past that limit gets `✎`
+- The mod reads at most 1,000 time stamps for each git status. A file past that limit gets `✎`
   only when its git state changes.
-- A call that the person denies marks no file.
-- In a git repo, git status does not run while the `files` tab is not shown, so a call then
-  marks no file. The next status starts a new comparison.
+- A call that the person denies marks no file. A call that never ends stops counting at the end
+  of the turn of its agent, or at the end of the turn of the main loop.
+
+The mod never guesses one agent. When it has no files from the start of a call, that call marks
+no file, and a change while that call ran gives no agent a mark. This happens when git status
+fails, when its output is cut at 4 MiB, when it takes over 1 s, and when the `files` tab is
+closed. In a git repo it also happens while another tab is shown.
 
 The `Now` block and the marked rows of the test fixture, after the subagent `scout` ran a `Bash`
 call that changed `docs/design.md` and `hooks/pane.tsx`:
@@ -264,15 +275,15 @@ Now  1 agent
   M pane.tsx              ✎ scout      2s
 ```
 
-The mod never guesses one agent. When a file changed while calls of two or more agents ran,
-the row shows how many agents, and the open row names them. A file that an `Edit` changed and
-a later call did not change keeps the mark of the `Edit`. The test fixture, after a call of
-`main` and a call of `scout` that ran at the same time:
+When a file changed while calls of two or more agents ran, or while one agent ran a call and
+another agent edited the file, the row shows how many agents, and the open row names them. A
+file that an `Edit` changed and a later call did not change keeps the mark of the `Edit`. The
+test fixture, after a call of `main` and a call of `scout` that ran at the same time:
 
 ```text
-  M mocks.md              ✎ 2 agents   3s
+  M mocks.md              ✎ 2 agents   2s
       changed while Bash of main and
-      scout ran 3s ago
+      scout ran 2s ago
 ```
 
 Such a change does not show in the `Now` block, because the block names one agent for each line.
