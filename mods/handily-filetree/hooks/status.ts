@@ -151,7 +151,7 @@ function foldersAbove(path: string): string[] {
   return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'))
 }
 
-function underPrefix(path: string, prefix: string): string | undefined {
+export function underPrefix(path: string, prefix: string): string | undefined {
   if (prefix === '') return path
   return path.startsWith(`${prefix}/`) ? path.slice(prefix.length + 1) : undefined
 }

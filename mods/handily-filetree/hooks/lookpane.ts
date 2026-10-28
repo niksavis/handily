@@ -96,7 +96,7 @@ function markNotes(draw: LookDraw, path: string): Note[] {
   const { touched } = draw
   const mark = touched.fileMark(path)
   if (mark === undefined) return []
-  return [note(touchText(mark, shownName(touched.labelOf(mark.agent)), touched.now))]
+  return [note(touchText(mark, (agent) => shownName(touched.labelOf(agent)), touched.now))]
 }
 
 function shownPreview(draw: LookDraw, path: string, result: PreviewResult | undefined): Shown {

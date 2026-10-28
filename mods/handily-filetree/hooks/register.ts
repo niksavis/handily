@@ -17,6 +17,20 @@ import { markColumnOf } from './marks'
 import { type PaneActions, type TouchDraw, drawInline, drawTree } from './pane'
 import { absolutePath, resolvedPath, shownPath } from './paths'
 import { reasonOf } from './reason'
+import {
+  type ListingSite,
+  type Listings,
+  type Shell,
+  type Snapshot,
+  beginShellRun,
+  clearShell,
+  endShellRun,
+  endTurn,
+  gitBaseline,
+  judgeListing,
+  listingSnapshot,
+  newShell,
+} from './shellmarks'
 import { type GitMarks, gitMarks } from './status'
 import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows, withDeleted } from './tree'
 import { showToast } from './toast'
@@ -35,7 +49,9 @@ import {
 import {
   type GitWatch,
   forgetRepo,
+  freshStatus,
   newWatch,
+  noteChange,
   noticeFocus,
   requestStatus,
   resetWatch,
@@ -48,6 +64,7 @@ import type { FiletreePaths } from '../types'
 const OPEN = { plugin: 'handily-filetree', key: 'open' } as const
 const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
 const BOARD_AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 
 type AgentFilter = { picked: string | undefined }
@@ -56,8 +73,6 @@ function folderName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter((part) => part !== '')
   return parts.at(-1) ?? cwd
 }
-
-type Listings = Map<string, Listing>
 
 async function readListing($: EngineInterface, at: string, path: string): Promise<Listing> {
   try {
@@ -145,6 +160,78 @@ function redraw($: EngineInterface): void {
   $.ui.invalidate('ui.render')
 }
 
+function shownFolders(cwd: string, open: readonly string[]): Set<string> {
+  const opened = new Set(open)
+  const isShown = (path: string): boolean => {
+    const cut = path.lastIndexOf('/')
+    return opened.has(path) && (cut < 0 || isShown(path.slice(0, cut)))
+  }
+  const shown = open.filter(isShown).map((path) => absolutePath(cwd, path))
+  return new Set([absolutePath(cwd, ROOT_PATH), ...shown])
+}
+
+type ShellContext = { shell: Shell; watch: GitWatch; listings: Listings }
+
+async function listingSiteOf(
+  $: EngineInterface,
+  context: ShellContext,
+): Promise<ListingSite | undefined> {
+  const { watch, listings } = context
+  if (watch.repo !== null || watch.cwd === undefined || listings.size === 0) return undefined
+  const { cwd } = watch
+  const open = (await $.state.get(OPEN)).value ?? []
+  return {
+    cwd,
+    listings,
+    shown: shownFolders(cwd, open),
+    relist: (at) => readListing($, at, at),
+  }
+}
+
+async function baselineOf(
+  $: EngineInterface,
+  context: ShellContext,
+): Promise<Snapshot | undefined> {
+  const { shell, watch } = context
+  if (watch.repo === null) {
+    const site = await listingSiteOf($, context)
+    return site === undefined ? undefined : listingSnapshot($, site)
+  }
+  const shown = await freshStatus($, watch)
+  return gitBaseline(shell, shown?.startedAt)
+}
+
+async function beginShell(
+  $: EngineInterface,
+  context: ShellContext,
+  e: ToolCallInput,
+): Promise<boolean> {
+  if (!SHELL_TOOLS.has(e.tool)) return false
+  const baseline = await baselineOf($, context)
+  beginShellRun(context.shell, {
+    id: e.tool_use_id,
+    agent: e.agentId ?? MAIN_AGENT,
+    baseline,
+    startedAt: await $.clock.now(),
+  })
+  return true
+}
+
+async function endShell(
+  $: EngineInterface,
+  context: ShellContext,
+  call: { id: string; answer: ToolCallResult | undefined },
+): Promise<void> {
+  const { shell } = context
+  endShellRun(shell, {
+    id: call.id,
+    hasRun: call.answer?.deny === undefined,
+    endedAt: await $.clock.now(),
+  })
+  const site = await listingSiteOf($, context)
+  if (site !== undefined) await judgeListing($, shell, site)
+}
+
 function lookSiteOf(watch: GitWatch, cwd: string): LookSite {
   const { repo, shown } = watch
   if (repo === null || repo === undefined) return { cwd, prefix: '', marks: undefined }
@@ -222,8 +309,10 @@ async function touchDrawOf(
 
 export const register: Register = (on) => {
   const listings: Listings = new Map()
-  const watch = newWatch()
   const touches = newTouches()
+  const shell = newShell(touches)
+  const watch = newWatch(shell)
+  const context = { shell, watch, listings }
   const filter: AgentFilter = { picked: undefined }
   const looking = newLooking()
 
@@ -242,6 +331,7 @@ export const register: Register = (on) => {
     listings.clear()
     resetWatch(watch)
     clearTouches(touches)
+    clearShell(shell)
     resetLooking(looking)
     filter.picked = undefined
     return next(e)
@@ -260,14 +350,24 @@ export const register: Register = (on) => {
   on('tool.call', async ($, e, next) => {
     const seen = await seenCallOf($, e)
     if (seen !== undefined) await beginCall($, touches, e.tool_use_id, seen)
+    const isShell = await beginShell($, context, e)
     let answer: ToolCallResult | undefined
     try {
       answer = await next(e)
       return answer
     } finally {
       if (seen !== undefined) await endCall($, touches, { id: e.tool_use_id, seen, answer })
-      if (CHANGING_TOOLS.has(e.tool)) requestStatus($, watch)
+      if (isShell) await endShell($, context, { id: e.tool_use_id, answer })
+      if (CHANGING_TOOLS.has(e.tool)) {
+        noteChange(watch)
+        requestStatus($, watch)
+      }
     }
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    endTurn(shell, { agent: e.agentId, at: await $.clock.now() })
+    return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {

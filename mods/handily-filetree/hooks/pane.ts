@@ -12,7 +12,16 @@ import type {
 import { filterValue } from './agents'
 import { BUTTON_CHROME, BUTTON_GAP, type ButtonSpec, buttonRows } from './buttons'
 import type { GitView, NoteLine, NoteTone } from './gitview'
-import { type MarkColumn, hiddenText, markCell, markWidth, sightCells, touchText } from './marks'
+import {
+  type MarkColumn,
+  hiddenText,
+  isShared,
+  markCell,
+  markWidth,
+  sharedLabel,
+  sightCells,
+  touchText,
+} from './marks'
 import type { GitCount, GitLetter, GitMarks } from './status'
 import {
   type EntryRow,
@@ -280,7 +289,7 @@ function drawSight(elements: PaneElements, sight: Sight, touched: TouchDraw): Re
     children: [Text({ children: cells.mark }), Text({ children: cells.path }), ...age],
   })
   if (sight.hidden === 0) return [line]
-  return [line, Text({ children: fitted(hiddenText(sight.hidden), bodyColumns) })]
+  return [line, Text({ children: fitted(hiddenText(sight.hidden, sight.source), bodyColumns) })]
 }
 
 function drawNow(elements: PaneElements, touched: TouchDraw): RenderElement[] {
@@ -375,8 +384,12 @@ function nameRoom(width: number, touched: TouchDraw, mark: Mark | undefined): nu
   return mark === undefined ? width : width - markWidth(touched.column) - MARK_GAP
 }
 
+function markLabel(touched: TouchDraw, mark: Mark): string {
+  return isShared(mark) ? sharedLabel(mark) : shownName(touched.labelOf(mark.agent))
+}
+
 function markParts(touched: TouchDraw, mark: Mark): Part[] {
-  const label = shownName(touched.labelOf(mark.agent))
+  const label = markLabel(touched, mark)
   const cell = markCell(touched.column, mark, label, touched.now)
   return cell.age === ''
     ? [{ text: cell.mark }]
@@ -540,11 +553,13 @@ function openedDetail(
   const room = Math.max(bodyColumns - indent, 1)
   const touches = touched
     .touchesOf(row.path)
-    .map((touch) => touchText(touch, shownName(touched.labelOf(touch.agent)), touched.now))
+    .map((touch) => touchText(touch, (agent) => shownName(touched.labelOf(agent)), touched.now))
   const state = marks === undefined ? undefined : stateText(marks, row.path)
   const lines = state === undefined ? touches : [...touches, state]
   return [
-    ...lines.map((text) => Text({ children: fitted(`${' '.repeat(indent)}${text}`, bodyColumns) })),
+    ...lines
+      .flatMap((text) => wrapped(text, room))
+      .map((text) => Text({ children: fitted(`${' '.repeat(indent)}${text}`, bodyColumns) })),
     ...buttonRows(elements, rowButtons(row.path, draw), { room, indent, key: 'opened' }),
   ]
 }

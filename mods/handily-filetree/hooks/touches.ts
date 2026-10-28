@@ -4,9 +4,11 @@ export const MAIN_AGENT = ''
 
 export const REVEALED_PER_SEARCH = 12
 
-export type Touch = { kind: TouchKind; agent: string; at: number }
+export type Touch = { kind: TouchKind; agent: string; at: number; shell?: readonly string[] }
 
-export type Sight = Touch & { path: string; hidden: number }
+export type SightSource = 'call' | 'Grep' | 'Bash'
+
+export type Sight = Touch & { path: string; hidden: number; source: SightSource }
 
 export type Mark = Touch & { others: number }
 
@@ -35,9 +37,9 @@ export function clearTouches(touches: Touches): void {
   touches.calls.clear()
 }
 
-function kept(touches: Touches, path: string, touch: Touch): void {
+function kept(touches: Touches, path: string, touch: Touch, agent = touch.agent): void {
   const byAgent = touches.files.get(path) ?? new Map<string, Touch>()
-  byAgent.set(touch.agent, touch)
+  byAgent.set(agent, touch)
   touches.files.set(path, byAgent)
 }
 
@@ -52,7 +54,7 @@ export function endTouch(touches: Touches, callId: string, isAnswered: boolean):
   if (!isAnswered) return
   const { kind, agent, at, path } = call
   kept(touches, path, { kind, agent, at })
-  touches.sights.set(agent, { kind, agent, at, path, hidden: 0 })
+  touches.sights.set(agent, { kind, agent, at, path, hidden: 0, source: 'call' })
 }
 
 export function revealSearch(
@@ -69,15 +71,58 @@ export function revealSearch(
     ...touch,
     path: first,
     hidden: revealed.length - shown.length,
+    source: 'Grep',
   })
 }
 
 export function touchesOf(touches: Touches, path: string): Touch[] {
-  return [...(touches.files.get(path)?.values() ?? [])].sort((a, b) => b.at - a.at)
+  return [...new Set(touches.files.get(path)?.values() ?? [])].sort((a, b) => b.at - a.at)
 }
 
 function isNewer(touch: Touch, than: Touch | undefined): boolean {
   return than === undefined || touch.at >= than.at
+}
+
+export type Window = { from: number; to: number }
+
+export function editorsOf(touches: Touches, path: string, window: Window): string[] {
+  const done = [...(touches.files.get(path)?.values() ?? [])].filter(
+    (touch) =>
+      touch.kind === 'edit' &&
+      touch.shell === undefined &&
+      touch.at >= window.from &&
+      touch.at <= window.to,
+  )
+  const running = [...touches.calls.values()].filter(
+    (call) => call.path === path && call.kind === 'edit',
+  )
+  return [...done, ...running].map((touch) => touch.agent)
+}
+
+export function markShell(
+  touches: Touches,
+  change: { paths: readonly string[]; agents: readonly string[]; at: number },
+): void {
+  const agents = agentOrder(change.agents)
+  const first = agents[0]
+  const paths = [...new Set(change.paths)].sort()
+  const firstPath = paths[0]
+  if (first === undefined || firstPath === undefined) return
+  const touch: Touch = { kind: 'edit', agent: first, at: change.at, shell: agents }
+  for (const path of paths) {
+    for (const agent of agents) {
+      const own = touches.files.get(path)?.get(agent)
+      const isOwnEdit = agents.length > 1 && own?.kind === 'edit' && own.shell === undefined
+      if (!isOwnEdit && isNewer(touch, own)) kept(touches, path, touch, agent)
+    }
+  }
+  if (agents.length !== 1 || !isNewer(touch, touches.sights.get(first))) return
+  touches.sights.set(first, {
+    ...touch,
+    path: firstPath,
+    hidden: paths.length - 1,
+    source: 'Bash',
+  })
 }
 
 function filesWithCalls(touches: Touches): Map<string, Map<string, Touch>> {
@@ -93,7 +138,9 @@ function filesWithCalls(touches: Touches): Map<string, Map<string, Touch>> {
 function sightsWithCalls(touches: Touches): Map<string, Sight> {
   const sights = new Map(touches.sights)
   for (const call of touches.calls.values()) {
-    if (isNewer(call, sights.get(call.agent))) sights.set(call.agent, { ...call, hidden: 0 })
+    if (isNewer(call, sights.get(call.agent))) {
+      sights.set(call.agent, { ...call, hidden: 0, source: 'call' })
+    }
   }
   return sights
 }
@@ -104,11 +151,16 @@ function latest(touches: Iterable<Touch>): Touch | undefined {
   return found
 }
 
+function othersOf(byAgent: ReadonlyMap<string, Touch>, touch: Touch): number {
+  const own = new Set(touch.shell ?? [touch.agent])
+  return [...byAgent.keys()].filter((agent) => !own.has(agent)).length
+}
+
 function markOf(byAgent: ReadonlyMap<string, Touch>, agent: string | undefined): Mark | undefined {
   const own = agent === undefined ? [...byAgent.values()] : [byAgent.get(agent)]
   const touch = latest(own.filter((one) => one !== undefined))
   if (touch === undefined) return undefined
-  return { ...touch, others: agent === undefined ? byAgent.size - 1 : 0 }
+  return { ...touch, others: agent === undefined ? othersOf(byAgent, touch) : 0 }
 }
 
 function parentOf(path: string): string | undefined {
@@ -119,7 +171,7 @@ function parentOf(path: string): string | undefined {
 function folderMarks(files: ReadonlyMap<string, Mark>): Map<string, Mark> {
   const folders = new Map<string, Mark>()
   for (const [path, mark] of files) {
-    for (let folder = parentOf(path); folder !== undefined; folder = parentOf(folder)) {
+    for (let folder: string | undefined = path; folder !== undefined; folder = parentOf(folder)) {
       if (isNewer(mark, folders.get(folder))) folders.set(folder, { ...mark, others: 0 })
     }
   }
