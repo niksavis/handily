@@ -8,6 +8,7 @@ import type {
   ToolCheckInput,
   ToolCheckResult,
   ToolSpec,
+  TurnStepResult,
 } from 'claude-code'
 import {
   type StatusLineSetting,
@@ -30,6 +31,7 @@ import {
 } from './activity'
 import {
   type AgentHost,
+  type AgentStep,
   NEEDS_YOU_AFTER_MS,
   agentView,
   labelledAgents,
@@ -37,9 +39,11 @@ import {
   noteAsk,
   noteSpawn,
   noteTurnEnd,
+  stepOf,
   trackAgentCall,
   withAgentPlan,
   withFoundPlans,
+  withSteps,
 } from './agents'
 import {
   BOARD_PANES,
@@ -72,6 +76,7 @@ import {
   withoutFinalPeriod,
 } from './commands'
 import { lastSegment } from './agents-json'
+import { stepText } from './agent-rows'
 import { drawMachine } from './machine'
 import {
   type Machine,
@@ -473,11 +478,34 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
   }
 }
 
-async function workOf($: EngineInterface, vitals: Vitals, checks: BoardChecks): Promise<PaneWork> {
+type StepsKeep = Map<string, AgentStep>
+
+type SessionKeeps = { vitals: VitalsKeep; checks: ChecksKeep; steps: StepsKeep }
+
+async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
-  const agents = await agentView(agentHostOf($), now)
-  return { now, activity: activity ?? EMPTY_ACTIVITY, agents, vitals, checks }
+  const agents = withSteps(await agentView(agentHostOf($), now), keeps.steps)
+  return {
+    now,
+    activity: activity ?? EMPTY_ACTIVITY,
+    agents,
+    vitals: keeps.vitals.current,
+    checks: keeps.checks.current,
+  }
+}
+
+function noteStep(
+  $: EngineInterface,
+  steps: StepsKeep,
+  agentId: string,
+  stepped: TurnStepResult,
+): void {
+  const step = stepOf(stepped)
+  if (step === undefined) return
+  const drawn = stepText(steps.get(agentId) ?? null)
+  steps.set(agentId, step)
+  if (stepText(step) !== drawn) $.ui.invalidate('ui.render')
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -874,6 +902,7 @@ export const register: Register = (on, options) => {
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
+  const steps: StepsKeep = new Map()
   const attention: AttentionKeep = {
     setting: statusLineSetting(options),
     vitals,
@@ -924,6 +953,14 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('turn.step', async function* ($, e, next) {
+    const { agentId } = e
+    if (agentId === undefined) return yield* next(e)
+    const stepped = yield* next(e)
+    noteStep($, steps, agentId, stepped)
+    return stepped
+  })
+
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
@@ -962,6 +999,7 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
+    steps.clear()
     if (e.reason === 'clear') {
       attention.asks.clear()
       await noteVitals($, attention, withClear)
@@ -1139,7 +1177,7 @@ export const register: Register = (on, options) => {
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
     const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
-    const work = await workOf($, vitals.current, checks.current)
+    const work = await workOf($, { vitals, checks, steps })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     return drawPane(elements, hostOf($), uiOf($), work)

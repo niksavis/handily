@@ -7,6 +7,8 @@ import type {
   SessionMessage,
   SessionRateLimit,
   SessionUsage,
+  TurnStepChunk,
+  TurnStepResult,
   UiNotifyResult,
   UsageUnit,
 } from 'claude-code'
@@ -5324,6 +5326,270 @@ describe(NO_LIMITS_CRITERION, () => {
           '    0 agents spawned',
         ])
       }
+    },
+  )
+})
+
+const AGENT_TOKENS_CRITERION =
+  'When a subagent step completes, the opened row shows that agent context and its output tokens'
+const MAX_TOKENS_CRITERION =
+  'When a step stops at max_tokens, the opened row says stopped at max_tokens'
+const MAIN_STEP_CRITERION =
+  'When a main loop step streams, the hook passes the stream on without reading its chunks'
+
+const STEP_AGENT = 'a0000007explore'
+
+type StepUsage = { fresh: number; written: number; read: number; output: number }
+
+function stepped(
+  turnId: string,
+  usage: StepUsage | null,
+  stopReason: TurnStepResult['stopReason'],
+): TurnStepResult {
+  return {
+    turnId,
+    index: 0,
+    answer: '',
+    toolUses: [],
+    stopReason,
+    usage:
+      usage === null
+        ? null
+        : {
+            model: 'opus',
+            input_tokens: usage.fresh,
+            cache_creation_input_tokens: usage.written,
+            cache_read_input_tokens: usage.read,
+            output_tokens: usage.output,
+          },
+  }
+}
+
+type StepWorld = { next: TurnStepResult; chunks: TurnStepChunk[]; gate: Promise<void> }
+
+function stepWorld(on: On): StepWorld {
+  const steps: StepWorld = {
+    next: stepped('turn-0', null, null),
+    chunks: [],
+    gate: Promise.resolve(),
+  }
+  on('turn.step', async function* () {
+    const [first, ...rest] = steps.chunks
+    if (first !== undefined) yield first
+    await steps.gate
+    for (const chunk of rest) yield chunk
+    return steps.next
+  })
+  return steps
+}
+
+async function step(
+  $: Engine,
+  steps: StepWorld,
+  agentId: string | undefined,
+  result: TurnStepResult,
+): Promise<TurnStepResult> {
+  steps.next = result
+  const stream = $.turn.step({
+    turnId: result.turnId,
+    index: result.index,
+    model: 'opus',
+    messageCount: 3,
+    ...(agentId === undefined ? {} : { agentId }),
+  })
+  let read = await stream.next()
+  while (read.done !== true) read = await stream.next()
+  return read.value
+}
+
+async function stepAgentWorks($: Engine, seen: World, calls: number): Promise<void> {
+  await start($)
+  await spawnFrom($, STEP_AGENT)
+  seen.agents.push({
+    id: STEP_AGENT,
+    type: 'Explore',
+    status: 'running',
+    description: 'find the element table',
+  })
+  for (let index = 0; index < calls; index += 1) {
+    await $.tool.call({
+      tool: 'Read',
+      file_path: `${ROOT}/hooks/file${String(index)}.ts`,
+      agentId: STEP_AGENT,
+    })
+  }
+}
+
+async function openedAgent(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline',
+  columns: number,
+): Promise<string[]> {
+  const ui = await mountTab($, surface, PANE, placement, columns)
+  if ((await ui.find({ key: `under:agent:${STEP_AGENT}` })) === undefined) {
+    await ui.press({ key: `open:agent:${STEP_AGENT}` })
+  }
+  const lines = await screen(ui, columns)
+  await ui.unmount()
+  const row = lines.findIndex((line) => line.startsWith('▶ Explore'))
+  return lines.slice(row + 1).filter((line) => line.startsWith('    '))
+}
+
+const TOKEN_SCREENS: readonly {
+  placement: 'dock' | 'inline'
+  columns: number
+  lines: readonly string[]
+}[] = [
+  { placement: 'dock', columns: 30, lines: ['    7 tool calls · ctx 48k', '    out 6.1k'] },
+  { placement: 'dock', columns: 41, lines: ['    7 tool calls · ctx 48k · out 6.1k'] },
+  { placement: 'inline', columns: 76, lines: ['    7 tool calls · ctx 48k · out 6.1k'] },
+]
+
+describe(AGENT_TOKENS_CRITERION, () => {
+  for (const { placement, columns, lines } of TOKEN_SCREENS) {
+    test(
+      `the opened row shows the context of the latest step and its output tokens, as mock 8.10g, at ${String(columns)} columns, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const steps = stepWorld(on)
+        await stepAgentWorks($, seen, 7)
+        const early = { fresh: 300, written: 900, read: 3_000, output: 450 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', early, 'tool_use'))
+        const late = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', late, 'tool_use'))
+        await step($, steps, STEP_AGENT, stepped('turn-1', null, null))
+        await step($, steps, undefined, stepped('turn-main', late, 'end_turn'))
+        for (const surface of SURFACES) {
+          const opened = await openedAgent($, surface, placement, columns)
+          expect(opened.slice(2, 2 + lines.length)).toEqual(lines)
+        }
+      },
+    )
+  }
+
+  test(
+    'an agent with no step yet keeps the tool count alone, and a main loop step adds no agent row and no tokens',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const steps = stepWorld(on)
+      await stepAgentWorks($, seen, 1)
+      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+      await step($, steps, undefined, stepped('turn-main', usage, 'end_turn'))
+      await step($, steps, 'a0000099other', stepped('turn-9', usage, 'end_turn'))
+      for (const surface of SURFACES) {
+        const opened = await openedAgent($, surface, 'dock', 41)
+        expect(opened[2]).toBe('    1 tool call')
+        expect(opened.join('\n')).not.toContain('ctx')
+      }
+    },
+  )
+})
+
+describe(MAX_TOKENS_CRITERION, () => {
+  for (const { placement, columns } of TOKEN_SCREENS) {
+    test(
+      `a step that stopped at max_tokens shows stopped at max_tokens with the context in the warning colour, as mock 8.10i, at ${String(columns)} columns, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const steps = stepWorld(on)
+        await stepAgentWorks($, seen, 7)
+        const full = { fresh: 1_000, written: 5_000, read: 192_000, output: 32_000 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', full, 'max_tokens'))
+        const wide = columns > 30
+        for (const surface of SURFACES) {
+          const opened = await openedAgent($, surface, placement, columns)
+          expect(opened.slice(2, wide ? 4 : 5)).toEqual(
+            wide
+              ? ['    7 tool calls', '    stopped at max_tokens · ctx 198k']
+              : ['    7 tool calls', '    stopped at max_tokens', '    ctx 198k'],
+          )
+          const ui = await mountTab($, surface, PANE, placement, columns)
+          const stopped = await ui.find({ type: 'Text', text: 'stopped at max_tokens' })
+          expect(stopped?.props.color).toBe('warning')
+          await ui.unmount()
+        }
+        const next = { fresh: 1_000, written: 5_000, read: 150_000, output: 900 }
+        await step($, steps, STEP_AGENT, stepped('turn-1', next, 'end_turn'))
+        for (const surface of SURFACES) {
+          const opened = await openedAgent($, surface, placement, columns)
+          expect(opened.join('\n')).not.toContain('max_tokens')
+          expect(opened.join(' ')).toContain('ctx 156k')
+        }
+      },
+    )
+  }
+})
+
+const STEP_LINKS_LOG = 'step links '
+
+const watchSteps: Plugin = {
+  name: 'watch-steps',
+  tier: 'prepend',
+  register(on) {
+    on('turn.step', async function* ($, e, next) {
+      const result = yield* next(e)
+      const links = next.trace.map((link) => ({ plugin: link.plugin, outcome: link.outcome }))
+      $.ui.log(`step links ${JSON.stringify({ agentId: e.agentId ?? null, links })}`)
+      return result
+    })
+  },
+}
+
+type StepLinks = {
+  agentId: string | null
+  links: { plugin: string; outcome: string }[]
+}
+
+function stepLinks(seen: World): StepLinks[] {
+  return seen.logs
+    .filter((text) => text.startsWith(STEP_LINKS_LOG))
+    .map((text) => JSON.parse(text.slice(STEP_LINKS_LOG.length)) as StepLinks)
+}
+
+describe(MAIN_STEP_CRITERION, () => {
+  test(
+    'a main loop step passes each chunk on as it arrives and the result unchanged, through the board link that the chain ran',
+    { plugins: [fakeWorkitems, watchSteps] },
+    async ($, on) => {
+      const seen = world(on)
+      const steps = stepWorld(on)
+      await start($)
+      let open = (): void => undefined
+      steps.gate = new Promise((resolve) => {
+        open = resolve
+      })
+      steps.chunks = [
+        { kind: 'text', index: 0, text: 'one' },
+        { kind: 'text', index: 0, text: ' two' },
+        { kind: 'text', index: 0, text: ' three' },
+      ]
+      const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
+      steps.next = stepped('turn-main', usage, 'end_turn')
+      const stream = $.turn.step({ turnId: 'turn-main', index: 0, model: 'opus', messageCount: 3 })
+      const first = await stream.next()
+      expect(first.value).toEqual({ kind: 'text', index: 0, text: 'one' })
+      open()
+      const rest: unknown[] = []
+      let read = await stream.next()
+      while (read.done !== true) {
+        rest.push(read.value)
+        read = await stream.next()
+      }
+      expect(rest).toEqual([
+        { kind: 'text', index: 0, text: ' two' },
+        { kind: 'text', index: 0, text: ' three' },
+      ])
+      expect(read.value).toEqual(stepped('turn-main', usage, 'end_turn'))
+      const [watched] = stepLinks(seen)
+      expect(watched?.agentId).toBeNull()
+      expect(watched?.links.map((link) => [link.plugin, link.outcome])).toEqual([
+        [PLUGIN, 'returned'],
+        ['test', 'returned'],
+      ])
     },
   )
 })

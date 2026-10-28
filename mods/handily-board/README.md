@@ -490,6 +490,16 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   spawn age (`under scout · spawned 1m ago`), the count of finished tool calls and the task list
   of the agent. A list of more than 5 tasks shows the task in progress with 2 tasks before and
   2 after it, and `all 7` shows every task.
+- After the first model request of the agent, the line of the tool calls also shows its context
+  and its output tokens, as `7 tool calls · ctx 48k · out 6.1k`. Both come from the latest
+  request of the agent, from the usage that the engine event `turn.step` reports. The context
+  adds the three kinds of input tokens: uncached, written to the cache and read from the cache.
+  When the latest request stopped at its output limit, the line below reads
+  `stopped at max_tokens · ctx 198k`, with `stopped at max_tokens` in the theme colour `warning`.
+  A request with no usage changes nothing. The board keeps the tokens in memory, and each end of
+  the session clears them with the agent rows.
+- The board reads the result of a request of a subagent only. It passes the response of a main
+  loop request on as it arrives, and reads no part of it.
 - An agent loop that Claude Code does not list, such as a fork of the engine, gets a `?` row with
   the first 8 characters of its id. It stays with the active agents while a call runs, and goes
   under `+N ended` after. The board keeps at most 20 such rows that run no call.
