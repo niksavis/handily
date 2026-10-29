@@ -64,6 +64,12 @@ work view: touched and changed files
   The mod lists no folder for the work view.
 - An untracked folder, such as `scratch/`, shows closed, because git status does not list the
   files in it. A press opens it and lists it.
+- Outside a git repo, a folder that changed while a Bash call ran shows closed with its mark. A
+  press opens it and lists it.
+- A path with `.` or `..` in it shows at the place that it names. A path outside the working
+  folder does not show.
+- A more button in the work view draws all entries of that folder in the work view only. The
+  200 entry cap of the all files view stays.
 - A file that an agent touched under a folder that the mod does not list, such as
   `node_modules/`, shows under that folder.
 - When you pick an agent in the filter, or open the transcript of a subagent, the work view
@@ -470,7 +476,8 @@ docs/mocks.md  M +1 -0
 
 ## State
 
-The mod keeps four values in `$.state`: the view (`work` or `all`), the open folders, the
-folders of the work view that you closed, and the folders that show all entries.
+The mod keeps five values in `$.state`: the view (`work` or `all`), the open folders, the
+folders of the work view that you closed, and the folders that show all entries, one list for
+each view.
 `types/index.d.ts` declares them. The values last for the session. The folder listings stay in
 the memory of the mod, not in `$.state`.

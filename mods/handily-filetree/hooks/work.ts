@@ -15,7 +15,7 @@ export type WorkPath = { path: string; isFolder: boolean }
 
 export type WorkSource = {
   changed: readonly ChangedEntry[]
-  touched: readonly string[]
+  touched: readonly WorkPath[]
   isFiltered: boolean
 }
 
@@ -46,12 +46,14 @@ export function workPaths(source: WorkSource): WorkPath[] {
   if (!source.isFiltered) {
     for (const [path, isFolder] of changed) byPath.set(path, { path, isFolder })
   }
-  for (const path of source.touched) {
+  for (const { path, isFolder } of source.touched) {
     if (path !== '' && !byPath.has(path))
-      byPath.set(path, { path, isFolder: changed.get(path) === true })
+      byPath.set(path, { path, isFolder: isFolder || changed.get(path) === true })
   }
-  const whole = [...byPath.values()].filter((entry) => entry.isFolder).map((entry) => entry.path)
-  return [...byPath.values()].filter(({ path }) => !whole.some((folder) => isInside(path, folder)))
+  const untracked = [...byPath.keys()].filter((path) => changed.get(path) === true)
+  return [...byPath.values()].filter(
+    ({ path }) => !untracked.some((folder) => isInside(path, folder)),
+  )
 }
 
 export function workTree(paths: readonly WorkPath[]): WorkTree {

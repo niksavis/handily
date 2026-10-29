@@ -73,6 +73,7 @@ import type { FiletreePaths } from '../types'
 const OPEN = { plugin: 'handily-filetree', key: 'open' } as const
 const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
 const SHUT = { plugin: 'handily-filetree', key: 'shut' } as const
+const WORK_WHOLE = { plugin: 'handily-filetree', key: 'workWhole' } as const
 const VIEW = { plugin: 'handily-filetree', key: 'view' } as const
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
@@ -155,9 +156,10 @@ function actionsOf(
       }).catch(failed)
     },
     showAll: (path) => {
-      update($, WHOLE, (current = []) =>
-        current.includes(path) ? current : [...current, path],
-      ).catch(failed)
+      const added = (current: FiletreePaths = []) =>
+        current.includes(path) ? current : [...current, path]
+      if (work === undefined) update($, WHOLE, added).catch(failed)
+      else update($, WORK_WHOLE, added).catch(failed)
     },
     refresh: () => {
       listings.clear()
@@ -312,7 +314,10 @@ async function touchDrawOf(
     labelOf: labelsOf((await $.state.get(BOARD_AGENTS)).value),
     touchesOf: (path) => touchesOf(touches, resolvedPath(cwd, path)),
     shownPath: (path) => shownPath(cwd, path),
-    paths: [...touched.files.keys()].flatMap((path) => insidePath(cwd, path) ?? []),
+    paths: [...touched.files].flatMap(([path, mark]) => {
+      const inside = insidePath(cwd, path)
+      return inside === undefined ? [] : [{ path: inside, isFolder: mark.isFolder === true }]
+    }),
     sights: touched.sights,
     agents: touched.agents,
     agent,
@@ -340,8 +345,11 @@ async function rowsOf(
   rootName: string,
 ): Promise<TreeRow[]> {
   const open = new Set((await $.state.get(OPEN)).value ?? [])
-  const whole = new Set((await $.state.get(WHOLE)).value ?? [])
-  if (work === undefined) return treeRows(list, { open, whole }, rootName)
+  if (work === undefined) {
+    const whole = new Set((await $.state.get(WHOLE)).value ?? [])
+    return treeRows(list, { open, whole }, rootName)
+  }
+  const whole = new Set((await $.state.get(WORK_WHOLE)).value ?? [])
   const shut = new Set((await $.state.get(SHUT)).value ?? [])
   return workRows(list, { tree: work, folders: { open, whole, shut } }, rootName)
 }

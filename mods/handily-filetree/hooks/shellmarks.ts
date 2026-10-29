@@ -10,6 +10,8 @@ const STAMPED_PATHS = 1000
 
 const NO_FILE = 'none'
 
+const FOLDER_STATE: FsEntry['kind'] = 'dir'
+
 type PathState = { state: string; stamp: string | undefined; mtime: number | undefined }
 
 type SnapshotKind = 'git' | 'listing'
@@ -176,6 +178,10 @@ function credit(
   return { agents, paths: [change.path], at }
 }
 
+function isFolderIn(snapshot: Snapshot, path: string): boolean {
+  return snapshot.states.get(path)?.state === FOLDER_STATE
+}
+
 async function judge($: EngineInterface, shell: Shell, snapshot: Snapshot): Promise<void> {
   const { generation } = shell
   const judged = judgedRuns(shell, snapshot)
@@ -195,7 +201,10 @@ async function judge($: EngineInterface, shell: Shell, snapshot: Snapshot): Prom
     if (same === undefined) groups.set(key, group)
     else groups.set(key, { ...same, paths: [...same.paths, path], at: Math.max(same.at, group.at) })
   })
-  for (const group of groups.values()) markShell(shell.touches, group)
+  for (const group of groups.values()) {
+    const folders = new Set(group.paths.filter((path) => isFolderIn(snapshot, path)))
+    markShell(shell.touches, { ...group, folders })
+  }
   for (const run of shell.runs.values()) {
     if (run.endedAt !== undefined && run.endedAt <= snapshot.at) run.isSeen = true
   }

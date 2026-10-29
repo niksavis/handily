@@ -53,7 +53,7 @@ export type TouchDraw = {
   labelOf: (agent: string) => string
   touchesOf: (path: string) => readonly Touch[]
   shownPath: (path: string) => string
-  paths: readonly string[]
+  paths: readonly WorkPath[]
   sights: readonly Sight[]
   agents: readonly string[]
   agent: string | undefined

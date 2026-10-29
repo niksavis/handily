@@ -8,6 +8,7 @@ declare module 'claude-code' {
       open: FiletreePaths
       whole: FiletreePaths
       shut: FiletreePaths
+      workWhole: FiletreePaths
       view: FiletreeView
       ready: { root: string }
     }

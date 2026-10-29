@@ -3573,3 +3573,86 @@ describe('the work view', () => {
     await ui.unmount()
   })
 })
+
+describe('the work view: review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`outside a git repo a folder that a Bash call wrote into shows as a folder that opens, on the ${surface}`, async ($, on) => {
+      const seen = world(on, APP)
+      const write: ShellRun = {
+        tookMs: 1000,
+        writesAt: 500,
+        write: (world) => {
+          const at = world.clock.now()
+          world.folders.set(
+            '.',
+            (APP[0]?.[1] ?? []).map((entry) =>
+              entry.name === 'hooks' ? { ...entry, mtimeMs: at } : entry,
+            ),
+          )
+          world.folders.set('hooks', [file('pane.tsx'), folder('dist'), file('new.tsx')])
+          world.files.set(`${ROOT}/hooks`, { kind: 'dir', text: '', mtimeMs: at })
+        },
+      }
+      shellTools(on, seen, new Map([['make hooks', write]]))
+      boardKnowsScout(on)
+      const ui = await mountWork($, seen, surface)
+      const call = bash($, 'make hooks', SCOUT)
+      await seen.clock.advance(6000)
+      await call
+      await ui.redraw(DOCKED_PANE)
+      expect(await treeLines(ui)).toEqual(['▸ hooks/                  ✎ scout      5s', WORK_NOTE])
+      await ui.press({ key: 'open:hooks' })
+      expect(await treeLines(ui)).toEqual([
+        '▾ hooks/                  ✎ scout      5s',
+        '  ▸ dist/  not listed',
+        '    new.tsx',
+        '    pane.tsx',
+        WORK_NOTE,
+      ])
+      await ui.unmount()
+    })
+
+    test(`a touched path with a dot segment shows at its real place, and a path that leaves the working folder does not show, on the ${surface}`, async ($, on) => {
+      const seen = world(on, APP)
+      fakeTools(on, seen, new Map())
+      const ui = await mountWork($, seen, surface)
+      await read($, '../other/secret.ts')
+      await read($, 'hooks/../README.md')
+      await read($, './docs/./design.md')
+      await ui.redraw(DOCKED_PANE)
+      expect(await treeLines(ui)).toEqual([
+        '▾ docs/                   ◦ main       0s',
+        '    design.md             ◦ main       0s',
+        '  README.md               ◦ main       0s',
+        WORK_NOTE,
+      ])
+      await ui.unmount()
+    })
+
+    test(`the more button of the work view does not lift the 200 entry cap of all files, on the ${surface}`, async ($, on) => {
+      const gen = numbered(201)
+      const seen = gitWorld(
+        on,
+        [
+          ['.', [folder('src')]],
+          ['src', [folder('gen')]],
+          ['src/gen', gen],
+        ],
+        {
+          kind: 'ok',
+          stdout: statusOf(gen.map((entry) => changed('.M', `src/gen/${entry.name}`))),
+        },
+      )
+      const ui = await mountWork($, seen, surface)
+      await ui.press({ key: 'more:src/gen' })
+      expect(await ui.find({ key: 'more:src/gen' })).toBeUndefined()
+      expect(await treeLines(ui)).toContain('    M a0201.ts')
+      await ui.press({ key: 'view' })
+      await ui.press({ key: 'open:src' })
+      await ui.press({ key: 'open:src/gen' })
+      expect(await ui.find({ key: 'more:src/gen' })).toBeDefined()
+      expect(await treeLines(ui)).not.toContain('    M a0201.ts')
+      await ui.unmount()
+    })
+  }
+})
