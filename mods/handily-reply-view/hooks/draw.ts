@@ -27,7 +27,7 @@ export const DEFAULT_COLUMNS = 80
 const BULLET_COLUMNS = 2
 const FIELD_INDENT = 2
 const COPY_BUTTON_COLUMNS = '[ copy ]'.length
-const TABLE_BUTTONS_COLUMNS = '[ copy ] [ copy as text ]'.length
+const BUTTON_CHROME_COLUMNS = '[  ]'.length
 const BUTTONS_GAP = 2
 const BLOCKS_BELOW_COLUMNS = 40
 const RULE = '─'
@@ -35,7 +35,6 @@ const LANGUAGE_TAG = /^[\w+#.-]{1,32}$/
 const TAG_COLUMNS_AT_MOST = 24
 const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
-const COPY_DRAWING_BUTTON_COLUMNS = '[ copy drawing ]'.length
 const DRAWINGS_KEPT = 32
 
 export type DiagramDrawing = { kind: 'drawing'; name: string; lines: string[] }
@@ -136,23 +135,53 @@ function prosePiece(context: Context, prose: Prose): Piece {
 
 type Buttons = { element: RenderElement; columns: number }
 
-function tableButtons(context: Context, table: Table, key: string): Buttons {
-  const { Box } = context.elements
-  const text = textCopy(table)
+type CopyAction = { key: string; label: string; text: string; what: string }
+
+function fittedButton(context: Context, action: CopyAction): Buttons {
+  const label = fitted(action.label, Math.max(context.width - BUTTON_CHROME_COLUMNS, 1))
   return {
-    columns: text === '' ? COPY_BUTTON_COLUMNS : TABLE_BUTTONS_COLUMNS,
-    element: Box({
+    columns: displayWidth(label) + BUTTON_CHROME_COLUMNS,
+    element: copyButton(context, action.key, label, action.text, action.what),
+  }
+}
+
+function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
+  return {
+    columns: sum(buttons.map((button) => button.columns)) + buttons.length - 1,
+    element: context.elements.Box({
       flexDirection: 'row',
       flexShrink: 0,
       gap: 1,
-      children: [
-        copyButton(context, `${key}-copy`, 'copy', table.source, 'the table as markdown'),
-        ...(text === ''
-          ? []
-          : [copyButton(context, `${key}-text`, 'copy as text', text, 'the table as text')]),
-      ],
+      children: buttons.map((button) => button.element),
     }),
   }
+}
+
+function buttonsTogether(context: Context, actions: readonly CopyAction[]): Buttons {
+  return buttonRow(
+    context,
+    actions.map((action) => fittedButton(context, action)),
+  )
+}
+
+function stackedButtons(context: Context, actions: readonly CopyAction[]): Buttons[] {
+  const together = buttonsTogether(context, actions)
+  return together.columns <= context.width
+    ? [together]
+    : actions.map((action) => buttonRow(context, [fittedButton(context, action)]))
+}
+
+function tableActions(table: Table, key: string): CopyAction[] {
+  const text = textCopy(table)
+  const markdown = {
+    key: `${key}-copy`,
+    label: 'copy',
+    text: table.source,
+    what: 'the table as markdown',
+  }
+  return text === ''
+    ? [markdown]
+    : [markdown, { key: `${key}-text`, label: 'copy as text', text, what: 'the table as text' }]
 }
 
 function lineWithButtons(
@@ -173,6 +202,16 @@ function lineWithButtons(
       buttons.element,
     ],
   })
+}
+
+function buttonsUnder(
+  context: Context,
+  actions: readonly CopyAction[],
+  end: number,
+): RenderElement[] {
+  return stackedButtons(context, actions).map((line, index) =>
+    lineWithButtons(context, null, line, end, `buttons-${String(index)}`),
+  )
 }
 
 function boldLine(context: Context, text: string, key: string, wrap?: 'truncate-end') {
@@ -216,7 +255,8 @@ function columnsPiece(
   key: string,
 ): Piece {
   const { Box } = context.elements
-  const buttons = tableButtons(context, table, key)
+  const actions = tableActions(table, key)
+  const buttons = buttonsTogether(context, actions)
   const room = buttons.columns + BUTTONS_GAP
   const width = tableWidth(widths)
   const header = linesOf(look, widths, look.header)
@@ -264,7 +304,7 @@ function columnsPiece(
     shown.flatMap((row, index) =>
       index > 0 && isWrapped ? [ruleRow(context, rowRule, `rule-${String(index)}`), row] : [row],
     )
-  const under = place === 'under' ? [lineWithButtons(context, null, buttons, width)] : []
+  const under = place === 'under' ? buttonsUnder(context, actions, width) : []
   const rowsBox = (shown: readonly RenderElement[]) =>
     Box({ key: 'rows', flexDirection: 'column', children: ruled(shown) })
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
@@ -348,7 +388,8 @@ function headingsBlock(context: Context, look: TableLook, buttons: Buttons | nul
 
 function blocksPiece(context: Context, table: Table, look: TableLook, key: string): Piece {
   const { Box } = context.elements
-  const buttons = tableButtons(context, table, key)
+  const actions = tableActions(table, key)
+  const buttons = buttonsTogether(context, actions)
   const firstRow = look.rows[0]
   const firstTitle = firstRow === undefined ? (look.header[0] ?? '') : rowTitle(firstRow, 0)
   const isOnTitle = displayWidth(firstTitle) + BUTTONS_GAP + buttons.columns <= context.width
@@ -359,7 +400,7 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
           rowBlock(context, look, row, index, index === 0 ? titled : null),
         )
       : [headingsBlock(context, look, titled)]
-  const under = isOnTitle ? [] : [lineWithButtons(context, null, buttons, context.width)]
+  const under = isOnTitle ? [] : buttonsUnder(context, actions, context.width)
   const column = (shown: readonly Drawing[]) =>
     Box({
       key: `${key}-blocks`,
@@ -502,44 +543,14 @@ export function diagramOf(source: string, width: number, surface: RenderSurface)
   return outcome
 }
 
-function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
-  return {
-    columns: sum(buttons.map((button) => button.columns)) + buttons.length - 1,
-    element: context.elements.Box({
-      flexDirection: 'row',
-      flexShrink: 0,
-      gap: 1,
-      children: buttons.map((button) => button.element),
-    }),
-  }
-}
-
-function diagramButtons(
-  context: Context,
-  fence: Fence,
-  drawing: DiagramDrawing,
-  key: string,
-): Buttons[] {
+function diagramActions(fence: Fence, drawing: DiagramDrawing, key: string): CopyAction[] {
   return [
+    { key: `${key}-copy`, label: 'copy', text: fence.content, what: `the ${drawing.name} source` },
     {
-      columns: COPY_BUTTON_COLUMNS,
-      element: copyButton(
-        context,
-        `${key}-copy`,
-        'copy',
-        fence.content,
-        `the ${drawing.name} source`,
-      ),
-    },
-    {
-      columns: COPY_DRAWING_BUTTON_COLUMNS,
-      element: copyButton(
-        context,
-        `${key}-drawing`,
-        'copy drawing',
-        drawing.lines.join('\n'),
-        `the ${drawing.name} drawing`,
-      ),
+      key: `${key}-drawing`,
+      label: 'copy drawing',
+      text: drawing.lines.join('\n'),
+      what: `the ${drawing.name} drawing`,
     },
   ]
 }
@@ -547,11 +558,11 @@ function diagramButtons(
 function diagramTitle(
   context: Context,
   name: string,
-  buttons: readonly Buttons[],
+  actions: readonly CopyAction[],
   key: string,
 ): Drawing {
   const title = `${MERMAID_TAG} · ${name}`
-  const together = buttonRow(context, buttons)
+  const together = buttonsTogether(context, actions)
   const room = context.width - together.columns - BUTTONS_GAP
   if (displayWidth(titleRule(title, 0)) <= room) {
     return {
@@ -559,10 +570,7 @@ function diagramTitle(
       element: ruleWithButtons(context, titleRule(title, room), together.element, key),
     }
   }
-  const lines =
-    together.columns <= context.width
-      ? [together]
-      : buttons.map((button) => buttonRow(context, [button]))
+  const lines = buttonsUnder(context, actions, context.width)
   return {
     rows: 1 + lines.length,
     element: context.elements.Box({
@@ -570,9 +578,7 @@ function diagramTitle(
       flexDirection: 'column',
       children: [
         ruleRow(context, fitted(titleRule(title, context.width), context.width), 'title-rule'),
-        ...lines.map((line, index) =>
-          lineWithButtons(context, null, line, context.width, `buttons-${String(index)}`),
-        ),
+        ...lines,
       ],
     }),
   }
@@ -580,12 +586,7 @@ function diagramTitle(
 
 function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, key: string): Piece {
   const { Box, Code } = context.elements
-  const title = diagramTitle(
-    context,
-    drawing.name,
-    diagramButtons(context, fence, drawing, key),
-    key,
-  )
+  const title = diagramTitle(context, drawing.name, diagramActions(fence, drawing, key), key)
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
   return {
     rows: title.rows + drawing.lines.length,
