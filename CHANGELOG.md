@@ -6,6 +6,26 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.14.0 - 2026-10-29
+
+### Added
+
+- **board offers the steps of an approved plan as tasks.** When you approve a plan of Claude
+  with a numbered list, a button under the plan row, a Plan block on the board and
+  `/board plan` add each step as a pending task of `claude`, in order. Nothing is added until
+  you press. A full list, a bad step and a later plan are refused by name, and Claude is told
+  at your next prompt (handily-9uj3n.7).
+- **board lists the tasks that Claude assigns to you.** The new model tool `task_assign`
+  assigns something to do, a question or a choice. The tasks show under `For you` above the
+  task list, with done, answer, option and reject buttons and with `/board done`,
+  `/board answer`, `/board pick`, `/board reject` and `/board undo`. Your next prompt carries
+  every result to Claude in one note (handily-9uj3n.8).
+- **board shows a task band above the prompt.** While the `this session` tab is not shown, one
+  line shows the current task, its time, done of total and a `[ board ]` button that opens the
+  tab. Open tasks for you come first, and an approved plan shows its add button. The new
+  setting `band` turns the band off. The board yields to another mod that draws the band
+  (handily-9uj3n.9).
+
 ## handily-filetree 0.7.0 - 2026-10-29
 
 ### Added
