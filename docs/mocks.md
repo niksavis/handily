@@ -1015,11 +1015,13 @@ fold button goes away with the last done task. A folded done group shows no `[ c
   task in progress gets at least one cell. `1/4` counts the done tasks of all tasks. `▶1` and
   `○2` count the tasks in progress and pending, in the colour of their mark. A count of 0 is
   left out. A narrow pane cuts the time first.
-- The time of a task in progress turns to `warning` after 15 minutes (`STALLED_AFTER_MS`,
-  docs/design.md). The mark and the row keep their look.
+- The time of a task in progress turns to `warning` when its current run passes 15 minutes
+  (`STALLED_AFTER_MS`, docs/design.md). A done task that runs again starts a new run, so it
+  is not stalled at once. The row still shows the time since its first start. The mark and the
+  row keep their look.
 - When every task is done, the header shows `✓ all 4 done` in `success`, and the time from the
-  first tool call to the end of the last task. That time stops when the work ends. A list with
-  a task that was never seen in progress shows no time.
+  first tool call to the moment that the last task was done, also a task that never ran. That
+  time stops when the work ends.
 
 #### 8.2e Many agents: 20 in this session
 

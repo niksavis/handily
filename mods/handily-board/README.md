@@ -246,9 +246,11 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
   `claude` and pending in a dim `▱`. A count of 0 is left out. Times use one short form: `9s`,
   `5m`, `1h`, `2d`. They round down. A narrow pane cuts the time first.
 - When every task is done, the header shows `✓ all 4 done · 22m` in `success`. The time runs
-  from the first tool call to the end of the last task, so it stops when the work ends.
-- When a task stays in progress for more than 15 minutes, its time turns to the `warning`
-  colour.
+  from the first tool call to the moment that the last task was done, so it stops when the
+  work ends.
+- When the current run of a task in progress passes 15 minutes, its time turns to the
+  `warning` colour. A done task that you start again begins a new run. Its row still shows the
+  time since its first start.
 - Each task is one line: a mark (`✓` done in `success`, `▶` in progress in `claude`, `○`
   pending in `subtle`), the number, the author and the title. A task by `claude` shows no
   author. A task by you shows `You:` and a tracker task shows `tracker`, in the theme colour

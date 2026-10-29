@@ -8,7 +8,14 @@ import type {
   ThemeKey,
 } from 'claude-code'
 import type { BoardActivity, BoardChecks, BoardList, BoardTask, BoardToolSight } from '../types'
-import { PLAN_REQUEST, STALLED_AFTER_MS, callsText, elapsedText, planLag } from './activity'
+import {
+  PLAN_REQUEST,
+  STALLED_AFTER_MS,
+  callsText,
+  elapsedText,
+  planLag,
+  runStart,
+} from './activity'
 import { NO_AGENTS, drawAgents, shownNames } from './agent-rows'
 import { type AgentRow, waitingCount } from './agents'
 import type { PaneUi } from './board'
@@ -38,6 +45,7 @@ import { AGENTS_VIEW_FAILED, CHANGE_FAILED, refusedParts } from './replies'
 import { SIGNALS } from './signals'
 import {
   doneCount,
+  isAllDone,
   escaped,
   paneTaskText,
   priorityText,
@@ -347,9 +355,9 @@ function clockLine(task: BoardTask, work: PaneWork): string {
 function runningAside(task: BoardTask, work: PaneWork): Cell | undefined {
   const clock = work.activity.clocks[String(task.id)]
   if (task.status !== 'in_progress' || clock === undefined) return undefined
-  const spent = work.now - clock.startedAt
-  const style: TextStyle = spent > STALLED_AFTER_MS ? { color: 'warning' } : { dimColor: true }
-  return { text: elapsedText(spent), style }
+  const isStalled = work.now - runStart(clock) > STALLED_AFTER_MS
+  const style: TextStyle = isStalled ? { color: 'warning' } : { dimColor: true }
+  return { text: elapsedText(work.now - clock.startedAt), style }
 }
 
 function taskCells(task: BoardTask, numberWidth: number): Cell[] {
@@ -726,12 +734,13 @@ function dimPart(text: string): HeaderPart {
 }
 
 function finishTime(activity: BoardActivity): string | undefined {
-  const clocks = Object.values(activity.clocks).filter((clock) => clock !== undefined)
-  const ends = clocks.flatMap((clock) => (clock.endedAt === null ? [] : [clock.endedAt]))
-  const starts = clocks.map((clock) => clock.startedAt)
+  const { doneAt } = activity
+  const starts = Object.values(activity.clocks).flatMap((clock) =>
+    clock === undefined ? [] : [clock.startedAt],
+  )
   const start = activity.firstAt ?? (starts.length === 0 ? undefined : Math.min(...starts))
-  if (start === undefined || ends.length === 0) return undefined
-  return elapsedText(Math.max(...ends) - start)
+  if (start === undefined || doneAt === undefined || doneAt === null) return undefined
+  return elapsedText(doneAt - start)
 }
 
 function finishParts(total: number, activity: BoardActivity): HeaderPart[] {
@@ -761,7 +770,7 @@ function summaryParts(list: BoardList, work: PaneWork): HeaderPart[] {
     return [dimPart(activity.calls > 0 ? 'none kept by Claude' : 'none in this session yet')]
   }
   const done = doneCount(list)
-  if (done === total) return finishParts(total, activity)
+  if (isAllDone(list)) return finishParts(total, activity)
   const doing = list.tasks.filter((task) => task.status === 'in_progress').length
   const cells = barCells(done, doing, total)
   return [

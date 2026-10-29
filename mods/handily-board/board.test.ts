@@ -6994,6 +6994,37 @@ for (const surface of SURFACES) {
         expect([stalled?.text, stalled?.props.color]).toEqual(['16m', 'warning'])
       },
     )
+
+    test(
+      `a done task that runs again is stalled only after 15 minutes of the new run, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await board($, 'done 2')
+        await seen.clock.advance(20 * MINUTE)
+        await board($, 'start 2')
+        const timeOf = async (): Promise<Drawn | undefined> => {
+          const ui = await mountTab($, surface, PANE, 'dock', 41)
+          const time = texts(await rowOf(ui, 'task:2')).find((text) => /^\d+m$/.test(text.text))
+          await ui.unmount()
+          return time
+        }
+        const restarted = await timeOf()
+        expect([restarted?.text, restarted?.props.color, restarted?.props.dimColor]).toEqual([
+          '24m',
+          undefined,
+          true,
+        ])
+        await seen.clock.advance(15 * MINUTE)
+        const due = await timeOf()
+        expect([due?.text, due?.props.color]).toEqual(['39m', undefined])
+        await seen.clock.advance(MINUTE)
+        const stalled = await timeOf()
+        expect([stalled?.text, stalled?.props.color]).toEqual(['40m', 'warning'])
+      },
+    )
   })
 
   describe(FINISH_CRITERION, () => {
@@ -7014,6 +7045,24 @@ for (const surface of SURFACES) {
         const reopened = await mountTab($, surface, PANE, 'dock', 41)
         expect((await screen(reopened, 41))[1]).toBe('Tasks  ▰▰▰▱ 3/4 · ○1 · 19m')
         await reopened.unmount()
+      },
+    )
+
+    test(
+      `the finish time ends when the last task is done, also a task that never ran, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await board($, 'done 2')
+        await seen.clock.advance(5 * MINUTE)
+        await board($, 'done 3')
+        await board($, 'done 4')
+        await seen.clock.advance(7 * MINUTE)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ✓ all 4 done · 19m')
+        await ui.unmount()
       },
     )
   })

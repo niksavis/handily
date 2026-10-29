@@ -259,6 +259,10 @@ export function doneCount(list: BoardList): number {
   return list.tasks.filter((task) => task.status === 'completed').length
 }
 
+export function isAllDone(list: BoardList): boolean {
+  return list.tasks.length > 0 && doneCount(list) === list.tasks.length
+}
+
 export function numbersText(tasks: readonly BoardTask[]): string {
   const ranges: string[] = []
   let start: number | undefined

@@ -726,7 +726,8 @@ Defer to quiet-items:
   gets `/board clear`. Claude and a subagent get `task_update` with the status `removed`. An
   add never removes a task to make room.
 - The task header draws a bar of the done, in progress and pending tasks, with their counts,
-  and `✓ all N done` with the time until the last task ended (handily-9uj3n.6). The bar of the
+  and `✓ all N done` with the time until the list became all done (handily-9uj3n.6). The
+  activity keeps that moment as `doneAt`, set by `withClocks` with `isAllDone`. The bar of the
   header and the bar of a this machine card share `barCells` in `hooks/bar.ts`, so one rule
   splits the cells. The approved mock is `docs/mocks.md` 8.2d3.
 - `task_add` takes `titles` for several tasks and `before` for a place (handily-9uj3n.5). It
@@ -806,7 +807,7 @@ The named thresholds:
 | `QUIET_MS` | 120000 | A running agent with no event for this time is `quiet` |
 | `LANES_FROM` | body 80 | From this body width, the agent rows have a `ctx` column and a lane |
 | `CHECKS_KEPT` | 20 | The board keeps the last 20 checks. `[ last 5 checks ]` shows 5 of them |
-| `STALLED_AFTER_MS` | 900000 (15 minutes) | A task in progress for longer draws its time in the warning colour (handily-9uj3n.6) |
+| `STALLED_AFTER_MS` | 900000 (15 minutes) | A task whose current run in progress is longer draws its time in the warning colour (handily-9uj3n.6). The clock keeps `runAt`, the start of the current run |
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 

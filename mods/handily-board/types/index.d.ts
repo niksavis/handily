@@ -31,6 +31,7 @@ export type BoardTaskClock = {
   startCalls: number
   endedAt: number | null
   endCalls: number | null
+  runAt?: number
 }
 
 export type BoardActivity = {
@@ -41,6 +42,7 @@ export type BoardActivity = {
   sincePlan: number
   noteAt: number | null
   clocks: Readonly<Partial<Record<string, BoardTaskClock>>>
+  doneAt?: number | null
 }
 
 export type BoardAgentStatus =
