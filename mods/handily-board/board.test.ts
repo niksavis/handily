@@ -8700,3 +8700,53 @@ for (const surface of SURFACES) {
     )
   })
 }
+
+const OLD_AGENT = 'a0000009old'
+
+async function oldAgentEnded($: Engine, seen: World, surface: Surface): Promise<void> {
+  await startOn($, surface)
+  await seen.clock.set(START)
+  await spawnFrom($, OLD_AGENT)
+  seen.agents.push({ ...runningAgent(OLD_AGENT, 'old'), status: 'completed' })
+  await seen.clock.advance(MINUTE)
+  await $.turn.complete({
+    turnId: 'turn-old',
+    reason: 'answer',
+    answer: 'done',
+    durationMs: MINUTE,
+    isAborted: false,
+    agentId: OLD_AGENT,
+  })
+  await seen.clock.advance(29 * MINUTE)
+  await spawnFrom($, EXPLORE)
+  seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+  await seen.clock.advance(MINUTE)
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+  await seen.clock.advance(MINUTE)
+}
+
+describe('the agent lanes: review repairs (handily-xsjad.8)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `a folded ended agent does not stretch the axis, and the axis takes it in once the fold opens, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await oldAgentEnded($, seen, surface)
+        const ui = await mountTab($, surface, PANE, 'dock', 89)
+        const folded = await screen(ui, 89)
+        const header = folded.findIndex((line) => line.startsWith('Agents'))
+        expect(folded[header]).toBe('Agents  1 · lanes from 2m ago to now')
+        expect(folded[header + 1]).toContain(`ctx —   ${'━'.repeat(20)} open  2m`)
+        await ui.press({ key: 'group:ended-agents' })
+        const opened = await screen(ui, 89)
+        expect(opened[header]).toBe('Agents  1 · lanes from 32m ago to now')
+        expect(opened[header + 1]).toContain(`ctx —   ${'·'.repeat(18)}━━ open  2m`)
+        expect(opened.find((line) => line.startsWith('✓ old'))).toContain(
+          `ctx —   ━${'·'.repeat(19)}`,
+        )
+        await ui.unmount()
+      },
+    )
+  }
+})

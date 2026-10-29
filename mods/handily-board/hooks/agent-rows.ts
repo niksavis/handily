@@ -523,14 +523,15 @@ export function drawAgents(
   const { Box, Text } = elements
   if (rows.length === 0) return []
   const names = shownNames(rows)
-  const axis = hasLanes(elements.bodyColumns) ? laneAxis(rows, now) : null
-  const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now, openAgents, axis)
   const active = rows.filter((row) => !row.isEnded)
   const ended = rows.filter((row) => row.isEnded)
   const hidden = active.length - AGENT_ROWS_AT_MOST
   const isMoreShown = layout.expanded.has(MORE_AGENTS)
   const isEndedShown = layout.expanded.has(ENDED_AGENTS)
   const shown = hidden > 0 && !isMoreShown ? active.slice(0, AGENT_ROWS_AT_MOST) : active
+  const drawn = isEndedShown ? [...shown, ...ended] : shown
+  const axis = hasLanes(elements.bodyColumns) ? laneAxis(drawn, now) : null
+  const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now, openAgents, axis)
   const folds = [
     hidden > 0
       ? foldButton(MORE_AGENTS, foldLabel(isMoreShown, hidden, 'more agents'), layout)

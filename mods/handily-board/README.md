@@ -632,12 +632,12 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   call. Inline, that text is in the tool column.
 - From a body of 80 columns, docked or inline, each agent row adds a `ctx` column and a lane.
   `ctx` is the context of the latest model request of the agent, or `ctx —` before the first
-  one. The lanes share one time axis, from the first spawn of this session to now, in 20 cells.
-  The header names the axis. A lane draws `━` while the agent ran and `·` before and after. The
-  lane of an agent that waits for you ends in `◆` in the theme colour `warning`, and the lane of
-  a failed agent ends in `■` in the theme colour `error`. The `waits for:` and `failed after`
-  text moves into the tool column, so each agent keeps one line. A capture from the tests,
-  docked at 89 columns:
+  one. The lanes share one time axis, from the first spawn of the drawn rows to now, in 20
+  cells. An agent in a closed fold does not move the axis. The header names the axis. A lane
+  draws `━` while the agent ran and `·` before and after. The lane of an agent that waits for
+  you ends in `◆` in the theme colour `warning`, and the lane of a failed agent ends in `■` in
+  the theme colour `error`. The `waits for:` and `failed after` text moves into the tool
+  column, so each agent keeps one line. A capture from the tests, docked at 89 columns:
 
   ```text
   Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now
