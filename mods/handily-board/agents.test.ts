@@ -326,7 +326,30 @@ async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<s
   return lines
 }
 
-function agentLines(lines: readonly string[]): string[] {
+const FRAME_TOP = /^╭─ (.*?) ─+╮$/u
+const FRAME_SIDE = /^│ (.*) │$/u
+
+function unframed(lines: readonly string[]): string[] {
+  return lines.flatMap((line) => {
+    if (line.startsWith('╰')) return []
+    const top = FRAME_TOP.exec(line)
+    if (top !== null) return [top[1] ?? '']
+    const side = FRAME_SIDE.exec(line)
+    return [side === null ? line : (side[1] ?? '').trimEnd()]
+  })
+}
+
+function bySurface<T>(surface: Surface, terminal: T, desktop: T): T {
+  return surface === 'terminal' ? terminal : desktop
+}
+
+function sessionHead(framed: readonly string[]): string | undefined {
+  const lines = unframed(framed)
+  return lines[0] === 'Session' ? lines[1] : lines[0]
+}
+
+function agentLines(framed: readonly string[]): string[] {
+  const lines = unframed(framed)
   const first = lines.findIndex((line) => line.startsWith('Agents'))
   const input = lines.findIndex((line) => line.startsWith('[ Add a task'))
   return lines.slice(first, input)
@@ -334,7 +357,12 @@ function agentLines(lines: readonly string[]): string[] {
 
 async function textsUnder(ui: { find: Mounted['find'] }, key: string): Promise<string[]> {
   const found = drawnOf(await ui.find({ key }))
-  return found === null ? [] : texts(found).map((one) => one.text)
+  const sides = new Set(['│ ', ' │'])
+  return found === null
+    ? []
+    : texts(found)
+        .map((one) => one.text)
+        .filter((text) => !sides.has(text))
 }
 
 const LANE = 'a0000001lane'
@@ -434,16 +462,43 @@ async function land(scene: Scene): Promise<void> {
 const ROW_CRITERION =
   'The this session tab draws an agent row with its mark, name, state, current tool and age, failed agents with a second line, and held agents as on hold'
 
+const SCENE_GATE = 'gate ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮'
+
 const SCENE_SCREENS: readonly {
   placement: 'dock' | 'inline'
   columns: number
   lines: readonly string[]
+  framed?: readonly string[]
 }[] = [
   {
     placement: 'dock',
     columns: 41,
+    framed: [
+      '╭─ Session ─────────────────────────────╮',
+      '│ ctx — until the first reply           │',
+      '│ limits — until the first reply        │',
+      `│ ${SCENE_GATE} f10 s9 o1   │`,
+      '╰───────────────────────────────────────╯',
+      '╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ───────╮',
+      '│ ▶ 2 Write the tab mocks     4m [ rm ] │',
+      '│     ▸ Edit docs/mocks.md      9 tools │',
+      '│ ○ 3 Review the mocks with Cod… [ rm ] │',
+      '│ ○ 4 Ask the person about tabs  [ rm ] │',
+      '│ [ +1 done ]                           │',
+      '╰───────────────────────────────────────╯',
+      '╭─ Agents  3 · 1 failed ────────────────╮',
+      '│ ■ lane-b    failed                 4m │',
+      '│     failed after Bash npm test        │',
+      '│ ▶ Explore   plan 2/7         open  1m │',
+      '│ ▶ scout     on hold                2m │',
+      '│ [ +2 ended ]                          │',
+      '╰───────────────────────────────────────╯',
+      '',
+      '[ Add a task ][Add]',
+    ],
     lines: [
       'Session  ctx — until the first reply',
+      `${SCENE_GATE} f10 s9 o1`,
       'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
@@ -466,6 +521,7 @@ const SCENE_SCREENS: readonly {
     columns: 30,
     lines: [
       'Session  ctx —',
+      SCENE_GATE,
       'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
@@ -488,6 +544,7 @@ const SCENE_SCREENS: readonly {
     columns: 76,
     lines: [
       'Session  ctx — until the first reply',
+      `    ${SCENE_GATE} f10 s9 o1`,
       'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks             ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
       '○ 3 Review the mocks with Codex                                       [ rm ]',
@@ -505,21 +562,49 @@ const SCENE_SCREENS: readonly {
 ]
 
 describe(ROW_CRITERION, () => {
-  for (const { placement, columns, lines } of SCENE_SCREENS) {
+  for (const { placement, columns, lines, framed } of SCENE_SCREENS) {
     test(
-      `the agent rows draw as mock 8.1a at ${String(columns)} columns, ${placement}`,
+      `the agent rows draw as mock 8.1a at ${String(columns)} columns, ${placement}, framed on the terminal from body 41 as mock B1`,
       withWorkitems,
       async ($, on) => {
         const scene = await mockScene($, on)
         for (const surface of SURFACES) {
           const ui = await mountTab($, surface, placement, columns)
-          expect(await screen(ui, columns)).toEqual(lines)
+          const expected = surface === 'terminal' && framed !== undefined ? framed : lines
+          expect(await screen(ui, columns)).toEqual(expected)
           await ui.unmount()
         }
         await land(scene)
       },
     )
   }
+
+  test(
+    'an unframed dock keeps the tool column from body 36, as mock 8.3, and only a frame at body 41 drops it',
+    withWorkitems,
+    async ($, on) => {
+      const scene = await mockScene($, on)
+      const toolRows = async (surface: (typeof SURFACES)[number], columns: number) => {
+        const ui = await mountTab($, surface, 'dock', columns)
+        const rows = agentLines(await screen(ui, columns)).filter((line) =>
+          /^▶ (Explore|scout) /u.test(line),
+        )
+        await ui.unmount()
+        return rows
+      }
+      for (const surface of SURFACES) {
+        for (const columns of [36, 37]) {
+          const rows = await toolRows(surface, columns)
+          expect(rows).toHaveLength(2)
+          for (const row of rows) expect(row).toContain('▸ ')
+        }
+      }
+      const framed = await toolRows('terminal', 41)
+      expect(framed).toHaveLength(2)
+      for (const row of framed) expect(row).not.toContain('▸ ')
+      await land(scene)
+    },
+  )
 
   test(
     'each mark and state word takes the colour of its signal, and the failed count is red',
@@ -561,21 +646,22 @@ describe(ROW_CRITERION, () => {
       )
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
+        const gap = bySurface(surface, '', '    ')
         expect(agentLines(await screen(ui, 41))).toEqual([
           'Agents  2',
-          '○ Explore   pending                    0s',
-          '○ Plan      idle                       0s',
+          `○ Explore   pending                ${gap}0s`,
+          `○ Plan      idle                   ${gap}0s`,
           '[ +2 ended ]',
           '',
         ])
         await ui.press({ key: 'group:ended-agents' })
         expect(agentLines(await screen(ui, 41))).toEqual([
           'Agents  2',
-          '○ Explore   pending                    0s',
-          '○ Plan      idle                       0s',
+          `○ Explore   pending                ${gap}0s`,
+          `○ Plan      idle                   ${gap}0s`,
           '[ hide 2 ended ]',
-          '✓ code…ewer killed                     0s',
-          '✓ impl…nter done                       0s',
+          `✓ code…ewer killed                 ${gap}0s`,
+          `✓ impl…nter done                   ${gap}0s`,
           '',
         ])
         await ui.press({ key: 'group:ended-agents' })
@@ -605,25 +691,50 @@ describe(OPEN_CRITERION, () => {
         const ui = await mountTab($, surface, 'dock', 41)
         await ui.press({ key: `open:agent:${EXPLORE}` })
         const lines = agentLines(await screen(ui, 41))
-        expect(lines.slice(3, 14)).toEqual([
-          '▶ Explore   plan 2/7  ▸ Read pa… open  1m',
+        expect(lines.slice(3, 19)).toEqual([
+          bySurface(
+            surface,
+            '▶ Explore   plan 2/7         open  1m',
+            '▶ Explore   plan 2/7  ▸ Read pa… open  1m',
+          ),
           '    find the element table',
           '    under scout · spawned 1m ago',
           '    7 tool calls',
+          '    last calls',
+          bySurface(
+            surface,
+            '      ✓ Bash cat hooks/file5.ts    1m',
+            '      ✓ Bash cat hooks/file5.ts        1m',
+          ),
+          bySurface(
+            surface,
+            '      ✓ Bash cat hooks/file6.ts    1m',
+            '      ✓ Bash cat hooks/file6.ts        1m',
+          ),
+          bySurface(
+            surface,
+            '      ▸ Read pane.tsx             20s',
+            '      ▸ Read pane.tsx                 20s',
+          ),
+          '    answer: none yet',
           '    ✓ Read the design',
           '    ✓ Map the hooks',
           '    ▶ Draw the plan',
           '    ○ Test the fold',
           '    ○ Bump the version',
           '    [ all 7 ]',
-          '▶ scout     on hold   ▸ Agent find t…  2m',
+          bySurface(
+            surface,
+            '▶ scout     on hold                2m',
+            '▶ scout     on hold   ▸ Agent find t…  2m',
+          ),
         ])
         const opened = await textsUnder(ui, `under:agent:${EXPLORE}`)
-        for (const field of ['Explore', 'plan 2/7', 'pane.tsx', 'on hold']) {
+        for (const field of ['Explore', 'plan 2/7', 'on hold']) {
           expect(opened.some((text) => text.includes(field))).toBe(false)
         }
         await ui.press({ key: `plan:${EXPLORE}` })
-        expect(agentLines(await screen(ui, 41)).slice(7, 17)).toEqual([
+        expect(agentLines(await screen(ui, 41)).slice(12, 22)).toEqual([
           '    ✓ Read the design',
           '    ✓ Map the hooks',
           '    ▶ Draw the plan',
@@ -632,7 +743,11 @@ describe(OPEN_CRITERION, () => {
           '    ○ Write the notes',
           '    ○ Ask for review',
           '    [ fold ]  all 7 shown',
-          '▶ scout     on hold   ▸ Agent find t…  2m',
+          bySurface(
+            surface,
+            '▶ scout     on hold                2m',
+            '▶ scout     on hold   ▸ Agent find t…  2m',
+          ),
           '[ +2 ended ]',
         ])
         await ui.press({ key: `plan:${EXPLORE}` })
@@ -659,6 +774,12 @@ describe(OPEN_CRITERION, () => {
           'scout the hooks',
           'under main · spawned 2m ago',
           'no tool calls yet',
+          'last calls',
+          '▸ ',
+          bySurface(surface, 'Agent find the element t…', 'Agent find the element table'),
+          '  2m',
+          'answer: ',
+          'none yet',
           '○ ',
           'Read the design',
           '○ ',
@@ -677,6 +798,12 @@ describe(OPEN_CRITERION, () => {
           'run the unit tests',
           'under main · spawned 4m ago',
           '1 tool call',
+          'last calls',
+          '✓ ',
+          'Bash npm test',
+          '  4m',
+          'answer: ',
+          'none, the run failed',
         ])
         await ui.press({ key: `open:agent:${SCOUT}` })
         await ui.press({ key: `open:agent:${LANE}` })
@@ -700,6 +827,8 @@ describe(OPEN_CRITERION, () => {
       expect(await textsUnder(ui, 'under:agent:c1')).toEqual([
         'under main · first seen 0s ago',
         'no tool calls yet',
+        'answer: ',
+        'none yet',
       ])
       await ui.unmount()
     },
@@ -824,28 +953,60 @@ describe(FOLD_CRITERION, () => {
       async ($, on) => {
         await manyAgents($, on)
         const ui = await mountTab($, surface, 'dock', 41)
-        expect(await screen(ui, 41)).toEqual([
-          'Session  ctx — until the first reply',
-          'Tasks  ▱ 0/1 · ○1',
-          '○ 1 Write the tab mocks            [ rm ]',
-          '─────────────────────────────────────────',
-          'Agents  16 · 1 failed',
-          '■ lane-b    failed                     0s',
-          '    failed after Bash npm test',
-          '▶ Explore   running              open  1m',
-          '▶ Explore 2 running              open  1m',
-          '▶ Explore 3 running              open  1m',
-          '▶ Explore 4 running              open  1m',
-          '▶ Explore 5 running              open  1m',
-          '[ +10 more agents ]  [ +5 ended ]',
-          '',
-          '[ Add a task ][Add]',
-        ])
+        expect(await screen(ui, 41)).toEqual(
+          bySurface(
+            surface,
+            [
+              '╭─ Session ─────────────────────────────╮',
+              '│ ctx — until the first reply           │',
+              '│ limits — until the first reply        │',
+              '│ gate ▮ s1                             │',
+              '╰───────────────────────────────────────╯',
+              '╭─ Tasks  ▱ 0/1 · ○1 ───────────────────╮',
+              '│ ○ 1 Write the tab mocks        [ rm ] │',
+              '╰───────────────────────────────────────╯',
+              '╭─ Agents  16 · 1 failed ───────────────╮',
+              '│ ■ lane-b    failed                 0s │',
+              '│     failed after Bash npm test        │',
+              '│ ▶ Explore   running          open  1m │',
+              '│ ▶ Explore 2 running          open  1m │',
+              '│ ▶ Explore 3 running          open  1m │',
+              '│ ▶ Explore 4 running          open  1m │',
+              '│ ▶ Explore 5 running          open  1m │',
+              '│ [ +10 more agents ]  [ +5 ended ]     │',
+              '╰───────────────────────────────────────╯',
+              '',
+              '[ Add a task ][Add]',
+            ],
+            [
+              'Session  ctx — until the first reply',
+              'gate ▮ s1',
+              'Tasks  ▱ 0/1 · ○1',
+              '○ 1 Write the tab mocks            [ rm ]',
+              '─────────────────────────────────────────',
+              'Agents  16 · 1 failed',
+              '■ lane-b    failed                     0s',
+              '    failed after Bash npm test',
+              '▶ Explore   running              open  1m',
+              '▶ Explore 2 running              open  1m',
+              '▶ Explore 3 running              open  1m',
+              '▶ Explore 4 running              open  1m',
+              '▶ Explore 5 running              open  1m',
+              '[ +10 more agents ]  [ +5 ended ]',
+              '',
+              '[ Add a task ][Add]',
+            ],
+          ),
+        )
         await ui.press({ key: 'group:more-agents' })
-        const lines = await screen(ui, 41)
+        const lines = unframed(await screen(ui, 41))
         expect(lines.filter((line) => line.startsWith('▶ Expl'))).toHaveLength(15)
         expect(lines.slice(-4)).toEqual([
-          '▶ Expl…e 15 running              open  1m',
+          bySurface(
+            surface,
+            '▶ Expl…e 15 running          open  1m',
+            '▶ Expl…e 15 running              open  1m',
+          ),
           '[ hide 10 more agents ]  [ +5 ended ]',
           '',
           '[ Add a task ][Add]',
@@ -882,6 +1043,8 @@ describe('an agent spawned before the list names it', () => {
       'part 1',
       'under main · spawned 3m ago',
       'no tool calls yet',
+      'answer: ',
+      'none yet',
     ])
     expect(await ui.find({ key: 'row:agent:k22' })).toBeDefined()
     await ui.unmount()
@@ -915,24 +1078,48 @@ describe(UNLISTED_CRITERION, () => {
         await ask.arrived(1)
         const ui = await mountTab($, surface, 'dock', 41)
         await ui.press({ key: 'group:ended-agents' })
-        expect(agentLines(await screen(ui, 41))).toEqual([
-          'Agents  1 · 2 not listed',
-          '▶ Explore   quiet 5m  Bash cat … open  5m',
-          '? f0000010  not listed ▸ AskUserQues…  0s',
-          '[ hide 1 ended ]',
-          '? f0000009  not listed Bash ls         0s',
-          '',
-        ])
+        expect(agentLines(await screen(ui, 41))).toEqual(
+          bySurface(
+            surface,
+            [
+              'Agents  1 · 2 not listed',
+              '▶ Explore   quiet 5m         open  5m',
+              '? f0000010  not listed             0s',
+              '[ hide 1 ended ]',
+              '? f0000009  not listed             0s',
+              '',
+            ],
+            [
+              'Agents  1 · 2 not listed',
+              '▶ Explore   quiet 5m  Bash cat … open  5m',
+              '? f0000010  not listed ▸ AskUserQues…  0s',
+              '[ hide 1 ended ]',
+              '? f0000009  not listed Bash ls         0s',
+              '',
+            ],
+          ),
+        )
         seen.agents.splice(0)
         const dropped = $.tool.call(inLoop({ tool: 'AskUserQuestion', questions: [] }, 'g1'))
         await ask.arrived(2)
         await ui.press({ key: 'group:ended-agents' })
-        expect(agentLines(await screen(ui, 41)).slice(0, 4)).toEqual([
-          'Agents  3 not listed',
-          '? Explore   not listed ▸ AskUserQues…  5m',
-          '? f0000010  not listed ▸ AskUserQues…  0s',
-          '[ +1 ended ]',
-        ])
+        expect(agentLines(await screen(ui, 41)).slice(0, 4)).toEqual(
+          bySurface(
+            surface,
+            [
+              'Agents  3 not listed',
+              '? Explore   not listed             5m',
+              '? f0000010  not listed             0s',
+              '[ +1 ended ]',
+            ],
+            [
+              'Agents  3 not listed',
+              '? Explore   not listed ▸ AskUserQues…  5m',
+              '? f0000010  not listed ▸ AskUserQues…  0s',
+              '[ +1 ended ]',
+            ],
+          ),
+        )
         await ui.unmount()
         ask.release()
         await flight
@@ -973,13 +1160,14 @@ describe(NAME_CRITERION, () => {
         seen.agents.push(listed(id, type, 'running'))
       }
       const ui = await mountTab($, surface, 'dock', 41)
+      const gap = bySurface(surface, '', '    ')
       expect(agentLines(await screen(ui, 41)).slice(1, 7)).toEqual([
-        '▶ gene…pose running              open  6s',
-        '▶ impl…nter running              open  5s',
-        '▶ code…ewer running              open  4s',
-        '▶ Explore   running              open  3s',
-        '▶ Explore 2 running              open  2s',
-        '▶ gene…se 2 running              open  1s',
+        `▶ gene…pose running          ${gap}open  6s`,
+        `▶ impl…nter running          ${gap}open  5s`,
+        `▶ code…ewer running          ${gap}open  4s`,
+        `▶ Explore   running          ${gap}open  3s`,
+        `▶ Explore 2 running          ${gap}open  2s`,
+        `▶ gene…se 2 running          ${gap}open  1s`,
       ])
       await ui.unmount()
     })
@@ -1016,7 +1204,7 @@ describe(NAME_CRITERION, () => {
       await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
       seen.agents.push(listed('i1', 'Explore', 'running', { name: 'a\u2028b' }))
       const ui = await mountTab($, 'terminal', 'dock', 41)
-      expect(agentLines(await screen(ui, 41))[1]).toBe('▶ a\\u2028b  running              open  0s')
+      expect(agentLines(await screen(ui, 41))[1]).toBe('▶ a\\u2028b  running          open  0s')
       expect(await ui.find({ type: 'Text', text: /\u2028/ })).toBeUndefined()
       await ui.unmount()
     },
@@ -1068,7 +1256,11 @@ describe(ORIGIN_CRITERION, () => {
         const ui = await mountTab($, surface, 'dock', 41)
         expect(agentLines(await screen(ui, 41))).toEqual([
           'Agents  1',
-          '▶ Explore   running   Bash grep… open  0s',
+          bySurface(
+            surface,
+            '▶ Explore   running          open  0s',
+            '▶ Explore   running   Bash grep… open  0s',
+          ),
           '',
         ])
         await ui.press({ key: 'open:agent:j1' })
@@ -1076,7 +1268,14 @@ describe(ORIGIN_CRITERION, () => {
           'find the element table',
           'under main · spawned 0s ago',
           '1 tool call',
+          'last calls',
+          '✓ ',
+          'Bash grep -rn Pane hooks',
+          '  0s',
+          'answer: ',
+          'none yet',
         ])
+
         await ui.press({ key: 'open:agent:j1' })
         expect(await ui.find({ type: 'Text', text: /AskUserQuestion|raised/ })).toBeUndefined()
         await ui.unmount()
@@ -1328,7 +1527,8 @@ describe(DRAW_WORK_CRITERION, () => {
           const ui = await mountTab($, surface, 'dock', 41)
           isCounting = false
           const lines = await screen(ui, 41)
-          expect(lines).toContain(`Agents  ${String(agents)}`)
+          expect(unframed(lines)).toContain(`Agents  ${String(agents)}`)
+
           const plans = lines.filter((line) => line.includes(`plan 0/${String(TASKS_PER_AGENT)}`))
           expect(plans).toHaveLength(Math.min(agents, ROWS_OF_ACTIVE_AGENTS))
           expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW)
@@ -1493,22 +1693,32 @@ const WAIT_SCREENS: readonly {
   columns: number
   session: string
   agents: readonly string[]
+  framed?: { session: string; agents: readonly string[] }
 }[] = [
   {
     placement: 'dock',
     columns: 41,
-    session: 'Session  ◆ 1 waits · ctx 62% · $4.18',
+    session: 'Session  ◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62%',
     agents: [
       'Agents  1 · 1 needs you',
       '◆ scout     needs you            open  2m',
       '    waits for: permission · Bash npm test',
       '',
     ],
+    framed: {
+      session: '◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62%',
+      agents: [
+        'Agents  1 · 1 needs you',
+        '◆ scout     needs you        open  2m',
+        '    waits for: permission · Bash npm…',
+        '',
+      ],
+    },
   },
   {
     placement: 'dock',
     columns: 30,
-    session: 'Session  ◆ 1 waits · ctx 62%',
+    session: 'Session  ◆ 1 waits',
     agents: [
       'Agents  1 · 1 needs you',
       '◆ scout     needs you open  2m',
@@ -1519,7 +1729,7 @@ const WAIT_SCREENS: readonly {
   {
     placement: 'inline',
     columns: 76,
-    session: 'Session  ◆ 1 waits · ctx 62% · $4.18',
+    session: 'Session  ◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.18',
     agents: [
       'Agents  1 · 1 needs you',
       '◆ scout      needs you  waits for: permission · Bash npm test       open  2m',
@@ -1529,7 +1739,7 @@ const WAIT_SCREENS: readonly {
 ]
 
 describe(NEEDS_YOU_CRITERION, () => {
-  for (const { placement, columns, session, agents } of WAIT_SCREENS) {
+  for (const { placement, columns, session, agents, framed } of WAIT_SCREENS) {
     test(
       `an ask that stays unsettled for 3 s draws needs you, the waits for line and the wait on the Session line, as mock 8.10e, at ${String(columns)} columns, ${placement}`,
       withWorkitems,
@@ -1542,8 +1752,10 @@ describe(NEEDS_YOU_CRITERION, () => {
         for (const surface of SURFACES) {
           const ui = await mountTab($, surface, placement, columns)
           const lines = await screen(ui, columns)
-          expect(lines[0]).toBe(session)
-          expect(agentLines(lines)).toEqual(agents)
+          const shown =
+            surface === 'terminal' && framed !== undefined ? framed : { session, agents }
+          expect(sessionHead(lines)).toBe(shown.session)
+          expect(agentLines(lines)).toEqual(shown.agents)
           await ui.unmount()
         }
         dialog.answer('allow')
@@ -1562,25 +1774,41 @@ describe(NEEDS_YOU_CRITERION, () => {
       await dialog.opened(1)
       await seen.clock.advance(NEEDS_YOU_AFTER_MS - 1)
       const shown = await Promise.all(SURFACES.map((surface) => mountTab($, surface, 'dock', 41)))
+      const [framed, flat] = shown
+      const rows = (ui: typeof framed, terminal: string, desktop: string) =>
+        ui === framed ? terminal : desktop
       for (const ui of shown) {
         const asked = await screen(ui, 41)
-        expect(asked[0]).toBe('Session  ctx 62% · $4.18')
+        expect(sessionHead(asked)).toBe(
+          rows(ui, 'ctx ▰▰▰▰▰▰▱▱▱▱ 62%', 'Session  ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.18'),
+        )
         expect(agentLines(asked)).toEqual([
           'Agents  1',
-          '▶ scout     asked     ▸ Bash np… open  2m',
+          rows(
+            ui,
+            '▶ scout     asked            open  2m',
+            '▶ scout     asked     ▸ Bash np… open  2m',
+          ),
           '',
         ])
       }
       await seen.clock.advance(1)
       for (const ui of shown) {
         const waits = await screen(ui, 41)
-        expect(waits[0]).toBe('Session  ◆ 1 waits · ctx 62% · $4.18')
+        expect(sessionHead(waits)).toBe(
+          rows(ui, '◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62%', 'Session  ◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62%'),
+        )
         expect(agentLines(waits).slice(0, 2)).toEqual([
           'Agents  1 · 1 needs you',
-          '◆ scout     needs you            open  2m',
+          rows(
+            ui,
+            '◆ scout     needs you        open  2m',
+            '◆ scout     needs you            open  2m',
+          ),
         ])
         await ui.unmount()
       }
+      expect(flat).toBeDefined()
       dialog.answer('allow')
       await call
     },
@@ -1607,16 +1835,36 @@ describe(NEEDS_YOU_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         const lines = await screen(ui, 41)
-        expect(lines[0]).toBe('Session  ◆ 2 wait · ctx 62% · $4.18')
-        expect(agentLines(lines)).toEqual([
-          'Agents  3 · 2 need you',
-          '◆ scout     needs you            open  2m',
-          '    waits for: permission · Bash npm test',
-          '◆ lane-b    needs you            open  3s',
-          '    waits for: permission · Bash npm run…',
-          '▶ Explore   running   ▸ Read a.… open  3s',
-          '',
-        ])
+        expect(sessionHead(lines)).toBe(
+          bySurface(
+            surface,
+            '◆ 2 wait · ctx ▰▰▰▰▰▰▱▱▱▱ 62%',
+            'Session  ◆ 2 wait · ctx ▰▰▰▰▰▰▱▱▱▱ 62%',
+          ),
+        )
+        expect(agentLines(lines)).toEqual(
+          bySurface(
+            surface,
+            [
+              'Agents  3 · 2 need you',
+              '◆ scout     needs you        open  2m',
+              '    waits for: permission · Bash npm…',
+              '◆ lane-b    needs you        open  3s',
+              '    waits for: permission · Bash npm…',
+              '▶ Explore   running          open  3s',
+              '',
+            ],
+            [
+              'Agents  3 · 2 need you',
+              '◆ scout     needs you            open  2m',
+              '    waits for: permission · Bash npm test',
+              '◆ lane-b    needs you            open  3s',
+              '    waits for: permission · Bash npm run…',
+              '▶ Explore   running   ▸ Read a.… open  3s',
+              '',
+            ],
+          ),
+        )
         await ui.unmount()
       }
       dialog.answer('allow')
@@ -1634,18 +1882,32 @@ async function waitingShown($: Engine): Promise<void> {
   for (const surface of SURFACES) {
     const ui = await mountTab($, surface, 'dock', 41)
     const lines = await screen(ui, 41)
-    expect(lines[0]).toBe('Session  ◆ 1 waits · ctx 62% · $4.18')
-    expect(agentLines(lines)[1]).toBe('◆ scout     needs you            open  2m')
+    expect(sessionHead(lines)).toBe(
+      bySurface(
+        surface,
+        '◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62%',
+        'Session  ◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62%',
+      ),
+    )
+    expect(agentLines(lines)[1]).toBe(
+      bySurface(
+        surface,
+        '◆ scout     needs you        open  2m',
+        '◆ scout     needs you            open  2m',
+      ),
+    )
     await ui.unmount()
   }
 }
 
-async function clearedRow($: Engine, row: string): Promise<void> {
+async function clearedRow($: Engine, framedRow: string, row: string): Promise<void> {
   for (const surface of SURFACES) {
     const ui = await mountTab($, surface, 'dock', 41)
     const lines = await screen(ui, 41)
-    expect(lines[0]).toBe('Session  ctx 62% · $4.18')
-    expect(agentLines(lines)).toEqual(['Agents  1', row, ''])
+    expect(sessionHead(lines)).toBe(
+      bySurface(surface, 'ctx ▰▰▰▰▰▰▱▱▱▱ 62%', 'Session  ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.18'),
+    )
+    expect(agentLines(lines)).toEqual(['Agents  1', bySurface(surface, framedRow, row), ''])
     expect(lines.join('\n')).not.toContain('◆')
     await ui.unmount()
   }
@@ -1664,7 +1926,11 @@ describe(CLEARS_CRITERION, () => {
       await waitingShown($)
       dialog.answer('allow')
       expect(await call).toEqual({ result: '' })
-      await clearedRow($, '▶ scout     running   Bash npm … open  2m')
+      await clearedRow(
+        $,
+        '▶ scout     running          open  2m',
+        '▶ scout     running   Bash npm … open  2m',
+      )
     },
   )
 
@@ -1677,7 +1943,11 @@ describe(CLEARS_CRITERION, () => {
     await waitingShown($)
     dialog.answer('deny')
     expect((await call).isError).toBe(true)
-    await clearedRow($, '▶ scout     running   Bash npm … open  2m')
+    await clearedRow(
+      $,
+      '▶ scout     running          open  2m',
+      '▶ scout     running   Bash npm … open  2m',
+    )
   })
 
   test(
@@ -1691,7 +1961,11 @@ describe(CLEARS_CRITERION, () => {
       await seen.clock.advance(NEEDS_YOU_AFTER_MS)
       await waitingShown($)
       await scoutTurnEnds($)
-      await clearedRow($, '▶ scout     running   ▸ Bash np… open  2m')
+      await clearedRow(
+        $,
+        '▶ scout     running          open  2m',
+        '▶ scout     running   ▸ Bash np… open  2m',
+      )
       dialog.answer('deny')
       await call
     },
@@ -1764,13 +2038,31 @@ for (const surface of SURFACES) {
   )
 }
 
-const CHECK_SCREENS: readonly { columns: number; lines: readonly string[] }[] = [
+const CHECK_SCREENS: readonly {
+  columns: number
+  lines: readonly string[]
+  framed: readonly string[]
+}[] = [
   {
     columns: 41,
+    framed: [
+      '╭─ Session ─────────────────────────────╮',
+      '│ ctx — until the first reply           │',
+      '│   checks 6 · 3 allowed · 2 asked      │',
+      '│   1 denied                            │',
+      '│   file 3 · shell 3 · other 0          │',
+      '│   [ hide checks ]                     │',
+      '│   denied   Bash GITHUB_TOKEN=*** git… │',
+      '│   allowed  Bash curl -H "Authorizati… │',
+      '│   asked    Edit docs/mocks.md         │',
+      '│   asked    Bash npm test   scout      │',
+      '│   allowed  Read hooks/agen…   Explore │',
+    ],
     lines: [
       'Session  ctx — until the first reply',
       '    checks 6 · 3 allowed · 2 asked',
       '    1 denied',
+      '    file 3 · shell 3 · other 0',
       '    [ hide checks ]',
       '    denied   Bash GITHUB_TOKEN=*** git p…',
       '    allowed  Bash curl -H "Authorization…',
@@ -1781,9 +2073,22 @@ const CHECK_SCREENS: readonly { columns: number; lines: readonly string[] }[] = 
   },
   {
     columns: 100,
+    framed: [
+      `╭─ Session ${'─'.repeat(88)}╮`,
+      `│ ${'ctx — until the first reply'.padEnd(96)} │`,
+      `│ ${'  checks 6 · 3 allowed · 2 asked · 1 denied'.padEnd(96)} │`,
+      `│ ${'  file 3 · shell 3 · other 0'.padEnd(96)} │`,
+      `│ ${'  [ hide checks ]'.padEnd(96)} │`,
+      `│ ${'  denied   Bash GITHUB_TOKEN=*** git push --force origin main'.padEnd(96)} │`,
+      `│ ${'  allowed  Bash curl -H "Authorization: ***" https://***@example.com/api?token=***'.padEnd(96)} │`,
+      `│ ${'  asked    Edit docs/mocks.md'.padEnd(96)} │`,
+      `│ ${'  asked    Bash npm test   scout'.padEnd(96)} │`,
+      `│ ${'  allowed  Read hooks/agents.ts   Explore'.padEnd(96)} │`,
+    ],
     lines: [
       'Session  ctx — until the first reply',
       '    checks 6 · 3 allowed · 2 asked · 1 denied',
+      '    file 3 · shell 3 · other 0',
       '    [ hide checks ]',
       '    denied   Bash GITHUB_TOKEN=*** git push --force origin main',
       '    allowed  Bash curl -H "Authorization: ***" https://***@example.com/api?token=***',
@@ -1795,7 +2100,7 @@ const CHECK_SCREENS: readonly { columns: number; lines: readonly string[] }[] = 
 ]
 
 describe(CHECKS_CRITERION, () => {
-  for (const { columns, lines } of CHECK_SCREENS) {
+  for (const { columns, lines: flat, framed } of CHECK_SCREENS) {
     test(
       `a press on the Session line and on last 5 checks shows the newest 5 checks, the verdict word first and the credentials masked, as mock 8.10d, at ${String(columns)} columns`,
       withWorkitems,
@@ -1808,6 +2113,7 @@ describe(CHECKS_CRITERION, () => {
           expect((await ui.find({ key: 'session:checks' }))?.text).toBe('last 5 checks')
           await ui.press({ key: 'session:checks' })
           const shown = await screen(ui, columns)
+          const lines = bySurface(surface, framed, flat)
           expect(shown.slice(0, lines.length)).toEqual(lines)
           const rows = shown.slice(0, lines.length).join('\n')
           for (const secret of SECRETS) expect(rows).not.toContain(secret)
@@ -1877,14 +2183,22 @@ describe(CLASSIFIER_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         expect(agentLines(await screen(ui, 41))[1]).toBe(
-          '▶ scout     asked     ▸ Bash np… open  2m',
+          bySurface(
+            surface,
+            '▶ scout     asked            open  2m',
+            '▶ scout     asked     ▸ Bash np… open  2m',
+          ),
         )
         await ui.unmount()
       }
       await seen.clock.advance(600)
       expect(await call).toEqual({ result: '' })
       await seen.clock.advance(NEEDS_YOU_AFTER_MS)
-      await clearedRow($, '▶ scout     running   Bash npm … open  2m')
+      await clearedRow(
+        $,
+        '▶ scout     running          open  2m',
+        '▶ scout     running   Bash npm … open  2m',
+      )
     },
   )
 })

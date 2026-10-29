@@ -2078,6 +2078,19 @@ async function expandedState($: Engine): Promise<unknown> {
 }
 
 const PANE_WIDTHS = [30, 45, 80] as const
+const FRAMED_FROM = 41
+const FRAME_COLUMNS = 4
+const THEME_KEYS: ReadonlySet<string> = new Set([
+  'success',
+  'error',
+  'warning',
+  'claude',
+  'planMode',
+  'merged',
+  'subtle',
+  'permission',
+  'autoAccept',
+])
 const RM_WIDTH = ' [ rm ]'.length
 const LONG_TITLE = 'Mods match the terminal palette, such as a WezTerm theme on navy'
 
@@ -2169,19 +2182,20 @@ describe('the pane rows fit the pane width', () => {
           requestId: PANE,
           props: paneProps('dock', columns),
         })
+        const body = columns >= FRAMED_FROM ? columns - FRAME_COLUMNS : columns
         const long = await rowOf(ui, 'task:1')
-        expect(drawnWidth(long)).toBe(columns)
+        expect(drawnWidth(long)).toBe(body)
         expect(texts(long).map((cell) => cell.text)).toEqual([
           '○ ',
           '1 ',
-          title.slice(0, columns - 4 - RM_WIDTH - 1),
+          title.slice(0, body - 4 - RM_WIDTH - 1),
           '…',
         ])
         expect((await ui.find({ key: 'open:task:1' }))?.text).toBe(
-          `${title.slice(0, columns - 4 - RM_WIDTH - 1)}…`,
+          `${title.slice(0, body - 4 - RM_WIDTH - 1)}…`,
         )
         const short = await rowOf(ui, 'task:2')
-        expect(drawnWidth(short) <= columns).toBe(true)
+        expect(drawnWidth(short) <= body).toBe(true)
         expect(texts(short).map((cell) => cell.text)).toEqual(['○ ', '2 ', 'You: ', 'Ship it'])
         expect((await ui.find({ key: 'open:task:2' }))?.text).toBe('Ship it')
         await ui.unmount()
@@ -2287,10 +2301,9 @@ describe('the pane rows fit the pane width', () => {
     await tasks.unmount()
     expect(colours).toContain('error')
     expect(colours).toContain('success')
+    expect(colours).toContain('planMode')
     expect(
-      colours.filter(
-        (colour) => typeof colour !== 'string' || !['success', 'error', 'warning'].includes(colour),
-      ),
+      colours.filter((colour) => typeof colour !== 'string' || !THEME_KEYS.has(colour)),
     ).toEqual([])
   })
 
@@ -2311,7 +2324,9 @@ describe('the pane rows fit the pane width', () => {
         })
       const before = await mountPane()
       await before.press({ key: 'open:task:1' })
-      expect((await before.find({ key: 'full:task:1' }))?.text).toStartWith(LONG_TITLE)
+      expect(framedTexts(drawnOf(await before.find({ key: 'full:task:1' }))).join(' ')).toStartWith(
+        LONG_TITLE,
+      )
       await before.unmount()
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       await $.tool.call({ tool: TOOL_ADD, title: `${LONG_TITLE} again` })
@@ -2358,7 +2373,7 @@ describe('the pane rows fit the pane width', () => {
         surface: 'terminal',
         component: 'Pane',
         requestId: PANE,
-        props: paneProps('dock', 45),
+        props: paneProps('dock', 60),
       })
       const row = await rowOf(ui, 'item:ab-5\u2028P1 ab-6')
       expect(texts(row).map((cell) => cell.text.trimEnd())).toEqual([
@@ -2427,6 +2442,40 @@ async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<s
   return lines
 }
 
+const FRAME_TOP = /^╭─ (.*?) ─+╮$/u
+const FRAME_SIDE = /^│ (.*) │$/u
+const FRAME_SIDES: ReadonlySet<string> = new Set(['│ ', ' │'])
+
+function unframed(lines: readonly string[]): string[] {
+  return lines.flatMap((line) => {
+    if (line.startsWith('╰')) return []
+    const top = FRAME_TOP.exec(line)
+    if (top !== null) return [top[1] ?? '']
+    const side = FRAME_SIDE.exec(line)
+    return [side === null ? line : (side[1] ?? '').trimEnd()]
+  })
+}
+
+function bySurface<T>(surface: Surface, terminal: T, desktop: T): T {
+  return surface === 'terminal' ? terminal : desktop
+}
+
+function framedTexts(element: Drawn | null): string[] {
+  if (element === null) return []
+  return texts(element)
+    .map((one) => one.text)
+    .filter((text) => !FRAME_SIDES.has(text))
+}
+
+function fromTasks(lines: readonly string[]): string[] {
+  const flat = unframed(lines)
+  return flat.slice(flat.findIndex((line) => line.startsWith('Tasks')))
+}
+
+function lineWith(lines: readonly string[], text: string): string | undefined {
+  return lines.find((line) => line.includes(text))
+}
+
 async function mountPane($: Engine, columns = WIDTH) {
   return $.ui.mount({
     plugin: PLUGIN,
@@ -2488,28 +2537,33 @@ describe('the pane follows the work', () => {
       await agentCall($, 'a1', 'hooks/')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        'Session  ctx — until the first reply',
-        'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 4m',
-        '▶ 2 Write the mocks                4m [ rm ]',
-        '    ▸ Edit docs/mocks.md             3 tools',
-        '○ 3 Commit the mocks                  [ rm ]',
-        '[ +1 done ]',
-        '────────────────────────────────────────────',
-        'Agents  1 not listed',
-        '[ +1 ended ]',
+        '╭─ Session ────────────────────────────────╮',
+        '│ ctx — until the first reply              │',
+        '│ limits — until the first reply           │',
+        '│ gate ▮▮▮▮▮ f4 o1                         │',
+        '╰──────────────────────────────────────────╯',
+        '╭─ Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 4m ────────────╮',
+        '│ ▶ 2 Write the mocks            4m [ rm ] │',
+        '│     ▸ Edit docs/mocks.md         3 tools │',
+        '│ ○ 3 Commit the mocks              [ rm ] │',
+        '│ [ +1 done ]                              │',
+        '╰──────────────────────────────────────────╯',
+        '╭─ Agents  1 not listed ───────────────────╮',
+        '│ [ +1 ended ]                             │',
+        '╰──────────────────────────────────────────╯',
         '',
         '[ Add a task ][Add]',
       ])
       await seen.clock.advance(MINUTE)
       await bash($, 'npm test')
-      expect((await screen(ui, WIDTH)).slice(1, 4)).toEqual([
-        'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 5m',
-        '▶ 2 Write the mocks                5m [ rm ]',
-        '    ▸ Bash npm test                  4 tools',
+      expect((await screen(ui, WIDTH)).slice(5, 8)).toEqual([
+        '╭─ Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 5m ────────────╮',
+        '│ ▶ 2 Write the mocks            5m [ rm ] │',
+        '│     ▸ Bash npm test              4 tools │',
       ])
       await $.tool.call({ tool: 'Bash', command: 'npm run lint', description: 'Lint the mods' })
-      expect((await screen(ui, WIDTH)).slice(3, 4)).toEqual([
-        '    ▸ Bash Lint the mods             5 tools',
+      expect((await screen(ui, WIDTH)).slice(7, 8)).toEqual([
+        '│     ▸ Bash Lint the mods         5 tools │',
       ])
       await ui.unmount()
     },
@@ -2542,47 +2596,57 @@ describe('the pane follows the work', () => {
         })
         await ui.press({ key: 'open:task:2' })
         const opened = drawnOf(await ui.find({ key: 'full:task:2' }))
-        expect(opened === null ? [] : texts(opened).map((line) => line.text)).toEqual([
-          LONG_TITLE,
-          'started 4m ago · 9 tools in all',
-        ])
-        expect(await screen(ui, WIDTH)).toEqual([
-          'Session  ctx — until the first reply',
-          'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 7m',
-          '▶ 2 Mods match the terminal palet… 4m [ rm ]',
-          '    ▸ Read src/file8.ts              9 tools',
-          '    Mods match the terminal palette, such as',
-          '    a WezTerm theme on navy',
-          '    started 4m ago · 9 tools in all',
-          '    [ done ] [ open ]',
-          '○ 3 Push after approval               [ rm ]',
-          '[ +1 done ]',
-          '',
-          '[ Add a task ][Add]',
-        ])
+        expect(framedTexts(opened)).toEqual(
+          bySurface(
+            surface,
+            [
+              'Mods match the terminal palette,',
+              'such as a WezTerm theme on navy',
+              'started 4m ago · 9 tools in all',
+            ],
+            [LONG_TITLE, 'started 4m ago · 9 tools in all'],
+          ),
+        )
+        expect(fromTasks(await screen(ui, WIDTH))).toEqual(
+          bySurface(
+            surface,
+            [
+              'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 7m',
+              '▶ 2 Mods match the terminal p… 4m [ rm ]',
+              '    ▸ Read src/file8.ts          9 tools',
+              '    Mods match the terminal palette,',
+              '    such as a WezTerm theme on navy',
+              '    started 4m ago · 9 tools in all',
+              '    [ done ] [ open ]',
+              '○ 3 Push after approval           [ rm ]',
+              '[ +1 done ]',
+              '',
+              '[ Add a task ][Add]',
+            ],
+            [
+              'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 7m',
+              '▶ 2 Mods match the terminal palet… 4m [ rm ]',
+              '    ▸ Read src/file8.ts              9 tools',
+              '    Mods match the terminal palette, such as',
+              '    a WezTerm theme on navy',
+              '    started 4m ago · 9 tools in all',
+              '    [ done ] [ open ]',
+              '○ 3 Push after approval               [ rm ]',
+              '[ +1 done ]',
+              '',
+              '[ Add a task ][Add]',
+            ],
+          ),
+        )
         await ui.press({ key: 'open:task:3' })
-        expect(
-          texts(
-            drawnOf(await ui.find({ key: 'full:task:3' })) ?? {
-              type: 'Box',
-              props: {},
-              text: '',
-              children: [],
-            },
-          ).map((line) => line.text),
-        ).toEqual(['not started yet'])
+        expect(framedTexts(drawnOf(await ui.find({ key: 'full:task:3' })))).toEqual([
+          'not started yet',
+        ])
         await ui.press({ key: 'done' })
         await ui.press({ key: 'open:task:1' })
-        expect(
-          texts(
-            drawnOf(await ui.find({ key: 'full:task:1' })) ?? {
-              type: 'Box',
-              props: {},
-              text: '',
-              children: [],
-            },
-          ).map((line) => line.text),
-        ).toEqual(['took 3m · 2 tools in all'])
+        expect(framedTexts(drawnOf(await ui.find({ key: 'full:task:1' })))).toEqual([
+          'took 3m · 2 tools in all',
+        ])
         for (const key of ['open:task:1', 'open:task:2', 'open:task:3', 'done']) {
           await ui.press({ key })
         }
@@ -2602,7 +2666,7 @@ describe('the pane follows the work', () => {
       await start($)
       await publish($, okSnapshot([]))
       const before = await mountPane($)
-      expect((await screen(before, WIDTH)).slice(1, 3)).toEqual([
+      expect(fromTasks(await screen(before, WIDTH)).slice(0, 2)).toEqual([
         'Tasks  none in this session yet',
         'Open in tracker: beads · no open items',
       ])
@@ -2618,14 +2682,19 @@ describe('the pane follows the work', () => {
       await bash($, 'npm test')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        'Session  ctx — until the first reply',
-        'Tasks  none kept by Claude',
-        '▶ Now  Bash npm test            5 tools · 3m',
-        '  Read 2 · Edit 2 · Bash 1',
-        'Open in tracker: beads · no open items',
-        '────────────────────────────────────────────',
-        'Agents  1 not listed',
-        '[ +1 ended ]',
+        '╭─ Session ────────────────────────────────╮',
+        '│ ctx — until the first reply              │',
+        '│ limits — until the first reply           │',
+        '│ gate ▮▮▮▮▮▮ f4 s1 o1                     │',
+        '╰──────────────────────────────────────────╯',
+        '╭─ Tasks  none kept by Claude ─────────────╮',
+        '│ ▶ Now  Bash npm test        5 tools · 3m │',
+        '│   Read 2 · Edit 2 · Bash 1               │',
+        '│ Open in tracker: beads · no open items   │',
+        '╰──────────────────────────────────────────╯',
+        '╭─ Agents  1 not listed ───────────────────╮',
+        '│ [ +1 ended ]                             │',
+        '╰──────────────────────────────────────────╯',
         '',
         '[ Add a task ][Add]',
       ])
@@ -2634,8 +2703,11 @@ describe('the pane follows the work', () => {
       await ui.unmount()
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       const cleared = await mountPane($)
-      expect((await screen(cleared, WIDTH)).slice(0, 3)).toEqual([
-        'Session  ctx — until the first reply',
+      expect(unframed(await screen(cleared, WIDTH)).slice(0, 6)).toEqual([
+        'Session',
+        'ctx — until the first reply',
+        'limits — until the first reply',
+        'gate no checks yet',
         'Tasks  none in this session yet',
         'Open in tracker: beads · no open items',
       ])
@@ -2666,9 +2738,9 @@ describe('the pane follows the work', () => {
       expect(await ui.find({ key: 'plan-warning' })).toBeUndefined()
       expect(await ui.find({ key: 'ask-plan' })).toBeUndefined()
       await read($, 'one-more.ts')
-      expect((await screen(ui, WIDTH)).slice(1, 6)).toEqual([
+      expect(fromTasks(await screen(ui, WIDTH)).slice(0, 5)).toEqual([
         'Tasks  none kept by Claude',
-        '▶ Now  Read one-more.ts        20 tools · 0s',
+        '▶ Now  Read one-more.ts    20 tools · 0s',
         '  Read 20',
         'No plan from Claude for 20 tool calls.',
         '[ Ask Claude for a plan ]',
@@ -2699,12 +2771,17 @@ describe('the pane follows the work', () => {
       await readsOf($, 20)
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        'Session  ctx — until the first reply',
-        'Tasks  ▱ 0/1 · ○1 · 0s',
-        '▶ Now  Read src/file19.ts      20 tools · 0s',
-        '○ 1 Write the mocks                   [ rm ]',
-        'No plan update for 20 tool calls.',
-        '[ Ask Claude for a plan ]',
+        '╭─ Session ────────────────────────────────╮',
+        '│ ctx — until the first reply              │',
+        '│ limits — until the first reply           │',
+        '│ gate ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮ f20            │',
+        '╰──────────────────────────────────────────╯',
+        '╭─ Tasks  ▱ 0/1 · ○1 · 0s ─────────────────╮',
+        '│ ▶ Now  Read src/file19.ts  20 tools · 0s │',
+        '│ ○ 1 Write the mocks               [ rm ] │',
+        '│ No plan update for 20 tool calls.        │',
+        '│ [ Ask Claude for a plan ]                │',
+        '╰──────────────────────────────────────────╯',
         '',
         '[ Add a task ][Add]',
       ])
@@ -2753,19 +2830,19 @@ describe('the pane follows the work', () => {
       await bash($, 'echo hi\u2028▶ Now  forged\u202e')
       await agentCall($, 'a1', 'x\u2029y')
       const ui = await mountPane($, 80)
-      const lines = await screen(ui, 80)
-      expect(lines.slice(1, 3)).toEqual([
+      const lines = unframed(await screen(ui, 80))
+      expect(fromTasks(lines).slice(0, 2)).toEqual([
         'Tasks  none kept by Claude',
-        '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                         1 tool · 0s',
+        '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                     1 tool · 0s',
       ])
       expect(lines.filter((line) => line.startsWith('▶ a'))).toEqual([
-        '▶ a\\u2028b  running   mcp__search__grep x… ctx —   ···················━ open  0s',
+        '▶ a\\u2028b  running   mcp__search__gr… ctx —   ···················━ open  0s',
       ])
       expect(await ui.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
       await ui.unmount()
       const narrow = await mountPane($, 79)
-      expect((await screen(narrow, 79)).filter((line) => line.startsWith('▶ a'))).toEqual([
-        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                       open  0s',
+      expect(unframed(await screen(narrow, 79)).filter((line) => line.startsWith('▶ a'))).toEqual([
+        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                   open  0s',
       ])
       expect(await narrow.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
       await narrow.unmount()
@@ -2802,7 +2879,7 @@ describe('the work tracker never blocks or repeats a call', () => {
       expect(answer.result).toBe('read')
       expect(runs).toBe(1)
       const ui = await mountPane($)
-      expect((await screen(ui, WIDTH))[1]).toBe('Tasks  none in this session yet')
+      expect(fromTasks(await screen(ui, WIDTH))[0]).toBe('Tasks  none in this session yet')
       await ui.unmount()
     },
   )
@@ -2876,14 +2953,15 @@ describe('the redraw timer', () => {
       await seen.clock.set(START + 55_000)
       await read($, 'docs/mocks.md')
       const ui = await mountPane($)
-      expect((await screen(ui, WIDTH))[2]).toBe('▶ 1 Write the mocks               55s [ rm ]')
+      const row = async () => lineWith(await screen(ui, WIDTH), '▶ 1 Write')
+      expect(await row()).toBe('│ ▶ 1 Write the mocks           55s [ rm ] │')
       await seen.clock.advance(10_000)
-      expect((await screen(ui, WIDTH))[2]).toBe('▶ 1 Write the mocks                1m [ rm ]')
+      expect(await row()).toBe('│ ▶ 1 Write the mocks            1m [ rm ] │')
       expect(await paneCommandOf($)).toBe('Board closed.')
       const asked = seen.panesAsked
       await seen.clock.advance(60_000)
       expect(seen.panesAsked).toBe(asked)
-      expect((await screen(ui, WIDTH))[2]).toBe('▶ 1 Write the mocks                1m [ rm ]')
+      expect(await row()).toBe('│ ▶ 1 Write the mocks            1m [ rm ] │')
       await ui.unmount()
     },
   )
@@ -2903,7 +2981,9 @@ describe('the redraw timer', () => {
       const ui = await mountPane($)
       expect(await paneCommandOf($)).toBe('Board closed.')
       await seen.clock.advance(10_000)
-      expect((await screen(ui, WIDTH))[2]).toBe('▶ 1 Write the mocks                1m [ rm ]')
+      expect(lineWith(await screen(ui, WIDTH), '▶ 1 Write')).toBe(
+        '│ ▶ 1 Write the mocks            1m [ rm ] │',
+      )
       await ui.unmount()
     },
   )
@@ -3042,13 +3122,14 @@ describe('the empty pane reaches every open tracker item', () => {
         expect(await itemKeys()).toEqual(MANY.map((one) => `add:${one.id}`))
         expect((await ui.find({ key: 'all-items' }))?.text).toBe('first 10')
         expect((await ui.find({ key: 'add-all' }))?.text).toBe('Add 12 as tasks')
-        const lines = await screen(ui, WIDTH)
-        expect(lines.slice(2, 4)).toEqual([
+        const lines = fromTasks(await screen(ui, WIDTH))
+        const gap = bySurface(surface, '', '    ')
+        expect(lines.slice(1, 3)).toEqual([
           'Open in tracker: beads · 12 open',
-          'P2 app-10 Open item 10               [ add ]',
+          `P2 app-10 Open item 10           ${gap}[ add ]`,
         ])
-        expect(lines.slice(14, 17)).toEqual([
-          'P2 app-21 Open item 21               [ add ]',
+        expect(lines.slice(13, 16)).toEqual([
+          `P2 app-21 Open item 21           ${gap}[ add ]`,
           '[ first 10 ]  [ Add 12 as tasks ]',
           'No agents yet.',
         ])
@@ -3572,12 +3653,30 @@ const SESSION_SCREENS: readonly {
   placement: 'dock' | 'inline'
   columns: number
   lines: readonly string[]
+  framed?: readonly string[]
 }[] = [
   {
     placement: 'dock',
     columns: 41,
+    framed: [
+      '╭─ Session ─────────────────────────────╮',
+      '│ ctx — until the first reply           │',
+      '│ limits — until the first reply        │',
+      '│ gate ▮▮▮▮▮▮▮▮▮▮ f10                   │',
+      '╰───────────────────────────────────────╯',
+      '╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ───────╮',
+      '│ ▶ 2 Write the tab mocks     4m [ rm ] │',
+      '│     ▸ Edit docs/mocks.md      9 tools │',
+      '│ ○ 3 Review the mocks with Cod… [ rm ] │',
+      '│ ○ 4 You: Ask the person about… [ rm ] │',
+      '│ [ +1 done ]                           │',
+      '╰───────────────────────────────────────╯',
+      '',
+      '[ Add a task ][Add]',
+    ],
     lines: [
       'Session  ctx — until the first reply',
+      'gate ▮▮▮▮▮▮▮▮▮▮ f10',
       'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
@@ -3593,6 +3692,7 @@ const SESSION_SCREENS: readonly {
     columns: 30,
     lines: [
       'Session  ctx —',
+      'gate ▮▮▮▮▮▮▮▮▮▮ f10',
       'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
@@ -3608,6 +3708,7 @@ const SESSION_SCREENS: readonly {
     columns: 80,
     lines: [
       'Session  ctx — until the first reply',
+      '    gate ▮▮▮▮▮▮▮▮▮▮ f10',
       'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
       '○ 3 Review the mocks with Codex                                           [ rm ]',
@@ -3620,9 +3721,9 @@ const SESSION_SCREENS: readonly {
 ]
 
 describe(SESSION_TAB_CRITERION, () => {
-  for (const { placement, columns, lines } of SESSION_SCREENS) {
+  for (const { placement, columns, lines, framed } of SESSION_SCREENS) {
     test(
-      `the task rows and the done fold draw as mock 8.1a at ${String(columns)} columns, ${placement}`,
+      `the task rows and the done fold draw as mock 8.1a at ${String(columns)} columns, ${placement}, framed on the terminal from body 41`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -3630,7 +3731,8 @@ describe(SESSION_TAB_CRITERION, () => {
         await mockWork($, seen)
         for (const surface of SURFACES) {
           const ui = await mountTab($, surface, PANE, placement, columns)
-          expect(await screen(ui, columns)).toEqual(lines)
+          const expected = surface === 'terminal' && framed !== undefined ? framed : lines
+          expect(await screen(ui, columns)).toEqual(expected)
           await ui.unmount()
         }
       },
@@ -3649,13 +3751,27 @@ describe(SESSION_TAB_CRITERION, () => {
         const ui = await mountTab($, surface, PANE, 'dock', 41)
         await toldAtNextPrompt($)
         await ui.press({ key: 'open:task:4' })
-        expect((await screen(ui, 41)).slice(4, 9)).toEqual([
-          '○ 3 Review the mocks with Codex    [ rm ]',
-          '○ 4 You: Ask the person about tabs [ rm ]',
-          '    not started yet',
-          '    [ done ] [ start ]',
-          '    [ up ] [ down ]',
-        ])
+        expect(fromTasks(await screen(ui, 41)).slice(3, 9)).toEqual(
+          bySurface(
+            surface,
+            [
+              '○ 3 Review the mocks with Cod… [ rm ]',
+              '○ 4 You: Ask the person about… [ rm ]',
+              '    Ask the person about tabs',
+              '    not started yet',
+              '    [ done ] [ start ]',
+              '    [ up ] [ down ]',
+            ],
+            [
+              '○ 3 Review the mocks with Codex    [ rm ]',
+              '○ 4 You: Ask the person about tabs [ rm ]',
+              '    not started yet',
+              '    [ done ] [ start ]',
+              '    [ up ] [ down ]',
+              '[ +1 done ]',
+            ],
+          ),
+        )
         const toastsBefore = seen.toasts.length
         await ui.press({ key: 'up:4:3' })
         expect(seen.toasts).toHaveLength(toastsBefore)
@@ -3671,13 +3787,27 @@ describe(SESSION_TAB_CRITERION, () => {
             '  3  pending      claude   "Review the mocks with Codex"',
           ].join('\n'),
         ])
-        expect((await screen(ui, 41)).slice(4, 9)).toEqual([
-          '○ 4 You: Ask the person about tabs [ rm ]',
-          '    not started yet',
-          '    [ done ] [ start ]',
-          '    [ up ] [ down ]',
-          '○ 3 Review the mocks with Codex    [ rm ]',
-        ])
+        expect(fromTasks(await screen(ui, 41)).slice(3, 9)).toEqual(
+          bySurface(
+            surface,
+            [
+              '○ 4 You: Ask the person about… [ rm ]',
+              '    Ask the person about tabs',
+              '    not started yet',
+              '    [ done ] [ start ]',
+              '    [ up ] [ down ]',
+              '○ 3 Review the mocks with Cod… [ rm ]',
+            ],
+            [
+              '○ 4 You: Ask the person about tabs [ rm ]',
+              '    not started yet',
+              '    [ done ] [ start ]',
+              '    [ up ] [ down ]',
+              '○ 3 Review the mocks with Codex    [ rm ]',
+              '[ +1 done ]',
+            ],
+          ),
+        )
         await ui.press({ key: 'up:4:2' })
         expect(seen.toasts.at(-1)).toEqual(['○ Nothing changed', 'task 4 is already first'])
         expect(seen.toasts).toHaveLength(toastsBefore + 1)
@@ -3690,7 +3820,7 @@ describe(SESSION_TAB_CRITERION, () => {
         expect(seen.toasts.at(-1)).toEqual(['○ Nothing changed', 'task 4 is already last'])
         await ui.unmount()
         const narrow = await mountTab($, surface, PANE, 'dock', 30)
-        expect((await screen(narrow, 30)).slice(5, 10)).toEqual([
+        expect(fromTasks(await screen(narrow, 30)).slice(4, 9)).toEqual([
           '○ 4 You: Ask the perso… [ rm ]',
           '    Ask the person about tabs',
           '    not started yet',
@@ -3714,9 +3844,9 @@ describe(SESSION_TAB_CRITERION, () => {
       await ui.press({ key: 'open:task:2' })
       expect(await ui.find({ key: 'up:2' })).toBeUndefined()
       expect(await ui.find({ key: 'down:2' })).toBeUndefined()
-      expect((await screen(ui, 41)).slice(2, 6)).toEqual([
-        '▶ 2 Write the tab mocks         4m [ rm ]',
-        '    ▸ Edit docs/mocks.md          9 tools',
+      expect(fromTasks(await screen(ui, 41)).slice(1, 5)).toEqual([
+        '▶ 2 Write the tab mocks     4m [ rm ]',
+        '    ▸ Edit docs/mocks.md      9 tools',
         '    started 4m ago · 9 tools in all',
         '    [ done ] [ open ]',
       ])
@@ -3740,17 +3870,19 @@ describe(SESSION_TAB_CRITERION, () => {
       await publish($, okSnapshot(many))
       for (const surface of SURFACES) {
         const wide = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(wide, 41)).slice(1, 4)).toEqual([
+        const gap = bySurface(surface, '', '    ')
+        expect(fromTasks(await screen(wide, 41)).slice(0, 3)).toEqual([
           'Tasks  none in this session yet',
           'Open in tracker: beads · 12 open',
-          'P2 app-10 Open item 10            [ add ]',
+          `P2 app-10 Open item 10        ${gap}[ add ]`,
         ])
-        expect((await screen(wide, 41)).slice(13)).toEqual([
+        expect(fromTasks(await screen(wide, 41)).slice(12)).toEqual([
           '[ all 12 open ]  [ Add 10 as tasks ]',
           'No agents yet.',
           '',
           '[ Add a task ][Add]',
         ])
+
         await wide.unmount()
         const narrow = await mountTab($, surface, PANE, 'dock', 30)
         expect((await screen(narrow, 30)).slice(-5)).toEqual([
@@ -3816,11 +3948,11 @@ describe('a tool call that another plugin raises, such as the workitems approval
       expect(await board($, '')).toBe('Board opened: this session.')
       const ui = await mountPane($)
       expect(await ui.find({ key: 'row:now' })).toBeUndefined()
-      expect((await screen(ui, WIDTH))[1]).toBe('Tasks  none in this session yet')
+      expect(fromTasks(await screen(ui, WIDTH))[0]).toBe('Tasks  none in this session yet')
       await ui.unmount()
       await read($, 'docs/design.md')
       const worked = await mountPane($)
-      expect((await screen(worked, WIDTH))[1]).toBe('Tasks  none kept by Claude')
+      expect(fromTasks(await screen(worked, WIDTH))[0]).toBe('Tasks  none kept by Claude')
       expect(await worked.find({ type: 'Text', text: /AskUserQuestion/ })).toBeUndefined()
       await worked.unmount()
     },
@@ -3933,7 +4065,9 @@ describe(RING_CRITERION, () => {
         ])
         expect(all.read).toEqual(all.keys)
         await ui.press({ key: 'more:item:handily-hw07' })
-        expect(await ui.find({ type: 'Text', text: LONG_TITLE })).toBeDefined()
+        expect(
+          framedTexts(drawnOf(await ui.find({ key: 'full:item:handily-hw07' }))).join(' '),
+        ).toBe(LONG_TITLE)
         expect((await ringOf(ui, 45)).keys).toEqual(all.keys)
         await ui.press({ key: 'more:item:handily-hw07' })
         await ui.press({ key: 'all-items' })
@@ -3986,22 +4120,47 @@ describe(PRESS_DONE_CRITERION, () => {
           '✓ Task 3 is now done',
           '"Review the mocks with Codex"',
         ])
-        expect((await screen(ui, 41))[1]).toBe('Tasks  ▰▰▰▱ 2/4 · ▶1 ○1 · 14m')
+        expect(fromTasks(await screen(ui, 41))[0]).toBe('Tasks  ▰▰▰▱ 2/4 · ▶1 ○1 · 14m')
         await ui.press({ key: 'done' })
         const row = await rowOf(ui, 'task:3')
-        expect(texts(row).map((cell) => [cell.text, cell.props.color])).toEqual([
-          ['✓ ', 'success'],
-          ['3 ', undefined],
-          ['Review the mocks with Codex', undefined],
-        ])
+        expect(texts(row).map((cell) => [cell.text, cell.props.color])).toEqual(
+          bySurface(
+            surface,
+            [
+              ['✓ ', 'success'],
+              ['3 ', undefined],
+              ['Review the mocks with Cod', undefined],
+              ['…', undefined],
+            ],
+            [
+              ['✓ ', 'success'],
+              ['3 ', undefined],
+              ['Review the mocks with Codex', undefined],
+            ],
+          ),
+        )
         expect(texts(row).at(-1)?.props.dimColor).toBe(true)
-        expect((await screen(ui, 41)).slice(-7, -2)).toEqual([
-          '✓ 3 Review the mocks with Codex    [ rm ]',
-          '    done; never seen in progress',
-          '    [ start ] [ open ]',
-          '    [ up ] [ down ]',
-          '[ clear done ]',
-        ])
+        const shown = unframed(await screen(ui, 41))
+        expect(shown.slice(bySurface(surface, -8, -7), -2)).toEqual(
+          bySurface(
+            surface,
+            [
+              '✓ 3 Review the mocks with Cod… [ rm ]',
+              '    Review the mocks with Codex',
+              '    done; never seen in progress',
+              '    [ start ] [ open ]',
+              '    [ up ] [ down ]',
+              '[ clear done ]',
+            ],
+            [
+              '✓ 3 Review the mocks with Codex    [ rm ]',
+              '    done; never seen in progress',
+              '    [ start ] [ open ]',
+              '    [ up ] [ down ]',
+              '[ clear done ]',
+            ],
+          ),
+        )
         expect(session.appended()).toEqual([])
         expect(await toldAtNextPrompt($)).toEqual([
           [
@@ -4226,11 +4385,16 @@ describe(CLEAR_CRITERION, () => {
         const ui = await mountTab($, surface, PANE, 'dock', 41)
         expect(await ui.find({ key: 'clear-done' })).toBeUndefined()
         await ui.press({ key: 'done' })
-        expect((await screen(ui, 41)).slice(5, 10)).toEqual([
-          '○ 4 You: Ask the person about tabs [ rm ]',
+        const gap = bySurface(surface, '', '    ')
+        expect(fromTasks(await screen(ui, 41)).slice(4, 9)).toEqual([
+          bySurface(
+            surface,
+            '○ 4 You: Ask the person about… [ rm ]',
+            '○ 4 You: Ask the person about tabs [ rm ]',
+          ),
           '[ hide 2 done ]',
-          '✓ 1 Read the design                [ rm ]',
-          '✓ 5 Draw the narrow dock           [ rm ]',
+          `✓ 1 Read the design            ${gap}[ rm ]`,
+          `✓ 5 Draw the narrow dock       ${gap}[ rm ]`,
           '[ clear done ]',
         ])
         const ring = (await ui.findAll({ type: 'Button' })).map((button) => button.key)
@@ -4244,7 +4408,9 @@ describe(CLEAR_CRITERION, () => {
         ])
         await ui.press({ key: 'clear-done' })
         expect(seen.toasts.at(-1)).toEqual(['✓ Cleared 2 done tasks', 'tasks 1, 5'])
-        expect((await screen(ui, 41)).slice(1, 2)).toEqual(['Tasks  ▰▱▱ 0/3 · ▶1 ○2 · 14m'])
+        expect(fromTasks(await screen(ui, 41)).slice(0, 1)).toEqual([
+          'Tasks  ▰▱▱ 0/3 · ▶1 ○2 · 14m',
+        ])
         expect(await ui.find({ key: 'done' })).toBeUndefined()
         expect(await ui.find({ key: 'clear-done' })).toBeUndefined()
         expect(await toldAtNextPrompt($)).toEqual([
@@ -4387,11 +4553,18 @@ describe(ONE_PRESS_RM_CRITERION, () => {
         await ui.press({ key: 'rm:1' })
         await ui.press({ key: 'rm:2' })
         expect(seen.toasts).toEqual([])
-        expect(await screen(ui, 41)).toEqual([
-          'Session  ctx — until the first reply',
+        expect(fromTasks(await screen(ui, 41))).toEqual([
           'Tasks  ▱ 0/1 · ○1 · 14m',
-          '▶ Now  Edit docs/mocks.md  10 tools · 14m',
-          '○ 4 You: Ask the person about tabs [ rm ]',
+          bySurface(
+            surface,
+            '▶ Now  Edit docs/mock… 10 tools · 14m',
+            '▶ Now  Edit docs/mocks.md  10 tools · 14m',
+          ),
+          bySurface(
+            surface,
+            '○ 4 You: Ask the person about… [ rm ]',
+            '○ 4 You: Ask the person about tabs [ rm ]',
+          ),
           '',
           '[ Add a task ][Add]',
         ])
@@ -4844,6 +5017,17 @@ async function mainTurnEnds($: Engine, turnId: string): Promise<void> {
   })
 }
 
+const SESSION_HEAD_KEY = /^session(-more|-money)?(:\d+)?$/u
+const SESSION_TITLE_LEAD = /^Session( {2})?/u
+const UNTIL_REPLY = 'ctx — until the first reply'
+const LIMITS_UNTIL_REPLY = `${UNTIL_REPLY} · limits — until the first reply`
+
+function headRows(element: Drawn): Drawn[] {
+  const key = element.props.key
+  if (typeof key === 'string' && SESSION_HEAD_KEY.test(key)) return [element]
+  return element.children.flatMap(headRows)
+}
+
 async function sessionLine(
   $: Engine,
   surface: Surface,
@@ -4851,9 +5035,35 @@ async function sessionLine(
   columns: number,
 ): Promise<string> {
   const ui = await mountTab($, surface, PANE, placement, columns)
-  const [line = ''] = await screen(ui, columns)
+  const root = drawnOf(await ui.find({ type: 'Box' }))
+  await screen(ui, columns)
   await ui.unmount()
-  return line
+  return (root === null ? [] : headRows(root))
+    .map((row) => row.text.replace(SESSION_TITLE_LEAD, ''))
+    .filter((text) => text !== '')
+    .join(' · ')
+}
+
+async function receiptLine(
+  $: Engine,
+  surface: Surface,
+  columns = 41,
+  placement: 'dock' | 'inline' = 'dock',
+): Promise<string> {
+  const ui = await mountTab($, surface, PANE, placement, columns)
+
+  const row = drawnOf(await ui.find({ key: 'session-receipt' }))
+  await ui.unmount()
+  return row === null ? '' : row.text
+}
+
+function sessionRows(lines: readonly string[]): string[] {
+  const flat = unframed(lines)
+  const rows = flat.slice(
+    0,
+    flat.findIndex((line) => line.startsWith('Tasks')),
+  )
+  return lines[0]?.startsWith('╭') === true ? rows.slice(1) : rows
 }
 
 async function sessionTexts($: Engine, surface: Surface, columns: number): Promise<Drawn[]> {
@@ -4863,21 +5073,44 @@ async function sessionTexts($: Engine, surface: Surface, columns: number): Promi
   return row === null ? [] : texts(row)
 }
 
+const CTX_62 = 'ctx ▰▰▰▰▰▰▱▱▱▱ 62%'
+const TURN_RECEIPT = 'turn 0s · 0 edits · 0 errors · +$0.31'
+const MOCK_GATE = 'gate ▮▮▮▮▮▮▮▮▮▮ f10'
+
 const TURN_LINES: readonly {
   placement: 'dock' | 'inline'
   columns: number
-  line: string
+  lines: readonly string[]
+  framed?: readonly string[]
 }[] = [
-  { placement: 'dock', columns: 30, line: 'Session  ctx 62% · $4.18' },
-  { placement: 'dock', columns: 41, line: 'Session  ctx 62% · $4.18 · turn +$0.31' },
-  { placement: 'inline', columns: 76, line: 'Session  ctx 62% · $4.18 · turn +$0.31' },
-  { placement: 'dock', columns: 89, line: 'Session  ctx 62% · $4.18 · turn +$0.31' },
+  {
+    placement: 'dock',
+    columns: 30,
+    lines: [`Session  ${CTX_62}`, '$4.18', 'turn 0s · 0 edits · +$0.31', MOCK_GATE],
+  },
+  {
+    placement: 'dock',
+    columns: 41,
+    lines: [`Session  ${CTX_62} · $4.18`, TURN_RECEIPT, MOCK_GATE],
+    framed: [CTX_62, '$4.18', TURN_RECEIPT, MOCK_GATE],
+  },
+  {
+    placement: 'inline',
+    columns: 76,
+    lines: [`Session  ${CTX_62} · $4.18`, `    ${TURN_RECEIPT}`, `    ${MOCK_GATE}`],
+  },
+  {
+    placement: 'dock',
+    columns: 89,
+    lines: [`Session  ${CTX_62} · $4.18`, TURN_RECEIPT, MOCK_GATE],
+    framed: [CTX_62, '$4.18', TURN_RECEIPT, MOCK_GATE],
+  },
 ]
 
 describe(SESSION_LINE_CRITERION, () => {
-  for (const { placement, columns, line } of TURN_LINES) {
+  for (const { placement, columns, lines, framed } of TURN_LINES) {
     test(
-      `a turn that runs draws the Session line first, as mock 8.10b, at ${String(columns)} columns, ${placement}`,
+      `a turn that runs draws the Session section first, as mock B1, at ${String(columns)} columns, ${placement}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -4888,8 +5121,10 @@ describe(SESSION_LINE_CRITERION, () => {
         await measure($, { percent: 62, usd: 4.18 })
         for (const surface of SURFACES) {
           const ui = await mountTab($, surface, PANE, placement, columns)
-          const lines = await screen(ui, columns)
-          expect(lines.slice(0, 2)).toEqual([line, 'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m'])
+          const shown = await screen(ui, columns)
+          const expected = surface === 'terminal' && framed !== undefined ? framed : lines
+          expect(sessionRows(shown)).toEqual(expected)
+          expect(fromTasks(shown)[0]).toBe('Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m')
           await ui.unmount()
         }
       },
@@ -4897,7 +5132,7 @@ describe(SESSION_LINE_CRITERION, () => {
   }
 
   test(
-    'the line cuts whole pieces from the right as the body narrows: the turn cost, then the cost, and keeps the context',
+    'the head moves whole pieces to the next line as the body narrows, and the context keeps its gauge and percent',
     withWorkitems,
     async ($, on) => {
       world(on)
@@ -4906,12 +5141,15 @@ describe(SESSION_LINE_CRITERION, () => {
       await mainTurnStarts($, 'turn-1')
       await measure($, { usd: 4.18 })
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 38)).toBe(
-          'Session  ctx 62% · $4.18 · turn +$0.31',
-        )
-        expect(await sessionLine($, surface, 'dock', 37)).toBe('Session  ctx 62% · $4.18')
-        expect(await sessionLine($, surface, 'dock', 24)).toBe('Session  ctx 62% · $4.18')
-        expect(await sessionLine($, surface, 'dock', 23)).toBe('Session  ctx 62%')
+        const head = async (columns: number) => {
+          const ui = await mountTab($, surface, PANE, 'dock', columns)
+          const rows = sessionRows(await screen(ui, columns))
+          await ui.unmount()
+          return rows.slice(0, -1)
+        }
+        expect(await head(40)).toEqual([`Session  ${CTX_62} · $4.18`])
+        expect(await head(34)).toEqual([`Session  ${CTX_62}`, '$4.18'])
+        expect(await head(24)).toEqual(['Session', CTX_62, '$4.18'])
       }
     },
   )
@@ -4924,9 +5162,9 @@ describe(SESSION_LINE_CRITERION, () => {
       await start($)
       for (const surface of SURFACES) {
         expect(await sessionLine($, surface, 'dock', 41)).toBe(
-          'Session  ctx — until the first reply',
+          bySurface(surface, LIMITS_UNTIL_REPLY, UNTIL_REPLY),
         )
-        expect(await sessionLine($, surface, 'dock', 30)).toBe('Session  ctx —')
+        expect(await sessionLine($, surface, 'dock', 30)).toBe('ctx —')
       }
     },
   )
@@ -4945,7 +5183,7 @@ describe(SESSION_LINE_CRITERION, () => {
       })
       await start($)
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 40% · $2.50')
+        expect(await sessionLine($, surface, 'dock', 41)).toBe('ctx ▰▰▰▰▱▱▱▱▱▱ 40% · $2.50')
       }
     },
   )
@@ -4959,10 +5197,10 @@ describe(SESSION_LINE_CRITERION, () => {
       await measure($, { usd: 0 })
       for (const surface of SURFACES) {
         expect(await sessionLine($, surface, 'dock', 41)).toBe(
-          'Session  ctx — until the first reply',
+          bySurface(surface, LIMITS_UNTIL_REPLY, UNTIL_REPLY),
         )
         expect(await sessionLine($, surface, 'dock', 89)).toBe(
-          'Session  ctx — until the first reply',
+          bySurface(surface, LIMITS_UNTIL_REPLY, UNTIL_REPLY),
         )
       }
     },
@@ -4978,20 +5216,22 @@ describe(SESSION_LINE_CRITERION, () => {
       await mainTurnStarts($, 'turn-1')
       await measure($, { usd: 4.8 })
       await mainTurnEnds($, 'turn-1')
-      expect(await sessionLine($, 'terminal', 'dock', 89)).toBe(
-        'Session  ctx 91% high · $4.80 · last +$0.62',
-      )
+      expect(await sessionLine($, 'terminal', 'dock', 89)).toBe('ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · $4.80')
+      expect(await receiptLine($, 'terminal', 89)).toBe('last 0s · 0 edits · 0 errors · +$0.62')
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       for (const surface of SURFACES) {
         expect(await sessionLine($, surface, 'dock', 41)).toBe(
-          'Session  ctx — until the first reply',
+          bySurface(surface, LIMITS_UNTIL_REPLY, UNTIL_REPLY),
         )
+        expect(await receiptLine($, surface)).toBe('')
       }
       await mainTurnStarts($, 'turn-2')
       await measure($, { percent: 3, usd: 4.85 })
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 3% · $4.85')
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('ctx ▱▱▱▱▱▱▱▱▱▱ 3% · $4.85')
+      expect(await receiptLine($, 'terminal')).toBe('turn 0s · 0 edits · 0 errors')
       await mainTurnEnds($, 'turn-2')
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 3% · $4.85')
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('ctx ▱▱▱▱▱▱▱▱▱▱ 3% · $4.85')
+      expect(await receiptLine($, 'terminal')).toBe('last 0s · 0 edits · 0 errors')
     },
   )
 
@@ -5000,9 +5240,9 @@ describe(SESSION_LINE_CRITERION, () => {
     await start($)
     await measure($, { percent: 62, usd: 4.18 })
     await measure($, { percent: 70, usd: 9, changed: ['cost'] })
-    expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 62% · $9.00')
+    expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(`${CTX_62} · $9.00`)
     await measure($, { percent: 70, usd: 1, changed: ['context'] })
-    expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 70% · $9.00')
+    expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('ctx ▰▰▰▰▰▰▰▱▱▱ 70% · $9.00')
   })
 
   test(
@@ -5038,9 +5278,9 @@ describe(NO_USAGE_CRITERION, () => {
       await start($)
       for (const surface of SURFACES) {
         const wide = await sessionLine($, surface, 'dock', 41)
-        expect(wide).toBe('Session  no context or cost on this host')
+        expect(wide).toBe('no context or cost on this host')
         const narrow = await sessionLine($, surface, 'dock', 30)
-        expect(narrow).toBe('Session  no context or cost o…')
+        expect(narrow).toBe('no context or cost on this ho…')
         expect(`${wide}${narrow}`).not.toMatch(/\d/)
       }
     },
@@ -5066,22 +5306,22 @@ describe(CONTEXT_HIGH_CRITERION, () => {
       await start($)
       await measure($, { percent: 79, usd: 12.4 })
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 79% · $12.40')
+        expect(await sessionLine($, surface, 'dock', 41)).toBe('ctx ▰▰▰▰▰▰▰▱▱▱ 79% · $12.40')
         const below = await sessionTexts($, surface, 41)
         expect(below.filter((text) => text.props.color === 'warning')).toEqual([])
       }
       await measure($, { percent: 80 })
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 80% high · $12.40')
+        expect(await sessionLine($, surface, 'dock', 41)).toBe('ctx ▰▰▰▰▰▰▰▰▱▱ 80% high · $12.40')
         const at = await sessionTexts($, surface, 41)
         expect(
           at.filter((text) => text.props.color === 'warning').map((text) => text.text),
-        ).toEqual(['80% high'])
+        ).toEqual(['▰▰▰▰▰▰▰▰', '80% high'])
       }
       await measure($, { percent: 91 })
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 30)).toBe('Session  ctx 91% high · $12.40')
-        expect(await sessionLine($, surface, 'inline', 76)).toBe('Session  ctx 91% high · $12.40')
+        expect(await sessionLine($, surface, 'dock', 30)).toBe('ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · $12.40')
+        expect(await sessionLine($, surface, 'inline', 76)).toBe('ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · $12.40')
       }
     },
   )
@@ -5097,13 +5337,13 @@ describe(TURN_COST_CRITERION, () => {
       await measure($, { percent: 62, usd: 4.18 })
       await mainTurnStarts($, 'turn-1')
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 62% · $4.18')
+        expect(await sessionLine($, surface, 'dock', 41)).toBe(`${CTX_62} · $4.18`)
+        expect(await receiptLine($, surface)).toBe('turn 0s · 0 edits · 0 errors')
       }
       await measure($, { usd: 4.49 })
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe(
-          'Session  ctx 62% · $4.49 · turn +$0.31',
-        )
+        expect(await sessionLine($, surface, 'dock', 41)).toBe(`${CTX_62} · $4.49`)
+        expect(await receiptLine($, surface)).toBe('turn 0s · 0 edits · 0 errors · +$0.31')
       }
       await $.turn.start({ text: 'look', turnId: 'agent-turn', agentId: 'a1' })
       await measure($, { usd: 4.8 })
@@ -5115,21 +5355,16 @@ describe(TURN_COST_CRITERION, () => {
         isAborted: false,
         agentId: 'a1',
       })
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(
-        'Session  ctx 62% · $4.80 · turn +$0.62',
-      )
+      expect(await receiptLine($, 'terminal')).toBe('turn 0s · 0 edits · 0 errors · +$0.62')
       await mainTurnEnds($, 'turn-1')
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe(
-          'Session  ctx 62% · $4.80 · last +$0.62',
-        )
+        expect(await sessionLine($, surface, 'dock', 41)).toBe(`${CTX_62} · $4.80`)
+        expect(await receiptLine($, surface)).toBe('last 0s · 0 edits · 0 errors · +$0.62')
       }
       await mainTurnStarts($, 'turn-2')
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 62% · $4.80')
+      expect(await receiptLine($, 'terminal')).toBe('turn 0s · 0 edits · 0 errors')
       await measure($, { usd: 5.05 })
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(
-        'Session  ctx 62% · $5.05 · turn +$0.25',
-      )
+      expect(await receiptLine($, 'terminal')).toBe('turn 0s · 0 edits · 0 errors · +$0.25')
     },
   )
 
@@ -5142,19 +5377,17 @@ describe(TURN_COST_CRITERION, () => {
       await measure($, { percent: 62, usd: 4.8 })
       await mainTurnStarts($, 'turn-1')
       await measure($, { usd: 0.05 })
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe('Session  ctx 62% · $0.05')
+      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(`${CTX_62} · $0.05`)
+      expect(await receiptLine($, 'terminal')).toBe('turn 0s · 0 edits · 0 errors · +$0.00')
       await measure($, { usd: 0.3 })
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(
-        'Session  ctx 62% · $0.30 · turn +$0.25',
-      )
+      expect(await receiptLine($, 'terminal')).toBe('turn 0s · 0 edits · 0 errors · +$0.25')
       await mainTurnEnds($, 'turn-1')
-      expect(await sessionLine($, 'terminal', 'dock', 41)).toBe(
-        'Session  ctx 62% · $0.30 · last +$0.25',
-      )
+      expect(await receiptLine($, 'terminal')).toBe('last 0s · 0 edits · 0 errors · +$0.25')
       await measure($, { usd: 0.1 })
       for (const surface of SURFACES) {
-        const line = await sessionLine($, surface, 'dock', 89)
-        expect(line).toBe('Session  ctx 62% · $0.10 · last +$0.00')
+        expect(await sessionLine($, surface, 'dock', 89)).toBe(`${CTX_62} · $0.10`)
+        const line = await receiptLine($, surface, 89)
+        expect(line).toBe('last 0s · 0 edits · 0 errors · +$0.00')
         expect(line).not.toContain('-')
       }
     },
@@ -5170,21 +5403,17 @@ describe(TURN_COST_CRITERION, () => {
       await mainTurnStarts($, 'turn-1')
       await mainTurnEnds($, 'turn-1')
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 62% · $4.18')
+        expect(await receiptLine($, surface)).toBe('last 0s · 0 edits · 0 errors')
       }
       await measure($, { usd: 4.8 })
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe(
-          'Session  ctx 62% · $4.80 · last +$0.62',
-        )
+        expect(await receiptLine($, surface)).toBe('last 0s · 0 edits · 0 errors · +$0.62')
       }
       await mainTurnStarts($, 'turn-2')
       await measure($, { usd: 5.05 })
       await mainTurnEnds($, 'turn-2')
       for (const surface of SURFACES) {
-        expect(await sessionLine($, surface, 'dock', 41)).toBe(
-          'Session  ctx 62% · $5.05 · last +$0.25',
-        )
+        expect(await receiptLine($, surface)).toBe('last 0s · 0 edits · 0 errors · +$0.25')
       }
     },
   )
@@ -5272,79 +5501,105 @@ async function sessionDetails(
   if ((await ui.find({ key: 'session-details' })) === undefined) {
     await ui.press({ key: 'session' })
   }
-  const lines = await screen(ui, columns)
+  const root = drawnOf(await ui.find({ type: 'Box' }))
+  const body = await detailsOf(ui, columns)
   await ui.unmount()
-  return lines.slice(
-    0,
-    lines.findIndex((line) => line.startsWith('Tasks')),
-  )
+  const head = (root === null ? [] : headRows(root))
+    .map((row) => row.text.replace(SESSION_TITLE_LEAD, ''))
+    .filter((text) => text !== '')
+    .join(' · ')
+  return [`Session  ${head}`, ...body]
+}
+
+const COMPACTIONS_ALONE = /^ {4}\d+ compactions?$/u
+const CONTEXT_ALONE = /^ {4}context \S+ of \S+$/u
+
+function withContextJoined(lines: readonly string[]): string[] {
+  return lines.reduce<string[]>((joined, line) => {
+    const previous = joined.at(-1)
+    if (previous !== undefined && CONTEXT_ALONE.test(previous) && COMPACTIONS_ALONE.test(line)) {
+      return [...joined.slice(0, -1), `${previous} · ${line.trim()}`]
+    }
+    return [...joined, line]
+  }, [])
+}
+
+async function detailsOf(ui: { find: Mounted['find'] }, columns: number): Promise<string[]> {
+  const lines = await screen(ui, columns)
+  const details = drawnOf(await ui.find({ key: 'session-details' }))
+  if (details === null) return []
+  const isFramed = lines[0]?.startsWith('╭') === true
+  const body = unframed(screenOf(details, columns).map((line) => line.trimEnd()))
+  return isFramed ? withContextJoined(body.map((line) => `  ${line}`.trimEnd())) : body
 }
 
 const DETAIL_SCREENS: readonly {
   placement: 'dock' | 'inline'
   columns: number
   lines: readonly string[]
+  receipt: string
 }[] = [
   {
     placement: 'dock',
     columns: 30,
     lines: [
-      'Session  ctx 62% · $4.80',
+      'Session  ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.80 · 5h ▰▱▱▱▱ 31% · 7d 13%',
       '    context 124k of 200k',
       '    1 compaction',
       '    trend after 2 turns',
       '    no breakdown on this host',
-      '    last turn 3m · +$0.62',
-      '    3 edits · 0 errors',
-      '    2 agents spawned',
       '    limits 5h 31% · 7d 13%',
       '    resets 5h in 2h · 7d in 4d',
       '    checks 5 · 5 allowed',
+      '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
     ],
+    receipt: 'last 3m · 3 edits · +$0.62',
   },
   {
     placement: 'dock',
     columns: 41,
     lines: [
-      'Session  ctx 62% · $4.80 · last +$0.62',
+      'Session  ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.80 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%',
       '    context 124k of 200k · 1 compaction',
       '    trend after 2 turns',
       '    no breakdown on this host',
-      '    last turn 3m · +$0.62 · 3 edits',
-      '    0 errors · 2 agents spawned',
       '    limits 5h 31% · 7d 13%',
       '    resets 5h in 2h · 7d in 4d',
       '    checks 5 · 5 allowed',
+      '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
     ],
+    receipt: 'last 3m · 3 edits · 0 errors · +$0.62',
   },
   {
     placement: 'inline',
     columns: 76,
     lines: [
-      'Session  ctx 62% · $4.80 · last +$0.62',
+      'Session  ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.80 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%',
       '    context 124k of 200k · 1 compaction',
       '    trend after 2 turns',
       '    no breakdown on this host',
-      '    last turn 3m · +$0.62 · 3 edits · 0 errors · 2 agents spawned',
       '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
       '    checks 5 · 5 allowed',
+      '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
     ],
+    receipt: 'last 3m · 3 edits · 0 errors · +$0.62 · 2 agents spawned',
   },
 ]
 
 describe(DETAILS_CRITERION, () => {
-  for (const { placement, columns, lines } of DETAIL_SCREENS) {
+  for (const { placement, columns, lines, receipt } of DETAIL_SCREENS) {
     test(
-      `a press on the Session line opens the context, the compactions, the last turn and the limits, as mock 8.10c, at ${String(columns)} columns, ${placement}`,
+      `a press on the Session line opens the context, the compactions and the limits, and the receipt row keeps the last turn, as mock B3, at ${String(columns)} columns, ${placement}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
         await detailsScene($, seen)
         for (const surface of SURFACES) {
           expect(await sessionDetails($, surface, placement, columns)).toEqual(lines)
+          expect(await receiptLine($, surface, columns, placement)).toBe(receipt)
           const ui = await mountTab($, surface, PANE, placement, columns)
           await ui.press({ key: 'session' })
           expect(await ui.find({ key: 'session-details' })).toBeUndefined()
@@ -5369,14 +5624,15 @@ describe(DETAILS_CRITERION, () => {
       await mainTurnTakes($, 'turn-1', 6 * MINUTE)
       for (const surface of SURFACES) {
         expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 7)).toEqual([
-          'Session  ctx 91% high · $12.40',
+          'Session  ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · $12.40',
           '    context 182k of 200k · 2 compactions',
           '    trend after 2 turns',
           '    no breakdown on this host',
           '    Claude Code compacts it near the',
           '    limit. /compact or /clear frees it.',
-          '    last turn 6m · +$1.90 · 9 edits',
+          '    limits: none reported',
         ])
+        expect(await receiptLine($, surface)).toBe('last 6m · 9 edits · 0 errors · +$1.90')
         expect((await sessionDetails($, surface, 'inline', 76)).slice(1, 5)).toEqual([
           '    context 182k of 200k · 2 compactions',
           '    trend after 2 turns',
@@ -5391,8 +5647,9 @@ describe(DETAILS_CRITERION, () => {
           '    context 158k of 200k · 2 compactions',
           '    trend after 2 turns',
           '    no breakdown on this host',
-          '    last turn 6m · +$1.90 · 9 edits',
+          '    limits: none reported',
         ])
+
         expect(lines.join('\n')).not.toContain('/compact')
       }
     },
@@ -5421,16 +5678,16 @@ describe(DETAILS_CRITERION, () => {
       await mainTurnTakes($, 'turn-1', 45_000)
       for (const surface of SURFACES) {
         expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
-          'Session  ctx 40% · $1.25 · last +$0.25',
+          'Session  ctx ▰▰▰▰▱▱▱▱▱▱ 40% · $1.25',
           '    context 80k of 200k · 0 compactions',
           '    trend after 2 turns',
           '    no breakdown on this host',
-          '    last turn 45s · +$0.25 · 0 edits',
-          '    1 error · 0 agents spawned',
           '    limits: none reported',
           '    checks 3 · 3 allowed',
+          '    file 1 · shell 2 · other 0',
           '    [ last 3 checks ]',
         ])
+        expect(await receiptLine($, surface)).toBe('last 45s · 0 edits · 1 error · +$0.25')
         const ui = await mountTab($, surface, PANE, 'dock', 41)
         const errors = await ui.find({ type: 'Text', text: '1 error' })
         expect(errors?.props.color).toBe('error')
@@ -5451,20 +5708,14 @@ describe(DETAILS_CRITERION, () => {
       await edit($, 'docs/mocks.md')
       await measure($, { usd: 5.05 })
       for (const surface of SURFACES) {
-        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 6)).toEqual([
-          'Session  ctx 62% · $5.05 · turn +$0.25',
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 2)).toEqual([
+          'Session  ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $5.05 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%',
           '    context 124k of 200k · 1 compaction',
-          '    trend after 2 turns',
-          '    no breakdown on this host',
-          '    last turn 3m · +$0.62 · 3 edits',
-          '    0 errors · 2 agents spawned',
         ])
+        expect(await receiptLine($, surface)).toBe('turn 0s · 1 edit · 0 errors · +$0.25')
       }
       await mainTurnTakes($, 'turn-2', 20_000)
-      expect((await sessionDetails($, 'terminal', 'dock', 41)).slice(4, 6)).toEqual([
-        '    last turn 20s · +$0.25 · 1 edit',
-        '    0 errors · 0 agents spawned',
-      ])
+      expect(await receiptLine($, 'terminal')).toBe('last 20s · 1 edit · 0 errors · +$0.25')
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, PANE, 'dock', 41)
@@ -5507,10 +5758,7 @@ describe('the Session details keep only the facts of the session that runs now',
       await edit($, 'docs/mocks.md')
       await mainTurnTakes($, 'turn-1', 45_000)
       for (const surface of SURFACES) {
-        expect((await sessionDetails($, surface, 'dock', 41)).slice(4, 6)).toEqual([
-          '    last turn 45s · 0 edits · 1 error',
-          '    0 agents spawned',
-        ])
+        expect(await receiptLine($, surface)).toBe('last 45s · 0 edits · 1 error')
       }
     },
   )
@@ -5527,7 +5775,7 @@ describe('the Session details keep only the facts of the session that runs now',
       await measure($, { percent: 3, usd: 4.2, limits, changed: ['context', 'cost'] })
       for (const surface of SURFACES) {
         expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
-          'Session  ctx 3% · $4.20',
+          'Session  ctx ▱▱▱▱▱▱▱▱▱▱ 3% · $4.20 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%',
           '    context 6k of 200k · 0 compactions',
           '    trend after 2 turns',
           '    no breakdown on this host',
@@ -5548,8 +5796,9 @@ describe('the Session details keep only the facts of the session that runs now',
       await start($)
       for (const surface of SURFACES) {
         expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
-          'Session  ctx — until the first reply',
+          `Session  ${bySurface(surface, LIMITS_UNTIL_REPLY, UNTIL_REPLY)}`,
           '    checks 5 · 5 allowed',
+          '    file 5 · shell 0 · other 0',
           '    [ last 5 checks ]',
         ])
       }
@@ -5587,7 +5836,8 @@ describe('the Session details keep only the facts of the session that runs now',
       await measure($, { usd: 2, limits: limitsAt(seen.clock.now()) })
       for (const surface of SURFACES) {
         expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
-          'Session  ctx — · $2.00',
+          'Session  ctx — · $2.00 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%',
+
           '    limits 5h 31% · 7d 13%',
           '    resets 5h in 2h · 7d in 4d',
         ])
@@ -5676,10 +5926,8 @@ async function contextLines(
   columns: number,
 ): Promise<string[]> {
   const lines = await sessionDetails($, surface, placement, columns)
-  return lines.slice(
-    1,
-    lines.findIndex((line) => line.startsWith('    last turn')),
-  )
+  const end = lines.findIndex((line) => /^ {4}(limits|resets|checks)/u.test(line))
+  return lines.slice(1, end === -1 ? undefined : end)
 }
 
 async function openParts(ui: Awaited<ReturnType<typeof mountTab>>): Promise<void> {
@@ -5790,7 +6038,7 @@ describe(TREND_CRITERION, () => {
         await board($, '')
         const shown = await mountTab($, surface, PANE, 'dock', 41)
         expect(seen.breakdownCalls).toBe(3)
-        expect((await screen(shown, 41))[3]).toBe('    auto-compact at 167k · in ~13 turns')
+        expect((await detailsOf(shown, 41))[2]).toBe('    auto-compact at 167k · in ~13 turns')
         await shown.press({ key: 'session' })
         await turnsAt($, [46], 5)
         expect(seen.breakdownCalls).toBe(3)
@@ -5886,7 +6134,7 @@ describe(TREND_CRITERION, () => {
         await turnsAt($, [10, 13], 2)
         const shown = await mountTab($, surface, PANE, 'dock', 41)
         expect(seen.breakdownCalls).toBe(2)
-        expect((await screen(shown, 41)).slice(1, 4)).toEqual([
+        expect((await detailsOf(shown, 41)).slice(0, 3)).toEqual([
           '    context 26k of 200k · 0 compactions',
           '    trend ▁▂ 2 turns · +6k a turn',
           '    auto-compact at 167k · in ~23 turns',
@@ -5908,20 +6156,20 @@ describe(PARTS_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, PANE, 'dock', 41)
         await openParts(ui)
-        const lines = await screen(ui, 41)
-        expect(lines.slice(1, 1 + MOCK_PARTS_41.length)).toEqual(MOCK_PARTS_41)
+        const lines = await detailsOf(ui, 41)
+        expect(lines.slice(0, MOCK_PARTS_41.length)).toEqual(MOCK_PARTS_41)
         expect(await ui.find({ type: 'Button', key: 'session:parts' })).toBeDefined()
         await ui.press({ key: 'session:parts:all' })
-        const all = await screen(ui, 41)
-        expect(all.slice(11, 14)).toEqual([
+        const all = await detailsOf(ui, 41)
+        expect(all.slice(10, 13)).toEqual([
           '    System prompt          3k   2%',
           '    Plugins                2k   1%',
           '    [ fewer parts ]',
         ])
         await ui.press({ key: 'session:parts:all' })
         await ui.press({ key: 'session:parts' })
-        const closed = await screen(ui, 41)
-        expect(closed[4]).toBe('    [ context parts ]')
+        const closed = await detailsOf(ui, 41)
+        expect(closed[3]).toBe('    [ context parts ]')
         expect(closed.join('\n')).not.toContain('Messages')
         await ui.unmount()
       }
@@ -5945,8 +6193,8 @@ describe(PARTS_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, PANE, 'dock', 41)
         await openParts(ui)
-        const lines = await screen(ui, 41)
-        expect(lines.slice(4, 9)).toEqual([
+        const lines = await detailsOf(ui, 41)
+        expect(lines.slice(3, 8)).toEqual([
           '    [ hide parts ]',
           '    Free space            50k  25%',
           '    free 40k · compact buffer 33k',
@@ -6002,7 +6250,7 @@ describe(NO_BREAKDOWN_CRITERION, () => {
       options.breakdown = breakdownOf(MOCK_ROWS)
       const ui = await mountTab($, 'terminal', PANE, 'dock', 41)
       await ui.press({ key: 'session:parts' })
-      expect((await screen(ui, 41))[3]).toBe('    auto-compact at 167k · in ~16 turns')
+      expect((await detailsOf(ui, 41))[2]).toBe('    auto-compact at 167k · in ~16 turns')
       await ui.unmount()
     },
   )
@@ -6136,7 +6384,8 @@ for (const surface of SURFACES) {
         await turnsAt($, MOCK_PERCENTS)
         expect(await board($, 'stats')).toBe(
           [
-            'Session  ctx 62% · $1.70 · last +$0.10',
+            'Session  ctx 62% · $1.70',
+            '    last 1m · 0 edits · 0 errors · +$0.10',
             '    context 124k of 200k · 0 compactions',
             '    trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn',
             '    auto-compact at 167k · in ~7 turns',
@@ -6150,7 +6399,6 @@ for (const surface of SURFACES) {
             '    Plugins                2k   1%',
             '    free 43k · compact buffer 33k',
             '    estimated; /context counts exactly',
-            '    last turn 1m · +$0.10 · 0 edits · 0 errors · 0 agents spawned',
             '    limits: none reported',
             'No agents yet.',
           ].join('\n'),
@@ -6170,7 +6418,7 @@ for (const surface of SURFACES) {
           Array.from({ length: 25 }, (_, index) => index + 1),
         )
         const lines = (await board($, 'stats')).split('\n')
-        expect(lines.slice(1, 4)).toEqual([
+        expect(lines.slice(2, 5)).toEqual([
           '    context 50k of 200k · 0 compactions',
           '    trend ▁▁▁▁▁▁▁▂▂▂▂▂▂▂▂▂▂▂▂▂ 20 turns · +2k a turn',
           '    no breakdown on this host',
@@ -6238,8 +6486,9 @@ describe(PARTS_WIDTH_CRITERION, () => {
           const ui = await mountTab($, surface, PANE, placement, columns)
           await openParts(ui)
           const drawn = await screen(ui, columns)
-          expect(drawn.slice(1, 1 + lines.length)).toEqual(lines)
+          expect((await detailsOf(ui, columns)).slice(0, lines.length)).toEqual(lines)
           for (const line of drawn) expect(displayWidth(line)).toBeLessThanOrEqual(columns)
+
           await ui.press({ key: 'session:parts' })
           await ui.unmount()
         }
@@ -6309,11 +6558,12 @@ describe(NO_LIMITS_CRITERION, () => {
       await mainTurnStarts($, 'turn-1')
       await mainTurnTakes($, 'turn-1', 5_000)
       for (const surface of SURFACES) {
-        expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
-          'Session  no context or cost on this host',
-          '    last turn 5s · 0 edits · 0 errors',
-          '    0 agents spawned',
-        ])
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await ui.find({ type: 'Button', key: 'session' })).toBeUndefined()
+        expect(await ui.find({ key: 'session-details' })).toBeUndefined()
+        await ui.unmount()
+        expect(await sessionLine($, surface, 'dock', 41)).toBe('no context or cost on this host')
+        expect(await receiptLine($, surface)).toBe('last 5s · 0 edits · 0 errors')
       }
     },
   )
@@ -6419,7 +6669,7 @@ async function openedAgent(
   if ((await ui.find({ key: `under:agent:${STEP_AGENT}` })) === undefined) {
     await ui.press({ key: `open:agent:${STEP_AGENT}` })
   }
-  const lines = await screen(ui, columns)
+  const lines = unframed(await screen(ui, columns))
   await ui.unmount()
   const row = lines.findIndex((line) => line.startsWith('▶ Explore'))
   return lines.slice(row + 1).filter((line) => line.startsWith('    '))
@@ -6490,6 +6740,7 @@ describe('the tokens of an agent step redraw the board only when they change, an
         return next(e)
       })
       await stepAgentWorks($, seen, 1)
+      await step($, steps, undefined, stepped('turn-main', null, null))
       const before = redraws
       const usage = { fresh: 2_000, written: 6_000, read: 40_000, output: 6_100 }
       await step($, steps, STEP_AGENT, stepped('turn-1', usage, 'tool_use'))
@@ -6871,7 +7122,9 @@ for (const surface of SURFACES) {
         await measure($, { percent: 91, usd: 12.4 })
         const { call } = await scoutWaits($, seen, dialog)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ctx 91% high')
+        expect(sessionRows(await screen(ui, 41))[0]).toBe(
+          bySurface(surface, '◆ 1 waits · ctx ▰▰▰▰▰▰▰▰▰▱ 91% high', 'Session  ◆ 1 waits'),
+        )
         await ui.unmount()
         dialog.allow()
         await call
@@ -6937,7 +7190,7 @@ for (const surface of SURFACES) {
         await startOn($, surface)
         await measure($, { percent: 91, usd: 12.4 })
         expect(seen.statuses).toEqual([])
-        expect(await sessionLine($, surface, 'dock', 41)).toBe('Session  ctx 91% high · $12.40')
+        expect(await sessionLine($, surface, 'dock', 41)).toBe('ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · $12.40')
         expect(seen.statuses).toEqual([])
       },
     )
@@ -7183,7 +7436,7 @@ async function exploreRow(
   surface: Surface,
 ): Promise<{ line: string; state: Drawn | undefined; lines: string[] }> {
   const ui = await mountTab($, surface, PANE, 'dock', 41)
-  const lines = await screen(ui, 41)
+  const lines = unframed(await screen(ui, 41))
   const row = drawnOf(await ui.find({ key: `row:agent:${EXPLORE}` }))
   await ui.unmount()
   const state = row === null ? undefined : texts(row)[2]
@@ -7232,15 +7485,33 @@ for (const surface of SURFACES) {
         await seen.clock.advance(3 * MINUTE - 45_000)
         const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
         await seen.clock.advance(30_000)
-        expect(await exploreLine($, surface)).toBe('▶ Explore   running   ▸ Bash np… open  2m')
+        expect(await exploreLine($, surface)).toBe(
+          bySurface(
+            surface,
+            '▶ Explore   running          open  2m',
+            '▶ Explore   running   ▸ Bash np… open  2m',
+          ),
+        )
         await seen.clock.advance(15_000)
         const slow = await exploreRow($, surface)
-        expect(slow.line).toBe('▶ Explore   slow 45s  ▸ Bash np… open  3m')
+        expect(slow.line).toBe(
+          bySurface(
+            surface,
+            '▶ Explore   slow 45s         open  3m',
+            '▶ Explore   slow 45s  ▸ Bash np… open  3m',
+          ),
+        )
         expect(slow.state?.text).toBe('slow 45s')
         expect(slow.state?.props.color).toBe('warning')
         held.release()
         await call
-        expect(await exploreLine($, surface)).toBe('▶ Explore   running   Bash npm … open  3m')
+        expect(await exploreLine($, surface)).toBe(
+          bySurface(
+            surface,
+            '▶ Explore   running          open  3m',
+            '▶ Explore   running   Bash npm … open  3m',
+          ),
+        )
       },
     )
 
@@ -7254,7 +7525,13 @@ for (const surface of SURFACES) {
         await $.tool.call({ tool: TOOL_ADD, title: 'Check the build', agentId: EXPLORE })
         const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
         await seen.clock.advance(3 * MINUTE)
-        expect(await exploreLine($, surface)).toBe('▶ Explore   slow 3m   ▸ Bash np… open  3m')
+        expect(await exploreLine($, surface)).toBe(
+          bySurface(
+            surface,
+            '▶ Explore   slow 3m          open  3m',
+            '▶ Explore   slow 3m   ▸ Bash np… open  3m',
+          ),
+        )
         held.release()
         await call
         expect(await exploreLine($, surface)).toContain('plan 0/1')
@@ -7272,13 +7549,31 @@ for (const surface of SURFACES) {
         await seen.clock.advance(3 * MINUTE)
         await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
         await seen.clock.advance(2 * MINUTE - 1)
-        expect(await exploreLine($, surface)).toBe('▶ Explore   running   Read src/… open  4m')
+        expect(await exploreLine($, surface)).toBe(
+          bySurface(
+            surface,
+            '▶ Explore   running          open  4m',
+            '▶ Explore   running   Read src/… open  4m',
+          ),
+        )
         await seen.clock.advance(1)
         const quiet = await exploreRow($, surface)
-        expect(quiet.line).toBe('▶ Explore   quiet 2m  Read src/… open  5m')
+        expect(quiet.line).toBe(
+          bySurface(
+            surface,
+            '▶ Explore   quiet 2m         open  5m',
+            '▶ Explore   quiet 2m  Read src/… open  5m',
+          ),
+        )
         expect(quiet.state?.props.color).toBe('warning')
         await seen.clock.advance(MINUTE)
-        expect(await exploreLine($, surface)).toBe('▶ Explore   quiet 3m  Read src/… open  6m')
+        expect(await exploreLine($, surface)).toBe(
+          bySurface(
+            surface,
+            '▶ Explore   quiet 3m         open  6m',
+            '▶ Explore   quiet 3m  Read src/… open  6m',
+          ),
+        )
       },
     )
 
@@ -7320,7 +7615,7 @@ for (const surface of SURFACES) {
         expect(await board($, '')).toBe('Board opened: this session.')
         const ui = await mountTab($, surface, PANE, 'dock', 41)
         const row = async () =>
-          (await screen(ui, 41)).find((line) => line.startsWith('▶ Explore')) ?? ''
+          unframed(await screen(ui, 41)).find((line) => line.startsWith('▶ Explore')) ?? ''
         expect(await row()).toContain('slow 35s')
         await seen.clock.advance(10_000)
         expect(await row()).toContain('slow 45s')
@@ -7387,7 +7682,7 @@ async function agentScreen(
   columns: number,
 ): Promise<{ lines: string[]; lanes: (Drawn | null)[] }> {
   const ui = await mountTab($, surface, PANE, placement, columns)
-  const all = await screen(ui, columns)
+  const all = unframed(await screen(ui, columns))
   const lanes: (Drawn | null)[] = []
   for (const id of [SCOUT, LANE, EXPLORE]) {
     lanes.push(drawnOf(await ui.find({ key: `lane:agent:${id}` })))
@@ -7397,9 +7692,19 @@ async function agentScreen(
   return { lines: all.slice(first).filter((line) => line !== '' && !line.startsWith('[')), lanes }
 }
 
-const LANE_SCREENS: readonly { columns: number; lines: readonly string[] }[] = [
+const LANE_SCREENS: readonly {
+  columns: number
+  lines: readonly string[]
+  framed: readonly string[]
+}[] = [
   {
     columns: 89,
+    framed: [
+      'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+      '◆ scout     needs you waits for: permission · … ctx 31k ············━━━━━━━◆ open  8m',
+      '■ lane-b    failed    failed after Bash npm ru… ctx —   ━━━━━━━■············       8m',
+      '▶ Explore   running   Read src/a.ts             ctx 48k ·················━━━ open  3m',
+    ],
     lines: [
       'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
       '◆ scout     needs you waits for: permission · Bash… ctx 31k ············━━━━━━━◆ open  8m',
@@ -7409,6 +7714,12 @@ const LANE_SCREENS: readonly { columns: number; lines: readonly string[] }[] = [
   },
   {
     columns: 80,
+    framed: [
+      'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+      '◆ scout     needs you waits for: perm… ctx 31k ············━━━━━━━◆ open  8m',
+      '■ lane-b    failed    failed after Ba… ctx —   ━━━━━━━■············       8m',
+      '▶ Explore   running   Read src/a.ts    ctx 48k ·················━━━ open  3m',
+    ],
     lines: [
       'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
       '◆ scout     needs you waits for: permissi… ctx 31k ············━━━━━━━◆ open  8m',
@@ -7420,13 +7731,16 @@ const LANE_SCREENS: readonly { columns: number; lines: readonly string[] }[] = [
 
 for (const surface of SURFACES) {
   describe(LANES_CRITERION, () => {
-    for (const { columns, lines } of LANE_SCREENS) {
+    for (const { columns, lines, framed } of LANE_SCREENS) {
       test(
         `each agent row draws its ctx and a lane from the first spawn to now, as mock 8.10k, at ${String(columns)} columns, on ${surface}`,
         withWorkitems,
         async ($, on) => {
           const { dialog, call } = await laneScene($, on, surface)
-          expect((await agentScreen($, surface, 'dock', columns)).lines).toEqual(lines)
+          expect((await agentScreen($, surface, 'dock', columns)).lines).toEqual(
+            bySurface(surface, framed, lines),
+          )
+
           dialog.allow()
           await call
         },
@@ -7472,17 +7786,23 @@ for (const surface of SURFACES) {
         async ($, on) => {
           const { dialog, call } = await laneScene($, on, surface)
           const narrow = await agentScreen($, surface, 'dock', columns)
-          const wider = ' '.repeat(columns - 41)
+          const body = bySurface(surface, columns - 4, columns)
+          const explore = {
+            framed41: '▶ Explore   running          open  3m',
+            flat41: '▶ Explore   running   Read src/… open  3m',
+            wide: `${'▶ Explore   running   Read src/a.ts'.padEnd(body - 8)}open  3m`,
+          }
           expect(narrow.lines).toEqual([
             'Agents  3 · 1 needs you · 1 failed',
-            `◆ scout     needs you ${wider}           open  8m`,
-            '    waits for: permission · Bash npm test',
-            `■ lane-b    failed    ${wider}                 8m`,
+            `${'◆ scout     needs you'.padEnd(body - 8)}open  8m`,
+            body < 41
+              ? '    waits for: permission · Bash npm…'
+              : '    waits for: permission · Bash npm test',
+            `${'■ lane-b    failed'.padEnd(body - 2)}8m`,
             '    failed after Bash npm run build',
-            columns === 41
-              ? '▶ Explore   running   Read src/… open  3m'
-              : `${'▶ Explore   running   Read src/a.ts'.padEnd(columns - 8)}open  3m`,
+            columns === 41 ? bySurface(surface, explore.framed41, explore.flat41) : explore.wide,
           ])
+
           expect(narrow.lanes).toEqual([null, null, null])
           const wide = await agentScreen($, surface, 'dock', 80)
           expect(wide.lines[0]).toBe(
@@ -7527,14 +7847,17 @@ for (const surface of SURFACES) {
         const { call } = await scoutWaits($, seen, dialog)
         expect(await board($, 'stats')).toBe(
           [
-            'Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62',
+            'Session  ◆ 1 waits · ctx 62% · $4.80',
             '    ◆ scout waits for permission: Bash npm test',
+            '    last 3m · 1 edit · 0 errors · +$0.62 · 1 agent spawned',
             '    context 124k of 200k · 1 compaction',
             '    trend after 2 turns',
             '    no breakdown on this host',
-            '    last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned',
             '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
             '    checks 2 · 1 allowed · 1 asked',
+            '    file 1 · shell 1 · other 0',
+            '    last 2 checks, oldest first: 1 allowed, 1 asked',
+
             'Agents  2 · 1 needs you',
             '    scout: needs you · ctx —',
             '    Explore: running · ctx 48k',
@@ -7618,9 +7941,14 @@ for (const surface of SURFACES) {
           'Task 4 is now titled: Ask Ana about the tabs. Claude is told at your next prompt.',
         )
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41)).slice(4, 6)).toEqual([
-          '○ 3 Review the mocks with Ana      [ rm ]',
-          '○ 4 You: Ask Ana about the tabs    [ rm ]',
+        const gap = bySurface(surface, '', '    ')
+        expect(fromTasks(await screen(ui, 41)).slice(3, 5)).toEqual([
+          `○ 3 Review the mocks with Ana  ${gap}[ rm ]`,
+          bySurface(
+            surface,
+            '○ 4 You: Ask Ana about the ta… [ rm ]',
+            '○ 4 You: Ask Ana about the tabs    [ rm ]',
+          ),
         ])
         await ui.unmount()
         expect(await toldAtNextPrompt($)).toEqual([
@@ -7682,7 +8010,13 @@ for (const surface of SURFACES) {
         for (const [args, reply] of refusals) expect(await board($, args)).toBe(reply)
         expect(await modelTool($, {})).toBe(before)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41))[4]).toBe('○ 3 Review the mocks with Codex    [ rm ]')
+        expect(fromTasks(await screen(ui, 41))[3]).toBe(
+          bySurface(
+            surface,
+            '○ 3 Review the mocks with Cod… [ rm ]',
+            '○ 3 Review the mocks with Codex    [ rm ]',
+          ),
+        )
         await ui.unmount()
         expect(await toldAtNextPrompt($)).toEqual([])
       },
@@ -7733,11 +8067,12 @@ for (const surface of SURFACES) {
         )
         const ui = await mountTab($, surface, PANE, 'dock', 41)
         expect(await taskRowOrder(ui)).toBe('1 2 3 4')
-        expect((await screen(ui, 41)).slice(2, 6)).toEqual([
-          '○ 1 Read the design                [ rm ]',
-          '○ 2 Draw the mocks                 [ rm ]',
-          '○ 3 Write the tests                [ rm ]',
-          '○ 4 Ship the mod                   [ rm ]',
+        const gap = bySurface(surface, '', '    ')
+        expect(fromTasks(await screen(ui, 41)).slice(1, 5)).toEqual([
+          `○ 1 Read the design            ${gap}[ rm ]`,
+          `○ 2 Draw the mocks             ${gap}[ rm ]`,
+          `○ 3 Write the tests            ${gap}[ rm ]`,
+          `○ 4 Ship the mod               ${gap}[ rm ]`,
         ])
         await ui.unmount()
         const one = await $.tool.call({ tool: TOOL_ADD, titles: ['Tag the release'] })
@@ -7805,7 +8140,7 @@ for (const surface of SURFACES) {
         }
         expect(String(await modelTool($, {}))).toBe(before)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41))[1]).toBe('Tasks  ▱▱▱▱▱▱▱▱ 1/98 · ○97')
+        expect(fromTasks(await screen(ui, 41))[0]).toBe('Tasks  ▱▱▱▱▱▱▱▱ 1/98 · ○97')
         await ui.unmount()
         const fits = await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two'] })
         expect(String(fits.result).split('\n')[0]).toBe('Added tasks 99, 100.')
@@ -7832,9 +8167,11 @@ async function headerOf(ui: { find: Mounted['find'] }): Promise<Drawn> {
   return header
 }
 
+const FRAME_EDGE = /^[╭╮─ ]+$/u
+
 function colouredParts(element: Drawn): (readonly [string, unknown])[] {
   return texts(element)
-    .filter((text) => text.props.color !== undefined)
+    .filter((text) => text.props.color !== undefined && !FRAME_EDGE.test(text.text))
     .map((text) => [text.text, text.props.color] as const)
 }
 
@@ -7848,8 +8185,9 @@ for (const surface of SURFACES) {
         await startOn($, surface)
         await mockWork($, seen)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41))[1]).toBe('Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m')
+        expect(fromTasks(await screen(ui, 41))[0]).toBe('Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m')
         expect(colouredParts(await headerOf(ui))).toEqual([
+          ['Tasks', 'planMode'],
           ['▰', 'success'],
           ['▰', 'claude'],
           ['▶1', 'claude'],
@@ -7862,10 +8200,10 @@ for (const surface of SURFACES) {
         await board($, 'done 3')
         await board($, 'done 4')
         const wide = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(wide, 41))[1]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 · 14m')
+        expect(fromTasks(await screen(wide, 41))[0]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 · 14m')
         await wide.unmount()
         const narrow = await mountTab($, surface, PANE, 'dock', 30)
-        expect((await screen(narrow, 30))[1]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 …')
+        expect(fromTasks(await screen(narrow, 30))[0]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 …')
         await narrow.unmount()
       },
     )
@@ -7937,12 +8275,15 @@ for (const surface of SURFACES) {
         for (const id of ['2', '3', '4']) await board($, `done ${id}`)
         await seen.clock.advance(5 * MINUTE)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41))[1]).toBe('Tasks  ✓ all 4 done · 14m')
-        expect(colouredParts(await headerOf(ui))).toEqual([['✓ all 4 done', 'success']])
+        expect(fromTasks(await screen(ui, 41))[0]).toBe('Tasks  ✓ all 4 done · 14m')
+        expect(colouredParts(await headerOf(ui))).toEqual([
+          ['Tasks', 'planMode'],
+          ['✓ all 4 done', 'success'],
+        ])
         await ui.unmount()
         await board($, 'open 4')
         const reopened = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(reopened, 41))[1]).toBe('Tasks  ▰▰▰▱ 3/4 · ○1 · 19m')
+        expect(fromTasks(await screen(reopened, 41))[0]).toBe('Tasks  ▰▰▰▱ 3/4 · ○1 · 19m')
         await reopened.unmount()
       },
     )
@@ -7960,7 +8301,8 @@ for (const surface of SURFACES) {
         await board($, 'done 4')
         await seen.clock.advance(7 * MINUTE)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41))[1]).toBe('Tasks  ✓ all 4 done · 19m')
+        expect(fromTasks(await screen(ui, 41))[0]).toBe('Tasks  ✓ all 4 done · 19m')
+
         await ui.unmount()
       },
     )
@@ -8446,7 +8788,7 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
           options: ['Postgres', 'SQLite', 'Redis'],
         })
         const pane = await mountTasks($, surface)
-        const lines = await screen(pane, 41)
+        const lines = unframed(await screen(pane, 41))
         const head = lines.indexOf('For you  ◆ 3 open')
         expect(lines.slice(head, head + 10)).toEqual([
           'For you  ◆ 3 open',
@@ -9044,9 +9386,14 @@ describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
           title: 'Which port does staging use?',
         })
         const pane = await mountTasks($, surface)
-        expect(
-          await pane.find({ type: 'Text', text: 'No plan from Claude for 20 tool calls.' }),
-        ).toBeDefined()
+        expect((await pane.find({ key: 'plan-warning' }))?.text).toBe(
+          bySurface(
+            surface,
+            'No plan from Claude for 20 tool call…',
+            'No plan from Claude for 20 tool calls.',
+          ),
+        )
+
         await pane.unmount()
         const entered = await $.prompt.submit({
           text: 'go on',
@@ -9341,9 +9688,10 @@ for (const surface of SURFACES) {
         await startOn($, surface)
         await mockWork($, seen)
         const ui = await openedTask($, surface, 2)
-        expect((await screen(ui, 41)).slice(2, 7)).toEqual([
-          '▶ 2 Write the tab mocks         4m [ rm ]',
-          '    ▸ Edit docs/mocks.md          9 tools',
+        const gap = bySurface(surface, '', '    ')
+        expect(fromTasks(await screen(ui, 41)).slice(1, 6)).toEqual([
+          `▶ 2 Write the tab mocks     ${gap}4m [ rm ]`,
+          `    ▸ Edit docs/mocks.md      ${gap}9 tools`,
           '    started 4m ago · 9 tools in all',
           '    [ done ] [ open ]',
           '    [ files ]',
@@ -9386,11 +9734,16 @@ for (const surface of SURFACES) {
         await mockWork($, seen)
         const ui = await openedTask($, surface, 2)
         expect(await ui.find({ key: 'files:2' })).toBeUndefined()
-        expect((await screen(ui, 41)).slice(4, 7)).toEqual([
+        expect(fromTasks(await screen(ui, 41)).slice(3, 6)).toEqual([
           '    started 4m ago · 9 tools in all',
           '    [ done ] [ open ]',
-          '○ 3 Review the mocks with Codex    [ rm ]',
+          bySurface(
+            surface,
+            '○ 3 Review the mocks with Cod… [ rm ]',
+            '○ 3 Review the mocks with Codex    [ rm ]',
+          ),
         ])
+
         expect(runs.args).toEqual([])
         runs.names = ['board', 'tasks', 'tree']
         await ui.redraw()
@@ -9451,12 +9804,12 @@ describe('the agent lanes: review repairs (handily-xsjad.8)', () => {
         const seen = world(on)
         await oldAgentEnded($, seen, surface)
         const ui = await mountTab($, surface, PANE, 'dock', 89)
-        const folded = await screen(ui, 89)
+        const folded = unframed(await screen(ui, 89))
         const header = folded.findIndex((line) => line.startsWith('Agents'))
         expect(folded[header]).toBe('Agents  1 · lanes from 2m ago to now')
         expect(folded[header + 1]).toContain(`ctx —   ${'━'.repeat(20)} open  2m`)
         await ui.press({ key: 'group:ended-agents' })
-        const opened = await screen(ui, 89)
+        const opened = unframed(await screen(ui, 89))
         expect(opened[header]).toBe('Agents  1 · lanes from 32m ago to now')
         expect(opened[header + 1]).toContain(`ctx —   ${'·'.repeat(18)}━━ open  2m`)
         expect(opened.find((line) => line.startsWith('✓ old'))).toContain(

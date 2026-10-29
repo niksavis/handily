@@ -1,29 +1,47 @@
 import { NO_AGENTS, agentStatsText, agentsTitleText } from './agent-rows'
 import { type AgentRow, waitingRows } from './agents'
 import { agentWaitLine } from './attention'
-import { checksText } from './checks'
+import { checksText, familiesText, verdictsText } from './checks'
 import { detailsText } from './details'
 import type { PaneWork } from './pane'
-import { sessionText } from './vitals'
+import { requestWords } from './request'
+import { receiptWords, sessionHeadWords } from './session'
 
 const STATS_INDENT = '    '
 
-export type Stats = Pick<PaneWork, 'now' | 'vitals' | 'checks' | 'agents' | 'context'>
+export type Stats = Pick<PaneWork, 'now' | 'vitals' | 'checks' | 'request' | 'agents' | 'context'>
 
 function indented(lines: readonly string[]): string[] {
   return lines.map((line) => `${STATS_INDENT}${line}`)
 }
 
+function present(texts: readonly (string | undefined)[]): string[] {
+  return texts.filter((text) => text !== undefined)
+}
+
+function checkLines(stats: Stats): string[] {
+  const summary = checksText(stats.checks)
+  if (summary === undefined) return []
+  return present([summary, familiesText(stats.checks), verdictsText(stats.checks)])
+}
+
 function sessionLines(stats: Stats): string[] {
   const waiting = waitingRows(stats.agents)
+  const view = {
+    vitals: stats.vitals,
+    waits: waiting.length,
+    checks: stats.checks,
+    request: stats.request,
+    now: stats.now,
+  }
   const details = detailsText(stats.vitals, stats.now, stats.context)
-  const checks = checksText(stats.checks)
   return [
-    sessionText(stats.vitals, waiting.length),
+    sessionHeadWords(view),
     ...indented([
       ...waiting.map(agentWaitLine),
+      ...present([requestWords(stats.request), receiptWords(view)]),
       ...(details === '' ? [] : details.split('\n')),
-      ...(checks === undefined ? [] : [checks]),
+      ...checkLines(stats),
     ]),
   ]
 }

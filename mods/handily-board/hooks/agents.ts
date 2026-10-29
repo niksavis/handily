@@ -2,18 +2,24 @@ import type { AgentInfo, AgentStatus, TurnStepResult } from 'claude-code'
 import type {
   BoardAgent,
   BoardAgentCall,
+  BoardAgentCallDone,
   BoardAgentPlans,
+  BoardCallOutcome,
   BoardCallAsk,
   BoardTask,
   BoardToolSight,
 } from '../types'
 import { NAME_CUT_ABOVE, numberedNames } from './agent-rows'
+import { maskedCredentials } from './credentials'
 import { escaped } from './tasks'
 
 export const UNLISTED_KEPT_AT_MOST = 20
 export const NEEDS_YOU_AFTER_MS = 3_000
 export const SLOW_CALL_MS = 30_000
 export const QUIET_MS = 120_000
+const LAST_CALLS = 3
+
+const ANSWER_CHARS_AT_MOST = 200
 
 const HANDBACK_TOOL = 'SubagentHandback'
 const ENDED_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
@@ -46,6 +52,13 @@ export type AgentStall = { kind: 'slow' | 'quiet'; ms: number }
 
 export type AgentPulses = { heardAt: Map<string, number>; callsFrom: Map<string, number> }
 
+export type AgentCallLine = BoardToolSight & {
+  outcome: BoardCallOutcome | 'running'
+  at: number | null
+}
+
+export type CallAnswer = { isError?: boolean; deny?: string }
+
 export type AgentRow = {
   id: string
   label: string
@@ -56,6 +69,8 @@ export type AgentRow = {
   callId: string | null
   isCallRunning: boolean
   tools: number
+  lastCalls: readonly AgentCallLine[]
+  answer: string | null
   plan: readonly BoardTask[] | null
   description: string | null
   parentId: string | null
@@ -166,16 +181,20 @@ export function withCallStart(
   }))
 }
 
-export function withCallEnd(agents: Agents, agentId: string, callId: string): BoardAgent[] {
+export type CallEnd = { callId: string; outcome: BoardCallOutcome; at: number }
+
+export function withCallEnd(agents: Agents, agentId: string, end: CallEnd): BoardAgent[] {
   const agent = agents.find((one) => one.id === agentId)
-  const call = agent?.running.find((one) => one.id === callId)
+  const call = agent?.running.find((one) => one.id === end.callId)
   if (!agent || !call) return [...agents]
   const sight = { tool: call.tool, target: call.target }
+  const done: BoardAgentCallDone = { ...sight, outcome: end.outcome, at: end.at }
   const finished: BoardAgent = {
     ...agent,
-    running: agent.running.filter((one) => one.id !== callId),
+    running: agent.running.filter((one) => one.id !== end.callId),
     tools: agent.tools + 1,
     last: call.tool !== HANDBACK_TOOL || agent.last === null ? sight : agent.last,
+    calls: [...(agent.calls ?? []), done].slice(-LAST_CALLS),
   }
   return pruned(agents.map((one) => (one === agent ? finished : one)))
 }
@@ -210,7 +229,17 @@ function unasked(call: BoardAgentCall): BoardAgentCall {
   return { id: call.id, tool: call.tool, target: call.target }
 }
 
-export function withTurnEnd(agents: Agents, agentId: string, now: number): BoardAgent[] {
+function firstAnswerLine(answer: string): string {
+  const line = answer.split('\n').find((one) => one.trim() !== '') ?? ''
+  return maskedCredentials(line.trim()).slice(0, ANSWER_CHARS_AT_MOST)
+}
+
+export function withTurnEnd(
+  agents: Agents,
+  agentId: string,
+  now: number,
+  answer: string,
+): BoardAgent[] {
   return pruned(
     withAgent(agents, agentId, now, (agent) => ({
       ...agent,
@@ -218,6 +247,7 @@ export function withTurnEnd(agents: Agents, agentId: string, now: number): Board
       endedAt: now,
       hasLoopEvents: true,
       running: agent.running.map(unasked),
+      answer: firstAnswerLine(answer),
     })),
   )
 }
@@ -336,6 +366,14 @@ function sightOf(agent: BoardAgent, waiting: WaitingAsk | undefined): BoardToolS
   return running ? { tool: running.tool, target: running.target } : agent.last
 }
 
+function runningLine(call: BoardAgentCall): AgentCallLine {
+  return { tool: call.tool, target: call.target, outcome: 'running', at: call.startedAt ?? null }
+}
+
+function lastCallsOf(agent: BoardAgent): AgentCallLine[] {
+  return [...(agent.calls ?? []), ...agent.running.map(runningLine)].slice(-LAST_CALLS)
+}
+
 function rowOf(
   agent: BoardAgent,
   plan: readonly BoardTask[] | undefined,
@@ -357,6 +395,8 @@ function rowOf(
     callId: running?.id ?? null,
     isCallRunning: running !== undefined,
     tools: agent.tools,
+    lastCalls: lastCallsOf(agent),
+    answer: agent.answer ?? null,
     plan: plan ?? null,
     description: agent.description === '' ? null : agent.description,
     parentId: agent.parentId,
@@ -431,14 +471,19 @@ export function waitingCount(rows: readonly AgentRow[]): number {
   return waitingRows(rows).length
 }
 
-export async function trackAgentCall<R>(
+function outcomeOf(answer: CallAnswer): BoardCallOutcome {
+  return answer.isError === true || answer.deny !== undefined ? 'failed' : 'ok'
+}
+
+export async function trackAgentCall<R extends CallAnswer>(
   host: AgentHost,
   agentId: string,
   call: BoardAgentCall,
   run: () => Promise<R>,
 ): Promise<R> {
   const now = await host.now()
-  await host.change((agents) => withCallStart(agents, agentId, call, now))
+  const started = { ...call, startedAt: now }
+  await host.change((agents) => withCallStart(agents, agentId, started, now))
   let result: R
   try {
     result = await run()
@@ -446,7 +491,8 @@ export async function trackAgentCall<R>(
     await host.change((agents) => withCallDropped(agents, agentId, call.id))
     throw error
   }
-  await host.change((agents) => withCallEnd(agents, agentId, call.id))
+  const end = { callId: call.id, outcome: outcomeOf(result), at: await host.now() }
+  await host.change((agents) => withCallEnd(agents, agentId, end))
   return result
 }
 
@@ -469,10 +515,10 @@ export async function noteAsk(
   await host.change((agents) => withCallAsked(agents, agentId, callId, { at, target }))
 }
 
-export async function noteTurnEnd(host: AgentHost, agentId: string): Promise<void> {
+export async function noteTurnEnd(host: AgentHost, agentId: string, answer: string): Promise<void> {
   const now = await host.now()
   const listed = await host.listed()
-  await host.change((agents) => withList(withTurnEnd(agents, agentId, now), listed, now))
+  await host.change((agents) => withList(withTurnEnd(agents, agentId, now, answer), listed, now))
 }
 
 export async function noteAgentList(host: AgentHost): Promise<void> {

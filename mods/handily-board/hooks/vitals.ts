@@ -1,16 +1,5 @@
-import type {
-  BoxProps,
-  ButtonProps,
-  ElementConstructor,
-  RenderElement,
-  SessionMeasureInput,
-  SessionRateLimit,
-  SessionUsage,
-  TextProps,
-} from 'claude-code'
+import type { SessionMeasureInput, SessionRateLimit, SessionUsage } from 'claude-code'
 import type { SharedContext } from './progress'
-import { SIGNALS } from './signals'
-import { cutToWidth, displayWidth } from './width'
 
 export const CONTEXT_HIGH = 80
 
@@ -30,6 +19,7 @@ export type Vitals = {
   usd: number | undefined
   turnStartUsd: number | undefined
   isTurnRunning: boolean
+  turnStartedAt: number | undefined
   isTurnMeasured: boolean
   compactions: number
   turn: TurnCounts
@@ -48,6 +38,7 @@ export const EMPTY_VITALS: Vitals = {
   usd: undefined,
   turnStartUsd: undefined,
   isTurnRunning: false,
+  turnStartedAt: undefined,
   isTurnMeasured: false,
   compactions: 0,
   turn: NO_COUNTS,
@@ -110,11 +101,12 @@ export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
   }
 }
 
-export function withTurnStart(vitals: Vitals): Vitals {
+export function withTurnStart(vitals: Vitals, now: number): Vitals {
   const { lastTurn } = vitals
   return {
     ...vitals,
     isTurnRunning: true,
+    turnStartedAt: now,
     turnStartUsd: vitals.usd,
     isTurnMeasured: false,
     turn: NO_COUNTS,
@@ -155,27 +147,12 @@ export function withClear(vitals: Vitals): Vitals {
   return { ...EMPTY_VITALS, hasNoUsage: vitals.hasNoUsage }
 }
 
-type Span = { text: string; isWarning: boolean }
-
-type Piece = { lead: string; spans: readonly Span[] }
-
-const SESSION_TITLE = 'Session'
-const TITLE_GAP = '  '
-const PIECE_LEAD = ' · '
-const CUT_MARK = '…'
-const NO_USAGE = 'no context or cost on this host'
-const NO_REPLY_YET = 'until the first reply'
-
-function cents(usd: number): number {
+export function cents(usd: number): number {
   return Math.round(usd * 100)
 }
 
 export function dollars(amount: number): string {
   return `$${(amount / 100).toFixed(2)}`
-}
-
-function plain(text: string, lead = PIECE_LEAD): Piece {
-  return { lead, spans: [{ text, isWarning: false }] }
 }
 
 export function isHighPercent(shown: number): boolean {
@@ -202,19 +179,7 @@ export function sharedContext(vitals: Vitals): SharedContext | null {
   return { percent: Math.round(vitals.percent), cents: usd === undefined ? null : cents(usd) }
 }
 
-function contextPiece(percent: number): Piece {
-  const shown = Math.round(percent)
-  if (!isHighPercent(shown)) return plain(`ctx ${String(shown)}%`, '')
-  return {
-    lead: '',
-    spans: [
-      { text: 'ctx ', isWarning: false },
-      { text: highText(shown), isWarning: true },
-    ],
-  }
-}
-
-function addedCents(vitals: Vitals): number | undefined {
+export function addedCents(vitals: Vitals): number | undefined {
   const { usd, turnStartUsd } = vitals
   if (usd === undefined || turnStartUsd === undefined) return undefined
   return cents(usd) - cents(turnStartUsd)
@@ -223,106 +188,4 @@ function addedCents(vitals: Vitals): number | undefined {
 export function lastCents(vitals: Vitals): number | undefined {
   if (vitals.isTurnRunning) return vitals.lastTurn?.heldCents
   return vitals.isTurnMeasured ? addedCents(vitals) : undefined
-}
-
-function turnPiece(vitals: Vitals): Piece | undefined {
-  if (!vitals.isTurnRunning) {
-    const last = lastCents(vitals)
-    return last === undefined ? undefined : plain(`last +${dollars(last)}`)
-  }
-  const added = addedCents(vitals)
-  return added !== undefined && added > 0 ? plain(`turn +${dollars(added)}`) : undefined
-}
-
-function usagePieces(vitals: Vitals): Piece[] {
-  if (vitals.hasNoUsage) return [plain(NO_USAGE, '')]
-  const { percent, usd } = vitals
-  const context = percent === undefined ? plain('ctx —', '') : contextPiece(percent)
-  if (percent === undefined && (usd ?? 0) === 0) return [context, plain(NO_REPLY_YET, ' ')]
-  const turn = turnPiece(vitals)
-  return [
-    context,
-    ...(usd === undefined ? [] : [plain(dollars(cents(usd)))]),
-    ...(turn === undefined ? [] : [turn]),
-  ]
-}
-
-function waitsPiece(waits: number): Piece {
-  const verb = waits === 1 ? 'waits' : 'wait'
-  return {
-    lead: '',
-    spans: [{ text: `${SIGNALS.waitsForYou.mark} ${String(waits)} ${verb}`, isWarning: true }],
-  }
-}
-
-function sessionPieces(vitals: Vitals, waits = 0): Piece[] {
-  const usage = usagePieces(vitals)
-  if (waits === 0) return usage
-  const [first, ...rest] = usage
-  return [waitsPiece(waits), ...(first ? [{ ...first, lead: PIECE_LEAD }] : []), ...rest]
-}
-
-function pieceText(piece: Piece): string {
-  return piece.lead + piece.spans.map((span) => span.text).join('')
-}
-
-function piecesText(pieces: readonly Piece[]): string {
-  return pieces.map(pieceText).join('')
-}
-
-export function sessionText(vitals: Vitals, waits = 0): string {
-  return `${SESSION_TITLE}${TITLE_GAP}${piecesText(sessionPieces(vitals, waits))}`
-}
-
-function fittedPieces(pieces: readonly Piece[], room: number): Piece[] {
-  const kept = [...pieces]
-  while (kept.length > 1 && displayWidth(piecesText(kept)) > room) kept.pop()
-  return kept
-}
-
-function cutSpans(spans: readonly Span[], room: number): Span[] {
-  const total = spans.reduce((sum, span) => sum + displayWidth(span.text), 0)
-  if (total <= room) return [...spans]
-  let left = Math.max(room - displayWidth(CUT_MARK), 0)
-  const kept: Span[] = []
-  for (const span of spans) {
-    const text = cutToWidth(span.text, left)
-    if (text !== '') kept.push({ ...span, text })
-    left -= displayWidth(text)
-    if (text !== span.text) break
-  }
-  return [...kept, { text: CUT_MARK, isWarning: false }]
-}
-
-function lineSpans(pieces: readonly Piece[], room: number): Span[] {
-  const spans = fittedPieces(pieces, room).flatMap((piece) =>
-    piece.lead === '' ? piece.spans : [{ text: piece.lead, isWarning: false }, ...piece.spans],
-  )
-  return cutSpans(spans, room)
-}
-
-export type VitalsElements = {
-  Box: ElementConstructor<BoxProps>
-  Text: ElementConstructor<TextProps>
-  Button: ElementConstructor<ButtonProps>
-  bodyColumns: number
-}
-
-export type SessionLine = { vitals: Vitals; waits: number; open: (() => void) | undefined }
-
-export function drawSessionLine(elements: VitalsElements, line: SessionLine): RenderElement {
-  const { Box, Text, Button } = elements
-  const room = elements.bodyColumns - displayWidth(`${SESSION_TITLE}${TITLE_GAP}`)
-  const pieces = sessionPieces(line.vitals, line.waits)
-  const children = [
-    Text({ bold: true, children: SESSION_TITLE }),
-    Text({ children: TITLE_GAP }),
-    ...lineSpans(pieces, room).map((span) =>
-      span.isWarning
-        ? Text({ color: 'warning', children: span.text })
-        : Text({ dimColor: true, children: span.text }),
-    ),
-  ]
-  if (line.open === undefined) return Box({ key: 'session', flexDirection: 'row', children })
-  return Button({ key: 'session', plain: true, onPress: line.open, children })
 }

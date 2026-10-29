@@ -75,6 +75,8 @@ import {
   partsOf,
 } from './breakdown'
 import { EMPTY_CHECKS, withCheck } from './checks'
+import { type RequestFacts, NO_REQUEST, requestWords, withMode, withStep } from './request'
+import { sessionBlockText } from './session'
 import { SESSION_DETAILS, detailsText } from './details'
 import { statsText } from './stats'
 import {
@@ -183,7 +185,6 @@ import { EMPTY_TREND, trendMeasured, trendTurnEnded, trendTurnStarted } from './
 import {
   EMPTY_VITALS,
   type Vitals,
-  sessionText,
   sharedContext,
   withMeasure,
   withClear,
@@ -683,6 +684,7 @@ type StepsKeep = Map<string, AgentStep>
 type SessionKeeps = {
   vitals: VitalsKeep
   checks: ChecksKeep
+  request: RequestKeep
   steps: StepsKeep
   pulses: AgentPulses
   breakdown: PartsKeep
@@ -712,6 +714,7 @@ async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork
     agents,
     vitals: keeps.vitals.current,
     checks: keeps.checks.current,
+    request: keeps.request.current,
     hasTree: await isTreeListed($),
     context: {
       trend,
@@ -741,6 +744,8 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 type CheckedCall = ToolCheckInput & { tool_use_id: string }
 
 type ChecksKeep = { current: BoardChecks }
+
+type RequestKeep = { current: RequestFacts }
 
 type VitalsKeep = { current: Vitals; shared: string | undefined }
 
@@ -885,12 +890,31 @@ async function noteVitals(
   change: (vitals: Vitals) => Vitals,
 ): Promise<void> {
   const now = await $.clock.now()
-  const drawn = sessionText(keep.current)
-  const details = detailsText(keep.current, now)
+  const drawn = vitalsText(keep.current, now)
   keep.current = change(keep.current)
-  if (sessionText(keep.current) !== drawn || detailsText(keep.current, now) !== details) {
-    $.ui.invalidate('ui.render')
-  }
+  if (vitalsText(keep.current, now) !== drawn) $.ui.invalidate('ui.render')
+}
+
+function vitalsText(vitals: Vitals, now: number): string {
+  const view = { vitals, waits: 0, checks: EMPTY_CHECKS, request: NO_REQUEST, now }
+  return `${sessionBlockText(view)}\n${detailsText(vitals, now)}`
+}
+
+function noteRequest(
+  $: EngineInterface,
+  keep: RequestKeep,
+  change: (facts: RequestFacts) => RequestFacts,
+): void {
+  const drawn = requestWords(keep.current)
+  keep.current = change(keep.current)
+  if (requestWords(keep.current) !== drawn) $.ui.invalidate('ui.render')
+}
+
+type ClassicFacts = { permission_mode?: string; agent_id?: string }
+
+function noteMode($: EngineInterface, keep: RequestKeep, e: ClassicFacts): void {
+  if (e.agent_id !== undefined) return
+  noteRequest($, keep, (facts) => withMode(facts, e.permission_mode))
 }
 
 async function shareContext($: EngineInterface, machine: Machine, keep: VitalsKeep): Promise<void> {
@@ -1307,6 +1331,7 @@ export const register: Register = (on, options) => {
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
+  const request: RequestKeep = { current: NO_REQUEST }
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = new Map()
@@ -1366,7 +1391,8 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
-      await noteVitals($, vitals, withTurnStart)
+      const now = await $.clock.now()
+      await noteVitals($, vitals, (current) => withTurnStart(current, now))
       await noteTrend($, trend, trendTurnStarted)
     }
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
@@ -1377,7 +1403,10 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     const { agentId } = e
-    if (agentId === undefined) return yield* next(e)
+    if (agentId === undefined) {
+      noteRequest($, request, (facts) => withStep(facts, e.model, e.effort))
+      return yield* next(e)
+    }
     heard(pulses, agentId, await $.clock.now())
     const stepped = yield* next(e)
     heard(pulses, agentId, await $.clock.now())
@@ -1400,7 +1429,7 @@ export const register: Register = (on, options) => {
       )
     } else {
       const { agentId } = e
-      await noteTurnEnd(agentHostOf($), agentId)
+      await noteTurnEnd(agentHostOf($), agentId, e.answer)
       await forgetAsks($, attention, (_callId, ask) => ask.agentId === agentId)
       await shareAgents($, machine)
     }
@@ -1448,6 +1477,21 @@ export const register: Register = (on, options) => {
       await resetAgentLists($)
       await resetActivity($)
     }
+    return next(e)
+  })
+
+  on('classic.SessionStart', ($, e, next) => {
+    noteMode($, request, e)
+    return next(e)
+  })
+
+  on('classic.UserPromptSubmit', ($, e, next) => {
+    noteMode($, request, e)
+    return next(e)
+  })
+
+  on('classic.Stop', ($, e, next) => {
+    noteMode($, request, e)
     return next(e)
   })
 
@@ -1617,7 +1661,9 @@ export const register: Register = (on, options) => {
       case 'stats':
         await countParts($, breakdown)
         return {
-          text: statsText(await workOf($, { vitals, checks, steps, pulses, breakdown, trend })),
+          text: statsText(
+            await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend }),
+          ),
         }
       case 'add':
         return { text: (await personAdd(host, command.text)).text }
@@ -1745,8 +1791,16 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
-    const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
-    const work = await workOf($, { vitals, checks, steps, pulses, breakdown, trend })
+    const elements = {
+      Box,
+      Text,
+      Button,
+      Input,
+      bodyColumns,
+      isInline: placement === 'inline',
+      canFrame: e.surface === 'terminal',
+    }
+    const work = await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown), work)
