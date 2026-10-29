@@ -4813,6 +4813,10 @@ Colours: as R1. There is no `copy as text` button, as today.
 
 #### R6. 40 columns: one block for each row (both styles)
 
+Under 40 columns no box draws. A table that fits keeps its columns in rules style, and a table
+that does not fit draws one block for each row, as below. Decided 2026-10-29 in the review of
+handily-9seiy.1.
+
 ```text
 ● Gate results:
 
@@ -4835,8 +4839,9 @@ Colours:
 - 212 and 98 `planMode`; "pass" and "fail" bold; "design" `suggestion` + underline; "npm test"
   `permission`.
 
-**Copy.** `copy` copies the cell markdown unchanged. `copy as text` copies the drawn shape of the
-style in use: `═` under the header, and the box in box style. Cells copy as shown text, as today.
+**Copy.** `copy` copies the cell markdown unchanged. `copy as text` copies one `label: value`
+line for each cell, as today, for a screen reader and a pipe. Cells copy as shown text.
+Decided 2026-10-29 in the review of handily-9seiy.1.
 
 ### 12.5 Reply-view diagrams (80 and 40 columns)
 
@@ -5020,7 +5025,7 @@ reader get B8 and `copy as text`.
 #### Reply-view
 
 - Tables keep their layout and gain colour.
-- `─┼─` under the header becomes `═╪═`, in the drawing and in `copy as text`.
+- `─┼─` under the header becomes `═╪═` in the drawing. `copy as text` keeps its `label: value` lines.
 - Cells show inline code, bold and links again; `copy` is unchanged.
 - A prismantis user finds the box under Table style `box`.
 - Diagrams keep every line, and only gain colour on the terminal.
