@@ -626,6 +626,24 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
 - The tool column shows `▸` and the call that runs now, or the last call. Below 36 columns the
   tool column is left out. Docked, a failed agent gets a second line, `failed after` its last
   call. Inline, that text is in the tool column.
+- From a body of 80 columns, docked or inline, each agent row adds a `ctx` column and a lane.
+  `ctx` is the context of the latest model request of the agent, or `ctx —` before the first
+  one. The lanes share one time axis, from the first spawn of this session to now, in 20 cells.
+  The header names the axis. A lane draws `━` while the agent ran and `·` before and after. The
+  lane of an agent that waits for you ends in `◆` in the theme colour `warning`, and the lane of
+  a failed agent ends in `■` in the theme colour `error`. The `waits for:` and `failed after`
+  text moves into the tool column, so each agent keeps one line. A capture from the tests,
+  docked at 89 columns:
+
+  ```text
+  Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now
+  ◆ scout     needs you waits for: permission · Bash… ctx 31k ············━━━━━━━◆ open  8m
+  ■ lane-b    failed    failed after Bash npm run bu… ctx —   ━━━━━━━■············       8m
+  ▶ Explore   running   Read src/a.ts                 ctx 48k ·················━━━ open  3m
+  ```
+
+  Below a body of 80 columns, the rows keep the form above, with no `ctx` and no lane.
+
 - Order: needs you first, then failed, then asked and running, on hold, pending and idle, each
   in spawn order. Ended agents fold into `+N ended`. At most 6 active agents show. The rest fold
   into `+N more agents`, so the Add input stays on screen.

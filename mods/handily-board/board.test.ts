@@ -2748,10 +2748,16 @@ describe('the pane follows the work', () => {
         '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                         1 tool · 0s',
       ])
       expect(lines.filter((line) => line.startsWith('▶ a'))).toEqual([
-        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                        open  0s',
+        '▶ a\\u2028b  running   mcp__search__grep x… ctx —   ···················━ open  0s',
       ])
       expect(await ui.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
       await ui.unmount()
+      const narrow = await mountPane($, 79)
+      expect((await screen(narrow, 79)).filter((line) => line.startsWith('▶ a'))).toEqual([
+        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                       open  0s',
+      ])
+      expect(await narrow.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
+      await narrow.unmount()
     },
   )
 })
@@ -6613,6 +6619,166 @@ for (const surface of SURFACES) {
         await call
       },
     )
+  })
+}
+
+const LANES_CRITERION =
+  'When the body is 80 columns or wider, each agent row shows its ctx and a lane on one axis from the first spawn to now, which ends in the wait or failure mark.'
+const NARROW_ROWS_CRITERION =
+  'When the body is narrower than 80 columns, the agent rows match the approved 41 column rows.'
+
+const SCOUT_USAGE = { fresh: 1_000, written: 4_000, read: 26_000, output: 900 }
+
+async function laneScene($: Engine, on: On, surface: Surface) {
+  const seen = world(on)
+  const dialog = personDialog(on, seen.clock)
+  const steps = stepWorld(on)
+  await startOn($, surface)
+  await seen.clock.set(START)
+  await spawnFrom($, LANE)
+  seen.agents.push(runningAgent(LANE, 'lane-b'))
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: LANE })
+  await seen.clock.advance(8 * MINUTE)
+  seen.agents.splice(0, 1, { ...runningAgent(LANE, 'lane-b'), status: 'failed' })
+  await $.turn.complete({
+    turnId: 'turn-lane',
+    reason: 'answer',
+    answer: 'done',
+    durationMs: 8 * MINUTE,
+    isAborted: false,
+    agentId: LANE,
+  })
+  await seen.clock.advance(4 * MINUTE)
+  await spawnFrom($, SCOUT)
+  seen.agents.push(runningAgent(SCOUT, 'scout'))
+  await step($, steps, SCOUT, stepped('turn-s', SCOUT_USAGE, 'tool_use'))
+  await seen.clock.advance(5 * MINUTE)
+  await spawnFrom($, EXPLORE, SCOUT)
+  seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+  await seen.clock.advance(2 * MINUTE)
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+  await step($, steps, EXPLORE, stepped('turn-e', EXPLORE_USAGE, 'tool_use'))
+  await seen.clock.advance(MINUTE - NEEDS_YOU_AFTER_MS)
+  const call = askAs($, SCOUT, 'npm test')
+  await dialog.opened(1)
+  await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+  return { dialog, call }
+}
+
+async function agentScreen(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline',
+  columns: number,
+): Promise<{ lines: string[]; lanes: (Drawn | null)[] }> {
+  const ui = await mountTab($, surface, PANE, placement, columns)
+  const all = await screen(ui, columns)
+  const lanes: (Drawn | null)[] = []
+  for (const id of [SCOUT, LANE, EXPLORE]) {
+    lanes.push(drawnOf(await ui.find({ key: `lane:agent:${id}` })))
+  }
+  await ui.unmount()
+  const first = all.findIndex((line) => line.startsWith('Agents'))
+  return { lines: all.slice(first).filter((line) => line !== '' && !line.startsWith('[')), lanes }
+}
+
+const LANE_SCREENS: readonly { columns: number; lines: readonly string[] }[] = [
+  {
+    columns: 89,
+    lines: [
+      'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+      '◆ scout     needs you waits for: permission · Bash… ctx 31k ············━━━━━━━◆ open  8m',
+      '■ lane-b    failed    failed after Bash npm run bu… ctx —   ━━━━━━━■············       8m',
+      '▶ Explore   running   Read src/a.ts                 ctx 48k ·················━━━ open  3m',
+    ],
+  },
+  {
+    columns: 80,
+    lines: [
+      'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+      '◆ scout     needs you waits for: permissi… ctx 31k ············━━━━━━━◆ open  8m',
+      '■ lane-b    failed    failed after Bash n… ctx —   ━━━━━━━■············       8m',
+      '▶ Explore   running   Read src/a.ts        ctx 48k ·················━━━ open  3m',
+    ],
+  },
+]
+
+for (const surface of SURFACES) {
+  describe(LANES_CRITERION, () => {
+    for (const { columns, lines } of LANE_SCREENS) {
+      test(
+        `each agent row draws its ctx and a lane from the first spawn to now, as mock 8.10k, at ${String(columns)} columns, on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          const { dialog, call } = await laneScene($, on, surface)
+          expect((await agentScreen($, surface, 'dock', columns)).lines).toEqual(lines)
+          dialog.allow()
+          await call
+        },
+      )
+    }
+
+    test(
+      `the lane of a waiting agent ends in the warning mark and the lane of a failed agent in the error mark, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { dialog, call } = await laneScene($, on, surface)
+        const [scout, lane, explore] = (await agentScreen($, surface, 'dock', 89)).lanes
+        expect(scout?.children[1]?.text.endsWith('◆')).toBe(true)
+        expect(scout?.children[1]?.props.color).toBe('warning')
+        expect(lane?.children[1]?.text.endsWith('■')).toBe(true)
+        expect(lane?.children[1]?.props.color).toBe('error')
+        expect(lane?.children[2]?.props.dimColor).toBe(true)
+        expect(explore?.children[1]?.text).toBe('━━━')
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `an inline board with a body of 80 columns also draws the ctx and the lanes, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { dialog, call } = await laneScene($, on, surface)
+        const inline = (await agentScreen($, surface, 'inline', 80)).lines
+        expect(inline[0]).toBe('Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now')
+        expect(inline[2]).toContain('ctx —   ━━━━━━━■············       8m')
+        dialog.allow()
+        await call
+      },
+    )
+  })
+
+  describe(NARROW_ROWS_CRITERION, () => {
+    for (const columns of [41, 79]) {
+      test(
+        `a body of ${String(columns)} columns keeps the rows of mock 8.10f with no ctx and no lane, and body 80 adds them, on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          const { dialog, call } = await laneScene($, on, surface)
+          const narrow = await agentScreen($, surface, 'dock', columns)
+          const wider = ' '.repeat(columns - 41)
+          expect(narrow.lines).toEqual([
+            'Agents  3 · 1 needs you · 1 failed',
+            `◆ scout     needs you ${wider}           open  8m`,
+            '    waits for: permission · Bash npm test',
+            `■ lane-b    failed    ${wider}                 8m`,
+            '    failed after Bash npm run build',
+            columns === 41
+              ? '▶ Explore   running   Read src/… open  3m'
+              : `${'▶ Explore   running   Read src/a.ts'.padEnd(columns - 8)}open  3m`,
+          ])
+          expect(narrow.lanes).toEqual([null, null, null])
+          const wide = await agentScreen($, surface, 'dock', 80)
+          expect(wide.lines[0]).toBe(
+            'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+          )
+          expect(wide.lanes.every((lane) => lane !== null)).toBe(true)
+          dialog.allow()
+          await call
+        },
+      )
+    }
   })
 }
 

@@ -2,6 +2,7 @@ import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardTask, BoardToolSight } from '../types'
 import { elapsedText } from './activity'
 import type { AgentLook, AgentRow, AgentStall, AgentStep } from './agents'
+import { LANE_CELLS, type LaneAxis, hasLanes, laneAxis, laneOf } from './lanes'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
 import { SIGNALS, needsYouText } from './signals'
@@ -35,6 +36,7 @@ const STALL_COLOR: ThemeKey = 'warning'
 const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
 const AGENTS_TITLE = 'Agents'
 const NO_CONTEXT = 'ctx —'
+const CONTEXT_COLUMNS = 7
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
   mark: string
   color: ThemeKey
@@ -130,12 +132,45 @@ function fixedBox(elements: PaneElements, width: number, child: RenderElement): 
   return elements.Box({ width, flexShrink: 0, children: [child] })
 }
 
+function contextText(row: AgentRow): string {
+  return row.step === null ? NO_CONTEXT : contextPart(row.step).text
+}
+
+function contextWidth(context: string): number {
+  return NAME_GAP + Math.max(CONTEXT_COLUMNS, displayWidth(context)) + NAME_GAP
+}
+
+function laneColumns(
+  elements: PaneElements,
+  row: AgentRow,
+  axis: LaneAxis,
+  context: string,
+): RenderElement[] {
+  const { Box, Text } = elements
+  const color = LOOKS[row.look].color
+  const lane = laneOf(row, axis)
+  return [
+    fixedBox(elements, contextWidth(context), Text({ dimColor: true, children: ` ${context}` })),
+    Box({
+      key: `lane:agent:${row.id}`,
+      flexDirection: 'row',
+      flexShrink: 0,
+      children: [
+        Text({ dimColor: true, children: lane.before }),
+        Text({ color, children: `${lane.run}${lane.mark}` }),
+        Text({ dimColor: true, children: lane.after }),
+      ],
+    }),
+  ]
+}
+
 function agentLine(
   elements: PaneElements,
   row: AgentRow,
   name: string,
   layout: RowLayout,
   openAgents: () => void,
+  axis: LaneAxis | null,
 ): RenderElement {
   const { Box, Text, Button } = elements
   const look = LOOKS[row.look]
@@ -147,12 +182,23 @@ function agentLine(
   const timeWidth = NAME_GAP + Math.max(TIME_COLUMNS, displayWidth(time))
   const hasToolColumn = elements.isInline || elements.bodyColumns >= TOOL_COLUMN_FROM
   const isOpenable = OPENABLE_LOOKS.has(row.look)
-  const openWidth = isOpenable ? displayWidth(OPEN_LABEL) + (hasToolColumn ? NAME_GAP : 0) : 0
+  const hasOpenColumn = isOpenable || axis !== null
+  const openWidth = hasOpenColumn ? displayWidth(OPEN_LABEL) + (hasToolColumn ? NAME_GAP : 0) : 0
+  const context = contextText(row)
+  const lanes = axis === null ? [] : laneColumns(elements, row, axis, context)
+  const lanesWidth = axis === null ? 0 : contextWidth(context) + LANE_CELLS
   const detailWidth = Math.max(
-    elements.bodyColumns - MARK_COLUMNS - nameWidth - stateWidth - openWidth - timeWidth,
+    elements.bodyColumns -
+      MARK_COLUMNS -
+      nameWidth -
+      stateWidth -
+      lanesWidth -
+      openWidth -
+      timeWidth,
     0,
   )
-  const detail = hasToolColumn ? fitted(detailText(row, elements.isInline), detailWidth) : ''
+  const isDetailWhole = elements.isInline || axis !== null
+  const detail = hasToolColumn ? fitted(detailText(row, isDetailWhole), detailWidth) : ''
   return Box({
     key: `row:agent:${row.id}`,
     flexDirection: 'row',
@@ -176,6 +222,7 @@ function agentLine(
         flexShrink: 1,
         children: [Text({ dimColor: true, children: detail })],
       }),
+      ...lanes,
       isOpenable
         ? Box({
             flexShrink: 0,
@@ -190,7 +237,9 @@ function agentLine(
               }),
             ],
           })
-        : null,
+        : hasOpenColumn
+          ? fixedBox(elements, openWidth, Text({ children: '' }))
+          : null,
       fixedBox(elements, timeWidth, Text({ dimColor: true, children: time.padStart(timeWidth) })),
     ],
   })
@@ -345,14 +394,16 @@ function drawAgent(
   layout: RowLayout,
   now: number,
   openAgents: () => void,
+  axis: LaneAxis | null,
 ): RenderElement {
   const name = names.get(row.id) ?? escaped(row.label)
-  const head = agentLine(elements, row, name, layout, openAgents)
+  const head = agentLine(elements, row, name, layout, openAgents, axis)
+  const hasSecondLine = !elements.isInline && axis === null
   const failure =
-    row.look === 'failed' && !elements.isInline
+    row.look === 'failed' && hasSecondLine
       ? line(elements, failureText(row), { dimColor: true })
       : null
-  const waits = row.look === 'needsYou' && !elements.isInline ? waitsLine(elements, row) : null
+  const waits = row.look === 'needsYou' && hasSecondLine ? waitsLine(elements, row) : null
   const isOpen = layout.expanded.has(`agent:${row.id}`)
   const under = [failure, waits, ...(isOpen ? openedLines(elements, row, names, layout, now) : [])]
   const shown = under.filter((element) => element !== null)
@@ -396,11 +447,19 @@ export function agentsTitleText(rows: readonly AgentRow[]): string {
   return plain === '' ? AGENTS_TITLE : `${AGENTS_TITLE}  ${plain}`
 }
 
-function drawHeader(elements: PaneElements, rows: readonly AgentRow[]): RenderElement {
+function lanesPart(axis: LaneAxis): Part {
+  return { text: `lanes from ${elapsedText(axis.to - axis.from)} ago to now` }
+}
+
+function drawHeader(
+  elements: PaneElements,
+  rows: readonly AgentRow[],
+  axis: LaneAxis | null,
+): RenderElement {
   const { Box, Text } = elements
   const title = AGENTS_TITLE
-  const parts = headerParts(rows)
-  const plain = headerText(rows)
+  const parts = [...headerParts(rows), ...(axis === null ? [] : [lanesPart(axis)])]
+  const plain = parts.map((part) => part.text).join(' · ')
   const room = elements.bodyColumns - displayWidth(title)
   const isWhole = displayWidth(`  ${plain}`) <= room
   const tail = isWhole
@@ -464,7 +523,8 @@ export function drawAgents(
   const { Box, Text } = elements
   if (rows.length === 0) return []
   const names = shownNames(rows)
-  const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now, openAgents)
+  const axis = hasLanes(elements.bodyColumns) ? laneAxis(rows, now) : null
+  const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now, openAgents, axis)
   const active = rows.filter((row) => !row.isEnded)
   const ended = rows.filter((row) => row.isEnded)
   const hidden = active.length - AGENT_ROWS_AT_MOST
@@ -486,7 +546,7 @@ export function drawAgents(
           key: 'agents-rule',
           children: [Text({ dimColor: true, children: '─'.repeat(elements.bodyColumns) })],
         }),
-    drawHeader(elements, rows),
+    drawHeader(elements, rows, axis),
     ...shown.map(draw),
     drawFolds(elements, folds),
     ...(isEndedShown ? ended.map(draw) : []),
