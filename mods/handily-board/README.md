@@ -496,20 +496,25 @@ Session  ctx 62% · $1.70 · last +$0.10
   `context.window` of `session.measure`. `1 compaction` counts each compaction of the main
   conversation that the engine event `session.compact` reports as done. A compaction of a
   subagent, a `precompute` and a skipped compaction do not count.
-- `trend` has one bar for each main turn: `context.tokens` at the end of the turn, against the
-  window. It keeps the last 20 turns. `+6k a turn` is the mean growth of the last 5 main turns.
-  A turn of a subagent adds no bar. A compaction of the main conversation starts the trend again
+- `trend` has one bar for each answered main turn: the last `context.tokens` that a measure
+  reports for the turn, against the window. A measure that comes just after the turn ends still
+  counts for that turn. A main turn with no new context measure, such as an aborted turn, adds no
+  bar. It keeps the last 20 bars. `+6k a turn` is the mean growth of the last 5 bars. A turn of
+  a subagent adds no bar. A compaction of the main conversation starts the trend again
   from the next reading. Before 2 readings the line reads `trend after 2 turns`, and a trend that
   does not grow reads `no growth`.
 - `auto-compact at 167k` is the threshold of the context parts. `in ~7 turns` is the room left
   under it, from the last bar, divided by the mean growth. The count is approximate, because the
   parts count against the compaction window and the bars against the model window. From 2 turns
   left the line reads `auto-compact soon: ~2 turns`, with `soon` in the theme colour `warning`.
-  With auto-compact off the line reads `auto-compact is off`.
+  Above 99 turns it reads `in over 99 turns`. With auto-compact off the line reads
+  `auto-compact is off`.
 - The board counts the parts with `$.session.usage({ breakdown: 'summary' })`. That is a local
   estimate with no request to the model. It counts them when you open the details or press
-  `[ context parts ]`, and again at the end of each main turn while the details are open. It
-  never counts them while the details are closed, and it starts no timer.
+  `[ context parts ]`, and again at the end of each main turn while the board shows the open
+  details. It counts nothing while the board is closed or the details are, and it starts no
+  timer. When the board shows open details again, after a resume or after turns with the board
+  closed, it counts them once.
 - `[ context parts ]` lists each used part with the name that Claude Code gives it, its tokens and
   its percent of the compaction window, the largest first. It shows 7 lines, then
   `[ +1 more part ]`. From 76 columns it shows two parts on a line. `free` is the free space and

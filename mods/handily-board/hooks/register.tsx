@@ -179,7 +179,7 @@ import {
   withTrackerNotice,
 } from './tasks'
 import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from './transcript'
-import { EMPTY_TREND, RESTARTED_TREND, withFreshReading, withReading } from './trend'
+import { EMPTY_TREND, trendMeasured, trendTurnEnded, trendTurnStarted } from './trend'
 import {
   EMPTY_VITALS,
   type Vitals,
@@ -713,7 +713,11 @@ async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork
     vitals: keeps.vitals.current,
     checks: keeps.checks.current,
     hasTree: await isTreeListed($),
-    context: { trend, parts: keeps.breakdown.view },
+    context: {
+      trend,
+      parts: keeps.breakdown.view,
+      isPartsDue: keeps.breakdown.view.kind === 'unread' || keeps.breakdown.isStale,
+    },
   }
 }
 
@@ -740,7 +744,7 @@ type ChecksKeep = { current: BoardChecks }
 
 type VitalsKeep = { current: Vitals; shared: string | undefined }
 
-type PartsKeep = { view: PartsView }
+type PartsKeep = { view: PartsView; isStale: boolean }
 
 type TrendKeep = { current: BoardTrend | undefined }
 
@@ -910,6 +914,7 @@ async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
 }
 
 async function countParts($: EngineInterface, keep: PartsKeep): Promise<void> {
+  keep.isStale = false
   if (keep.view.kind !== 'read') {
     keep.view = COUNTING_PARTS
     $.ui.invalidate('ui.render')
@@ -934,20 +939,21 @@ async function setTrend($: EngineInterface, keep: TrendKeep, trend: BoardTrend):
   await $.state.set(TREND, trend)
 }
 
-async function changeTrend(
+async function isDetailsShown($: EngineInterface): Promise<boolean> {
+  const isOpen = (await hostOf($).expanded()).includes(SESSION_DETAILS)
+  return isOpen && (await isSessionTabSeen($))
+}
+
+async function noteTrend(
   $: EngineInterface,
   keep: TrendKeep,
   change: (trend: BoardTrend) => BoardTrend,
-): Promise<boolean> {
+): Promise<void> {
   const before = await trendOf($, keep)
   const after = change(before)
-  if (after === before) return false
+  if (after === before) return
   await setTrend($, keep, after)
-  return true
-}
-
-async function isDetailsOpen($: EngineInterface): Promise<boolean> {
-  return (await hostOf($).expanded()).includes(SESSION_DETAILS)
+  if (after.tokens !== before.tokens) $.ui.invalidate('ui.render')
 }
 
 async function resetAgentLists($: EngineInterface): Promise<void> {
@@ -1301,7 +1307,7 @@ export const register: Register = (on, options) => {
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
-  const breakdown: PartsKeep = { view: UNREAD_PARTS }
+  const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = new Map()
   const notes: RowNotes = new Map()
@@ -1339,8 +1345,9 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await noteVitals($, vitals, (current) => withMeasure(current, e))
-    if (e.changed.includes('context') && e.context.tokens !== undefined) {
-      await changeTrend($, trend, withFreshReading)
+    const { tokens } = e.context
+    if (e.changed.includes('context') && tokens !== undefined) {
+      await noteTrend($, trend, (current) => trendMeasured(current, tokens))
     }
     await shareContext($, machine, vitals)
     return measured
@@ -1350,14 +1357,18 @@ export const register: Register = (on, options) => {
     const compacted = await next(e)
     const isMainCompaction = e.agentId === undefined && e.trigger !== 'precompute'
     if (isMainCompaction && compacted.skip === undefined) {
-      await setTrend($, trend, RESTARTED_TREND)
+      await setTrend($, trend, EMPTY_TREND)
+      breakdown.isStale = true
       await noteVitals($, vitals, withCompaction)
     }
     return compacted
   }).catch((_$, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) await noteVitals($, vitals, withTurnStart)
+    if (e.agentId === undefined) {
+      await noteVitals($, vitals, withTurnStart)
+      await noteTrend($, trend, trendTurnStarted)
+    }
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
     )
@@ -1381,11 +1392,9 @@ export const register: Register = (on, options) => {
       const parts = asksParts(asked)
       if (parts !== undefined && !(await isSessionTabSeen($))) showToast($, parts)
       await noteVitals($, vitals, (current) => withTurnEnd(current, e.durationMs))
-      const { tokens } = vitals.current
-      if (await changeTrend($, trend, (current) => withReading(current, tokens))) {
-        $.ui.invalidate('ui.render')
-      }
-      if (await isDetailsOpen($)) await countParts($, breakdown)
+      await noteTrend($, trend, trendTurnEnded)
+      if (await isDetailsShown($)) await countParts($, breakdown)
+      else breakdown.isStale = true
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
       )

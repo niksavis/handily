@@ -21,6 +21,7 @@ export const SOON_TURNS = 2
 const PARTS_OPEN = 'session:parts'
 const PARTS_ALL = 'session:parts:all'
 const SOON_COLOR: ThemeKey = 'warning'
+const TURNS_SHOWN_AT_MOST = 99
 const NAME_COLUMNS = 21
 const NAME_COLUMNS_AT_LEAST = 8
 const TOKEN_COLUMNS = 4
@@ -63,7 +64,7 @@ export const ABSENT_PARTS: PartsView = { kind: 'absent' }
 
 export const FAILED_PARTS: PartsView = { kind: 'failed' }
 
-export type ContextView = { trend: BoardTrend; parts: PartsView }
+export type ContextView = { trend: BoardTrend; parts: PartsView; isPartsDue: boolean }
 
 export type PartsPress = { layout: RowLayout; count: () => void }
 
@@ -118,9 +119,18 @@ function compactForms(parts: ContextParts, trend: BoardTrend): Part[][] {
       return [plain(`auto-compact at ${at} · no growth`), plain(`compact at ${at} · no growth`)]
     case 'left':
       if (left.turns <= SOON_TURNS) return soonForms(left.turns)
+      if (left.turns > TURNS_SHOWN_AT_MOST) {
+        const over = `over ${turnsText(TURNS_SHOWN_AT_MOST)}`
+        return [
+          plain(`auto-compact at ${at} · in ${over}`),
+          plain(`compact at ${at} · ${over}`),
+          plain(`compact ${at} · ${String(TURNS_SHOWN_AT_MOST)}+ turns`),
+        ]
+      }
       return [
         plain(`auto-compact at ${at} · in ~${turnsText(left.turns)}`),
         plain(`compact at ${at} · ~${turnsText(left.turns)}`),
+        plain(`compact ${at} · ~${turnsText(left.turns)}`),
       ]
   }
 }

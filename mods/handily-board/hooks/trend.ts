@@ -11,19 +11,46 @@ const NO_GROWTH = 'no growth'
 const NO_READING = 'trend: no context reading yet'
 const NO_READING_SHORT = 'trend: no reading yet'
 
-export const EMPTY_TREND: BoardTrend = { tokens: [], isReadingStale: false }
-
-export const RESTARTED_TREND: BoardTrend = { tokens: [], isReadingStale: true }
+export const EMPTY_TREND: BoardTrend = {
+  tokens: [],
+  freshTokens: null,
+  isAwaitingReading: false,
+  isLastOpen: false,
+}
 
 export type TurnsLeft = { kind: 'unknown' } | { kind: 'flat' } | { kind: 'left'; turns: number }
 
-export function withReading(trend: BoardTrend, tokens: number | undefined): BoardTrend {
-  if (trend.isReadingStale || tokens === undefined) return trend
-  return { ...trend, tokens: [...trend.tokens, tokens].slice(-TREND_TURNS) }
+function withReading(trend: BoardTrend, tokens: number): BoardTrend {
+  return {
+    tokens: [...trend.tokens, tokens].slice(-TREND_TURNS),
+    freshTokens: null,
+    isAwaitingReading: false,
+    isLastOpen: true,
+  }
 }
 
-export function withFreshReading(trend: BoardTrend): BoardTrend {
-  return trend.isReadingStale ? { ...trend, isReadingStale: false } : trend
+function withLastReading(trend: BoardTrend, tokens: number): BoardTrend {
+  if (trend.tokens.at(-1) === tokens) return trend
+  return { ...trend, tokens: [...trend.tokens.slice(0, -1), tokens] }
+}
+
+export function trendMeasured(trend: BoardTrend, tokens: number): BoardTrend {
+  if (trend.isAwaitingReading) return withReading(trend, tokens)
+  if (trend.isLastOpen) return withLastReading(trend, tokens)
+  return trend.freshTokens === tokens ? trend : { ...trend, freshTokens: tokens }
+}
+
+export function trendTurnStarted(trend: BoardTrend): BoardTrend {
+  const isClosed = trend.freshTokens === null && !trend.isAwaitingReading && !trend.isLastOpen
+  return isClosed
+    ? trend
+    : { ...trend, freshTokens: null, isAwaitingReading: false, isLastOpen: false }
+}
+
+export function trendTurnEnded(trend: BoardTrend): BoardTrend {
+  if (trend.freshTokens !== null) return withReading(trend, trend.freshTokens)
+  if (trend.isAwaitingReading && !trend.isLastOpen) return trend
+  return { ...trend, isAwaitingReading: true, isLastOpen: false }
 }
 
 function paceOf(tokens: readonly number[]): number | undefined {

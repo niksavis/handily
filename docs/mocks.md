@@ -2674,15 +2674,16 @@ and their borders. Each line is as wide as its frame: body 41, 30 or 76.
 
 - **Row names.** The rows use the names of the engine. The code branches on `kind`, never on the
   name. A `used` row is a part. `free`, `buffer` and `deferred` rows make the summary lines.
-- **Trend.** One reading of `context.tokens` at each `turn.complete` of the main loop, at most 20
-  readings, kept in `$.state`. Each bar is the reading against `context.window`. A compaction of
-  the main conversation starts the trend again from the next reading.
+- **Trend.** One reading for each answered main turn: the last `context.tokens` that a measure
+  reports for it, also just after `turn.complete`. At most 20 readings, kept in `$.state`. Each
+  bar is the reading against `context.window`. A compaction of the main conversation starts the
+  trend again from the next reading.
 - **Turns left.** The room under the threshold, from the last reading, divided by the mean growth
   of the last 5 main turns, with `~`. It shows only after 2 or more readings and only when the
-  growth is above 0.
+  growth is above 0. Above 99 turns it reads `in over 99 turns`.
 - **Breakdown.** `$.session.usage({ breakdown: 'summary' })` runs when the person opens the
-  details or presses `[ context parts ]`, and again at each main turn end while the details are
-  open. `/board stats` runs it too.
+  details or presses `[ context parts ]`, and again at each main turn end while a shown board
+  shows the open details. `/board stats` runs it too.
 - **Toasts.** None. The pane shows every result and every error (the rule of 8.6a).
 - **Settings.** None new. The named constants are `TREND_TURNS` 20, `PACE_TURNS` 5, `PARTS_SHOWN`
   7, `SOON_TURNS` 2 and `BREAKDOWN_DETAIL` `summary`.

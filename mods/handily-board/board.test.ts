@@ -5768,25 +5768,133 @@ describe(TREND_CRITERION, () => {
     },
   )
 
-  test(
-    'the breakdown is counted when the details open and at each main turn end while they are open, and never while they are closed',
-    withWorkitems,
-    async ($, on) => {
-      const seen = world(on, { breakdown: breakdownOf(MOCK_ROWS) })
-      await start($)
-      await turnsAt($, [31, 34])
-      expect(seen.breakdownCalls).toBe(0)
-      const ui = await mountTab($, 'terminal', PANE, 'dock', 41)
-      await ui.press({ key: 'session' })
-      expect(seen.breakdownCalls).toBe(1)
-      await turnsAt($, [37], 2)
-      expect(seen.breakdownCalls).toBe(2)
-      await ui.press({ key: 'session' })
-      await turnsAt($, [40], 3)
-      expect(seen.breakdownCalls).toBe(2)
-      await ui.unmount()
-    },
-  )
+  for (const surface of SURFACES) {
+    test(
+      `the breakdown is counted when the details open and at each main turn end while the board shows them, never while the board is closed or the details are, and once when the board shows them again, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [31, 34])
+        expect(seen.breakdownCalls).toBe(0)
+        await board($, '')
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await ui.press({ key: 'session' })
+        expect(seen.breakdownCalls).toBe(1)
+        await turnsAt($, [37], 2)
+        expect(seen.breakdownCalls).toBe(2)
+        await ui.unmount()
+        await board($, 'close')
+        await turnsAt($, [40, 43], 3)
+        expect(seen.breakdownCalls).toBe(2)
+        await board($, '')
+        const shown = await mountTab($, surface, PANE, 'dock', 41)
+        expect(seen.breakdownCalls).toBe(3)
+        expect((await screen(shown, 41))[3]).toBe('    auto-compact at 167k · in ~13 turns')
+        await shown.press({ key: 'session' })
+        await turnsAt($, [46], 5)
+        expect(seen.breakdownCalls).toBe(3)
+        await shown.unmount()
+      },
+    )
+
+    test(
+      `an answered turn whose measure comes after turn.complete gives its own reading, and the last measure of the turn is the reading, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        for (const [index, percent] of [31, 34, 37].entries()) {
+          const turnId = `late-${String(index)}`
+          await mainTurnStarts($, turnId)
+          await measure($, { percent: percent - 2 })
+          await mainTurnTakes($, turnId, MINUTE)
+          await measure($, { percent })
+        }
+        expect((await contextLines($, surface, 'dock', 41)).slice(1, 3)).toEqual([
+          '    trend ▃▃▃ 3 turns · +6k a turn',
+          '    auto-compact at 167k · in ~15 turns',
+        ])
+      },
+    )
+
+    test(
+      `a main turn that ends with no new context measure, as an aborted or failed turn, adds no reading, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [31, 34])
+        await mainTurnStarts($, 'aborted')
+        await $.turn.complete({
+          turnId: 'aborted',
+          reason: 'answer',
+          answer: '',
+          durationMs: 1,
+          isAborted: true,
+        })
+        await mainTurnStarts($, 'failed')
+        await measure($, { usd: 2 })
+        await mainTurnTakes($, 'failed', MINUTE)
+        expect((await contextLines($, surface, 'dock', 41)).slice(1, 3)).toEqual([
+          '    trend ▃▃ 2 turns · +6k a turn',
+          '    auto-compact at 167k · in ~16 turns',
+        ])
+        await turnsAt($, [37], 2)
+        expect((await contextLines($, surface, 'dock', 41))[1]).toBe(
+          '    trend ▃▃▃ 3 turns · +6k a turn',
+        )
+      },
+    )
+
+    test(
+      `more than 99 turns left read over 99 turns, and 99 turns left read ~99 turns, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [33, 33.5])
+        const over = [
+          { placement: 'dock', columns: 41, line: '    compact at 167k · over 99 turns' },
+          { placement: 'dock', columns: 30, line: '    compact 167k · 99+ turns' },
+          { placement: 'inline', columns: 76, line: '    auto-compact at 167k · in over 99 turns' },
+        ] as const
+        for (const { placement, columns, line } of over) {
+          const lines = await contextLines($, surface, placement, columns)
+          expect(lines.find((text) => /^ {4}(auto-)?compact /.test(text))).toBe(line)
+        }
+        await turnsAt($, [34], 2)
+        expect((await contextLines($, surface, 'dock', 41))[2]).toBe(
+          '    auto-compact at 167k · in ~99 turns',
+        )
+      },
+    )
+
+    test(
+      `after a resume the board counts the parts once when it draws the details that stayed open, so the auto-compact line shows with no press, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [31, 34])
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await ui.press({ key: 'session' })
+        await ui.unmount()
+        expect(seen.breakdownCalls).toBe(1)
+        await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } })
+        await startOn($, surface)
+        await turnsAt($, [10, 13], 2)
+        const shown = await mountTab($, surface, PANE, 'dock', 41)
+        expect(seen.breakdownCalls).toBe(2)
+        expect((await screen(shown, 41)).slice(1, 4)).toEqual([
+          '    context 26k of 200k · 0 compactions',
+          '    trend ▁▂ 2 turns · +6k a turn',
+          '    auto-compact at 167k · in ~23 turns',
+        ])
+        await shown.unmount()
+      },
+    )
+  }
 })
 
 describe(PARTS_CRITERION, () => {

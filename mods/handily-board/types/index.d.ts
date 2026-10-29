@@ -121,7 +121,12 @@ export type BoardAgent = {
   label?: string
 }
 
-export type BoardTrend = { tokens: readonly number[]; isReadingStale: boolean }
+export type BoardTrend = {
+  tokens: readonly number[]
+  freshTokens: number | null
+  isAwaitingReading: boolean
+  isLastOpen: boolean
+}
 
 export type BoardCallRow =
   | { kind: 'added'; id: number; title: string }

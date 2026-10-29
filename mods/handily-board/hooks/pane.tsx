@@ -926,6 +926,7 @@ export async function drawPane(
       return undefined
     })
   }
+  if (layout.expanded.has(SESSION_DETAILS) && work.context.isPartsDue) countParts()
   return Box({
     flexDirection: 'column',
     children: [
