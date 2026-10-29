@@ -129,6 +129,16 @@ The ideas of `handily-filetree` come from
 [claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) by Kurt Buhler
 (MIT License), at commit `b98495f8`. handily copies no code from it and adds no dependency.
 
+The design of the Session line, the checks and the agent states of `handily-board` uses two
+references:
+
+- [claude-flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella (MIT
+  License), at commit `f9c3c523`.
+- [claude-agent-flow](https://github.com/Charlie0113-T/claude-agent-flow) by Charles Tao
+  (Apache License 2.0), at commit `76ef8fb`.
+
+handily only read them. It copies no code from them and adds no dependency.
+
 ## License
 
 Released under the [MIT License](LICENSE).
