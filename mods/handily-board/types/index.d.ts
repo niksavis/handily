@@ -84,7 +84,12 @@ export type BoardAgentCall = {
   tool: string
   target: string | null
   asked?: BoardCallAsk
+  startedAt?: number
 }
+
+export type BoardCallOutcome = 'ok' | 'failed'
+
+export type BoardAgentCallDone = BoardToolSight & { outcome: BoardCallOutcome; at: number }
 
 export type BoardCheckDecision = 'allow' | 'ask' | 'deny'
 
@@ -95,10 +100,13 @@ export type BoardCheck = {
   agentId: string | null
 }
 
+export type BoardCheckFamily = 'file' | 'shell' | 'other'
+
 export type BoardChecks = {
   allowed: number
   asked: number
   denied: number
+  families: Readonly<Record<BoardCheckFamily, number>>
   last: readonly BoardCheck[]
 }
 
@@ -111,6 +119,8 @@ export type BoardAgent = {
   tools: number
   running: readonly BoardAgentCall[]
   last: BoardToolSight | null
+  calls?: readonly BoardAgentCallDone[]
+  answer?: string | null
   description: string | null
   type: string | null
   name: string | null

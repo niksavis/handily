@@ -76,20 +76,25 @@ Replies, from the tests:
   be open. A reply from the tests:
 
   ```text
-  Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62
+  Session  ◆ 1 waits · ctx 62% · $4.80
       ◆ scout waits for permission: Bash npm test
+      last 3m · 1 edit · 0 errors · +$0.62 · 1 agent spawned
       context 124k of 200k · 1 compaction
       trend after 2 turns
       no breakdown on this host
-      last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned
       limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d
       checks 2 · 1 allowed · 1 asked
+      file 1 · shell 1 · other 0
+      last 2 checks, oldest first: 1 allowed, 1 asked
   Agents  2 · 1 needs you
       scout: needs you · ctx —
       Explore: running · ctx 48k
   ```
 
-  Each line follows the same rules as the board. The waits are the agents that need you. Each
+  Each line follows the same rules as the board, in words: the reply draws no gauge and no gate
+  cell. When a request has run, a line names the model, the effort and the mode. The last line
+  of the checks lists the verdicts of the last 20 checks, oldest first. The waits are the agents
+  that need you. Each
   agent line has the state of its row, such as `slow 45s`, and the context of its latest model
   request, or `ctx —` before the first one. When the host gives no usage, the first line is
   `Session  no context or cost on this host`, and the reply shows no context, cost or limit.
@@ -98,7 +103,8 @@ Replies, from the tests:
   on a host that gives the parts:
 
   ```text
-  Session  ctx 62% · $1.70 · last +$0.10
+  Session  ctx 62% · $1.70
+      last 1m · 0 edits · 0 errors · +$0.10
       context 124k of 200k · 0 compactions
       trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn
       auto-compact at 167k · in ~7 turns
@@ -112,7 +118,6 @@ Replies, from the tests:
       Plugins                2k   1%
       free 43k · compact buffer 33k
       estimated; /context counts exactly
-      last turn 1m · +$0.10 · 0 edits · 0 errors · 0 agents spawned
       limits: none reported
   No agents yet.
   ```
@@ -246,10 +251,30 @@ You can press every button on both tabs with the keyboard alone. A live check on
 
 ## The this session tab
 
-Captures from the tests, docked at 41 columns:
+Captures from the tests, docked at 41 columns on the terminal:
+
+```text
+╭─ Session ─────────────────────────────╮
+│ ctx — until the first reply           │
+│ limits — until the first reply        │
+│ gate ▮▮▮▮▮▮▮▮▮▮ f10                   │
+╰───────────────────────────────────────╯
+╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ───────╮
+│ ▶ 2 Write the tab mocks     4m [ rm ] │
+│     ▸ Edit docs/mocks.md      9 tools │
+│ ○ 3 Review the mocks with Cod… [ rm ] │
+│ ○ 4 You: Ask the person about… [ rm ] │
+│ [ +1 done ]                           │
+╰───────────────────────────────────────╯
+
+[ Add a task ][Add]
+```
+
+The same list on the desktop app, docked at 41 columns:
 
 ```text
 Session  ctx — until the first reply
+gate ▮▮▮▮▮▮▮▮▮▮ f10
 Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 ▶ 2 Write the tab mocks         4m [ rm ]
     ▸ Edit docs/mocks.md          9 tools
@@ -264,6 +289,7 @@ The same list inline above the prompt, at 80 columns:
 
 ```text
 Session  ctx — until the first reply
+    gate ▮▮▮▮▮▮▮▮▮▮ f10
 Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 ▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]
 ○ 3 Review the mocks with Codex                                           [ rm ]
@@ -273,7 +299,7 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 [ Add a task ][Add]
 ```
 
-- The first line is the Session line. The next section describes it.
+- The first rows are the Session section. A later section describes it.
 - The header shows a bar, the done count of all tasks, the counts of the tasks in progress
   (`▶`) and pending (`○`), and the time since the first tool call of the main loop. The bar
   has one cell for each task, at most 8. Its cells are done in `success`, in progress in
@@ -389,93 +415,141 @@ For you  ◆ 3 open
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
 
-### The Session line
+### The Session section
 
-The Session line shows the context and the cost of this session. Captures from the tests, docked
-at 41 columns. A main turn runs:
-
-```text
-Session  ctx 62% · $4.49 · turn +$0.31
-```
-
-The turn ended:
+The Session section shows the context, the cost, the limits, the model, the turn and the
+permission checks of this session. On the terminal, from a body of 41 columns, the Session,
+Tasks and Agents sections each draw in a rounded frame of text, with the title on the top edge.
+A capture from the tests, docked at 41 columns, while a main turn runs:
 
 ```text
-Session  ctx 62% · $4.80 · last +$0.62
+╭─ Session ─────────────────────────────╮
+│ ctx ▰▰▰▰▰▰▰▱▱▱ 71%                    │
+│ $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │
+│ opus-5-5 · high · accept edits        │
+│ turn 3m · 2 edits · 1 error · +$0.31  │
+│ gate ▮▮■ 1 denied                     │
+╰───────────────────────────────────────╯
 ```
 
-The context is at 80 percent or more:
+The same session on the desktop app, docked at 41 columns, draws no frame:
 
 ```text
-Session  ctx 80% high · $12.40
+Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.33
+5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%
+opus-5-5 · high · accept edits
+turn 3m · 2 edits · 1 error · +$0.31
+gate ▮▮■ 1 denied
 ```
 
-- `ctx 62%` is the context percent of the engine event `session.measure`. It is the figure that
-  the Claude Code status line shows. `$4.49` is the cost of the session, to the cent.
-- From 80 percent, the percent shows the word `high`, and both take the theme colour `warning`.
-- While a main turn runs, `turn +$0.31` is the cost that the turn added since it started. It
-  shows when the turn added one cent or more. After the turn, `last +$0.62` is the cost of the
-  last turn. When the turn ends before its measure, `last` waits for that measure. A subagent
-  turn does not start or end a turn here.
-- When the cost total goes down, the turn counts from the new total, so the line never shows a
-  negative cost.
-- Before the first reply, the line reads `ctx — until the first reply`, also when the engine
+Inline above the prompt, at 76 columns, the board draws no frame and joins the rows that fit:
+
+```text
+Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%
+    opus-5-5 · high · accept edits · turn 3m · 2 edits · 1 error · +$0.31
+    gate ▮▮■ 1 denied
+```
+
+The context and a limit at 80 percent or more, from the tests at 41 columns:
+
+```text
+│ ctx ▰▰▰▰▰▰▰▰▰▱ 91% high               │
+│ $12.40 · 5h ▰▰▰▰▱ 84% high · 7d 13%   │
+```
+
+- The frame and the title of each section take the theme key of the section: Session `claude`,
+  Tasks `planMode`, Agents `merged`. Below 41 columns, inline above the prompt and on the desktop
+  app, no frame draws, and each title is bold in its key. A frame takes 4 columns, so an agent
+  row in a frame at 41 columns has no tool column.
+- `ctx 71%` is the context percent of the engine event `session.measure`. It is the figure that
+  the Claude Code status line shows. The gauge has 10 cells and rounds down, so 71 percent fills
+  7 cells. The percent always prints. Filled cells take `claude`, empty cells `subtle`.
+- `$9.33` is the cost of the session, to the cent. `5h` and `7d` are the rate limits of
+  `session.measure`, each with a gauge of 5 cells and the percent used. When the row is too
+  narrow, the gauge of a limit goes first and its percent stays.
+- From 80 percent, a gauge and its percent take the theme key `warning`, with the word `high`.
+- The model row shows the model of the latest main-loop request, from `TurnStepInput.model`,
+  with no leading `claude-`. The effort comes from `TurnStepInput.effort` of that request. A
+  model with no effort shows none. The permission mode comes from the latest classic
+  `SessionStart`, `UserPromptSubmit` or `Stop` event of the main loop: `default`, `accept edits`
+  in `autoAccept`, `plan` in `planMode`, `bypass` in `error`. A part with no source is left out,
+  so an organisation that skips these classic hooks for user mods shows no mode. A narrow row
+  cuts the mode word with `…`.
+- While a main turn runs, the receipt row shows `turn 3m`, the edits, the errors and the cost
+  that the turn added since its first measure. After the turn, the same row shows the last turn
+  as `last 3m · …`, so the layout does not move. `3 edits` counts the Edit, Write and
+  NotebookEdit calls of the main loop that ended without an error. An error count above 0 takes
+  `error` and is never cut. A narrow row drops `0 errors` first. When there is room, the row also
+  counts the agents that the main loop spawned in the turn. A subagent turn does not start or end
+  a turn here.
+- The gate row has one cell for each of the last 20 permission checks, oldest first: `▮` allowed
+  in `success`, `▯` asked in `permission`, `■` denied in `error`. Then come the counts of the
+  file family (`f`, Read, Edit, Write, NotebookEdit, Glob and Grep), the shell family (`s`, Bash
+  and PowerShell) and every other tool (`o`), dim. When a denied check is among the last 20,
+  `1 denied` in `error` takes the place of the counts. A narrow row drops the counts. On the
+  terminal frame, `gate no checks yet` shows before the first check.
+- Before the first reply, the head reads `ctx — until the first reply`, also when the engine
   reports a cost of `$0.00`. A resumed session shows the figures that `$.session.usage()` gives
-  at session start.
-- `/clear` empties the line to `ctx — until the first reply`. When no measure comes between
-  `/clear` and the next turn, that turn shows no turn cost, because the board does not know the
-  cost at its start.
-- When the host gives no usage, the line reads `no context or cost on this host` and draws no
-  number. This is the case when `$.session.usage()` refuses at session start and no measure
-  came.
-- A narrow tab cuts whole pieces from the right: the turn cost first, then the cost. At 30
-  columns, `Session  ctx 62% · $4.18 · turn +$0.31` reads `Session  ctx 62% · $4.18`. The first
-  piece stays, and a body too narrow for it cuts it with `…`. The tests check the line at 30,
-  41, 76 and 89 columns.
-- A measure changes only the units that it names as changed. The board draws again only when
-  the text of the line changes, so a cost change under one cent does not redraw it.
-- When a subagent needs you, the line starts with the count of the waits, in the theme colour
-  `warning`. A narrow tab never cuts the waits. At 30 columns the line reads
-  `Session  ◆ 1 waits · ctx 62%`. Two waits read `◆ 2 wait`.
+  at session start. `/clear` empties the figures again.
+- When the host gives no usage, the head reads `no context or cost on this host` and draws no
+  number.
+- A narrow tab moves each whole piece that does not fit to the next line. The tests check the
+  section at 30, 41, 76 and 89 columns.
+- The board draws again only when a drawn text changes, so a cost change under one cent does not
+  redraw it.
+- When a subagent needs you, the head starts with the count of the waits, in `warning`. A narrow
+  tab never cuts the waits. Two waits read `◆ 2 wait`.
 - After the first reply, the first main turn, the first compaction or the first permission check
-  of the session, the line is a button. A press opens the details under it. The next section
+  of the session, the first row is a button. A press opens the details under it. The next section
   describes them.
+- `/board stats` prints the same figures as words, for a screen reader.
 
 ### The Session details
 
-Press the Session line to open its details. A capture from the tests, docked at 41 columns, on a
-host that gives no context parts:
+Press the first row of the Session section to open its details. A capture from the tests on
+the desktop app, docked at 41 columns, on a host that gives no context parts:
 
 ```text
-Session  ctx 62% · $4.80 · last +$0.62
-    context 124k of 200k · 1 compaction
+Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.33
+5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%
+    context 142k of 200k · 0 compactions
     trend after 2 turns
     no breakdown on this host
-    last turn 3m · +$0.62 · 3 edits
-    0 errors · 2 agents spawned
     limits 5h 31% · 7d 13%
-    resets 5h in 2h · 7d in 4d
-    checks 5 · 5 allowed
-    [ last 5 checks ]
+    resets 5h in 1h · 7d in 1h
+    checks 3 · 2 allowed · 1 denied
+    file 2 · shell 1 · other 0
+    [ last 3 checks ]
+opus-5-5 · high · accept edits
+turn 3m · 2 edits · 1 error · +$0.31
+gate ▮▮■ 1 denied
 ```
 
-Near the limit, captured from the tests at 41 columns:
+In the terminal frame the details open under the context row, indented by 2:
 
 ```text
-Session  ctx 91% high · $12.40
-    context 182k of 200k · 2 compactions
-    trend after 2 turns
-    no breakdown on this host
-    Claude Code compacts it near the
-    limit. /compact or /clear frees it.
-    last turn 6m · +$1.90 · 9 edits
+╭─ Session ─────────────────────────────╮
+│ ctx ▰▰▰▰▰▰▰▱▱▱ 71%                    │
+│   context 142k of 200k                │
+│   0 compactions                       │
+│   trend after 2 turns                 │
+│   no breakdown on this host           │
+│   limits 5h 31% · 7d 13%              │
+│   resets 5h in 1h · 7d in 1h          │
+│   checks 3 · 2 allowed · 1 denied     │
+│   file 2 · shell 1 · other 0          │
+│   [ last 3 checks ]                   │
+│ $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │
+│ opus-5-5 · high · accept edits        │
+│ turn 3m · 2 edits · 1 error · +$0.31  │
+│ gate ▮▮■ 1 denied                     │
+╰───────────────────────────────────────╯
 ```
 
 After 8 main turns on a host that gives the context parts, with `[ context parts ]` pressed,
-captured from the tests at 41 columns:
+the details of the desktop app at 41 columns read:
 
 ```text
-Session  ctx 62% · $1.70 · last +$0.10
     context 124k of 200k · 0 compactions
     trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn
     auto-compact at 167k · in ~7 turns
@@ -525,14 +599,7 @@ Session  ctx 62% · $1.70 · last +$0.10
   the cause.
 - From 80 percent, the details add that Claude Code compacts the context near the limit, and that
   `/compact` or `/clear` frees it.
-- `last turn 3m` is the duration of the last main turn, from `turn.complete`. `+$0.62` is the
-  cost that the turn added, as `last +$0.62` on the line. While the next turn runs, the details
-  keep the last turn and its cost.
-- `3 edits` counts the Edit, Write and NotebookEdit calls of the main loop in the last turn that
-  ended without an error. `0 errors` counts the tool calls of the main loop that ended with an
-  error. A count above 0 takes the theme colour `error`. `2 agents spawned` counts the subagents
-  that the main loop spawned in the last turn. The calls and the spawns of a subagent do not
-  count.
+- The last turn is no longer in the details. The receipt row of the Session section shows it.
 - `limits 5h 31% · 7d 13%` are the rate limits of `session.measure`, with the percent used, and
   `resets 5h in 2h` is the time until each limit resets. A reset time that is past reads
   `5h now`. A measure that names only the context and the cost but carries the limits updates
@@ -540,7 +607,8 @@ Session  ctx 62% · $1.70 · last +$0.10
   subscription, shows `limits: none reported`. Before the first reply, and on a host that gives
   no usage, the details show no context, and they show the limits only when a measure carried
   some.
-- The permission checks follow. A later section describes them.
+- The permission checks follow, with the count of each family in words:
+  `file 2 · shell 1 · other 0`. A later section describes them.
 - A narrow tab moves each part that does not fit to the next line. The trend, the auto-compact
   line and the parts take a shorter form, such as `compact at 167k · ~7 turns`. The tests check
   the details at 30, 41 and 76 columns.
@@ -753,8 +821,25 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   `stopped at max_tokens · ctx 198k`, with `stopped at max_tokens` in the theme colour `warning`.
   A request with no usage changes nothing. The board keeps the tokens in memory, and each end of
   the session clears them with the agent rows.
+- An opened row also shows the last 3 tool calls of the agent, oldest first, each with a mark
+  for its outcome and its age: `✓` done in `success`, `■` failed in `error`, `▸` running, dim.
+  Then `answer:` shows the first line of the report of the agent once it has ended, from
+  `turn.complete`. A running agent shows `answer: none yet`, and a failed agent shows
+  `answer: none, the run failed` in `error`. The call targets and the answer pass through the
+  same credential masking as the permission checks. A capture from the tests on the terminal,
+  at 41 columns:
+
+  ```text
+  │     last calls                        │
+  │       ✓ Bash echo ***             20s │
+  │       ■ Bash npm test              3s │
+  │       ▸ Bash npm run check         3s │
+  │     answer: none yet                  │
+  ```
+
 - The board reads the result of a request of a subagent only. It passes the response of a main
-  loop request on as it arrives, and reads no part of it.
+  loop request on as it arrives, and reads no part of it. It reads the model and the effort of
+  a main-loop request for the Session section.
 - An agent loop that Claude Code does not list, such as a fork of the engine, gets a `?` row with
   the first 8 characters of its id. It stays with the active agents while a call runs, and goes
   under `+N ended` after. The board keeps at most 20 such rows that run no call.

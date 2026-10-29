@@ -1,4 +1,4 @@
-import type { RenderElement, SessionRateLimit, ThemeKey } from 'claude-code'
+import type { RenderElement, SessionRateLimit } from 'claude-code'
 import type { BoardChecks } from '../types'
 import { elapsedText } from './activity'
 import { type ContextView, contextPartsText, drawContextParts } from './breakdown'
@@ -8,14 +8,13 @@ import { type Part, PART_LEAD, drawFitLine, drawPartLines, fitLineText } from '.
 import { escaped } from './tasks'
 import { tokensText } from './tokens'
 import { trendLine } from './trend'
-import { type LastTurn, type Vitals, dollars, hasReading, highPercent, lastCents } from './vitals'
+import { type Vitals, hasReading, highPercent } from './vitals'
 
 export const SESSION_DETAILS = 'session:details'
 
 const DETAIL_INDENT = 4
 const CONTEXT_GROUP = 'session-context'
 const WORD_LEAD = ' '
-const ERROR_COLOR: ThemeKey = 'error'
 const NEAR_LIMIT_NOTE = 'Claude Code compacts it near the limit. /compact or /clear frees it.'
 const NO_LIMITS = 'limits: none reported'
 const LIMIT_NAMES: Readonly<Partial<Record<string, string>>> = {
@@ -35,7 +34,7 @@ export type SessionDetails = {
 
 type Group = { key: string; parts: readonly Part[]; lead: string }
 
-function counted(count: number, one: string, many: string): string {
+export function counted(count: number, one: string, many: string): string {
   return `${String(count)} ${count === 1 ? one : many}`
 }
 
@@ -53,20 +52,7 @@ function nearLimitParts(vitals: Vitals): Part[] {
   return NEAR_LIMIT_NOTE.split(WORD_LEAD).map((text) => ({ text }))
 }
 
-function turnParts(vitals: Vitals, last: LastTurn): Part[] {
-  const added = lastCents(vitals)
-  return [
-    { text: `last turn ${elapsedText(last.durationMs)}` },
-    ...(added === undefined ? [] : [{ text: `+${dollars(added)}` }]),
-    { text: counted(last.edits, 'edit', 'edits') },
-    last.errors === 0
-      ? { text: counted(last.errors, 'error', 'errors') }
-      : { text: counted(last.errors, 'error', 'errors'), color: ERROR_COLOR },
-    { text: counted(last.spawned, 'agent spawned', 'agents spawned') },
-  ]
-}
-
-function limitName(limit: SessionRateLimit): string {
+export function limitName(limit: SessionRateLimit): string {
   return LIMIT_NAMES[limit.kind] ?? escaped(limit.kind)
 }
 
@@ -99,15 +85,9 @@ function limitsParts(vitals: Vitals, now: number): Part[] {
 }
 
 function detailGroups(vitals: Vitals, now: number): Group[] {
-  const { lastTurn } = vitals
   return [
     { key: CONTEXT_GROUP, parts: contextParts(vitals), lead: PART_LEAD },
     { key: 'session-near-limit', parts: nearLimitParts(vitals), lead: WORD_LEAD },
-    {
-      key: 'session-turn',
-      parts: lastTurn === undefined ? [] : turnParts(vitals, lastTurn),
-      lead: PART_LEAD,
-    },
     { key: 'session-limits', parts: limitsParts(vitals, now), lead: PART_LEAD },
   ].filter((group) => group.parts.length > 0)
 }
@@ -146,14 +126,15 @@ export function drawSessionDetails(
   elements: PaneElements,
   details: SessionDetails,
   layout: RowLayout,
+  indent = DETAIL_INDENT,
 ): RenderElement {
-  const room = elements.bodyColumns - DETAIL_INDENT
+  const room = elements.bodyColumns - indent
   const { vitals, context } = details
   const press = { layout, count: details.count }
   return elements.Box({
     key: 'session-details',
     flexDirection: 'column',
-    paddingLeft: DETAIL_INDENT,
+    paddingLeft: indent,
     children: [
       ...detailGroups(vitals, details.now).flatMap((group) => [
         ...drawPartLines(elements, group.key, group.parts, room, group.lead),

@@ -1,7 +1,17 @@
 import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardTask, BoardToolSight } from '../types'
 import { elapsedText } from './activity'
-import type { AgentLook, AgentRow, AgentStall, AgentStep } from './agents'
+import type { AgentCallLine, AgentLook, AgentRow, AgentStall, AgentStep } from './agents'
+import {
+  AGENTS_LOOK,
+  FRAME_TITLE_CHROME,
+  type StyledPart,
+  drawFrame,
+  drawStyledParts,
+  framedElements,
+  isFramed,
+  titlePart,
+} from './frame'
 import { LANE_CELLS, type LaneAxis, hasLanes, laneAxis, laneOf } from './lanes'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
@@ -22,7 +32,7 @@ const MARK_COLUMNS = 2
 const TIME_COLUMNS = 3
 const DOCKED_COLUMNS = 9
 const INLINE_COLUMNS = 10
-const TOOL_COLUMN_FROM = 36
+const TOOL_COLUMN_FROM = 38
 const DETAIL_INDENT = 4
 const PLAN_FOLD_ABOVE = 5
 const PLAN_SIDE = 2
@@ -34,7 +44,20 @@ const WAITS_LEAD = 'waits for: '
 const STOPPED_AT_LIMIT = 'max_tokens'
 const STALL_COLOR: ThemeKey = 'warning'
 const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
-const AGENTS_TITLE = 'Agents'
+const AGENTS_TITLE = AGENTS_LOOK.title
+const CALL_INDENT = 2
+const CALL_GAP = 1
+const LAST_CALLS_TITLE = 'last calls'
+const ANSWER_LEAD = 'answer: '
+const NO_ANSWER_YET = 'none yet'
+const NO_ANSWER = 'none'
+const FAILED_ANSWER = 'none, the run failed'
+const RULE_COLOR: ThemeKey = 'subtle'
+const CALL_LOOKS: Record<AgentCallLine['outcome'], TextStyle & { mark: string }> = {
+  ok: { mark: SIGNALS.done.mark, color: SIGNALS.done.color },
+  failed: { mark: SIGNALS.blocked.mark, color: SIGNALS.blocked.color },
+  running: { mark: '▸', dimColor: true },
+}
 const NO_CONTEXT = 'ctx —'
 const CONTEXT_COLUMNS = 7
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
@@ -362,6 +385,72 @@ function stepLines(elements: PaneElements, row: AgentRow): RenderElement[] {
   )
 }
 
+function callAge(call: AgentCallLine, now: number): string {
+  return call.at === null ? '' : elapsedText(now - call.at)
+}
+
+function callLine(
+  elements: PaneElements,
+  row: AgentRow,
+  call: AgentCallLine,
+  index: number,
+  now: number,
+): RenderElement {
+  const { Box, Text } = elements
+  const { mark, ...look } = CALL_LOOKS[call.outcome]
+  const age = callAge(call, now)
+  const room = elements.bodyColumns - DETAIL_INDENT - CALL_INDENT - MARK_COLUMNS
+  const callRoom = room - (age === '' ? 0 : CALL_GAP + Math.max(TIME_COLUMNS, displayWidth(age)))
+  const tool = fitted(escaped(call.tool), callRoom)
+  const target =
+    call.target === null ? '' : fitted(` ${escaped(call.target)}`, callRoom - displayWidth(tool))
+  return Box({
+    key: `call:${String(index)}:agent:${row.id}`,
+    flexDirection: 'row',
+    paddingLeft: CALL_INDENT,
+    children: [
+      fixedBox(elements, MARK_COLUMNS, Text({ ...look, children: `${mark} ` })),
+      fixedBox(
+        elements,
+        callRoom,
+        Text({ children: [tool, Text({ dimColor: true, children: target })] }),
+      ),
+      age === '' ? null : Text({ dimColor: true, children: age.padStart(room - callRoom) }),
+    ],
+  })
+}
+
+function answerLine(elements: PaneElements, row: AgentRow): RenderElement {
+  const { Box, Text } = elements
+  const room = elements.bodyColumns - DETAIL_INDENT - displayWidth(ANSWER_LEAD)
+  const isFailed = row.look === 'failed'
+  const text = isFailed
+    ? FAILED_ANSWER
+    : !row.isEnded || row.answer === null
+      ? NO_ANSWER_YET
+      : row.answer === ''
+        ? NO_ANSWER
+        : escaped(row.answer)
+  return Box({
+    key: `answer:agent:${row.id}`,
+    flexDirection: 'row',
+    children: [
+      Text({ dimColor: true, children: ANSWER_LEAD }),
+      isFailed
+        ? Text({ color: SIGNALS.blocked.color, children: fitted(text, room) })
+        : Text({ children: fitted(text, room) }),
+    ],
+  })
+}
+
+function callLines(elements: PaneElements, row: AgentRow, now: number): RenderElement[] {
+  const calls = row.lastCalls.map((call, index) => callLine(elements, row, call, index, now))
+  return [
+    ...(calls.length === 0 ? [] : [line(elements, LAST_CALLS_TITLE, { dimColor: true }), ...calls]),
+    answerLine(elements, row),
+  ]
+}
+
 function parentText(row: AgentRow, names: ReadonlyMap<string, string>): string | null {
   if (!row.isParentKnown) return null
   if (row.parentId === null) return MAIN_LOOP
@@ -383,6 +472,7 @@ function openedLines(
     description === null || description === escaped(row.label) ? null : line(elements, description),
     line(elements, parent === null ? since : `under ${parent} · ${since}`, { dimColor: true }),
     ...stepLines(elements, row),
+    ...callLines(elements, row, now),
     ...planLines(elements, row, layout),
   ].filter((element) => element !== null)
 }
@@ -451,29 +541,37 @@ function lanesPart(axis: LaneAxis): Part {
   return { text: `lanes from ${elapsedText(axis.to - axis.from)} ago to now` }
 }
 
+function titleParts(
+  rows: readonly AgentRow[],
+  axis: LaneAxis | null,
+  columns: number,
+): StyledPart[] {
+  const title = titlePart(AGENTS_LOOK)
+  const parts = [...headerParts(rows), ...(axis === null ? [] : [lanesPart(axis)])]
+  const plain = parts.map((part) => part.text).join(' · ')
+  if (plain === '') return [title]
+  const room = columns - displayWidth(title.text)
+  const isWhole = displayWidth(`  ${plain}`) <= room
+  const tail: StyledPart[] = isWhole
+    ? parts.flatMap((part, index) => [
+        { text: index === 0 ? '  ' : ' · ', dimColor: true },
+        part.color === undefined
+          ? { text: part.text, dimColor: true }
+          : { text: part.text, color: part.color },
+      ])
+    : [{ text: fitted(`  ${plain}`, room), dimColor: true }]
+  return [title, ...tail]
+}
+
 function drawHeader(
   elements: PaneElements,
   rows: readonly AgentRow[],
   axis: LaneAxis | null,
 ): RenderElement {
-  const { Box, Text } = elements
-  const title = AGENTS_TITLE
-  const parts = [...headerParts(rows), ...(axis === null ? [] : [lanesPart(axis)])]
-  const plain = parts.map((part) => part.text).join(' · ')
-  const room = elements.bodyColumns - displayWidth(title)
-  const isWhole = displayWidth(`  ${plain}`) <= room
-  const tail = isWhole
-    ? parts.flatMap((part, index) => [
-        Text({ dimColor: true, children: index === 0 ? '  ' : ' · ' }),
-        part.color === undefined
-          ? Text({ dimColor: true, children: part.text })
-          : Text({ color: part.color, children: part.text }),
-      ])
-    : [Text({ dimColor: true, children: fitted(`  ${plain}`, room) })]
-  return Box({
+  return elements.Box({
     key: 'agents',
     flexDirection: 'row',
-    children: [Text({ bold: true, children: title }), ...(plain === '' ? [] : tail)],
+    children: drawStyledParts(elements, titleParts(rows, axis, elements.bodyColumns)),
   })
 }
 
@@ -514,14 +612,16 @@ function foldButton(key: string, label: string, layout: RowLayout): FoldButton {
 }
 
 export function drawAgents(
-  elements: PaneElements,
+  outer: PaneElements,
   rows: readonly AgentRow[],
   layout: RowLayout,
   now: number,
   openAgents: () => void,
 ): RenderElement[] {
-  const { Box, Text } = elements
   if (rows.length === 0) return []
+  const isFramedHere = isFramed(outer)
+  const elements = isFramedHere ? framedElements(outer) : outer
+  const { Box, Text } = elements
   const names = shownNames(rows)
   const active = rows.filter((row) => !row.isEnded)
   const ended = rows.filter((row) => row.isEnded)
@@ -530,7 +630,7 @@ export function drawAgents(
   const isEndedShown = layout.expanded.has(ENDED_AGENTS)
   const shown = hidden > 0 && !isMoreShown ? active.slice(0, AGENT_ROWS_AT_MOST) : active
   const drawn = isEndedShown ? [...shown, ...ended] : shown
-  const axis = hasLanes(elements.bodyColumns) ? laneAxis(drawn, now) : null
+  const axis = hasLanes(outer.bodyColumns) ? laneAxis(drawn, now) : null
   const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now, openAgents, axis)
   const folds = [
     hidden > 0
@@ -540,16 +640,23 @@ export function drawAgents(
       ? foldButton(ENDED_AGENTS, foldLabel(isEndedShown, ended.length, 'ended'), layout)
       : null,
   ].filter((fold) => fold !== null)
+  const body = [
+    ...shown.map(draw),
+    drawFolds(elements, folds),
+    ...(isEndedShown ? ended.map(draw) : []),
+  ]
+  if (isFramedHere) {
+    const title = titleParts(rows, axis, outer.bodyColumns - FRAME_TITLE_CHROME)
+    return [drawFrame(outer, 'agents', AGENTS_LOOK, title, body)]
+  }
   return [
     elements.isInline
       ? null
       : Box({
           key: 'agents-rule',
-          children: [Text({ dimColor: true, children: '─'.repeat(elements.bodyColumns) })],
+          children: [Text({ color: RULE_COLOR, children: '─'.repeat(elements.bodyColumns) })],
         }),
     drawHeader(elements, rows, axis),
-    ...shown.map(draw),
-    drawFolds(elements, folds),
-    ...(isEndedShown ? ended.map(draw) : []),
+    ...body,
   ].filter((element) => element !== null)
 }

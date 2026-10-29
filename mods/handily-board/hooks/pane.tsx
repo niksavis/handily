@@ -67,7 +67,18 @@ import {
   type WorkItem,
 } from './tasks'
 import type { ToastParts } from './toast'
-import { type Vitals, drawSessionLine } from './vitals'
+import type { Vitals } from './vitals'
+import {
+  TASKS_LOOK,
+  SESSION_LOOK,
+  type StyledPart,
+  drawFrame,
+  framedElements,
+  isFramed,
+  titlePart,
+} from './frame'
+import type { RequestFacts } from './request'
+import { drawSessionLines, flatLines, framedLines, sessionIndent } from './session'
 import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
 
 const DONE_GROUP = 'group:done'
@@ -81,6 +92,7 @@ export type PaneElements = {
   Input: ElementConstructor<InputProps> | undefined
   bodyColumns: number
   isInline: boolean
+  canFrame: boolean
 }
 
 export type PaneWork = {
@@ -89,6 +101,7 @@ export type PaneWork = {
   agents: readonly AgentRow[]
   vitals: Vitals
   checks: BoardChecks
+  request: RequestFacts
   hasTree: boolean
   context: ContextView
 }
@@ -160,7 +173,7 @@ const DETAIL_SHARE_OF_ROOM = 0.5
 const DETAIL_COLUMNS_AT_LEAST = 2
 const TRACKER_BUTTON_GAP = 2
 const TASK_NUMBER_CELLS = 2
-const TASKS_TITLE = 'Tasks'
+const FRAMED_DETAIL_INDENT = 2
 
 function actionWidth(action: RowAction | undefined): number {
   return action === undefined ? 0 : BUTTON_GAP + displayWidth(action.label) + BUTTON_CHROME
@@ -740,6 +753,8 @@ function drawSession(
   layout: RowLayout,
   count: () => void,
 ): RenderElement[] {
+  const isFramedHere = isFramed(elements)
+  const inner = isFramedHere ? framedElements(elements) : elements
   const details = {
     vitals: work.vitals,
     checks: work.checks,
@@ -750,21 +765,41 @@ function drawSession(
   }
   const isOpenable = hasSessionDetails(details)
   const isOpen = layout.expanded.has(SESSION_DETAILS)
-  const line = drawSessionLine(elements, {
+  const view = {
     vitals: work.vitals,
     waits: waitingCount(work.agents),
+    checks: work.checks,
+    request: work.request,
+    now: work.now,
+  }
+  const lines = isFramedHere
+    ? framedLines(view, inner.bodyColumns)
+    : flatLines(view, elements.bodyColumns, elements.isInline)
+  const drawn = drawSessionLines(inner, {
+    lines,
+    hasTitle: !isFramedHere,
+    indent: isFramedHere ? 0 : sessionIndent(elements.isInline),
     open: isOpenable
       ? () => {
           layout.toggle(SESSION_DETAILS)
           if (!isOpen) count()
         }
       : undefined,
+    details:
+      isOpenable && isOpen
+        ? drawSessionDetails(
+            inner,
+            details,
+            layout,
+            isFramedHere ? FRAMED_DETAIL_INDENT : undefined,
+          )
+        : null,
   })
-  if (!isOpenable || !isOpen) return [line]
-  return [line, drawSessionDetails(elements, details, layout)]
+  if (!isFramedHere) return drawn
+  return [drawFrame(elements, 'session', SESSION_LOOK, [titlePart(SESSION_LOOK)], drawn)]
 }
 
-type HeaderPart = { text: string } & TextStyle
+type HeaderPart = StyledPart
 
 function dimPart(text: string): HeaderPart {
   return { text, dimColor: true }
@@ -822,9 +857,13 @@ function summaryParts(list: BoardList, work: PaneWork): HeaderPart[] {
   ].filter((part) => part.text !== '')
 }
 
+function headerParts(list: BoardList, work: PaneWork): HeaderPart[] {
+  return [titlePart(TASKS_LOOK), dimPart('  '), ...summaryParts(list, work)]
+}
+
 function drawHeader(elements: PaneElements, list: BoardList, work: PaneWork): RenderElement {
   const { Box, Text } = elements
-  const parts = [{ text: TASKS_TITLE, bold: true }, dimPart('  '), ...summaryParts(list, work)]
+  const parts = headerParts(list, work)
   return Box({
     key: 'tasks-header',
     flexDirection: 'row',
@@ -910,16 +949,19 @@ export async function drawPane(
     layout,
     press: forYouPress(host, ui, act, work.now),
   })
-  const warning = drawPlanWarning(elements, ui, work, hasList, act)
+  const isFramedHere = isFramed(elements)
+  const inner = isFramedHere ? framedElements(elements) : elements
+  const warning = drawPlanWarning(inner, ui, work, hasList, act)
   const body = hasList
-    ? [...drawTasks(elements, host, list, work, act, layout, ui), ...warning]
+    ? [...drawTasks(inner, host, list, work, act, layout, ui), ...warning]
     : [
-        ...drawNow(elements, work, layout),
+        ...drawNow(inner, work, layout),
         ...warning,
-        ...drawTracker(elements, host, await trackerView(host), act, layout),
-        work.agents.length === 0 ? Text({ dimColor: true, children: NO_AGENTS }) : null,
+        ...drawTracker(inner, host, await trackerView(host), act, layout),
       ]
-  const header = drawHeader(elements, list, work)
+  const tasks = isFramedHere
+    ? [drawFrame(elements, 'tasks', TASKS_LOOK, headerParts(list, work), body)]
+    : [drawHeader(elements, list, work), ...body]
   const countParts = () => {
     act(async () => {
       await ui.countParts()
@@ -933,8 +975,8 @@ export async function drawPane(
       ...drawSession(elements, work, layout, countParts),
       ...plan,
       ...forYou,
-      header,
-      ...body,
+      ...tasks,
+      work.agents.length === 0 && !hasList ? Text({ dimColor: true, children: NO_AGENTS }) : null,
       ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),
       Text({ children: ' ' }),
       drawFooter(elements, host, act),

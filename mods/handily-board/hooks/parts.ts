@@ -4,6 +4,8 @@ import { displayWidth, fitted } from './width'
 
 export const PART_LEAD = ' · '
 
+const CUT_MARK = '…'
+
 export type Part = { text: string; color?: ThemeKey }
 
 function partsWidth(parts: readonly Part[], lead: string): number {
@@ -80,6 +82,64 @@ export function fitLineText(line: FitLine): string {
     .fit(Number.POSITIVE_INFINITY)
     .map((part) => part.text)
     .join('')
+}
+
+export type Atom = { parts: readonly Part[]; dropRank?: number }
+
+export type FlowAtom = { forms: readonly (readonly Part[])[] }
+
+function joined(atoms: readonly Atom[], lead: string): Part[] {
+  return atoms.flatMap((atom, index) =>
+    index === 0 ? [...atom.parts] : [{ text: lead }, ...atom.parts],
+  )
+}
+
+function lastOfRank(atoms: readonly Atom[]): number {
+  const rank = Math.max(-1, ...atoms.map((atom) => atom.dropRank ?? -1))
+  if (rank < 0) return -1
+  return atoms.map((atom) => atom.dropRank).lastIndexOf(rank)
+}
+
+export function fitAtoms(atoms: readonly Atom[], room: number, lead = PART_LEAD): Part[] {
+  let kept = [...atoms]
+  while (spansWidth(joined(kept, lead)) > room) {
+    const dropped = lastOfRank(kept)
+    if (dropped < 0) break
+    kept = kept.filter((_atom, index) => index !== dropped)
+  }
+  return withoutDanglingLead(fitParts(joined(kept, lead), room), lead)
+}
+
+function withoutDanglingLead(parts: readonly Part[], lead: string): Part[] {
+  const kept = [...parts]
+  let isCut = false
+  while (kept.length > 0 && ['', lead].includes(kept.at(-1)?.text ?? '')) {
+    kept.pop()
+    isCut = true
+  }
+  return isCut ? [...kept, { text: CUT_MARK }] : kept
+}
+
+function withAtom(line: readonly Part[], form: readonly Part[], lead: string): Part[] {
+  return line.length === 0 ? [...form] : [...line, { text: lead }, ...form]
+}
+
+export function flowLines(
+  atoms: readonly FlowAtom[],
+  firstRoom: number,
+  room: number,
+  lead = PART_LEAD,
+): Part[][] {
+  const lines: Part[][] = [[]]
+  for (const atom of atoms) {
+    const line = lines.at(-1) ?? []
+    const lineRoom = lines.length === 1 ? firstRoom : room
+    const used = line.length === 0 ? 0 : spansWidth(line) + displayWidth(lead)
+    const form = atom.forms.find((one) => used + spansWidth(one) <= lineRoom)
+    if (form !== undefined) lines[lines.length - 1] = withAtom(line, form, lead)
+    else lines.push(firstFitting(room, atom.forms))
+  }
+  return lines
 }
 
 export function drawFitLine(elements: PaneElements, line: FitLine, room: number): RenderElement {
