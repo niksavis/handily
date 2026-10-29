@@ -14,6 +14,7 @@ import {
   EMPTY_LIST,
   addTask,
   findTask,
+  isForPerson,
   isOpenItem,
   LIST_END,
   listText,
@@ -59,6 +60,7 @@ export type BoardCommand =
   | { kind: 'mv'; text: string }
   | { kind: 'edit'; text: string }
   | { kind: 'status'; word: StatusWord; text: string }
+  | { kind: 'answer' | 'pick' | 'reject' | 'undo'; text: string }
   | { kind: 'unknown'; word: string }
 
 export type MoveDirection = 'up' | 'down'
@@ -115,7 +117,7 @@ export function withoutFinalPeriod(text: string): string {
   return text.replace(/\.+$/, '')
 }
 
-function firstWord(text: string): { word: string; rest: string } {
+export function firstWord(text: string): { word: string; rest: string } {
   const space = text.search(/\s/)
   if (space === -1) return { word: text, rest: '' }
   return { word: text.slice(0, space), rest: text.slice(space).trim() }
@@ -127,6 +129,9 @@ export function parseBoardCommand(args: string): BoardCommand {
   const { word, rest: text } = firstWord(trimmed)
   if (word === 'add' || word === 'rm' || word === 'mv' || word === 'edit')
     return { kind: word, text }
+  if (word === 'answer' || word === 'pick' || word === 'reject' || word === 'undo') {
+    return { kind: word, text }
+  }
   if (isStatusWord(word)) return { kind: 'status', word, text }
   if (text !== '') return { kind: 'unknown', word: trimmed }
   if (
@@ -143,7 +148,7 @@ export function parseBoardCommand(args: string): BoardCommand {
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board plan, /board clear, /board list, /board stats or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {
@@ -217,13 +222,21 @@ function changedTasks(verb: 'added' | 'removed', tasks: readonly BoardTask[]): s
   return tasks.map((task) => `it ${verb} ${changedTask(task)}`).join(' ')
 }
 
-export function personNote(changes: readonly BoardPersonChange[], list: BoardList): string {
+export function personNote(
+  changes: readonly BoardPersonChange[],
+  list: BoardList,
+  answers?: string,
+): string {
   const current = list.tasks.length === 0 ? 'The list is now empty.' : listText(list)
   const told = changes.map((change) => change.text).join(' ')
-  return withTrackerNotice(
-    `[handily-board] The person changed the session task list: ${told}\n\n${current}`,
-    [...changes.flatMap((change) => change.tasks), ...list.tasks],
-  )
+  const parts = [
+    ...(changes.length === 0 ? [] : [`The person changed the session task list: ${told}`]),
+    ...(answers === undefined ? [] : [answers]),
+  ]
+  return withTrackerNotice(`[handily-board] ${parts.join(' ')}\n\n${current}`, [
+    ...changes.flatMap((change) => change.tasks),
+    ...list.tasks,
+  ])
 }
 
 async function tellModel(
@@ -391,7 +404,7 @@ function missingTaskReply(id: string, list: BoardList): string {
   return `No task ${id}. This session has ${noun} ${numbers}; /board list prints them.`
 }
 
-function isTaskNumber(text: string): boolean {
+export function isTaskNumber(text: string): boolean {
   return /^\d+$/.test(text)
 }
 
@@ -406,7 +419,7 @@ function tooLarge(text: string): string | undefined {
 
 type TaskNumber = { id: number } | { refusal: string }
 
-function taskNumber(word: string, text: string): TaskNumber {
+export function taskNumber(word: string, text: string): TaskNumber {
   if (!isTaskNumber(text)) return { refusal: numberNeeded(word) }
   const refusal = tooLarge(text)
   return refusal === undefined ? { id: Number(text) } : { refusal }
@@ -487,6 +500,12 @@ const EDIT_FORM =
 type TitleOutcome =
   { kind: 'missing'; list: BoardList } | { kind: 'same' | 'set'; task: BoardTask; list: BoardList }
 
+async function askedRefusal(host: TaskHost, id: number): Promise<string | undefined> {
+  const task = findTask(await readList(host), id)
+  if (!task || !isForPerson(task)) return undefined
+  return `${NOT_CHANGED}: task ${String(id)} is a task for you, so Claude keeps its title and its place. /board list prints the tasks for you.`
+}
+
 export async function personEdit(host: TaskHost, text: string): Promise<string> {
   const { word: number, rest: title } = firstWord(text)
   if (!isTaskNumber(number)) return EDIT_FORM
@@ -496,6 +515,8 @@ export async function personEdit(host: TaskHost, text: string): Promise<string> 
   const refusal = titleRefusal(title)
   if (refusal !== undefined) return `${NOT_CHANGED}: ${refusal}`
   const id = Number(number)
+  const asked = await askedRefusal(host, id)
+  if (asked !== undefined) return asked
   const outcome = await host.edit<TitleOutcome>((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { kind: 'missing', list } }
@@ -586,6 +607,8 @@ export async function personPlace(host: TaskHost, text: string): Promise<string>
   if ('before' in place && place.before === id) {
     return `/board mv needs two different tasks, for example /board mv ${number} before 2.`
   }
+  const asked = await askedRefusal(host, id)
+  if (asked !== undefined) return asked
   const outcome = await host.edit((list) => {
     const moved = placed(list, id, place)
     return { list: moved.list, value: moved }

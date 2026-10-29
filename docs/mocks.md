@@ -1351,7 +1351,9 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
                             /board rm <n>, /board mv <n> before <m>|top|bottom,
                             /board edit <n> <title>, /board done <n>, /board start <n>,
-                            /board open <n>, /board plan, /board clear, /board list,
+                            /board open <n>, /board answer <n> <text>,
+                            /board pick <n> <option>, /board reject <n> [reason],
+                            /board undo <n>, /board plan, /board clear, /board list,
                             /board stats or /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
@@ -2372,8 +2374,11 @@ break.
 - **`types/index.d.ts`.** `BoardTask` gains `for?: 'person'`, `kind?: 'do' | 'answer' | 'decide'`,
   `options?: readonly string[]`, `why?: string` and `result?: { verb: 'done' | 'answered' | 'chose'
   | 'rejected'; text: string | null; at: number; isSent: boolean }`.
-  - `BoardPersonChange` carries the result too.
+  - The result stays on the task, with `isSent` false, until the next prompt sends it. docs/design.md
+    4.9 says why the result is not queued in `personChanges`.
   - Tasks for the person share the id space and the limit of 100.
+  - `askedAt` keeps the time of the ask for the opened row, and `isWithdrawn` keeps a withdrawn
+    row until the next prompt.
 
 ### 8.13 The task band above the prompt (handily-9uj3n.9)
 

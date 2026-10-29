@@ -32,6 +32,10 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board start <n>`         | Marks task `n` in progress                                              |
 | `/board open <n>`          | Marks task `n` pending                                                  |
 | `/board plan`              | Adds the steps of the approved plan as tasks of `claude`                |
+| `/board answer <n> <text>` | Answers task `n` for you, a question                                    |
+| `/board pick <n> <option>` | Picks option number `option` of task `n` for you, a decision            |
+| `/board reject <n> [why]`  | Rejects task `n` for you, with an optional reason                       |
+| `/board undo <n>`          | Opens task `n` for you again, before your next prompt                   |
 | `/board clear`             | Removes every done task                                                 |
 | `/board list`              | Prints the list as text. With no tasks, it lists the open tracker items |
 | `/board stats`             | Prints the session figures and the agents as text                       |
@@ -56,7 +60,7 @@ Replies, from the tests:
 /board mv 3 before 1     Task 3 is already before task 1. Nothing changed.
 /board edit 3 Ship it now  Task 3 is now titled: Ship it now. Claude is told at your next prompt.
 /board edit 3            Not changed: the new title is empty. /board edit needs a task number and a title, for example /board edit 2 Write the tests.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board plan, /board clear, /board list, /board stats or /board close.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats or /board close.
 /board plan              Added tasks 3-7 from the approved plan. Claude is told at your next prompt.
 /board plan              The approved plan is already tasks 3-7. Nothing changed.
 /board plan              No approved plan with numbered steps in this session. Nothing changed.
@@ -164,6 +168,7 @@ You can press every button on both tabs with the keyboard alone. A live check on
 | `task_add`    | `title`, or `titles` for several, and an optional `before` task id     | Adds pending tasks                   |
 | `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task |
 | `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before` |
+| `task_assign` | `kind`: `do`, `answer` or `decide`, `title`, and `options` and `why`   | Assigns a task to you                |
 | `task_list`   | none                                                                   | Returns the list                     |
 
 - The mod registers the tools at `session.start`. The model calls them as
@@ -313,6 +318,43 @@ Plan  approved · 3 numbered steps
 - A later approved plan replaces the offer. The line under the older plan says so and has no
   button. `[ dismiss ]` hides the Plan block. The transcript button stays.
 - `/board list` prints an offered plan above the tasks.
+
+### Tasks for you
+
+Claude assigns a task to you with `task_assign`: something to do (`do`), a question
+(`answer`) or a choice of 2 to 4 options (`decide`). The section `For you` comes first, above
+`Tasks`. A capture from the tests, docked at 41 columns:
+
+```text
+For you  ◆ 3 open
+◆ 2 do      Rotate the staging API key
+    [ done ] [ reject ]
+◆ 3 answer  Which port does staging use?
+    [ Your answer ][Send]
+    [ reject ]
+◆ 4 decide  Which cache store for now?
+    [ Postgres ] [ SQLite ] [ Redis ]
+    [ reject ]
+─────────────────────────────────────────
+```
+
+- `◆` marks an open task. `✓` marks a task that you did, answered or decided, and `■` with the
+  word `rejected` marks a rejected one.
+- `[ reject ]` asks for an optional reason first, so one press cannot reject a task. The
+  mobile app has no input, so the row names `/board answer`.
+- Each result waits for your next prompt and shows `to send` with `[ undo ]`. That prompt
+  carries one note for Claude with every result, after your list changes. After the prompt the
+  results fold under `[ +N answered ]`. `[ clear done ]` and `/board clear` remove them.
+- An empty answer, an answer of more than 1000 characters and an answer with a line break or a
+  bidi control character are refused on the row, by name. Nothing is sent.
+- Claude withdraws a task with `task_update` and the status `removed`. The row stays, dim, as
+  `withdrawn by Claude`, until your next prompt. Claude cannot set another status on a task for
+  you, and `task_move`, `/board edit` and `/board mv` leave it in place.
+- At the end of a turn in which Claude assigned tasks, one toast names them while the
+  `this session` tab is not shown.
+- A subagent cannot assign a task. At most 20 tasks for you are open at a time. The tasks for
+  you count against the limit of 100 tasks. The `Tasks` header and the this machine card count
+  only the other tasks.
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
 

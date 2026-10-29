@@ -116,6 +116,19 @@ import {
   tasksAfterPlan,
 } from './plan'
 import { drawPlanLine } from './plan-view'
+import {
+  type AssignInput,
+  answersText,
+  asksParts,
+  assignTask,
+  assignment,
+  forYouCommand,
+  forYouStatus,
+  personOnlyRefusal,
+  putBackAnswers,
+  takeAnswers,
+  withdrawTask,
+} from './for-you'
 import { CHANGE_FAILED } from './replies'
 import { type ToastParts, showToast } from './toast'
 import type {
@@ -137,6 +150,7 @@ import {
   addTasks,
   escaped,
   findTask,
+  isForPerson,
   isStatus,
   listText,
   moveTask,
@@ -171,6 +185,8 @@ const TOOL_ADD = 'mcp__handily-board__task_add'
 const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
+const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+const MAIN_LOOP_ONLY = 'task_assign works only in the main loop; tell the main agent what you need.'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
 const ADD_TITLE_SHAPE =
@@ -250,6 +266,35 @@ const TOOLS: readonly ToolSpec[] = [
         before: { type: 'integer', description: 'The id of the task that it goes before.' },
       },
       required: ['id', 'before'],
+      additionalProperties: false,
+    },
+    isDeferred: false,
+  },
+  {
+    name: 'task_assign',
+    description: [
+      'Assign one task to the person: something to do (kind do), a question to answer (kind answer) or a choice between 2 to 4 options (kind decide). The task shows under For you on the board.',
+      'The call does not block. The result of the person comes with a later prompt, in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
+      'Withdraw a task for the person with task_update and the status removed. Only the main loop can assign a task.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['do', 'answer', 'decide'] },
+        title: {
+          type: 'string',
+          description: 'What the person does, answers or decides, as one short line.',
+        },
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 2,
+          maxItems: 4,
+          description: 'For the kind decide only: 2 to 4 different options, each one line.',
+        },
+        why: { type: 'string', description: 'Why you ask, as one short line. Optional.' },
+      },
+      required: ['kind', 'title'],
       additionalProperties: false,
     },
     isDeferred: false,
@@ -777,7 +822,9 @@ async function resetAgentLists($: EngineInterface): Promise<void> {
   await $.state.set(AGENT_PLANS, {})
 }
 
-function uiOf($: EngineInterface): PaneUi {
+type RowNotes = Map<number, string>
+
+function uiOf($: EngineInterface, notes: RowNotes): PaneUi {
   return {
     open: (pane, focus) =>
       $.ui.open(focus ? { id: pane.id, title: pane.title, focus } : { ...pane }),
@@ -809,6 +856,13 @@ function uiOf($: EngineInterface): PaneUi {
     },
     log: (text) => {
       $.ui.log(text)
+    },
+    notes: () => notes,
+    noteRow: (id, note) => {
+      if (notes.get(id) === note) return
+      if (note === undefined) notes.delete(id)
+      else notes.set(id, note)
+      $.ui.invalidate('ui.render')
     },
   }
 }
@@ -982,13 +1036,22 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promis
   const outcome = await host.edit<{ task: BoardTask | undefined; numbers: string }>((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { task, numbers: numbersText(list.tasks) } }
-    const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
+    if (isForPerson(task) && status !== REMOVED) return { list, value: { task, numbers: '' } }
+    const removed = isForPerson(task) ? withdrawTask(list, id) : removeTask(list, id)
+    const next = status === REMOVED ? removed : setStatus(list, id, status)
     return { list: next, value: { task, numbers: '' } }
   })
   const { task } = outcome
   if (!task) {
     return {
       deny: `No task ${String(id)}. ${knownIds(outcome.numbers)} Call task_list to see them.`,
+    }
+  }
+  if (isForPerson(task)) {
+    if (status !== REMOVED) return { deny: personOnlyRefusal(task) }
+    return {
+      result: await listResult(host, `Withdrew task ${String(id)} from the person.`),
+      row: removedRow(task),
     }
   }
   if (status === REMOVED) {
@@ -1015,6 +1078,12 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<
     }
   }
   if (id === before) return { deny: `task_move needs two different task ids, ${MOVE_EXAMPLE}.` }
+  const asked = findTask(await readList(host), id)
+  if (asked && isForPerson(asked)) {
+    return {
+      deny: `Task ${String(id)} is for the person; its place is the order in which you asked. task_move moves only your own tasks.`,
+    }
+  }
   const outcome = await host.edit<
     { missing: number; numbers: string } | { missing: undefined; task: BoardTask }
   >((list) => {
@@ -1036,6 +1105,37 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<
   }
 }
 
+async function modelAssign(
+  host: TaskHost,
+  input: AssignInput,
+  agentId: string | undefined,
+  now: number,
+): Promise<{ answer: ModelAnswer; task: BoardTask | undefined }> {
+  if (agentId !== undefined) return { answer: { deny: MAIN_LOOP_ONLY }, task: undefined }
+  const asked = assignment(input)
+  if ('deny' in asked) return { answer: asked, task: undefined }
+  const outcome = await host.edit((list) => assignTask(list, asked, now))
+  if ('refusal' in outcome) {
+    return { answer: { deny: `task_assign refused: ${outcome.refusal}` }, task: undefined }
+  }
+  const { task } = outcome
+  const lead = `Assigned task ${String(task.id)} to the person (${asked.kind}). The result comes with a later prompt; do not wait for it in this turn.`
+  return { answer: { result: await listResult(host, lead), row: undefined }, task }
+}
+
+async function takeAnswered($: EngineInterface): Promise<BoardTask[]> {
+  return hostOf($).edit(takeAnswers)
+}
+
+async function putBackAnswered($: EngineInterface, taken: readonly BoardTask[]): Promise<void> {
+  if (taken.length === 0) return
+  try {
+    await hostOf($).edit((list) => ({ list: putBackAnswers(list, taken), value: undefined }))
+  } catch (error) {
+    $.ui.log(`handily-board: the answers for Claude were lost: ${String(error)}`)
+  }
+}
+
 function toolFailed($: EngineInterface, tool: string, error: HookFailure): { deny: string } {
   $.ui.log(`handily-board: ${tool} failed (${error.kind}): ${error.message ?? 'no message'}`)
   const reason = withoutFinalPeriod(error.message ?? error.kind)
@@ -1049,6 +1149,8 @@ export const register: Register = (on, options) => {
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const steps: StepsKeep = new Map()
+  const notes: RowNotes = new Map()
+  const asks: BoardTask[] = []
   const pulses = newPulses()
   const attention: AttentionKeep = {
     setting: statusLineSetting(options),
@@ -1063,10 +1165,10 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | plan | clear | list | stats | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | plan | clear | list | stats | close]',
       immediate: true,
     })
-    if (mode === 'always') await openUnasked(uiOf($))
+    if (mode === 'always') await openUnasked(uiOf($, notes))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
     const host = sessionsHost($)
@@ -1112,6 +1214,9 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
+      const asked = asks.splice(0)
+      const parts = asksParts(asked)
+      if (parts !== undefined && !(await isSessionTabSeen($))) showToast($, parts)
       await noteVitals($, vitals, (current) => withTurnEnd(current, e.durationMs))
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
@@ -1178,19 +1283,25 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
     const taken = await takeChanges($)
+    const answered = await takeAnswered($)
     try {
-      const changes = taken.length === 0 ? undefined : personNote(taken, await readList(hostOf($)))
+      const answers = answered.length === 0 ? undefined : answersText(answered)
+      const isTold = taken.length > 0 || answers !== undefined
+      const list = await readList(hostOf($))
+      const changes = isTold ? personNote(taken, list, answers) : undefined
       const notes = [changes, plan?.text].filter((text) => text !== undefined)
       if (notes.length === 0) return await next(e)
       const entered = await next({ ...e, context: [...(e.context ?? []), ...notes] })
       if (entered.drop !== undefined) {
         await putBackChanges($, taken)
+        await putBackAnswered($, answered)
         return entered
       }
       if (plan) await recordNote($, plan.calls)
       return entered
     } catch (error) {
       await putBackChanges($, taken)
+      await putBackAnswered($, answered)
       throw error
     }
   }).catch(($, e, next) => {
@@ -1292,6 +1403,12 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: TOOL_MOVE }, async ($, e) =>
     answerWithRow($, e.tool_use_id, await modelMove(modelHostOf($, e.agentId), e.id, e.before)),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_ASSIGN }, async ($, e) => {
+    const input = { kind: e.kind, title: e.title, options: e.options, why: e.why }
+    const assigned = await modelAssign(hostOf($), input, e.agentId, await $.clock.now())
+    if (assigned.task !== undefined) asks.push(assigned.task)
+    return answerWithRow($, e.tool_use_id, assigned.answer)
+  }).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_LIST }, async ($, e) =>
     answerWithRow($, e.tool_use_id, await modelList(modelHostOf($, e.agentId))),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
@@ -1301,11 +1418,11 @@ export const register: Register = (on, options) => {
     const command = parseBoardCommand(e.args)
     switch (command.kind) {
       case 'session':
-        return { text: await sessionCommand(uiOf($), mode) }
+        return { text: await sessionCommand(uiOf($, notes), mode) }
       case 'machine':
-        return { text: await openBoard(uiOf($), SESSIONS_PANE) }
+        return { text: await openBoard(uiOf($, notes), SESSIONS_PANE) }
       case 'close':
-        return { text: await closeBoard(uiOf($)) }
+        return { text: await closeBoard(uiOf($, notes)) }
       case 'clear':
         return { text: (await personClear(host)).text }
       case 'list': {
@@ -1325,8 +1442,16 @@ export const register: Register = (on, options) => {
         return { text: await personPlace(host, command.text) }
       case 'edit':
         return { text: await personEdit(host, command.text) }
-      case 'status':
-        return { text: (await personStatus(host, command.text, command.word)).text }
+      case 'status': {
+        const now = await $.clock.now()
+        const forYou = await forYouStatus(host, command.text, command.word, now)
+        return { text: (forYou ?? (await personStatus(host, command.text, command.word))).text }
+      }
+      case 'answer':
+      case 'pick':
+      case 'reject':
+      case 'undo':
+        return { text: await forYouCommand(host, command.kind, command.text, await $.clock.now()) }
       case 'unknown':
         return { text: unknownReply(command.word) }
     }
@@ -1389,7 +1514,7 @@ export const register: Register = (on, options) => {
     const work = await workOf($, { vitals, checks, steps, pulses })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
-    return drawPane(elements, hostOf($), plansOf($), uiOf($), work)
+    return drawPane(elements, hostOf($), plansOf($), uiOf($, notes), work)
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {

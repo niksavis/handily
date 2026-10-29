@@ -1,5 +1,12 @@
 import type { PluginState } from 'claude-code'
-import type { BoardAuthor, BoardList, BoardSource, BoardStatus, BoardTask } from '../types'
+import type {
+  BoardAuthor,
+  BoardList,
+  BoardResultVerb,
+  BoardSource,
+  BoardStatus,
+  BoardTask,
+} from '../types'
 import { SIGNALS, type Signal, type SignalLook } from './signals'
 
 export type WorkItem = PluginState['handily-workitems']['snapshot']['items'][number]
@@ -299,7 +306,63 @@ export function idsText(ids: readonly number[]): string {
   return ranges.join(', ')
 }
 
-export function listText(list: BoardList): string {
+export function isForPerson(task: BoardTask): boolean {
+  return task.for === 'person'
+}
+
+export function ownList(list: BoardList): BoardList {
+  if (!list.tasks.some(isForPerson)) return list
+  return { ...list, tasks: list.tasks.filter((task) => !isForPerson(task)) }
+}
+
+export function askedTasks(list: BoardList): BoardTask[] {
+  return list.tasks.filter((task) => isForPerson(task) && task.isWithdrawn !== true)
+}
+
+const RESULT_WORDS: Record<BoardResultVerb, string> = {
+  done: 'done',
+  answered: 'answered',
+  chose: 'decided',
+  rejected: 'rejected',
+}
+
+const RESULT_WORD_WIDTH = Math.max(...Object.values(RESULT_WORDS).map((word) => word.length))
+
+const KIND_WIDTH = 6
+
+function resultDetail(task: BoardTask): string | undefined {
+  const { result } = task
+  if (result === undefined) {
+    const options = task.options ?? []
+    return options.length === 0 ? undefined : `options ${options.map(quoted).join(', ')}`
+  }
+  if (result.text === null) return undefined
+  const words: Record<BoardResultVerb, string> = {
+    done: 'note',
+    answered: 'answer',
+    chose: 'chose',
+    rejected: 'reason',
+  }
+  return `${words[result.verb]} ${quoted(result.text)}`
+}
+
+function forYouText(tasks: readonly BoardTask[]): string {
+  const width = Math.max(...tasks.map((task) => String(task.id).length))
+  const titleWidth = Math.max(...tasks.map((task) => quoted(task.title).length))
+  const rows = tasks.map((task) => {
+    const word = task.result ? RESULT_WORDS[task.result.verb] : 'open'
+    const detail = resultDetail(task)
+    const title = quoted(task.title)
+    const shown = detail === undefined ? title : `${title.padEnd(titleWidth)}  ${detail}`
+    const kind = (task.kind ?? 'do').padEnd(KIND_WIDTH)
+    return `  ${String(task.id).padEnd(width)}  ${word.padEnd(RESULT_WORD_WIDTH)}  ${kind}  ${shown}`
+  })
+  const answered = tasks.filter((task) => task.result !== undefined).length
+  const head = `For you (${String(answered)} of ${String(tasks.length)} answered)`
+  return [head, ...rows].join('\n')
+}
+
+function tasksText(list: BoardList): string {
   const width = Math.max(...list.tasks.map((task) => String(task.id).length))
   const rows = list.tasks.map((task) => {
     const number = String(task.id).padStart(width)
@@ -308,6 +371,14 @@ export function listText(list: BoardList): string {
   })
   const total = String(list.tasks.length)
   return [`Tasks (${String(doneCount(list))} of ${total} done)`, ...rows].join('\n')
+}
+
+export function listText(list: BoardList): string {
+  const asked = askedTasks(list)
+  const own = ownList(list)
+  if (asked.length === 0) return tasksText(own)
+  if (own.tasks.length === 0) return forYouText(asked)
+  return [forYouText(asked), tasksText(own)].join('\n\n')
 }
 
 export function isOpenItem(item: WorkItem): boolean {

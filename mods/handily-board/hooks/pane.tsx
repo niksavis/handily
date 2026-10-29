@@ -43,12 +43,22 @@ import { BAR_EMPTY, BAR_FILLED, barCells } from './bar'
 import { PART_LEAD, fitParts } from './parts'
 import { type PlanHost, addPlanAsTasks, dismissPlan, offeredPlan, tasksAfterPlan } from './plan'
 import { drawPlanBlock } from './plan-view'
+import {
+  type ForYouReply,
+  personAnswer,
+  personDone,
+  personPick,
+  personReject,
+  personUndo,
+} from './for-you'
+import { drawForYou } from './for-you-view'
 import { AGENTS_VIEW_FAILED, CHANGE_FAILED, refusedParts } from './replies'
 import { SIGNALS } from './signals'
 import {
   doneCount,
   isAllDone,
   escaped,
+  ownList,
   paneTaskText,
   priorityText,
   shownAuthor,
@@ -821,6 +831,39 @@ async function drawPlan(
   })
 }
 
+function forYouPress(host: TaskHost, ui: PaneUi, act: Act, now: number) {
+  const settle = (id: number, run: () => Promise<ForYouReply>) => {
+    act(async () => {
+      const reply = await run()
+      ui.noteRow(id, reply.rowNote)
+      if (reply.rowNote === undefined) {
+        await host.editExpanded((keys) => keys.filter((key) => key !== `reject:${String(id)}`))
+      }
+      return reply.toastParts
+    })
+  }
+  return {
+    done: (id: number) => {
+      settle(id, () => personDone(host, id, now))
+    },
+    answer: (id: number, text: string) => {
+      settle(id, () => personAnswer(host, id, text, now))
+    },
+    pick: (id: number, choice: number) => {
+      settle(id, () => personPick(host, id, choice, now))
+    },
+    reject: (id: number, reason: string) => {
+      settle(id, () => personReject(host, id, reason, now))
+    },
+    undo: (id: number) => {
+      settle(id, () => personUndo(host, id))
+    },
+    clear: () => {
+      act(async () => (await personClear(host)).toastParts)
+    },
+  }
+}
+
 export async function drawPane(
   elements: PaneElements,
   host: TaskHost,
@@ -830,10 +873,18 @@ export async function drawPane(
 ): Promise<RenderElement> {
   const { Box, Text } = elements
   const act = actor(ui)
-  const list = await readList(host)
-  const plan = await drawPlan(elements, host, plans, list, act)
+  const all = await readList(host)
+  const list = ownList(all)
+  const plan = await drawPlan(elements, host, plans, all, act)
   const hasList = list.tasks.length > 0
   const layout = rowLayout(host, await host.expanded(), act)
+  const forYou = drawForYou(elements, {
+    list: all,
+    now: work.now,
+    notes: ui.notes(),
+    layout,
+    press: forYouPress(host, ui, act, work.now),
+  })
   const warning = drawPlanWarning(elements, ui, work, hasList, act)
   const body = hasList
     ? [...drawTasks(elements, host, list, work, act, layout, ui.focus), ...warning]
@@ -849,6 +900,7 @@ export async function drawPane(
     children: [
       ...drawSession(elements, work, layout),
       ...plan,
+      ...forYou,
       header,
       ...body,
       ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),

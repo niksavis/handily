@@ -6,7 +6,7 @@ import type {
   BoardToolSight,
 } from '../types'
 import { maskedCredentials } from './credentials'
-import { isAllDone } from './tasks'
+import { isAllDone, ownList } from './tasks'
 
 export const PLAN_WARNING_CALLS = 20
 
@@ -117,7 +117,7 @@ export function withClocks(activity: BoardActivity, list: BoardList, now: number
     const clock = clockOf(activity.clocks[key], isRunning, now, activity.calls)
     if (clock !== undefined) clocks[key] = clock
   }
-  const doneAt = isAllDone(list) ? (activity.doneAt ?? now) : null
+  const doneAt = isAllDone(ownList(list)) ? (activity.doneAt ?? now) : null
   return { ...activity, clocks, doneAt }
 }
 

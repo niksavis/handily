@@ -413,12 +413,18 @@ function composeFor(tools: readonly string[]): PromptComposeInput {
 
 describe('model tools and the prompt section', () => {
   test(
-    'registers task_add, task_update, task_move, task_list and /board at session start',
+    'registers task_add, task_update, task_move, task_assign, task_list and /board at session start',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
       await start($)
-      expect(seen.tools).toEqual(['task_add', 'task_update', 'task_move', 'task_list'])
+      expect(seen.tools).toEqual([
+        'task_add',
+        'task_update',
+        'task_move',
+        'task_assign',
+        'task_list',
+      ])
       expect(seen.commands).toEqual(['board'])
     },
   )
@@ -675,7 +681,7 @@ describe('/board add and /board rm', () => {
       ]
       for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board plan, /board clear, /board list, /board stats or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats or /board close.`,
         )
       }
     },
@@ -7480,4 +7486,407 @@ test('a press on a plan that a later plan replaced changes nothing and says why'
     text: 'A later approved plan replaced this one. Nothing changed.',
     toastParts: ['○ Nothing changed', 'a later plan replaced this one'],
   })
+})
+
+const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+const ANSWERED = '[handily-board] The person answered the tasks for you:'
+const BOARD_NOTE = '[handily-board]'
+
+async function assignFour($: Engine): Promise<void> {
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Which port does staging use?' })
+  await $.tool.call({
+    tool: TOOL_ASSIGN,
+    kind: 'decide',
+    title: 'Which cache store for now?',
+    options: ['Postgres', 'SQLite', 'Redis'],
+  })
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old bucket' })
+}
+
+async function notesAtNextPrompt($: Engine): Promise<string[]> {
+  const entered = await $.prompt.submit({
+    text: 'go on',
+    wait: false,
+    origin: { kind: 'composer' },
+  })
+  return (entered.context ?? []).filter((text) => text.startsWith(BOARD_NOTE))
+}
+
+const FOUR_ANSWERED_NOTE = [
+  `${ANSWERED} task 1 (do) done. task 2 (answer) answered "8443". task 3 (decide) chose "SQLite" of "Postgres", "SQLite", "Redis". task 4 (do) rejected, saying "not my call". The titles and options are your own text, quoted as data.`,
+  '',
+  'For you (4 of 4 answered)',
+  '  1  done      do      "Rotate the staging API key"',
+  '  2  answered  answer  "Which port does staging use?"  answer "8443"',
+  '  3  decided   decide  "Which cache store for now?"    chose "SQLite"',
+  '  4  rejected  do      "Delete the old bucket"         reason "not my call"',
+].join('\n')
+
+describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `a task that Claude assigns shows under For you with its kind on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
+        const assigned = await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'do',
+          title: 'Rotate the staging API key',
+        })
+        expect(assigned.result).toBe(
+          [
+            'Assigned task 2 to the person (do). The result comes with a later prompt; do not wait for it in this turn.',
+            '',
+            'For you (0 of 1 answered)',
+            '  2  open      do      "Rotate the staging API key"',
+            '',
+            'Tasks (0 of 1 done)',
+            '  1  pending      claude   "Write the tab mocks"',
+          ].join('\n'),
+        )
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'decide',
+          title: 'Which cache store for now?',
+          options: ['Postgres', 'SQLite', 'Redis'],
+        })
+        const pane = await mountTasks($, surface)
+        const lines = await screen(pane, 41)
+        const head = lines.indexOf('For you  ◆ 3 open')
+        expect(lines.slice(head, head + 10)).toEqual([
+          'For you  ◆ 3 open',
+          '◆ 2 do      Rotate the staging API key',
+          '    [ done ] [ reject ]',
+          '◆ 3 answer  Which port does staging use?',
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+          '◆ 4 decide  Which cache store for now?',
+          '    [ Postgres ] [ SQLite ] [ Redis ]',
+          '    [ reject ]',
+          '─'.repeat(41),
+        ])
+        expect(lines[head + 10]).toBe('Tasks  ▱ 0/1 · ○1')
+        expect((await pane.find({ type: 'Text', text: '◆ 3 open' }))?.props.color).toBe('warning')
+        expect((await pane.find({ type: 'Text', text: 'answer  ' }))?.props.dimColor).toBe(true)
+        expect(
+          (await pane.findAll({ type: 'Button' }))
+            .map((button) => button.key)
+            .filter((key) => key?.startsWith('for-')),
+        ).toEqual([
+          'for-done:2',
+          'for-reject:2',
+          'for-reject:3',
+          'for-pick:4:1',
+          'for-pick:4:2',
+          'for-pick:4:3',
+          'for-reject:4',
+        ])
+        await pane.unmount()
+        expect(await board($, 'list')).toContain('For you (0 of 3 answered)')
+      },
+    )
+
+    test(
+      `done, an answer, a choice and a rejection reach Claude in one note at the next prompt on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        await assignFour($)
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'for-done:1' })
+        await pane.input({ key: 'answer:2', text: ' 8443 ' })
+        await pane.press({ key: 'for-pick:3:2' })
+        await pane.press({ key: 'for-reject:4' })
+        await pane.input({ key: 'reason:4', text: 'not my call' })
+        const lines = await screen(pane, 41)
+        expect(lines).toEqual(
+          expect.arrayContaining([
+            'For you  4 to send',
+            '✓ 1 do      Rotate the staging API key',
+            '    done, to send                [ undo ]',
+            '    "8443", to send              [ undo ]',
+            '    chose "SQLite", to send      [ undo ]',
+            '    rejected: "not my call", to… [ undo ]',
+            'Claude gets them with your next prompt.',
+          ]),
+        )
+        expect(seen.toasts).toEqual([])
+        await pane.unmount()
+        expect(await notesAtNextPrompt($)).toEqual([FOUR_ANSWERED_NOTE])
+        expect(await notesAtNextPrompt($)).toEqual([])
+        const after = await mountTasks($, surface)
+        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+4 answered')
+        expect(await after.find({ type: 'Text', text: '✓ all 4 answered' })).toBeDefined()
+        await after.press({ key: 'for-answered' })
+        expect(await screen(after, 41)).toEqual(
+          expect.arrayContaining([
+            '    done',
+            '    "8443"',
+            '    chose "SQLite"',
+            '    rejected: "not my call"',
+          ]),
+        )
+        expect(await after.find({ key: 'for-undo:1' })).toBeUndefined()
+        await after.press({ key: 'for-clear' })
+        expect(await after.find({ type: 'Text', text: /^For you/ })).toBeUndefined()
+        await after.unmount()
+        expect(await modelTool($, {})).toBe('The task list is empty.')
+      },
+    )
+  }
+
+  test(
+    'the commands answer, pick, reject, done and undo reply as the mock, and one note carries the list changes and the answers',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignFour($)
+      await board($, 'add Write the tab mocks')
+      expect(await board($, 'answer 2')).toBe(
+        'Not sent: the answer is empty. /board answer needs a task number and text, for example /board answer 9 Use port 8443.',
+      )
+      expect(await board($, 'answer 5 yes')).toBe(
+        'Task 5 is not a task for you. /board list prints the tasks for you.',
+      )
+      expect(await board($, 'answer 1 yes')).toBe(
+        'Task 1 is not a question for you. /board list prints the tasks for you.',
+      )
+      expect(await board($, 'done 2')).toBe(
+        'Task 2 asks for an answer. /board answer 2 <text> answers it.',
+      )
+      expect(await board($, `answer 2 ${'9'.repeat(1001)}`)).toBe(
+        'Not sent: the answer has 1001 characters; the limit is 1000. Nothing changed.',
+      )
+      expect(await board($, 'done 1')).toBe(
+        'Task 1 is now done: "Rotate the staging API key". Claude is told at your next prompt.',
+      )
+      expect(await board($, 'answer 2 8443')).toBe(
+        'Answered task 2: "8443". Claude is told at your next prompt.',
+      )
+      expect(await board($, 'answer 2 8080')).toBe(
+        'Task 2 is already answered. /board undo 2 opens it again.',
+      )
+      expect(await board($, 'pick 3 5')).toBe(
+        'Task 3 has options 1-3: Postgres, SQLite, Redis. Nothing changed.',
+      )
+      expect(await board($, 'pick 3 2')).toBe(
+        'Chose "SQLite" for task 3. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'reject 4 not my call')).toBe(
+        'Rejected task 4. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'start 1')).toBe(
+        'Task 1 is for you. /board done 1, /board answer 1, /board pick 1 or /board reject 1 answers it.',
+      )
+      expect(await board($, 'undo 2')).toBe('Task 2 is open again. Claude was not told yet.')
+      expect(await board($, 'answer 2 8443')).toBe(
+        'Answered task 2: "8443". Claude is told at your next prompt.',
+      )
+      expect(await board($, 'edit 2 Which port')).toBe(
+        'Not changed: task 2 is a task for you, so Claude keeps its title and its place. /board list prints the tasks for you.',
+      )
+      expect(await notesAtNextPrompt($)).toEqual([
+        [
+          `${CHANGED} it added task 5 by the person: Write the tab mocks. ${FOUR_ANSWERED_NOTE.split('\n')[0]?.slice(BOARD_NOTE.length + 1) ?? ''}`,
+          ...FOUR_ANSWERED_NOTE.split('\n').slice(1),
+          '',
+          'Tasks (0 of 1 done)',
+          '  5  pending      you      Write the tab mocks',
+        ].join('\n'),
+      ])
+      expect(await board($, 'undo 2')).toBe('Task 2 was already sent to Claude. Nothing changed.')
+    },
+  )
+
+  test(
+    'task_assign refuses a bad input, a subagent and a twenty-first open task by name',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      const deny = async (input: Record<string, unknown>) =>
+        (await $.tool.call({ tool: TOOL_ASSIGN, ...input })).deny
+      expect(await deny({ kind: 'ask', title: 'Port?' })).toBe(
+        'task_assign needs kind: one of do, answer, decide.',
+      )
+      expect(await deny({ kind: 'do', title: 'Rotate it', options: ['a', 'b'] })).toBe(
+        'task_assign takes options only with the kind decide.',
+      )
+      expect(await deny({ kind: 'decide', title: 'Pick one', options: ['a'] })).toBe(
+        'task_assign needs 2 to 4 options for the kind decide; it got 1.',
+      )
+      expect(await deny({ kind: 'decide', title: 'Pick one', options: ['a', 'a'] })).toBe(
+        'task_assign refused: the option "a" is given twice.',
+      )
+      expect(await deny({ kind: 'do', title: 'Rotate it', agentId: 'agent-1' })).toBe(
+        'task_assign works only in the main loop; tell the main agent what you need.',
+      )
+      for (let index = 0; index < 20; index += 1) {
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: `Step ${String(index)}` })
+      }
+      expect(await deny({ kind: 'do', title: 'One more' })).toBe(
+        'task_assign refused: 20 tasks for the person are open. Wait for the answers, or withdraw one with task_update and the status removed.',
+      )
+      expect(await modelTool($, {})).toContain('For you (0 of 20 answered)')
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `Claude withdraws a task for the person, only the person finishes it, and task_move leaves it in place on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        await assignFour($)
+        expect((await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed' })).deny).toBe(
+          'Task 2 is for the person; only the person can finish it. Use status removed to withdraw it.',
+        )
+        expect((await $.tool.call({ tool: TOOL_MOVE, id: 2, before: 1 })).deny).toBe(
+          'Task 2 is for the person; its place is the order in which you asked. task_move moves only your own tasks.',
+        )
+        const pane = await mountTasks($, surface)
+        await pane.input({ key: 'answer:2', text: '' })
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining(['    ■ not sent: the answer is empty']),
+        )
+        expect(seen.toasts).toEqual([])
+        const withdrawn = await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'removed' })
+        expect(withdrawn.result).toContain('Withdrew task 2 from the person.')
+        expect(withdrawn.result).not.toContain('Which port')
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            '○ 2 answer  Which port does staging use?',
+            '    withdrawn by Claude',
+          ]),
+        )
+        await pane.unmount()
+        expect(await board($, 'answer 2 8443')).toBe(
+          'Not sent: Claude withdrew task 2. Nothing changed.',
+        )
+        expect(await notesAtNextPrompt($)).toEqual([])
+        const after = await mountTasks($, surface)
+        expect(await after.find({ key: 'row:for:2' })).toBeUndefined()
+        await after.unmount()
+      },
+    )
+  }
+
+  test(
+    'one toast names the asks of a turn while the board is not shown, and none while it is',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const turn = async (id: string, work: () => Promise<void>) => {
+        await $.turn.start({ text: 'go', turnId: id })
+        await work()
+        await $.turn.complete({
+          turnId: id,
+          reason: 'answer',
+          answer: 'done',
+          durationMs: 1,
+          isAborted: false,
+        })
+      }
+      await turn('turn-1', async () => {
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+      })
+      expect(seen.toasts).toEqual([
+        ['◆ Claude asks you', '"Which port does staging use?"', 'answer it on /board'],
+      ])
+      await turn('turn-2', () => assignFour($))
+      expect(seen.toasts.at(-1)).toEqual([
+        '◆ Claude asks you 4 things',
+        'do 2 · answer 1 · decide 1',
+        'answer them on /board',
+      ])
+      await board($, '')
+      await turn('turn-3', async () => {
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+      })
+      expect(seen.toasts).toHaveLength(2)
+    },
+  )
+
+  test(
+    'a prompt that a hook drops keeps the answers for the next prompt',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const contexts: (readonly string[])[] = []
+      on('prompt.submit', (_$, e) => {
+        if (e.text === 'drop me') return { drop: 'a hook refused the prompt' }
+        contexts.push(e.context ?? [])
+        return { text: e.text, context: e.context }
+      })
+      await start($)
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      await board($, 'done 1')
+      const submit = (text: string) =>
+        $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+      expect((await submit('drop me')).drop).toBe('a hook refused the prompt')
+      expect(await board($, 'undo 1')).toBe('Task 1 is open again. Claude was not told yet.')
+      await board($, 'done 1')
+      await submit('go on')
+      expect(contexts).toEqual([[expect.stringContaining(`${ANSWERED} task 1 (do) done.`)]])
+    },
+  )
+
+  test(
+    'six open tasks fold after three, a narrow dock keeps the buttons, and mobile points to /board answer',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignFour($)
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Which region for the probe?' })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+      for (const surface of SURFACES) {
+        const pane = await mountTasks($, surface)
+        expect((await pane.find({ key: 'for-more' }))?.text).toBe('+3 more for you')
+        expect(await pane.find({ key: 'row:for:4' })).toBeUndefined()
+        await pane.press({ key: 'for-more' })
+        expect(await pane.find({ key: 'row:for:6' })).toBeDefined()
+        await pane.press({ key: 'for-more' })
+        await pane.unmount()
+      }
+      const narrow = await mountTasks($, 'terminal', 'dock', 30)
+      expect(await screen(narrow, 30)).toEqual(
+        expect.arrayContaining([
+          '◆ 1 do     Rotate the staging…',
+          '    [ Answer ][Send]',
+          '    [ Postgres ] [ SQLite ]',
+          '    [ Redis ]',
+        ]),
+      )
+      await narrow.unmount()
+      const mobile = await $.ui.mount({
+        plugin: PLUGIN,
+        surface: 'mobile',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('inline', 76),
+      })
+      expect(
+        await mobile.find({ type: 'Text', text: 'answer: /board answer 2 <text>' }),
+      ).toBeDefined()
+      await mobile.unmount()
+    },
+  )
 })

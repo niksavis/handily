@@ -1,5 +1,5 @@
 import type { BoardList, BoardStatus, BoardTask } from '../types'
-import { isStatus } from './tasks'
+import { isStatus, ownList } from './tasks'
 import { cutToWidth } from './width'
 
 export const PROGRESS_PREFIX = 'session:'
@@ -163,7 +163,8 @@ function firstTaskTime(progress: Progress, done: number, now: number): number | 
   return done > 0 ? null : now
 }
 
-export function withTasks(progress: Progress, list: BoardList, now: number): Progress {
+export function withTasks(progress: Progress, all: BoardList, now: number): Progress {
+  const list = ownList(all)
   const total = list.tasks.length
   if (total === 0) {
     return {
