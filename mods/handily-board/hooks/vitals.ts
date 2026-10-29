@@ -8,6 +8,7 @@ import type {
   SessionUsage,
   TextProps,
 } from 'claude-code'
+import type { SharedContext } from './progress'
 import { SIGNALS } from './signals'
 import { cutToWidth, displayWidth } from './width'
 
@@ -177,7 +178,7 @@ function plain(text: string, lead = PIECE_LEAD): Piece {
   return { lead, spans: [{ text, isWarning: false }] }
 }
 
-function isHighPercent(shown: number): boolean {
+export function isHighPercent(shown: number): boolean {
   return shown >= CONTEXT_HIGH
 }
 
@@ -191,6 +192,16 @@ export function highPercent(vitals: Vitals): number | undefined {
   return isHighPercent(shown) ? shown : undefined
 }
 
+export function highText(shown: number): string {
+  return `${String(shown)}% high`
+}
+
+export function sharedContext(vitals: Vitals): SharedContext | null {
+  if (vitals.hasNoUsage || vitals.percent === undefined) return null
+  const { usd } = vitals
+  return { percent: Math.round(vitals.percent), cents: usd === undefined ? null : cents(usd) }
+}
+
 function contextPiece(percent: number): Piece {
   const shown = Math.round(percent)
   if (!isHighPercent(shown)) return plain(`ctx ${String(shown)}%`, '')
@@ -198,7 +209,7 @@ function contextPiece(percent: number): Piece {
     lead: '',
     spans: [
       { text: 'ctx ', isWarning: false },
-      { text: `${String(shown)}% high`, isWarning: true },
+      { text: highText(shown), isWarning: true },
     ],
   }
 }

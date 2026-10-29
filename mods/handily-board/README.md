@@ -277,6 +277,10 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
   have, in the order `done`, `start` and `open`. They act as `/board done`, `/board start` and
   `/board open`, and the toast is the reply of the command. A task that you start or finish
   keeps its clock, as when Claude does it.
+- When the slash command `/tree` of handily-filetree is listed, an opened task ends with a
+  `[ files ]` button. It runs `/tree task 2`, so the files tab shows only the files that were
+  read or edited while the task ran. When `/tree` is not listed, the button is not drawn. When
+  the run fails, the board logs why and says so in a toast.
 - A task that is not in progress also gets `[ up ] [ down ]` on the next line. `up` and `down`
   move the task past its neighbour with the same status, as `task_move` does, and Claude is
   told. The mod then asks Claude Code for the focus on the same button of the moved task. The
@@ -626,6 +630,24 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
 - The tool column shows `▸` and the call that runs now, or the last call. Below 36 columns the
   tool column is left out. Docked, a failed agent gets a second line, `failed after` its last
   call. Inline, that text is in the tool column.
+- From a body of 80 columns, docked or inline, each agent row adds a `ctx` column and a lane.
+  `ctx` is the context of the latest model request of the agent, or `ctx —` before the first
+  one. The lanes share one time axis, from the first spawn of the drawn rows to now, in 20
+  cells. An agent in a closed fold does not move the axis. The header names the axis. A lane
+  draws `━` while the agent ran and `·` before and after. The lane of an agent that waits for
+  you ends in `◆` in the theme colour `warning`, and the lane of a failed agent ends in `■` in
+  the theme colour `error`. The `waits for:` and `failed after` text moves into the tool
+  column, so each agent keeps one line. A capture from the tests, docked at 89 columns:
+
+  ```text
+  Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now
+  ◆ scout     needs you waits for: permission · Bash… ctx 31k ············━━━━━━━◆ open  8m
+  ■ lane-b    failed    failed after Bash npm run bu… ctx —   ━━━━━━━■············       8m
+  ▶ Explore   running   Read src/a.ts                 ctx 48k ·················━━━ open  3m
+  ```
+
+  Below a body of 80 columns, the rows keep the form above, with no `ctx` and no lane.
+
 - Order: needs you first, then failed, then asked and running, on hold, pending and idle, each
   in spawn order. Ended agents fold into `+N ended`. At most 6 active agents show. The rest fold
   into `+N more agents`, so the Add input stays on screen.
@@ -771,6 +793,19 @@ Sessions  4 · 1 needs you · 12s ago
 - The place line is the worktree, the branch and the time. The time is `worked` for a session
   that runs the board: the sum of its turns. Other sessions show the time `elapsed` since they
   started. `est. <time> left` follows when the board has an estimate.
+- A session that runs the board with a context of 80 percent or more gets a context line under
+  the place line: the percent with the word `high` in the theme colour `warning`, and the cost
+  of the session. Under 80 percent, the card has no context line. Inline, the line is under the
+  row. A capture from the tests, docked at 41 columns:
+
+  ```text
+  ▶ mocks  interactive  this  busy
+    ▶ Write the tab mocks ▰▱▱▱ 1/4
+    app · main · 14m worked · est. 30m left
+    ctx 91% high · $12.40
+    agents 3 · 1 failed
+  ```
+
 - This session's card reads the task list, the time worked and the agents of this session, not
   the poll. Its `agents` line counts the agents that did not end, and the failed ones.
 - A card of another session that has not ended, with a key that is not stale and lists agents,
@@ -816,6 +851,9 @@ Sessions  4 · 1 needs you · 12s ago
   and total counts and whether the agent failed. The board writes it when a subagent task list
   changes, when an agent starts and when an agent turn ends. The name keeps 40 characters and
   the task 80.
+- The key also keeps the context percent and the cost from the engine event `session.measure`.
+  The board writes them when the rounded percent or the cost in cents changes, and at each
+  session start. A key from an earlier version without them reads as no context.
 - A key is at most 4096 bytes. When it is larger, the board drops agents from the end of the
   list until it fits, and keeps the count of all agents. The opened fold then says how many are
   over the store limit. A key that is larger with no agent is not written, and the debug log

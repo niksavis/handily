@@ -14,10 +14,11 @@ the design.
 
 ## Commands
 
-| Command       | Effect                                                           |
-| ------------- | ---------------------------------------------------------------- |
-| `/tree`       | Opens the `files` tab. On a shown `files` tab, it closes the tab |
-| `/tree close` | Closes the `files` tab                                           |
+| Command        | Effect                                                           |
+| -------------- | ---------------------------------------------------------------- |
+| `/tree`        | Opens the `files` tab. On a shown `files` tab, it closes the tab |
+| `/tree close`  | Closes the `files` tab                                           |
+| `/tree task 2` | Opens the `files` tab with only the files of board task 2        |
 
 Replies, from the tests:
 
@@ -26,6 +27,8 @@ Replies, from the tests:
 /tree          Tree closed.
 /tree close    The tree is not open. Run /tree to open it.
 /tree frob     Unknown argument "frob". Use /tree to open or close the files tab, or /tree close.
+/tree task 2   Tree opened: files of task 2.
+/tree task     "task" names no task. Use /tree task and the task number, for example /tree task 2.
 ```
 
 When the `files` tab is hidden behind another tab, `/tree` opens it with `focus`, so it comes
@@ -144,6 +147,43 @@ Now  nothing read or edited yet
 - A link shows as an entry, and the mod does not follow it.
 - A control or bidi character in a name shows as `\u202e`, so a name cannot change how the row
   reads.
+
+### The files of one task
+
+`/tree task 2` narrows the docked tab to the files that were read or edited while task 2 of
+the board was in progress. The `[ files ]` button on an opened task of the board runs it. The
+test fixture, docked at body 41:
+
+```text
+Files  app · main ↑1 · 7 changed
+Task 2  Write the tab mocks  [ clear ]
+{agent: all} [ refresh ]
+✎ 1 edited · ◦ 2 read while task 2 ran
+─────────────────────────────────────────
+▾ docs/  M2 ?1            ◦ main       1m
+    install.md            ◦ main       1m
+  M mocks.md              ✎ main       4m
+▾ hooks/  M1 D1           ◦ scout      3m
+  M pane.tsx              ◦ scout      3m
+```
+
+- Each touch keeps the tasks that were in progress when it happened. The mod reads the task
+  clocks of the board, `activity` in the `handily-board` state, before and after each tool
+  call. A task is in progress from the start of its current run until it ends. A touch at the
+  moment one task ends and the next starts belongs to the next task.
+- A call keeps the tasks that were in progress at its start and at its end. So a task that is
+  done and opened again while the call runs keeps the touch of that call.
+- The mod keys a task by its number and the time of its first start. A new task that gets the
+  number of a removed task, as after `/board clear`, starts with no files.
+- A touch of any agent counts, also of a subagent. A task that runs twice keeps the touches of
+  both runs. A touch while no task is in progress belongs to no task.
+- The counts line counts the files by their newest mark in the task. With no file, it reads
+  `No file touched while task 3 ran.`
+- The files that the repository shows as changed but no agent touched in the task are not
+  shown. The letters and the folder counts stay.
+- `[ clear ]`, or the key `c` while the tab has the focus, returns to the work view. A new
+  session clears the task. The inline tab ignores the task.
+- The mod keeps the touches of each task in its memory, with the other marks.
 
 ### Inline above the prompt
 

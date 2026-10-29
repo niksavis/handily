@@ -52,7 +52,7 @@ import {
   personUndo,
 } from './for-you'
 import { drawForYou } from './for-you-view'
-import { AGENTS_VIEW_FAILED, CHANGE_FAILED, refusedParts } from './replies'
+import { AGENTS_VIEW_FAILED, CHANGE_FAILED, FILES_VIEW_FAILED, refusedParts } from './replies'
 import { SIGNALS } from './signals'
 import {
   doneCount,
@@ -88,6 +88,7 @@ export type PaneWork = {
   agents: readonly AgentRow[]
   vitals: Vitals
   checks: BoardChecks
+  hasTree: boolean
 }
 
 type Act = (work: () => Promise<ToastParts | undefined>) => void
@@ -388,7 +389,7 @@ function cellsWidth(cells: readonly Cell[]): number {
   return cells.reduce((sum, cell) => sum + displayWidth(cell.text), 0)
 }
 
-type Focus = (key: string) => Promise<void>
+type TaskUi = Pick<PaneUi, 'focus' | 'openFiles' | 'log' | 'showToast'>
 
 function moveKey(direction: MoveDirection, id: number, place: number): string {
   return `${direction}:${String(id)}:${String(place)}`
@@ -400,7 +401,7 @@ function taskRow(
   numberWidth: number,
   work: PaneWork,
   act: Act,
-  focus: Focus,
+  taskUi: TaskUi,
   place: number,
   detail: Cell | undefined,
 ): PaneRow {
@@ -422,7 +423,7 @@ function taskRow(
       act(async () => {
         const reply = await personMove(host, task.id, direction)
         const moved = (await readList(host)).tasks.findIndex((one) => one.id === task.id)
-        if (moved !== -1 && moved !== place) await focus(moveKey(direction, task.id, moved))
+        if (moved !== -1 && moved !== place) await taskUi.focus(moveKey(direction, task.id, moved))
         return reply.toastParts
       })
     },
@@ -435,6 +436,19 @@ function taskRow(
     },
   })
   const marks = STATUS_WORDS.filter((word) => statusOfWord(word) !== task.status).map(mark)
+  const files: RowAction = {
+    key: `files:${id}`,
+    label: 'files',
+    onPress: () => {
+      taskUi.openFiles(task.id).then(
+        () => undefined,
+        (error: unknown) => {
+          taskUi.log(`handily-board: the files tab did not open: ${String(error)}`)
+          taskUi.showToast(FILES_VIEW_FAILED)
+        },
+      )
+    },
+  }
   const cells = taskCells(task, numberWidth)
   return {
     key: `task:${id}`,
@@ -448,7 +462,7 @@ function taskRow(
     opening: {
       kind: 'details',
       lines: [{ text: clockLine(task, work), style: { dimColor: true } }],
-      actions: [marks, isActive ? [] : [move('up'), move('down')]],
+      actions: [marks, isActive ? [] : [move('up'), move('down')], work.hasTree ? [files] : []],
     },
   }
 }
@@ -527,7 +541,7 @@ function drawTasks(
   work: PaneWork,
   act: Act,
   layout: RowLayout,
-  focus: Focus,
+  taskUi: TaskUi,
 ): RenderElement[] {
   const { Button } = elements
   const running = list.tasks.filter((task) => task.status === 'in_progress')
@@ -536,7 +550,7 @@ function drawTasks(
   const isDoneShown = layout.expanded.has(DONE_GROUP)
   const numberWidth = column(list.tasks.map((task) => String(task.id)))
   const rowOf = (task: BoardTask, detail?: Cell) =>
-    taskRow(host, task, numberWidth, work, act, focus, list.tasks.indexOf(task), detail)
+    taskRow(host, task, numberWidth, work, act, taskUi, list.tasks.indexOf(task), detail)
   const draw = (task: BoardTask) => drawRow(elements, rowOf(task), layout)
   const first = running[0]
   const doneCountText = String(done.length)
@@ -887,7 +901,7 @@ export async function drawPane(
   })
   const warning = drawPlanWarning(elements, ui, work, hasList, act)
   const body = hasList
-    ? [...drawTasks(elements, host, list, work, act, layout, ui.focus), ...warning]
+    ? [...drawTasks(elements, host, list, work, act, layout, ui), ...warning]
     : [
         ...drawNow(elements, work, layout),
         ...warning,

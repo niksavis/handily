@@ -102,6 +102,7 @@ import {
   completeTurn,
   startTurn,
   withAgents,
+  withContext,
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
@@ -172,6 +173,7 @@ import {
   EMPTY_VITALS,
   type Vitals,
   sessionText,
+  sharedContext,
   withMeasure,
   withClear,
   withCompaction,
@@ -188,6 +190,7 @@ const NEW_SESSION_REASONS: ReadonlySet<SessionEndReason> = new Set<SessionEndRea
   'resume',
 ])
 const TOOL_ADD = 'mcp__handily-board__task_add'
+const TREE_COMMAND = 'tree'
 const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
@@ -672,6 +675,17 @@ type SessionKeeps = {
   pulses: AgentPulses
 }
 
+async function isTreeListed($: EngineInterface): Promise<boolean> {
+  try {
+    return (await $.command.list()).some((command) => command.name === TREE_COMMAND)
+  } catch (error) {
+    $.ui.log(`handily-board: the slash commands could not be listed: ${String(error)}`, {
+      to: 'debug',
+    })
+    return false
+  }
+}
+
 async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
@@ -683,6 +697,7 @@ async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork
     agents,
     vitals: keeps.vitals.current,
     checks: keeps.checks.current,
+    hasTree: await isTreeListed($),
   }
 }
 
@@ -707,7 +722,7 @@ type CheckedCall = ToolCheckInput & { tool_use_id: string }
 
 type ChecksKeep = { current: BoardChecks }
 
-type VitalsKeep = { current: Vitals }
+type VitalsKeep = { current: Vitals; shared: string | undefined }
 
 type WaitingAsk = { agentId: string | undefined; sight: BoardToolSight }
 
@@ -854,6 +869,16 @@ async function noteVitals(
   }
 }
 
+async function shareContext($: EngineInterface, machine: Machine, keep: VitalsKeep): Promise<void> {
+  const context = sharedContext(keep.current)
+  const shared = JSON.stringify(context)
+  if (shared === keep.shared) return
+  keep.shared = shared
+  await updateProgress(sessionsHost($), machine, (progress, now) =>
+    withContext(progress, context, now),
+  )
+}
+
 async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
   try {
     const usage = await $.session.usage()
@@ -901,6 +926,9 @@ function uiOf($: EngineInterface, notes: RowNotes): PaneUi {
     },
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
+    },
+    openFiles: async (taskId) => {
+      await $.command.run({ command: TREE_COMMAND, args: `task ${String(taskId)}` })
     },
     focus: async (key) => {
       const stayed = (reason: string) => {
@@ -1209,7 +1237,7 @@ export const register: Register = (on, options) => {
   const band = bandSetting(options)
   const redraw: Redraw = { timer: undefined, bandTimer: undefined, bandSawTab: undefined }
   const machine = newMachine(SESSIONS_PANE.id)
-  const vitals: VitalsKeep = { current: EMPTY_VITALS }
+  const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const steps: StepsKeep = new Map()
   const notes: RowNotes = new Map()
@@ -1238,12 +1266,15 @@ export const register: Register = (on, options) => {
     await removeExpiredKeys(host)
     await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
     await readUsage($, vitals)
+    vitals.shared = undefined
+    await shareContext($, machine, vitals)
     return started
   })
 
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await noteVitals($, vitals, (current) => withMeasure(current, e))
+    await shareContext($, machine, vitals)
     return measured
   })
 
@@ -1318,7 +1349,10 @@ export const register: Register = (on, options) => {
     steps.clear()
     pulses.heardAt.clear()
     pulses.callsFrom.clear()
-    if (NEW_SESSION_REASONS.has(e.reason)) await noteVitals($, vitals, withClear)
+    if (NEW_SESSION_REASONS.has(e.reason)) {
+      await noteVitals($, vitals, withClear)
+      await shareContext($, machine, vitals)
+    }
     if (e.reason === 'clear') {
       attention.asks.clear()
       await refreshStatus($, attention)

@@ -14,8 +14,10 @@ import {
   workedMs,
   type AgentSummary,
   type Progress,
+  type SharedContext,
 } from './progress'
 import { paneTaskText } from './tasks'
+import { isHighPercent } from './vitals'
 
 export const HIDE_BACKGROUND_AFTER_MS = 24 * 60 * 60_000
 export const STALE_DATA_AFTER_MS = 30_000
@@ -61,6 +63,7 @@ export type SessionCard = {
   estMs: number | null
   agents: AgentCounts | null
   agentRows: readonly AgentSummary[]
+  context: SharedContext | null
 }
 
 export type CardsView = {
@@ -141,6 +144,11 @@ function sharedAgents(progress: Progress | undefined, isShown: boolean) {
   }
 }
 
+function highContext(progress: Progress | null | undefined, isShown: boolean) {
+  const context = progress?.context ?? null
+  return context !== null && isShown && isHighPercent(context.percent) ? context : null
+}
+
 function placeOf(row: SessionRow, cache: AgentsCache): string {
   const known = cache.places[row.key]
   if (!known) return lastSegment(row.cwd)
@@ -199,6 +207,7 @@ function otherCard(
     time,
     estMs: progress && !row.isEnded && !isStale ? estimateLeftMs(progress, now) : null,
     ...sharedAgents(progress, !row.isEnded && !isStale),
+    context: highContext(progress, !row.isEnded && !isStale),
   }
 }
 
@@ -232,6 +241,7 @@ export function ownCard(
     estMs: own.progress ? estimateLeftMs(own.progress, now) : null,
     agents: agentCounts(own.agents),
     agentRows: [],
+    context: highContext(own.progress, true),
   }
 }
 

@@ -111,6 +111,7 @@ function progressOf(sessionId: string, fields: Partial<Progress>): Progress {
     lastAddedAt: null,
     agents: [],
     agentCount: 0,
+    context: null,
     ...fields,
   }
 }
@@ -1305,4 +1306,152 @@ describe('the own card counts only the tasks of Claude (handily-9uj3n.8)', () =>
       expect(lines.join('\n')).not.toContain('Rotate')
     })
   }
+})
+
+const HIGH_CONTEXT_CRITERION =
+  'When a session that runs the board has a context of 80 percent or more, its card shows the percent with the word high and its cost.'
+const LOW_CONTEXT_CRITERION =
+  'When the context is under 80 percent, the card shows no context line.'
+
+function measures(on: On): void {
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+}
+
+async function measureOwn($: Engine, percent: number, usd: number): Promise<void> {
+  await $.session.measure({
+    context: { window: 200_000, percent, tokens: percent * 2_000 },
+    rateLimits: [],
+    cost: { usd },
+    changed: ['context', 'cost'],
+  })
+}
+
+function contextLines(lines: readonly string[]): string[] {
+  return lines.filter((line) => line.trimStart().startsWith('ctx '))
+}
+
+async function contextPart(
+  $: Engine,
+  surface: RenderSurface,
+  key: string,
+): Promise<{ text: string; color: unknown }[]> {
+  const ui = await mountTab($, surface, 'dock', 41)
+  const line = drawnOf(await ui.find({ key: `card:${key}:context` }))
+  await ui.unmount()
+  return (line?.children ?? []).map((part) => ({ text: part.text, color: part.props.color }))
+}
+
+const HIGH_API = { ...API_PROGRESS, context: { percent: 85, cents: 731 } }
+
+describe(HIGH_CONTEXT_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`the card of this session shows ctx 91% high and the cost under its place line, as mock 8.10o, and the session key keeps both, on ${surface}`, async ($, on) => {
+      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
+      measures(on)
+      await mockWork($, seen)
+      await measureOwn($, 91.2, 12.4)
+      await showMachine($, seen)
+      const lines = await screenAt($, surface, 'dock', 41)
+      const own = lines.indexOf('▶ mocks  interactive  this  busy')
+      expect(lines.slice(own, own + 5)).toEqual([
+        '▶ mocks  interactive  this  busy',
+        '  ▶ Write the tab mocks ▰▱▱▱ 1/4',
+        '  app · main · 14m worked · est. 30m left',
+        '  ctx 91% high · $12.40',
+        '  agents 3 · 1 failed',
+      ])
+      expect(await contextPart($, surface, OWN_ID)).toEqual([
+        { text: 'ctx ', color: undefined },
+        { text: '91% high', color: 'warning' },
+        { text: ' · ', color: undefined },
+        { text: '$12.40', color: undefined },
+      ])
+      expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.context).toEqual({
+        percent: 91,
+        cents: 1240,
+      })
+    })
+
+    test(`the card of another session that runs the board shows its high context docked and under its row inline, on ${surface}`, async ($, on) => {
+      const seen = world(on, storeWith(HIGH_API, LANE_PROGRESS), ['terminal', surface])
+      await mockWork($, seen)
+      await showMachine($, seen)
+      const docked = await screenAt($, surface, 'dock', 41)
+      expect(docked.slice(1, 6)).toEqual([
+        '◆ api-login  interactive  needs you',
+        '  waits for: permission',
+        '  ▶ Fix the login redirect ▰▰▱ 2/3',
+        '  api · feat/login · 2h worked',
+        '  ctx 85% high · $7.31',
+      ])
+      expect(contextLines(docked)).toEqual(['  ctx 85% high · $7.31'])
+      const inline = await screenAt($, surface, 'inline', 76)
+      expect(inline.slice(1, 4)).toEqual([
+        '◆ api-login  inter needs you   api · feat/login                      2/3  2h',
+        '    waits for: permission',
+        '    ctx 85% high · $7.31',
+      ])
+    })
+  }
+
+  test('the desktop app draws the high context on the card of this session', async ($, on) => {
+    const seen = world(on, undefined, ['desktop'])
+    measures(on)
+    await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
+    await measureOwn($, 88, 3)
+    await showMachine($, seen)
+    expect(contextLines(await screenAt($, 'desktop', 'dock', 41))).toEqual([
+      '  ctx 88% high · $3.00',
+    ])
+  })
+
+  test('a context of 80 percent with no cost shows the percent and the word high alone', async ($, on) => {
+    const seen = world(
+      on,
+      storeWith({ ...API_PROGRESS, context: { percent: 80, cents: null } }, LANE_PROGRESS),
+    )
+    await mockWork($, seen)
+    await showMachine($, seen)
+    expect(contextLines(await screenAt($, 'terminal', 'dock', 41))).toEqual(['  ctx 80% high'])
+  })
+})
+
+describe(LOW_CONTEXT_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a context of 79 percent draws no context line on any card, and 80 percent draws it, on ${surface}`, async ($, on) => {
+      const low = { ...API_PROGRESS, context: { percent: 79, cents: 731 } }
+      const seen = world(on, storeWith(low, LANE_PROGRESS), ['terminal', surface])
+      measures(on)
+      await mockWork($, seen)
+      await measureOwn($, 79.4, 12.4)
+      await showMachine($, seen)
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(contextLines(lines)).toEqual([])
+      expect(lines.join('\n')).not.toContain('high')
+      await measureOwn($, 80, 12.4)
+      expect(contextLines(await screenAt($, surface, 'dock', 41))).toEqual([
+        '  ctx 80% high · $12.40',
+      ])
+    })
+
+    test(`a context that falls under 80 percent takes the line away, on ${surface}`, async ($, on) => {
+      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
+      measures(on)
+      await mockWork($, seen)
+      await measureOwn($, 91, 12.4)
+      await showMachine($, seen)
+      expect(contextLines(await screenAt($, surface, 'dock', 41))).toHaveLength(1)
+      await measureOwn($, 40, 12.6)
+      expect(contextLines(await screenAt($, surface, 'dock', 41))).toEqual([])
+    })
+  }
+
+  test('a key from an earlier version with no context reads as no context, and a bad context drops the key', () => {
+    const old = Object.fromEntries(
+      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'context'),
+    )
+    expect(readProgress(old)).toMatchObject({ context: null })
+    expect(readProgress({ ...LANE_PROGRESS, context: { percent: '91' } })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, context: { percent: 91, cents: 'x' } })).toBeNull()
+  })
 })

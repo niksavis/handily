@@ -16,6 +16,11 @@ export const AGENTS_VIEW_FAILED: ToastParts = [
   TRANSCRIPT_SHOWS_WHY,
 ]
 
+export const FILES_VIEW_FAILED: ToastParts = [
+  `${TOAST_MARKS.blocked} The files tab did not open`,
+  TRANSCRIPT_SHOWS_WHY,
+]
+
 export function refusedParts(head: string, why: string, hint?: string): ToastParts {
   const lead = `${TOAST_MARKS.blocked} ${head}`
   return hint === undefined ? [lead, why] : [lead, why, hint]

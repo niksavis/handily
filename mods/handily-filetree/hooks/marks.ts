@@ -21,6 +21,20 @@ const HOUR_S = 3600
 const DAY_S = 86_400
 const SECOND_MS = 1000
 
+export type TaskCounts = Readonly<Record<TouchKind, number>>
+
+export function taskCountsText(counts: TaskCounts, task: number): string {
+  const kinds: readonly TouchKind[] = ['edit', 'read']
+  const parts = kinds
+    .filter((kind) => counts[kind] > 0)
+    .map((kind) => `${SYMBOLS[kind]} ${String(counts[kind])} ${VERBS[kind]}`)
+  return `${parts.join(' · ')} while task ${String(task)} ran`
+}
+
+export function noTaskFilesText(task: number): string {
+  return `No file touched while task ${String(task)} ran.`
+}
+
 export function markColumnOf(bodyColumns: number): MarkColumn {
   if (bodyColumns >= WIDE_BODY) return { label: WIDE_LABEL, hasAge: true }
   if (bodyColumns >= FULL_BODY) return { label: FULL_LABEL, hasAge: true }

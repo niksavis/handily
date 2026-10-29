@@ -4,8 +4,10 @@ import { agentOfFilter, labelsOf } from './agents'
 import {
   FILES_PANE,
   type TreeUi,
+  badTaskReply,
   closeTree,
   parseTreeCommand,
+  showTask,
   toggleTree,
   unknownReply,
 } from './commands'
@@ -14,7 +16,7 @@ import type { LookSite } from './look'
 import { lookActionsOf, newLooking, resetLooking } from './looking'
 import { drawLook } from './lookpane'
 import { markColumnOf } from './marks'
-import { type PaneActions, type TouchDraw, drawInline, drawTree } from './pane'
+import { type PaneActions, type TaskDraw, type TouchDraw, drawInline, drawTree } from './pane'
 import { absolutePath, insidePath, resolvedPath, shownPath } from './paths'
 import { reasonOf } from './reason'
 import {
@@ -45,12 +47,15 @@ import { showToast } from './toast'
 import { type ToolTouch, isAnswered, searchedFiles, toolTouchOf } from './toolcall'
 import {
   MAIN_AGENT,
+  type Mark,
   type Touches,
   beginTouch,
   clearTouches,
   endTouch,
   newTouches,
+  noteClocks,
   revealSearch,
+  taskTouches,
   touchView,
   touchesOf,
 } from './touches'
@@ -78,8 +83,10 @@ const VIEW = { plugin: 'handily-filetree', key: 'view' } as const
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
 const BOARD_AGENTS = { plugin: 'handily-board', key: 'agents' } as const
+const BOARD_ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
+const BOARD_LIST = { plugin: 'handily-board', key: 'list' } as const
 
-type AgentFilter = { picked: string | undefined }
+type AgentFilter = { picked: string | undefined; task: number | undefined }
 
 function folderName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter((part) => part !== '')
@@ -298,15 +305,39 @@ async function endCall(
   redraw($)
 }
 
+async function noteBoardClocks($: EngineInterface, touches: Touches): Promise<void> {
+  noteClocks(touches, (await $.state.get(BOARD_ACTIVITY)).value?.clocks ?? {})
+}
+
+async function taskDrawOf(
+  $: EngineInterface,
+  id: number,
+  files: Iterable<Mark>,
+  filter: AgentFilter,
+): Promise<TaskDraw> {
+  const tasks = (await $.state.get(BOARD_LIST)).value?.tasks ?? []
+  const counts = { edit: 0, read: 0 }
+  for (const mark of files) if (mark.isFolder !== true) counts[mark.kind] += 1
+  return {
+    id,
+    title: tasks.find((task) => task.id === id)?.title ?? null,
+    counts,
+    clear: () => {
+      filter.task = undefined
+      redraw($)
+    },
+  }
+}
+
 async function touchDrawOf(
   $: EngineInterface,
-  site: { cwd: string; bodyColumns: number; inView: string | undefined },
+  site: { cwd: string; bodyColumns: number; inView: string | undefined; task: number | undefined },
   touches: Touches,
   filter: AgentFilter,
 ): Promise<TouchDraw> {
-  const { cwd, inView } = site
+  const { cwd, inView, task } = site
   const agent = inView ?? filter.picked
-  const touched = touchView(touches, agent)
+  const touched = touchView(task === undefined ? touches : taskTouches(touches, task), agent)
   return {
     column: markColumnOf(site.bodyColumns),
     fileMark: (path) => touched.files.get(resolvedPath(cwd, path)),
@@ -327,10 +358,13 @@ async function touchDrawOf(
       redraw($)
     },
     now: await $.clock.now(),
+    task:
+      task === undefined ? undefined : await taskDrawOf($, task, touched.files.values(), filter),
   }
 }
 
 function workSourceOf(git: GitView, touched: TouchDraw): WorkSource {
+  if (touched.task !== undefined) return { changed: [], touched: touched.paths, isFiltered: true }
   return {
     changed: git.marks?.changedIn(ROOT_PATH) ?? [],
     touched: touched.paths,
@@ -360,14 +394,14 @@ export const register: Register = (on) => {
   const shell = newShell(touches)
   const watch = newWatch(shell)
   const context = { shell, watch, listings }
-  const filter: AgentFilter = { picked: undefined }
+  const filter: AgentFilter = { picked: undefined, task: undefined }
   const looking = newLooking()
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'tree',
       description: 'handily · Show the files tab: the working folder as a tree',
-      argumentHint: '[close]',
+      argumentHint: '[close | task <n>]',
       immediate: true,
     })
     await $.state.set({ plugin: 'handily-filetree', key: 'ready' }, { root: $.plugin.root })
@@ -381,6 +415,7 @@ export const register: Register = (on) => {
     clearShell(shell)
     resetLooking(looking)
     filter.picked = undefined
+    filter.task = undefined
     return next(e)
   })
 
@@ -396,6 +431,7 @@ export const register: Register = (on) => {
 
   on('tool.call', async ($, e, next) => {
     const seen = await seenCallOf($, e)
+    await noteBoardClocks($, touches)
     if (seen !== undefined) await beginCall($, touches, e.tool_use_id, seen)
     const isShell = await beginShell($, context, e)
     let answer: ToolCallResult | undefined
@@ -403,6 +439,7 @@ export const register: Register = (on) => {
       answer = await next(e)
       return answer
     } finally {
+      await noteBoardClocks($, touches)
       if (seen !== undefined) await endCall($, touches, { id: e.tool_use_id, seen, answer })
       if (isShell) await endShell($, context, { id: e.tool_use_id, answer })
       if (CHANGING_TOOLS.has(e.tool)) {
@@ -429,6 +466,12 @@ export const register: Register = (on) => {
         return { text: await toggleTree(treeUiOf($)) }
       case 'close':
         return { text: await closeTree(treeUiOf($)) }
+      case 'task':
+        filter.task = command.id
+        redraw($)
+        return { text: await showTask(treeUiOf($), command.id) }
+      case 'badTask':
+        return { text: badTaskReply(command.word) }
       case 'unknown':
         return { text: unknownReply(command.word) }
     }
@@ -452,11 +495,13 @@ export const register: Register = (on) => {
     const git = gitView(watch, await $.clock.now())
     const rootName = folderName(cwd)
     const list = listerOf($, cwd, listings, git.marks)
-    const site = { cwd, bodyColumns, inView: e.props.view.agentId }
-    const touched = await touchDrawOf($, site, touches, filter)
     const isInline = e.props.placement === 'inline'
+    const task = isInline ? undefined : filter.task
+    const site = { cwd, bodyColumns, inView: e.props.view.agentId, task }
+    const touched = await touchDrawOf($, site, touches, filter)
     const choice = isInline ? 'work' : ((await $.state.get(VIEW)).value ?? 'work')
-    const tree = choice === 'work' ? workTree(workPaths(workSourceOf(git, touched))) : undefined
+    const isWorkTree = choice === 'work' || task !== undefined
+    const tree = isWorkTree ? workTree(workPaths(workSourceOf(git, touched))) : undefined
     const view = {
       git,
       actions: {

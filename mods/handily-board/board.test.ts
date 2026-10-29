@@ -2748,10 +2748,16 @@ describe('the pane follows the work', () => {
         '▶ Now  Bash echo hi\\u2028▶ Now  forged\\u202e                         1 tool · 0s',
       ])
       expect(lines.filter((line) => line.startsWith('▶ a'))).toEqual([
-        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                        open  0s',
+        '▶ a\\u2028b  running   mcp__search__grep x… ctx —   ···················━ open  0s',
       ])
       expect(await ui.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
       await ui.unmount()
+      const narrow = await mountPane($, 79)
+      expect((await screen(narrow, 79)).filter((line) => line.startsWith('▶ a'))).toEqual([
+        '▶ a\\u2028b  running   mcp__search__grep x\\u2029y                       open  0s',
+      ])
+      expect(await narrow.find({ type: 'Text', text: /[\u2028\u2029\u202e]/ })).toBeUndefined()
+      await narrow.unmount()
     },
   )
 })
@@ -6616,6 +6622,166 @@ for (const surface of SURFACES) {
   })
 }
 
+const LANES_CRITERION =
+  'When the body is 80 columns or wider, each agent row shows its ctx and a lane on one axis from the first spawn to now, which ends in the wait or failure mark.'
+const NARROW_ROWS_CRITERION =
+  'When the body is narrower than 80 columns, the agent rows match the approved 41 column rows.'
+
+const SCOUT_USAGE = { fresh: 1_000, written: 4_000, read: 26_000, output: 900 }
+
+async function laneScene($: Engine, on: On, surface: Surface) {
+  const seen = world(on)
+  const dialog = personDialog(on, seen.clock)
+  const steps = stepWorld(on)
+  await startOn($, surface)
+  await seen.clock.set(START)
+  await spawnFrom($, LANE)
+  seen.agents.push(runningAgent(LANE, 'lane-b'))
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: LANE })
+  await seen.clock.advance(8 * MINUTE)
+  seen.agents.splice(0, 1, { ...runningAgent(LANE, 'lane-b'), status: 'failed' })
+  await $.turn.complete({
+    turnId: 'turn-lane',
+    reason: 'answer',
+    answer: 'done',
+    durationMs: 8 * MINUTE,
+    isAborted: false,
+    agentId: LANE,
+  })
+  await seen.clock.advance(4 * MINUTE)
+  await spawnFrom($, SCOUT)
+  seen.agents.push(runningAgent(SCOUT, 'scout'))
+  await step($, steps, SCOUT, stepped('turn-s', SCOUT_USAGE, 'tool_use'))
+  await seen.clock.advance(5 * MINUTE)
+  await spawnFrom($, EXPLORE, SCOUT)
+  seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+  await seen.clock.advance(2 * MINUTE)
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+  await step($, steps, EXPLORE, stepped('turn-e', EXPLORE_USAGE, 'tool_use'))
+  await seen.clock.advance(MINUTE - NEEDS_YOU_AFTER_MS)
+  const call = askAs($, SCOUT, 'npm test')
+  await dialog.opened(1)
+  await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+  return { dialog, call }
+}
+
+async function agentScreen(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline',
+  columns: number,
+): Promise<{ lines: string[]; lanes: (Drawn | null)[] }> {
+  const ui = await mountTab($, surface, PANE, placement, columns)
+  const all = await screen(ui, columns)
+  const lanes: (Drawn | null)[] = []
+  for (const id of [SCOUT, LANE, EXPLORE]) {
+    lanes.push(drawnOf(await ui.find({ key: `lane:agent:${id}` })))
+  }
+  await ui.unmount()
+  const first = all.findIndex((line) => line.startsWith('Agents'))
+  return { lines: all.slice(first).filter((line) => line !== '' && !line.startsWith('[')), lanes }
+}
+
+const LANE_SCREENS: readonly { columns: number; lines: readonly string[] }[] = [
+  {
+    columns: 89,
+    lines: [
+      'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+      '◆ scout     needs you waits for: permission · Bash… ctx 31k ············━━━━━━━◆ open  8m',
+      '■ lane-b    failed    failed after Bash npm run bu… ctx —   ━━━━━━━■············       8m',
+      '▶ Explore   running   Read src/a.ts                 ctx 48k ·················━━━ open  3m',
+    ],
+  },
+  {
+    columns: 80,
+    lines: [
+      'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+      '◆ scout     needs you waits for: permissi… ctx 31k ············━━━━━━━◆ open  8m',
+      '■ lane-b    failed    failed after Bash n… ctx —   ━━━━━━━■············       8m',
+      '▶ Explore   running   Read src/a.ts        ctx 48k ·················━━━ open  3m',
+    ],
+  },
+]
+
+for (const surface of SURFACES) {
+  describe(LANES_CRITERION, () => {
+    for (const { columns, lines } of LANE_SCREENS) {
+      test(
+        `each agent row draws its ctx and a lane from the first spawn to now, as mock 8.10k, at ${String(columns)} columns, on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          const { dialog, call } = await laneScene($, on, surface)
+          expect((await agentScreen($, surface, 'dock', columns)).lines).toEqual(lines)
+          dialog.allow()
+          await call
+        },
+      )
+    }
+
+    test(
+      `the lane of a waiting agent ends in the warning mark and the lane of a failed agent in the error mark, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { dialog, call } = await laneScene($, on, surface)
+        const [scout, lane, explore] = (await agentScreen($, surface, 'dock', 89)).lanes
+        expect(scout?.children[1]?.text.endsWith('◆')).toBe(true)
+        expect(scout?.children[1]?.props.color).toBe('warning')
+        expect(lane?.children[1]?.text.endsWith('■')).toBe(true)
+        expect(lane?.children[1]?.props.color).toBe('error')
+        expect(lane?.children[2]?.props.dimColor).toBe(true)
+        expect(explore?.children[1]?.text).toBe('━━━')
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `an inline board with a body of 80 columns also draws the ctx and the lanes, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { dialog, call } = await laneScene($, on, surface)
+        const inline = (await agentScreen($, surface, 'inline', 80)).lines
+        expect(inline[0]).toBe('Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now')
+        expect(inline[2]).toContain('ctx —   ━━━━━━━■············       8m')
+        dialog.allow()
+        await call
+      },
+    )
+  })
+
+  describe(NARROW_ROWS_CRITERION, () => {
+    for (const columns of [41, 79]) {
+      test(
+        `a body of ${String(columns)} columns keeps the rows of mock 8.10f with no ctx and no lane, and body 80 adds them, on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          const { dialog, call } = await laneScene($, on, surface)
+          const narrow = await agentScreen($, surface, 'dock', columns)
+          const wider = ' '.repeat(columns - 41)
+          expect(narrow.lines).toEqual([
+            'Agents  3 · 1 needs you · 1 failed',
+            `◆ scout     needs you ${wider}           open  8m`,
+            '    waits for: permission · Bash npm test',
+            `■ lane-b    failed    ${wider}                 8m`,
+            '    failed after Bash npm run build',
+            columns === 41
+              ? '▶ Explore   running   Read src/… open  3m'
+              : `${'▶ Explore   running   Read src/a.ts'.padEnd(columns - 8)}open  3m`,
+          ])
+          expect(narrow.lanes).toEqual([null, null, null])
+          const wide = await agentScreen($, surface, 'dock', 80)
+          expect(wide.lines[0]).toBe(
+            'Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now',
+          )
+          expect(wide.lanes.every((lane) => lane !== null)).toBe(true)
+          dialog.allow()
+          await call
+        },
+      )
+    }
+  })
+}
+
 const STATS_CRITERION =
   'When the person runs /board stats, the reply lists the context, the cost, the limits, the checks, the waits and each agent with its state and ctx.'
 const STATS_NO_USAGE_CRITERION =
@@ -8412,4 +8578,175 @@ describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)
       'Added tasks 1-2 from the approved plan. Claude is told at your next prompt.',
     )
   })
+})
+
+const FILES_BUTTON_CRITERION =
+  'When the person presses the files button on task 2 in the board, the files tab shows only the files of task 2 with the counts line.'
+const NO_TREE_CRITERION = 'When the tree command is not listed, the board shows no files button.'
+
+type TreeRuns = { args: string[]; names: readonly string[] | 'refused' }
+
+function listsCommands(on: On, names: readonly string[] | 'refused'): TreeRuns {
+  const runs: TreeRuns = { args: [], names }
+  on('command.list', () => {
+    if (runs.names === 'refused') return { deny: 'the slash commands are not ready' }
+    return {
+      value: runs.names.map((name) => ({
+        name,
+        description: `the ${name} command`,
+        source: 'plugin' as const,
+        plugin: name === 'tree' ? 'handily-filetree' : PLUGIN,
+      })),
+    }
+  })
+  on('command.run', { command: 'tree' }, (_$, e) => {
+    runs.args.push(e.args)
+    if (e.args === 'task 3') throw new Error('the files tab is gone')
+    return { text: `Tree opened: files of ${e.args}.` }
+  })
+  return runs
+}
+
+async function openedTask($: Engine, surface: Surface, id: number) {
+  const ui = await mountTab($, surface, PANE, 'dock', 41)
+  await ui.press({ key: `open:task:${String(id)}` })
+  return ui
+}
+
+for (const surface of SURFACES) {
+  describe(FILES_BUTTON_CRITERION, () => {
+    test(
+      `an opened task 2 has a files button under its other buttons, as mock 10.9a, and a press runs /tree task 2, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const runs = listsCommands(on, ['board', 'tree'])
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 2)
+        expect((await screen(ui, 41)).slice(2, 7)).toEqual([
+          '▶ 2 Write the tab mocks         4m [ rm ]',
+          '    ▸ Edit docs/mocks.md          9 tools',
+          '    started 4m ago · 9 tools in all',
+          '    [ done ] [ open ]',
+          '    [ files ]',
+        ])
+        await ui.press({ key: 'files:2' })
+        expect(runs.args).toEqual(['task 2'])
+        expect(seen.toasts).toEqual([])
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `a run of /tree that fails is logged and named in a toast, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const runs = listsCommands(on, ['board', 'tree'])
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 3)
+        await ui.press({ key: 'files:3' })
+        expect(runs.args).toEqual(['task 3'])
+        expect(seen.toasts).toEqual([['■ The files tab did not open', 'the transcript shows why']])
+        expect(
+          seen.logs.filter((text) => text.includes('the files tab did not open')),
+        ).toHaveLength(1)
+        await ui.unmount()
+      },
+    )
+  })
+
+  describe(NO_TREE_CRITERION, () => {
+    test(
+      `with no /tree in the slash commands, an opened task has no files button, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const runs = listsCommands(on, ['board', 'tasks'])
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 2)
+        expect(await ui.find({ key: 'files:2' })).toBeUndefined()
+        expect((await screen(ui, 41)).slice(4, 7)).toEqual([
+          '    started 4m ago · 9 tools in all',
+          '    [ done ] [ open ]',
+          '○ 3 Review the mocks with Codex    [ rm ]',
+        ])
+        expect(runs.args).toEqual([])
+        runs.names = ['board', 'tasks', 'tree']
+        await ui.redraw()
+        expect(await ui.find({ key: 'files:2' })).toBeDefined()
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `a slash command list that is refused shows no files button and logs why, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        listsCommands(on, 'refused')
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 2)
+        expect(await ui.find({ key: 'files:2' })).toBeUndefined()
+        expect(
+          seen.logs.some((text) => text.includes('the slash commands could not be listed')),
+        ).toBe(true)
+        await ui.unmount()
+      },
+    )
+  })
+}
+
+const OLD_AGENT = 'a0000009old'
+
+async function oldAgentEnded($: Engine, seen: World, surface: Surface): Promise<void> {
+  await startOn($, surface)
+  await seen.clock.set(START)
+  await spawnFrom($, OLD_AGENT)
+  seen.agents.push({ ...runningAgent(OLD_AGENT, 'old'), status: 'completed' })
+  await seen.clock.advance(MINUTE)
+  await $.turn.complete({
+    turnId: 'turn-old',
+    reason: 'answer',
+    answer: 'done',
+    durationMs: MINUTE,
+    isAborted: false,
+    agentId: OLD_AGENT,
+  })
+  await seen.clock.advance(29 * MINUTE)
+  await spawnFrom($, EXPLORE)
+  seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+  await seen.clock.advance(MINUTE)
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+  await seen.clock.advance(MINUTE)
+}
+
+describe('the agent lanes: review repairs (handily-xsjad.8)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `a folded ended agent does not stretch the axis, and the axis takes it in once the fold opens, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await oldAgentEnded($, seen, surface)
+        const ui = await mountTab($, surface, PANE, 'dock', 89)
+        const folded = await screen(ui, 89)
+        const header = folded.findIndex((line) => line.startsWith('Agents'))
+        expect(folded[header]).toBe('Agents  1 · lanes from 2m ago to now')
+        expect(folded[header + 1]).toContain(`ctx —   ${'━'.repeat(20)} open  2m`)
+        await ui.press({ key: 'group:ended-agents' })
+        const opened = await screen(ui, 89)
+        expect(opened[header]).toBe('Agents  1 · lanes from 32m ago to now')
+        expect(opened[header + 1]).toContain(`ctx —   ${'·'.repeat(18)}━━ open  2m`)
+        expect(opened.find((line) => line.startsWith('✓ old'))).toContain(
+          `ctx —   ━${'·'.repeat(19)}`,
+        )
+        await ui.unmount()
+      },
+    )
+  }
 })

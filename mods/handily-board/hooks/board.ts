@@ -41,6 +41,7 @@ export type PaneUi = {
   panes: () => Promise<readonly OpenPane[]>
   fillPrompt: (text: string) => Promise<PromptFill>
   openAgents: () => Promise<void>
+  openFiles: (taskId: number) => Promise<void>
   focus: (key: string) => Promise<void>
   showToast: (parts: ToastParts) => void
   log: (text: string) => void
