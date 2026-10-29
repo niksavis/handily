@@ -59,11 +59,23 @@ function keeperProblems(dir, listed) {
   return [...unlisted, ...missing]
 }
 
+const NAMED = String.raw`\{[^}]*\}`
+const NAMESPACE = String.raw`\*(?:\s+as\s+[\w$]+)?`
+const SOURCE = String.raw`\s*(?:'[^'\n]*'|"[^"\n]*")`
+const MODULE_STATEMENT = new RegExp(
+  [
+    String.raw`^[ \t]*import\s+(?:type\s+)?(?:[\w$]+\s*,?\s*)?(?:${NAMED}|${NAMESPACE})?\s*from${SOURCE}`,
+    String.raw`^[ \t]*export\s+(?:type\s+)?(?:${NAMED}|${NAMESPACE})\s*from${SOURCE}`,
+    String.raw`^[ \t]*import${SOURCE}`,
+  ].join('|'),
+  'gm',
+)
+const TYPE_STATEMENT = /^\s*(?:import|export)\s+type\b/
+
 function valueImports(text) {
-  return text
-    .split('\n')
-    .filter((line) => /^\s*(import|export)\b.*\bfrom\b|^\s*import\s+['"]/.test(line))
-    .filter((line) => !/^\s*(import|export)\s+type\s/.test(line))
+  return [...text.matchAll(MODULE_STATEMENT)]
+    .map(([statement]) => statement.trim())
+    .filter((statement) => !TYPE_STATEMENT.test(statement))
 }
 
 function glyphProblems(sets, widths) {
@@ -257,6 +269,39 @@ describe('the copies of hooks/glyphs.ts', () => {
       "import { type Signal } from './signals'",
       "import './side-effect'",
       "export { fitted } from './width'",
+    ])
+  })
+
+  test('names a value import and a value export that Prettier wrapped over several lines', () => {
+    const text = [
+      'import type {',
+      '  ConfigRow,',
+      '  ConfigValue,',
+      "} from 'claude-code'",
+      'import {',
+      '  displayWidth,',
+      '  fitted,',
+      "} from './width'",
+      'import * as width from "./width"',
+      'import widthOf, { type Signal } from "./signals"',
+      'export {',
+      '  padToWidth,',
+      "} from './width'",
+      'export * from "./signals"',
+      'export type {',
+      '  Signal,',
+      "} from './signals'",
+      "export const GLYPH = 'from'",
+      'export function glyphOf(role: string) {',
+      "  return { role, from: 'x' }",
+      '}',
+    ].join('\n')
+    assert.deepEqual(valueImports(text), [
+      "import {\n  displayWidth,\n  fitted,\n} from './width'",
+      'import * as width from "./width"',
+      'import widthOf, { type Signal } from "./signals"',
+      "export {\n  padToWidth,\n} from './width'",
+      'export * from "./signals"',
     ])
   })
 })

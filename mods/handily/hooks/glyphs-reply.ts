@@ -2,7 +2,6 @@ import {
   GLYPH_ROLES,
   GLYPH_SETS,
   isGlyphSetting,
-  isGlyphSettingOwner,
   NERD_NAMES,
   type GlyphRole,
   type GlyphSetting,
@@ -40,17 +39,12 @@ const NERD_TEST_LINES = [
 
 function fieldOf(value: unknown, field: string): unknown {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  if (!Object.hasOwn(value, field)) return undefined
   return (value as Record<string, unknown>)[field]
 }
 
-export function storedGlyphsOf(pluginConfigs: unknown): unknown {
-  if (typeof pluginConfigs !== 'object' || pluginConfigs === null) return undefined
-  for (const [pluginId, config] of Object.entries(pluginConfigs)) {
-    if (!isGlyphSettingOwner(pluginId)) continue
-    const stored = fieldOf(fieldOf(config, 'options'), 'glyphs')
-    if (stored !== undefined) return stored
-  }
-  return undefined
+export function storedGlyphsOf(pluginConfigs: unknown, rowPluginId: string): unknown {
+  return fieldOf(fieldOf(fieldOf(pluginConfigs, rowPluginId), 'options'), 'glyphs')
 }
 
 export function refusedGlyphsOf(stored: unknown): unknown {

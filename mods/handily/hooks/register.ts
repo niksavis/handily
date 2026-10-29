@@ -157,14 +157,18 @@ async function enabledByScope($: EngineInterface): Promise<Map<HandilyOldIdScope
 
 async function glyphsReportOf($: EngineInterface): Promise<GlyphsReport> {
   const rows = await $.config.list()
+  const row = glyphRowOf(rows)
   const pluginConfigs = await $.settings.read({ key: 'pluginConfigs' })
-  const storedRefusal = refusedGlyphsOf(storedGlyphsOf(pluginConfigs))
+  const storedRefusal =
+    row === undefined
+      ? undefined
+      : refusedGlyphsOf(storedGlyphsOf(pluginConfigs, row.provider.plugin))
   try {
     return { setting: glyphSettingOf(rows), refused: storedRefusal }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     $.ui.log(reason, { to: 'debug' })
-    return { setting: DEFAULT_GLYPHS, refused: storedRefusal ?? glyphRowOf(rows)?.value }
+    return { setting: DEFAULT_GLYPHS, refused: storedRefusal ?? row?.value }
   }
 }
 

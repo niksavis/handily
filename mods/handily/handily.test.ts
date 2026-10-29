@@ -235,6 +235,7 @@ function enabledWithout(name: string): Record<string, boolean> {
 type World = {
   modeSettings: Readonly<Record<string, ConfigValue>>
   glyphs: ConfigValue | undefined
+  otherRows: ConfigRow[]
   pluginConfigs: unknown
   enabledPlugins: unknown
   enabledByScope: Partial<Record<SettingsSource, unknown>>
@@ -249,6 +250,7 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
   const full: World = {
     modeSettings: MODE_SETTINGS,
     glyphs: undefined,
+    otherRows: [],
     pluginConfigs: undefined,
     enabledPlugins: ALL_ENABLED,
     enabledByScope: {},
@@ -276,7 +278,9 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
     const scoped = full.enabledByScope[e.source]
     return { value: scoped === undefined ? {} : { enabledPlugins: scoped } }
   })
-  on('config.list', () => ({ value: configRows(full.modeSettings, full.glyphs) }))
+  on('config.list', () => ({
+    value: [...configRows(full.modeSettings, full.glyphs), ...full.otherRows],
+  }))
   on('fs.read', (_$, e) => {
     full.reads.push(e.path)
     const folder = e.path.split(/[\\/]/).at(-3) ?? ''
@@ -986,18 +990,38 @@ describe('/handily glyphs', () => {
       glyphs: 'nerd',
       pluginConfigs: {
         'handily-board@niksavis': { options: { glyphs: 'nerdfont', mode: 'off' } },
-        handily: { options: { glyphs: 'nerd' } },
+        'handily@niksavis': { options: { glyphs: 'nerd' } },
       },
     })
     expect((await runHandily($, 'glyphs')).split('\n')[0]).toBe(
       'Glyphs nerd · set in /config › handily',
     )
-    world.pluginConfigs = { handily: 'not an object' }
+    world.pluginConfigs = { 'handily@niksavis': 'not an object' }
     expect((await handily($, 'glyphs')).split('\n')[0]).toBe(
       'Glyphs nerd · set in /config › handily',
     )
     world.glyphs = 'plain'
-    world.pluginConfigs = { handily: { options: { glyphs: 'wide' } } }
+    world.pluginConfigs = { 'handily@niksavis': { options: { glyphs: 'wide' } } }
+    expect((await handily($, 'glyphs')).split('\n')[0]).toBe(refusedLine('"wide"'))
+  })
+
+  test('with two installs, names only the stored value of the install whose row sets the glyphs', async ($, on) => {
+    const world = fakeWorld(on, {
+      glyphs: 'nerd',
+      otherRows: [glyphsRow('plain', 'handily@inline')],
+      pluginConfigs: {
+        'handily@inline': { options: { glyphs: 'nerdfont' } },
+        'handily@niksavis': { options: { glyphs: 'nerd' } },
+      },
+    })
+    expect((await runHandily($, 'glyphs')).split('\n')[0]).toBe(
+      'Glyphs nerd · set in /config › handily',
+    )
+    world.glyphs = 'plain'
+    world.pluginConfigs = {
+      'handily@inline': { options: { glyphs: 'nerd' } },
+      'handily@niksavis': { options: { glyphs: 'wide' } },
+    }
     expect((await handily($, 'glyphs')).split('\n')[0]).toBe(refusedLine('"wide"'))
   })
 

@@ -226,7 +226,8 @@ The setting:
 - `/handily glyphs` replies with the current setting and one line for each role: the plain
   mark and the nerd icon, each between bars, and the icon name. It shows both sets whatever the
   setting is, so the person can test the terminal before the switch. It reads the stored value
-  from `pluginConfigs` in the settings and names a value outside `plain` and `nerd`.
+  from `pluginConfigs` in the settings, under the plugin id of the glyphs row, and names a
+  value outside `plain` and `nerd`.
 - The glyph setting is not tracker data, so the rule "read tracker data only through workitems"
   does not apply.
 
@@ -241,8 +242,9 @@ The width rule and the gate:
   unlisted keeper of `hooks/glyphs.ts`, two copies that differ, a glyph of more than one code
   point, a glyph that any `width.ts` measures other than 1 column, an emoji glyph, a private-use
   plain glyph, a nerd glyph outside U+E000 to U+F8FF, two roles of one set that share a glyph and a
-  table that differs from the fixture. Each refusal
-  has a positive control.
+  table that differs from the fixture. It also refuses an import or an export of a value in
+  `glyphs.ts`, also one that Prettier wraps over several lines. Each refusal has a positive
+  control.
 - The emoji check uses `\p{Emoji_Presentation}`, the rule of `isEmoji` in `width.ts`. The
   plain mark `▶` (U+25B6) has the Unicode property Emoji with text presentation, and every
   terminal draws it one column wide. So `\p{Emoji}` would refuse an approved mark.
@@ -284,8 +286,9 @@ Not verified:
 - Only U+F07B was measured live at one cell (term-uy9muk). The other nine icons wait for the
   live check of handily-5jdtf.5.
 - The key under `pluginConfigs` for a marketplace install. The engine types name `<name>` or
-  `<name>@inline` for a `--plugin-dir` plugin. `/handily glyphs` accepts any key whose plugin,
-  without the marketplace part, is `handily`.
+  `<name>@inline` for a `--plugin-dir` plugin. `/handily glyphs` reads only the key that equals
+  the plugin id of the glyphs row it draws from, so two installs never mix. If the live engine
+  keys `pluginConfigs` in another form, a wrong stored value is not named, and plain still draws.
 - Whether `$.config.list()` shows the default or the stored value for a value outside the
   options. The test kit has no implementation of `config.list` or `settings.read`, so a test
   fakes both (measured 2026-10-29 in `claude plugin test`).
