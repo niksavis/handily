@@ -299,6 +299,57 @@ Not verified:
 - Only the terminal font of WezTerm is covered. Windows Terminal and the VS Code terminal may
   draw boxes.
 
+### Colour pass (2026-10-29)
+
+The person found the mods plainer than the originals: the tables, the diagrams, the board and
+the filetree drew almost no colour. The cause was the rule in mocks 9.0, "The blocks are plain
+text, with no look markup". The mocks named no colour, so the mods drew none. The person
+approved the colour pass on 2026-10-29. The mocks and the theme keys are in `docs/mocks.md`,
+section 12.
+
+Decisions, each the recommended answer of mocks 12.9:
+
+- Every mock names its colours in a `Colours:` line under the block, by theme key, never by hex.
+  Each coloured state also has a mark, a shape or a word, so the mock still reads with no colour.
+- The board draws a frame as text, `╭─ Title ──╮`, in the role key of its section: Session
+  `claude`, Tasks `planMode`, Agents `merged`. The engine `Box` border has no title, and an
+  absolute title position was never probed. Frames draw at body 41 and wider on the terminal
+  only. Inline above the prompt the board draws no frame (mock B7b).
+- Diagram lines and lifelines draw in `inactive`, not in `subtle`, because the lines carry the
+  meaning and `subtle` has a contrast of 2.1 to 2.6 to 1. Table rules and box borders stay in
+  `subtle`. This decision overrides the `subtle` lines in the Colours lines of mocks D1 to D4.
+- The table header keeps `claude` and bold in every theme. In the light-daltonized theme the
+  contrast is 2.1 to 1, a known failure. The bold text and the `═` rule still mark the header.
+- On the desktop a diagram stays in the engine `Code` element until a desktop probe shows that
+  rows of mono `Text` keep their joins.
+- An opened agent shows one line of its answer.
+- When idle, the receipt row shows the last turn dim, so the layout does not jump.
+- The mode shows from the latest classic SessionStart, UserPromptSubmit or Stop event. A mode
+  change while idle shows at the next prompt or turn end.
+- A table cell that holds only a number draws in `planMode`.
+- When a denied check is among the last 20, the gate row shows `1 denied` in `error` in place of
+  the family counts. This decision overrides the counts in mock B1.
+- The filetree colour record also shows the upstream name. handily-dxnxc keeps the @path reveal
+  and the to-prompt button.
+
+Engine facts (Claude Code 2.1.312, `.claude-plugin/types/claude-code/index.d.ts`):
+
+- `ThemeKey` lists the keys. The `diff*` keys are line backgrounds, so `+N` draws in `success`.
+- `Color` is a `ThemeKey` or a string. BoxProps has `borderStyle`, `borderColor`,
+  `borderDimColor` and `backgroundColor`, and no border title.
+- `dimColor` draws in the theme dim colour. `Link` draws an OSC 8 span, or its text and then the
+  URL in dim, so a table cell draws the link text as `Text`.
+- The model of a step is `TurnStepInput.model`. Its effort is `TurnStepInput.effort`, absent for
+  a model without effort. No native event carries the permission mode. `permission_mode` is on
+  the classic events.
+- `TurnCompleteFields.answer` is the report that a subagent delivered, and `agentId` names it.
+- `$.config.list()` returns the `theme` row, so a later record can adjust to a light theme.
+- The filetree status call already returns `# branch.upstream`, so the upstream name needs no
+  extra git call.
+
+Not verified: whether the engine drops colour for `NO_COLOR`, the theme keys of the engine mode
+footer, and whether the desktop draws `Box` borders.
+
 ## 3. Facts about the mod API
 
 Sources: the bundled `plugin-authoring` skill (its `reference.md` and the generated

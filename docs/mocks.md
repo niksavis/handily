@@ -2718,7 +2718,8 @@ handily-5zzxk.5, handily-5zzxk.6 and handily-5zzxk.7 cite the old numbers.
 
 ### 9.0 Conventions
 
-- The blocks are plain text, with no look markup. A script checked the width of each line with
+- The blocks are plain text, with no look markup. Section 12.0 adds a Colours line from
+  2026-10-29. A script checked the width of each line with
   the grapheme widths of handily-5zzxk.1: a ZWJ emoji, a flag, a keycap and an emoji with VS16
   take two columns.
 - The width of the screen is in each heading. A reply is indented by 2 columns, so a block in a
@@ -4219,3 +4220,892 @@ value, so the person can still test the terminal:
   /handily takes no argument or glyphs;
   "glyph" is neither.
 ```
+
+---
+
+## 12. Colour quality pass: board, filetree, tables and diagrams (approved 2026-10-29)
+
+Approved by the person on 2026-10-29, with each recommended answer of 12.9. The concepts come
+from prismantis, claude-flightdeck and claude-code-filetree. handily copies no code from them.
+A script measured 392 framed lines of this section, and none was wider than its frame.
+
+### 12.0 Colour convention
+
+**Colour.** Every mock block is plain text. One line under it starts with `Colours:`. That line
+names the look of each element that is not plain text, by the element's text or mark. A look is a
+theme key of the engine (`ThemeKey`, such as "header cells `claude` + bold") or an engine look
+(`dimColor`, `bold`, `underline`). An element that Claude Code draws says "drawn by the engine". A
+Colours line names theme keys and never hex values, so the mock follows the person's theme. A
+meaning never rests on colour alone. Each coloured state also has a mark, a shape, a word or a
+position, and the block shows it, so the mock still reads in black and white. When two keys look
+alike in a built-in theme, the mock that uses both says which shape or word tells them apart.
+
+This rule replaces the plain-text rule of 9.0 for every mock from section 12 on.
+
+### 12.1 Theme keys: the choices, and how they look in light and dark
+
+**Where the colours come from.** The keys are from `index.d.ts:13542`. The three mods' `index.d.ts`
+files are byte-identical (same md5).
+
+I read the RGB values from the theme tables in the installed CLI (2.1.312), read-only. Contrast is
+the WCAG ratio against white (light themes) and black (dark themes); "dark #1e" is a dark grey
+background, #1e1e1e.
+
+| Key | Used for | Why this key | Light / light-daltonized / dark / dark #1e |
+| --- | --- | --- | --- |
+| `claude` | Session frame and title; table header (+ bold); ctx and limit gauge fill; diagram arrow heads | The engine's own accent; it already means "doing" on the board | 3.2 / **2.1** / 6.7 / 5.3 |
+| `planMode` | Tasks frame and title; a table cell that holds only a number; diagram cycle colour 2 | It carries no verdict. Teal stands apart from orange and blue in all 4 themes. Tasks are close to the plan | 6.8 / 6.5 / 6.0 / 4.8 |
+| `merged` | Agents frame and title; diagram cycle colour 3 | Purple is the most distinct from orange and teal | 6.0 / 6.0 / 7.7 / 6.1 |
+| `suggestion` | Link text in a cell (+ underline); diagram cycle colour 1 | The engine's colour for something to act on | 4.4 / 4.7 / 11.2 / 8.9 |
+| `permission` | Inline code in a cell; gate `▯` asked | The engine's Markdown draws inline code in `permission`: the binary has `case"codespan":{let u=nr("permission"`. Asked is the colour of the permission dialog | as `suggestion` |
+| `success` | Gate `▮` allowed; `+N` lines; ahead `↑N`; folder name with only `A` or `?` below it | Matches the existing done mark and the `A`/`?` letters | 5.3 / 6.2 (**blue**) / 8.5 / 6.8 |
+| `error` | Gate `■` denied; `-N` lines; an error count above 0; mode `bypass`; folder name with `U` or `D` below it | Matches the blocked mark and the `D`/`U` letters | 6.7 / 5.9 / 7.7 / 6.1 |
+| `warning` | ctx or a limit at 80% or more, with the word `high`; behind `↓N`; folder name with `M` or `R` below it | Matches the `M`/`R` letters and the waits | 4.7 / **2.1** / 12.9 / 10.2 |
+| `autoAccept`, `planMode` | The mode words `accept edits` and `plan` | Assumption, not verified: the engine footer uses these keys for these modes | — |
+| `subtle` | Table rules, box borders, `┄`, diagram lines and lifelines, empty gauge cells `▱`, the rule at body 30 | Geometry that should recede | **2.2 / 2.2 / 2.6 / 2.1** |
+| `inactive` | Diagram edge labels, alt labels, the border of a note box | Secondary text that must stay readable | 5.7 / 5.7 / 7.4 / 5.9 |
+| `dimColor` (not a key) | Times, counts, notes, the upstream name, the "answer:" label: all secondary text, as today | "drawn in the theme's dim color" (`:13479`). Which key that is: not verified | — |
+
+**`subtle` compared with dim.**
+
+- Today's table rules are dim. Moving them to `subtle` makes them fainter in the RGB themes: grey 80
+  against 153 on dark, and 175 against 102 on light.
+- In the ANSI dark theme `subtle` is `ansi:white`, so the rules get brighter than dim. In the ANSI
+  light theme `subtle` and `inactive` are both `blackBright`.
+- Rule: never use `subtle` for text, because 2.1 to 2.6:1 is below 4.5:1.
+
+**Keys that look alike in the built-in themes:**
+
+- `suggestion` = `permission` = `remember` in dark and in both daltonized themes.
+- `merged` = `autoAccept` in every theme.
+- `claude` ≈ `warning` in light (215,119,87 and 150,108,30) and in light-daltonized (255,153,51 and
+  255,153,0).
+- In both daltonized themes `success` is blue, close to `suggestion` and `permission`.
+
+### 12.2 Board (handily-board)
+
+Frames are drawn at body 41 and wider, and never below 41. In the docked mocks the content inside a
+frame is 37 columns.
+
+#### B1. Docked, body 41: a turn runs, 6 subagents, one waits (the full state)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ ╭─ Session ─────────────────────────────╮ │  NEW frame, title on the border
+│ │ ◆ 1 waits · ctx ▰▰▰▰▰▰▰▱▱▱ 71%        │ │  button: opens the details, as 8.10c
+│ │ $9.02 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │ │  NEW gauges
+│ │ opus-5-5 · high · accept edits        │ │  NEW model · effort · mode
+│ │ turn 3m · 2 edits · 0 errors · +$0.31 │ │  NEW receipt, while the turn runs
+│ │ gate ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ f12 s7 o6   │ │  NEW last 20 checks, newest right
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Tasks  ▰▰▰▱▱▱ 2/6 · ▶1 ○3 · 41m ─────╮ │
+│ │ ▶ 3 Build the vitals line   6m [ rm ] │ │
+│ │     ▸ Edit hooks/vitals.ts   12 tools │ │
+│ │ ○ 4 Wire the permission waits  [ rm ] │ │
+│ │ [ +2 done ]                           │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Agents  6 · 1 needs you · 1 failed ──╮ │
+│ │ ◆ scout     needs you        open  2m │ │
+│ │     waits for: permission · Bash n…   │ │
+│ │ ■ lane-b    failed                 4m │ │
+│ │     failed after Bash npm test        │ │
+│ │ ▶ Explore   slow 45s         open  3m │ │  tool column drops inside a frame
+│ │ ▶ tester    quiet 3m         open  5m │ │
+│ │ ▶ impl…nter plan 0/3         open  9s │ │
+│ │ ▶ Explore 2 running          open  1m │ │
+│ │ [ +2 ended ]                          │ │
+│ ╰───────────────────────────────────────╯ │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+Colours: frames and titles: Session `claude`, Tasks `planMode`, Agents `merged`. ctx `▰` `claude`,
+`▱` `subtle`; limit gauges `▰` `claude`, `▱` `subtle`. Gate `▮` `success`, `▯` `permission`, `■`
+`error`; `f12 s7 o6` dim. The mode word is in the engine's mode key (`accept edits` `autoAccept`).
+Receipt dim, an error count above 0 in `error`. Marks as 8.0: `◆` `warning`, `■` `error`, `▶`
+`claude`, `○` `subtle`. Names bold; times, counts and `▸` lines dim.
+
+Gauges round down. 71% fills 7 of 10 cells, and 13% fills 0 of 5 cells. The percent is always
+printed, so no gauge overstates.
+
+#### B2. Docked, body 41, empty: session start, no reply, no check, no agent
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ ╭─ Session ─────────────────────────────╮ │
+│ │ ctx — until the first reply           │ │  approved 8.10a
+│ │ limits — until the first reply        │ │
+│ │ opus-5-5 · default                    │ │  effort appears with the first request
+│ │ gate no checks yet                    │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Tasks  none in this session yet ─────╮ │
+│ │ Open in tracker: basicly · 29 open    │ │
+│ │ P1 handily-ab12 Draw text mo… [ add ] │ │
+│ │ [ all 29 open ]  [ Add 10 as tasks ]  │ │
+│ ╰───────────────────────────────────────╯ │
+│ No agents yet.                            │  no Agents frame while there is none
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as B1. The `—` and "no checks yet" are dim. There is no receipt row before the first turn.
+
+#### B3. Docked, body 41, idle, the Session row pressed open (what stays in the details)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ ╭─ Session ─────────────────────────────╮ │
+│ │ ctx ▰▰▰▰▰▰▱▱▱▱ 62%                    │ │  pressed open
+│ │   context 124k of 200k · 1 compaction │ │
+│ │   resets 5h in 2h · 7d in 4d          │ │
+│ │   checks 25 · 8 allowed · 16 asked    │ │
+│ │   1 denied                            │ │  "denied" in `error`
+│ │   file 12 · shell 7 · other 6         │ │  NEW: f s o spelled out
+│ │   [ last 5 checks ]                   │ │
+│ │ $4.80 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │ │
+│ │ opus-5-5 · high · default             │ │
+│ │ last 3m · 3 edits · 0 errors · +$0.62 │ │  idle: the last turn, dim
+│ │ gate ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ f12 s7 o6   │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ───────╮ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as B1; the details are dim. "last turn …" left the details, because the receipt row now
+shows it.
+
+#### B4a. Docked, body 41: a running agent pressed open
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ╭─ Agents  3 · 1 failed ────────────────╮ │
+│ │ ▶ Explore   plan 2/7         open  1m │ │  pressed open
+│ │     find the element table            │ │
+│ │     under scout · spawned 1m ago      │ │
+│ │     7 calls · ctx 48k · out 6.1k      │ │
+│ │     last calls                        │ │  NEW (handily-y7yzv expand part)
+│ │       ✓ Read docs/design.md       40s │ │
+│ │       ■ Bash npm test             20s │ │  failed call: mark + `error`
+│ │       ▸ Grep ui.render hooks/      3s │ │  runs now
+│ │     answer: none yet                  │ │  NEW
+│ │     plan                              │ │
+│ │       ✓ Read the design               │ │
+│ │       ▶ Draw the plan                 │ │
+│ │       ○ Test the fold                 │ │
+│ │ ■ lane-b    failed                 4m │ │
+│ │     failed after Bash npm test        │ │
+│ │ [ +1 ended ]                          │ │
+│ ╰───────────────────────────────────────╯ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: call marks `✓` `success`, `■` `error`, `▸` dim; tool names plain, targets dim; ages dim;
+"answer:" dim and its text plain; plan marks as 8.0.
+
+#### B4b. Docked, body 41: an ended agent and a failed agent pressed open
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ╭─ Agents  3 · 2 ended ─────────────────╮ │
+│ │ ▶ Explore   running          open  1m │ │
+│ │ [ hide ended ]                        │ │
+│ │ ✓ scout     done                  12m │ │  pressed open
+│ │     find who reads ui.render          │ │
+│ │     under main · spawned 14m ago      │ │
+│ │     23 calls · ctx 61k · out 9.4k     │ │
+│ │     last calls                        │ │
+│ │       ✓ Read hooks/register.tsx   13m │ │
+│ │       ✓ Grep ui.render            12m │ │
+│ │       ✓ SubagentHandback          12m │ │
+│ │     answer: Two mods read ui.render…  │ │  first line, cut
+│ │ ■ lane-b    failed                 4m │ │  pressed open
+│ │     failed after Bash npm test        │ │
+│ │     last calls                        │ │
+│ │       ✓ Edit hooks/vitals.ts       5m │ │
+│ │       ■ Bash npm test              4m │ │
+│ │       ■ Bash npm test              4m │ │
+│ │     answer: none, the run failed      │ │
+│ ╰───────────────────────────────────────╯ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as B4a. "none, the run failed" is in `error`, under the `■` call rows.
+
+#### B5. Docked, body 41: the states of each row (each line replaces its row)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ╭─ Session ─────────────────────────────╮ │
+│ │ ctx ▰▰▰▰▰▰▰▰▰▱ 91% high               │ │  `▰` and "91% high" in `warning`
+│ │ $12.40 · 5h ▰▰▰▰▱ 84% high · 7d 13%   │ │  gauge of 7d drops first
+│ │ $4.18 · limits: none reported         │ │  off a subscription
+│ │ no context or cost on this host       │ │  usage() refused (8.10i)
+│ │ opus-5-5 · max · bypass               │ │  "bypass" in `error`
+│ │ opus-5-5 · plan                       │ │  no effort on this model
+│ │ turn 9m · 9 edits · 2 errors · +$1.90 │ │  "2 errors" in `error`
+│ │ gate ▮▮▮▮                             │ │  4 checks: the strip is short
+│ │ gate ■■■■■■■■■■■■■■■■■■■■ f20         │ │  20 denials in a row
+│ ╰───────────────────────────────────────╯ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as B1; the `high` rows are in `warning`. Without colour, each state still has its word.
+
+#### B6. Docked, body 30 (a narrow dock): no frames, coloured titles
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │  (engine tab row)
+│ Session  ◆ 1 waits             │  NEW no frame below body 41
+│ ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.02     │
+│ 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%    │
+│ opus-5-5 · high · accept edi…  │
+│ turn 3m · 2 edits · +$0.31     │  "0 errors" drops at 30
+│ gate ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■      │  f s o counts drop
+│ Tasks  ▰▰▰▱▱▱ 2/6 · ▶1 ○3 · 4… │
+│ ▶ 3 Build the vit… 6m [ rm ]   │
+│ ○ 4 Wire the permis… [ rm ]    │
+│ [ +2 done ]                    │
+│ ────────────────────────────── │
+│ Agents 6 · 1 you · 1 failed    │
+│ ◆ scout     needs you open  2m │
+│     waits for: permission ·…   │
+│ ■ lane-b    failed          4m │
+│ ▶ Explore   slow 45s  open  3m │
+│ [ +4 more agents ]             │
+╰────────────────────────────────╯
+```
+
+Colours: titles bold in their role key (Session `claude`, Tasks `planMode`, Agents `merged`); the
+rule `subtle`; the rest as B1.
+
+**Cut order at narrow widths:** the family counts, then "0 errors", then the mode word (cut with
+`…`). The waits and an error count above 0 are never cut.
+
+#### B7a. Inline above the prompt, 80 columns (body 76), framed: 18 rows (not chosen, decision 3)
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ ╭─ Session ────────────────────────────────────────────────────────────────╮ │
+│ │ ◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.18 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%     │ │
+│ │ opus-5-5 · high · accept edits · turn 3m · 2 edits · 0 errors · +$0.31   │ │
+│ │ gate ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ f12 s7 o6 · 8 allowed · 16 asked · 1 denied    │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+│ ╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ──────────────────────────────────────────╮ │
+│ │ ▶ 2 Write the tab mocks       ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │ │
+│ │ ○ 3 Review the mocks with Codex                                   [ rm ] │ │
+│ │ [ +1 done ]                                                              │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+│ ╭─ Agents  2 · 1 needs you ────────────────────────────────────────────────╮ │
+│ │ ◆ scout      needs you  waits for: permission · Bash npm test   open  2m │ │
+│ │ ▶ Explore    slow 45s   ▸ Bash npm run check                    open  3m │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+Colours: as B1.
+
+#### B7b. Inline, body 76, no frames (chosen): 13 rows
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ Session  ◆ 1 waits · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · $4.18 · 5h ▰▱▱▱▱ 31% · 7d 13%      │
+│     opus-5-5 · high · accept edits · turn 3m · 2 edits · 0 errors · +$0.31   │
+│     gate ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ f12 s7 o6 · 8 allowed · 16 asked · 1 denied    │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m                                                │
+│ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
+│ ○ 3 Review the mocks with Codex                                       [ rm ] │
+│ [ +1 done ]                                                                  │
+│ Agents  2 · 1 needs you                                                      │
+│ ◆ scout      needs you  waits for: permission · Bash npm test       open  2m │
+│ ▶ Explore    slow 45s   ▸ Bash npm run check                        open  3m │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+Colours: as B6. The 7d gauge drops before its percent.
+
+#### B8. `/board stats` (what a screen reader and a pipe receive)
+
+```text
+❯ /board stats
+  Session: 1 agent waits. Context 71 percent, 142k of 200k.
+  Cost $9.02. Limits: 5h 31 percent, 7d 13 percent.
+  Model opus-5-5, effort high, mode accept edits.
+  Turn running 3 minutes: 2 edits, 0 errors, $0.31.
+  Checks 25: 8 allowed, 16 asked, 1 denied.
+  By family: file 12, shell 7, other 6.
+  Last 20 checks, oldest first: 2 asked, 1 allowed, 3 asked, 1 allowed,
+  4 asked, 1 allowed, 3 asked, 1 allowed, 2 asked, 1 allowed, 1 denied.
+```
+
+Colours: none; a command reply is plain text.
+
+**Desktop app.** The same tree with native buttons, and **no frames**: titles bold in their role
+key, as B6. A frame drawn from characters needs a monospaced face, and a `Box` border on the desktop
+is not verified (see open question 1). The gauges and the strip draw as text.
+
+**Glyph sets.** `▮ ▯ ■` in the strip and `▰ ▱` in the gauges are geometry, so they stay the same in
+the nerd set. Add `▮ ▯` to the "marks that stay" table in docs/design.md. They live in `checks.ts`,
+not in `signals.ts`, so `scripts/signals.test.mjs` does not change.
+
+### 12.3 Filetree (handily-filetree)
+
+#### F1. Docked, body 41, work view (10.1a with line counts and colour)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed +48 -93  │  NEW totals
+│ upstream origin/main                      │  NEW, dim
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1     +16 -4 ◦ scout      2s │
+│   M design.md       +4 -1 ◦ scout      2s │
+│   M mocks.md       +12 -3 ✎ main +1    1m │
+│   ? filetree.md           ✎ main      30s │
+│ ▾ hooks/  M1 D1   +30 -89 ✎ main       4s │
+│   M pane.tsx       +30 -2 ✎ main       4s │
+│   D old-pane.tsx   +0 -87 ✎ gene…se 2  3m │
+│     register.tsx          ◦ scout     40s │
+│ ▸ scratch/  ?             ✎ Explore    5m │
+│ M README.md         +2 -0                 │
+│ work view: touched and changed files      │
+╰───────────────────────────────────────────╯
+```
+
+Colours:
+
+- Header: "Files" bold; "↑1" `success` (a "↓2" is `warning`); "upstream origin/main" dim.
+- Folder names take the key of their strongest state: `U` or `D` below them `error`, else `M` or `R`
+  `warning`, else `A` or `?` `success`. Here: docs/ `warning`, hooks/ `error`, scratch/ `success`.
+- Git letters and file names as 10.0.
+- `+N` `success`, `-N` `error`; both are always printed, so `+0` and `-0` appear.
+- Agent marks, labels and ages as 10.0; the rule `subtle`.
+
+The count column takes the width of the widest count drawn, as a table column does. Always printing
+both counts keeps a count pair apart from the agent's `+1`.
+
+#### F2. Docked, body 41: a row pressed open, and a binary file
+
+```text
+╭─────────────────────────────────────────✕─╮
+│   M mocks.md       +12 -3 ✎ main +1    1m │
+│       edited by main 1m ago               │
+│       read by scout 3m ago                │
+│       modified, not staged · +12 -3       │  NEW: the counts in words too
+│       [ preview ] [ diff ] [ copy path ]  │
+│       [ @ to prompt ]                     │
+│   ? filetree.md           ✎ main      30s │
+│   M logo.png          bin ◦ scout      9s │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as F1; "bin" dim. Git prints `-` `-` for a binary file, so it has no line counts.
+
+#### F3. Overflow, body 41: a large change, counts of 1,000 or more, long names
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  big · main ↓2 · 2,140 changed      │  "↓2" `warning`
+│ +48k -12k · upstream origin/main          │  1,000 or more in k
+│ [ all files ] {agent: all} [ refresh ]    │
+│ ───────────────────────────────────────── │
+│ ▾ src/api/  M5 +1.2k -310 ✎ main       9s │
+│   M routes/us…   +412 -88 ✎ main       9s │
+│     auth/sess…            ◦ Explore    3s │
+│ ▾ src…/  M2100  +46k -11k                 │
+│ [ +9 changed in 6 folders ]               │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as F1.
+
+- Number format: 0 to 999 as is, 1,000 to 9,999 as `1.2k`, 10,000 or more as `46k`.
+- When the totals do not fit on line 1, they move to line 2.
+- A name is cut before a count, and a count is never cut.
+
+#### F4. Errors, body 41: the counts fail or are switched off (the tree stays)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app · main ↑1 · 6 changed          │  no totals
+│ upstream origin/main                      │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
+│   M mocks.md              ✎ main +1    1m │
+│ line counts not shown: git diff exited    │  dim note at the foot, as 10.5e
+│ 128. [ retry ]                            │
+│ line counts off: git is slow here.        │  after two slow runs
+╰───────────────────────────────────────────╯
+```
+
+Colours: the notes dim, "[ retry ]" a button; the rest as F1. A stale count is never shown.
+
+#### F5. Header states, body 41 (each line replaces the header)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app · main · clean                 │
+│ upstream origin/main                      │
+│ Files  app · main ↑3 · 2 changed +5 -1    │  no upstream: one header line
+│ Files  app · no commits yet               │  git init: no HEAD, no counts
+│ Files  app · (detached) · 1 changed +1 -1 │  detached: no upstream
+│ Reading git status…                       │  loading: counts follow status
+╰───────────────────────────────────────────╯
+```
+
+Colours: "↑3" `success`; "Reading git status…" dim; the rest as F1.
+
+#### F6. Docked, body 30 (10.6a): the line counts drop, the colour stays
+
+```text
+╭──────────────────────────────✕─╮
+│ this session  this machi…  [f… │  (engine tab row, cut by the engine)
+│ Files  app · main ↑1 · 6 chg   │
+│ upstream origin/main           │
+│ [ all files ] [ refresh ]      │
+│ {agent: all}                   │
+│ Now  2 agents                  │
+│ ✎ main  hooks/pane.tsx         │
+│ ◦ scout docs/design.md         │
+│ ────────────────────────────── │
+│ ▾ docs/  M2 ?1         ◦ scout │
+│   M design.md          ◦ scout │
+│   M mocks.md           ✎ main+ │
+│   ? filetree.md        ✎ main  │
+│ ▾ hooks/  M1 D1        ✎ main  │
+│   M pane.tsx           ✎ main  │
+│   D old-pane.tsx       ✎ ge…2  │
+│ M README.md                    │
+╰────────────────────────────────╯
+```
+
+Colours: as F1. Below body 41 the line counts and the totals drop first; the folder colour and "↑1"
+stay.
+
+#### F7. Inline above the prompt, 80 columns (body 76), 10.7 with counts
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Files  app · main ↑1 · 6 changed +48 -93           {agent: all}  [ refresh ] │  upstream drops inline
+│ M hooks/pane.tsx                               +30 -2      ✎ main         4s │
+│ M docs/design.md                               +4 -1       ◦ scout        2s │
+│ M docs/mocks.md                                +12 -3      ✎ main +1      1m │
+│ ? docs/filetree.md                                         ✎ main        30s │
+│ D hooks/old-pane.tsx                           +0 -87      ✎ gene…se 2    3m │
+│   hooks/register.tsx                                       ◦ scout       40s │
+│   scratch/  ?                                              ✎ Explore      5m │
+│ +1 more: a dock (fullscreen, 110 columns) shows the tree                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+Colours: as F1; each path takes the colour of its git letter (10.0); "+1 more…" dim.
+
+**Desktop app.** The same as 10.8a, with the colours and counts above. 10.8b, where the desktop runs
+no git, shows no counts.
+
+### 12.4 Reply-view tables (80 and 40 columns)
+
+#### R1. Table, `tableStyle` rules (the default), 80 columns, inline marks kept
+
+The source has `` `handily-board` ``, `**pass**`, `[design](docs/design.md)` and `` `npm test` `` in
+its cells.
+
+```text
+● The two mods ran their gates:
+
+  Mod           │ Tests │ Gate │ Next                  [ copy ] [ copy as text ]
+  ══════════════╪═══════╪══════╪═══════════════════
+  handily-board │   212 │ pass │ frames, see design
+  reply-view    │    98 │ fail │ npm test exits 1
+```
+
+Colours:
+
+- Header cells `claude` + bold; `═` and `│` `subtle`.
+- A cell that holds only a number `planMode`.
+- Inline code (`handily-board`, `reply-view`, `npm test`) `permission`, as the engine draws inline
+  code.
+- "pass" and "fail" bold, as written.
+- "design" (a link) `suggestion` + underline. It is not a `Link` element: see engine fact 7.
+- Buttons drawn by the engine.
+
+#### R2. Table, `tableStyle` box, 80 columns
+
+```text
+● The two mods ran their gates:
+
+  ┌───────────────┬───────┬──────┬────────────────────┐
+  │ Mod           │ Tests │ Gate │ Next               │
+  ╞═══════════════╪═══════╪══════╪════════════════════╡
+  │ handily-board │   212 │ pass │ frames, see design │
+  ├───────────────┼───────┼──────┼────────────────────┤
+  │ reply-view    │    98 │ fail │ npm test exits 1   │
+  └───────────────┴───────┴──────┴────────────────────┘
+                                                       [ copy ] [ copy as text ]
+```
+
+Colours: as R1; every border line `subtle`. The box adds 3 rows here and 4 columns. So the buttons
+no longer fit beside the first line, and they go under the table, by today's placement rule.
+
+#### R3. Overflow: a long cell wraps, rules style, 80 columns
+
+```text
+● The three mods passed every gate but one:
+
+  Mod                 │ Version │ Tests │ Gate │ Next step
+  ════════════════════╪═════════╪═══════╪══════╪════════════════
+  handily-reply-view  │   0.6.0 │   212 │ pass │ diagrams in the
+                      │         │       │      │ terminal
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  handily-simple-view │   0.9.1 │   341 │ pass │ one row for
+                      │         │       │      │ every tool
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┼┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  handily-board       │   1.2.0 │    98 │ fail │ agents of other
+                      │         │       │      │ sessions
+                                                       [ copy ] [ copy as text ]
+```
+
+Colours: as R1; `┄` `subtle`. "0.6.0" is not a number, so it stays plain.
+
+#### R4. Overflow in box style, 80 columns
+
+```text
+  ┌─────────────────────┬─────────┬───────┬──────┬─────────────────┐
+  │ Mod                 │ Version │ Tests │ Gate │ Next step       │
+  ╞═════════════════════╪═════════╪═══════╪══════╪═════════════════╡
+  │ handily-reply-view  │   0.6.0 │   212 │ pass │ diagrams in the │
+  │                     │         │       │      │ terminal        │
+  ├─────────────────────┼─────────┼───────┼──────┼─────────────────┤
+  │ handily-simple-view │   0.9.1 │   341 │ pass │ one row for     │
+  │                     │         │       │      │ every tool      │
+  ├─────────────────────┼─────────┼───────┼──────┼─────────────────┤
+  │ handily-board       │   1.2.0 │    98 │ fail │ agents of other │
+  │                     │         │       │      │ sessions        │
+  └─────────────────────┴─────────┴───────┴──────┴─────────────────┘
+                                                       [ copy ] [ copy as text ]
+```
+
+Colours: as R2.
+
+#### R5. Empty: a header and no data rows, 80 columns
+
+```text
+● The columns of the report:
+
+  Mod │ Tests │ Gate │ Next                                             [ copy ]
+  ════╪═══════╪══════╪═════
+```
+
+Colours: as R1. There is no `copy as text` button, as today.
+
+#### R6. 40 columns: one block for each row (both styles)
+
+```text
+● Gate results:
+
+  handily-board
+               [ copy ] [ copy as text ]
+    Tests: 212
+    Gate:  pass
+    Next:  frames, see design
+
+  reply-view
+    Tests: 98
+    Gate:  fail
+    Next:  npm test exits 1
+```
+
+Colours:
+
+- Row title: inline code here, so `permission` + bold.
+- Labels "Tests:", "Gate:" and "Next:" `claude`, because they are the header cells.
+- 212 and 98 `planMode`; "pass" and "fail" bold; "design" `suggestion` + underline; "npm test"
+  `permission`.
+
+**Copy.** `copy` copies the cell markdown unchanged. `copy as text` copies the drawn shape of the
+style in use: `═` under the header, and the box in box style. Cells copy as shown text, as today.
+
+### 12.5 Reply-view diagrams (80 and 40 columns)
+
+#### D1. Flowchart LR, 80 columns (the drawing of 9.6, coloured)
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  ╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐
+  │ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
+  ╰────────╯   └───────┘   └──────────┘  │   └─────────┘
+                                         │no ┌────────┐
+                                         └──▶│ Engine │
+                                             └────────┘
+```
+
+Colours:
+
+- Boxes cycle by first appearance through `suggestion`, `planMode`, `merged`, border and label
+  alike: Prompt `suggestion`, Reply `planMode`, ◇ Table? `merged`, Columns `suggestion`, Engine
+  `planMode`.
+- Arrow heads `▶` `claude`; connectors `─ │ ┬ └` `subtle`; edge labels "yes" and "no" `inactive`.
+- Title rule dim, as today; buttons drawn by the engine.
+
+#### D2. Sequence diagram, 80 columns (9.7)
+
+```text
+● The reply takes three steps:
+
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ┌─────┐        ┌────────┐        ┌────────────┐
+  │ You │        │ Claude │        │ reply-view │
+  └──┬──┘        └────┬───┘        └──────┬─────┘
+     │    prompt      │                   │
+     │───────────────▶│                   │
+     │                │    reply text     │
+     │                │──────────────────▶│
+     │  drawn reply   │                   │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+     │                │                   │──┐ cache by width
+     │                │                   │◀─┘
+     │                │       ┌───────────┴───────────┐
+     │                │       │ layout once per width │
+     │                │       └───────────┬───────────┘
+```
+
+Colours:
+
+- Participants cycle: You `suggestion`, Claude `planMode`, reply-view `merged`.
+- Lifelines and message lines `─ ╌` `subtle`; heads `▶ ◀` `claude`; message text plain.
+- The note box border `inactive`, its text plain; the self call `subtle`.
+
+#### D3. Sequence with alt, 80 columns
+
+```text
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ┌─────┐        ┌───────┐
+  │ App │        │ Cache │
+  └──┬──┘        └───┬───┘
+     │   1. get key  │
+     │──────────────▶│
+  ┄┄ alt: hit ┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+     │   2. value    │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+  ┄┄ else: miss ┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+     │   3. none     │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+  ┄┄ end ┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄
+```
+
+Colours: as D2 (App `suggestion`, Cache `planMode`); `┄` `subtle`; "alt: hit", "else: miss" and
+"end" `inactive`; the message numbers plain.
+
+#### D4. 40 columns: the LR flowchart turns TD (9.9)
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ───────────────
+               [ copy ] [ copy drawing ]
+       ╭────────╮
+       │ Prompt │
+       ╰────┬───╯
+            ▼
+        ┌───────┐
+        │ Reply │
+        └───┬───┘
+            ▼
+      ┌──────────┐
+      │ ◇ Table? │
+      └─────┬────┘
+      ┌─────┴──────┐
+      │ yes        │ no
+      ▼            ▼
+  ┌─────────┐ ┌────────┐
+  │ Columns │ │ Engine │
+  └─────────┘ └────────┘
+```
+
+Colours: as D1. A box keeps its key at 80 and at 40, because the key follows the order in the
+source, not the layout.
+
+#### D5. 40 columns: a diagram that does not draw (unchanged)
+
+```text
+  diagram not drawn: it takes 48
+  columns, the screen has 38.
+  ── mermaid ─────────────────  [ copy ]
+  sequenceDiagram
+    You->>Claude: prompt
+```
+
+Colours: the note dim; the source in the engine `Code` element with language `mermaid`, as today.
+
+**The decision on the `Code` element (approved item 4).**
+
+- **Terminal:** the drawing leaves `Code` for one `Text` row per line, each made of coloured `Text`
+  spans with `wrap: 'truncate-end'`. Today's `Code` with no language and no path draws the drawing
+  plain (`:1675-1676`), which settles the gap analysis's unverified point.
+- **Desktop app:** it keeps `Code`, plain, for now. `TextProps.mono` exists (`:13504`), so coloured
+  spans in a monospaced face are possible. But it is not verified that rows of mono `Text` keep the
+  box joins with no gap between lines. Probe it, then move to one path (open question 5).
+- `copy drawing` copies the plain lines, with no escape codes.
+
+### 12.6 New settings
+
+| Mod | Setting | Options | Default | Description text |
+| --- | --- | --- | --- | --- |
+| handily-reply-view | `tableStyle` | `rules`, `box` | `rules` | "How a table in a reply draws: rules between the columns (rules) or a full box (box). Under 40 columns both draw one block for each row." |
+
+It goes in `mods/handily-reply-view/.claude-plugin/plugin.json` `userConfig`, beside `mode`,
+`diagrams` and `diagramHints`. A stored value that is neither option draws `rules`, and the log
+names the stored value, as the glyphs setting does.
+
+There is **no new board or filetree setting**. Frames follow the body width, and line counts follow
+the git speed rule. I propose no `palette` (hex) setting now.
+
+### 12.7 Commands and keyboard access
+
+No action is pointer-only. There are no new hotkeys.
+
+| Action | Key or command | Focus |
+| --- | --- | --- |
+| Open or close the Session details | Tab to the first Session row, Enter (the same button as 8.10c) | Stays on the row, as today |
+| Open an agent row (last calls, answer) | Tab to the row, Enter (the existing press) | Stays on the row; `[ hide ended ]` and `[ +N ended ]` as today |
+| Read the gate strip, the gauges, the model and the receipt as words | `/board stats` (B8) | — |
+| See the last checks with their verdict words | `[ last 5 checks ]` in the details | — |
+| Set the table style | `/config` › handily-reply-view › Table style | — |
+| Copy a table, a diagram or code | `/replies copy table`, `/replies copy diagram`, `/replies copy code` (unchanged) | — |
+| Filetree retry after a numstat failure | Tab to `[ retry ]`, Enter; or `r` (refresh, the existing key) | — |
+| Filetree: the line counts of one file in words | Open the row (F2): "modified, not staged · +12 -3" | — |
+
+The strip, the gauges and the frames are display only, and none takes the focus. A pipe and a screen
+reader get B8 and `copy as text`.
+
+### 12.8 Migration (for a person who knows the old layout)
+
+#### Board
+
+- The Session line becomes a framed block of 5 rows. Its first row is still the button that opens
+  the details.
+- "last turn …" moved from the details to the receipt row, which shows while a turn runs and dim
+  when idle.
+- The details gain "file · shell · other".
+- The Tasks and Agents headers move onto the top edge of their frames, and the `───` rule between
+  them goes.
+- **At body 41 an agent row inside a frame loses its tool column** (`▸ Grep ho…`). The running call
+  now shows as the newest of the last calls (`▸`) when the row is opened. At body 30 nothing changes
+  from 8.10j except the colour and the new Session rows.
+- The status line does not change.
+- Rows: about 7 more at body 41 than 8.10f.
+
+#### Filetree
+
+- The header gains totals. The upstream name sits on a second line, with the totals when line 1 is
+  full.
+- Each file and folder row gains `+N -N`, and folder names take the colour of their state.
+- Nothing moves at body 24, 30 or inline, except that the totals show inline.
+
+#### Reply-view
+
+- Tables keep their layout and gain colour.
+- `─┼─` under the header becomes `═╪═`, in the drawing and in `copy as text`.
+- Cells show inline code, bold and links again; `copy` is unchanged.
+- A prismantis user finds the box under Table style `box`.
+- Diagrams keep every line, and only gain colour on the terminal.
+
+**Docs to change:**
+
+- 9.0 "The blocks are plain text…" → the paragraph in section 0.
+- The README lines "A cell shows its text without markdown marks" and "A table loses its box".
+- design.md "marks that stay" gains `▮ ▯`.
+
+### 12.9 Decisions (each recommended answer approved on 2026-10-29)
+
+1. **Frame: a `Box` border or a text frame?** Recommend a **text frame**: `╭─ Title ──╮`, `│ … │`,
+   `╰──╯` drawn as `Text` in the role key.
+   - The title sits on the top edge with no probe of absolute position (fact 4).
+   - Widths stay exact, from the body width the board already lays out for.
+   - The desktop draws no frame.
+2. **Inline 76: frames (B7a, 18 rows) or none (B7b, 13 rows)?** Recommend **none**. Rows above the
+   prompt are the scarcest, and the coloured titles carry the look.
+3. **Diagram lines in `subtle` (2.1–2.6:1)?** Recommend **`inactive`** (5.7–7.4:1) for diagram
+   connectors and lifelines. They carry the meaning, and 3:1 is the floor for graphical parts. Keep
+   `subtle` for table rules and box borders, where the alignment already carries the structure.
+4. **Table header `claude` on light themes (3.2:1, and 2.1:1 in light-daltonized).** Recommend
+   keeping it as approved: bold and the `═` rule carry the header. Record light-daltonized as a
+   known failure. A later record could read the theme via `$.config.list()` (fact 12).
+5. **Desktop diagrams: coloured mono `Text` or plain `Code`?** Recommend `Code` until a desktop
+   probe shows that mono `Text` rows keep their joins. Then switch to one path.
+6. **The answer when an agent is opened: one line (today's approval) or 2 lines with `[ more ]` (the
+   y7yzv note)?** Recommend **one line**, as approved today. Update the y7yzv note.
+7. **The receipt when idle: hide it, or show the last turn dim?** Recommend **show it dim**, so the
+   layout does not jump at each turn.
+8. **A mode change while idle (shift+tab) shows only at the next prompt or turn end.** Recommend
+   accepting this lag. Reading `classic.PostToolUse` on every call costs more than it shows.
+9. **The key for numbers in cells.** Recommend `planMode`: no verdict, and distinct from `claude`,
+   `permission` and `suggestion` in all four themes.
+10. **A denied check at body 41 shows only as `■`, and `▮`/`■` differ only in width.** Recommend
+    that when a denial is among the last 20, the family counts give way to `1 denied` in `error`.
+    The row would read `gate ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ 1 denied`, which is 34 of 37 columns.
+11. **The upstream name: here (C) or in handily-dxnxc?** Recommend **C**, because C already parses
+    the same status call. dxnxc keeps the @path reveal and the to-prompt button.
+
+### 12.10 Failure modes
+
+- **NO_COLOR or a monochrome terminal.**
+  - Whether the engine drops colour for `NO_COLOR` is not verified. Probe `NO_COLOR=1 claude` in
+    tmux from the main session.
+  - Without colour these remain: the strip shapes, the verdict words, `high`, the `+`/`-` signs, the
+    git letters, bold with `═` under the header, and the diagram shapes and labels.
+  - The folder colour is lost, but the folder's `M2 ?1` counts remain. The mods read no environment
+    variable (design.md:1208).
+- **Colour blindness.**
+  - In the daltonized themes `success` is blue, so allowed `▮` and asked `▯` are both blue (filled
+    against hollow), and `+N` is blue against red `-N` (the signs carry it).
+  - `▮` and `■` are both filled, which is open question 10.
+  - The diagram cycle carries no meaning; the labels do.
+- **Themes where keys look alike.**
+  - `suggestion` = `permission`: a link and inline code share a colour; the underline separates
+    them.
+  - `merged` = `autoAccept`: the Agents frame and `accept edits` share a colour; the word separates
+    them.
+  - `claude` ≈ `warning` in light themes: a normal and a `high` gauge look alike; the word `high`
+    separates them.
+  - A custom theme can make any two keys equal. Every state keeps its word or shape.
+- **Low contrast.** `subtle` (2.1–2.6:1) can vanish on a grey dark background (#1e1e1e) and on light
+  themes: empty gauge cells, rules, and diagram lines (open question 3). The percent is always
+  printed, so a vanished `▱` loses nothing.
+- **Screen readers.** Box glyphs read as noise ("box drawings light vertical"). The strip, the
+  gauges and the frames carry nothing that B8, `[ last 5 checks ]`, `copy as text` or the diagram
+  `copy` (mermaid source) does not also give as words.
+- **Narrow widths.**
+  - The frames take 4 columns at body 41, so the agent tool column drops.
+  - At body 30 the Session block grows from 1 row to 6.
+  - Long folder names are cut before their counts: F3 `▾ src…/` hides `src/gen/` until the row is
+    opened.
+  - Inline, the upstream name drops. Below body 24 no counts show (10.6b).
+  - Box tables add 4 columns, so a table reaches the 40-column block layout sooner.
+- **Ambiguous-width glyphs.** In a CJK-locale terminal that draws `■ ═ ╪ ◆ ▶ ─ │` two columns wide,
+  frames, boxes and the strip break. The risk exists today, and this pass adds more of these glyphs.
+- **Slow or large repos.**
+  - numstat doubles the git work at each change, so it obeys the existing gap, the timeout and the
+    two-slow-runs rule (F4).
+  - Very large outputs hit the 4 MiB cut; counts over 9,999 abbreviate.
+- **Secrets.** The first answer line and the call targets can hold a token. They pass through the
+  check masking (`credentials.ts`) before they draw.
+- **Stale facts.** The mode shows the latest classic event (open question 8). The effort is absent
+  until the first request. The model changes on `/model` at the next step.
+- **Desktop.** A text frame in a proportional face would not line up, so the desktop draws no frame.
+  Desktop diagrams stay plain until the probe.
