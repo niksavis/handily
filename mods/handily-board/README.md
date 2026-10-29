@@ -789,6 +789,19 @@ Sessions  4 · 1 needs you · 12s ago
 - The place line is the worktree, the branch and the time. The time is `worked` for a session
   that runs the board: the sum of its turns. Other sessions show the time `elapsed` since they
   started. `est. <time> left` follows when the board has an estimate.
+- A session that runs the board with a context of 80 percent or more gets a context line under
+  the place line: the percent with the word `high` in the theme colour `warning`, and the cost
+  of the session. Under 80 percent, the card has no context line. Inline, the line is under the
+  row. A capture from the tests, docked at 41 columns:
+
+  ```text
+  ▶ mocks  interactive  this  busy
+    ▶ Write the tab mocks ▰▱▱▱ 1/4
+    app · main · 14m worked · est. 30m left
+    ctx 91% high · $12.40
+    agents 3 · 1 failed
+  ```
+
 - This session's card reads the task list, the time worked and the agents of this session, not
   the poll. Its `agents` line counts the agents that did not end, and the failed ones.
 - A card of another session that has not ended, with a key that is not stale and lists agents,
@@ -834,6 +847,9 @@ Sessions  4 · 1 needs you · 12s ago
   and total counts and whether the agent failed. The board writes it when a subagent task list
   changes, when an agent starts and when an agent turn ends. The name keeps 40 characters and
   the task 80.
+- The key also keeps the context percent and the cost from the engine event `session.measure`.
+  The board writes them when the rounded percent or the cost in cents changes, and at each
+  session start. A key from an earlier version without them reads as no context.
 - A key is at most 4096 bytes. When it is larger, the board drops agents from the end of the
   list until it fits, and keeps the count of all agents. The opened fold then says how many are
   over the store limit. A key that is larger with no agent is not written, and the debug log

@@ -102,6 +102,7 @@ import {
   completeTurn,
   startTurn,
   withAgents,
+  withContext,
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
@@ -172,6 +173,7 @@ import {
   EMPTY_VITALS,
   type Vitals,
   sessionText,
+  sharedContext,
   withMeasure,
   withClear,
   withCompaction,
@@ -707,7 +709,7 @@ type CheckedCall = ToolCheckInput & { tool_use_id: string }
 
 type ChecksKeep = { current: BoardChecks }
 
-type VitalsKeep = { current: Vitals }
+type VitalsKeep = { current: Vitals; shared: string | undefined }
 
 type WaitingAsk = { agentId: string | undefined; sight: BoardToolSight }
 
@@ -852,6 +854,16 @@ async function noteVitals(
   if (sessionText(keep.current) !== drawn || detailsText(keep.current, now) !== details) {
     $.ui.invalidate('ui.render')
   }
+}
+
+async function shareContext($: EngineInterface, machine: Machine, keep: VitalsKeep): Promise<void> {
+  const context = sharedContext(keep.current)
+  const shared = JSON.stringify(context)
+  if (shared === keep.shared) return
+  keep.shared = shared
+  await updateProgress(sessionsHost($), machine, (progress, now) =>
+    withContext(progress, context, now),
+  )
 }
 
 async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
@@ -1209,7 +1221,7 @@ export const register: Register = (on, options) => {
   const band = bandSetting(options)
   const redraw: Redraw = { timer: undefined, bandTimer: undefined, bandSawTab: undefined }
   const machine = newMachine(SESSIONS_PANE.id)
-  const vitals: VitalsKeep = { current: EMPTY_VITALS }
+  const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const steps: StepsKeep = new Map()
   const notes: RowNotes = new Map()
@@ -1238,12 +1250,15 @@ export const register: Register = (on, options) => {
     await removeExpiredKeys(host)
     await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
     await readUsage($, vitals)
+    vitals.shared = undefined
+    await shareContext($, machine, vitals)
     return started
   })
 
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await noteVitals($, vitals, (current) => withMeasure(current, e))
+    await shareContext($, machine, vitals)
     return measured
   })
 
@@ -1318,7 +1333,10 @@ export const register: Register = (on, options) => {
     steps.clear()
     pulses.heardAt.clear()
     pulses.callsFrom.clear()
-    if (NEW_SESSION_REASONS.has(e.reason)) await noteVitals($, vitals, withClear)
+    if (NEW_SESSION_REASONS.has(e.reason)) {
+      await noteVitals($, vitals, withClear)
+      await shareContext($, machine, vitals)
+    }
     if (e.reason === 'clear') {
       attention.asks.clear()
       await refreshStatus($, attention)

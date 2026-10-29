@@ -20,9 +20,10 @@ import type {
   SessionCard,
 } from './cards'
 import { fitParts } from './parts'
-import type { AgentSummary } from './progress'
+import type { AgentSummary, SharedContext } from './progress'
 import { SIGNALS, type SignalLook, needsYouText } from './signals'
 import { escaped, statusLook } from './tasks'
+import { dollars, highText } from './vitals'
 import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './width'
 
 export type MachineElements = {
@@ -197,6 +198,37 @@ function agentParts(agents: AgentCounts): Part[] {
       ? [{ text: `${String(agents.failed)} failed`, color: SIGNALS.blocked.color }]
       : []),
   ])
+}
+
+function contextParts(context: SharedContext): Part[] {
+  return [
+    { text: 'ctx ', dimColor: true },
+    { text: highText(context.percent), color: 'warning' },
+    ...(context.cents === null
+      ? []
+      : [
+          { text: SEPARATOR, dimColor: true },
+          { text: dollars(context.cents), dimColor: true },
+        ]),
+  ]
+}
+
+function contextLines(
+  elements: MachineElements,
+  card: SessionCard,
+  layout: Layout,
+  indent: number,
+): RenderElement[] {
+  if (card.context === null) return []
+  return [
+    drawParts(
+      elements,
+      `card:${card.key}:context`,
+      contextParts(card.context),
+      layout.columns,
+      indent,
+    ),
+  ]
 }
 
 function waitParts(reason: string): Part[] {
@@ -416,6 +448,7 @@ function cardLines(elements: MachineElements, card: SessionCard, layout: Layout)
         columns,
         CARD_INDENT,
       ),
+      ...contextLines(elements, card, layout, CARD_INDENT),
       ...(card.agents === null
         ? []
         : [drawParts(elements, `${key}:agents`, agentParts(card.agents), columns, CARD_INDENT)]),
@@ -476,6 +509,7 @@ function rowLines(
     children: [
       drawParts(elements, `${key}:head`, rowParts(card, widths, layout.columns), layout.columns),
       ...detailLines(elements, card, layout, ROW_INDENT),
+      ...contextLines(elements, card, layout, ROW_INDENT),
       ...rowAgentLines(elements, card, layout),
     ],
   })

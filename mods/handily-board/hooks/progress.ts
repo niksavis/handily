@@ -19,6 +19,8 @@ export type AgentSummary = {
   needsYou?: true
 }
 
+export type SharedContext = { percent: number; cents: number | null }
+
 export type Progress = {
   sessionId: string
   cwd: string
@@ -35,6 +37,7 @@ export type Progress = {
   lastAddedAt: number | null
   agents: readonly AgentSummary[]
   agentCount: number
+  context: SharedContext | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -77,6 +80,7 @@ export function emptyProgress(sessionId: string, cwd: string, now: number): Prog
     lastAddedAt: null,
     agents: [],
     agentCount: 0,
+    context: null,
   }
 }
 
@@ -100,6 +104,15 @@ function readAgents(value: Record<string, unknown>) {
   return { agents: read, agentCount }
 }
 
+function readContext(value: unknown): SharedContext | null | undefined {
+  if (value === undefined || value === null) return null
+  if (!isRecord(value)) return undefined
+  const { percent, cents } = value
+  if (typeof percent !== 'number') return undefined
+  if (cents === null) return { percent, cents: null }
+  return typeof cents === 'number' ? { percent, cents } : undefined
+}
+
 export function readProgress(value: unknown): Progress | null {
   if (!isRecord(value)) return null
   const { sessionId, cwd, updatedAt, workedMs, taskIds, done, total } = value
@@ -113,7 +126,9 @@ export function readProgress(value: unknown): Progress | null {
   if (value.taskStatus !== null && !isStatus(value.taskStatus)) return null
   const agents = readAgents(value)
   if (agents === null) return null
-  return { ...(value as Progress), ...agents }
+  const context = readContext(value.context)
+  if (context === undefined) return null
+  return { ...(value as Progress), ...agents, context }
 }
 
 export function entryBytes(progress: Progress): number {
@@ -207,6 +222,14 @@ export function withTasks(progress: Progress, all: BoardList, now: number): Prog
     firstTaskAt: firstTaskTime(progress, done, now),
     lastAddedAt: isAdded ? now : progress.lastAddedAt,
   }
+}
+
+export function withContext(
+  progress: Progress,
+  context: SharedContext | null,
+  now: number,
+): Progress {
+  return { ...progress, updatedAt: now, context }
 }
 
 export function startTurn(progress: Progress, now: number): Progress {
