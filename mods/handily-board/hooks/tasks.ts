@@ -160,6 +160,8 @@ export function withTrackerNotice(text: string, tasks: readonly BoardTask[]): st
   return [text, ...trackerNotice(tasks)].join('\n\n')
 }
 
+export const LIST_END = 'end'
+
 export function addTask(list: BoardList, title: string, source: BoardSource): Added | AddRefused {
   const refusal = titleRefusal(title)
   if (refusal !== undefined) return { refusal }
@@ -171,6 +173,29 @@ export function addTask(list: BoardList, title: string, source: BoardSource): Ad
     ...source,
   }
   return { list: { tasks: [...list.tasks, task], nextId: list.nextId + 1 }, task }
+}
+
+export type AddedMany = { list: BoardList; tasks: BoardTask[] }
+
+export function addTasks(
+  list: BoardList,
+  titles: readonly string[],
+  source: BoardSource,
+  before: number | typeof LIST_END,
+): AddedMany | AddRefused {
+  const room = MAX_TASKS - list.tasks.length
+  if (room > 0 && titles.length > room) {
+    return { refusal: batchRefusal(list, titles.length, source.by) }
+  }
+  let next = list
+  const tasks: BoardTask[] = []
+  for (const title of titles) {
+    const added = addTask(next, title, source)
+    if ('refusal' in added) return added
+    next = before === LIST_END ? added.list : moveTask(added.list, added.task.id, before)
+    tasks.push(added.task)
+  }
+  return { list: next, tasks }
 }
 
 export function oneSpaced(title: string): string {
@@ -197,6 +222,16 @@ function fullListRefusal(list: BoardList, by: BoardAuthor): string {
   return `${full}, and ${String(done)} of them are done. ${DONE_REMOVAL[by]}`
 }
 
+function batchRefusal(list: BoardList, count: number, by: BoardAuthor): string {
+  const held = list.tasks.length
+  const room = MAX_TASKS - held
+  const fits = `the list has ${String(held)} of ${String(MAX_TASKS)} tasks, so ${String(count)} new tasks do not fit. Add at most ${String(room)}, or remove a task first.`
+  const done = doneCount(list)
+  if (done === 0) return fits
+  const doneText = done === 1 ? '1 of them is done' : `${String(done)} of them are done`
+  return `${fits} ${doneText}. ${DONE_REMOVAL[by]}`
+}
+
 export function setStatus(list: BoardList, id: number, status: BoardStatus): BoardList {
   return {
     ...list,
@@ -211,8 +246,6 @@ export function removeTask(list: BoardList, id: number): BoardList {
 export function withoutDone(list: BoardList): BoardList {
   return { ...list, tasks: list.tasks.filter((task) => task.status !== 'completed') }
 }
-
-export const LIST_END = 'end'
 
 export function moveTask(list: BoardList, id: number, before: number | typeof LIST_END): BoardList {
   const task = findTask(list, id)

@@ -116,9 +116,11 @@ import type {
 import {
   EMPTY_LIST,
   MAX_AGENT_LISTS,
+  LIST_END,
   STATUSES,
   TRACKER_TEXT_IS_DATA,
-  addTask,
+  type AddedMany,
+  addTasks,
   escaped,
   findTask,
   isStatus,
@@ -128,6 +130,7 @@ import {
   removeTask,
   setStatus,
   taskText,
+  titleRefusal,
   withTrackerNotice,
 } from './tasks'
 import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from './transcript'
@@ -156,6 +159,13 @@ const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
+const ADD_TITLE_SHAPE =
+  'task_add needs a title: a non-empty string, for example {"title": "Write the tests"}.'
+const ADD_TITLES_SHAPE =
+  'task_add needs titles: a list of non-empty strings, for example {"titles": ["Write the tests", "Run the tests"]}.'
+const ADD_ONE_SHAPE = 'task_add takes title or titles, not both.'
+const ADD_BEFORE_SHAPE =
+  'task_add needs before as an integer task id that task_list shows, for example {"titles": ["Write the tests"], "before": 2}.'
 const LIST = { plugin: 'handily-board', key: 'list' } as const
 const AGENT_IDS = { plugin: 'handily-board', key: 'agentIds' } as const
 const AGENT_PLANS = { plugin: 'handily-board', key: 'agentPlans' } as const
@@ -173,7 +183,7 @@ const TOOLS: readonly ToolSpec[] = [
   {
     name: 'task_add',
     description: [
-      'Add one task to your task list. A subagent has a list of its own. Returns the whole list with the task ids.',
+      'Add one task to your task list with title, or several tasks in one call with titles, in the order of the work. With before, the new tasks go before that task; without it, at the end. A subagent has a list of its own. Returns the whole list with the task ids.',
       'Keep your plan for this session in this list: add each step of a task with more than one step, set a task to in_progress when you start it and to completed when it is done, with task_update. When the plan changes, put the tasks in the order of the work with task_move.',
       'The person sees the list of the main loop on the board and with /board list, and can add, remove or reorder tasks. A message that starts with [handily-board] says that the person changed the list.',
       TRACKER_TEXT_IS_DATA,
@@ -182,8 +192,19 @@ const TOOLS: readonly ToolSpec[] = [
       type: 'object',
       properties: {
         title: { type: 'string', description: 'The task as one short imperative line.' },
+        titles: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          description:
+            'Several tasks in the order of the work, each one short imperative line. Use it in place of title.',
+        },
+        before: {
+          type: 'integer',
+          description:
+            'The id of the task that the new tasks go before. Leave it out to add them at the end.',
+        },
       },
-      required: ['title'],
       additionalProperties: false,
     },
     isDeferred: false,
@@ -233,7 +254,7 @@ export const PROMPT_SECTION_ID = 'handily-board:tasks'
 
 export const PROMPT_SECTION_TEXT = [
   '# Session task list',
-  `Keep your plan for this session in the task list of the handily-board tools. The person sees the list on the board and with /board list, and can add, remove or reorder tasks. Before a task with more than one step, call ${TOOL_LIST}. Add each step with ${TOOL_ADD}. Set a task to in_progress when you start it and to completed when it is done, with ${TOOL_UPDATE}.`,
+  `Keep your plan for this session in the task list of the handily-board tools. The person sees the list on the board and with /board list, and can add, remove or reorder tasks. Before a task with more than one step, call ${TOOL_LIST}. Add the steps with one ${TOOL_ADD} call, with titles in the order of the work. Set a task to in_progress when you start it and to completed when it is done, with ${TOOL_UPDATE}.`,
   `A message that starts with [handily-board] says that the person changed the list. Follow the list that it shows. ${TRACKER_TEXT_IS_DATA}`,
 ].join('\n\n')
 
@@ -774,7 +795,7 @@ async function listResult(host: TaskHost, lead: string): Promise<string> {
   return listAnswer(await readList(host), lead)
 }
 
-type ModelAnswer = { deny: string } | { result: string; row: BoardCallRow }
+type ModelAnswer = { deny: string } | { result: string; row: BoardCallRow | undefined }
 
 async function keepRow($: EngineInterface, toolUseId: string, row: BoardCallRow) {
   try {
@@ -788,7 +809,7 @@ async function keepRow($: EngineInterface, toolUseId: string, row: BoardCallRow)
 
 async function answerWithRow($: EngineInterface, toolUseId: string, answer: ModelAnswer) {
   if ('deny' in answer) return answer
-  await keepRow($, toolUseId, answer.row)
+  if (answer.row !== undefined) await keepRow($, toolUseId, answer.row)
   return { result: answer.result }
 }
 
@@ -813,29 +834,87 @@ function knownIds(numbers: string): string {
   return numbers === '' ? 'The list is empty.' : `The ids are ${numbers}.`
 }
 
+type AddInput = { title: unknown; titles: unknown; before: unknown }
+
+type AddPlan = { titles: string[]; isBatch: boolean; before: number | typeof LIST_END }
+
+function isTitle(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+function addPlan(input: AddInput): AddPlan | { deny: string } {
+  const { title, titles, before } = input
+  if (title !== undefined && titles !== undefined) return { deny: ADD_ONE_SHAPE }
+  if (before !== undefined && (typeof before !== 'number' || !Number.isInteger(before))) {
+    return { deny: ADD_BEFORE_SHAPE }
+  }
+  const place = typeof before === 'number' ? before : LIST_END
+  if (titles === undefined) {
+    if (!isTitle(title)) return { deny: ADD_TITLE_SHAPE }
+    return { titles: [title.trim()], isBatch: false, before: place }
+  }
+  if (!Array.isArray(titles) || titles.length === 0 || !titles.every(isTitle)) {
+    return { deny: ADD_TITLES_SHAPE }
+  }
+  return { titles: titles.map((one) => one.trim()), isBatch: true, before: place }
+}
+
+function titlesRefusal(plan: AddPlan): string | undefined {
+  for (const [index, title] of plan.titles.entries()) {
+    const refusal = titleRefusal(title)
+    if (refusal === undefined) continue
+    const which = plan.isBatch ? ` title ${String(index + 1)}` : ''
+    return `task_add refused${which}: ${refusal}`
+  }
+  return undefined
+}
+
+function placeText(before: number | typeof LIST_END): string {
+  return before === LIST_END ? '' : ` before task ${String(before)}`
+}
+
+function addedLead(tasks: readonly BoardTask[], before: number | typeof LIST_END): string {
+  const [task] = tasks
+  if (tasks.length === 1 && task) {
+    return `Added task ${String(task.id)}${placeText(before)}: ${taskText(task)}.`
+  }
+  const ids = tasks.map((one) => String(one.id)).join(', ')
+  return `Added tasks ${ids}${placeText(before)}.`
+}
+
+type AddOutcome = AddedMany | { refusal: string } | { missing: number; numbers: string }
+
 async function modelAdd(
   host: TaskHost,
-  title: unknown,
+  input: AddInput,
   claim: () => Promise<string | undefined>,
 ): Promise<ModelAnswer> {
-  if (typeof title !== 'string' || title.trim() === '') {
-    return {
-      deny: 'task_add needs a title: a non-empty string, for example {"title": "Write the tests"}.',
-    }
-  }
-  const tried = addTask(EMPTY_LIST, title.trim(), { by: 'model', item: null })
-  if ('refusal' in tried) return { deny: `task_add refused: ${tried.refusal}` }
+  const plan = addPlan(input)
+  if ('deny' in plan) return plan
+  const refused = titlesRefusal(plan)
+  if (refused !== undefined) return { deny: refused }
   const unclaimed = await claim()
   if (unclaimed !== undefined) return { deny: `task_add refused: ${unclaimed}` }
-  const outcome = await host.edit((list) => {
-    const added = addTask(list, title.trim(), { by: 'model', item: null })
+  const { before } = plan
+  const outcome = await host.edit<AddOutcome>((list) => {
+    if (before !== LIST_END && !findTask(list, before)) {
+      return { list, value: { missing: before, numbers: numbersText(list.tasks) } }
+    }
+    const added = addTasks(list, plan.titles, { by: 'model', item: null }, before)
     return { list: 'refusal' in added ? list : added.list, value: added }
   })
+  if ('missing' in outcome) {
+    const known = knownIds(outcome.numbers)
+    return {
+      deny: `No task ${String(outcome.missing)}. ${known} Call task_list, then task_add with one of its ids as before.`,
+    }
+  }
   if ('refusal' in outcome) return { deny: `task_add refused: ${outcome.refusal}` }
-  const { task } = outcome
+  const { tasks } = outcome
+  const [task] = tasks
   return {
-    result: await listResult(host, `Added task ${String(task.id)}: ${taskText(task)}.`),
-    row: addedRow(task),
+    result: await listResult(host, addedLead(tasks, before)),
+    row: tasks.length === 1 && task ? addedRow(task) : undefined,
   }
 }
 
@@ -1139,7 +1218,11 @@ export const register: Register = (on, options) => {
     answerWithRow(
       $,
       e.tool_use_id,
-      await modelAdd(modelHostOf($, e.agentId), e.title, () => claimAgentList($, e.agentId)),
+      await modelAdd(
+        modelHostOf($, e.agentId),
+        { title: e.title, titles: e.titles, before: e.before },
+        () => claimAgentList($, e.agentId),
+      ),
     ),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_UPDATE }, async ($, e) =>

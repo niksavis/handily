@@ -1340,6 +1340,10 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 - `/board mv` (handily-9uj3n.3) places a task anywhere in the list, as `task_move` does. `top` and
   `bottom` are the ends of the whole list. The board draws the tasks by status, so on the board the
   task moves inside its status group.
+- Claude adds a plan of several steps in one `task_add` call with `titles` (handily-9uj3n.5).
+  The pane draws the new tasks at once, in the given order, as the rows above. With `before`,
+  they sit before that task. The answer to Claude starts `Added tasks 2, 3, 4.` or
+  `Added tasks 6, 7 before task 2.`, then the list.
 - `/board edit` (handily-9uj3n.4) gives a task a new title and keeps its author, its status and
   its place. The title rules of `/board add` refuse a title, by name, and the old title stays.
   The note reads `it set the title "Review the mocks with Ana" on task 3 by claude, titled

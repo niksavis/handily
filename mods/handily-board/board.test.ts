@@ -3298,6 +3298,19 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
   )
 
   test(
+    'a task_add of several titles keeps no row, so it draws the engine row and result',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      await start($)
+      const batch = await called($, seen, { tool: TOOL_ADD, titles: ['One', 'Two'] })
+      expect(await callRow($, 'terminal', useOf(batch))).toEqual(ENGINE_ROW)
+      expect(await resultBlock($, 'terminal', batch)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+    },
+  )
+
+  test(
     'a call with no kept row, and a call of another tool, draw the engine row',
     withToolIds,
     async ($, on) => {
@@ -6777,3 +6790,130 @@ for (const surface of SURFACES) {
     )
   })
 }
+
+const BATCH_CRITERION =
+  'When Claude calls task_add with several titles, every title is added in the given order and the answer lists the new ids'
+
+const BATCH_BEFORE_CRITERION =
+  'When Claude calls task_add with a before id, the new tasks sit before that task'
+
+const BATCH_LIMIT_CRITERION =
+  'When a batch would pass the task limit, the call refuses the whole batch and adds nothing'
+
+async function taskRowOrder(ui: { findAll: Mounted['findAll'] }): Promise<string> {
+  const keys = (await ui.findAll({ type: 'Button' })).map((button) => String(button.key))
+  return keys
+    .filter((key) => key.startsWith('open:task:'))
+    .map((key) => key.slice('open:task:'.length))
+    .join(' ')
+}
+
+for (const surface of SURFACES) {
+  describe(BATCH_CRITERION, () => {
+    test(
+      `task_add with titles adds each title in the given order and names the new ids, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await startOn($, surface)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        const added = await $.tool.call({
+          tool: TOOL_ADD,
+          titles: ['Draw the mocks', 'Write the tests', 'Ship the mod'],
+        })
+        expect(added.result).toBe(
+          [
+            'Added tasks 2, 3, 4.',
+            '',
+            'Tasks (0 of 4 done)',
+            '  1  pending      claude   "Read the design"',
+            '  2  pending      claude   "Draw the mocks"',
+            '  3  pending      claude   "Write the tests"',
+            '  4  pending      claude   "Ship the mod"',
+          ].join('\n'),
+        )
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await taskRowOrder(ui)).toBe('1 2 3 4')
+        expect((await screen(ui, 41)).slice(2, 6)).toEqual([
+          '○ 1 Read the design                [ rm ]',
+          '○ 2 Draw the mocks                 [ rm ]',
+          '○ 3 Write the tests                [ rm ]',
+          '○ 4 Ship the mod                   [ rm ]',
+        ])
+        await ui.unmount()
+        const one = await $.tool.call({ tool: TOOL_ADD, titles: ['Tag the release'] })
+        expect(String(one.result).split('\n')[0]).toBe('Added task 5: "Tag the release".')
+      },
+    )
+  })
+
+  describe(BATCH_BEFORE_CRITERION, () => {
+    test(
+      `task_add with before puts the new tasks before that task in the given order, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await startOn($, surface)
+        await fiveTasks($)
+        const added = await $.tool.call({ tool: TOOL_ADD, titles: ['Six', 'Seven'], before: 2 })
+        expect(String(added.result).split('\n')[0]).toBe('Added tasks 6, 7 before task 2.')
+        expect(await order($)).toBe('1 6 7 2 3 4 5')
+        const first = await $.tool.call({ tool: TOOL_ADD, title: 'Eight', before: 1 })
+        expect(String(first.result).split('\n')[0]).toBe('Added task 8 before task 1: "Eight".')
+        expect(await order($)).toBe('8 1 6 7 2 3 4 5')
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await taskRowOrder(ui)).toBe('8 1 6 7 2 3 4 5')
+        await ui.unmount()
+        expect((await $.tool.call({ tool: TOOL_ADD, titles: ['Nine'], before: 99 })).deny).toBe(
+          'No task 99. The ids are 1-8. Call task_list, then task_add with one of its ids as before.',
+        )
+        expect((await $.tool.call({ tool: TOOL_ADD, titles: ['Nine'], before: 'two' })).deny).toBe(
+          'task_add needs before as an integer task id that task_list shows, for example {"titles": ["Write the tests"], "before": 2}.',
+        )
+        expect(await order($)).toBe('8 1 6 7 2 3 4 5')
+      },
+    )
+  })
+
+  describe(BATCH_LIMIT_CRITERION, () => {
+    test(
+      `a batch that passes the limit, or holds one bad title, adds nothing and says why, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await startOn($, surface)
+        for (let index = 1; index <= 98; index += 1) {
+          await $.tool.call({ tool: TOOL_ADD, title: `Task ${String(index)}` })
+        }
+        await $.tool.call({ tool: TOOL_UPDATE, id: 7, status: 'completed' })
+        const before = String(await modelTool($, {}))
+        expect((await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two', 'Three'] })).deny).toBe(
+          'task_add refused: the list has 98 of 100 tasks, so 3 new tasks do not fit. Add at most 2, or remove a task first. 1 of them is done. Remove a done task with task_update and the status removed, then add the task.',
+        )
+        expect(
+          (await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two\nlines'], before: 1 })).deny,
+        ).toBe(
+          'task_add refused title 2: the title has a line break or a control character. Write it on one line.',
+        )
+        const shapes: readonly (readonly [Record<string, unknown>, string])[] = [
+          [{ titles: [] }, BATCH_SHAPE],
+          [{ titles: ['One', ' '] }, BATCH_SHAPE],
+          [{ titles: 'One' }, BATCH_SHAPE],
+          [{ title: 'One', titles: ['Two'] }, 'task_add takes title or titles, not both.'],
+        ]
+        for (const [input, deny] of shapes) {
+          expect((await $.tool.call({ tool: TOOL_ADD, ...input })).deny).toBe(deny)
+        }
+        expect(String(await modelTool($, {}))).toBe(before)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  1 of 98 done')
+        await ui.unmount()
+        const fits = await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two'] })
+        expect(String(fits.result).split('\n')[0]).toBe('Added tasks 99, 100.')
+      },
+    )
+  })
+}
+
+const BATCH_SHAPE =
+  'task_add needs titles: a list of non-empty strings, for example {"titles": ["Write the tests", "Run the tests"]}.'

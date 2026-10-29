@@ -157,13 +157,19 @@ You can press every button on both tabs with the keyboard alone. A live check on
 
 | Tool          | Input                                                                  | Effect                               |
 | ------------- | ---------------------------------------------------------------------- | ------------------------------------ |
-| `task_add`    | `title`                                                                | Adds a pending task                  |
+| `task_add`    | `title`, or `titles` for several, and an optional `before` task id     | Adds pending tasks                   |
 | `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task |
 | `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before` |
 | `task_list`   | none                                                                   | Returns the list                     |
 
 - The mod registers the tools at `session.start`. The model calls them as
   `mcp__handily-board__<name>`. Each answer is the whole list, in the order of the work.
+- `task_add` with `titles` adds several tasks in one call, in the given order, and the answer
+  names the new ids: `Added tasks 2, 3, 4.` With `before`, the new tasks go before that task;
+  without it, they go at the end. A batch that would pass the limit of 100 tasks, or that holds
+  one bad title, is refused whole, and no task is added. The refusal names the title by its
+  place, such as `title 2`. A call of several titles draws the transcript row of Claude Code,
+  because the kept row names one task.
 - `task_move` changes the order of the list. The task ids do not change. A move that names an
   unknown id, or the same id twice, is refused with the ids that exist and the correct form.
 - A system prompt section (`handily-board:tasks`, scope `session`) tells the model to keep its
