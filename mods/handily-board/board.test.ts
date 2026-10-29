@@ -7,6 +7,7 @@ import type {
   PromptComposeInput,
   ContextCategoryKind,
   RenderPropsOf,
+  RenderSurface,
   SessionContextBreakdown,
   SessionMessage,
   SessionRateLimit,
@@ -164,6 +165,7 @@ type WorldOptions = {
   failingTool?: string
   planAnswer?: PlanAnswer
   glyphs?: ConfigValue
+  surfaces?: readonly RenderSurface[]
 }
 
 type PlanAnswer =
@@ -212,6 +214,7 @@ function world(on: On, options: WorldOptions = {}): World {
     glyphs: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: options.surfaces ?? ['terminal'] }))
   on('config.list', () => ({ value: state.config }))
   on('config.set', (_$, e) => {
     state.config = state.config.map((row) => (row.key === e.key ? { ...row, value: e.value } : row))
@@ -10153,16 +10156,16 @@ describe(KEPT_MARKS_CRITERION, () => {
 })
 
 describe(SIGNALS_FROM_SET_CRITERION, () => {
-  for (const surface of SURFACES) {
+  const nerdWaits = `${NERD_BELL} scout waits for permission: Bash npm test`
+  for (const surfaces of [['terminal'], ['terminal', 'desktop']] as const) {
     test(
-      `the status line and /board stats draw the bell of the kept setting and redraw after a switch, on ${surface}`,
+      `the status line and /board stats draw the bell of the kept setting and redraw after a switch, in a session on ${surfaces.join(' and ')}`,
       withWorkitems,
       async ($, on) => {
-        const seen = world(on, { glyphs: 'nerd' })
+        const seen = world(on, { glyphs: 'nerd', surfaces })
         const dialog = personDialog(on, seen.clock)
-        await startOn($, surface)
+        await startOn($, surfaces[0])
         const { call } = await scoutWaits($, seen, dialog)
-        const nerdWaits = `${NERD_BELL} scout waits for permission: Bash npm test`
         expect(seen.statuses).toEqual([nerdWaits])
         expect(await board($, 'stats')).toContain(`    ${nerdWaits}`)
         await setGlyphs($, seen, 'plain')
@@ -10173,6 +10176,23 @@ describe(SIGNALS_FROM_SET_CRITERION, () => {
       },
     )
   }
+
+  test(
+    'the status line and /board stats draw the plain mark with glyphs nerd in a session on the desktop only',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { glyphs: 'nerd', surfaces: ['desktop'] })
+      const dialog = personDialog(on, seen.clock)
+      await startOn($, 'desktop')
+      const { call } = await scoutWaits($, seen, dialog)
+      expect(seen.statuses).toEqual([SCOUT_WAITS])
+      const stats = await board($, 'stats')
+      expect(stats).toContain(`    ${SCOUT_WAITS}`)
+      expect(stats).not.toContain(NERD_BELL)
+      dialog.allow()
+      await call
+    },
+  )
 
   test(
     'a pane that cannot read the glyph setting logs it and draws plain',

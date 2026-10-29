@@ -102,6 +102,7 @@ function world(on: On, heldCommands: readonly string[] = []): World {
     redraws: 0,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
   on('session.usage', () => ({
     value: { startedAt: START, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
   }))

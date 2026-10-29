@@ -41,7 +41,8 @@ export function showGlyphToast($: EngineInterface, parts: ToastParts): void {
   })
 }
 
-export async function keptSignals($: EngineInterface): Promise<SignalLooks> {
+async function signalsWhere($: EngineInterface, hasTerminal: boolean): Promise<SignalLooks> {
+  if (!hasTerminal) return PLAIN_SIGNALS
   return signalLooks(GLYPH_SETS[await keptGlyphs($)])
 }
 
@@ -49,6 +50,9 @@ export async function drawnSignals(
   $: EngineInterface,
   surface: RenderSurface,
 ): Promise<SignalLooks> {
-  if (surface !== 'terminal') return PLAIN_SIGNALS
-  return keptSignals($)
+  return signalsWhere($, surface === 'terminal')
+}
+
+export async function sessionSignals($: EngineInterface): Promise<SignalLooks> {
+  return signalsWhere($, (await $.session.surfaces()).includes('terminal'))
 }

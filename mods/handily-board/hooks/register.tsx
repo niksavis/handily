@@ -151,8 +151,8 @@ import {
   drawnSignals,
   keepChangedGlyphSetting,
   keepGlyphSetting,
-  keptSignals,
   PLAIN_SIGNALS,
+  sessionSignals,
   showGlyphToast,
 } from './toasting'
 import type {
@@ -783,7 +783,7 @@ async function attentionNow(
   attention: AttentionKeep,
 ): Promise<string | undefined> {
   const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), await $.clock.now()) : []
-  const text = attentionText(rows, await keptSignals($))
+  const text = attentionText(rows, await sessionSignals($))
   if (text === undefined || (await isSessionTabSeen($))) return undefined
   return text
 }
@@ -1686,7 +1686,7 @@ export const register: Register = (on, options) => {
         return {
           text: statsText(
             await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend }),
-            await keptSignals($),
+            await sessionSignals($),
           ),
         }
       case 'add':

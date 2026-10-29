@@ -1072,6 +1072,29 @@ Sessions  4 · 1 needs you · 12s ago
 
 - When the mod loads, it refuses any other `band` value by name.
 
+### Glyphs
+
+The marks of the board follow the setting Glyphs of the bundle `handily`. The board has no
+setting of its own. The captures in this file show the plain marks.
+
+| Glyphs value      | Where                                       | Marks               |
+| ----------------- | ------------------------------------------- | ------------------- |
+| `plain` (default) | every surface                               | `▶ ✓ ○ ■ ◆`         |
+| `nerd`            | a terminal                                  | the Nerd Font icons |
+| `nerd`            | the desktop app, a session with no terminal | `▶ ✓ ○ ■ ◆`, plain  |
+
+- The panes, the band, the plan line and the task rows in the transcript draw by the surface
+  they draw on. The status line and `/board stats` draw plain when the session has no terminal.
+  A toast follows the setting on every surface.
+- Without the bundle `handily`, or with a stored value other than `plain` or `nerd`, the board
+  draws plain.
+- The board reads the setting when the session starts and after a change of it in `/config`. An
+  open pane then draws again.
+- Each icon takes the place of one mark, so every line keeps its width.
+- These marks are the same in both sets: the running call mark `▸`, the progress bar `▰ ▱`, the
+  gauges, the gate strip cells `▮ ▯ ■`, the lane cells `━ ·`, the rules `─` and the row bullet
+  `●`.
+
 ## Lifetime
 
 - The list and the tool calls live in `$.state`, so they survive a hot reload of the mod.
