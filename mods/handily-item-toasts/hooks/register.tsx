@@ -1,7 +1,7 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { ItemToastsMode } from '../types'
 import { isTrackerWrite, type ToolUse, type TrackerRules } from './match'
-import { showToast } from './toast'
+import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
 import { createToaster, type ToastHost, type Toaster } from './toasts'
 
 const TICK_MS = 2000
@@ -36,7 +36,7 @@ function hostOf($: EngineInterface): ToastHost {
     lines: async (snapshot) => $.workitems.lines({ snapshot, now: await $.clock.now() }),
     now: () => $.clock.now(),
     show: (parts) => {
-      showToast($, parts)
+      showGlyphToast($, parts)
     },
     log: (text) => {
       $.ui.log(text)
@@ -190,11 +190,19 @@ export const register: Register = (on, options) => {
       argumentHint: '[on|off]',
     })
     const started = await next(e)
+    await keepGlyphSetting($)
     const { value: mode, version } = await $.state.get(MODE)
     if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
     if (await isOn($, defaultMode)) await startToasts($, toasts).tick()
     await $.state.set({ plugin: 'handily-item-toasts', key: 'ready' }, { root: $.plugin.root })
     return started
+  })
+
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny !== undefined) return result
+    await keepChangedGlyphSetting($, e)
+    return result
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {

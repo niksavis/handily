@@ -67,7 +67,8 @@ import {
   treeRows,
   withDeleted,
 } from './tree'
-import { showToast } from './toast'
+import { marked } from './toast'
+import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
 import { type ToolTouch, isAnswered, searchedFiles, toolTouchOf } from './toolcall'
 import {
   MAIN_AGENT,
@@ -173,7 +174,7 @@ function actionsOf(
   const { cwd, listings, watch, work } = site
   const failed = (error: unknown) => {
     $.ui.log(`handily-filetree: the tree did not change: ${String(error)}`)
-    showToast($, ['■ Tree did not change', 'the transcript shows why'])
+    showGlyphToast($, [marked('blocked', 'Tree did not change'), 'the transcript shows why'])
   }
   return {
     toggle: (path) => {
@@ -501,7 +502,15 @@ export const register: Register = (on) => {
       immediate: true,
     })
     await $.state.set({ plugin: 'handily-filetree', key: 'ready' }, { root: $.plugin.root })
+    await keepGlyphSetting($)
     return next(e)
+  })
+
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny !== undefined) return result
+    await keepChangedGlyphSetting($, e)
+    return result
   })
 
   on('session.end', async (_$, e, next) => {

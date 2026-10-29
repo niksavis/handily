@@ -3,7 +3,7 @@ import type { BoardToolSight } from '../types'
 import { callText } from './agent-rows'
 import { type AgentRow, waitingRows } from './agents'
 import { SIGNALS } from './signals'
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastParts } from './toast'
 
 export type StatusLineSetting = 'attention' | 'off'
 
@@ -49,7 +49,7 @@ export function noticeText(session: string, wait: Wait): string {
 }
 
 export function noticeParts(session: string, wait: Wait): ToastParts {
-  const head = `${TOAST_MARKS.waitsForYou} ${session} needs you`
+  const head = marked('waitsForYou', `${session} needs you`)
   return wait.call === null ? [head, waitLead(wait)] : [head, waitLead(wait), callText(wait.call)]
 }
 

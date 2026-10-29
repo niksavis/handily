@@ -1,4 +1,4 @@
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastParts } from './toast'
 
 export type PersonReply = { text: string; toastParts: ToastParts | undefined }
 
@@ -7,31 +7,31 @@ const TRANSCRIPT_SHOWS_WHY = 'the transcript shows why'
 export const CLAUDE_NOT_TOLD = 'Claude was not told'
 
 export const CHANGE_FAILED: ToastParts = [
-  `${TOAST_MARKS.blocked} The change failed`,
+  marked('blocked', 'The change failed'),
   TRANSCRIPT_SHOWS_WHY,
 ]
 
 export const AGENTS_VIEW_FAILED: ToastParts = [
-  `${TOAST_MARKS.blocked} The agents view did not open`,
+  marked('blocked', 'The agents view did not open'),
   TRANSCRIPT_SHOWS_WHY,
 ]
 
 export const FILES_VIEW_FAILED: ToastParts = [
-  `${TOAST_MARKS.blocked} The files tab did not open`,
+  marked('blocked', 'The files tab did not open'),
   TRANSCRIPT_SHOWS_WHY,
 ]
 
 export function refusedParts(head: string, why: string, hint?: string): ToastParts {
-  const lead = `${TOAST_MARKS.blocked} ${head}`
+  const lead = marked('blocked', head)
   return hint === undefined ? [lead, why] : [lead, why, hint]
 }
 
 export function unchangedParts(why: string): ToastParts {
-  return [`${TOAST_MARKS.toDo} Nothing changed`, why]
+  return [marked('toDo', 'Nothing changed'), why]
 }
 
 export function notToldParts(change: string): ToastParts {
-  return [`${TOAST_MARKS.blocked} ${CLAUDE_NOT_TOLD}`, change, TRANSCRIPT_SHOWS_WHY]
+  return [marked('blocked', CLAUDE_NOT_TOLD), change, TRANSCRIPT_SHOWS_WHY]
 }
 
 export function refusedReply(text: string, head: string, why: string, hint?: string): PersonReply {

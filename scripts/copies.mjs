@@ -10,6 +10,13 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+export function filesUnder(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(entry.parentPath, entry.name)
+    return entry.isDirectory() ? filesUnder(path) : [path]
+  })
+}
+
 export function keepersOf(dir, file) {
   return readdirSync(dir)
     .filter((mod) => existsSync(join(dir, mod, 'hooks', file)))

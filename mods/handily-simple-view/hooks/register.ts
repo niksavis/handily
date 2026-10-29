@@ -48,7 +48,7 @@ import {
   type GenericState,
   type RowLook,
 } from './row'
-import { showToast } from './toast'
+import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
 
 const COMMAND = 'simple'
 const TICK_MS = 1000
@@ -261,7 +261,7 @@ async function copyOutput(
   try {
     const text = output.savedTo === null ? output.text : await $.fs.read(output.savedTo)
     const result = await $.ui.copy({ text, surface })
-    showToast(
+    showGlyphToast(
       $,
       result.isCopied
         ? copiedParts('the output', plural(lineCount(text), 'line'))
@@ -269,7 +269,7 @@ async function copyOutput(
     )
   } catch (error) {
     logFailure($, 'the output was not copied', error)
-    showToast($, COPY_FAILED)
+    showGlyphToast($, COPY_FAILED)
   }
 }
 
@@ -535,7 +535,15 @@ export const register: Register = (on, options) => {
     await $.state.set({ plugin: 'handily-simple-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
     if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
+    await keepGlyphSetting($)
     return next(e)
+  })
+
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny !== undefined) return result
+    await keepChangedGlyphSetting($, e)
+    return result
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {

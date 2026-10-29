@@ -1,5 +1,7 @@
 export type ReplyViewMode = 'on' | 'off'
 
+export type ReplyViewGlyphs = 'plain' | 'nerd'
+
 export type ReplyViewFold = 'folded' | 'open'
 
 declare module 'claude-code' {
@@ -10,6 +12,7 @@ declare module 'claude-code' {
       folds: StateFamily<ReplyViewFold>
       submittedAt: StateFamily<number>
       ready: { root: string }
+      glyphs: ReplyViewGlyphs
     }
   }
 }

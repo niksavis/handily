@@ -12,7 +12,7 @@ import {
   textLength,
   titleRefusal,
 } from './tasks'
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastParts } from './toast'
 
 export const KINDS: readonly BoardTaskKind[] = ['do', 'answer', 'decide']
 export const MAX_ANSWER_LENGTH = 1000
@@ -289,7 +289,7 @@ function outcomeReply(outcome: SettleOutcome, typed: string, settle: Settle): Fo
     case 'withdrawn': {
       const yours = settle.text === null ? [] : [`your answer: ${quoted(settle.text)}`]
       return plain(`${NOT_SENT}: Claude withdrew task ${typed}. Nothing changed.`, [
-        `${TOAST_MARKS.toDo} ${NOT_SENT}`,
+        marked('toDo', NOT_SENT),
         `Claude withdrew task ${typed}`,
         ...yours,
       ])
@@ -476,7 +476,7 @@ export function asksParts(tasks: readonly BoardTask[]): ToastParts | undefined {
   if (!first) return undefined
   if (tasks.length === 1) {
     return [
-      `${TOAST_MARKS.waitsForYou} Claude asks you`,
+      marked('waitsForYou', 'Claude asks you'),
       { quoted: first.title },
       'answer it on /board',
     ]
@@ -488,7 +488,7 @@ export function asksParts(tasks: readonly BoardTask[]): ToastParts | undefined {
     .map(([kind, count]) => `${kind} ${String(count)}`)
     .join(' · ')
   return [
-    `${TOAST_MARKS.waitsForYou} Claude asks you ${String(tasks.length)} things`,
+    marked('waitsForYou', `Claude asks you ${String(tasks.length)} things`),
     counts,
     'answer them on /board',
   ]

@@ -1,4 +1,4 @@
-import type { On, RenderPropsOf, ToolCallResult } from 'claude-code'
+import type { ConfigRow, ConfigValue, On, RenderPropsOf, ToolCallResult } from 'claude-code'
 import {
   describe,
   expect,
@@ -46,6 +46,8 @@ type World = {
   files: Record<string, string>
   commandDescriptions: string[]
   renumberedUseId: string | null
+  config: ConfigRow[]
+  glyphs: unknown[]
 }
 
 function bashOutput(stdout: string, extra: Record<string, unknown> = {}) {
@@ -125,8 +127,19 @@ function engineBeneath(on: On): World {
     files: {},
     commandDescriptions: [],
     renumberedUseId: null,
+    config: [],
+    glyphs: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('config.list', () => ({ value: world.config }))
+  on('config.set', (_$, e) => {
+    world.config = world.config.map((row) => (row.key === e.key ? { ...row, value: e.value } : row))
+    return { value: e.value }
+  })
+  on('state.set', { plugin: 'handily-simple-view', key: 'glyphs' }, (_$, e, next) => {
+    world.glyphs.push(e.value)
+    return next(e)
+  })
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('command.register', (_$, e) => {
     world.commandDescriptions.push(e.description)
@@ -2679,6 +2692,86 @@ describe('ready value for /handily', () => {
       expect(world.commandDescriptions).toContain(
         'handily · Set or toggle the one-row view of tool calls, or print a call in full',
       )
+    },
+  )
+})
+
+const GLYPHS_KEY = 'handily.glyphs'
+
+function glyphsRow(value: ConfigValue): ConfigRow {
+  return {
+    key: GLYPHS_KEY,
+    label: 'Glyphs',
+    kind: 'choice',
+    value,
+    options: ['plain', 'nerd'],
+    provider: { plugin: 'handily@niksavis', tier: 'user' },
+    isLocked: false,
+  }
+}
+
+async function setRow($: Engine, key: string, plugin: string): Promise<void> {
+  await $.config.set({
+    key,
+    value: 'nerd',
+    previous: 'plain',
+    provider: { plugin, tier: 'user' },
+    origin: { kind: 'composer' },
+  })
+}
+
+describe('the glyph setting', () => {
+  for (const surface of SURFACES) {
+    test(
+      `keeps glyphs nerd from the handily row at session start and draws the copy toasts with the nerd icons on ${surface}`,
+      { plugins: [fakeQuietItems] },
+      async ($, on) => {
+        const world = engineBeneath(on)
+        world.config = [glyphsRow('nerd')]
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        expect(world.glyphs).toEqual(['nerd'])
+        const ui = await mountUse($, await longCall(world, $), surface)
+        await ui.press({ key: 'copy' })
+        world.copyRefusal = 'refused'
+        await ui.press({ key: 'copy' })
+        expect(world.toasts).toEqual([
+          { lines: ['\u{EAB2} Copied the output', '140 lines'], timeoutMs: 6000 },
+          { lines: ['\u{EA87} Not copied', 'another plugin refused the copy'], timeoutMs: 10000 },
+        ])
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `keeps glyphs plain with no glyphs row and draws the plain copy toast on ${surface}`,
+      { plugins: [fakeQuietItems] },
+      async ($, on) => {
+        const world = engineBeneath(on)
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        expect(world.glyphs).toEqual(['plain'])
+        const ui = await mountUse($, await longCall(world, $), surface)
+        await ui.press({ key: 'copy' })
+        expect(world.toasts).toEqual([
+          { lines: ['\u2713 Copied the output', '140 lines'], timeoutMs: 6000 },
+        ])
+        await ui.unmount()
+      },
+    )
+  }
+
+  test(
+    'reads the setting again after a config set of the glyphs row, and not after another row',
+    { plugins: [fakeQuietItems] },
+    async ($, on) => {
+      const world = engineBeneath(on)
+      world.config = [glyphsRow('plain')]
+      await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+      world.config = [glyphsRow('nerd')]
+      await setRow($, 'theme', 'engine')
+      await setRow($, 'handily-simple-view.glyphs', 'handily-simple-view@niksavis')
+      expect(world.glyphs).toEqual(['plain'])
+      await setRow($, GLYPHS_KEY, 'handily@niksavis')
+      expect(world.glyphs).toEqual(['plain', 'nerd'])
     },
   )
 })

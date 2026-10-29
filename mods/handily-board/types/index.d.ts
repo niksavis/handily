@@ -1,5 +1,7 @@
 export type BoardStatus = 'pending' | 'in_progress' | 'completed'
 
+export type BoardGlyphs = 'plain' | 'nerd'
+
 export type BoardAuthor = 'model' | 'person' | 'tracker'
 
 export type BoardSource =
@@ -162,6 +164,7 @@ declare module 'claude-code' {
       paneChanges: number
       trend: BoardTrend
       ready: { root: string }
+      glyphs: BoardGlyphs
     }
   }
 }

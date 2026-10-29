@@ -39,7 +39,7 @@ import {
   withoutDone,
   type WorkItem,
 } from './tasks'
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastParts } from './toast'
 
 export const OPEN_ITEMS_SHOWN = 10
 const TEXT_MARKER = '--'
@@ -321,7 +321,7 @@ const NEEDS_TEXT =
 
 function addedAsTextParts(task: BoardTask, id: string, absentFrom: string): ToastParts {
   return [
-    `${TOAST_MARKS.toDo} Added task ${String(task.id)} as text`,
+    marked('toDo', `Added task ${String(task.id)} as text`),
     `no work item ${id} in ${absentFrom}`,
   ]
 }
@@ -553,7 +553,7 @@ export async function personClear(host: TaskHost): Promise<PersonReply> {
     `${lead}: ${numbers}${toldSuffix(noteRefusal)}`,
     lead.toLowerCase(),
     noteRefusal,
-    [`${TOAST_MARKS.done} ${lead}`, `${cleared.length === 1 ? 'task' : 'tasks'} ${numbers}`],
+    [marked('done', lead), `${cleared.length === 1 ? 'task' : 'tasks'} ${numbers}`],
   )
 }
 

@@ -1,8 +1,8 @@
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastLine, type ToastParts } from './toast'
 
 type CopyRefusal = 'no-surface' | 'no-clipboard' | 'refused'
 
-const NOT_COPIED = `${TOAST_MARKS.blocked} Not copied`
+const NOT_COPIED: ToastLine = marked('blocked', 'Not copied')
 
 const COPY_REFUSALS: Readonly<Record<CopyRefusal, readonly [string] | readonly [string, string]>> =
   {
@@ -14,7 +14,7 @@ const COPY_REFUSALS: Readonly<Record<CopyRefusal, readonly [string] | readonly [
 export const COPY_FAILED: ToastParts = [NOT_COPIED, 'the transcript shows why']
 
 export function copiedParts(what: string, lines: string): ToastParts {
-  return [`${TOAST_MARKS.done} Copied ${what}`, lines]
+  return [marked('done', `Copied ${what}`), lines]
 }
 
 export function copyRefusalParts(reason: CopyRefusal): ToastParts {

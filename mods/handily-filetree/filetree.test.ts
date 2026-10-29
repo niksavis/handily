@@ -1,4 +1,4 @@
-import type { FsEntry, On, RenderPropsOf, RenderSurface } from 'claude-code'
+import type { ConfigRow, ConfigValue, FsEntry, On, RenderPropsOf, RenderSurface } from 'claude-code'
 import {
   describe,
   expect,
@@ -60,6 +60,9 @@ type World = {
   opens: { id: string; title: string | undefined; focus: boolean }[]
   closes: string[]
   logs: string[]
+  config: ConfigRow[]
+  glyphs: unknown[]
+  toasts: string[]
 }
 
 type WorldOptions = { unplacedReason?: string }
@@ -177,6 +180,9 @@ function world(on: On, entries: readonly [string, FakeFolder][], options: WorldO
     opens: [],
     closes: [],
     logs: [],
+    config: [],
+    glyphs: [],
+    toasts: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: seen.cwd }))
@@ -221,7 +227,19 @@ function world(on: On, entries: readonly [string, FakeFolder][], options: WorldO
     seen.logs.push(e.text)
     return { value: undefined }
   })
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_$, e) => {
+    seen.toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('config.list', () => ({ value: seen.config }))
+  on('config.set', (_$, e) => {
+    seen.config = seen.config.map((row) => (row.key === e.key ? { ...row, value: e.value } : row))
+    return { value: e.value }
+  })
+  on('state.set', { plugin: PLUGIN, key: 'glyphs' }, (_$, e, next) => {
+    seen.glyphs.push(e.value)
+    return next(e)
+  })
   fakeGit(on, seen)
   return seen
 }
@@ -5324,4 +5342,80 @@ describe('git colours and line counts: review repairs', () => {
       await ui.unmount()
     })
   }
+})
+
+const GLYPHS_KEY = 'handily.glyphs'
+
+function glyphsRow(value: ConfigValue): ConfigRow {
+  return {
+    key: GLYPHS_KEY,
+    label: 'Glyphs',
+    kind: 'choice',
+    value,
+    options: ['plain', 'nerd'],
+    provider: { plugin: 'handily@niksavis', tier: 'user' },
+    isLocked: false,
+  }
+}
+
+async function setRow($: Engine, key: string, value: ConfigValue, plugin: string): Promise<void> {
+  await $.config.set({
+    key,
+    value,
+    previous: 'plain',
+    provider: { plugin, tier: 'user' },
+    origin: { kind: 'composer' },
+  })
+}
+
+async function copyDesignPath($: Engine, seen: World, surface: RenderSurface): Promise<void> {
+  textFile(seen, 'docs/design.md', 'text\n')
+  const ui = await openFiles($, seen, surface)
+  await openRow(ui, ['docs'], 'docs/design.md')
+  await ui.press({ key: 'copy-path' })
+  await ui.unmount()
+}
+
+describe('the glyph setting', () => {
+  for (const surface of SURFACES) {
+    test(`keeps glyphs nerd from the handily row at session start and draws the copy toast with the nerd done icon on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      seen.config = [glyphsRow('nerd')]
+      on('ui.copy', () => ({ value: { isCopied: true as const } }))
+      await copyDesignPath($, seen, surface)
+      expect(seen.glyphs).toEqual(['nerd'])
+      expect(seen.toasts).toHaveLength(1)
+      expect(seen.toasts[0]?.startsWith('\u{EAB2} Copied ')).toBe(true)
+    })
+
+    test(`keeps glyphs plain with no glyphs row and draws the plain copy toast on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      on('ui.copy', () => ({ value: { isCopied: true as const } }))
+      await copyDesignPath($, seen, surface)
+      expect(seen.glyphs).toEqual(['plain'])
+      expect(seen.toasts).toHaveLength(1)
+      expect(seen.toasts[0]?.startsWith('\u2713 Copied ')).toBe(true)
+    })
+  }
+
+  test('reads the setting again after a config set of the glyphs row, and not after another row', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    seen.config = [glyphsRow('plain')]
+    await start($)
+    seen.config = [glyphsRow('nerd')]
+    await setRow($, 'theme', 'light', 'engine')
+    await setRow($, 'handily-filetree.glyphs', 'nerd', 'handily-filetree@niksavis')
+    expect(seen.glyphs).toEqual(['plain'])
+    await setRow($, GLYPHS_KEY, 'nerd', 'handily@niksavis')
+    expect(seen.glyphs).toEqual(['plain', 'nerd'])
+  })
+
+  test('draws the blocked mark of a refused copy from the setting', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    seen.config = [glyphsRow('nerd')]
+    on('ui.copy', () => ({ value: { isCopied: false as const, reason: 'refused' as const } }))
+    await copyDesignPath($, seen, 'terminal')
+    expect(seen.toasts).toHaveLength(1)
+    expect(seen.toasts[0]?.startsWith('\u{EA87} Not copied ')).toBe(true)
+  })
 })

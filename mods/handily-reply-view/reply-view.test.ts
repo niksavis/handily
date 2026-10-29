@@ -1,4 +1,11 @@
-import type { On, PromptOrigin, RenderPropsOf, UiCopyResult } from 'claude-code'
+import type {
+  ConfigRow,
+  ConfigValue,
+  On,
+  PromptOrigin,
+  RenderPropsOf,
+  UiCopyResult,
+} from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import { displayWidth, graphemesOf } from './hooks/width'
 import { parseMermaid, type Flowchart, type Refusal, type SequenceDiagram } from './hooks/mermaid'
@@ -41,6 +48,8 @@ type World = {
   commandDescriptions: string[]
   debugLogs: string[]
   pluginConfigs: unknown
+  config: ConfigRow[]
+  glyphs: unknown[]
 }
 
 function toastLines(text: string): string[] {
@@ -67,8 +76,19 @@ function engineBeneath(on: On): World {
     commandDescriptions: [],
     debugLogs: [],
     pluginConfigs: undefined,
+    config: [],
+    glyphs: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('config.list', () => ({ value: world.config }))
+  on('config.set', (_$, e) => {
+    world.config = world.config.map((row) => (row.key === e.key ? { ...row, value: e.value } : row))
+    return { value: e.value }
+  })
+  on('state.set', { plugin: 'handily-reply-view', key: 'glyphs' }, (_$, e, next) => {
+    world.glyphs.push(e.value)
+    return next(e)
+  })
   on('settings.read', () => ({
     value: world.pluginConfigs === undefined ? {} : { pluginConfigs: world.pluginConfigs },
   }))
@@ -5075,4 +5095,79 @@ describe('colour pass', () => {
       await ui.unmount()
     },
   )
+})
+
+const GLYPHS_KEY = 'handily.glyphs'
+
+function glyphsRow(value: ConfigValue): ConfigRow {
+  return {
+    key: GLYPHS_KEY,
+    label: 'Glyphs',
+    kind: 'choice',
+    value,
+    options: ['plain', 'nerd'],
+    provider: { plugin: 'handily@niksavis', tier: 'user' },
+    isLocked: false,
+  }
+}
+
+async function setRow($: Engine, key: string, plugin: string): Promise<void> {
+  await $.config.set({
+    key,
+    value: 'nerd',
+    previous: 'plain',
+    provider: { plugin, tier: 'user' },
+    origin: { kind: 'composer' },
+  })
+}
+
+describe('the glyph setting', () => {
+  for (const surface of SURFACES) {
+    test(`keeps glyphs nerd from the handily row at session start and draws the copy toasts with the nerd icons on ${surface}`, async ($, on) => {
+      const world = engineBeneath(on)
+      world.config = [glyphsRow('nerd')]
+      await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+      expect(world.glyphs).toEqual(['nerd'])
+      const ui = await mountReply($, reply(LONG_REPLY), surface)
+      await ui.press({ key: 'copy-reply' })
+      world.copyResult = { isCopied: false, reason: 'no-clipboard' }
+      await ui.press({ key: 'copy-reply' })
+      expect(world.toasts).toEqual([
+        { lines: ['\u{EAB2} Copied the reply as markdown', '54 lines'], timeoutMs: 6000 },
+        {
+          lines: [
+            '\u{EA87} Not copied',
+            'the clipboard took nothing',
+            'a long text may not fit this terminal',
+          ],
+          timeoutMs: 10000,
+        },
+      ])
+      await ui.unmount()
+    })
+
+    test(`keeps glyphs plain with no glyphs row and draws the plain copy toast on ${surface}`, async ($, on) => {
+      const world = engineBeneath(on)
+      await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+      expect(world.glyphs).toEqual(['plain'])
+      const ui = await mountReply($, reply(LONG_REPLY), surface)
+      await ui.press({ key: 'copy-reply' })
+      expect(world.toasts).toEqual([
+        { lines: ['\u2713 Copied the reply as markdown', '54 lines'], timeoutMs: 6000 },
+      ])
+      await ui.unmount()
+    })
+  }
+
+  test('reads the setting again after a config set of the glyphs row, and not after another row', async ($, on) => {
+    const world = engineBeneath(on)
+    world.config = [glyphsRow('plain')]
+    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    world.config = [glyphsRow('nerd')]
+    await setRow($, 'theme', 'engine')
+    await setRow($, 'handily-reply-view.glyphs', 'handily-reply-view@niksavis')
+    expect(world.glyphs).toEqual(['plain'])
+    await setRow($, GLYPHS_KEY, 'handily@niksavis')
+    expect(world.glyphs).toEqual(['plain', 'nerd'])
+  })
 })

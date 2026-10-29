@@ -1,17 +1,24 @@
-import type { EngineInterface } from 'claude-code'
+import type { ConfigRow, ConfigSetInput, EngineInterface } from 'claude-code'
+import {
+  DEFAULT_GLYPHS,
+  GLYPH_SETS,
+  glyphRowOf,
+  glyphSettingOf,
+  isGlyphSettingOwner,
+  type GlyphRole,
+  type GlyphSetting,
+} from './glyphs'
 import { displayWidth, fitted, padToWidth } from './width'
 
 export const TOAST_COLUMNS = 40
 
-export const TOAST_MARKS = {
-  doing: '▶',
-  done: '✓',
-  toDo: '○',
-  blocked: '■',
-  waitsForYou: '◆',
-} as const
+export type ToastRole = Extract<GlyphRole, 'doing' | 'done' | 'toDo' | 'blocked' | 'waitsForYou'>
 
-export type ToastPart = string | { readonly quoted: string }
+export type ToastMark = { readonly mark: ToastRole }
+
+export type ToastLine = readonly (string | ToastMark)[]
+
+export type ToastPart = string | ToastLine | { readonly quoted: string }
 
 export type ToastParts = readonly [ToastPart, ...ToastPart[]]
 
@@ -24,9 +31,13 @@ const MS_PER_CELL = 80
 const SHORTEST_MS = 6000
 const LONGEST_MS = 15000
 const SHORTEST_MS_TO_ACT = 10000
-const MARKS_TO_ACT: readonly string[] = [TOAST_MARKS.blocked, TOAST_MARKS.waitsForYou]
+const ROLES_TO_ACT: readonly ToastRole[] = ['blocked', 'waitsForYou']
 const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 const UNSAFE_IN_QUOTES = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
+
+export function marked(role: ToastRole, text: string): ToastLine {
+  return [{ mark: role }, ` ${text}`]
+}
 
 function escapedUnits(text: string): string {
   return Array.from(
@@ -52,11 +63,19 @@ function quotedToWidth(text: string, columns: number): string {
   return `${QUOTE}${kept.trimEnd()}${CUT_MARK}${QUOTE}`
 }
 
-function shownPart(part: ToastPart, columns: number): string {
-  return typeof part === 'string' ? fitted(part, columns) : quotedToWidth(part.quoted, columns)
+function lineText(line: ToastLine, glyphs: GlyphSetting): string {
+  return line
+    .map((piece) => (typeof piece === 'string' ? piece : GLYPH_SETS[glyphs][piece.mark]))
+    .join('')
 }
 
-function shownParts(parts: ToastParts): string[] {
+function shownPart(part: ToastPart, columns: number, glyphs: GlyphSetting): string {
+  if (typeof part === 'string') return fitted(part, columns)
+  if ('quoted' in part) return quotedToWidth(part.quoted, columns)
+  return fitted(lineText(part, glyphs), columns)
+}
+
+function shownParts(parts: ToastParts, glyphs: GlyphSetting): string[] {
   if (parts.length > MOST_LINES) {
     throw new Error(
       `a toast shows at most ${String(MOST_LINES)} lines; it got ${String(parts.length)} parts`,
@@ -64,12 +83,12 @@ function shownParts(parts: ToastParts): string[] {
   }
   const last = parts.length - 1
   return parts.map((part, index) =>
-    shownPart(part, index === last ? TOAST_COLUMNS : TOAST_COLUMNS - LINE_BREAK_ROOM),
+    shownPart(part, index === last ? TOAST_COLUMNS : TOAST_COLUMNS - LINE_BREAK_ROOM, glyphs),
   )
 }
 
-export function toastText(parts: ToastParts): string {
-  const shown = shownParts(parts)
+export function toastText(parts: ToastParts, glyphs: GlyphSetting): string {
+  const shown = shownParts(parts, glyphs)
   const last = shown.length - 1
   return shown
     .map((part, index) => (index === last ? part : padToWidth(part, TOAST_COLUMNS)))
@@ -78,16 +97,56 @@ export function toastText(parts: ToastParts): string {
 
 function isToAct(parts: ToastParts): boolean {
   return parts.some(
-    (part) => typeof part === 'string' && MARKS_TO_ACT.some((mark) => part.includes(mark)),
+    (part) =>
+      typeof part !== 'string' &&
+      !('quoted' in part) &&
+      part.some((piece) => typeof piece !== 'string' && ROLES_TO_ACT.includes(piece.mark)),
   )
 }
 
-export function toastMs(parts: ToastParts): number {
-  const cells = shownParts(parts).reduce((sum, part) => sum + displayWidth(part), 0)
+export function toastMs(parts: ToastParts, glyphs: GlyphSetting): number {
+  const cells = shownParts(parts, glyphs).reduce((sum, part) => sum + displayWidth(part), 0)
   const ms = Math.min(Math.max(BASE_MS + MS_PER_CELL * cells, SHORTEST_MS), LONGEST_MS)
   return isToAct(parts) ? Math.max(ms, SHORTEST_MS_TO_ACT) : ms
 }
 
-export function showToast($: EngineInterface, parts: ToastParts): void {
-  $.ui.toast(toastText(parts), { timeoutMs: toastMs(parts) })
+export function showToast($: EngineInterface, parts: ToastParts, glyphs: GlyphSetting): void {
+  $.ui.toast(toastText(parts, glyphs), { timeoutMs: toastMs(parts, glyphs) })
+}
+
+function logged($: EngineInterface, error: unknown): GlyphSetting {
+  $.ui.log(error instanceof Error ? error.message : String(error), { to: 'debug' })
+  return DEFAULT_GLYPHS
+}
+
+function glyphSettingIn($: EngineInterface, rows: readonly ConfigRow[]): GlyphSetting {
+  try {
+    return glyphSettingOf(rows)
+  } catch (error) {
+    return logged($, error)
+  }
+}
+
+async function configRows($: EngineInterface): Promise<readonly ConfigRow[] | Error> {
+  try {
+    return await $.config.list()
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error))
+  }
+}
+
+export async function glyphSettingNow($: EngineInterface): Promise<GlyphSetting> {
+  const rows = await configRows($)
+  return rows instanceof Error ? logged($, rows) : glyphSettingIn($, rows)
+}
+
+export async function changedGlyphSetting(
+  $: EngineInterface,
+  e: ConfigSetInput,
+): Promise<GlyphSetting | undefined> {
+  if (!isGlyphSettingOwner(e.provider.plugin)) return undefined
+  const rows = await configRows($)
+  if (rows instanceof Error) return logged($, rows)
+  if (glyphRowOf(rows)?.key !== e.key) return undefined
+  return glyphSettingIn($, rows)
 }

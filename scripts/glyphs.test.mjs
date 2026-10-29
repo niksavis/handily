@@ -1,15 +1,37 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { differingCopies, keepersOf, withModsTree } from './copies.mjs'
+import { differingCopies, filesUnder, keepersOf, withModsTree } from './copies.mjs'
 import { GLYPHS } from './fixtures/glyphs.mjs'
+import { APPROVED } from './fixtures/signals.mjs'
 
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const GLYPH_FILE = 'glyphs.ts'
-const GLYPH_MODS = ['handily']
+const GLYPH_MODS = [
+  'handily',
+  'handily-board',
+  'handily-filetree',
+  'handily-item-toasts',
+  'handily-reply-view',
+  'handily-simple-view',
+]
+const LITERAL_FREE_MODS = ['handily-item-toasts', 'handily-reply-view', 'handily-simple-view']
+const LITERAL_EXCEPTIONS = [
+  {
+    file: 'mods/handily-reply-view/hooks/flowchart.ts',
+    glyph: '▶',
+    why: 'the arrow head of a flowchart edge',
+  },
+  {
+    file: 'mods/handily-reply-view/hooks/sequence.ts',
+    glyph: '▶',
+    why: 'the arrow head of a sequence message',
+  },
+]
+const MARK_ROLES = Object.keys(APPROVED)
 const SETS = ['plain', 'nerd']
 const NERD_FIRST = 0xe000
 const NERD_LAST = 0xf8ff
@@ -438,6 +460,133 @@ describe('the glyph sets', () => {
     assert.deepEqual(
       inventoryRows(design.replace('U+EB2D', 'U+EB2C')),
       fixtureInventory({ doing: GLYPHS.doing }),
+    )
+  })
+})
+
+function markPatterns() {
+  return MARK_ROLES.flatMap((role) =>
+    SETS.map((setName) => {
+      const { plain, nerd } = GLYPHS[role]
+      const code = setName === 'plain' ? plain.codePointAt(0) : nerd
+      const hex = code.toString(16)
+      return {
+        role,
+        setName,
+        glyph: String.fromCodePoint(code),
+        pattern: new RegExp(
+          `${String.fromCodePoint(code)}|\\\\u\\{0*${hex}\\}|\\\\u${hex.padStart(4, '0')}`,
+          'i',
+        ),
+      }
+    }),
+  )
+}
+
+function shownPath(dir, path) {
+  return relative(join(dir, '..'), path).split(sep).join('/')
+}
+
+function marksInFile(dir, path) {
+  const file = shownPath(dir, path)
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .flatMap((line, index) =>
+      markPatterns()
+        .filter(({ pattern }) => pattern.test(line))
+        .map(({ role, setName, glyph }) => ({ file, line: index + 1, role, setName, glyph })),
+    )
+}
+
+function literalMarks(dir, mods, exceptions) {
+  const found = mods
+    .filter((mod) => existsSync(join(dir, mod, 'hooks')))
+    .flatMap((mod) => filesUnder(join(dir, mod, 'hooks')))
+    .filter((path) => !path.endsWith(`${sep}${GLYPH_FILE}`))
+    .sort()
+    .flatMap((path) => marksInFile(dir, path))
+  const isExcepted = (mark) =>
+    exceptions.some(({ file, glyph }) => file === mark.file && glyph === mark.glyph)
+  const unexcepted = found
+    .filter((mark) => !isExcepted(mark))
+    .map(
+      ({ file, line, role, setName, glyph }) =>
+        `${file}:${String(line)} writes the ${setName} glyph of ${role}, ${glyphText(glyph)}, as a literal; name the role and draw it from hooks/glyphs.ts`,
+    )
+  const stale = exceptions
+    .filter(({ file, glyph }) => !found.some((mark) => mark.file === file && mark.glyph === glyph))
+    .map(
+      ({ file, glyph }) =>
+        `LITERAL_EXCEPTIONS names ${glyphText(glyph)} in ${file}, which no longer writes it; remove the exception`,
+    )
+  return [...unexcepted, ...stale]
+}
+
+describe('the literal free gate', () => {
+  test('no mod in LITERAL_FREE_MODS writes a signal mark of either set as a literal outside hooks/glyphs.ts', () => {
+    assert.deepEqual(literalMarks(modsDir, LITERAL_FREE_MODS, LITERAL_EXCEPTIONS), [])
+  })
+
+  test('each named exception says why the glyph is not a signal mark', () => {
+    for (const { file, why } of LITERAL_EXCEPTIONS) {
+      assert.ok(
+        LITERAL_FREE_MODS.some((mod) => file.startsWith(`mods/${mod}/hooks/`)),
+        file,
+      )
+      assert.match(why, /arrow/)
+    }
+  })
+
+  test('mods/handily-filetree/hooks/register.ts writes no signal mark as a literal', () => {
+    const path = join(modsDir, 'handily-filetree', 'hooks', 'register.ts')
+    assert.deepEqual(marksInFile(modsDir, path), [])
+  })
+
+  test('names a raw mark, an escaped mark and a nerd icon, and keeps hooks/glyphs.ts, a test and a separator', () => {
+    withModsTree(
+      {
+        'mods/mod-a/hooks/register.ts': "showToast($, ['\u25a0 Tree did not change'])\n",
+        'mods/mod-a/hooks/nested/copy.ts': "const DONE = '\\u2713'\nconst BELL = '\\u{EAA2}'\n",
+        'mods/mod-a/hooks/upper.ts': "const BLOCKED = '\\u{ea87}'\nconst OPEN = '\\u25CB'\n",
+        'mods/mod-a/hooks/glyphs.ts': "export const BLOCKED = '\u25a0'\n",
+        'mods/mod-a/hooks/gap.ts': "const GAP = ' \u00b7 '\n",
+        'mods/mod-a/mod-a.test.ts': "expect(text).toBe('\u25a0 Not copied')\n",
+      },
+      (dir) => {
+        assert.deepEqual(literalMarks(dir, ['mod-a'], []), [
+          'mods/mod-a/hooks/nested/copy.ts:1 writes the plain glyph of done, U+2713, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/nested/copy.ts:2 writes the nerd glyph of waitsForYou, U+EAA2, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/register.ts:1 writes the plain glyph of blocked, U+25A0, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/upper.ts:1 writes the nerd glyph of blocked, U+EA87, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/upper.ts:2 writes the plain glyph of toDo, U+25CB, as a literal; name the role and draw it from hooks/glyphs.ts',
+        ])
+      },
+    )
+  })
+
+  test('keeps a named exception only for its glyph in its file, and names a stale exception', () => {
+    withModsTree(
+      {
+        'mods/mod-a/hooks/arrow.ts': "const HEAD = '\u25b6'\nconst FAIL = '\u25a0'\n",
+        'mods/mod-a/hooks/other.ts': "const HEAD = '\u25b6'\n",
+      },
+      (dir) => {
+        assert.deepEqual(
+          literalMarks(
+            dir,
+            ['mod-a'],
+            [
+              { file: 'mods/mod-a/hooks/arrow.ts', glyph: '\u25b6', why: 'an arrow' },
+              { file: 'mods/mod-a/hooks/gone.ts', glyph: '\u25b6', why: 'an arrow' },
+            ],
+          ),
+          [
+            'mods/mod-a/hooks/arrow.ts:2 writes the plain glyph of blocked, U+25A0, as a literal; name the role and draw it from hooks/glyphs.ts',
+            'mods/mod-a/hooks/other.ts:1 writes the plain glyph of doing, U+25B6, as a literal; name the role and draw it from hooks/glyphs.ts',
+            'LITERAL_EXCEPTIONS names U+25B6 in mods/mod-a/hooks/gone.ts, which no longer writes it; remove the exception',
+          ],
+        )
+      },
     )
   })
 })

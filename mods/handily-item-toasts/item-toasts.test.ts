@@ -1,4 +1,11 @@
-import type { EngineInterface, On, PluginState, ToolCallInput } from 'claude-code'
+import type {
+  ConfigRow,
+  ConfigValue,
+  EngineInterface,
+  On,
+  PluginState,
+  ToolCallInput,
+} from 'claude-code'
 import {
   describe,
   expect,
@@ -27,6 +34,7 @@ const START = 1_000_000
 const TICK_MS = 2000
 const WINDOW_MS = 30_000
 const SURFACES = ['terminal', 'desktop'] as const
+const GLYPHS_KEY = 'handily.glyphs'
 const MALFORMED = '.beads/issues.jsonl line 4 is malformed.'
 const FAILED_TOAST = ['■ Work items unavailable', '.beads/issues.jsonl line 4 is malformed.']
 const AB12_CLOSED = ['✓ handily-ab12 closed', '"Draw text mocks for the mods"']
@@ -218,6 +226,9 @@ type World = {
   classifyError: boolean
   trackerFileError: boolean
   unanswered: string[]
+  glyphs: ConfigValue | undefined
+  otherRows: ConfigRow[]
+  storedGlyphs: unknown[]
 }
 
 type CallPlan = {
@@ -346,7 +357,26 @@ function newWorld(): World {
     classifyError: false,
     trackerFileError: false,
     unanswered: [],
+    glyphs: undefined,
+    otherRows: [],
+    storedGlyphs: [],
   }
+}
+
+function glyphsRow(value: ConfigValue): ConfigRow {
+  return {
+    key: GLYPHS_KEY,
+    label: 'Glyphs',
+    kind: 'choice',
+    value,
+    options: ['plain', 'nerd'],
+    provider: { plugin: 'handily@niksavis', tier: 'user' },
+    isLocked: false,
+  }
+}
+
+function configRows(world: World): ConfigRow[] {
+  return [...world.otherRows, ...(world.glyphs === undefined ? [] : [glyphsRow(world.glyphs)])]
 }
 
 function fakeRule(world: World, path: string): { value: string } | { deny: string } | null {
@@ -372,6 +402,15 @@ function engineBeneath(on: On, world: World): MockClock {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('config.list', () => ({ value: configRows(world) }))
+  on('state.set', { plugin: 'handily-item-toasts', key: 'glyphs' }, (_$, e, next) => {
+    world.storedGlyphs.push(e.value)
+    return next(e)
+  })
+  on('config.set', (_$, e) => {
+    if (e.key === GLYPHS_KEY) world.glyphs = e.value
+    return { value: e.value }
+  })
   on('ui.toast', (_$, e) => {
     world.toasts.push(boxLines(e.text))
     world.toastMs.push(e.timeoutMs)
@@ -732,7 +771,7 @@ describe('the rate limit', () => {
       change('closed', 'a-2', 'closed'),
       change('closed', 'a-3', 'closed'),
     ])
-    expect(boxLines(toastText(parts))).toEqual([
+    expect(boxLines(toastText(parts, 'plain'))).toEqual([
       '3 items changed',
       '✓ 2 closed  ○ 1 updated',
       'a-1 a-2 +1',
@@ -744,7 +783,7 @@ describe('the rate limit', () => {
       change('updated', 'a-1', 'open'),
       change('updated', 'a-2', 'in_progress'),
     ])
-    expect(boxLines(toastText(parts))).toEqual([
+    expect(boxLines(toastText(parts, 'plain'))).toEqual([
       '2 items changed',
       '○ 1 updated  ▶ 1 updated',
       'a-1 a-2',
@@ -757,13 +796,13 @@ describe('the rate limit', () => {
       change('closed', 'a-2', 'closed'),
       change('updated', 'a-3', 'blocked'),
     ])
-    expect(boxLines(toastText(parts))).toEqual([
+    expect(boxLines(toastText(parts, 'plain'))).toEqual([
       '3 items changed',
       '✓ 2 closed  ■ 1 updated',
       'a-1 a-2 +1',
     ])
-    expect(lengthRuleMs(boxLines(toastText(parts)))).toBeLessThan(10_000)
-    expect(toastMs(parts)).toBe(10_000)
+    expect(lengthRuleMs(boxLines(toastText(parts, 'plain')))).toBeLessThan(10_000)
+    expect(toastMs(parts, 'plain')).toBe(10_000)
   })
 
   const STATUS_MARKS: readonly [Change['status'], string][] = [
@@ -777,7 +816,7 @@ describe('the rate limit', () => {
   for (const [status, mark] of STATUS_MARKS) {
     test(`marks an item whose new status is ${status} with ${mark}`, () => {
       const [head] = changesParts([change('updated', 'a-1', status)])
-      expect(head).toBe(`${mark} a-1 updated`)
+      expect(toastText([head], 'plain')).toBe(`${mark} a-1 updated`)
     })
   }
 })
@@ -1469,11 +1508,10 @@ describe('/item-toasts', () => {
 
 describe('the toast layout', () => {
   test('cuts only a long quoted title, and the head and the hint keep their own lines', () => {
-    const text = toastText([
-      '✓ handily-gh78 closed',
-      { quoted: LONG.title },
-      'Run it in a shell to see why.',
-    ])
+    const text = toastText(
+      ['✓ handily-gh78 closed', { quoted: LONG.title }, 'Run it in a shell to see why.'],
+      'plain',
+    )
     expect(boxLines(text)).toEqual([
       '✓ handily-gh78 closed',
       '"Write the beads reader so the provid…"',
@@ -1483,14 +1521,14 @@ describe('the toast layout', () => {
 
   test('cuts a head that is longer than its line with an ellipsis', () => {
     const head = `✓ handily-${'x'.repeat(40)} closed`
-    expect(boxLines(toastText([head, { quoted: 'Fix the parser' }]))).toEqual([
+    expect(boxLines(toastText([head, { quoted: 'Fix the parser' }], 'plain'))).toEqual([
       `✓ handily-${'x'.repeat(28)}…`,
       '"Fix the parser"',
     ])
   })
 
   test('escapes a quote, a backslash and a line break of the title', () => {
-    expect(boxLines(toastText(['○ a-1 created', { quoted: 'Say "hi"\\\nnow' }]))).toEqual([
+    expect(boxLines(toastText(['○ a-1 created', { quoted: 'Say "hi"\\\nnow' }], 'plain'))).toEqual([
       '○ a-1 created',
       '"Say \\"hi\\"\\\\\\nnow"',
     ])
@@ -1498,7 +1536,7 @@ describe('the toast layout', () => {
 
   test('cuts a title before an escape, never inside it', () => {
     const title = `${'a'.repeat(36)}\nb`
-    expect(boxLines(toastText(['○ a-1 created', { quoted: title }]))).toEqual([
+    expect(boxLines(toastText(['○ a-1 created', { quoted: title }], 'plain'))).toEqual([
       '○ a-1 created',
       `"${'a'.repeat(36)}…"`,
     ])
@@ -1506,25 +1544,25 @@ describe('the toast layout', () => {
 
   test('cuts a wide title at a whole grapheme', () => {
     const title = '\u6f22'.repeat(25)
-    const [, line = ''] = boxLines(toastText(['○ a-1 created', { quoted: title }]))
+    const [, line = ''] = boxLines(toastText(['○ a-1 created', { quoted: title }], 'plain'))
     expect(line).toBe(`"${'\u6f22'.repeat(18)}…"`)
     expect(displayWidth(line)).toBe(39)
   })
 
   test('puts the first sentence of a failure on its own line and the rest as the hint', () => {
     const parts = failedParts('basicly tracker items exited 2. Run it in a shell to see why.')
-    expect(boxLines(toastText(parts))).toEqual([
+    expect(boxLines(toastText(parts, 'plain'))).toEqual([
       '■ Work items unavailable',
       'basicly tracker items exited 2.',
       'Run it in a shell to see why.',
     ])
-    expect(toastMs(parts)).toBe(10_000)
+    expect(toastMs(parts, 'plain')).toBe(10_000)
   })
 
   test('keeps a sentence end inside quoted adapter text in the reason line', () => {
     const reason =
       '.handily/adapter.json says contract "1. beta", which is not the number 1, so it could not be read.'
-    expect(boxLines(toastText(failedParts(reason)))).toEqual([
+    expect(boxLines(toastText(failedParts(reason), 'plain'))).toEqual([
       '■ Work items unavailable',
       '.handily/adapter.json says contract "1.…',
     ])
@@ -1532,7 +1570,7 @@ describe('the toast layout', () => {
 
   test('splits a failure after quoted text at the sentence end that follows it', () => {
     const parts = failedParts('x says contract "a. b\\". c". Run it in a shell.')
-    expect(boxLines(toastText(parts))).toEqual([
+    expect(boxLines(toastText(parts, 'plain'))).toEqual([
       '■ Work items unavailable',
       'x says contract "a. b\\". c".',
       'Run it in a shell.',
@@ -1541,19 +1579,152 @@ describe('the toast layout', () => {
 
   test('keeps a mark that the tracker title holds from raising the time', () => {
     const parts = ['○ a-1 created', { quoted: '◆ ■ x' }] as const
-    expect(toastMs(parts)).toBe(lengthRuleMs(boxLines(toastText(parts))))
-    expect(toastMs(parts)).toBe(6000)
+    expect(toastMs(parts, 'plain')).toBe(lengthRuleMs(boxLines(toastText(parts, 'plain'))))
+    expect(toastMs(parts, 'plain')).toBe(6000)
   })
 
   test('counts each visible cell of three full lines', () => {
     const line = 'x'.repeat(39)
     const parts = [line, line, `${line}y`] as const
-    expect(toastMs(parts)).toBe(2000 + 80 * 118)
+    expect(toastMs(parts, 'plain')).toBe(2000 + 80 * 118)
   })
 
   test('refuses a fourth part by name', () => {
-    expect(() => toastText(['a', 'b', 'c', 'd'])).toThrow(
+    expect(() => toastText(['a', 'b', 'c', 'd'], 'plain')).toThrow(
       'a toast shows at most 3 lines; it got 4 parts',
     )
+  })
+})
+
+const NERD_AB12_CLOSED = ['\u{EAB2} handily-ab12 closed', '"Draw text mocks for the mods"']
+
+function storedGlyphs(world: World): unknown {
+  return world.storedGlyphs.at(-1)
+}
+
+async function setRow($: Engine, key: string, value: ConfigValue, plugin: string): Promise<void> {
+  await $.config.set({
+    key,
+    value,
+    previous: 'plain',
+    provider: { plugin, tier: 'user' },
+    origin: { kind: 'composer' },
+  })
+}
+
+async function closeAb12Elsewhere(world: World, $: Engine, clock: MockClock): Promise<void> {
+  elsewhere(world, { diff: { ...emptyDiff(), closed: [updated(AB12, 'closed')] } })
+  await pollAndTick($, clock)
+}
+
+describe('the glyph setting', () => {
+  for (const surface of SURFACES) {
+    toastTest(
+      `keeps glyphs nerd from the handily row at session start and begins the closed toast with U+EAB2 on ${surface}`,
+      async (world, $, clock) => {
+        world.glyphs = 'nerd'
+        await startSession($, surface)
+        expect(storedGlyphs(world)).toBe('nerd')
+        await closeAb12Elsewhere(world, $, clock)
+        expect(world.toasts).toEqual([NERD_AB12_CLOSED])
+        expect(world.toasts[0]?.[0]?.codePointAt(0)).toBe(0xeab2)
+        expect(world.toastMs).toEqual([6080])
+      },
+    )
+
+    toastTest(
+      `keeps glyphs plain and draws the plain set with no glyphs row on ${surface}`,
+      async (world, $, clock) => {
+        await startSession($, surface)
+        expect(storedGlyphs(world)).toBe('plain')
+        await closeAb12Elsewhere(world, $, clock)
+        expect(world.toasts).toEqual([AB12_CLOSED])
+        expect(world.toastMs).toEqual([6080])
+      },
+    )
+  }
+
+  toastTest(
+    'reads the setting again after a config set of the glyphs row',
+    async (world, $, clock) => {
+      await startSession($)
+      expect(storedGlyphs(world)).toBe('plain')
+      await setRow($, GLYPHS_KEY, 'nerd', 'handily@niksavis')
+      expect(storedGlyphs(world)).toBe('nerd')
+      await closeAb12Elsewhere(world, $, clock)
+      expect(world.toasts).toEqual([NERD_AB12_CLOSED])
+    },
+  )
+
+  toastTest('keeps the setting after a config set of another row', async (world, $) => {
+    await startSession($)
+    world.glyphs = 'nerd'
+    await setRow($, 'theme', 'light', 'engine')
+    await setRow($, 'handily.mode', 'on', 'handily@niksavis')
+    expect(storedGlyphs(world)).toBe('plain')
+    await setRow($, 'handily-board.glyphs', 'nerd', 'handily-board@niksavis')
+    expect(storedGlyphs(world)).toBe('plain')
+    await setRow($, GLYPHS_KEY, 'nerd', 'handily@niksavis')
+    expect(storedGlyphs(world)).toBe('nerd')
+  })
+
+  toastTest(
+    'logs a stored value outside plain and nerd and draws plain',
+    async (world, $, clock) => {
+      world.glyphs = 'nerdfont'
+      await startSession($)
+      expect(storedGlyphs(world)).toBe('plain')
+      expect(world.logs).toContain(
+        'handily: userConfig glyphs is "nerdfont"; set it to plain or nerd in /config.',
+      )
+      await closeAb12Elsewhere(world, $, clock)
+      expect(world.toasts).toEqual([AB12_CLOSED])
+    },
+  )
+
+  toastTest('keeps a blocked item 10 s with the nerd icon', async (world, $, clock) => {
+    world.glyphs = 'nerd'
+    await startSession($)
+    elsewhere(world, { diff: { ...emptyDiff(), updated: [updated(CD34, 'blocked')] } })
+    await pollAndTick($, clock)
+    expect(world.toasts).toEqual([
+      ['\u{EA87} handily-cd34 open → blocked', '"Write the beads reader"'],
+    ])
+    expect(world.toastMs).toEqual([10_000])
+  })
+
+  toastTest(
+    'keeps a created item with a nerd icon in its title for the length time',
+    async (world, $, clock) => {
+      world.glyphs = 'nerd'
+      await startSession($)
+      elsewhere(world, {
+        diff: { ...emptyDiff(), created: [item('a-1', '\u{EAA2} \u{EA87}', 'open')] },
+      })
+      await pollAndTick($, clock)
+      expect(world.toasts).toEqual([['\u{EBB5} a-1 created', '"\u{EAA2} \u{EA87}"']])
+      expect(world.toastMs).toEqual([6000])
+    },
+  )
+
+  test('names each mark by its role and draws it from the setting', () => {
+    const parts = changesParts([
+      change('closed', 'a-1', 'closed'),
+      change('closed', 'a-2', 'closed'),
+      change('updated', 'a-3', 'blocked'),
+    ])
+    expect(parts[1]).toEqual([
+      { mark: 'done' },
+      ' 2 closed',
+      '  ',
+      { mark: 'blocked' },
+      ' 1 updated',
+    ])
+    expect(boxLines(toastText(parts, 'nerd'))[1]).toBe('\u{EAB2} 2 closed  \u{EA87} 1 updated')
+    expect(toastMs(parts, 'nerd')).toBe(10_000)
+    expect(toastMs(parts, 'plain')).toBe(10_000)
+    const failed = failedParts('x')
+    expect(boxLines(toastText(failed, 'nerd'))).toEqual(['\u{EA87} Work items unavailable', 'x'])
+    expect(toastMs(failed, 'nerd')).toBe(10_000)
   })
 })

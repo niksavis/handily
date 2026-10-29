@@ -1,5 +1,7 @@
 export type SimpleViewMode = 'on' | 'off'
 
+export type SimpleViewGlyphs = 'plain' | 'nerd'
+
 export type SimpleViewTiming = {
   startedAt: number
   elapsedMs: number
@@ -34,6 +36,7 @@ declare module 'claude-code' {
       calls: StateFamily<SimpleViewCall>
       folds: StateFamily<SimpleViewFold>
       ready: { root: string }
+      glyphs: SimpleViewGlyphs
     }
   }
 }
