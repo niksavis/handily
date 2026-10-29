@@ -741,6 +741,11 @@ The person approved the design on 2026-10-27 (handily-xsjad.2). The approved moc
 call reports it. The event names and fields come from the generated `index.d.ts` that Claude Code
 2.1.300 wrote.
 
+References: claude-flightdeck (github.com/scasella/claude-flightdeck) at commit `f9c3c523`, MIT
+licence, by Stephen Casella. claude-agent-flow (github.com/Charlie0113-T/claude-agent-flow) at
+commit `76ef8fb`, Apache-2.0 licence, by Charles Tao. handily only read them. It copies no code
+from them and adds no dependency.
+
 The engine event behind each number:
 
 | Number on the board | Engine source |
