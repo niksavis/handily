@@ -724,6 +724,9 @@ Defer to quiet-items:
   and holds done tasks, the refusal counts them and names the remedy of the caller. The person
   gets `/board clear`. Claude and a subagent get `task_update` with the status `removed`. An
   add never removes a task to make room.
+- `/board edit` gives a task a new title (handily-9uj3n.4). It uses `titleRefusal`, the title
+  rule of `addTask`, so an add and an edit refuse the same titles. The task keeps its author: a
+  task of Claude stays quoted as data in the list, also after the person gives it a new title.
 - Every task row has `[ rm ]`, and `/board mv` places a task before another task or at an end
   of the list (handily-9uj3n.3). `/board mv` and `task_move` share `moveTask`, which now also
   takes the end of the list. Claude Code keeps the focus ring at the same index when a pane

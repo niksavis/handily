@@ -74,6 +74,7 @@ import {
   parseBoardCommand,
   personAdd,
   personClear,
+  personEdit,
   personNote,
   personPlace,
   personRemove,
@@ -931,7 +932,7 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | done <n> | start <n> | open <n> | clear | list | stats | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | clear | list | stats | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -1173,6 +1174,8 @@ export const register: Register = (on, options) => {
         return { text: (await personRemove(host, command.text)).text }
       case 'mv':
         return { text: await personPlace(host, command.text) }
+      case 'edit':
+        return { text: await personEdit(host, command.text) }
       case 'status':
         return { text: (await personStatus(host, command.text, command.word)).text }
       case 'unknown':

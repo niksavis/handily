@@ -667,7 +667,7 @@ describe('/board add and /board rm', () => {
       ]
       for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
         )
       }
     },
@@ -6675,6 +6675,104 @@ for (const surface of SURFACES) {
           ['Session  no context or cost on this host', 'No agents yet.'].join('\n'),
         )
         expect(reply).not.toMatch(/\d/)
+      },
+    )
+  })
+}
+
+const EDIT_CRITERION =
+  'When the person runs /board edit 3 new title, task 3 shows the new title and Claude receives a note naming the change'
+
+const EDIT_REFUSAL_CRITERION =
+  'When the new title is empty, too long or holds a control character, the command refuses by name and keeps the old title'
+
+const EDIT_FORM =
+  '/board edit needs a task number and a title, for example /board edit 2 Write the tests.'
+
+for (const surface of SURFACES) {
+  describe(EDIT_CRITERION, () => {
+    test(
+      `/board edit 3 gives task 3 the new title on the board and in the list on ${surface}, and the next prompt names the change`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await toldAtNextPrompt($)
+        expect(await board($, 'edit 3 Review the mocks with Ana')).toBe(
+          'Task 3 is now titled: "Review the mocks with Ana". Claude is told at your next prompt.',
+        )
+        expect(await board($, 'edit 4   Ask Ana about the tabs ')).toBe(
+          'Task 4 is now titled: Ask Ana about the tabs. Claude is told at your next prompt.',
+        )
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41)).slice(4, 6)).toEqual([
+          '○ 3 Review the mocks with Ana      [ rm ]',
+          '○ 4 You: Ask Ana about the tabs    [ rm ]',
+        ])
+        await ui.unmount()
+        expect(await toldAtNextPrompt($)).toEqual([
+          [
+            `${CHANGED} it set the title "Review the mocks with Ana" on task 3 by claude, titled "Review the mocks with Codex". it set the title "Ask Ana about the tabs" on task 4 by the person: Ask the person about tabs.`,
+            '',
+            'Tasks (1 of 4 done)',
+            '  1  done         claude   "Read the design"',
+            '  2  in progress  claude   "Write the tab mocks"',
+            '  3  pending      claude   "Review the mocks with Ana"',
+            '  4  pending      you      Ask Ana about the tabs',
+          ].join('\n'),
+        ])
+        expect(await board($, 'edit 3 Review the mocks with Ana')).toBe(
+          'Task 3 already has this title. Nothing changed.',
+        )
+        expect(await toldAtNextPrompt($)).toEqual([])
+      },
+    )
+  })
+
+  describe(EDIT_REFUSAL_CRITERION, () => {
+    test(
+      `an empty, a too long and a control character title are refused by name and the old title stays on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await toldAtNextPrompt($)
+        const before = await modelTool($, {})
+        const refusals: readonly (readonly [string, string])[] = [
+          ['edit 3', `Not changed: the new title is empty. ${EDIT_FORM}`],
+          ['edit 3   ', `Not changed: the new title is empty. ${EDIT_FORM}`],
+          [
+            `edit 3 ${'x'.repeat(201)}`,
+            'Not changed: the title has 201 characters. The limit is 200.',
+          ],
+          [
+            'edit 3 Review\u0007the mocks',
+            'Not changed: the title has a line break or a control character. Write it on one line.',
+          ],
+          [
+            'edit 3 Review\nthe mocks',
+            'Not changed: the title has a line break or a control character. Write it on one line.',
+          ],
+          [
+            'edit 3 Review \u202ethe mocks',
+            'Not changed: the title has a bidi control character, which can reorder the text. Remove it.',
+          ],
+          ['edit', EDIT_FORM],
+          ['edit three Review it', EDIT_FORM],
+          ['edit 9 Review it', 'No task 9. This session has tasks 1-4; /board list prints them.'],
+          [
+            'edit 1000000000000000000000 Review it',
+            '1000000000000000000000 is too large for a task number. /board list prints the task numbers.',
+          ],
+        ]
+        for (const [args, reply] of refusals) expect(await board($, args)).toBe(reply)
+        expect(await modelTool($, {})).toBe(before)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[4]).toBe('○ 3 Review the mocks with Codex    [ rm ]')
+        await ui.unmount()
+        expect(await toldAtNextPrompt($)).toEqual([])
       },
     )
   })

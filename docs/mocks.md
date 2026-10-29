@@ -1298,6 +1298,13 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board mv 5 before 9     -> No task 9. This session has tasks 1-7; /board list prints them.
 /board mv 5 up           -> /board mv needs a task number and a place, for example /board mv 5
                             before 2, /board mv 5 top or /board mv 5 bottom.
+/board edit 3 Review the mocks with Ana -> Task 3 is now titled: "Review the mocks with Ana".
+                            Claude is told at your next prompt.
+/board edit 3 (same title) -> Task 3 already has this title. Nothing changed.
+/board edit 3            -> Not changed: the new title is empty. /board edit needs a task number
+                            and a title, for example /board edit 2 Write the tests.
+/board edit 3 (201 characters) -> Not changed: the title has 201 characters. The limit is 200.
+/board edit 9 Review it  -> No task 9. This session has tasks 1-7; /board list prints them.
 /board done 3            -> Task 3 is now done: "Review the mocks". Claude is told at your next prompt.
 /board start 3           -> Task 3 is now in progress: "Review the mocks". Claude is told at your
                             next prompt.
@@ -1313,9 +1320,10 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board add Write it      -> Not added: the list is full at 100 tasks, and 2 of them are done.
   (100 tasks)               Run /board clear to remove the done tasks, or remove one first.
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
-                            /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>,
-                            /board start <n>, /board open <n>, /board clear, /board list,
-                            /board stats or /board close.
+                            /board rm <n>, /board mv <n> before <m>|top|bottom,
+                            /board edit <n> <title>, /board done <n>, /board start <n>,
+                            /board open <n>, /board clear, /board list, /board stats or
+                            /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
 /board list              -> the task list as text (as /task printed it; mobile and a closed board)
@@ -1332,6 +1340,10 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 - `/board mv` (handily-9uj3n.3) places a task anywhere in the list, as `task_move` does. `top` and
   `bottom` are the ends of the whole list. The board draws the tasks by status, so on the board the
   task moves inside its status group.
+- `/board edit` (handily-9uj3n.4) gives a task a new title and keeps its author, its status and
+  its place. The title rules of `/board add` refuse a title, by name, and the old title stays.
+  The note reads `it set the title "Review the mocks with Ana" on task 3 by claude, titled
+  "Review the mocks with Codex".`
 - Old commands `/task`, `/agent-board` and `/session-board` are gone with their plugins; no aliases.
 
 Each change of the person, by a command or a button, waits for the next prompt (handily-9uj3n.1).

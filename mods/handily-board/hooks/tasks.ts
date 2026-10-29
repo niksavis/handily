@@ -166,11 +166,22 @@ export function addTask(list: BoardList, title: string, source: BoardSource): Ad
   if (list.tasks.length >= MAX_TASKS) return { refusal: fullListRefusal(list, source.by) }
   const task: BoardTask = {
     id: list.nextId,
-    title: title.replace(WHITESPACE_RUN, ' '),
+    title: oneSpaced(title),
     status: 'pending',
     ...source,
   }
   return { list: { tasks: [...list.tasks, task], nextId: list.nextId + 1 }, task }
+}
+
+export function oneSpaced(title: string): string {
+  return title.replace(WHITESPACE_RUN, ' ')
+}
+
+export function setTitle(list: BoardList, id: number, title: string): BoardList {
+  return {
+    ...list,
+    tasks: list.tasks.map((task) => (task.id === id ? { ...task, title: oneSpaced(title) } : task)),
+  }
 }
 
 const DONE_REMOVAL: Record<BoardAuthor, string> = {
