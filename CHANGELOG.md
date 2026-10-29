@@ -6,6 +6,93 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily 0.9.0 - 2026-10-29
+
+### Added
+
+- **A Glyphs setting and `/handily glyphs` test a terminal for Nerd Font icons.** The bundle
+  `handily` declares the setting Glyphs in `/config`, `plain` or `nerd`, with the default
+  `plain`. `/handily glyphs` names the setting and prints the plain mark and the Nerd Font icon
+  of each of ten roles between bars, with the icon name. When each icon fills one cell, the
+  terminal has a Nerd Font Mono font. A stored value other than `plain` or `nerd` is named on
+  the first line. `/handily` with another argument names it and the accepted forms
+  (handily-5jdtf.1).
+
+## handily-board 0.18.0 - 2026-10-29
+
+### Added
+
+- **The board draws its marks from the Glyphs setting.** With Glyphs `nerd`, the this session
+  tab, the this machine tab, the task band, the plan line and the task rows in the transcript of
+  `handily-board` draw the Nerd Font icons in a terminal. The agent lanes end in the icon of
+  their state. In a session with a terminal, the status line and `/board stats` use the bell
+  icon. Each icon takes the place of one plain mark, so every line keeps its width. The running
+  call mark `▸`, the progress bar, the gate strip, the lane cells, the rules and the row bullet
+  `●` stay the same. The desktop app draws plain, whatever the setting is. An open pane draws
+  again after a change of the setting in `/config` (handily-5jdtf.3).
+- **Toasts draw their marks from the Glyphs setting.** The toasts of `handily-board`,
+  `handily-filetree`, `handily-item-toasts`, `handily-reply-view` and `handily-simple-view`
+  draw the Nerd Font icons when Glyphs is `nerd`, and the plain marks otherwise. A toast
+  without the bundle `handily`, or with a stored value other than `plain` or `nerd`, draws
+  plain. Each mod reads the setting when the session starts and after a change of it in
+  `/config`. A blocked toast and a toast that waits for you stay 10 seconds in both sets, and
+  every toast stays on screen for the same time in both sets (handily-5jdtf.2).
+
+## handily-filetree 0.12.0 - 2026-10-29
+
+### Added
+
+- **The files tab draws its marks from the Glyphs setting.** With Glyphs `nerd`, the files tab
+  in the terminal draws the Nerd Font icons for an edit, a read, a closed folder and an open
+  folder. The Files header draws the branch icon in place of the `·` before the branch. The
+  task counts line and the title of an edit step draw the same icons. The git letters, the
+  arrows, the line counts and the widths of all lines stay the same in both sets. The desktop
+  and the other surfaces draw plain. A change of the setting in `/config` draws the open tab
+  again (handily-5jdtf.4).
+- **Toasts draw their marks from the Glyphs setting.** The toasts of `handily-board`,
+  `handily-filetree`, `handily-item-toasts`, `handily-reply-view` and `handily-simple-view`
+  draw the Nerd Font icons when Glyphs is `nerd`, and the plain marks otherwise. A toast
+  without the bundle `handily`, or with a stored value other than `plain` or `nerd`, draws
+  plain. Each mod reads the setting when the session starts and after a change of it in
+  `/config`. A blocked toast and a toast that waits for you stay 10 seconds in both sets, and
+  every toast stays on screen for the same time in both sets (handily-5jdtf.2).
+
+## handily-item-toasts 0.8.0 - 2026-10-29
+
+### Added
+
+- **Toasts draw their marks from the Glyphs setting.** The toasts of `handily-board`,
+  `handily-filetree`, `handily-item-toasts`, `handily-reply-view` and `handily-simple-view`
+  draw the Nerd Font icons when Glyphs is `nerd`, and the plain marks otherwise. A toast
+  without the bundle `handily`, or with a stored value other than `plain` or `nerd`, draws
+  plain. Each mod reads the setting when the session starts and after a change of it in
+  `/config`. A blocked toast and a toast that waits for you stay 10 seconds in both sets, and
+  every toast stays on screen for the same time in both sets (handily-5jdtf.2).
+
+## handily-reply-view 0.14.0 - 2026-10-29
+
+### Added
+
+- **Toasts draw their marks from the Glyphs setting.** The toasts of `handily-board`,
+  `handily-filetree`, `handily-item-toasts`, `handily-reply-view` and `handily-simple-view`
+  draw the Nerd Font icons when Glyphs is `nerd`, and the plain marks otherwise. A toast
+  without the bundle `handily`, or with a stored value other than `plain` or `nerd`, draws
+  plain. Each mod reads the setting when the session starts and after a change of it in
+  `/config`. A blocked toast and a toast that waits for you stay 10 seconds in both sets, and
+  every toast stays on screen for the same time in both sets (handily-5jdtf.2).
+
+## handily-simple-view 0.10.0 - 2026-10-29
+
+### Added
+
+- **Toasts draw their marks from the Glyphs setting.** The toasts of `handily-board`,
+  `handily-filetree`, `handily-item-toasts`, `handily-reply-view` and `handily-simple-view`
+  draw the Nerd Font icons when Glyphs is `nerd`, and the plain marks otherwise. A toast
+  without the bundle `handily`, or with a stored value other than `plain` or `nerd`, draws
+  plain. Each mod reads the setting when the session starts and after a change of it in
+  `/config`. A blocked toast and a toast that waits for you stay 10 seconds in both sets, and
+  every toast stays on screen for the same time in both sets (handily-5jdtf.2).
+
 ## handily-board 0.17.0 - 2026-10-29
 
 ### Added

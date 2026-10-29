@@ -138,8 +138,8 @@ A box, a ? or a moved bar: this terminal has no Nerd Font Mono. Set Glyphs to pl
 ```
 
 A stored value other than `plain` or `nerd` draws plain. `/handily glyphs` names that value on
-its first line. In this release no mod draws the nerd set yet: the setting and the test come
-first (handily-5jdtf).
+its first line. With `nerd`, the board, the files tab and the toasts of every handily mod draw
+the icons in a terminal. The desktop app draws plain (handily-5jdtf).
 
 ## Old plugin ids
 
