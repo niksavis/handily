@@ -704,9 +704,11 @@ Defer to quiet-items:
     tab. That tab draws cards with no button, so its ring holds only the engine's tab row and close
     mark. Every `ui.focus` event then named `requestId` `sessions`. This was the cause of the
     report that Tab never reached a task row. Neither tmux nor the buttons of the mods caused it.
-  - The files pane behaves the same: Tab right after `/tree` reaches its agent filter. The earlier
-    finding that the hotkey `r` did not fire after ctrl+x tab may have the same cause and needs a
-    recheck.
+  - The files pane behaves the same: Tab right after `/tree` reaches its agent filter.
+  - Rechecked in tmux on Claude Code 2.1.312 (handily-ykphy): the hotkey `v` of the files tab fired
+    right after `/tree`, and again after ctrl+x tab had cycled the keyboard to the files tab. So
+    the earlier finding that `r` did not fire had the same cause: ctrl+x tab had moved the keyboard
+    to another pane. Pane hotkeys fire while their pane holds the keyboard.
 - Release 1 needs neither handily-fwkt.8.10 (needs you) nor handily-fwkt.8.11 (agents of other
   sessions). An agent with the status `waiting` draws as `on hold` until 8.10 proves which waits
   are the person's.
@@ -797,7 +799,9 @@ The numbers that the engine does not give:
   - In auto mode, `tool.check` also answered `ask`, and the classifier settled the call in about
     0.6 s with no dialog.
   - With the files pane given the keyboard by ctrl+x tab, the hotkey `r` did not fire. So the
-    hotkeys `s` and `c` are not adopted, and section 8.7 holds.
+    hotkeys `s` and `c` are not adopted, and section 8.7 holds. The recheck of handily-ykphy found
+    that ctrl+x tab had moved the keyboard to another pane, and that pane hotkeys do fire. Adopting
+    `s` and `c` is now a design choice, not a limit of the engine.
 
   So an `ask` that stays unsettled is the only sign of a waiting person.
 - No cost and no context where the host gives no usage. Then the Session line reads
