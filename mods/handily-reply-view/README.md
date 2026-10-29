@@ -216,6 +216,30 @@ that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
 
+## Diagram hints
+
+The `diagramHints` setting is `off` by default. When it is `on`, each prompt that you type
+carries one hint for Claude. The hint asks for a mermaid diagram when a flow or an exchange reads
+better as a diagram. You do not see the hint. Claude reads it after your prompt. `/replies hints`
+turns the hints on or off for this session, and keeps the choice in the `hints` key of
+`$.state`.
+
+The hint costs about 140 tokens for each prompt that you type. This count was measured on
+2026-10-29 with Claude Code 2.1.312 and the model `claude-opus-5-5`. Two `claude -p` runs of the
+same prompt differ only in a mod that adds the hint as the context of the prompt. The run with the
+hint used 22027 input tokens and the run without it used 21887, three times each. The hint text
+has 350 characters, and a test fails when it grows past 400. When the hint text changes, measure
+again and record the new count and its date here.
+
+The hint text:
+
+```text
+The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.
+```
+
+A prompt that a plugin, another session, a channel or the Remote Control bridge sends carries
+no hint.
+
 ## A sequence diagram
 
 A `sequenceDiagram` draws under the title line `── mermaid · sequence ──`:
@@ -296,14 +320,16 @@ theme:
 
 ## Settings and the command
 
-| Setting    | Default | Use                                                                                           |
-| ---------- | ------- | --------------------------------------------------------------------------------------------- |
-| `mode`     | `on`    | The mode when a session starts: `on` or `off`                                                 |
-| `diagrams` | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
+| Setting        | Default | Use                                                                                           |
+| -------------- | ------- | --------------------------------------------------------------------------------------------- |
+| `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                 |
+| `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
+| `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type     |
 
-| Command    | Effect                                                                         |
-| ---------- | ------------------------------------------------------------------------------ |
-| `/replies` | Turns the reply view off or on for this session, and replies with the new mode |
+| Command          | Effect                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| `/replies`       | Turns the reply view off or on for this session, and replies with the new mode     |
+| `/replies hints` | Turns the diagram hints off or on for this session, and replies with the new state |
 
 While the view is off, Claude Code draws every reply and every prompt unchanged.
 

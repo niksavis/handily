@@ -8,13 +8,20 @@ import { showToast } from './toast'
 
 const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
+const HINTS = { plugin: 'handily-reply-view', key: 'hints' } as const
+const HINTS_ARGUMENT = 'hints'
 const DRAWN_CHARACTERS_AT_MOST = 60_000
 
 const ON_TEXT =
   'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
+const HINTS_ON_TEXT =
+  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
+const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
-  '/replies takes no argument. It turns the reply view off or on for this session. Set the default with the plugin\'s "mode" setting.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+const DIAGRAM_HINT =
+  'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
 
 function lineCount(text: string): number {
   const kept = text.replace(/\r?\n$/, '')
@@ -30,6 +37,13 @@ async function toggle($: EngineInterface, defaultMode: ReplyViewMode): Promise<s
   const mode: ReplyViewMode = current === 'on' ? 'off' : 'on'
   await $.state.set(MODE, mode)
   return mode === 'on' ? ON_TEXT : OFF_TEXT
+}
+
+async function toggleHints($: EngineInterface, defaultHints: ReplyViewMode): Promise<string> {
+  const { value: current = defaultHints } = await $.state.get(HINTS)
+  const hints: ReplyViewMode = current === 'on' ? 'off' : 'on'
+  await $.state.set(HINTS, hints)
+  return hints === 'on' ? HINTS_ON_TEXT : HINTS_OFF_TEXT
 }
 
 async function copyText(
@@ -75,6 +89,7 @@ async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
 export const register: Register = (on, options) => {
   const defaultMode: ReplyViewMode = options.mode === 'off' ? 'off' : 'on'
   const drawsDiagrams = options.diagrams !== 'off'
+  const defaultHints: ReplyViewMode = options.diagramHints === 'on' ? 'on' : 'off'
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -88,8 +103,17 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    if (e.args.trim() !== '') return { text: USAGE_TEXT }
-    return { text: await toggle($, defaultMode) }
+    const args = e.args.trim()
+    if (args === '') return { text: await toggle($, defaultMode) }
+    if (args === HINTS_ARGUMENT) return { text: await toggleHints($, defaultHints) }
+    return { text: USAGE_TEXT }
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    if (e.origin.kind !== 'composer') return next(e)
+    const { value: hints = defaultHints } = await $.state.get(HINTS)
+    if (hints === 'off') return next(e)
+    return next({ ...e, context: [...(e.context ?? []), DIAGRAM_HINT] })
   })
 
   on('session.append', { door: ['prompt', 'delivery'] }, async ($, e, next) => {

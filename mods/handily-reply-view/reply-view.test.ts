@@ -1653,11 +1653,14 @@ describe('/replies', () => {
     ])
   })
 
-  viewTest('refuses an argument', async (_world, $) => {
-    expect(await commandText($, 'off')).toBe(
-      '/replies takes no argument. It turns the reply view off or on for this session. Set the default with the plugin\'s "mode" setting.',
-    )
-  })
+  viewTest(
+    'refuses an argument that it does not know and names the forms it takes',
+    async (_world, $) => {
+      expect(await commandText($, 'off')).toBe(
+        '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.',
+      )
+    },
+  )
 
   for (const surface of SURFACES) {
     test(
@@ -1706,6 +1709,148 @@ describe('/replies', () => {
     await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
     expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]handily-reply-view$/) }])
   })
+})
+
+const MEASURED_HINT =
+  'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
+const HINT_CHARACTERS_AT_MOST = 400
+const HINTS_ON =
+  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
+const HINTS_OFF = 'diagram hints off for this session. A prompt that you type carries no hint.'
+
+type Submitted = { text: string; wait: boolean; origin: PromptOrigin; context?: readonly string[] }
+
+function submitted(origin: PromptOrigin, context?: readonly string[]): Submitted {
+  return context === undefined
+    ? { text: PROMPT, wait: false, origin }
+    : { text: PROMPT, wait: false, origin, context }
+}
+
+function modelReads(on: On): Submitted[] {
+  const read: Submitted[] = []
+  on('prompt.submit', (_$, e) => {
+    read.push({ text: e.text, wait: e.wait, origin: e.origin, context: e.context })
+    return { text: e.text, context: e.context }
+  })
+  return read
+}
+
+function hintsTest(
+  name: string,
+  hints: 'on' | 'off' | undefined,
+  surface: Surface,
+  body: (read: Submitted[], $: Engine) => Promise<void>,
+): void {
+  const options: Record<string, string> = hints === undefined ? {} : { diagramHints: hints }
+  test(name, { options }, async ($, on) => {
+    engineBeneath(on)
+    const read = modelReads(on)
+    await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+    await body(read, $)
+  })
+}
+
+const NO_HINT_ORIGINS: readonly PromptOrigin[] = [
+  { kind: 'plugin', name: 'handily-board' },
+  { kind: 'bridge' },
+]
+
+describe('diagram hints', () => {
+  for (const surface of SURFACES) {
+    for (const hints of [undefined, 'off'] as const) {
+      hintsTest(
+        `with the diagramHints setting ${hints ?? 'left out'}, prompt.submit passes a typed prompt unchanged on ${surface}`,
+        hints,
+        surface,
+        async (read, $) => {
+          const typed = submitted({ kind: 'composer' })
+          const withContext = submitted({ kind: 'composer' }, ['a note of another plugin'])
+          await $.prompt.submit(typed)
+          await $.prompt.submit(withContext)
+          expect(read).toEqual([{ ...typed, context: undefined }, withContext])
+        },
+      )
+    }
+
+    hintsTest(
+      `with the diagramHints setting on, a typed prompt carries one hint after the context it had on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        await $.prompt.submit(submitted({ kind: 'composer' }, ['a note of another plugin']))
+        expect(read.map((prompt) => prompt.context)).toEqual([
+          [MEASURED_HINT],
+          ['a note of another plugin', MEASURED_HINT],
+        ])
+        expect(read.map((prompt) => prompt.text)).toEqual([PROMPT, PROMPT])
+      },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on, a plugin prompt and a bridge prompt carry no hint on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        for (const origin of NO_HINT_ORIGINS) await $.prompt.submit(submitted(origin))
+        expect(read).toEqual(
+          NO_HINT_ORIGINS.map((origin) => ({ ...submitted(origin), context: undefined })),
+        )
+      },
+    )
+
+    hintsTest(
+      `the hint that a typed prompt carries is at most 400 characters on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        const hint = read[0]?.context?.at(-1) ?? ''
+        expect(hint.length).toBeGreaterThan(0)
+        expect(hint.length).toBeLessThanOrEqual(HINT_CHARACTERS_AT_MOST)
+      },
+    )
+
+    hintsTest(
+      `the hint is the text that the README measured at 140 tokens on 2026-10-29, and /replies hints names that count on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_ON)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read[0]?.context).toEqual([MEASURED_HINT])
+      },
+    )
+
+    hintsTest(
+      `/replies hints turns the hints on and off for this session on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(await commandText($, 'hints')).toBe(HINTS_ON)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(await commandText($, ' hints ')).toBe(HINTS_OFF)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual([
+          undefined,
+          [MEASURED_HINT],
+          undefined,
+        ])
+      },
+    )
+
+    hintsTest(
+      `/replies hints turns the hints off when the setting is on on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_OFF)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual([undefined])
+      },
+    )
+  }
 })
 
 function flowchartOf(source: string): Flowchart {
