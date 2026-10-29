@@ -65,8 +65,17 @@ import {
   sessionCommand,
   showPane,
 } from './board'
+import {
+  ABSENT_PARTS,
+  BREAKDOWN_DETAIL,
+  COUNTING_PARTS,
+  FAILED_PARTS,
+  type PartsView,
+  UNREAD_PARTS,
+  partsOf,
+} from './breakdown'
 import { EMPTY_CHECKS, withCheck } from './checks'
-import { detailsText } from './details'
+import { SESSION_DETAILS, detailsText } from './details'
 import { statsText } from './stats'
 import {
   type ListEdit,
@@ -144,6 +153,7 @@ import type {
   BoardPlan,
   BoardTask,
   BoardToolSight,
+  BoardTrend,
 } from '../types'
 import {
   EMPTY_LIST,
@@ -169,6 +179,7 @@ import {
   withTrackerNotice,
 } from './tasks'
 import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from './transcript'
+import { EMPTY_TREND, trendMeasured, trendTurnEnded, trendTurnStarted } from './trend'
 import {
   EMPTY_VITALS,
   type Vitals,
@@ -214,6 +225,7 @@ const PERSON_CHANGES = { plugin: 'handily-board', key: 'personChanges' } as cons
 const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 const PLAN_ID = { plugin: 'handily-board', key: 'planId' } as const
 const PANE_CHANGES = { plugin: 'handily-board', key: 'paneChanges' } as const
+const TREND = { plugin: 'handily-board', key: 'trend' } as const
 const BOARD_NOT_OPENED = refusedParts(
   'The board did not open',
   'the transcript shows why',
@@ -673,6 +685,8 @@ type SessionKeeps = {
   checks: ChecksKeep
   steps: StepsKeep
   pulses: AgentPulses
+  breakdown: PartsKeep
+  trend: TrendKeep
 }
 
 async function isTreeListed($: EngineInterface): Promise<boolean> {
@@ -691,6 +705,7 @@ async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork
   const { value: activity } = await $.state.get(ACTIVITY)
   const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps)
   const agents = withStalls(rows, keeps.pulses, now)
+  const trend = await trendOf($, keeps.trend)
   return {
     now,
     activity: activity ?? EMPTY_ACTIVITY,
@@ -698,6 +713,11 @@ async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork
     vitals: keeps.vitals.current,
     checks: keeps.checks.current,
     hasTree: await isTreeListed($),
+    context: {
+      trend,
+      parts: keeps.breakdown.view,
+      isPartsDue: keeps.breakdown.view.kind === 'unread' || keeps.breakdown.isStale,
+    },
   }
 }
 
@@ -723,6 +743,10 @@ type CheckedCall = ToolCheckInput & { tool_use_id: string }
 type ChecksKeep = { current: BoardChecks }
 
 type VitalsKeep = { current: Vitals; shared: string | undefined }
+
+type PartsKeep = { view: PartsView; isStale: boolean }
+
+type TrendKeep = { current: BoardTrend | undefined }
 
 type WaitingAsk = { agentId: string | undefined; sight: BoardToolSight }
 
@@ -889,6 +913,49 @@ async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
   }
 }
 
+async function countParts($: EngineInterface, keep: PartsKeep): Promise<void> {
+  keep.isStale = false
+  if (keep.view.kind !== 'read') {
+    keep.view = COUNTING_PARTS
+    $.ui.invalidate('ui.render')
+  }
+  try {
+    const { breakdown } = (await $.session.usage({ breakdown: BREAKDOWN_DETAIL })).context
+    keep.view = breakdown === undefined ? ABSENT_PARTS : { kind: 'read', parts: partsOf(breakdown) }
+  } catch (error) {
+    $.ui.log(`handily-board: the context parts were not counted: ${String(error)}`)
+    keep.view = FAILED_PARTS
+  }
+  $.ui.invalidate('ui.render')
+}
+
+async function trendOf($: EngineInterface, keep: TrendKeep): Promise<BoardTrend> {
+  keep.current ??= (await $.state.get(TREND)).value ?? EMPTY_TREND
+  return keep.current
+}
+
+async function setTrend($: EngineInterface, keep: TrendKeep, trend: BoardTrend): Promise<void> {
+  keep.current = trend
+  await $.state.set(TREND, trend)
+}
+
+async function isDetailsShown($: EngineInterface): Promise<boolean> {
+  const isOpen = (await hostOf($).expanded()).includes(SESSION_DETAILS)
+  return isOpen && (await isSessionTabSeen($))
+}
+
+async function noteTrend(
+  $: EngineInterface,
+  keep: TrendKeep,
+  change: (trend: BoardTrend) => BoardTrend,
+): Promise<void> {
+  const before = await trendOf($, keep)
+  const after = change(before)
+  if (after === before) return
+  await setTrend($, keep, after)
+  if (after.tokens !== before.tokens) $.ui.invalidate('ui.render')
+}
+
 async function resetAgentLists($: EngineInterface): Promise<void> {
   let agentIds: readonly string[] = []
   await update($, AGENT_IDS, (current = []) => {
@@ -903,7 +970,7 @@ async function resetAgentLists($: EngineInterface): Promise<void> {
 
 type RowNotes = Map<number, string>
 
-function uiOf($: EngineInterface, notes: RowNotes): PaneUi {
+function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep): PaneUi {
   return {
     open: async (pane, focus) => {
       const opened = await $.ui.open(
@@ -954,6 +1021,7 @@ function uiOf($: EngineInterface, notes: RowNotes): PaneUi {
       else notes.set(id, note)
       $.ui.invalidate('ui.render')
     },
+    countParts: () => countParts($, parts),
   }
 }
 
@@ -1239,6 +1307,8 @@ export const register: Register = (on, options) => {
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
+  const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
+  const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = new Map()
   const notes: RowNotes = new Map()
   const asks: BoardTask[] = []
@@ -1259,13 +1329,14 @@ export const register: Register = (on, options) => {
         '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | plan | clear | list | stats | close]',
       immediate: true,
     })
-    if (mode === 'always') await openUnasked(uiOf($, notes))
+    if (mode === 'always') await openUnasked(uiOf($, notes, breakdown))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
     const host = sessionsHost($)
     await removeExpiredKeys(host)
     await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
     await readUsage($, vitals)
+    await trendOf($, trend)
     vitals.shared = undefined
     await shareContext($, machine, vitals)
     return started
@@ -1274,6 +1345,10 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await noteVitals($, vitals, (current) => withMeasure(current, e))
+    const { tokens } = e.context
+    if (e.changed.includes('context') && tokens !== undefined) {
+      await noteTrend($, trend, (current) => trendMeasured(current, tokens))
+    }
     await shareContext($, machine, vitals)
     return measured
   })
@@ -1282,13 +1357,18 @@ export const register: Register = (on, options) => {
     const compacted = await next(e)
     const isMainCompaction = e.agentId === undefined && e.trigger !== 'precompute'
     if (isMainCompaction && compacted.skip === undefined) {
+      await setTrend($, trend, EMPTY_TREND)
+      breakdown.isStale = true
       await noteVitals($, vitals, withCompaction)
     }
     return compacted
   }).catch((_$, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) await noteVitals($, vitals, withTurnStart)
+    if (e.agentId === undefined) {
+      await noteVitals($, vitals, withTurnStart)
+      await noteTrend($, trend, trendTurnStarted)
+    }
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
     )
@@ -1312,6 +1392,9 @@ export const register: Register = (on, options) => {
       const parts = asksParts(asked)
       if (parts !== undefined && !(await isSessionTabSeen($))) showToast($, parts)
       await noteVitals($, vitals, (current) => withTurnEnd(current, e.durationMs))
+      await noteTrend($, trend, trendTurnEnded)
+      if (await isDetailsShown($)) await countParts($, breakdown)
+      else breakdown.isStale = true
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
       )
@@ -1351,6 +1434,8 @@ export const register: Register = (on, options) => {
     pulses.callsFrom.clear()
     if (NEW_SESSION_REASONS.has(e.reason)) {
       await noteVitals($, vitals, withClear)
+      await setTrend($, trend, EMPTY_TREND)
+      breakdown.view = UNREAD_PARTS
       await shareContext($, machine, vitals)
     }
     if (e.reason === 'clear') {
@@ -1515,11 +1600,11 @@ export const register: Register = (on, options) => {
     const command = parseBoardCommand(e.args)
     switch (command.kind) {
       case 'session':
-        return { text: await sessionCommand(uiOf($, notes), mode) }
+        return { text: await sessionCommand(uiOf($, notes, breakdown), mode) }
       case 'machine':
-        return { text: await openBoard(uiOf($, notes), SESSIONS_PANE) }
+        return { text: await openBoard(uiOf($, notes, breakdown), SESSIONS_PANE) }
       case 'close':
-        return { text: await closeBoard(uiOf($, notes)) }
+        return { text: await closeBoard(uiOf($, notes, breakdown)) }
       case 'clear':
         return { text: (await personClear(host)).text }
       case 'list': {
@@ -1530,7 +1615,10 @@ export const register: Register = (on, options) => {
       case 'plan':
         return { text: (await addPlanAsTasks(plansOf($), host, undefined)).text }
       case 'stats':
-        return { text: statsText(await workOf($, { vitals, checks, steps, pulses })) }
+        await countParts($, breakdown)
+        return {
+          text: statsText(await workOf($, { vitals, checks, steps, pulses, breakdown, trend })),
+        }
       case 'add':
         return { text: (await personAdd(host, command.text)).text }
       case 'rm':
@@ -1583,7 +1671,7 @@ export const register: Register = (on, options) => {
     }
     keepBandTime($, redraw, isTimed(view))
     const { Box, Text, Button } = $.ui.resolve(e)
-    const ui = uiOf($, notes)
+    const ui = uiOf($, notes, breakdown)
     const failed = (error: unknown) => {
       ui.log(`handily-board: the board did not open from the band: ${String(error)}`)
       ui.showToast(BOARD_NOT_OPENED)
@@ -1658,10 +1746,10 @@ export const register: Register = (on, options) => {
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
     const elements = { Box, Text, Button, Input, bodyColumns, isInline: placement === 'inline' }
-    const work = await workOf($, { vitals, checks, steps, pulses })
+    const work = await workOf($, { vitals, checks, steps, pulses, breakdown, trend })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
-    return drawPane(elements, hostOf($), plansOf($), uiOf($, notes), work)
+    return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown), work)
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {

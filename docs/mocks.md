@@ -2523,6 +2523,177 @@ the transcript shows why
   added`, `■ not sent`, `next`, `withdrawn`. The one exception is the stalled time in the band,
   which copies 8.2d3 (see the failure modes).
 
+### 8.14 Context parts and a trend in the Session details (handily-u2exd, approved 2026-10-29)
+
+Approved by the person on 2026-10-29, with every recommended answer of the designer. The
+decisions, the engine sources and the failure modes are in docs/design.md section 4.9, under
+"Context parts and a trend". The blocks follow 8.0. `NEW` marks a new line, and `(engine …)`
+marks what Claude Code draws. The colour of a line is named right of the frame.
+
+The person is anyone in a long session. Their goal is to see a compaction coming before it
+lands. They see it first in the opened Session line.
+
+The build changed three blocks of the approved design. Each block below shows what the build
+draws, and the board tests assert it:
+
+- 8.14d: at body 30 the details already put `1 compaction` on a line of its own, as the details
+  test of 8.10c asserts. The name column of a part is 17 wide, so each part row fills the body.
+- 8.14e: the trend and `[ hide parts ]` keep their own lines at body 76. The Session line is the
+  one that the board draws today at body 76, without the gauge of 8.10m.
+- 8.14c: two states were added. `auto-compact soon: next turn` shows when no turn fits under the
+  threshold. `[ fewer parts ]` folds the parts again.
+
+Width check (2026-10-29): a script measured each framed line of 8.14a to 8.14f, 82 body lines
+and their borders. Each line is as wide as its frame: body 41, 30 or 76.
+
+#### 8.14a Docked, body 41: the Session line pressed open, idle, trend and auto-compact
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 62% · $4.80 · last +$0.62    │
+│     context 124k of 200k · 1 compaction   │
+│     trend ▁▂▂▃▄▅▅▆ 8 turns · +6k a turn   │  NEW
+│     auto-compact at 167k · in ~7 turns    │  NEW
+│     [ context parts ]                     │  NEW
+│     last turn 3m · +$0.62 · 3 edits       │
+│     0 errors · 2 agents spawned           │
+│     limits 5h 31% · 7d 13%                │
+│     resets 5h in 2h · 7d in 4d            │
+│     checks 25 · 8 allowed · 16 asked      │
+│     1 denied                              │  "denied" in error
+│     [ last 5 checks ]                     │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.14b Docked, body 41: `[ context parts ]` pressed (the focus stays on it, now `[ hide parts ]`)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Session  ctx 62% · $4.80 · last +$0.62    │
+│     context 124k of 200k · 1 compaction   │
+│     trend ▁▂▂▃▄▅▅▆ 8 turns · +6k a turn   │
+│     auto-compact at 167k · in ~7 turns    │
+│     [ hide parts ]                        │  focus
+│     Messages              71k  36%        │  NEW, engine row names, largest first
+│     System tools          18k   9%        │  NEW
+│     MCP tools             12k   6%        │  NEW
+│     Memory files           9k   5%        │  NEW
+│     Custom agents          5k   3%        │  NEW
+│     Skills                 4k   2%        │  NEW
+│     System prompt          3k   2%        │  NEW
+│     [ +1 more part ]                      │  NEW, the fold after 7 rows
+│     free 43k · compact buffer 33k         │  NEW
+│     on demand 20k, not in the window      │  NEW, only with deferred rows
+│     estimated; /context counts exactly    │  NEW
+│     last turn 3m · +$0.62 · 3 edits       │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.14c Docked, body 41: the states of the new lines (each replaces its line)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│     trend after 2 turns                   │  empty: fewer than 2 readings
+│     auto-compact at 167k                  │  empty: no growth known yet
+│     trend: no context reading yet         │  no context.tokens yet
+│     trend ▅▆ 2 turns · +9k a turn         │  restarted after a compaction
+│     trend ▆▆▆▅▆ 5 turns · no growth       │  flat or shrinking
+│     auto-compact at 167k · no growth      │
+│     auto-compact soon: ~2 turns           │  "soon" in warning
+│     auto-compact soon: next turn          │  no turn fits; "soon" in warning
+│     auto-compact is off                   │  isAutoCompactEnabled false
+│     counting the parts…                   │  loading, after the press
+│     no breakdown on this host             │  usage() gave no breakdown; no button
+│     parts failed; /context shows them     │  the call rejected; detail logged
+│     [ fewer parts ]                       │  the fold, pressed open
+╰───────────────────────────────────────────╯
+```
+
+#### 8.14d Docked, body 30 (a narrow dock), parts open
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │  (engine tab row)
+│ Session  ctx 62% · $4.80       │
+│     context 124k of 200k       │
+│     1 compaction               │
+│     trend ▁▂▂▃▄▅▅▆ +6k/turn    │
+│     compact at 167k · ~7 turns │
+│     [ hide parts ]             │
+│     Messages          71k  36% │
+│     System tools      18k   9% │
+│     MCP tools         12k   6% │
+│     Memory files       9k   5% │
+│     Custom agents      5k   3% │
+│     Skills             4k   2% │
+│     System prompt      3k   2% │
+│     [ +1 more part ]           │
+│     free 43k · buffer 33k      │
+│     estimated; /context exact  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m  │
+╰────────────────────────────────╯
+```
+
+#### 8.14e Inline above the prompt, 80 columns (body 76), parts open: two parts a line
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ Session  ctx 62% · $4.80 · last +$0.62                                       │
+│     context 124k of 200k · 1 compaction                                      │
+│     trend ▁▂▂▃▄▅▅▆ 8 turns · +6k a turn                                      │
+│     auto-compact at 167k · in ~7 turns                                       │
+│     [ hide parts ]                                                           │
+│     Messages              71k  36%     System tools          18k   9%        │
+│     MCP tools             12k   6%     Memory files           9k   5%        │
+│     Custom agents          5k   3%     Skills                 4k   2%        │
+│     System prompt          3k   2%     Plugins                2k   1%        │
+│     free 43k · compact buffer 33k                                            │
+│     estimated; /context counts exactly                                       │
+│     last turn 3m · +$0.62 · 3 edits · 0 errors · 2 agents spawned            │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m                                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.14f Desktop app, body 41 (the same tree; Session and the parts button are native buttons)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tabs)
+│ Session  ctx 62% · $4.80 · last +$0.62    │
+│     context 124k of 200k · 1 compaction   │
+│     trend ▁▂▂▃▄▅▅▆ 8 turns · +6k a turn   │
+│     auto-compact at 167k · in ~7 turns    │
+│     [context parts]                       │  native button
+╰───────────────────────────────────────────╯
+```
+
+#### 8.14g How the numbers are made, keys and commands
+
+- **Row names.** The rows use the names of the engine. The code branches on `kind`, never on the
+  name. A `used` row is a part. `free`, `buffer` and `deferred` rows make the summary lines.
+- **Trend.** One reading for each answered main turn: the last `context.tokens` that a measure
+  reports for it, also just after `turn.complete`. At most 20 readings, kept in `$.state`. Each
+  bar is the reading against `context.window`. A compaction of the main conversation starts the
+  trend again from the next reading.
+- **Turns left.** The room under the threshold, from the last reading, divided by the mean growth
+  of the last 5 main turns, with `~`. It shows only after 2 or more readings and only when the
+  growth is above 0. Above 99 turns it reads `in over 99 turns`.
+- **Breakdown.** `$.session.usage({ breakdown: 'summary' })` runs when the person opens the
+  details or presses `[ context parts ]`, and again at each main turn end while a shown board
+  shows the open details. `/board stats` runs it too.
+- **Toasts.** None. The pane shows every result and every error (the rule of 8.6a).
+- **Settings.** None new. The named constants are `TREND_TURNS` 20, `PACE_TURNS` 5, `PARTS_SHOWN`
+  7, `SOON_TURNS` 2 and `BREAKDOWN_DETAIL` `summary`.
+- **Keys.** Section 8.7 holds, with no hotkey. Tab goes to the Session line, then to
+  `[ context parts ]`. After a press the focus stays on the same button, now `[ hide parts ]`.
+- **Commands.** `/board` and `/board stats`. `/board stats` prints the trend, the auto-compact
+  line and every part as text. With `-p` nothing draws.
+- **`NO_COLOR` and screen readers.** `soon` is a word. The bars read as symbols, so the line also
+  says `+6k a turn`.
+
 ### Risks
 
 - Width: the 41-column agent row has no spare column; a dock dragged below 36 drops columns

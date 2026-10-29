@@ -939,8 +939,10 @@ The numbers that the engine does not give:
   dollars, and the board does not price tokens.
 - No context percent for an agent. `turn.step` gives no context window, so an agent row shows
   tokens only.
-- No percent of the compaction window. `session.measure` never carries the breakdown, and only
-  the breakdown measures against the compaction window. Release 1 shows no such percent.
+- No percent of the compaction window on the Session line. `session.measure` never carries the
+  breakdown, and only the breakdown measures against the compaction window. The context parts of
+  handily-u2exd show such a percent for each part, from a breakdown that the board asks for. The
+  next section describes it.
 - No sure signal that a permission dialog is open. A `tool.check` answer of `ask` is a verdict,
   and a classifier or a host can answer it with no dialog. The handily-xsjad.1 probe measured
   this on Claude Code 2.1.312 in tmux, with a subagent Bash call:
@@ -1122,6 +1124,70 @@ Failure modes:
   nobody sees.
 - Undo after the answer was sent is impossible, and the button is gone. A person who answered
   wrongly tells Claude in the prompt.
+
+#### Context parts and a trend (handily-u2exd)
+
+The person approved the design on 2026-10-29, with every recommended answer of the designer. The
+approved mock is `docs/mocks.md` section 8.14. Line numbers below are of the `index.d.ts` that
+Claude Code 2.1.312 wrote.
+
+References: glowup and claude-flightdeck (github.com/scasella/claude-flightdeck), both MIT. The
+survey of github.com/karanb192/awesome-claude-code-mods found them on 2026-10-28. handily only
+read them. It copies no code from them and adds no dependency.
+
+Decisions of the person (2026-10-29):
+
+1. The breakdown is `summary`, not `full`. `summary` is a local estimate and sends no request
+   (`ContextBreakdownDetail`, `:2153`). The parts say `estimated; /context counts exactly`.
+2. The parts show on a press of `[ context parts ]`, not always. The details stay short, and the
+   call stays rare.
+3. The turns left come from the mean growth of the last 5 main turns, shown with `~`. One large
+   turn does not swing the count.
+4. The rows carry the names of the engine. The code branches on `kind` (`ContextCategoryKind`,
+   `:2192`), never on the name, because a name can change between releases.
+
+The engine source of each new number:
+
+| Number on the board | Engine source |
+| --- | --- |
+| `trend ▁▂▂▃▄▅▅▆`, `8 turns` | `context.tokens` and `context.window` of `session.measure` (`:11814`): the last fresh context measure of each answered `turn.complete` of the main loop (`:4621`) |
+| `+6k a turn` | the mean growth of the last 5 readings of the trend |
+| `auto-compact at 167k` | `autoCompactThreshold` of the breakdown (`:11587`) |
+| `auto-compact is off` | `isAutoCompactEnabled` of the breakdown (`:11591`) is false, or no threshold |
+| `in ~7 turns` | the threshold less the last reading, divided by the mean growth; above 99 it reads `in over 99 turns` |
+| `Messages 71k 36%` | a breakdown row of `kind` `used` (`ContextCategory`, `:2159`): `name`, `tokens`, and `tokens` over `rawMaxTokens` |
+| `free 43k`, `compact buffer 33k`, `on demand 20k` | the rows of `kind` `free`, `buffer` and `deferred` |
+| `1 compaction` and the restart of the trend | `session.compact` (`:4533`) of the main conversation, not skipped and not a `precompute` |
+
+- **The breakdown.** `$.session.usage({ breakdown: 'summary' })` (`:2906`) gives
+  `context.breakdown` (`SessionContextBreakdown`, `:11525`, and `:11633`). The board asks for it
+  when the person opens the details or presses `[ context parts ]`, at each main turn end while a
+  shown board pane shows the open details, and for `/board stats`. It never asks while the board
+  is closed or the details are, and it starts no timer. When a board draws open details with no
+  count yet, or with a count older than the last main turn end or compaction, it asks once. A
+  reply with no breakdown reads `no breakdown on this host`. A rejected call reads
+  `parts failed; /context shows them`, and the log row names the cause.
+- **The trend.** The board keeps at most 20 readings in `$.state` under the key `trend`, so a hot
+  reload keeps them. A reading is a fresh context measure, one for each main turn. A measure
+  during a turn is kept, and the turn end makes the last one a reading. When a turn ends with no
+  fresh measure, the next measure before the next turn starts is its reading. The live check of
+  2026-10-29 on Claude Code 2.1.312 suggests that the measure comes after `turn.complete`. A
+  measure after the turn end also replaces the reading of that turn. A turn with no fresh
+  measure, such as an aborted turn, adds no reading. A compaction empties the trend and the kept
+  measure. `/clear` and a resume empty the trend.
+- **Two windows.** The breakdown counts against the compaction window (`rawMaxTokens`), and
+  `context.tokens` counts against the window of the model. So the turns left are approximate,
+  and they show `~`. The bars use the window of the model, the same as the `ctx` percent.
+
+The named constants:
+
+| Name | Value | Effect |
+| --- | --- | --- |
+| `TREND_TURNS` | 20 | The trend keeps the readings of the last 20 main turns |
+| `PACE_TURNS` | 5 | The growth is the mean of the last 5 main turns |
+| `PARTS_SHOWN` | 7 | The parts show 7 lines before `[ +1 more part ]` |
+| `SOON_TURNS` | 2 | From 2 turns left, the line says `soon` in the warning colour |
+| `BREAKDOWN_DETAIL` | `summary` | The breakdown is a local estimate |
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 

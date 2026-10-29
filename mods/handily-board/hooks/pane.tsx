@@ -19,6 +19,7 @@ import {
 import { NO_AGENTS, drawAgents, shownNames } from './agent-rows'
 import { type AgentRow, waitingCount } from './agents'
 import type { PaneUi } from './board'
+import type { ContextView } from './breakdown'
 import { SESSION_DETAILS, drawSessionDetails, hasSessionDetails } from './details'
 import {
   OPEN_ITEMS_SHOWN,
@@ -89,6 +90,7 @@ export type PaneWork = {
   vitals: Vitals
   checks: BoardChecks
   hasTree: boolean
+  context: ContextView
 }
 
 type Act = (work: () => Promise<ToastParts | undefined>) => void
@@ -732,24 +734,33 @@ function drawFooter(elements: PaneElements, host: TaskHost, act: Act): RenderEle
     : Text({ dimColor: true, children: 'Add tasks with /board add <text>.' })
 }
 
-function drawSession(elements: PaneElements, work: PaneWork, layout: RowLayout): RenderElement[] {
+function drawSession(
+  elements: PaneElements,
+  work: PaneWork,
+  layout: RowLayout,
+  count: () => void,
+): RenderElement[] {
   const details = {
     vitals: work.vitals,
     checks: work.checks,
     names: shownNames(work.agents),
     now: work.now,
+    context: work.context,
+    count,
   }
   const isOpenable = hasSessionDetails(details)
+  const isOpen = layout.expanded.has(SESSION_DETAILS)
   const line = drawSessionLine(elements, {
     vitals: work.vitals,
     waits: waitingCount(work.agents),
     open: isOpenable
       ? () => {
           layout.toggle(SESSION_DETAILS)
+          if (!isOpen) count()
         }
       : undefined,
   })
-  if (!isOpenable || !layout.expanded.has(SESSION_DETAILS)) return [line]
+  if (!isOpenable || !isOpen) return [line]
   return [line, drawSessionDetails(elements, details, layout)]
 }
 
@@ -909,10 +920,17 @@ export async function drawPane(
         work.agents.length === 0 ? Text({ dimColor: true, children: NO_AGENTS }) : null,
       ]
   const header = drawHeader(elements, list, work)
+  const countParts = () => {
+    act(async () => {
+      await ui.countParts()
+      return undefined
+    })
+  }
+  if (layout.expanded.has(SESSION_DETAILS) && work.context.isPartsDue) countParts()
   return Box({
     flexDirection: 'column',
     children: [
-      ...drawSession(elements, work, layout),
+      ...drawSession(elements, work, layout, countParts),
       ...plan,
       ...forYou,
       header,

@@ -121,6 +121,13 @@ export type BoardAgent = {
   label?: string
 }
 
+export type BoardTrend = {
+  tokens: readonly number[]
+  freshTokens: number | null
+  isAwaitingReading: boolean
+  isLastOpen: boolean
+}
+
 export type BoardCallRow =
   | { kind: 'added'; id: number; title: string }
   | { kind: 'status'; id: number; status: BoardStatus; title: string }
@@ -143,6 +150,7 @@ declare module 'claude-code' {
       plans: StateFamily<BoardPlan>
       planId: string | null
       paneChanges: number
+      trend: BoardTrend
       ready: { root: string }
     }
   }

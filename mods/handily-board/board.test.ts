@@ -3,7 +3,9 @@ import type {
   On,
   PluginState,
   PromptComposeInput,
+  ContextCategoryKind,
   RenderPropsOf,
+  SessionContextBreakdown,
   SessionMessage,
   SessionRateLimit,
   SessionUsage,
@@ -133,6 +135,7 @@ type World = {
   notices: string[]
   clock: MockClock
   panesAsked: number
+  breakdownCalls: number
 }
 
 type PaneOpen = { id: string; title: string | undefined; focus: boolean }
@@ -146,6 +149,7 @@ const FRESH_USAGE: SessionUsage = {
 
 type WorldOptions = {
   usage?: SessionUsage | 'refused'
+  breakdown?: SessionContextBreakdown | 'refused'
   closeRefusal?: string
   cwdFailure?: string
   cwd?: string
@@ -184,15 +188,22 @@ function world(on: On, options: WorldOptions = {}): World {
     notices: [],
     clock: mock.clock(on, { now: 1_000 }),
     panesAsked: 0,
+    breakdownCalls: 0,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => {
     if (options.cwdFailure !== undefined) throw new Error(options.cwdFailure)
     return { value: options.cwd ?? ROOT }
   })
-  on('session.usage', () => {
+  on('session.usage', (_$, e) => {
     if (options.usage === 'refused') throw new Error('no session is bound on this host')
-    return { value: options.usage ?? FRESH_USAGE }
+    const usage = options.usage ?? FRESH_USAGE
+    if (e.breakdown === undefined) return { value: usage }
+    state.breakdownCalls += 1
+    const { breakdown } = options
+    if (breakdown === 'refused') throw new Error('the breakdown could not be counted')
+    if (breakdown === undefined) return { value: usage }
+    return { value: { ...usage, context: { ...usage.context, breakdown } } }
   })
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: state.agents }))
@@ -5281,6 +5292,8 @@ const DETAIL_SCREENS: readonly {
       'Session  ctx 62% · $4.80',
       '    context 124k of 200k',
       '    1 compaction',
+      '    trend after 2 turns',
+      '    no breakdown on this host',
       '    last turn 3m · +$0.62',
       '    3 edits · 0 errors',
       '    2 agents spawned',
@@ -5296,6 +5309,8 @@ const DETAIL_SCREENS: readonly {
     lines: [
       'Session  ctx 62% · $4.80 · last +$0.62',
       '    context 124k of 200k · 1 compaction',
+      '    trend after 2 turns',
+      '    no breakdown on this host',
       '    last turn 3m · +$0.62 · 3 edits',
       '    0 errors · 2 agents spawned',
       '    limits 5h 31% · 7d 13%',
@@ -5310,6 +5325,8 @@ const DETAIL_SCREENS: readonly {
     lines: [
       'Session  ctx 62% · $4.80 · last +$0.62',
       '    context 124k of 200k · 1 compaction',
+      '    trend after 2 turns',
+      '    no breakdown on this host',
       '    last turn 3m · +$0.62 · 3 edits · 0 errors · 2 agents spawned',
       '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
       '    checks 5 · 5 allowed',
@@ -5351,23 +5368,29 @@ describe(DETAILS_CRITERION, () => {
       await measure($, { percent: 91, usd: 12.4 })
       await mainTurnTakes($, 'turn-1', 6 * MINUTE)
       for (const surface of SURFACES) {
-        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 5)).toEqual([
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 7)).toEqual([
           'Session  ctx 91% high · $12.40',
           '    context 182k of 200k · 2 compactions',
+          '    trend after 2 turns',
+          '    no breakdown on this host',
           '    Claude Code compacts it near the',
           '    limit. /compact or /clear frees it.',
           '    last turn 6m · +$1.90 · 9 edits',
         ])
-        expect((await sessionDetails($, surface, 'inline', 76)).slice(1, 3)).toEqual([
+        expect((await sessionDetails($, surface, 'inline', 76)).slice(1, 5)).toEqual([
           '    context 182k of 200k · 2 compactions',
+          '    trend after 2 turns',
+          '    no breakdown on this host',
           '    Claude Code compacts it near the limit. /compact or /clear frees it.',
         ])
       }
       await measure($, { percent: 79 })
       for (const surface of SURFACES) {
         const lines = await sessionDetails($, surface, 'dock', 41)
-        expect(lines.slice(1, 3)).toEqual([
+        expect(lines.slice(1, 5)).toEqual([
           '    context 158k of 200k · 2 compactions',
+          '    trend after 2 turns',
+          '    no breakdown on this host',
           '    last turn 6m · +$1.90 · 9 edits',
         ])
         expect(lines.join('\n')).not.toContain('/compact')
@@ -5400,6 +5423,8 @@ describe(DETAILS_CRITERION, () => {
         expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
           'Session  ctx 40% · $1.25 · last +$0.25',
           '    context 80k of 200k · 0 compactions',
+          '    trend after 2 turns',
+          '    no breakdown on this host',
           '    last turn 45s · +$0.25 · 0 edits',
           '    1 error · 0 agents spawned',
           '    limits: none reported',
@@ -5426,15 +5451,17 @@ describe(DETAILS_CRITERION, () => {
       await edit($, 'docs/mocks.md')
       await measure($, { usd: 5.05 })
       for (const surface of SURFACES) {
-        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 4)).toEqual([
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(0, 6)).toEqual([
           'Session  ctx 62% · $5.05 · turn +$0.25',
           '    context 124k of 200k · 1 compaction',
+          '    trend after 2 turns',
+          '    no breakdown on this host',
           '    last turn 3m · +$0.62 · 3 edits',
           '    0 errors · 2 agents spawned',
         ])
       }
       await mainTurnTakes($, 'turn-2', 20_000)
-      expect((await sessionDetails($, 'terminal', 'dock', 41)).slice(2, 4)).toEqual([
+      expect((await sessionDetails($, 'terminal', 'dock', 41)).slice(4, 6)).toEqual([
         '    last turn 20s · +$0.25 · 1 edit',
         '    0 errors · 0 agents spawned',
       ])
@@ -5480,7 +5507,7 @@ describe('the Session details keep only the facts of the session that runs now',
       await edit($, 'docs/mocks.md')
       await mainTurnTakes($, 'turn-1', 45_000)
       for (const surface of SURFACES) {
-        expect((await sessionDetails($, surface, 'dock', 41)).slice(2, 4)).toEqual([
+        expect((await sessionDetails($, surface, 'dock', 41)).slice(4, 6)).toEqual([
           '    last turn 45s · 0 edits · 1 error',
           '    0 agents spawned',
         ])
@@ -5502,6 +5529,8 @@ describe('the Session details keep only the facts of the session that runs now',
         expect(await sessionDetails($, surface, 'dock', 41)).toEqual([
           'Session  ctx 3% · $4.20',
           '    context 6k of 200k · 0 compactions',
+          '    trend after 2 turns',
+          '    no breakdown on this host',
           '    limits 5h 31% · 7d 13%',
           '    resets 5h in 2h · 7d in 4d',
         ])
@@ -5562,6 +5591,692 @@ describe('the Session details keep only the facts of the session that runs now',
           '    limits 5h 31% · 7d 13%',
           '    resets 5h in 2h · 7d in 4d',
         ])
+      }
+    },
+  )
+})
+
+const TREND_CRITERION =
+  'When the person opens the Session line after two main turns, the board shows the trend line with the token growth for each turn, and the auto-compact line with the turns left.'
+const PARTS_CRITERION =
+  'When the person presses the context parts button, the board shows each used breakdown row with its engine name, its tokens and its percent of the compaction window, at most 7 rows before a fold button.'
+const NO_BREAKDOWN_CRITERION =
+  'When the host gives no breakdown, the board shows the words no breakdown on this host and no number.'
+const AUTO_COMPACT_OFF_CRITERION =
+  'When auto-compact is off, the line reads auto-compact is off and shows no turn count.'
+const TREND_RESTART_CRITERION =
+  'When a compaction happens, the trend starts again from the next reading.'
+const SOON_CRITERION =
+  'When two turns or fewer remain, the auto-compact line shows the word soon in the warning colour.'
+const PARTS_STATS_CRITERION =
+  'When the person runs /board stats, the reply prints the trend, the auto-compact line and the parts as text.'
+const PARTS_WIDTH_CRITERION = 'Every new line fits body 41, 30 and 76 in the board width tests.'
+
+type BreakdownRow = readonly [name: string, tokens: number, kind: ContextCategoryKind]
+
+const MOCK_ROWS: readonly BreakdownRow[] = [
+  ['System prompt', 3_000, 'used'],
+  ['System tools', 18_000, 'used'],
+  ['MCP tools', 12_000, 'used'],
+  ['Custom agents', 5_000, 'used'],
+  ['Memory files', 9_000, 'used'],
+  ['Skills', 4_000, 'used'],
+  ['Plugins', 2_000, 'used'],
+  ['Messages', 71_000, 'used'],
+  ['Free space', 43_000, 'free'],
+  ['Autocompact buffer', 33_000, 'buffer'],
+]
+
+const MOCK_PERCENTS = [5, 20, 47, 50, 53, 56, 59, 62]
+
+function breakdownOf(
+  rows: readonly BreakdownRow[],
+  threshold: number | null = 167_000,
+): SessionContextBreakdown {
+  const used = rows
+    .filter(([, , kind]) => kind === 'used')
+    .reduce((sum, [, tokens]) => sum + tokens, 0)
+  return {
+    categories: rows.map(([name, tokens, kind]) => ({
+      name,
+      tokens,
+      kind,
+      color: 'inactive',
+      isDeferred: kind === 'deferred',
+    })),
+    totalTokens: used,
+    maxTokens: 200_000,
+    rawMaxTokens: 200_000,
+    autocompactSource: 'model-default',
+    percentage: Math.round((used / 200_000) * 100),
+    gridRows: [],
+    model: 'opus',
+    memoryFiles: [],
+    mcpTools: [],
+    agents: [],
+    ...(threshold === null ? {} : { autoCompactThreshold: threshold }),
+    isAutoCompactEnabled: threshold !== null,
+    apiUsage: null,
+  }
+}
+
+async function turnsAt($: Engine, percents: readonly number[], from = 0): Promise<void> {
+  for (const [index, percent] of percents.entries()) {
+    const turnId = `trend-${String(from + index)}`
+    await mainTurnStarts($, turnId)
+    await measure($, { percent, usd: 1 + (from + index) / 10 })
+    await mainTurnTakes($, turnId, MINUTE)
+  }
+}
+
+async function contextLines(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline',
+  columns: number,
+): Promise<string[]> {
+  const lines = await sessionDetails($, surface, placement, columns)
+  return lines.slice(
+    1,
+    lines.findIndex((line) => line.startsWith('    last turn')),
+  )
+}
+
+async function openParts(ui: Awaited<ReturnType<typeof mountTab>>): Promise<void> {
+  if ((await ui.find({ key: 'session-details' })) === undefined) {
+    await ui.press({ key: 'session' })
+  }
+  await ui.press({ key: 'session:parts' })
+}
+
+const MOCK_PARTS_41 = [
+  '    context 124k of 200k · 0 compactions',
+  '    trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn',
+  '    auto-compact at 167k · in ~7 turns',
+  '    [ hide parts ]',
+  '    Messages              71k  36%',
+  '    System tools          18k   9%',
+  '    MCP tools             12k   6%',
+  '    Memory files           9k   5%',
+  '    Custom agents          5k   3%',
+  '    Skills                 4k   2%',
+  '    System prompt          3k   2%',
+  '    [ +1 more part ]',
+  '    free 43k · compact buffer 33k',
+  '    estimated; /context counts exactly',
+]
+
+describe(TREND_CRITERION, () => {
+  test(
+    'after one main turn the lines wait for a second, and after two they show the growth for each turn and the turns left',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+      await start($)
+      await turnsAt($, [31])
+      for (const surface of SURFACES) {
+        expect(await contextLines($, surface, 'dock', 41)).toEqual([
+          '    context 62k of 200k · 0 compactions',
+          '    trend after 2 turns',
+          '    auto-compact at 167k',
+          '    [ context parts ]',
+        ])
+      }
+      await turnsAt($, [34], 1)
+      for (const surface of SURFACES) {
+        expect(await contextLines($, surface, 'dock', 41)).toEqual([
+          '    context 68k of 200k · 0 compactions',
+          '    trend ▃▃ 2 turns · +6k a turn',
+          '    auto-compact at 167k · in ~16 turns',
+          '    [ context parts ]',
+        ])
+      }
+    },
+  )
+
+  test(
+    'the growth is the mean of the last 5 main turns, a subagent turn adds no reading, and a flat trend says no growth',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+      await start($)
+      await turnsAt($, MOCK_PERCENTS)
+      await $.turn.start({ text: 'look', turnId: 'agent-turn', agentId: 'a1' })
+      await measure($, { percent: 90 })
+      await $.turn.complete({
+        turnId: 'agent-turn',
+        reason: 'answer',
+        answer: 'found',
+        durationMs: 1,
+        isAborted: false,
+        agentId: 'a1',
+      })
+      await measure($, { percent: 62 })
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41)).slice(1, 3)).toEqual([
+          '    trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn',
+          '    auto-compact at 167k · in ~7 turns',
+        ])
+      }
+      await turnsAt($, [62, 61, 62, 60, 59], 8)
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41)).slice(1, 3)).toEqual([
+          '    trend ▁▂▄▄▅▅▅▅▅▅▅▅▅ no growth',
+          '    auto-compact at 167k · no growth',
+        ])
+      }
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `the breakdown is counted when the details open and at each main turn end while the board shows them, never while the board is closed or the details are, and once when the board shows them again, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [31, 34])
+        expect(seen.breakdownCalls).toBe(0)
+        await board($, '')
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await ui.press({ key: 'session' })
+        expect(seen.breakdownCalls).toBe(1)
+        await turnsAt($, [37], 2)
+        expect(seen.breakdownCalls).toBe(2)
+        await ui.unmount()
+        await board($, 'close')
+        await turnsAt($, [40, 43], 3)
+        expect(seen.breakdownCalls).toBe(2)
+        await board($, '')
+        const shown = await mountTab($, surface, PANE, 'dock', 41)
+        expect(seen.breakdownCalls).toBe(3)
+        expect((await screen(shown, 41))[3]).toBe('    auto-compact at 167k · in ~13 turns')
+        await shown.press({ key: 'session' })
+        await turnsAt($, [46], 5)
+        expect(seen.breakdownCalls).toBe(3)
+        await shown.unmount()
+      },
+    )
+
+    test(
+      `an answered turn whose measure comes after turn.complete gives its own reading, and the last measure of the turn is the reading, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        for (const [index, percent] of [31, 34, 37].entries()) {
+          const turnId = `late-${String(index)}`
+          await mainTurnStarts($, turnId)
+          await measure($, { percent: percent - 2 })
+          await mainTurnTakes($, turnId, MINUTE)
+          await measure($, { percent })
+        }
+        expect((await contextLines($, surface, 'dock', 41)).slice(1, 3)).toEqual([
+          '    trend ▃▃▃ 3 turns · +6k a turn',
+          '    auto-compact at 167k · in ~15 turns',
+        ])
+      },
+    )
+
+    test(
+      `a main turn that ends with no new context measure, as an aborted or failed turn, adds no reading, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [31, 34])
+        await mainTurnStarts($, 'aborted')
+        await $.turn.complete({
+          turnId: 'aborted',
+          reason: 'answer',
+          answer: '',
+          durationMs: 1,
+          isAborted: true,
+        })
+        await mainTurnStarts($, 'failed')
+        await measure($, { usd: 2 })
+        await mainTurnTakes($, 'failed', MINUTE)
+        expect((await contextLines($, surface, 'dock', 41)).slice(1, 3)).toEqual([
+          '    trend ▃▃ 2 turns · +6k a turn',
+          '    auto-compact at 167k · in ~16 turns',
+        ])
+        await turnsAt($, [37], 2)
+        expect((await contextLines($, surface, 'dock', 41))[1]).toBe(
+          '    trend ▃▃▃ 3 turns · +6k a turn',
+        )
+      },
+    )
+
+    test(
+      `more than 99 turns left read over 99 turns, and 99 turns left read ~99 turns, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [33, 33.5])
+        const over = [
+          { placement: 'dock', columns: 41, line: '    compact at 167k · over 99 turns' },
+          { placement: 'dock', columns: 30, line: '    compact 167k · 99+ turns' },
+          { placement: 'inline', columns: 76, line: '    auto-compact at 167k · in over 99 turns' },
+        ] as const
+        for (const { placement, columns, line } of over) {
+          const lines = await contextLines($, surface, placement, columns)
+          expect(lines.find((text) => /^ {4}(auto-)?compact /.test(text))).toBe(line)
+        }
+        await turnsAt($, [34], 2)
+        expect((await contextLines($, surface, 'dock', 41))[2]).toBe(
+          '    auto-compact at 167k · in ~99 turns',
+        )
+      },
+    )
+
+    test(
+      `after a resume the board counts the parts once when it draws the details that stayed open, so the auto-compact line shows with no press, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, [31, 34])
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await ui.press({ key: 'session' })
+        await ui.unmount()
+        expect(seen.breakdownCalls).toBe(1)
+        await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } })
+        await startOn($, surface)
+        await turnsAt($, [10, 13], 2)
+        const shown = await mountTab($, surface, PANE, 'dock', 41)
+        expect(seen.breakdownCalls).toBe(2)
+        expect((await screen(shown, 41)).slice(1, 4)).toEqual([
+          '    context 26k of 200k · 0 compactions',
+          '    trend ▁▂ 2 turns · +6k a turn',
+          '    auto-compact at 167k · in ~23 turns',
+        ])
+        await shown.unmount()
+      },
+    )
+  }
+})
+
+describe(PARTS_CRITERION, () => {
+  test(
+    'a press on context parts lists the used rows by tokens with the engine names and the percent of the compaction window, 7 rows before a fold, as mock 8.14b',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+      await start($)
+      await turnsAt($, MOCK_PERCENTS)
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await openParts(ui)
+        const lines = await screen(ui, 41)
+        expect(lines.slice(1, 1 + MOCK_PARTS_41.length)).toEqual(MOCK_PARTS_41)
+        expect(await ui.find({ type: 'Button', key: 'session:parts' })).toBeDefined()
+        await ui.press({ key: 'session:parts:all' })
+        const all = await screen(ui, 41)
+        expect(all.slice(11, 14)).toEqual([
+          '    System prompt          3k   2%',
+          '    Plugins                2k   1%',
+          '    [ fewer parts ]',
+        ])
+        await ui.press({ key: 'session:parts:all' })
+        await ui.press({ key: 'session:parts' })
+        const closed = await screen(ui, 41)
+        expect(closed[4]).toBe('    [ context parts ]')
+        expect(closed.join('\n')).not.toContain('Messages')
+        await ui.unmount()
+      }
+    },
+  )
+
+  test(
+    'the rows follow the kind of each row and never its name: a used row named Free space is a part, and a free row named Messages is free space',
+    withWorkitems,
+    async ($, on) => {
+      world(on, {
+        breakdown: breakdownOf([
+          ['Free space', 50_000, 'used'],
+          ['Messages', 40_000, 'free'],
+          ['Autocompact buffer', 33_000, 'buffer'],
+          ['MCP tools', 20_000, 'deferred'],
+        ]),
+      })
+      await start($)
+      await turnsAt($, [25, 28])
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await openParts(ui)
+        const lines = await screen(ui, 41)
+        expect(lines.slice(4, 9)).toEqual([
+          '    [ hide parts ]',
+          '    Free space            50k  25%',
+          '    free 40k · compact buffer 33k',
+          '    on demand 20k, not in the window',
+          '    estimated; /context counts exactly',
+        ])
+        await ui.press({ key: 'session:parts' })
+        await ui.unmount()
+      }
+    },
+  )
+})
+
+describe(NO_BREAKDOWN_CRITERION, () => {
+  test(
+    'a host that answers with no breakdown shows no breakdown on this host, with no number and no parts button',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await turnsAt($, [31, 34])
+      for (const surface of SURFACES) {
+        for (const columns of [41, 30]) {
+          const lines = await contextLines($, surface, 'dock', columns)
+          const line = lines.find((text) => text.includes('breakdown'))
+          expect(line).toBe('    no breakdown on this host')
+          expect(line).not.toMatch(/\d/)
+          expect(lines.join('\n')).not.toContain('context parts')
+        }
+      }
+    },
+  )
+
+  test(
+    'a breakdown call that fails says parts failed and where /context shows them, logs the cause, and a press asks again',
+    withWorkitems,
+    async ($, on) => {
+      const options: WorldOptions = { breakdown: 'refused' }
+      const seen = world(on, options)
+      await start($)
+      await turnsAt($, [31, 34])
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41)).slice(2)).toEqual([
+          '    parts failed; /context shows them',
+          '    [ context parts ]',
+        ])
+        expect((await contextLines($, surface, 'dock', 30)).slice(3)).toEqual([
+          '    parts failed; see /context',
+          '    [ context parts ]',
+        ])
+      }
+      expect(seen.logs.some((log) => log.includes('the context parts were not counted'))).toBe(true)
+      options.breakdown = breakdownOf(MOCK_ROWS)
+      const ui = await mountTab($, 'terminal', PANE, 'dock', 41)
+      await ui.press({ key: 'session:parts' })
+      expect((await screen(ui, 41))[3]).toBe('    auto-compact at 167k · in ~16 turns')
+      await ui.unmount()
+    },
+  )
+})
+
+describe(AUTO_COMPACT_OFF_CRITERION, () => {
+  test(
+    'with auto-compact off the line reads auto-compact is off, with no threshold and no turn count',
+    withWorkitems,
+    async ($, on) => {
+      world(on, {
+        breakdown: breakdownOf(
+          MOCK_ROWS.filter(([, , kind]) => kind !== 'buffer'),
+          null,
+        ),
+      })
+      await start($)
+      await turnsAt($, [31, 34])
+      for (const surface of SURFACES) {
+        for (const columns of [41, 30]) {
+          const lines = await contextLines($, surface, 'dock', columns)
+          const line = lines.find((text) => text.includes('auto-compact'))
+          expect(line).toBe('    auto-compact is off')
+          expect(lines.join('\n')).not.toMatch(/turns? left|~\d|in ~/)
+        }
+      }
+    },
+  )
+})
+
+describe(TREND_RESTART_CRITERION, () => {
+  test(
+    'a compaction empties the trend, a turn end before a new reading adds nothing, and the readings after it start a new trend',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+      await start($)
+      await turnsAt($, [20, 30, 40])
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41))[1]).toBe(
+          '    trend ▂▃▄ 3 turns · +20k a turn',
+        )
+      }
+      await mainTurnStarts($, 'turn-compacted')
+      await compacts($)
+      await mainTurnTakes($, 'turn-compacted', MINUTE)
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41)).slice(0, 3)).toEqual([
+          '    context 80k of 200k · 1 compaction',
+          '    trend after 2 turns',
+          '    auto-compact at 167k',
+        ])
+      }
+      await turnsAt($, [10, 13], 3)
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41)).slice(1, 3)).toEqual([
+          '    trend ▁▂ 2 turns · +6k a turn',
+          '    auto-compact at 167k · in ~23 turns',
+        ])
+      }
+    },
+  )
+
+  test(
+    'a skipped compaction and a compaction of a subagent keep the trend',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+      await start($)
+      await turnsAt($, [20, 30])
+      await $.session.compact({ trigger: 'auto', messages: [SUMMARY], agentId: 'a1' })
+      await $.session.compact({
+        trigger: 'manual',
+        messages: [SUMMARY],
+        instructions: SKIPPED_COMPACTION,
+      })
+      await turnsAt($, [40], 2)
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41))[1]).toBe(
+          '    trend ▂▃▄ 3 turns · +20k a turn',
+        )
+      }
+    },
+  )
+})
+
+describe(SOON_CRITERION, () => {
+  test(
+    'from 2 turns left the line says soon in the warning colour, and at 3 turns left it does not',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+      await start($)
+      await turnsAt($, [71.5, 74.5])
+      for (const surface of SURFACES) {
+        expect((await contextLines($, surface, 'dock', 41))[2]).toBe(
+          '    auto-compact at 167k · in ~3 turns',
+        )
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await ui.find({ type: 'Text', text: 'soon' })).toBeUndefined()
+        await ui.unmount()
+      }
+      const steps: readonly { percent: number; wide: string; narrow: string }[] = [
+        { percent: 77.5, wide: 'auto-compact soon: ~2 turns', narrow: 'compact soon: ~2 turns' },
+        { percent: 80.5, wide: 'auto-compact soon: ~1 turn', narrow: 'auto-compact soon: ~1 turn' },
+        { percent: 83.5, wide: 'auto-compact soon: next turn', narrow: 'compact soon: next turn' },
+      ]
+      for (const [index, { percent, wide, narrow }] of steps.entries()) {
+        await turnsAt($, [percent], 2 + index)
+        for (const surface of SURFACES) {
+          expect((await contextLines($, surface, 'dock', 41))[2]).toBe(`    ${wide}`)
+          expect((await contextLines($, surface, 'dock', 30))[3]).toBe(`    ${narrow}`)
+          const ui = await mountTab($, surface, PANE, 'dock', 41)
+          const soon = await ui.find({ type: 'Text', text: 'soon' })
+          expect(soon?.props.color).toBe('warning')
+          await ui.unmount()
+        }
+      }
+    },
+  )
+})
+
+for (const surface of SURFACES) {
+  describe(PARTS_STATS_CRITERION, () => {
+    test(
+      `the reply prints the trend, the auto-compact line and every part with the free space, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await startOn($, surface)
+        await turnsAt($, MOCK_PERCENTS)
+        expect(await board($, 'stats')).toBe(
+          [
+            'Session  ctx 62% · $1.70 · last +$0.10',
+            '    context 124k of 200k · 0 compactions',
+            '    trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn',
+            '    auto-compact at 167k · in ~7 turns',
+            '    Messages              71k  36%',
+            '    System tools          18k   9%',
+            '    MCP tools             12k   6%',
+            '    Memory files           9k   5%',
+            '    Custom agents          5k   3%',
+            '    Skills                 4k   2%',
+            '    System prompt          3k   2%',
+            '    Plugins                2k   1%',
+            '    free 43k · compact buffer 33k',
+            '    estimated; /context counts exactly',
+            '    last turn 1m · +$0.10 · 0 edits · 0 errors · 0 agents spawned',
+            '    limits: none reported',
+            'No agents yet.',
+          ].join('\n'),
+        )
+        expect(seen.breakdownCalls).toBe(1)
+      },
+    )
+
+    test(
+      `the reply keeps at most 20 readings and says no breakdown on this host where the host gives none, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await startOn($, surface)
+        await turnsAt(
+          $,
+          Array.from({ length: 25 }, (_, index) => index + 1),
+        )
+        const lines = (await board($, 'stats')).split('\n')
+        expect(lines.slice(1, 4)).toEqual([
+          '    context 50k of 200k · 0 compactions',
+          '    trend ▁▁▁▁▁▁▁▂▂▂▂▂▂▂▂▂▂▂▂▂ 20 turns · +2k a turn',
+          '    no breakdown on this host',
+        ])
+      },
+    )
+  })
+}
+
+const PARTS_SCREENS: readonly {
+  placement: 'dock' | 'inline'
+  columns: number
+  lines: readonly string[]
+}[] = [
+  { placement: 'dock', columns: 41, lines: MOCK_PARTS_41 },
+  {
+    placement: 'dock',
+    columns: 30,
+    lines: [
+      '    context 124k of 200k',
+      '    0 compactions',
+      '    trend ▁▂▄▄▅▅▅▅ +6k/turn',
+      '    compact at 167k · ~7 turns',
+      '    [ hide parts ]',
+      '    Messages          71k  36%',
+      '    System tools      18k   9%',
+      '    MCP tools         12k   6%',
+      '    Memory files       9k   5%',
+      '    Custom agents      5k   3%',
+      '    Skills             4k   2%',
+      '    System prompt      3k   2%',
+      '    [ +1 more part ]',
+      '    free 43k · buffer 33k',
+      '    estimated; /context exact',
+    ],
+  },
+  {
+    placement: 'inline',
+    columns: 76,
+    lines: [
+      '    context 124k of 200k · 0 compactions',
+      '    trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn',
+      '    auto-compact at 167k · in ~7 turns',
+      '    [ hide parts ]',
+      '    Messages              71k  36%     System tools          18k   9%',
+      '    MCP tools             12k   6%     Memory files           9k   5%',
+      '    Custom agents          5k   3%     Skills                 4k   2%',
+      '    System prompt          3k   2%     Plugins                2k   1%',
+      '    free 43k · compact buffer 33k',
+      '    estimated; /context counts exactly',
+    ],
+  },
+]
+
+describe(PARTS_WIDTH_CRITERION, () => {
+  for (const { placement, columns, lines } of PARTS_SCREENS) {
+    test(
+      `the trend, the auto-compact line and the open parts fit body ${String(columns)}, ${placement}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { breakdown: breakdownOf(MOCK_ROWS) })
+        await start($)
+        await turnsAt($, MOCK_PERCENTS)
+        for (const surface of SURFACES) {
+          const ui = await mountTab($, surface, PANE, placement, columns)
+          await openParts(ui)
+          const drawn = await screen(ui, columns)
+          expect(drawn.slice(1, 1 + lines.length)).toEqual(lines)
+          for (const line of drawn) expect(displayWidth(line)).toBeLessThanOrEqual(columns)
+          await ui.press({ key: 'session:parts' })
+          await ui.unmount()
+        }
+      },
+    )
+  }
+
+  test(
+    'a long trend, a long engine name and the state lines fit body 30 and 24',
+    withWorkitems,
+    async ($, on) => {
+      world(on, {
+        breakdown: breakdownOf([
+          ['A very long category name from a later engine', 60_000, 'used'],
+          ['Free space', 100_000, 'free'],
+          ['Autocompact buffer', 33_000, 'buffer'],
+          ['Deferred tools', 20_000, 'deferred'],
+        ]),
+      })
+      await start($)
+      await turnsAt(
+        $,
+        Array.from({ length: 20 }, (_, index) => 10 + index),
+      )
+      for (const surface of SURFACES) {
+        for (const columns of [30, 24]) {
+          const ui = await mountTab($, surface, PANE, 'dock', columns)
+          await openParts(ui)
+          const drawn = await screen(ui, columns)
+          for (const line of drawn) expect(displayWidth(line)).toBeLessThanOrEqual(columns)
+          expect(
+            drawn.some((line) => line.startsWith('    trend ') && line.endsWith('/turn')),
+          ).toBe(true)
+          expect(drawn.some((line) => line.startsWith('    A very l'))).toBe(true)
+          await ui.press({ key: 'session:parts' })
+          await ui.unmount()
+        }
       }
     },
   )
@@ -6815,6 +7530,8 @@ for (const surface of SURFACES) {
             'Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62',
             '    ◆ scout waits for permission: Bash npm test',
             '    context 124k of 200k · 1 compaction',
+            '    trend after 2 turns',
+            '    no breakdown on this host',
             '    last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned',
             '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
             '    checks 2 · 1 allowed · 1 asked',

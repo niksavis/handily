@@ -8,7 +8,7 @@ import { sessionText } from './vitals'
 
 const STATS_INDENT = '    '
 
-export type Stats = Pick<PaneWork, 'now' | 'vitals' | 'checks' | 'agents'>
+export type Stats = Pick<PaneWork, 'now' | 'vitals' | 'checks' | 'agents' | 'context'>
 
 function indented(lines: readonly string[]): string[] {
   return lines.map((line) => `${STATS_INDENT}${line}`)
@@ -16,7 +16,7 @@ function indented(lines: readonly string[]): string[] {
 
 function sessionLines(stats: Stats): string[] {
   const waiting = waitingRows(stats.agents)
-  const details = detailsText(stats.vitals, stats.now)
+  const details = detailsText(stats.vitals, stats.now, stats.context)
   const checks = checksText(stats.checks)
   return [
     sessionText(stats.vitals, waiting.length),

@@ -63,3 +63,36 @@ export function drawPartLines(
     partsLine(elements, `${key}:${String(index)}`, line, room, lead),
   )
 }
+
+export type FitLine = { key: string; fit: (room: number) => readonly Part[] }
+
+export function spansWidth(parts: readonly Part[]): number {
+  return displayWidth(parts.map((part) => part.text).join(''))
+}
+
+export function firstFitting(room: number, forms: readonly (readonly Part[])[]): Part[] {
+  const fitting = forms.find((form) => spansWidth(form) <= room)
+  return fitting === undefined ? fitParts(forms.at(-1) ?? [], room) : [...fitting]
+}
+
+export function fitLineText(line: FitLine): string {
+  return line
+    .fit(Number.POSITIVE_INFINITY)
+    .map((part) => part.text)
+    .join('')
+}
+
+export function drawFitLine(elements: PaneElements, line: FitLine, room: number): RenderElement {
+  const { Box, Text } = elements
+  return Box({
+    key: line.key,
+    flexDirection: 'row',
+    children: line
+      .fit(room)
+      .map((part) =>
+        part.color === undefined
+          ? Text({ dimColor: true, children: part.text })
+          : Text({ color: part.color, children: part.text }),
+      ),
+  })
+}
