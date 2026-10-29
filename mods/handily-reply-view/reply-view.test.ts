@@ -4175,13 +4175,15 @@ describe('diagram blocks', () => {
     )
     const drawing = drawnLines(TINY_SOURCE, 18)
     const folded = await sketchOf(ui, 20)
-    expect(folded.slice(-4, -1)).toEqual([
+    expect(folded.slice(-6)).toEqual([
       '  ~── mermaid · flow…~',
       `  ${' '.repeat(10)}[ copy ]`,
       `  ${' '.repeat(2)}[ copy drawing ]`,
+      `  ~… ${String(drawing.length)} more lines~`,
+      `  ${' '.repeat(10)}[ more ]`,
+      `  ${' '.repeat(4)}[ copy reply ]`,
     ])
-    expect(folded).toHaveLength(26 + 1 + 3 + 1)
-    expect(folded.at(-1)).toContain(`~… ${String(drawing.length)} more lines~`)
+    expect(folded).toHaveLength(26 + 1 + 3 + 3)
     await ui.unmount()
   })
 
@@ -4391,6 +4393,131 @@ describe('copy from the keyboard', () => {
         expect(await commandText($, args)).toBe(USAGE)
       }
       expect(world.copies).toEqual([])
+    },
+  )
+})
+
+function widerThan(lines: readonly string[], columns: number): string[] {
+  return lines.filter((line) => plainWidth(line) > columns)
+}
+
+describe('a very narrow reply', () => {
+  for (const surface of SURFACES) {
+    viewTest(
+      `in a reply of 18 columns the fold row puts more and copy reply each on its own line on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 18)
+        const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+        const folded = await sketchOf(ui, columns)
+        expect(folded.slice(-3)).toEqual(
+          onSurface(surface, [
+            '',
+            '~… 24 more lines~',
+            `${' '.repeat(10)}[ more ]`,
+            `${' '.repeat(4)}[ copy reply ]`,
+          ]).slice(1),
+        )
+        expect(widerThan(folded, columns)).toEqual([])
+        await ui.press({ key: 'fold' })
+        const opened = await sketchOf(ui, columns)
+        expect(opened.slice(-2)).toEqual(
+          onSurface(surface, [
+            '',
+            `${' '.repeat(10)}[ less ]`,
+            `${' '.repeat(4)}[ copy reply ]`,
+          ]).slice(1),
+        )
+        expect(widerThan(opened, columns)).toEqual([])
+        await ui.press({ key: 'copy-reply' })
+        expect(world.copies).toEqual([LONG_REPLY])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `in a reply of 12 columns the fold row cuts the copy reply label to fit and still copies on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 12)
+        const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+        const folded = await sketchOf(ui, columns)
+        expect(folded.slice(-2)).toEqual(
+          onSurface(surface, ['', `${' '.repeat(4)}[ more ]`, '[ copy re… ]']).slice(1),
+        )
+        expect(widerThan(buttonLines(folded), columns)).toEqual([])
+        expect((await ui.find({ type: 'Text', text: '… 24 more lines' }))?.props.wrap).toBe(
+          'truncate-end',
+        )
+        await ui.press({ key: 'copy-reply' })
+        expect(world.copies).toEqual([LONG_REPLY])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `in a reply of 18 columns the copy button of a code block moves under its title on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 18)
+        const ui = await mountReply($, reply(FENCE), surface, columns)
+        const drawn = await sketchOf(ui, columns)
+        expect(drawn).toEqual(
+          onSurface(surface, [
+            'Here is the plan:',
+            '',
+            `~── plan ${'─'.repeat(10)}~`,
+            `${' '.repeat(10)}[ copy ]`,
+            '1. Write the mocks',
+            '2. Ask the person',
+          ]),
+        )
+        expect(widerThan(drawn, columns)).toEqual([])
+        await ui.press({ key: 'block-1-copy' })
+        expect(world.copies).toEqual(['1. Write the mocks\n2. Ask the person'])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `in a reply of 11 columns the copy button of a block with no tag moves under its rule on ${surface}`,
+      async (_world, $) => {
+        const columns = screenColumns(surface, 11)
+        const ui = await mountReply($, reply('~~~\necho hi\n~~~'), surface, columns)
+        const drawn = await sketchOf(ui, columns)
+        expect(drawn).toEqual(
+          onSurface(surface, [`~${'─'.repeat(11)}~`, `${' '.repeat(3)}[ copy ]`, 'echo hi']),
+        )
+        expect(widerThan(drawn, columns)).toEqual([])
+        await ui.unmount()
+      },
+    )
+  }
+
+  viewTest(
+    'in a reply of 12 columns the copy button of a block with no tag stays on its rule',
+    async (_world, $) => {
+      const ui = await mountReply($, reply('~~~\necho hi\n~~~'), 'desktop', 12)
+      expect(await sketchOf(ui, 12)).toEqual(['~──~  [ copy ]', 'echo hi'])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'the fold counts the two title rows of a code block in a narrow reply',
+    async (_world, $) => {
+      const lead = Array.from({ length: 27 }, (_, index) => `Line ${String(index + 1)}`)
+      const text = [...lead, '', '```plan', '1. Write the mocks', '2. Ask the person', '```'].join(
+        '\n',
+      )
+      const ui = await mountReply($, reply(text), 'desktop', 18)
+      const folded = await sketchOf(ui, 18)
+      expect(folded.slice(-6)).toEqual([
+        '',
+        `~── plan ${'─'.repeat(10)}~`,
+        `${' '.repeat(10)}[ copy ]`,
+        '~… 2 more lines~',
+        `${' '.repeat(10)}[ more ]`,
+        `${' '.repeat(4)}[ copy reply ]`,
+      ])
+      await ui.unmount()
     },
   )
 })
