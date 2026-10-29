@@ -5419,3 +5419,214 @@ describe('the glyph setting', () => {
     expect(seen.toasts[0]?.startsWith('\u{EA87} Not copied ')).toBe(true)
   })
 })
+
+const NERD_TO_PLAIN: readonly (readonly [string, string])[] = [
+  ['\u{EA73}', '✎'],
+  ['\u{EA70}', '◦'],
+  ['\u{F07B}', '▸'],
+  ['\u{F07C}', '▾'],
+  ['\u{F418}', '·'],
+]
+
+function asPlain(line: string): string {
+  return NERD_TO_PLAIN.reduce((text, [nerd, plain]) => text.replaceAll(nerd, plain), line)
+}
+
+function hasNerdMark(line: string): boolean {
+  return NERD_TO_PLAIN.some(([nerd]) => line.includes(nerd))
+}
+
+const PLAIN_MARKS_SCREEN = [
+  'Files  app · main ↑1 · 6 changed',
+  UPSTREAM_LINE,
+  CONTROLS,
+  'Now  2 agents',
+  '✎ main      hooks/pane.tsx             4s',
+  '◦ scout     docs/design.md             2s',
+  RULE_41,
+  '▸ .git/  not listed',
+  '▸ node_modules/  not listed',
+  '▾ docs/  M2 ?1            ◦ scout      2s',
+  '  M design.md             ◦ scout      2s',
+  '  ? filetree.md',
+  '    guide.md',
+  '    install.md',
+  '  M mocks.md',
+  '▾ hooks/  M1 D1           ✎ main       4s',
+  '  ▸ dist/  not listed',
+  '  D old-pane.tsx',
+  '  M pane.tsx              ✎ main       4s',
+  '    register.tsx',
+  '▸ scripts/',
+  '  .gitignore',
+  'M README.md',
+]
+
+const NERD_MARKS_SCREEN = [
+  'Files  app \u{F418} main ↑1 · 6 changed',
+  UPSTREAM_LINE,
+  CONTROLS,
+  'Now  2 agents',
+  '\u{EA73} main      hooks/pane.tsx             4s',
+  '\u{EA70} scout     docs/design.md             2s',
+  RULE_41,
+  '\u{F07B} .git/  not listed',
+  '\u{F07B} node_modules/  not listed',
+  '\u{F07C} docs/  M2 ?1            \u{EA70} scout      2s',
+  '  M design.md             \u{EA70} scout      2s',
+  '  ? filetree.md',
+  '    guide.md',
+  '    install.md',
+  '  M mocks.md',
+  '\u{F07C} hooks/  M1 D1           \u{EA73} main       4s',
+  '  \u{F07B} dist/  not listed',
+  '  D old-pane.tsx',
+  '  M pane.tsx              \u{EA73} main       4s',
+  '    register.tsx',
+  '\u{F07B} scripts/',
+  '  .gitignore',
+  'M README.md',
+]
+
+function nerdOn(surface: RenderSurface): boolean {
+  return surface === 'terminal'
+}
+
+function marksScreenOn(surface: RenderSurface): readonly string[] {
+  return nerdOn(surface) ? NERD_MARKS_SCREEN : PLAIN_MARKS_SCREEN
+}
+
+async function glyphsTo($: Engine, value: 'plain' | 'nerd'): Promise<void> {
+  await setRow($, GLYPHS_KEY, value, 'handily@niksavis')
+}
+
+async function marksScene($: Engine, on: On, surface: RenderSurface, glyphs: 'plain' | 'nerd') {
+  const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+  seen.config = [glyphsRow(glyphs)]
+  fakeTools(on, seen, new Map())
+  boardKnowsScout(on)
+  const ui = await openFiles($, seen, surface)
+  await mainEditsScoutReads($, seen)
+  await ui.press({ key: 'open:docs' })
+  await ui.press({ key: 'open:hooks' })
+  return { seen, ui }
+}
+
+async function countedWork($: Engine, on: On, surface: RenderSurface, columns: number) {
+  const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+  seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES }
+  seen.config = [glyphsRow('plain')]
+  fakeTools(on, seen, new Map())
+  boardKnowsScout(on)
+  const ui = await mountWork($, seen, surface, columns)
+  await workTouches($, seen)
+  await ui.redraw(paneProps('dock', columns))
+  return ui
+}
+
+describe('the glyph sets: the files tab', () => {
+  for (const surface of SURFACES) {
+    test(`with glyphs nerd the ${surface} draws ${nerdOn(surface) ? 'the edited, read, closed folder, open folder and branch icons' : 'the plain marks'}`, async ($, on) => {
+      const { seen, ui } = await marksScene($, on, surface, 'nerd')
+      expect(seen.glyphs).toEqual(['nerd'])
+      expect(await screen(ui)).toEqual(marksScreenOn(surface))
+      await ui.unmount()
+    })
+
+    test(`with glyphs plain the ${surface} draws the plain marks`, async ($, on) => {
+      const { seen, ui } = await marksScene($, on, surface, 'plain')
+      expect(seen.glyphs).toEqual(['plain'])
+      expect(await screen(ui)).toEqual(PLAIN_MARKS_SCREEN)
+      await ui.unmount()
+    })
+
+    test(`a change of glyphs in /config draws the open tab again on the ${surface}`, async ($, on) => {
+      const { ui } = await marksScene($, on, surface, 'plain')
+      await glyphsTo($, 'nerd')
+      expect(await screen(ui)).toEqual(marksScreenOn(surface))
+      await glyphsTo($, 'plain')
+      expect(await screen(ui)).toEqual(PLAIN_MARKS_SCREEN)
+      await ui.unmount()
+    })
+
+    test(`the task counts line draws the edited and read marks from the setting on the ${surface}`, async ($, on) => {
+      const { seen, board } = taskScene(on, surface)
+      seen.config = [glyphsRow('nerd')]
+      await start($)
+      await taskWork($, seen, board)
+      const ui = await taskTab($, seen, surface, 2)
+      expect((await headerOf(ui)).at(-1)).toBe(
+        nerdOn(surface)
+          ? '\u{EA73} 1 edited · \u{EA70} 2 read while task 2 ran'
+          : '✎ 1 edited · ◦ 2 read while task 2 ran',
+      )
+      await ui.unmount()
+    })
+
+    test(`the step title of an edit draws the edited mark and the header the branch mark from the setting on the ${surface}`, async ($, on) => {
+      const { seen } = editScene(on)
+      seen.config = [glyphsRow('nerd')]
+      const ui = await workFiles($, seen, surface)
+      await threeEdits($, seen)
+      await pressHotkey(ui, 'l')
+      const lines = await screen(ui)
+      expect(lines[0]).toBe(
+        nerdOn(surface)
+          ? 'Files  app \u{F418} main ↑1 · 6 changed'
+          : 'Files  app · main ↑1 · 6 changed',
+      )
+      expect(lines[3]).toBe(
+        nerdOn(surface)
+          ? 'hooks/pane.tsx  \u{EA73} main · Edit · +2 -1'
+          : 'hooks/pane.tsx  ✎ main · Edit · +2 -1',
+      )
+      await ui.unmount()
+    })
+
+    test(`a two line header keeps the branch mark on line 1 and moves the line counts beside the upstream on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [file('a.ts')]]], {
+        kind: 'ok',
+        stdout: statusOf([changed('.M', 'a.ts')], { ab: '+1 -2' }),
+      })
+      seen.numstatAnswer = { kind: 'ok', stdout: numstatLine('1234', '310', 'a.ts') }
+      seen.config = [glyphsRow('nerd')]
+      const ui = await openFiles($, seen, surface)
+      expect((await headerOf(ui)).slice(0, 2)).toEqual([
+        nerdOn(surface)
+          ? 'Files  app \u{F418} main ↑1 ↓2 · 1 changed'
+          : 'Files  app · main ↑1 ↓2 · 1 changed',
+        '+1.2k -310 · upstream origin/main',
+      ])
+      await ui.unmount()
+    })
+
+    for (const columns of [41, 30, 24]) {
+      test(`at body ${String(columns)} every line has the same width in both sets, and the git letters, arrows and line counts stay, on the ${surface}`, async ($, on) => {
+        const ui = await countedWork($, on, surface, columns)
+        const plain = await screen(ui, columns)
+        await glyphsTo($, 'nerd')
+        const nerd = await screen(ui, columns)
+        expect(nerd.map((line) => displayWidth(line))).toEqual(
+          plain.map((line) => displayWidth(line)),
+        )
+        expect(nerd.map(asPlain)).toEqual(plain)
+        expect(nerd.filter(hasNerdMark).length > 0).toBe(nerdOn(surface))
+        expect(plain.filter(hasNerdMark)).toEqual([])
+        expect(nerd.join('\n')).toContain('M design.md')
+        expect(nerd[0]).toContain('↑1')
+        await ui.unmount()
+      })
+    }
+  }
+
+  test('at body 41 the counted work view puts the branch icon in the header and keeps the totals, the arrow and the upstream', async ($, on) => {
+    const ui = await countedWork($, on, 'terminal', 41)
+    await glyphsTo($, 'nerd')
+    expect((await headerOf(ui)).slice(0, 2)).toEqual([
+      'Files  app \u{F418} main ↑1 · 7 changed +48 -93',
+      UPSTREAM_LINE,
+    ])
+    expect(await treeLines(ui)).toContain('  M design.md       +4 -1 \u{EA70} scout      2s')
+    await ui.unmount()
+  })
+})

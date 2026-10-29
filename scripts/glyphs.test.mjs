@@ -20,6 +20,7 @@ const GLYPH_MODS = [
 ]
 const LITERAL_FREE_MODS = [
   'handily-board',
+  'handily-filetree',
   'handily-item-toasts',
   'handily-reply-view',
   'handily-simple-view',
@@ -43,6 +44,17 @@ const LITERAL_EXCEPTIONS = [
 ]
 const MARK_ROLES = Object.keys(APPROVED)
 const SETS = ['plain', 'nerd']
+const NERD_ONLY = ['nerd']
+const SIGNAL_MARKS = MARK_ROLES.map((role) => ({ role, sets: SETS }))
+const OWN_MARK_ROLES = {
+  'handily-filetree': [
+    { role: 'edited', sets: SETS },
+    { role: 'read', sets: SETS },
+    { role: 'folderClosed', sets: SETS },
+    { role: 'folderOpen', sets: SETS },
+    { role: 'branch', sets: NERD_ONLY },
+  ],
+}
 const NERD_FIRST = 0xe000
 const NERD_LAST = 0xf8ff
 const INVENTORY_HEADER =
@@ -474,9 +486,9 @@ describe('the glyph sets', () => {
   })
 })
 
-function markPatterns() {
-  return MARK_ROLES.flatMap((role) =>
-    SETS.map((setName) => {
+function markPatterns(marks) {
+  return marks.flatMap(({ role, sets }) =>
+    sets.map((setName) => {
       const { plain, nerd } = GLYPHS[role]
       const code = setName === 'plain' ? plain.codePointAt(0) : nerd
       const hex = code.toString(16)
@@ -512,13 +524,13 @@ function builtCodePoints(line) {
   )
 }
 
-function marksInFile(dir, path) {
+function marksInFile(dir, path, marks = SIGNAL_MARKS) {
   const file = shownPath(dir, path)
   return readFileSync(path, 'utf8')
     .split('\n')
     .flatMap((line, index) => {
       const built = builtCodePoints(line)
-      return markPatterns()
+      return markPatterns(marks)
         .filter(({ pattern, glyph }) => pattern.test(line) || built.has(glyph.codePointAt(0)))
         .map(({ role, setName, glyph }) => ({ file, line: index + 1, role, setName, glyph }))
     })
@@ -533,13 +545,24 @@ function missingHooks(dir, mods) {
     )
 }
 
-function literalMarks(dir, mods, exceptions) {
+function marksOf(mod, ownRoles) {
+  return [...SIGNAL_MARKS, ...(ownRoles[mod] ?? [])]
+}
+
+function byPath(a, b) {
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+}
+
+function literalMarks(dir, mods, exceptions, ownRoles = OWN_MARK_ROLES) {
   const found = mods
     .filter((mod) => existsSync(join(dir, mod, 'hooks')))
-    .flatMap((mod) => filesUnder(join(dir, mod, 'hooks')))
-    .filter((path) => !path.endsWith(`${sep}${GLYPH_FILE}`))
-    .sort()
-    .flatMap((path) => marksInFile(dir, path))
+    .flatMap((mod) =>
+      filesUnder(join(dir, mod, 'hooks'))
+        .filter((path) => !path.endsWith(`${sep}${GLYPH_FILE}`))
+        .map((path) => ({ path, marks: marksOf(mod, ownRoles) })),
+    )
+    .sort(byPath)
+    .flatMap(({ path, marks }) => marksInFile(dir, path, marks))
   const isExcepted = (mark) =>
     exceptions.some(({ file, glyph }) => file === mark.file && glyph === mark.glyph)
   const unexcepted = found
@@ -570,6 +593,63 @@ describe('the literal free gate', () => {
       )
       assert.match(why, /arrow|cell/)
     }
+  })
+
+  test('OWN_MARK_ROLES names only mods of LITERAL_FREE_MODS and roles of the glyph table that are not signal roles', () => {
+    for (const [mod, marks] of Object.entries(OWN_MARK_ROLES)) {
+      assert.ok(LITERAL_FREE_MODS.includes(mod), mod)
+      for (const { role, sets } of marks) {
+        assert.ok(Object.hasOwn(GLYPHS, role), role)
+        assert.ok(!MARK_ROLES.includes(role), role)
+        assert.ok(sets.length > 0 && sets.every((set) => SETS.includes(set)), role)
+      }
+    }
+  })
+
+  test('names the nerd branch icon in each form in a handily-filetree hooks file, and keeps the plain separator', () => {
+    withModsTree(
+      {
+        'mods/handily-filetree/hooks/gitview.ts': [
+          "const RAW = ' \u{F418} '",
+          "const BRACED = '\\u{f418}'",
+          "const SHORT = '\\uF418'",
+          'const HEX = String.fromCodePoint(0xf418)',
+          'const DECIMAL = String.fromCharCode(62488)',
+          "const GAP = ' · '",
+          "const ESCAPED_GAP = '\\u00b7'",
+          '',
+        ].join('\n'),
+      },
+      (dir) => {
+        assert.deepEqual(literalMarks(dir, ['handily-filetree'], []), [
+          'mods/handily-filetree/hooks/gitview.ts:1 writes the nerd glyph of branch, U+F418, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/handily-filetree/hooks/gitview.ts:2 writes the nerd glyph of branch, U+F418, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/handily-filetree/hooks/gitview.ts:3 writes the nerd glyph of branch, U+F418, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/handily-filetree/hooks/gitview.ts:4 writes the nerd glyph of branch, U+F418, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/handily-filetree/hooks/gitview.ts:5 writes the nerd glyph of branch, U+F418, as a literal; name the role and draw it from hooks/glyphs.ts',
+        ])
+      },
+    )
+  })
+
+  test('names the mark of an own role in the mod that owns the role, and keeps it in another mod', () => {
+    const marks = "const SYMBOLS = { edit: '\u270e', read: '\\u25e6' }\nconst OPEN = '\\u{F07C}'\n"
+    withModsTree(
+      { 'mods/mod-a/hooks/marks.ts': marks, 'mods/mod-b/hooks/marks.ts': marks },
+      (dir) => {
+        assert.deepEqual(literalMarks(dir, ['mod-a', 'mod-b'], [], {}), [])
+        assert.deepEqual(
+          literalMarks(dir, ['mod-a', 'mod-b'], [], {
+            'mod-a': ['edited', 'read', 'folderOpen'].map((role) => ({ role, sets: SETS })),
+          }),
+          [
+            'mods/mod-a/hooks/marks.ts:1 writes the plain glyph of edited, U+270E, as a literal; name the role and draw it from hooks/glyphs.ts',
+            'mods/mod-a/hooks/marks.ts:1 writes the plain glyph of read, U+25E6, as a literal; name the role and draw it from hooks/glyphs.ts',
+            'mods/mod-a/hooks/marks.ts:2 writes the nerd glyph of folderOpen, U+F07C, as a literal; name the role and draw it from hooks/glyphs.ts',
+          ],
+        )
+      },
+    )
   })
 
   test('mods/handily-filetree/hooks/register.ts writes no signal mark as a literal', () => {

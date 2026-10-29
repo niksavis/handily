@@ -19,6 +19,7 @@ import {
   rowWidth,
 } from './buttons'
 import type { GitView, NoteLine, NoteTone } from './gitview'
+import type { GlyphSet } from './glyphs'
 import { type LineCount, type LineMarks, lineNumber } from './lines'
 import {
   type MarkColumn,
@@ -48,6 +49,7 @@ export type PaneElements = {
   Code: ElementConstructor<CodeProps>
   Markdown: ElementConstructor<MarkdownProps>
   bodyColumns: number
+  glyphs: GlyphSet
 }
 
 export type TaskDraw = {
@@ -127,8 +129,6 @@ const NOTE_GAP = '  '
 const INDENT = '  '
 const DETAIL_INDENT = '  '
 const MARKED_ROOM = 3
-const OPEN_MARK = '▾'
-const CLOSED_MARK = '▸'
 const RULE = '─'
 const NOT_LISTED = 'not listed'
 const DOCK_HINT = 'a dock (fullscreen, 110 columns) shows the tree'
@@ -385,7 +385,7 @@ function drawTaskLine(elements: PaneElements, task: TaskDraw): RenderElement {
 function drawTaskCounts(elements: PaneElements, task: TaskDraw): RenderElement[] {
   const { counts } = task
   const isEmpty = counts.edit + counts.read === 0
-  const text = isEmpty ? noTaskFilesText(task.id) : taskCountsText(counts, task.id)
+  const text = isEmpty ? noTaskFilesText(task.id) : taskCountsText(counts, task.id, elements.glyphs)
   return wrapped(text, elements.bodyColumns).map((part) =>
     elements.Text({ dimColor: isEmpty, children: part }),
   )
@@ -461,6 +461,7 @@ function drawSight(elements: PaneElements, sight: Sight, touched: TouchDraw): Re
     path: shownName(touched.shownPath(sight.path)),
     bodyColumns,
     now: touched.now,
+    glyphs: elements.glyphs,
   })
   const age = cells.age === '' ? [] : [Text({ dimColor: true, children: cells.age })]
   const line = Box({
@@ -603,9 +604,9 @@ function markLabel(touched: TouchDraw, mark: Mark): string {
   return isShared(mark) ? sharedLabel(mark) : shownName(touched.labelOf(mark.agent))
 }
 
-function markParts(touched: TouchDraw, mark: Mark): Part[] {
+function markParts(touched: TouchDraw, mark: Mark, glyphs: GlyphSet): Part[] {
   const label = markLabel(touched, mark)
-  const cell = markCell(touched.column, mark, label, touched.now)
+  const cell = markCell(touched.column, mark, { label, now: touched.now, glyphs })
   return cell.age === ''
     ? [{ text: cell.mark }]
     : [{ text: cell.mark }, { text: cell.age, dimColor: true }]
@@ -616,6 +617,7 @@ function markedLine(
   width: number,
   touched: TouchDraw,
   cells: { mark: Mark | undefined; count: CountCell | undefined },
+  glyphs: GlyphSet,
 ): { head: Part[]; tail: Part[] } {
   const { mark, count } = cells
   const room = nameRoom(width, touched, mark, count)
@@ -628,7 +630,7 @@ function markedLine(
       ? []
       : [{ text: ' '.repeat(COUNT_GAP + count.width - partsWidth(count.parts)) }, ...count.parts]
   const markTail =
-    mark === undefined ? [] : [{ text: ' '.repeat(MARK_GAP) }, ...markParts(touched, mark)]
+    mark === undefined ? [] : [{ text: ' '.repeat(MARK_GAP) }, ...markParts(touched, mark, glyphs)]
   return { head, tail: [gap, ...countTail, ...markTail] }
 }
 
@@ -650,7 +652,7 @@ function drawFolder(
 ): RenderElement {
   const { Box, Text, Button, bodyColumns } = elements
   const indent = displayWidth(indentOf(row.depth))
-  const mark = row.isOpen ? OPEN_MARK : CLOSED_MARK
+  const mark = row.isOpen ? elements.glyphs.folderOpen : elements.glyphs.folderClosed
   const top = chainTop(row)
   const gitCounts = draw.marks?.countsOf(top) ?? []
   const nameParts = folderName(`${mark} `, shownName(row.name), gitCounts)
@@ -662,6 +664,7 @@ function drawFolder(
       mark: draw.touched.folderMark(row.path),
       count: draw.counts?.cellOf(top, true),
     },
+    elements.glyphs,
   )
   const name = line.head.slice(0, nameParts.length)
   const counts = line.head.slice(nameParts.length)
@@ -731,7 +734,7 @@ function fileLine(
           { text: indentOf(Math.min(row.depth, Math.floor(Math.max(room - MARKED_ROOM, 0) / 2))) },
           ...markedParts(letter, shownName(row.name)),
         ]
-  const line = markedLine(parts, bodyColumns, touched, { mark, count })
+  const line = markedLine(parts, bodyColumns, touched, { mark, count }, elements.glyphs)
   return drawParts(Text, [...line.head, ...line.tail])
 }
 
@@ -860,7 +863,10 @@ function drawEntry(elements: PaneElements, row: EntryRow, draw: TreeDraw): Rende
     case 'pruned':
       return [
         Text({
-          children: fitted(`${folderText(row, CLOSED_MARK)}  ${NOT_LISTED}`, bodyColumns),
+          children: fitted(
+            `${folderText(row, elements.glyphs.folderClosed)}  ${NOT_LISTED}`,
+            bodyColumns,
+          ),
         }),
       ]
     case 'file':
@@ -1089,10 +1095,13 @@ function flatRow(
     }
   })()
   const { path, isFolder } = flatCountPath(row)
-  const line = markedLine(parts, bodyColumns, touched, {
-    mark: flatMark(row, touched),
-    count: counts?.cellOf(path, isFolder),
-  })
+  const line = markedLine(
+    parts,
+    bodyColumns,
+    touched,
+    { mark: flatMark(row, touched), count: counts?.cellOf(path, isFolder) },
+    elements.glyphs,
+  )
   return Box({
     key: `flat:${row.path}`,
     flexDirection: 'row',

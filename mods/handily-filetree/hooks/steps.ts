@@ -43,10 +43,9 @@ export type StepView = {
   actions: StepActions
 }
 
-type Shown = { edit: TurnEdit; path: string; label: string }
+type Shown = { edit: TurnEdit; path: string; label: string; mark: string }
 
 const RULE = '─'
-const EDIT_MARK = '✎'
 const PART_GAP = ' · '
 const TITLE_GAP = '  '
 const LAST_TURN = 'last turn'
@@ -104,11 +103,11 @@ function headText(view: StepView, width: number): string {
 }
 
 function tailText(shown: Shown, isShort: boolean): string {
-  const { edit, label } = shown
+  const { edit, label, mark } = shown
   const detail = detailOf(edit.change)
-  if (isShort) return `${TITLE_GAP}${EDIT_MARK} ${label}${detail === '' ? '' : ` ${detail}`}`
+  if (isShort) return `${TITLE_GAP}${mark} ${label}${detail === '' ? '' : ` ${detail}`}`
   const words = detail === '' ? [edit.tool] : [edit.tool, detail]
-  return `${TITLE_GAP}${EDIT_MARK} ${label}${PART_GAP}${words.join(PART_GAP)}`
+  return `${TITLE_GAP}${mark} ${label}${PART_GAP}${words.join(PART_GAP)}`
 }
 
 function titleText(shown: Shown, width: number): string {
@@ -145,6 +144,7 @@ function shownOf(view: StepView): Shown | undefined {
     edit,
     path: shownName(touched.shownPath(edit.path)),
     label: shownName(touched.labelOf(edit.agent)),
+    mark: view.elements.glyphs.edited,
   }
 }
 
