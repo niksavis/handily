@@ -1076,6 +1076,62 @@ Limits of release 1:
 | Rows inline above the prompt | 8 |
 | Files revealed per Grep call | 12 |
 
+#### Step through the edits of the last turn (handily-dqmse)
+
+The person approved the design on 2026-10-29, with each recommended answer (handily-rt74l). The
+files tab gets the button `[ last turn: 3 edits ]`. A press opens a step view that shows one edit
+at a time, with the patch of that edit. The approved mocks are in `docs/mocks.md`, section
+10.11. Reference: replay-theater in claude-code-mods (MIT licence), read during the survey of
+github.com/karanb192/awesome-claude-code-mods on 2026-10-28. handily copies no code from it.
+
+Decisions:
+
+- The last turn runs from the previous main `turn.complete` up to the latest one. An edit by a
+  subagent counts for the main turn in which it ended, so an edit between two turns is not lost.
+- An edit is an Edit, Write or NotebookEdit call that ended without an error or a deny. An edit
+  by a Bash command, such as `sed -i`, is not listed, and the empty state says so.
+- Each edit shows its own patch, from the tool result. No `git diff` runs. The diff against HEAD
+  stays on the `[ diff ]` button of the tree.
+- No status line. The status line of the board is for attention, and the button carries the
+  count.
+- The step view draws no `[ preview ]`. So the key `p` presses `[ prev ]` there. After `[ back ]`
+  the tree is as before.
+- `/tree edits` opens edit 1, and `/tree edits 2` opens edit 2. The command opens the pane with
+  the focus, and the focus ring starts on `[ next ]`.
+- The edits stay in the memory of the mod for the session, as the marks do. No toast and no
+  setting.
+
+Engine facts, from the generated types of Claude Code 2.1.312 (`claude-code-tools/index.d.ts`
+and `claude-code/index.d.ts` under `.claude-plugin/types/`):
+
+| Fact | Where |
+| --- | --- |
+| The Edit result holds `structuredPatch` (`oldStart`, `oldLines`, `newStart`, `newLines`, `lines`), `userModified` and `staged` | tools `BuiltinToolResults.Edit` |
+| `staged: true` means the engine held the edit for review, and the file is unchanged | tools `BuiltinToolResults.Edit` and `.Write` |
+| The Write result holds `type` (`create` or `update`), `content` and `structuredPatch`. The patch is empty when nothing changed, when the diff timed out, or when the old content was too large | tools `BuiltinToolResults.Write` |
+| `turn.complete` fires for the main loop and for each subagent; `agentId` is absent on the main loop | `TurnCompleteFields.agentId` |
+| A Code element with format `diff` checks the hunk counts. A source whose counts do not match is drawn as plain code, and the engine logs why | measured in `claude plugin test`, 2026-10-29 |
+| A Button with `autoFocus` starts the focus ring of its site when the site takes the keyboard | `ButtonProps.autoFocus` |
+| Two Buttons with one `hotkey` clash, and the later one wins | `ButtonProps.hotkey` |
+
+Keys in the step view, only while the pane has the focus:
+
+| Key | Action |
+| --- | --- |
+| `l` | Opens the last turn, from the tree |
+| `n` | Next edit |
+| `p` | Previous edit |
+| `b` | Back to the tree |
+| `y` | Copy the path |
+
+Limits:
+
+| Limit | Value |
+| --- | --- |
+| Edits kept per turn (`EDITS_KEPT`) | 50 |
+| Patch lines kept per edit (`PATCH_LINES`) | 400 |
+| Rows of the step view inline above the prompt | 8 |
+
 ## 5. Repo layout (proposed)
 
 ```text

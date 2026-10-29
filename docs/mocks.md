@@ -3410,3 +3410,177 @@ picked or in view. The counts include the files that the agent filter hides.
 │     register.tsx          ◦ scout     40s │
 ╰───────────────────────────────────────────╯
 ```
+
+### 10.11 Step through the edits of the last turn (handily-dqmse)
+
+Approved by the person on 2026-10-29 (handily-rt74l, section 2.2 of the design of the mod
+survey). The person reviews what Claude just changed, edit by edit. They see it first as a
+button in the files tab. `docs/design.md` section 4.11 gives the decisions.
+
+Changed in the build, each against the approved text:
+
+- 10.11c: a patch over 400 lines ends with a dim note, not with a `[ +38 lines ]` button. The mod
+  keeps 400 lines of each edit, so a button has nothing more to show.
+- 10.11d: the notebook note names the diff of the tree, because the tree buttons have no key
+  `d`. The header of more than 50 edits keeps its age.
+- 10.11e: the button sits under the controls in every state.
+- 10.11f: the header line at body 30 is cut by the rule of 10.6, as in the tree.
+- 10.11g: the patch shows as many lines as the 8 rows hold, and the last row counts the rest.
+
+#### 10.11a Docked, body 41, work view: the last turn made 3 edits
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ [ last turn: 3 edits ]                    │  NEW, hotkey l
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
+│   M design.md             ◦ scout      2s │
+│   M mocks.md              ✎ main +1    1m │
+│   ? filetree.md           ✎ scout     30s │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.11b Docked, body 41: [ last turn: 3 edits ] pressed, edit 1 of 3 (focus on [ next ])
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ back ] [ prev ] [ next ] [ copy path ]  │  hotkeys b p n y; no preview here
+│ edit 1 of 3 · first · last turn · 4m      │  NEW
+│ hooks/pane.tsx  ✎ main · Edit · +2 -1     │  NEW
+│ ───────────────────────────────────────── │
+│ @@ -40,2 +40,3 @@                         │  (engine Code, format diff)
+│  40 const DONE_GROUP = 'group:done'       │
+│ -41 const ITEMS = 'group:items'           │
+│ +41 const ITEMS_GROUP = 'group:items'     │
+│ +42 const FILES_GROUP = 'group:files'     │
+│ ───────────────────────────────────────── │
+│ this edit only, not the file vs HEAD      │  dim
+╰───────────────────────────────────────────╯
+```
+
+#### 10.11c Docked, body 41: edit 3 of 3, a Write of a new file by a subagent
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ back ] [ prev ] [ next ] [ copy path ]  │
+│ edit 3 of 3 · last · last turn · 1m       │  NEW
+│ docs/filetree.md  ✎ scout · Write · new   │  NEW
+│ ───────────────────────────────────────── │
+│ @@ -0,0 +1,400 @@                         │
+│ +1 # Files                                │
+│ +2                                        │
+│ +3 The tree marks which agent read or     │
+│   …                                       │
+│ +20 lines not kept; 400 per edit          │  dim, only over 400 lines
+│ ───────────────────────────────────────── │
+│ this edit only, not the file vs HEAD      │  dim
+╰───────────────────────────────────────────╯
+```
+
+#### 10.11d Docked, body 41: edge cases of one edit (each replaces the patch)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ hooks/a.ts  ✎ main · Edit · held          │  Edit result staged: true
+│ held for your review; the file is         │  dim
+│ unchanged until you accept it             │  dim
+│                                           │
+│ hooks/b.ts  ✎ main · Edit · +4 -4         │  userModified: true
+│ you changed this edit before it ran       │  dim
+│                                           │
+│ hooks/c.ts  ✎ main · Edit · no patch      │  structuredPatch empty
+│ the diff was too large or timed out       │  dim
+│                                           │
+│ app.ipynb  ✎ main · NotebookEdit          │  no patch drawn
+│ a notebook cell changed; diff in the tree │  dim
+│ shows the file against HEAD               │  dim
+│                                           │
+│ edit 1 of 50 · first 50 kept · 4m         │  overflow: more than 50 edits
+│ hooks/d.ts  ✎ main · Edit · +1 -1         │  the file changed again later
+│ a later edit changed this file again      │  dim
+╰───────────────────────────────────────────╯
+```
+
+#### 10.11e Docked, body 41: no turn ended yet, and a turn with no edits
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main · clean                 │  no turn has ended yet: no button
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  nothing read or edited yet           │
+│ ───────────────────────────────────────── │
+│ No changed or touched files.              │
+│ [ all files ] shows the whole tree.       │
+│                                           │
+│ [ all files ] {agent: all} [ refresh ]    │  a turn ended with no Edit or Write
+│ [ last turn: no edits ]                   │
+│ edits by Bash commands are not listed     │  dim, under the button once pressed
+│ Now  nothing read or edited yet           │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.11f Docked, body 30 (a narrow dock): the buttons wrap
+
+```text
+╭──────────────────────────────✕─╮
+│ this session  this machi…  [f… │  (engine tab row, cut by the engine)
+│ Files  app · main ↑1 · 6 chan… │
+│ [ back ] [ prev ] [ next ]     │
+│ [ copy path ]                  │
+│ edit 1 of 3 · first · 4m       │
+│ hooks/pane.tsx  ✎ main +2 -1   │
+│ ────────────────────────────── │
+│ @@ -40,2 +40,3 @@              │
+│  40 const DONE_GROUP = 'grou…  │
+│ -41 const ITEMS = 'group:ite…  │
+│ +41 const ITEMS_GROUP = 'gro…  │
+│ +42 const FILES_GROUP = 'gro…  │
+╰────────────────────────────────╯
+```
+
+#### 10.11g Inline above the prompt, 80 columns (body 76): edit 2 of 3, at most 8 rows
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Files  app · main ↑1 · 6 changed    [ back ] [ prev ] [ next ] [ copy path ] │
+│ edit 2 of 3 · last turn · 3m · docs/mocks.md  ✎ main · Edit · +6 -0          │
+│ @@ -1261,0 +1262,4 @@                                                        │
+│ +1262 #### 10.11 Step through the edits of the last turn                     │
+│ +1263                                                                        │
+│ +1264 The files tab walks each edit of the last turn.                        │
+│ +1265                                                                        │
+│ +2 more: a dock (fullscreen, 110 columns) shows the whole patch              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 10.11h Desktop app, docked pane, body 41 (native buttons)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tabs)
+│ Files  app · main ↑1 · 6 changed          │
+│ [back] [prev] [next] [copy path]          │  native buttons
+│ edit 1 of 3 · first · last turn · 4m      │
+│ hooks/pane.tsx  ✎ main · Edit · +2 -1     │
+╰───────────────────────────────────────────╯
+```
+
+**What counts as the last turn:** every Edit, Write and NotebookEdit call that settled without
+an error, from the previous main `turn.complete` up to the latest one. This includes the calls of
+subagents, with their agent label. Each edit shows its own `structuredPatch`, not the file
+against HEAD.
+
+**Toasts:** none. The pane shows every state.
+
+**Settings:** none. The named constants are `EDITS_KEPT` 50 and `PATCH_LINES` 400.
