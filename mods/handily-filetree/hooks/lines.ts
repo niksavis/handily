@@ -8,7 +8,7 @@ export type Numstat = ReadonlyMap<string, FileLines>
 
 export type LineMarks = {
   fileOf: (path: string) => FileLines | undefined
-  folderOf: (folder: string) => LineCount | undefined
+  folderOf: (folder: string) => FileLines | undefined
   total: LineCount | undefined
 }
 
@@ -72,16 +72,19 @@ function addTo(sums: Map<string, LineCount>, folder: string, lines: LineCount): 
 export function lineMarks(numstat: Numstat, prefix: string): LineMarks {
   const byPath = new Map<string, FileLines>()
   const sums = new Map<string, LineCount>()
+  const binaryFolders = new Set<string>()
   for (const [path, lines] of numstat) {
     const inCwd = underPrefix(path, prefix)
     if (inCwd === undefined || inCwd === '') continue
     byPath.set(inCwd, lines)
-    if (lines === 'bin') continue
-    for (const folder of [ROOT, ...foldersAbove(inCwd)]) addTo(sums, folder, lines)
+    for (const folder of [ROOT, ...foldersAbove(inCwd)]) {
+      if (lines === 'bin') binaryFolders.add(folder)
+      else addTo(sums, folder, lines)
+    }
   }
   return {
     fileOf: (path) => byPath.get(path),
-    folderOf: (folder) => sums.get(folder),
+    folderOf: (folder) => sums.get(folder) ?? (binaryFolders.has(folder) ? 'bin' : undefined),
     total: sums.get(ROOT),
   }
 }

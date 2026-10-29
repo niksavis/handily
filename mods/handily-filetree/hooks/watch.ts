@@ -56,6 +56,10 @@ export type GitWatch = {
   linesFailure: LinesFailure | undefined
   slowLineRuns: number
   isLinesSkipped: boolean
+  isLinesRunning: boolean
+  isLinesWanted: boolean
+  lastLinesStartAt: number | undefined
+  linesGap: Timer | undefined
   retryAt: number | undefined
   wasFocused: boolean | undefined
   poll: Timer | undefined
@@ -93,6 +97,10 @@ export function newWatch(shell: Shell): GitWatch {
     linesFailure: undefined,
     slowLineRuns: 0,
     isLinesSkipped: false,
+    isLinesRunning: false,
+    isLinesWanted: false,
+    lastLinesStartAt: undefined,
+    linesGap: undefined,
     retryAt: undefined,
     wasFocused: undefined,
     poll: undefined,
@@ -111,11 +119,13 @@ function redraw($: EngineInterface): void {
 }
 
 export function stopWatch(watch: GitWatch): void {
-  if (watch.gap !== undefined || watch.retry !== undefined) watch.isStale = true
-  for (const timer of [watch.poll, watch.gap, watch.retry]) timer?.cancel()
+  const isWaiting = [watch.gap, watch.retry, watch.linesGap].some((timer) => timer !== undefined)
+  if (isWaiting) watch.isStale = true
+  for (const timer of [watch.poll, watch.gap, watch.retry, watch.linesGap]) timer?.cancel()
   watch.poll = undefined
   watch.gap = undefined
   watch.retry = undefined
+  watch.linesGap = undefined
   watch.retryAt = undefined
 }
 
@@ -317,25 +327,64 @@ function settleLines(
   watch.lines = parseNumstat(result.stdout)
 }
 
-async function runLines(
-  $: EngineInterface,
-  watch: GitWatch,
-  run: { generation: number; status: GitStatus; cwd: string },
-): Promise<void> {
+async function runLines($: EngineInterface, watch: GitWatch, generation: number): Promise<void> {
+  const { shown, cwd } = watch
   watch.linesFailure = undefined
-  if (watch.isLinesSkipped || !hasLineChanges(run.status)) return
+  if (shown === undefined || cwd === undefined) return
+  if (watch.isLinesSkipped || !hasLineChanges(shown.status)) return
   const startedAt = await $.clock.now()
-  const outcome = await $.process
-    .run(numstatArgv(), { cwd: run.cwd, timeoutMs: RUN_TIMEOUT_MS })
-    .then(
-      (result) => ({ result }),
-      (error: unknown) => ({ error }),
-    )
+  watch.lastLinesStartAt = startedAt
+  const outcome = await $.process.run(numstatArgv(), { cwd, timeoutMs: RUN_TIMEOUT_MS }).then(
+    (result) => ({ result }),
+    (error: unknown) => ({ error }),
+  )
   const tookMs = (await $.clock.now()) - startedAt
-  if (watch.generation !== run.generation || watch.shown?.status !== run.status) return
+  if (watch.generation !== generation || watch.shown !== shown) return
   if (tookMs > SLOW_MS) watch.slowLineRuns += 1
-  if (watch.slowLineRuns >= SLOW_RUNS_BEFORE_NO_LINES) watch.isLinesSkipped = true
+  if (watch.slowLineRuns >= SLOW_RUNS_BEFORE_NO_LINES) {
+    log($, `git diff --numstat took over ${String(SLOW_MS)} ms twice, so line counts are off`)
+    watch.isLinesSkipped = true
+    return
+  }
   settleLines($, watch, outcome, tookMs)
+}
+
+async function startLines($: EngineInterface, watch: GitWatch): Promise<void> {
+  const { generation } = watch
+  const isCurrent = () => watch.generation === generation
+  try {
+    const now = await $.clock.now()
+    if (!isCurrent()) return
+    const wait =
+      watch.lastLinesStartAt === undefined ? 0 : watch.lastLinesStartAt + RUN_GAP_MS - now
+    if (wait > 0) {
+      watch.linesGap = $.clock.after(wait, () => {
+        watch.linesGap = undefined
+        requestLines($, watch)
+      })
+      return
+    }
+    await runLines($, watch, generation)
+    if (isCurrent()) redraw($)
+  } finally {
+    if (isCurrent()) watch.isLinesRunning = false
+  }
+  if (isCurrent() && watch.isLinesWanted) {
+    watch.isLinesWanted = false
+    requestLines($, watch)
+  }
+}
+
+function requestLines($: EngineInterface, watch: GitWatch): void {
+  if (watch.linesGap !== undefined) return
+  if (watch.isLinesRunning) {
+    watch.isLinesWanted = true
+    return
+  }
+  watch.isLinesRunning = true
+  startLines($, watch).catch((error: unknown) => {
+    log($, `git diff --numstat failed: ${String(error)}`)
+  })
 }
 
 async function runStatus(
@@ -368,7 +417,7 @@ async function runStatus(
   const isCurrent = () => watch.generation === generation
   const shown = { status, startedAt, isUntrackedSkipped, cwd, prefix: repo.prefix, poll, isCurrent }
   await shellStatus($, watch.shell, shown)
-  if (isCurrent()) await runLines($, watch, { generation, status, cwd })
+  if (isCurrent()) requestLines($, watch)
 }
 
 async function startRun($: EngineInterface, watch: GitWatch, hasGap: boolean): Promise<void> {

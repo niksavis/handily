@@ -5209,7 +5209,7 @@ describe('git colours and line counts', () => {
     await ui.unmount()
   })
 
-  test('two slow runs that answer still turn the line counts off, and the counts of the slow run do not stay after the next change', async ($, on) => {
+  test('two slow runs that answer still turn the line counts off, the run that turns them off draws no count, and the counts of the slow run do not stay after the next change', async ($, on) => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
     seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES, tookMs: 6000 }
     const ui = await openFiles($, seen)
@@ -5220,10 +5220,108 @@ describe('git colours and line counts', () => {
     await seen.clock.advance(6000)
     expect(seen.numstats).toHaveLength(2)
     expect((await screen(ui)).at(-1)).toBe('line counts off: git is slow here.')
+    expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 6 changed')
+    expect((await screen(ui)).join('\n')).not.toMatch(/[+-]\d/)
     await changeIndex(seen)
     expect(seen.numstats).toHaveLength(2)
     expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 6 changed')
     expect((await screen(ui)).join('\n')).not.toMatch(/[+-]\d/)
     await ui.unmount()
   })
+})
+
+describe('git colours and line counts: review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`inline, a nested folder row shows the count of its own path, not of its top folder, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, {
+        kind: 'ok',
+        stdout: statusOf([changed('.M', 'docs/design.md'), untracked('docs/drafts/')]),
+      })
+      seen.numstatAnswer = { kind: 'ok', stdout: numstatLine('4', '1', 'docs/design.md') }
+      const ui = await openFiles($, seen, surface, 'inline', 76)
+      expect((await screen(ui, 76)).slice(1)).toEqual([
+        '  docs/drafts/  ?',
+        inlineCounted('M docs/design.md', '+4 -1'),
+      ])
+      await ui.unmount()
+    })
+
+    test(`a folder whose changed files are all binary shows bin, and a folder with text and binary changes keeps its counts, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(
+        on,
+        [
+          ['.', [folder('assets'), folder('docs')]],
+          ['assets', [file('logo.png'), file('icon.png')]],
+          ['docs', [file('guide.md'), file('shot.png')]],
+        ],
+        {
+          kind: 'ok',
+          stdout: statusOf([
+            changed('.M', 'assets/icon.png'),
+            changed('.M', 'assets/logo.png'),
+            changed('.M', 'docs/guide.md'),
+            changed('.M', 'docs/shot.png'),
+          ]),
+        },
+      )
+      seen.numstatAnswer = {
+        kind: 'ok',
+        stdout: [
+          numstatLine('-', '-', 'assets/icon.png'),
+          numstatLine('-', '-', 'assets/logo.png'),
+          numstatLine('5', '2', 'docs/guide.md'),
+          numstatLine('-', '-', 'docs/shot.png'),
+        ].join(''),
+      }
+      const ui = await openFiles($, seen, surface)
+      expect(await treeLines(ui)).toEqual([
+        '▸ assets/  M2         bin',
+        '▸ docs/  M2         +5 -2',
+      ])
+      expect((await propsOf(ui, 'bin')).dimColor).toBe(true)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main · 4 changed +5 -2')
+      await ui.unmount()
+    })
+
+    test(`a slow git diff --numstat does not hold up the git status baseline of a Bash call, so its write marks show, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, {
+        kind: 'ok',
+        stdout: statusOf([changed('.M', 'docs/design.md')]),
+        tookMs: 300,
+      })
+      seen.numstatAnswer = {
+        kind: 'ok',
+        stdout: numstatLine('1', '1', 'docs/design.md'),
+        tookMs: 900,
+      }
+      trackedFile(seen, 'docs/design.md')
+      trackedFile(seen, 'hooks/pane.tsx')
+      const build: ShellRun = {
+        tookMs: 0,
+        writesAt: 0,
+        write: (world) => {
+          written(world, 'hooks/pane.tsx')
+          modified(world, ['docs/design.md', 'hooks/pane.tsx'])
+        },
+      }
+      shellTools(on, seen, new Map([['npm run build', build]]))
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await seen.clock.advance(5000)
+      const call = bash($, 'npm run build', SCOUT)
+      await seen.clock.advance(5000)
+      await call
+      await seen.clock.advance(5000)
+      await ui.press({ key: 'open:hooks' })
+      expect((await headerOf(ui)).slice(2)).toEqual([
+        'Now  1 agent',
+        '✎ scout     hooks/pane.tsx             9s',
+      ])
+      expect((await treeLines(ui)).filter((line) => line.includes('✎'))).toEqual([
+        '▾ hooks/  M1              ✎ scout      9s',
+        '  M pane.tsx              ✎ scout      9s',
+      ])
+      await ui.unmount()
+    })
+  }
 })

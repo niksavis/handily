@@ -565,11 +565,7 @@ type CountCell = { width: number; parts: readonly Part[] }
 type CountColumn = { width: number; cellOf: (path: string, isFolder: boolean) => CountCell }
 
 function countCellParts(lines: LineMarks, path: string, isFolder: boolean): Part[] {
-  if (isFolder) {
-    const sum = lines.folderOf(path)
-    return sum === undefined ? [] : lineParts(sum)
-  }
-  const found = lines.fileOf(path)
+  const found = isFolder ? lines.folderOf(path) : lines.fileOf(path)
   if (found === undefined) return []
   return found === BINARY ? [{ text: BINARY, dimColor: true }] : lineParts(found)
 }
@@ -997,7 +993,9 @@ function isEntry(row: TreeRow): row is EntryRow {
   return row.kind === 'file' || row.kind === 'folder' || row.kind === 'pruned'
 }
 
-function countPath(row: EntryRow): { path: string; isFolder: boolean } {
+type CountPath = { path: string; isFolder: boolean }
+
+function treeCountPath(row: EntryRow): CountPath {
   switch (row.kind) {
     case 'file':
       return { path: row.path, isFolder: false }
@@ -1006,6 +1004,10 @@ function countPath(row: EntryRow): { path: string; isFolder: boolean } {
     case 'pruned':
       return { path: row.path, isFolder: true }
   }
+}
+
+function flatCountPath(row: EntryRow): CountPath {
+  return { path: row.path, isFolder: row.kind !== 'file' }
 }
 
 function workNote(elements: PaneElements, rows: readonly TreeRow[]): RenderElement[] {
@@ -1027,7 +1029,7 @@ export function drawTree(
   const isWork = view.choice === 'work' && !isTask
   const isCut = rows.length > TREE_ROWS
   const drawn = isCut ? rows.slice(0, TREE_ROWS) : rows
-  const counts = countColumn(elements, git.lines, drawn.filter(isEntry).map(countPath))
+  const counts = countColumn(elements, git.lines, drawn.filter(isEntry).map(treeCountPath))
   const draw: TreeDraw = { actions, marks: git.marks, touched, opened, isRepo: git.isRepo, counts }
   const body =
     isWork && rows.length === 0
@@ -1086,7 +1088,7 @@ function flatRow(
           : markedParts(letter, name)
     }
   })()
-  const { path, isFolder } = countPath(row)
+  const { path, isFolder } = flatCountPath(row)
   const line = markedLine(parts, bodyColumns, touched, {
     mark: flatMark(row, touched),
     count: counts?.cellOf(path, isFolder),
@@ -1114,7 +1116,7 @@ function inlineRows(
   if (work.length === 0) return [Text({ children: fitted(NO_WORK, bodyColumns) })]
   const rows = work.map(flatEntryRow)
   const shown = rows.length <= INLINE_ROWS ? rows : rows.slice(0, INLINE_ROWS - 1)
-  const counts = countColumn(elements, view.git.lines, shown.map(countPath))
+  const counts = countColumn(elements, view.git.lines, shown.map(flatCountPath))
   const drawn = shown.map((row) => flatRow(elements, row, view, counts))
   if (rows.length <= INLINE_ROWS) return drawn
   const hidden = countText(rows.length - shown.length)

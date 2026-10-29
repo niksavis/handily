@@ -301,8 +301,9 @@ work view: touched and changed files
 
 - The count column takes the width of the widest count drawn. A name is cut before a count, and
   a count is never cut.
-- A binary file shows `bin` dim. An untracked file shows no count, because `git diff HEAD` does
-  not list it. A renamed file shows the counts of the rename.
+- A binary file shows `bin` dim, and so does a folder whose changed files are all binary. An
+  untracked file shows no count, because `git diff HEAD` does not list it. A renamed file shows
+  the counts of the rename.
 - From 1,000 to 9,999 a count shows as `1.2k`, and from 10,000 as `46k`.
 - When the totals do not fit on the first line, they move to the second line, before the
   upstream name: `+47k -311 · upstream origin/main`.
@@ -312,9 +313,10 @@ work view: touched and changed files
 - A repo with no commit, a clean status and a status with only untracked files run no
   `git diff`.
 
-The call follows the rules of git status: one run at a time, the 2 s gap, and the 10 s timeout.
-It runs after the git status of the same run, so the Bash call baseline run, which does not wait
-for the gap, runs it too. When it fails, the tree stays, no count shows, and a dim note at the
+The call starts when the git status call ends, so a Bash call never waits for it. It follows the
+rules of git status: one call at a time, at least 2 s from the start of one call to the start of
+the next, and the 10 s timeout. When the status changes while the call runs, the mod drops the
+result and runs it again. When it fails, the tree stays, no count shows, and a dim note at the
 foot names the cause:
 
 ```text
@@ -326,7 +328,7 @@ diff exited 128.  [ retry ]
   `git diff is over 4 MiB.` A stale count never shows.
 - `[ retry ]`, or `r` for refresh, runs git status and the count again.
 - After two runs of the count that take over 5 s, the mod runs it no more in this folder, and the
-  foot reads `line counts off: git is slow here.`
+  foot reads `line counts off: git is slow here.` The second slow run draws no count.
 
 How the mod reads the state:
 
