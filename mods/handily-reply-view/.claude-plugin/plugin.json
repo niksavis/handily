@@ -27,6 +27,13 @@
       "description": "Whether each prompt that you type carries one hint about mermaid diagrams, of about 140 tokens (on), or no hint (off). /replies hints toggles one session.",
       "options": ["on", "off"],
       "default": "off"
+    },
+    "tableStyle": {
+      "type": "string",
+      "title": "Table style",
+      "description": "How a table in a reply draws: rules between the columns (rules) or a full box (box). Under 40 columns both draw one block for each row.",
+      "options": ["rules", "box"],
+      "default": "rules"
     }
   }
 }

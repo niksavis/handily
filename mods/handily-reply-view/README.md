@@ -1,8 +1,9 @@
 # handily-reply-view
 
 `reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
-30 lines folds to its first lines. A markdown table draws with dim rules between its columns and
-under its header, and without a box around it. Each table and each fenced code block gets a
+30 lines folds to its first lines. A markdown table draws with rules between its columns and a
+double rule under its header. The `tableStyle` setting `box` draws a full box around it. Each
+table and each fenced code block gets a
 `copy` button. A mermaid flowchart or sequence diagram draws as a diagram, with a `copy` button
 for its source and a `copy drawing` button for the drawing. Each prompt that you type opens under
 a coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view off
@@ -72,25 +73,35 @@ buttons at the right edge:
 
 ## A table
 
-A table loses its box. The columns stay aligned, the header is bold, and a column that the table
-aligns to the right stays right-aligned. A dim `│` stands between the columns on every line, and a
-dim `─` line with a `┼` at each column stands under the header. The rules span the width of the
+By default a table draws in the `rules` style, without a box. The columns stay aligned, the
+header is bold, and a column that the table aligns to the right stays right-aligned. A `│` stands
+between the columns on every line, and a double `═` line with a `╪` at each column stands under
+the header. The rules span the width of the
 table, not the width of the screen. Each rule character takes one column, so the rules do not
 change the widths of the columns. The `copy` and `copy as text` buttons stand on the header line
 when they fit after the headings:
 
 ```text
   Mod         │ State    │ Next  [ copy ] [ copy as text ]
-  ────────────┼──────────┼─────────────────
+  ════════════╪══════════╪═════════════════
   task-pane   │ released │ follows the work
   simple-view │ released │ click to expand
 ```
+
+The table has these colours, by the theme keys of Claude Code:
+
+- The header cells are bold, in `claude`.
+- The rules are in `subtle`.
+- A cell that holds only a number, such as `212` or `1,024`, is in `planMode`. `0.6.0` is not a
+  number, so it stays plain.
+- Inline code is in `permission`, as Claude Code draws inline code. Bold text is bold. A link
+  shows its text, underlined, in `suggestion`.
 
 When the table does not fit the width of the screen, a long cell wraps at the spaces inside its
 column, and the rows stay aligned. A column whose widest cell is 12 cells or less is short and
 keeps its width. Every other column is long. The long columns share the rest of the width by the
 width of their widest cell, and each long column gets at least 12 cells when the screen has room
-for that. When a cell wraps, a dim dotted `┄` line separates the rows, so you can see where each
+for that. When a cell wraps, a dotted `┄` line separates the rows, so you can see where each
 row ends. A table where no cell wraps has no row rules.
 
 At 120 columns, a column of short phrases such as `Buttons on the header row` is long, so it
@@ -98,7 +109,7 @@ wraps and gives its width to the other long columns:
 
 ```text
   Change        │ Why                                                    │ Effect              [ copy ] [ copy as text ]
-  ──────────────┼────────────────────────────────────────────────────────┼──────────────────────────────────────────────
+  ══════════════╪════════════════════════════════════════════════════════╪══════════════════════════════════════════════
   Buttons on    │ The buttons took a line of their own under every       │ A table that fits draws its buttons after the
   the header    │ table, so a short table took one line more than it     │ headings, and the reply is one line shorter
   row           │ needed                                                 │
@@ -120,7 +131,7 @@ header line or its last row, so the buttons go under it:
 
 ```text
   Mod        │ Change                          │ Risk                    │ Owner
-  ───────────┼─────────────────────────────────┼─────────────────────────┼──────
+  ═══════════╪═════════════════════════════════╪═════════════════════════╪══════
   reply-view │ Tables wrap their long cells    │ A wide table can still  │ Ana
              │ inside their columns and keep   │ take many lines on a    │
              │ the rows aligned                │ narrow screen           │
@@ -128,6 +139,21 @@ header line or its last row, so the buttons go under it:
   task-pane  │ Each task tool call draws as    │ Low                     │ Bo
              │ one row                         │                         │
                                                      [ copy ] [ copy as text ]
+```
+
+With the `tableStyle` setting `box`, a table on a screen of 40 columns or more draws in a full
+box. A double rule stands under the header, and a rule stands between each two rows. The box takes
+4 columns more than the `rules` style. Under 40 columns both styles draw the same:
+
+```text
+  ┌───────────────┬───────┬──────┬────────────────────┐
+  │ Mod           │ Tests │ Gate │ Next               │
+  ╞═══════════════╪═══════╪══════╪════════════════════╡
+  │ handily-board │   212 │ pass │ frames, see design │
+  ├───────────────┼───────┼──────┼────────────────────┤
+  │ reply-view    │    98 │ fail │ npm test exits 1   │
+  └───────────────┴───────┴──────┴────────────────────┘
+                              [ copy ] [ copy as text ]
 ```
 
 A screen narrower than 40 columns draws each row as a block. The view also draws blocks when a
@@ -149,8 +175,10 @@ when they fit there, and otherwise on a line of their own under the last block:
 - `copy as text` does not copy an aligned table. Spaces line up only in a font where each
   character has the same width, and most emails and chats use another font.
 - A table with no data rows has no `copy as text` button.
-- A cell shows its text without markdown marks: no `**`, no `_`, no backticks, no backslash
-  escapes, a link as its text. The text between two backticks keeps its marks, such as `**/*.ts`.
+- A cell shows inline code, bold text and links in their colours, without the markdown marks: no
+  `**`, no `_`, no backticks, no backslash escapes, a link as its text. The text between two
+  backticks keeps its marks, such as `**/*.ts`. The width of a column counts only the text that
+  the cell shows.
 - A table without data rows that does not fit the width shows its headings, one on each line.
 - An empty cell draws no line in a block, and `copy as text` leaves it out.
 
@@ -207,7 +235,13 @@ the source:
 - When the title line and the buttons do not fit on one line, the buttons stand on a line of
   their own under the title line.
   When the two buttons do not fit on one line, each button stands on its own line.
-- On the desktop app, the drawing draws in a code block, so its lines keep their columns.
+- On the terminal, the boxes take the colours `suggestion`, `planMode` and `merged` in turn, in
+  the order of their first mention in the source. A box keeps its colour when the flowchart turns
+  top down. The arrow heads are in `claude`. The lines, the lifelines, the edge labels and the
+  `alt` rows are in `inactive`. The text of a message and of a note is plain.
+- `copy drawing` copies the plain lines, with no colour codes.
+- On the desktop app, the drawing draws in a code block with no colour, so its lines keep their
+  columns.
 - A diagram draws whole or as its source. It never draws in part.
 - When a long reply folds inside a diagram, the folded reply shows only the title line of the
   diagram and its buttons. `more` shows the drawing.
@@ -355,6 +389,7 @@ theme:
 | `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                 |
 | `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
 | `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type     |
+| `tableStyle`   | `rules` | `rules` draws rules between the columns. `box` draws a full box at 40 columns or more         |
 
 | Command                 | Effect                                                                             |
 | ----------------------- | ---------------------------------------------------------------------------------- |
