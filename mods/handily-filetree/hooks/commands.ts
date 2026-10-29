@@ -7,9 +7,14 @@ export type TreeCommand =
   | { kind: 'close' }
   | { kind: 'task'; id: number }
   | { kind: 'badTask'; word: string }
+  | { kind: 'edits'; at: number }
+  | { kind: 'badEdits'; word: string }
   | { kind: 'unknown'; word: string }
 
+export type EditCount = { kept: number; total: number; hasEnded: boolean }
+
 const TASK_WORD = /^task(?:\s+(.*))?$/s
+const EDITS_WORD = /^edits(?:\s+(.*))?$/s
 const TASK_NUMBER = /^[1-9]\d{0,8}$/
 
 export type TreeUi = {
@@ -22,10 +27,46 @@ export function parseTreeCommand(args: string): TreeCommand {
   const word = args.trim()
   if (word === '') return { kind: 'toggle' }
   if (word === 'close') return { kind: 'close' }
+  const edits = EDITS_WORD.exec(word)
+  if (edits !== null) {
+    const number = (edits[1] ?? '').trim()
+    if (number === '') return { kind: 'edits', at: 1 }
+    return TASK_NUMBER.test(number)
+      ? { kind: 'edits', at: Number(number) }
+      : { kind: 'badEdits', word }
+  }
   const task = TASK_WORD.exec(word)
   if (task === null) return { kind: 'unknown', word }
   const number = (task[1] ?? '').trim()
   return TASK_NUMBER.test(number) ? { kind: 'task', id: Number(number) } : { kind: 'badTask', word }
+}
+
+export function badEditsReply(word: string): string {
+  return `${JSON.stringify(word)} names no edit. Use /tree edits and the edit number, for example /tree edits 2.`
+}
+
+function editRange(kept: number): string {
+  return kept === 1 ? 'edit 1' : `edits 1-${String(kept)}`
+}
+
+export function noEditReply(at: number, count: EditCount): string | undefined {
+  if (!count.hasEnded) return 'No turn has ended yet, so no edit is listed.'
+  if (count.kept === 0) {
+    return 'The last turn made no edits. Edits by Bash commands are not listed.'
+  }
+  if (at <= count.kept) return undefined
+  const missing = `No edit ${String(at)}.`
+  if (count.total > count.kept) {
+    return `${missing} The last turn has ${String(count.total)} edits; ${editRange(count.kept)} are kept.`
+  }
+  return `${missing} The last turn has ${editRange(count.kept)}.`
+}
+
+export async function showEdit(ui: TreeUi, at: number, kept: number): Promise<string> {
+  const opened = await ui.open(true)
+  const edit = `edit ${String(at)} of ${String(kept)}`
+  if (opened.isPlaced) return `Tree opened: ${edit} of the last turn.`
+  return `Tree opened for ${edit}, but this session does not show it yet: ${opened.reason}`
 }
 
 export function badTaskReply(word: string): string {

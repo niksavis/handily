@@ -57,7 +57,7 @@ const READING = 'Reading…'
 const NO_CHANGE = 'no change against HEAD'
 const ALL_NEW = 'every file is new; diff shows it whole'
 const UNCOUNTED_CHARACTERS = 1000
-const CHROME_LINES = 12
+export const CHROME_LINES = 12
 const FILE_LINES = 4
 
 function note(text: string, tone: Tone = 'dim'): Note {
@@ -387,9 +387,13 @@ function reservedLines(look: Look): number {
   return CHROME_LINES + FILE_LINES * files
 }
 
-function budgetOf(look: Look, bodyColumns: number): Budget {
-  const reserved = reservedLines(look) * Math.max(bodyColumns, 1) + UNCOUNTED_CHARACTERS
+export function chromeBudget(lines: number, bodyColumns: number): Budget {
+  const reserved = lines * Math.max(bodyColumns, 1) + UNCOUNTED_CHARACTERS
   return newBudget(SHOWN_CHARACTERS - reserved)
+}
+
+function budgetOf(look: Look, bodyColumns: number): Budget {
+  return chromeBudget(reservedLines(look), bodyColumns)
 }
 
 export function drawLook(view: LookView, rootName: string, look: Look): RenderElement {
