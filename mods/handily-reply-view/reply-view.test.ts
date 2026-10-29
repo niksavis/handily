@@ -1741,8 +1741,10 @@ function hintsTest(
   hints: 'on' | 'off' | undefined,
   surface: Surface,
   body: (read: Submitted[], $: Engine) => Promise<void>,
+  more: Record<string, string> = {},
 ): void {
-  const options: Record<string, string> = hints === undefined ? {} : { diagramHints: hints }
+  const options: Record<string, string> =
+    hints === undefined ? { ...more } : { ...more, diagramHints: hints }
   test(name, { options }, async ($, on) => {
     engineBeneath(on)
     const read = modelReads(on)
@@ -1750,6 +1752,8 @@ function hintsTest(
     await body(read, $)
   })
 }
+
+const NO_HINT = [undefined]
 
 const NO_HINT_ORIGINS: readonly PromptOrigin[] = [
   { kind: 'plugin', name: 'handily-board' },
@@ -1839,6 +1843,44 @@ describe('diagram hints', () => {
           undefined,
         ])
       },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on, a slash command that you type carries no hint on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit({
+          ...submitted({ kind: 'composer' }),
+          text: '/review the diff',
+          command: { name: 'review', args: 'the diff' },
+        })
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+      },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on, a typed prompt carries no hint while /replies is off on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await commandText($)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        await commandText($)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual([undefined, [MEASURED_HINT]])
+      },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on and the diagrams setting off, a typed prompt carries no hint on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+      },
+      { diagrams: 'off' },
     )
 
     hintsTest(

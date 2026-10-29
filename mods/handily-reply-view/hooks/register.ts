@@ -208,9 +208,11 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (e.origin.kind !== 'composer') return next(e)
+    const isTypedProse = e.origin.kind === 'composer' && e.command === undefined
+    if (!isTypedProse || !drawsDiagrams) return next(e)
     const { value: hints = defaultHints } = await $.state.get(HINTS)
-    if (hints === 'off') return next(e)
+    const { value: mode = defaultMode } = await $.state.get(MODE)
+    if (hints === 'off' || mode === 'off') return next(e)
     return next({ ...e, context: [...(e.context ?? []), DIAGRAM_HINT] })
   })
 

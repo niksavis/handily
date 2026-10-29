@@ -263,8 +263,12 @@ The hint text:
 The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
-A prompt that a plugin, another session, a channel or the Remote Control bridge sends carries
-no hint.
+No hint goes out in these cases:
+
+- A plugin, another session, a channel or the Remote Control bridge sends the prompt.
+- You type a slash command.
+- `/replies` turned the reply view off for this session, or the `mode` setting is `off`.
+- The `diagrams` setting is `off`, so a mermaid block draws as its source.
 
 ## A sequence diagram
 
