@@ -119,9 +119,10 @@ More: [mods/handily-simple-view/README.md](../mods/handily-simple-view/README.md
 
 ## handily-reply-view
 
-It folds a reply of more than 30 lines to its first lines. Tables draw without box lines, and each
-table and code block gets a `copy` button. Each prompt that you type opens under a rule labelled
-`you`.
+It folds a reply of more than 30 lines to its first lines. Tables and diagrams draw in colour.
+Tables draw with rules between their columns, or in a full box when the Table style setting is
+`box`. Each table and code block gets a `copy` button. Each prompt that you type opens under a
+rule labelled `you`.
 
 | Command | What it does |
 | --- | --- |
