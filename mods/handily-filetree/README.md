@@ -53,6 +53,7 @@ files that git shows as changed, under their folders. The test fixture, docked a
 
 ```text
 Files  app · main ↑1 · 7 changed
+upstream origin/main
 [ all files ] {agent: all} [ refresh ]
 Now  2 agents
 ✎ main      hooks/pane.tsx             4s
@@ -164,6 +165,7 @@ test fixture, docked at body 41:
 
 ```text
 Files  app · main ↑1 · 7 changed
+upstream origin/main
 Task 2  Write the tab mocks  [ clear ]
 {agent: all} [ refresh ]
 ✎ 1 edited · ◦ 2 read while task 2 ran
@@ -224,6 +226,7 @@ and `hooks/` open:
 
 ```text
 Files  app · main ↑1 · 6 changed
+upstream origin/main
 [ work only ] {agent: all} [ refresh ]
 Now  nothing read or edited yet
 ─────────────────────────────────────────
@@ -258,6 +261,74 @@ M README.md
 - A renamed file shows the file it came from under it: `renamed from api.ts · staged`.
 - An untracked folder shows `?` and no count. Each entry in it shows `?`.
 - A new repo with no files says `no commits yet`. A repo with no change says `clean`.
+- A folder name draws in the colour of the strongest state under it: error for `U` or `D`, else
+  warning for `M` or `R`, else success for `A` or `?`. Without colour, the counts of the folder
+  still name the states.
+- The ahead count `↑1` draws in success, and the behind count `↓2` in warning.
+- When the branch has an upstream, the second line of the header shows its name dim, such as
+  `upstream origin/main`. The mod reads it from the `# branch.upstream` line of the same git
+  status. Inline above the prompt, and in the preview, diff and edit views, the upstream line
+  does not show.
+
+### Line counts
+
+After each git status that lists a tracked change, the mod runs
+`git --no-optional-locks diff --numstat -z --no-relative HEAD -- .` once. Each changed file and
+each folder above it shows its added lines as `+N` in success and its removed lines as `-N` in
+error. Both counts always show, so `+0` and `-0` appear. The header adds the totals. The test
+fixture, docked at body 41, in the work view:
+
+```text
+Files  app · main ↑1 · 7 changed +48 -93
+upstream origin/main
+[ all files ] {agent: all} [ refresh ]
+Now  2 agents
+✎ main      hooks/pane.tsx             7s
+◦ scout     docs/design.md             5s
+─────────────────────────────────────────
+▾ docs/  M2 ?1     +16 -4 ◦ scout      5s
+  M design.md       +4 -1 ◦ scout      5s
+  ? filetree.md
+  M mocks.md       +12 -3
+▾ hooks/  M1 D1   +30 -89 ✎ main       7s
+  D old-pane.tsx   +0 -87
+  M pane.tsx       +30 -2 ✎ main       7s
+    register.tsx          ◦ scout     43s
+▸ scratch/  ?
+M README.md         +2 -0
+work view: touched and changed files
+```
+
+- The count column takes the width of the widest count drawn. A name is cut before a count, and
+  a count is never cut.
+- A binary file shows `bin` dim, and so does a folder whose changed files are all binary. An
+  untracked file shows no count, because `git diff HEAD` does not list it. A renamed file shows
+  the counts of the rename.
+- From 1,000 to 9,999 a count shows as `1.2k`, and from 10,000 as `46k`.
+- When the totals do not fit on the first line, they move to the second line, before the
+  upstream name: `+47k -311 · upstream origin/main`.
+- An opened file row says its counts in words too: `modified, not staged · +12 -3`.
+- Below body 41 the line counts and the totals drop, and the colours stay. Inline above the
+  prompt, the rows and the header keep the counts.
+- A repo with no commit, a clean status and a status with only untracked files run no
+  `git diff`.
+
+The call starts when the git status call ends, so a Bash call never waits for it. It follows the
+rules of git status: one call at a time, at least 2 s from the start of one call to the start of
+the next, and the 10 s timeout. When the status changes while the call runs, the mod drops the
+result and runs it again. When it fails, the tree stays, no count shows, and a dim note at the
+foot names the cause:
+
+```text
+line counts not shown: git
+diff exited 128.  [ retry ]
+```
+
+- A timeout reads `git diff gave no answer in 10 s.` An output over 4 MiB reads
+  `git diff is over 4 MiB.` A stale count never shows.
+- `[ retry ]`, or `r` for refresh, runs git status and the count again.
+- After two runs of the count that take over 5 s, the mod runs it no more in this folder, and the
+  foot reads `line counts off: git is slow here.` The second slow run draws no count.
 
 How the mod reads the state:
 
@@ -302,6 +373,7 @@ after `main` edited `hooks/pane.tsx` and the subagent `scout` read `docs/design.
 
 ```text
 Files  app · main ↑1 · 6 changed
+upstream origin/main
 [ work only ] {agent: all} [ refresh ]
 Now  2 agents
 ✎ main      hooks/pane.tsx             4s
@@ -532,6 +604,7 @@ the subagent `scout` wrote the new file `docs/filetree.md`:
 
 ```text
 Files  app · main ↑1 · 6 changed
+upstream origin/main
 [ all files ] {agent: all} [ refresh ]
 [ last turn: 3 edits ]
 Now  2 agents

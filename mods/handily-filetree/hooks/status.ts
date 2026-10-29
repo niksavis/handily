@@ -16,6 +16,7 @@ export type GitStatus = {
   isInitial: boolean
   ahead: number
   behind: number
+  upstream: string | undefined
   entries: GitEntry[]
   isCut: boolean
 }
@@ -36,6 +37,7 @@ export function statusArgv(isUntrackedSkipped: boolean): readonly string[] {
 
 const FIELDS_BEFORE_PATH = { ordinary: 8, renamed: 9, unmerged: 10, untracked: 1 } as const
 const AHEAD_BEHIND = /^# branch\.ab \+(\d+) -(\d+)$/
+const UPSTREAM = '# branch.upstream '
 const UNCHANGED = '.'
 
 function pathAfter(record: string, fields: number): string | undefined {
@@ -56,6 +58,7 @@ function ordinaryLetter(xy: string): GitLetter {
 
 function readHeader(status: GitStatus, record: string): void {
   if (record === '# branch.oid (initial)') status.isInitial = true
+  if (record.startsWith(UPSTREAM)) status.upstream = record.slice(UPSTREAM.length)
   const counts = AHEAD_BEHIND.exec(record)
   if (counts !== null) {
     status.ahead = Number(counts[1])
@@ -74,6 +77,7 @@ export function parseStatus(stdout: string, isTruncated: boolean): GitStatus {
     isInitial: false,
     ahead: 0,
     behind: 0,
+    upstream: undefined,
     entries: [],
     isCut: isTruncated,
   }
