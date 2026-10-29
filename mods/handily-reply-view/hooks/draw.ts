@@ -42,6 +42,12 @@ export type DiagramOutcome = DiagramDrawing | Refusal
 
 export type BlockCopy = { text: string; what: string }
 
+export type BlockKind = 'diagram' | 'table' | 'code'
+
+export type KindCopy = { kind: BlockKind; copy: BlockCopy }
+
+export type CopyLayout = { width: number; surface: RenderSurface; drawsDiagrams: boolean }
+
 export type ReplyElements = Pick<
   Elements[RenderSurface],
   'Box' | 'Text' | 'Button' | 'Markdown' | 'Code'
@@ -190,11 +196,11 @@ function stackedButtons(context: Context, actions: readonly ButtonAction[]): But
     : actions.map((action) => buttonRow(context, [fittedButton(context, action)]))
 }
 
-export function tableCopy(table: Table): BlockCopy {
+function tableCopy(table: Table): BlockCopy {
   return { text: table.source, what: 'the table as markdown' }
 }
 
-export function codeCopy(fence: Fence): BlockCopy {
+function codeCopy(fence: Fence): BlockCopy {
   const tag = fenceTag(fence)
   return { text: fence.content, what: tag === '' ? 'the block' : `the ${tag} block` }
 }
@@ -203,17 +209,16 @@ function diagramCopy(fence: Fence, name: string): BlockCopy {
   return { text: fence.content, what: `the ${name} source` }
 }
 
-export function diagramSourceCopy(fence: Fence): BlockCopy {
-  const parsed = parseMermaid(fence.content)
-  return diagramCopy(fence, parsed.kind === 'refused' ? MERMAID_TAG : parsed.kind)
+function mermaidCopy(fence: Fence, outcome: DiagramOutcome): BlockCopy {
+  return outcome.kind === 'drawing' ? diagramCopy(fence, outcome.name) : codeCopy(fence)
 }
 
 export function replyCopy(text: string): BlockCopy {
   return { text, what: 'the reply as markdown' }
 }
 
-export function isDiagram(fence: Fence): boolean {
-  return fence.isClosed && fence.tag === MERMAID_TAG
+function drawsAsDiagram(drawsDiagrams: boolean, fence: Fence): boolean {
+  return drawsDiagrams && fence.isClosed && fence.tag === MERMAID_TAG
 }
 
 function fenceTag(fence: Fence): string {
@@ -508,17 +513,26 @@ function ruleWithButtons(
   })
 }
 
-function fenceTitle(context: Context, fence: Fence, key: string): Drawing {
-  const copy = { key: `${key}-copy`, label: 'copy', ...codeCopy(fence) }
-  return titleWithButtons(context, fenceTag(fence), [copy], key)
+function fenceTitle(context: Context, fence: Fence, copy: BlockCopy, key: string): Drawing {
+  return titleWithButtons(
+    context,
+    fenceTag(fence),
+    [{ key: `${key}-copy`, label: 'copy', ...copy }],
+    key,
+  )
 }
 
-function fencePiece(context: Context, fence: Fence, key: string): Piece {
+function fencePiece(
+  context: Context,
+  fence: Fence,
+  key: string,
+  copy: BlockCopy = codeCopy(fence),
+): Piece {
   const { Box, Code } = context.elements
   const lines = fence.content === '' ? [] : shownText(fence.content).split('\n')
   const rows = lines.map((line) => rowsOf(line, context.width))
   const language = LANGUAGE_TAG.test(fence.tag) ? fence.tag : undefined
-  const title = fenceTitle(context, fence, key)
+  const title = fenceTitle(context, fence, copy, key)
   const draw = (shown: readonly string[]) =>
     Box({
       key,
@@ -583,7 +597,7 @@ export function diagramOf(source: string, width: number, surface: RenderSurface)
 
 function diagramActions(fence: Fence, drawing: DiagramDrawing, key: string): CopyAction[] {
   return [
-    { key: `${key}-copy`, label: 'copy', ...diagramCopy(fence, drawing.name) },
+    { key: `${key}-copy`, label: 'copy', ...mermaidCopy(fence, drawing) },
     {
       key: `${key}-drawing`,
       label: 'copy drawing',
@@ -642,7 +656,7 @@ function notDrawnPiece(context: Context, fence: Fence, refusal: Refusal, key: st
   const { Box, Text } = context.elements
   const note = `diagram not drawn: ${refusal.reason}.`
   const noteRows = rowsOf(note, context.width)
-  const fenced = fencePiece(context, fence, key)
+  const fenced = fencePiece(context, fence, key, mermaidCopy(fence, refusal))
   const noted = (element: RenderElement) =>
     Box({
       key: `${key}-noted`,
@@ -677,10 +691,30 @@ function pieceOf(context: Context, block: Block, index: number): Piece {
     case 'table':
       return tablePiece(context, block, key)
     case 'fence':
-      return context.drawsDiagrams && isDiagram(block)
+      return drawsAsDiagram(context.drawsDiagrams, block)
         ? mermaidPiece(context, block, key)
         : fencePiece(context, block, key)
   }
+}
+
+export function blockCopyOf(block: Block, layout: CopyLayout): KindCopy | null {
+  switch (block.kind) {
+    case 'prose':
+      return null
+    case 'table':
+      return { kind: 'table', copy: tableCopy(block) }
+    case 'fence':
+      return drawsAsDiagram(layout.drawsDiagrams, block)
+        ? {
+            kind: 'diagram',
+            copy: mermaidCopy(block, diagramOf(block.content, layout.width, layout.surface)),
+          }
+        : { kind: 'code', copy: codeCopy(block) }
+  }
+}
+
+export function replyWidth(columns: number, hasBullet: boolean): number {
+  return columns - (hasBullet ? BULLET_COLUMNS : 0)
 }
 
 function foldedPieces(pieces: readonly Piece[]): Drawing[] {
@@ -764,7 +798,7 @@ export function replyTree(
   fold: ReplyViewFold,
   actions: ReplyActions,
 ): RenderElement | null {
-  const width = layout.columns - (layout.hasBullet ? BULLET_COLUMNS : 0)
+  const width = replyWidth(layout.columns, layout.hasBullet)
   const context: Context = {
     elements,
     width,

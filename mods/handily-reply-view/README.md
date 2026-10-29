@@ -345,17 +345,25 @@ shows the setting beside the mode when the two differ.
 ## Copy from the keyboard
 
 A button in the transcript takes a click only. `/replies copy` gives a path from the keyboard. It
-reads the last reply of the main session, and copies the same text as the button of the block.
-The toast names what it copied, such as `✓ Copied the sequence source`. A mermaid block counts as
-a diagram and not as a code block. When the last reply has no block of that kind, the command
-says so and names the command that copies the whole reply:
+reads the last reply of the main session. It copies the same text as the `copy` button of the
+block, and its toast names it as that button does, such as `✓ Copied the sequence source`. The
+command lays the reply out at the width of the terminal where it runs, as the reply draws there.
+
+- A mermaid block counts as a diagram and not as a code block.
+- A diagram that does not draw copies as its button does: `✓ Copied the mermaid block`.
+- With the `diagrams` setting `off`, a mermaid block draws as a code block, so
+  `/replies copy code` copies it and `/replies copy diagram` does not.
+
+When the last reply has no block of that kind, the command says so and names the command that
+copies the whole reply:
 
 ```text
 The last reply has no diagram. /replies copy reply copies the whole reply.
 ```
 
-The mod keeps the last reply in memory for this session only. After a resume, `/replies copy`
-has no reply until Claude answers again. The answer of a subagent does not count.
+The mod keeps the last reply in memory for this session only. After a `/clear` or a resume,
+`/replies copy` has no reply until Claude answers again. The answer of a subagent does not
+count.
 
 ## When the reply stays as Claude Code draws it
 

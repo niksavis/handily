@@ -111,12 +111,12 @@ async function mountReply(
   })
 }
 
-async function commandText($: Engine, args = ''): Promise<string> {
+async function commandText($: Engine, args = '', columns = COLUMNS): Promise<string> {
   const result = await $.command.run({
     command: 'replies',
     args,
     origin: { kind: 'sdk' },
-    presentation: { isFullscreen: false, columns: COLUMNS },
+    presentation: { isFullscreen: false, columns },
   })
   return result.text ?? ''
 }
@@ -4252,10 +4252,17 @@ async function replyEnds($: Engine, answer: string, agentId?: string): Promise<v
   })
 }
 
-function copyTest(name: string, surface: Surface, body: ViewBody): void {
-  test(name, async ($, on) => {
+function copyTest(
+  name: string,
+  surface: Surface,
+  body: ViewBody,
+  options: Record<string, string> = {},
+): void {
+  test(name, { options }, async ($, on) => {
     const world = engineBeneath(on)
     on('turn.complete', (_$, e) => ({ text: e.answer }))
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+    on('session.surfaces', () => ({ value: [surface] }))
     await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
     await body(world, $)
   })
@@ -4350,16 +4357,71 @@ describe('copy from the keyboard', () => {
     )
   }
 
-  copyTest(
-    'a diagram that does not draw is copied as its mermaid source',
-    'terminal',
-    async (world, $) => {
-      await replyEnds($, mermaidReply('Here is the flow:', MOCK_9_8_SOURCE))
-      expect(await commandText($, 'copy diagram')).toBe('')
-      expect(world.copies).toEqual([MOCK_9_8_SOURCE])
-      expect(world.toasts[0]?.lines[0]).toBe('✓ Copied the mermaid source')
-    },
-  )
+  for (const surface of SURFACES) {
+    copyTest(
+      `/replies copy diagram copies and names a diagram as its own copy button does, drawn or not, on ${surface}`,
+      surface,
+      async (world, $) => {
+        const cases = [
+          [MOCK_9_8_SOURCE, 40, '✓ Copied the mermaid block'],
+          [WIDE_SOURCE, 40, '✓ Copied the mermaid block'],
+          [WIDE_SOURCE, COLUMNS, '✓ Copied the flowchart source'],
+          [TINY_SOURCE, 40, '✓ Copied the flowchart source'],
+        ] as const
+        for (const [source, columns, toast] of cases) {
+          const text = mermaidReply('Here is the flow:', source)
+          const ui = await mountReply($, reply(text), surface, columns)
+          await ui.press({ key: 'block-1-copy' })
+          await ui.unmount()
+          await replyEnds($, text)
+          expect(await commandText($, 'copy diagram', columns)).toBe('')
+          expect(world.copies.splice(0)).toEqual([source, source])
+          expect(world.toasts.splice(0).map((shown) => shown.lines[0])).toEqual([toast, toast])
+        }
+      },
+    )
+
+    copyTest(
+      `with the diagrams setting off a mermaid block is a code block for /replies copy as for its button on ${surface}`,
+      surface,
+      async (world, $) => {
+        const text = mermaidReply('Tiny:', TINY_SOURCE)
+        const ui = await mountReply($, reply(text), surface)
+        await ui.press({ key: 'block-1-copy' })
+        await ui.unmount()
+        await replyEnds($, text)
+        expect(await commandText($, 'copy diagram')).toBe(
+          'The last reply has no diagram. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy code')).toBe('')
+        expect(world.copies).toEqual([TINY_SOURCE, TINY_SOURCE])
+        expect(world.toasts.map((shown) => shown.lines[0])).toEqual([
+          '✓ Copied the mermaid block',
+          '✓ Copied the mermaid block',
+        ])
+      },
+      { diagrams: 'off' },
+    )
+
+    copyTest(
+      `a /clear forgets the last reply, so /replies copy copies nothing from the cleared conversation on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, KEYBOARD_REPLY)
+        await $.session.end({
+          reason: 'clear',
+          sessionId: 'session-1',
+          resume: { id: 'session-1' },
+        })
+        expect(await commandText($, 'copy reply')).toBe(NO_REPLY)
+        expect(await commandText($, 'copy code')).toBe(NO_REPLY)
+        expect(world.copies).toEqual([])
+        await replyEnds($, PROSE_REPLY)
+        expect(await commandText($, 'copy reply')).toBe('')
+        expect(world.copies).toEqual([PROSE_REPLY])
+      },
+    )
+  }
 
   copyTest(
     'before the first reply /replies copy says there is none',

@@ -2,18 +2,18 @@ import type { EngineInterface, Register, RenderElement, RenderSurface } from 'cl
 import type { ReplyViewFold, ReplyViewMode } from '../types'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import {
-  codeCopy,
+  blockCopyOf,
   DEFAULT_COLUMNS,
-  diagramSourceCopy,
-  isDiagram,
   plural,
   replyCopy,
   replyTree,
-  tableCopy,
+  replyWidth,
   type BlockCopy,
+  type BlockKind,
+  type CopyLayout,
   type ReplyActions,
 } from './draw'
-import { blocksOf, type Block } from './markdown'
+import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
 import { showToast } from './toast'
 
@@ -38,28 +38,23 @@ const NO_REPLY_TEXT = 'No reply to copy yet. /replies copy reads the last reply 
 const DIAGRAM_HINT =
   'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
 
-type BlockKind = 'diagram' | 'table' | 'code'
-
 const BLOCK_NAMES: Readonly<Record<BlockKind, string>> = {
   diagram: 'diagram',
   table: 'table',
   code: 'code block',
 }
 
-const BLOCK_COPIES: Readonly<Record<BlockKind, (block: Block) => BlockCopy | null>> = {
-  diagram: (block) =>
-    block.kind === 'fence' && isDiagram(block) ? diagramSourceCopy(block) : null,
-  table: (block) => (block.kind === 'table' ? tableCopy(block) : null),
-  code: (block) => (block.kind === 'fence' && !isDiagram(block) ? codeCopy(block) : null),
-}
-
 function isBlockKind(word: string): word is BlockKind {
-  return Object.hasOwn(BLOCK_COPIES, word)
+  return Object.hasOwn(BLOCK_NAMES, word)
 }
 
-function lastCopyOf(reply: string, kind: BlockKind): BlockCopy | null {
-  const copies = blocksOf(reply).map(BLOCK_COPIES[kind])
-  return copies.findLast((copy) => copy !== null) ?? null
+function hasBulletOn(surface: RenderSurface): boolean {
+  return surface === 'terminal'
+}
+
+function lastCopyOf(reply: string, kind: BlockKind, layout: CopyLayout): BlockCopy | null {
+  const copies = blocksOf(reply).map((block) => blockCopyOf(block, layout))
+  return copies.findLast((copy) => copy?.kind === kind)?.copy ?? null
 }
 
 function noBlockText(kind: BlockKind): string {
@@ -93,7 +88,7 @@ async function copyText(
   $: EngineInterface,
   text: string,
   what: string,
-  surface?: RenderSurface,
+  surface: RenderSurface,
 ): Promise<void> {
   try {
     const result = await $.ui.copy({ text, surface })
@@ -124,21 +119,37 @@ function replyActions($: EngineInterface, id: string): ReplyActions {
   }
 }
 
-async function copied($: EngineInterface, copy: BlockCopy): Promise<undefined> {
-  await copyText($, copy.text, copy.what)
+type CopyRequest = {
+  reply: string | undefined
+  word: string
+  columns: number
+  drawsDiagrams: boolean
+}
+
+async function copied(
+  $: EngineInterface,
+  copy: BlockCopy,
+  surface: RenderSurface,
+): Promise<undefined> {
+  await copyText($, copy.text, copy.what, surface)
   return undefined
 }
 
 async function copyFromReply(
   $: EngineInterface,
-  reply: string | undefined,
-  word: string,
+  request: CopyRequest,
 ): Promise<string | undefined> {
-  if (word === REPLY_WORD) return reply === undefined ? NO_REPLY_TEXT : copied($, replyCopy(reply))
-  if (!isBlockKind(word)) return USAGE_TEXT
+  const { reply, word } = request
+  if (word !== REPLY_WORD && !isBlockKind(word)) return USAGE_TEXT
   if (reply === undefined) return NO_REPLY_TEXT
-  const copy = lastCopyOf(reply, word)
-  return copy === null ? noBlockText(word) : copied($, copy)
+  const [surface = 'terminal'] = await $.session.surfaces()
+  if (!isBlockKind(word)) return copied($, replyCopy(reply), surface)
+  const copy = lastCopyOf(reply, word, {
+    width: replyWidth(request.columns, hasBulletOn(surface)),
+    surface,
+    drawsDiagrams: request.drawsDiagrams,
+  })
+  return copy === null ? noBlockText(word) : copied($, copy, surface)
 }
 
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
@@ -174,9 +185,21 @@ export const register: Register = (on, options) => {
       return { text: await toggleHints($, defaultHints) }
     }
     if (first === COPY_ARGUMENT && second !== undefined && rest.length === 0) {
-      return { text: await copyFromReply($, lastReply, second) }
+      return {
+        text: await copyFromReply($, {
+          reply: lastReply,
+          word: second,
+          columns: e.presentation.columns,
+          drawsDiagrams,
+        }),
+      }
     }
     return { text: USAGE_TEXT }
+  })
+
+  on('session.end', async (_$, e, next) => {
+    lastReply = undefined
+    return next(e)
   })
 
   on('turn.complete', async (_$, e, next) => {
@@ -249,7 +272,7 @@ export const register: Register = (on, options) => {
           blocksOf(e.props.text),
           {
             columns: e.viewport?.columns ?? DEFAULT_COLUMNS,
-            hasBullet: e.surface === 'terminal',
+            hasBullet: hasBulletOn(e.surface),
             isFirstOfReply: e.props.isFirstOfReply,
             surface: e.surface,
             drawsDiagrams,
