@@ -18,6 +18,16 @@ export type BoardList = {
 
 export type BoardPersonChange = { text: string; tasks: readonly BoardTask[] }
 
+export type BoardPlan = {
+  id: string
+  steps: readonly string[]
+  cut: readonly number[]
+  nextId: number
+  added: readonly number[] | null
+  isDismissed: boolean
+  refusal: readonly string[] | null
+}
+
 export type BoardToolSight = { tool: string; target: string | null }
 
 export type BoardAgentPlan = { version: number; tasks: readonly BoardTask[] }
@@ -111,6 +121,8 @@ declare module 'claude-code' {
       activity: BoardActivity
       agents: readonly BoardAgent[]
       rows: StateFamily<BoardCallRow>
+      plans: StateFamily<BoardPlan>
+      planId: string | null
       ready: { root: string }
     }
   }

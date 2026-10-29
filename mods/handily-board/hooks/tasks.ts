@@ -76,19 +76,30 @@ export type Added = { list: BoardList; task: BoardTask }
 
 export type AddRefused = { refusal: string }
 
-export function titleRefusal(title: string): string | undefined {
-  const codes = codePoints(title)
-  if (codes.some(isControlCode)) {
-    return 'the title has a line break or a control character. Write it on one line.'
-  }
-  if (BIDI_CONTROL.test(title)) {
-    return 'the title has a bidi control character, which can reorder the text. Remove it.'
-  }
-  const length = codes.length
-  if (length > MAX_TITLE_LENGTH) {
-    return `the title has ${String(length)} characters. The limit is ${String(MAX_TITLE_LENGTH)}.`
-  }
+export type TextFault = 'control' | 'bidi' | 'length'
+
+export function textLength(text: string): number {
+  return codePoints(text).length
+}
+
+export function textFault(text: string, most: number): TextFault | undefined {
+  if (codePoints(text).some(isControlCode)) return 'control'
+  if (BIDI_CONTROL.test(text)) return 'bidi'
+  if (textLength(text) > most) return 'length'
   return undefined
+}
+
+export function titleRefusal(title: string): string | undefined {
+  switch (textFault(title, MAX_TITLE_LENGTH)) {
+    case 'control':
+      return 'the title has a line break or a control character. Write it on one line.'
+    case 'bidi':
+      return 'the title has a bidi control character, which can reorder the text. Remove it.'
+    case 'length':
+      return `the title has ${String(textLength(title))} characters. The limit is ${String(MAX_TITLE_LENGTH)}.`
+    case undefined:
+      return undefined
+  }
 }
 
 const AUTHOR_WORDS: Record<BoardAuthor, string> = {
@@ -264,6 +275,10 @@ export function isAllDone(list: BoardList): boolean {
 }
 
 export function numbersText(tasks: readonly BoardTask[]): string {
+  return idsText(tasks.map((task) => task.id))
+}
+
+export function idsText(ids: readonly number[]): string {
   const ranges: string[] = []
   let start: number | undefined
   let previous: number | undefined
@@ -271,7 +286,7 @@ export function numbersText(tasks: readonly BoardTask[]): string {
     if (start === undefined || previous === undefined) return
     ranges.push(start === previous ? String(start) : `${String(start)}-${String(previous)}`)
   }
-  for (const id of tasks.map((task) => task.id).sort((a, b) => a - b)) {
+  for (const id of [...ids].sort((a, b) => a - b)) {
     if (previous !== undefined && id === previous + 1) {
       previous = id
       continue

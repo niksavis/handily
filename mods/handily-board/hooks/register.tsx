@@ -104,12 +104,26 @@ import {
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
+import {
+  PLAN_TOOL,
+  type PlanAnswer,
+  type PlanHost,
+  addPlanAsTasks,
+  approvedPlanText,
+  newPlan,
+  offeredPlan,
+  planListText,
+  tasksAfterPlan,
+} from './plan'
+import { drawPlanLine } from './plan-view'
+import { CHANGE_FAILED } from './replies'
 import { type ToastParts, showToast } from './toast'
 import type {
   BoardCallRow,
   BoardChecks,
   BoardList,
   BoardPersonChange,
+  BoardPlan,
   BoardTask,
   BoardToolSight,
 } from '../types'
@@ -172,6 +186,7 @@ const AGENT_PLANS = { plugin: 'handily-board', key: 'agentPlans' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
 const PERSON_CHANGES = { plugin: 'handily-board', key: 'personChanges' } as const
 const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
+const PLAN_ID = { plugin: 'handily-board', key: 'planId' } as const
 const REDRAW_INTERVAL_MS = 10_000
 const ENGINE_ORIGIN = 'engine'
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
@@ -322,6 +337,43 @@ function hostOf($: EngineInterface): TaskHost {
       }
     },
   }
+}
+
+function plansOf($: EngineInterface): PlanHost {
+  return {
+    current: async () => (await $.state.get(PLAN_ID)).value ?? undefined,
+    read: async (id) => (await $.state.get({ plugin: 'handily-board', key: 'plans', id })).value,
+    edit: async <T,>(id: string, change: (plan: BoardPlan) => { plan: BoardPlan; value: T }) => {
+      let outcome: { value: T } | undefined
+      await update($, { plugin: 'handily-board', key: 'plans', id }, (current) => {
+        if (current === undefined) throw new Error(`handily-board: no approved plan ${id}`)
+        const changed = change(current)
+        outcome = { value: changed.value }
+        return changed.plan
+      })
+      if (!outcome) throw new Error('handily-board: the state update never ran the change')
+      return outcome.value
+    },
+  }
+}
+
+async function notePlan($: EngineInterface, toolUseId: string, answer: PlanAnswer): Promise<void> {
+  const text = approvedPlanText(answer)
+  if (text === undefined) return
+  try {
+    const list = await readList(hostOf($))
+    const plan = newPlan(toolUseId, text, list.nextId)
+    if (plan !== undefined)
+      await $.state.set({ plugin: 'handily-board', key: 'plans', id: toolUseId }, plan)
+    await $.state.set(PLAN_ID, plan === undefined ? null : toolUseId)
+  } catch (error) {
+    $.ui.log(`handily-board: the approved plan was not kept: ${String(error)}`)
+  }
+}
+
+async function planListLead($: EngineInterface): Promise<string | undefined> {
+  const plan = await offeredPlan(plansOf($))
+  return plan === undefined ? undefined : planListText(plan)
 }
 
 function modelHostOf($: EngineInterface, agentId: string | undefined): TaskHost {
@@ -1011,7 +1063,7 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | clear | list | stats | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | plan | clear | list | stats | close]',
       immediate: true,
     })
     if (mode === 'always') await openUnasked(uiOf($))
@@ -1105,6 +1157,7 @@ export const register: Register = (on, options) => {
       checks.current = EMPTY_CHECKS
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
+      await $.state.set(PLAN_ID, null)
       await resetAgentLists($)
       await resetActivity($)
     }
@@ -1185,6 +1238,14 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('tool.call', { tool: PLAN_TOOL }, async ($, e, next) => {
+    const answer = await next(e)
+    if (e.agentId === undefined && next.origin.plugin === ENGINE_ORIGIN) {
+      await notePlan($, e.tool_use_id, answer)
+    }
+    return answer
+  })
+
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     const { tool_use_id: callId } = e
@@ -1247,8 +1308,13 @@ export const register: Register = (on, options) => {
         return { text: await closeBoard(uiOf($)) }
       case 'clear':
         return { text: (await personClear(host)).text }
-      case 'list':
-        return { text: await listReply(host) }
+      case 'list': {
+        const lead = await planListLead($)
+        const listed = await listReply(host)
+        return { text: lead === undefined ? listed : `${lead}\n\n${listed}` }
+      }
+      case 'plan':
+        return { text: (await addPlanAsTasks(plansOf($), host, undefined)).text }
       case 'stats':
         return { text: statsText(await workOf($, { vitals, checks, steps, pulses })) }
       case 'add':
@@ -1290,6 +1356,31 @@ export const register: Register = (on, options) => {
     return drawCallRow(look, row, e.viewport?.columns)
   })
 
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    if (e.props.tool !== PLAN_TOOL || e.props.isErrored) return next(e)
+    const plans = plansOf($)
+    const plan = await plans.read(e.props.tool_use_id)
+    if (plan === undefined) return next(e)
+    const host = hostOf($)
+    const isCurrent = (await plans.current()) === plan.id
+    const tasksAfter = tasksAfterPlan(plan, await readList(host))
+    const drawn = await next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const add = () => {
+      addPlanAsTasks(plans, host, plan.id).then(
+        (reply) => {
+          if (reply.toastParts !== undefined) showToast($, reply.toastParts)
+        },
+        (error: unknown) => {
+          $.ui.log(`handily-board: the plan was not added: ${String(error)}`)
+          showToast($, CHANGE_FAILED)
+        },
+      )
+    }
+    const line = drawPlanLine({ Box, Text, Button }, { plan, isCurrent, tasksAfter }, add)
+    return Box({ flexDirection: 'column', children: [drawn, line] })
+  })
+
   on('ui.render', { component: 'Pane', requestId: TASKS_PANE.id }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
@@ -1298,7 +1389,7 @@ export const register: Register = (on, options) => {
     const work = await workOf($, { vitals, checks, steps, pulses })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
-    return drawPane(elements, hostOf($), uiOf($), work)
+    return drawPane(elements, hostOf($), plansOf($), uiOf($), work)
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {

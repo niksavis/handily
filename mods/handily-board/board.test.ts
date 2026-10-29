@@ -25,6 +25,8 @@ import {
 import { NEEDS_YOU_AFTER_MS } from './hooks/agents'
 import { statusLineSetting } from './hooks/attention'
 import { displayWidth } from './hooks/width'
+import type { TaskHost } from './hooks/commands'
+import { type PlanHost, addPlanAsTasks } from './hooks/plan'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -150,7 +152,12 @@ type WorldOptions = {
   hasOwnPromptHook?: boolean
   notice?: UiNotifyResult | 'denied'
   failingTool?: string
+  planAnswer?: PlanAnswer
 }
+
+type PlanAnswer =
+  | { result: { plan: string | null; isAgent: boolean; filePath?: string } }
+  | { isError: true; result: string; text: string }
 
 const SKIPPED_COMPACTION = 'skip this compaction'
 const SUMMARY: SessionMessage = { role: 'user', text: 'the summary', toolUses: [] }
@@ -255,11 +262,12 @@ function world(on: On, options: WorldOptions = {}): World {
     if (options.notice === 'denied') return { deny: 'a hook of the test refused the notice' }
     return { value: options.notice ?? { isSent: true as const, channel: 'kitty' as const } }
   })
-  on('tool.call', (_$, e) =>
-    e.tool === options.failingTool
+  on('tool.call', (_$, e) => {
+    if (e.tool === 'ExitPlanMode' && options.planAnswer !== undefined) return options.planAnswer
+    return e.tool === options.failingTool
       ? { isError: true as const, result: 'exit 1', text: 'exit 1' }
-      : { result: '' },
-  )
+      : { result: '' }
+  })
   if (options.hasOwnPromptHook !== true) {
     on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
   }
@@ -667,7 +675,7 @@ describe('/board add and /board rm', () => {
       ]
       for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board plan, /board clear, /board list, /board stats or /board close.`,
         )
       }
     },
@@ -7067,3 +7075,409 @@ for (const surface of SURFACES) {
     )
   })
 }
+
+const PLAN_TOOL = 'ExitPlanMode'
+const PLAN_FILE = '/home/user/.claude/plans/p.md'
+const PLAN_TEXT = '1. Create a.txt\n2. Create b.txt\n3. Create c.txt\n'
+const APPROVED_PLAN: PlanAnswer = {
+  result: { plan: PLAN_TEXT, isAgent: false, filePath: PLAN_FILE },
+}
+const REJECTED_PLAN: PlanAnswer = {
+  isError: true,
+  result: 'User rejected tool use',
+  text: "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+}
+
+function planOf(plan: string, isAgent = false): PlanAnswer {
+  return { result: { plan, isAgent, filePath: PLAN_FILE } }
+}
+
+type PlanAnswers = { current: PlanAnswer }
+
+function planWorld(on: On, first: PlanAnswer): { seen: World; answers: PlanAnswers } {
+  const answers: PlanAnswers = { current: first }
+  const seen = world(on, {
+    get planAnswer() {
+      return answers.current
+    },
+  })
+  return { seen, answers }
+}
+
+async function approve($: Engine, seen: World, agentId?: string): Promise<Called> {
+  return called($, seen, agentId === undefined ? { tool: PLAN_TOOL } : { tool: PLAN_TOOL, agentId })
+}
+
+async function mountPlanRow($: Engine, surface: Surface, call: Called, isErrored = false) {
+  const answer = call.answer as { result?: unknown }
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'ToolResult',
+    requestId: call.id,
+    props: { tool_use_id: call.id, tool: PLAN_TOOL, output: answer.result, isErrored },
+  })
+}
+
+async function mountTasks(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline' = 'dock',
+  columns = 41,
+) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'Pane',
+    requestId: PANE,
+    props: paneProps(placement, columns),
+  })
+}
+
+async function planLine($: Engine, surface: Surface, call: Called): Promise<string | undefined> {
+  const ui = await mountPlanRow($, surface, call)
+  const line = drawnOf(await ui.find({ key: 'plan-line' }))
+  await ui.unmount()
+  return line === null ? undefined : screenOf(line, 80).join('\n').trimEnd()
+}
+
+const ADDED_NOTE = [
+  '[handily-board] The person changed the session task list: it added tasks 1, 2, 3 from the approved plan.',
+  '',
+  'Tasks (0 of 3 done)',
+  '  1  pending      claude   "Create a.txt"',
+  '  2  pending      claude   "Create b.txt"',
+  '  3  pending      claude   "Create c.txt"',
+].join('\n')
+
+describe('an approved plan as tasks (handily-9uj3n.7)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `an approved plan with numbered steps shows the add button and adds nothing by itself on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        const call = await approve($, seen)
+        expect(await modelTool($, {})).toBe('The task list is empty.')
+        const row = await mountPlanRow($, surface, call)
+        expect((await row.find({ key: 'plan-add' }))?.text).toBe('add 3 steps as tasks')
+        expect(
+          await row.find({ type: 'Text', text: 'adds them to the board as pending tasks' }),
+        ).toBeDefined()
+        expect(drawnOf(await row.drawn())?.children[0]).toMatchObject({ type: 'engine' })
+        await row.unmount()
+        const pane = await mountTasks($, surface)
+        expect((await pane.find({ key: 'plan-add' }))?.text).toBe('add 3 as tasks')
+        expect((await pane.find({ key: 'plan-dismiss' }))?.text).toBe('dismiss')
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            'Plan  approved · 3 numbered steps',
+            '  1 Create a.txt',
+            '  2 Create b.txt',
+            '  … 1 more step',
+            '  [ add 3 as tasks ]  [ dismiss ]',
+          ]),
+        )
+        await pane.unmount()
+        expect(await modelTool($, {})).toBe('The task list is empty.')
+        expect(await toldAtNextPrompt($)).toEqual([])
+      },
+    )
+
+    test(
+      `a press on the transcript button adds each step as a pending task of claude in order on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        const call = await approve($, seen)
+        const row = await mountPlanRow($, surface, call)
+        await row.press({ key: 'plan-add' })
+        await row.unmount()
+        expect(await modelTool($, {})).toBe(
+          'Tasks (0 of 3 done)\n  1  pending      claude   "Create a.txt"\n  2  pending      claude   "Create b.txt"\n  3  pending      claude   "Create c.txt"',
+        )
+        expect(await planLine($, surface, call)).toBe('  ✓ added as tasks 1-3')
+        expect(seen.toasts).toEqual([])
+        expect(await toldAtNextPrompt($)).toEqual([ADDED_NOTE])
+        const pane = await mountTasks($, surface)
+        expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+        await pane.unmount()
+      },
+    )
+
+    test(
+      `a press on the pane button adds each step as a pending task in order on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        await start($)
+        await board($, 'add Check the narrow dock')
+        await approve($, seen)
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'plan-add' })
+        expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+        expect(
+          (await pane.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key),
+        ).toEqual(['rm:1', 'rm:2', 'rm:3', 'rm:4'])
+        await pane.unmount()
+        expect(await modelTool($, {})).toBe(
+          'Tasks (0 of 4 done)\n  1  pending      you      Check the narrow dock\n  2  pending      claude   "Create a.txt"\n  3  pending      claude   "Create b.txt"\n  4  pending      claude   "Create c.txt"',
+        )
+        expect(seen.toasts).toEqual([])
+        expect(await board($, 'plan')).toBe(
+          'The approved plan is already tasks 2-4. Nothing changed.',
+        )
+      },
+    )
+  }
+
+  test(
+    'a rejected plan, a plan of a subagent and a plan with no numbered list get no offer',
+    withToolIds,
+    async ($, on) => {
+      const { seen, answers } = planWorld(on, REJECTED_PLAN)
+      engineRows(on)
+      await start($)
+      for (const surface of SURFACES) {
+        const rejected = await approve($, seen)
+        const row = await mountPlanRow($, surface, rejected, true)
+        expect(await row.drawn()).toEqual(ENGINE_ROW)
+        await row.unmount()
+      }
+      answers.current = planOf(PLAN_TEXT, true)
+      const agentPlan = await approve($, seen)
+      answers.current = APPROVED_PLAN
+      const fromAgent = await approve($, seen, 'agent-1')
+      answers.current = planOf('Read the design, then draw the mocks.\n\n- one\n- two\n')
+      const bulleted = await approve($, seen)
+      answers.current = planOf('1. Only one step\n\nThen more text.\n')
+      await approve($, seen)
+      for (const surface of SURFACES) {
+        for (const call of [agentPlan, fromAgent, bulleted]) {
+          const row = await mountPlanRow($, surface, call)
+          expect(await row.drawn()).toEqual(ENGINE_ROW)
+          await row.unmount()
+        }
+        const pane = await mountTasks($, surface)
+        expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+        await pane.unmount()
+      }
+      expect(await board($, 'plan')).toBe(
+        'No approved plan with numbered steps in this session. Nothing changed.',
+      )
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+    },
+  )
+
+  test(
+    'the steps are the first top-level numbered list with two items, without markdown marks',
+    withToolIds,
+    async ($, on) => {
+      const plan = [
+        '# Plan',
+        '',
+        'Context first.',
+        '',
+        '1. A single item',
+        '',
+        'More text.',
+        '',
+        '```sh',
+        '1. not a step',
+        '2. also not',
+        '```',
+        '',
+        '1. **Read** the `design` and   the [board](docs/mocks.md) sections',
+        '   - a nested detail',
+        '2) Map the _hooks_ that',
+        '   draw the pane',
+        '',
+        '3. Test it',
+        '',
+        '## After',
+        '',
+        '1. Not this list',
+        '2. Nor this',
+      ].join('\n')
+      const seen = world(on, { planAnswer: planOf(plan) })
+      await start($)
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 1-3 from the approved plan. Claude is told at your next prompt.',
+      )
+      expect(await modelTool($, {})).toBe(
+        'Tasks (0 of 3 done)\n  1  pending      claude   "Read the design and the board sections"\n  2  pending      claude   "Map the hooks that draw the pane"\n  3  pending      claude   "Test it"',
+      )
+    },
+  )
+
+  test(
+    '/board plan names a cut step, refuses a bad step and a full list by name, and says when a plan is already added',
+    withToolIds,
+    async ($, on) => {
+      const { seen, answers } = planWorld(on, planOf(`1. ${'x'.repeat(230)}\n2. Short\n`))
+      await start($)
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 1-2 from the approved plan. Step 1 was cut to 200 characters. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'plan')).toBe(
+        'The approved plan is already tasks 1-2. Nothing changed.',
+      )
+      answers.current = planOf('1. Fine\n2. Bad \u{202E} step\n')
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Not added: step 2 has a bidi control character. Nothing changed.',
+      )
+      for (let index = 0; index < 97; index += 1) await board($, `add Task ${String(index)}`)
+      await board($, 'done 3')
+      await board($, 'done 4')
+      answers.current = APPROVED_PLAN
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Not added: the plan has 3 steps and the list has room for 1 of 100 tasks, and 2 of them are done. Run /board clear to remove the done tasks, or remove one first.',
+      )
+      for (const surface of SURFACES) {
+        const pane = await mountTasks($, surface)
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            '  ■ not added: room for 1 of 3 steps',
+            '  /board clear removes 2 done tasks',
+          ]),
+        )
+        expect((await pane.find({ type: 'Text', text: '■ not added:' }))?.props.color).toBe('error')
+        await pane.press({ key: 'plan-add' })
+        await pane.unmount()
+      }
+      expect(seen.toasts.at(-1)).toEqual([
+        '■ Plan not added',
+        'room for 1 of 3 steps',
+        '/board clear removes 2 done tasks',
+      ])
+      await board($, 'clear')
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 100-102 from the approved plan. Claude is told at your next prompt.',
+      )
+    },
+  )
+
+  test(
+    'a later plan replaces the offer, an older row says so, and a press on it changes nothing',
+    withToolIds,
+    async ($, on) => {
+      const { seen, answers } = planWorld(on, APPROVED_PLAN)
+      engineRows(on)
+      await start($)
+      const first = await approve($, seen)
+      answers.current = planOf('1. Write the tests\n2. Run them\n')
+      const second = await approve($, seen)
+      for (const surface of SURFACES) {
+        expect(await planLine($, surface, first)).toBe('  ○ a later plan replaced this one')
+        expect(await planLine($, surface, second)).toBe(
+          '  [ add 2 steps as tasks ]  adds them to the board as pending tasks',
+        )
+      }
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+      expect(await board($, 'list')).toBe(
+        [
+          'Approved plan (2 steps, not added yet; /board plan adds them as tasks)',
+          '  1  "Write the tests"',
+          '  2  "Run them"',
+          '',
+          'No tasks in this session yet. Work items are not read yet.',
+        ].join('\n'),
+      )
+    },
+  )
+
+  test(
+    'tasks that Claude adds after the approval raise a warning, and dismiss hides only the block',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on, { planAnswer: APPROVED_PLAN })
+      engineRows(on)
+      await start($)
+      const call = await approve($, seen)
+      await $.tool.call({ tool: TOOL_ADD, titles: ['Create a.txt', 'Create b.txt'] })
+      for (const surface of SURFACES) {
+        expect(await planLine($, surface, call)).toBe(
+          '  [ add 3 steps as tasks ]  Claude added 2 tasks after this plan',
+        )
+        const pane = await mountTasks($, surface)
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            '  Claude added 2 tasks after the plan.',
+            '  Adding it may repeat them.',
+          ]),
+        )
+        await pane.unmount()
+      }
+      const pane = await mountTasks($, 'desktop')
+      await pane.press({ key: 'plan-dismiss' })
+      expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+      await pane.unmount()
+      expect(await planLine($, 'terminal', call)).toBe(
+        '  [ add 3 steps as tasks ]  Claude added 2 tasks after this plan',
+      )
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 3-5 from the approved plan. Claude is told at your next prompt.',
+      )
+    },
+  )
+
+  test('the Plan block fits a dock of 30 and the inline pane of 76', withToolIds, async ($, on) => {
+    const seen = world(on, {
+      planAnswer: planOf(
+        '1. Read the design and the board sections\n2. Map the hooks that draw the pane\n3. Draw the plan line in the pane\n4. Test the plan line at 30, 41 and 76\n5. Bump the version and write the note\n',
+      ),
+    })
+    await start($)
+    await approve($, seen)
+    const narrow = await mountTasks($, 'terminal', 'dock', 30)
+    expect(await screen(narrow, 30)).toEqual(
+      expect.arrayContaining([
+        'Plan  approved · 5 steps',
+        '  1 Read the design and the b…',
+        '  2 Map the hooks that draw t…',
+        '  … 3 more steps',
+        '  [ add 5 as tasks ]',
+        '  [ dismiss ]',
+      ]),
+    )
+    await narrow.unmount()
+    const inline = await mountTasks($, 'terminal', 'inline', 76)
+    expect(await screen(inline, 76)).toEqual(
+      expect.arrayContaining([
+        'Plan  approved · 5 steps: Read the design and the board sections, +4',
+        '  [ add 5 as tasks ]  [ dismiss ]',
+      ]),
+    )
+    await inline.unmount()
+  })
+})
+
+test('a press on a plan that a later plan replaced changes nothing and says why', async () => {
+  const refuse = () => Promise.reject(new Error('the test host holds no list'))
+  const plans: PlanHost = {
+    current: () => Promise.resolve('later'),
+    read: () => Promise.reject(new Error('the replaced plan is not read')),
+    edit: () => Promise.reject(new Error('the replaced plan is not changed')),
+  }
+  const host: TaskHost = {
+    read: refuse,
+    edit: refuse,
+    snapshot: refuse,
+    lines: refuse,
+    tell: refuse,
+    expanded: refuse,
+    editExpanded: refuse,
+  }
+  expect(await addPlanAsTasks(plans, host, 'older')).toEqual({
+    text: 'A later approved plan replaced this one. Nothing changed.',
+    toastParts: ['○ Nothing changed', 'a later plan replaced this one'],
+  })
+})

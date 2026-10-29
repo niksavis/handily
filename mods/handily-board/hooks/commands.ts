@@ -53,6 +53,7 @@ export type BoardCommand =
   | { kind: 'close' }
   | { kind: 'clear' }
   | { kind: 'stats' }
+  | { kind: 'plan' }
   | { kind: 'add'; text: string }
   | { kind: 'rm'; text: string }
   | { kind: 'mv'; text: string }
@@ -133,7 +134,8 @@ export function parseBoardCommand(args: string): BoardCommand {
     word === 'list' ||
     word === 'close' ||
     word === 'clear' ||
-    word === 'stats'
+    word === 'stats' ||
+    word === 'plan'
   ) {
     return { kind: word }
   }
@@ -141,7 +143,7 @@ export function parseBoardCommand(args: string): BoardCommand {
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board plan, /board clear, /board list, /board stats or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {

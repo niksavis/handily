@@ -31,6 +31,7 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board done <n>`          | Marks task `n` done                                                     |
 | `/board start <n>`         | Marks task `n` in progress                                              |
 | `/board open <n>`          | Marks task `n` pending                                                  |
+| `/board plan`              | Adds the steps of the approved plan as tasks of `claude`                |
 | `/board clear`             | Removes every done task                                                 |
 | `/board list`              | Prints the list as text. With no tasks, it lists the open tracker items |
 | `/board stats`             | Prints the session figures and the agents as text                       |
@@ -55,7 +56,10 @@ Replies, from the tests:
 /board mv 3 before 1     Task 3 is already before task 1. Nothing changed.
 /board edit 3 Ship it now  Task 3 is now titled: Ship it now. Claude is told at your next prompt.
 /board edit 3            Not changed: the new title is empty. /board edit needs a task number and a title, for example /board edit 2 Write the tests.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board plan, /board clear, /board list, /board stats or /board close.
+/board plan              Added tasks 3-7 from the approved plan. Claude is told at your next prompt.
+/board plan              The approved plan is already tasks 3-7. Nothing changed.
+/board plan              No approved plan with numbered steps in this session. Nothing changed.
 ```
 
 - `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
@@ -275,6 +279,40 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 - The columns before the title have a fixed width. The title fills the room that is left and is
   cut with `…`, so a row never wraps. The tests check this at 30, 41 and 80 columns.
 - The mobile app has no input, so the tab says `Add tasks with /board add <text>.`
+
+### An approved plan
+
+When you approve a plan of Claude that has numbered steps, the board offers the steps as tasks.
+It adds nothing by itself. A capture from the tests, docked at 41 columns:
+
+```text
+Plan  approved · 3 numbered steps
+  1 Create a.txt
+  2 Create b.txt
+  … 1 more step
+  [ add 3 as tasks ]  [ dismiss ]
+```
+
+- The steps are the items of the first top-level numbered list with at least 2 items. The
+  board removes the markdown marks and makes each run of spaces one space. A step of more than
+  200 characters is cut to 199 characters and `…`, and the reply of `/board plan` names it.
+- The offer shows in three places: a line under the plan row in the transcript, the Plan block
+  above `Tasks`, and `/board plan`. The transcript button takes a click only, because Claude
+  Code gives the keyboard only to a pane and to the band above the prompt. Use the Plan block
+  or `/board plan` from the keyboard.
+- A press adds every step as a pending task of `claude`, in order, at the end of the list. Your
+  next prompt tells Claude: `it added tasks 3, 4, 5 from the approved plan.` A successful add
+  shows no toast, because the board shows the new tasks.
+- A rejected plan, a plan of a subagent, a plan that waits for a team leader and a plan with no
+  numbered list of 2 items get no offer.
+- When the list has no room for every step, or a step has a control or a bidi control
+  character, nothing is added. The Plan block and the transcript line say why, and the button
+  stays for a retry.
+- When Claude adds tasks with `task_add` after the approval, the offer warns that the steps may
+  repeat. The board never removes a repeat by itself.
+- A later approved plan replaces the offer. The line under the older plan says so and has no
+  button. `[ dismiss ]` hides the Plan block. The transcript button stays.
+- `/board list` prints an offered plan above the tasks.
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
 

@@ -1351,8 +1351,8 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
                             /board rm <n>, /board mv <n> before <m>|top|bottom,
                             /board edit <n> <title>, /board done <n>, /board start <n>,
-                            /board open <n>, /board clear, /board list, /board stats or
-                            /board close.
+                            /board open <n>, /board plan, /board clear, /board list,
+                            /board stats or /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
 /board list              -> the task list as text (as /task printed it; mobile and a closed board)

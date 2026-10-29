@@ -41,6 +41,8 @@ import {
 } from './commands'
 import { BAR_EMPTY, BAR_FILLED, barCells } from './bar'
 import { PART_LEAD, fitParts } from './parts'
+import { type PlanHost, addPlanAsTasks, dismissPlan, offeredPlan, tasksAfterPlan } from './plan'
+import { drawPlanBlock } from './plan-view'
 import { AGENTS_VIEW_FAILED, CHANGE_FAILED, refusedParts } from './replies'
 import { SIGNALS } from './signals'
 import {
@@ -797,15 +799,39 @@ function drawHeader(elements: PaneElements, list: BoardList, work: PaneWork): Re
   })
 }
 
+async function drawPlan(
+  elements: PaneElements,
+  host: TaskHost,
+  plans: PlanHost,
+  list: BoardList,
+  act: Act,
+): Promise<RenderElement[]> {
+  const plan = await offeredPlan(plans)
+  if (plan === undefined) return []
+  return drawPlanBlock(elements, plan, tasksAfterPlan(plan, list), {
+    add: () => {
+      act(async () => (await addPlanAsTasks(plans, host, plan.id)).toastParts)
+    },
+    dismiss: () => {
+      act(async () => {
+        await dismissPlan(plans, plan.id)
+        return undefined
+      })
+    },
+  })
+}
+
 export async function drawPane(
   elements: PaneElements,
   host: TaskHost,
+  plans: PlanHost,
   ui: PaneUi,
   work: PaneWork,
 ): Promise<RenderElement> {
   const { Box, Text } = elements
   const act = actor(ui)
   const list = await readList(host)
+  const plan = await drawPlan(elements, host, plans, list, act)
   const hasList = list.tasks.length > 0
   const layout = rowLayout(host, await host.expanded(), act)
   const warning = drawPlanWarning(elements, ui, work, hasList, act)
@@ -822,6 +848,7 @@ export async function drawPane(
     flexDirection: 'column',
     children: [
       ...drawSession(elements, work, layout),
+      ...plan,
       header,
       ...body,
       ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),
