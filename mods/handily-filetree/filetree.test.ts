@@ -3927,7 +3927,11 @@ type BoardClock = {
   runAt?: number
 }
 
-type BoardTasks = { start: (id: number) => void; end: (id: number) => void }
+type BoardTasks = {
+  start: (id: number) => void
+  end: (id: number) => void
+  remove: (id: number) => void
+}
 
 const BOARD_TITLES = ['Read the design', 'Write the tab mocks', 'Review the mocks']
 
@@ -3977,6 +3981,9 @@ function boardTasks(on: On, seen: World): BoardTasks {
       const known = clocks[key]
       if (known === undefined) throw new Error(`task ${key} never started`)
       clocks[key] = { ...known, endedAt: seen.clock.now(), endCalls: 0 }
+    },
+    remove: (id) => {
+      Reflect.deleteProperty(clocks, String(id))
     },
   }
 }
@@ -4216,4 +4223,65 @@ test('a task view over 1,000 rows keeps the row cap note of the work view when t
   expect(lines.slice(-2)).toEqual([CUT_NOTE, 'Close a folder.'])
   expect(await ui.find({ key: 'cut-view' })).toBeUndefined()
   await ui.unmount()
+})
+
+type HeldRead = { arrived: Promise<void>; release: () => void }
+
+function holdReads(on: On): HeldRead {
+  let arrive: () => void = () => undefined
+  let release: () => void = () => undefined
+  const arrived = new Promise<void>((resolve) => {
+    arrive = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  on('tool.call', async () => {
+    arrive()
+    await gate
+    return { result: '' }
+  })
+  return { arrived, release }
+}
+
+describe('the files of one task: review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`a new task with the number of a removed task shows only its own files, on the ${surface}`, async ($, on) => {
+      const { seen, board } = taskScene(on, surface)
+      await start($)
+      board.start(1)
+      await edit($, 'docs/mocks.md')
+      board.end(1)
+      board.remove(1)
+      await seen.clock.advance(60_000)
+      board.start(1)
+      await read($, 'docs/design.md')
+      const ui = await taskTab($, seen, surface, 1)
+      expect((await headerOf(ui)).at(-1)).toBe('◦ 1 read while task 1 ran')
+      const lines = (await treeLines(ui)).join('\n')
+      expect(lines).toContain('design.md')
+      expect(lines).not.toContain('mocks.md')
+      await ui.unmount()
+    })
+
+    test(`a call that starts while task 2 runs keeps task 2 when the task is done and reopened before the call ends, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+      const held = holdReads(on)
+      const board = boardTasks(on, seen)
+      await start($)
+      board.start(2)
+      const call = read($, 'docs/install.md')
+      await held.arrived
+      await seen.clock.advance(1000)
+      board.end(2)
+      await seen.clock.advance(1000)
+      board.start(2)
+      held.release()
+      await call
+      const ui = await taskTab($, seen, surface, 2)
+      expect((await headerOf(ui)).at(-1)).toBe('◦ 1 read while task 2 ran')
+      expect((await treeLines(ui)).join('\n')).toContain('install.md')
+      await ui.unmount()
+    })
+  }
 })

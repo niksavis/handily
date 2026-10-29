@@ -171,6 +171,10 @@ Task 2  Write the tab mocks  [ clear ]
   clocks of the board, `activity` in the `handily-board` state, before and after each tool
   call. A task is in progress from the start of its current run until it ends. A touch at the
   moment one task ends and the next starts belongs to the next task.
+- A call keeps the tasks that were in progress at its start and at its end. So a task that is
+  done and opened again while the call runs keeps the touch of that call.
+- The mod keys a task by its number and the time of its first start. A new task that gets the
+  number of a removed task, as after `/board clear`, starts with no files.
 - A touch of any agent counts, also of a subagent. A task that runs twice keeps the touches of
   both runs. A touch while no task is in progress belongs to no task.
 - The counts line counts the files by their newest mark in the task. With no file, it reads
