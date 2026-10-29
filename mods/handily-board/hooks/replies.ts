@@ -4,6 +4,8 @@ export type PersonReply = { text: string; toastParts: ToastParts | undefined }
 
 const TRANSCRIPT_SHOWS_WHY = 'the transcript shows why'
 
+export const CLAUDE_NOT_TOLD = 'Claude was not told'
+
 export const CHANGE_FAILED: ToastParts = [
   `${TOAST_MARKS.blocked} The change failed`,
   TRANSCRIPT_SHOWS_WHY,
@@ -24,7 +26,7 @@ export function unchangedParts(why: string): ToastParts {
 }
 
 export function notToldParts(change: string): ToastParts {
-  return [`${TOAST_MARKS.blocked} Claude was not told`, change, TRANSCRIPT_SHOWS_WHY]
+  return [`${TOAST_MARKS.blocked} ${CLAUDE_NOT_TOLD}`, change, TRANSCRIPT_SHOWS_WHY]
 }
 
 export function refusedReply(text: string, head: string, why: string, hint?: string): PersonReply {

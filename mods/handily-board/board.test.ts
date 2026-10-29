@@ -4362,6 +4362,8 @@ const QUIET_MOVE_CRITERION =
   'When the person moves a task with a pane button and Claude is told, no toast appears'
 const CLOSED_ITEM_CRITERION =
   'When the pane adds a tracker item that is closed, the toast starts with the failed mark and names the item id'
+const BATCH_NOT_TOLD_CRITERION =
+  'When a batch add from the pane is cut short and the note for Claude fails, the toast keeps the refusal and says Claude was not told'
 const ONE_LINE_TOAST_CRITERION =
   'When any board toast is shown, its text holds no line break and no tracker notice'
 
@@ -4404,6 +4406,33 @@ for (const surface of SURFACES) {
         ])
         expect(seen.toastMs).toEqual([10000])
         expect(await modelTool($, {})).toBe('The task list is empty.')
+        await ui.unmount()
+      },
+    )
+  })
+
+  describe(BATCH_NOT_TOLD_CRITERION, () => {
+    test(
+      `Add N as tasks that the full list cuts short while the note for Claude fails keeps both the refusal and Claude was not told, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        on('state.set', { plugin: 'handily-board', key: 'personChanges' }, () => ({
+          deny: 'the state is full',
+        }))
+        await start($)
+        const many = Array.from({ length: 101 }, (_, index) =>
+          item(`app-${String(index + 10)}`, `Open item ${String(index + 10)}`, 2, 'open'),
+        )
+        await publish($, okSnapshot(many))
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        await ui.press({ key: 'all-items' })
+        await ui.press({ key: 'add-all' })
+        expect(seen.toasts).toEqual([
+          ['■ Not added', 'app-99: the list is full at 100 tasks.…', 'Claude was not told'],
+        ])
+        expect(seen.toastMs).toEqual([10000])
+        expect(String(await modelTool($, {})).split('\n')[0]).toBe('Tasks (0 of 100 done)')
         await ui.unmount()
       },
     )

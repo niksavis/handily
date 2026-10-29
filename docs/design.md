@@ -514,10 +514,9 @@ part padded with spaces to 40 columns starts the next part on its own line.
   it measures width with the mod's copy of `width.ts`.
 - `scripts/toast.test.mjs` refuses a mod with a `hooks/toast.ts` that its keeper list does not
   name, two copies that differ, and any use of the `toast` of `ui` in any other file under
-  `mods/*/hooks`: a call, a `bind`, a bracket, a plain read or a destructure. The
-  board still calls `$.ui.toast` directly. The gate lists it as a known exception until
-  handily-ftx0x.4 moves it. `TOAST_MARKS` must equal the approved signal marks in
-  `scripts/fixtures/signals.mjs`, which `scripts/signals.test.mjs` also reads.
+  `mods/*/hooks`: a call, a `bind`, a bracket, a plain read or a destructure. `TOAST_MARKS`
+  must equal the approved signal marks in `scripts/fixtures/signals.mjs`, which
+  `scripts/signals.test.mjs` also reads.
 - reply-view and simple-view draw their copy toasts with `showToast` (handily-ftx0x.3). A copy
   toast is `✓ Copied the plan block` or `✓ Copied the output`, then the line count, such as
   `2 lines`. A refused copy is `■ Not copied`, then the reason. A copy that throws is

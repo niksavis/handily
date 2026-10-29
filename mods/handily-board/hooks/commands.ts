@@ -1,6 +1,7 @@
 import type { PluginState } from 'claude-code'
 import type { BoardList, BoardPersonChange, BoardStatus, BoardTask } from '../types'
 import {
+  CLAUDE_NOT_TOLD,
   changedReply,
   notToldParts,
   type PersonReply,
@@ -275,7 +276,10 @@ export async function addItemsAsTasks(
 
 export function itemsAddedParts(outcome: ItemsAdded): ToastParts | undefined {
   const { added, existing, refusal, noteRefusal } = outcome
-  if (refusal !== undefined) return refusedParts(NOT_ADDED, withoutFinalPeriod(refusal))
+  if (refusal !== undefined) {
+    const told = noteRefusal === undefined ? undefined : CLAUDE_NOT_TOLD
+    return refusedParts(NOT_ADDED, withoutFinalPeriod(refusal), told)
+  }
   if (noteRefusal !== undefined) {
     return notToldParts(`added ${String(added.length)} as ${added.length === 1 ? 'task' : 'tasks'}`)
   }
