@@ -163,9 +163,25 @@ function firstTaskTime(progress: Progress, done: number, now: number): number | 
   return done > 0 ? null : now
 }
 
-export function withTasks(progress: Progress, all: BoardList, now: number): Progress {
+export type ListSummary = {
+  current: BoardTask | undefined
+  done: number
+  total: number
+  ids: number[]
+}
+
+export function listSummary(all: BoardList): ListSummary {
   const list = ownList(all)
-  const total = list.tasks.length
+  return {
+    current: currentTask(list),
+    done: list.tasks.filter((task) => task.status === 'completed').length,
+    total: list.tasks.length,
+    ids: list.tasks.map((task) => task.id),
+  }
+}
+
+export function withTasks(progress: Progress, all: BoardList, now: number): Progress {
+  const { current, done, total, ids } = listSummary(all)
   if (total === 0) {
     return {
       ...progress,
@@ -179,9 +195,6 @@ export function withTasks(progress: Progress, all: BoardList, now: number): Prog
       lastAddedAt: null,
     }
   }
-  const ids = list.tasks.map((task) => task.id)
-  const done = list.tasks.filter((task) => task.status === 'completed').length
-  const current = currentTask(list)
   const isAdded = ids.some((id) => !progress.taskIds.includes(id))
   return {
     ...progress,

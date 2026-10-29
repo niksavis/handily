@@ -350,6 +350,8 @@ For you  ◆ 3 open
 - Claude withdraws a task with `task_update` and the status `removed`. The row stays, dim, as
   `withdrawn by Claude`, until your next prompt. Claude cannot set another status on a task for
   you, and `task_move`, `/board edit` and `/board mv` leave it in place.
+- When you answered a task before Claude withdraws it, the answer of `task_update` gives
+  Claude your answer once, and the row reads `withdrawn by Claude · answer sent`.
 - At the end of a turn in which Claude assigned tasks, one toast names them while the
   `this session` tab is not shown.
 - A subagent cannot assign a task. At most 20 tasks for you are open at a time. The tasks for

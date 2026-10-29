@@ -315,6 +315,10 @@ export function ownList(list: BoardList): BoardList {
   return { ...list, tasks: list.tasks.filter((task) => !isForPerson(task)) }
 }
 
+export function isListShownEmpty(list: BoardList): boolean {
+  return list.tasks.every((task) => task.isWithdrawn === true)
+}
+
 export function askedTasks(list: BoardList): BoardTask[] {
   return list.tasks.filter((task) => isForPerson(task) && task.isWithdrawn !== true)
 }

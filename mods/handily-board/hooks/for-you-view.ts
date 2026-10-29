@@ -346,6 +346,10 @@ function openedLines(elements: PaneElements, task: BoardTask, view: ForYouView, 
   ].filter((line) => line !== null)
 }
 
+function withdrawnText(task: BoardTask): string {
+  return task.result ? 'withdrawn by Claude · answer sent' : 'withdrawn by Claude'
+}
+
 function drawTask(
   elements: PaneElements,
   task: BoardTask,
@@ -356,7 +360,7 @@ function drawTask(
   const { line, isCut } = rowLine(elements, task, idWidth, view)
   const under =
     task.isWithdrawn === true
-      ? [Text({ dimColor: true, children: 'withdrawn by Claude' })]
+      ? [Text({ dimColor: true, children: withdrawnText(task) })]
       : task.result
         ? [settledLine(elements, task, view)]
         : openActions(elements, task, view)
@@ -382,7 +386,7 @@ export function drawForYou(elements: PaneElements, view: ForYouView): RenderElem
   const open = asked.filter((task) => !isSettled(task) && task.isWithdrawn !== true)
   const toSend = asked.filter((task) => task.result?.isSent === false)
   const withdrawn = asked.filter((task) => task.isWithdrawn === true)
-  const sent = asked.filter((task) => task.result?.isSent === true)
+  const sent = asked.filter((task) => task.result?.isSent === true && task.isWithdrawn !== true)
   const isAllOpenShown = view.layout.expanded.has(FOR_YOU_GROUP) || open.length <= OPEN_SHOWN
   const shownOpen = isAllOpenShown ? open : open.slice(0, OPEN_SHOWN)
   const isSentShown = view.layout.expanded.has(ANSWERED_GROUP)

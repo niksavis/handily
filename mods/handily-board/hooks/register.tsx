@@ -128,8 +128,10 @@ import {
   forYouStatus,
   personOnlyRefusal,
   putBackAnswers,
+  stillAsked,
   takeAnswers,
   withdrawTask,
+  withdrawnLead,
 } from './for-you'
 import { CHANGE_FAILED, refusedParts } from './replies'
 import { type ToastParts, showToast } from './toast'
@@ -153,7 +155,9 @@ import {
   escaped,
   findTask,
   isForPerson,
+  isListShownEmpty,
   isStatus,
+  ownList,
   listText,
   moveTask,
   numbersText,
@@ -188,6 +192,7 @@ const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
 const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+const NOT_PLAN_TOOLS: ReadonlySet<string> = new Set([TOOL_LIST, TOOL_ASSIGN])
 const MAIN_LOOP_ONLY = 'task_assign works only in the main loop; tell the main agent what you need.'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
@@ -327,6 +332,10 @@ export const PROMPT_SECTION_TEXT = [
 ].join('\n\n')
 
 type ListWrite = (step: (current: BoardList | undefined) => BoardList) => Promise<unknown>
+
+function isPlanTool(tool: string): boolean {
+  return !NOT_PLAN_TOOLS.has(tool)
+}
 
 function listEditor(write: ListWrite): TaskHost['edit'] {
   return async <T,>(change: ListEdit<T>) => {
@@ -616,7 +625,7 @@ async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
   const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
   const lag = planLag(activity)
   if (lag === undefined || !isNoteDue(activity)) return undefined
-  return { text: planNote(lag, list.tasks.length > 0), calls: activity.calls }
+  return { text: planNote(lag, ownList(list).tasks.length > 0), calls: activity.calls }
 }
 
 async function recordNote($: EngineInterface, calls: number): Promise<void> {
@@ -919,7 +928,7 @@ function sessionsHost($: EngineInterface): SessionsHost {
 }
 
 function listAnswer(list: BoardList, lead: string): string {
-  const shown = list.tasks.length === 0 ? 'The task list is empty.' : listText(list)
+  const shown = isListShownEmpty(list) ? 'The task list is empty.' : listText(list)
   return withTrackerNotice(lead === '' ? shown : `${lead}\n\n${shown}`, list.tasks)
 }
 
@@ -1076,7 +1085,7 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promis
   if (isForPerson(task)) {
     if (status !== REMOVED) return { deny: personOnlyRefusal(task) }
     return {
-      result: await listResult(host, `Withdrew task ${String(id)} from the person.`),
+      result: await listResult(host, withdrawnLead(task)),
       row: removedRow(task),
     }
   }
@@ -1241,7 +1250,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
-      const asked = asks.splice(0)
+      const asked = stillAsked(await readList(hostOf($)), asks.splice(0))
       const parts = asksParts(asked)
       if (parts !== undefined && !(await isSessionTabSeen($))) showToast($, parts)
       await noteVitals($, vitals, (current) => withTurnEnd(current, e.durationMs))
@@ -1342,7 +1351,7 @@ export const register: Register = (on, options) => {
     if (isTaskTool(e.tool)) {
       if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
       const answer = await next(e)
-      if (e.agentId === undefined && e.tool !== TOOL_LIST && answer.deny === undefined) {
+      if (e.agentId === undefined && isPlanTool(e.tool) && answer.deny === undefined) {
         await notePlanChange($)
       }
       return answer

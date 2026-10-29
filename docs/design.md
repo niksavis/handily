@@ -889,6 +889,14 @@ Tasks for you (handily-9uj3n.8):
 - `task_update` with the status `removed` withdraws a task for the person. The row stays, dim,
   as `withdrawn by Claude`, until the next prompt removes it. Any other status is refused by
   name. `task_move` refuses a task for the person.
+- A withdraw of a task that the person answered, before the next prompt sent the answer,
+  carries the answer in the `task_update` answer, once (review of 2026-10-29). The row reads
+  `withdrawn by Claude · answer sent`. A refused withdraw was the other choice. It would block
+  Claude on a task that it no longer needs, and Claude would still not have the words.
+- `task_assign` and `task_list` do not count as a plan update for the plan warning, because
+  they do not change the own list of Claude. Only the own tasks count for the empty-list note,
+  the task list row, the `Tasks` header, the band and the this machine card. `listSummary` in
+  `hooks/progress.ts` gives the card and the stored progress the same counts.
 - `task_assign` refuses a call from a subagent, because a subagent has its own list, which the
   person does not see.
 

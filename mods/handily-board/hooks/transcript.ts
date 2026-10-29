@@ -1,6 +1,6 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import type { BoardCallRow, BoardList, BoardStatus, BoardTask } from '../types'
-import { doneCount, paneTaskText, statusLook, statusWord } from './tasks'
+import { doneCount, ownList, paneTaskText, statusLook, statusWord } from './tasks'
 import { displayWidth, fitted } from './width'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
@@ -30,7 +30,8 @@ export function movedRow(task: BoardTask, before: number): BoardCallRow {
 }
 
 export function listRow(list: BoardList): BoardCallRow {
-  return { kind: 'list', done: doneCount(list), total: list.tasks.length }
+  const own = ownList(list)
+  return { kind: 'list', done: doneCount(own), total: own.tasks.length }
 }
 
 function taskName(id: number): string {

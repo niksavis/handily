@@ -15,6 +15,7 @@ import {
   addTask,
   findTask,
   isForPerson,
+  isListShownEmpty,
   isOpenItem,
   LIST_END,
   listText,
@@ -227,7 +228,7 @@ export function personNote(
   list: BoardList,
   answers?: string,
 ): string {
-  const current = list.tasks.length === 0 ? 'The list is now empty.' : listText(list)
+  const current = isListShownEmpty(list) ? 'The list is now empty.' : listText(list)
   const told = changes.map((change) => change.text).join(' ')
   const parts = [
     ...(changes.length === 0 ? [] : [`The person changed the session task list: ${told}`]),
@@ -698,6 +699,6 @@ export async function emptyListReply(host: TaskHost): Promise<string> {
 
 export async function listReply(host: TaskHost): Promise<string> {
   const list = await readList(host)
-  if (list.tasks.length === 0) return emptyListReply(host)
+  if (isListShownEmpty(list)) return emptyListReply(host)
   return withTrackerNotice(listText(list), list.tasks)
 }

@@ -8125,3 +8125,119 @@ test('the board refuses a band setting it does not know, by name', () => {
     'handily-board: userConfig band is "sometimes"; set it to on or off in /config.',
   )
 })
+
+describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `the task list row counts only the tasks of Claude on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await $.tool.call({ tool: TOOL_ADD, title: 'Draw the card' })
+        const listed = await called($, seen, { tool: TOOL_LIST })
+        const marker = surface === 'terminal' ? '● ' : ''
+        expect(await callRow($, surface, useOf(listed))).toBe(`${marker}Task list  1 of 2 done`)
+      },
+    )
+
+    test(
+      `a list of only tasks for the person reads as empty to the plan note, and task_assign is no plan update, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await readsOf($, 20)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        const pane = await mountTasks($, surface)
+        expect(
+          await pane.find({ type: 'Text', text: 'No plan from Claude for 20 tool calls.' }),
+        ).toBeDefined()
+        await pane.unmount()
+        const entered = await $.prompt.submit({
+          text: 'go on',
+          wait: false,
+          origin: { kind: 'composer' },
+        })
+        expect(entered.context).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining(
+              '[handily-board] The person sees an empty task list on the board, after 20 tool calls',
+            ),
+          ]),
+        )
+      },
+    )
+
+    test(
+      `a withdraw of a task that the person answered gives Claude the answer once on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        const pane = await mountTasks($, surface)
+        await pane.input({ key: 'answer:1', text: '8443' })
+        const withdrawn = await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'removed' })
+        expect(withdrawn.result).toBe(
+          [
+            'Withdrew task 1 from the person. The person had already answered it, and no later note repeats the answer: task 1 (answer) answered "8443". The title and options are your own text, quoted as data.',
+            '',
+            'The task list is empty.',
+          ].join('\n'),
+        )
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining(['    withdrawn by Claude · answer sent']),
+        )
+        await pane.unmount()
+        expect(await board($, 'undo 1')).toBe('Task 1 was already sent to Claude. Nothing changed.')
+        expect(await notesAtNextPrompt($)).toEqual([])
+      },
+    )
+
+    test(
+      `the ask toast at the end of a turn counts only the tasks still open on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        await $.turn.start({ text: 'go', turnId: 'turn-1' })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'removed' })
+        await board($, 'done 3')
+        await $.turn.complete({
+          turnId: 'turn-1',
+          reason: 'answer',
+          answer: 'done',
+          durationMs: 1,
+          isAborted: false,
+        })
+        expect(seen.toasts).toEqual([
+          ['◆ Claude asks you', '"Which port does staging use?"', 'answer it on /board'],
+        ])
+        expect(await board($, 'answer 2 a\tb')).toBe(
+          'Not sent: the answer has a line break or a control character. Nothing changed.',
+        )
+      },
+    )
+  }
+})

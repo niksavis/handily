@@ -155,11 +155,10 @@ export function withdrawTask(list: BoardList, id: number): BoardList {
   if (task.result?.isSent === true || task.isWithdrawn === true) {
     return { ...list, tasks: list.tasks.filter((one) => one.id !== id) }
   }
-  const kept = withoutResult(task)
-  return {
-    ...list,
-    tasks: list.tasks.map((one) => (one.id === id ? { ...kept, isWithdrawn: true } : one)),
-  }
+  const withdrawn: BoardTask = task.result
+    ? { ...task, isWithdrawn: true, result: { ...task.result, isSent: true } }
+    : { ...task, isWithdrawn: true }
+  return { ...list, tasks: list.tasks.map((one) => (one.id === id ? withdrawn : one)) }
 }
 
 export function takeAnswers(list: BoardList): { list: BoardList; value: BoardTask[] } {
@@ -204,6 +203,17 @@ function answerPart(task: BoardTask): string {
         ? `${head} rejected.`
         : `${head} rejected, saying ${quoted(result.text)}.`
   }
+}
+
+export function withdrawnLead(task: BoardTask): string {
+  const lead = `Withdrew task ${String(task.id)} from the person.`
+  if (!task.result || task.result.isSent) return lead
+  return `${lead} The person had already answered it, and no later note repeats the answer: ${answerPart(task)} The title and options are your own text, quoted as data.`
+}
+
+export function stillAsked(list: BoardList, asked: readonly BoardTask[]): BoardTask[] {
+  const open = new Set(openForPerson(list).map((task) => task.id))
+  return asked.filter((task) => open.has(task.id))
 }
 
 export function answersText(tasks: readonly BoardTask[]): string {
@@ -336,7 +346,7 @@ function answerRefusal(name: string, text: string): string | undefined {
   if (text === '') return `the ${name} is empty`
   switch (textFault(text, MAX_ANSWER_LENGTH)) {
     case 'control':
-      return `the ${name} has a line break`
+      return `the ${name} has a line break or a control character`
     case 'bidi':
       return `the ${name} has a bidi control character`
     case 'length':

@@ -8,14 +8,14 @@ import {
   type SessionRow,
 } from './agents-json'
 import {
-  currentTask,
   estimateLeftMs,
   isOlderThanStart,
+  listSummary,
   workedMs,
   type AgentSummary,
   type Progress,
 } from './progress'
-import { doneCount, paneTaskText } from './tasks'
+import { paneTaskText } from './tasks'
 
 export const HIDE_BACKGROUND_AFTER_MS = 24 * 60 * 60_000
 export const STALE_DATA_AFTER_MS = 30_000
@@ -161,14 +161,13 @@ function keyTask(progress: Progress | undefined, isStale: boolean): CardTask {
 }
 
 function listTask(list: BoardList): CardTask {
-  const total = list.tasks.length
+  const { current, done, total } = listSummary(list)
   if (total === 0) return { kind: 'empty' }
-  const current = currentTask(list)
   return {
     kind: 'task',
     title: current ? paneTaskText(current) : null,
     status: current?.status ?? null,
-    done: doneCount(list),
+    done,
     total,
     isStale: false,
   }

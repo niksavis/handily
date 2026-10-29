@@ -2164,9 +2164,11 @@ is dim.
 ```
 
 - The withdrawn row stays until the person's next prompt, so they see why it went.
+- A task that the person answered before the withdraw reads `withdrawn by Claude · answer
+  sent`. The answer of `task_update` gave Claude the answer once.
 - Other refusals on that line:
   - `■ not sent: the answer has 1001 characters; the limit is 1000`
-  - `■ not sent: the answer has a line break`
+  - `■ not sent: the answer has a line break or a control character`
 
 #### 8.12f Many: 6 open; at most 3 are drawn before the fold, so the tasks stay on screen
 
