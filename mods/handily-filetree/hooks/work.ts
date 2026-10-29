@@ -11,6 +11,8 @@ import {
   treeRows,
 } from './tree'
 
+const WORK_ROWS = 40
+
 export type WorkPath = { path: string; isFolder: boolean }
 
 export type WorkSource = {
@@ -19,7 +21,13 @@ export type WorkSource = {
   isFiltered: boolean
 }
 
-export type WorkTree = { folders: ReadonlySet<string>; listings: ReadonlyMap<string, Listing> }
+export type WorkEntry = WorkPath & { isChanged: boolean }
+
+export type WorkTree = {
+  folders: ReadonlySet<string>
+  listings: ReadonlyMap<string, Listing>
+  changed: ReadonlySet<string>
+}
 
 export type WorkFolders = {
   open: ReadonlySet<string>
@@ -40,7 +48,7 @@ function isInside(path: string, folder: string): boolean {
   return path.startsWith(`${folder}/`)
 }
 
-export function workPaths(source: WorkSource): WorkPath[] {
+export function workPaths(source: WorkSource): WorkEntry[] {
   const changed = new Map(source.changed.map((entry) => [entry.path, entry.isFolder]))
   const byPath = new Map<string, WorkPath>()
   if (!source.isFiltered) {
@@ -51,12 +59,15 @@ export function workPaths(source: WorkSource): WorkPath[] {
       byPath.set(path, { path, isFolder: isFolder || changed.get(path) === true })
   }
   const untracked = [...byPath.keys()].filter((path) => changed.get(path) === true)
-  return [...byPath.values()].filter(
-    ({ path }) => !untracked.some((folder) => isInside(path, folder)),
-  )
+  const inUntracked = [...changed].flatMap(([path, isFolder]) => (isFolder ? [path] : []))
+  const isChanged = (path: string) =>
+    changed.has(path) || inUntracked.some((folder) => isInside(path, folder))
+  return [...byPath.values()]
+    .filter(({ path }) => !untracked.some((folder) => isInside(path, folder)))
+    .map((entry) => ({ ...entry, isChanged: isChanged(entry.path) }))
 }
 
-export function workTree(paths: readonly WorkPath[]): WorkTree {
+export function workTree(paths: readonly WorkEntry[]): WorkTree {
   const children = new Map<string, Map<string, FsEntry>>()
   const add = (path: string, isFolder: boolean): void => {
     const parent = parentOf(path)
@@ -70,7 +81,8 @@ export function workTree(paths: readonly WorkPath[]): WorkTree {
   const listings = new Map(
     [...children].map(([folder, entries]) => [folder, listed([...entries.values()])]),
   )
-  return { folders: new Set(listings.keys()), listings }
+  const changed = new Set(paths.flatMap(({ path, isChanged }) => (isChanged ? [path] : [])))
+  return { folders: new Set(listings.keys()), listings, changed }
 }
 
 function workOpen(tree: WorkTree, folders: WorkFolders): Set<string> {
@@ -78,6 +90,80 @@ function workOpen(tree: WorkTree, folders: WorkFolders): Set<string> {
     ...[...tree.folders].filter((folder) => !folders.shut.has(folder)),
     ...[...folders.open].filter((folder) => !tree.folders.has(folder)),
   ])
+}
+
+function joinedName(
+  tree: WorkTree,
+  chain: { folder: string; name: string },
+  shut: ReadonlySet<string>,
+): string {
+  const { folder, name } = chain
+  const path = childPath(folder, name)
+  const listing = tree.listings.get(path)
+  if (shut.has(path) || listing?.kind !== 'listed' || listing.sorted.length !== 1) return name
+  const [only] = listing.sorted
+  if (only?.kind !== 'dir' || !tree.listings.has(childPath(path, only.name))) return name
+  return joinedName(tree, { folder, name: `${name}/${only.name}` }, shut)
+}
+
+function joinedListing(
+  tree: WorkTree,
+  shut: ReadonlySet<string>,
+  site: { folder: string; listing: Listing },
+): Listing {
+  const { folder, listing } = site
+  if (listing.kind === 'failed') return listing
+  return {
+    kind: 'listed',
+    sorted: listing.sorted.map((entry) =>
+      entry.kind === 'dir'
+        ? { ...entry, name: joinedName(tree, { folder, name: entry.name }, shut) }
+        : entry,
+    ),
+  }
+}
+
+export function chainTop(row: { path: string; name: string }): string {
+  const joined = row.name.split('/').length - 1
+  return joined === 0 ? row.path : row.path.split('/').slice(0, -joined).join('/')
+}
+
+type RowPlaces = { drawn: Map<string, number>; holders: Map<string, number> }
+
+function rowPlaces(rows: readonly TreeRow[]): RowPlaces {
+  const places: RowPlaces = { drawn: new Map(), holders: new Map() }
+  rows.forEach((row, at) => {
+    if (row.kind === 'more') places.holders.set(row.path, at)
+    if (row.kind !== 'file' && row.kind !== 'folder' && row.kind !== 'pruned') return
+    places.drawn.set(row.path, at)
+    if (row.kind === 'folder' && !row.isOpen) places.holders.set(row.path, at)
+  })
+  return places
+}
+
+function placeOf(places: RowPlaces, path: string): number | undefined {
+  const drawn = places.drawn.get(path)
+  if (drawn !== undefined) return drawn
+  for (let folder = parentOf(path); ; folder = parentOf(folder)) {
+    const holder = places.holders.get(folder)
+    if (holder !== undefined || folder === ROOT_PATH) return holder
+  }
+}
+
+function workMore(tree: WorkTree, rows: readonly TreeRow[]): TreeRow {
+  const places = rowPlaces(rows)
+  const isHidden = (path: string) => {
+    const at = placeOf(places, path)
+    return at !== undefined && at >= WORK_ROWS
+  }
+  const hidden = [...tree.changed].filter(isHidden)
+  return {
+    kind: 'workMore',
+    path: ROOT_PATH,
+    changed: hidden.length,
+    folders: new Set(hidden.map(parentOf)).size,
+    rows: rows.length - WORK_ROWS,
+  }
 }
 
 export async function workRows(
@@ -92,11 +178,18 @@ export async function workRows(
   }
   if (!tree.listings.has(ROOT_PATH)) return []
   const workList: ListFolder = (path) => {
-    const kept = tree.listings.get(path)
-    return kept === undefined ? list(path) : Promise.resolve(kept)
+    const listing = tree.listings.get(path)
+    if (listing === undefined) return list(path)
+    return Promise.resolve(joinedListing(tree, folders.shut, { folder: path, listing }))
   }
   const open = workOpen(tree, folders)
-  return treeRows(workList, { open, whole: folders.whole, work: tree.folders }, rootName)
+  const rows = await treeRows(
+    workList,
+    { open, whole: folders.whole, work: tree.folders },
+    rootName,
+  )
+  if (folders.whole.has(ROOT_PATH) || rows.length <= WORK_ROWS) return rows
+  return [...rows.slice(0, WORK_ROWS), workMore(tree, rows)]
 }
 
 function treeOrder(tree: WorkTree): WorkPath[] {
