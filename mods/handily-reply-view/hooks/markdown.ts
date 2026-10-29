@@ -24,8 +24,12 @@ const KEPT_CONTROLS: ReadonlySet<string> = new Set(['\t', '\n'])
 const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 const LINK = /!?\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g
 const AUTOLINK = /<((?:https?:\/\/|mailto:)[^>\s]+)>/g
-const PAIRED_MARK = /(\*\*|__|~~)(.+?)\1/g
-const ESCAPE_OR_CODE_SPAN = /\\([\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e])|`([^`]*)`/g
+const STAR_STRONG = /\*\*(.+?)\*\*/g
+const UNDERSCORE_STRONG = /(^|[^\p{L}\p{N}_])__(.+?)__(?![\p{L}\p{N}_])/gu
+const STRIKETHROUGH = /~~(.+?)~~/g
+const ESCAPE_OR_CODE_SPAN =
+  /\\([\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e])|(?<!`)(`+)(?!`)(.+?)(?<!`)\2(?!`)/g
+const PADDED_CODE = /^ (.*[^ ].*) $/
 const PRIVATE_USE_START = 0xe000
 const STAR_EMPHASIS = /\*(\S(?:[^*]*\S)?)\*/g
 const UNDERSCORE_EMPHASIS = /(^|[^\p{L}\p{N}_])_([^\s_](?:[^_]*[^\s_])?)_(?![\p{L}\p{N}_])/gu
@@ -65,10 +69,13 @@ export function shownText(text: string): string {
   return graphemesOf(text).map(shownGrapheme).join('')
 }
 
-function unusedCharacter(text: string): string {
-  let code = PRIVATE_USE_START
-  while (text.includes(String.fromCodePoint(code))) code += 1
-  return String.fromCodePoint(code)
+function unusedCharacters(text: string, count: number): string[] {
+  const found: string[] = []
+  for (let code = PRIVATE_USE_START; found.length < count; code += 1) {
+    const character = String.fromCodePoint(code)
+    if (!text.includes(character)) found.push(character)
+  }
+  return found
 }
 
 function entityText(found: string, decimal?: string, hex?: string, name?: string): string {
@@ -79,46 +86,122 @@ function entityText(found: string, decimal?: string, hex?: string, name?: string
   return isCharacter ? String.fromCodePoint(code) : found
 }
 
+export type Mark = { isCode: boolean; isBold: boolean; isLink: boolean }
+
+export type Run = { text: string; mark: Mark }
+
+type MarkFlag = keyof Mark
+
+const MARK_FLAGS: readonly MarkFlag[] = ['isCode', 'isBold', 'isLink']
+
+export const PLAIN_MARK: Mark = { isCode: false, isBold: false, isLink: false }
+
 type Hold = (literal: string) => string
 
-function linkOf(text: string, address: string, keepsAddress: boolean, hold: Hold): string {
-  if (text === '') return hold(address)
-  return !keepsAddress || address === '' || address === text ? text : `${text} (${hold(address)})`
+type Wrap = (flag: MarkFlag, text: string) => string
+
+type Brackets = Map<string, { flag: MarkFlag; step: 1 | -1 }>
+
+function linkOf(text: string, address: string, keepsAddress: boolean, held: Hold, wrap: Wrap) {
+  if (text === '') return wrap('isLink', held(address))
+  const link = wrap('isLink', text)
+  return !keepsAddress || address === '' || address === text ? link : `${link} (${held(address)})`
 }
 
-function plainText(cell: string, keepsAddress: boolean): string {
-  const mark = unusedCharacter(cell)
+export function sameMark(one: Mark, other: Mark): boolean {
+  return MARK_FLAGS.every((flag) => one[flag] === other[flag])
+}
+
+type Marking = { brackets: Brackets; held: RegExp; literals: readonly string[] }
+
+function runsOf(text: string, marking: Marking): Run[] {
+  const depths = new Map<MarkFlag, number>(MARK_FLAGS.map((flag) => [flag, 0]))
+  const runs: Run[] = []
+  const add = (found: string) => {
+    if (found === '') return
+    const shown = found.replace(/\t/g, ' ')
+    const mark: Mark = {
+      isCode: (depths.get('isCode') ?? 0) > 0,
+      isBold: (depths.get('isBold') ?? 0) > 0,
+      isLink: (depths.get('isLink') ?? 0) > 0,
+    }
+    const last = runs.at(-1)
+    if (last !== undefined && sameMark(last.mark, mark)) last.text += shown
+    else runs.push({ text: shown, mark })
+  }
+  text.split(marking.held).forEach((part, index) => {
+    if (index % 2 === 1) {
+      add(marking.literals[Number(part)] ?? '')
+      return
+    }
+    for (const character of part) {
+      const bracket = marking.brackets.get(character)
+      if (bracket === undefined) add(character)
+      else depths.set(bracket.flag, (depths.get(bracket.flag) ?? 0) + bracket.step)
+    }
+  })
+  return runs
+}
+
+function codeText(code: string): string {
+  return code.replace(PADDED_CODE, '$1')
+}
+
+function markedText(cell: string, keepsAddress: boolean): Run[] {
+  const [mark = '', ...ends] = unusedCharacters(cell, 1 + 2 * MARK_FLAGS.length)
+  const brackets: Brackets = new Map()
+  const wrappers = new Map<MarkFlag, [string, string]>()
+  MARK_FLAGS.forEach((flag, index) => {
+    const open = ends[2 * index] ?? ''
+    const close = ends[2 * index + 1] ?? ''
+    brackets.set(open, { flag, step: 1 })
+    brackets.set(close, { flag, step: -1 })
+    wrappers.set(flag, [open, close])
+  })
+  const wrap: Wrap = (flag, text) => {
+    const [open = '', close = ''] = wrappers.get(flag) ?? []
+    return `${open}${text}${close}`
+  }
   const literals: string[] = []
   const hold: Hold = (literal) => {
     literals.push(literal)
     return `${mark}${String(literals.length - 1)}${mark}`
   }
-  const held = cell.replace(ESCAPE_OR_CODE_SPAN, (_found, escaped?: string, code?: string) =>
-    hold(escaped ?? code ?? ''),
+  const held = cell.replace(
+    ESCAPE_OR_CODE_SPAN,
+    (_found, escaped: string | undefined, _ticks: string | undefined, code?: string) =>
+      escaped === undefined ? wrap('isCode', hold(codeText(code ?? ''))) : hold(escaped),
   )
-  return held
+  const text = held
     .replace(LINE_BREAK_TAG, ' ')
-    .replace(LINK, (_found, text: string, address: string) =>
-      linkOf(text, address, keepsAddress, hold),
+    .replace(LINK, (_found, linkText: string, address: string) =>
+      linkOf(linkText, address, keepsAddress, hold, wrap),
     )
-    .replace(AUTOLINK, (_found, address: string) => hold(address))
-    .replace(PAIRED_MARK, '$2')
+    .replace(AUTOLINK, (_found, address: string) => wrap('isLink', hold(address)))
+    .replace(STAR_STRONG, (_found, inner: string) => wrap('isBold', inner))
+    .replace(
+      UNDERSCORE_STRONG,
+      (_found, before: string, inner: string) => before + wrap('isBold', inner),
+    )
+    .replace(STRIKETHROUGH, '$1')
     .replace(STAR_EMPHASIS, '$1')
     .replace(UNDERSCORE_EMPHASIS, '$1$2')
-    .replace(ENTITY, entityText)
-    .replace(
-      new RegExp(`${mark}(\\d+)${mark}`, 'gu'),
-      (_found, index: string) => literals[Number(index)] ?? '',
+    .replace(ENTITY, (found, decimal?: string, hex?: string, name?: string) =>
+      hold(entityText(found, decimal, hex, name)),
     )
-    .replace(/\t/g, ' ')
+  return runsOf(text, { brackets, held: new RegExp(`${mark}(\\d+)${mark}`, 'u'), literals })
 }
 
-export function plainCell(cell: string): string {
-  return plainText(cell, false)
+export function textOfRuns(runs: readonly Run[]): string {
+  return runs.map((run) => run.text).join('')
+}
+
+export function markedCell(cell: string): Run[] {
+  return markedText(cell, false)
 }
 
 export function copiedCell(cell: string): string {
-  return plainText(cell, true)
+  return textOfRuns(markedText(cell, true))
 }
 
 export function cellsOf(line: string): string[] {

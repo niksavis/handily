@@ -15,6 +15,7 @@ import {
 } from './draw'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
+import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
 import { showToast } from './toast'
 
 const COMMAND = 'replies'
@@ -25,9 +26,11 @@ const COPY_ARGUMENT = 'copy'
 const REPLY_WORD = 'reply'
 const COPY_REPLY_COMMAND = `/replies ${COPY_ARGUMENT} ${REPLY_WORD}`
 const DRAWN_CHARACTERS_AT_MOST = 60_000
+const TABLE_STYLE_KEY = 'tableStyle'
+const MARKETPLACE_SUFFIX = /@.*$/
 
 const ON_TEXT =
-  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw without box lines, and tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
+  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw with rules between their columns, or in a full box when the Table style setting is box. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
 const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
@@ -68,6 +71,34 @@ function lineCount(text: string): number {
 
 function logFailure($: EngineInterface, what: string, error: unknown): void {
   $.ui.log(`reply-view: ${what}: ${String(error)}`)
+}
+
+function fieldOf(value: unknown, field: string): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  return Object.hasOwn(value, field) ? (value as Record<string, unknown>)[field] : undefined
+}
+
+function refusedTableStyles(pluginConfigs: unknown, plugin: string): unknown[] {
+  if (typeof pluginConfigs !== 'object' || pluginConfigs === null) return []
+  return Object.keys(pluginConfigs)
+    .filter((id) => id.replace(MARKETPLACE_SUFFIX, '') === plugin)
+    .map((id) => fieldOf(fieldOf(fieldOf(pluginConfigs, id), 'options'), TABLE_STYLE_KEY))
+    .filter((stored) => stored !== undefined && !isTableStyle(stored))
+}
+
+function tableStyleRefusal(stored: unknown): string {
+  return `reply-view: the setting ${TABLE_STYLE_KEY} holds ${JSON.stringify(stored)}, which is not ${TABLE_STYLES.join(' or ')}, so tables draw as ${DEFAULT_TABLE_STYLE}. Set Table style in /config.`
+}
+
+async function logRefusedTableStyle($: EngineInterface): Promise<void> {
+  try {
+    const pluginConfigs = await $.settings.read({ key: 'pluginConfigs' })
+    for (const stored of refusedTableStyles(pluginConfigs, $.plugin.name)) {
+      $.ui.log(tableStyleRefusal(stored), { to: 'debug' })
+    }
+  } catch (error) {
+    logFailure($, `the setting ${TABLE_STYLE_KEY} was not read`, error)
+  }
 }
 
 async function toggle($: EngineInterface, defaultMode: ReplyViewMode): Promise<string> {
@@ -161,6 +192,9 @@ export const register: Register = (on, options) => {
   const defaultMode: ReplyViewMode = options.mode === 'off' ? 'off' : 'on'
   const drawsDiagrams = options.diagrams !== 'off'
   const defaultHints: ReplyViewMode = options.diagramHints === 'on' ? 'on' : 'off'
+  const tableStyle: TableStyle = isTableStyle(options.tableStyle)
+    ? options.tableStyle
+    : DEFAULT_TABLE_STYLE
   let lastReply: string | undefined
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -171,6 +205,7 @@ export const register: Register = (on, options) => {
     await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
     if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
+    await logRefusedTableStyle($)
     return next(e)
   })
 
@@ -278,6 +313,7 @@ export const register: Register = (on, options) => {
             isFirstOfReply: e.props.isFirstOfReply,
             surface: e.surface,
             drawsDiagrams,
+            tableStyle,
           },
           await foldOf($, e.requestId),
           replyActions($, e.requestId),

@@ -1,7 +1,7 @@
 {
   "name": "handily-reply-view",
   "version": "0.12.0",
-  "description": "Long replies fold to their first lines, tables draw without box lines, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you.",
+  "description": "Long replies fold to their first lines, tables draw with rules between their columns or in a full box with Table style box, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you.",
   "author": {
     "name": "niksavis"
   },
@@ -27,6 +27,13 @@
       "description": "Whether each prompt that you type carries one hint about mermaid diagrams, of about 140 tokens (on), or no hint (off). /replies hints toggles one session.",
       "options": ["on", "off"],
       "default": "off"
+    },
+    "tableStyle": {
+      "type": "string",
+      "title": "Table style",
+      "description": "How a table in a reply draws: rules between the columns (rules) or a full box (box). Under 40 columns no box draws, and a table that does not fit draws one block for each row.",
+      "options": ["rules", "box"],
+      "default": "rules"
     }
   }
 }

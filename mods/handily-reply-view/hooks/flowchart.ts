@@ -1,8 +1,17 @@
+import {
+  BLANK,
+  drawingOf,
+  inkRunsOf,
+  type Ink,
+  type InkedCell,
+  type InkedDrawing,
+  type InkRun,
+} from './ink'
 import type { FlowDirection, FlowNode, FlowShape, Flowchart, Refusal, Stroke } from './mermaid'
 import { wrapCell } from './table'
 import { displayWidth, fitted, graphemesOf, padToWidth } from './width'
 
-export type FlowDrawing = { kind: 'drawing'; lines: string[] }
+export type FlowDrawing = InkedDrawing
 
 export type LayoutMeter = { steps: number }
 
@@ -125,7 +134,7 @@ type Point = { row: number; col: number }
 
 type Trace = { link: Link; bits: number; solid: boolean }
 
-type Cell = { glyph: string | null; traces: Trace[] }
+type Cell = { glyph: string | null; traces: Trace[]; ink: Ink }
 
 class DrawingFault extends Error {
   constructor(readonly reason: string) {
@@ -200,7 +209,7 @@ class Networks {
 class Canvas {
   private readonly rows = new Map<number, Map<number, Cell>>()
 
-  put(row: number, col: number, text: string): void {
+  put(row: number, col: number, text: string, ink: Ink): void {
     let at = col
     let pending = ''
     let last: Cell | null = null
@@ -211,9 +220,9 @@ class Canvas {
         else last.glyph = `${last.glyph ?? ''}${grapheme}`
         continue
       }
-      last = this.claim(row, at, pending + grapheme)
+      last = this.claim(row, at, pending + grapheme, ink)
       pending = ''
-      if (columns > 1) this.claim(row, at + 1, '')
+      if (columns > 1) this.claim(row, at + 1, '', ink)
       at += columns
     }
   }
@@ -295,18 +304,18 @@ class Canvas {
     return Math.max(0, ...this.rows.keys())
   }
 
-  lines(): string[] {
+  inkedLines(): InkRun[][] {
     if (this.rows.size === 0) return []
     const rows = [...this.rows.keys()]
     const top = Math.min(...rows)
     const left = this.leftmost()
-    const lines: string[] = []
+    const lines: InkRun[][] = []
     for (let row = top; row <= Math.max(...rows); row++) {
       const cells = this.rows.get(row) ?? new Map<number, Cell>()
       const right = Math.max(left, ...cells.keys())
-      let line = ''
-      for (let col = left; col <= right; col++) line += glyphOf(cells.get(col))
-      lines.push(line.trimEnd())
+      const inked: InkedCell[] = []
+      for (let col = left; col <= right; col++) inked.push(inkedOf(cells.get(col)))
+      lines.push(inkRunsOf(inked))
     }
     return lines
   }
@@ -317,16 +326,16 @@ class Canvas {
     return Number.isFinite(left) ? left : 0
   }
 
-  private claim(row: number, col: number, glyph: string): Cell {
+  private claim(row: number, col: number, glyph: string, ink: Ink): Cell {
     if (this.rows.get(row)?.has(col) === true) throw new DrawingFault(LINES_OVERLAP)
-    const cell: Cell = { glyph, traces: [] }
+    const cell: Cell = { glyph, traces: [], ink }
     this.cellsOf(row).set(col, cell)
     return cell
   }
 
   private line(point: Point, trace: Trace): void {
     const cells = this.cellsOf(point.row)
-    const cell = cells.get(point.col) ?? { glyph: null, traces: [] }
+    const cell = cells.get(point.col) ?? { glyph: null, traces: [], ink: 'line' }
     if (cell.glyph !== null) throw new DrawingFault(LINES_OVERLAP)
     cell.traces.push(trace)
     cells.set(point.col, cell)
@@ -341,8 +350,11 @@ class Canvas {
   }
 }
 
-function glyphOf(cell: Cell | undefined): string {
-  if (cell === undefined) return ' '
+function inkedOf(cell: Cell | undefined): InkedCell {
+  return cell === undefined ? BLANK : { glyph: glyphOf(cell), ink: cell.ink }
+}
+
+function glyphOf(cell: Cell): string {
   if (cell.glyph !== null) return cell.glyph
   if (isCrossing(cell)) {
     const solid = cell.traces.some((trace) => (trace.bits & VERTICAL) !== 0 && trace.solid)
@@ -865,16 +877,16 @@ function tracksOf(items: readonly BusItem[], meter: LayoutMeter): Band {
   return { tracks, trackCount: used.length }
 }
 
-function drawBox(canvas: Canvas, shape: Shape, row: number, col: number): void {
+function drawBox(canvas: Canvas, shape: Shape, row: number, col: number, ink: Ink): void {
   const [topLeft, topRight, bottomLeft, bottomRight] =
     shape.shape === 'rounded' ? ROUNDED_CORNERS : SQUARE_CORNERS
   const across = BORDER_ACROSS.repeat(shape.width - 2)
-  canvas.put(row, col, `${topLeft}${across}${topRight}`)
+  canvas.put(row, col, `${topLeft}${across}${topRight}`, ink)
   shape.lines.forEach((line, at) => {
     const inner = padToWidth(line, shape.width - BOX_PADDING)
-    canvas.put(row + 1 + at, col, `${BORDER_DOWN} ${inner} ${BORDER_DOWN}`)
+    canvas.put(row + 1 + at, col, `${BORDER_DOWN} ${inner} ${BORDER_DOWN}`, ink)
   })
-  canvas.put(row + shape.height - 1, col, `${bottomLeft}${across}${bottomRight}`)
+  canvas.put(row + shape.height - 1, col, `${bottomLeft}${across}${bottomRight}`, ink)
 }
 
 function entriesIn(plan: Plan, vertex: number): Entry[] {
@@ -893,7 +905,7 @@ function placeText(canvas: Canvas, row: number, col: number, lines: readonly str
   let at = row
   while (!lines.every((line, index) => canvas.fits(at + index, col, line))) at += 1
   lines.forEach((line, index) => {
-    canvas.put(at + index, col, line)
+    canvas.put(at + index, col, line, 'label')
   })
 }
 
@@ -922,7 +934,7 @@ function drawDown(plan: Plan): Canvas {
   graph.layers.forEach((layer, at) => {
     for (const vertex of layer) {
       const shape = plan.shapes[vertex]
-      if (shape != null) drawBox(canvas, shape, tops[at] ?? 0, starts[vertex] ?? 0)
+      if (shape != null) drawBox(canvas, shape, tops[at] ?? 0, starts[vertex] ?? 0, vertex)
     }
   })
   graph.layers.forEach((layer, at) => {
@@ -965,11 +977,11 @@ function drawDown(plan: Plan): Canvas {
       for (const entry of entriesIn(plan, target)) {
         const to = (ports[target] ?? 0) + entry.offset
         if (plan.shapes[target] != null) {
-          if (entry.arrow) canvas.put(arrowRow, to, ARROW_DOWN)
+          if (entry.arrow) canvas.put(arrowRow, to, ARROW_DOWN, 'head')
           else canvas.mark(arrowRow + 1, to, PORT_ABOVE)
         }
         entry.label.forEach((line, index) => {
-          canvas.put(linkTop + band.trackCount + index, to + LABEL_INDENT, line)
+          canvas.put(linkTop + band.trackCount + index, to + LABEL_INDENT, line, 'label')
         })
       }
     }
@@ -1003,7 +1015,7 @@ function drawDownLoops(plan: Plan, canvas: Canvas, tops: number[], starts: numbe
     ]
     canvas.path(points, link, link.stroke, LEFT, LEFT)
     if (link.arrow && !arrowed.has(link.to)) {
-      canvas.put(targetRow, entry, ARROW_LEFT)
+      canvas.put(targetRow, entry, ARROW_LEFT, 'head')
       arrowed.add(link.to)
     }
   })
@@ -1099,7 +1111,7 @@ function drawAcross(plan: Plan): Canvas {
   graph.layers.forEach((layer, at) => {
     for (const vertex of layer) {
       const shape = plan.shapes[vertex]
-      if (shape != null) drawBox(canvas, shape, starts[vertex] ?? 0, lefts[at] ?? 0)
+      if (shape != null) drawBox(canvas, shape, starts[vertex] ?? 0, lefts[at] ?? 0, vertex)
     }
   })
   graph.layers.forEach((layer, at) => {
@@ -1135,10 +1147,12 @@ function drawAcross(plan: Plan): Canvas {
     for (const target of graph.layers[at + 1] ?? []) {
       for (const entry of entriesIn(plan, target)) {
         const to = (ports[target] ?? 0) + entry.offset
-        if (plan.shapes[target] != null && entry.arrow) canvas.put(to, arrowCol, ARROW_RIGHT)
+        if (plan.shapes[target] != null && entry.arrow) {
+          canvas.put(to, arrowCol, ARROW_RIGHT, 'head')
+        }
         const start = band.labelStarts.get(entry) ?? 0
         entry.label.forEach((line, index) => {
-          canvas.put(to - entry.label.length + index, linkLeft + start, line)
+          canvas.put(to - entry.label.length + index, linkLeft + start, line, 'label')
         })
       }
     }
@@ -1180,7 +1194,7 @@ function drawAcrossLoops(plan: Plan, canvas: Canvas, lefts: number[], starts: nu
     ]
     canvas.path(points, link, link.stroke, UP, UP)
     if (link.arrow && !arrowed.has(link.to)) {
-      canvas.put(below, entry, ARROW_UP)
+      canvas.put(below, entry, ARROW_UP, 'head')
       arrowed.add(link.to)
     }
   })
@@ -1244,7 +1258,7 @@ export function drawFlowchart(
       continue
     }
     const fitsWidth = canvas.width <= width
-    if (fitsScreen(canvas, width)) return { kind: 'drawing', lines: canvas.lines() }
+    if (fitsScreen(canvas, width)) return drawingOf(canvas.inkedLines())
     narrowest = Math.min(narrowest, canvas.width)
     if (fitsWidth) shortest = Math.min(shortest, canvas.height)
   }

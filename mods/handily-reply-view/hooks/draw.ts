@@ -1,24 +1,31 @@
-import type { Elements, RenderElement, RenderSurface } from 'claude-code'
+import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { drawFlowchart } from './flowchart'
+import type { Ink, InkedDrawing, InkRun } from './ink'
 import { shownText, type Block, type Fence, type Prose, type Table } from './markdown'
 import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { drawSequence } from './sequence'
 import {
   columnWidths,
   fieldsOf,
-  HEADER_RULE,
+  framedWidth,
+  labelOf,
   labelWidth,
-  linesOf,
-  ROW_RULE,
+  roomInside,
   ruleLine,
   rowTitle,
   spanLines,
+  TABLE_FRAMES,
   tableLook,
   tableWidth,
   textCopy,
+  textOfSpans,
+  type Cell,
+  type CellMark,
   type Span,
+  type TableFrame,
   type TableLook,
+  type TableStyle,
 } from './table'
 import { cutToWidth, displayWidth, fitted } from './width'
 
@@ -35,8 +42,15 @@ const TAG_COLUMNS_AT_MOST = 24
 const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const DRAWINGS_KEPT = 32
+const DIAGRAM_CYCLE: readonly ThemeKey[] = ['suggestion', 'planMode', 'merged']
+const INK_COLORS: Readonly<Record<Exclude<Ink, number | 'plain'>, ThemeKey>> = {
+  line: 'inactive',
+  head: 'claude',
+  label: 'inactive',
+}
+const RULE_COLOR: ThemeKey = 'subtle'
 
-export type DiagramDrawing = { kind: 'drawing'; name: string; lines: string[] }
+export type DiagramDrawing = InkedDrawing & { name: string }
 
 export type DiagramOutcome = DiagramDrawing | Refusal
 
@@ -64,6 +78,7 @@ export type ReplyLayout = {
   isFirstOfReply: boolean
   surface: RenderSurface
   drawsDiagrams: boolean
+  tableStyle: TableStyle
 }
 
 type Drawing = { element: RenderElement; rows: number }
@@ -76,6 +91,7 @@ type Context = {
   columns: number
   surface: RenderSurface
   drawsDiagrams: boolean
+  tableStyle: TableStyle
   actions: ReplyActions
 }
 
@@ -263,18 +279,68 @@ function buttonsUnder(
   )
 }
 
-function boldLine(context: Context, text: string, key: string, wrap?: 'truncate-end') {
+type CellRole = 'header' | 'heading' | 'label' | 'title' | 'value'
+
+type CellChild = RenderElement | string
+
+function cellColor(mark: CellMark, role: CellRole): ThemeKey | undefined {
+  if (mark.isLink) return 'suggestion'
+  if (mark.isCode) return 'permission'
+  if (role === 'header' || role === 'heading' || role === 'label') return 'claude'
+  return mark.isNumber ? 'planMode' : undefined
+}
+
+function isBoldCell(mark: CellMark, role: CellRole): boolean {
+  if (role === 'header') return true
+  return (role === 'label' || role === 'value') && mark.isBold
+}
+
+function cellSpan(context: Context, text: string, mark: CellMark, role: CellRole): CellChild {
+  const color = cellColor(mark, role)
+  const isBold = isBoldCell(mark, role)
+  if (color === undefined && !isBold && !mark.isLink) return text
+  return context.elements.Text({
+    children: text,
+    ...(color === undefined ? {} : { color }),
+    ...(isBold ? { bold: true } : {}),
+    ...(mark.isLink ? { underline: true } : {}),
+  })
+}
+
+function cellSpans(context: Context, cell: Cell, role: CellRole): CellChild[] {
+  return cell.runs.map((run) =>
+    cellSpan(context, run.text, { ...run.mark, isNumber: cell.isNumber }, role),
+  )
+}
+
+function cellLine(
+  context: Context,
+  cell: Cell,
+  role: CellRole,
+  key: string,
+  wrap?: 'truncate-end',
+) {
   const { Box, Text } = context.elements
-  return Box({ key, flexShrink: 1, children: Text({ bold: true, wrap, children: text }) })
+  return Box({
+    key,
+    flexShrink: 1,
+    children: Text({ bold: true, wrap, children: cellSpans(context, cell, role) }),
+  })
 }
 
 function tableLine(context: Context, spans: readonly Span[], key: string, isHeader: boolean) {
   const { Box, Text } = context.elements
   const children = spans.map((span) => {
-    if (span.kind === 'rule') return Text({ dimColor: true, children: span.text })
-    return isHeader && span.kind === 'cell' ? Text({ bold: true, children: span.text }) : span.text
+    if (span.kind === 'rule') return Text({ color: RULE_COLOR, children: span.text })
+    if (span.kind === 'space') return span.text
+    return cellSpan(context, span.text, span.mark, isHeader ? 'header' : 'value')
   })
   return Box({ key, flexShrink: 1, children: Text({ wrap: 'truncate-end', children }) })
+}
+
+function tableRule(context: Context, text: string, key: string) {
+  const { Box, Text } = context.elements
+  return Box({ key, children: Text({ color: RULE_COLOR, wrap: 'truncate-end', children: text }) })
 }
 
 function ruleRow(context: Context, text: string, key: string) {
@@ -287,12 +353,11 @@ type ButtonsPlace = 'header' | 'last-row' | 'under'
 function buttonsPlace(
   context: Context,
   room: number,
-  header: readonly string[],
-  rows: readonly string[][],
+  first: string,
+  last: string | undefined,
 ): ButtonsPlace {
   const fitsAfter = (line: string) => displayWidth(line) + room <= context.width
-  if (fitsAfter(header[0] ?? '')) return 'header'
-  const last = rows.at(-1)?.at(-1)
+  if (fitsAfter(first)) return 'header'
   return last !== undefined && fitsAfter(last) ? 'last-row' : 'under'
 }
 
@@ -300,29 +365,39 @@ function columnsPiece(
   context: Context,
   table: Table,
   look: TableLook,
-  widths: readonly number[],
+  layout: { widths: readonly number[]; frame: TableFrame },
   key: string,
 ): Piece {
   const { Box } = context.elements
+  const { widths, frame } = layout
   const actions = tableActions(table, key)
   const buttons = buttonsTogether(context, actions)
   const room = buttons.columns + BUTTONS_GAP
-  const width = tableWidth(widths)
-  const header = linesOf(look, widths, look.header)
-  const headerSpans = spanLines(look, widths, look.header)
-  const rowSpans = look.rows.map((row) => spanLines(look, widths, row))
-  const rows = look.rows.map((row) => linesOf(look, widths, row))
-  const isWrapped = [header, ...rows].some((lines) => lines.length > 1)
-  const linesBetweenRows = isWrapped ? 1 : 0
-  const place = buttonsPlace(context, room, header, rows)
-  const withButtons = (text: RenderElement, line: string) =>
-    lineWithButtons(
-      context,
-      text,
-      buttons,
-      Math.min(context.width, Math.max(width, displayWidth(line) + room)),
-    )
+  const width = framedWidth(widths, frame)
+  const headerSpans = spanLines(look, widths, look.header, frame)
+  const rowSpans = look.rows.map((row) => spanLines(look, widths, row, frame))
+  const isWrapped = [headerSpans, ...rowSpans].some((lines) => lines.length > 1)
+  const linesBetweenRows = frame.rulesEveryRow || isWrapped ? 1 : 0
+  const top = frame.top === null ? null : ruleLine(widths, frame.top)
+  const bottom = frame.bottom === null ? null : ruleLine(widths, frame.bottom)
+  const lastRowLine = rowSpans.at(-1)?.at(-1)
+  const place = buttonsPlace(
+    context,
+    room,
+    top ?? textOfSpans(headerSpans[0] ?? []),
+    bottom ?? (lastRowLine === undefined ? undefined : textOfSpans(lastRowLine)),
+  )
+  const placed = (text: RenderElement, line: string, at: ButtonsPlace) =>
+    place === at
+      ? lineWithButtons(
+          context,
+          text,
+          buttons,
+          Math.min(context.width, Math.max(width, displayWidth(line) + room)),
+        )
+      : text
   const heading = [
+    ...(top === null ? [] : [placed(tableRule(context, top, 'top'), top, 'header')]),
     ...headerSpans.map((spans, index) => {
       const text = tableLine(
         context,
@@ -330,61 +405,66 @@ function columnsPiece(
         index === 0 ? 'header' : `header-${String(index)}`,
         true,
       )
-      return index === 0 && place === 'header' ? withButtons(text, header[0] ?? '') : text
+      return index === 0 && top === null ? placed(text, textOfSpans(spans), 'header') : text
     }),
-    ruleRow(context, ruleLine(widths, HEADER_RULE), 'header-rule'),
+    tableRule(context, ruleLine(widths, frame.header), 'header-rule'),
   ]
-  const lastRow = rows.length - 1
+  const closing =
+    bottom === null ? [] : [placed(tableRule(context, bottom, 'bottom'), bottom, 'last-row')]
+  const lastRow = rowSpans.length - 1
   const drawnRows = rowSpans.map((lines, index) =>
     Box({
       key: `row-${String(index)}`,
       flexDirection: 'column',
       children: lines.map((spans, lineIndex) => {
         const text = tableLine(context, spans, `line-${String(lineIndex)}`, false)
-        const isLast = index === lastRow && lineIndex === lines.length - 1
-        return place === 'last-row' && isLast
-          ? withButtons(text, rows[index]?.[lineIndex] ?? '')
-          : text
+        const isLast = bottom === null && index === lastRow && lineIndex === lines.length - 1
+        return isLast ? placed(text, textOfSpans(spans), 'last-row') : text
       }),
     }),
   )
-  const rowRule = ruleLine(widths, ROW_RULE)
+  const rowRule = ruleLine(widths, frame.row)
   const ruled = (shown: readonly RenderElement[]) =>
     shown.flatMap((row, index) =>
-      index > 0 && isWrapped ? [ruleRow(context, rowRule, `rule-${String(index)}`), row] : [row],
+      index > 0 && linesBetweenRows > 0
+        ? [tableRule(context, rowRule, `rule-${String(index)}`), row]
+        : [row],
     )
   const under = place === 'under' ? buttonsUnder(context, actions, width) : []
   const rowsBox = (shown: readonly RenderElement[]) =>
     Box({ key: 'rows', flexDirection: 'column', children: ruled(shown) })
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
-  const rowRules = linesBetweenRows * Math.max(rows.length - 1, 0)
+  const rowRules = linesBetweenRows * Math.max(rowSpans.length - 1, 0)
+  const frameRows = heading.length + closing.length
   return {
-    rows: heading.length + sum(rows.map((lines) => lines.length)) + rowRules + under.length,
-    whole: () => column([...heading, rowsBox(drawnRows), ...under]),
+    rows: frameRows + sum(rowSpans.map((lines) => lines.length)) + rowRules + under.length,
+    whole: () => column([...heading, rowsBox(drawnRows), ...closing, ...under]),
     cut: (budget) => {
-      let used = heading.length
+      let used = frameRows
       let count = 0
-      for (const lines of rows) {
+      for (const lines of rowSpans) {
         const needed = lines.length + (count > 0 ? linesBetweenRows : 0)
         if (used + needed > budget) break
         used += needed
         count += 1
       }
-      if (used > budget || (count === 0 && rows.length > 0)) return null
-      return { element: column([...heading, rowsBox(drawnRows.slice(0, count))]), rows: used }
+      if (used > budget || (count === 0 && rowSpans.length > 0)) return null
+      return {
+        element: column([...heading, rowsBox(drawnRows.slice(0, count)), ...closing]),
+        rows: used,
+      }
     },
   }
 }
 
-function titleLine(context: Context, buttons: Buttons | null, title: string): RenderElement {
-  const text = boldLine(context, title, 'title', 'truncate-end')
-  return buttons === null ? text : lineWithButtons(context, text, buttons, context.width)
+function titleLine(context: Context, buttons: Buttons | null, title: RenderElement): RenderElement {
+  return buttons === null ? title : lineWithButtons(context, title, buttons, context.width)
 }
 
 function rowBlock(
   context: Context,
   look: TableLook,
-  row: readonly string[],
+  row: readonly Cell[],
   index: number,
   buttons: Buttons | null,
 ): Drawing {
@@ -392,13 +472,14 @@ function rowBlock(
   const labels = labelWidth(look)
   const fields = fieldsOf(look, row)
   const valueWidth = context.width - FIELD_INDENT - labels - 1
+  const title = cellLine(context, rowTitle(row, index), 'title', 'title', 'truncate-end')
   return {
-    rows: 1 + sum(fields.map((field) => rowsOf(field.value, valueWidth))),
+    rows: 1 + sum(fields.map((field) => rowsOf(field.value.text, valueWidth))),
     element: Box({
       key: `row-${String(index)}`,
       flexDirection: 'column',
       children: [
-        titleLine(context, buttons, rowTitle(row, index)),
+        titleLine(context, buttons, title),
         ...fields.map((field, fieldIndex) =>
           Box({
             key: `field-${String(fieldIndex)}`,
@@ -408,9 +489,13 @@ function rowBlock(
               Box({
                 width: labels,
                 flexShrink: 0,
-                children: Text({ children: `${field.label}:` }),
+                children: Text({ children: cellSpans(context, labelOf(field.label), 'label') }),
               }),
-              Box({ flexShrink: 1, marginLeft: 1, children: Text({ children: field.value }) }),
+              Box({
+                flexShrink: 1,
+                marginLeft: 1,
+                children: Text({ children: cellSpans(context, field.value, 'value') }),
+              }),
             ],
           }),
         ),
@@ -421,15 +506,19 @@ function rowBlock(
 
 function headingsBlock(context: Context, look: TableLook, buttons: Buttons | null): Drawing {
   const { Box } = context.elements
-  const [first = '', ...more] = look.header
+  const [first, ...more] = look.header
+  const title =
+    first === undefined ? null : cellLine(context, first, 'heading', 'title', 'truncate-end')
   return {
-    rows: 1 + sum(more.map((heading) => rowsOf(heading, context.width))),
+    rows: 1 + sum(more.map((heading) => rowsOf(heading.text, context.width))),
     element: Box({
       key: 'headings',
       flexDirection: 'column',
       children: [
-        titleLine(context, buttons, first),
-        ...more.map((heading, index) => boldLine(context, heading, `heading-${String(index)}`)),
+        title === null ? null : titleLine(context, buttons, title),
+        ...more.map((heading, index) =>
+          cellLine(context, heading, 'heading', `heading-${String(index)}`),
+        ),
       ],
     }),
   }
@@ -440,7 +529,8 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
   const actions = tableActions(table, key)
   const buttons = buttonsTogether(context, actions)
   const firstRow = look.rows[0]
-  const firstTitle = firstRow === undefined ? (look.header[0] ?? '') : rowTitle(firstRow, 0)
+  const firstTitle =
+    firstRow === undefined ? (look.header[0]?.text ?? '') : rowTitle(firstRow, 0).text
   const isOnTitle = displayWidth(firstTitle) + BUTTONS_GAP + buttons.columns <= context.width
   const titled = isOnTitle ? buttons : null
   const blocks =
@@ -474,18 +564,23 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
   }
 }
 
-function columnsFor(context: Context, look: TableLook): number[] | null {
+function frameOf(context: Context): TableFrame {
+  return TABLE_FRAMES[context.columns < BLOCKS_BELOW_COLUMNS ? 'rules' : context.tableStyle]
+}
+
+function columnsFor(context: Context, look: TableLook, frame: TableFrame): number[] | null {
   const isNarrow = context.columns < BLOCKS_BELOW_COLUMNS
   if (isNarrow && tableWidth(look.widths) > context.width) return null
-  return columnWidths(look, context.width)
+  return columnWidths(look, roomInside(context.width, frame))
 }
 
 function tablePiece(context: Context, table: Table, key: string): Piece {
   const look = tableLook(table)
-  const widths = columnsFor(context, look)
+  const frame = frameOf(context)
+  const widths = columnsFor(context, look, frame)
   return widths === null
     ? blocksPiece(context, table, look, key)
-    : columnsPiece(context, table, look, widths, key)
+    : columnsPiece(context, table, look, { widths, frame }, key)
 }
 
 function titleRule(title: string, columns: number): string {
@@ -565,15 +660,11 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
       return diagram
     case 'flowchart': {
       const drawn = drawFlowchart(diagram, width)
-      return drawn.kind === 'drawing'
-        ? { kind: 'drawing', name: diagram.kind, lines: drawn.lines }
-        : drawn
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
     case 'sequence': {
       const drawn = drawSequence(diagram, width)
-      return drawn.kind === 'drawing'
-        ? { kind: 'drawing', name: diagram.kind, lines: drawn.lines }
-        : drawn
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
   }
 }
@@ -635,8 +726,36 @@ function titleWithButtons(
   }
 }
 
+function inkColor(ink: Ink): ThemeKey | undefined {
+  if (typeof ink === 'number') return DIAGRAM_CYCLE[ink % DIAGRAM_CYCLE.length]
+  return ink === 'plain' ? undefined : INK_COLORS[ink]
+}
+
+function inkSpan(context: Context, run: InkRun): CellChild {
+  const color = inkColor(run.ink)
+  return color === undefined ? run.text : context.elements.Text({ color, children: run.text })
+}
+
+function drawingBody(context: Context, drawing: DiagramDrawing, key: string): RenderElement {
+  const { Box, Code, Text } = context.elements
+  if (context.surface !== 'terminal') return Code({ source: drawing.lines.join('\n') })
+  return Box({
+    key: `${key}-drawing-lines`,
+    flexDirection: 'column',
+    children: drawing.inked.map((runs, index) =>
+      Box({
+        key: `line-${String(index)}`,
+        children: Text({
+          wrap: 'truncate-end',
+          children: runs.length === 0 ? ' ' : runs.map((run) => inkSpan(context, run)),
+        }),
+      }),
+    ),
+  })
+}
+
 function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, key: string): Piece {
-  const { Box, Code } = context.elements
+  const { Box } = context.elements
   const title = titleWithButtons(
     context,
     `${MERMAID_TAG} · ${drawing.name}`,
@@ -646,7 +765,7 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
   return {
     rows: title.rows + drawing.lines.length,
-    whole: () => column([title.element, Code({ source: drawing.lines.join('\n') })]),
+    whole: () => column([title.element, drawingBody(context, drawing, key)]),
     cut: (budget) =>
       budget < title.rows ? null : { element: column([title.element]), rows: title.rows },
   }
@@ -805,6 +924,7 @@ export function replyTree(
     columns: layout.columns,
     surface: layout.surface,
     drawsDiagrams: layout.drawsDiagrams,
+    tableStyle: layout.tableStyle,
     actions,
   }
   const pieces = blocks.map((block, index) => pieceOf(context, block, index))
