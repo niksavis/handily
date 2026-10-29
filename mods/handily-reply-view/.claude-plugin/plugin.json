@@ -20,6 +20,13 @@
       "description": "Whether a mermaid flowchart in a reply draws as a diagram (on) or as its source, as a code block (off).",
       "options": ["on", "off"],
       "default": "on"
+    },
+    "diagramHints": {
+      "type": "string",
+      "title": "Diagram hints",
+      "description": "Whether each prompt that you type carries one hint about mermaid diagrams, of about 140 tokens (on), or no hint (off). /replies hints toggles one session.",
+      "options": ["on", "off"],
+      "default": "off"
     }
   }
 }

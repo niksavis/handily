@@ -111,12 +111,12 @@ async function mountReply(
   })
 }
 
-async function commandText($: Engine, args = ''): Promise<string> {
+async function commandText($: Engine, args = '', columns = COLUMNS): Promise<string> {
   const result = await $.command.run({
     command: 'replies',
     args,
     origin: { kind: 'sdk' },
-    presentation: { isFullscreen: false, columns: COLUMNS },
+    presentation: { isFullscreen: false, columns },
   })
   return result.text ?? ''
 }
@@ -1625,6 +1625,9 @@ describe('typed prompts', () => {
   )
 })
 
+const USAGE =
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+
 describe('/replies', () => {
   viewTest(
     'turns the reply view off and on, and the engine draws replies unchanged while it is off',
@@ -1653,11 +1656,12 @@ describe('/replies', () => {
     ])
   })
 
-  viewTest('refuses an argument', async (_world, $) => {
-    expect(await commandText($, 'off')).toBe(
-      '/replies takes no argument. It turns the reply view off or on for this session. Set the default with the plugin\'s "mode" setting.',
-    )
-  })
+  viewTest(
+    'refuses an argument that it does not know and names the forms it takes',
+    async (_world, $) => {
+      expect(await commandText($, 'off')).toBe(USAGE)
+    },
+  )
 
   for (const surface of SURFACES) {
     test(
@@ -1706,6 +1710,190 @@ describe('/replies', () => {
     await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
     expect(ready).toEqual([{ root: expect.stringMatching(/[\\/]handily-reply-view$/) }])
   })
+})
+
+const MEASURED_HINT =
+  'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
+const HINT_CHARACTERS_AT_MOST = 400
+const HINTS_ON =
+  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
+const HINTS_OFF = 'diagram hints off for this session. A prompt that you type carries no hint.'
+
+type Submitted = { text: string; wait: boolean; origin: PromptOrigin; context?: readonly string[] }
+
+function submitted(origin: PromptOrigin, context?: readonly string[]): Submitted {
+  return context === undefined
+    ? { text: PROMPT, wait: false, origin }
+    : { text: PROMPT, wait: false, origin, context }
+}
+
+function modelReads(on: On): Submitted[] {
+  const read: Submitted[] = []
+  on('prompt.submit', (_$, e) => {
+    read.push({ text: e.text, wait: e.wait, origin: e.origin, context: e.context })
+    return { text: e.text, context: e.context }
+  })
+  return read
+}
+
+function hintsTest(
+  name: string,
+  hints: 'on' | 'off' | undefined,
+  surface: Surface,
+  body: (read: Submitted[], $: Engine) => Promise<void>,
+  more: Record<string, string> = {},
+): void {
+  const options: Record<string, string> =
+    hints === undefined ? { ...more } : { ...more, diagramHints: hints }
+  test(name, { options }, async ($, on) => {
+    engineBeneath(on)
+    const read = modelReads(on)
+    await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+    await body(read, $)
+  })
+}
+
+const NO_HINT = [undefined]
+
+const NO_HINT_ORIGINS: readonly PromptOrigin[] = [
+  { kind: 'plugin', name: 'handily-board' },
+  { kind: 'bridge' },
+]
+
+describe('diagram hints', () => {
+  for (const surface of SURFACES) {
+    for (const hints of [undefined, 'off'] as const) {
+      hintsTest(
+        `with the diagramHints setting ${hints ?? 'left out'}, prompt.submit passes a typed prompt unchanged on ${surface}`,
+        hints,
+        surface,
+        async (read, $) => {
+          const typed = submitted({ kind: 'composer' })
+          const withContext = submitted({ kind: 'composer' }, ['a note of another plugin'])
+          await $.prompt.submit(typed)
+          await $.prompt.submit(withContext)
+          expect(read).toEqual([{ ...typed, context: undefined }, withContext])
+        },
+      )
+    }
+
+    hintsTest(
+      `with the diagramHints setting on, a typed prompt carries one hint after the context it had on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        await $.prompt.submit(submitted({ kind: 'composer' }, ['a note of another plugin']))
+        expect(read.map((prompt) => prompt.context)).toEqual([
+          [MEASURED_HINT],
+          ['a note of another plugin', MEASURED_HINT],
+        ])
+        expect(read.map((prompt) => prompt.text)).toEqual([PROMPT, PROMPT])
+      },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on, a plugin prompt and a bridge prompt carry no hint on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        for (const origin of NO_HINT_ORIGINS) await $.prompt.submit(submitted(origin))
+        expect(read).toEqual(
+          NO_HINT_ORIGINS.map((origin) => ({ ...submitted(origin), context: undefined })),
+        )
+      },
+    )
+
+    hintsTest(
+      `the hint that a typed prompt carries is at most 400 characters on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        const hint = read[0]?.context?.at(-1) ?? ''
+        expect(hint.length).toBeGreaterThan(0)
+        expect(hint.length).toBeLessThanOrEqual(HINT_CHARACTERS_AT_MOST)
+      },
+    )
+
+    hintsTest(
+      `the hint is the text that the README measured at 140 tokens on 2026-10-29, and /replies hints names that count on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_ON)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read[0]?.context).toEqual([MEASURED_HINT])
+      },
+    )
+
+    hintsTest(
+      `/replies hints turns the hints on and off for this session on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(await commandText($, 'hints')).toBe(HINTS_ON)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(await commandText($, ' hints ')).toBe(HINTS_OFF)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual([
+          undefined,
+          [MEASURED_HINT],
+          undefined,
+        ])
+      },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on, a slash command that you type carries no hint on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit({
+          ...submitted({ kind: 'composer' }),
+          text: '/review the diff',
+          command: { name: 'review', args: 'the diff' },
+        })
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+      },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on, a typed prompt carries no hint while /replies is off on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await commandText($)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        await commandText($)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual([undefined, [MEASURED_HINT]])
+      },
+    )
+
+    hintsTest(
+      `with the diagramHints setting on and the diagrams setting off, a typed prompt carries no hint on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+      },
+      { diagrams: 'off' },
+    )
+
+    hintsTest(
+      `/replies hints turns the hints off when the setting is on on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_OFF)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual([undefined])
+      },
+    )
+  }
 })
 
 function flowchartOf(source: string): Flowchart {
@@ -4029,13 +4217,15 @@ describe('diagram blocks', () => {
     )
     const drawing = drawnLines(TINY_SOURCE, 18)
     const folded = await sketchOf(ui, 20)
-    expect(folded.slice(-4, -1)).toEqual([
+    expect(folded.slice(-6)).toEqual([
       '  ~── mermaid · flow…~',
       `  ${' '.repeat(10)}[ copy ]`,
       `  ${' '.repeat(2)}[ copy drawing ]`,
+      `  ~… ${String(drawing.length)} more lines~`,
+      `  ${' '.repeat(10)}[ more ]`,
+      `  ${' '.repeat(4)}[ copy reply ]`,
     ])
-    expect(folded).toHaveLength(26 + 1 + 3 + 1)
-    expect(folded.at(-1)).toContain(`~… ${String(drawing.length)} more lines~`)
+    expect(folded).toHaveLength(26 + 1 + 3 + 3)
     await ui.unmount()
   })
 
@@ -4062,4 +4252,409 @@ describe('diagram blocks', () => {
       },
     )
   }
+})
+
+const KEYBOARD_REPLY = [
+  'Two flows, a table and two commands:',
+  '',
+  '```mermaid',
+  TINY_SOURCE,
+  '```',
+  '',
+  '```sh',
+  'npm ci',
+  '```',
+  '',
+  '```mermaid',
+  SEQUENCE_SOURCE,
+  '```',
+  '',
+  SMALL_TABLE,
+  '',
+  '```ts',
+  'const a = 1',
+  'const b = 2',
+  '```',
+  '',
+  'The end.',
+].join('\n')
+
+const PROSE_REPLY = 'The tests pass.\n\nThe gates pass too.'
+
+const NO_REPLY = 'No reply to copy yet. /replies copy reads the last reply of this session.'
+
+async function replyEnds($: Engine, answer: string, agentId?: string): Promise<void> {
+  await $.turn.complete({
+    answer,
+    durationMs: 1000,
+    isAborted: false,
+    turnId: 'turn-1',
+    reason: 'answer',
+    ...(agentId === undefined ? {} : { agentId }),
+  })
+}
+
+function copyTest(
+  name: string,
+  surface: Surface,
+  body: ViewBody,
+  options: Record<string, string> = {},
+): void {
+  test(name, { options }, async ($, on) => {
+    const world = engineBeneath(on)
+    on('turn.complete', (_$, e) => ({ text: e.answer }))
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+    on('session.surfaces', () => ({ value: [surface] }))
+    await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+    await body(world, $)
+  })
+}
+
+const BUTTON_COPIES = [
+  ['diagram', mermaidReply('Tiny:', TINY_SOURCE), 'block-1-copy'],
+  ['table', TABLE, 'block-1-copy'],
+  ['code', FENCE, 'block-1-copy'],
+  ['reply', LONG_REPLY, 'copy-reply'],
+] as const
+
+describe('copy from the keyboard', () => {
+  for (const surface of SURFACES) {
+    copyTest(
+      `/replies copy diagram, table and code copy the last block of that kind and the toast names it on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, KEYBOARD_REPLY)
+        for (const kind of ['diagram', 'table', 'code', 'reply']) {
+          expect(await commandText($, `copy ${kind}`)).toBe('')
+        }
+        expect(world.copies).toEqual([
+          SEQUENCE_SOURCE,
+          SMALL_TABLE,
+          'const a = 1\nconst b = 2',
+          KEYBOARD_REPLY,
+        ])
+        expect(world.toasts).toEqual([
+          { lines: ['✓ Copied the sequence source', '3 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the table as markdown', '3 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the ts block', '2 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the reply as markdown', '27 lines'], timeoutMs: 6000 },
+        ])
+      },
+    )
+
+    copyTest(
+      `/replies copy copies the text that the button of the block copies, with the same toast on ${surface}`,
+      surface,
+      async (world, $) => {
+        for (const [kind, text, key] of BUTTON_COPIES) {
+          const ui = await mountReply($, reply(text), surface)
+          await ui.press({ key })
+          await ui.unmount()
+          await replyEnds($, text)
+          expect(await commandText($, `copy ${kind}`)).toBe('')
+          const [pressed, typed] = world.copies.splice(0)
+          expect(pressed).toBeDefined()
+          expect(typed).toBe(pressed)
+          const [pressedToast, typedToast] = world.toasts.splice(0)
+          expect(pressedToast).toBeDefined()
+          expect(typedToast).toEqual(pressedToast)
+        }
+      },
+    )
+
+    copyTest(
+      `a last reply with no block of that kind names it and the command that copies the whole reply on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, KEYBOARD_REPLY)
+        await replyEnds($, PROSE_REPLY)
+        expect(await commandText($, 'copy diagram')).toBe(
+          'The last reply has no diagram. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy table')).toBe(
+          'The last reply has no table. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy code')).toBe(
+          'The last reply has no code block. /replies copy reply copies the whole reply.',
+        )
+        expect(world.copies).toEqual([])
+        expect(world.toasts).toEqual([])
+        expect(await commandText($, 'copy reply')).toBe('')
+        expect(world.copies).toEqual([PROSE_REPLY])
+      },
+    )
+
+    copyTest(
+      `a mermaid block counts as a diagram and not as code on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, mermaidReply('Tiny:', TINY_SOURCE))
+        expect(await commandText($, 'copy code')).toBe(
+          'The last reply has no code block. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy diagram')).toBe('')
+        expect(world.copies).toEqual([TINY_SOURCE])
+        expect(world.toasts[0]?.lines[0]).toBe('✓ Copied the flowchart source')
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    copyTest(
+      `/replies copy diagram copies and names a diagram as its own copy button does, drawn or not, on ${surface}`,
+      surface,
+      async (world, $) => {
+        const cases = [
+          [MOCK_9_8_SOURCE, 40, '✓ Copied the mermaid block'],
+          [WIDE_SOURCE, 40, '✓ Copied the mermaid block'],
+          [WIDE_SOURCE, COLUMNS, '✓ Copied the flowchart source'],
+          [TINY_SOURCE, 40, '✓ Copied the flowchart source'],
+        ] as const
+        for (const [source, columns, toast] of cases) {
+          const text = mermaidReply('Here is the flow:', source)
+          const ui = await mountReply($, reply(text), surface, columns)
+          await ui.press({ key: 'block-1-copy' })
+          await ui.unmount()
+          await replyEnds($, text)
+          expect(await commandText($, 'copy diagram', columns)).toBe('')
+          expect(world.copies.splice(0)).toEqual([source, source])
+          expect(world.toasts.splice(0).map((shown) => shown.lines[0])).toEqual([toast, toast])
+        }
+      },
+    )
+
+    copyTest(
+      `with the diagrams setting off a mermaid block is a code block for /replies copy as for its button on ${surface}`,
+      surface,
+      async (world, $) => {
+        const text = mermaidReply('Tiny:', TINY_SOURCE)
+        const ui = await mountReply($, reply(text), surface)
+        await ui.press({ key: 'block-1-copy' })
+        await ui.unmount()
+        await replyEnds($, text)
+        expect(await commandText($, 'copy diagram')).toBe(
+          'The last reply has no diagram. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy code')).toBe('')
+        expect(world.copies).toEqual([TINY_SOURCE, TINY_SOURCE])
+        expect(world.toasts.map((shown) => shown.lines[0])).toEqual([
+          '✓ Copied the mermaid block',
+          '✓ Copied the mermaid block',
+        ])
+      },
+      { diagrams: 'off' },
+    )
+
+    copyTest(
+      `a /clear forgets the last reply, so /replies copy copies nothing from the cleared conversation on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, KEYBOARD_REPLY)
+        await $.session.end({
+          reason: 'clear',
+          sessionId: 'session-1',
+          resume: { id: 'session-1' },
+        })
+        expect(await commandText($, 'copy reply')).toBe(NO_REPLY)
+        expect(await commandText($, 'copy code')).toBe(NO_REPLY)
+        expect(world.copies).toEqual([])
+        await replyEnds($, PROSE_REPLY)
+        expect(await commandText($, 'copy reply')).toBe('')
+        expect(world.copies).toEqual([PROSE_REPLY])
+      },
+    )
+  }
+
+  copyTest(
+    'before the first reply /replies copy says there is none',
+    'terminal',
+    async (world, $) => {
+      expect(await commandText($, 'copy diagram')).toBe(NO_REPLY)
+      expect(await commandText($, 'copy reply')).toBe(NO_REPLY)
+      expect(await commandText($, 'copy picture')).toBe(USAGE)
+      expect(world.copies).toEqual([])
+    },
+  )
+
+  copyTest(
+    'the answer of a subagent and an empty answer leave the last reply as it was',
+    'terminal',
+    async (world, $) => {
+      await replyEnds($, FENCE)
+      await replyEnds($, PROSE_REPLY, 'agent-1')
+      await replyEnds($, '')
+      expect(await commandText($, 'copy code')).toBe('')
+      expect(world.copies).toEqual(['1. Write the mocks\n2. Ask the person'])
+    },
+  )
+
+  copyTest(
+    'a copy form that the command does not know gets the forms it takes',
+    'terminal',
+    async (world, $) => {
+      await replyEnds($, KEYBOARD_REPLY)
+      for (const args of ['copy', 'copy picture', 'copy diagram table', 'hints copy']) {
+        expect(await commandText($, args)).toBe(USAGE)
+      }
+      expect(world.copies).toEqual([])
+    },
+  )
+})
+
+function widerThan(lines: readonly string[], columns: number): string[] {
+  return lines.filter((line) => plainWidth(line) > columns)
+}
+
+describe('a very narrow reply', () => {
+  for (const surface of SURFACES) {
+    for (const width of [23, 24]) {
+      viewTest(
+        `in a reply of ${String(width)} columns the fold row leaves room for the gap and puts its buttons under the count on ${surface}`,
+        async (_world, $) => {
+          const columns = screenColumns(surface, width)
+          const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+          const folded = await sketchOf(ui, columns)
+          expect(folded.slice(-2)).toEqual(
+            onSurface(surface, [
+              '',
+              '~… 24 more lines~',
+              `${' '.repeat(width - 23)}[ more ] [ copy reply ]`,
+            ]).slice(1),
+          )
+          expect(widerThan(folded, columns)).toEqual([])
+          await ui.unmount()
+        },
+      )
+    }
+
+    viewTest(
+      `in a reply of 25 columns the fold row keeps more and copy reply on one line after the gap on ${surface}`,
+      async (_world, $) => {
+        const columns = screenColumns(surface, 25)
+        const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+        await ui.press({ key: 'fold' })
+        const opened = await sketchOf(ui, columns)
+        expect(opened.at(-1)).toBe(onSurface(surface, ['', '  [ less ] [ copy reply ]'])[1])
+        expect(widerThan(opened, columns)).toEqual([])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `in a reply of 18 columns the fold row puts more and copy reply each on its own line on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 18)
+        const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+        const folded = await sketchOf(ui, columns)
+        expect(folded.slice(-3)).toEqual(
+          onSurface(surface, [
+            '',
+            '~… 24 more lines~',
+            `${' '.repeat(10)}[ more ]`,
+            `${' '.repeat(4)}[ copy reply ]`,
+          ]).slice(1),
+        )
+        expect(widerThan(folded, columns)).toEqual([])
+        await ui.press({ key: 'fold' })
+        const opened = await sketchOf(ui, columns)
+        expect(opened.slice(-2)).toEqual(
+          onSurface(surface, [
+            '',
+            `${' '.repeat(10)}[ less ]`,
+            `${' '.repeat(4)}[ copy reply ]`,
+          ]).slice(1),
+        )
+        expect(widerThan(opened, columns)).toEqual([])
+        await ui.press({ key: 'copy-reply' })
+        expect(world.copies).toEqual([LONG_REPLY])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `in a reply of 12 columns the fold row cuts the copy reply label to fit and still copies on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 12)
+        const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+        const folded = await sketchOf(ui, columns)
+        expect(folded.slice(-2)).toEqual(
+          onSurface(surface, ['', `${' '.repeat(4)}[ more ]`, '[ copy re… ]']).slice(1),
+        )
+        expect(widerThan(buttonLines(folded), columns)).toEqual([])
+        expect((await ui.find({ type: 'Text', text: '… 24 more lines' }))?.props.wrap).toBe(
+          'truncate-end',
+        )
+        await ui.press({ key: 'copy-reply' })
+        expect(world.copies).toEqual([LONG_REPLY])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `in a reply of 18 columns the copy button of a code block moves under its title on ${surface}`,
+      async (world, $) => {
+        const columns = screenColumns(surface, 18)
+        const ui = await mountReply($, reply(FENCE), surface, columns)
+        const drawn = await sketchOf(ui, columns)
+        expect(drawn).toEqual(
+          onSurface(surface, [
+            'Here is the plan:',
+            '',
+            `~── plan ${'─'.repeat(10)}~`,
+            `${' '.repeat(10)}[ copy ]`,
+            '1. Write the mocks',
+            '2. Ask the person',
+          ]),
+        )
+        expect(widerThan(drawn, columns)).toEqual([])
+        await ui.press({ key: 'block-1-copy' })
+        expect(world.copies).toEqual(['1. Write the mocks\n2. Ask the person'])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `in a reply of 11 columns the copy button of a block with no tag moves under its rule on ${surface}`,
+      async (_world, $) => {
+        const columns = screenColumns(surface, 11)
+        const ui = await mountReply($, reply('~~~\necho hi\n~~~'), surface, columns)
+        const drawn = await sketchOf(ui, columns)
+        expect(drawn).toEqual(
+          onSurface(surface, [`~${'─'.repeat(11)}~`, `${' '.repeat(3)}[ copy ]`, 'echo hi']),
+        )
+        expect(widerThan(drawn, columns)).toEqual([])
+        await ui.unmount()
+      },
+    )
+  }
+
+  viewTest(
+    'in a reply of 12 columns the copy button of a block with no tag stays on its rule',
+    async (_world, $) => {
+      const ui = await mountReply($, reply('~~~\necho hi\n~~~'), 'desktop', 12)
+      expect(await sketchOf(ui, 12)).toEqual(['~──~  [ copy ]', 'echo hi'])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'the fold counts the two title rows of a code block in a narrow reply',
+    async (_world, $) => {
+      const lead = Array.from({ length: 27 }, (_, index) => `Line ${String(index + 1)}`)
+      const text = [...lead, '', '```plan', '1. Write the mocks', '2. Ask the person', '```'].join(
+        '\n',
+      )
+      const ui = await mountReply($, reply(text), 'desktop', 18)
+      const folded = await sketchOf(ui, 18)
+      expect(folded.slice(-6)).toEqual([
+        '',
+        `~── plan ${'─'.repeat(10)}~`,
+        `${' '.repeat(10)}[ copy ]`,
+        '~… 2 more lines~',
+        `${' '.repeat(10)}[ more ]`,
+        `${' '.repeat(4)}[ copy reply ]`,
+      ])
+      await ui.unmount()
+    },
+  )
 })

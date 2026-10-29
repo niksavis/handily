@@ -49,6 +49,20 @@ buttons at the right edge:
   `no screen is attached to this session`. It stays 10 seconds. When the copy throws, the reason
   is `the transcript shows why`, and the transcript holds the error.
 - On a narrow screen the count of hidden lines is cut at its end, so the buttons stay on its line.
+- When the reply is narrower than the two buttons and the gap of 2 columns before them, the count
+  stands on its own line and the buttons stand under it. When the two buttons do not fit on one
+  line, each button stands on its own line. A label wider than the reply is cut with `…`, and
+  the button still works:
+
+```text
+● Line 1
+  …
+  Line 30
+  … 24 more lines
+            [ more ]
+      [ copy reply ]
+```
+
 - A line counts as the rows that it takes on the screen. A long paragraph counts as several
   rows. When the 30 rows end inside a line, that line is cut at a word and ends with `…`.
 - A reply of 30 lines or fewer draws as Claude Code draws it, unless it holds a table or a
@@ -154,6 +168,18 @@ content draws with the highlighting of Claude Code for that language:
 `copy` copies the content of the block only, without the fences. A block without a tag draws a
 rule with no title.
 
+When the title line and its `copy` button do not fit the reply, the button stands under the
+title line, as the buttons of a diagram do:
+
+```text
+● Here is the plan:
+
+  ── plan ──────────
+            [ copy ]
+  1. Write the mocks
+  2. Ask the person
+```
+
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart or a sequence diagram draws as a
@@ -215,6 +241,34 @@ A mermaid block with no closing fence draws as a fenced block, with no note. So 
 that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
+
+## Diagram hints
+
+The `diagramHints` setting is `off` by default. When it is `on`, each prompt that you type
+carries one hint for Claude. The hint asks for a mermaid diagram when a flow or an exchange reads
+better as a diagram. You do not see the hint. Claude reads it after your prompt. `/replies hints`
+turns the hints on or off for this session, and keeps the choice in the `hints` key of
+`$.state`.
+
+The hint costs about 140 tokens for each prompt that you type. This count was measured on
+2026-10-29 with Claude Code 2.1.312 and the model `claude-opus-5-5`. Two `claude -p` runs of the
+same prompt differ only in a mod that adds the hint as the context of the prompt. The run with the
+hint used 22027 input tokens and the run without it used 21887, three times each. The hint text
+has 350 characters, and a test fails when it grows past 400. When the hint text changes, measure
+again and record the new count and its date here.
+
+The hint text:
+
+```text
+The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.
+```
+
+No hint goes out in these cases:
+
+- A plugin, another session, a channel or the Remote Control bridge sends the prompt.
+- You type a slash command.
+- `/replies` turned the reply view off for this session, or the `mode` setting is `off`.
+- The `diagrams` setting is `off`, so a mermaid block draws as its source.
 
 ## A sequence diagram
 
@@ -296,14 +350,20 @@ theme:
 
 ## Settings and the command
 
-| Setting    | Default | Use                                                                                           |
-| ---------- | ------- | --------------------------------------------------------------------------------------------- |
-| `mode`     | `on`    | The mode when a session starts: `on` or `off`                                                 |
-| `diagrams` | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
+| Setting        | Default | Use                                                                                           |
+| -------------- | ------- | --------------------------------------------------------------------------------------------- |
+| `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                 |
+| `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
+| `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type     |
 
-| Command    | Effect                                                                         |
-| ---------- | ------------------------------------------------------------------------------ |
-| `/replies` | Turns the reply view off or on for this session, and replies with the new mode |
+| Command                 | Effect                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| `/replies`              | Turns the reply view off or on for this session, and replies with the new mode     |
+| `/replies hints`        | Turns the diagram hints off or on for this session, and replies with the new state |
+| `/replies copy diagram` | Copies the source of the last diagram of the last reply                            |
+| `/replies copy table`   | Copies the last table of the last reply as markdown                                |
+| `/replies copy code`    | Copies the content of the last code block of the last reply                        |
+| `/replies copy reply`   | Copies the whole last reply as markdown                                            |
 
 While the view is off, Claude Code draws every reply and every prompt unchanged.
 
@@ -311,6 +371,29 @@ The mod keeps the mode in the `mode` key of its `$.state`, so a change does not 
 sessions. When the session starts and the key is unset, the mod writes the `mode` setting to it.
 So a session starts with the mode of the setting, and `/replies` toggles from there. `/handily`
 shows the setting beside the mode when the two differ.
+
+## Copy from the keyboard
+
+A button in the transcript takes a click only. `/replies copy` gives a path from the keyboard. It
+reads the last reply of the main session. It copies the same text as the `copy` button of the
+block, and its toast names it as that button does, such as `✓ Copied the sequence source`. The
+command lays the reply out at the width of the terminal where it runs, as the reply draws there.
+
+- A mermaid block counts as a diagram and not as a code block.
+- A diagram that does not draw copies as its button does: `✓ Copied the mermaid block`.
+- With the `diagrams` setting `off`, a mermaid block draws as a code block, so
+  `/replies copy code` copies it and `/replies copy diagram` does not.
+
+When the last reply has no block of that kind, the command says so and names the command that
+copies the whole reply:
+
+```text
+The last reply has no diagram. /replies copy reply copies the whole reply.
+```
+
+The mod keeps the last reply in memory for this session only. After a `/clear` or a resume,
+`/replies copy` has no reply until Claude answers again. The answer of a subagent does not
+count.
 
 ## When the reply stays as Claude Code draws it
 
