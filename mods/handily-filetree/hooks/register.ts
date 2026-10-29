@@ -4,19 +4,40 @@ import { agentOfFilter, labelsOf } from './agents'
 import {
   FILES_PANE,
   type TreeUi,
+  badEditsReply,
   badTaskReply,
   closeTree,
+  noEditReply,
   parseTreeCommand,
+  showEdit,
   showTask,
   toggleTree,
   unknownReply,
 } from './commands'
+import {
+  type Edits,
+  clearEdits,
+  closeSteps,
+  editChangeOf,
+  endMainTurn,
+  isEditTool,
+  newEdits,
+  noteEdit,
+  shownStep,
+} from './edits'
 import { type GitView, gitView } from './gitview'
 import type { LookSite } from './look'
-import { lookActionsOf, newLooking, resetLooking } from './looking'
+import { type Looking, lookActionsOf, newLooking, resetLooking } from './looking'
 import { drawLook } from './lookpane'
 import { markColumnOf } from './marks'
-import { type PaneActions, type TaskDraw, type TouchDraw, drawInline, drawTree } from './pane'
+import {
+  type LastTurnDraw,
+  type PaneActions,
+  type TaskDraw,
+  type TouchDraw,
+  drawInline,
+  drawTree,
+} from './pane'
 import { absolutePath, insidePath, resolvedPath, shownPath } from './paths'
 import { reasonOf } from './reason'
 import {
@@ -34,6 +55,7 @@ import {
   newShell,
 } from './shellmarks'
 import { type GitMarks, gitMarks } from './status'
+import { type StepActions, drawInlineSteps, drawSteps } from './steps'
 import {
   type ListFolder,
   type Listing,
@@ -258,6 +280,68 @@ async function endShell(
   if (site !== undefined) await judgeListing($, shell, site)
 }
 
+async function noteEditCall(
+  $: EngineInterface,
+  edits: Edits,
+  call: { tool: string; seen: SeenCall | undefined; answer: ToolCallResult | undefined },
+): Promise<void> {
+  const { tool, seen, answer } = call
+  if (!isEditTool(tool) || seen?.touch.kind !== 'file') return
+  if (answer === undefined || !isAnswered(answer)) return
+  noteEdit(edits, {
+    path: resolvedPath(seen.cwd, seen.touch.path),
+    agent: seen.agent,
+    tool,
+    at: await $.clock.now(),
+    change: editChangeOf(tool, answer.result),
+  })
+}
+
+function openSteps($: EngineInterface, site: { edits: Edits; looking: Looking }, at: number): void {
+  const { edits, looking } = site
+  looking.look = undefined
+  looking.generation += 1
+  edits.at = shownStep(edits.last, at)
+  redraw($)
+}
+
+function lastTurnOf(
+  $: EngineInterface,
+  site: { edits: Edits; looking: Looking },
+): LastTurnDraw | undefined {
+  const { edits } = site
+  const { last } = edits
+  if (last === undefined) return undefined
+  return {
+    total: last.total,
+    isNoteShown: edits.isNoteShown,
+    press: () => {
+      if (last.edits.length > 0) {
+        openSteps($, site, 1)
+        return
+      }
+      edits.isNoteShown = !edits.isNoteShown
+      redraw($)
+    },
+  }
+}
+
+function stepActionsOf($: EngineInterface, edits: Edits, copy: PaneActions['copy']): StepActions {
+  return {
+    move: (at) => {
+      const step = shownStep(edits.last, at)
+      if (step === undefined || step === edits.at) return
+      edits.at = step
+      redraw($)
+    },
+    back: () => {
+      closeSteps(edits)
+      redraw($)
+    },
+    copy,
+  }
+}
+
 function lookSiteOf(watch: GitWatch, cwd: string): LookSite {
   const { repo, shown } = watch
   if (repo === null || repo === undefined) return { cwd, prefix: '', marks: undefined }
@@ -396,6 +480,8 @@ export const register: Register = (on) => {
   const context = { shell, watch, listings }
   const filter: AgentFilter = { picked: undefined, task: undefined }
   const looking = newLooking()
+  const edits = newEdits()
+  const stepSite = { edits, looking }
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -414,6 +500,7 @@ export const register: Register = (on) => {
     clearTouches(touches)
     clearShell(shell)
     resetLooking(looking)
+    clearEdits(edits)
     filter.picked = undefined
     filter.task = undefined
     return next(e)
@@ -425,6 +512,7 @@ export const register: Register = (on) => {
       listings.clear()
       stopWatch(watch)
       resetLooking(looking)
+      closeSteps(edits)
     }
     return closed
   })
@@ -441,6 +529,7 @@ export const register: Register = (on) => {
     } finally {
       await noteBoardClocks($, touches)
       if (seen !== undefined) await endCall($, touches, { id: e.tool_use_id, seen, answer })
+      await noteEditCall($, edits, { tool: e.tool, seen, answer })
       if (isShell) await endShell($, context, { id: e.tool_use_id, answer })
       if (CHANGING_TOOLS.has(e.tool)) {
         noteChange(watch)
@@ -451,6 +540,10 @@ export const register: Register = (on) => {
 
   on('turn.complete', async ($, e, next) => {
     endTurn(shell, { agent: e.agentId, at: await $.clock.now() })
+    if (e.agentId === undefined) {
+      endMainTurn(edits)
+      redraw($)
+    }
     return next(e)
   })
 
@@ -472,6 +565,15 @@ export const register: Register = (on) => {
         return { text: await showTask(treeUiOf($), command.id) }
       case 'badTask':
         return { text: badTaskReply(command.word) }
+      case 'edits': {
+        const kept = edits.last?.edits.length ?? 0
+        const refused = noEditReply(command.at, { kept, hasEnded: edits.last !== undefined })
+        if (refused !== undefined) return { text: refused }
+        openSteps($, stepSite, command.at)
+        return { text: await showEdit(treeUiOf($), command.at, kept) }
+      }
+      case 'badEdits':
+        return { text: badEditsReply(command.word) }
       case 'unknown':
         return { text: unknownReply(command.word) }
     }
@@ -502,15 +604,29 @@ export const register: Register = (on) => {
     const choice = isInline ? 'work' : ((await $.state.get(VIEW)).value ?? 'work')
     const isWorkTree = choice === 'work' || task !== undefined
     const tree = isWorkTree ? workTree(workPaths(workSourceOf(git, touched))) : undefined
+    const actions = {
+      ...actionsOf($, { cwd, listings, watch, work: tree }),
+      ...lookActionsOf($, looking, () => lookSiteOf(watch, cwd)),
+    }
     const view = {
       git,
-      actions: {
-        ...actionsOf($, { cwd, listings, watch, work: tree }),
-        ...lookActionsOf($, looking, () => lookSiteOf(watch, cwd)),
-      },
+      actions,
       touched,
       opened: looking.opened,
       choice,
+      lastTurn: lastTurnOf($, stepSite),
+    }
+    const step = edits.at === undefined ? undefined : shownStep(edits.last, edits.at)
+    if (edits.last !== undefined && step !== undefined) {
+      const steps = {
+        elements,
+        git,
+        touched,
+        last: edits.last,
+        at: step,
+        actions: stepActionsOf($, edits, actions.copy),
+      }
+      return isInline ? drawInlineSteps(steps, rootName) : drawSteps(steps, rootName)
     }
     if (tree !== undefined && isInline) {
       const now = touched.sights.map((sight) => touched.shownPath(sight.path))

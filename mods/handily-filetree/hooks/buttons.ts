@@ -15,6 +15,7 @@ export type ButtonSpec = {
   key: string
   label: string
   hotkey?: string
+  autoFocus?: true
   onPress: (e: UiPressArgument) => void
 }
 
@@ -40,10 +41,12 @@ export function buttonOf(
   labelRoom: number,
 ): RenderElement {
   const hotkey = spec.hotkey === undefined ? {} : { hotkey: spec.hotkey }
+  const focus = spec.autoFocus === undefined ? {} : { autoFocus: spec.autoFocus }
   return Button({
     key: spec.key,
     label: fitted(spec.label, labelRoom),
     ...hotkey,
+    ...focus,
     onPress: spec.onPress,
   })
 }

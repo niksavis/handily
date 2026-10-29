@@ -73,12 +73,15 @@ export type TouchDraw = {
   task: TaskDraw | undefined
 }
 
+export type LastTurnDraw = { total: number; isNoteShown: boolean; press: () => void }
+
 type PaneView = {
   git: GitView
   actions: PaneActions
   touched: TouchDraw
   opened: string | undefined
   choice: FiletreeView
+  lastTurn: LastTurnDraw | undefined
 }
 
 export type PaneActions = {
@@ -109,6 +112,9 @@ const FILTER_KEY = 'agent'
 const FILTER_LABEL = 'agent'
 const ALL_LABEL = 'all'
 const NOW_TITLE = 'Now'
+const LAST_TURN_KEY = 'last-turn'
+const NO_EDITS = 'no edits'
+const BASH_EDITS_NOTE = 'edits by Bash commands are not listed'
 const NOTHING_YET = 'nothing read or edited yet'
 const INLINE_GAP = '  '
 const NOTE_GAP = '  '
@@ -338,11 +344,40 @@ function drawTaskCounts(elements: PaneElements, task: TaskDraw): RenderElement[]
   )
 }
 
+function lastTurnLabel(total: number): string {
+  if (total === 0) return `last turn: ${NO_EDITS}`
+  return `last turn: ${countText(total)} ${total === 1 ? 'edit' : 'edits'}`
+}
+
+function drawLastTurn(elements: PaneElements, lastTurn: LastTurnDraw | undefined): RenderElement[] {
+  if (lastTurn === undefined) return []
+  const spec: ButtonSpec = {
+    key: LAST_TURN_KEY,
+    label: lastTurnLabel(lastTurn.total),
+    hotkey: 'l',
+    onPress: () => {
+      lastTurn.press()
+    },
+  }
+  const { bodyColumns } = elements
+  const note =
+    lastTurn.total === 0 && lastTurn.isNoteShown
+      ? wrapped(BASH_EDITS_NOTE, bodyColumns).map((part) =>
+          elements.Text({ dimColor: true, children: part }),
+        )
+      : []
+  return [
+    ...buttonRows(elements, [spec], { room: bodyColumns, indent: 0, key: LAST_TURN_KEY }),
+    ...note,
+  ]
+}
+
 function drawTop(elements: PaneElements, view: PaneView): RenderElement[] {
   const { touched, git, actions } = view
   if (touched.task === undefined) {
     return [
       ...drawControls(elements, view),
+      ...drawLastTurn(elements, view.lastTurn),
       ...drawNotes(elements, git.notes, actions),
       ...inViewNote(elements, touched),
       ...drawNow(elements, touched),
