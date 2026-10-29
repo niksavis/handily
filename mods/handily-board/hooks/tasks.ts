@@ -7,7 +7,7 @@ import type {
   BoardStatus,
   BoardTask,
 } from '../types'
-import { SIGNALS, type Signal, type SignalLook } from './signals'
+import type { Signal, SignalLook, SignalLooks } from './signals'
 
 export type WorkItem = PluginState['handily-workitems']['snapshot']['items'][number]
 
@@ -47,8 +47,8 @@ export function statusSignal(status: BoardStatus): Signal {
   return STATUS_SIGNALS[status]
 }
 
-export function statusLook(status: BoardStatus): SignalLook {
-  return SIGNALS[statusSignal(status)]
+export function statusLook(status: BoardStatus, signals: SignalLooks): SignalLook {
+  return signals[statusSignal(status)]
 }
 
 export function findTask(list: BoardList, id: number): BoardTask | undefined {

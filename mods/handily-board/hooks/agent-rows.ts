@@ -15,7 +15,7 @@ import {
 import { LANE_CELLS, type LaneAxis, hasLanes, laneAxis, laneOf } from './lanes'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
-import { SIGNALS, needsYouText } from './signals'
+import { SIGNALS, type Signal, type SignalLooks, needsYouText } from './signals'
 import { escaped, paneTaskText, statusLook } from './tasks'
 import { tokensText } from './tokens'
 import { cutToWidth, displayWidth, fitted, lastToWidth } from './width'
@@ -54,10 +54,10 @@ const NO_ANSWER_YET = 'none yet'
 const NO_ANSWER = 'none'
 const FAILED_ANSWER = 'none, the run failed'
 const RULE_COLOR: ThemeKey = 'subtle'
-const CALL_LOOKS: Record<AgentCallLine['outcome'], TextStyle & { mark: string }> = {
-  ok: { mark: SIGNALS.done.mark, color: SIGNALS.done.color },
-  failed: { mark: SIGNALS.blocked.mark, color: SIGNALS.blocked.color },
-  running: { mark: '▸', dimColor: true },
+const RUNNING_CALL_LOOK: TextStyle & { mark: string } = { mark: '▸', dimColor: true }
+const CALL_SIGNALS: Record<Exclude<AgentCallLine['outcome'], 'running'>, Signal> = {
+  ok: 'done',
+  failed: 'blocked',
 }
 const NO_CONTEXT = 'ctx —'
 const CONTEXT_COLUMNS = 7
@@ -70,17 +70,31 @@ type TextStyle = Omit<TextProps, 'children'>
 
 type Look = { mark: string; color: ThemeKey }
 
-const LOOKS: Record<AgentLook, Look> = {
-  needsYou: SIGNALS.waitsForYou,
-  asked: SIGNALS.doing,
-  failed: SIGNALS.blocked,
-  running: SIGNALS.doing,
-  held: SIGNALS.doing,
-  pending: SIGNALS.toDo,
-  idle: SIGNALS.toDo,
-  done: SIGNALS.done,
-  killed: SIGNALS.done,
-  unlisted: UNLISTED_LOOK,
+const LOOK_SIGNALS: Record<Exclude<AgentLook, 'unlisted'>, Signal> = {
+  needsYou: 'waitsForYou',
+  asked: 'doing',
+  failed: 'blocked',
+  running: 'doing',
+  held: 'doing',
+  pending: 'toDo',
+  idle: 'toDo',
+  done: 'done',
+  killed: 'done',
+}
+
+function lookColor(look: AgentLook): ThemeKey {
+  return look === 'unlisted' ? UNLISTED_LOOK.color : SIGNALS[LOOK_SIGNALS[look]].color
+}
+
+function lookOf(look: AgentLook, signals: SignalLooks): Look {
+  return look === 'unlisted' ? UNLISTED_LOOK : signals[LOOK_SIGNALS[look]]
+}
+
+function callLookOf(
+  outcome: AgentCallLine['outcome'],
+  signals: SignalLooks,
+): TextStyle & { mark: string } {
+  return outcome === 'running' ? RUNNING_CALL_LOOK : signals[CALL_SIGNALS[outcome]]
 }
 
 const STATE_WORDS: Record<AgentLook, string> = {
@@ -142,7 +156,7 @@ function stateText(row: AgentRow): { text: string; style: TextStyle } {
     const done = row.plan.filter((task) => task.status === 'completed').length
     return { text: `plan ${String(done)}/${String(row.plan.length)}`, style: { dimColor: true } }
   }
-  return { text: STATE_WORDS[row.look], style: { color: LOOKS[row.look].color } }
+  return { text: STATE_WORDS[row.look], style: { color: lookColor(row.look) } }
 }
 
 function detailText(row: AgentRow, isInline: boolean): string {
@@ -171,8 +185,8 @@ function laneColumns(
   context: string,
 ): RenderElement[] {
   const { Box, Text } = elements
-  const color = LOOKS[row.look].color
-  const lane = laneOf(row, axis)
+  const color = lookColor(row.look)
+  const lane = laneOf(row, axis, elements.signals)
   return [
     fixedBox(elements, contextWidth(context), Text({ dimColor: true, children: ` ${context}` })),
     Box({
@@ -198,7 +212,7 @@ function agentLine(
   hasToolColumn: boolean,
 ): RenderElement {
   const { Box, Text, Button } = elements
-  const look = LOOKS[row.look]
+  const look = lookOf(row.look, elements.signals)
   const columns = elements.isInline ? INLINE_COLUMNS : DOCKED_COLUMNS
   const state = stateText(row)
   const nameWidth = Math.max(columns, displayWidth(name)) + NAME_GAP
@@ -311,7 +325,7 @@ function planLines(elements: PaneElements, row: AgentRow, layout: RowLayout): Re
       : tasks
   const room = elements.bodyColumns - DETAIL_INDENT - MARK_COLUMNS
   const taskLines = shown.map((task) => {
-    const { mark, color } = statusLook(task.status)
+    const { mark, color } = statusLook(task.status, elements.signals)
     return Box({
       key: `plan:${row.id}:${String(task.id)}`,
       flexDirection: 'row',
@@ -398,7 +412,7 @@ function callLine(
   now: number,
 ): RenderElement {
   const { Box, Text } = elements
-  const { mark, ...look } = CALL_LOOKS[call.outcome]
+  const { mark, ...look } = callLookOf(call.outcome, elements.signals)
   const age = callAge(call, now)
   const room = elements.bodyColumns - DETAIL_INDENT - CALL_INDENT - MARK_COLUMNS
   const callRoom = room - (age === '' ? 0 : CALL_GAP + Math.max(TIME_COLUMNS, displayWidth(age)))

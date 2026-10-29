@@ -1,4 +1,4 @@
-import type { AgentInfo, On, RenderPropsOf, RenderSurface } from 'claude-code'
+import type { AgentInfo, ConfigRow, On, RenderPropsOf, RenderSurface } from 'claude-code'
 import {
   describe,
   expect,
@@ -1454,4 +1454,46 @@ describe(LOW_CONTEXT_CRITERION, () => {
     expect(readProgress({ ...LANE_PROGRESS, context: { percent: '91' } })).toBeNull()
     expect(readProgress({ ...LANE_PROGRESS, context: { percent: 91, cents: 'x' } })).toBeNull()
   })
+})
+
+const NERD_OF_PLAIN: readonly (readonly [string, string])[] = [
+  ['▶', '\u{EB2C}'],
+  ['✓', '\u{EAB2}'],
+  ['○', '\u{EBB5}'],
+  ['■', '\u{EA87}'],
+  ['◆', '\u{EAA2}'],
+]
+
+const NERD_ROW: ConfigRow = {
+  key: 'handily.glyphs',
+  label: 'Glyphs',
+  kind: 'choice',
+  value: 'nerd',
+  options: ['plain', 'nerd'],
+  provider: { plugin: 'handily@niksavis', tier: 'user' },
+  isLocked: false,
+}
+
+function nerdSwapped(line: string): string {
+  return NERD_OF_PLAIN.reduce((text, [plain, nerd]) => text.replaceAll(plain, nerd), line)
+}
+
+describe('With glyphs nerd the this machine tab swaps each signal mark one for one on the terminal and draws plain on the desktop', () => {
+  for (const surface of SURFACES) {
+    for (const { columns, lines } of [
+      { columns: 41, lines: MOCK_41 },
+      { columns: 30, lines: MOCK_30 },
+    ] as const) {
+      test(`the cards of mock 8.1b at ${String(columns)} columns on ${surface}`, async ($, on) => {
+        const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
+        on('config.list', () => ({ value: [NERD_ROW] }))
+        await mockWork($, seen)
+        await showMachine($, seen)
+        await seen.clock.advance(12 * SECOND)
+        const drawn = await screenAt($, surface, 'dock', columns)
+        expect(drawn).toEqual(surface === 'terminal' ? lines.map(nerdSwapped) : lines)
+        expect(drawn.map(displayWidth)).toEqual(lines.map(displayWidth))
+      })
+    }
+  }
 })

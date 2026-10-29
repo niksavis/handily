@@ -147,7 +147,14 @@ import {
 } from './for-you'
 import { CHANGE_FAILED, refusedParts } from './replies'
 import type { ToastParts } from './toast'
-import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
+import {
+  drawnSignals,
+  keepChangedGlyphSetting,
+  keepGlyphSetting,
+  PLAIN_SIGNALS,
+  sessionSignals,
+  showGlyphToast,
+} from './toasting'
 import type {
   BoardCallRow,
   BoardChecks,
@@ -776,7 +783,7 @@ async function attentionNow(
   attention: AttentionKeep,
 ): Promise<string | undefined> {
   const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), await $.clock.now()) : []
-  const text = attentionText(rows)
+  const text = attentionText(rows, await sessionSignals($))
   if (text === undefined || (await isSessionTabSeen($))) return undefined
   return text
 }
@@ -897,7 +904,14 @@ async function noteVitals(
 }
 
 function vitalsText(vitals: Vitals, now: number): string {
-  const view = { vitals, waits: 0, checks: EMPTY_CHECKS, request: NO_REQUEST, now }
+  const view = {
+    vitals,
+    waits: 0,
+    checks: EMPTY_CHECKS,
+    request: NO_REQUEST,
+    now,
+    signals: PLAIN_SIGNALS,
+  }
   return `${sessionBlockText(view)}\n${detailsText(vitals, now)}`
 }
 
@@ -1372,7 +1386,7 @@ export const register: Register = (on, options) => {
   on('config.set', async ($, e, next) => {
     const result = await next(e)
     if (result.deny !== undefined) return result
-    await keepChangedGlyphSetting($, e)
+    if (await keepChangedGlyphSetting($, e)) await refreshStatus($, attention)
     return result
   })
 
@@ -1672,6 +1686,7 @@ export const register: Register = (on, options) => {
         return {
           text: statsText(
             await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend }),
+            await sessionSignals($),
           ),
         }
       case 'add':
@@ -1726,12 +1741,13 @@ export const register: Register = (on, options) => {
     }
     keepBandTime($, redraw, isTimed(view))
     const { Box, Text, Button } = $.ui.resolve(e)
+    const signals = await drawnSignals($, e.surface)
     const ui = uiOf($, notes, breakdown)
     const failed = (error: unknown) => {
       ui.log(`handily-board: the board did not open from the band: ${String(error)}`)
       ui.showToast(BOARD_NOT_OPENED)
     }
-    return drawBand({ Box, Text, Button }, view, e.props.bodyColumns, {
+    return drawBand({ Box, Text, Button, signals }, view, e.props.bodyColumns, {
       open: () => {
         showPane(ui, TASKS_PANE).then((opened) => {
           if (!opened.isPlaced) failed(opened.reason)
@@ -1766,7 +1782,11 @@ export const register: Register = (on, options) => {
     if (row === undefined) return next(e)
     const elements = $.ui.resolve(e)
     if (e.component === 'ToolResult') return elements.Box({})
-    const look = { elements, hasToolMarker: e.surface === 'terminal' }
+    const look = {
+      elements,
+      hasToolMarker: e.surface === 'terminal',
+      signals: await drawnSignals($, e.surface),
+    }
     return drawCallRow(look, row, e.viewport?.columns)
   })
 
@@ -1791,7 +1811,8 @@ export const register: Register = (on, options) => {
         },
       )
     }
-    const line = drawPlanLine({ Box, Text, Button }, { plan, isCurrent, tasksAfter }, add)
+    const signals = await drawnSignals($, e.surface)
+    const line = drawPlanLine({ Box, Text, Button, signals }, { plan, isCurrent, tasksAfter }, add)
     return Box({ flexDirection: 'column', children: [drawn, line] })
   })
 
@@ -1808,6 +1829,7 @@ export const register: Register = (on, options) => {
       bodyColumns,
       isInline: placement === 'inline',
       canFrame: e.surface === 'terminal',
+      signals: await drawnSignals($, e.surface),
     }
     const work = await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend })
     clearStatus($, attention)
@@ -1840,6 +1862,7 @@ export const register: Register = (on, options) => {
       isInline: placement === 'inline',
       expanded,
       toggle,
+      signals: await drawnSignals($, e.surface),
     }
     return drawMachine(elements, view, now)
   })

@@ -1,11 +1,12 @@
 import type { AgentLook, AgentRow } from './agents'
+import type { Signal, SignalLooks } from './signals'
 
 export const LANES_FROM = 80
 export const LANE_CELLS = 20
 
 const IDLE_CELL = '·'
 const RUN_CELL = '━'
-const END_MARKS: Partial<Record<AgentLook, string>> = { needsYou: '◆', failed: '■' }
+const END_MARKS: Partial<Record<AgentLook, Signal>> = { needsYou: 'waitsForYou', failed: 'blocked' }
 
 export type LaneAxis = { from: number; to: number }
 
@@ -26,11 +27,12 @@ function cellAt(axis: LaneAxis, at: number): number {
   return ((Math.min(at, axis.to) - axis.from) * LANE_CELLS) / span
 }
 
-export function laneOf(row: AgentRow, axis: LaneAxis): Lane {
+export function laneOf(row: AgentRow, axis: LaneAxis, signals: SignalLooks): Lane {
   const first = Math.min(Math.floor(cellAt(axis, row.startedAt)), LANE_CELLS - 1)
   const last = Math.max(first, Math.ceil(cellAt(axis, row.startedAt + row.ageMs)) - 1)
   const end = Math.min(last, LANE_CELLS - 1)
-  const mark = END_MARKS[row.look] ?? RUN_CELL
+  const ending = END_MARKS[row.look]
+  const mark = ending === undefined ? RUN_CELL : signals[ending].mark
   return {
     before: IDLE_CELL.repeat(first),
     run: RUN_CELL.repeat(end - first),

@@ -21,7 +21,7 @@ import type {
 } from './cards'
 import { fitParts } from './parts'
 import type { AgentSummary, SharedContext } from './progress'
-import { SIGNALS, type SignalLook, needsYouText } from './signals'
+import { SIGNALS, type Signal, type SignalLook, type SignalLooks, needsYouText } from './signals'
 import { escaped, statusLook } from './tasks'
 import { dollars, highText } from './vitals'
 import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './width'
@@ -34,6 +34,7 @@ export type MachineElements = {
   isInline: boolean
   expanded: ReadonlySet<string>
   toggle: (key: string) => void
+  signals: SignalLooks
 }
 
 type Layout = { columns: number; isNarrow: boolean; isRow: boolean }
@@ -66,12 +67,12 @@ const AGENT_NAME_WIDTH = 14
 const NARROW_NAME_WIDTH = 13
 const DESKTOP_LINE = 'Other sessions are listed only in a terminal session.'
 
-const ATTENTION_LOOKS: Record<Attention, SignalLook> = {
-  needsYou: SIGNALS.waitsForYou,
-  failed: SIGNALS.blocked,
-  working: SIGNALS.doing,
-  idle: SIGNALS.toDo,
-  ended: SIGNALS.done,
+const ATTENTION_SIGNALS: Record<Attention, Signal> = {
+  needsYou: 'waitsForYou',
+  failed: 'blocked',
+  working: 'doing',
+  idle: 'toDo',
+  ended: 'done',
 }
 
 const BADGES: Record<SessionKind, string> = { interactive: 'interactive', background: 'background' }
@@ -165,14 +166,14 @@ function placeText(card: SessionCard, layout: Layout): string {
   return [card.place, time, est].filter((part) => part !== null && part !== '').join(SEPARATOR)
 }
 
-function taskLook(task: Extract<CardTask, { kind: 'task' }>): SignalLook {
-  return task.status === null ? SIGNALS.done : statusLook(task.status)
+function taskLook(task: Extract<CardTask, { kind: 'task' }>, signals: SignalLooks): SignalLook {
+  return task.status === null ? signals.done : statusLook(task.status, signals)
 }
 
-function taskParts(task: CardTask, columns: number): Part[] {
+function taskParts(task: CardTask, columns: number, signals: SignalLooks): Part[] {
   if (task.kind === 'none') return []
   if (task.kind === 'empty') return [{ text: 'no tasks', dimColor: true }]
-  const look = taskLook(task)
+  const look = taskLook(task, signals)
   const title = task.title === null ? `all ${String(task.total)} done` : escaped(task.title)
   const progress = ` ${progressBar(task.done, task.total)} ${String(task.done)}/${String(task.total)}`
   const lead = `${look.mark} `
@@ -235,8 +236,8 @@ function waitParts(reason: string): Part[] {
   return [{ text: 'waits for: ', dimColor: true }, { text: escaped(reason) }]
 }
 
-function cardHeadParts(card: SessionCard, layout: Layout): Part[] {
-  const look = ATTENTION_LOOKS[card.attention]
+function cardHeadParts(card: SessionCard, layout: Layout, signals: SignalLooks): Part[] {
+  const look = signals[ATTENTION_SIGNALS[card.attention]]
   const badges: Part[] = [
     ...(card.kind === null || layout.isNarrow
       ? []
@@ -255,9 +256,9 @@ function cardHeadParts(card: SessionCard, layout: Layout): Part[] {
   ]
 }
 
-function agentLook(agent: AgentSummary): SignalLook {
-  if (agent.needsYou === true) return SIGNALS.waitsForYou
-  return agent.isFailed ? SIGNALS.blocked : SIGNALS.doing
+function agentLook(agent: AgentSummary, signals: SignalLooks): SignalLook {
+  if (agent.needsYou === true) return signals.waitsForYou
+  return agent.isFailed ? signals.blocked : signals.doing
 }
 
 function agentTask(agent: AgentSummary): Part {
@@ -276,8 +277,9 @@ function agentRowParts(
   name: string,
   columns: number,
   widths: { name: number; count: number },
+  signals: SignalLooks,
 ): Part[] {
-  const look = agentLook(agent)
+  const look = agentLook(agent, signals)
   const mark = `${look.mark} `
   const task = agentTask(agent)
   const room = Math.max(columns - displayWidth(mark) - widths.name - GAP.length - widths.count, 0)
@@ -348,7 +350,7 @@ function agentRowLines(
       drawParts(
         elements,
         `card:${card.key}:agent:${String(index)}`,
-        agentRowParts(agent, names[index] ?? '', layout.columns - indent, widths),
+        agentRowParts(agent, names[index] ?? '', layout.columns - indent, widths, elements.signals),
         layout.columns,
         indent,
       ),
@@ -431,12 +433,12 @@ function cardLines(elements: MachineElements, card: SessionCard, layout: Layout)
   const key = `card:${card.key}`
   const { columns } = layout
   const detail = columns - CARD_INDENT
-  const task = taskParts(card.task, detail)
+  const task = taskParts(card.task, detail, elements.signals)
   return elements.Box({
     key,
     flexDirection: 'column',
     children: [
-      drawParts(elements, `${key}:head`, cardHeadParts(card, layout), columns),
+      drawParts(elements, `${key}:head`, cardHeadParts(card, layout, elements.signals), columns),
       ...detailLines(elements, card, layout, CARD_INDENT),
       ...(task.length === 0
         ? []
@@ -479,8 +481,13 @@ function rowWidths(cards: readonly SessionCard[]): RowWidths {
   }
 }
 
-function rowParts(card: SessionCard, widths: RowWidths, columns: number): Part[] {
-  const look = ATTENTION_LOOKS[card.attention]
+function rowParts(
+  card: SessionCard,
+  widths: RowWidths,
+  columns: number,
+  signals: SignalLooks,
+): Part[] {
+  const look = signals[ATTENTION_SIGNALS[card.attention]]
   const badge = card.kind === null ? '' : ROW_BADGES[card.kind]
   const tail = ` ${rowCount(card.task).padStart(widths.count)} ${rowTime(card.time).padStart(ROW_TIME_WIDTH)}`
   const mark = `${look.mark} `
@@ -507,7 +514,12 @@ function rowLines(
     key,
     flexDirection: 'column',
     children: [
-      drawParts(elements, `${key}:head`, rowParts(card, widths, layout.columns), layout.columns),
+      drawParts(
+        elements,
+        `${key}:head`,
+        rowParts(card, widths, layout.columns, elements.signals),
+        layout.columns,
+      ),
       ...detailLines(elements, card, layout, ROW_INDENT),
       ...contextLines(elements, card, layout, ROW_INDENT),
       ...rowAgentLines(elements, card, layout),

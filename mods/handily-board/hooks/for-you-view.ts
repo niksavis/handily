@@ -2,7 +2,7 @@ import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardList, BoardTask } from '../types'
 import { elapsedText } from './activity'
 import type { PaneElements, RowLayout } from './pane'
-import { SIGNALS } from './signals'
+import { SIGNALS, type SignalLooks } from './signals'
 import { escaped, isForPerson } from './tasks'
 import { displayWidth, fitted } from './width'
 
@@ -50,13 +50,19 @@ function isSettled(task: BoardTask): boolean {
   return task.result !== undefined
 }
 
-function markOf(task: BoardTask): { mark: string; color: ThemeKey | undefined } {
-  if (task.isWithdrawn === true) return { mark: SIGNALS.toDo.mark, color: undefined }
-  if (!task.result) return SIGNALS.waitsForYou
-  return task.result.verb === 'rejected' ? SIGNALS.blocked : SIGNALS.done
+function markOf(
+  task: BoardTask,
+  signals: SignalLooks,
+): { mark: string; color: ThemeKey | undefined } {
+  if (task.isWithdrawn === true) return { mark: signals.toDo.mark, color: undefined }
+  if (!task.result) return signals.waitsForYou
+  return task.result.verb === 'rejected' ? signals.blocked : signals.done
 }
 
-function headParts(asked: readonly BoardTask[]): { text: string; style: TextStyle }[] {
+function headParts(
+  asked: readonly BoardTask[],
+  signals: SignalLooks,
+): { text: string; style: TextStyle }[] {
   const live = asked.filter((task) => task.isWithdrawn !== true)
   const open = live.filter((task) => !isSettled(task)).length
   const toSend = live.filter((task) => task.result?.isSent === false).length
@@ -64,8 +70,8 @@ function headParts(asked: readonly BoardTask[]): { text: string; style: TextStyl
   const parts: { text: string; style: TextStyle }[] = []
   if (open > 0) {
     parts.push({
-      text: `${SIGNALS.waitsForYou.mark} ${String(open)} open`,
-      style: { color: SIGNALS.waitsForYou.color },
+      text: `${signals.waitsForYou.mark} ${String(open)} open`,
+      style: { color: signals.waitsForYou.color },
     })
   }
   if (toSend > 0) {
@@ -76,8 +82,8 @@ function headParts(asked: readonly BoardTask[]): { text: string; style: TextStyl
   }
   if (parts.length === 0 && sent > 0) {
     parts.push({
-      text: `${SIGNALS.done.mark} all ${String(sent)} answered`,
-      style: { color: SIGNALS.done.color },
+      text: `${signals.done.mark} all ${String(sent)} answered`,
+      style: { color: signals.done.color },
     })
   }
   if (parts.length === 0) parts.push({ text: 'none open', style: { dimColor: true } })
@@ -92,7 +98,9 @@ function drawHead(elements: PaneElements, asked: readonly BoardTask[]): RenderEl
     children: [
       Text({ bold: true, children: 'For you' }),
       Text({ children: '  ' }),
-      ...headParts(asked).map((part) => Text({ ...part.style, children: part.text })),
+      ...headParts(asked, elements.signals).map((part) =>
+        Text({ ...part.style, children: part.text }),
+      ),
     ],
   })
 }
@@ -105,7 +113,7 @@ function rowLine(
 ): { line: RenderElement; isCut: boolean } {
   const { Box, Text, Button } = elements
   const isWide = elements.bodyColumns >= WIDE_FROM
-  const { mark, color } = markOf(task)
+  const { mark, color } = markOf(task, elements.signals)
   const isDim = task.isWithdrawn === true
   const lead = `${mark} ${String(task.id).padStart(idWidth)} `
   const kind = `${(task.kind ?? 'do').padEnd(KIND_WIDTH)}${isWide ? '  ' : ' '}`
@@ -164,7 +172,7 @@ function buttonRow(elements: PaneElements, key: string, buttons: readonly Render
 
 function noteLine(elements: PaneElements, id: number, note: string): RenderElement {
   const { Box, Text } = elements
-  const lead = `${SIGNALS.blocked.mark} ${NOT_SENT}`
+  const lead = `${elements.signals.blocked.mark} ${NOT_SENT}`
   const room = elements.bodyColumns - UNDER_INDENT - displayWidth(lead) - 1
   return Box({
     key: `note:${String(id)}`,

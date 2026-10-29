@@ -54,7 +54,7 @@ import {
 } from './for-you'
 import { drawForYou } from './for-you-view'
 import { AGENTS_VIEW_FAILED, CHANGE_FAILED, FILES_VIEW_FAILED, refusedParts } from './replies'
-import { SIGNALS } from './signals'
+import { SIGNALS, type SignalLooks } from './signals'
 import {
   doneCount,
   isAllDone,
@@ -93,6 +93,7 @@ export type PaneElements = {
   bodyColumns: number
   isInline: boolean
   canFrame: boolean
+  signals: SignalLooks
 }
 
 export type PaneWork = {
@@ -388,10 +389,10 @@ function runningAside(task: BoardTask, work: PaneWork): Cell | undefined {
   return { text: elapsedText(work.now - clock.startedAt), style }
 }
 
-function taskCells(task: BoardTask, numberWidth: number): Cell[] {
+function taskCells(task: BoardTask, numberWidth: number, signals: SignalLooks): Cell[] {
   const isDone = task.status === 'completed'
   const isActive = task.status === 'in_progress'
-  const { mark, color } = statusLook(task.status)
+  const { mark, color } = statusLook(task.status, signals)
   const author = shownAuthor(task.by)
   return [
     { text: `${mark} `, style: { color } },
@@ -413,7 +414,7 @@ function moveKey(direction: MoveDirection, id: number, place: number): string {
 function taskRow(
   host: TaskHost,
   task: BoardTask,
-  numberWidth: number,
+  cells: Cell[],
   work: PaneWork,
   act: Act,
   taskUi: TaskUi,
@@ -464,7 +465,6 @@ function taskRow(
       )
     },
   }
-  const cells = taskCells(task, numberWidth)
   return {
     key: `task:${id}`,
     cells,
@@ -565,14 +565,23 @@ function drawTasks(
   const isDoneShown = layout.expanded.has(DONE_GROUP)
   const numberWidth = column(list.tasks.map((task) => String(task.id)))
   const rowOf = (task: BoardTask, detail?: Cell) =>
-    taskRow(host, task, numberWidth, work, act, taskUi, list.tasks.indexOf(task), detail)
+    taskRow(
+      host,
+      task,
+      taskCells(task, numberWidth, elements.signals),
+      work,
+      act,
+      taskUi,
+      list.tasks.indexOf(task),
+      detail,
+    )
   const draw = (task: BoardTask) => drawRow(elements, rowOf(task), layout)
   const first = running[0]
   const doneCountText = String(done.length)
   const drawFirst = (task: BoardTask) => {
     if (elements.isInline)
       return drawRow(elements, rowOf(task, inlineCallDetail(task, work)), layout)
-    const indent = cellsWidth(taskCells(task, numberWidth))
+    const indent = cellsWidth(taskCells(task, numberWidth, elements.signals))
     const lastCall = drawRow(elements, lastCallRow(task, indent, work), layout)
     return drawRow(elements, rowOf(task), layout, lastCall)
   }
@@ -611,7 +620,7 @@ function nowRow(elements: PaneElements, work: PaneWork, layout: RowLayout): Rend
     {
       key: 'now',
       cells: [
-        { text: `${SIGNALS.doing.mark} `, style: { color: SIGNALS.doing.color } },
+        { text: `${elements.signals.doing.mark} `, style: { color: elements.signals.doing.color } },
         { text: 'Now  ', style: { bold: true } },
       ],
       title: callText(activity.last),
@@ -631,7 +640,7 @@ function drawNow(elements: PaneElements, work: PaneWork, layout: RowLayout): Ren
   const counts = activity.perTool
     .map((count) => `${escaped(count.tool)} ${String(count.calls)}`)
     .join(' · ')
-  const indent = displayWidth(`${SIGNALS.doing.mark} `)
+  const indent = displayWidth(`${elements.signals.doing.mark} `)
   return [
     now,
     Box({
@@ -771,6 +780,7 @@ function drawSession(
     checks: work.checks,
     request: work.request,
     now: work.now,
+    signals: elements.signals,
   }
   const lines = isFramedHere
     ? framedLines(view, inner.bodyColumns)
@@ -815,8 +825,8 @@ function finishTime(activity: BoardActivity): string | undefined {
   return elapsedText(doneAt - start)
 }
 
-function finishParts(total: number, activity: BoardActivity): HeaderPart[] {
-  const { mark, color } = SIGNALS.done
+function finishParts(total: number, activity: BoardActivity, signals: SignalLooks): HeaderPart[] {
+  const { mark, color } = signals.done
   const spent = finishTime(activity)
   return [
     { text: `${mark} all ${String(total)} done`, color },
@@ -824,10 +834,10 @@ function finishParts(total: number, activity: BoardActivity): HeaderPart[] {
   ]
 }
 
-function countParts(doing: number, toDo: number): HeaderPart[] {
+function countParts(doing: number, toDo: number, signals: SignalLooks): HeaderPart[] {
   const counts = [
-    { text: `${SIGNALS.doing.mark}${String(doing)}`, color: SIGNALS.doing.color, count: doing },
-    { text: `${SIGNALS.toDo.mark}${String(toDo)}`, color: SIGNALS.toDo.color, count: toDo },
+    { text: `${signals.doing.mark}${String(doing)}`, color: signals.doing.color, count: doing },
+    { text: `${signals.toDo.mark}${String(toDo)}`, color: signals.toDo.color, count: toDo },
   ].filter((part) => part.count > 0)
   return counts.flatMap(({ text, color }, index) => [
     dimPart(index === 0 ? PART_LEAD : ' '),
@@ -835,14 +845,14 @@ function countParts(doing: number, toDo: number): HeaderPart[] {
   ])
 }
 
-function summaryParts(list: BoardList, work: PaneWork): HeaderPart[] {
+function summaryParts(list: BoardList, work: PaneWork, signals: SignalLooks): HeaderPart[] {
   const { activity } = work
   const total = list.tasks.length
   if (total === 0) {
     return [dimPart(activity.calls > 0 ? 'none kept by Claude' : 'none in this session yet')]
   }
   const done = doneCount(list)
-  if (isAllDone(list)) return finishParts(total, activity)
+  if (isAllDone(list)) return finishParts(total, activity, signals)
   const doing = list.tasks.filter((task) => task.status === 'in_progress').length
   const cells = barCells(done, doing, total)
   return [
@@ -850,20 +860,20 @@ function summaryParts(list: BoardList, work: PaneWork): HeaderPart[] {
     { text: BAR_FILLED.repeat(cells.doing), color: SIGNALS.doing.color },
     dimPart(BAR_EMPTY.repeat(cells.toDo)),
     dimPart(` ${String(done)}/${String(total)}`),
-    ...countParts(doing, total - done - doing),
+    ...countParts(doing, total - done - doing, signals),
     ...(activity.firstAt === null
       ? []
       : [dimPart(`${PART_LEAD}${elapsedText(work.now - activity.firstAt)}`)]),
   ].filter((part) => part.text !== '')
 }
 
-function headerParts(list: BoardList, work: PaneWork): HeaderPart[] {
-  return [titlePart(TASKS_LOOK), dimPart('  '), ...summaryParts(list, work)]
+function headerParts(list: BoardList, work: PaneWork, signals: SignalLooks): HeaderPart[] {
+  return [titlePart(TASKS_LOOK), dimPart('  '), ...summaryParts(list, work, signals)]
 }
 
 function drawHeader(elements: PaneElements, list: BoardList, work: PaneWork): RenderElement {
   const { Box, Text } = elements
-  const parts = headerParts(list, work)
+  const parts = headerParts(list, work, elements.signals)
   return Box({
     key: 'tasks-header',
     flexDirection: 'row',
@@ -960,7 +970,7 @@ export async function drawPane(
         ...drawTracker(inner, host, await trackerView(host), act, layout),
       ]
   const tasks = isFramedHere
-    ? [drawFrame(elements, 'tasks', TASKS_LOOK, headerParts(list, work), body)]
+    ? [drawFrame(elements, 'tasks', TASKS_LOOK, headerParts(list, work, elements.signals), body)]
     : [drawHeader(elements, list, work), ...body]
   const countParts = () => {
     act(async () => {

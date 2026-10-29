@@ -1488,7 +1488,7 @@ const DRAW_WORK_CRITERION =
 
 const TASKS_PER_AGENT = 20
 const ROWS_OF_ACTIVE_AGENTS = 6
-const STATE_READS_PER_DRAW = 6
+const STATE_READS_PER_DRAW: Record<Surface, number> = { terminal: 7, desktop: 6 }
 const SLOW_RUNNER_FILL_TIMEOUT_MS = 30_000
 const withRoomToFillAgents = { ...withWorkitems, timeoutMs: SLOW_RUNNER_FILL_TIMEOUT_MS }
 
@@ -1508,7 +1508,7 @@ async function fillAgents($: Engine, seen: World, count: number): Promise<void> 
 describe(DRAW_WORK_CRITERION, () => {
   for (const agents of [1, 30]) {
     test(
-      `a draw with ${String(agents)} agents of ${String(TASKS_PER_AGENT)} tasks reads the state ${String(STATE_READS_PER_DRAW)} times`,
+      `a draw with ${String(agents)} agents of ${String(TASKS_PER_AGENT)} tasks reads the state 7 times on terminal, with the glyph setting, and 6 times on desktop`,
       withRoomToFillAgents,
       async ($, on) => {
         const seen = world(on)
@@ -1531,7 +1531,8 @@ describe(DRAW_WORK_CRITERION, () => {
 
           const plans = lines.filter((line) => line.includes(`plan 0/${String(TASKS_PER_AGENT)}`))
           expect(plans).toHaveLength(Math.min(agents, ROWS_OF_ACTIVE_AGENTS))
-          expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW)
+          expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW[surface])
+          expect(reads.includes(`${PLUGIN}:glyphs`)).toBe(surface === 'terminal')
           await ui.unmount()
         }
       },
@@ -1539,7 +1540,7 @@ describe(DRAW_WORK_CRITERION, () => {
   }
 
   test(
-    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 6 times from the second',
+    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 7 times on terminal and 6 on desktop from the second',
     withRoomToFillAgents,
     async ($, on) => {
       const agents = 30
@@ -1567,7 +1568,7 @@ describe(DRAW_WORK_CRITERION, () => {
       isCounting = false
       expect(planRows(await screen(first, 41))).toHaveLength(ROWS_OF_ACTIVE_AGENTS)
       expect(reads.filter((read) => read === `${PLUGIN}:agentList`)).toHaveLength(agents)
-      expect(reads).toHaveLength(STATE_READS_PER_DRAW + agents)
+      expect(reads).toHaveLength(STATE_READS_PER_DRAW.terminal + agents)
       await first.press({ key: 'group:more-agents' })
       expect(planRows(await screen(first, 41))).toHaveLength(agents)
       await first.unmount()
@@ -1578,7 +1579,7 @@ describe(DRAW_WORK_CRITERION, () => {
         const ui = await mountTab($, surface, 'dock', 41)
         isCounting = false
         expect(planRows(await screen(ui, 41))).toHaveLength(agents)
-        expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW)
+        expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW[surface])
         await ui.unmount()
       }
     },
