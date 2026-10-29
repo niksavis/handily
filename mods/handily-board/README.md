@@ -79,6 +79,8 @@ Replies, from the tests:
   Session  ◆ 1 waits · ctx 62% · $4.80 · last +$0.62
       ◆ scout waits for permission: Bash npm test
       context 124k of 200k · 1 compaction
+      trend after 2 turns
+      no breakdown on this host
       last turn 3m · +$0.62 · 1 edit · 0 errors · 1 agent spawned
       limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d
       checks 2 · 1 allowed · 1 asked
@@ -91,6 +93,29 @@ Replies, from the tests:
   agent line has the state of its row, such as `slow 45s`, and the context of its latest model
   request, or `ctx —` before the first one. When the host gives no usage, the first line is
   `Session  no context or cost on this host`, and the reply shows no context, cost or limit.
+
+  The reply counts the context parts each time, and prints every part. A reply from the tests,
+  on a host that gives the parts:
+
+  ```text
+  Session  ctx 62% · $1.70 · last +$0.10
+      context 124k of 200k · 0 compactions
+      trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn
+      auto-compact at 167k · in ~7 turns
+      Messages              71k  36%
+      System tools          18k   9%
+      MCP tools             12k   6%
+      Memory files           9k   5%
+      Custom agents          5k   3%
+      Skills                 4k   2%
+      System prompt          3k   2%
+      Plugins                2k   1%
+      free 43k · compact buffer 33k
+      estimated; /context counts exactly
+      last turn 1m · +$0.10 · 0 edits · 0 errors · 0 agents spawned
+      limits: none reported
+  No agents yet.
+  ```
 
 - A change that you make, by a command or a button, waits for your next prompt. That prompt
   carries one note for Claude, beside the prompt, that starts with `[handily-board]`. The note
@@ -418,11 +443,14 @@ Session  ctx 80% high · $12.40
 
 ### The Session details
 
-Press the Session line to open its details. A capture from the tests, docked at 41 columns:
+Press the Session line to open its details. A capture from the tests, docked at 41 columns, on a
+host that gives no context parts:
 
 ```text
 Session  ctx 62% · $4.80 · last +$0.62
     context 124k of 200k · 1 compaction
+    trend after 2 turns
+    no breakdown on this host
     last turn 3m · +$0.62 · 3 edits
     0 errors · 2 agents spawned
     limits 5h 31% · 7d 13%
@@ -436,15 +464,60 @@ Near the limit, captured from the tests at 41 columns:
 ```text
 Session  ctx 91% high · $12.40
     context 182k of 200k · 2 compactions
+    trend after 2 turns
+    no breakdown on this host
     Claude Code compacts it near the
     limit. /compact or /clear frees it.
     last turn 6m · +$1.90 · 9 edits
+```
+
+After 8 main turns on a host that gives the context parts, with `[ context parts ]` pressed,
+captured from the tests at 41 columns:
+
+```text
+Session  ctx 62% · $1.70 · last +$0.10
+    context 124k of 200k · 0 compactions
+    trend ▁▂▄▄▅▅▅▅ 8 turns · +6k a turn
+    auto-compact at 167k · in ~7 turns
+    [ hide parts ]
+    Messages              71k  36%
+    System tools          18k   9%
+    MCP tools             12k   6%
+    Memory files           9k   5%
+    Custom agents          5k   3%
+    Skills                 4k   2%
+    System prompt          3k   2%
+    [ +1 more part ]
+    free 43k · compact buffer 33k
+    estimated; /context counts exactly
 ```
 
 - `context 124k of 200k` is the context of the window, from `context.tokens` and
   `context.window` of `session.measure`. `1 compaction` counts each compaction of the main
   conversation that the engine event `session.compact` reports as done. A compaction of a
   subagent, a `precompute` and a skipped compaction do not count.
+- `trend` has one bar for each main turn: `context.tokens` at the end of the turn, against the
+  window. It keeps the last 20 turns. `+6k a turn` is the mean growth of the last 5 main turns.
+  A turn of a subagent adds no bar. A compaction of the main conversation starts the trend again
+  from the next reading. Before 2 readings the line reads `trend after 2 turns`, and a trend that
+  does not grow reads `no growth`.
+- `auto-compact at 167k` is the threshold of the context parts. `in ~7 turns` is the room left
+  under it, from the last bar, divided by the mean growth. The count is approximate, because the
+  parts count against the compaction window and the bars against the model window. From 2 turns
+  left the line reads `auto-compact soon: ~2 turns`, with `soon` in the theme colour `warning`.
+  With auto-compact off the line reads `auto-compact is off`.
+- The board counts the parts with `$.session.usage({ breakdown: 'summary' })`. That is a local
+  estimate with no request to the model. It counts them when you open the details or press
+  `[ context parts ]`, and again at the end of each main turn while the details are open. It
+  never counts them while the details are closed, and it starts no timer.
+- `[ context parts ]` lists each used part with the name that Claude Code gives it, its tokens and
+  its percent of the compaction window, the largest first. It shows 7 lines, then
+  `[ +1 more part ]`. From 76 columns it shows two parts on a line. `free` is the free space and
+  `compact buffer` the reserve for the compaction. Tool schemas loaded on demand add
+  `on demand 20k, not in the window`. `/context` counts the parts exactly.
+- A host that gives no parts shows `no breakdown on this host`, with no number and no button. A
+  count that fails shows `parts failed; /context shows them`, and a row in the transcript names
+  the cause.
 - From 80 percent, the details add that Claude Code compacts the context near the limit, and that
   `/compact` or `/clear` frees it.
 - `last turn 3m` is the duration of the last main turn, from `turn.complete`. `+$0.62` is the
@@ -463,8 +536,13 @@ Session  ctx 91% high · $12.40
   no usage, the details show no context, and they show the limits only when a measure carried
   some.
 - The permission checks follow. A later section describes them.
-- A narrow tab moves each part that does not fit to the next line. The tests check the details
-  at 30, 41 and 76 columns.
+- A narrow tab moves each part that does not fit to the next line. The trend, the auto-compact
+  line and the parts take a shorter form, such as `compact at 167k · ~7 turns`. The tests check
+  the details at 30, 41 and 76 columns.
+- The trend and the context parts follow glowup and claude-flightdeck
+  (github.com/scasella/claude-flightdeck), both MIT. The survey of
+  github.com/karanb192/awesome-claude-code-mods found them on 2026-10-28. handily only read them.
+  It copies no code and adds no dependency.
 - The board draws again when a compaction or a measure changes the details.
 
 ### The status line

@@ -1,16 +1,19 @@
 import type { RenderElement, SessionRateLimit, ThemeKey } from 'claude-code'
 import type { BoardChecks } from '../types'
 import { elapsedText } from './activity'
+import { type ContextView, contextPartsText, drawContextParts } from './breakdown'
 import { drawChecks } from './checks'
 import type { PaneElements, RowLayout } from './pane'
-import { type Part, PART_LEAD, drawPartLines } from './parts'
+import { type Part, PART_LEAD, drawFitLine, drawPartLines, fitLineText } from './parts'
 import { escaped } from './tasks'
 import { tokensText } from './tokens'
+import { trendLine } from './trend'
 import { type LastTurn, type Vitals, dollars, hasReading, highPercent, lastCents } from './vitals'
 
 export const SESSION_DETAILS = 'session:details'
 
 const DETAIL_INDENT = 4
+const CONTEXT_GROUP = 'session-context'
 const WORD_LEAD = ' '
 const ERROR_COLOR: ThemeKey = 'error'
 const NEAR_LIMIT_NOTE = 'Claude Code compacts it near the limit. /compact or /clear frees it.'
@@ -26,6 +29,8 @@ export type SessionDetails = {
   checks: BoardChecks
   names: ReadonlyMap<string, string>
   now: number
+  context: ContextView
+  count: () => void
 }
 
 type Group = { key: string; parts: readonly Part[]; lead: string }
@@ -96,7 +101,7 @@ function limitsParts(vitals: Vitals, now: number): Part[] {
 function detailGroups(vitals: Vitals, now: number): Group[] {
   const { lastTurn } = vitals
   return [
-    { key: 'session-context', parts: contextParts(vitals), lead: PART_LEAD },
+    { key: CONTEXT_GROUP, parts: contextParts(vitals), lead: PART_LEAD },
     { key: 'session-near-limit', parts: nearLimitParts(vitals), lead: WORD_LEAD },
     {
       key: 'session-turn',
@@ -107,9 +112,29 @@ function detailGroups(vitals: Vitals, now: number): Group[] {
   ].filter((group) => group.parts.length > 0)
 }
 
-export function detailsText(vitals: Vitals, now: number): string {
+function groupText(group: Group): string {
+  return group.parts.map((part) => part.text).join(group.lead)
+}
+
+function hasContextLines(group: Group): boolean {
+  return group.key === CONTEXT_GROUP
+}
+
+function contextTrend(vitals: Vitals, context: ContextView) {
+  return trendLine(context.trend, vitals.window, hasReading(vitals))
+}
+
+export function detailsText(vitals: Vitals, now: number, context?: ContextView): string {
   return detailGroups(vitals, now)
-    .map((group) => group.parts.map((part) => part.text).join(group.lead))
+    .flatMap((group) =>
+      context !== undefined && hasContextLines(group)
+        ? [
+            groupText(group),
+            fitLineText(contextTrend(vitals, context)),
+            ...contextPartsText(context),
+          ]
+        : [groupText(group)],
+    )
     .join('\n')
 }
 
@@ -123,14 +148,22 @@ export function drawSessionDetails(
   layout: RowLayout,
 ): RenderElement {
   const room = elements.bodyColumns - DETAIL_INDENT
+  const { vitals, context } = details
+  const press = { layout, count: details.count }
   return elements.Box({
     key: 'session-details',
     flexDirection: 'column',
     paddingLeft: DETAIL_INDENT,
     children: [
-      ...detailGroups(details.vitals, details.now).flatMap((group) =>
-        drawPartLines(elements, group.key, group.parts, room, group.lead),
-      ),
+      ...detailGroups(vitals, details.now).flatMap((group) => [
+        ...drawPartLines(elements, group.key, group.parts, room, group.lead),
+        ...(hasContextLines(group)
+          ? [
+              drawFitLine(elements, contextTrend(vitals, context), room),
+              ...drawContextParts(elements, context, press, room),
+            ]
+          : []),
+      ]),
       ...drawChecks(elements, details.checks, details.names, layout, room),
     ],
   })

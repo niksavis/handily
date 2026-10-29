@@ -47,6 +47,7 @@ export type PaneUi = {
   log: (text: string) => void
   notes: () => ReadonlyMap<number, string>
   noteRow: (id: number, note: string | undefined) => void
+  countParts: () => Promise<void>
 }
 
 function isBoardPane(pane: OpenPane): boolean {
