@@ -6,6 +6,24 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.13.0 - 2026-10-29
+
+### Added
+
+- **board gives a task a new title with `/board edit`.** `/board edit <n> <title>` changes the
+  title of task `n` in place, and Claude reads the change in the note at your next prompt. An
+  empty title, a title of more than 200 characters and a title with a control character are
+  refused by name, and the old title stays (handily-9uj3n.4).
+- **board lets Claude add several tasks in one call at a chosen place.** `task_add` takes
+  `titles`, a list of tasks in the order of the work, and `before`, the id of the task that the
+  new tasks go before. The answer names the new ids. A batch that would pass the limit of 100
+  tasks, or that holds one bad title, is refused whole and adds nothing (handily-9uj3n.5).
+- **board shows progress, a stalled task and a finished plan in the task header.** The header
+  draws a bar split into done, in progress and pending tasks, with their counts, for example
+  `Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m`. The time of a task in progress turns to the warning colour
+  when its current run passes 15 minutes. When every task is done, the header shows
+  `✓ all 4 done` and the time until the last task was done (handily-9uj3n.6).
+
 ## handily-simple-view 0.9.0 - 2026-10-29
 
 ### Added
