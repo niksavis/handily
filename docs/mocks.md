@@ -3410,3 +3410,443 @@ picked or in view. The counts include the files that the agent filter hides.
 │     register.tsx          ◦ scout     40s │
 ╰───────────────────────────────────────────╯
 ```
+
+---
+
+## 11. Glyph sets: plain marks and Nerd Font icons (approved 2026-10-29)
+
+Approved by the person on 2026-10-29 (handily-5jdtf), with each recommendation of the design.
+The decisions, the table of roles and the gate are in docs/design.md section 2, "Glyph sets".
+
+### 11.0 Conventions
+
+- The legend at the top of this file applies, and the mocks are written plain, as in sections
+  8.0 and 9.0. A note right of a frame explains the mock. The mod does not draw it.
+- A private-use character draws as a box in GitHub, in most editors and in most terminals. So
+  the nerd mocks write each icon as a circled letter that is one column wide. The circled
+  letters stand in for the icons, as this legend shows:
+
+```text
+Ⓟ  doing          nf-cod-play          U+EB2C
+Ⓒ  done           nf-cod-check         U+EAB2
+Ⓞ  to do          nf-cod-circle_large  U+EBB5
+Ⓧ  blocked        nf-cod-error         U+EA87
+Ⓑ  waits for you  nf-cod-bell          U+EAA2
+Ⓔ  edited         nf-cod-edit          U+EA73
+Ⓡ  read           nf-cod-eye           U+EA70
+Ⓕ  closed folder  nf-fa-folder         U+F07B
+ⓕ  open folder    nf-fa-folder_open    U+F07C
+Ⓨ  branch         nf-oct-git_branch    U+F418
+Ⓚ  Markdown file  (Alt B only, not built)
+Ⓢ  TypeScript     (Alt B only, not built)
+▯  a missing glyph: a box or a blank cell
+```
+
+- The stand-ins are U+24B6 to U+24E9. None of the letters used is an emoji. Ⓜ is an emoji, so
+  no mock uses it.
+- The nerd set swaps one mark for one mark. So the widths, the cuts and the folds are the same in
+  both sets. Inline 76, the this machine cards, the plan block, tasks for you and the band
+  follow the same swap, so these mocks do not draw them again. Empty, loading and error states
+  draw the same words in both sets.
+- A script measured every frame line: 45 columns at body 41, 34 at body 30, 28 at body 24 and 44
+  for a toast box. A transcript line is at most 41 columns.
+
+### 11.1 Board, this session, body 41
+
+Plain, the same as the approved 8.2a:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│     ▸ Edit docs/mocks.md          9 tools │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
+│ ○ 4 You: Ask the person about tabs [ rm ] │
+│ [ +1 done ]                               │
+│ ───────────────────────────────────────── │
+│ Agents  3 · 1 needs you · 1 failed        │
+│ ◆ scout     needs you                  2m │
+│     waits for: permission · Bash npm t…   │
+│ ■ lane-b    failed                     4m │
+│     failed after Bash npm test            │
+│ ▶ Explore   plan 2/7  ▸ Grep ho… open  1m │
+│ [ +2 ended ]                              │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+Nerd:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Tasks  ▰▰▱▱ 1/4 · Ⓟ1 Ⓞ2 · 14m             │
+│ Ⓟ 2 Write the tab mocks         4m [ rm ] │
+│     ▸ Edit docs/mocks.md          9 tools │  ▸ stays: it means "runs now"
+│ Ⓞ 3 Review the mocks with Codex    [ rm ] │
+│ Ⓞ 4 You: Ask the person about tabs [ rm ] │
+│ [ +1 done ]                               │
+│ ───────────────────────────────────────── │
+│ Agents  3 · 1 needs you · 1 failed        │
+│ Ⓑ scout     needs you                  2m │
+│     waits for: permission · Bash npm t…   │
+│ Ⓧ lane-b    failed                     4m │
+│     failed after Bash npm test            │
+│ Ⓟ Explore   plan 2/7  ▸ Grep ho… open  1m │
+│ [ +2 ended ]                              │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+Nerd, with the Explore row pressed open (its plan steps):
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Ⓟ Explore   plan 2/7  ▸ Grep ho… open  1m │
+│     find the element table                │
+│     under scout · spawned 1m ago          │
+│     7 tool calls · ctx 48k · out 6.1k     │
+│     Ⓒ Read the design                     │
+│     Ⓟ Draw the plan                       │
+│     Ⓞ Test the fold                       │
+│ [ +2 ended ]                              │
+╰───────────────────────────────────────────╯
+```
+
+Nerd, narrow dock, body 30, with the same cuts as 8.10j. The last row is a generic fold here.
+8.10j lists every agent, so the board keeps those rows.
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │  (engine tab row)
+│ Session  Ⓑ 1 waits · ctx 71%   │
+│ Tasks  ▰▰▰▱▱▱ 2/6 · Ⓟ1 Ⓞ3 · 4… │
+│ Ⓟ 3 Build the vit… 6m [ rm ]   │
+│ Ⓞ 4 Wire the permis… [ rm ]    │
+│ [ +2 done ]                    │
+│ ────────────────────────────── │
+│ Agents 6 · 1 you · 1 failed    │
+│ Ⓑ scout     needs you open  2m │
+│     waits for: permission ·…   │
+│ Ⓧ lane-b    failed          4m │
+│ Ⓟ Explore   slow 45s  open  3m │
+│ [ +4 more agents ]             │
+╰────────────────────────────────╯
+```
+
+Nerd in a terminal with no Nerd Font. The default plain set prevents this failure:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Tasks  ▰▰▱▱ 1/4 · ▯1 ▯2 · 14m             │
+│ ▯ 2 Write the tab mocks         4m [ rm ] │  task state is lost
+│     ▸ Edit docs/mocks.md          9 tools │
+│ ▯ 3 Review the mocks with Codex    [ rm ] │
+│ ───────────────────────────────────────── │
+│ Agents  3 · 1 needs you · 1 failed        │
+│ ▯ scout     needs you                  2m │  the word still says it
+│ ▯ lane-b    failed                     4m │
+│ ▯ Explore   plan 2/7  ▸ Grep ho… open  1m │
+╰───────────────────────────────────────────╯
+```
+
+### 11.2 Filetree, the files tab, body 41
+
+Plain, the same as 10.1a:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx             4s │
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
+│   M design.md             ◦ scout      2s │
+│   M mocks.md              ✎ main +1    1m │
+│   ? filetree.md           ✎ main      30s │
+│ ▾ hooks/  M1 D1           ✎ main       4s │
+│   M pane.tsx              ✎ main       4s │
+│   D old-pane.tsx          ✎ gene…se 2  3m │
+│     register.tsx          ◦ scout     40s │
+│ ▸ scratch/  ?             ✎ Explore    5m │
+│ M README.md                               │
+│ work view: touched and changed files      │
+╰───────────────────────────────────────────╯
+```
+
+Nerd:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app Ⓨ main ↑1 · 6 changed          │  Ⓨ takes the place of the first ·
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ Ⓔ main      hooks/pane.tsx             4s │
+│ Ⓡ scout     docs/design.md             2s │
+│ ───────────────────────────────────────── │
+│ ⓕ docs/  M2 ?1            Ⓡ scout      2s │
+│   M design.md             Ⓡ scout      2s │
+│   M mocks.md              Ⓔ main +1    1m │
+│   ? filetree.md           Ⓔ main      30s │
+│ ⓕ hooks/  M1 D1           Ⓔ main       4s │
+│   M pane.tsx              Ⓔ main       4s │
+│   D old-pane.tsx          Ⓔ gene…se 2  3m │
+│     register.tsx          Ⓡ scout     40s │
+│ Ⓕ scratch/  ?             Ⓔ Explore    5m │
+│ M README.md                               │
+│ work view: touched and changed files      │
+╰───────────────────────────────────────────╯
+```
+
+Nerd, with mocks.md pressed open. The detail lines name the action in words:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ⓕ docs/  M2 ?1            Ⓡ scout      2s │
+│   M design.md             Ⓡ scout      2s │
+│   M mocks.md              Ⓔ main +1    1m │
+│       edited by main 1m ago               │
+│       read by scout 3m ago                │
+│       modified, not staged                │
+│       [ preview ] [ diff ] [ copy path ]  │
+│       [ @ to prompt ]                     │
+╰───────────────────────────────────────────╯
+```
+
+Nerd, body 24, with the same drops as 10.6b. The mark and the letter stay:
+
+```text
+╭────────────────────────✕─╮
+│ Files  app Ⓨ main · 6    │
+│ [ all files ]            │
+│ [ refresh ] {agent: all} │
+│ Now  2 agents            │
+│ Ⓔ main  hooks/pane.tsx   │
+│ Ⓡ scout docs/design.md   │
+│ ──────────────────────── │
+│ ⓕ docs/                Ⓡ │
+│   M design.md          Ⓡ │
+│   M mocks.md           Ⓔ │
+│   ? filetree.md        Ⓔ │
+│ ⓕ hooks/               Ⓔ │
+│   D old-pane.tsx       Ⓔ │
+╰──────────────────────────╯
+```
+
+Alt B, not approved for this epic: a file-type icon after the git letter. Ⓚ stands for a
+Markdown icon, Ⓢ for a TypeScript icon. Each row loses 2 columns of the name.
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ⓕ docs/  M2 ?1            Ⓡ scout      2s │
+│   M Ⓚ design.md           Ⓡ scout      2s │
+│   M Ⓚ mocks.md            Ⓔ main +1    1m │
+│   ? Ⓚ filetree.md         Ⓔ main      30s │
+│ ⓕ hooks/  M1 D1           Ⓔ main       4s │
+│   D Ⓢ old-pane.tsx        Ⓔ gene…se 2  3m │
+│     Ⓢ register.tsx        Ⓡ scout     40s │
+╰───────────────────────────────────────────╯
+```
+
+### 11.3 Simple-view rows, a 41-column transcript
+
+Plain and nerd draw the same rows. The `●` stays, and the word says the state.
+
+```text
+● List mods  ls  exit 0  7 lines  1.1s
+● List a missing folder  ls  exit 2  ls:…
+● Run the unit tests  npm  running  3.0s
+● Edit  src/app.ts  +2 -1
+```
+
+Alt S, not approved: state icons in place of `●`. A fallback row of the engine still draws `●`,
+so the column mixes.
+
+```text
+Ⓒ List mods  ls  exit 0  7 lines  1.1s
+Ⓧ List a missing folder  ls  exit 2  ls:…
+Ⓟ Run the unit tests  npm  running  3.0s
+● Bash(sleep 60)
+```
+
+Only the toasts of simple-view change. The copied toast plain, then nerd, then the refused copy
+in nerd:
+
+```text
+╭──────────────────────────────────────────╮
+│ handily-simple-view                      │
+│ ✓ Copied the output                      │
+│ 7 lines                                  │
+╰──────────────────────────────────────────╯
+╭──────────────────────────────────────────╮
+│ handily-simple-view                      │
+│ Ⓒ Copied the output                      │
+│ 7 lines                                  │
+╰──────────────────────────────────────────╯
+╭──────────────────────────────────────────╮
+│ handily-simple-view                      │
+│ Ⓧ Not copied                             │
+│ the clipboard took nothing               │
+│ a long text may not fit this terminal    │
+╰──────────────────────────────────────────╯
+```
+
+### 11.4 Toasts of item-toasts, box text 40
+
+Plain, then nerd:
+
+```text
+╭──────────────────────────────────────────╮
+│ handily-item-toasts                      │
+│ ✓ handily-ab12 closed                    │
+│ "Draw text mocks for the mods"           │
+╰──────────────────────────────────────────╯
+╭──────────────────────────────────────────╮
+│ handily-item-toasts                      │
+│ Ⓒ handily-ab12 closed                    │
+│ "Draw text mocks for the mods"           │
+╰──────────────────────────────────────────╯
+```
+
+Nerd, a merged toast with more than one mark in one part:
+
+```text
+╭──────────────────────────────────────────╮
+│ handily-item-toasts                      │
+│ 3 items changed                          │
+│ Ⓒ 2 closed  Ⓞ 1 created                  │
+│ handily-ab12 handily-cd34 +1             │
+╰──────────────────────────────────────────╯
+```
+
+Nerd, a blocked item. It stays 10000 ms, because the rule reads the role, not the character:
+
+```text
+╭──────────────────────────────────────────╮
+│ handily-item-toasts                      │
+│ Ⓧ handily-cd34 open → blocked            │
+│ "Write the beads reader"                 │
+╰──────────────────────────────────────────╯
+```
+
+Nerd, a `◆` inside a quoted title. The title is never swapped and adds no time:
+
+```text
+╭──────────────────────────────────────────╮
+│ handily-item-toasts                      │
+│ Ⓞ a-1 created                            │
+│ "◆"                                      │
+╰──────────────────────────────────────────╯
+```
+
+The engine draws the overflow: at most 3 boxes show, and the older ones go behind `+N more`
+(measured, section 4). The mark does not change it.
+
+### 11.5 Reply-view: a reply table on a 41-column screen
+
+A table has no role marks, so plain and nerd draw the same:
+
+```text
+● Gate results:
+
+  Mod           │ Gate │ Tests
+  ──────────────┼──────┼──────
+  reply-view    │ pass │   212
+  simple-view   │ pass │   341
+  board         │ fail │    98
+       [ copy ] [ copy as text ]
+```
+
+The copy toast in nerd. The text follows "Copied the plan block" of section 8. The exact word
+for a table is not verified.
+
+```text
+╭──────────────────────────────────────────╮
+│ handily-reply-view                       │
+│ Ⓒ Copied the table                       │
+│ 5 lines                                  │
+╰──────────────────────────────────────────╯
+```
+
+When Claude writes a Nerd Font icon into a cell, reply-view measures it as 1 column. With a Mono
+font the table lines up:
+
+```text
+  Mod   │ Icon │ State
+  ──────┼──────┼──────
+  board │ Ⓟ    │ doing
+  tree  │ Ⓕ    │ shut
+```
+
+With a double-width Nerd Font (not Mono) or a Propo font, each such row moves by one column.
+handily cannot detect the font:
+
+```text
+  Mod   │ Icon │ State
+  ──────┼──────┼──────
+  board │ ▯▯    │ doing
+  tree  │ ▯▯    │ shut
+```
+
+### 11.6 The `/handily glyphs` test line
+
+The engine wraps and indents the reply in the transcript. These mocks show it at 41 columns.
+
+The setting is nerd:
+
+```text
+❯ /handily glyphs
+  Glyphs nerd · set in /config › handily
+  role      plain nerd
+  doing     |▶|   |Ⓟ| nf-cod-play
+  done      |✓|   |Ⓒ| nf-cod-check
+  to do     |○|   |Ⓞ| nf-cod-circle_large
+  blocked   |■|   |Ⓧ| nf-cod-error
+  needs you |◆|   |Ⓑ| nf-cod-bell
+  edited    |✎|   |Ⓔ| nf-cod-edit
+  read      |◦|   |Ⓡ| nf-cod-eye
+  folder    |▸|   |Ⓕ| nf-fa-folder
+  open      |▾|   |ⓕ| nf-fa-folder_open
+  branch    |·|   |Ⓨ| nf-oct-git_branch
+  Each mark fills one cell between bars.
+  A box, a ? or a moved bar: this
+  terminal has no Nerd Font Mono. Set
+  Glyphs to plain in /config.
+```
+
+The setting is plain, the default. The nerd column still draws, so the person can test the
+terminal before the switch:
+
+```text
+❯ /handily glyphs
+  Glyphs plain (the default) · set in
+  /config › handily
+  (the same 10 rows)
+  The nerd column is a test: when each
+  icon fills one cell between its bars,
+  Glyphs nerd is safe in this terminal.
+```
+
+A wrong stored value, then a wrong argument. The role line and the ten rows also follow a wrong
+value, so the person can still test the terminal:
+
+```text
+❯ /handily glyphs
+  Glyphs plain · the stored value
+  "nerdfont" is not plain or nerd, so
+  plain draws. Set Glyphs in /config ›
+  handily.
+  (the role line, the same 10 rows and
+  the plain test lines)
+❯ /handily glyph
+  /handily takes no argument or glyphs;
+  "glyph" is neither.
+```

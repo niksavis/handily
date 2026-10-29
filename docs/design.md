@@ -96,22 +96,26 @@ The person approved this set of marks on 2026-10-09. Every pane draws a state wi
 and the same colour. Each mark is one column wide, because an emoji such as ⚡ is two columns
 wide in most terminals and breaks the row alignment. A test measures the width of each mark.
 
-| Signal | Kanban meaning | Mark | Colour | When the pane shows it |
-| --- | --- | --- | --- | --- |
-| Doing | in progress | `▶` | orange | the task in progress, a running agent |
-| Done | finished | `✓` | green | done tasks and agents |
-| To do | in the backlog | `○` | subtle | open tasks |
-| Blocked | blocked tag | `■` | red | an agent or a task whose last tool call failed twice |
-| Waits for you | needs a person | `◆` | yellow | a permission dialog, a question to you |
-| Aging | aging dots | `·` `:` `⁝` | subtle, then yellow | the task in progress has run 5, 15 or 30 minutes without an update |
-| Too much at once | limit on work in progress | `2▶` | yellow | more than one task in progress at the same time |
-| Stale plan | no update | `⌀` | yellow | no plan change for 20 tool calls |
-| Retry | rework | `↻` | subtle | the same tool call ran again after a failure |
+| Signal | Kanban meaning | Mark | Nerd | Colour | When the pane shows it |
+| --- | --- | --- | --- | --- | --- |
+| Doing | in progress | `▶` | `U+EB2C` nf-cod-play | orange | the task in progress, a running agent |
+| Done | finished | `✓` | `U+EAB2` nf-cod-check | green | done tasks and agents |
+| To do | in the backlog | `○` | `U+EBB5` nf-cod-circle_large | subtle | open tasks |
+| Blocked | blocked tag | `■` | `U+EA87` nf-cod-error | red | an agent or a task whose last tool call failed twice |
+| Waits for you | needs a person | `◆` | `U+EAA2` nf-cod-bell | yellow | a permission dialog, a question to you |
+| Aging | aging dots | `·` `:` `⁝` | none | subtle, then yellow | the task in progress has run 5, 15 or 30 minutes without an update |
+| Too much at once | limit on work in progress | `2▶` | none | yellow | more than one task in progress at the same time |
+| Stale plan | no update | `⌀` | none | yellow | no plan change for 20 tool calls |
+| Retry | rework | `↻` | none | subtle | the same tool call ran again after a failure |
 
 The colours are theme colours of the engine, so they follow the person's theme: orange is
 `claude`, green is `success`, red is `error`, yellow is `warning` and subtle is `subtle`. The
 handover of 2026-10-09 also names `suggestion`; which signal uses it is open. The task pane
 draws its author word in `suggestion`, so a title cannot imitate the author.
+
+The Nerd column gives the Nerd Font icon of each signal when the setting Glyphs is `nerd`
+(handily-5jdtf, see "Glyph sets" below). `scripts/signals.test.mjs` checks this column against
+`scripts/fixtures/glyphs.mjs`.
 
 `handily-board` keeps the first five signals in its `hooks/signals.ts`, because mods share no
 code at run time. `scripts/signals.test.mjs` fails when the table differs from this one, when
@@ -144,6 +148,153 @@ Agents  2 running
 ▶ lane-b   Build compact view   ▸ Bash npm test
 ■ scout    Probe the engine     ✗ npm test failed twice
 ```
+
+### Glyph sets (2026-10-29, handily-5jdtf)
+
+The person approved this design on 2026-10-29, with each recommendation. The mocks are in
+`docs/mocks.md`, section 11. A mod cannot choose or install a font. A Nerd Font icon is a
+Unicode private-use character, and only a Nerd Font draws it. So the plain marks stay the
+default, and the Nerd Font icons are an opt-in.
+
+Decisions:
+
+- One setting, Glyphs, with the values `plain` and `nerd`. The default is `plain`. The bundle
+  `handily` declares it in its `userConfig`. Six settings could drift apart, and a mod that is
+  installed alone draws plain.
+- The desktop app draws plain, whatever the setting is. The font of the app is not the font of
+  the person's terminal. A render hook knows the surface. A toast does not, so a toast follows
+  the setting.
+- The git letters `M A ? D R U`, the arrows `↑ ↓`, the running-call mark `▸` and the row bullet
+  `●` are the same in both sets.
+- No file-type icons in this epic. Each row would lose 2 columns, and a type would mix with the
+  git state column.
+- The icons are codicons for the states, the family of the VS Code interface. The folders use
+  nf-fa-folder and nf-fa-folder_open, because U+F07B is the only icon measured live. No md-
+  (Material Design) icon, because those are in plane 15, where each is a surrogate pair.
+- An icon right before a digit, as in the Tasks header (`▶1`), may clip the digit, because in
+  WezTerm the icon is slightly wider than its cell. Record 5 (handily-5jdtf.5) checks it live.
+  If the digit is clipped, both sets get a space, so that the layout stays the same.
+
+Each role of the table changes with the setting. Source of the code points: nerd-fonts
+`glyphnames.json` 3.5.1, dated 2026-08-21. The stand-in is the letter that the mocks draw.
+
+| Role | Meaning | Who draws it | Plain | Nerd icon | Code point | Stand-in |
+| --- | --- | --- | --- | --- | --- | --- |
+| `doing` | in progress, a running agent | board (`signals.ts`), every toast | `▶` | nf-cod-play | `U+EB2C` | Ⓟ |
+| `done` | finished | board, toasts | `✓` | nf-cod-check | `U+EAB2` | Ⓒ |
+| `toDo` | open, pending, idle | board, toasts | `○` | nf-cod-circle_large | `U+EBB5` | Ⓞ |
+| `blocked` | failed, refused | board (also `lanes.ts`), toasts, filetree | `■` | nf-cod-error | `U+EA87` | Ⓧ |
+| `waitsForYou` | needs you | board (also `lanes.ts`, `attention.ts`, `vitals.ts`), toasts | `◆` | nf-cod-bell | `U+EAA2` | Ⓑ |
+| `edited` | an agent edited the file | filetree `marks.ts` | `✎` | nf-cod-edit | `U+EA73` | Ⓔ |
+| `read` | an agent read the file | filetree `marks.ts` | `◦` | nf-cod-eye | `U+EA70` | Ⓡ |
+| `folderClosed` | a closed folder | filetree `pane.ts` | `▸` | nf-fa-folder | `U+F07B` | Ⓕ |
+| `folderOpen` | an open folder | filetree `pane.ts` | `▾` | nf-fa-folder_open | `U+F07C` | ⓕ |
+| `branch` | the separator before the branch in the Files header | filetree `gitview.ts` | `·` | nf-oct-git_branch | `U+F418` | Ⓨ |
+
+The five nerd state icons have five different outlines: a triangle, a tick, a ring, a circled x
+and a bell. So the states differ in shape without colour, as the plain marks do.
+
+These marks stay the same in both sets:
+
+| Mark | Meaning | Why it stays |
+| --- | --- | --- |
+| `▸` | a tool call runs now (`▸ Edit …`) | It means "runs now", not "a tool". A wrench would read as a tool on every row |
+| `●` | the row bullet, the same as the engine's | A fallback row of the engine draws `●`, so icons would mix in one column |
+| `M A ? D R U` | git state | The letter names the state without colour and matches `git status -s` |
+| `↑ ↓` | ahead and behind | Every font has the arrows |
+| `▰ ▱`, `━`, `─` | the progress bar, lane cells and rules | Geometry, not a state |
+| `· … →` | separators, the cut mark, a status move | Text punctuation |
+| `?` | an agent that the engine no longer lists | ASCII is safe in any font |
+| `▼ ▶ ◀ ▲ ◇ × ▷ ◁` | diagram arrows and frames of reply-view | An icon would break the line that joins them |
+
+The setting:
+
+- `mods/handily/.claude-plugin/plugin.json` declares `userConfig.glyphs`: a string with the
+  options `plain` and `nerd`, and the default `plain`.
+- `hooks/glyphs.ts` holds the table and `glyphSettingOf(rows)`. It imports only types, so each
+  mod keeps a byte-identical copy, as with `toast.ts`. In handily-5jdtf.1 only the bundle keeps
+  it. handily-5jdtf.2 adds the other mods.
+- A mod reads the setting from `$.config.list()`: the row whose plugin, without the marketplace
+  part, is `handily` and whose key ends in `.glyphs`. It needs no `dependencies` entry. A mod
+  reads it at `session.start` and after a `config.set` of that row, and keeps it in its own
+  state key `glyphs`. A pane that reads the key draws again when the key changes.
+- With no glyphs row of `handily`, `glyphSettingOf` returns `plain`. This is the documented
+  default for a mod that is installed without the bundle.
+- A row with another value makes `glyphSettingOf` throw
+  `handily: userConfig glyphs is "nerdfont"; set it to plain or nerd in /config.` The caller
+  logs it to the debug log and draws plain.
+- `/handily glyphs` replies with the current setting and one line for each role: the plain
+  mark and the nerd icon, each between bars, and the icon name. It shows both sets whatever the
+  setting is, so the person can test the terminal before the switch. It reads the stored value
+  from `pluginConfigs` in the settings and names a value outside `plain` and `nerd`.
+- The glyph setting is not tracker data, so the rule "read tracker data only through workitems"
+  does not apply.
+
+The width rule and the gate:
+
+- `displayWidth` of each `width.ts` counts a private-use character as 1 column, in the BMP
+  (U+E000 to U+F8FF) and in planes 15 and 16. The plain marks and the private-use characters
+  are both East Asian Width "A" (ambiguous), and handily counts each ambiguous character as
+  narrow. So the width rule does not change. `scripts/width.test.mjs` measures U+E000, U+F8FF,
+  U+F0000 and U+10FFFD as 1 column in every copy.
+- `scripts/glyphs.test.mjs` pins the table in `scripts/fixtures/glyphs.mjs`. It refuses an
+  unlisted keeper of `hooks/glyphs.ts`, two copies that differ, a glyph of more than one code
+  point, a glyph that any `width.ts` measures other than 1 column, an emoji glyph, a private-use
+  plain glyph, a nerd glyph outside U+E000 to U+F8FF, two roles of one set that share a glyph and a
+  table that differs from the fixture. Each refusal
+  has a positive control.
+- The emoji check uses `\p{Emoji_Presentation}`, the rule of `isEmoji` in `width.ts`. The
+  plain mark `▶` (U+25B6) has the Unicode property Emoji with text presentation, and every
+  terminal draws it one column wide. So `\p{Emoji}` would refuse an approved mark.
+- `scripts/copies.mjs` holds the byte-identical check of `toast.ts`, `copy-toast.ts` and
+  `glyphs.ts`, so the rule is in one place.
+
+Code facts for handily-5jdtf.2 to .4:
+
+- `mods/handily-filetree/hooks/register.ts` writes the blocked mark in a literal text, not
+  through `TOAST_MARKS`.
+- `mods/handily-board/hooks/lanes.ts` writes `◆` and `■` in `END_MARKS`, not through `SIGNALS`.
+- `toast.ts` finds a toast that holds for the time to act (10000 ms) by the characters `■` and
+  `◆` (`MARKS_TO_ACT`). With the nerd set this rule must read the role.
+
+Failure modes:
+
+- **No Nerd Font, so boxes or blank cells.** The default is plain, and `/handily glyphs` is the
+  test before the switch. An agent row keeps its words, but a task row has only its mark.
+  Never make nerd the default.
+- **A double-width font.** A Nerd Font that is not Mono draws each icon 2 columns wide, and a
+  Propo font draws it proportional. Each icon then moves the rest of its row. handily cannot
+  detect the font. The `/config` description and `/handily glyphs` name Nerd Font Mono.
+- **A terminal that counts ambiguous characters as wide**, for example WezTerm
+  `treat_east_asian_ambiguous_width_as_wide`, or a CJK locale. Both sets break the same way, so
+  nerd adds no new risk.
+- **Icons copied into a prompt.** A mouse selection of pane text pastes private-use characters.
+  No handily copy button copies a mark.
+- **Colour blindness.** Neither set depends on colour. The plain marks and the nerd outlines all
+  differ in shape, and each agent, session and toast state also has a word.
+- **A screen reader or a pipe.** An icon reads as nothing, and the words carry the meaning.
+- **The first frame.** Before `session.start` stores the setting, a pane draws plain, then draws
+  again as nerd. Only the marks change, never the widths.
+- **A wrong stored value.** It draws plain without a sign, because the engine treats it as
+  unset. Only `/handily glyphs` names it.
+- **Nerd Fonts moves a code point.** The fixture pins each one.
+
+Not verified:
+
+- Only U+F07B was measured live at one cell (term-uy9muk). The other nine icons wait for the
+  live check of handily-5jdtf.5.
+- The key under `pluginConfigs` for a marketplace install. The engine types name `<name>` or
+  `<name>@inline` for a `--plugin-dir` plugin. `/handily glyphs` accepts any key whose plugin,
+  without the marketplace part, is `handily`.
+- Whether `$.config.list()` shows the default or the stored value for a value outside the
+  options. The test kit has no implementation of `config.list` or `settings.read`, so a test
+  fakes both (measured 2026-10-29 in `claude plugin test`).
+- The `config.set` matcher on `key`, and the `/config handily.glyphs=nerd` form.
+- Measured in the test kit on 2026-10-29: `register(on, options)` receives `plain` for a stored
+  value `nerdfont`, and the kit reports "option glyphs in settings is not one of plain, nerd; it
+  reads as the default, plain".
+- Only the terminal font of WezTerm is covered. Windows Terminal and the VS Code terminal may
+  draw boxes.
 
 ## 3. Facts about the mod API
 
