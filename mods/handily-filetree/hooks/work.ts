@@ -11,6 +11,8 @@ import {
   treeRows,
 } from './tree'
 
+const WORK_ROWS = 40
+
 export type WorkPath = { path: string; isFolder: boolean }
 
 export type WorkSource = {
@@ -80,6 +82,58 @@ function workOpen(tree: WorkTree, folders: WorkFolders): Set<string> {
   ])
 }
 
+function joinedName(tree: WorkTree, folder: string, name: string): string {
+  const path = childPath(folder, name)
+  const listing = tree.listings.get(path)
+  if (listing?.kind !== 'listed' || listing.sorted.length !== 1) return name
+  const [only] = listing.sorted
+  if (only?.kind !== 'dir' || !tree.listings.has(childPath(path, only.name))) return name
+  return joinedName(tree, folder, `${name}/${only.name}`)
+}
+
+function joinedListing(tree: WorkTree, folder: string, listing: Listing): Listing {
+  if (listing.kind === 'failed') return listing
+  return {
+    kind: 'listed',
+    sorted: listing.sorted.map((entry) =>
+      entry.kind === 'dir' ? { ...entry, name: joinedName(tree, folder, entry.name) } : entry,
+    ),
+  }
+}
+
+type HiddenEntries = { folder: string; count: number }
+
+function hiddenEntries(leaves: readonly WorkPath[], row: TreeRow): HiddenEntries[] {
+  switch (row.kind) {
+    case 'file':
+    case 'pruned':
+      return [{ folder: parentOf(row.path), count: 1 }]
+    case 'folder': {
+      if (row.isOpen) return []
+      const inside = leaves.filter(({ path }) => path === row.path || isInside(path, row.path))
+      if (inside.length === 0) return [{ folder: parentOf(row.path), count: 1 }]
+      return inside.map(({ path }) => ({ folder: parentOf(path), count: 1 }))
+    }
+    case 'more':
+      return [{ folder: row.path, count: row.hidden }]
+    case 'workMore':
+    case 'failed':
+    case 'empty':
+      return []
+  }
+}
+
+function workMore(tree: WorkTree, hidden: readonly TreeRow[]): TreeRow {
+  const leaves = treeOrder(tree)
+  const entries = hidden.flatMap((row) => hiddenEntries(leaves, row))
+  return {
+    kind: 'workMore',
+    path: ROOT_PATH,
+    changed: entries.reduce((sum, { count }) => sum + count, 0),
+    folders: new Set(entries.map(({ folder }) => folder)).size,
+  }
+}
+
 export async function workRows(
   list: ListFolder,
   site: { tree: WorkTree; folders: WorkFolders },
@@ -93,10 +147,16 @@ export async function workRows(
   if (!tree.listings.has(ROOT_PATH)) return []
   const workList: ListFolder = (path) => {
     const kept = tree.listings.get(path)
-    return kept === undefined ? list(path) : Promise.resolve(kept)
+    return kept === undefined ? list(path) : Promise.resolve(joinedListing(tree, path, kept))
   }
   const open = workOpen(tree, folders)
-  return treeRows(workList, { open, whole: folders.whole, work: tree.folders }, rootName)
+  const rows = await treeRows(
+    workList,
+    { open, whole: folders.whole, work: tree.folders },
+    rootName,
+  )
+  if (folders.whole.has(ROOT_PATH) || rows.length <= WORK_ROWS) return rows
+  return [...rows.slice(0, WORK_ROWS), workMore(tree, rows.slice(WORK_ROWS))]
 }
 
 function treeOrder(tree: WorkTree): WorkPath[] {

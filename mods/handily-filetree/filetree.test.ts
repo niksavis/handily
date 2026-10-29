@@ -589,7 +589,7 @@ describe('the files tab, docked', () => {
 
 describe('the 200 entry cap', () => {
   for (const surface of SURFACES) {
-    test(`a folder of more than 200 entries draws 200 and a more button that draws the rest on the ${surface}`, async ($, on) => {
+    test(`a folder of more than 200 entries draws 200 and a more button that draws the rest up to the 1,000 row cap on the ${surface}`, async ($, on) => {
       world(on, [
         ['.', [folder('src'), file('README.md')]],
         ['src', [folder('gen')]],
@@ -605,8 +605,12 @@ describe('the 200 entry cap', () => {
       expect(capped.slice(-2)).toEqual(['      [ +1,640 more in gen/ ]', '  README.md'])
       await ui.press({ key: 'more:src/gen' })
       const whole = await treeLines(ui)
-      expect(whole.filter((line) => line.startsWith('      a'))).toHaveLength(1840)
-      expect(whole.slice(-2)).toEqual(['      a1840.ts', '  README.md'])
+      expect(whole.filter((line) => line.startsWith('      a'))).toHaveLength(998)
+      expect(whole.slice(-3)).toEqual([
+        '      a0998.ts',
+        CUT_NOTE,
+        'Close a folder, or [ work only ].',
+      ])
       expect(await ui.find({ key: 'more:src/gen' })).toBeUndefined()
       await ui.unmount()
     })
@@ -3564,9 +3568,8 @@ describe('the work view', () => {
     await read($, 'node_modules/lib/index.d.ts')
     await ui.redraw(DOCKED_PANE)
     expect(await treeLines(ui)).toEqual([
-      '▾ node_modules/           ◦ main       0s',
-      '  ▾ lib/                  ◦ main       0s',
-      '      index.d.ts          ◦ main       0s',
+      '▾ node_modules/lib/       ◦ main       0s',
+      '    index.d.ts            ◦ main       0s',
       WORK_NOTE,
     ])
     expect(seen.listed).not.toContain('node_modules')
@@ -3644,14 +3647,167 @@ describe('the work view: review repairs', () => {
         },
       )
       const ui = await mountWork($, seen, surface)
+      await ui.press({ key: 'more-work' })
       await ui.press({ key: 'more:src/gen' })
       expect(await ui.find({ key: 'more:src/gen' })).toBeUndefined()
-      expect(await treeLines(ui)).toContain('    M a0201.ts')
+      expect(await treeLines(ui)).toContain('  M a0201.ts')
       await ui.press({ key: 'view' })
       await ui.press({ key: 'open:src' })
       await ui.press({ key: 'open:src/gen' })
       expect(await ui.find({ key: 'more:src/gen' })).toBeDefined()
       expect(await treeLines(ui)).not.toContain('    M a0201.ts')
+      await ui.unmount()
+    })
+  }
+})
+
+const CHAIN_APP: [string, FsEntry[]][] = [['.', [folder('docs'), folder('src'), folder('test')]]]
+
+const CHAIN_CHANGES = statusOf([
+  changed('.M', 'src/api/routes/users.ts'),
+  changed('.M', 'src/api/auth/session.ts'),
+  untracked('test/api/users.test.ts'),
+  untracked('docs/notes/draft/plan.md'),
+])
+
+const CHAIN_TREE = [
+  '▾ docs/notes/draft/  ?1',
+  '  ? plan.md',
+  '▾ src/api/  M2',
+  '  ▾ auth/  M1',
+  '    M session.ts',
+  '  ▾ routes/  M1',
+  '    M users.ts',
+  '▾ test/api/  ?1',
+  '  ? users.test.ts',
+  WORK_NOTE,
+]
+
+const MANY_CHANGED = Array.from({ length: 10 }, (_, at) =>
+  Array.from({ length: 5 }, (_, index) => `src/m${String(at)}/f${String(index)}.ts`),
+).flat()
+
+const ROOT_FILES = numbered(1001)
+
+const CUT_NOTE = '1,000 rows drawn, the most a pane takes.'
+
+describe('the work view of a large repo', () => {
+  for (const surface of SURFACES) {
+    test(`a folder chain with one child folder at each level joins into one row that closes and opens, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, CHAIN_APP, { kind: 'ok', stdout: CHAIN_CHANGES })
+      const ui = await mountWork($, seen, surface)
+      expect(await treeLines(ui)).toEqual(CHAIN_TREE)
+      await ui.press({ key: 'open:src/api' })
+      expect(await treeLines(ui)).toEqual([
+        ...CHAIN_TREE.slice(0, 2),
+        '▸ src/api/  M2',
+        ...CHAIN_TREE.slice(7),
+      ])
+      await ui.press({ key: 'open:src/api' })
+      expect(await treeLines(ui)).toEqual(CHAIN_TREE)
+      expect(new Set(seen.listed)).toEqual(new Set(['.']))
+      await ui.unmount()
+    })
+
+    test(`over 40 rows the work view shows 40 and a more row that counts the hidden changed files and their folders, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [folder('src')]]], {
+        kind: 'ok',
+        stdout: statusOf(MANY_CHANGED.map((path) => changed('.M', path))),
+      })
+      const ui = await mountWork($, seen, surface)
+      const lines = await treeLines(ui)
+      expect(lines).toHaveLength(42)
+      expect(lines.slice(0, 3)).toEqual(['▾ src/  M50', '  ▾ m0/  M5', '    M f0.ts'])
+      expect(lines.slice(36)).toEqual([
+        '    M f4.ts',
+        '  ▾ m6/  M5',
+        '    M f0.ts',
+        '    M f1.ts',
+        '[ +18 changed in 4 folders ]',
+        WORK_NOTE,
+      ])
+      await ui.press({ key: 'more-work' })
+      const all = await treeLines(ui)
+      expect(all).toHaveLength(62)
+      expect(all.slice(-2)).toEqual(['    M f4.ts', WORK_NOTE])
+      expect(await ui.find({ key: 'more-work' })).toBeUndefined()
+      await ui.unmount()
+    })
+
+    test(`a work view of exactly 40 rows has no more row, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [folder('src')]]], {
+        kind: 'ok',
+        stdout: statusOf(
+          Array.from({ length: 39 }, (_, at) => changed('.M', `src/f${String(at + 10)}.ts`)),
+        ),
+      })
+      const ui = await mountWork($, seen, surface)
+      const lines = await treeLines(ui)
+      expect(lines).toHaveLength(41)
+      expect(lines.slice(-2)).toEqual(['  M f48.ts', WORK_NOTE])
+      expect(await ui.find({ key: 'more-work' })).toBeUndefined()
+      await ui.unmount()
+    })
+
+    test(`the all files view stops at 1,000 rows with the row cap note and its work only button, on the ${surface}`, async ($, on) => {
+      const seen = world(on, [['.', ROOT_FILES]])
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'more:.' })
+      const lines = await treeLines(ui)
+      expect(lines).toHaveLength(1002)
+      expect(lines.slice(-3)).toEqual(['  a1000.ts', CUT_NOTE, 'Close a folder, or [ work only ].'])
+      await ui.press({ key: 'cut-view' })
+      expect(await isViewShown(ui, 'work')).toBe(true)
+      await ui.unmount()
+    })
+
+    test(`the more row of the work view counts the files behind the 200 entry cap, and the work view also stops at 1,000 rows, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', ROOT_FILES]], {
+        kind: 'ok',
+        stdout: statusOf(ROOT_FILES.map((entry) => changed('.M', entry.name))),
+      })
+      const ui = await mountWork($, seen, surface)
+      expect((await treeLines(ui)).slice(-3)).toEqual([
+        'M a0040.ts',
+        '[ +961 changed in 1 folder ]',
+        WORK_NOTE,
+      ])
+      await ui.press({ key: 'more-work' })
+      const lines = await treeLines(ui)
+      expect(lines).toHaveLength(1003)
+      expect(lines.slice(-4)).toEqual(['M a1000.ts', CUT_NOTE, 'Close a folder.', WORK_NOTE])
+      expect(await ui.find({ key: 'cut-view' })).toBeUndefined()
+      await ui.unmount()
+    })
+
+    test(`with the scout transcript in view or scout picked, the folder rows of the work view keep their counts, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await mountWork($, seen, surface)
+      await read($, 'docs/mocks.md', SCOUT)
+      await seen.clock.advance(140_000)
+      await read($, 'hooks/register.tsx', SCOUT)
+      await seen.clock.advance(36_000)
+      await mainEditsScoutReads($, seen)
+      const scoutTree = [
+        '▾ docs/  M2 ?1            ◦ scout      2s',
+        '  M design.md             ◦ scout      2s',
+        '  M mocks.md              ◦ scout      3m',
+        '▾ hooks/  M1 D1           ◦ scout     40s',
+        '    register.tsx          ◦ scout     40s',
+        WORK_NOTE,
+      ]
+      await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
+      expect((await headerOf(ui)).slice(1, 3)).toEqual([
+        '[ all files ] {agent: scout} [ refresh ]',
+        'scout is in view, so only scout shows',
+      ])
+      expect(await treeLines(ui)).toEqual(scoutTree)
+      await ui.redraw(DOCKED_PANE)
+      await $.ui.select({ plugin: PLUGIN, key: 'agent', value: `agent:${SCOUT}` })
+      expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: scout} [ refresh ]')
+      expect(await treeLines(ui)).toEqual(scoutTree)
       await ui.unmount()
     })
   }

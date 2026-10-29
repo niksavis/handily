@@ -86,6 +86,8 @@ export type PaneActions = {
 
 export const INLINE_ROWS = 8
 
+const TREE_ROWS = 1000
+
 const FILES_TITLE = 'Files'
 const REFRESH = 'refresh'
 const RETRY = 'retry'
@@ -109,6 +111,10 @@ const DOCK_HINT = 'a dock (fullscreen, 110 columns) shows the tree'
 const NO_WORK = 'No changed or touched files.'
 const ALL_FILES_HINT = 'shows the whole tree.'
 const WORK_NOTE = 'work view: touched and changed files'
+const WORK_MORE_KEY = 'more-work'
+const CUT_VIEW_KEY = 'cut-view'
+const CUT_NOTE = `${countText(TREE_ROWS)} rows drawn, the most a pane takes.`
+const CLOSE_FOLDER = 'Close a folder'
 const VIEW_LABELS: Readonly<Record<FiletreeView, string>> = {
   work: 'all files',
   all: 'work only',
@@ -657,33 +663,55 @@ function drawFailed(
   return elements.Text({ color: 'error', children: fitted(text, elements.bodyColumns) })
 }
 
-function drawMore(
+function moreButton(
   elements: PaneElements,
-  row: TreeRow & { kind: 'more' },
+  more: { key: string; rowKey: string; path: string; indent: number; label: string },
   actions: PaneActions,
 ): RenderElement {
   const { Box, Button, bodyColumns } = elements
-  const indent = displayWidth(indentOf(row.depth) + INDENT)
-  const label = `+${countText(row.hidden)} more in ${shownName(row.name)}/`
   return Box({
-    key: `more-row:${row.path}`,
-    paddingLeft: indent,
+    key: more.rowKey,
+    paddingLeft: more.indent,
     children: [
       Button({
-        key: `more:${row.path}`,
-        label: fitted(label, bodyColumns - indent - BUTTON_CHROME),
+        key: more.key,
+        label: fitted(more.label, bodyColumns - more.indent - BUTTON_CHROME),
         onPress: () => {
-          actions.showAll(row.path)
+          actions.showAll(more.path)
         },
       }),
     ],
   })
 }
 
+function drawMore(
+  elements: PaneElements,
+  row: TreeRow & { kind: 'more' },
+  actions: PaneActions,
+): RenderElement {
+  const indent = displayWidth(indentOf(row.depth) + INDENT)
+  const label = `+${countText(row.hidden)} more in ${shownName(row.name)}/`
+  const keys = { key: `more:${row.path}`, rowKey: `more-row:${row.path}` }
+  return moreButton(elements, { ...keys, path: row.path, indent, label }, actions)
+}
+
+function drawWorkMore(
+  elements: PaneElements,
+  row: TreeRow & { kind: 'workMore' },
+  actions: PaneActions,
+): RenderElement {
+  const folders = `${countText(row.folders)} ${row.folders === 1 ? 'folder' : 'folders'}`
+  const label = `+${countText(row.changed)} changed in ${folders}`
+  const keys = { key: WORK_MORE_KEY, rowKey: `${WORK_MORE_KEY}-row` }
+  return moreButton(elements, { ...keys, path: row.path, indent: 0, label }, actions)
+}
+
 function drawRow(elements: PaneElements, row: TreeRow, draw: TreeDraw): RenderElement[] {
   switch (row.kind) {
     case 'more':
       return [drawMore(elements, row, draw.actions)]
+    case 'workMore':
+      return [drawWorkMore(elements, row, draw.actions)]
     case 'failed':
       return [drawFailed(elements, row)]
     case 'empty':
@@ -715,6 +743,33 @@ function drawNoWork(elements: PaneElements, actions: PaneActions): RenderElement
   ]
 }
 
+function drawCutNote(elements: PaneElements, view: PaneView): RenderElement[] {
+  const { Box, Text, Button, bodyColumns } = elements
+  const lines = (text: string) => wrapped(text, bodyColumns).map((part) => Text({ children: part }))
+  if (view.choice === 'work') return [...lines(CUT_NOTE), ...lines(`${CLOSE_FOLDER}.`)]
+  const spec: ButtonSpec = {
+    key: CUT_VIEW_KEY,
+    label: VIEW_LABELS.all,
+    onPress: () => {
+      view.actions.switchView()
+    },
+  }
+  const ask = `${CLOSE_FOLDER}, or `
+  const button = buttonOf(Button, spec, Math.max(bodyColumns - BUTTON_CHROME - 1, 1))
+  const end = Text({ children: '.' })
+  if (displayWidth(ask) + rowWidth([spec]) + 1 <= bodyColumns) {
+    return [
+      ...lines(CUT_NOTE),
+      Box({ flexDirection: 'row', children: [Text({ children: ask }), button, end] }),
+    ]
+  }
+  return [
+    ...lines(CUT_NOTE),
+    ...lines(ask.trimEnd()),
+    Box({ flexDirection: 'row', children: [button, end] }),
+  ]
+}
+
 function isEntry(row: TreeRow): row is EntryRow {
   return row.kind === 'file' || row.kind === 'folder' || row.kind === 'pruned'
 }
@@ -736,10 +791,15 @@ export function drawTree(
   const { git, actions, touched, opened } = view
   const draw: TreeDraw = { actions, marks: git.marks, touched, opened, isRepo: git.isRepo }
   const isWork = view.choice === 'work'
+  const isCut = rows.length > TREE_ROWS
+  const drawn = isCut ? rows.slice(0, TREE_ROWS) : rows
   const body =
     isWork && rows.length === 0
       ? drawNoWork(elements, actions)
-      : rows.flatMap((row) => drawRow(elements, row, draw))
+      : [
+          ...drawn.flatMap((row) => drawRow(elements, row, draw)),
+          ...(isCut ? drawCutNote(elements, view) : []),
+        ]
   return Box({
     flexDirection: 'column',
     children: [
