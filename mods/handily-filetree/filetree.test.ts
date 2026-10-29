@@ -4493,6 +4493,7 @@ describe('the edits of the last turn: the button and the steps', () => {
       await ui.press({ key: 'last-turn' })
       expect((await stepHead(ui))[1]).toBe('hooks/pane.tsx  ✎ main · Edit · +2 -1')
       await endTurnOf($)
+      await ui.press({ key: 'newest-turn' })
       expect((await stepHead(ui)).slice(0, 2)).toEqual([
         'edit 1 of 1 · last turn · 0s',
         'docs/filetree.md  ✎ scout · Write · new',
@@ -4620,7 +4621,7 @@ describe('the edits of the last turn: one edit', () => {
       await ui.press({ key: 'next-edit' })
       expect((await screen(ui)).slice(3)).toEqual([
         'hooks/c.ts  ✎ main · Edit · no patch',
-        'the diff was too large or timed out',
+        'no patch in the result',
       ])
       await ui.press({ key: 'next-edit' })
       expect((await screen(ui)).slice(3)).toEqual([
@@ -4706,6 +4707,121 @@ describe('the edits of the last turn: widths', () => {
         '@@ -1261,0 +1262,4 @@',
         ...MOCKS_LINES,
         '+',
+      ])
+      await ui.unmount()
+    })
+  }
+})
+
+function updateResult(content: string, originalFile: string | null) {
+  return { type: 'update', filePath: '', content, structuredPatch: [], originalFile }
+}
+
+describe('the edits of the last turn: review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`a Write with an empty patch says what the result says: no change, or an old file too large to diff, on the ${surface}`, async ($, on) => {
+      const { seen, results } = editScene(on)
+      results.set(`${ROOT}/docs/same.md`, updateResult('same\n', 'same\n'))
+      results.set(`${ROOT}/docs/huge.md`, updateResult('new\n', null))
+      const ui = await workFiles($, seen, surface)
+      await write($, 'docs/same.md', 'same\n')
+      await write($, 'docs/huge.md', 'new\n')
+      await endTurnOf($)
+      await ui.press({ key: 'last-turn' })
+      expect((await screen(ui)).slice(3)).toEqual([
+        'docs/same.md  ✎ main · Write · no change',
+        'no change to the file',
+      ])
+      await ui.press({ key: 'next-edit' })
+      expect((await screen(ui)).slice(3)).toEqual([
+        'docs/huge.md  ✎ main · Write · no patch',
+        'the old file was too large to diff',
+      ])
+      await ui.unmount()
+    })
+
+    test(`a patch cut by the character budget names that reason, not the 400 line cap, on the ${surface}`, async ($, on) => {
+      const { seen, results } = editScene(on)
+      const long = `+${'x'.repeat(100_001)}`
+      const hunk = { oldStart: 1, oldLines: 0, newStart: 1, newLines: 2 }
+      results.set(`${ROOT}/hooks/wide.ts`, patchResult(hunk, ['+short', long]))
+      const ui = await workFiles($, seen, surface)
+      await edit($, 'hooks/wide.ts')
+      await endTurnOf($)
+      await ui.press({ key: 'last-turn' })
+      expect((await screen(ui)).slice(4)).toEqual([
+        RULE_41,
+        '(Code)',
+        '+1 line not kept; over 100,000 characters',
+        RULE_41,
+        THIS_EDIT_ONLY,
+      ])
+      expect((await ui.find({ type: 'Code' }))?.props.source).toBe('@@ -1,0 +1,1 @@\n+short')
+      await ui.unmount()
+    })
+
+    test(`/tree edits past the kept edits names the whole count and the kept range, on the ${surface}`, async ($, on) => {
+      const { seen } = editScene(on)
+      await start($)
+      for (let index = 1; index <= 60; index += 1) await edit($, `hooks/a${String(index)}.ts`)
+      await endTurnOf($)
+      expect(await tree($, 'edits 55')).toBe(
+        'No edit 55. The last turn has 60 edits; edits 1-50 are kept.',
+      )
+      expect(seen.opens).toEqual([])
+    })
+
+    test(`an open step view keeps the turn it shows when a newer turn ends, says so, and newest shows the newer turn, on the ${surface}`, async ($, on) => {
+      const { seen } = editScene(on)
+      const ui = await workFiles($, seen, surface)
+      await threeEdits($, seen)
+      await ui.press({ key: 'last-turn' })
+      await ui.press({ key: 'next-edit' })
+      await edit($, 'hooks/pane.tsx')
+      await endTurnOf($)
+      expect((await stepHead(ui)).slice(0, 3)).toEqual([
+        'edit 2 of 3 · earlier turn · 3m',
+        'a newer turn ended · [ newest ]',
+        'docs/mocks.md  ✎ main · Edit · +3 -0',
+      ])
+      expect((await ui.find({ type: 'Text', text: 'a newer turn ended · ' }))?.props.dimColor).toBe(
+        true,
+      )
+      await ui.press({ key: 'newest-turn' })
+      expect((await stepHead(ui)).slice(0, 2)).toEqual([
+        'edit 1 of 1 · last turn · 0s',
+        'hooks/pane.tsx  ✎ main · Edit · +2 -1',
+      ])
+      await ui.unmount()
+    })
+
+    test(`at body 30 the sign of a newer turn puts newest on its own row, on the ${surface}`, async ($, on) => {
+      const { seen } = editScene(on)
+      const ui = await workFiles($, seen, surface, 30)
+      await threeEdits($, seen)
+      await ui.press({ key: 'last-turn' })
+      await edit($, 'hooks/pane.tsx')
+      await endTurnOf($)
+      expect((await stepHead(ui, 30)).slice(0, 4)).toEqual([
+        '[ copy path ]',
+        'edit 1 of 3 · first · 4m',
+        'a newer turn ended',
+        '[ newest ]',
+      ])
+      await ui.unmount()
+    })
+
+    test(`the inline step view also says that a newer turn ended, on the ${surface}`, async ($, on) => {
+      const { seen } = editScene(on)
+      await start($)
+      await threeEdits($, seen)
+      await tree($, 'edits 2')
+      await edit($, 'hooks/pane.tsx')
+      await endTurnOf($)
+      const ui = await mountFiles($, surface, 'inline', 76)
+      expect((await screen(ui, 76)).slice(1, 3)).toEqual([
+        'edit 2 of 3 · earlier turn · 3m · docs/mocks.md  ✎ main · Edit · +3 -0',
+        'a newer turn ended · [ newest ]',
       ])
       await ui.unmount()
     })

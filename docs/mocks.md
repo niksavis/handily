@@ -3426,6 +3426,9 @@ Changed in the build, each against the approved text:
 - 10.11e: the button sits under the controls in every state.
 - 10.11f: the header line at body 30 is cut by the rule of 10.6, as in the tree.
 - 10.11g: the patch shows as many lines as the 8 rows hold, and the last row counts the rest.
+- Review repair: an empty patch says only what the result shows (10.11d). A patch cut by its
+  100,000 characters names that limit. When a newer turn ends, the open step view keeps its
+  turn and says so (10.11i).
 
 #### 10.11a Docked, body 41, work view: the last turn made 3 edits
 
@@ -3499,7 +3502,15 @@ Changed in the build, each against the approved text:
 │ you changed this edit before it ran       │  dim
 │                                           │
 │ hooks/c.ts  ✎ main · Edit · no patch      │  structuredPatch empty
-│ the diff was too large or timed out       │  dim
+│ no patch in the result                    │  dim
+│                                           │
+│ docs/same.md  ✎ main · Write · no change  │  Write update, content as before
+│ no change to the file                     │  dim
+│                                           │
+│ docs/huge.md  ✎ main · Write · no patch   │  Write update, originalFile null
+│ the old file was too large to diff        │  dim
+│                                           │
+│ +1 line not kept; over 100,000 characters │  under the patch: the character cap
 │                                           │
 │ app.ipynb  ✎ main · NotebookEdit          │  no patch drawn
 │ a notebook cell changed; diff in the tree │  dim
@@ -3573,6 +3584,19 @@ Changed in the build, each against the approved text:
 │ [back] [prev] [next] [copy path]          │  native buttons
 │ edit 1 of 3 · first · last turn · 4m      │
 │ hooks/pane.tsx  ✎ main · Edit · +2 -1     │
+╰───────────────────────────────────────────╯
+```
+
+#### 10.11i Docked, body 41: a newer turn ended while the person reads edit 2 (review repair)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed          │
+│ [ back ] [ prev ] [ next ] [ copy path ]  │
+│ edit 2 of 3 · earlier turn · 3m           │  the turn being read stays
+│ a newer turn ended · [ newest ]           │  dim text; [ newest ] shows its edit 1
+│ docs/mocks.md  ✎ main · Edit · +3 -0      │
 ╰───────────────────────────────────────────╯
 ```
 

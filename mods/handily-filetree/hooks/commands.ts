@@ -11,7 +11,7 @@ export type TreeCommand =
   | { kind: 'badEdits'; word: string }
   | { kind: 'unknown'; word: string }
 
-export type EditCount = { kept: number; hasEnded: boolean }
+export type EditCount = { kept: number; total: number; hasEnded: boolean }
 
 const TASK_WORD = /^task(?:\s+(.*))?$/s
 const EDITS_WORD = /^edits(?:\s+(.*))?$/s
@@ -54,8 +54,12 @@ export function noEditReply(at: number, count: EditCount): string | undefined {
   if (count.kept === 0) {
     return 'The last turn made no edits. Edits by Bash commands are not listed.'
   }
-  if (at > count.kept) return `No edit ${String(at)}. The last turn has ${editRange(count.kept)}.`
-  return undefined
+  if (at <= count.kept) return undefined
+  const missing = `No edit ${String(at)}.`
+  if (count.total > count.kept) {
+    return `${missing} The last turn has ${String(count.total)} edits; ${editRange(count.kept)} are kept.`
+  }
+  return `${missing} The last turn has ${editRange(count.kept)}.`
 }
 
 export async function showEdit(ui: TreeUi, at: number, kept: number): Promise<string> {

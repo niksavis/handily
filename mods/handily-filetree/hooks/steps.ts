@@ -6,7 +6,9 @@ import {
   type EditChange,
   type EditPatch,
   type LastTurn,
+  type NoPatchReason,
   PATCH_LINES,
+  type PatchCut,
   type TurnEdit,
   isLaterEdited,
 } from './edits'
@@ -21,10 +23,11 @@ import {
   shownName,
   wrapped,
 } from './pane'
-import { countText } from './source'
+import { SHOWN_CHARACTERS, countText } from './source'
 import { displayWidth, fitted } from './width'
 
 export type StepActions = {
+  newest: () => void
   move: (at: number) => void
   back: () => void
   copy: (text: string, surface: RenderSurface) => void
@@ -35,6 +38,7 @@ export type StepView = {
   git: GitView
   touched: TouchDraw
   last: LastTurn
+  isNewer: boolean
   at: number
   actions: StepActions
 }
@@ -46,10 +50,21 @@ const EDIT_MARK = '✎'
 const PART_GAP = ' · '
 const TITLE_GAP = '  '
 const LAST_TURN = 'last turn'
+const EARLIER_TURN = 'earlier turn'
+const NEWER_ENDED = 'a newer turn ended'
+const NEWEST_KEY = 'newest-turn'
 const THIS_EDIT_ONLY = 'this edit only, not the file vs HEAD'
 const HELD = 'held for your review; the file is unchanged until you accept it'
 const USER_MODIFIED = 'you changed this edit before it ran'
-const NO_PATCH = 'the diff was too large or timed out'
+const NO_PATCH_NOTES: Readonly<Record<NoPatchReason, string>> = {
+  unchanged: 'no change to the file',
+  'too-large': 'the old file was too large to diff',
+  unknown: 'no patch in the result',
+}
+const CUT_REASONS: Readonly<Record<PatchCut, string>> = {
+  lines: `${String(PATCH_LINES)} per edit`,
+  characters: `over ${countText(SHOWN_CHARACTERS)} characters`,
+}
 const NOTEBOOK = 'a notebook cell changed; diff in the tree shows the file against HEAD'
 const LATER = 'a later edit changed this file again'
 const PANE_FULL = 'the pane is full; the rest of this edit is not shown'
@@ -63,7 +78,7 @@ function detailOf(change: EditChange): string {
     case 'held':
       return 'held'
     case 'no-patch':
-      return 'no patch'
+      return change.reason === 'unchanged' ? 'no change' : 'no patch'
     case 'notebook':
       return ''
   }
@@ -76,7 +91,7 @@ function headParts(view: StepView, isShort: boolean): string[] {
   const edit = last.edits[at - 1]
   const first = kept > 1 && at === 1 && !isCut ? ['first'] : []
   const final = kept > 1 && at === kept ? ['last'] : []
-  const turn = isCut ? `first ${String(EDITS_KEPT)} kept` : LAST_TURN
+  const turn = isCut ? `first ${String(EDITS_KEPT)} kept` : view.isNewer ? EARLIER_TURN : LAST_TURN
   const age = edit === undefined ? [] : [ageText(touched.now - edit.at)]
   const whole = isShort ? [] : [turn]
   return [`edit ${String(at)} of ${String(kept)}`, ...first, ...final, ...whole, ...age]
@@ -112,7 +127,11 @@ function notesOf(view: StepView, change: EditChange): string[] {
     case 'held':
       return [HELD, ...later]
     case 'no-patch':
-      return [...(change.isUserModified ? [USER_MODIFIED] : []), NO_PATCH, ...later]
+      return [
+        ...(change.isUserModified ? [USER_MODIFIED] : []),
+        NO_PATCH_NOTES[change.reason],
+        ...later,
+      ]
     case 'notebook':
       return [NOTEBOOK, ...later]
   }
@@ -176,8 +195,37 @@ function dimLines(elements: PaneElements, texts: readonly string[]): RenderEleme
 }
 
 function droppedNote(patch: EditPatch): string[] {
-  if (patch.dropped === 0) return []
-  return [`+${countText(patch.dropped)} lines not kept; ${String(PATCH_LINES)} per edit`]
+  if (patch.cutBy === undefined) return []
+  const lines = `${countText(patch.dropped)} ${patch.dropped === 1 ? 'line' : 'lines'}`
+  return [`+${lines} not kept; ${CUT_REASONS[patch.cutBy]}`]
+}
+
+function newerRows(view: StepView): RenderElement[] {
+  if (!view.isNewer) return []
+  const { elements, actions } = view
+  const { Box, Text, Button, bodyColumns } = elements
+  const spec: ButtonSpec = {
+    key: NEWEST_KEY,
+    label: 'newest',
+    onPress: () => {
+      actions.newest()
+    },
+  }
+  const lead = `${NEWER_ENDED}${PART_GAP}`
+  const button = buttonOf(Button, spec, bodyColumns)
+  if (displayWidth(lead) + rowWidth([spec]) <= bodyColumns) {
+    return [
+      Box({
+        key: NEWEST_KEY,
+        flexDirection: 'row',
+        children: [Text({ dimColor: true, children: lead }), button],
+      }),
+    ]
+  }
+  return [
+    Text({ dimColor: true, children: fitted(NEWER_ENDED, bodyColumns) }),
+    Box({ key: NEWEST_KEY, flexDirection: 'row', children: [button] }),
+  ]
 }
 
 function patchBody(view: StepView, shown: Shown, patch: EditPatch): RenderElement[] {
@@ -217,6 +265,7 @@ export function drawSteps(view: StepView, rootName: string): RenderElement {
         key: 'steps',
       }),
       Text({ children: headText(view, bodyColumns) }),
+      ...newerRows(view),
       Text({ children: titleText(shown, bodyColumns) }),
       ...dimLines(elements, notesOf(view, change)),
       ...(change.kind === 'patch' ? patchBody(view, shown, change) : []),
@@ -270,10 +319,11 @@ export function drawInlineSteps(view: StepView, rootName: string): RenderElement
   }
   const specs = stepButtons(view, shown)
   const headerWidth = bodyColumns - rowWidth(specs) - BUTTON_GAP
+  const newer = newerRows(view)
   const notes = notesOf(view, shown.edit.change)
-    .slice(0, INLINE_ROWS - INLINE_TOP_ROWS)
+    .slice(0, INLINE_ROWS - INLINE_TOP_ROWS - newer.length)
     .map((text) => Text({ dimColor: true, children: fitted(text, bodyColumns) }))
-  const room = INLINE_ROWS - INLINE_TOP_ROWS - notes.length
+  const room = INLINE_ROWS - INLINE_TOP_ROWS - newer.length - notes.length
   return Box({
     flexDirection: 'column',
     children: [
@@ -292,6 +342,7 @@ export function drawInlineSteps(view: StepView, rootName: string): RenderElement
         ],
       }),
       Text({ children: inlineLine(view, shown) }),
+      ...newer,
       ...notes,
       ...inlinePatch(view, shown, room),
     ],

@@ -21,8 +21,10 @@ import {
   editChangeOf,
   endMainTurn,
   isEditTool,
+  isNewerEnded,
   newEdits,
   noteEdit,
+  readLastTurn,
   shownStep,
 } from './edits'
 import { type GitView, gitView } from './gitview'
@@ -301,7 +303,7 @@ function openSteps($: EngineInterface, site: { edits: Edits; looking: Looking },
   const { edits, looking } = site
   looking.look = undefined
   looking.generation += 1
-  edits.at = shownStep(edits.last, at)
+  readLastTurn(edits, at)
   redraw($)
 }
 
@@ -326,10 +328,18 @@ function lastTurnOf(
   }
 }
 
-function stepActionsOf($: EngineInterface, edits: Edits, copy: PaneActions['copy']): StepActions {
+function stepActionsOf(
+  $: EngineInterface,
+  site: { edits: Edits; looking: Looking },
+  copy: PaneActions['copy'],
+): StepActions {
+  const { edits } = site
   return {
+    newest: () => {
+      openSteps($, site, 1)
+    },
     move: (at) => {
-      const step = shownStep(edits.last, at)
+      const step = shownStep(edits.reading, at)
       if (step === undefined || step === edits.at) return
       edits.at = step
       redraw($)
@@ -567,7 +577,11 @@ export const register: Register = (on) => {
         return { text: badTaskReply(command.word) }
       case 'edits': {
         const kept = edits.last?.edits.length ?? 0
-        const refused = noEditReply(command.at, { kept, hasEnded: edits.last !== undefined })
+        const refused = noEditReply(command.at, {
+          kept,
+          total: edits.last?.total ?? 0,
+          hasEnded: edits.last !== undefined,
+        })
         if (refused !== undefined) return { text: refused }
         openSteps($, stepSite, command.at)
         return { text: await showEdit(treeUiOf($), command.at, kept) }
@@ -616,15 +630,17 @@ export const register: Register = (on) => {
       choice,
       lastTurn: lastTurnOf($, stepSite),
     }
-    const step = edits.at === undefined ? undefined : shownStep(edits.last, edits.at)
-    if (edits.last !== undefined && step !== undefined) {
+    const { reading } = edits
+    const step = edits.at === undefined ? undefined : shownStep(reading, edits.at)
+    if (reading !== undefined && step !== undefined) {
       const steps = {
         elements,
         git,
         touched,
-        last: edits.last,
+        last: reading,
+        isNewer: isNewerEnded(edits),
         at: step,
-        actions: stepActionsOf($, edits, actions.copy),
+        actions: stepActionsOf($, stepSite, actions.copy),
       }
       return isInline ? drawInlineSteps(steps, rootName) : drawSteps(steps, rootName)
     }

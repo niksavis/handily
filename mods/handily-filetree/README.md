@@ -33,6 +33,7 @@ Replies, from the tests:
 /tree task     "task" names no task. Use /tree task and the task number, for example /tree task 2.
 /tree edits    Tree opened: edit 1 of 3 of the last turn.
 /tree edits 9  No edit 9. The last turn has edits 1-3.
+/tree edits 55 No edit 55. The last turn has 60 edits; edits 1-50 are kept.
 /tree edits    The last turn made no edits. Edits by Bash commands are not listed.
 /tree edits    No turn has ended yet, so no edit is listed.
 /tree edits x  "edits x" names no edit. Use /tree edits and the edit number, for example /tree edits 2.
@@ -563,13 +564,25 @@ this edit only, not the file vs HEAD
 - The title names the agent with the label of the board, the tool and the counts. A new file
   reads `new`.
 - An edit that Claude Code held for review reads `held` and shows no patch. An edit that you
-  changed before it ran says so. An Edit with an empty patch reads `no patch`. A NotebookEdit
-  shows no patch.
+  changed before it ran says so. A NotebookEdit shows no patch.
+- An edit with an empty patch says only what its result shows:
+
+  | Result                              | Title       | Note                                 |
+  | ----------------------------------- | ----------- | ------------------------------------ |
+  | A Write that changed nothing        | `no change` | `no change to the file`              |
+  | A Write of a file too large to diff | `no patch`  | `the old file was too large to diff` |
+  | Any other empty patch               | `no patch`  | `no patch in the result`             |
+
 - When a later edit of the same turn changed the same file, the note reads
   `a later edit changed this file again`.
-- The mod keeps the first 50 edits of a turn and 400 lines of each patch. Over 50 edits, the
-  header reads `edit 1 of 50 · first 50 kept`. Over 400 lines, a note counts the lines that the
-  mod did not keep.
+- The mod keeps the first 50 edits of a turn, 400 lines of each patch and 100,000 characters of
+  each patch. Over 50 edits, the header reads `edit 1 of 50 · first 50 kept`, and
+  `/tree edits 55` replies `No edit 55. The last turn has 60 edits; edits 1-50 are kept.` A note
+  under the patch counts the lines that the mod did not keep, and names the limit:
+  `+20 lines not kept; 400 per edit` or `+1 line not kept; over 100,000 characters`.
+- When a newer main turn ends while you read an edit, the step view keeps the turn you read. The
+  header then reads `earlier turn`, and a dim line reads `a newer turn ended · [ newest ]`.
+  `[ newest ]` shows edit 1 of the newer turn.
 - A turn with no edit shows `[ last turn: no edits ]`. A press shows
   `edits by Bash commands are not listed`, because the mod does not read a change by `sed -i`
   or another Bash command as an edit.

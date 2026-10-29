@@ -6,12 +6,17 @@ export const PATCH_LINES = 400
 
 export type EditTool = 'Edit' | 'Write' | 'NotebookEdit'
 
+export type PatchCut = 'lines' | 'characters'
+
+export type NoPatchReason = 'unchanged' | 'too-large' | 'unknown'
+
 export type EditPatch = {
   kind: 'patch'
   hunks: readonly Hunk[]
   added: number
   removed: number
   dropped: number
+  cutBy: PatchCut | undefined
   isNew: boolean
   isUserModified: boolean
 }
@@ -19,7 +24,7 @@ export type EditPatch = {
 export type EditChange =
   | EditPatch
   | { kind: 'held' }
-  | { kind: 'no-patch'; isUserModified: boolean }
+  | { kind: 'no-patch'; reason: NoPatchReason; isUserModified: boolean }
   | { kind: 'notebook' }
 
 export type TurnEdit = {
@@ -36,6 +41,7 @@ export type Edits = {
   open: TurnEdit[]
   openTotal: number
   last: LastTurn | undefined
+  reading: LastTurn | undefined
   at: number | undefined
   isNoteShown: boolean
 }
@@ -116,17 +122,32 @@ function resultPatch(raws: readonly RawHunk[]): Patched {
   return { raws, total: all.length, added: counted(all, '+') }
 }
 
+function cutOf(dropped: number, keptLines: number): PatchCut | undefined {
+  if (dropped === 0) return undefined
+  return keptLines >= PATCH_LINES ? 'lines' : 'characters'
+}
+
 function patchOf(patched: Patched, flags: { isNew: boolean; isUserModified: boolean }): EditPatch {
   const all = patched.raws.flatMap((raw) => raw.lines)
   const kept = keptHunks(patched.raws.map(hunkOf))
+  const keptLines = bodyLines(kept)
+  const dropped = Math.max(patched.total - keptLines, 0)
   return {
     kind: 'patch',
     hunks: kept,
     added: patched.added,
     removed: counted(all, '-'),
-    dropped: Math.max(patched.total - bodyLines(kept), 0),
+    dropped,
+    cutBy: cutOf(dropped, keptLines),
     ...flags,
   }
+}
+
+function noPatchReason(tool: EditTool, result: Readonly<Record<string, unknown>>): NoPatchReason {
+  if (tool !== 'Write' || result.type !== 'update') return 'unknown'
+  if (result.originalFile === null) return 'too-large'
+  const isSame = typeof result.content === 'string' && result.content === result.originalFile
+  return isSame ? 'unchanged' : 'unknown'
 }
 
 function isCreate(tool: EditTool, result: Readonly<Record<string, unknown>>): boolean {
@@ -135,7 +156,7 @@ function isCreate(tool: EditTool, result: Readonly<Record<string, unknown>>): bo
 
 export function editChangeOf(tool: EditTool, result: unknown): EditChange {
   if (tool === 'NotebookEdit') return { kind: 'notebook' }
-  if (!isRecord(result)) return { kind: 'no-patch', isUserModified: false }
+  if (!isRecord(result)) return { kind: 'no-patch', reason: 'unknown', isUserModified: false }
   if (result.staged === true) return { kind: 'held' }
   const isUserModified = result.userModified === true
   const isNew = isCreate(tool, result)
@@ -143,7 +164,9 @@ export function editChangeOf(tool: EditTool, result: unknown): EditChange {
   if (raws.length === 0 && isNew && typeof result.content === 'string') {
     return patchOf(createdPatch(result.content), { isNew, isUserModified })
   }
-  if (raws.length === 0) return { kind: 'no-patch', isUserModified }
+  if (raws.length === 0) {
+    return { kind: 'no-patch', reason: noPatchReason(tool, result), isUserModified }
+  }
   return patchOf(resultPatch(raws), { isNew, isUserModified })
 }
 
@@ -152,7 +175,14 @@ export function isEditTool(tool: string): tool is EditTool {
 }
 
 export function newEdits(): Edits {
-  return { open: [], openTotal: 0, last: undefined, at: undefined, isNoteShown: false }
+  return {
+    open: [],
+    openTotal: 0,
+    last: undefined,
+    reading: undefined,
+    at: undefined,
+    isNoteShown: false,
+  }
 }
 
 export function clearEdits(edits: Edits): void {
@@ -163,6 +193,7 @@ export function clearEdits(edits: Edits): void {
 }
 
 export function closeSteps(edits: Edits): void {
+  edits.reading = undefined
   edits.at = undefined
   edits.isNoteShown = false
 }
@@ -177,7 +208,15 @@ export function endMainTurn(edits: Edits): void {
   edits.open = []
   edits.openTotal = 0
   edits.isNoteShown = false
-  if (edits.at !== undefined) edits.at = shownStep(edits.last, edits.at)
+}
+
+export function readLastTurn(edits: Edits, at: number): void {
+  edits.reading = edits.last
+  edits.at = shownStep(edits.reading, at)
+}
+
+export function isNewerEnded(edits: Edits): boolean {
+  return edits.reading !== undefined && edits.reading !== edits.last
 }
 
 export function shownStep(last: LastTurn | undefined, at: number): number | undefined {
