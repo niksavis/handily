@@ -21,7 +21,8 @@ each mod in the list with the bundle:
 
 ## What /handily prints
 
-`/handily` takes no argument. It prints one line for each mod in the list, in five columns:
+`/handily` with no argument prints one line for each mod in the list, in five columns. The only
+argument that it takes is `glyphs` (see "Glyphs" below).
 
 | Column      | What it shows                                                                   |
 | ----------- | ------------------------------------------------------------------------------- |
@@ -104,6 +105,41 @@ handily: 7 of 7 mods loaded, 3 off or paused
 The last line counts the mods that loaded and the mods that are `off` or `paused`. The line has
 the `success` colour when every mod loaded and no old plugin id is found. Otherwise it has the
 `warning` colour.
+
+## Glyphs
+
+The setting Glyphs in `/config` under `handily` takes `plain` or `nerd`. The default is `plain`.
+
+- `plain`: the marks draw in any font, such as `▶`, `✓`, `○`, `■` and `◆`.
+- `nerd`: the marks are Nerd Font icons. Each icon is one cell wide only with a Nerd Font Mono
+  font. A terminal without such a font draws boxes or blank cells.
+
+`/handily glyphs` tests this terminal. It names the setting, then prints each mark of both sets
+between bars, with the name of the icon. When each icon fills one cell between its bars, the
+setting `nerd` is safe in this terminal. A box, a `?` or a moved bar means that the terminal
+has no Nerd Font Mono. This is the output with the setting `nerd`. Each circled letter stands
+for the icon, which this page cannot draw:
+
+```text
+Glyphs nerd · set in /config › handily
+role      plain nerd
+doing     |▶|   |Ⓟ| nf-cod-play
+done      |✓|   |Ⓒ| nf-cod-check
+to do     |○|   |Ⓞ| nf-cod-circle_large
+blocked   |■|   |Ⓧ| nf-cod-error
+needs you |◆|   |Ⓑ| nf-cod-bell
+edited    |✎|   |Ⓔ| nf-cod-edit
+read      |◦|   |Ⓡ| nf-cod-eye
+folder    |▸|   |Ⓕ| nf-fa-folder
+open      |▾|   |ⓕ| nf-fa-folder_open
+branch    |·|   |Ⓨ| nf-oct-git_branch
+Each mark fills one cell between bars.
+A box, a ? or a moved bar: this terminal has no Nerd Font Mono. Set Glyphs to plain in /config.
+```
+
+A stored value other than `plain` or `nerd` draws plain. `/handily glyphs` names that value on
+its first line. In this release no mod draws the nerd set yet: the setting and the test come
+first (handily-5jdtf).
 
 ## Old plugin ids
 

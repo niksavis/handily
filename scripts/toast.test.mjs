@@ -1,18 +1,10 @@
 import assert from 'node:assert/strict'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
-import { tmpdir } from 'node:os'
 import { dirname, extname, join, relative, sep } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
+import { differingCopies, keepersOf, withModsTree } from './copies.mjs'
 import { APPROVED } from './fixtures/signals.mjs'
 
 registerHooks({
@@ -97,25 +89,6 @@ function toastPath(dir, mod) {
   return join(dir, mod, 'hooks', TOAST_FILE)
 }
 
-function keepersOf(dir, file) {
-  return readdirSync(dir)
-    .filter((mod) => existsSync(join(dir, mod, 'hooks', file)))
-    .sort()
-}
-
-function differingCopies(dir, file) {
-  const [first, ...rest] = keepersOf(dir, file).map((mod) => ({
-    mod,
-    bytes: readFileSync(join(dir, mod, 'hooks', file)),
-  }))
-  return rest
-    .filter(({ bytes }) => !bytes.equals(first.bytes))
-    .map(
-      ({ mod }) =>
-        `mods/${first.mod}/hooks/${file} and mods/${mod}/hooks/${file} differ; copy one over the other`,
-    )
-}
-
 function filesUnder(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(entry.parentPath, entry.name)
@@ -137,19 +110,6 @@ function directToastCalls(dir) {
     .filter(usesToast)
     .map((path) => relative(dirname(dir), path).split(sep).join('/'))
     .sort()
-}
-
-function withModsTree(files, body) {
-  const tree = mkdtempSync(join(tmpdir(), 'handily-toast-'))
-  try {
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(dirname(join(tree, path)), { recursive: true })
-      writeFileSync(join(tree, path), text)
-    }
-    body(join(tree, 'mods'))
-  } finally {
-    rmSync(tree, { recursive: true, force: true })
-  }
 }
 
 async function toastModule(mod) {
