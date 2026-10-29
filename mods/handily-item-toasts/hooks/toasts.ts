@@ -1,6 +1,6 @@
 import type { EngineInterface, PluginState } from 'claude-code'
 import type { ItemToastsHealth as Health } from '../types'
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastLine, type ToastParts, type ToastRole } from './toast'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Refreshed = Awaited<ReturnType<EngineInterface['workitems']['refresh']>>
@@ -20,13 +20,13 @@ const QUOTE = '"'
 const ESCAPE = '\\'
 const COUNT_SEPARATOR = '  '
 
-const STATUS_MARKS: Readonly<Record<Status, string>> = {
-  open: TOAST_MARKS.toDo,
-  in_progress: TOAST_MARKS.doing,
-  blocked: TOAST_MARKS.blocked,
-  deferred: TOAST_MARKS.toDo,
-  closed: TOAST_MARKS.done,
-  other: TOAST_MARKS.toDo,
+const STATUS_ROLES: Readonly<Record<Status, ToastRole>> = {
+  open: 'toDo',
+  in_progress: 'doing',
+  blocked: 'blocked',
+  deferred: 'toDo',
+  closed: 'done',
+  other: 'toDo',
 }
 
 export type Change = {
@@ -65,25 +65,27 @@ function eventText(change: Change): string {
 
 function changeParts(change: Change): ToastParts {
   return [
-    `${STATUS_MARKS[change.status]} ${change.id} ${eventText(change)}`,
+    marked(STATUS_ROLES[change.status], `${change.id} ${eventText(change)}`),
     { quoted: change.title },
   ]
 }
 
-function countsText(changes: readonly Change[]): string {
-  const groups = new Map<string, { mark: string; kind: ChangeKind; count: number }>()
+function countsLine(changes: readonly Change[]): ToastLine {
+  const groups = new Map<string, { role: ToastRole; kind: ChangeKind; count: number }>()
   for (const kind of KINDS_IN_DIFF_ORDER) {
     for (const change of changes.filter((each) => each.kind === kind)) {
-      const mark = STATUS_MARKS[change.status]
-      const key = `${mark} ${kind}`
+      const role = STATUS_ROLES[change.status]
+      const key = `${role} ${kind}`
       const held = groups.get(key)
-      groups.set(key, { mark, kind, count: (held?.count ?? 0) + 1 })
+      groups.set(key, { role, kind, count: (held?.count ?? 0) + 1 })
     }
   }
   return [...groups.values()]
     .sort((a, b) => b.count - a.count)
-    .map(({ mark, kind, count }) => `${mark} ${String(count)} ${kind}`)
-    .join(COUNT_SEPARATOR)
+    .flatMap(({ role, kind, count }, index) => [
+      ...(index === 0 ? [] : [COUNT_SEPARATOR]),
+      ...marked(role, `${String(count)} ${kind}`),
+    ])
 }
 
 function idsText(changes: readonly Change[]): string {
@@ -95,7 +97,7 @@ function idsText(changes: readonly Change[]): string {
 export function changesParts(changes: readonly Change[]): ToastParts {
   const [only] = changes
   if (changes.length === 1 && only !== undefined) return changeParts(only)
-  return [`${String(changes.length)} items changed`, countsText(changes), idsText(changes)]
+  return [`${String(changes.length)} items changed`, countsLine(changes), idsText(changes)]
 }
 
 function healthOf(snapshot: Snapshot): Health | null {
@@ -116,7 +118,7 @@ function sentenceEndOutsideQuotes(text: string): number {
 }
 
 export function failedParts(reason: string): ToastParts {
-  const head = `${TOAST_MARKS.blocked} Work items unavailable`
+  const head = marked('blocked', 'Work items unavailable')
   const sentenceEnd = sentenceEndOutsideQuotes(reason)
   if (sentenceEnd < 0) return [head, reason]
   return [head, reason.slice(0, sentenceEnd + 1), reason.slice(sentenceEnd + SENTENCE_END.length)]
@@ -126,7 +128,7 @@ function backParts(lines: readonly Line[]): ToastParts {
   const header = lines.find((line) => line.kind === 'header')
   if (!header) throw new Error('item-toasts: workitems drew no header line for an ok snapshot')
   const [label = header.text] = header.text.split(HEADER_AGE_PART)
-  return [`${TOAST_MARKS.done} Work items are back`, label]
+  return [marked('done', 'Work items are back'), label]
 }
 
 function strongerKind(held: ChangeKind, next: ChangeKind): ChangeKind {

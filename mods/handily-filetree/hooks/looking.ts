@@ -8,7 +8,8 @@ import {
   loadPreview,
 } from './look'
 import type { PaneActions } from './pane'
-import { TOAST_MARKS, showToast } from './toast'
+import { marked } from './toast'
+import { showGlyphToast } from './toasting'
 
 export type Looking = { opened: string | undefined; look: Look | undefined; generation: number }
 
@@ -98,7 +99,7 @@ function diffOf(
 function failedToast($: EngineInterface, what: string): (error: unknown) => void {
   return (error) => {
     log($, `${what} failed: ${String(error)}`)
-    showToast($, [`${TOAST_MARKS.blocked} ${what} failed`, 'the transcript shows why'])
+    showGlyphToast($, [marked('blocked', `${what} failed`), 'the transcript shows why'])
   }
 }
 
@@ -128,11 +129,11 @@ export function lookActionsOf(
         .copy({ text, surface })
         .then((result) => {
           if (result.isCopied) {
-            showToast($, [`${TOAST_MARKS.done} Copied`, { quoted: text }])
+            showGlyphToast($, [marked('done', 'Copied'), { quoted: text }])
             return
           }
           log($, `the copy of ${text} did not take: ${result.reason}`)
-          showToast($, [`${TOAST_MARKS.blocked} Not copied`, NOT_COPIED[result.reason]])
+          showGlyphToast($, [marked('blocked', 'Not copied'), NOT_COPIED[result.reason]])
         })
         .catch(failedToast($, 'Copy'))
     },
@@ -143,7 +144,7 @@ export function lookActionsOf(
           if (filled.isFilled) return
           const why =
             filled.refusal === undefined ? 'a hook kept it out' : NOT_FILLED[filled.refusal]
-          showToast($, [`${TOAST_MARKS.blocked} Not in the prompt`, why])
+          showGlyphToast($, [marked('blocked', 'Not in the prompt'), why])
         })
         .catch(failedToast($, 'Prompt fill'))
     },

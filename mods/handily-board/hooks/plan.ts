@@ -13,7 +13,7 @@ import {
   ownList,
   textFault,
 } from './tasks'
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastParts } from './toast'
 
 export const PLAN_TOOL = 'ExitPlanMode'
 
@@ -207,7 +207,7 @@ function refusalText(outcome: Exclude<ListOutcome, { kind: 'added' }>, steps: nu
 }
 
 function refusalParts(outcome: Exclude<ListOutcome, { kind: 'added' }>, steps: number): ToastParts {
-  const lead = `${TOAST_MARKS.blocked} ${NOT_ADDED}`
+  const lead = marked('blocked', NOT_ADDED)
   if (outcome.kind === 'step') {
     return [lead, ...refusalLines(outcome, steps), 'ask Claude to write the plan again']
   }

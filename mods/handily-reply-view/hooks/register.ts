@@ -16,7 +16,7 @@ import {
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
-import { showToast } from './toast'
+import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
 
 const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
@@ -123,7 +123,7 @@ async function copyText(
 ): Promise<void> {
   try {
     const result = await $.ui.copy({ text, surface })
-    showToast(
+    showGlyphToast(
       $,
       result.isCopied
         ? copiedParts(what, plural(lineCount(text), 'line'))
@@ -131,7 +131,7 @@ async function copyText(
     )
   } catch (error) {
     logFailure($, `${what} was not copied`, error)
-    showToast($, COPY_FAILED)
+    showGlyphToast($, COPY_FAILED)
   }
 }
 
@@ -206,7 +206,15 @@ export const register: Register = (on, options) => {
     const { value: mode, version } = await $.state.get(MODE)
     if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
     await logRefusedTableStyle($)
+    await keepGlyphSetting($)
     return next(e)
+  })
+
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny !== undefined) return result
+    await keepChangedGlyphSetting($, e)
+    return result
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {

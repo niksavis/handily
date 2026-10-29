@@ -1,5 +1,5 @@
 import type { PluginOptions } from 'claude-code'
-import { TOAST_MARKS, type ToastParts } from './toast'
+import { marked, type ToastParts } from './toast'
 
 export const TASKS_PANE = { id: 'tasks', title: 'this session' } as const
 
@@ -10,7 +10,7 @@ export type BoardPane = typeof TASKS_PANE | typeof SESSIONS_PANE
 export const BOARD_PANES: readonly BoardPane[] = [TASKS_PANE, SESSIONS_PANE]
 
 export const WAITS_FOR_WIDER_TERMINAL: ToastParts = [
-  `${TOAST_MARKS.waitsForYou} Board waits for a wider terminal`,
+  marked('waitsForYou', 'Board waits for a wider terminal'),
   'run /board to open it here',
 ]
 

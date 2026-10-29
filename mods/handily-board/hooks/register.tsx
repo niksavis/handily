@@ -146,7 +146,8 @@ import {
   withdrawnLead,
 } from './for-you'
 import { CHANGE_FAILED, refusedParts } from './replies'
-import { type ToastParts, showToast } from './toast'
+import type { ToastParts } from './toast'
+import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
 import type {
   BoardCallRow,
   BoardChecks,
@@ -845,7 +846,7 @@ async function notifyOrToast($: EngineInterface, text: string, parts: ToastParts
   } catch (error) {
     $.ui.log(`handily-board: the desktop notice failed: ${String(error)}`, { to: 'debug' })
   }
-  showToast($, parts)
+  showGlyphToast($, parts)
 }
 
 async function noticeWait($: EngineInterface, attention: AttentionKeep, callId: string) {
@@ -1033,7 +1034,7 @@ function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep): PaneUi {
       }
     },
     showToast: (parts) => {
-      showToast($, parts)
+      showGlyphToast($, parts)
     },
     log: (text) => {
       $.ui.log(text)
@@ -1354,6 +1355,7 @@ export const register: Register = (on, options) => {
         '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | plan | clear | list | stats | close]',
       immediate: true,
     })
+    await keepGlyphSetting($)
     if (mode === 'always') await openUnasked(uiOf($, notes, breakdown))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
@@ -1365,6 +1367,13 @@ export const register: Register = (on, options) => {
     vitals.shared = undefined
     await shareContext($, machine, vitals)
     return started
+  })
+
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny !== undefined) return result
+    await keepChangedGlyphSetting($, e)
+    return result
   })
 
   on('session.measure', async ($, e, next) => {
@@ -1419,7 +1428,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       const asked = stillAsked(await readList(hostOf($)), asks.splice(0))
       const parts = asksParts(asked)
-      if (parts !== undefined && !(await isSessionTabSeen($))) showToast($, parts)
+      if (parts !== undefined && !(await isSessionTabSeen($))) showGlyphToast($, parts)
       await noteVitals($, vitals, (current) => withTurnEnd(current, e.durationMs))
       await noteTrend($, trend, trendTurnEnded)
       if (await isDetailsShown($)) await countParts($, breakdown)
@@ -1774,11 +1783,11 @@ export const register: Register = (on, options) => {
     const add = () => {
       addPlanAsTasks(plans, host, plan.id).then(
         (reply) => {
-          if (reply.toastParts !== undefined) showToast($, reply.toastParts)
+          if (reply.toastParts !== undefined) showGlyphToast($, reply.toastParts)
         },
         (error: unknown) => {
           $.ui.log(`handily-board: the plan was not added: ${String(error)}`)
-          showToast($, CHANGE_FAILED)
+          showGlyphToast($, CHANGE_FAILED)
         },
       )
     }

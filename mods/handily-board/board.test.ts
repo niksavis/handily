@@ -1,5 +1,7 @@
 import type {
   AgentInfo,
+  ConfigRow,
+  ConfigValue,
   On,
   PluginState,
   PromptComposeInput,
@@ -136,6 +138,8 @@ type World = {
   clock: MockClock
   panesAsked: number
   breakdownCalls: number
+  config: ConfigRow[]
+  glyphs: unknown[]
 }
 
 type PaneOpen = { id: string; title: string | undefined; focus: boolean }
@@ -159,6 +163,7 @@ type WorldOptions = {
   notice?: UiNotifyResult | 'denied'
   failingTool?: string
   planAnswer?: PlanAnswer
+  glyphs?: ConfigValue
 }
 
 type PlanAnswer =
@@ -167,6 +172,20 @@ type PlanAnswer =
 
 const SKIPPED_COMPACTION = 'skip this compaction'
 const SUMMARY: SessionMessage = { role: 'user', text: 'the summary', toolUses: [] }
+
+const GLYPHS_KEY = 'handily.glyphs'
+
+function glyphsRow(value: ConfigValue): ConfigRow {
+  return {
+    key: GLYPHS_KEY,
+    label: 'Glyphs',
+    kind: 'choice',
+    value,
+    options: ['plain', 'nerd'],
+    provider: { plugin: 'handily@niksavis', tier: 'user' },
+    isLocked: false,
+  }
+}
 
 function world(on: On, options: WorldOptions = {}): World {
   const state: World = {
@@ -189,8 +208,19 @@ function world(on: On, options: WorldOptions = {}): World {
     clock: mock.clock(on, { now: 1_000 }),
     panesAsked: 0,
     breakdownCalls: 0,
+    config: options.glyphs === undefined ? [] : [glyphsRow(options.glyphs)],
+    glyphs: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('config.list', () => ({ value: state.config }))
+  on('config.set', (_$, e) => {
+    state.config = state.config.map((row) => (row.key === e.key ? { ...row, value: e.value } : row))
+    return { value: e.value }
+  })
+  on('state.set', { plugin: 'handily-board', key: 'glyphs' }, (_$, e, next) => {
+    state.glyphs.push(e.value)
+    return next(e)
+  })
   on('session.cwd', () => {
     if (options.cwdFailure !== undefined) throw new Error(options.cwdFailure)
     return { value: options.cwd ?? ROOT }
@@ -1026,6 +1056,7 @@ const MACHINE = 'sessions'
 const SESSION_OPEN = { id: PANE, title: 'this session' }
 const MACHINE_OPEN = { id: MACHINE, title: 'this machine' }
 const WAITS_TOAST = ['◆ Board waits for a wider terminal', 'run /board to open it here']
+const NERD_WAITS_TOAST = ['\u{EAA2} Board waits for a wider terminal', 'run /board to open it here']
 
 describe('When the person runs /board, the plugin opens the this session and this machine panes and shows this session; it passes focus only when the asked tab is hidden', () => {
   test(
@@ -8712,7 +8743,7 @@ test('a press on a plan that a later plan replaced changes nothing and says why'
   }
   expect(await addPlanAsTasks(plans, host, 'older')).toEqual({
     text: 'A later approved plan replaced this one. Nothing changed.',
-    toastParts: ['○ Nothing changed', 'a later plan replaced this one'],
+    toastParts: [[{ mark: 'toDo' }, ' Nothing changed'], 'a later plan replaced this one'],
   })
 })
 
@@ -9818,5 +9849,99 @@ describe('the agent lanes: review repairs (handily-xsjad.8)', () => {
         await ui.unmount()
       },
     )
+  }
+})
+
+describe('the glyph setting', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(
+      `keeps glyphs nerd from the handily row at session start and draws the waits toast with the nerd bell for 10 s on ${surface}`,
+      { ...withWorkitems, options: { mode: 'always' } },
+      async ($, on) => {
+        const seen = world(on, {
+          unplacedReason: 'an unasked pane waits for 144 columns.',
+          glyphs: 'nerd',
+        })
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        expect(seen.glyphs).toEqual(['nerd'])
+        expect(seen.toasts).toEqual([NERD_WAITS_TOAST])
+        expect(seen.toastMs).toEqual([10000])
+      },
+    )
+
+    test(
+      `keeps glyphs plain with no glyphs row and draws the plain waits toast on ${surface}`,
+      { ...withWorkitems, options: { mode: 'always' } },
+      async ($, on) => {
+        const seen = world(on, { unplacedReason: 'an unasked pane waits for 144 columns.' })
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        expect(seen.glyphs).toEqual(['plain'])
+        expect(seen.toasts).toEqual([WAITS_TOAST])
+        expect(seen.toastMs).toEqual([10000])
+      },
+    )
+  }
+
+  test(
+    'reads the setting again after a config set of the glyphs row, and not after another row',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { glyphs: 'plain' })
+      await start($)
+      seen.config = [glyphsRow('nerd')]
+      for (const [key, plugin] of [
+        ['theme', 'engine'],
+        ['handily-board.glyphs', 'handily-board@niksavis'],
+      ] as const) {
+        await $.config.set({
+          key,
+          value: 'nerd',
+          previous: 'plain',
+          provider: { plugin, tier: 'user' },
+          origin: { kind: 'composer' },
+        })
+      }
+      expect(seen.glyphs).toEqual(['plain'])
+      await $.config.set({
+        key: GLYPHS_KEY,
+        value: 'nerd',
+        previous: 'plain',
+        provider: { plugin: 'handily@niksavis', tier: 'user' },
+        origin: { kind: 'composer' },
+      })
+      expect(seen.glyphs).toEqual(['plain', 'nerd'])
+    },
+  )
+})
+
+describe('the glyph setting of the task status toast', () => {
+  const marksOf = {
+    plain: { doing: '▶', done: '✓', toDo: '○' },
+    nerd: { doing: '\u{EB2C}', done: '\u{EAB2}', toDo: '\u{EBB5}' },
+  } as const
+  for (const glyphs of ['nerd', 'plain'] as const) {
+    for (const surface of SURFACES) {
+      test(
+        `start, done and open draw the ${glyphs} mark of the new status on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          const seen = world(on, { glyphs })
+          await start($)
+          await mockWork($, seen)
+          const ui = await mountTab($, surface, PANE, 'dock', 41)
+          const marks = marksOf[glyphs]
+          const title = '"Review the mocks with Codex"'
+          await ui.press({ key: 'open:task:3' })
+          await ui.press({ key: 'start:3' })
+          expect(seen.toasts.at(-1)).toEqual([`${marks.doing} Task 3 is now in progress`, title])
+          await ui.press({ key: 'done:3' })
+          expect(seen.toasts.at(-1)).toEqual([`${marks.done} Task 3 is now done`, title])
+          await ui.press({ key: 'done' })
+          await ui.press({ key: 'open:3' })
+          expect(seen.toasts.at(-1)).toEqual([`${marks.toDo} Task 3 is now pending`, title])
+          await ui.unmount()
+        },
+      )
+    }
   }
 })

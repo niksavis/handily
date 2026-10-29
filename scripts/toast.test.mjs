@@ -4,7 +4,8 @@ import { registerHooks } from 'node:module'
 import { dirname, extname, join, relative, sep } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { differingCopies, keepersOf, withModsTree } from './copies.mjs'
+import { differingCopies, filesUnder, keepersOf, withModsTree } from './copies.mjs'
+import { GLYPHS } from './fixtures/glyphs.mjs'
 import { APPROVED } from './fixtures/signals.mjs'
 
 registerHooks({
@@ -40,60 +41,91 @@ const TOAST_USES = [
 ]
 const BOX_COLUMNS = 40
 
+const SETS = ['plain', 'nerd']
+
+function marksOf(set) {
+  return Object.fromEntries(
+    Object.entries(GLYPHS).map(([role, { plain, nerd }]) => [
+      role,
+      set === 'plain' ? plain : String.fromCodePoint(nerd),
+    ]),
+  )
+}
+
 const TOAST_CASES = [
   {
     name: 'a closed item',
-    parts: ['✓ handily-ab12 closed', { quoted: 'Draw text mocks for the mods' }],
-    lines: ['✓ handily-ab12 closed', '"Draw text mocks for the mods"'],
+    parts: [[{ mark: 'done' }, ' handily-ab12 closed'], { quoted: 'Draw text mocks for the mods' }],
+    lines: (marks) => [`${marks.done} handily-ab12 closed`, '"Draw text mocks for the mods"'],
     timeoutMs: 6080,
   },
   {
     name: 'a short created item, held for the shortest time',
-    parts: ['○ a-1 created', { quoted: 'x' }],
-    lines: ['○ a-1 created', '"x"'],
+    parts: [[{ mark: 'toDo' }, ' a-1 created'], { quoted: 'x' }],
+    lines: (marks) => [`${marks.toDo} a-1 created`, '"x"'],
     timeoutMs: 6000,
   },
   {
     name: 'a blocked item, held for the time to act',
-    parts: ['■ handily-cd34 open → blocked', { quoted: 'Write the beads reader' }],
-    lines: ['■ handily-cd34 open → blocked', '"Write the beads reader"'],
+    parts: [
+      [{ mark: 'blocked' }, ' handily-cd34 open → blocked'],
+      { quoted: 'Write the beads reader' },
+    ],
+    lines: (marks) => [`${marks.blocked} handily-cd34 open → blocked`, '"Write the beads reader"'],
     timeoutMs: 10000,
   },
   {
     name: 'a wait for the person, held for the time to act',
-    parts: ['◆ a-1 waits for you', { quoted: 'x' }],
-    lines: ['◆ a-1 waits for you', '"x"'],
+    parts: [[{ mark: 'waitsForYou' }, ' a-1 waits for you'], { quoted: 'x' }],
+    lines: (marks) => [`${marks.waitsForYou} a-1 waits for you`, '"x"'],
     timeoutMs: 10000,
   },
   {
-    name: 'a mark inside a quoted title, which does not raise the time',
-    parts: ['○ a-1 created', { quoted: '◆' }],
-    lines: ['○ a-1 created', '"◆"'],
+    name: 'a plain mark inside a quoted title, which does not raise the time',
+    parts: [[{ mark: 'toDo' }, ' a-1 created'], { quoted: '◆ ■' }],
+    lines: (marks) => [`${marks.toDo} a-1 created`, '"◆ ■"'],
     timeoutMs: 6000,
   },
   {
-    name: 'a merged toast',
-    parts: ['3 items changed', '✓ 2 closed  ○ 1 created', 'handily-ab12 handily-cd34 +1'],
-    lines: ['3 items changed', '✓ 2 closed  ○ 1 created', 'handily-ab12 handily-cd34 +1'],
+    name: 'a nerd icon inside a quoted title, which does not raise the time',
+    parts: [[{ mark: 'toDo' }, ' a-1 created'], { quoted: '\u{EAA2} \u{EA87}' }],
+    lines: (marks) => [`${marks.toDo} a-1 created`, '"\u{EAA2} \u{EA87}"'],
+    timeoutMs: 6000,
+  },
+  {
+    name: 'a mark written into a text part, which does not raise the time',
+    parts: ['■ a-1 note', 'x'],
+    lines: () => ['■ a-1 note', 'x'],
+    timeoutMs: 6000,
+  },
+  {
+    name: 'a merged toast with two marks in one part',
+    parts: [
+      '3 items changed',
+      [{ mark: 'done' }, ' 2 closed  ', { mark: 'toDo' }, ' 1 created'],
+      'handily-ab12 handily-cd34 +1',
+    ],
+    lines: (marks) => [
+      '3 items changed',
+      `${marks.done} 2 closed  ${marks.toDo} 1 created`,
+      'handily-ab12 handily-cd34 +1',
+    ],
     timeoutMs: 7280,
   },
   {
     name: 'three parts longer than a line, each cut with an ellipsis',
-    parts: [`■ ${'x'.repeat(60)}`, 'y'.repeat(60), 'z'.repeat(60)],
-    lines: [`■ ${'x'.repeat(36)}…`, `${'y'.repeat(38)}…`, `${'z'.repeat(39)}…`],
+    parts: [[{ mark: 'blocked' }, ` ${'x'.repeat(60)}`], 'y'.repeat(60), 'z'.repeat(60)],
+    lines: (marks) => [
+      `${marks.blocked} ${'x'.repeat(36)}…`,
+      `${'y'.repeat(38)}…`,
+      `${'z'.repeat(39)}…`,
+    ],
     timeoutMs: 11440,
   },
 ]
 
 function toastPath(dir, mod) {
   return join(dir, mod, 'hooks', TOAST_FILE)
-}
-
-function filesUnder(dir) {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(entry.parentPath, entry.name)
-    return entry.isDirectory() ? filesUnder(path) : [path]
-  })
 }
 
 function usesToast(path) {
@@ -179,20 +211,38 @@ describe('the copies of hooks/toast.ts', () => {
   })
 
   for (const mod of TOAST_MODS) {
-    test(`${mod} draws each toast mark with the approved signal mark`, async () => {
-      const { TOAST_MARKS } = await toastModule(mod)
-      const approved = Object.fromEntries(
-        Object.entries(APPROVED).map(([state, { mark }]) => [state, mark]),
+    test(`${mod} draws each toast role with its approved plain mark and its pinned nerd icon`, async () => {
+      const { toastText } = await toastModule(mod)
+      for (const set of SETS) {
+        const drawn = Object.fromEntries(
+          Object.keys(APPROVED).map((role) => [role, toastText([[{ mark: role }]], set)]),
+        )
+        const pinned = Object.fromEntries(
+          Object.keys(APPROVED).map((role) => [role, marksOf(set)[role]]),
+        )
+        assert.deepEqual(drawn, pinned, `the ${set} set`)
+      }
+      assert.deepEqual(
+        Object.fromEntries(
+          Object.entries(APPROVED).map(([role]) => [role, toastText([[{ mark: role }]], 'plain')]),
+        ),
+        Object.fromEntries(Object.entries(APPROVED).map(([role, { mark }]) => [role, mark])),
       )
-      assert.deepEqual({ ...TOAST_MARKS }, approved)
     })
 
     for (const { name, parts, lines, timeoutMs } of TOAST_CASES) {
-      test(`${mod} lays out ${name} and keeps it ${String(timeoutMs)} ms`, async () => {
-        const { toastText, toastMs } = await toastModule(mod)
-        const { displayWidth } = await widthModule(mod)
-        assert.deepEqual(boxLines(toastText(parts), displayWidth), lines)
-        assert.equal(toastMs(parts), timeoutMs)
+      for (const set of SETS) {
+        test(`${mod} lays out ${name} in the ${set} set and keeps it ${String(timeoutMs)} ms`, async () => {
+          const { toastText, toastMs } = await toastModule(mod)
+          const { displayWidth } = await widthModule(mod)
+          assert.deepEqual(boxLines(toastText(parts, set), displayWidth), lines(marksOf(set)))
+          assert.equal(toastMs(parts, set), timeoutMs)
+        })
+      }
+
+      test(`${mod} keeps ${name} for the same time in both sets`, async () => {
+        const { toastMs } = await toastModule(mod)
+        assert.equal(toastMs(parts, 'nerd'), toastMs(parts, 'plain'))
       })
     }
   }

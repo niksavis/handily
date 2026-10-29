@@ -43,8 +43,12 @@ const STATUS_SIGNALS: Record<BoardStatus, Signal> = {
   completed: 'done',
 }
 
+export function statusSignal(status: BoardStatus): Signal {
+  return STATUS_SIGNALS[status]
+}
+
 export function statusLook(status: BoardStatus): SignalLook {
-  return SIGNALS[STATUS_SIGNALS[status]]
+  return SIGNALS[statusSignal(status)]
 }
 
 export function findTask(list: BoardList, id: number): BoardTask | undefined {
