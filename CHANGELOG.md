@@ -6,6 +6,32 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.12.0 - 2026-10-29
+
+### Added
+
+- **reply-view can ask Claude for a mermaid diagram, with a measured cost.** The new
+  `diagramHints` setting is `off` by default. When it is `on`, or after `/replies hints`, each
+  prompt that you type carries one hint of 350 characters. The hint asks for a flowchart or a
+  sequence diagram when a flow or an exchange reads better as a diagram. It costs about 140
+  tokens for each prompt, measured on 2026-10-29. A prompt that a plugin or the Remote Control
+  bridge sends carries no hint, and neither does a slash command. No hint goes out while the
+  reply view is off or the `diagrams` setting is `off` (handily-5zzxk.8).
+- **reply-view copies a block of the last reply from the keyboard.** `/replies copy diagram`,
+  `/replies copy table` and `/replies copy code` copy the last block of that kind in the last
+  reply. Each copies the same text as the button of the block, and its toast names it as the
+  button does. `/replies copy reply` copies the whole reply. When the last reply has no block of
+  that kind, the command says so and names `/replies copy reply`. A `/clear` forgets the last
+  reply (handily-5zzxk.9).
+
+### Fixed
+
+- **reply-view keeps the fold row and the copy button of a code block inside a very narrow
+  reply.** When a reply is narrower than `[ more ] [ copy reply ]`, the count of hidden lines
+  stands on its own line and each button stands on its own line under it. When a reply is
+  narrower than the title of a code block with its `[ copy ]` button, the button moves under the
+  title. Both use the rule of the table and diagram buttons (handily-zv540).
+
 ## handily-filetree 0.8.0 - 2026-10-29
 
 ### Added
