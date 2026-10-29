@@ -1,6 +1,15 @@
 import type { ConfigRow, EngineInterface, Register } from 'claude-code'
 import type { HandilyDefaultMode, HandilyModMode, HandilyOldIdScope } from '../types'
 import { drawReport } from './draw'
+import { DEFAULT_GLYPHS, glyphRowOf, glyphSettingOf, withoutMarketplace } from './glyphs'
+import {
+  argumentRefusal,
+  GLYPHS_ARGUMENT,
+  glyphsReplyText,
+  refusedGlyphsOf,
+  storedGlyphsOf,
+  type GlyphsReport,
+} from './glyphs-reply'
 import {
   bundledMods,
   manifestDescription,
@@ -14,8 +23,6 @@ import {
 
 const COMMAND = 'handily'
 const MODE_FIELD_SUFFIX = '.mode'
-const NO_ARGUMENT_TEXT =
-  '/handily takes no argument; it lists each handily mod with its version, state and mode.'
 
 type Ready = { root: string } | undefined
 
@@ -83,10 +90,6 @@ async function modeOf($: EngineInterface, name: string): Promise<HandilyModMode>
   }
 }
 
-function withoutMarketplace(pluginId: string): string {
-  return pluginId.replace(/@.*$/, '')
-}
-
 function configuredMode(rows: readonly ConfigRow[], name: string): HandilyDefaultMode | null {
   const row = rows.find(
     (candidate) =>
@@ -152,6 +155,19 @@ async function enabledByScope($: EngineInterface): Promise<Map<HandilyOldIdScope
   return found
 }
 
+async function glyphsReportOf($: EngineInterface): Promise<GlyphsReport> {
+  const rows = await $.config.list()
+  const pluginConfigs = await $.settings.read({ key: 'pluginConfigs' })
+  const storedRefusal = refusedGlyphsOf(storedGlyphsOf(pluginConfigs))
+  try {
+    return { setting: glyphSettingOf(rows), refused: storedRefusal }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    $.ui.log(reason, { to: 'debug' })
+    return { setting: DEFAULT_GLYPHS, refused: storedRefusal ?? glyphRowOf(rows)?.value }
+  }
+}
+
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -162,7 +178,9 @@ export const register: Register = (on) => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    if (e.args.trim() !== '') return { text: NO_ARGUMENT_TEXT }
+    const args = e.args.trim()
+    if (args === GLYPHS_ARGUMENT) return { text: glyphsReplyText(await glyphsReportOf($)) }
+    if (args !== '') return { text: argumentRefusal(args) }
     const mods = bundledMods(await $.fs.read(manifestPath($.plugin.root)))
     const loaded = await loadedMods($, mods)
     const { enabledPlugins } = await $.settings.read()

@@ -12,5 +12,14 @@
     "handily-reply-view",
     "handily-filetree"
   ],
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "glyphs": {
+      "type": "string",
+      "title": "Glyphs",
+      "description": "plain: the marks of the handily mods draw in any font. nerd: Nerd Font icons, one cell wide only with a Nerd Font Mono font; a terminal without one draws boxes. /handily glyphs tests this terminal.",
+      "options": ["plain", "nerd"],
+      "default": "plain"
+    }
+  }
 }

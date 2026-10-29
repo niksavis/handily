@@ -1,6 +1,7 @@
 import type { ConfigRow, ConfigValue, On, RenderSurface, SettingsSource } from 'claude-code'
 import { describe, expect, test, type Engine, type Plugin } from 'claude-code/testing'
 import type { WorkitemsSnapshot } from './.claude-plugin/types/handily-workitems'
+import { GLYPH_SETS, glyphSettingOf, NERD_NAMES } from './hooks/glyphs'
 import {
   bundledMods,
   manifestDescription,
@@ -233,6 +234,8 @@ function enabledWithout(name: string): Record<string, boolean> {
 
 type World = {
   modeSettings: Readonly<Record<string, ConfigValue>>
+  glyphs: ConfigValue | undefined
+  pluginConfigs: unknown
   enabledPlugins: unknown
   enabledByScope: Partial<Record<SettingsSource, unknown>>
   sourcesRead: string[]
@@ -245,6 +248,8 @@ type World = {
 function fakeWorld(on: On, world: Partial<World> = {}): World {
   const full: World = {
     modeSettings: MODE_SETTINGS,
+    glyphs: undefined,
+    pluginConfigs: undefined,
     enabledPlugins: ALL_ENABLED,
     enabledByScope: {},
     sourcesRead: [],
@@ -263,12 +268,15 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
     return { value: { command: e.name } }
   })
   on('settings.read', (_$, e) => {
-    if (e.source === undefined) return { value: { enabledPlugins: full.enabledPlugins } }
+    if (e.source === undefined) {
+      const stored = full.pluginConfigs === undefined ? {} : { pluginConfigs: full.pluginConfigs }
+      return { value: { enabledPlugins: full.enabledPlugins, ...stored } }
+    }
     full.sourcesRead.push(e.source)
     const scoped = full.enabledByScope[e.source]
     return { value: scoped === undefined ? {} : { enabledPlugins: scoped } }
   })
-  on('config.list', () => ({ value: configRows(full.modeSettings) }))
+  on('config.list', () => ({ value: configRows(full.modeSettings, full.glyphs) }))
   on('fs.read', (_$, e) => {
     full.reads.push(e.path)
     const folder = e.path.split(/[\\/]/).at(-3) ?? ''
@@ -284,7 +292,22 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
   return full
 }
 
-function configRows(modeSettings: Readonly<Record<string, ConfigValue>>): ConfigRow[] {
+function glyphsRow(value: ConfigValue, plugin = 'handily@niksavis'): ConfigRow {
+  return {
+    key: `${plugin.replace(/@.*$/, '')}.glyphs`,
+    label: 'Glyphs',
+    kind: 'choice',
+    value,
+    options: ['plain', 'nerd'],
+    provider: { plugin, tier: 'user' },
+    isLocked: false,
+  }
+}
+
+function configRows(
+  modeSettings: Readonly<Record<string, ConfigValue>>,
+  glyphs?: ConfigValue,
+): ConfigRow[] {
   const theme: ConfigRow = {
     key: 'theme',
     label: 'Theme',
@@ -295,6 +318,7 @@ function configRows(modeSettings: Readonly<Record<string, ConfigValue>>): Config
   }
   return [
     theme,
+    ...(glyphs === undefined ? [] : [glyphsRow(glyphs)]),
     ...Object.entries(modeSettings).map(([plugin, value]) => ({
       key: `${plugin}.mode`,
       label: 'Mode',
@@ -582,10 +606,13 @@ describe('/handily reply', () => {
     expect(world.reads[0]).toMatch(/[\\/]handily[\\/]\.claude-plugin[\\/]plugin\.json$/)
   })
 
-  test('refuses an argument and says what the command does', async ($, on) => {
+  test('refuses another argument, names it and gives the accepted forms', async ($, on) => {
     fakeWorld(on)
     expect(await runHandily($, 'all')).toBe(
-      '/handily takes no argument; it lists each handily mod with its version, state and mode.',
+      '/handily takes no argument or glyphs; "all" is neither.',
+    )
+    expect(await handily($, ' glyph ')).toBe(
+      '/handily takes no argument or glyphs; "glyph" is neither.',
     )
   })
 
@@ -817,6 +844,173 @@ describe('/handily colours', () => {
         surface,
         component: 'CommandOutput',
         props: { command: 'handily', args: '', text: 'handily: an older reply', isErrored: false },
+      })
+      expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
+      await ui.unmount()
+    })
+  }
+})
+
+const GLYPH_ROWS = [
+  'role      plain nerd',
+  'doing     |▶|   |\u{EB2C}| nf-cod-play',
+  'done      |✓|   |\u{EAB2}| nf-cod-check',
+  'to do     |○|   |\u{EBB5}| nf-cod-circle_large',
+  'blocked   |■|   |\u{EA87}| nf-cod-error',
+  'needs you |◆|   |\u{EAA2}| nf-cod-bell',
+  'edited    |✎|   |\u{EA73}| nf-cod-edit',
+  'read      |◦|   |\u{EA70}| nf-cod-eye',
+  'folder    |▸|   |\u{F07B}| nf-fa-folder',
+  'open      |▾|   |\u{F07C}| nf-fa-folder_open',
+  'branch    |·|   |\u{F418}| nf-oct-git_branch',
+]
+const PLAIN_TEST_LINE =
+  'The nerd column is a test: when each icon fills one cell between its bars, Glyphs nerd is safe in this terminal.'
+const NERD_TEST_LINES = [
+  'Each mark fills one cell between bars.',
+  'A box, a ? or a moved bar: this terminal has no Nerd Font Mono. Set Glyphs to plain in /config.',
+]
+
+function refusedLine(stored: string): string {
+  return `Glyphs plain · the stored value ${stored} is not plain or nerd, so plain draws. Set Glyphs in /config › handily.`
+}
+
+describe('the glyph sets', () => {
+  test('keeps the plain marks and the nerd icons of the ten roles', () => {
+    expect(GLYPH_SETS.plain).toEqual({
+      doing: '\u{25B6}',
+      done: '\u{2713}',
+      toDo: '\u{25CB}',
+      blocked: '\u{25A0}',
+      waitsForYou: '\u{25C6}',
+      edited: '\u{270E}',
+      read: '\u{25E6}',
+      folderClosed: '\u{25B8}',
+      folderOpen: '\u{25BE}',
+      branch: '\u{00B7}',
+    })
+    const codePoints = Object.fromEntries(
+      Object.entries(GLYPH_SETS.nerd).map(([role, glyph]) => [role, glyph.codePointAt(0)]),
+    )
+    expect(codePoints).toEqual({
+      doing: 0xeb2c,
+      done: 0xeab2,
+      toDo: 0xebb5,
+      blocked: 0xea87,
+      waitsForYou: 0xeaa2,
+      edited: 0xea73,
+      read: 0xea70,
+      folderClosed: 0xf07b,
+      folderOpen: 0xf07c,
+      branch: 0xf418,
+    })
+    expect(Object.values(GLYPH_SETS.nerd).map((glyph) => Array.from(glyph).length)).toEqual(
+      Array.from({ length: 10 }, () => 1),
+    )
+    expect(Object.keys(NERD_NAMES)).toEqual(Object.keys(GLYPH_SETS.plain))
+  })
+})
+
+describe('glyphSettingOf', () => {
+  test('returns plain when no glyphs row of handily is listed', () => {
+    expect(glyphSettingOf([])).toBe('plain')
+    expect(glyphSettingOf(configRows(MODE_SETTINGS))).toBe('plain')
+    expect(glyphSettingOf([glyphsRow('nerd', 'handily-board@niksavis')])).toBe('plain')
+  })
+
+  test('returns the setting of the glyphs row of handily from any marketplace', () => {
+    expect(glyphSettingOf(configRows(MODE_SETTINGS, 'nerd'))).toBe('nerd')
+    expect(glyphSettingOf(configRows(MODE_SETTINGS, 'plain'))).toBe('plain')
+    expect(glyphSettingOf([glyphsRow('nerd', 'handily')])).toBe('nerd')
+    expect(glyphSettingOf([glyphsRow('nerd', 'handily@inline')])).toBe('nerd')
+  })
+
+  test('throws an error that names the stored value and the words plain and nerd', () => {
+    expect(() => glyphSettingOf(configRows(MODE_SETTINGS, 'nerdfont'))).toThrow(
+      'handily: userConfig glyphs is "nerdfont"; set it to plain or nerd in /config.',
+    )
+    expect(() => glyphSettingOf([glyphsRow(true)])).toThrow(
+      'handily: userConfig glyphs is true; set it to plain or nerd in /config.',
+    )
+  })
+})
+
+describe('/handily glyphs', () => {
+  test('shows the nerd setting and each role with both marks between bars', async ($, on) => {
+    fakeWorld(on, { glyphs: 'nerd' })
+    expect(await runHandily($, 'glyphs')).toBe(
+      ['Glyphs nerd · set in /config › handily', ...GLYPH_ROWS, ...NERD_TEST_LINES].join('\n'),
+    )
+  })
+
+  test('shows the plain default and still draws the nerd column as a test', async ($, on) => {
+    fakeWorld(on, { glyphs: 'plain' })
+    expect(await runHandily($, 'glyphs')).toBe(
+      [
+        'Glyphs plain (the default) · set in /config › handily',
+        ...GLYPH_ROWS,
+        PLAIN_TEST_LINE,
+      ].join('\n'),
+    )
+  })
+
+  test('draws plain when the bundle lists no glyphs row', async ($, on) => {
+    fakeWorld(on)
+    expect((await runHandily($, ' glyphs ')).split('\n')[0]).toBe(
+      'Glyphs plain (the default) · set in /config › handily',
+    )
+  })
+
+  test('names a stored value outside plain and nerd that the engine reads as plain', async ($, on) => {
+    fakeWorld(on, {
+      glyphs: 'plain',
+      pluginConfigs: { 'handily@niksavis': { options: { glyphs: 'nerdfont' } } },
+    })
+    expect(await runHandily($, 'glyphs')).toBe(
+      [refusedLine('"nerdfont"'), ...GLYPH_ROWS, PLAIN_TEST_LINE].join('\n'),
+    )
+  })
+
+  test('names a stored value outside plain and nerd that the glyphs row shows', async ($, on) => {
+    const world = fakeWorld(on, { glyphs: 'nerdfont' })
+    expect(await runHandily($, 'glyphs')).toBe(
+      [refusedLine('"nerdfont"'), ...GLYPH_ROWS, PLAIN_TEST_LINE].join('\n'),
+    )
+    expect(world.debugLines).toEqual([
+      'handily: userConfig glyphs is "nerdfont"; set it to plain or nerd in /config.',
+    ])
+  })
+
+  test('names no stored value when the settings hold plain, nerd or another plugin', async ($, on) => {
+    const world = fakeWorld(on, {
+      glyphs: 'nerd',
+      pluginConfigs: {
+        'handily-board@niksavis': { options: { glyphs: 'nerdfont', mode: 'off' } },
+        handily: { options: { glyphs: 'nerd' } },
+      },
+    })
+    expect((await runHandily($, 'glyphs')).split('\n')[0]).toBe(
+      'Glyphs nerd · set in /config › handily',
+    )
+    world.pluginConfigs = { handily: 'not an object' }
+    expect((await handily($, 'glyphs')).split('\n')[0]).toBe(
+      'Glyphs nerd · set in /config › handily',
+    )
+    world.glyphs = 'plain'
+    world.pluginConfigs = { handily: { options: { glyphs: 'wide' } } }
+    expect((await handily($, 'glyphs')).split('\n')[0]).toBe(refusedLine('"wide"'))
+  })
+
+  for (const surface of SURFACES) {
+    test(`leaves the glyphs reply to the engine row on ${surface}`, async ($, on) => {
+      fakeWorld(on, { glyphs: 'nerd' })
+      on('ui.render', () => ({ type: 'engine', ref: 0 }))
+      const text = await runHandily($, 'glyphs')
+      const ui = await $.ui.mount({
+        plugin: 'handily',
+        surface,
+        component: 'CommandOutput',
+        props: { command: 'handily', args: 'glyphs', text: engineRowText(text), isErrored: false },
       })
       expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
       await ui.unmount()

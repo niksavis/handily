@@ -3,10 +3,45 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
+import { GLYPHS } from './fixtures/glyphs.mjs'
 import { APPROVED } from './fixtures/signals.mjs'
 
 const root = join(import.meta.dirname, '..')
 const SIGNAL_MODS = ['handily-board']
+const SIGNALS_HEADER = '| Signal | Kanban meaning | Mark | Nerd | Colour | When the pane shows it |'
+
+function codePointText(code) {
+  return `U+${code.toString(16).toUpperCase().padStart(4, '0')}`
+}
+
+function nerdCells(design) {
+  const lines = design.split('\n')
+  const start = lines.indexOf(SIGNALS_HEADER)
+  if (start === -1) return null
+  const column = SIGNALS_HEADER.split('|')
+    .map((cell) => cell.trim())
+    .indexOf('Nerd')
+  const cells = {}
+  for (const line of lines.slice(start + 2)) {
+    if (!line.startsWith('|')) break
+    const row = line.split('|').map((cell) => cell.trim())
+    cells[row[1]] = row[column]
+  }
+  return cells
+}
+
+function approvedNerdCells() {
+  return Object.fromEntries(
+    Object.entries(APPROVED).map(([state, { name }]) => [
+      name,
+      `\`${codePointText(GLYPHS[state].nerd)}\` ${GLYPHS[state].nerdName}`,
+    ]),
+  )
+}
+
+function signalsOnly(cells) {
+  return Object.fromEntries(Object.keys(approvedNerdCells()).map((name) => [name, cells[name]]))
+}
 
 function signalsPath(mod) {
   return join(root, 'mods', mod, 'hooks', 'signals.ts')
@@ -63,6 +98,39 @@ describe('the table of signals', () => {
         `no docs/design.md row of ${name} shows ${mark}`,
       )
     }
+  })
+
+  test('the plain glyph of each signal is its approved mark', () => {
+    for (const [state, { mark }] of Object.entries(APPROVED)) {
+      assert.equal(
+        GLYPHS[state]?.plain,
+        mark,
+        `scripts/fixtures/glyphs.mjs pins ${state} plain as ${GLYPHS[state]?.plain}, not ${mark}`,
+      )
+    }
+  })
+
+  test('the Nerd column of the signals table in docs/design.md gives the pinned icon of each signal', () => {
+    const cells = nerdCells(readFileSync(join(root, 'docs', 'design.md'), 'utf8'))
+    assert.ok(
+      cells !== null,
+      `docs/design.md has no signals table with the header ${SIGNALS_HEADER}`,
+    )
+    assert.deepEqual(signalsOnly(cells), approvedNerdCells())
+  })
+
+  test('names a Nerd cell that differs from the pinned icon', () => {
+    const design = [
+      SIGNALS_HEADER,
+      '| --- | --- | --- | --- | --- | --- |',
+      '| Doing | in progress | `▶` | `U+EB2C` nf-cod-play | orange | a running agent |',
+      '| Done | finished | `✓` | `U+EAB3` nf-cod-check | green | done tasks |',
+      '',
+    ].join('\n')
+    const cells = signalsOnly(nerdCells(design))
+    assert.equal(cells.Doing, approvedNerdCells().Doing)
+    assert.notEqual(cells.Done, approvedNerdCells().Done)
+    assert.equal(cells['To do'], undefined)
   })
 })
 
