@@ -1,7 +1,9 @@
 # handily-filetree
 
-`filetree` shows the working folder of the session as a tree in a pane tab named `files`. Folders
-come first. The mod lists a folder only when you open it.
+`filetree` shows the working folder of the session as a tree in a pane tab named `files`. The tab
+opens on the work view: only the files that an agent touched or that git shows as changed.
+`[ all files ]` shows the whole tree. Folders come first. The mod lists a folder only when you
+open it.
 
 The tab shows the git state of each file and a count on each folder. It marks which agent read or
 edited each file, and how long ago. [docs/design.md](../../docs/design.md), section 4.11, gives
@@ -31,12 +33,77 @@ forward and takes the keyboard. Esc gives the keyboard back.
 
 ## The files tab
 
-Docked, body 41, in a folder that is not in a git repo, with `docs/` open, as the test fixture
-draws it:
+### The work view
+
+The tab opens on the work view. It shows only the files that an agent read or edited, and the
+files that git shows as changed, under their folders. The test fixture, docked at body 41, after
+`main` edited `hooks/pane.tsx` and the subagent `scout` read `docs/design.md` and
+`hooks/register.tsx`:
+
+```text
+Files  app · main ↑1 · 7 changed
+[ all files ] {agent: all} [ refresh ]
+Now  2 agents
+✎ main      hooks/pane.tsx             4s
+◦ scout     docs/design.md             2s
+─────────────────────────────────────────
+▾ docs/  M2 ?1            ◦ scout      2s
+  M design.md             ◦ scout      2s
+  ? filetree.md
+  M mocks.md
+▾ hooks/  M1 D1           ✎ main       4s
+  D old-pane.tsx
+  M pane.tsx              ✎ main       4s
+    register.tsx          ◦ scout     40s
+▸ scratch/  ?
+M README.md
+work view: touched and changed files
+```
+
+- The folders of the work view are open. A press on one closes it, and a second press opens it.
+  The mod lists no folder for the work view.
+- An untracked folder, such as `scratch/`, shows closed, because git status does not list the
+  files in it. A press opens it and lists it.
+- A file that an agent touched under a folder that the mod does not list, such as
+  `node_modules/`, shows under that folder.
+- When you pick an agent in the filter, or open the transcript of a subagent, the work view
+  shows only the files that this agent touched.
+- `[ all files ]`, or `v` while the tab has the keyboard, shows the whole tree. The button then
+  reads `[ work only ]` and goes back to the work view. The choice lasts for the session.
+
+With nothing touched and nothing changed, the work view says so:
+
+```text
+Files  app · main · clean
+[ all files ] {agent: all} [ refresh ]
+Now  nothing read or edited yet
+─────────────────────────────────────────
+No changed or touched files.
+[ all files ] shows the whole tree.
+```
+
+In a narrow dock, the filter moves below the buttons. At body 30:
+
+```text
+[ all files ] [ refresh ]
+{agent: all}
+```
+
+At body 24:
+
+```text
+[ all files ]
+[ refresh ] {agent: all}
+```
+
+### All files
+
+`[ all files ]` shows the whole working folder. The test fixture, docked at body 41, in a folder
+that is not in a git repo, with `docs/` open:
 
 ```text
 Files  app · not a git repo
-{agent: all} [ refresh ]
+[ work only ] {agent: all} [ refresh ]
 No git status here; git init adds it.
 Now  nothing read or edited yet
 ─────────────────────────────────────────
@@ -72,46 +139,38 @@ Now  nothing read or edited yet
 - A control or bidi character in a name shows as `\u202e`, so a name cannot change how the row
   reads.
 
-Inline above the prompt, the tab draws a flat list of the working folder in at most 8 rows. When
-the folder holds more entries, the last row says how many more there are. The test fixture, at
-body 76:
+### Inline above the prompt
+
+Inline above the prompt, the tab shows only the work view, as a flat list of paths in at most 8
+rows. The files in the `Now` block come first, then the other files in the order of the tree.
+When there are more than 8, the last row says how many more there are. In a git repo, each row
+starts with two columns for the git letter. The test fixture, at 80 columns (body 76):
 
 ```text
-Files  app · not a git repo                        {agent: all}  [ refresh ]
-.git/  not listed
-node_modules/  not listed
-docs/
-hooks/
-scripts/
-.gitignore
-a.md
-+4 more: a dock (fullscreen, 110 columns) shows the tree
+Files  app · main · 8 changed                      {agent: all}  [ refresh ]
+M hooks/pane.tsx                                          ✎ main          4s
+D hooks/old-pane.tsx                                      ✎ f00dfeed      3m
+M docs/design.md                                          ◦ scout         2s
+? docs/filetree.md                                        ✎ main         30s
+M docs/mocks.md                                           ✎ main +1       1m
+  hooks/register.tsx                                      ◦ scout        40s
+  scratch/  ?                                             ✎ f00dfeed      5m
++2 more: a dock (fullscreen, 110 columns) shows the tree
 ```
 
-In a git repo, each inline row starts with two columns for the git letter. A changed file shows
-its letter there, and a folder shows its counts after its name:
-
-```text
-Files  app · main ↑1 · 6 changed                   {agent: all}  [ refresh ]
-  .git/  not listed
-  node_modules/  not listed
-  docs/  M2 ?1
-  hooks/  M1 D1
-  scripts/
-  .gitignore
-M README.md
-```
+With nothing touched and nothing changed, the one row reads `No changed or touched files.`
 
 ## Git status
 
 In a git repo, the header shows the branch, the commits ahead and behind, and the count of
 changed entries. A changed file shows its git state as a letter before its name. The letter and
 the name draw in the colour of the state. A folder counts the states of the entries under it, and
-each count draws in the colour of its letter. The test fixture, with `docs/` and `hooks/` open:
+each count draws in the colour of its letter. The test fixture, in the all files view with `docs/`
+and `hooks/` open:
 
 ```text
 Files  app · main ↑1 · 6 changed
-{agent: all} [ refresh ]
+[ work only ] {agent: all} [ refresh ]
 Now  nothing read or edited yet
 ─────────────────────────────────────────
 ▸ .git/  not listed
@@ -166,7 +225,7 @@ When git fails, the tree stays, and the header says what failed:
 
 ```text
 Files  app · git status failed
-{agent: all} [ refresh ]
+[ all files ] {agent: all} [ refresh ]
 git status failed: exit 128.
 Run git status in a shell to see why.
 retry in 10s  [ retry ]
@@ -184,12 +243,12 @@ retry in 10s  [ retry ]
 
 A file that an agent read shows `◦`, and a file that an agent edited shows `✎`. The agent label
 and the age follow the mark. A folder shows the latest mark of the files under it. The `Now`
-block above the rule shows the latest file of each agent. The test fixture, after `main` edited
-`hooks/pane.tsx` and the subagent `scout` read `docs/design.md`:
+block above the rule shows the latest file of each agent. The test fixture, in the all files view,
+after `main` edited `hooks/pane.tsx` and the subagent `scout` read `docs/design.md`:
 
 ```text
 Files  app · main ↑1 · 6 changed
-{agent: all} [ refresh ]
+[ work only ] {agent: all} [ refresh ]
 Now  2 agents
 ✎ main      hooks/pane.tsx             4s
 ◦ scout     docs/design.md             2s
@@ -292,7 +351,7 @@ The agent filter `{agent: all}` shows the marks of one agent or of all. On the d
 a select. When you open the transcript of a subagent, the tab shows only that agent and says so:
 
 ```text
-{agent: scout} [ refresh ]
+[ work only ] {agent: scout} [ refresh ]
 scout is in view, so only scout shows
 Now  scout
 ◦ scout     docs/design.md             2s
@@ -411,6 +470,7 @@ docs/mocks.md  M +1 -0
 
 ## State
 
-The mod keeps two lists in `$.state`: the open folders and the folders that show all entries.
-`types/index.d.ts` declares them. The lists last for the session. The folder listings stay in the
-memory of the mod, not in `$.state`.
+The mod keeps four values in `$.state`: the view (`work` or `all`), the open folders, the
+folders of the work view that you closed, and the folders that show all entries.
+`types/index.d.ts` declares them. The values last for the session. The folder listings stay in
+the memory of the mod, not in `$.state`.

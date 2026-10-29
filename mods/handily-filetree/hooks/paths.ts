@@ -21,9 +21,13 @@ export function resolvedPath(cwd: string, path: string): string {
   return rest === '' || rest === '.' ? base : `${withSlash(base)}${rest}`
 }
 
-export function shownPath(cwd: string, path: string): string {
+export function insidePath(cwd: string, path: string): string | undefined {
   const prefix = withSlash(normalPath(cwd))
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path
+  return path.startsWith(prefix) ? path.slice(prefix.length) : undefined
+}
+
+export function shownPath(cwd: string, path: string): string {
+  return insidePath(cwd, path) ?? path
 }
 
 export function absolutePath(cwd: string, path: string): string {

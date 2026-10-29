@@ -10,7 +10,14 @@ import type {
   TextProps,
 } from 'claude-code'
 import { filterValue } from './agents'
-import { BUTTON_CHROME, BUTTON_GAP, type ButtonSpec, buttonRows } from './buttons'
+import {
+  BUTTON_CHROME,
+  BUTTON_GAP,
+  type ButtonSpec,
+  buttonOf,
+  buttonRows,
+  rowWidth,
+} from './buttons'
 import type { GitView, NoteLine, NoteTone } from './gitview'
 import {
   type MarkColumn,
@@ -23,17 +30,11 @@ import {
   touchText,
 } from './marks'
 import type { GitCount, GitLetter, GitMarks } from './status'
-import {
-  type EntryRow,
-  type Folders,
-  type Listing,
-  type TreeRow,
-  ROOT_PATH,
-  childPath,
-  entryRow,
-} from './tree'
+import type { EntryRow, Listing, TreeRow } from './tree'
 import type { Mark, Sight, Touch } from './touches'
 import { displayWidth, fitted } from './width'
+import { type WorkPath, flatEntryRow } from './work'
+import type { FiletreeView } from '../types'
 
 export type PaneElements = {
   Box: ElementConstructor<BoxProps>
@@ -52,6 +53,7 @@ export type TouchDraw = {
   labelOf: (agent: string) => string
   touchesOf: (path: string) => readonly Touch[]
   shownPath: (path: string) => string
+  paths: readonly string[]
   sights: readonly Sight[]
   agents: readonly string[]
   agent: string | undefined
@@ -65,6 +67,7 @@ type PaneView = {
   actions: PaneActions
   touched: TouchDraw
   opened: string | undefined
+  choice: FiletreeView
 }
 
 export type PaneActions = {
@@ -72,6 +75,7 @@ export type PaneActions = {
   showAll: (path: string) => void
   refresh: () => void
   retry: () => void
+  switchView: () => void
   openFile: (path: string) => void
   preview: (path: string) => void
   diff: (path: string, isFolder: boolean) => void
@@ -102,6 +106,13 @@ const CLOSED_MARK = '▸'
 const RULE = '─'
 const NOT_LISTED = 'not listed'
 const DOCK_HINT = 'a dock (fullscreen, 110 columns) shows the tree'
+const NO_WORK = 'No changed or touched files.'
+const ALL_FILES_HINT = 'shows the whole tree.'
+const WORK_NOTE = 'work view: touched and changed files'
+const VIEW_LABELS: Readonly<Record<FiletreeView, string>> = {
+  work: 'all files',
+  all: 'work only',
+}
 const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 
 type LetterColor = 'success' | 'warning' | 'error'
@@ -188,15 +199,30 @@ export function drawHeader(
   })
 }
 
-function refreshButton(elements: PaneElements, actions: PaneActions): RenderElement {
-  return elements.Button({
+function refreshSpec(actions: PaneActions): ButtonSpec {
+  return {
     key: 'refresh',
     label: REFRESH,
     hotkey: 'r',
     onPress: () => {
       actions.refresh()
     },
-  })
+  }
+}
+
+function refreshButton(elements: PaneElements, actions: PaneActions): RenderElement {
+  return buttonOf(elements.Button, refreshSpec(actions), displayWidth(REFRESH))
+}
+
+function viewSpec(actions: PaneActions, choice: FiletreeView): ButtonSpec {
+  return {
+    key: 'view',
+    label: VIEW_LABELS[choice],
+    hotkey: 'v',
+    onPress: () => {
+      actions.switchView()
+    },
+  }
 }
 
 function retryButton(elements: PaneElements, actions: PaneActions): RenderElement {
@@ -240,22 +266,29 @@ function filterWidth(elements: PaneElements, touched: TouchDraw): number {
   return displayWidth(`${FILTER_LABEL}: ${shownName(shown)}`) + SELECT_CHROME
 }
 
-function drawControls(
-  elements: PaneElements,
-  actions: PaneActions,
-  touched: TouchDraw,
-): RenderElement[] {
-  const { Box, Text, bodyColumns } = elements
-  const select = filterSelect(elements, touched)
-  const refresh = refreshButton(elements, actions)
-  const width = filterWidth(elements, touched) + BUTTON_GAP + displayWidth(REFRESH) + BUTTON_CHROME
-  if (select.length === 0 || width <= bodyColumns) {
-    const gap = select.length === 0 ? [] : [Text({ children: ' ' })]
-    return [Box({ flexDirection: 'row', children: [...select, ...gap, refresh] })]
+function drawControls(elements: PaneElements, view: PaneView): RenderElement[] {
+  const { Box, Text, Button, bodyColumns } = elements
+  const switcher = viewSpec(view.actions, view.choice)
+  const refresh = refreshSpec(view.actions)
+  const specs = [switcher, refresh]
+  const select = filterSelect(elements, view.touched)
+  const filter = { children: select, width: filterWidth(elements, view.touched) }
+  const room = { room: bodyColumns, indent: 0, key: 'controls' }
+  if (select.length === 0) return buttonRows(elements, specs, room)
+  if (rowWidth(specs) + BUTTON_GAP + filter.width > bodyColumns) {
+    return buttonRows(elements, specs, { ...room, tail: filter })
   }
   return [
-    Box({ flexDirection: 'row', children: [refresh] }),
-    Box({ flexDirection: 'row', children: select }),
+    Box({
+      flexDirection: 'row',
+      children: [
+        buttonOf(Button, switcher, bodyColumns),
+        Text({ children: ' ' }),
+        ...select,
+        Text({ children: ' ' }),
+        buttonOf(Button, refresh, bodyColumns),
+      ],
+    }),
   ]
 }
 
@@ -660,6 +693,39 @@ function drawRow(elements: PaneElements, row: TreeRow, draw: TreeDraw): RenderEl
   }
 }
 
+function drawNoWork(elements: PaneElements, actions: PaneActions): RenderElement[] {
+  const { Box, Text, Button, bodyColumns } = elements
+  const spec: ButtonSpec = {
+    key: 'all-files',
+    label: VIEW_LABELS.work,
+    onPress: () => {
+      actions.switchView()
+    },
+  }
+  const button = buttonOf(Button, spec, Math.max(bodyColumns - BUTTON_CHROME, 1))
+  const hint = ` ${ALL_FILES_HINT}`
+  const lead = wrapped(NO_WORK, bodyColumns).map((part) => Text({ children: part }))
+  if (rowWidth([spec]) + displayWidth(hint) <= bodyColumns) {
+    return [...lead, Box({ flexDirection: 'row', children: [button, Text({ children: hint })] })]
+  }
+  return [
+    ...lead,
+    Box({ flexDirection: 'row', children: [button] }),
+    ...wrapped(ALL_FILES_HINT, bodyColumns).map((part) => Text({ children: part })),
+  ]
+}
+
+function isEntry(row: TreeRow): row is EntryRow {
+  return row.kind === 'file' || row.kind === 'folder' || row.kind === 'pruned'
+}
+
+function workNote(elements: PaneElements, rows: readonly TreeRow[]): RenderElement[] {
+  if (!rows.some(isEntry)) return []
+  return wrapped(WORK_NOTE, elements.bodyColumns).map((part) =>
+    elements.Text({ dimColor: true, children: part }),
+  )
+}
+
 export function drawTree(
   elements: PaneElements,
   rootName: string,
@@ -669,17 +735,23 @@ export function drawTree(
   const { Box, Text, bodyColumns } = elements
   const { git, actions, touched, opened } = view
   const draw: TreeDraw = { actions, marks: git.marks, touched, opened, isRepo: git.isRepo }
+  const isWork = view.choice === 'work'
+  const body =
+    isWork && rows.length === 0
+      ? drawNoWork(elements, actions)
+      : rows.flatMap((row) => drawRow(elements, row, draw))
   return Box({
     flexDirection: 'column',
     children: [
       drawHeader(elements, rootName, git.header, bodyColumns),
-      ...drawControls(elements, actions, touched),
+      ...drawControls(elements, view),
       ...drawNotes(elements, git.notes, actions),
       ...inViewNote(elements, touched),
       ...drawNow(elements, touched),
       Text({ children: RULE.repeat(Math.max(bodyColumns, 0)) }),
-      ...rows.flatMap((row) => drawRow(elements, row, draw)),
+      ...body,
       ...drawNotes(elements, git.footer, actions),
+      ...(isWork ? workNote(elements, rows) : []),
     ],
   })
 }
@@ -724,21 +796,19 @@ function flatRow(elements: PaneElements, row: EntryRow, view: PaneView): RenderE
 
 function inlineRows(
   elements: PaneElements,
-  root: Listing,
-  rootName: string,
+  site: { root: Listing; rootName: string; work: readonly WorkPath[] },
   view: PaneView,
 ): RenderElement[] {
   const { Text, bodyColumns } = elements
+  const { root, rootName, work } = site
   if (root.kind === 'failed') {
     return [drawFailed(elements, { name: rootName, depth: 0, reason: root.reason })]
   }
   if (root.sorted.length === 0) {
     return [Text({ dimColor: true, children: 'This folder is empty.' })]
   }
-  const closed: Folders = { open: new Set(), whole: new Set() }
-  const rows = root.sorted.map((entry) =>
-    entryRow(entry, childPath(ROOT_PATH, entry.name), 0, closed),
-  )
+  if (work.length === 0) return [Text({ children: fitted(NO_WORK, bodyColumns) })]
+  const rows = work.map(flatEntryRow)
   if (rows.length <= INLINE_ROWS) return rows.map((row) => flatRow(elements, row, view))
   const shown = rows.slice(0, INLINE_ROWS - 1)
   const hidden = countText(rows.length - shown.length)
@@ -750,8 +820,7 @@ function inlineRows(
 
 export function drawInline(
   elements: PaneElements,
-  rootName: string,
-  root: Listing,
+  site: { root: Listing; rootName: string; work: readonly WorkPath[] },
   view: PaneView,
 ): RenderElement {
   const { Box, Text, bodyColumns } = elements
@@ -767,14 +836,14 @@ export function drawInline(
         flexDirection: 'row',
         justifyContent: 'space-between',
         children: [
-          drawHeader(elements, rootName, view.git.header, headerWidth),
+          drawHeader(elements, site.rootName, view.git.header, headerWidth),
           Box({
             flexDirection: 'row',
             children: [...select, ...gap, refreshButton(elements, view.actions)],
           }),
         ],
       }),
-      ...inlineRows(elements, root, rootName, view),
+      ...inlineRows(elements, site, view),
     ],
   })
 }
