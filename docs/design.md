@@ -905,11 +905,17 @@ The band (handily-9uj3n.9):
   the this session tab is shown or nothing waits. Otherwise it awaits `next(e)`. Only an engine
   element (`{ type: 'engine' }`) beneath gets the board's line. Any other drawing beneath is
   returned unchanged, so the board never covers another band mod.
+- A call of a plugin on its own `$.ui.open` or `$.ui.close` runs only the hooks beneath it, so
+  the board never sees its own opens. The board counts each open and close of its panes in the
+  state key `paneChanges`. Only the band reads that key, so a change draws the band again and
+  not the pane.
 
 Probes that are still open, each with a safe path in the code:
 
 - What `next(e)` returns in an `AbovePrompt` render when no hook beneath draws. The test kit
-  returns an engine element. If the live engine returns another shape, the board yields and
+  of Claude Code 2.1.312 has no drawing of its own: a mount with no test hook beneath fails with
+  `no implementation for ui.render`. So the tests answer with an engine element, as the
+  transcript row tests do. If the live engine returns another shape, the board yields and
   draws no band.
 - The order of two user plugins on the band. Two band mods that each yield to the other draw
   nothing. A second dummy band plugin in tmux can measure it.

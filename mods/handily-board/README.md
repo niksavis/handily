@@ -691,6 +691,33 @@ No agents yet.
   raises does not count. An example is the `AskUserQuestion` call of the `workitems` approval
   question.
 
+## The task band
+
+While the `this session` tab is not shown, one line above the prompt shows the current task.
+Captures from the tests, at 80 columns (the band body is 75 columns):
+
+```text
+▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ]
+○ 3 Review the mocks with Codex                     next ▰▱▱▱ 1/4 [ board ]
+◆ 3 for you · ▶ 2 Write the tab mocks                20m ▰▰▱▱ 1/4 [ board ]
+Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]
+```
+
+- The current task is the first task in progress, or else the first pending task with the dim
+  word `next`. The time turns to the `warning` colour after 15 minutes, as on the board.
+- Open tasks for you come first. While an approved plan waits, the band shows the plan offer,
+  and its button adds the steps as the Plan block does.
+- `[ board ]` acts as `/board`: it shows the `this session` tab and gives it the keyboard. The
+  band then goes. The band buttons have no hotkey, because Claude Code presses a band button
+  with a digit typed into an empty prompt.
+- The time and the bar never cut. The title cuts first. Below 50 columns the bar drops, and
+  below 30 columns the time drops.
+- The band draws nothing while the `this session` tab is shown, with no open task and no plan,
+  while a survey holds the band, and with the setting `band` at `off`. Claude Code draws the
+  band on the terminal and the desktop app only.
+- When another mod beneath the board draws the band, the board shows that drawing unchanged.
+  The board draws only over the engine drawing.
+
 ## The this machine tab
 
 The tab shows a card for each Claude Code session on this machine:
@@ -826,6 +853,13 @@ Sessions  4 · 1 needs you · 12s ago
 
 - When the mod loads, it refuses any other `statusLine` value by name, for example
   `handily-board: userConfig statusLine is "sometimes"; set it to attention or off in /config.`
+
+| `userConfig` `band` | Effect                                                         |
+| ------------------- | -------------------------------------------------------------- |
+| `on` (default)      | The band above the prompt shows, as The task band section says |
+| `off`               | The board draws no band                                        |
+
+- When the mod loads, it refuses any other `band` value by name.
 
 ## Lifetime
 

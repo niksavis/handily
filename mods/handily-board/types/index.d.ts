@@ -141,6 +141,7 @@ declare module 'claude-code' {
       rows: StateFamily<BoardCallRow>
       plans: StateFamily<BoardPlan>
       planId: string | null
+      paneChanges: number
       ready: { root: string }
     }
   }

@@ -27,6 +27,7 @@ import { statusLineSetting } from './hooks/attention'
 import { displayWidth } from './hooks/width'
 import type { TaskHost } from './hooks/commands'
 import { type PlanHost, addPlanAsTasks } from './hooks/plan'
+import { bandSetting } from './hooks/band'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -7888,5 +7889,239 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
       ).toBeDefined()
       await mobile.unmount()
     },
+  )
+})
+
+function bandProps(bodyColumns = 75, hasSurvey = false): RenderPropsOf['AbovePrompt'] {
+  return {
+    hasSurvey,
+    isWorking: false,
+    maxRows: 10,
+    bodyColumns,
+    scroll: { offset: 0, bodyRows: 10 },
+    view: {},
+  }
+}
+
+async function mountBand($: Engine, surface: Surface, bodyColumns = 75, hasSurvey = false) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'AbovePrompt',
+    props: bandProps(bodyColumns, hasSurvey),
+  })
+}
+
+async function bandLine(
+  $: Engine,
+  surface: Surface,
+  bodyColumns = 75,
+  hasSurvey = false,
+): Promise<string | undefined> {
+  const ui = await mountBand($, surface, bodyColumns, hasSurvey)
+  const band = drawnOf(await ui.find({ key: 'band' }))
+  await ui.unmount()
+  return band === null ? undefined : (screenOf(band, bodyColumns)[0] ?? '').trimEnd()
+}
+
+async function bandFour($: Engine, seen: World): Promise<void> {
+  await seen.clock.set(START)
+  await $.tool.call({
+    tool: TOOL_ADD,
+    titles: [
+      'Read the design',
+      'Write the tab mocks',
+      'Review the mocks with Codex',
+      'Ask the person about tabs',
+    ],
+  })
+  await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+  await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+  await seen.clock.set(START + 4 * MINUTE)
+}
+
+describe('the task band above the prompt (handily-9uj3n.9)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `while the this session tab is not shown, the band shows the current task, done of total and a board button on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        expect(await bandLine($, surface)).toBe(
+          '▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ]',
+        )
+        const ui = await mountBand($, surface)
+        const button = await ui.find({ key: 'band-board' })
+        expect(button?.text).toBe('board')
+        expect(button?.props.hotkey).toBeUndefined()
+        await ui.press({ key: 'band-board' })
+        expect(seen.opens[0]).toEqual({ id: PANE, title: 'this session', focus: true })
+        expect(await ui.find({ key: 'band' })).toBeUndefined()
+        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        await ui.unmount()
+        expect(seen.toasts).toEqual([])
+      },
+    )
+
+    test(
+      `the band names the next pending task, a second task in progress, a stalled time and the tasks for you on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'pending' })
+        await $.tool.call({ tool: TOOL_MOVE, id: 3, before: 2 })
+        expect(await bandLine($, surface)).toBe(
+          '○ 3 Review the mocks with Codex                     next ▰▱▱▱ 1/4 [ board ]',
+        )
+        await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+        await $.tool.call({ tool: TOOL_MOVE, id: 2, before: 3 })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'in_progress' })
+        expect(await bandLine($, surface)).toBe(
+          '▶ 2 Write the tab mocks · +1 in progress              4m ▰▰▰▱ 1/4 [ board ]',
+        )
+        await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'pending' })
+        await seen.clock.advance(16 * MINUTE)
+        const ui = await mountBand($, surface)
+        expect((await ui.find({ type: 'Text', text: '20m' }))?.props.color).toBe('warning')
+        await ui.unmount()
+        for (const title of ['Rotate the key', 'Pick a port', 'Restart the probe']) {
+          await $.tool.call({ tool: 'mcp__handily-board__task_assign', kind: 'do', title })
+        }
+        expect(await bandLine($, surface)).toBe(
+          '◆ 3 for you · ▶ 2 Write the tab mocks                20m ▰▰▱▱ 1/4 [ board ]',
+        )
+      },
+    )
+
+    test(
+      `the band shows nothing while the this session tab is shown, with no open task, or under a survey on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        const drawn = async (hasSurvey = false) => {
+          const ui = await mountBand($, surface, 75, hasSurvey)
+          const tree = await ui.drawn()
+          await ui.unmount()
+          return tree
+        }
+        expect(await drawn()).toMatchObject({ type: 'engine' })
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        expect(await bandLine($, surface)).toBeDefined()
+        expect(await drawn(true)).toMatchObject({ type: 'engine' })
+        expect(await board($, '')).toBe('Board opened: this session.')
+        expect(await drawn()).toMatchObject({ type: 'engine' })
+        expect(await board($, '')).toBe('Board closed.')
+        expect(await bandLine($, surface)).toBeDefined()
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+        expect(await drawn()).toMatchObject({ type: 'engine' })
+        expect(seen.toasts).toEqual([])
+      },
+    )
+
+    test(
+      `while an approved plan waits, the band shows the plan offer and its add button on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        await approve($, seen)
+        expect(await bandLine($, surface)).toBe(
+          'Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]',
+        )
+        const ui = await mountBand($, surface)
+        expect((await ui.find({ key: 'band-plan-add' }))?.props.hotkey).toBeUndefined()
+        await ui.press({ key: 'band-plan-add' })
+        await ui.unmount()
+        expect(await modelTool($, {})).toBe(
+          'Tasks (0 of 3 done)\n  1  pending      claude   "Create a.txt"\n  2  pending      claude   "Create b.txt"\n  3  pending      claude   "Create c.txt"',
+        )
+        expect(await bandLine($, surface)).toBe(
+          '○ 1 Create a.txt                                     next ▱▱▱ 0/3 [ board ]',
+        )
+      },
+    )
+
+    test(
+      `with the band setting off, the band shows nothing on ${surface}`,
+      { ...withToolIds, options: { band: 'off' } },
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        await approve($, seen)
+        const ui = await mountBand($, surface)
+        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `the band yields to a band drawing beneath it and never wraps it on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+          const { Text } = $.ui.resolve(e)
+          return Text({ children: 'a survey of another mod' })
+        })
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        const ui = await mountBand($, surface)
+        expect(drawnOf(await ui.drawn())?.text).toBe('a survey of another mod')
+        expect(await ui.find({ key: 'band' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+  }
+
+  test(
+    'the band fits 35 and 25 columns: the bar drops first, then the time',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      await start($)
+      await bandFour($, seen)
+      expect(await bandLine($, 'terminal', 35)).toBe('▶ 2 Write the tab… 4m 1/4 [ board ]')
+      expect(await bandLine($, 'terminal', 25)).toBe('▶ 2 Write…  1/4 [ board ]')
+    },
+  )
+
+  test(
+    'a press on board that the engine refuses shows one toast and logs why',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { unplacedReason: 'the terminal is too narrow' })
+      engineRows(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+      const ui = await mountBand($, 'terminal')
+      await ui.press({ key: 'band-board' })
+      await ui.unmount()
+      expect(seen.toasts).toEqual([
+        ['■ The board did not open', 'the transcript shows why', '/board list prints the tasks'],
+      ])
+      expect(seen.logs).toContain(
+        'handily-board: the board did not open from the band: the terminal is too narrow',
+      )
+    },
+  )
+})
+
+test('the board refuses a band setting it does not know, by name', () => {
+  expect(bandSetting({})).toBe('on')
+  expect(bandSetting({ band: 'off' })).toBe('off')
+  expect(() => bandSetting({ band: 'sometimes' })).toThrow(
+    'handily-board: userConfig band is "sometimes"; set it to on or off in /config.',
   )
 })

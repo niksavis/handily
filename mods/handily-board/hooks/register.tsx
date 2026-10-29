@@ -63,6 +63,7 @@ import {
   openBoard,
   openUnasked,
   sessionCommand,
+  showPane,
 } from './board'
 import { EMPTY_CHECKS, withCheck } from './checks'
 import { detailsText } from './details'
@@ -116,6 +117,7 @@ import {
   tasksAfterPlan,
 } from './plan'
 import { drawPlanLine } from './plan-view'
+import { bandSetting, bandView, drawBand, isEngineDrawing } from './band'
 import {
   type AssignInput,
   answersText,
@@ -129,7 +131,7 @@ import {
   takeAnswers,
   withdrawTask,
 } from './for-you'
-import { CHANGE_FAILED } from './replies'
+import { CHANGE_FAILED, refusedParts } from './replies'
 import { type ToastParts, showToast } from './toast'
 import type {
   BoardCallRow,
@@ -203,6 +205,12 @@ const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
 const PERSON_CHANGES = { plugin: 'handily-board', key: 'personChanges' } as const
 const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 const PLAN_ID = { plugin: 'handily-board', key: 'planId' } as const
+const PANE_CHANGES = { plugin: 'handily-board', key: 'paneChanges' } as const
+const BOARD_NOT_OPENED = refusedParts(
+  'The board did not open',
+  'the transcript shows why',
+  '/board list prints the tasks',
+)
 const REDRAW_INTERVAL_MS = 10_000
 const ENGINE_ORIGIN = 'engine'
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
@@ -413,6 +421,16 @@ async function notePlan($: EngineInterface, toolUseId: string, answer: PlanAnswe
     await $.state.set(PLAN_ID, plan === undefined ? null : toolUseId)
   } catch (error) {
     $.ui.log(`handily-board: the approved plan was not kept: ${String(error)}`)
+  }
+}
+
+async function notePaneChange($: EngineInterface): Promise<void> {
+  try {
+    await update($, PANE_CHANGES, (current = 0) => current + 1)
+  } catch (error) {
+    $.ui.log(`handily-board: the band may show a closed board late: ${String(error)}`, {
+      to: 'debug',
+    })
   }
 }
 
@@ -826,9 +844,17 @@ type RowNotes = Map<number, string>
 
 function uiOf($: EngineInterface, notes: RowNotes): PaneUi {
   return {
-    open: (pane, focus) =>
-      $.ui.open(focus ? { id: pane.id, title: pane.title, focus } : { ...pane }),
-    close: (id) => $.ui.close({ id }),
+    open: async (pane, focus) => {
+      const opened = await $.ui.open(
+        focus ? { id: pane.id, title: pane.title, focus } : { ...pane },
+      )
+      await notePaneChange($)
+      return opened
+    },
+    close: async (id) => {
+      await $.ui.close({ id })
+      await notePaneChange($)
+    },
     panes: () => $.ui.panes(),
     fillPrompt: async (text) => {
       const draft = await $.prompt.read()
@@ -1144,6 +1170,7 @@ function toolFailed($: EngineInterface, tool: string, error: HookFailure): { den
 
 export const register: Register = (on, options) => {
   const mode = boardMode(options)
+  const band = bandSetting(options)
   const redraw: Redraw = { timer: undefined }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
@@ -1463,8 +1490,47 @@ export const register: Register = (on, options) => {
     return { text: `handily-board: /board failed: ${reason}. Run /board list to see the tasks.` }
   })
 
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (band === 'off' || e.props.hasSurvey) return next(e)
+    await $.state.get(PANE_CHANGES)
+    if (await isSessionTabSeen($)) return next(e)
+    const host = hostOf($)
+    const plans = plansOf($)
+    const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
+    const plan = await offeredPlan(plans)
+    const view = bandView(await readList(host), plan, activity, await $.clock.now())
+    if (view === undefined) return next(e)
+    const beneath = await next(e)
+    if (!isEngineDrawing(beneath)) return beneath
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = uiOf($, notes)
+    const failed = (error: unknown) => {
+      ui.log(`handily-board: the board did not open from the band: ${String(error)}`)
+      ui.showToast(BOARD_NOT_OPENED)
+    }
+    return drawBand({ Box, Text, Button }, view, e.props.bodyColumns, {
+      open: () => {
+        showPane(ui, TASKS_PANE).then((opened) => {
+          if (!opened.isPlaced) failed(opened.reason)
+        }, failed)
+      },
+      addPlan: (id) => {
+        addPlanAsTasks(plans, host, id).then(
+          (reply) => {
+            if (reply.toastParts !== undefined) ui.showToast(reply.toastParts)
+          },
+          (error: unknown) => {
+            ui.log(`handily-board: the plan was not added: ${String(error)}`)
+            ui.showToast(CHANGE_FAILED)
+          },
+        )
+      },
+    })
+  })
+
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
+    if (isBoardPaneId(e.id)) await notePaneChange($)
     if (isBoardPaneId(e.id) && (await openBoardPanes($)).length === 0) stopRedraw(redraw)
     if (isBoardPaneId(e.id)) await refreshStatus($, attention)
     return closed
