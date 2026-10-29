@@ -8579,3 +8579,124 @@ describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)
     )
   })
 })
+
+const FILES_BUTTON_CRITERION =
+  'When the person presses the files button on task 2 in the board, the files tab shows only the files of task 2 with the counts line.'
+const NO_TREE_CRITERION = 'When the tree command is not listed, the board shows no files button.'
+
+type TreeRuns = { args: string[]; names: readonly string[] | 'refused' }
+
+function listsCommands(on: On, names: readonly string[] | 'refused'): TreeRuns {
+  const runs: TreeRuns = { args: [], names }
+  on('command.list', () => {
+    if (runs.names === 'refused') return { deny: 'the slash commands are not ready' }
+    return {
+      value: runs.names.map((name) => ({
+        name,
+        description: `the ${name} command`,
+        source: 'plugin' as const,
+        plugin: name === 'tree' ? 'handily-filetree' : PLUGIN,
+      })),
+    }
+  })
+  on('command.run', { command: 'tree' }, (_$, e) => {
+    runs.args.push(e.args)
+    if (e.args === 'task 3') throw new Error('the files tab is gone')
+    return { text: `Tree opened: files of ${e.args}.` }
+  })
+  return runs
+}
+
+async function openedTask($: Engine, surface: Surface, id: number) {
+  const ui = await mountTab($, surface, PANE, 'dock', 41)
+  await ui.press({ key: `open:task:${String(id)}` })
+  return ui
+}
+
+for (const surface of SURFACES) {
+  describe(FILES_BUTTON_CRITERION, () => {
+    test(
+      `an opened task 2 has a files button under its other buttons, as mock 10.9a, and a press runs /tree task 2, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const runs = listsCommands(on, ['board', 'tree'])
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 2)
+        expect((await screen(ui, 41)).slice(2, 7)).toEqual([
+          '▶ 2 Write the tab mocks         4m [ rm ]',
+          '    ▸ Edit docs/mocks.md          9 tools',
+          '    started 4m ago · 9 tools in all',
+          '    [ done ] [ open ]',
+          '    [ files ]',
+        ])
+        await ui.press({ key: 'files:2' })
+        expect(runs.args).toEqual(['task 2'])
+        expect(seen.toasts).toEqual([])
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `a run of /tree that fails is logged and named in a toast, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const runs = listsCommands(on, ['board', 'tree'])
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 3)
+        await ui.press({ key: 'files:3' })
+        expect(runs.args).toEqual(['task 3'])
+        expect(seen.toasts).toEqual([['■ The files tab did not open', 'the transcript shows why']])
+        expect(
+          seen.logs.filter((text) => text.includes('the files tab did not open')),
+        ).toHaveLength(1)
+        await ui.unmount()
+      },
+    )
+  })
+
+  describe(NO_TREE_CRITERION, () => {
+    test(
+      `with no /tree in the slash commands, an opened task has no files button, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const runs = listsCommands(on, ['board', 'tasks'])
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 2)
+        expect(await ui.find({ key: 'files:2' })).toBeUndefined()
+        expect((await screen(ui, 41)).slice(4, 7)).toEqual([
+          '    started 4m ago · 9 tools in all',
+          '    [ done ] [ open ]',
+          '○ 3 Review the mocks with Codex    [ rm ]',
+        ])
+        expect(runs.args).toEqual([])
+        runs.names = ['board', 'tasks', 'tree']
+        await ui.redraw()
+        expect(await ui.find({ key: 'files:2' })).toBeDefined()
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `a slash command list that is refused shows no files button and logs why, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        listsCommands(on, 'refused')
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await openedTask($, surface, 2)
+        expect(await ui.find({ key: 'files:2' })).toBeUndefined()
+        expect(
+          seen.logs.some((text) => text.includes('the slash commands could not be listed')),
+        ).toBe(true)
+        await ui.unmount()
+      },
+    )
+  })
+}

@@ -3656,3 +3656,240 @@ describe('the work view: review repairs', () => {
     })
   }
 })
+
+const TASK_TOUCH_CRITERION =
+  'When a file is touched while task 2 is in progress, the touch records task 2.'
+const TASK_FILES_CRITERION =
+  'When the person presses the files button on task 2 in the board, the files tab shows only the files of task 2 with the counts line.'
+
+type BoardClock = {
+  startedAt: number
+  startCalls: number
+  endedAt: number | null
+  endCalls: number | null
+  runAt?: number
+}
+
+type BoardTasks = { start: (id: number) => void; end: (id: number) => void }
+
+const BOARD_TITLES = ['Read the design', 'Write the tab mocks', 'Review the mocks']
+
+function boardTasks(on: On, seen: World): BoardTasks {
+  const clocks: Record<string, BoardClock> = {}
+  on('state.get', { plugin: 'handily-board', key: 'activity' }, () => ({
+    value: {
+      value: {
+        calls: 0,
+        firstAt: null,
+        last: null,
+        perTool: [],
+        sincePlan: 0,
+        noteAt: null,
+        clocks: { ...clocks },
+      },
+      version: 1,
+    },
+  }))
+  on('state.get', { plugin: 'handily-board', key: 'list' }, () => ({
+    value: {
+      value: {
+        tasks: BOARD_TITLES.map((title, index) => ({
+          id: index + 1,
+          title,
+          status: 'pending' as const,
+          by: 'model' as const,
+          item: null,
+        })),
+        nextId: BOARD_TITLES.length + 1,
+      },
+      version: 1,
+    },
+  }))
+  return {
+    start: (id) => {
+      const key = String(id)
+      const now = seen.clock.now()
+      const known = clocks[key]
+      clocks[key] =
+        known === undefined
+          ? { startedAt: now, startCalls: 0, endedAt: null, endCalls: null, runAt: now }
+          : { ...known, endedAt: null, endCalls: null, runAt: now }
+    },
+    end: (id) => {
+      const key = String(id)
+      const known = clocks[key]
+      if (known === undefined) throw new Error(`task ${key} never started`)
+      clocks[key] = { ...known, endedAt: seen.clock.now(), endCalls: 0 }
+    },
+  }
+}
+
+async function taskWork($: Engine, seen: World, board: BoardTasks): Promise<void> {
+  board.start(1)
+  await read($, 'docs/design.md')
+  await seen.clock.advance(60_000)
+  board.end(1)
+  board.start(2)
+  await edit($, 'docs/mocks.md')
+  await seen.clock.advance(60_000)
+  await read($, 'hooks/pane.tsx', SCOUT)
+  board.end(2)
+  await seen.clock.advance(60_000)
+  await read($, 'README.md')
+  board.start(2)
+  await seen.clock.advance(60_000)
+  await read($, 'docs/install.md')
+  board.end(2)
+  board.start(3)
+  await seen.clock.advance(60_000)
+  await edit($, 'hooks/register.tsx')
+}
+
+async function taskTab($: Engine, seen: World, surface: RenderSurface, id: number) {
+  expect(await tree($, `task ${String(id)}`)).toBe(`Tree opened: files of task ${String(id)}.`)
+  const ui = await mountDefault($, surface)
+  await seen.clock.settle()
+  await ui.redraw(DOCKED_PANE)
+  return ui
+}
+
+function taskScene(on: On, surface: RenderSurface) {
+  const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+  fakeTools(on, seen, new Map())
+  boardKnowsScout(on)
+  const board = boardTasks(on, seen)
+  return { seen, board, surface }
+}
+
+const TASK_2_SCREEN = [
+  'Files  app · main ↑1 · 7 changed',
+  'Task 2  Write the tab mocks  [ clear ]',
+  '{agent: all} [ refresh ]',
+  '✎ 1 edited · ◦ 2 read while task 2 ran',
+  RULE_41,
+  '▾ docs/  M2 ?1            ◦ main       1m',
+  '    install.md            ◦ main       1m',
+  '  M mocks.md              ✎ main       4m',
+  '▾ hooks/  M1 D1           ◦ scout      3m',
+  '  M pane.tsx              ◦ scout      3m',
+]
+
+describe(TASK_TOUCH_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a touch in either run of task 2 stays with task 2, and a touch while it waits does not, on the ${surface}`, async ($, on) => {
+      const { seen, board } = taskScene(on, surface)
+      await start($)
+      await taskWork($, seen, board)
+      const ui = await taskTab($, seen, surface, 2)
+      const lines = await treeLines(ui)
+      expect(lines.join('\n')).toContain('mocks.md')
+      expect(lines.join('\n')).toContain('pane.tsx')
+      expect(lines.join('\n')).toContain('install.md')
+      expect(lines.join('\n')).not.toContain('README.md')
+      expect(lines.join('\n')).not.toContain('design.md')
+      expect(lines.join('\n')).not.toContain('register.tsx')
+      await ui.unmount()
+    })
+
+    test(`each task keeps its own touches, and a touch with no task in progress records none, on the ${surface}`, async ($, on) => {
+      const { seen, board } = taskScene(on, surface)
+      await start($)
+      await taskWork($, seen, board)
+      const first = await taskTab($, seen, surface, 1)
+      expect((await headerOf(first)).at(-1)).toBe('◦ 1 read while task 1 ran')
+      expect(await treeLines(first)).toEqual([
+        '▾ docs/  M2 ?1            ◦ main       5m',
+        '  M design.md             ◦ main       5m',
+      ])
+      await first.unmount()
+      const third = await taskTab($, seen, surface, 3)
+      expect((await headerOf(third)).at(-1)).toBe('✎ 1 edited while task 3 ran')
+      expect((await treeLines(third)).join('\n')).not.toContain('README.md')
+      await third.unmount()
+    })
+  }
+})
+
+describe(TASK_FILES_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`/tree task 2, which the files button runs, shows only the files of task 2 under the counts line, as mock 10.9b, on the ${surface}`, async ($, on) => {
+      const { seen, board } = taskScene(on, surface)
+      await start($)
+      await taskWork($, seen, board)
+      const ui = await taskTab($, seen, surface, 2)
+      expect(await screen(ui)).toEqual(TASK_2_SCREEN)
+      expect(seen.opens.at(-1)).toEqual({ id: PANE, title: 'files', focus: true })
+      expect((await ui.find({ key: 'clear-task' }))?.props.hotkey).toBe('c')
+      await ui.unmount()
+    })
+
+    test(`clear returns to the work view of every touched and changed file, on the ${surface}`, async ($, on) => {
+      const { seen, board } = taskScene(on, surface)
+      await start($)
+      await taskWork($, seen, board)
+      const ui = await taskTab($, seen, surface, 2)
+      await ui.press({ key: 'clear-task' })
+      const lines = await headerOf(ui)
+      expect(lines[1]).toBe(WORK_CONTROLS)
+      expect(lines.join('\n')).not.toContain('Task 2')
+      expect((await treeLines(ui)).join('\n')).toContain('README.md')
+      await ui.unmount()
+    })
+
+    test(`a task with no touched file says so, and a task that is not on the list shows its number alone, on the ${surface}`, async ($, on) => {
+      const { seen, board } = taskScene(on, surface)
+      await start($)
+      board.start(3)
+      const ui = await taskTab($, seen, surface, 3)
+      expect((await headerOf(ui)).slice(1)).toEqual([
+        'Task 3  Review the mocks  [ clear ]',
+        '{agent: all} [ refresh ]',
+        'No file touched while task 3 ran.',
+      ])
+      expect((await ui.find({ type: 'Text', text: /^No file touched/ }))?.props.dimColor).toBe(true)
+      expect(await treeLines(ui)).toEqual([])
+      await ui.unmount()
+      const unknown = await taskTab($, seen, surface, 9)
+      expect((await headerOf(unknown))[1]).toBe('Task 9  [ clear ]')
+      await unknown.unmount()
+    })
+  }
+
+  test('/tree task with no number or a bad one names the form and opens nothing', async ($, on) => {
+    const seen = world(on, APP)
+    await start($)
+    expect(await tree($, 'task')).toBe(
+      '"task" names no task. Use /tree task and the task number, for example /tree task 2.',
+    )
+    expect(await tree($, 'task 0')).toBe(
+      '"task 0" names no task. Use /tree task and the task number, for example /tree task 2.',
+    )
+    expect(await tree($, 'task two')).toContain('names no task')
+    expect(seen.opens).toEqual([])
+  })
+
+  test('the inline tab ignores the task and keeps its flat work list', async ($, on) => {
+    const { seen, board } = taskScene(on, 'terminal')
+    await start($)
+    await taskWork($, seen, board)
+    await tree($, 'task 2')
+    const ui = await mountSettled($, seen, 'terminal', 'inline', 76)
+    expect((await screen(ui, 76)).join('\n')).not.toContain('Task 2')
+    expect((await screen(ui, 76)).join('\n')).toContain('docs/design.md')
+    expect((await screen(ui, 76)).join('\n')).toContain('hooks/old-pane.tsx')
+    await ui.unmount()
+  })
+
+  test('a new session clears the task', async ($, on) => {
+    const { seen, board } = taskScene(on, 'terminal')
+    await start($)
+    await taskWork($, seen, board)
+    await tree($, 'task 2')
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+    await start($)
+    const ui = await mountDefault($, 'terminal')
+    await seen.clock.settle()
+    expect((await headerOf(ui)).join('\n')).not.toContain('Task 2')
+    await ui.unmount()
+  })
+})

@@ -20,10 +20,18 @@ export type Mark = Touch & { others: number }
 
 type Call = Touch & { path: string }
 
+type FileTouches = Map<string, Map<string, Touch>>
+
+export type TaskClock = { startedAt: number; endedAt: number | null; runAt?: number }
+
+export type TaskClocks = Readonly<Partial<Record<string, TaskClock>>>
+
 export type Touches = {
-  files: Map<string, Map<string, Touch>>
+  files: FileTouches
   sights: Map<string, Sight>
   calls: Map<string, Call>
+  clocks: TaskClocks
+  tasks: Map<string, FileTouches>
 }
 
 export type TouchView = {
@@ -34,19 +42,59 @@ export type TouchView = {
 }
 
 export function newTouches(): Touches {
-  return { files: new Map(), sights: new Map(), calls: new Map() }
+  return { files: new Map(), sights: new Map(), calls: new Map(), clocks: {}, tasks: new Map() }
 }
 
 export function clearTouches(touches: Touches): void {
   touches.files.clear()
   touches.sights.clear()
   touches.calls.clear()
+  touches.tasks.clear()
+  touches.clocks = {}
+}
+
+export function noteClocks(touches: Touches, clocks: TaskClocks): void {
+  touches.clocks = clocks
+}
+
+export function isInTaskRun(clock: TaskClock, at: number): boolean {
+  const from = clock.runAt ?? clock.startedAt
+  return from <= at && (clock.endedAt === null || at < clock.endedAt)
+}
+
+function tasksAt(clocks: TaskClocks, at: number): string[] {
+  return Object.entries(clocks).flatMap(([task, clock]) =>
+    clock !== undefined && isInTaskRun(clock, at) ? [task] : [],
+  )
+}
+
+function keptIn(files: FileTouches, path: string, touch: Touch, agent: string): void {
+  const byAgent = files.get(path) ?? new Map<string, Touch>()
+  byAgent.set(agent, touch)
+  files.set(path, byAgent)
 }
 
 function kept(touches: Touches, path: string, touch: Touch, agent = touch.agent): void {
-  const byAgent = touches.files.get(path) ?? new Map<string, Touch>()
-  byAgent.set(agent, touch)
-  touches.files.set(path, byAgent)
+  keptIn(touches.files, path, touch, agent)
+  for (const task of tasksAt(touches.clocks, touch.at)) {
+    const files = touches.tasks.get(task) ?? new Map<string, Map<string, Touch>>()
+    keptIn(files, path, touch, agent)
+    touches.tasks.set(task, files)
+  }
+}
+
+export function taskTouches(touches: Touches, task: number): Touches {
+  const key = String(task)
+  const calls = [...touches.calls].filter(([, call]) =>
+    tasksAt(touches.clocks, call.at).includes(key),
+  )
+  return {
+    files: touches.tasks.get(key) ?? new Map<string, Map<string, Touch>>(),
+    sights: new Map(),
+    calls: new Map(calls),
+    clocks: touches.clocks,
+    tasks: new Map(),
+  }
 }
 
 export function beginTouch(touches: Touches, callId: string, call: Call): void {

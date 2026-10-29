@@ -25,8 +25,11 @@ import {
   isShared,
   markCell,
   markWidth,
+  noTaskFilesText,
   sharedLabel,
   sightCells,
+  taskCountsText,
+  type TaskCounts,
   touchText,
 } from './marks'
 import type { GitCount, GitLetter, GitMarks } from './status'
@@ -46,6 +49,13 @@ export type PaneElements = {
   bodyColumns: number
 }
 
+export type TaskDraw = {
+  id: number
+  title: string | null
+  counts: TaskCounts
+  clear: () => void
+}
+
 export type TouchDraw = {
   column: MarkColumn
   fileMark: (path: string) => Mark | undefined
@@ -60,6 +70,7 @@ export type TouchDraw = {
   inView: string | undefined
   pick: (value: string) => void
   now: number
+  task: TaskDraw | undefined
 }
 
 type PaneView = {
@@ -89,6 +100,7 @@ export const INLINE_ROWS = 8
 const FILES_TITLE = 'Files'
 const REFRESH = 'refresh'
 const RETRY = 'retry'
+const CLEAR = 'clear'
 const MARK_GAP = 1
 const SELECT_CHROME = 2
 const FILTER_KEY = 'agent'
@@ -268,9 +280,9 @@ function filterWidth(elements: PaneElements, touched: TouchDraw): number {
 
 function drawControls(elements: PaneElements, view: PaneView): RenderElement[] {
   const { Box, Text, Button, bodyColumns } = elements
-  const switcher = viewSpec(view.actions, view.choice)
+  const switcher = view.touched.task === undefined ? [viewSpec(view.actions, view.choice)] : []
   const refresh = refreshSpec(view.actions)
-  const specs = [switcher, refresh]
+  const specs = [...switcher, refresh]
   const select = filterSelect(elements, view.touched)
   const filter = { children: select, width: filterWidth(elements, view.touched) }
   const room = { room: bodyColumns, indent: 0, key: 'controls' }
@@ -282,13 +294,60 @@ function drawControls(elements: PaneElements, view: PaneView): RenderElement[] {
     Box({
       flexDirection: 'row',
       children: [
-        buttonOf(Button, switcher, bodyColumns),
-        Text({ children: ' ' }),
+        ...switcher.flatMap((spec) => [
+          buttonOf(Button, spec, bodyColumns),
+          Text({ children: ' ' }),
+        ]),
         ...select,
         Text({ children: ' ' }),
         buttonOf(Button, refresh, bodyColumns),
       ],
     }),
+  ]
+}
+
+function drawTaskLine(elements: PaneElements, task: TaskDraw): RenderElement {
+  const { Box, Text, Button, bodyColumns } = elements
+  const head = `Task ${String(task.id)}`
+  const clear: ButtonSpec = { key: 'clear-task', label: CLEAR, hotkey: 'c', onPress: task.clear }
+  const room = bodyColumns - displayWidth(head) - rowWidth([clear]) - 2 * displayWidth(NOTE_GAP)
+  const title = task.title === null ? '' : fitted(shownName(task.title), Math.max(room, 0))
+  return Box({
+    key: 'task',
+    flexDirection: 'row',
+    children: [
+      Text({ bold: true, children: head }),
+      Text({ children: title === '' ? NOTE_GAP : `${NOTE_GAP}${title}${NOTE_GAP}` }),
+      buttonOf(Button, clear, displayWidth(CLEAR)),
+    ],
+  })
+}
+
+function drawTaskCounts(elements: PaneElements, task: TaskDraw): RenderElement[] {
+  const { counts } = task
+  const isEmpty = counts.edit + counts.read === 0
+  const text = isEmpty ? noTaskFilesText(task.id) : taskCountsText(counts, task.id)
+  return wrapped(text, elements.bodyColumns).map((part) =>
+    elements.Text({ dimColor: isEmpty, children: part }),
+  )
+}
+
+function drawTop(elements: PaneElements, view: PaneView): RenderElement[] {
+  const { touched, git, actions } = view
+  if (touched.task === undefined) {
+    return [
+      ...drawControls(elements, view),
+      ...drawNotes(elements, git.notes, actions),
+      ...inViewNote(elements, touched),
+      ...drawNow(elements, touched),
+    ]
+  }
+  return [
+    drawTaskLine(elements, touched.task),
+    ...drawControls(elements, view),
+    ...drawNotes(elements, git.notes, actions),
+    ...inViewNote(elements, touched),
+    ...drawTaskCounts(elements, touched.task),
   ]
 }
 
@@ -735,7 +794,8 @@ export function drawTree(
   const { Box, Text, bodyColumns } = elements
   const { git, actions, touched, opened } = view
   const draw: TreeDraw = { actions, marks: git.marks, touched, opened, isRepo: git.isRepo }
-  const isWork = view.choice === 'work'
+  const isTask = touched.task !== undefined
+  const isWork = view.choice === 'work' && !isTask
   const body =
     isWork && rows.length === 0
       ? drawNoWork(elements, actions)
@@ -744,10 +804,7 @@ export function drawTree(
     flexDirection: 'column',
     children: [
       drawHeader(elements, rootName, git.header, bodyColumns),
-      ...drawControls(elements, view),
-      ...drawNotes(elements, git.notes, actions),
-      ...inViewNote(elements, touched),
-      ...drawNow(elements, touched),
+      ...drawTop(elements, view),
       Text({ children: RULE.repeat(Math.max(bodyColumns, 0)) }),
       ...body,
       ...drawNotes(elements, git.footer, actions),

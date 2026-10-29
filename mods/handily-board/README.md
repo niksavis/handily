@@ -277,6 +277,10 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
   have, in the order `done`, `start` and `open`. They act as `/board done`, `/board start` and
   `/board open`, and the toast is the reply of the command. A task that you start or finish
   keeps its clock, as when Claude does it.
+- When the slash command `/tree` of handily-filetree is listed, an opened task ends with a
+  `[ files ]` button. It runs `/tree task 2`, so the files tab shows only the files that were
+  read or edited while the task ran. When `/tree` is not listed, the button is not drawn. When
+  the run fails, the board logs why and says so in a toast.
 - A task that is not in progress also gets `[ up ] [ down ]` on the next line. `up` and `down`
   move the task past its neighbour with the same status, as `task_move` does, and Claude is
   told. The mod then asks Claude Code for the focus on the same button of the moved task. The

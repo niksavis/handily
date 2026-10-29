@@ -190,6 +190,7 @@ const NEW_SESSION_REASONS: ReadonlySet<SessionEndReason> = new Set<SessionEndRea
   'resume',
 ])
 const TOOL_ADD = 'mcp__handily-board__task_add'
+const TREE_COMMAND = 'tree'
 const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
@@ -674,6 +675,17 @@ type SessionKeeps = {
   pulses: AgentPulses
 }
 
+async function isTreeListed($: EngineInterface): Promise<boolean> {
+  try {
+    return (await $.command.list()).some((command) => command.name === TREE_COMMAND)
+  } catch (error) {
+    $.ui.log(`handily-board: the slash commands could not be listed: ${String(error)}`, {
+      to: 'debug',
+    })
+    return false
+  }
+}
+
 async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
@@ -685,6 +697,7 @@ async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork
     agents,
     vitals: keeps.vitals.current,
     checks: keeps.checks.current,
+    hasTree: await isTreeListed($),
   }
 }
 
@@ -913,6 +926,9 @@ function uiOf($: EngineInterface, notes: RowNotes): PaneUi {
     },
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
+    },
+    openFiles: async (taskId) => {
+      await $.command.run({ command: TREE_COMMAND, args: `task ${String(taskId)}` })
     },
     focus: async (key) => {
       const stayed = (reason: string) => {
