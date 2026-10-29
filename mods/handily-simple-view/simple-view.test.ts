@@ -1583,6 +1583,174 @@ describe('Read, Grep and Glob rows', () => {
   })
 })
 
+const PROBE_GUARD_MESSAGE = 'probe-guard: file tools are refused in this folder'
+
+function hookRefused(tool: string): Answer {
+  const text = `PreToolUse:${tool} hook error: [/work/refuse.sh]: ${PROBE_GUARD_MESSAGE}\n`
+  return { isError: true, result: `Error: ${text}`, text }
+}
+
+const FILE_REFUSALS_CAPTURED_ON_2_1_312 = [
+  { tool: 'Read', input: { file_path: `${ROOT}/note.txt` }, path: 'note.txt' },
+  { tool: 'Write', input: { file_path: `${ROOT}/out.txt`, content: 'hi' }, path: 'out.txt' },
+  {
+    tool: 'Edit',
+    input: {
+      replace_all: false,
+      file_path: `${ROOT}/note.txt`,
+      old_string: 'hello',
+      new_string: 'bye',
+    },
+    path: 'note.txt',
+  },
+] as const
+
+describe('file rows that a hook refused', () => {
+  for (const surface of SURFACES) {
+    for (const { tool, input, path } of FILE_REFUSALS_CAPTURED_ON_2_1_312) {
+      viewTest(
+        `draws a refused ${tool} call as captured on Claude Code 2.1.312 as one row on ${surface}`,
+        async (world, $) => {
+          world.answer = () => hookRefused(tool)
+          const id = await runTool(world, $, { tool, ...input })
+          const use = useProps(id, tool, input, hookRefused(tool))
+          expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+            `${MARKER[surface]}${tool} ${path} refused ${PROBE_GUARD_MESSAGE}`,
+          ])
+          const ui = await mountUse($, use, surface)
+          expect((await ui.find({ type: 'Text', text: 'refused' }))?.props.color).toBe('error')
+          const line = await ui.find({ type: 'Text', text: PROBE_GUARD_MESSAGE })
+          expect(line?.props).toMatchObject({ color: 'error', wrap: 'truncate-end' })
+          const pathCell = (await ui.findAll({ type: 'Box' })).find(
+            (box) =>
+              box.children.length === 1 &&
+              (box.children[0] as { children?: unknown[] }).children?.[0] === path,
+          )
+          expect(pathCell?.props).toMatchObject({ flexShrink: 1, minWidth: path.length })
+          await ui.unmount()
+          const result = await drawn(
+            $,
+            { component: 'ToolResult', props: resultProps(id, tool, hookRefused(tool)) },
+            surface,
+          )
+          expect(result.tree).toMatchObject({ type: 'Box' })
+          expect(result.textCount).toBe(0)
+        },
+      )
+    }
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws a refused Grep with its pattern and a refused call with no path on ${surface}`,
+      async (_world, $) => {
+        const rowOf = async (tool: string, input: unknown) =>
+          texts($, surface, {
+            component: 'ToolUse',
+            props: useProps('toolu_h2', tool, input, hookRefused(tool)),
+          })
+        const marker = MARKER[surface]
+        expect(await rowOf('Grep', { pattern: 'TODO', path: `${ROOT}/src` })).toEqual([
+          `${marker}Grep "TODO" in src refused ${PROBE_GUARD_MESSAGE}`,
+        ])
+        expect(await rowOf('Edit', {})).toEqual([`${marker}Edit refused ${PROBE_GUARD_MESSAGE}`])
+        expect(await rowOf('Read', { file_path: 7 })).toEqual([
+          `${marker}Read refused ${PROBE_GUARD_MESSAGE}`,
+        ])
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws a refused call with no path and keeps its result empty when the session root fails on ${surface}`,
+      async (world, $) => {
+        world.isRootRefused = true
+        const input = { file_path: `${ROOT}/note.txt` }
+        const use = useProps('toolu_h4', 'Edit', input, hookRefused('Edit'))
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Edit refused ${PROBE_GUARD_MESSAGE}`,
+        ])
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: resultProps('toolu_h4', 'Edit', hookRefused('Edit')) },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+        expect(world.logs.some((log) => log.startsWith('simple-view: no path for toolu_h4'))).toBe(
+          true,
+        )
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `keeps at most 40 cells of a refused Grep pattern and folder so refused fits 80 columns on ${surface}`,
+      async (_world, $) => {
+        const input = { pattern: 'p'.repeat(38), path: `${ROOT}/${'f'.repeat(37)}` }
+        const ui = await $.ui.mount({
+          plugin: 'handily-simple-view',
+          surface,
+          component: 'ToolUse',
+          props: useProps('toolu_h5', 'Grep', input, hookRefused('Grep')),
+          viewport: { columns: 80, rows: 40 },
+        })
+        const columns = (await ui.findAll({ type: 'Box' })).find((box) => box.props.gap === 2)
+        const cells = (columns?.children ?? []).filter(isDrawnNode)
+        const least = cells.map((cell) =>
+          cell.props?.flexShrink === 0
+            ? displayWidth(shown(cell))
+            : Number(cell.props?.minWidth ?? 0),
+        )
+        await ui.unmount()
+        expect(cells.map(shown)).toEqual([
+          'Grep',
+          `"${input.pattern}"`,
+          `in ${'f'.repeat(37)}`,
+          'refused',
+          PROBE_GUARD_MESSAGE,
+        ])
+        const gaps = 2 * (cells.length - 1)
+        const width = MARKER[surface].length + gaps + least.reduce((sum, cell) => sum + cell, 0)
+        expect(width).toBeLessThanOrEqual(80)
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `leaves an Edit, Write or Read error that no hook refused to the engine on ${surface}`,
+      async (_world, $) => {
+        const errors: [string, string][] = [
+          ['Edit', 'File has not been read yet. Read it first before writing to it.'],
+          [
+            'Write',
+            'File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.',
+          ],
+          [
+            'Edit',
+            'Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Self-Modification].',
+          ],
+          ['Read', 'File does not exist. Note: your current working directory is /work/app.'],
+        ]
+        for (const [tool, text] of errors) {
+          const answer: Answer = { isError: true, result: `Error: ${text}`, text }
+          const use = useProps('toolu_h3', tool, { file_path: `${ROOT}/note.txt` }, answer)
+          const result = resultProps('toolu_h3', tool, answer)
+          expect((await drawn($, { component: 'ToolUse', props: use }, surface)).tree).toEqual(
+            ENGINE_ROW,
+          )
+          expect(
+            (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
+          ).toEqual(ENGINE_ROW)
+        }
+      },
+    )
+  }
+})
+
 const PAGE_URL = 'https://example.com/guide'
 const FETCH_INPUT = { url: PAGE_URL, prompt: 'Summarise the page' }
 const FETCH_ANSWER: Answer = {

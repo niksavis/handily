@@ -538,6 +538,7 @@ After:
 ● Write  docs/new.md  ~+3 -0~
 ● Edit  src/app.ts  ~+2 -1~
 ● Write  /elsewhere/big.json
+● Edit  note.txt  #refused#  #probe-guard: file tools are refused in this folder#
 ```
 
 - The marker `●` is green after `exit 0`, red after `exit N` and dim while the call runs.
@@ -556,6 +557,10 @@ After:
   `Error: PreToolUse:Bash hook error: [<hook command>]:`. Another errored text that starts with
   `Error:` shows `error` and its first line.
   The result block is drawn empty, and `[ more ]` opens the full message.
+- An `Edit`, `Write`, `Read`, `Grep` or `Glob` call that a hook refused shows the tool, the path
+  or the pattern, `#refused#` and the first line of the hook message (handily-fwkt.8.27). The
+  marker is red and the result block is drawn empty. Another error of these tools keeps the
+  row and the error text of the engine.
 - A generic row of a call that a hook refused shows `#error#`, and its result block is drawn
   empty. Another error of a generic row keeps the error text of the engine under the row.
 - `Write /elsewhere/big.json` with no totals: the engine gave no diff, so the mod shows the path
