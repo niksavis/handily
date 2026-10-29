@@ -3391,6 +3391,9 @@ docs/design.md section 4.11.
 
 ### 10.10 The person opens the scout transcript: the files tab follows the agent in view
 
+Changed on 2026-10-29 (handily-9nmpi): the folder rows keep their git counts while an agent is
+picked or in view. The counts include the files that the agent filter hides.
+
 ```text
 ╭─────────────────────────────────────────✕─╮
 │ this session  this machine  [files]       │  (engine tab row)
@@ -3400,10 +3403,10 @@ docs/design.md section 4.11.
 │ Now  scout                                │
 │ ◦ scout     docs/design.md             2s │
 │ ───────────────────────────────────────── │
-│ ▾ docs/                   ◦ scout      2s │
+│ ▾ docs/  M2 ?1            ◦ scout      2s │
 │   M design.md             ◦ scout      2s │
 │   M mocks.md              ◦ scout      3m │
-│ ▾ hooks/                  ◦ scout     40s │
+│ ▾ hooks/  M1 D1           ◦ scout     40s │
 │     register.tsx          ◦ scout     40s │
 ╰───────────────────────────────────────────╯
 ```

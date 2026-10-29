@@ -3812,3 +3812,104 @@ describe('the work view of a large repo', () => {
     })
   }
 })
+
+function padded(prefix: string, count: number): string[] {
+  return Array.from({ length: count }, (_, at) => `${prefix}${String(at).padStart(3, '0')}.ts`)
+}
+
+describe('the work view of a large repo: review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`the more row counts only the hidden files that git shows as changed, and their folders, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [folder('src'), folder('zdocs')]]], {
+        kind: 'ok',
+        stdout: statusOf(padded('src/f', 45).map((path) => changed('.M', path))),
+      })
+      fakeTools(on, seen, new Map())
+      const ui = await mountWork($, seen, surface)
+      for (const path of padded('zdocs/r', 20)) await read($, path)
+      await ui.redraw(DOCKED_PANE)
+      expect((await treeLines(ui)).slice(-3)).toEqual([
+        '  M f038.ts',
+        '[ +6 changed in 1 folder ]',
+        WORK_NOTE,
+      ])
+      await ui.unmount()
+    })
+
+    test(`with no changed file behind the cap, the more row counts the hidden rows, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [folder('zdocs')]]], { kind: 'ok', stdout: CLEAN })
+      fakeTools(on, seen, new Map())
+      const ui = await mountWork($, seen, surface)
+      for (const path of padded('zdocs/r', 60)) await read($, path)
+      await ui.redraw(DOCKED_PANE)
+      expect((await treeLines(ui)).slice(-2)).toEqual(['[ +21 more ]', WORK_NOTE])
+      await ui.press({ key: 'more-work' })
+      expect(await treeLines(ui)).toHaveLength(62)
+      await ui.unmount()
+    })
+
+    test(`the more row counts the changed files and folders behind a hidden 200 entry more row, on the ${surface}`, async ($, on) => {
+      const subfolders = padded('big/d', 250).map((path) => path.slice(0, -3))
+      const seen = gitWorld(on, [['.', [folder('big')]]], {
+        kind: 'ok',
+        stdout: statusOf(
+          subfolders.flatMap((path) => [
+            changed('.M', `${path}/a.ts`),
+            changed('.M', `${path}/b.ts`),
+          ]),
+        ),
+      })
+      const ui = await mountWork($, seen, surface)
+      expect((await treeLines(ui)).slice(-2)).toEqual([
+        '[ +474 changed in 237 folders ]',
+        WORK_NOTE,
+      ])
+      await ui.unmount()
+    })
+
+    test(`a joined chain row shows the counts of the top folder of the chain while an agent is picked, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [folder('docs')]]], {
+        kind: 'ok',
+        stdout: statusOf([changed('.M', 'docs/x.md'), changed('.M', 'docs/notes/draft/plan.md')]),
+      })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await mountWork($, seen, surface)
+      await edit($, 'docs/x.md')
+      await read($, 'docs/notes/draft/plan.md', SCOUT)
+      await ui.redraw(DOCKED_PANE)
+      await $.ui.select({ plugin: PLUGIN, key: 'agent', value: `agent:${SCOUT}` })
+      expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: scout} [ refresh ]')
+      expect(await treeLines(ui)).toEqual([
+        '▾ docs/notes/draft/  M2   ◦ scout      0s',
+        '  M plan.md               ◦ scout      0s',
+        WORK_NOTE,
+      ])
+      expect(await ui.find({ key: 'diff:docs' })).toBeDefined()
+      await ui.unmount()
+    })
+
+    test(`a chain does not join through a folder that the person closed, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [folder('docs')]]], {
+        kind: 'ok',
+        stdout: statusOf([changed('.M', 'docs/a.md'), changed('.M', 'docs/notes/draft/plan.md')]),
+      })
+      const ui = await mountWork($, seen, surface)
+      expect(await treeLines(ui)).toEqual([
+        '▾ docs/  M2',
+        '  ▾ notes/draft/  M1',
+        '    M plan.md',
+        '  M a.md',
+        WORK_NOTE,
+      ])
+      await ui.press({ key: 'open:docs' })
+      seen.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'docs/notes/draft/plan.md')]) }
+      touch(seen, `${GIT_DIR}/index`)
+      await seen.clock.advance(2000)
+      expect(await treeLines(ui)).toEqual(['▸ docs/  M1', WORK_NOTE])
+      await ui.press({ key: 'open:docs' })
+      expect(await treeLines(ui)).toEqual(['▾ docs/notes/draft/  M1', '  M plan.md', WORK_NOTE])
+      await ui.unmount()
+    })
+  }
+})

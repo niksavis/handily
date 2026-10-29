@@ -33,7 +33,7 @@ import type { GitCount, GitLetter, GitMarks } from './status'
 import type { EntryRow, Listing, TreeRow } from './tree'
 import type { Mark, Sight, Touch } from './touches'
 import { displayWidth, fitted } from './width'
-import { type WorkPath, flatEntryRow } from './work'
+import { type WorkPath, chainTop, flatEntryRow } from './work'
 import type { FiletreeView } from '../types'
 
 export type PaneElements = {
@@ -456,7 +456,8 @@ function drawFolder(
   const { Box, Text, Button, bodyColumns } = elements
   const indent = displayWidth(indentOf(row.depth))
   const mark = row.isOpen ? OPEN_MARK : CLOSED_MARK
-  const gitCounts = draw.marks?.countsOf(row.path) ?? []
+  const top = chainTop(row)
+  const gitCounts = draw.marks?.countsOf(top) ?? []
   const label = [{ text: `${mark} ${shownName(row.name)}/` }, ...countParts(gitCounts)]
   const line = markedLine(
     label,
@@ -470,10 +471,10 @@ function drawFolder(
       ? drawParts(Text, counts)
       : [
           Button({
-            key: `diff:${row.path}`,
+            key: `diff:${top}`,
             plain: true,
             onPress: () => {
-              draw.actions.diff(row.path, true)
+              draw.actions.diff(top, true)
             },
             children: drawParts(Text, counts),
           }),
@@ -701,7 +702,10 @@ function drawWorkMore(
   actions: PaneActions,
 ): RenderElement {
   const folders = `${countText(row.folders)} ${row.folders === 1 ? 'folder' : 'folders'}`
-  const label = `+${countText(row.changed)} changed in ${folders}`
+  const label =
+    row.changed === 0
+      ? `+${countText(row.rows)} more`
+      : `+${countText(row.changed)} changed in ${folders}`
   const keys = { key: WORK_MORE_KEY, rowKey: `${WORK_MORE_KEY}-row` }
   return moreButton(elements, { ...keys, path: row.path, indent: 0, label }, actions)
 }

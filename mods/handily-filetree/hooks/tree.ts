@@ -33,7 +33,7 @@ export type EntryRow =
 export type TreeRow =
   | EntryRow
   | { kind: 'more'; path: string; name: string; depth: number; hidden: number }
-  | { kind: 'workMore'; path: string; changed: number; folders: number }
+  | { kind: 'workMore'; path: string; changed: number; folders: number; rows: number }
   | { kind: 'failed'; name: string; depth: number; reason: string }
   | { kind: 'empty' }
 
