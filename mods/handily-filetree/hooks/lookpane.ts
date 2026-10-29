@@ -403,7 +403,7 @@ export function drawLook(view: LookView, rootName: string, look: Look): RenderEl
   return Box({
     flexDirection: 'column',
     children: [
-      drawHeader(draw.elements, rootName, draw.git.header, bodyColumns),
+      drawHeader(draw.elements, rootName, draw.git, bodyColumns, 'one'),
       ...buttonRows(draw.elements, lookButtons(draw, look), {
         room: bodyColumns,
         indent: 0,

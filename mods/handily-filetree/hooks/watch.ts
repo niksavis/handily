@@ -1,5 +1,6 @@
 import type { EngineInterface, ProcessRunResult, Timer } from 'claude-code'
 import { FILES_PANE } from './commands'
+import { type Numstat, numstatArgv, parseNumstat } from './lines'
 import { type GitRepo, branchOf, findRepo, joinPath } from './repo'
 import { type Shell, shellStatus, stampOf } from './shellmarks'
 import { type GitStatus, parseStatus, statusArgv } from './status'
@@ -10,6 +11,7 @@ export const RUN_TIMEOUT_MS = 10_000
 export const SLOW_MS = 5000
 const RETRY_MS = 10_000
 const SLOW_RUNS_BEFORE_NO_UNTRACKED = 2
+const SLOW_RUNS_BEFORE_NO_LINES = 2
 const FRESH_MS = 2000
 const BASELINE_WAIT_MS = 1000
 
@@ -17,6 +19,8 @@ const NOT_ON_PATH = /ENOENT|not found|no such file|cannot find/i
 
 export type GitFailure =
   { kind: 'exit'; exitCode: number } | { kind: 'timeout' } | { kind: 'did-not-run' }
+
+export type LinesFailure = GitFailure | { kind: 'cut' }
 
 export type ShownStatus = { status: GitStatus; at: number; startedAt: number; changes: number }
 
@@ -48,6 +52,10 @@ export type GitWatch = {
   lastStartAt: number | undefined
   slowRuns: number
   isUntrackedSkipped: boolean
+  lines: Numstat | undefined
+  linesFailure: LinesFailure | undefined
+  slowLineRuns: number
+  isLinesSkipped: boolean
   retryAt: number | undefined
   wasFocused: boolean | undefined
   poll: Timer | undefined
@@ -81,6 +89,10 @@ export function newWatch(shell: Shell): GitWatch {
     lastStartAt: undefined,
     slowRuns: 0,
     isUntrackedSkipped: false,
+    lines: undefined,
+    linesFailure: undefined,
+    slowLineRuns: 0,
+    isLinesSkipped: false,
     retryAt: undefined,
     wasFocused: undefined,
     poll: undefined,
@@ -260,6 +272,7 @@ function settle(
   }
   const status = parseStatus(result.stdout, result.isStdoutTruncated)
   watch.shown = { status, at: timing.endedAt, ...timing }
+  watch.lines = undefined
   watch.failure = undefined
   watch.failures = 0
   watch.retry?.cancel()
@@ -272,6 +285,57 @@ function countSlowRun(watch: GitWatch, tookMs: number): void {
   if (tookMs <= SLOW_MS) return
   watch.slowRuns += 1
   if (watch.slowRuns >= SLOW_RUNS_BEFORE_NO_UNTRACKED) watch.isUntrackedSkipped = true
+}
+
+function hasLineChanges(status: GitStatus): boolean {
+  return !status.isInitial && status.entries.some((entry) => entry.letter !== '?')
+}
+
+function settleLines(
+  $: EngineInterface,
+  watch: GitWatch,
+  outcome: { result: ProcessRunResult } | { error: unknown },
+  tookMs: number,
+): void {
+  if ('error' in outcome) {
+    log($, `git diff --numstat did not run: ${String(outcome.error)}`)
+    const failure = failureOf(outcome.error, tookMs)
+    watch.linesFailure = failure === 'missing' ? { kind: 'did-not-run' } : failure
+    return
+  }
+  const { result } = outcome
+  if (result.exitCode !== 0) {
+    log($, `git diff --numstat exited ${String(result.exitCode)}: ${result.stderr.trim()}`)
+    watch.linesFailure = { kind: 'exit', exitCode: result.exitCode }
+    return
+  }
+  if (result.isStdoutTruncated) {
+    log($, 'git diff --numstat is over 4 MiB, so no line count shows')
+    watch.linesFailure = { kind: 'cut' }
+    return
+  }
+  watch.lines = parseNumstat(result.stdout)
+}
+
+async function runLines(
+  $: EngineInterface,
+  watch: GitWatch,
+  run: { generation: number; status: GitStatus; cwd: string },
+): Promise<void> {
+  watch.linesFailure = undefined
+  if (watch.isLinesSkipped || !hasLineChanges(run.status)) return
+  const startedAt = await $.clock.now()
+  const outcome = await $.process
+    .run(numstatArgv(), { cwd: run.cwd, timeoutMs: RUN_TIMEOUT_MS })
+    .then(
+      (result) => ({ result }),
+      (error: unknown) => ({ error }),
+    )
+  const tookMs = (await $.clock.now()) - startedAt
+  if (watch.generation !== run.generation || watch.shown?.status !== run.status) return
+  if (tookMs > SLOW_MS) watch.slowLineRuns += 1
+  if (watch.slowLineRuns >= SLOW_RUNS_BEFORE_NO_LINES) watch.isLinesSkipped = true
+  settleLines($, watch, outcome, tookMs)
 }
 
 async function runStatus(
@@ -304,6 +368,7 @@ async function runStatus(
   const isCurrent = () => watch.generation === generation
   const shown = { status, startedAt, isUntrackedSkipped, cwd, prefix: repo.prefix, poll, isCurrent }
   await shellStatus($, watch.shell, shown)
+  if (isCurrent()) await runLines($, watch, { generation, status, cwd })
 }
 
 async function startRun($: EngineInterface, watch: GitWatch, hasGap: boolean): Promise<void> {

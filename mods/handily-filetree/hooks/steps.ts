@@ -252,7 +252,7 @@ export function drawSteps(view: StepView, rootName: string): RenderElement {
   const { elements, git } = view
   const { Box, Text, bodyColumns } = elements
   const shown = shownOf(view)
-  const top = drawHeader(elements, rootName, git.header, bodyColumns)
+  const top = drawHeader(elements, rootName, git, bodyColumns, 'one')
   if (shown === undefined) return Box({ flexDirection: 'column', children: [top] })
   const { change } = shown.edit
   return Box({
@@ -314,7 +314,7 @@ export function drawInlineSteps(view: StepView, rootName: string): RenderElement
   if (shown === undefined) {
     return Box({
       flexDirection: 'column',
-      children: [drawHeader(elements, rootName, git.header, bodyColumns)],
+      children: [drawHeader(elements, rootName, git, bodyColumns, 'one')],
     })
   }
   const specs = stepButtons(view, shown)
@@ -331,7 +331,7 @@ export function drawInlineSteps(view: StepView, rootName: string): RenderElement
         flexDirection: 'row',
         justifyContent: 'space-between',
         children: [
-          drawHeader(elements, rootName, git.header, headerWidth),
+          drawHeader(elements, rootName, git, headerWidth, 'one'),
           Box({
             flexDirection: 'row',
             children: specs.flatMap((spec, at) => [

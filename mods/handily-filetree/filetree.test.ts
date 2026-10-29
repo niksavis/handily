@@ -45,6 +45,9 @@ type World = {
   runs: GitRun[]
   reads: string[]
   diffAnswer: GitAnswer
+  numstats: GitRun[]
+  numstatStarts: number[]
+  numstatAnswer: GitAnswer
   runStarts: number[]
   inFlight: number
   mostInFlight: number
@@ -84,9 +87,20 @@ function fakeGit(on: On, seen: World): void {
     return { value: found.text }
   })
   on('process.run', async (_$, e) => {
-    seen.runs.push({ argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
-    seen.runStarts.push(seen.clock.now())
-    const answer = e.argv[4] === 'diff' ? seen.diffAnswer : seen.answer
+    const isNumstat = e.argv[3] === '--numstat'
+    const run = { argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs }
+    if (isNumstat) {
+      seen.numstats.push(run)
+      seen.numstatStarts.push(seen.clock.now())
+    } else {
+      seen.runs.push(run)
+      seen.runStarts.push(seen.clock.now())
+    }
+    const answer = isNumstat
+      ? seen.numstatAnswer
+      : e.argv[4] === 'diff'
+        ? seen.diffAnswer
+        : seen.answer
     if (answer.kind === 'exit')
       return { value: gitResult('', answer.exitCode, answer.stderr, false) }
     seen.inFlight += 1
@@ -148,6 +162,9 @@ function world(on: On, entries: readonly [string, FakeFolder][], options: WorldO
     runs: [],
     reads: [],
     diffAnswer: { kind: 'ok', stdout: '' },
+    numstats: [],
+    numstatStarts: [],
+    numstatAnswer: { kind: 'ok', stdout: '' },
     runStarts: [],
     inFlight: 0,
     mostInFlight: 0,
@@ -771,6 +788,8 @@ function statusOf(records: readonly string[], options: { ab?: string; oid?: stri
 
 const CLEAN = statusOf([])
 
+const UPSTREAM_LINE = 'upstream origin/main'
+
 const APP_RECORDS = [
   changed('.M', 'docs/design.md'),
   changed('.M', 'docs/mocks.md'),
@@ -858,7 +877,12 @@ describe('git status: letters and counts', () => {
       const ui = await openFiles($, seen, surface)
       await ui.press({ key: 'open:docs' })
       await ui.press({ key: 'open:hooks' })
-      expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
+      expect(await headerOf(ui)).toEqual([
+        'Files  app · main ↑1 · 6 changed',
+        UPSTREAM_LINE,
+        CONTROLS,
+        NOW_EMPTY,
+      ])
       expect(await treeLines(ui)).toEqual([
         '▸ .git/  not listed',
         '▸ node_modules/  not listed',
@@ -1154,7 +1178,12 @@ describe('git status: when it runs', () => {
     touch(seen, `${GIT_DIR}/index`)
     await seen.clock.advance(2000)
     expect(seen.runs).toHaveLength(2)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
+    expect(await headerOf(ui)).toEqual([
+      'Files  app · main ↑1 · 6 changed',
+      UPSTREAM_LINE,
+      CONTROLS,
+      NOW_EMPTY,
+    ])
     expect(await treeLines(ui)).toContain('M README.md')
     await seen.clock.advance(20_000)
     expect(seen.runs).toHaveLength(2)
@@ -1412,7 +1441,12 @@ describe('git status: errors', () => {
     seen.answer = { kind: 'ok', stdout: APP_CHANGES }
     await seen.clock.advance(8000)
     expect(seen.runs).toHaveLength(2)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
+    expect(await headerOf(ui)).toEqual([
+      'Files  app · main ↑1 · 6 changed',
+      UPSTREAM_LINE,
+      CONTROLS,
+      NOW_EMPTY,
+    ])
     await ui.unmount()
   })
 
@@ -1493,7 +1527,12 @@ describe('git status: errors', () => {
     expect((await ui.find({ type: 'Text', text: /took over 5 s/ }))?.props.color).toBe('warning')
     expect(await treeLines(ui)).toContain('M README.md')
     await seen.clock.advance(1000)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
+    expect(await headerOf(ui)).toEqual([
+      'Files  app · main ↑1 · 6 changed',
+      UPSTREAM_LINE,
+      CONTROLS,
+      NOW_EMPTY,
+    ])
     await ui.unmount()
   })
 
@@ -1501,7 +1540,12 @@ describe('git status: errors', () => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES, tookMs: 5001 })
     const ui = await openFiles($, seen)
     await seen.clock.advance(5001)
-    expect(await headerOf(ui)).toEqual(['Files  app · main ↑1 · 6 changed', CONTROLS, NOW_EMPTY])
+    expect(await headerOf(ui)).toEqual([
+      'Files  app · main ↑1 · 6 changed',
+      UPSTREAM_LINE,
+      CONTROLS,
+      NOW_EMPTY,
+    ])
     touch(seen, `${GIT_DIR}/index`)
     await seen.clock.advance(2000)
     await seen.clock.advance(5001)
@@ -1509,7 +1553,7 @@ describe('git status: errors', () => {
       '--untracked-files=normal',
       '--untracked-files=normal',
     ])
-    expect((await headerOf(ui)).slice(2)).toEqual([
+    expect((await headerOf(ui)).slice(3)).toEqual([
       'git status took over 5 s twice, so',
       'untracked files are not shown.',
       NOW_EMPTY,
@@ -1658,6 +1702,7 @@ describe('marks: which agent read or edited each file', () => {
       await ui.press({ key: 'open:hooks' })
       expect(await screen(ui)).toEqual([
         'Files  app · main ↑1 · 6 changed',
+        UPSTREAM_LINE,
         CONTROLS,
         'Now  2 agents',
         '✎ main      hooks/pane.tsx             4s',
@@ -1702,7 +1747,7 @@ describe('marks: which agent read or edited each file', () => {
     const lines = await screen(ui)
     expect(lines).toContain('  M mocks.md              ✎ main +1    1s')
     expect(lines).toContain('    register.tsx          ◦ f00dfeed   1s')
-    expect(lines.slice(2, 6)).toEqual([
+    expect(lines.slice(3, 7)).toEqual([
       'Now  3 agents',
       '✎ main      docs/mocks.md              1s',
       '◦ scout     docs/mocks.md              1m',
@@ -1747,7 +1792,7 @@ describe('marks: narrow docks and inline', () => {
       await touched($, seen)
       await ui.press({ key: 'open:docs' })
       const lines = await screen(ui, 30)
-      expect(lines.slice(1, 6)).toEqual([
+      expect(lines.slice(2, 7)).toEqual([
         '[ work only ] [ refresh ]',
         '{agent: all}',
         'Now  2 agents',
@@ -1769,7 +1814,7 @@ describe('marks: narrow docks and inline', () => {
       await touched($, seen)
       await ui.press({ key: 'open:docs' })
       const lines = await screen(ui, 24)
-      expect(lines.slice(1, 6)).toEqual([
+      expect(lines.slice(2, 7)).toEqual([
         '[ work only ]',
         '[ refresh ] {agent: all}',
         'Now  2 agents',
@@ -1779,7 +1824,7 @@ describe('marks: narrow docks and inline', () => {
       expect(lines).toContain('  M design.md          ◦')
       expect(lines).toContain('  M mocks.md           ✎')
       await ui.redraw({ ...paneProps('dock', 24), view: { agentId: SCOUT } })
-      expect((await screen(ui, 24)).slice(1, 7)).toEqual([
+      expect((await screen(ui, 24)).slice(2, 8)).toEqual([
         '[ work only ]',
         '[ refresh ]',
         '{agent: scout}',
@@ -1834,7 +1879,7 @@ describe('marks: a call that is denied or fails', () => {
         await ui.redraw(DOCKED_PANE)
         expect(await treeLines(ui)).toContain('    register.tsx')
         expect(await treeLines(ui)).toContain('  M pane.tsx              ◦ main       6s')
-        expect((await headerOf(ui)).slice(2)).toEqual([
+        expect((await headerOf(ui)).slice(3)).toEqual([
           'Now  1 agent',
           '◦ main      hooks/pane.tsx             6s',
         ])
@@ -1868,6 +1913,7 @@ describe('marks: the agent filter', () => {
       await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
       expect(await headerOf(ui)).toEqual([
         'Files  app · main ↑1 · 6 changed',
+        UPSTREAM_LINE,
         '[ work only ] {agent: scout} [ refresh ]',
         'scout is in view, so only scout shows',
         'Now  scout',
@@ -1880,7 +1926,7 @@ describe('marks: the agent filter', () => {
       expect(tree).toContain('    register.tsx          ◦ scout      4s')
       expect(tree.filter((line) => line.includes('main'))).toEqual([])
       await ui.redraw(DOCKED_PANE)
-      expect((await headerOf(ui)).slice(1, 3)).toEqual([CONTROLS, 'Now  2 agents'])
+      expect((await headerOf(ui)).slice(2, 4)).toEqual([CONTROLS, 'Now  2 agents'])
       expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ main       4s')
       await ui.unmount()
     })
@@ -1907,17 +1953,17 @@ describe('marks: the agent filter', () => {
       { value: `agent:${SCOUT}`, label: 'scout' },
     ])
     await ui.select({ key: 'agent', value: 'main' })
-    expect((await headerOf(ui)).slice(1)).toEqual([
+    expect((await headerOf(ui)).slice(2)).toEqual([
       '[ all files ] {agent: main} [ refresh ]',
       'Now  main',
       '✎ main      hooks/pane.tsx             4s',
     ])
     await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
-    expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: scout} [ refresh ]')
+    expect((await headerOf(ui))[2]).toBe('[ all files ] {agent: scout} [ refresh ]')
     await ui.redraw(DOCKED_PANE)
-    expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: main} [ refresh ]')
+    expect((await headerOf(ui))[2]).toBe('[ all files ] {agent: main} [ refresh ]')
     await ui.select({ key: 'agent', value: 'all' })
-    expect((await headerOf(ui))[2]).toBe('Now  2 agents')
+    expect((await headerOf(ui))[3]).toBe('Now  2 agents')
     await ui.unmount()
   })
 })
@@ -3385,6 +3431,7 @@ describe('the work view', () => {
       await ui.redraw(DOCKED_PANE)
       expect(await screen(ui)).toEqual([
         'Files  app · main ↑1 · 7 changed',
+        UPSTREAM_LINE,
         WORK_CONTROLS,
         'Now  2 agents',
         '✎ main      hooks/pane.tsx             4s',
@@ -3405,13 +3452,13 @@ describe('the work view', () => {
       const ui = await mountWork($, seen, surface)
       await workTouches($, seen)
       await ui.press({ key: 'view' })
-      expect((await headerOf(ui))[1]).toBe(CONTROLS)
+      expect((await headerOf(ui))[2]).toBe(CONTROLS)
       expect(await treeLines(ui)).toEqual(ALL_TREE)
       await ui.unmount()
       const again = await mountDefault($, surface)
       expect(await treeLines(again)).toEqual(ALL_TREE)
       await again.press({ key: 'view' })
-      expect((await headerOf(again))[1]).toBe(WORK_CONTROLS)
+      expect((await headerOf(again))[2]).toBe(WORK_CONTROLS)
       expect(await treeLines(again)).toEqual(WORK_TREE)
       await again.unmount()
     })
@@ -3799,14 +3846,14 @@ describe('the work view of a large repo', () => {
         WORK_NOTE,
       ]
       await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
-      expect((await headerOf(ui)).slice(1, 3)).toEqual([
+      expect((await headerOf(ui)).slice(2, 4)).toEqual([
         '[ all files ] {agent: scout} [ refresh ]',
         'scout is in view, so only scout shows',
       ])
       expect(await treeLines(ui)).toEqual(scoutTree)
       await ui.redraw(DOCKED_PANE)
       await $.ui.select({ plugin: PLUGIN, key: 'agent', value: `agent:${SCOUT}` })
-      expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: scout} [ refresh ]')
+      expect((await headerOf(ui))[2]).toBe('[ all files ] {agent: scout} [ refresh ]')
       expect(await treeLines(ui)).toEqual(scoutTree)
       await ui.unmount()
     })
@@ -4027,6 +4074,7 @@ function taskScene(on: On, surface: RenderSurface) {
 
 const TASK_2_SCREEN = [
   'Files  app · main ↑1 · 7 changed',
+  UPSTREAM_LINE,
   'Task 2  Write the tab mocks  [ clear ]',
   '{agent: all} [ refresh ]',
   '✎ 1 edited · ◦ 2 read while task 2 ran',
@@ -4094,7 +4142,7 @@ describe(TASK_FILES_CRITERION, () => {
       const ui = await taskTab($, seen, surface, 2)
       await ui.press({ key: 'clear-task' })
       const lines = await headerOf(ui)
-      expect(lines[1]).toBe(WORK_CONTROLS)
+      expect(lines[2]).toBe(WORK_CONTROLS)
       expect(lines.join('\n')).not.toContain('Task 2')
       expect((await treeLines(ui)).join('\n')).toContain('README.md')
       await ui.unmount()
@@ -4105,7 +4153,7 @@ describe(TASK_FILES_CRITERION, () => {
       await start($)
       board.start(3)
       const ui = await taskTab($, seen, surface, 3)
-      expect((await headerOf(ui)).slice(1)).toEqual([
+      expect((await headerOf(ui)).slice(2)).toEqual([
         'Task 3  Review the mocks  [ clear ]',
         '{agent: all} [ refresh ]',
         'No file touched while task 3 ran.',
@@ -4114,7 +4162,7 @@ describe(TASK_FILES_CRITERION, () => {
       expect(await treeLines(ui)).toEqual([])
       await ui.unmount()
       const unknown = await taskTab($, seen, surface, 9)
-      expect((await headerOf(unknown))[1]).toBe('Task 9  [ clear ]')
+      expect((await headerOf(unknown))[2]).toBe('Task 9  [ clear ]')
       await unknown.unmount()
     })
   }
@@ -4409,8 +4457,9 @@ describe('the edits of the last turn: the button and the steps', () => {
       const { seen } = editScene(on)
       const ui = await workFiles($, seen, surface)
       await threeEdits($, seen)
-      expect((await headerOf(ui)).slice(0, 4)).toEqual([
+      expect((await headerOf(ui)).slice(0, 5)).toEqual([
         'Files  app · main ↑1 · 6 changed',
+        UPSTREAM_LINE,
         WORK_CONTROLS,
         '[ last turn: 3 edits ]',
         'Now  2 agents',
@@ -4445,7 +4494,7 @@ describe('the edits of the last turn: the button and the steps', () => {
       await pressHotkey(ui, 'p')
       expect((await stepHead(ui))[0]).toBe('edit 2 of 3 · last turn · 3m')
       await pressHotkey(ui, 'b')
-      expect((await headerOf(ui))[2]).toBe('[ last turn: 3 edits ]')
+      expect((await headerOf(ui))[3]).toBe('[ last turn: 3 edits ]')
       await ui.unmount()
     })
 
@@ -4475,9 +4524,9 @@ describe('the edits of the last turn: the button and the steps', () => {
       expect(await ui.find({ key: 'last-turn' })).toBeUndefined()
       await read($, 'docs/design.md')
       await endTurnOf($)
-      expect((await headerOf(ui)).slice(1, 3)).toEqual([WORK_CONTROLS, '[ last turn: no edits ]'])
+      expect((await headerOf(ui)).slice(2, 4)).toEqual([WORK_CONTROLS, '[ last turn: no edits ]'])
       await ui.press({ key: 'last-turn' })
-      expect((await headerOf(ui)).slice(2, 4)).toEqual(['[ last turn: no edits ]', BASH_NOTE])
+      expect((await headerOf(ui)).slice(3, 5)).toEqual(['[ last turn: no edits ]', BASH_NOTE])
       expect((await ui.find({ type: 'Text', text: BASH_NOTE }))?.props.dimColor).toBe(true)
       await ui.unmount()
     })
@@ -4489,7 +4538,7 @@ describe('the edits of the last turn: the button and the steps', () => {
       await endTurnOf($)
       await write($, 'docs/filetree.md', NEW_FILE, SCOUT)
       await endTurnOf($, SCOUT)
-      expect((await headerOf(ui))[2]).toBe('[ last turn: 1 edit ]')
+      expect((await headerOf(ui))[3]).toBe('[ last turn: 1 edit ]')
       await ui.press({ key: 'last-turn' })
       expect((await stepHead(ui))[1]).toBe('hooks/pane.tsx  ✎ main · Edit · +2 -1')
       await endTurnOf($)
@@ -4646,7 +4695,7 @@ describe('the edits of the last turn: one edit', () => {
       await write($, 'docs/big.md', big.join('\n'))
       for (let index = 1; index < 52; index += 1) await edit($, `hooks/a${String(index)}.ts`)
       await endTurnOf($)
-      expect((await headerOf(ui))[2]).toBe('[ last turn: 52 edits ]')
+      expect((await headerOf(ui))[3]).toBe('[ last turn: 52 edits ]')
       await ui.press({ key: 'last-turn' })
       expect((await screen(ui)).slice(2)).toEqual([
         'edit 1 of 50 · first 50 kept · 0s',
@@ -4826,4 +4875,355 @@ describe('the edits of the last turn: review repairs', () => {
       await ui.unmount()
     })
   }
+})
+
+const NUMSTAT_ARGV = [
+  'git',
+  '--no-optional-locks',
+  'diff',
+  '--numstat',
+  '-z',
+  '--no-relative',
+  'HEAD',
+  '--',
+  '.',
+]
+
+function numstatLine(added: string, removed: string, path: string): string {
+  return `${added}\t${removed}\t${path}\0`
+}
+
+const APP_LINES = [
+  numstatLine('4', '1', 'docs/design.md'),
+  numstatLine('12', '3', 'docs/mocks.md'),
+  numstatLine('30', '2', 'hooks/pane.tsx'),
+  numstatLine('0', '87', 'hooks/old-pane.tsx'),
+  numstatLine('2', '0', 'README.md'),
+].join('')
+
+const COUNTED_WORK_TREE = [
+  '▾ docs/  M2 ?1     +16 -4 ◦ scout      5s',
+  '  M design.md       +4 -1 ◦ scout      5s',
+  '  ? filetree.md',
+  '  M mocks.md       +12 -3',
+  '▾ hooks/  M1 D1   +30 -89 ✎ main       7s',
+  '  D old-pane.tsx   +0 -87',
+  '  M pane.tsx       +30 -2 ✎ main       7s',
+  '    register.tsx          ◦ scout     43s',
+  '▸ scratch/  ?',
+  'M README.md         +2 -0',
+  WORK_NOTE,
+]
+
+const SLOW_DIFF: GitAnswer = {
+  kind: 'reject',
+  message: 'the command was still running after 10000 ms',
+  tookMs: 10_000,
+}
+
+type Found = { find: Mounted['find'] }
+
+async function propsOf(ui: Found, text: string | RegExp): Promise<Record<string, unknown>> {
+  const found = await ui.find({ type: 'Text', text })
+  if (found === undefined) throw new Error(`no Text ${String(text)}`)
+  return found.props
+}
+
+function inlineCounted(name: string, count: string): string {
+  return `${name.padEnd(50)} ${count.padStart(6)}`
+}
+
+async function changeIndex(seen: World): Promise<void> {
+  touch(seen, `${GIT_DIR}/index`)
+  await seen.clock.advance(2000)
+}
+
+describe('git colours and line counts', () => {
+  for (const surface of SURFACES) {
+    test(`a folder name draws in the key of its strongest state: error for U or D, else warning for M or R, else success for A or untracked, on the ${surface}`, async ($, on) => {
+      const names = ['added', 'conflict', 'deleted', 'edited', 'moved', 'plain', 'scratch']
+      const seen = gitWorld(on, [['.', names.map(folder)]], {
+        kind: 'ok',
+        stdout: statusOf([
+          conflicted('conflict/a.ts'),
+          changed('.M', 'conflict/b.ts'),
+          changed('.D', 'deleted/a.ts'),
+          changed('A.', 'deleted/b.ts'),
+          changed('.M', 'edited/a.ts'),
+          changed('A.', 'edited/b.ts'),
+          renamed('R.', 'moved/b.ts', 'moved/a.ts'),
+          changed('A.', 'added/a.ts'),
+          untracked('scratch/'),
+        ]),
+      })
+      const ui = await openFiles($, seen, surface)
+      expect(await treeLines(ui)).toEqual([
+        '▸ added/  A1',
+        '▸ conflict/  U1 M1',
+        '▸ deleted/  A1 D1',
+        '▸ edited/  M1 A1',
+        '▸ moved/  R1',
+        '▸ plain/',
+        '▸ scratch/  ?',
+      ])
+      expect((await propsOf(ui, 'conflict/')).color).toBe('error')
+      expect((await propsOf(ui, 'deleted/')).color).toBe('error')
+      expect((await propsOf(ui, 'edited/')).color).toBe('warning')
+      expect((await propsOf(ui, 'moved/')).color).toBe('warning')
+      expect((await propsOf(ui, 'added/')).color).toBe('success')
+      expect((await propsOf(ui, 'scratch/')).color).toBe('success')
+      expect((await propsOf(ui, '▸ ')).color).toBeUndefined()
+      expect((await propsOf(ui, '▸ plain/')).color).toBeUndefined()
+      await ui.unmount()
+      seen.answer = {
+        kind: 'ok',
+        stdout: statusOf([changed('A.', 'added/a.ts'), untracked('scratch/')]),
+      }
+      await changeIndex(seen)
+      const inline = await mountSettled($, seen, surface, 'inline', 76)
+      expect((await screen(inline, 76)).slice(1)).toEqual(['A added/a.ts', '  scratch/  ?'])
+      expect((await propsOf(inline, 'scratch/')).color).toBe('success')
+      await inline.unmount()
+    })
+
+    test(`one git diff --numstat runs after each git status, and each changed file and folder shows +N in success and -N in error, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES, tookMs: 3000 })
+      seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES }
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await mountWork($, seen, surface)
+      await seen.clock.advance(3000)
+      expect(seen.numstats).toEqual([{ argv: NUMSTAT_ARGV, cwd: ROOT, timeoutMs: 10_000 }])
+      await workTouches($, seen)
+      await seen.clock.advance(3000)
+      await ui.redraw(DOCKED_PANE)
+      expect(seen.numstats.length).toBe(seen.runs.length)
+      expect(seen.numstatStarts).toEqual(seen.runStarts.map((at) => at + 3000))
+      expect(await headerOf(ui)).toEqual([
+        'Files  app · main ↑1 · 7 changed +48 -93',
+        UPSTREAM_LINE,
+        WORK_CONTROLS,
+        'Now  2 agents',
+        '✎ main      hooks/pane.tsx             7s',
+        '◦ scout     docs/design.md             5s',
+      ])
+      expect(await treeLines(ui)).toEqual(COUNTED_WORK_TREE)
+      expect((await propsOf(ui, '+48')).color).toBe('success')
+      expect((await propsOf(ui, '-93')).color).toBe('error')
+      expect((await propsOf(ui, '+16')).color).toBe('success')
+      expect((await propsOf(ui, '-4')).color).toBe('error')
+      expect((await propsOf(ui, '+0')).color).toBe('success')
+      expect((await propsOf(ui, '-87')).color).toBe('error')
+      await ui.unmount()
+    })
+
+    test(`a binary file shows bin, an untracked file shows no count, 1,000 or more shows in k, and the totals move to the second line when line 1 is full, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(
+        on,
+        [['.', ['big.ts', 'logo.png', 'moved.ts', 'new.ts', 'notes.md'].map(file)]],
+        {
+          kind: 'ok',
+          stdout: statusOf(
+            [
+              changed('.M', 'big.ts'),
+              changed('.M', 'logo.png'),
+              renamed('R.', 'moved.ts', 'old.ts'),
+              changed('A.', 'new.ts'),
+              untracked('notes.md'),
+            ],
+            { ab: '+1 -2' },
+          ),
+        },
+      )
+      seen.numstatAnswer = {
+        kind: 'ok',
+        stdout: [
+          numstatLine('1234', '310', 'big.ts'),
+          numstatLine('-', '-', 'logo.png'),
+          `3\t1\t\0old.ts\0moved.ts\0`,
+          numstatLine('46000', '0', 'new.ts'),
+        ].join(''),
+      }
+      const ui = await openFiles($, seen, surface)
+      expect(await headerOf(ui)).toEqual([
+        'Files  app · main ↑1 ↓2 · 5 changed',
+        '+47k -311 · upstream origin/main',
+        CONTROLS,
+        NOW_EMPTY,
+      ])
+      expect(await treeLines(ui)).toEqual([
+        'M big.ts       +1.2k -310',
+        'M logo.png            bin',
+        'R moved.ts          +3 -1',
+        '    renamed from old.ts · staged',
+        'A new.ts          +46k -0',
+        '? notes.md',
+      ])
+      expect((await propsOf(ui, 'bin')).dimColor).toBe(true)
+      expect((await propsOf(ui, '+47k')).color).toBe('success')
+      expect((await propsOf(ui, '-311')).color).toBe('error')
+      await ui.press({ key: 'file:big.ts' })
+      expect(await treeLines(ui)).toContain('    modified, not staged · +1.2k -310')
+      await ui.unmount()
+    })
+
+    test(`when git diff --numstat fails, the tree stays, no line count shows, and a dim note at the foot names the exit and offers retry, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      seen.numstatAnswer = { kind: 'exit', exitCode: 128, stderr: 'fatal: bad object HEAD' }
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:docs' })
+      expect(await headerOf(ui)).toEqual([
+        'Files  app · main ↑1 · 6 changed',
+        UPSTREAM_LINE,
+        CONTROLS,
+        NOW_EMPTY,
+      ])
+      const lines = await screen(ui)
+      expect(lines.slice(-4)).toEqual([
+        '  .gitignore',
+        'M README.md',
+        'line counts not shown: git',
+        'diff exited 128.  [ retry ]',
+      ])
+      expect(lines.join('\n')).not.toMatch(/[+-]\d/)
+      expect((await propsOf(ui, 'line counts not shown: git')).dimColor).toBe(true)
+      expect(seen.logs.some((log) => log.includes('bad object HEAD'))).toBe(true)
+      seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES }
+      await ui.press({ key: 'retry' })
+      await seen.clock.advance(2000)
+      expect(seen.numstats).toHaveLength(2)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 6 changed +48 -93')
+      expect((await screen(ui)).at(-1)).toBe('M README.md         +2 -0')
+      seen.numstatAnswer = { kind: 'exit', exitCode: 1, stderr: 'boom' }
+      await changeIndex(seen)
+      expect(seen.numstats).toHaveLength(3)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 6 changed')
+      expect((await screen(ui)).join('\n')).not.toMatch(/[+-]\d/)
+      await ui.unmount()
+    })
+
+    test(`when git diff --numstat gives no answer in 10 s the note names the timeout, and after two slow runs the call is skipped and the note says so, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      seen.numstatAnswer = SLOW_DIFF
+      const ui = await openFiles($, seen, surface)
+      await seen.clock.advance(10_000)
+      expect((await screen(ui)).slice(-2)).toEqual([
+        'line counts not shown: git',
+        'diff gave no answer in 10 s.  [ retry ]',
+      ])
+      expect(await treeLines(ui)).toContain('▸ docs/  M2 ?1')
+      await changeIndex(seen)
+      await seen.clock.advance(10_000)
+      expect(seen.numstats).toHaveLength(2)
+      expect((await screen(ui)).at(-1)).toBe('line counts off: git is slow here.')
+      expect((await propsOf(ui, 'line counts off: git is slow here.')).dimColor).toBe(true)
+      expect(await ui.find({ type: 'Text', text: /line counts not shown/ })).toBeUndefined()
+      await changeIndex(seen)
+      expect(seen.runs).toHaveLength(3)
+      expect(seen.numstats).toHaveLength(2)
+      expect((await screen(ui)).at(-1)).toBe('line counts off: git is slow here.')
+      await ui.unmount()
+    })
+
+    test(`the ahead count draws in success and the behind count in warning, and the upstream name from branch.upstream shows dim, on the ${surface}`, async ($, on) => {
+      const branch = `# branch.oid ${HASH}\0# branch.head main\0`
+      const seen = gitWorld(on, GIT_APP, {
+        kind: 'ok',
+        stdout: `${branch}# branch.upstream fork/lane-b\0# branch.ab +3 -2\0${changed('.M', 'README.md')}`,
+      })
+      const ui = await openFiles($, seen, surface)
+      expect((await headerOf(ui)).slice(0, 2)).toEqual([
+        'Files  app · main ↑3 ↓2 · 1 changed',
+        'upstream fork/lane-b',
+      ])
+      expect((await propsOf(ui, ' ↑3')).color).toBe('success')
+      expect((await propsOf(ui, ' ↓2')).color).toBe('warning')
+      expect((await propsOf(ui, 'upstream fork/lane-b')).dimColor).toBe(true)
+      seen.answer = { kind: 'ok', stdout: `${branch}${changed('.M', 'README.md')}` }
+      await changeIndex(seen)
+      expect(await headerOf(ui)).toEqual(['Files  app · main · 1 changed', CONTROLS, NOW_EMPTY])
+      expect(await ui.find({ type: 'Text', text: /^upstream/ })).toBeUndefined()
+      await ui.unmount()
+    })
+
+    test(`at body 30 the line counts and the totals drop and the colours stay, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES }
+      const ui = await openFiles($, seen, surface, 'dock', 30)
+      await ui.press({ key: 'open:docs' })
+      const lines = await screen(ui, 30)
+      expect(lines.slice(0, 2)).toEqual(['Files  app · main ↑1 · 6 chan…', UPSTREAM_LINE])
+      expect(lines.join('\n')).not.toMatch(/[+-]\d/)
+      expect(lines).toContain('▾ docs/  M2 ?1')
+      expect((await propsOf(ui, 'docs/')).color).toBe('warning')
+      expect((await propsOf(ui, ' ↑1')).color).toBe('success')
+      expect(seen.numstats).toHaveLength(1)
+      await ui.unmount()
+    })
+
+    test(`inline above the prompt at body 76, the rows and the header show the line counts, and the upstream name drops, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES }
+      const ui = await openFiles($, seen, surface, 'inline', 76)
+      expect(await screen(ui, 76)).toEqual([
+        'Files  app · main ↑1 · 6 changed +48 -93{agent: all}  [ refresh ]',
+        inlineCounted('M docs/design.md', '+4 -1'),
+        '? docs/filetree.md',
+        inlineCounted('M docs/mocks.md', '+12 -3'),
+        inlineCounted('D hooks/old-pane.tsx', '+0 -87'),
+        inlineCounted('M hooks/pane.tsx', '+30 -2'),
+        inlineCounted('M README.md', '+2 -0'),
+      ])
+      expect(await ui.find({ type: 'Text', text: /upstream/ })).toBeUndefined()
+      expect((await propsOf(ui, '+30')).color).toBe('success')
+      expect((await propsOf(ui, '-2')).color).toBe('error')
+      await ui.unmount()
+    })
+  }
+
+  test('a clean status or one with only untracked files runs no git diff --numstat, and each change runs one, at least 2 s apart', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+    seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES }
+    const ui = await openFiles($, seen)
+    expect(seen.numstats).toEqual([])
+    seen.answer = { kind: 'ok', stdout: APP_CHANGES }
+    await changeIndex(seen)
+    expect(seen.runs).toHaveLength(2)
+    expect(seen.numstats).toHaveLength(1)
+    expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 6 changed +48 -93')
+    await seen.clock.advance(20_000)
+    expect(seen.numstats).toHaveLength(1)
+    await ui.press({ key: 'refresh' })
+    await ui.press({ key: 'refresh' })
+    await seen.clock.advance(4000)
+    expect(seen.numstats.length).toBe(seen.runs.length - 1)
+    const gaps = seen.numstatStarts
+      .slice(1)
+      .map((at, index) => at - (seen.numstatStarts[index] ?? 0))
+    expect(gaps.every((gap) => gap >= 2000)).toBe(true)
+    const before = seen.numstats.length
+    seen.answer = { kind: 'ok', stdout: statusOf([untracked('docs/filetree.md')]) }
+    await changeIndex(seen)
+    expect(seen.numstats).toHaveLength(before)
+    expect((await headerOf(ui))[0]).toBe('Files  app · main · 1 changed')
+    await ui.unmount()
+  })
+
+  test('two slow runs that answer still turn the line counts off, and the counts of the slow run do not stay after the next change', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES, tookMs: 6000 }
+    const ui = await openFiles($, seen)
+    await seen.clock.advance(6000)
+    expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 6 changed +48 -93')
+    expect((await screen(ui)).at(-1)).toBe('M README.md         +2 -0')
+    await changeIndex(seen)
+    await seen.clock.advance(6000)
+    expect(seen.numstats).toHaveLength(2)
+    expect((await screen(ui)).at(-1)).toBe('line counts off: git is slow here.')
+    await changeIndex(seen)
+    expect(seen.numstats).toHaveLength(2)
+    expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 6 changed')
+    expect((await screen(ui)).join('\n')).not.toMatch(/[+-]\d/)
+    await ui.unmount()
+  })
 })

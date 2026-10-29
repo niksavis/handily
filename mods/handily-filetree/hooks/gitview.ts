@@ -1,12 +1,17 @@
+import { type LineMarks, lineMarks } from './lines'
 import { type GitMarks, type GitStatus, gitMarks } from './status'
-import { type GitFailure, type GitWatch, RUN_TIMEOUT_MS, SLOW_MS } from './watch'
+import { type GitFailure, type GitWatch, type LinesFailure, RUN_TIMEOUT_MS, SLOW_MS } from './watch'
 
 export type NoteTone = 'plain' | 'dim' | 'error' | 'warning'
 
 export type NoteLine = { text: string; tone: NoteTone; hasRetry: boolean }
 
+export type HeaderPart = { text: string; color?: 'success' | 'warning' }
+
 export type GitView = {
-  header: string
+  header: readonly HeaderPart[]
+  upstream: string | undefined
+  lines: LineMarks | undefined
   notes: readonly NoteLine[]
   footer: readonly NoteLine[]
   marks: GitMarks | undefined
@@ -36,10 +41,12 @@ function ageText(ms: number): string {
   return `${String(Math.floor(total / HOUR_S))}h`
 }
 
-function aheadBehind(status: GitStatus): string {
-  const ahead = status.ahead > 0 ? ` ↑${String(status.ahead)}` : ''
-  const behind = status.behind > 0 ? ` ↓${String(status.behind)}` : ''
-  return `${ahead}${behind}`
+function aheadBehind(status: GitStatus): HeaderPart[] {
+  const ahead: HeaderPart[] =
+    status.ahead > 0 ? [{ text: ` ↑${String(status.ahead)}`, color: 'success' }] : []
+  const behind: HeaderPart[] =
+    status.behind > 0 ? [{ text: ` ↓${String(status.behind)}`, color: 'warning' }] : []
+  return [...ahead, ...behind]
 }
 
 function changedText(status: GitStatus): string {
@@ -47,9 +54,22 @@ function changedText(status: GitStatus): string {
   return status.isInitial ? 'no commits yet' : 'clean'
 }
 
-function summary(branch: string | undefined, status: GitStatus): string {
-  const head = branch === undefined ? '' : ` · ${branch}${aheadBehind(status)}`
-  return `${head} · ${changedText(status)}`
+function summary(branch: string | undefined, status: GitStatus): HeaderPart[] {
+  const head = branch === undefined ? [] : [{ text: ` · ${branch}` }, ...aheadBehind(status)]
+  return [...head, { text: ` · ${changedText(status)}` }]
+}
+
+function linesReason(failure: LinesFailure): string {
+  switch (failure.kind) {
+    case 'exit':
+      return `git diff exited ${String(failure.exitCode)}`
+    case 'timeout':
+      return `git diff gave no answer in ${seconds(RUN_TIMEOUT_MS)} s`
+    case 'did-not-run':
+      return 'git diff did not start'
+    case 'cut':
+      return 'git diff is over 4 MiB'
+  }
 }
 
 function failureReason(failure: GitFailure): string {
@@ -78,6 +98,8 @@ const GIT_MISSING: readonly NoteLine[] = [
 
 const READING: readonly NoteLine[] = [line('Reading git status…', 'dim')]
 
+const LINES_OFF: readonly NoteLine[] = [line('line counts off: git is slow here.', 'dim')]
+
 const NO_UNTRACKED: readonly NoteLine[] = [
   line(`git status took over ${seconds(SLOW_MS)} s twice, so`, 'dim'),
   line('untracked files are not shown.', 'dim'),
@@ -90,6 +112,13 @@ function cutNote(status: GitStatus): readonly NoteLine[] {
     line('git status is over 4 MiB; the first', 'warning'),
     line(`${marked} entries are marked.`, 'warning'),
   ]
+}
+
+function linesNotes(watch: GitWatch): readonly NoteLine[] {
+  if (watch.isLinesSkipped) return LINES_OFF
+  const failure = watch.linesFailure
+  if (failure === undefined) return []
+  return [line(`line counts not shown: ${linesReason(failure)}.`, 'dim', true)]
 }
 
 function failedNotes(watch: GitWatch, failure: GitFailure, now: number): NoteLine[] {
@@ -110,27 +139,43 @@ function shownNotes(watch: GitWatch, age: string): NoteLine[] {
   return [...slow, ...(watch.isUntrackedSkipped ? NO_UNTRACKED : [])]
 }
 
+function plain(text: string): HeaderPart[] {
+  return [{ text }]
+}
+
 export function gitView(watch: GitWatch, now: number): GitView {
+  const none = { upstream: undefined, lines: undefined }
   if (watch.repo === null || watch.repo === undefined) {
     return {
-      header: ' · not a git repo',
+      header: plain(' · not a git repo'),
+      ...none,
       notes: NOT_A_REPO,
       footer: [],
       marks: undefined,
       isRepo: false,
     }
   }
-  const shown = watch.shown
-  const marks = shown === undefined ? undefined : gitMarks(shown.status, watch.repo.prefix)
+  const { shown, repo } = watch
+  const marks = shown === undefined ? undefined : gitMarks(shown.status, repo.prefix)
   const footer = shown === undefined ? [] : cutNote(shown.status)
-  if (watch.isGitMissing)
-    return { header: ' · git not found', notes: GIT_MISSING, footer, marks, isRepo: true }
+  const base = { ...none, footer, marks, isRepo: true }
+  if (watch.isGitMissing) return { ...base, header: plain(' · git not found'), notes: GIT_MISSING }
   if (watch.failure !== undefined) {
     const notes = failedNotes(watch, watch.failure, now)
-    return { header: ' · git status failed', notes, footer, marks, isRepo: true }
+    return { ...base, header: plain(' · git status failed'), notes }
   }
-  if (shown === undefined) return { header: '', notes: READING, footer, marks, isRepo: true }
+  if (shown === undefined) return { ...base, header: [], notes: READING }
   const age = ageText(now - shown.at)
-  const header = `${summary(watch.branch, shown.status)}${watch.isSlow ? ` · ${age} old` : ''}`
-  return { header, notes: shownNotes(watch, age), footer, marks, isRepo: true }
+  const header = [
+    ...summary(watch.branch, shown.status),
+    ...(watch.isSlow ? plain(` · ${age} old`) : []),
+  ]
+  return {
+    ...base,
+    header,
+    upstream: shown.status.upstream,
+    lines: watch.lines === undefined ? undefined : lineMarks(watch.lines, repo.prefix),
+    notes: shownNotes(watch, age),
+    footer: [...footer, ...linesNotes(watch)],
+  }
 }
