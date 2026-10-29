@@ -978,8 +978,8 @@ A cut title, opened, shows the full title wrapped first, then these lines.
 The status buttons (handily-9uj3n.1) come first, on a line of their own: the two statuses that
 the task does not have, in the order `done`, `start`, `open`. `done` marks the task done,
 `start` marks it in progress and `open` marks it pending, as `/board done`, `/board start` and
-`/board open` do. The task moves to its new status group at once, and the toast is the reply
-of the command.
+`/board open` do. The task moves to its new status group at once, and the toast names the new
+status and the quoted title (8.6a).
 
 Every task row has `[ rm ]` at its end (handily-9uj3n.3), so one press removes a task of any
 status. The opened row keeps `[ up ] [ down ]` for a task that is not in progress. After `up`
@@ -998,7 +998,7 @@ only, not live.
 ```
 
 `[ clear done ]` comes after the last done task, so the person sees what it removes. It acts as
-`/board clear`: every done task leaves the list, and the toast is the reply of the command. The
+`/board clear`: every done task leaves the list, and the toast names the count (8.6a). The
 fold button goes away with the last done task. A folded done group shows no `[ clear done ]`.
 
 #### 8.2e Many agents: 20 in this session
@@ -1363,7 +1363,53 @@ Tasks (2 of 4 done)
 person opened it in an earlier session). Below that it waits undrawn and the mod shows one toast:
 
 ```text
-Board waits for a wider terminal. Run /board to open it here.
+◆ Board waits for a wider terminal                     10000 ms
+run /board to open it here
+```
+
+#### 8.6a Board toasts (handily-ftx0x.4)
+
+The board draws its toasts in the layout of section 4: one part for each line, a mark at the start
+of the head, a quoted title, and the `timeoutMs` of the length rule. A toast holds no line break
+and no tracker notice. The slash commands keep the replies of 8.6.
+
+A button or the Input of the pane shows a toast only for what the pane does not show. An add, a
+remove or a move that Claude is told about shows no toast, because the pane draws the change.
+
+```text
+✓ Task 3 is now done                                    6000 ms  (done, start or open pressed)
+"Review the mocks with Codex"
+
+✓ Cleared 2 done tasks                                  6000 ms  ([ clear done ] pressed)
+tasks 1, 5
+
+○ Nothing changed                                       6000 ms  ([ up ] on the first task)
+task 4 is already first
+
+○ Added task 5 as text                                  6160 ms  (an id the tracker does not hold)
+no work item app-zz99 in beads
+
+■ Not added                                            10000 ms  (the id of a closed item typed)
+app-gh78 is closed in beads
+Add it as text: /board add -- app-gh78
+
+■ Claude was not told                                  10000 ms  (the note was not kept)
+moved task 4 up
+the transcript shows why
+
+■ Plan request not sent                                10000 ms  (the prompt box refused it)
+the prompt box did not take it
+ask Claude for a plan in your prompt
+
+■ The change failed                                    10000 ms
+the transcript shows why
+
+■ The agents view did not open                         10000 ms
+the transcript shows why
+
+◆ app needs you                                        10000 ms  (no desktop notice was sent)
+scout waits for permission
+Bash npm test
 ```
 
 ### 8.7 Keys

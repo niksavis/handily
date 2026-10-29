@@ -748,8 +748,8 @@ describe(OPEN_BUTTON_CRITERION, () => {
     expect(seen.logs.filter((text) => text.includes('the agents view did not open'))).toHaveLength(
       1,
     )
-    expect(seen.toasts).toEqual([
-      'handily-board: the agents view did not open; see the transcript log.',
+    expect(seen.toasts.map((text) => text.split(/ {2,}/))).toEqual([
+      ['■ The agents view did not open', 'the transcript shows why'],
     ])
     await ui.unmount()
   })

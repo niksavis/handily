@@ -29,6 +29,7 @@ const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const TOAST_FILE = 'toast.ts'
 const TOAST_MODS = [
+  'handily-board',
   'handily-filetree',
   'handily-item-toasts',
   'handily-reply-view',
@@ -46,12 +47,6 @@ const TOAST_USES = [
   /\{[^{}]*\btoast\b[^{}]*\}\s*(?:=(?![=>])|:|\))/,
 ]
 const BOX_COLUMNS = 40
-
-const KNOWN_DIRECT_CALLS = {
-  'mods/handily-board/hooks/board.ts': 'handily-ftx0x.4',
-  'mods/handily-board/hooks/pane.tsx': 'handily-ftx0x.4',
-  'mods/handily-board/hooks/register.tsx': 'handily-ftx0x.4',
-}
 
 const TOAST_CASES = [
   {
@@ -244,22 +239,12 @@ describe('the copies of hooks/toast.ts', () => {
 })
 
 describe('a toast outside hooks/toast.ts', () => {
-  test('no file under mods/*/hooks uses toast outside hooks/toast.ts, but the known ones', () => {
-    const unknown = directToastCalls(modsDir).filter((path) => !(path in KNOWN_DIRECT_CALLS))
+  test('no file under mods/*/hooks uses toast outside hooks/toast.ts', () => {
+    const direct = directToastCalls(modsDir)
     assert.deepEqual(
-      unknown,
+      direct,
       [],
-      `${unknown.join(', ')} uses the toast of ui directly; call showToast of the mod's hooks/toast.ts`,
-    )
-  })
-
-  test('each known direct call is still there, until its record moves it', () => {
-    const calls = directToastCalls(modsDir)
-    const moved = Object.entries(KNOWN_DIRECT_CALLS).filter(([path]) => !calls.includes(path))
-    assert.deepEqual(
-      moved,
-      [],
-      `${moved.map(([path, record]) => `${path} (${record})`).join(', ')} no longer calls .toast( directly; remove it from KNOWN_DIRECT_CALLS`,
+      `${direct.join(', ')} uses the toast of ui directly; call showToast of the mod's hooks/toast.ts`,
     )
   })
 

@@ -1,4 +1,5 @@
 import type { PluginOptions } from 'claude-code'
+import { TOAST_MARKS, type ToastParts } from './toast'
 
 export const TASKS_PANE = { id: 'tasks', title: 'this session' } as const
 
@@ -8,8 +9,10 @@ export type BoardPane = typeof TASKS_PANE | typeof SESSIONS_PANE
 
 export const BOARD_PANES: readonly BoardPane[] = [TASKS_PANE, SESSIONS_PANE]
 
-export const WAITS_FOR_WIDER_TERMINAL =
-  'Board waits for a wider terminal. Run /board to open it here.'
+export const WAITS_FOR_WIDER_TERMINAL: ToastParts = [
+  `${TOAST_MARKS.waitsForYou} Board waits for a wider terminal`,
+  'run /board to open it here',
+]
 
 export type BoardMode = 'off' | 'toggle' | 'always'
 
@@ -39,7 +42,7 @@ export type PaneUi = {
   fillPrompt: (text: string) => Promise<PromptFill>
   openAgents: () => Promise<void>
   focus: (key: string) => Promise<void>
-  toast: (text: string) => void
+  showToast: (parts: ToastParts) => void
   log: (text: string) => void
 }
 
@@ -94,5 +97,5 @@ export async function openUnasked(ui: PaneUi): Promise<void> {
   await ui.open(SESSIONS_PANE, false)
   if (opened.isPlaced) return
   ui.log(`handily-board: the board waits undrawn: ${opened.reason}`)
-  ui.toast(WAITS_FOR_WIDER_TERMINAL)
+  ui.showToast(WAITS_FOR_WIDER_TERMINAL)
 }
