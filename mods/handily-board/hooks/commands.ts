@@ -29,7 +29,7 @@ import {
   removeTask,
   setStatus,
   setTitle,
-  statusLook,
+  statusSignal,
   statusWord,
   TRACKER_TEXT_IS_DATA,
   taskForItem,
@@ -491,7 +491,7 @@ export async function personStatus(
     withTrackerNotice(reply, [task]),
     `task ${number} is now ${shown}`,
     noteRefusal,
-    [`${statusLook(status).mark} Task ${number} is now ${shown}`, { quoted: task.title }],
+    [marked(statusSignal(status), `Task ${number} is now ${shown}`), { quoted: task.title }],
   )
 }
 

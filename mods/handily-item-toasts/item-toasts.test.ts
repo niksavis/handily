@@ -229,6 +229,7 @@ type World = {
   glyphs: ConfigValue | undefined
   otherRows: ConfigRow[]
   storedGlyphs: unknown[]
+  configListError: string | null
 }
 
 type CallPlan = {
@@ -360,6 +361,7 @@ function newWorld(): World {
     glyphs: undefined,
     otherRows: [],
     storedGlyphs: [],
+    configListError: null,
   }
 }
 
@@ -402,7 +404,10 @@ function engineBeneath(on: On, world: World): MockClock {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
-  on('config.list', () => ({ value: configRows(world) }))
+  on('config.list', () => {
+    if (world.configListError !== null) return { deny: world.configListError }
+    return { value: configRows(world) }
+  })
   on('state.set', { plugin: 'handily-item-toasts', key: 'glyphs' }, (_$, e, next) => {
     world.storedGlyphs.push(e.value)
     return next(e)
@@ -1667,6 +1672,40 @@ describe('the glyph setting', () => {
     await setRow($, GLYPHS_KEY, 'nerd', 'handily@niksavis')
     expect(storedGlyphs(world)).toBe('nerd')
   })
+
+  toastTest(
+    'keeps the stored setting and logs why when the config list fails after a config set',
+    async (world, $, clock) => {
+      world.glyphs = 'nerd'
+      await startSession($)
+      world.configListError = 'the config list is unavailable'
+      await setRow($, GLYPHS_KEY, 'plain', 'handily@niksavis')
+      expect(storedGlyphs(world)).toBe('nerd')
+      expect(world.storedGlyphs).toEqual(['nerd'])
+      expect(world.logs).toContain(
+        'handily-item-toasts: $.config.list: the config list is unavailable',
+      )
+      world.configListError = null
+      await closeAb12Elsewhere(world, $, clock)
+      expect(world.toasts).toEqual([NERD_AB12_CLOSED])
+    },
+  )
+
+  toastTest(
+    'logs a failed config list at session start and draws plain',
+    async (world, $, clock) => {
+      world.glyphs = 'nerd'
+      world.configListError = 'the config list is unavailable'
+      await startSession($)
+      expect(world.storedGlyphs).toEqual(['plain'])
+      expect(world.logs).toContain(
+        'handily-item-toasts: $.config.list: the config list is unavailable',
+      )
+      world.configListError = null
+      await closeAb12Elsewhere(world, $, clock)
+      expect(world.toasts).toEqual([AB12_CLOSED])
+    },
+  )
 
   toastTest(
     'logs a stored value outside plain and nerd and draws plain',

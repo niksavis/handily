@@ -487,14 +487,39 @@ function shownPath(dir, path) {
   return relative(join(dir, '..'), path).split(sep).join('/')
 }
 
+const CODE_POINT_CALL = /String\.fromC(?:odePoint|harCode)\s*\(([^)]*)\)/g
+const NUMBER_ARGUMENT = /^(?:0x[0-9a-f_]+|\d[\d_]*)$/i
+
+function builtCodePoints(line) {
+  return new Set(
+    [...line.matchAll(CODE_POINT_CALL)].flatMap(([, args]) =>
+      args
+        .split(',')
+        .map((arg) => arg.trim())
+        .filter((arg) => NUMBER_ARGUMENT.test(arg))
+        .map((arg) => Number(arg.replaceAll('_', ''))),
+    ),
+  )
+}
+
 function marksInFile(dir, path) {
   const file = shownPath(dir, path)
   return readFileSync(path, 'utf8')
     .split('\n')
-    .flatMap((line, index) =>
-      markPatterns()
-        .filter(({ pattern }) => pattern.test(line))
-        .map(({ role, setName, glyph }) => ({ file, line: index + 1, role, setName, glyph })),
+    .flatMap((line, index) => {
+      const built = builtCodePoints(line)
+      return markPatterns()
+        .filter(({ pattern, glyph }) => pattern.test(line) || built.has(glyph.codePointAt(0)))
+        .map(({ role, setName, glyph }) => ({ file, line: index + 1, role, setName, glyph }))
+    })
+}
+
+function missingHooks(dir, mods) {
+  return mods
+    .filter((mod) => !existsSync(join(dir, mod, 'hooks')))
+    .map(
+      (mod) =>
+        `LITERAL_FREE_MODS lists ${mod}, but mods/${mod}/hooks is missing; fix the name or remove the entry`,
     )
 }
 
@@ -519,7 +544,7 @@ function literalMarks(dir, mods, exceptions) {
       ({ file, glyph }) =>
         `LITERAL_EXCEPTIONS names ${glyphText(glyph)} in ${file}, which no longer writes it; remove the exception`,
     )
-  return [...unexcepted, ...stale]
+  return [...missingHooks(dir, mods), ...unexcepted, ...stale]
 }
 
 describe('the literal free gate', () => {
@@ -562,6 +587,42 @@ describe('the literal free gate', () => {
         ])
       },
     )
+  })
+
+  test('names a mark that String.fromCodePoint or String.fromCharCode builds from a hex or decimal number', () => {
+    withModsTree(
+      {
+        'mods/mod-a/hooks/numbers.ts': [
+          'const A = String.fromCodePoint(0x25a0)',
+          'const B = String.fromCharCode(9632)',
+          'const C = String.fromCodePoint( 0xEAB2 )',
+          'const D = String.fromCharCode(60082)',
+          'const E = String.fromCodePoint(0x41, 0x25_cb)',
+          'const F = String.fromCodePoint(0x25a1)',
+          'const G = String.fromCodePoint(code)',
+          'const H = String.fromCharCode(9633)',
+          '',
+        ].join('\n'),
+      },
+      (dir) => {
+        assert.deepEqual(literalMarks(dir, ['mod-a'], []), [
+          'mods/mod-a/hooks/numbers.ts:1 writes the plain glyph of blocked, U+25A0, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/numbers.ts:2 writes the plain glyph of blocked, U+25A0, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/numbers.ts:3 writes the nerd glyph of done, U+EAB2, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/numbers.ts:4 writes the nerd glyph of done, U+EAB2, as a literal; name the role and draw it from hooks/glyphs.ts',
+          'mods/mod-a/hooks/numbers.ts:5 writes the plain glyph of toDo, U+25CB, as a literal; name the role and draw it from hooks/glyphs.ts',
+        ])
+      },
+    )
+  })
+
+  test('names a listed mod without a hooks folder', () => {
+    withModsTree({ 'mods/mod-a/hooks/clean.ts': 'export const A = 1\n' }, (dir) => {
+      assert.deepEqual(literalMarks(dir, ['mod-a'], []), [])
+      assert.deepEqual(literalMarks(dir, ['mod-a', 'mod-b'], []), [
+        'LITERAL_FREE_MODS lists mod-b, but mods/mod-b/hooks is missing; fix the name or remove the entry',
+      ])
+    })
   })
 
   test('keeps a named exception only for its glyph in its file, and names a stale exception', () => {

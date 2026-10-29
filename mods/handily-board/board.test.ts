@@ -9913,3 +9913,35 @@ describe('the glyph setting', () => {
     },
   )
 })
+
+describe('the glyph setting of the task status toast', () => {
+  const marksOf = {
+    plain: { doing: '▶', done: '✓', toDo: '○' },
+    nerd: { doing: '\u{EB2C}', done: '\u{EAB2}', toDo: '\u{EBB5}' },
+  } as const
+  for (const glyphs of ['nerd', 'plain'] as const) {
+    for (const surface of SURFACES) {
+      test(
+        `start, done and open draw the ${glyphs} mark of the new status on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          const seen = world(on, { glyphs })
+          await start($)
+          await mockWork($, seen)
+          const ui = await mountTab($, surface, PANE, 'dock', 41)
+          const marks = marksOf[glyphs]
+          const title = '"Review the mocks with Codex"'
+          await ui.press({ key: 'open:task:3' })
+          await ui.press({ key: 'start:3' })
+          expect(seen.toasts.at(-1)).toEqual([`${marks.doing} Task 3 is now in progress`, title])
+          await ui.press({ key: 'done:3' })
+          expect(seen.toasts.at(-1)).toEqual([`${marks.done} Task 3 is now done`, title])
+          await ui.press({ key: 'done' })
+          await ui.press({ key: 'open:3' })
+          expect(seen.toasts.at(-1)).toEqual([`${marks.toDo} Task 3 is now pending`, title])
+          await ui.unmount()
+        },
+      )
+    }
+  }
+})

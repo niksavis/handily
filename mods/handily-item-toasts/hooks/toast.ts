@@ -114,8 +114,12 @@ export function showToast($: EngineInterface, parts: ToastParts, glyphs: GlyphSe
   $.ui.toast(toastText(parts, glyphs), { timeoutMs: toastMs(parts, glyphs) })
 }
 
-function logged($: EngineInterface, error: unknown): GlyphSetting {
+function logError($: EngineInterface, error: unknown): void {
   $.ui.log(error instanceof Error ? error.message : String(error), { to: 'debug' })
+}
+
+function logged($: EngineInterface, error: unknown): GlyphSetting {
+  logError($, error)
   return DEFAULT_GLYPHS
 }
 
@@ -146,7 +150,10 @@ export async function changedGlyphSetting(
 ): Promise<GlyphSetting | undefined> {
   if (!isGlyphSettingOwner(e.provider.plugin)) return undefined
   const rows = await configRows($)
-  if (rows instanceof Error) return logged($, rows)
+  if (rows instanceof Error) {
+    logError($, rows)
+    return undefined
+  }
   if (glyphRowOf(rows)?.key !== e.key) return undefined
   return glyphSettingIn($, rows)
 }
