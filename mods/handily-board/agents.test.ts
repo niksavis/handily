@@ -580,6 +580,33 @@ describe(ROW_CRITERION, () => {
   }
 
   test(
+    'an unframed dock keeps the tool column from body 36, as mock 8.3, and only a frame at body 41 drops it',
+    withWorkitems,
+    async ($, on) => {
+      const scene = await mockScene($, on)
+      const toolRows = async (surface: (typeof SURFACES)[number], columns: number) => {
+        const ui = await mountTab($, surface, 'dock', columns)
+        const rows = agentLines(await screen(ui, columns)).filter((line) =>
+          /^▶ (Explore|scout) /u.test(line),
+        )
+        await ui.unmount()
+        return rows
+      }
+      for (const surface of SURFACES) {
+        for (const columns of [36, 37]) {
+          const rows = await toolRows(surface, columns)
+          expect(rows).toHaveLength(2)
+          for (const row of rows) expect(row).toContain('▸ ')
+        }
+      }
+      const framed = await toolRows('terminal', 41)
+      expect(framed).toHaveLength(2)
+      for (const row of framed) expect(row).not.toContain('▸ ')
+      await land(scene)
+    },
+  )
+
+  test(
     'each mark and state word takes the colour of its signal, and the failed count is red',
     withWorkitems,
     async ($, on) => {

@@ -32,7 +32,8 @@ const MARK_COLUMNS = 2
 const TIME_COLUMNS = 3
 const DOCKED_COLUMNS = 9
 const INLINE_COLUMNS = 10
-const TOOL_COLUMN_FROM = 38
+const TOOL_COLUMN_FROM = 36
+const FRAMED_TOOL_COLUMN_FROM = 38
 const DETAIL_INDENT = 4
 const PLAN_FOLD_ABOVE = 5
 const PLAN_SIDE = 2
@@ -194,6 +195,7 @@ function agentLine(
   layout: RowLayout,
   openAgents: () => void,
   axis: LaneAxis | null,
+  hasToolColumn: boolean,
 ): RenderElement {
   const { Box, Text, Button } = elements
   const look = LOOKS[row.look]
@@ -203,7 +205,6 @@ function agentLine(
   const stateWidth = Math.max(columns, displayWidth(state.text)) + NAME_GAP
   const time = elapsedText(row.ageMs)
   const timeWidth = NAME_GAP + Math.max(TIME_COLUMNS, displayWidth(time))
-  const hasToolColumn = elements.isInline || elements.bodyColumns >= TOOL_COLUMN_FROM
   const isOpenable = OPENABLE_LOOKS.has(row.look)
   const hasOpenColumn = isOpenable || axis !== null
   const openWidth = hasOpenColumn ? displayWidth(OPEN_LABEL) + (hasToolColumn ? NAME_GAP : 0) : 0
@@ -485,9 +486,10 @@ function drawAgent(
   now: number,
   openAgents: () => void,
   axis: LaneAxis | null,
+  hasToolColumn: boolean,
 ): RenderElement {
   const name = names.get(row.id) ?? escaped(row.label)
-  const head = agentLine(elements, row, name, layout, openAgents, axis)
+  const head = agentLine(elements, row, name, layout, openAgents, axis, hasToolColumn)
   const hasSecondLine = !elements.isInline && axis === null
   const failure =
     row.look === 'failed' && hasSecondLine
@@ -631,7 +633,10 @@ export function drawAgents(
   const shown = hidden > 0 && !isMoreShown ? active.slice(0, AGENT_ROWS_AT_MOST) : active
   const drawn = isEndedShown ? [...shown, ...ended] : shown
   const axis = hasLanes(outer.bodyColumns) ? laneAxis(drawn, now) : null
-  const draw = (row: AgentRow) => drawAgent(elements, row, names, layout, now, openAgents, axis)
+  const toolColumnFrom = isFramedHere ? FRAMED_TOOL_COLUMN_FROM : TOOL_COLUMN_FROM
+  const hasToolColumn = elements.isInline || elements.bodyColumns >= toolColumnFrom
+  const draw = (row: AgentRow) =>
+    drawAgent(elements, row, names, layout, now, openAgents, axis, hasToolColumn)
   const folds = [
     hidden > 0
       ? foldButton(MORE_AGENTS, foldLabel(isMoreShown, hidden, 'more agents'), layout)
