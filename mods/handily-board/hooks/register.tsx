@@ -117,7 +117,7 @@ import {
   tasksAfterPlan,
 } from './plan'
 import { drawPlanLine } from './plan-view'
-import { bandSetting, bandView, drawBand, isEngineDrawing } from './band'
+import { bandSetting, bandView, drawBand, isEngineDrawing, isTimed } from './band'
 import {
   type AssignInput,
   answersText,
@@ -403,6 +403,7 @@ function hostOf($: EngineInterface): TaskHost {
 
 function plansOf($: EngineInterface): PlanHost {
   return {
+    now: () => $.clock.now(),
     current: async () => (await $.state.get(PLAN_ID)).value ?? undefined,
     read: async (id) => (await $.state.get({ plugin: 'handily-board', key: 'plans', id })).value,
     edit: async <T,>(id: string, change: (plan: BoardPlan) => { plan: BoardPlan; value: T }) => {
@@ -547,7 +548,30 @@ function shareAgents($: EngineInterface, machine: Machine): Promise<void> {
   )
 }
 
-type Redraw = { timer: Timer | undefined }
+type Redraw = {
+  timer: Timer | undefined
+  bandTimer: Timer | undefined
+  bandSawTab: boolean | undefined
+}
+
+function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): void {
+  if (!isTimed) {
+    redraw.bandTimer?.cancel()
+    redraw.bandTimer = undefined
+    return
+  }
+  redraw.bandTimer ??= $.clock.every(REDRAW_INTERVAL_MS, () => {
+    $.ui.invalidate('ui.render')
+  })
+}
+
+function noteTabSeen($: EngineInterface, redraw: Redraw, isSeen: boolean): void {
+  if (redraw.bandSawTab === undefined || redraw.bandSawTab === isSeen) return
+  redraw.bandSawTab = undefined
+  $.clock.after(0, () => {
+    void notePaneChange($)
+  })
+}
 
 function stopRedraw(redraw: Redraw): void {
   redraw.timer?.cancel()
@@ -568,7 +592,10 @@ async function redrawShownPane($: EngineInterface, redraw: Redraw): Promise<void
     stopRedraw(redraw)
     return
   }
-  if (!panes.some((pane) => pane.isShown)) return
+  if (!panes.some((pane) => pane.isShown)) {
+    if (redraw.bandSawTab === true) $.ui.invalidate('ui.render')
+    return
+  }
   await noteAgentList(agentHostOf($))
   $.ui.invalidate('ui.render')
 }
@@ -1180,7 +1207,7 @@ function toolFailed($: EngineInterface, tool: string, error: HookFailure): { den
 export const register: Register = (on, options) => {
   const mode = boardMode(options)
   const band = bandSetting(options)
-  const redraw: Redraw = { timer: undefined }
+  const redraw: Redraw = { timer: undefined, bandTimer: undefined, bandSawTab: undefined }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
@@ -1500,17 +1527,27 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (band === 'off' || e.props.hasSurvey) return next(e)
+    const yieldBand = () => {
+      keepBandTime($, redraw, false)
+      return next(e)
+    }
+    if (band === 'off' || e.props.hasSurvey) return yieldBand()
     await $.state.get(PANE_CHANGES)
-    if (await isSessionTabSeen($)) return next(e)
+    const isTabSeen = await isSessionTabSeen($)
+    redraw.bandSawTab = isTabSeen
+    if (isTabSeen) return yieldBand()
     const host = hostOf($)
     const plans = plansOf($)
     const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
     const plan = await offeredPlan(plans)
     const view = bandView(await readList(host), plan, activity, await $.clock.now())
-    if (view === undefined) return next(e)
+    if (view === undefined) return yieldBand()
     const beneath = await next(e)
-    if (!isEngineDrawing(beneath)) return beneath
+    if (!isEngineDrawing(beneath)) {
+      keepBandTime($, redraw, false)
+      return beneath
+    }
+    keepBandTime($, redraw, isTimed(view))
     const { Box, Text, Button } = $.ui.resolve(e)
     const ui = uiOf($, notes)
     const failed = (error: unknown) => {
@@ -1582,6 +1619,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: TASKS_PANE.id }, async ($, e) => {
+    noteTabSeen($, redraw, true)
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
@@ -1593,6 +1631,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {
+    noteTabSeen($, redraw, false)
     const { Box, Text, Button } = $.ui.resolve(e)
     const host = hostOf($)
     const expanded = new Set(await host.expanded())

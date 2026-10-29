@@ -917,6 +917,15 @@ The band (handily-9uj3n.9):
   the board never sees its own opens. The board counts each open and close of its panes in the
   state key `paneChanges`. Only the band reads that key, so a change draws the band again and
   not the pane.
+- The band draws again every 10 seconds while it shows a task in progress, so its time moves
+  and turns to the warning colour at 15 minutes. While it shows no task in progress, it runs no
+  timer (review of 2026-10-29).
+- The engine raises no event when the person switches tabs: no `ui.*` event names a tab, and
+  `isShown` is read only through `$.ui.panes()`. So the band follows what the board can see. A
+  render of the this session pane or of the this machine pane after a switch counts a pane
+  change at once. A switch from the this session tab to the tab of another plugin shows the band
+  at the next tick of the redraw of the board panes, so within 10 seconds. This bound is
+  measured in the test kit only.
 
 Probes that are still open, each with a safe path in the code:
 
@@ -927,6 +936,16 @@ Probes that are still open, each with a safe path in the code:
   draws no band.
 - The order of two user plugins on the band. Two band mods that each yield to the other draw
   nothing. A second dummy band plugin in tmux can measure it.
+
+Repairs of the plan offer (review of 2026-10-29):
+
+- A step that is empty after the markdown marks are removed, such as an image or an empty
+  check box, is no step and does not count toward the 2 items.
+- The warning about tasks that Claude added after the approval counts only the own tasks of
+  Claude, so a task for the person raises no warning.
+- A press locks the plan with the time of the press (`lockedAt`). A lock older than 10 seconds
+  is free, so a write that fails or a reload between the lock and the result cannot keep the
+  plan "being added" for ever.
 
 Failure modes:
 

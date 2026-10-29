@@ -58,6 +58,10 @@ export function bandView(
   return { kind: 'tasks', list, forYou, activity, now }
 }
 
+export function isTimed(view: BandView): boolean {
+  return view.kind === 'tasks' && view.list.tasks.some((task) => task.status === 'in_progress')
+}
+
 export function isEngineDrawing(drawn: RenderElement): boolean {
   return drawn.type === 'engine'
 }

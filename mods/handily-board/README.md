@@ -707,6 +707,9 @@ Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]
 
 - The current task is the first task in progress, or else the first pending task with the dim
   word `next`. The time turns to the `warning` colour after 15 minutes, as on the board.
+- While the band shows a task in progress, it draws again every 10 seconds, so the time moves.
+- A switch to the `this machine` tab shows the band at once. Claude Code tells a plugin nothing
+  about a switch to the tab of another mod, so the band shows within 10 seconds then.
 - Open tasks for you come first. While an approved plan waits, the band shows the plan offer,
   and its button adds the steps as the Plan block does.
 - `[ board ]` acts as `/board`: it shows the `this session` tab and gives it the keyboard. The

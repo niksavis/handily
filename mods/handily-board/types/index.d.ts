@@ -44,6 +44,7 @@ export type BoardPlan = {
   added: readonly number[] | null
   isDismissed: boolean
   refusal: readonly string[] | null
+  lockedAt?: number
 }
 
 export type BoardToolSight = { tool: string; target: string | null }

@@ -10,6 +10,7 @@ import {
   idsText,
   numbersText,
   oneSpaced,
+  ownList,
   textFault,
 } from './tasks'
 import { TOAST_MARKS, type ToastParts } from './toast'
@@ -103,9 +104,15 @@ function numberedLists(text: string): string[][] {
 
 export type PlanSteps = { steps: string[]; cut: number[] }
 
+function cleanSteps(items: readonly string[]): Step[] {
+  return items.map(cleanStep).filter((step) => step.text !== '')
+}
+
 export function planSteps(text: string): PlanSteps {
-  const list = numberedLists(text).find((items) => items.length >= STEPS_AT_LEAST) ?? []
-  const steps = list.map(cleanStep)
+  const steps =
+    numberedLists(text)
+      .map(cleanSteps)
+      .find((items) => items.length >= STEPS_AT_LEAST) ?? []
   return {
     steps: steps.map((step) => step.text),
     cut: steps.flatMap((step, index) => (step.isCut ? [index + 1] : [])),
@@ -123,7 +130,7 @@ export function isOffered(plan: BoardPlan): boolean {
 }
 
 export function tasksAfterPlan(plan: BoardPlan, list: BoardList): number {
-  return list.tasks.filter((task) => task.by === 'model' && task.id >= plan.nextId).length
+  return ownList(list).tasks.filter((task) => task.by === 'model' && task.id >= plan.nextId).length
 }
 
 export function stepsText(count: number): string {
@@ -134,7 +141,10 @@ export function addedText(plan: BoardPlan): string {
   return idsText(plan.added ?? [])
 }
 
+export const PLAN_LOCK_MS = 10_000
+
 export type PlanHost = {
+  now: () => Promise<number>
   current: () => Promise<string | undefined>
   read: (id: string) => Promise<BoardPlan | undefined>
   edit: <T>(id: string, change: (plan: BoardPlan) => { plan: BoardPlan; value: T }) => Promise<T>
@@ -220,12 +230,23 @@ function toldText(noteRefusal: string | undefined): string {
 
 const NO_PLAN = 'No approved plan with numbered steps in this session. Nothing changed.'
 
+function isLocked(plan: BoardPlan, now: number): boolean {
+  return plan.lockedAt !== undefined && now - plan.lockedAt < PLAN_LOCK_MS
+}
+
+function unlocked(plan: BoardPlan): BoardPlan {
+  const free = { ...plan }
+  delete free.lockedAt
+  return free
+}
+
 async function claim(plans: PlanHost, id: string): Promise<Claim> {
   if ((await plans.read(id)) === undefined) return { kind: 'missing' }
+  const now = await plans.now()
   return plans.edit<Claim>(id, (plan) => {
-    if (plan.added === null)
-      return { plan: { ...plan, added: [] }, value: { kind: 'claimed', plan } }
-    return { plan, value: { kind: plan.added.length === 0 ? 'busy' : 'added', plan } }
+    if (!isOffered(plan)) return { plan, value: { kind: 'added', plan } }
+    if (isLocked(plan, now)) return { plan, value: { kind: 'busy', plan } }
+    return { plan: { ...plan, added: null, lockedAt: now }, value: { kind: 'claimed', plan } }
   })
 }
 
@@ -259,13 +280,13 @@ export async function addPlanAsTasks(
   try {
     outcome = await host.edit((current) => addSteps(current, plan.steps))
   } catch (error) {
-    await plans.edit(asked, (kept) => ({ plan: { ...kept, added: null }, value: undefined }))
+    await plans.edit(asked, (kept) => ({ plan: unlocked(kept), value: undefined }))
     throw error
   }
   if (outcome.kind !== 'added') {
     const lines = refusalLines(outcome, plan.steps.length)
     await plans.edit(asked, (kept) => ({
-      plan: { ...kept, added: null, refusal: lines },
+      plan: { ...unlocked(kept), refusal: lines },
       value: undefined,
     }))
     const text = refusalText(outcome, plan.steps.length)
@@ -274,7 +295,7 @@ export async function addPlanAsTasks(
   const { tasks } = outcome
   const ids = tasks.map((task) => task.id)
   await plans.edit(asked, (kept) => ({
-    plan: { ...kept, added: ids, refusal: null },
+    plan: { ...unlocked(kept), added: ids, refusal: null },
     value: undefined,
   }))
   const numbers = numbersText(tasks)

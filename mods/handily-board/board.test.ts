@@ -26,7 +26,8 @@ import { NEEDS_YOU_AFTER_MS } from './hooks/agents'
 import { statusLineSetting } from './hooks/attention'
 import { displayWidth } from './hooks/width'
 import type { TaskHost } from './hooks/commands'
-import { type PlanHost, addPlanAsTasks } from './hooks/plan'
+import { type PlanHost, addPlanAsTasks, newPlan } from './hooks/plan'
+import type { BoardList, BoardPlan } from './types'
 import { bandSetting } from './hooks/band'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
@@ -7470,6 +7471,7 @@ describe('an approved plan as tasks (handily-9uj3n.7)', () => {
 test('a press on a plan that a later plan replaced changes nothing and says why', async () => {
   const refuse = () => Promise.reject(new Error('the test host holds no list'))
   const plans: PlanHost = {
+    now: () => Promise.resolve(0),
     current: () => Promise.resolve('later'),
     read: () => Promise.reject(new Error('the replaced plan is not read')),
     edit: () => Promise.reject(new Error('the replaced plan is not changed')),
@@ -8240,4 +8242,174 @@ describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
       },
     )
   }
+})
+
+describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `a task for the person after the approval raises no repeat warning on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        const call = await approve($, seen)
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        expect(await planLine($, surface, call)).toBe(
+          '  [ add 3 steps as tasks ]  adds them to the board as pending tasks',
+        )
+        const pane = await mountTasks($, surface)
+        expect(await pane.find({ type: 'Text', text: /Claude added/ })).toBeUndefined()
+        await pane.unmount()
+      },
+    )
+
+    test(
+      `a step that is empty without its marks is no step on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, {
+          planAnswer: planOf(
+            '1. Read the design\n2. ![](diagram.png)\n3. [ ] \n4. ``\n5. Test it\n',
+          ),
+        })
+        await start($)
+        await approve($, seen)
+        const pane = await mountTasks($, surface)
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            'Plan  approved · 2 numbered steps',
+            '  1 Read the design',
+            '  2 Test it',
+          ]),
+        )
+        await pane.unmount()
+        expect(await board($, 'plan')).toBe(
+          'Added tasks 1-2 from the approved plan. Claude is told at your next prompt.',
+        )
+      },
+    )
+
+    test(
+      `a band that stays drawn moves its time and turns to the warning colour at 15 minutes on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        const ui = await mountBand($, surface)
+        expect((await ui.find({ type: 'Text', text: '4m' }))?.props.dimColor).toBe(true)
+        await seen.clock.advance(12 * MINUTE)
+        expect((await ui.find({ type: 'Text', text: '16m' }))?.props.color).toBe('warning')
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `no band timer runs while the band draws no task in progress on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        const ui = await mountBand($, surface)
+        await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'pending' })
+        expect(await ui.find({ type: 'Text', text: 'next' })).toBeDefined()
+        const asked = seen.panesAsked
+        await seen.clock.advance(MINUTE)
+        expect(seen.panesAsked).toBe(asked)
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `the band follows a switch to the this machine tab at once and to another tab within 10 seconds on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        expect(await board($, '')).toBe('Board opened: this session.')
+        const tasks = await mountTasks($, surface)
+        const band = await mountBand($, surface)
+        expect(await band.find({ key: 'band' })).toBeUndefined()
+        seen.shown = MACHINE
+        const machine = await $.ui.mount({
+          plugin: PLUGIN,
+          surface,
+          component: 'Pane',
+          requestId: MACHINE,
+          props: paneProps('dock', 41),
+        })
+        await seen.clock.advance(0)
+        expect(await band.find({ key: 'band' })).toBeDefined()
+        await machine.unmount()
+        seen.shown = PANE
+        await tasks.unmount()
+        const again = await mountTasks($, surface)
+        await seen.clock.advance(0)
+        expect(await band.find({ key: 'band' })).toBeUndefined()
+        seen.shown = 'another-plugin-pane'
+        await seen.clock.advance(10_000)
+        expect(await band.find({ key: 'band' })).toBeDefined()
+        await again.unmount()
+        await band.unmount()
+      },
+    )
+  }
+
+  test('a plan lock that a failed add left behind frees itself after 10 seconds', async () => {
+    let now = 1_000
+    let plan: BoardPlan | undefined
+    let planWrites = 0
+    let list: BoardList = { tasks: [], nextId: 1 }
+    let isListBroken = true
+    const plans: PlanHost = {
+      now: () => Promise.resolve(now),
+      current: () => Promise.resolve('plan-1'),
+      read: () => Promise.resolve(plan),
+      edit: <T>(_id: string, change: (kept: BoardPlan) => { plan: BoardPlan; value: T }) => {
+        planWrites += 1
+        if (plan === undefined || (isListBroken && planWrites > 1)) {
+          return Promise.reject(new Error('the plan write failed'))
+        }
+        const changed = change(plan)
+        plan = changed.plan
+        return Promise.resolve(changed.value)
+      },
+    }
+    const refuse = () => Promise.reject(new Error('not used'))
+    const host: TaskHost = {
+      read: () => Promise.resolve(list),
+      edit: <T>(change: (kept: BoardList) => { list: BoardList; value: T }) => {
+        if (isListBroken) return Promise.reject(new Error('the list write failed'))
+        const changed = change(list)
+        list = changed.list
+        return Promise.resolve(changed.value)
+      },
+      snapshot: refuse,
+      lines: refuse,
+      tell: () => Promise.resolve(undefined),
+      expanded: refuse,
+      editExpanded: refuse,
+    }
+    plan = newPlan('plan-1', '1. Read the design\n2. Test it\n', 1)
+    const failed = await addPlanAsTasks(plans, host, 'plan-1').then(
+      () => 'added',
+      (error: unknown) => String(error),
+    )
+    expect(failed).toBe('Error: the plan write failed')
+    isListBroken = false
+    now += 1_000
+    expect((await addPlanAsTasks(plans, host, 'plan-1')).text).toBe(
+      'The approved plan is being added. Nothing changed.',
+    )
+    now += 10_000
+    expect((await addPlanAsTasks(plans, host, 'plan-1')).text).toBe(
+      'Added tasks 1-2 from the approved plan. Claude is told at your next prompt.',
+    )
+  })
 })
