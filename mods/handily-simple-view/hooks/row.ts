@@ -184,6 +184,15 @@ export function readingRow(
   ])
 }
 
+function keptTargetCells(target: readonly string[]): Cell[] {
+  let room = LABEL_KEPT_CELLS
+  return target.map((text) => {
+    const keptCells = Math.min(displayWidth(text), room)
+    room -= keptCells
+    return { text, style: { wrap: 'truncate-end' }, canShrink: true, keptCells }
+  })
+}
+
 export function refusedRow(
   look: RowLook,
   tool: string,
@@ -192,12 +201,7 @@ export function refusedRow(
 ): RenderElement {
   return line(look, 'row', 'error', [
     { text: tool },
-    ...target.map((text) => ({
-      text,
-      style: { wrap: 'truncate-end' as const },
-      canShrink: true,
-      keptCells: Math.min(displayWidth(text), LABEL_KEPT_CELLS),
-    })),
+    ...keptTargetCells(target),
     ...errorCells('refused', message),
   ])
 }

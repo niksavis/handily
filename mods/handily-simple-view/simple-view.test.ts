@@ -1663,6 +1663,64 @@ describe('file rows that a hook refused', () => {
 
   for (const surface of SURFACES) {
     viewTest(
+      `draws a refused call with no path and keeps its result empty when the session root fails on ${surface}`,
+      async (world, $) => {
+        world.isRootRefused = true
+        const input = { file_path: `${ROOT}/note.txt` }
+        const use = useProps('toolu_h4', 'Edit', input, hookRefused('Edit'))
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Edit refused ${PROBE_GUARD_MESSAGE}`,
+        ])
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: resultProps('toolu_h4', 'Edit', hookRefused('Edit')) },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+        expect(world.logs.some((log) => log.startsWith('simple-view: no path for toolu_h4'))).toBe(
+          true,
+        )
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `keeps at most 40 cells of a refused Grep pattern and folder so refused fits 80 columns on ${surface}`,
+      async (_world, $) => {
+        const input = { pattern: 'p'.repeat(38), path: `${ROOT}/${'f'.repeat(37)}` }
+        const ui = await $.ui.mount({
+          plugin: 'handily-simple-view',
+          surface,
+          component: 'ToolUse',
+          props: useProps('toolu_h5', 'Grep', input, hookRefused('Grep')),
+          viewport: { columns: 80, rows: 40 },
+        })
+        const columns = (await ui.findAll({ type: 'Box' })).find((box) => box.props.gap === 2)
+        const cells = (columns?.children ?? []).filter(isDrawnNode)
+        const least = cells.map((cell) =>
+          cell.props?.flexShrink === 0
+            ? displayWidth(shown(cell))
+            : Number(cell.props?.minWidth ?? 0),
+        )
+        await ui.unmount()
+        expect(cells.map(shown)).toEqual([
+          'Grep',
+          `"${input.pattern}"`,
+          `in ${'f'.repeat(37)}`,
+          'refused',
+          PROBE_GUARD_MESSAGE,
+        ])
+        const gaps = 2 * (cells.length - 1)
+        const width = MARKER[surface].length + gaps + least.reduce((sum, cell) => sum + cell, 0)
+        expect(width).toBeLessThanOrEqual(80)
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
       `leaves an Edit, Write or Read error that no hook refused to the engine on ${surface}`,
       async (_world, $) => {
         const errors: [string, string][] = [

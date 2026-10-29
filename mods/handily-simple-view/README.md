@@ -89,8 +89,9 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
   `CLAUDE_CODE_BASH_EDIT_DIFF` environment variable wins over the setting. Without either, the
   engine decides, and the mod cannot read that decision.
 - When an error line or a stderr line follows the description, the description keeps up to 40
-  cells. The terminal cuts the error line or the stderr line first. The path or the pattern of a
-  refused `Edit`, `Write`, `Read`, `Grep` or `Glob` row also keeps up to 40 cells.
+  cells. The terminal cuts the error line or the stderr line first. In a refused `Edit`, `Write`,
+  `Read`, `Grep` or `Glob` row, the path, or the pattern and the folder together, keep up to 40
+  cells.
 - A path inside the session root shows relative to the root, and the root itself shows as `.`.
   Another path shows in full.
 - The row shows the time only from 1 second. The engine gives no run time for a `Bash` call, so

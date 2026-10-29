@@ -355,7 +355,13 @@ async function refusedUse(
 ): Promise<RenderElement | null> {
   const message = refusalLine(props.output)
   if (message === null) return null
-  const root = await $.session.root()
+  let root: string
+  try {
+    root = await $.session.root()
+  } catch (error) {
+    logFailure($, `no path for ${props.tool_use_id}`, error)
+    return refusedRow(look, props.tool, [], message)
+  }
   const target = FILE_TOOLS.has(props.tool)
     ? filePathTarget(props.input, root)
     : streamingTarget(props.tool, props.input, root)
