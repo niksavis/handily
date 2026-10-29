@@ -31,6 +31,11 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board done <n>`          | Marks task `n` done                                                     |
 | `/board start <n>`         | Marks task `n` in progress                                              |
 | `/board open <n>`          | Marks task `n` pending                                                  |
+| `/board plan`              | Adds the steps of the approved plan as tasks of `claude`                |
+| `/board answer <n> <text>` | Answers task `n` for you, a question                                    |
+| `/board pick <n> <option>` | Picks option number `option` of task `n` for you, a decision            |
+| `/board reject <n> [why]`  | Rejects task `n` for you, with an optional reason                       |
+| `/board undo <n>`          | Opens task `n` for you again, before your next prompt                   |
 | `/board clear`             | Removes every done task                                                 |
 | `/board list`              | Prints the list as text. With no tasks, it lists the open tracker items |
 | `/board stats`             | Prints the session figures and the agents as text                       |
@@ -55,7 +60,10 @@ Replies, from the tests:
 /board mv 3 before 1     Task 3 is already before task 1. Nothing changed.
 /board edit 3 Ship it now  Task 3 is now titled: Ship it now. Claude is told at your next prompt.
 /board edit 3            Not changed: the new title is empty. /board edit needs a task number and a title, for example /board edit 2 Write the tests.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats or /board close.
+/board plan              Added tasks 3-7 from the approved plan. Claude is told at your next prompt.
+/board plan              The approved plan is already tasks 3-7. Nothing changed.
+/board plan              No approved plan with numbered steps in this session. Nothing changed.
 ```
 
 - `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
@@ -160,6 +168,7 @@ You can press every button on both tabs with the keyboard alone. A live check on
 | `task_add`    | `title`, or `titles` for several, and an optional `before` task id     | Adds pending tasks                   |
 | `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task |
 | `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before` |
+| `task_assign` | `kind`: `do`, `answer` or `decide`, `title`, and `options` and `why`   | Assigns a task to you                |
 | `task_list`   | none                                                                   | Returns the list                     |
 
 - The mod registers the tools at `session.start`. The model calls them as
@@ -275,6 +284,79 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 - The columns before the title have a fixed width. The title fills the room that is left and is
   cut with `…`, so a row never wraps. The tests check this at 30, 41 and 80 columns.
 - The mobile app has no input, so the tab says `Add tasks with /board add <text>.`
+
+### An approved plan
+
+When you approve a plan of Claude that has numbered steps, the board offers the steps as tasks.
+It adds nothing by itself. A capture from the tests, docked at 41 columns:
+
+```text
+Plan  approved · 3 numbered steps
+  1 Create a.txt
+  2 Create b.txt
+  … 1 more step
+  [ add 3 as tasks ]  [ dismiss ]
+```
+
+- The steps are the items of the first top-level numbered list with at least 2 items. The
+  board removes the markdown marks and makes each run of spaces one space. A step of more than
+  200 characters is cut to 199 characters and `…`, and the reply of `/board plan` names it.
+- The offer shows in three places: a line under the plan row in the transcript, the Plan block
+  above `Tasks`, and `/board plan`. The transcript button takes a click only, because Claude
+  Code gives the keyboard only to a pane and to the band above the prompt. Use the Plan block
+  or `/board plan` from the keyboard.
+- A press adds every step as a pending task of `claude`, in order, at the end of the list. Your
+  next prompt tells Claude: `it added tasks 3, 4, 5 from the approved plan.` A successful add
+  shows no toast, because the board shows the new tasks.
+- A rejected plan, a plan of a subagent, a plan that waits for a team leader and a plan with no
+  numbered list of 2 items get no offer.
+- When the list has no room for every step, or a step has a control or a bidi control
+  character, nothing is added. The Plan block and the transcript line say why, and the button
+  stays for a retry.
+- When Claude adds tasks with `task_add` after the approval, the offer warns that the steps may
+  repeat. The board never removes a repeat by itself.
+- A later approved plan replaces the offer. The line under the older plan says so and has no
+  button. `[ dismiss ]` hides the Plan block. The transcript button stays.
+- `/board list` prints an offered plan above the tasks.
+
+### Tasks for you
+
+Claude assigns a task to you with `task_assign`: something to do (`do`), a question
+(`answer`) or a choice of 2 to 4 options (`decide`). The section `For you` comes first, above
+`Tasks`. A capture from the tests, docked at 41 columns:
+
+```text
+For you  ◆ 3 open
+◆ 2 do      Rotate the staging API key
+    [ done ] [ reject ]
+◆ 3 answer  Which port does staging use?
+    [ Your answer ][Send]
+    [ reject ]
+◆ 4 decide  Which cache store for now?
+    [ Postgres ] [ SQLite ] [ Redis ]
+    [ reject ]
+─────────────────────────────────────────
+```
+
+- `◆` marks an open task. `✓` marks a task that you did, answered or decided, and `■` with the
+  word `rejected` marks a rejected one.
+- `[ reject ]` asks for an optional reason first, so one press cannot reject a task. The
+  mobile app has no input, so the row names `/board answer`.
+- Each result waits for your next prompt and shows `to send` with `[ undo ]`. That prompt
+  carries one note for Claude with every result, after your list changes. After the prompt the
+  results fold under `[ +N answered ]`. `[ clear done ]` and `/board clear` remove them.
+- An empty answer, an answer of more than 1000 characters and an answer with a line break or a
+  bidi control character are refused on the row, by name. Nothing is sent.
+- Claude withdraws a task with `task_update` and the status `removed`. The row stays, dim, as
+  `withdrawn by Claude`, until your next prompt. Claude cannot set another status on a task for
+  you, and `task_move`, `/board edit` and `/board mv` leave it in place.
+- When you answered a task before Claude withdraws it, the answer of `task_update` gives
+  Claude your answer once, and the row reads `withdrawn by Claude · answer sent`.
+- At the end of a turn in which Claude assigned tasks, one toast names them while the
+  `this session` tab is not shown.
+- A subagent cannot assign a task. At most 20 tasks for you are open at a time. The tasks for
+  you count against the limit of 100 tasks. The `Tasks` header and the this machine card count
+  only the other tasks.
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
 
@@ -611,6 +693,36 @@ No agents yet.
   raises does not count. An example is the `AskUserQuestion` call of the `workitems` approval
   question.
 
+## The task band
+
+While the `this session` tab is not shown, one line above the prompt shows the current task.
+Captures from the tests, at 80 columns (the band body is 75 columns):
+
+```text
+▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ]
+○ 3 Review the mocks with Codex                     next ▰▱▱▱ 1/4 [ board ]
+◆ 3 for you · ▶ 2 Write the tab mocks                20m ▰▰▱▱ 1/4 [ board ]
+Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]
+```
+
+- The current task is the first task in progress, or else the first pending task with the dim
+  word `next`. The time turns to the `warning` colour after 15 minutes, as on the board.
+- While the band shows a task in progress, it draws again every 10 seconds, so the time moves.
+- A switch to the `this machine` tab shows the band at once. Claude Code tells a plugin nothing
+  about a switch to the tab of another mod, so the band shows within 10 seconds then.
+- Open tasks for you come first. While an approved plan waits, the band shows the plan offer,
+  and its button adds the steps as the Plan block does.
+- `[ board ]` acts as `/board`: it shows the `this session` tab and gives it the keyboard. The
+  band then goes. The band buttons have no hotkey, because Claude Code presses a band button
+  with a digit typed into an empty prompt.
+- The time and the bar never cut. The title cuts first. Below 50 columns the bar drops, and
+  below 30 columns the time drops.
+- The band draws nothing while the `this session` tab is shown, with no open task and no plan,
+  while a survey holds the band, and with the setting `band` at `off`. Claude Code draws the
+  band on the terminal and the desktop app only.
+- When another mod beneath the board draws the band, the board shows that drawing unchanged.
+  The board draws only over the engine drawing.
+
 ## The this machine tab
 
 The tab shows a card for each Claude Code session on this machine:
@@ -746,6 +858,13 @@ Sessions  4 · 1 needs you · 12s ago
 
 - When the mod loads, it refuses any other `statusLine` value by name, for example
   `handily-board: userConfig statusLine is "sometimes"; set it to attention or off in /config.`
+
+| `userConfig` `band` | Effect                                                         |
+| ------------------- | -------------------------------------------------------------- |
+| `on` (default)      | The band above the prompt shows, as The task band section says |
+| `off`               | The board draws no band                                        |
+
+- When the mod loads, it refuses any other `band` value by name.
 
 ## Lifetime
 

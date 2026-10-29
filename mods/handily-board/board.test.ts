@@ -25,6 +25,10 @@ import {
 import { NEEDS_YOU_AFTER_MS } from './hooks/agents'
 import { statusLineSetting } from './hooks/attention'
 import { displayWidth } from './hooks/width'
+import type { TaskHost } from './hooks/commands'
+import { type PlanHost, addPlanAsTasks, newPlan } from './hooks/plan'
+import type { BoardList, BoardPlan } from './types'
+import { bandSetting } from './hooks/band'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -150,7 +154,12 @@ type WorldOptions = {
   hasOwnPromptHook?: boolean
   notice?: UiNotifyResult | 'denied'
   failingTool?: string
+  planAnswer?: PlanAnswer
 }
+
+type PlanAnswer =
+  | { result: { plan: string | null; isAgent: boolean; filePath?: string } }
+  | { isError: true; result: string; text: string }
 
 const SKIPPED_COMPACTION = 'skip this compaction'
 const SUMMARY: SessionMessage = { role: 'user', text: 'the summary', toolUses: [] }
@@ -255,11 +264,12 @@ function world(on: On, options: WorldOptions = {}): World {
     if (options.notice === 'denied') return { deny: 'a hook of the test refused the notice' }
     return { value: options.notice ?? { isSent: true as const, channel: 'kitty' as const } }
   })
-  on('tool.call', (_$, e) =>
-    e.tool === options.failingTool
+  on('tool.call', (_$, e) => {
+    if (e.tool === 'ExitPlanMode' && options.planAnswer !== undefined) return options.planAnswer
+    return e.tool === options.failingTool
       ? { isError: true as const, result: 'exit 1', text: 'exit 1' }
-      : { result: '' },
-  )
+      : { result: '' }
+  })
   if (options.hasOwnPromptHook !== true) {
     on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
   }
@@ -405,12 +415,18 @@ function composeFor(tools: readonly string[]): PromptComposeInput {
 
 describe('model tools and the prompt section', () => {
   test(
-    'registers task_add, task_update, task_move, task_list and /board at session start',
+    'registers task_add, task_update, task_move, task_assign, task_list and /board at session start',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
       await start($)
-      expect(seen.tools).toEqual(['task_add', 'task_update', 'task_move', 'task_list'])
+      expect(seen.tools).toEqual([
+        'task_add',
+        'task_update',
+        'task_move',
+        'task_assign',
+        'task_list',
+      ])
       expect(seen.commands).toEqual(['board'])
     },
   )
@@ -667,7 +683,7 @@ describe('/board add and /board rm', () => {
       ]
       for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats or /board close.`,
         )
       }
     },
@@ -7067,3 +7083,1333 @@ for (const surface of SURFACES) {
     )
   })
 }
+
+const PLAN_TOOL = 'ExitPlanMode'
+const PLAN_FILE = '/home/user/.claude/plans/p.md'
+const PLAN_TEXT = '1. Create a.txt\n2. Create b.txt\n3. Create c.txt\n'
+const APPROVED_PLAN: PlanAnswer = {
+  result: { plan: PLAN_TEXT, isAgent: false, filePath: PLAN_FILE },
+}
+const REJECTED_PLAN: PlanAnswer = {
+  isError: true,
+  result: 'User rejected tool use',
+  text: "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+}
+
+function planOf(plan: string, isAgent = false): PlanAnswer {
+  return { result: { plan, isAgent, filePath: PLAN_FILE } }
+}
+
+type PlanAnswers = { current: PlanAnswer }
+
+function planWorld(on: On, first: PlanAnswer): { seen: World; answers: PlanAnswers } {
+  const answers: PlanAnswers = { current: first }
+  const seen = world(on, {
+    get planAnswer() {
+      return answers.current
+    },
+  })
+  return { seen, answers }
+}
+
+async function approve($: Engine, seen: World, agentId?: string): Promise<Called> {
+  return called($, seen, agentId === undefined ? { tool: PLAN_TOOL } : { tool: PLAN_TOOL, agentId })
+}
+
+async function mountPlanRow($: Engine, surface: Surface, call: Called, isErrored = false) {
+  const answer = call.answer as { result?: unknown }
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'ToolResult',
+    requestId: call.id,
+    props: { tool_use_id: call.id, tool: PLAN_TOOL, output: answer.result, isErrored },
+  })
+}
+
+async function mountTasks(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline' = 'dock',
+  columns = 41,
+) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'Pane',
+    requestId: PANE,
+    props: paneProps(placement, columns),
+  })
+}
+
+async function planLine($: Engine, surface: Surface, call: Called): Promise<string | undefined> {
+  const ui = await mountPlanRow($, surface, call)
+  const line = drawnOf(await ui.find({ key: 'plan-line' }))
+  await ui.unmount()
+  return line === null ? undefined : screenOf(line, 80).join('\n').trimEnd()
+}
+
+const ADDED_NOTE = [
+  '[handily-board] The person changed the session task list: it added tasks 1, 2, 3 from the approved plan.',
+  '',
+  'Tasks (0 of 3 done)',
+  '  1  pending      claude   "Create a.txt"',
+  '  2  pending      claude   "Create b.txt"',
+  '  3  pending      claude   "Create c.txt"',
+].join('\n')
+
+describe('an approved plan as tasks (handily-9uj3n.7)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `an approved plan with numbered steps shows the add button and adds nothing by itself on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        const call = await approve($, seen)
+        expect(await modelTool($, {})).toBe('The task list is empty.')
+        const row = await mountPlanRow($, surface, call)
+        expect((await row.find({ key: 'plan-add' }))?.text).toBe('add 3 steps as tasks')
+        expect(
+          await row.find({ type: 'Text', text: 'adds them to the board as pending tasks' }),
+        ).toBeDefined()
+        expect(drawnOf(await row.drawn())?.children[0]).toMatchObject({ type: 'engine' })
+        await row.unmount()
+        const pane = await mountTasks($, surface)
+        expect((await pane.find({ key: 'plan-add' }))?.text).toBe('add 3 as tasks')
+        expect((await pane.find({ key: 'plan-dismiss' }))?.text).toBe('dismiss')
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            'Plan  approved · 3 numbered steps',
+            '  1 Create a.txt',
+            '  2 Create b.txt',
+            '  … 1 more step',
+            '  [ add 3 as tasks ]  [ dismiss ]',
+          ]),
+        )
+        await pane.unmount()
+        expect(await modelTool($, {})).toBe('The task list is empty.')
+        expect(await toldAtNextPrompt($)).toEqual([])
+      },
+    )
+
+    test(
+      `a press on the transcript button adds each step as a pending task of claude in order on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        const call = await approve($, seen)
+        const row = await mountPlanRow($, surface, call)
+        await row.press({ key: 'plan-add' })
+        await row.unmount()
+        expect(await modelTool($, {})).toBe(
+          'Tasks (0 of 3 done)\n  1  pending      claude   "Create a.txt"\n  2  pending      claude   "Create b.txt"\n  3  pending      claude   "Create c.txt"',
+        )
+        expect(await planLine($, surface, call)).toBe('  ✓ added as tasks 1-3')
+        expect(seen.toasts).toEqual([])
+        expect(await toldAtNextPrompt($)).toEqual([ADDED_NOTE])
+        const pane = await mountTasks($, surface)
+        expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+        await pane.unmount()
+      },
+    )
+
+    test(
+      `a press on the pane button adds each step as a pending task in order on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        await start($)
+        await board($, 'add Check the narrow dock')
+        await approve($, seen)
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'plan-add' })
+        expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+        expect(
+          (await pane.findAll({ type: 'Button', text: 'rm' })).map((button) => button.key),
+        ).toEqual(['rm:1', 'rm:2', 'rm:3', 'rm:4'])
+        await pane.unmount()
+        expect(await modelTool($, {})).toBe(
+          'Tasks (0 of 4 done)\n  1  pending      you      Check the narrow dock\n  2  pending      claude   "Create a.txt"\n  3  pending      claude   "Create b.txt"\n  4  pending      claude   "Create c.txt"',
+        )
+        expect(seen.toasts).toEqual([])
+        expect(await board($, 'plan')).toBe(
+          'The approved plan is already tasks 2-4. Nothing changed.',
+        )
+      },
+    )
+  }
+
+  test(
+    'a rejected plan, a plan of a subagent and a plan with no numbered list get no offer',
+    withToolIds,
+    async ($, on) => {
+      const { seen, answers } = planWorld(on, REJECTED_PLAN)
+      engineRows(on)
+      await start($)
+      for (const surface of SURFACES) {
+        const rejected = await approve($, seen)
+        const row = await mountPlanRow($, surface, rejected, true)
+        expect(await row.drawn()).toEqual(ENGINE_ROW)
+        await row.unmount()
+      }
+      answers.current = planOf(PLAN_TEXT, true)
+      const agentPlan = await approve($, seen)
+      answers.current = APPROVED_PLAN
+      const fromAgent = await approve($, seen, 'agent-1')
+      answers.current = planOf('Read the design, then draw the mocks.\n\n- one\n- two\n')
+      const bulleted = await approve($, seen)
+      answers.current = planOf('1. Only one step\n\nThen more text.\n')
+      await approve($, seen)
+      for (const surface of SURFACES) {
+        for (const call of [agentPlan, fromAgent, bulleted]) {
+          const row = await mountPlanRow($, surface, call)
+          expect(await row.drawn()).toEqual(ENGINE_ROW)
+          await row.unmount()
+        }
+        const pane = await mountTasks($, surface)
+        expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+        await pane.unmount()
+      }
+      expect(await board($, 'plan')).toBe(
+        'No approved plan with numbered steps in this session. Nothing changed.',
+      )
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+    },
+  )
+
+  test(
+    'the steps are the first top-level numbered list with two items, without markdown marks',
+    withToolIds,
+    async ($, on) => {
+      const plan = [
+        '# Plan',
+        '',
+        'Context first.',
+        '',
+        '1. A single item',
+        '',
+        'More text.',
+        '',
+        '```sh',
+        '1. not a step',
+        '2. also not',
+        '```',
+        '',
+        '1. **Read** the `design` and   the [board](docs/mocks.md) sections',
+        '   - a nested detail',
+        '2) Map the _hooks_ that',
+        '   draw the pane',
+        '',
+        '3. Test it',
+        '',
+        '## After',
+        '',
+        '1. Not this list',
+        '2. Nor this',
+      ].join('\n')
+      const seen = world(on, { planAnswer: planOf(plan) })
+      await start($)
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 1-3 from the approved plan. Claude is told at your next prompt.',
+      )
+      expect(await modelTool($, {})).toBe(
+        'Tasks (0 of 3 done)\n  1  pending      claude   "Read the design and the board sections"\n  2  pending      claude   "Map the hooks that draw the pane"\n  3  pending      claude   "Test it"',
+      )
+    },
+  )
+
+  test(
+    '/board plan names a cut step, refuses a bad step and a full list by name, and says when a plan is already added',
+    withToolIds,
+    async ($, on) => {
+      const { seen, answers } = planWorld(on, planOf(`1. ${'x'.repeat(230)}\n2. Short\n`))
+      await start($)
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 1-2 from the approved plan. Step 1 was cut to 200 characters. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'plan')).toBe(
+        'The approved plan is already tasks 1-2. Nothing changed.',
+      )
+      answers.current = planOf('1. Fine\n2. Bad \u{202E} step\n')
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Not added: step 2 has a bidi control character. Nothing changed.',
+      )
+      for (let index = 0; index < 97; index += 1) await board($, `add Task ${String(index)}`)
+      await board($, 'done 3')
+      await board($, 'done 4')
+      answers.current = APPROVED_PLAN
+      await approve($, seen)
+      expect(await board($, 'plan')).toBe(
+        'Not added: the plan has 3 steps and the list has room for 1 of 100 tasks, and 2 of them are done. Run /board clear to remove the done tasks, or remove one first.',
+      )
+      for (const surface of SURFACES) {
+        const pane = await mountTasks($, surface)
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            '  ■ not added: room for 1 of 3 steps',
+            '  /board clear removes 2 done tasks',
+          ]),
+        )
+        expect((await pane.find({ type: 'Text', text: '■ not added:' }))?.props.color).toBe('error')
+        await pane.press({ key: 'plan-add' })
+        await pane.unmount()
+      }
+      expect(seen.toasts.at(-1)).toEqual([
+        '■ Plan not added',
+        'room for 1 of 3 steps',
+        '/board clear removes 2 done tasks',
+      ])
+      await board($, 'clear')
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 100-102 from the approved plan. Claude is told at your next prompt.',
+      )
+    },
+  )
+
+  test(
+    'a later plan replaces the offer, an older row says so, and a press on it changes nothing',
+    withToolIds,
+    async ($, on) => {
+      const { seen, answers } = planWorld(on, APPROVED_PLAN)
+      engineRows(on)
+      await start($)
+      const first = await approve($, seen)
+      answers.current = planOf('1. Write the tests\n2. Run them\n')
+      const second = await approve($, seen)
+      for (const surface of SURFACES) {
+        expect(await planLine($, surface, first)).toBe('  ○ a later plan replaced this one')
+        expect(await planLine($, surface, second)).toBe(
+          '  [ add 2 steps as tasks ]  adds them to the board as pending tasks',
+        )
+      }
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+      expect(await board($, 'list')).toBe(
+        [
+          'Approved plan (2 steps, not added yet; /board plan adds them as tasks)',
+          '  1  "Write the tests"',
+          '  2  "Run them"',
+          '',
+          'No tasks in this session yet. Work items are not read yet.',
+        ].join('\n'),
+      )
+    },
+  )
+
+  test(
+    'tasks that Claude adds after the approval raise a warning, and dismiss hides only the block',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on, { planAnswer: APPROVED_PLAN })
+      engineRows(on)
+      await start($)
+      const call = await approve($, seen)
+      await $.tool.call({ tool: TOOL_ADD, titles: ['Create a.txt', 'Create b.txt'] })
+      for (const surface of SURFACES) {
+        expect(await planLine($, surface, call)).toBe(
+          '  [ add 3 steps as tasks ]  Claude added 2 tasks after this plan',
+        )
+        const pane = await mountTasks($, surface)
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            '  Claude added 2 tasks after the plan.',
+            '  Adding it may repeat them.',
+          ]),
+        )
+        await pane.unmount()
+      }
+      const pane = await mountTasks($, 'desktop')
+      await pane.press({ key: 'plan-dismiss' })
+      expect(await pane.find({ key: 'plan-add' })).toBeUndefined()
+      await pane.unmount()
+      expect(await planLine($, 'terminal', call)).toBe(
+        '  [ add 3 steps as tasks ]  Claude added 2 tasks after this plan',
+      )
+      expect(await board($, 'plan')).toBe(
+        'Added tasks 3-5 from the approved plan. Claude is told at your next prompt.',
+      )
+    },
+  )
+
+  test('the Plan block fits a dock of 30 and the inline pane of 76', withToolIds, async ($, on) => {
+    const seen = world(on, {
+      planAnswer: planOf(
+        '1. Read the design and the board sections\n2. Map the hooks that draw the pane\n3. Draw the plan line in the pane\n4. Test the plan line at 30, 41 and 76\n5. Bump the version and write the note\n',
+      ),
+    })
+    await start($)
+    await approve($, seen)
+    const narrow = await mountTasks($, 'terminal', 'dock', 30)
+    expect(await screen(narrow, 30)).toEqual(
+      expect.arrayContaining([
+        'Plan  approved · 5 steps',
+        '  1 Read the design and the b…',
+        '  2 Map the hooks that draw t…',
+        '  … 3 more steps',
+        '  [ add 5 as tasks ]',
+        '  [ dismiss ]',
+      ]),
+    )
+    await narrow.unmount()
+    const inline = await mountTasks($, 'terminal', 'inline', 76)
+    expect(await screen(inline, 76)).toEqual(
+      expect.arrayContaining([
+        'Plan  approved · 5 steps: Read the design and the board sections, +4',
+        '  [ add 5 as tasks ]  [ dismiss ]',
+      ]),
+    )
+    await inline.unmount()
+  })
+})
+
+test('a press on a plan that a later plan replaced changes nothing and says why', async () => {
+  const refuse = () => Promise.reject(new Error('the test host holds no list'))
+  const plans: PlanHost = {
+    now: () => Promise.resolve(0),
+    current: () => Promise.resolve('later'),
+    read: () => Promise.reject(new Error('the replaced plan is not read')),
+    edit: () => Promise.reject(new Error('the replaced plan is not changed')),
+  }
+  const host: TaskHost = {
+    read: refuse,
+    edit: refuse,
+    snapshot: refuse,
+    lines: refuse,
+    tell: refuse,
+    expanded: refuse,
+    editExpanded: refuse,
+  }
+  expect(await addPlanAsTasks(plans, host, 'older')).toEqual({
+    text: 'A later approved plan replaced this one. Nothing changed.',
+    toastParts: ['○ Nothing changed', 'a later plan replaced this one'],
+  })
+})
+
+const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+const ANSWERED = '[handily-board] The person answered the tasks for you:'
+const BOARD_NOTE = '[handily-board]'
+
+async function assignFour($: Engine): Promise<void> {
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Which port does staging use?' })
+  await $.tool.call({
+    tool: TOOL_ASSIGN,
+    kind: 'decide',
+    title: 'Which cache store for now?',
+    options: ['Postgres', 'SQLite', 'Redis'],
+  })
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old bucket' })
+}
+
+async function notesAtNextPrompt($: Engine): Promise<string[]> {
+  const entered = await $.prompt.submit({
+    text: 'go on',
+    wait: false,
+    origin: { kind: 'composer' },
+  })
+  return (entered.context ?? []).filter((text) => text.startsWith(BOARD_NOTE))
+}
+
+const FOUR_ANSWERED_NOTE = [
+  `${ANSWERED} task 1 (do) done. task 2 (answer) answered "8443". task 3 (decide) chose "SQLite" of "Postgres", "SQLite", "Redis". task 4 (do) rejected, saying "not my call". The titles and options are your own text, quoted as data.`,
+  '',
+  'For you (4 of 4 answered)',
+  '  1  done      do      "Rotate the staging API key"',
+  '  2  answered  answer  "Which port does staging use?"  answer "8443"',
+  '  3  decided   decide  "Which cache store for now?"    chose "SQLite"',
+  '  4  rejected  do      "Delete the old bucket"         reason "not my call"',
+].join('\n')
+
+describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `a task that Claude assigns shows under For you with its kind on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
+        const assigned = await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'do',
+          title: 'Rotate the staging API key',
+        })
+        expect(assigned.result).toBe(
+          [
+            'Assigned task 2 to the person (do). The result comes with a later prompt; do not wait for it in this turn.',
+            '',
+            'For you (0 of 1 answered)',
+            '  2  open      do      "Rotate the staging API key"',
+            '',
+            'Tasks (0 of 1 done)',
+            '  1  pending      claude   "Write the tab mocks"',
+          ].join('\n'),
+        )
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'decide',
+          title: 'Which cache store for now?',
+          options: ['Postgres', 'SQLite', 'Redis'],
+        })
+        const pane = await mountTasks($, surface)
+        const lines = await screen(pane, 41)
+        const head = lines.indexOf('For you  ◆ 3 open')
+        expect(lines.slice(head, head + 10)).toEqual([
+          'For you  ◆ 3 open',
+          '◆ 2 do      Rotate the staging API key',
+          '    [ done ] [ reject ]',
+          '◆ 3 answer  Which port does staging use?',
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+          '◆ 4 decide  Which cache store for now?',
+          '    [ Postgres ] [ SQLite ] [ Redis ]',
+          '    [ reject ]',
+          '─'.repeat(41),
+        ])
+        expect(lines[head + 10]).toBe('Tasks  ▱ 0/1 · ○1')
+        expect((await pane.find({ type: 'Text', text: '◆ 3 open' }))?.props.color).toBe('warning')
+        expect((await pane.find({ type: 'Text', text: 'answer  ' }))?.props.dimColor).toBe(true)
+        expect(
+          (await pane.findAll({ type: 'Button' }))
+            .map((button) => button.key)
+            .filter((key) => key?.startsWith('for-')),
+        ).toEqual([
+          'for-done:2',
+          'for-reject:2',
+          'for-reject:3',
+          'for-pick:4:1',
+          'for-pick:4:2',
+          'for-pick:4:3',
+          'for-reject:4',
+        ])
+        await pane.unmount()
+        expect(await board($, 'list')).toContain('For you (0 of 3 answered)')
+      },
+    )
+
+    test(
+      `done, an answer, a choice and a rejection reach Claude in one note at the next prompt on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        await assignFour($)
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'for-done:1' })
+        await pane.input({ key: 'answer:2', text: ' 8443 ' })
+        await pane.press({ key: 'for-pick:3:2' })
+        await pane.press({ key: 'for-reject:4' })
+        await pane.input({ key: 'reason:4', text: 'not my call' })
+        const lines = await screen(pane, 41)
+        expect(lines).toEqual(
+          expect.arrayContaining([
+            'For you  4 to send',
+            '✓ 1 do      Rotate the staging API key',
+            '    done, to send                [ undo ]',
+            '    "8443", to send              [ undo ]',
+            '    chose "SQLite", to send      [ undo ]',
+            '    rejected: "not my call", to… [ undo ]',
+            'Claude gets them with your next prompt.',
+          ]),
+        )
+        expect(seen.toasts).toEqual([])
+        await pane.unmount()
+        expect(await notesAtNextPrompt($)).toEqual([FOUR_ANSWERED_NOTE])
+        expect(await notesAtNextPrompt($)).toEqual([])
+        const after = await mountTasks($, surface)
+        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+4 answered')
+        expect(await after.find({ type: 'Text', text: '✓ all 4 answered' })).toBeDefined()
+        await after.press({ key: 'for-answered' })
+        expect(await screen(after, 41)).toEqual(
+          expect.arrayContaining([
+            '    done',
+            '    "8443"',
+            '    chose "SQLite"',
+            '    rejected: "not my call"',
+          ]),
+        )
+        expect(await after.find({ key: 'for-undo:1' })).toBeUndefined()
+        await after.press({ key: 'for-clear' })
+        expect(await after.find({ type: 'Text', text: /^For you/ })).toBeUndefined()
+        await after.unmount()
+        expect(await modelTool($, {})).toBe('The task list is empty.')
+      },
+    )
+  }
+
+  test(
+    'the commands answer, pick, reject, done and undo reply as the mock, and one note carries the list changes and the answers',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignFour($)
+      await board($, 'add Write the tab mocks')
+      expect(await board($, 'answer 2')).toBe(
+        'Not sent: the answer is empty. /board answer needs a task number and text, for example /board answer 9 Use port 8443.',
+      )
+      expect(await board($, 'answer 5 yes')).toBe(
+        'Task 5 is not a task for you. /board list prints the tasks for you.',
+      )
+      expect(await board($, 'answer 1 yes')).toBe(
+        'Task 1 is not a question for you. /board list prints the tasks for you.',
+      )
+      expect(await board($, 'done 2')).toBe(
+        'Task 2 asks for an answer. /board answer 2 <text> answers it.',
+      )
+      expect(await board($, `answer 2 ${'9'.repeat(1001)}`)).toBe(
+        'Not sent: the answer has 1001 characters; the limit is 1000. Nothing changed.',
+      )
+      expect(await board($, 'done 1')).toBe(
+        'Task 1 is now done: "Rotate the staging API key". Claude is told at your next prompt.',
+      )
+      expect(await board($, 'answer 2 8443')).toBe(
+        'Answered task 2: "8443". Claude is told at your next prompt.',
+      )
+      expect(await board($, 'answer 2 8080')).toBe(
+        'Task 2 is already answered. /board undo 2 opens it again.',
+      )
+      expect(await board($, 'pick 3 5')).toBe(
+        'Task 3 has options 1-3: Postgres, SQLite, Redis. Nothing changed.',
+      )
+      expect(await board($, 'pick 3 2')).toBe(
+        'Chose "SQLite" for task 3. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'reject 4 not my call')).toBe(
+        'Rejected task 4. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'start 1')).toBe(
+        'Task 1 is for you. /board done 1, /board answer 1, /board pick 1 or /board reject 1 answers it.',
+      )
+      expect(await board($, 'undo 2')).toBe('Task 2 is open again. Claude was not told yet.')
+      expect(await board($, 'answer 2 8443')).toBe(
+        'Answered task 2: "8443". Claude is told at your next prompt.',
+      )
+      expect(await board($, 'edit 2 Which port')).toBe(
+        'Not changed: task 2 is a task for you, so Claude keeps its title and its place. /board list prints the tasks for you.',
+      )
+      expect(await notesAtNextPrompt($)).toEqual([
+        [
+          `${CHANGED} it added task 5 by the person: Write the tab mocks. ${FOUR_ANSWERED_NOTE.split('\n')[0]?.slice(BOARD_NOTE.length + 1) ?? ''}`,
+          ...FOUR_ANSWERED_NOTE.split('\n').slice(1),
+          '',
+          'Tasks (0 of 1 done)',
+          '  5  pending      you      Write the tab mocks',
+        ].join('\n'),
+      ])
+      expect(await board($, 'undo 2')).toBe('Task 2 was already sent to Claude. Nothing changed.')
+    },
+  )
+
+  test(
+    'task_assign refuses a bad input, a subagent and a twenty-first open task by name',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      const deny = async (input: Record<string, unknown>) =>
+        (await $.tool.call({ tool: TOOL_ASSIGN, ...input })).deny
+      expect(await deny({ kind: 'ask', title: 'Port?' })).toBe(
+        'task_assign needs kind: one of do, answer, decide.',
+      )
+      expect(await deny({ kind: 'do', title: 'Rotate it', options: ['a', 'b'] })).toBe(
+        'task_assign takes options only with the kind decide.',
+      )
+      expect(await deny({ kind: 'decide', title: 'Pick one', options: ['a'] })).toBe(
+        'task_assign needs 2 to 4 options for the kind decide; it got 1.',
+      )
+      expect(await deny({ kind: 'decide', title: 'Pick one', options: ['a', 'a'] })).toBe(
+        'task_assign refused: the option "a" is given twice.',
+      )
+      expect(await deny({ kind: 'do', title: 'Rotate it', agentId: 'agent-1' })).toBe(
+        'task_assign works only in the main loop; tell the main agent what you need.',
+      )
+      for (let index = 0; index < 20; index += 1) {
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: `Step ${String(index)}` })
+      }
+      expect(await deny({ kind: 'do', title: 'One more' })).toBe(
+        'task_assign refused: 20 tasks for the person are open. Wait for the answers, or withdraw one with task_update and the status removed.',
+      )
+      expect(await modelTool($, {})).toContain('For you (0 of 20 answered)')
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `Claude withdraws a task for the person, only the person finishes it, and task_move leaves it in place on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        await assignFour($)
+        expect((await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed' })).deny).toBe(
+          'Task 2 is for the person; only the person can finish it. Use status removed to withdraw it.',
+        )
+        expect((await $.tool.call({ tool: TOOL_MOVE, id: 2, before: 1 })).deny).toBe(
+          'Task 2 is for the person; its place is the order in which you asked. task_move moves only your own tasks.',
+        )
+        const pane = await mountTasks($, surface)
+        await pane.input({ key: 'answer:2', text: '' })
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining(['    ■ not sent: the answer is empty']),
+        )
+        expect(seen.toasts).toEqual([])
+        const withdrawn = await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'removed' })
+        expect(withdrawn.result).toContain('Withdrew task 2 from the person.')
+        expect(withdrawn.result).not.toContain('Which port')
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            '○ 2 answer  Which port does staging use?',
+            '    withdrawn by Claude',
+          ]),
+        )
+        await pane.unmount()
+        expect(await board($, 'answer 2 8443')).toBe(
+          'Not sent: Claude withdrew task 2. Nothing changed.',
+        )
+        expect(await notesAtNextPrompt($)).toEqual([])
+        const after = await mountTasks($, surface)
+        expect(await after.find({ key: 'row:for:2' })).toBeUndefined()
+        await after.unmount()
+      },
+    )
+  }
+
+  test(
+    'one toast names the asks of a turn while the board is not shown, and none while it is',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const turn = async (id: string, work: () => Promise<void>) => {
+        await $.turn.start({ text: 'go', turnId: id })
+        await work()
+        await $.turn.complete({
+          turnId: id,
+          reason: 'answer',
+          answer: 'done',
+          durationMs: 1,
+          isAborted: false,
+        })
+      }
+      await turn('turn-1', async () => {
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+      })
+      expect(seen.toasts).toEqual([
+        ['◆ Claude asks you', '"Which port does staging use?"', 'answer it on /board'],
+      ])
+      await turn('turn-2', () => assignFour($))
+      expect(seen.toasts.at(-1)).toEqual([
+        '◆ Claude asks you 4 things',
+        'do 2 · answer 1 · decide 1',
+        'answer them on /board',
+      ])
+      await board($, '')
+      await turn('turn-3', async () => {
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+      })
+      expect(seen.toasts).toHaveLength(2)
+    },
+  )
+
+  test(
+    'a prompt that a hook drops keeps the answers for the next prompt',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const contexts: (readonly string[])[] = []
+      on('prompt.submit', (_$, e) => {
+        if (e.text === 'drop me') return { drop: 'a hook refused the prompt' }
+        contexts.push(e.context ?? [])
+        return { text: e.text, context: e.context }
+      })
+      await start($)
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      await board($, 'done 1')
+      const submit = (text: string) =>
+        $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+      expect((await submit('drop me')).drop).toBe('a hook refused the prompt')
+      expect(await board($, 'undo 1')).toBe('Task 1 is open again. Claude was not told yet.')
+      await board($, 'done 1')
+      await submit('go on')
+      expect(contexts).toEqual([[expect.stringContaining(`${ANSWERED} task 1 (do) done.`)]])
+    },
+  )
+
+  test(
+    'six open tasks fold after three, a narrow dock keeps the buttons, and mobile points to /board answer',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignFour($)
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Which region for the probe?' })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+      for (const surface of SURFACES) {
+        const pane = await mountTasks($, surface)
+        expect((await pane.find({ key: 'for-more' }))?.text).toBe('+3 more for you')
+        expect(await pane.find({ key: 'row:for:4' })).toBeUndefined()
+        await pane.press({ key: 'for-more' })
+        expect(await pane.find({ key: 'row:for:6' })).toBeDefined()
+        await pane.press({ key: 'for-more' })
+        await pane.unmount()
+      }
+      const narrow = await mountTasks($, 'terminal', 'dock', 30)
+      expect(await screen(narrow, 30)).toEqual(
+        expect.arrayContaining([
+          '◆ 1 do     Rotate the staging…',
+          '    [ Answer ][Send]',
+          '    [ Postgres ] [ SQLite ]',
+          '    [ Redis ]',
+        ]),
+      )
+      await narrow.unmount()
+      const mobile = await $.ui.mount({
+        plugin: PLUGIN,
+        surface: 'mobile',
+        component: 'Pane',
+        requestId: PANE,
+        props: paneProps('inline', 76),
+      })
+      expect(
+        await mobile.find({ type: 'Text', text: 'answer: /board answer 2 <text>' }),
+      ).toBeDefined()
+      await mobile.unmount()
+    },
+  )
+})
+
+function bandProps(bodyColumns = 75, hasSurvey = false): RenderPropsOf['AbovePrompt'] {
+  return {
+    hasSurvey,
+    isWorking: false,
+    maxRows: 10,
+    bodyColumns,
+    scroll: { offset: 0, bodyRows: 10 },
+    view: {},
+  }
+}
+
+async function mountBand($: Engine, surface: Surface, bodyColumns = 75, hasSurvey = false) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'AbovePrompt',
+    props: bandProps(bodyColumns, hasSurvey),
+  })
+}
+
+async function bandLine(
+  $: Engine,
+  surface: Surface,
+  bodyColumns = 75,
+  hasSurvey = false,
+): Promise<string | undefined> {
+  const ui = await mountBand($, surface, bodyColumns, hasSurvey)
+  const band = drawnOf(await ui.find({ key: 'band' }))
+  await ui.unmount()
+  return band === null ? undefined : (screenOf(band, bodyColumns)[0] ?? '').trimEnd()
+}
+
+async function bandFour($: Engine, seen: World): Promise<void> {
+  await seen.clock.set(START)
+  await $.tool.call({
+    tool: TOOL_ADD,
+    titles: [
+      'Read the design',
+      'Write the tab mocks',
+      'Review the mocks with Codex',
+      'Ask the person about tabs',
+    ],
+  })
+  await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+  await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+  await seen.clock.set(START + 4 * MINUTE)
+}
+
+describe('the task band above the prompt (handily-9uj3n.9)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `while the this session tab is not shown, the band shows the current task, done of total and a board button on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        expect(await bandLine($, surface)).toBe(
+          '▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ]',
+        )
+        const ui = await mountBand($, surface)
+        const button = await ui.find({ key: 'band-board' })
+        expect(button?.text).toBe('board')
+        expect(button?.props.hotkey).toBeUndefined()
+        await ui.press({ key: 'band-board' })
+        expect(seen.opens[0]).toEqual({ id: PANE, title: 'this session', focus: true })
+        expect(await ui.find({ key: 'band' })).toBeUndefined()
+        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        await ui.unmount()
+        expect(seen.toasts).toEqual([])
+      },
+    )
+
+    test(
+      `the band names the next pending task, a second task in progress, a stalled time and the tasks for you on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'pending' })
+        await $.tool.call({ tool: TOOL_MOVE, id: 3, before: 2 })
+        expect(await bandLine($, surface)).toBe(
+          '○ 3 Review the mocks with Codex                     next ▰▱▱▱ 1/4 [ board ]',
+        )
+        await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+        await $.tool.call({ tool: TOOL_MOVE, id: 2, before: 3 })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'in_progress' })
+        expect(await bandLine($, surface)).toBe(
+          '▶ 2 Write the tab mocks · +1 in progress              4m ▰▰▰▱ 1/4 [ board ]',
+        )
+        await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'pending' })
+        await seen.clock.advance(16 * MINUTE)
+        const ui = await mountBand($, surface)
+        expect((await ui.find({ type: 'Text', text: '20m' }))?.props.color).toBe('warning')
+        await ui.unmount()
+        for (const title of ['Rotate the key', 'Pick a port', 'Restart the probe']) {
+          await $.tool.call({ tool: 'mcp__handily-board__task_assign', kind: 'do', title })
+        }
+        expect(await bandLine($, surface)).toBe(
+          '◆ 3 for you · ▶ 2 Write the tab mocks                20m ▰▰▱▱ 1/4 [ board ]',
+        )
+      },
+    )
+
+    test(
+      `the band shows nothing while the this session tab is shown, with no open task, or under a survey on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        const drawn = async (hasSurvey = false) => {
+          const ui = await mountBand($, surface, 75, hasSurvey)
+          const tree = await ui.drawn()
+          await ui.unmount()
+          return tree
+        }
+        expect(await drawn()).toMatchObject({ type: 'engine' })
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        expect(await bandLine($, surface)).toBeDefined()
+        expect(await drawn(true)).toMatchObject({ type: 'engine' })
+        expect(await board($, '')).toBe('Board opened: this session.')
+        expect(await drawn()).toMatchObject({ type: 'engine' })
+        expect(await board($, '')).toBe('Board closed.')
+        expect(await bandLine($, surface)).toBeDefined()
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+        expect(await drawn()).toMatchObject({ type: 'engine' })
+        expect(seen.toasts).toEqual([])
+      },
+    )
+
+    test(
+      `while an approved plan waits, the band shows the plan offer and its add button on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        await approve($, seen)
+        expect(await bandLine($, surface)).toBe(
+          'Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]',
+        )
+        const ui = await mountBand($, surface)
+        expect((await ui.find({ key: 'band-plan-add' }))?.props.hotkey).toBeUndefined()
+        await ui.press({ key: 'band-plan-add' })
+        await ui.unmount()
+        expect(await modelTool($, {})).toBe(
+          'Tasks (0 of 3 done)\n  1  pending      claude   "Create a.txt"\n  2  pending      claude   "Create b.txt"\n  3  pending      claude   "Create c.txt"',
+        )
+        expect(await bandLine($, surface)).toBe(
+          '○ 1 Create a.txt                                     next ▱▱▱ 0/3 [ board ]',
+        )
+      },
+    )
+
+    test(
+      `with the band setting off, the band shows nothing on ${surface}`,
+      { ...withToolIds, options: { band: 'off' } },
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        await approve($, seen)
+        const ui = await mountBand($, surface)
+        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `the band yields to a band drawing beneath it and never wraps it on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+          const { Text } = $.ui.resolve(e)
+          return Text({ children: 'a survey of another mod' })
+        })
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        const ui = await mountBand($, surface)
+        expect(drawnOf(await ui.drawn())?.text).toBe('a survey of another mod')
+        expect(await ui.find({ key: 'band' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+  }
+
+  test(
+    'the band fits 35 and 25 columns: the bar drops first, then the time',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      await start($)
+      await bandFour($, seen)
+      expect(await bandLine($, 'terminal', 35)).toBe('▶ 2 Write the tab… 4m 1/4 [ board ]')
+      expect(await bandLine($, 'terminal', 25)).toBe('▶ 2 Write…  1/4 [ board ]')
+    },
+  )
+
+  test(
+    'a press on board that the engine refuses shows one toast and logs why',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { unplacedReason: 'the terminal is too narrow' })
+      engineRows(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+      const ui = await mountBand($, 'terminal')
+      await ui.press({ key: 'band-board' })
+      await ui.unmount()
+      expect(seen.toasts).toEqual([
+        ['■ The board did not open', 'the transcript shows why', '/board list prints the tasks'],
+      ])
+      expect(seen.logs).toContain(
+        'handily-board: the board did not open from the band: the terminal is too narrow',
+      )
+    },
+  )
+})
+
+test('the board refuses a band setting it does not know, by name', () => {
+  expect(bandSetting({})).toBe('on')
+  expect(bandSetting({ band: 'off' })).toBe('off')
+  expect(() => bandSetting({ band: 'sometimes' })).toThrow(
+    'handily-board: userConfig band is "sometimes"; set it to on or off in /config.',
+  )
+})
+
+describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `the task list row counts only the tasks of Claude on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await $.tool.call({ tool: TOOL_ADD, title: 'Draw the card' })
+        const listed = await called($, seen, { tool: TOOL_LIST })
+        const marker = surface === 'terminal' ? '● ' : ''
+        expect(await callRow($, surface, useOf(listed))).toBe(`${marker}Task list  1 of 2 done`)
+      },
+    )
+
+    test(
+      `a list of only tasks for the person reads as empty to the plan note, and task_assign is no plan update, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await readsOf($, 20)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        const pane = await mountTasks($, surface)
+        expect(
+          await pane.find({ type: 'Text', text: 'No plan from Claude for 20 tool calls.' }),
+        ).toBeDefined()
+        await pane.unmount()
+        const entered = await $.prompt.submit({
+          text: 'go on',
+          wait: false,
+          origin: { kind: 'composer' },
+        })
+        expect(entered.context).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining(
+              '[handily-board] The person sees an empty task list on the board, after 20 tool calls',
+            ),
+          ]),
+        )
+      },
+    )
+
+    test(
+      `a withdraw of a task that the person answered gives Claude the answer once on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        const pane = await mountTasks($, surface)
+        await pane.input({ key: 'answer:1', text: '8443' })
+        const withdrawn = await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'removed' })
+        expect(withdrawn.result).toBe(
+          [
+            'Withdrew task 1 from the person. The person had already answered it, and no later note repeats the answer: task 1 (answer) answered "8443". The title and options are your own text, quoted as data.',
+            '',
+            'The task list is empty.',
+          ].join('\n'),
+        )
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining(['    withdrawn by Claude · answer sent']),
+        )
+        await pane.unmount()
+        expect(await board($, 'undo 1')).toBe('Task 1 was already sent to Claude. Nothing changed.')
+        expect(await notesAtNextPrompt($)).toEqual([])
+      },
+    )
+
+    test(
+      `the ask toast at the end of a turn counts only the tasks still open on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        await $.turn.start({ text: 'go', turnId: 'turn-1' })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'removed' })
+        await board($, 'done 3')
+        await $.turn.complete({
+          turnId: 'turn-1',
+          reason: 'answer',
+          answer: 'done',
+          durationMs: 1,
+          isAborted: false,
+        })
+        expect(seen.toasts).toEqual([
+          ['◆ Claude asks you', '"Which port does staging use?"', 'answer it on /board'],
+        ])
+        expect(await board($, 'answer 2 a\tb')).toBe(
+          'Not sent: the answer has a line break or a control character. Nothing changed.',
+        )
+      },
+    )
+  }
+})
+
+describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `a task for the person after the approval raises no repeat warning on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { planAnswer: APPROVED_PLAN })
+        engineRows(on)
+        await start($)
+        const call = await approve($, seen)
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        expect(await planLine($, surface, call)).toBe(
+          '  [ add 3 steps as tasks ]  adds them to the board as pending tasks',
+        )
+        const pane = await mountTasks($, surface)
+        expect(await pane.find({ type: 'Text', text: /Claude added/ })).toBeUndefined()
+        await pane.unmount()
+      },
+    )
+
+    test(
+      `a step that is empty without its marks is no step on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, {
+          planAnswer: planOf(
+            '1. Read the design\n2. ![](diagram.png)\n3. [ ] \n4. ``\n5. Test it\n',
+          ),
+        })
+        await start($)
+        await approve($, seen)
+        const pane = await mountTasks($, surface)
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            'Plan  approved · 2 numbered steps',
+            '  1 Read the design',
+            '  2 Test it',
+          ]),
+        )
+        await pane.unmount()
+        expect(await board($, 'plan')).toBe(
+          'Added tasks 1-2 from the approved plan. Claude is told at your next prompt.',
+        )
+      },
+    )
+
+    test(
+      `a band that stays drawn moves its time and turns to the warning colour at 15 minutes on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        const ui = await mountBand($, surface)
+        expect((await ui.find({ type: 'Text', text: '4m' }))?.props.dimColor).toBe(true)
+        await seen.clock.advance(12 * MINUTE)
+        expect((await ui.find({ type: 'Text', text: '16m' }))?.props.color).toBe('warning')
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `no band timer runs while the band draws no task in progress on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        const ui = await mountBand($, surface)
+        await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'pending' })
+        expect(await ui.find({ type: 'Text', text: 'next' })).toBeDefined()
+        const asked = seen.panesAsked
+        await seen.clock.advance(MINUTE)
+        expect(seen.panesAsked).toBe(asked)
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `the band follows a switch to the this machine tab at once and to another tab within 10 seconds on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        expect(await board($, '')).toBe('Board opened: this session.')
+        const tasks = await mountTasks($, surface)
+        const band = await mountBand($, surface)
+        expect(await band.find({ key: 'band' })).toBeUndefined()
+        seen.shown = MACHINE
+        const machine = await $.ui.mount({
+          plugin: PLUGIN,
+          surface,
+          component: 'Pane',
+          requestId: MACHINE,
+          props: paneProps('dock', 41),
+        })
+        await seen.clock.advance(0)
+        expect(await band.find({ key: 'band' })).toBeDefined()
+        await machine.unmount()
+        seen.shown = PANE
+        await tasks.unmount()
+        const again = await mountTasks($, surface)
+        await seen.clock.advance(0)
+        expect(await band.find({ key: 'band' })).toBeUndefined()
+        seen.shown = 'another-plugin-pane'
+        await seen.clock.advance(10_000)
+        expect(await band.find({ key: 'band' })).toBeDefined()
+        await again.unmount()
+        await band.unmount()
+      },
+    )
+  }
+
+  test('a plan lock that a failed add left behind frees itself after 10 seconds', async () => {
+    let now = 1_000
+    let plan: BoardPlan | undefined
+    let planWrites = 0
+    let list: BoardList = { tasks: [], nextId: 1 }
+    let isListBroken = true
+    const plans: PlanHost = {
+      now: () => Promise.resolve(now),
+      current: () => Promise.resolve('plan-1'),
+      read: () => Promise.resolve(plan),
+      edit: <T>(_id: string, change: (kept: BoardPlan) => { plan: BoardPlan; value: T }) => {
+        planWrites += 1
+        if (plan === undefined || (isListBroken && planWrites > 1)) {
+          return Promise.reject(new Error('the plan write failed'))
+        }
+        const changed = change(plan)
+        plan = changed.plan
+        return Promise.resolve(changed.value)
+      },
+    }
+    const refuse = () => Promise.reject(new Error('not used'))
+    const host: TaskHost = {
+      read: () => Promise.resolve(list),
+      edit: <T>(change: (kept: BoardList) => { list: BoardList; value: T }) => {
+        if (isListBroken) return Promise.reject(new Error('the list write failed'))
+        const changed = change(list)
+        list = changed.list
+        return Promise.resolve(changed.value)
+      },
+      snapshot: refuse,
+      lines: refuse,
+      tell: () => Promise.resolve(undefined),
+      expanded: refuse,
+      editExpanded: refuse,
+    }
+    plan = newPlan('plan-1', '1. Read the design\n2. Test it\n', 1)
+    const failed = await addPlanAsTasks(plans, host, 'plan-1').then(
+      () => 'added',
+      (error: unknown) => String(error),
+    )
+    expect(failed).toBe('Error: the plan write failed')
+    isListBroken = false
+    now += 1_000
+    expect((await addPlanAsTasks(plans, host, 'plan-1')).text).toBe(
+      'The approved plan is being added. Nothing changed.',
+    )
+    now += 10_000
+    expect((await addPlanAsTasks(plans, host, 'plan-1')).text).toBe(
+      'Added tasks 1-2 from the approved plan. Claude is told at your next prompt.',
+    )
+  })
+})

@@ -1289,7 +1289,7 @@ const DRAW_WORK_CRITERION =
 
 const TASKS_PER_AGENT = 20
 const ROWS_OF_ACTIVE_AGENTS = 6
-const STATE_READS_PER_DRAW = 5
+const STATE_READS_PER_DRAW = 6
 const SLOW_RUNNER_FILL_TIMEOUT_MS = 30_000
 const withRoomToFillAgents = { ...withWorkitems, timeoutMs: SLOW_RUNNER_FILL_TIMEOUT_MS }
 
@@ -1339,7 +1339,7 @@ describe(DRAW_WORK_CRITERION, () => {
   }
 
   test(
-    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 5 times from the second',
+    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 6 times from the second',
     withRoomToFillAgents,
     async ($, on) => {
       const agents = 30

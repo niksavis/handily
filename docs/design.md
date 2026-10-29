@@ -814,6 +814,157 @@ The named thresholds:
 | `CHECKS_KEPT` | 20 | The board keeps the last 20 checks. `[ last 5 checks ]` shows 5 of them |
 | `STALLED_AFTER_MS` | 900000 (15 minutes) | A task whose current run in progress is longer draws its time in the warning colour (handily-9uj3n.6). The clock keeps `runAt`, the start of the current run |
 
+#### Plan tasks, tasks for you and the band (handily-9uj3n.7, .8 and .9)
+
+The person approved the mocks on 2026-10-29, with every recommended answer of the designer. The
+approved mocks are `docs/mocks.md` 8.11 (plan tasks), 8.12 (tasks for you) and 8.13 (the band).
+Line numbers below are of the `index.d.ts` that Claude Code 2.1.312 wrote.
+
+Decisions of the person (2026-10-29):
+
+1. The sections are numbered 8.11, 8.12 and 8.13. A line in 8.0 says that the margin tags `8.10`
+   and `8.11` name handily-fwkt records, not sections.
+2. The tasks of an approved plan have the author `claude`. Claude wrote the steps and does them.
+   With the author `person`, every row would read `You:` and look like work for the person. The
+   note says that the person added them.
+3. The band shows the plan offer while an approved plan waits (8.13f). The person approves the
+   plan at the prompt, so the band is where they look, and the keyboard reaches it.
+4. The setting `band` in `userConfig` takes `on` (the default) or `off`. The engine collapse of
+   the band lasts only for the session.
+5. The band shows whenever the this session tab is not shown: `isShown` false, and also a tab
+   that waits undrawn (`isPlaced` false). The person cannot see the tasks in those states.
+6. The tasks for you on a this machine card (8.12l) are a later record, handily-nvtbc.
+7. The answers that Claude received fold under `[ +N answered ]`. They count against the limit
+   of 100 tasks, and `[ clear done ]` and `/board clear` remove them, as done tasks.
+8. The steps of a plan are the items of the first top-level numbered list with at least 2
+   items. The block shows the count and the first two steps, so a wrong pick shows before the
+   press. A list under a heading named "Steps" was the rejected choice, because it is fragile.
+9. After the approval, when Claude adds tasks with `task_add`, the button stays and a warning
+   line says that the steps may repeat (8.11f). The board never removes a repeat by itself.
+10. An answer is one line of at most 1000 characters. The control and bidi rules of
+    `titleRefusal` refuse it by name.
+
+A word for a stalled time in the band and the header is a later record, handily-y8t3v.
+
+Source of an approved plan (handily-9uj3n.7):
+
+- The plan text arrives in the tool result, not in the input.
+  `BuiltinToolInputs.ExitPlanMode` holds only the deprecated `allowedPrompts`.
+  `BuiltinToolResults.ExitPlanMode` (`claude-code-tools/index.d.ts`) holds `plan: string | null`,
+  `isAgent`, `filePath`, `planWasEdited`, `awaitingLeaderApproval` and `requestId`.
+- The board hooks `tool.call` on `ExitPlanMode` and awaits `next(e)`, which runs the approval
+  dialog. A result that is not an error and not a deny, from the main loop (no `agentId`), that
+  is an object with a string `plan`, `isAgent` false and `awaitingLeaderApproval` not true, is an
+  approved plan. When the person edits the plan, the result carries the edited text.
+- Measured on Claude Code 2.1.312, interactive, in plan mode (handily-9uj3n.7 probe):
+  - Approved: the tool result has no error. Its record is
+    `{"plan": "1. Create a.txt\n2. Create b.txt\n3. Create c.txt\n", "isAgent": false, "filePath": …}`.
+  - Rejected, with "Tell Claude what to change" or with Esc: the tool result is an error. Its
+    text starts `The user doesn't want to proceed with this tool use.`, and its record is the
+    string `User rejected tool use`, with no `plan` field.
+  - So an errored call or a result that is not an object gets no offer. The tests use these
+    shapes as fixtures.
+- A fallback source carries only a path: `prompt.attachment` with `plan_mode_exit` gives
+  `planFilePath` and `hasPlan`. The board does not use it.
+- The transcript button goes on the `ToolResult` row of the call. `ui.render` allows "return it,
+  wrap it", so the board draws `next(e)` and its line under it. The `UiFocusComponent` is
+  `'Pane' | 'AbovePrompt'`, so a terminal person can only click the transcript button. The
+  keyboard paths are the Plan block of the pane, the band and `/board plan`.
+- A toast cannot hold a button: the `ui.toast` argument is `{ text, timeoutMs }`.
+- Claude often goes on in the same turn after the approval and can call `task_add` itself. The
+  warning of decision 9 covers that.
+
+Tasks for you (handily-9uj3n.8):
+
+- A task for the person is a task of the shared list with `for: 'person'` and a `kind` (`do`,
+  `answer` or `decide`). It shares the ids and the limit of 100 tasks. The Tasks section, its
+  header, the band and the this machine card count only the other tasks.
+- The result of the person (`done`, `answered`, `chose` or `rejected`) is kept on the task, with
+  `isSent` false. The next prompt that enters marks every unsent result as sent in one state
+  update, and carries one note with the list changes of 8.6 and the answers. A prompt that is
+  dropped or fails marks them unsent again. `[ undo ]` and `/board undo` clear an unsent result
+  in one update of the list, so an undo never races a prompt. This differs from the designer's
+  sketch, which queued each result in `personChanges`. There an undo had to change two state
+  keys, and a prompt between the two writes could send an answer that the person had undone.
+- `task_update` with the status `removed` withdraws a task for the person. The row stays, dim,
+  as `withdrawn by Claude`, until the next prompt removes it. Any other status is refused by
+  name. `task_move` refuses a task for the person.
+- A withdraw of a task that the person answered, before the next prompt sent the answer,
+  carries the answer in the `task_update` answer, once (review of 2026-10-29). The row reads
+  `withdrawn by Claude · answer sent`. A refused withdraw was the other choice. It would block
+  Claude on a task that it no longer needs, and Claude would still not have the words.
+- `task_assign` and `task_list` do not count as a plan update for the plan warning, because
+  they do not change the own list of Claude. Only the own tasks count for the empty-list note,
+  the task list row, the `Tasks` header, the band and the this machine card. `listSummary` in
+  `hooks/progress.ts` gives the card and the stored progress the same counts.
+- `task_assign` refuses a call from a subagent, because a subagent has its own list, which the
+  person does not see.
+
+The band (handily-9uj3n.9):
+
+- `AbovePrompt` has `hasSurvey` ("a hook yields to it"), `isWorking`, `maxRows`, `bodyColumns`
+  and `view`. `bodyColumns` is the width of the column less the 5 columns of the engine's `[-]`.
+  The band is raised on the terminal and desktop surfaces only.
+- Hooks of one event nest by tier: `prepend`, `user`, `append`, `builtin`, `core`. The types do
+  not give the order of two user plugins.
+- A bare digit typed into an empty prompt presses a band Button that has a `hotkey`. So the band
+  button has no hotkey, and a test checks it.
+- The yield rule: the board returns `next(e)` when the setting is off, a survey holds the band,
+  the this session tab is shown or nothing waits. Otherwise it awaits `next(e)`. Only an engine
+  element (`{ type: 'engine' }`) beneath gets the board's line. Any other drawing beneath is
+  returned unchanged, so the board never covers another band mod.
+- A call of a plugin on its own `$.ui.open` or `$.ui.close` runs only the hooks beneath it, so
+  the board never sees its own opens. The board counts each open and close of its panes in the
+  state key `paneChanges`. Only the band reads that key, so a change draws the band again and
+  not the pane.
+- The band draws again every 10 seconds while it shows a task in progress, so its time moves
+  and turns to the warning colour at 15 minutes. While it shows no task in progress, it runs no
+  timer (review of 2026-10-29).
+- The engine raises no event when the person switches tabs: no `ui.*` event names a tab, and
+  `isShown` is read only through `$.ui.panes()`. So the band follows what the board can see. A
+  render of the this session pane or of the this machine pane after a switch counts a pane
+  change at once. A switch from the this session tab to the tab of another plugin shows the band
+  at the next tick of the redraw of the board panes, so within 10 seconds. This bound is
+  measured in the test kit only.
+
+Probes that are still open, each with a safe path in the code:
+
+- What `next(e)` returns in an `AbovePrompt` render when no hook beneath draws. The test kit
+  of Claude Code 2.1.312 has no drawing of its own: a mount with no test hook beneath fails with
+  `no implementation for ui.render`. So the tests answer with an engine element, as the
+  transcript row tests do. If the live engine returns another shape, the board yields and
+  draws no band.
+- The order of two user plugins on the band. Two band mods that each yield to the other draw
+  nothing. A second dummy band plugin in tmux can measure it.
+
+Repairs of the plan offer (review of 2026-10-29):
+
+- A step that is empty after the markdown marks are removed, such as an image or an empty
+  check box, is no step and does not count toward the 2 items.
+- The warning about tasks that Claude added after the approval counts only the own tasks of
+  Claude, so a task for the person raises no warning.
+- A press locks the plan with the time of the press (`lockedAt`). A lock older than 10 seconds
+  is free, so a write that fails or a reload between the lock and the result cannot keep the
+  plan "being added" for ever.
+
+Failure modes:
+
+- Claude never reads the new tasks in the turn of the approval. It sees them at the next prompt,
+  or in its next task tool answer, which returns the whole list.
+- Plan text is model text. A step can imitate an author or hold a bidi character. A step goes
+  through the rule of `titleRefusal`, and what the model reads quotes it with `JSON.stringify`.
+  The answers of the person are quoted too.
+- A keyboard person cannot press the transcript button. The pane, the band and `/board plan` are
+  the keyboard paths, and the README says so.
+- The stalled time differs from a normal time only by its colour. Under `NO_COLOR` or a red and
+  green colour blindness it is lost (handily-y8t3v).
+- On the mobile app there is no band and no Input. An answer goes through `/board answer`, and
+  the row says so (8.12k).
+- With `-p` nothing draws. The tools and the notes still work, so Claude can assign a task that
+  nobody sees.
+- Undo after the answer was sent is impossible, and the button is gone. A person who answered
+  wrongly tells Claude in the prompt.
+
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
 The person approved the design on 2026-10-27 (handily-5zzxk.2). reply-view draws the tables,

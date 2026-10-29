@@ -839,6 +839,8 @@ Measured facts (tmux, Claude Code 2.1.296):
   exists to find what waits elsewhere; this session already has its own tab.
 - Record tags right of a frame: `8.10` = handily-fwkt.8.10 (needs-you signal), `8.11` =
   handily-fwkt.8.11 (agents of other sessions: current task and done/total only, no current tool).
+- The record tags `8.10` and `8.11` right of a frame name the records handily-fwkt.8.10 and
+  handily-fwkt.8.11. They do not name the sections 8.10 and 8.11 of this document.
 
 ### 8.1 Release 1: without 8.10 and 8.11
 
@@ -1349,8 +1351,10 @@ Mobile (no `Input`): the input row becomes `Add tasks with /board add <text>.`
 /board frob              -> Unknown argument "frob". Use /board, /board machine, /board add <text|id>,
                             /board rm <n>, /board mv <n> before <m>|top|bottom,
                             /board edit <n> <title>, /board done <n>, /board start <n>,
-                            /board open <n>, /board clear, /board list, /board stats or
-                            /board close.
+                            /board open <n>, /board answer <n> <text>,
+                            /board pick <n> <option>, /board reject <n> [reason],
+                            /board undo <n>, /board plan, /board clear, /board list,
+                            /board stats or /board close.
 /board  (not placed)     -> Board opened, but this session does not show it yet: <reason>
                             /board list prints the tasks.
 /board list              -> the task list as text (as /task printed it; mobile and a closed board)
@@ -1798,6 +1802,726 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
   Session line of the board says `high` from 80 percent. When nothing waits, the board sets no
   status line.
 - With the setting `statusLine` at `off`, the board sets no status line.
+
+### 8.11 to 8.13: plan tasks, tasks for you and the band (approved 2026-10-29)
+
+Approved by the person on 2026-10-29, with every recommended answer of the designer. The
+decisions, the engine sources and the failure modes are in docs/design.md section 4.9, under
+"Plan tasks, tasks for you and the band". The blocks follow 8.0. The colour of a line is named
+right of the frame. `NEW` marks a new line. `(engine)` marks what Claude Code draws. In
+transcript lines, `~dim~` marks dim text, and `#…#`, `+…+` and `!…!` mark the error, success and
+warning colours.
+
+Width check (2026-10-29): a script of the designer measured every framed line. Each line is
+as wide as its frame (body 41, 30 or 76), and each band line is 80 columns.
+
+### 8.11 Add an approved plan as tasks (handily-9uj3n.7)
+
+When the person approves a plan of Claude with numbered steps, the board offers the steps as tasks.
+It adds nothing by itself.
+
+- **Source.** The `tool.call` of `ExitPlanMode`, after `next(e)`. The result holds `plan`, and
+  `isError`, `isAgent` and `awaitingLeaderApproval` are not set.
+- **Steps.** The items of the first top-level numbered list that has at least 2 items. Markdown
+  marks are removed, and runs of spaces become one space. A step over 200 characters is cut to 199
+  characters and `…`.
+- **Where the offer shows.**
+  - Under the plan row in the transcript (click only).
+  - As a Plan block in the pane.
+  - Through `/board plan`.
+- **Effect.** A press adds every step as a pending task, in order, at the end of the list, with the
+  author `claude`. One note for Claude follows at the next prompt.
+
+#### 8.11a The transcript, 80 columns: the line under the approved plan row
+
+```text
+  (engine: the approved plan row, as Claude Code draws it)
+     1. Read the design and the board sections
+     2. Map the hooks that draw the pane
+     …
+  [ add 5 steps as tasks ]  ~adds them to the board as pending tasks~        NEW
+```
+
+The same line in its other states:
+
+```text
+  +✓+ ~added as tasks 3-7~                                          pressed; also after the pane or /board plan
+  [ add 5 steps as tasks ]  #■ not added:# room for 3 of 5 steps    refused; the button stays for a retry
+  [ add 5 steps as tasks ]  !Claude added 4 tasks after this plan!  warning: the steps may repeat
+  ~○ a later plan replaced this one~                                an older plan; no button
+```
+
+- Some plans get no line at all. The engine row is drawn unchanged (`next(e)`) for:
+  - a rejected plan;
+  - a plan with no numbered list;
+  - a plan of a subagent (`isAgent`);
+  - a plan that waits for a team leader (`awaitingLeaderApproval`);
+  - a `plan` of null.
+- At a narrow width the dim text is cut first. The button never cuts.
+- The line stays when ctrl+o expands the row (`isExpanded`), because it is an action, not a compact
+  row.
+
+#### 8.11b Docked, body 41: the Plan block above the tasks
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 34% · $1.20 · turn +$0.40    │
+│ Plan  approved · 5 numbered steps         │  NEW
+│   1 Read the design and the board…        │  NEW, steps dim
+│   2 Map the hooks that draw the pane      │  NEW
+│   … 3 more steps                          │  NEW
+│   [ add 5 as tasks ]  [ dismiss ]         │  NEW
+│ Tasks  ▰▱ 1/2 · ○1 · 9m                   │
+│ ○ 2 You: Check the narrow dock     [ rm ] │
+│ [ +1 done ]                               │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.11c `[ add 5 as tasks ]` pressed: the block goes, and five pending tasks appear (no toast)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 34% · $1.20 · turn +$0.40    │
+│ Tasks  ▰▱▱▱▱▱▱ 1/7 · ○6 · 9m              │
+│ ○ 2 You: Check the narrow dock     [ rm ] │
+│ ○ 3 Read the design and the board… [ rm ] │  NEW task, author claude
+│ ○ 4 Map the hooks that draw the p… [ rm ] │  NEW
+│ ○ 5 Draw the plan line in the pane [ rm ] │  NEW
+│ ○ 6 Test the plan line at 30, 41…  [ rm ] │  NEW
+│ ○ 7 Bump the version and write th… [ rm ] │  NEW
+│ [ +1 done ]                               │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.11d Empty list (session start in plan mode): the Plan block comes before the tracker items
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 12% · $0.40 · last +$0.40    │
+│ Plan  approved · 5 numbered steps         │  NEW
+│   1 Read the design and the board…        │  NEW
+│   2 Map the hooks that draw the pane      │  NEW
+│   … 3 more steps                          │  NEW
+│   [ add 5 as tasks ]  [ dismiss ]         │  NEW
+│ Tasks  none in this session yet           │
+│ Open in tracker: basicly · 29 open        │
+│ P1 handily-ab12 Draw text mocks … [ add ] │
+│ [ all 29 open ]  [ Add 10 as tasks ]      │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.11e Refused: the list has no room (nothing is added)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Plan  approved · 5 numbered steps         │
+│   1 Read the design and the board…        │
+│   2 Map the hooks that draw the pane      │
+│   … 3 more steps                          │
+│   ■ not added: room for 3 of 5 steps      │  NEW: ■ and "not added" in error
+│   /board clear removes 2 done tasks       │  NEW
+│   [ add 5 as tasks ]  [ dismiss ]         │
+│ Tasks  ▰▰▱▱▱▱▱▱ 2/98 · ▶1 ○95 · 3h        │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.11f A long plan, and Claude already added tasks after the approval
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Plan  approved · 14 numbered steps        │
+│   1 Read the design and the board…        │
+│   2 Map the hooks that draw the pane      │
+│   … 12 more steps                         │
+│   Claude added 4 tasks after the plan.    │  NEW, warning colour
+│   Adding it may repeat them.              │  NEW, warning colour
+│   [ add 14 as tasks ]  [ dismiss ]        │
+│ Tasks  ▱▱▱▱ 0/4 · ▶1 ○3 · 2m              │
+╰───────────────────────────────────────────╯
+```
+
+- The Plan block shows only the latest approved plan that is not yet added or dismissed. A new
+  approval replaces it.
+- `[ dismiss ]` hides the block only. The transcript button stays.
+
+#### 8.11g Docked, body 30
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │  (engine tab row)
+│ Session  ctx 34% · $1.20       │
+│ Plan  approved · 5 steps       │  NEW
+│   1 Read the design and t…     │  NEW
+│   2 Map the hooks that dr…     │  NEW
+│   … 3 more steps               │  NEW
+│   [ add 5 as tasks ]           │  NEW
+│   [ dismiss ]                  │  NEW
+│ Tasks  ▰▱ 1/2 · ○1 · 9m        │
+│ ○ 2 You: Check the nar… [ rm ] │
+│ [ +1 done ]                    │
+│                                │
+│ [ Add a task ___ ][Add]        │
+╰────────────────────────────────╯
+```
+
+Below 36 columns, `numbered` drops and the buttons take one line each.
+
+#### 8.11h Inline above the prompt, 80 columns (body 76)
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ Session  ctx 34% ▰▰▰▱▱▱▱▱▱▱ · $1.20 · turn +$0.40                            │
+│ Plan  approved · 5 steps: Read the design and the board sections, +4         │  NEW
+│   [ add 5 as tasks ]  [ dismiss ]                                            │  NEW
+│ Tasks  ▰▱ 1/2 · ○1 · 9m                                                      │
+│ ○ 2 You: Check the narrow dock                                        [ rm ] │
+│ [ +1 done ]                                                                  │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.11i Desktop app, body 41 (native buttons)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tabs)
+│ Session  ctx 34% · $1.20 · turn +$0.40    │
+│ Plan  approved · 5 numbered steps         │  NEW
+│   1 Read the design and the board…        │
+│   2 Map the hooks that draw the pane      │
+│   … 3 more steps                          │
+│   [add 5 as tasks]  [dismiss]             │  native buttons; "add" primary
+│ Tasks  ▰▱ 1/2 · ○1 · 9m                   │
+│ ○ 2 You: Check the narrow dock     [rm]   │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+- The transcript line draws a native button on the desktop too, because `ToolResult` is raised on
+  every surface. The mobile app has buttons but no band, and `/board plan` works there.
+
+#### 8.11j Replies and toasts
+
+```text
+/board plan               -> Added tasks 3-7 from the approved plan. Claude is told at your next prompt.
+/board plan (cut step)    -> Added tasks 3-7 from the approved plan. Step 4 was cut to 200 characters.
+                             Claude is told at your next prompt.
+/board plan (none)        -> No approved plan with numbered steps in this session. Nothing changed.
+/board plan (again)       -> The approved plan is already tasks 3-7. Nothing changed.
+/board plan (full)        -> Not added: the plan has 5 steps and the list has room for 3 of 100 tasks,
+                             and 2 of them are done. Run /board clear to remove the done tasks, or
+                             remove one first.
+/board plan (bad step)    -> Not added: step 3 has a bidi control character. Nothing changed.
+```
+
+The note for Claude: `it added tasks 3, 4, 5, 6, 7 from the approved plan.`, then the list, as in
+8.6.
+
+```text
+■ Plan not added                                       10000 ms  (full; pressed in the transcript)
+room for 3 of 5 steps
+/board clear removes 2 done tasks
+
+■ Plan not added                                       10000 ms  (a step breaks the title rule)
+step 3 has a bidi control character
+ask Claude to write the plan again
+
+○ Nothing changed                                       6000 ms  (pressed twice, or a race)
+the plan is already tasks 5-9
+
+○ Nothing changed                                       6000 ms  (an older plan, pressed in a race)
+a later plan replaced this one
+```
+
+A successful add shows no toast (ftx0x.4): the transcript line and the pane both show the change.
+
+### 8.12 Tasks for you (handily-9uj3n.8)
+
+Claude assigns a task to the person, of the kind `do`, `answer` or `decide`. The person marks it
+done, answers it, picks an option or rejects it. Every result waits for the next prompt, as a change
+of 8.6 does. The next prompt carries one note with all of them.
+
+- The section `For you` comes first, above `Tasks`: attention first (8.0).
+- `◆` marks an open task (it waits for you). `✓` marks done, answered or decided, in `success`. `■`
+  with the word `rejected` is in `error`.
+- With no task for you, the section is absent. The tab looks as in 8.10b.
+
+#### 8.12a Docked, body 41: three open tasks for you
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 48% · $2.10 · turn +$0.22    │
+│ For you  ◆ 3 open                         │  NEW: ◆ and "open" in warning
+│ ◆  8 do      Rotate the staging API key   │  NEW
+│     [ done ] [ reject ]                   │  NEW
+│ ◆  9 answer  Which port does staging use? │  NEW
+│     [ Your answer ________ ][Send]        │  NEW
+│     [ reject ]                            │  NEW
+│ ◆ 10 decide  Which cache store for now?   │  NEW
+│     [ Postgres ] [ SQLite ] [ Redis ]     │  NEW
+│     [ reject ]                            │  NEW
+│ ───────────────────────────────────────── │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│ ○ 3 Review the mocks with Codex    [ rm ] │
+│ [ +1 done ]                               │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+The task ids pad to the widest id in the section, so the kind and the title line up. The kind word
+is dim.
+
+#### 8.12b Three answered, before the next prompt (each can be undone)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 1 open · 3 to send             │  NEW
+│ ◆ 10 decide  Which cache store for now?   │  open first
+│     [ Postgres ] [ SQLite ] [ Redis ]     │
+│     [ reject ]                            │
+│ ✓  8 do      Rotate the staging API key   │  ✓ in success
+│     done, to send                [ undo ] │  NEW
+│ ✓  9 answer  Which port does staging use? │
+│     "8443", to send              [ undo ] │  the answer in bold
+│ ■ 11 do      Delete the old bucket        │  ■ in error
+│     rejected: "not my call", to… [ undo ] │  "rejected" in error
+│ Claude gets them with your next prompt.   │  NEW, dim
+│ ───────────────────────────────────────── │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12c `[ reject ]` pressed: an optional reason, so one press cannot reject
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ◆  9 answer  Which port does staging use? │
+│     [ Your answer ________ ][Send]        │
+│     [ reject ]                            │
+│ ◆ 11 do      Delete the old bucket        │  [ reject ] pressed
+│     [ Why? optional ______ ][Reject]      │  NEW
+│     [ cancel ]                            │  NEW
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12d After the next prompt: sent, folded
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ✓ all 4 answered                 │  NEW, in success
+│ [ +4 answered ]                           │  NEW
+│ ───────────────────────────────────────── │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
+╰───────────────────────────────────────────╯
+```
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ✓ all 4 answered                 │
+│ [ hide 4 answered ]                       │
+│ ✓  8 do      Rotate the staging API key   │  sent: no undo
+│     done                                  │
+│ ✓  9 answer  Which port does staging use? │
+│     "8443"                                │
+│ ✓ 10 decide  Which cache store for now?   │
+│     chose "SQLite"                        │
+│ ■ 11 do      Delete the old bucket        │
+│     rejected: "not my call"               │
+│ [ clear done ]                            │  also clears answered
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12e Withdrawn by Claude, and a refused answer (shown on the row, no toast)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 2 open                         │
+│ ○  9 answer  Which port does staging use? │  dim
+│     withdrawn by Claude                   │  NEW, dim
+│ ◆ 10 decide  Which cache store for now?   │
+│     [ Postgres ] [ SQLite ] [ Redis ]     │
+│     [ reject ]                            │
+│ ◆ 12 answer  Which region for the probe?  │
+│     [ Your answer ________ ][Send]        │
+│     ■ not sent: the answer is empty       │  NEW: ■ and "not sent" in error
+│     [ reject ]                            │
+╰───────────────────────────────────────────╯
+```
+
+- The withdrawn row stays until the person's next prompt, so they see why it went.
+- A task that the person answered before the withdraw reads `withdrawn by Claude · answer
+  sent`. The answer of `task_update` gave Claude the answer once.
+- Other refusals on that line:
+  - `■ not sent: the answer has 1001 characters; the limit is 1000`
+  - `■ not sent: the answer has a line break or a control character`
+
+#### 8.12f Many: 6 open; at most 3 are drawn before the fold, so the tasks stay on screen
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 48% · $2.10 · turn +$0.22    │
+│ For you  ◆ 6 open                         │
+│ ◆  8 do      Rotate the staging API key   │
+│     [ done ] [ reject ]                   │
+│ ◆  9 answer  Which port does staging use? │
+│     [ Your answer ________ ][Send]        │
+│     [ reject ]                            │
+│ ◆ 10 decide  Which cache store for now?   │
+│     [ Postgres ] [ SQLite ] [ Redis ]     │
+│     [ reject ]                            │
+│ [ +3 more for you ]                       │  NEW
+│ ───────────────────────────────────────── │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+│                                           │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12g A cut title and a long option, pressed open
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ◆ 10 decide  Pick the cache store for t…  │  pressed open
+│     Pick the cache store for the          │  NEW: full title, wrapped
+│     staging probe                         │
+│     asked 3m ago · options by Claude      │  NEW, dim
+│     [ Postgres ] [ SQLite ]               │
+│     [ Redis ] [ No cache at all, an… ]    │  an option cut at 20
+│     [ reject ]                            │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12h Docked, body 30
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │  (engine tab row)
+│ Session  ctx 48% · $2.10       │
+│ For you  ◆ 3 open              │
+│ ◆  8 do     Rotate the stag…   │
+│     [ done ] [ reject ]        │
+│ ◆  9 answer Which port does…   │
+│     [ Answer ___ ][Send]       │
+│     [ reject ]                 │
+│ ◆ 10 decide Which cache sto…   │
+│     [ Postgres ] [ SQLite ]    │
+│     [ Redis ]                  │
+│     [ reject ]                 │
+│ ────────────────────────────── │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m  │
+│ ▶ 2 Write the tab… 4m [ rm ]   │
+╰────────────────────────────────╯
+```
+
+The options wrap; they never cut below 20 characters. The kind column loses its second space.
+
+#### 8.12i Inline, 80 columns (body 76): one line for each task
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │  (engine tab row)
+│ Session  ctx 48% ▰▰▰▰▰▱▱▱▱▱ · $2.10 · turn +$0.22                            │
+│ For you  ◆ 3 open                                                            │
+│ ◆  8 do      Rotate the staging API key                  [ done ] [ reject ] │
+│ ◆  9 answer  Which port does staging use?     [ Answer __ ][Send] [ reject ] │
+│ ◆ 10 decide  Which cache s…     [ Postgres ] [ SQLite ] [ Redis ] [ reject ] │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m                                                │
+│ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
+│ ○ 3 Review the mocks with Codex                                       [ rm ] │
+│ [ +1 done ]                                                                  │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+A title is cut before a button; a press on the title opens it, as in 8.12g.
+
+#### 8.12j Desktop app, body 41
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tabs)
+│ Session  ctx 48% · $2.10 · turn +$0.22    │
+│ For you  ◆ 3 open                         │
+│ ◆  8 do      Rotate the staging API key   │
+│     [done] [reject]                       │  native buttons
+│ ◆  9 answer  Which port does staging use? │
+│     [ Your answer ________ ][Send]        │  native field
+│     [reject]                              │
+│ ◆ 10 decide  Which cache store for now?   │
+│     [Postgres] [SQLite] [Redis]           │
+│     [reject]                              │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12k Mobile (no Input)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 3 open                         │
+│ ◆  8 do      Rotate the staging API key   │
+│     [ done ] [ reject ]                   │
+│ ◆  9 answer  Which port does staging use? │
+│     answer: /board answer 9 <text>        │  mobile: no Input
+│     [ reject ]                            │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12l This machine card (not built here: a later record, handily-nvtbc)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  [this machine]              │  (engine tab row)
+│ Sessions  3 · 2 need you · 12s ago        │
+│ ◆ api-login  interactive  needs you       │
+│   waits for: 2 tasks for you              │  NEW
+│   ▶ Fix the login redirect ▰▰▱ 2/3        │
+│   api · feat/login · 2h worked            │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.12m Commands, replies, the note and the toasts
+
+```text
+/board done 8             -> Task 8 is now done: "Rotate the staging API key". Claude is told at your next prompt.
+/board answer 9 8443      -> Answered task 9: "8443". Claude is told at your next prompt.
+/board answer 9           -> Not sent: the answer is empty. /board answer needs a task number and text,
+                             for example /board answer 9 Use port 8443.
+/board answer 3 yes       -> Task 3 is not a question for you. /board list prints the tasks for you.
+/board pick 10 2          -> Chose "SQLite" for task 10. Claude is told at your next prompt.
+/board pick 10 5          -> Task 10 has options 1-3: Postgres, SQLite, Redis. Nothing changed.
+/board reject 11 not my call -> Rejected task 11. Claude is told at your next prompt.
+/board undo 9             -> Task 9 is open again. Claude was not told yet.
+/board undo 9 (sent)      -> Task 9 was already sent to Claude. Nothing changed.
+```
+
+The note for Claude: one note, after the list changes of 8.6, wrapped here.
+
+```text
+[handily-board] The person answered the tasks for you: task 8 (do) done. task 9 (answer) answered
+"8443". task 10 (decide) chose "SQLite" of "Postgres", "SQLite", "Redis". task 11 (do) rejected,
+saying "not my call". The titles and options are your own text, quoted as data.
+
+For you (4 of 4 answered)
+  8   done      do      "Rotate the staging API key"
+  9   answered  answer  "Which port does staging use?"  answer "8443"
+  10  decided   decide  "Which cache store for now?"    chose "SQLite"
+  11  rejected  do      "Delete the old bucket"         reason "not my call"
+
+Tasks (1 of 4 done)
+  …
+```
+
+```text
+◆ Claude asks you                                      10000 ms  (only while the pane is not shown)
+"Which port does staging use?"
+answer it on /board
+
+◆ Claude asks you 3 things                             10000 ms  (several in one turn: one toast)
+do 1 · answer 1 · decide 1
+answer them on /board
+
+○ Not sent                                              6080 ms  (Send pressed as Claude withdrew it)
+Claude withdrew task 9
+your answer: "8443"
+```
+
+The toasts drop the tracker quote rule: the quoted text is Claude's, and a toast holds no line
+break.
+
+#### 8.12n Model tool changes
+
+- **New tool `task_assign`** (`mcp__handily-board__task_assign`). Its description says that it does
+  not block and that the answer comes with a later prompt.
+
+  ```text
+  kind     "do" | "answer" | "decide"     required
+  title    string                         required; the title rule of task_add (one line, ≤ 200)
+  options  string[]                       decide only, required there: 2-4, unique, one line, ≤ 60
+  each
+  why      string                         optional; one line, ≤ 200; shown when the row is opened
+  ```
+
+  - The answer: `Assigned task 8 to the person (do). The result comes with a later prompt; do not
+    wait for it in this turn.`, then the whole list.
+  - Refused by name:
+    - `options` on a kind other than decide;
+    - fewer than 2 or more than 4 options;
+    - two options that are equal;
+    - a call from a subagent: `task_assign works only in the main loop; tell the main agent what you
+      need`;
+    - more than 20 open tasks for you.
+- **`task_update`.**
+  - On a task for the person, only `status: "removed"` is accepted. It withdraws the task.
+  - Any other status is refused: `Task 8 is for the person; only the person can finish it. Use
+    status removed to withdraw it.`
+- **`task_list` and every task tool answer** gain the `For you` block shown above the `Tasks` block.
+- **`task_move`** refuses a task for the person. Their order is the order in which they were asked.
+- **`types/index.d.ts`.** `BoardTask` gains `for?: 'person'`, `kind?: 'do' | 'answer' | 'decide'`,
+  `options?: readonly string[]`, `why?: string` and `result?: { verb: 'done' | 'answered' | 'chose'
+  | 'rejected'; text: string | null; at: number; isSent: boolean }`.
+  - The result stays on the task, with `isSent` false, until the next prompt sends it. docs/design.md
+    4.9 says why the result is not queued in `personChanges`.
+  - Tasks for the person share the id space and the limit of 100.
+  - `askedAt` keeps the time of the ask for the opened row, and `isWithdrawn` keeps a withdrawn
+    row until the next prompt.
+
+### 8.13 The task band above the prompt (handily-9uj3n.9)
+
+The band shows one line while the this session tab is not shown and the list has an open task. A
+pending or in-progress task is open; a done task is not.
+
+- The band body is `bodyColumns` wide. The engine keeps 5 more columns for `[-]`. The prompt box of
+  Claude Code follows the band.
+- **Left part:** the attention count, then the current task. The task is the first one in progress,
+  or else the first pending task with the dim word `next`.
+- **Right part, never cut:** the time, the bar, `done/total` and `[ board ]`.
+- **What is cut first:** the title. Below 50 columns the bar drops; below 30 the time drops. The
+  mark, the id, `done/total` and the button stay.
+
+#### 8.13a 80 columns (body 75), one task in progress
+
+```text
+▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ] [-]
+```
+
+#### 8.13b No task in progress: the next pending task
+
+```text
+○ 3 Review the mocks with Codex                     next ▰▰▱▱ 1/4 [ board ] [-]
+```
+
+#### 8.13c Two tasks in progress
+
+```text
+▶ 2 Write the tab mocks · +1 in progress              4m ▰▰▱▱ 1/4 [ board ] [-]
+```
+
+#### 8.13d A stalled task (over 15 minutes, as 8.2d3)
+
+```text
+▶ 2 Write the tab mocks                              16m ▰▰▱▱ 1/4 [ board ] [-]    16m in warning
+```
+
+#### 8.13e Open tasks for you (with 9uj3n.8): attention first
+
+```text
+◆ 3 for you · ▶ 2 Write the tab mocks                 4m ▰▰▱▱ 1/4 [ board ] [-]    ◆ and "for you" in warning
+```
+
+#### 8.13f An approved plan not yet added (with 9uj3n.7)
+
+```text
+Plan  approved · 5 steps  [ add 5 as tasks ]                      [ board ] [-]
+```
+
+#### 8.13g Narrow: 40 columns (body 35) and 30 columns (body 25)
+
+```text
+▶ 2 Write the tab… 4m 1/4 [ board ] [-]
+◆ 3 for you ▶ 2 Writ… 1/4 [ board ] [-]
+▶ 2 Write…  1/4 [ board ] [-]
+```
+
+#### 8.13h The band has the keyboard (ctrl+x tab): the focus inverts the button
+
+```text
+▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [▌board ] [-]    focus: inverted
+```
+
+#### 8.13i Beside the docked files pane, 120 columns (the band body is the transcript width less 5)
+
+```text
+▶ 2 Write the tab mocks                          4m ▰▰▱▱ 1/4 [ board ] [-]
+```
+
+#### 8.13j Desktop app
+
+```text
+▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [board]   [-]    native button
+```
+
+#### 8.13k When the band draws nothing of its own
+
+| Case | What shows |
+| --- | --- |
+| The this session tab is shown, docked or inline | nothing (`next(e)`) |
+| The list is empty | nothing |
+| Every task is done | nothing; the header of the pane keeps `✓ all N done` |
+| A survey holds the band (`hasSurvey`) | the survey |
+| A plugin beneath the board draws the band | that plugin's drawing; the board yields |
+| The person collapsed the band (`[-]`, ctrl+x ctrl+a) | the engine's collapsed band |
+| The mobile app, or `-p` with no surface | no band |
+
+**How the board yields to other band mods.**
+
+1. When `hasSurvey` is true, the tab is shown, or no task is open, the board returns `next(e)`.
+2. Otherwise it awaits `next(e)`. When a hook beneath drew anything, it returns that drawing
+   unchanged. It never stacks, and it never wraps a line around another mod.
+3. Only an empty result beneath gets the board's line.
+
+A hook above the board (an earlier user plugin, or a managed tier) gets the board's line from its
+own `next(e)` and decides by the same rule. Two open facts need a probe:
+
+- What `next(e)` returns when no hook beneath draws (an empty Box?).
+- The order between two user plugins. The types state the tiers only.
+
+**Press.** `[ board ]` acts as `/board`: it opens the this session tab with `focus`. The band then
+goes, because the tab is shown, and the keyboard is in the pane. A press is the person's own input,
+so the pane is placed at any width.
+
+**Error toast.**
+
+```text
+■ The board did not open                               10000 ms  ([ board ] pressed; ui.open refused)
+the transcript shows why
+/board list prints the tasks
+```
+
+#### 8.13l Keys and commands of 8.11 to 8.13
+
+| Action | Key or command | Without a pointer |
+| --- | --- | --- |
+| Add a plan as tasks | `[ add 5 as tasks ]` in the pane; `/board plan` | ctrl+x tab, or `/board`; Tab to the button, then Enter. The transcript button is click only (`UiFocusComponent`, `:14890`) |
+| Dismiss the Plan block | `[ dismiss ]` | Tab, then Enter |
+| Mark a task for you done | `[ done ]`; `/board done <n>` | Tab, then Enter |
+| Answer | the Input and `Send`; `/board answer <n> <text>` | Tab into the field, type, Enter |
+| Decide | an option button; `/board pick <n> <option number>` | Tab, then Enter |
+| Reject | `[ reject ]`, then the reason field and `Reject`; `/board reject <n> [reason]` | Tab, Enter, type, Enter; `[ cancel ]` or Esc leaves the field |
+| Undo before the next prompt | `[ undo ]`; `/board undo <n>` | Tab, then Enter |
+| Open the board from the band | `[ board ]`; `/board` | ctrl+x tab puts the keyboard on the band (the pane is closed), then Enter |
+| Hide the band | the engine's `[-]` or ctrl+x ctrl+a; `userConfig` `band` set to `off` | ctrl+x ctrl+a |
+
+- **Focus.**
+  - In the pane, the focus follows reading order. The Plan block comes before the tasks. A task for
+    you has its title, then its buttons or its field, then `[ reject ]`.
+  - After Send or a press, the row redraws, and the engine keeps the ring at the same index (README,
+    Keyboard). So the focus lands on the next control. The mod asks for no focus.
+  - On the band, Tab reaches `[ board ]` alone.
+- **No hotkeys.** Section 8.7 holds. A digit hotkey on the band would press it from an empty prompt
+  (`:1115-1124`), so a person who starts a prompt with "1" would open the board.
+- **Screen reader and `/board list`.**
+  - `/board list` prints the For you block and an offered plan as text.
+  - The band line reads as text. The bar glyphs read poorly, but `1/4` carries the same fact.
+- **`NO_COLOR`.** Every state has a mark and a word: `◆ open`, `✓ done`, `■ rejected`, `■ not
+  added`, `■ not sent`, `next`, `withdrawn`. The one exception is the stalled time in the band,
+  which copies 8.2d3 (see the failure modes).
 
 ### Risks
 

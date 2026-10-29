@@ -21,6 +21,13 @@
       "description": "attention: while the this session tab is not shown, the status line names an agent that waits for permission. off: the board sets no status line.",
       "options": ["attention", "off"],
       "default": "attention"
+    },
+    "band": {
+      "type": "string",
+      "title": "Task band",
+      "description": "on: while the this session tab is not shown, one line above the prompt shows the current task, done of total and an approved plan that waits. off: the board draws no band.",
+      "options": ["on", "off"],
+      "default": "on"
     }
   }
 }

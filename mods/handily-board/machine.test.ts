@@ -1286,3 +1286,23 @@ describe(RING_CRITERION, () => {
     })
   }
 })
+
+const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+
+describe('the own card counts only the tasks of Claude (handily-9uj3n.8)', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`a task for the person is neither counted nor the current task on ${surface}`, async ($, on) => {
+      const seen = world(on, undefined, [surface])
+      seen.agents = agentsJson(MACHINE_AGENTS.filter((entry) => entry.sessionId === OWN_ID))
+      await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+      await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      await $.tool.call({ tool: TOOL_ADD, title: 'Draw the card' })
+      await showMachine($, seen)
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(lines).toContain('  ○ Draw the card ▰▱ 1/2')
+      expect(lines.join('\n')).not.toContain('Rotate')
+    })
+  }
+})

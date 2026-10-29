@@ -63,6 +63,7 @@ import {
   openBoard,
   openUnasked,
   sessionCommand,
+  showPane,
 } from './board'
 import { EMPTY_CHECKS, withCheck } from './checks'
 import { detailsText } from './details'
@@ -104,12 +105,42 @@ import {
   withTasks,
 } from './progress'
 import { type PaneWork, drawPane } from './pane'
+import {
+  PLAN_TOOL,
+  type PlanAnswer,
+  type PlanHost,
+  addPlanAsTasks,
+  approvedPlanText,
+  newPlan,
+  offeredPlan,
+  planListText,
+  tasksAfterPlan,
+} from './plan'
+import { drawPlanLine } from './plan-view'
+import { bandSetting, bandView, drawBand, isEngineDrawing, isTimed } from './band'
+import {
+  type AssignInput,
+  answersText,
+  asksParts,
+  assignTask,
+  assignment,
+  forYouCommand,
+  forYouStatus,
+  personOnlyRefusal,
+  putBackAnswers,
+  stillAsked,
+  takeAnswers,
+  withdrawTask,
+  withdrawnLead,
+} from './for-you'
+import { CHANGE_FAILED, refusedParts } from './replies'
 import { type ToastParts, showToast } from './toast'
 import type {
   BoardCallRow,
   BoardChecks,
   BoardList,
   BoardPersonChange,
+  BoardPlan,
   BoardTask,
   BoardToolSight,
 } from '../types'
@@ -123,7 +154,10 @@ import {
   addTasks,
   escaped,
   findTask,
+  isForPerson,
+  isListShownEmpty,
   isStatus,
+  ownList,
   listText,
   moveTask,
   numbersText,
@@ -157,6 +191,9 @@ const TOOL_ADD = 'mcp__handily-board__task_add'
 const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
+const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+const NOT_PLAN_TOOLS: ReadonlySet<string> = new Set([TOOL_LIST, TOOL_ASSIGN])
+const MAIN_LOOP_ONLY = 'task_assign works only in the main loop; tell the main agent what you need.'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
 const ADD_TITLE_SHAPE =
@@ -172,6 +209,13 @@ const AGENT_PLANS = { plugin: 'handily-board', key: 'agentPlans' } as const
 const ACTIVITY = { plugin: 'handily-board', key: 'activity' } as const
 const PERSON_CHANGES = { plugin: 'handily-board', key: 'personChanges' } as const
 const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
+const PLAN_ID = { plugin: 'handily-board', key: 'planId' } as const
+const PANE_CHANGES = { plugin: 'handily-board', key: 'paneChanges' } as const
+const BOARD_NOT_OPENED = refusedParts(
+  'The board did not open',
+  'the transcript shows why',
+  '/board list prints the tasks',
+)
 const REDRAW_INTERVAL_MS = 10_000
 const ENGINE_ORIGIN = 'engine'
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
@@ -240,6 +284,35 @@ const TOOLS: readonly ToolSpec[] = [
     isDeferred: false,
   },
   {
+    name: 'task_assign',
+    description: [
+      'Assign one task to the person: something to do (kind do), a question to answer (kind answer) or a choice between 2 to 4 options (kind decide). The task shows under For you on the board.',
+      'The call does not block. The result of the person comes with a later prompt, in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
+      'Withdraw a task for the person with task_update and the status removed. Only the main loop can assign a task.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['do', 'answer', 'decide'] },
+        title: {
+          type: 'string',
+          description: 'What the person does, answers or decides, as one short line.',
+        },
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 2,
+          maxItems: 4,
+          description: 'For the kind decide only: 2 to 4 different options, each one line.',
+        },
+        why: { type: 'string', description: 'Why you ask, as one short line. Optional.' },
+      },
+      required: ['kind', 'title'],
+      additionalProperties: false,
+    },
+    isDeferred: false,
+  },
+  {
     name: 'task_list',
     description: [
       'Show your task list in the order of the work: each task id, status, author and title. The author is you for a task that the person added, claude for a task that you added, and tracker for a tracker item that the person added.',
@@ -259,6 +332,10 @@ export const PROMPT_SECTION_TEXT = [
 ].join('\n\n')
 
 type ListWrite = (step: (current: BoardList | undefined) => BoardList) => Promise<unknown>
+
+function isPlanTool(tool: string): boolean {
+  return !NOT_PLAN_TOOLS.has(tool)
+}
 
 function listEditor(write: ListWrite): TaskHost['edit'] {
   return async <T,>(change: ListEdit<T>) => {
@@ -322,6 +399,54 @@ function hostOf($: EngineInterface): TaskHost {
       }
     },
   }
+}
+
+function plansOf($: EngineInterface): PlanHost {
+  return {
+    now: () => $.clock.now(),
+    current: async () => (await $.state.get(PLAN_ID)).value ?? undefined,
+    read: async (id) => (await $.state.get({ plugin: 'handily-board', key: 'plans', id })).value,
+    edit: async <T,>(id: string, change: (plan: BoardPlan) => { plan: BoardPlan; value: T }) => {
+      let outcome: { value: T } | undefined
+      await update($, { plugin: 'handily-board', key: 'plans', id }, (current) => {
+        if (current === undefined) throw new Error(`handily-board: no approved plan ${id}`)
+        const changed = change(current)
+        outcome = { value: changed.value }
+        return changed.plan
+      })
+      if (!outcome) throw new Error('handily-board: the state update never ran the change')
+      return outcome.value
+    },
+  }
+}
+
+async function notePlan($: EngineInterface, toolUseId: string, answer: PlanAnswer): Promise<void> {
+  const text = approvedPlanText(answer)
+  if (text === undefined) return
+  try {
+    const list = await readList(hostOf($))
+    const plan = newPlan(toolUseId, text, list.nextId)
+    if (plan !== undefined)
+      await $.state.set({ plugin: 'handily-board', key: 'plans', id: toolUseId }, plan)
+    await $.state.set(PLAN_ID, plan === undefined ? null : toolUseId)
+  } catch (error) {
+    $.ui.log(`handily-board: the approved plan was not kept: ${String(error)}`)
+  }
+}
+
+async function notePaneChange($: EngineInterface): Promise<void> {
+  try {
+    await update($, PANE_CHANGES, (current = 0) => current + 1)
+  } catch (error) {
+    $.ui.log(`handily-board: the band may show a closed board late: ${String(error)}`, {
+      to: 'debug',
+    })
+  }
+}
+
+async function planListLead($: EngineInterface): Promise<string | undefined> {
+  const plan = await offeredPlan(plansOf($))
+  return plan === undefined ? undefined : planListText(plan)
 }
 
 function modelHostOf($: EngineInterface, agentId: string | undefined): TaskHost {
@@ -423,7 +548,30 @@ function shareAgents($: EngineInterface, machine: Machine): Promise<void> {
   )
 }
 
-type Redraw = { timer: Timer | undefined }
+type Redraw = {
+  timer: Timer | undefined
+  bandTimer: Timer | undefined
+  bandSawTab: boolean | undefined
+}
+
+function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): void {
+  if (!isTimed) {
+    redraw.bandTimer?.cancel()
+    redraw.bandTimer = undefined
+    return
+  }
+  redraw.bandTimer ??= $.clock.every(REDRAW_INTERVAL_MS, () => {
+    $.ui.invalidate('ui.render')
+  })
+}
+
+function noteTabSeen($: EngineInterface, redraw: Redraw, isSeen: boolean): void {
+  if (redraw.bandSawTab === undefined || redraw.bandSawTab === isSeen) return
+  redraw.bandSawTab = undefined
+  $.clock.after(0, () => {
+    void notePaneChange($)
+  })
+}
 
 function stopRedraw(redraw: Redraw): void {
   redraw.timer?.cancel()
@@ -444,7 +592,10 @@ async function redrawShownPane($: EngineInterface, redraw: Redraw): Promise<void
     stopRedraw(redraw)
     return
   }
-  if (!panes.some((pane) => pane.isShown)) return
+  if (!panes.some((pane) => pane.isShown)) {
+    if (redraw.bandSawTab === true) $.ui.invalidate('ui.render')
+    return
+  }
   await noteAgentList(agentHostOf($))
   $.ui.invalidate('ui.render')
 }
@@ -501,7 +652,7 @@ async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
   const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
   const lag = planLag(activity)
   if (lag === undefined || !isNoteDue(activity)) return undefined
-  return { text: planNote(lag, list.tasks.length > 0), calls: activity.calls }
+  return { text: planNote(lag, ownList(list).tasks.length > 0), calls: activity.calls }
 }
 
 async function recordNote($: EngineInterface, calls: number): Promise<void> {
@@ -725,11 +876,21 @@ async function resetAgentLists($: EngineInterface): Promise<void> {
   await $.state.set(AGENT_PLANS, {})
 }
 
-function uiOf($: EngineInterface): PaneUi {
+type RowNotes = Map<number, string>
+
+function uiOf($: EngineInterface, notes: RowNotes): PaneUi {
   return {
-    open: (pane, focus) =>
-      $.ui.open(focus ? { id: pane.id, title: pane.title, focus } : { ...pane }),
-    close: (id) => $.ui.close({ id }),
+    open: async (pane, focus) => {
+      const opened = await $.ui.open(
+        focus ? { id: pane.id, title: pane.title, focus } : { ...pane },
+      )
+      await notePaneChange($)
+      return opened
+    },
+    close: async (id) => {
+      await $.ui.close({ id })
+      await notePaneChange($)
+    },
     panes: () => $.ui.panes(),
     fillPrompt: async (text) => {
       const draft = await $.prompt.read()
@@ -757,6 +918,13 @@ function uiOf($: EngineInterface): PaneUi {
     },
     log: (text) => {
       $.ui.log(text)
+    },
+    notes: () => notes,
+    noteRow: (id, note) => {
+      if (notes.get(id) === note) return
+      if (note === undefined) notes.delete(id)
+      else notes.set(id, note)
+      $.ui.invalidate('ui.render')
     },
   }
 }
@@ -787,7 +955,7 @@ function sessionsHost($: EngineInterface): SessionsHost {
 }
 
 function listAnswer(list: BoardList, lead: string): string {
-  const shown = list.tasks.length === 0 ? 'The task list is empty.' : listText(list)
+  const shown = isListShownEmpty(list) ? 'The task list is empty.' : listText(list)
   return withTrackerNotice(lead === '' ? shown : `${lead}\n\n${shown}`, list.tasks)
 }
 
@@ -930,13 +1098,22 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promis
   const outcome = await host.edit<{ task: BoardTask | undefined; numbers: string }>((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { task, numbers: numbersText(list.tasks) } }
-    const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
+    if (isForPerson(task) && status !== REMOVED) return { list, value: { task, numbers: '' } }
+    const removed = isForPerson(task) ? withdrawTask(list, id) : removeTask(list, id)
+    const next = status === REMOVED ? removed : setStatus(list, id, status)
     return { list: next, value: { task, numbers: '' } }
   })
   const { task } = outcome
   if (!task) {
     return {
       deny: `No task ${String(id)}. ${knownIds(outcome.numbers)} Call task_list to see them.`,
+    }
+  }
+  if (isForPerson(task)) {
+    if (status !== REMOVED) return { deny: personOnlyRefusal(task) }
+    return {
+      result: await listResult(host, withdrawnLead(task)),
+      row: removedRow(task),
     }
   }
   if (status === REMOVED) {
@@ -963,6 +1140,12 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<
     }
   }
   if (id === before) return { deny: `task_move needs two different task ids, ${MOVE_EXAMPLE}.` }
+  const asked = findTask(await readList(host), id)
+  if (asked && isForPerson(asked)) {
+    return {
+      deny: `Task ${String(id)} is for the person; its place is the order in which you asked. task_move moves only your own tasks.`,
+    }
+  }
   const outcome = await host.edit<
     { missing: number; numbers: string } | { missing: undefined; task: BoardTask }
   >((list) => {
@@ -984,6 +1167,37 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<
   }
 }
 
+async function modelAssign(
+  host: TaskHost,
+  input: AssignInput,
+  agentId: string | undefined,
+  now: number,
+): Promise<{ answer: ModelAnswer; task: BoardTask | undefined }> {
+  if (agentId !== undefined) return { answer: { deny: MAIN_LOOP_ONLY }, task: undefined }
+  const asked = assignment(input)
+  if ('deny' in asked) return { answer: asked, task: undefined }
+  const outcome = await host.edit((list) => assignTask(list, asked, now))
+  if ('refusal' in outcome) {
+    return { answer: { deny: `task_assign refused: ${outcome.refusal}` }, task: undefined }
+  }
+  const { task } = outcome
+  const lead = `Assigned task ${String(task.id)} to the person (${asked.kind}). The result comes with a later prompt; do not wait for it in this turn.`
+  return { answer: { result: await listResult(host, lead), row: undefined }, task }
+}
+
+async function takeAnswered($: EngineInterface): Promise<BoardTask[]> {
+  return hostOf($).edit(takeAnswers)
+}
+
+async function putBackAnswered($: EngineInterface, taken: readonly BoardTask[]): Promise<void> {
+  if (taken.length === 0) return
+  try {
+    await hostOf($).edit((list) => ({ list: putBackAnswers(list, taken), value: undefined }))
+  } catch (error) {
+    $.ui.log(`handily-board: the answers for Claude were lost: ${String(error)}`)
+  }
+}
+
 function toolFailed($: EngineInterface, tool: string, error: HookFailure): { deny: string } {
   $.ui.log(`handily-board: ${tool} failed (${error.kind}): ${error.message ?? 'no message'}`)
   const reason = withoutFinalPeriod(error.message ?? error.kind)
@@ -992,11 +1206,14 @@ function toolFailed($: EngineInterface, tool: string, error: HookFailure): { den
 
 export const register: Register = (on, options) => {
   const mode = boardMode(options)
-  const redraw: Redraw = { timer: undefined }
+  const band = bandSetting(options)
+  const redraw: Redraw = { timer: undefined, bandTimer: undefined, bandSawTab: undefined }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const steps: StepsKeep = new Map()
+  const notes: RowNotes = new Map()
+  const asks: BoardTask[] = []
   const pulses = newPulses()
   const attention: AttentionKeep = {
     setting: statusLineSetting(options),
@@ -1011,10 +1228,10 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | clear | list | stats | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | plan | clear | list | stats | close]',
       immediate: true,
     })
-    if (mode === 'always') await openUnasked(uiOf($))
+    if (mode === 'always') await openUnasked(uiOf($, notes))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
     const host = sessionsHost($)
@@ -1060,6 +1277,9 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
+      const asked = stillAsked(await readList(hostOf($)), asks.splice(0))
+      const parts = asksParts(asked)
+      if (parts !== undefined && !(await isSessionTabSeen($))) showToast($, parts)
       await noteVitals($, vitals, (current) => withTurnEnd(current, e.durationMs))
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
@@ -1105,6 +1325,7 @@ export const register: Register = (on, options) => {
       checks.current = EMPTY_CHECKS
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
+      await $.state.set(PLAN_ID, null)
       await resetAgentLists($)
       await resetActivity($)
     }
@@ -1125,19 +1346,25 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
     const taken = await takeChanges($)
+    const answered = await takeAnswered($)
     try {
-      const changes = taken.length === 0 ? undefined : personNote(taken, await readList(hostOf($)))
+      const answers = answered.length === 0 ? undefined : answersText(answered)
+      const isTold = taken.length > 0 || answers !== undefined
+      const list = await readList(hostOf($))
+      const changes = isTold ? personNote(taken, list, answers) : undefined
       const notes = [changes, plan?.text].filter((text) => text !== undefined)
       if (notes.length === 0) return await next(e)
       const entered = await next({ ...e, context: [...(e.context ?? []), ...notes] })
       if (entered.drop !== undefined) {
         await putBackChanges($, taken)
+        await putBackAnswered($, answered)
         return entered
       }
       if (plan) await recordNote($, plan.calls)
       return entered
     } catch (error) {
       await putBackChanges($, taken)
+      await putBackAnswered($, answered)
       throw error
     }
   }).catch(($, e, next) => {
@@ -1151,7 +1378,7 @@ export const register: Register = (on, options) => {
     if (isTaskTool(e.tool)) {
       if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
       const answer = await next(e)
-      if (e.agentId === undefined && e.tool !== TOOL_LIST && answer.deny === undefined) {
+      if (e.agentId === undefined && isPlanTool(e.tool) && answer.deny === undefined) {
         await notePlanChange($)
       }
       return answer
@@ -1183,6 +1410,14 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the work was not tracked (${next.error.kind})`, { to: 'debug' })
     return next(e)
+  })
+
+  on('tool.call', { tool: PLAN_TOOL }, async ($, e, next) => {
+    const answer = await next(e)
+    if (e.agentId === undefined && next.origin.plugin === ENGINE_ORIGIN) {
+      await notePlan($, e.tool_use_id, answer)
+    }
+    return answer
   })
 
   on('tool.check', async ($, e, next) => {
@@ -1231,6 +1466,12 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: TOOL_MOVE }, async ($, e) =>
     answerWithRow($, e.tool_use_id, await modelMove(modelHostOf($, e.agentId), e.id, e.before)),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_ASSIGN }, async ($, e) => {
+    const input = { kind: e.kind, title: e.title, options: e.options, why: e.why }
+    const assigned = await modelAssign(hostOf($), input, e.agentId, await $.clock.now())
+    if (assigned.task !== undefined) asks.push(assigned.task)
+    return answerWithRow($, e.tool_use_id, assigned.answer)
+  }).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_LIST }, async ($, e) =>
     answerWithRow($, e.tool_use_id, await modelList(modelHostOf($, e.agentId))),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
@@ -1240,15 +1481,20 @@ export const register: Register = (on, options) => {
     const command = parseBoardCommand(e.args)
     switch (command.kind) {
       case 'session':
-        return { text: await sessionCommand(uiOf($), mode) }
+        return { text: await sessionCommand(uiOf($, notes), mode) }
       case 'machine':
-        return { text: await openBoard(uiOf($), SESSIONS_PANE) }
+        return { text: await openBoard(uiOf($, notes), SESSIONS_PANE) }
       case 'close':
-        return { text: await closeBoard(uiOf($)) }
+        return { text: await closeBoard(uiOf($, notes)) }
       case 'clear':
         return { text: (await personClear(host)).text }
-      case 'list':
-        return { text: await listReply(host) }
+      case 'list': {
+        const lead = await planListLead($)
+        const listed = await listReply(host)
+        return { text: lead === undefined ? listed : `${lead}\n\n${listed}` }
+      }
+      case 'plan':
+        return { text: (await addPlanAsTasks(plansOf($), host, undefined)).text }
       case 'stats':
         return { text: statsText(await workOf($, { vitals, checks, steps, pulses })) }
       case 'add':
@@ -1259,8 +1505,16 @@ export const register: Register = (on, options) => {
         return { text: await personPlace(host, command.text) }
       case 'edit':
         return { text: await personEdit(host, command.text) }
-      case 'status':
-        return { text: (await personStatus(host, command.text, command.word)).text }
+      case 'status': {
+        const now = await $.clock.now()
+        const forYou = await forYouStatus(host, command.text, command.word, now)
+        return { text: (forYou ?? (await personStatus(host, command.text, command.word))).text }
+      }
+      case 'answer':
+      case 'pick':
+      case 'reject':
+      case 'undo':
+        return { text: await forYouCommand(host, command.kind, command.text, await $.clock.now()) }
       case 'unknown':
         return { text: unknownReply(command.word) }
     }
@@ -1272,8 +1526,57 @@ export const register: Register = (on, options) => {
     return { text: `handily-board: /board failed: ${reason}. Run /board list to see the tasks.` }
   })
 
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const yieldBand = () => {
+      keepBandTime($, redraw, false)
+      return next(e)
+    }
+    if (band === 'off' || e.props.hasSurvey) return yieldBand()
+    await $.state.get(PANE_CHANGES)
+    const isTabSeen = await isSessionTabSeen($)
+    redraw.bandSawTab = isTabSeen
+    if (isTabSeen) return yieldBand()
+    const host = hostOf($)
+    const plans = plansOf($)
+    const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
+    const plan = await offeredPlan(plans)
+    const view = bandView(await readList(host), plan, activity, await $.clock.now())
+    if (view === undefined) return yieldBand()
+    const beneath = await next(e)
+    if (!isEngineDrawing(beneath)) {
+      keepBandTime($, redraw, false)
+      return beneath
+    }
+    keepBandTime($, redraw, isTimed(view))
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = uiOf($, notes)
+    const failed = (error: unknown) => {
+      ui.log(`handily-board: the board did not open from the band: ${String(error)}`)
+      ui.showToast(BOARD_NOT_OPENED)
+    }
+    return drawBand({ Box, Text, Button }, view, e.props.bodyColumns, {
+      open: () => {
+        showPane(ui, TASKS_PANE).then((opened) => {
+          if (!opened.isPlaced) failed(opened.reason)
+        }, failed)
+      },
+      addPlan: (id) => {
+        addPlanAsTasks(plans, host, id).then(
+          (reply) => {
+            if (reply.toastParts !== undefined) ui.showToast(reply.toastParts)
+          },
+          (error: unknown) => {
+            ui.log(`handily-board: the plan was not added: ${String(error)}`)
+            ui.showToast(CHANGE_FAILED)
+          },
+        )
+      },
+    })
+  })
+
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
+    if (isBoardPaneId(e.id)) await notePaneChange($)
     if (isBoardPaneId(e.id) && (await openBoardPanes($)).length === 0) stopRedraw(redraw)
     if (isBoardPaneId(e.id)) await refreshStatus($, attention)
     return closed
@@ -1290,7 +1593,33 @@ export const register: Register = (on, options) => {
     return drawCallRow(look, row, e.viewport?.columns)
   })
 
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    if (e.props.tool !== PLAN_TOOL || e.props.isErrored) return next(e)
+    const plans = plansOf($)
+    const plan = await plans.read(e.props.tool_use_id)
+    if (plan === undefined) return next(e)
+    const host = hostOf($)
+    const isCurrent = (await plans.current()) === plan.id
+    const tasksAfter = tasksAfterPlan(plan, await readList(host))
+    const drawn = await next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const add = () => {
+      addPlanAsTasks(plans, host, plan.id).then(
+        (reply) => {
+          if (reply.toastParts !== undefined) showToast($, reply.toastParts)
+        },
+        (error: unknown) => {
+          $.ui.log(`handily-board: the plan was not added: ${String(error)}`)
+          showToast($, CHANGE_FAILED)
+        },
+      )
+    }
+    const line = drawPlanLine({ Box, Text, Button }, { plan, isCurrent, tasksAfter }, add)
+    return Box({ flexDirection: 'column', children: [drawn, line] })
+  })
+
   on('ui.render', { component: 'Pane', requestId: TASKS_PANE.id }, async ($, e) => {
+    noteTabSeen($, redraw, true)
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
@@ -1298,10 +1627,11 @@ export const register: Register = (on, options) => {
     const work = await workOf($, { vitals, checks, steps, pulses })
     clearStatus($, attention)
     startRedraw($, redraw, attention)
-    return drawPane(elements, hostOf($), uiOf($), work)
+    return drawPane(elements, hostOf($), plansOf($), uiOf($, notes), work)
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {
+    noteTabSeen($, redraw, false)
     const { Box, Text, Button } = $.ui.resolve(e)
     const host = hostOf($)
     const expanded = new Set(await host.expanded())

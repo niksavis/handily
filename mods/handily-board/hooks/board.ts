@@ -44,6 +44,8 @@ export type PaneUi = {
   focus: (key: string) => Promise<void>
   showToast: (parts: ToastParts) => void
   log: (text: string) => void
+  notes: () => ReadonlyMap<number, string>
+  noteRow: (id: number, note: string | undefined) => void
 }
 
 function isBoardPane(pane: OpenPane): boolean {

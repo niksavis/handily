@@ -5,10 +5,28 @@ export type BoardAuthor = 'model' | 'person' | 'tracker'
 export type BoardSource =
   { by: Exclude<BoardAuthor, 'tracker'>; item: null } | { by: 'tracker'; item: string }
 
+export type BoardTaskKind = 'do' | 'answer' | 'decide'
+
+export type BoardResultVerb = 'done' | 'answered' | 'chose' | 'rejected'
+
+export type BoardResult = {
+  verb: BoardResultVerb
+  text: string | null
+  at: number
+  isSent: boolean
+}
+
 export type BoardTask = {
   id: number
   title: string
   status: BoardStatus
+  for?: 'person'
+  kind?: BoardTaskKind
+  options?: readonly string[]
+  why?: string
+  askedAt?: number
+  result?: BoardResult
+  isWithdrawn?: boolean
 } & BoardSource
 
 export type BoardList = {
@@ -17,6 +35,17 @@ export type BoardList = {
 }
 
 export type BoardPersonChange = { text: string; tasks: readonly BoardTask[] }
+
+export type BoardPlan = {
+  id: string
+  steps: readonly string[]
+  cut: readonly number[]
+  nextId: number
+  added: readonly number[] | null
+  isDismissed: boolean
+  refusal: readonly string[] | null
+  lockedAt?: number
+}
 
 export type BoardToolSight = { tool: string; target: string | null }
 
@@ -111,6 +140,9 @@ declare module 'claude-code' {
       activity: BoardActivity
       agents: readonly BoardAgent[]
       rows: StateFamily<BoardCallRow>
+      plans: StateFamily<BoardPlan>
+      planId: string | null
+      paneChanges: number
       ready: { root: string }
     }
   }

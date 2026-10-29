@@ -1,5 +1,12 @@
 import type { PluginState } from 'claude-code'
-import type { BoardAuthor, BoardList, BoardSource, BoardStatus, BoardTask } from '../types'
+import type {
+  BoardAuthor,
+  BoardList,
+  BoardResultVerb,
+  BoardSource,
+  BoardStatus,
+  BoardTask,
+} from '../types'
 import { SIGNALS, type Signal, type SignalLook } from './signals'
 
 export type WorkItem = PluginState['handily-workitems']['snapshot']['items'][number]
@@ -76,19 +83,30 @@ export type Added = { list: BoardList; task: BoardTask }
 
 export type AddRefused = { refusal: string }
 
-export function titleRefusal(title: string): string | undefined {
-  const codes = codePoints(title)
-  if (codes.some(isControlCode)) {
-    return 'the title has a line break or a control character. Write it on one line.'
-  }
-  if (BIDI_CONTROL.test(title)) {
-    return 'the title has a bidi control character, which can reorder the text. Remove it.'
-  }
-  const length = codes.length
-  if (length > MAX_TITLE_LENGTH) {
-    return `the title has ${String(length)} characters. The limit is ${String(MAX_TITLE_LENGTH)}.`
-  }
+export type TextFault = 'control' | 'bidi' | 'length'
+
+export function textLength(text: string): number {
+  return codePoints(text).length
+}
+
+export function textFault(text: string, most: number): TextFault | undefined {
+  if (codePoints(text).some(isControlCode)) return 'control'
+  if (BIDI_CONTROL.test(text)) return 'bidi'
+  if (textLength(text) > most) return 'length'
   return undefined
+}
+
+export function titleRefusal(title: string): string | undefined {
+  switch (textFault(title, MAX_TITLE_LENGTH)) {
+    case 'control':
+      return 'the title has a line break or a control character. Write it on one line.'
+    case 'bidi':
+      return 'the title has a bidi control character, which can reorder the text. Remove it.'
+    case 'length':
+      return `the title has ${String(textLength(title))} characters. The limit is ${String(MAX_TITLE_LENGTH)}.`
+    case undefined:
+      return undefined
+  }
 }
 
 const AUTHOR_WORDS: Record<BoardAuthor, string> = {
@@ -264,6 +282,10 @@ export function isAllDone(list: BoardList): boolean {
 }
 
 export function numbersText(tasks: readonly BoardTask[]): string {
+  return idsText(tasks.map((task) => task.id))
+}
+
+export function idsText(ids: readonly number[]): string {
   const ranges: string[] = []
   let start: number | undefined
   let previous: number | undefined
@@ -271,7 +293,7 @@ export function numbersText(tasks: readonly BoardTask[]): string {
     if (start === undefined || previous === undefined) return
     ranges.push(start === previous ? String(start) : `${String(start)}-${String(previous)}`)
   }
-  for (const id of tasks.map((task) => task.id).sort((a, b) => a - b)) {
+  for (const id of [...ids].sort((a, b) => a - b)) {
     if (previous !== undefined && id === previous + 1) {
       previous = id
       continue
@@ -284,7 +306,67 @@ export function numbersText(tasks: readonly BoardTask[]): string {
   return ranges.join(', ')
 }
 
-export function listText(list: BoardList): string {
+export function isForPerson(task: BoardTask): boolean {
+  return task.for === 'person'
+}
+
+export function ownList(list: BoardList): BoardList {
+  if (!list.tasks.some(isForPerson)) return list
+  return { ...list, tasks: list.tasks.filter((task) => !isForPerson(task)) }
+}
+
+export function isListShownEmpty(list: BoardList): boolean {
+  return list.tasks.every((task) => task.isWithdrawn === true)
+}
+
+export function askedTasks(list: BoardList): BoardTask[] {
+  return list.tasks.filter((task) => isForPerson(task) && task.isWithdrawn !== true)
+}
+
+const RESULT_WORDS: Record<BoardResultVerb, string> = {
+  done: 'done',
+  answered: 'answered',
+  chose: 'decided',
+  rejected: 'rejected',
+}
+
+const RESULT_WORD_WIDTH = Math.max(...Object.values(RESULT_WORDS).map((word) => word.length))
+
+const KIND_WIDTH = 6
+
+function resultDetail(task: BoardTask): string | undefined {
+  const { result } = task
+  if (result === undefined) {
+    const options = task.options ?? []
+    return options.length === 0 ? undefined : `options ${options.map(quoted).join(', ')}`
+  }
+  if (result.text === null) return undefined
+  const words: Record<BoardResultVerb, string> = {
+    done: 'note',
+    answered: 'answer',
+    chose: 'chose',
+    rejected: 'reason',
+  }
+  return `${words[result.verb]} ${quoted(result.text)}`
+}
+
+function forYouText(tasks: readonly BoardTask[]): string {
+  const width = Math.max(...tasks.map((task) => String(task.id).length))
+  const titleWidth = Math.max(...tasks.map((task) => quoted(task.title).length))
+  const rows = tasks.map((task) => {
+    const word = task.result ? RESULT_WORDS[task.result.verb] : 'open'
+    const detail = resultDetail(task)
+    const title = quoted(task.title)
+    const shown = detail === undefined ? title : `${title.padEnd(titleWidth)}  ${detail}`
+    const kind = (task.kind ?? 'do').padEnd(KIND_WIDTH)
+    return `  ${String(task.id).padEnd(width)}  ${word.padEnd(RESULT_WORD_WIDTH)}  ${kind}  ${shown}`
+  })
+  const answered = tasks.filter((task) => task.result !== undefined).length
+  const head = `For you (${String(answered)} of ${String(tasks.length)} answered)`
+  return [head, ...rows].join('\n')
+}
+
+function tasksText(list: BoardList): string {
   const width = Math.max(...list.tasks.map((task) => String(task.id).length))
   const rows = list.tasks.map((task) => {
     const number = String(task.id).padStart(width)
@@ -293,6 +375,14 @@ export function listText(list: BoardList): string {
   })
   const total = String(list.tasks.length)
   return [`Tasks (${String(doneCount(list))} of ${total} done)`, ...rows].join('\n')
+}
+
+export function listText(list: BoardList): string {
+  const asked = askedTasks(list)
+  const own = ownList(list)
+  if (asked.length === 0) return tasksText(own)
+  if (own.tasks.length === 0) return forYouText(asked)
+  return [forYouText(asked), tasksText(own)].join('\n\n')
 }
 
 export function isOpenItem(item: WorkItem): boolean {
