@@ -156,7 +156,7 @@ export function underPrefix(path: string, prefix: string): string | undefined {
   return path.startsWith(`${prefix}/`) ? path.slice(prefix.length + 1) : undefined
 }
 
-function ghost(name: string, isFolder: boolean): FsEntry {
+export function ghost(name: string, isFolder: boolean): FsEntry {
   return { name, kind: isFolder ? 'dir' : 'file', size: 0, mtimeMs: 0, isLink: false }
 }
 

@@ -19,7 +19,11 @@ export type Listing =
 
 export type ListFolder = (path: string) => Promise<Listing>
 
-export type Folders = { open: ReadonlySet<string>; whole: ReadonlySet<string> }
+export type Folders = {
+  open: ReadonlySet<string>
+  whole: ReadonlySet<string>
+  work?: ReadonlySet<string>
+}
 
 export type EntryRow =
   | { kind: 'folder'; path: string; name: string; depth: number; isOpen: boolean }
@@ -76,7 +80,8 @@ export function childPath(parent: string, name: string): string {
 
 export function entryRow(entry: FsEntry, path: string, depth: number, folders: Folders): EntryRow {
   const { name } = entry
-  if (isPruned(entry)) return { kind: 'pruned', path, name, depth }
+  if (isPruned(entry) && folders.work?.has(path) !== true)
+    return { kind: 'pruned', path, name, depth }
   if (entry.kind === 'dir')
     return { kind: 'folder', path, name, depth, isOpen: folders.open.has(path) }
   return { kind: 'file', path, name, depth, isDot: name.startsWith('.') }

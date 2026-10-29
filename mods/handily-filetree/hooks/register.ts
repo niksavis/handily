@@ -9,13 +9,13 @@ import {
   toggleTree,
   unknownReply,
 } from './commands'
-import { gitView } from './gitview'
+import { type GitView, gitView } from './gitview'
 import type { LookSite } from './look'
 import { lookActionsOf, newLooking, resetLooking } from './looking'
 import { drawLook } from './lookpane'
 import { markColumnOf } from './marks'
 import { type PaneActions, type TouchDraw, drawInline, drawTree } from './pane'
-import { absolutePath, resolvedPath, shownPath } from './paths'
+import { absolutePath, insidePath, resolvedPath, shownPath } from './paths'
 import { reasonOf } from './reason'
 import {
   type ListingSite,
@@ -32,7 +32,15 @@ import {
   newShell,
 } from './shellmarks'
 import { type GitMarks, gitMarks } from './status'
-import { type ListFolder, type Listing, ROOT_PATH, listed, treeRows, withDeleted } from './tree'
+import {
+  type ListFolder,
+  type Listing,
+  type TreeRow,
+  ROOT_PATH,
+  listed,
+  treeRows,
+  withDeleted,
+} from './tree'
 import { showToast } from './toast'
 import { type ToolTouch, isAnswered, searchedFiles, toolTouchOf } from './toolcall'
 import {
@@ -59,10 +67,14 @@ import {
   syncRepo,
   watchShown,
 } from './watch'
+import { type WorkSource, type WorkTree, nowFirst, workPaths, workRows, workTree } from './work'
 import type { FiletreePaths } from '../types'
 
 const OPEN = { plugin: 'handily-filetree', key: 'open' } as const
 const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
+const SHUT = { plugin: 'handily-filetree', key: 'shut' } as const
+const WORK_WHOLE = { plugin: 'handily-filetree', key: 'workWhole' } as const
+const VIEW = { plugin: 'handily-filetree', key: 'view' } as const
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
 const BOARD_AGENTS = { plugin: 'handily-board', key: 'agents' } as const
@@ -121,29 +133,33 @@ function toggled(paths: FiletreePaths, path: string): FiletreePaths {
   return paths.includes(path) ? paths.filter((one) => one !== path) : [...paths, path]
 }
 
-type BaseActions = Pick<PaneActions, 'toggle' | 'showAll' | 'refresh' | 'retry'>
+type BaseActions = Pick<PaneActions, 'toggle' | 'showAll' | 'refresh' | 'retry' | 'switchView'>
 
 function actionsOf(
   $: EngineInterface,
-  cwd: string,
-  listings: Listings,
-  watch: GitWatch,
+  site: { cwd: string; listings: Listings; watch: GitWatch; work: WorkTree | undefined },
 ): BaseActions {
+  const { cwd, listings, watch, work } = site
   const failed = (error: unknown) => {
     $.ui.log(`handily-filetree: the tree did not change: ${String(error)}`)
     showToast($, ['■ Tree did not change', 'the transcript shows why'])
   }
   return {
     toggle: (path) => {
+      if (work?.folders.has(path) === true) {
+        update($, SHUT, (current = []) => toggled(current, path)).catch(failed)
+        return
+      }
       update($, OPEN, (current = []) => {
         if (!current.includes(path)) listings.delete(absolutePath(cwd, path))
         return toggled(current, path)
       }).catch(failed)
     },
     showAll: (path) => {
-      update($, WHOLE, (current = []) =>
-        current.includes(path) ? current : [...current, path],
-      ).catch(failed)
+      const added = (current: FiletreePaths = []) =>
+        current.includes(path) ? current : [...current, path]
+      if (work === undefined) update($, WHOLE, added).catch(failed)
+      else update($, WORK_WHOLE, added).catch(failed)
     },
     refresh: () => {
       listings.clear()
@@ -152,6 +168,9 @@ function actionsOf(
     },
     retry: () => {
       requestStatus($, watch)
+    },
+    switchView: () => {
+      update($, VIEW, (current = 'work') => (current === 'work' ? 'all' : 'work')).catch(failed)
     },
   }
 }
@@ -295,6 +314,10 @@ async function touchDrawOf(
     labelOf: labelsOf((await $.state.get(BOARD_AGENTS)).value),
     touchesOf: (path) => touchesOf(touches, resolvedPath(cwd, path)),
     shownPath: (path) => shownPath(cwd, path),
+    paths: [...touched.files].flatMap(([path, mark]) => {
+      const inside = insidePath(cwd, path)
+      return inside === undefined ? [] : [{ path: inside, isFolder: mark.isFolder === true }]
+    }),
     sights: touched.sights,
     agents: touched.agents,
     agent,
@@ -305,6 +328,30 @@ async function touchDrawOf(
     },
     now: await $.clock.now(),
   }
+}
+
+function workSourceOf(git: GitView, touched: TouchDraw): WorkSource {
+  return {
+    changed: git.marks?.changedIn(ROOT_PATH) ?? [],
+    touched: touched.paths,
+    isFiltered: touched.agent !== undefined,
+  }
+}
+
+async function rowsOf(
+  $: EngineInterface,
+  list: ListFolder,
+  work: WorkTree | undefined,
+  rootName: string,
+): Promise<TreeRow[]> {
+  const open = new Set((await $.state.get(OPEN)).value ?? [])
+  if (work === undefined) {
+    const whole = new Set((await $.state.get(WHOLE)).value ?? [])
+    return treeRows(list, { open, whole }, rootName)
+  }
+  const whole = new Set((await $.state.get(WORK_WHOLE)).value ?? [])
+  const shut = new Set((await $.state.get(SHUT)).value ?? [])
+  return workRows(list, { tree: work, folders: { open, whole, shut } }, rootName)
 }
 
 export const register: Register = (on) => {
@@ -406,22 +453,26 @@ export const register: Register = (on) => {
     const rootName = folderName(cwd)
     const list = listerOf($, cwd, listings, git.marks)
     const site = { cwd, bodyColumns, inView: e.props.view.agentId }
+    const touched = await touchDrawOf($, site, touches, filter)
+    const isInline = e.props.placement === 'inline'
+    const choice = isInline ? 'work' : ((await $.state.get(VIEW)).value ?? 'work')
+    const tree = choice === 'work' ? workTree(workPaths(workSourceOf(git, touched))) : undefined
     const view = {
       git,
       actions: {
-        ...actionsOf($, cwd, listings, watch),
+        ...actionsOf($, { cwd, listings, watch, work: tree }),
         ...lookActionsOf($, looking, () => lookSiteOf(watch, cwd)),
       },
-      touched: await touchDrawOf($, site, touches, filter),
+      touched,
       opened: looking.opened,
+      choice,
     }
-    if (e.props.placement === 'inline') {
-      return drawInline(elements, rootName, await list(ROOT_PATH), view)
+    if (tree !== undefined && isInline) {
+      const now = touched.sights.map((sight) => touched.shownPath(sight.path))
+      const work = nowFirst(tree, now)
+      return drawInline(elements, { root: await list(ROOT_PATH), rootName, work }, view)
     }
     if (looking.look !== undefined) return drawLook({ ...view, elements }, rootName, looking.look)
-    const open = new Set((await $.state.get(OPEN)).value ?? [])
-    const whole = new Set((await $.state.get(WHOLE)).value ?? [])
-    const rows = await treeRows(list, { open, whole }, rootName)
-    return drawTree(elements, rootName, rows, view)
+    return drawTree(elements, rootName, await rowsOf($, list, tree, rootName), view)
   })
 }

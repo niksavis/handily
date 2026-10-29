@@ -17,7 +17,7 @@ const PLUGIN = 'handily-filetree'
 const PANE = 'files'
 const SURFACES: readonly RenderSurface[] = ['terminal', 'desktop']
 const RULE_41 = '─'.repeat(41)
-const CONTROLS = '{agent: all} [ refresh ]'
+const CONTROLS = '[ work only ] {agent: all} [ refresh ]'
 const NOW_EMPTY = 'Now  nothing read or edited yet'
 
 type FakeFolder = FsEntry[] | string
@@ -234,19 +234,38 @@ function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPro
   }
 }
 
+type View = 'work' | 'all'
+
+const VIEW_BUTTON_LABELS: Readonly<Record<View, string>> = { work: 'all files', all: 'work only' }
+
+type Viewed = { find: Mounted['find']; press: Mounted['press'] }
+
+async function isViewShown(ui: Viewed, view: View): Promise<boolean> {
+  const label = (await ui.find({ key: 'view' }))?.props.label
+  return typeof label === 'string' && VIEW_BUTTON_LABELS[view].startsWith(label.replace(/…$/, ''))
+}
+
+async function pickView(ui: Viewed, view: View): Promise<void> {
+  if (!(await isViewShown(ui, view))) await ui.press({ key: 'view' })
+  expect(await isViewShown(ui, view)).toBe(true)
+}
+
 async function mountFiles(
   $: Engine,
   surface: RenderSurface,
   placement: 'dock' | 'inline' = 'dock',
   columns = 41,
+  view: View = 'all',
 ) {
-  return $.ui.mount({
+  const ui = await $.ui.mount({
     plugin: PLUGIN,
     surface,
     component: 'Pane',
     requestId: PANE,
     props: paneProps(placement, columns),
   })
+  if (placement === 'dock') await pickView(ui, view)
+  return ui
 }
 
 type Drawn = { type: string; props: Record<string, unknown>; text: string; children: Drawn[] }
@@ -395,6 +414,7 @@ describe('the files tab, docked', () => {
       expect((await ui.find({ type: 'Text', text: '  README.md' }))?.props.dimColor).toBe(false)
       expect((await ui.find({ type: 'Text', text: 'Files' }))?.props.bold).toBe(true)
       expect((await ui.findAll({ type: 'Button' })).map((button) => button.key)).toEqual([
+        'view',
         'refresh',
         'open:docs',
         'open:hooks',
@@ -639,26 +659,33 @@ describe('the 200 entry cap', () => {
   })
 })
 
+function inlineRow(name: string, cell = ''): string {
+  return cell === '' ? name : `${name.padEnd(58)}${cell}`
+}
+
 describe('the files tab, inline above the prompt', () => {
-  test('draws a flat list of at most 8 rows, the last naming what is left', async ($, on) => {
-    world(on, [
-      ['.', [...(APP[0]?.[1] ?? []), file('a.md'), file('b.md'), file('c.md'), file('d.md')]],
-      ['docs', [file('design.md')]],
-    ])
+  test('draws the touched files as a flat list of at most 8 rows, the file in Now first, the last naming what is left', async ($, on) => {
+    const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'].map((name) => `${name}.md`)
+    const seen = world(on, [['.', [...(APP[0]?.[1] ?? []), ...names.map(file)]]])
+    fakeTools(on, seen, new Map())
     await start($)
+    for (const name of names) {
+      await read($, name)
+      await seen.clock.advance(1000)
+    }
     for (const surface of SURFACES) {
       const ui = await mountFiles($, surface, 'inline', 76)
       const lines = await screen(ui, 76)
       expect(lines).toEqual([
         'Files  app · not a git repo{agent: all}  [ refresh ]',
-        '.git/  not listed',
-        'node_modules/  not listed',
-        'docs/',
-        'hooks/',
-        'scripts/',
-        '.gitignore',
-        'a.md',
-        '+4 more: a dock (fullscreen, 110 columns) shows the tree',
+        inlineRow('i.md', '◦ main          1s'),
+        inlineRow('a.md', '◦ main          9s'),
+        inlineRow('b.md', '◦ main          8s'),
+        inlineRow('c.md', '◦ main          7s'),
+        inlineRow('d.md', '◦ main          6s'),
+        inlineRow('e.md', '◦ main          5s'),
+        inlineRow('f.md', '◦ main          4s'),
+        '+2 more: a dock (fullscreen, 110 columns) shows the tree',
       ])
       expect(lines.length - 1).toBe(8)
       expect((await ui.findAll({ type: 'Button' })).map((button) => button.key)).toEqual([
@@ -668,16 +695,33 @@ describe('the files tab, inline above the prompt', () => {
     }
   })
 
-  test('draws every entry when there are 8 or fewer', async ($, on) => {
+  test('draws every touched file with its path when there are 8 or fewer, and lists no folder for it', async ($, on) => {
     const seen = world(on, [
       ['.', [folder('src'), file('a.md')]],
       ['src', [file('b.md')]],
     ])
+    fakeTools(on, seen, new Map())
     await start($)
+    await read($, 'src/b.md')
+    await seen.clock.advance(1000)
+    await read($, 'a.md')
     const ui = await mountFiles($, 'terminal', 'inline', 76)
-    expect((await screen(ui, 76)).slice(1)).toEqual(['src/', 'a.md'])
+    expect((await screen(ui, 76)).slice(1)).toEqual([
+      inlineRow('a.md', '◦ main          0s'),
+      inlineRow('src/b.md', '◦ main          1s'),
+    ])
     expect(seen.listed).not.toContain('src')
     await ui.unmount()
+  })
+
+  test('with no touched file outside a git repo, says that no file is changed or touched', async ($, on) => {
+    world(on, APP)
+    await start($)
+    for (const surface of SURFACES) {
+      const ui = await mountFiles($, surface, 'inline', 76)
+      expect((await screen(ui, 76)).slice(1)).toEqual(['No changed or touched files.'])
+      await ui.unmount()
+    }
   })
 })
 
@@ -723,17 +767,16 @@ function statusOf(records: readonly string[], options: { ab?: string; oid?: stri
 
 const CLEAN = statusOf([])
 
-const APP_CHANGES = statusOf(
-  [
-    changed('.M', 'docs/design.md'),
-    changed('.M', 'docs/mocks.md'),
-    changed('.M', 'hooks/pane.tsx'),
-    changed('.D', 'hooks/old-pane.tsx'),
-    changed('M.', 'README.md'),
-    untracked('docs/filetree.md'),
-  ],
-  { ab: '+1 -0' },
-)
+const APP_RECORDS = [
+  changed('.M', 'docs/design.md'),
+  changed('.M', 'docs/mocks.md'),
+  changed('.M', 'hooks/pane.tsx'),
+  changed('.D', 'hooks/old-pane.tsx'),
+  changed('M.', 'README.md'),
+  untracked('docs/filetree.md'),
+]
+
+const APP_CHANGES = statusOf(APP_RECORDS, { ab: '+1 -0' })
 
 const STATUS_ARGV = [
   'git',
@@ -1022,16 +1065,17 @@ describe('git status: letters and counts', () => {
       const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
       const ui = await openFiles($, seen, surface, 'inline', 76)
       expect((await screen(ui, 76)).slice(1)).toEqual([
-        '  .git/  not listed',
-        '  node_modules/  not listed',
-        '  docs/  M2 ?1',
-        '  hooks/  M1 D1',
-        '  scripts/',
-        '  .gitignore',
+        'M docs/design.md',
+        '? docs/filetree.md',
+        'M docs/mocks.md',
+        'D hooks/old-pane.tsx',
+        'M hooks/pane.tsx',
         'M README.md',
       ])
       expect((await ui.find({ type: 'Text', text: 'README.md' }))?.props.color).toBe('warning')
-      expect((await ui.find({ type: 'Text', text: '?1' }))?.props.color).toBe('success')
+      const colorOf = async (text: string) => (await ui.find({ type: 'Text', text }))?.props.color
+      expect(await colorOf('docs/filetree.md')).toBe('success')
+      expect(await colorOf('hooks/old-pane.tsx')).toBe('error')
       await ui.unmount()
     })
   }
@@ -1070,16 +1114,16 @@ describe('git status: letters and counts', () => {
 
   test('inline in a git repo, names keep their column while the first status is read', async ($, on) => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES, tookMs: 8000 })
+    fakeTools(on, seen, new Map())
     await openTab($)
+    await read($, 'docs/design.md')
     const ui = await mountFiles($, 'terminal', 'inline', 76)
     await seen.clock.advance(100)
-    expect((await screen(ui, 76)).slice(1, 4)).toEqual([
-      '  .git/  not listed',
-      '  node_modules/  not listed',
-      '  docs/',
+    expect((await screen(ui, 76)).slice(1)).toEqual([
+      inlineRow('  docs/design.md', '◦ main          0s'),
     ])
     await seen.clock.advance(8000)
-    expect((await screen(ui, 76))[3]).toBe('  docs/  M2 ?1')
+    expect((await screen(ui, 76))[1]).toBe(inlineRow('M docs/design.md', '◦ main          8s'))
     await ui.unmount()
   })
 
@@ -1699,8 +1743,9 @@ describe('marks: narrow docks and inline', () => {
       await touched($, seen)
       await ui.press({ key: 'open:docs' })
       const lines = await screen(ui, 30)
-      expect(lines.slice(1, 5)).toEqual([
-        CONTROLS,
+      expect(lines.slice(1, 6)).toEqual([
+        '[ work only ] [ refresh ]',
+        '{agent: all}',
         'Now  2 agents',
         '✎ main  docs/mocks.md',
         '◦ scout docs/design.md',
@@ -1720,8 +1765,9 @@ describe('marks: narrow docks and inline', () => {
       await touched($, seen)
       await ui.press({ key: 'open:docs' })
       const lines = await screen(ui, 24)
-      expect(lines.slice(1, 5)).toEqual([
-        CONTROLS,
+      expect(lines.slice(1, 6)).toEqual([
+        '[ work only ]',
+        '[ refresh ] {agent: all}',
         'Now  2 agents',
         '✎ main  docs/mocks.md',
         '◦ scout docs/design.md',
@@ -1729,7 +1775,8 @@ describe('marks: narrow docks and inline', () => {
       expect(lines).toContain('  M design.md          ◦')
       expect(lines).toContain('  M mocks.md           ✎')
       await ui.redraw({ ...paneProps('dock', 24), view: { agentId: SCOUT } })
-      expect((await screen(ui, 24)).slice(1, 6)).toEqual([
+      expect((await screen(ui, 24)).slice(1, 7)).toEqual([
+        '[ work only ]',
         '[ refresh ]',
         '{agent: scout}',
         'scout is in view, so',
@@ -1748,9 +1795,14 @@ describe('marks: narrow docks and inline', () => {
       await ui.redraw(paneProps('inline', 76))
       const lines = await screen(ui, 76)
       expect(lines[0]).toBe('Files  app · main ↑1 · 6 changed{agent: all}  [ refresh ]')
-      expect(lines).toContain(`  docs/  M2 ?1${' '.repeat(44)}✎ main          1s`)
-      expect(lines).toContain(`  hooks/  M1 D1${' '.repeat(43)}✎ main          5s`)
-      expect(lines).toContain('M README.md')
+      expect(lines.slice(1)).toEqual([
+        inlineRow('M docs/mocks.md', '✎ main +1       1s'),
+        inlineRow('M docs/design.md', '◦ scout         3s'),
+        '? docs/filetree.md',
+        'D hooks/old-pane.tsx',
+        inlineRow('M hooks/pane.tsx', '✎ main          5s'),
+        'M README.md',
+      ])
       expect(lines.some((line) => line.startsWith('Now'))).toBe(false)
       await ui.unmount()
     })
@@ -1812,7 +1864,7 @@ describe('marks: the agent filter', () => {
       await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
       expect(await headerOf(ui)).toEqual([
         'Files  app · main ↑1 · 6 changed',
-        '{agent: scout} [ refresh ]',
+        '[ work only ] {agent: scout} [ refresh ]',
         'scout is in view, so only scout shows',
         'Now  scout',
         '◦ scout     docs/design.md             2s',
@@ -1852,14 +1904,14 @@ describe('marks: the agent filter', () => {
     ])
     await ui.select({ key: 'agent', value: 'main' })
     expect((await headerOf(ui)).slice(1)).toEqual([
-      '{agent: main} [ refresh ]',
+      '[ all files ] {agent: main} [ refresh ]',
       'Now  main',
       '✎ main      hooks/pane.tsx             4s',
     ])
     await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
-    expect((await headerOf(ui))[1]).toBe('{agent: scout} [ refresh ]')
+    expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: scout} [ refresh ]')
     await ui.redraw(DOCKED_PANE)
-    expect((await headerOf(ui))[1]).toBe('{agent: main} [ refresh ]')
+    expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: main} [ refresh ]')
     await ui.select({ key: 'agent', value: 'all' })
     expect((await headerOf(ui))[2]).toBe('Now  2 agents')
     await ui.unmount()
@@ -3253,4 +3305,354 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+a')
     await ui.unmount()
   })
+})
+
+const WORK_APP: [string, FsEntry[]][] = [
+  ...GIT_APP.map(([path, entries]): [string, FsEntry[]] =>
+    path === '.' ? [path, [...entries, folder('scratch')]] : [path, entries],
+  ),
+  ['scratch', [file('notes.md')]],
+]
+
+const WORK_CHANGES = statusOf([...APP_RECORDS, untracked('scratch/')], { ab: '+1 -0' })
+
+const WORK_CONTROLS = '[ all files ] {agent: all} [ refresh ]'
+
+const WORK_NOTE = 'work view: touched and changed files'
+
+async function mountWork($: Engine, seen: World, surface: RenderSurface, columns = 41) {
+  await openTab($)
+  const ui = await mountFiles($, surface, 'dock', columns, 'work')
+  await seen.clock.settle()
+  return ui
+}
+
+async function mountDefault($: Engine, surface: RenderSurface) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'Pane',
+    requestId: PANE,
+    props: DOCKED_PANE,
+  })
+}
+
+async function workTouches($: Engine, seen: World): Promise<void> {
+  await read($, 'hooks/register.tsx', SCOUT)
+  await seen.clock.advance(36_000)
+  await mainEditsScoutReads($, seen)
+}
+
+const WORK_TREE = [
+  '▾ docs/  M2 ?1            ◦ scout      2s',
+  '  M design.md             ◦ scout      2s',
+  '  ? filetree.md',
+  '  M mocks.md',
+  '▾ hooks/  M1 D1           ✎ main       4s',
+  '  D old-pane.tsx',
+  '  M pane.tsx              ✎ main       4s',
+  '    register.tsx          ◦ scout     40s',
+  '▸ scratch/  ?',
+  'M README.md',
+  WORK_NOTE,
+]
+
+const ALL_TREE = [
+  '▸ .git/  not listed',
+  '▸ node_modules/  not listed',
+  '▸ docs/  M2 ?1            ◦ scout      2s',
+  '▸ hooks/  M1 D1           ✎ main       4s',
+  '▸ scratch/  ?',
+  '▸ scripts/',
+  '  .gitignore',
+  'M README.md',
+]
+
+describe('the work view', () => {
+  for (const surface of SURFACES) {
+    test(`the docked tab opens on the work view: only touched or changed files under their folders, with the all files button, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      await openTab($)
+      const ui = await mountDefault($, surface)
+      await seen.clock.settle()
+      await workTouches($, seen)
+      await ui.redraw(DOCKED_PANE)
+      expect(await screen(ui)).toEqual([
+        'Files  app · main ↑1 · 7 changed',
+        WORK_CONTROLS,
+        'Now  2 agents',
+        '✎ main      hooks/pane.tsx             4s',
+        '◦ scout     docs/design.md             2s',
+        RULE_41,
+        ...WORK_TREE,
+      ])
+      expect((await ui.find({ type: 'Text', text: WORK_NOTE }))?.props.dimColor).toBe(true)
+      expect((await ui.find({ key: 'view' }))?.props.hotkey).toBe('v')
+      expect(new Set(seen.listed)).toEqual(new Set(['.']))
+      await ui.unmount()
+    })
+
+    test(`all files shows the whole tree, and the button returns to the work view, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await mountWork($, seen, surface)
+      await workTouches($, seen)
+      await ui.press({ key: 'view' })
+      expect((await headerOf(ui))[1]).toBe(CONTROLS)
+      expect(await treeLines(ui)).toEqual(ALL_TREE)
+      await ui.unmount()
+      const again = await mountDefault($, surface)
+      expect(await treeLines(again)).toEqual(ALL_TREE)
+      await again.press({ key: 'view' })
+      expect((await headerOf(again))[1]).toBe(WORK_CONTROLS)
+      expect(await treeLines(again)).toEqual(WORK_TREE)
+      await again.unmount()
+    })
+
+    test(`with nothing touched or changed, the work view says so and points to all files, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+      const ui = await mountWork($, seen, surface)
+      expect(await screen(ui)).toEqual([
+        'Files  app · main · clean',
+        WORK_CONTROLS,
+        NOW_EMPTY,
+        RULE_41,
+        'No changed or touched files.',
+        '[ all files ] shows the whole tree.',
+      ])
+      await ui.press({ key: 'all-files' })
+      expect((await headerOf(ui))[1]).toBe(CONTROLS)
+      expect(await treeLines(ui)).toContain('▸ docs/')
+      await ui.unmount()
+    })
+
+    test(`an empty repo with no commit says the folder is empty in the work view, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', []]], {
+        kind: 'ok',
+        stdout: '# branch.oid (initial)\0# branch.head main\0',
+      })
+      const ui = await mountWork($, seen, surface)
+      expect(await screen(ui)).toEqual([
+        'Files  app · main · no commits yet',
+        WORK_CONTROLS,
+        NOW_EMPTY,
+        RULE_41,
+        'This folder is empty.',
+      ])
+      await ui.unmount()
+    })
+
+    test(`a narrow dock moves the filter below the buttons at body 30, and beside refresh at body 24, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+      const narrow = await mountWork($, seen, surface, 30)
+      expect((await screen(narrow, 30)).slice(1, 3)).toEqual([
+        '[ all files ] [ refresh ]',
+        '{agent: all}',
+      ])
+      await narrow.unmount()
+      const ui = await mountFiles($, surface, 'dock', 24, 'work')
+      expect((await screen(ui, 24)).slice(1)).toEqual([
+        '[ all files ]',
+        '[ refresh ] {agent: all}',
+        'Now  nothing read or ed…',
+        '─'.repeat(24),
+        'No changed or touched',
+        'files.',
+        '[ all files ]',
+        'shows the whole tree.',
+      ])
+      await ui.unmount()
+    })
+  }
+
+  test('inline at 80 columns, the work view is a flat list of at most 8 rows, the files in Now first, and the more line', async ($, on) => {
+    const stdout = statusOf([...APP_RECORDS, untracked('scratch/'), untracked('notes.txt')])
+    const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout })
+    fakeTools(on, seen, new Map())
+    boardKnowsScout(on)
+    await openTab($)
+    await edit($, 'scratch/notes.md', HELPER)
+    await seen.clock.advance(120_000)
+    await edit($, 'hooks/old-pane.tsx', HELPER)
+    await read($, 'docs/mocks.md', SCOUT)
+    await seen.clock.advance(120_000)
+    await edit($, 'docs/mocks.md')
+    await seen.clock.advance(20_000)
+    await read($, 'hooks/register.tsx', SCOUT)
+    await seen.clock.advance(10_000)
+    await edit($, 'docs/filetree.md')
+    await seen.clock.advance(26_000)
+    await edit($, 'hooks/pane.tsx')
+    await seen.clock.advance(2000)
+    await read($, 'docs/design.md', SCOUT)
+    await seen.clock.advance(2000)
+    for (const surface of SURFACES) {
+      const ui = await mountSettled($, seen, surface, 'inline', 76)
+      const lines = await screen(ui, 76)
+      expect(lines).toEqual([
+        'Files  app · main · 8 changed{agent: all}  [ refresh ]',
+        inlineRow('M hooks/pane.tsx', '✎ main          4s'),
+        inlineRow('D hooks/old-pane.tsx', '✎ f00dfeed      3m'),
+        inlineRow('M docs/design.md', '◦ scout         2s'),
+        inlineRow('? docs/filetree.md', '✎ main         30s'),
+        inlineRow('M docs/mocks.md', '✎ main +1       1m'),
+        inlineRow('  hooks/register.tsx', '◦ scout        40s'),
+        inlineRow('  scratch/  ?', '✎ f00dfeed      5m'),
+        '+2 more: a dock (fullscreen, 110 columns) shows the tree',
+      ])
+      expect(lines.length - 1).toBe(8)
+      expect(await ui.find({ key: 'view' })).toBeUndefined()
+      await ui.unmount()
+    }
+  })
+
+  test('a press on a folder in the work view closes and opens it, and an untracked folder opens to its listing', async ($, on) => {
+    const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+    fakeTools(on, seen, new Map())
+    boardKnowsScout(on)
+    const ui = await mountWork($, seen, 'terminal')
+    await workTouches($, seen)
+    await ui.press({ key: 'open:docs' })
+    await ui.press({ key: 'open:scratch' })
+    expect(await treeLines(ui)).toEqual([
+      '▸ docs/  M2 ?1            ◦ scout      2s',
+      ...WORK_TREE.slice(4, 8),
+      '▾ scratch/  ?',
+      '  ? notes.md',
+      'M README.md',
+      WORK_NOTE,
+    ])
+    await ui.press({ key: 'view' })
+    expect(await treeLines(ui)).toContain('▸ docs/  M2 ?1            ◦ scout      2s')
+    expect(await treeLines(ui)).toContain('▾ scratch/  ?')
+    await ui.press({ key: 'view' })
+    await ui.press({ key: 'open:docs' })
+    expect((await treeLines(ui)).slice(0, 4)).toEqual(WORK_TREE.slice(0, 4))
+    await ui.unmount()
+  })
+
+  test('with an agent picked, the work view shows only the files that agent touched', async ($, on) => {
+    const seen = gitWorld(on, WORK_APP, { kind: 'ok', stdout: WORK_CHANGES })
+    fakeTools(on, seen, new Map())
+    boardKnowsScout(on)
+    await openTab($)
+    const ui = await $.ui.mount({
+      plugin: PLUGIN,
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: PANE,
+      props: DOCKED_PANE,
+    })
+    await seen.clock.settle()
+    await workTouches($, seen)
+    await ui.select({ key: 'agent', value: 'main' })
+    expect(await treeLines(ui)).toEqual([
+      '▾ hooks/  M1 D1           ✎ main       4s',
+      '  M pane.tsx              ✎ main       4s',
+      WORK_NOTE,
+    ])
+    await ui.unmount()
+  })
+
+  test('a touched file inside a folder that the tree does not list shows in the work view', async ($, on) => {
+    const seen = gitWorld(on, APP, { kind: 'ok', stdout: CLEAN })
+    fakeTools(on, seen, new Map())
+    const ui = await mountWork($, seen, 'terminal')
+    await read($, 'node_modules/lib/index.d.ts')
+    await ui.redraw(DOCKED_PANE)
+    expect(await treeLines(ui)).toEqual([
+      '▾ node_modules/           ◦ main       0s',
+      '  ▾ lib/                  ◦ main       0s',
+      '      index.d.ts          ◦ main       0s',
+      WORK_NOTE,
+    ])
+    expect(seen.listed).not.toContain('node_modules')
+    await ui.unmount()
+  })
+})
+
+describe('the work view: review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`outside a git repo a folder that a Bash call wrote into shows as a folder that opens, on the ${surface}`, async ($, on) => {
+      const seen = world(on, APP)
+      const write: ShellRun = {
+        tookMs: 1000,
+        writesAt: 500,
+        write: (world) => {
+          const at = world.clock.now()
+          world.folders.set(
+            '.',
+            (APP[0]?.[1] ?? []).map((entry) =>
+              entry.name === 'hooks' ? { ...entry, mtimeMs: at } : entry,
+            ),
+          )
+          world.folders.set('hooks', [file('pane.tsx'), folder('dist'), file('new.tsx')])
+          world.files.set(`${ROOT}/hooks`, { kind: 'dir', text: '', mtimeMs: at })
+        },
+      }
+      shellTools(on, seen, new Map([['make hooks', write]]))
+      boardKnowsScout(on)
+      const ui = await mountWork($, seen, surface)
+      const call = bash($, 'make hooks', SCOUT)
+      await seen.clock.advance(6000)
+      await call
+      await ui.redraw(DOCKED_PANE)
+      expect(await treeLines(ui)).toEqual(['▸ hooks/                  ✎ scout      5s', WORK_NOTE])
+      await ui.press({ key: 'open:hooks' })
+      expect(await treeLines(ui)).toEqual([
+        '▾ hooks/                  ✎ scout      5s',
+        '  ▸ dist/  not listed',
+        '    new.tsx',
+        '    pane.tsx',
+        WORK_NOTE,
+      ])
+      await ui.unmount()
+    })
+
+    test(`a touched path with a dot segment shows at its real place, and a path that leaves the working folder does not show, on the ${surface}`, async ($, on) => {
+      const seen = world(on, APP)
+      fakeTools(on, seen, new Map())
+      const ui = await mountWork($, seen, surface)
+      await read($, '../other/secret.ts')
+      await read($, 'hooks/../README.md')
+      await read($, './docs/./design.md')
+      await ui.redraw(DOCKED_PANE)
+      expect(await treeLines(ui)).toEqual([
+        '▾ docs/                   ◦ main       0s',
+        '    design.md             ◦ main       0s',
+        '  README.md               ◦ main       0s',
+        WORK_NOTE,
+      ])
+      await ui.unmount()
+    })
+
+    test(`the more button of the work view does not lift the 200 entry cap of all files, on the ${surface}`, async ($, on) => {
+      const gen = numbered(201)
+      const seen = gitWorld(
+        on,
+        [
+          ['.', [folder('src')]],
+          ['src', [folder('gen')]],
+          ['src/gen', gen],
+        ],
+        {
+          kind: 'ok',
+          stdout: statusOf(gen.map((entry) => changed('.M', `src/gen/${entry.name}`))),
+        },
+      )
+      const ui = await mountWork($, seen, surface)
+      await ui.press({ key: 'more:src/gen' })
+      expect(await ui.find({ key: 'more:src/gen' })).toBeUndefined()
+      expect(await treeLines(ui)).toContain('    M a0201.ts')
+      await ui.press({ key: 'view' })
+      await ui.press({ key: 'open:src' })
+      await ui.press({ key: 'open:src/gen' })
+      expect(await ui.find({ key: 'more:src/gen' })).toBeDefined()
+      expect(await treeLines(ui)).not.toContain('    M a0201.ts')
+      await ui.unmount()
+    })
+  }
 })

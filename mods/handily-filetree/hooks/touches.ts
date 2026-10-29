@@ -4,7 +4,13 @@ export const MAIN_AGENT = ''
 
 export const REVEALED_PER_SEARCH = 12
 
-export type Touch = { kind: TouchKind; agent: string; at: number; shell?: readonly string[] }
+export type Touch = {
+  kind: TouchKind
+  agent: string
+  at: number
+  shell?: readonly string[]
+  isFolder?: boolean
+}
 
 export type SightSource = 'call' | 'Grep' | 'Bash'
 
@@ -101,7 +107,12 @@ export function editorsOf(touches: Touches, path: string, window: Window): strin
 
 export function markShell(
   touches: Touches,
-  change: { paths: readonly string[]; agents: readonly string[]; at: number },
+  change: {
+    paths: readonly string[]
+    folders: ReadonlySet<string>
+    agents: readonly string[]
+    at: number
+  },
 ): void {
   const agents = agentOrder(change.agents)
   const first = agents[0]
@@ -110,10 +121,11 @@ export function markShell(
   if (first === undefined || firstPath === undefined) return
   const touch: Touch = { kind: 'edit', agent: first, at: change.at, shell: agents }
   for (const path of paths) {
+    const onPath: Touch = change.folders.has(path) ? { ...touch, isFolder: true } : touch
     for (const agent of agents) {
       const own = touches.files.get(path)?.get(agent)
       const isOwnEdit = agents.length > 1 && own?.kind === 'edit' && own.shell === undefined
-      if (!isOwnEdit && isNewer(touch, own)) kept(touches, path, touch, agent)
+      if (!isOwnEdit && isNewer(touch, own)) kept(touches, path, onPath, agent)
     }
   }
   if (agents.length !== 1 || !isNewer(touch, touches.sights.get(first))) return
