@@ -125,10 +125,9 @@ The design of the tables, code blocks and diagrams of `handily-reply-view` uses
 [prismantis](https://github.com/NahumLitvin/prismantis) by Nahum Litvin (MIT License), at
 commit `ed085d7c`, as a reference. handily copies no code from it and adds no dependency.
 
-The design of `handily-filetree` uses
+The ideas of `handily-filetree` come from
 [claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) by Kurt Buhler
-(MIT License), at commit `b98495f8`, as a reference. handily copies no code from it and adds
-no dependency.
+(MIT License), at commit `b98495f8`. handily copies no code from it and adds no dependency.
 
 ## License
 
