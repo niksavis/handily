@@ -18,8 +18,18 @@ const GLYPH_MODS = [
   'handily-reply-view',
   'handily-simple-view',
 ]
-const LITERAL_FREE_MODS = ['handily-item-toasts', 'handily-reply-view', 'handily-simple-view']
+const LITERAL_FREE_MODS = [
+  'handily-board',
+  'handily-item-toasts',
+  'handily-reply-view',
+  'handily-simple-view',
+]
 const LITERAL_EXCEPTIONS = [
+  {
+    file: 'mods/handily-board/hooks/checks.ts',
+    glyph: '■',
+    why: 'the denied cell of the gate strip, a verdict cell beside the allowed and asked cells',
+  },
   {
     file: 'mods/handily-reply-view/hooks/flowchart.ts',
     glyph: '▶',
@@ -558,7 +568,7 @@ describe('the literal free gate', () => {
         LITERAL_FREE_MODS.some((mod) => file.startsWith(`mods/${mod}/hooks/`)),
         file,
       )
-      assert.match(why, /arrow/)
+      assert.match(why, /arrow|cell/)
     }
   })
 

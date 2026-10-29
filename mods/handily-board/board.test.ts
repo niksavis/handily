@@ -9945,3 +9945,256 @@ describe('the glyph setting of the task status toast', () => {
     }
   }
 })
+
+const SIGNALS_FROM_SET_CRITERION =
+  'SIGNALS keeps the theme colours and takes its marks from the set in the board state key glyphs, and END_MARKS in lanes.ts uses the set.'
+const NERD_TAB_CRITERION =
+  'With glyphs nerd the this session tab of mock 11 draws U+EB2C, U+EBB5, U+EAA2 and U+EA87, and every drawn line measures 41 columns at body 41 and 30 at body 30.'
+const KEPT_MARKS_CRITERION =
+  'The running call mark, the progress bar, the lane cells, the rules and the row bullet are the same in both sets, and on the desktop surface the board draws plain.'
+
+const NERD_OF_PLAIN: readonly (readonly [string, string])[] = [
+  ['▶', '\u{EB2C}'],
+  ['✓', '\u{EAB2}'],
+  ['○', '\u{EBB5}'],
+  ['■', '\u{EA87}'],
+  ['◆', '\u{EAA2}'],
+]
+const NERD_DOING = '\u{EB2C}'
+const NERD_TO_DO = '\u{EBB5}'
+const NERD_BELL = '\u{EAA2}'
+const NERD_ERROR = '\u{EA87}'
+const FRAME_EDGES = /^[╭│╰]/u
+
+function nerdSwapped(line: string): string {
+  return NERD_OF_PLAIN.reduce((text, [plain, nerd]) => text.replaceAll(plain, nerd), line)
+}
+
+async function setGlyphs($: Engine, seen: World, value: 'plain' | 'nerd'): Promise<void> {
+  const previous = seen.config.find((row) => row.key === GLYPHS_KEY)?.value ?? 'plain'
+  seen.config = [glyphsRow(value)]
+  await $.config.set({
+    key: GLYPHS_KEY,
+    value,
+    previous,
+    provider: { plugin: 'handily@niksavis', tier: 'user' },
+    origin: { kind: 'composer' },
+  })
+}
+
+async function glyphScene($: Engine, on: On, surface: Surface) {
+  const seen = world(on, { glyphs: 'plain' })
+  const dialog = personDialog(on, seen.clock)
+  await startOn($, surface)
+  await mockWork($, seen)
+  await spawnFrom($, LANE)
+  seen.agents.push({ ...runningAgent(LANE, 'lane-b'), status: 'failed' })
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: LANE })
+  await $.turn.complete({
+    turnId: 'turn-lane',
+    reason: 'answer',
+    answer: 'done',
+    durationMs: MINUTE,
+    isAborted: false,
+    agentId: LANE,
+  })
+  await spawnFrom($, SCOUT)
+  const { call } = await scoutWaits($, seen, dialog)
+  return { seen, dialog, call }
+}
+
+function widthProblems(lines: readonly string[], columns: number): string[] {
+  return lines.flatMap((line) => {
+    const width = displayWidth(line)
+    if (width > columns) return [`"${line}" measures ${String(width)}, over ${String(columns)}`]
+    if (FRAME_EDGES.test(line) && width !== columns) {
+      return [`"${line}" measures ${String(width)}, not ${String(columns)}`]
+    }
+    return []
+  })
+}
+
+describe(NERD_TAB_CRITERION, () => {
+  for (const surface of SURFACES) {
+    for (const columns of [41, 30]) {
+      test(
+        `a switch to glyphs nerd swaps each signal mark one for one at body ${String(columns)} on ${surface}, where the desktop keeps plain`,
+        withWorkitems,
+        async ($, on) => {
+          const { seen, dialog, call } = await glyphScene($, on, surface)
+          const ui = await mountTab($, surface, PANE, 'dock', columns)
+          const plain = await screen(ui, columns)
+          const plainText = plain.join('\n')
+          for (const mark of ['▶', '○', '◆', '■']) expect(plainText).toContain(mark)
+          await setGlyphs($, seen, 'nerd')
+          const nerd = await screen(ui, columns)
+          expect(nerd).toEqual(bySurface(surface, plain.map(nerdSwapped), plain))
+          const nerdText = nerd.join('\n')
+          for (const icon of [NERD_DOING, NERD_TO_DO, NERD_BELL, NERD_ERROR]) {
+            expect(nerdText.includes(icon)).toBe(surface === 'terminal')
+          }
+          expect(widthProblems(nerd, columns)).toEqual([])
+          expect(nerd.map(displayWidth)).toEqual(plain.map(displayWidth))
+          if (columns === 41 && surface === 'terminal') {
+            expect(nerd.filter((line) => FRAME_EDGES.test(line)).length).toBeGreaterThan(10)
+          }
+          await ui.unmount()
+          dialog.allow()
+          await call
+        },
+      )
+    }
+  }
+
+  test(
+    'the nerd tab of mock 11 draws each row with its icon at body 41 and body 30 on the terminal',
+    withWorkitems,
+    async ($, on) => {
+      const { seen, dialog, call } = await glyphScene($, on, 'terminal')
+      await setGlyphs($, seen, 'nerd')
+      const wide = await mountTab($, 'terminal', PANE, 'dock', 41)
+      const framed = unframed(await screen(wide, 41))
+      await wide.unmount()
+      expect(framed).toContain(`Tasks  ▰▰▱▱ 1/4 · ${NERD_DOING}1 ${NERD_TO_DO}2 · 14m`)
+      expect(framed).toContain(`${NERD_DOING} 2 Write the tab mocks     4m [ rm ]`)
+      expect(framed).toContain('    ▸ Edit docs/mocks.md      9 tools')
+      expect(framed).toContain(`${NERD_TO_DO} 3 Review the mocks with Cod… [ rm ]`)
+      expect(lineWith(framed, `${NERD_BELL} scout`)).toContain('needs you')
+      expect(lineWith(framed, `${NERD_ERROR} lane-b`)).toContain('failed')
+      const narrow = await mountTab($, 'terminal', PANE, 'dock', 30)
+      const flat = await screen(narrow, 30)
+      await narrow.unmount()
+      expect(flat[0]).toBe(`Session  ${NERD_BELL} 1 waits · ctx —`)
+      expect(flat).toContain(`${NERD_DOING} 2 Write the tab m… 4m [ rm ]`)
+      expect(widthProblems(flat, 30)).toEqual([])
+      dialog.allow()
+      await call
+    },
+  )
+})
+
+describe(KEPT_MARKS_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `with glyphs nerd the running call mark, the progress bar and the rule stay on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen, dialog, call } = await glyphScene($, on, surface)
+        await setGlyphs($, seen, 'nerd')
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        const lines = await screen(ui, 41)
+        await ui.unmount()
+        const flat = unframed(lines)
+        expect(lineWith(flat, '▸ Edit docs/mocks.md')).toBeDefined()
+        expect(lineWith(flat, '▰▰▱▱ 1/4')).toBeDefined()
+        expect(lines.some((line) => line.includes('─'.repeat(37)))).toBe(true)
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `with glyphs nerd the lane cells stay and each lane ends in the icon of its state on ${surface}, plain on the desktop`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen, dialog, call } = await glyphScene($, on, surface)
+        await setGlyphs($, seen, 'nerd')
+        const ui = await mountTab($, surface, PANE, 'dock', 89)
+        const scout = drawnOf(await ui.find({ key: `lane:agent:${SCOUT}` }))
+        const lane = drawnOf(await ui.find({ key: `lane:agent:${LANE}` }))
+        await ui.unmount()
+        const bell = bySurface(surface, NERD_BELL, '◆')
+        const error = bySurface(surface, NERD_ERROR, '■')
+        expect(scout?.text).toMatch(new RegExp(`^·*━+${bell}·*$`, 'u'))
+        expect(scout?.children[1]?.props.color).toBe('warning')
+        expect(lane?.text).toMatch(new RegExp(`^·*━*${error}·+$`, 'u'))
+        expect(lane?.children[1]?.props.color).toBe('error')
+        expect(displayWidth(scout?.text ?? '')).toBe(20)
+        expect(displayWidth(lane?.text ?? '')).toBe(20)
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `with glyphs nerd a task tool row keeps the row bullet and draws the status icon on ${surface}, plain on the desktop`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on, { glyphs: 'nerd' })
+        engineRows(on)
+        await startOn($, surface)
+        await called($, seen, { tool: TOOL_ADD, title: 'Draw the mocks' })
+        const started = await called($, seen, { tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+        expect(await callRow($, surface, useOf(started))).toBe(
+          bySurface(
+            surface,
+            `● Task 1 ${NERD_DOING} in progress  Draw the mocks`,
+            'Task 1 ▶ in progress  Draw the mocks',
+          ),
+        )
+      },
+    )
+
+    test(
+      `with glyphs nerd the band draws the icon of the current task on ${surface}, plain on the desktop`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { glyphs: 'nerd' })
+        engineRows(on)
+        await startOn($, surface)
+        await bandFour($, seen)
+        const mark = bySurface(surface, NERD_DOING, '▶')
+        expect(await bandLine($, surface)).toBe(
+          `${mark} 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ]`,
+        )
+      },
+    )
+  }
+})
+
+describe(SIGNALS_FROM_SET_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `the status line and /board stats draw the bell of the kept setting and redraw after a switch, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { glyphs: 'nerd' })
+        const dialog = personDialog(on, seen.clock)
+        await startOn($, surface)
+        const { call } = await scoutWaits($, seen, dialog)
+        const nerdWaits = `${NERD_BELL} scout waits for permission: Bash npm test`
+        expect(seen.statuses).toEqual([nerdWaits])
+        expect(await board($, 'stats')).toContain(`    ${nerdWaits}`)
+        await setGlyphs($, seen, 'plain')
+        expect(seen.statuses).toEqual([nerdWaits, SCOUT_WAITS])
+        expect(await board($, 'stats')).toContain(`    ${SCOUT_WAITS}`)
+        dialog.allow()
+        await call
+      },
+    )
+  }
+
+  test(
+    'a pane that cannot read the glyph setting logs it and draws plain',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { glyphs: 'nerd' })
+      let isLocked = false
+      on('state.get', { plugin: PLUGIN, key: 'glyphs' }, (_$, e, next) =>
+        isLocked ? { deny: 'the store is locked' } : next(e),
+      )
+      await start($)
+      await mockWork($, seen)
+      isLocked = true
+      const ui = await mountTab($, 'terminal', PANE, 'dock', 41)
+      const lines = unframed(await screen(ui, 41))
+      await ui.unmount()
+      expect(lines).toContain('▶ 2 Write the tab mocks     4m [ rm ]')
+      const failures = seen.logs.filter((text) =>
+        text.startsWith('handily-board: the glyph setting was not read: '),
+      )
+      expect(failures.length).toBeGreaterThan(0)
+      expect(failures[0]).toContain('the store is locked')
+    },
+  )
+})

@@ -2,13 +2,12 @@ import type { PluginOptions } from 'claude-code'
 import type { BoardToolSight } from '../types'
 import { callText } from './agent-rows'
 import { type AgentRow, waitingRows } from './agents'
-import { SIGNALS } from './signals'
+import type { SignalLooks } from './signals'
 import { marked, type ToastParts } from './toast'
 
 export type StatusLineSetting = 'attention' | 'off'
 
 const STATUS_LINE_SETTINGS: readonly StatusLineSetting[] = ['attention', 'off']
-const WAIT_MARK = SIGNALS.waitsForYou.mark
 const MAIN_LOOP = 'Claude'
 
 export function statusLineSetting(options: PluginOptions): StatusLineSetting {
@@ -36,8 +35,8 @@ export function agentWait(row: AgentRow): Wait {
   return { who: row.shownName, call: row.call }
 }
 
-export function agentWaitLine(row: AgentRow): string {
-  return `${WAIT_MARK} ${waitText(agentWait(row))}`
+export function agentWaitLine(row: AgentRow, signals: SignalLooks): string {
+  return `${signals.waitsForYou.mark} ${waitText(agentWait(row))}`
 }
 
 export function mainWait(call: BoardToolSight): Wait {
@@ -53,10 +52,10 @@ export function noticeParts(session: string, wait: Wait): ToastParts {
   return wait.call === null ? [head, waitLead(wait)] : [head, waitLead(wait), callText(wait.call)]
 }
 
-export function attentionText(rows: readonly AgentRow[]): string | undefined {
+export function attentionText(rows: readonly AgentRow[], signals: SignalLooks): string | undefined {
   const waiting = waitingRows(rows)
   const [first] = waiting
   if (first === undefined) return undefined
-  if (waiting.length === 1) return agentWaitLine(first)
-  return `${WAIT_MARK} ${String(waiting.length)} agents wait for permission`
+  if (waiting.length === 1) return agentWaitLine(first, signals)
+  return `${signals.waitsForYou.mark} ${String(waiting.length)} agents wait for permission`
 }

@@ -1,11 +1,12 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import type { BoardCallRow, BoardList, BoardStatus, BoardTask } from '../types'
+import type { SignalLooks } from './signals'
 import { doneCount, ownList, paneTaskText, statusLook, statusWord } from './tasks'
 import { displayWidth, fitted } from './width'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text'>
 
-export type CallRowLook = { elements: RowElements; hasToolMarker: boolean }
+export type CallRowLook = { elements: RowElements; hasToolMarker: boolean; signals: SignalLooks }
 
 type Part = { text: string; color?: ThemeKey }
 
@@ -38,19 +39,19 @@ function taskName(id: number): string {
   return `Task ${String(id)}`
 }
 
-function markPart(status: BoardStatus): Part {
-  const { mark, color } = statusLook(status)
+function markPart(status: BoardStatus, signals: SignalLooks): Part {
+  const { mark, color } = statusLook(status, signals)
   return { text: mark, color }
 }
 
-function headOf(row: BoardCallRow): Part[] {
+function headOf(row: BoardCallRow, signals: SignalLooks): Part[] {
   switch (row.kind) {
     case 'added':
       return [{ text: `${taskName(row.id)} added` }]
     case 'status':
       return [
         { text: `${taskName(row.id)} ` },
-        markPart(row.status),
+        markPart(row.status, signals),
         { text: ` ${statusWord(row.status)}` },
       ]
     case 'removed':
@@ -83,7 +84,7 @@ function shownTail(look: CallRowLook, row: BoardCallRow, head: readonly Part[], 
 
 export function drawCallRow(look: CallRowLook, row: BoardCallRow, columns?: number): RenderElement {
   const { Box, Text } = look.elements
-  const head = headOf(row)
+  const head = headOf(row, look.signals)
   const tail = shownTail(look, row, head, columns)
   const headBox = Box({
     flexDirection: 'row',

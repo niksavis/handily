@@ -13,7 +13,7 @@ const BUTTON_GAP = 2
 const LINE_KEY = 'plan-line'
 const NOT_ADDED = 'not added:'
 
-type LineElements = Pick<PaneElements, 'Box' | 'Text' | 'Button'>
+type LineElements = Pick<PaneElements, 'Box' | 'Text' | 'Button' | 'signals'>
 
 export type PlanActions = { add: () => void; dismiss: () => void }
 
@@ -52,7 +52,7 @@ function refusalElements(elements: PaneElements, plan: BoardPlan): RenderElement
   const [first, ...rest] = plan.refusal ?? []
   if (first === undefined) return []
   const room = elements.bodyColumns - INDENT
-  const lead = `${SIGNALS.blocked.mark} ${NOT_ADDED}`
+  const lead = `${elements.signals.blocked.mark} ${NOT_ADDED}`
   return [
     Box({
       key: 'plan-refusal',
@@ -135,7 +135,10 @@ function lineNote(elements: LineElements, view: PlanLineView): RenderElement {
       flexDirection: 'row',
       flexShrink: 1,
       children: [
-        Text({ color: SIGNALS.blocked.color, children: `${SIGNALS.blocked.mark} ${NOT_ADDED}` }),
+        Text({
+          color: SIGNALS.blocked.color,
+          children: `${elements.signals.blocked.mark} ${NOT_ADDED}`,
+        }),
         Text({ wrap: 'truncate-end', children: ` ${refusal}` }),
       ],
     })
@@ -168,7 +171,7 @@ export function drawPlanLine(
       flexDirection: 'row',
       paddingLeft: INDENT,
       children: [
-        Text({ color: SIGNALS.done.color, children: SIGNALS.done.mark }),
+        Text({ color: SIGNALS.done.color, children: elements.signals.done.mark }),
         Text({
           dimColor: true,
           wrap: 'truncate-end',
@@ -185,7 +188,7 @@ export function drawPlanLine(
         Text({
           dimColor: true,
           wrap: 'truncate-end',
-          children: `${SIGNALS.toDo.mark} a later plan replaced this one`,
+          children: `${elements.signals.toDo.mark} a later plan replaced this one`,
         }),
       ],
     })

@@ -5,6 +5,7 @@ import { checksText, familiesText, verdictsText } from './checks'
 import { detailsText } from './details'
 import type { PaneWork } from './pane'
 import { requestWords } from './request'
+import type { SignalLooks } from './signals'
 import { receiptWords, sessionHeadWords } from './session'
 
 const STATS_INDENT = '    '
@@ -25,7 +26,7 @@ function checkLines(stats: Stats): string[] {
   return present([summary, familiesText(stats.checks), verdictsText(stats.checks)])
 }
 
-function sessionLines(stats: Stats): string[] {
+function sessionLines(stats: Stats, signals: SignalLooks): string[] {
   const waiting = waitingRows(stats.agents)
   const view = {
     vitals: stats.vitals,
@@ -33,12 +34,13 @@ function sessionLines(stats: Stats): string[] {
     checks: stats.checks,
     request: stats.request,
     now: stats.now,
+    signals,
   }
   const details = detailsText(stats.vitals, stats.now, stats.context)
   return [
     sessionHeadWords(view),
     ...indented([
-      ...waiting.map(agentWaitLine),
+      ...waiting.map((row) => agentWaitLine(row, signals)),
       ...present([requestWords(stats.request), receiptWords(view)]),
       ...(details === '' ? [] : details.split('\n')),
       ...checkLines(stats),
@@ -51,6 +53,6 @@ function agentLines(rows: readonly AgentRow[]): string[] {
   return [agentsTitleText(rows), ...indented(rows.map(agentStatsText))]
 }
 
-export function statsText(stats: Stats): string {
-  return [...sessionLines(stats), ...agentLines(stats.agents)].join('\n')
+export function statsText(stats: Stats, signals: SignalLooks): string {
+  return [...sessionLines(stats, signals), ...agentLines(stats.agents)].join('\n')
 }

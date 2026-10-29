@@ -1,11 +1,24 @@
-import type { ConfigSetInput, EngineInterface } from 'claude-code'
-import { DEFAULT_GLYPHS, type GlyphSetting } from './glyphs'
+import type { ConfigSetInput, EngineInterface, RenderSurface } from 'claude-code'
+import { DEFAULT_GLYPHS, GLYPH_SETS, type GlyphSetting } from './glyphs'
+import { type SignalLooks, signalLooks } from './signals'
 import { changedGlyphSetting, glyphSettingNow, showToast, type ToastParts } from './toast'
 
 const GLYPHS = { plugin: 'handily-board', key: 'glyphs' } as const
+const PLAIN_GLYPHS: GlyphSetting = 'plain'
+
+export const PLAIN_SIGNALS: SignalLooks = signalLooks(GLYPH_SETS[PLAIN_GLYPHS])
 
 async function glyphsOf($: EngineInterface): Promise<GlyphSetting> {
   return (await $.state.get(GLYPHS)).value ?? DEFAULT_GLYPHS
+}
+
+async function keptGlyphs($: EngineInterface): Promise<GlyphSetting> {
+  try {
+    return await glyphsOf($)
+  } catch (error) {
+    $.ui.log(`handily-board: the glyph setting was not read: ${String(error)}`)
+    return DEFAULT_GLYPHS
+  }
 }
 
 export async function keepGlyphSetting($: EngineInterface): Promise<void> {
@@ -15,19 +28,27 @@ export async function keepGlyphSetting($: EngineInterface): Promise<void> {
 export async function keepChangedGlyphSetting(
   $: EngineInterface,
   e: ConfigSetInput,
-): Promise<void> {
+): Promise<boolean> {
   const glyphs = await changedGlyphSetting($, e)
-  if (glyphs !== undefined) await $.state.set(GLYPHS, glyphs)
+  if (glyphs === undefined) return false
+  await $.state.set(GLYPHS, glyphs)
+  return true
 }
 
 export function showGlyphToast($: EngineInterface, parts: ToastParts): void {
-  glyphsOf($).then(
-    (glyphs) => {
-      showToast($, parts, glyphs)
-    },
-    (error: unknown) => {
-      $.ui.log(`handily-board: the glyph setting was not read: ${String(error)}`)
-      showToast($, parts, DEFAULT_GLYPHS)
-    },
-  )
+  void keptGlyphs($).then((glyphs) => {
+    showToast($, parts, glyphs)
+  })
+}
+
+export async function keptSignals($: EngineInterface): Promise<SignalLooks> {
+  return signalLooks(GLYPH_SETS[await keptGlyphs($)])
+}
+
+export async function drawnSignals(
+  $: EngineInterface,
+  surface: RenderSurface,
+): Promise<SignalLooks> {
+  if (surface !== 'terminal') return PLAIN_SIGNALS
+  return keptSignals($)
 }

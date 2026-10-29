@@ -5,7 +5,7 @@ import { BAR_EMPTY, BAR_FILLED, barCells } from './bar'
 import type { PaneElements } from './pane'
 import { isOffered, stepsText } from './plan'
 import { addLabel } from './plan-view'
-import { SIGNALS } from './signals'
+import { SIGNALS, type SignalLooks } from './signals'
 import { doneCount, escaped, ownList } from './tasks'
 import { displayWidth, fitted } from './width'
 
@@ -66,7 +66,7 @@ export function isEngineDrawing(drawn: RenderElement): boolean {
   return drawn.type === 'engine'
 }
 
-type BandElements = Pick<PaneElements, 'Box' | 'Text' | 'Button'>
+type BandElements = Pick<PaneElements, 'Box' | 'Text' | 'Button' | 'signals'>
 
 export type BandActions = { open: () => void; addPlan: (id: string) => void }
 
@@ -111,15 +111,16 @@ function spaced(groups: readonly (readonly Part[])[]): Part[] {
 function leftParts(
   view: Extract<BandView, { kind: 'tasks' }>,
   task: BoardTask | undefined,
+  signals: SignalLooks,
 ): Part[] {
   const parts: Part[] = []
   if (view.forYou > 0) {
-    const { mark, color } = SIGNALS.waitsForYou
+    const { mark, color } = signals.waitsForYou
     parts.push({ text: `${mark} ${String(view.forYou)} for you`, color })
     if (task !== undefined) parts.push({ text: ' · ', dimColor: true })
   }
   if (task === undefined) return parts
-  const look = task.status === 'in_progress' ? SIGNALS.doing : SIGNALS.toDo
+  const look = task.status === 'in_progress' ? signals.doing : signals.toDo
   parts.push({ text: `${look.mark} `, color: look.color }, { text: `${String(task.id)} ` })
   return parts
 }
@@ -165,7 +166,7 @@ function drawTasks(
   }
   const bar = columns >= BAR_FROM ? barParts(list) : []
   const time = columns >= TIME_FROM ? timePart(task, view) : []
-  const lead = leftParts(view, task)
+  const lead = leftParts(view, task, elements.signals)
   const fixed = (withTime: boolean) =>
     partsWidth(spaced([withTime ? time : [], bar, list.tasks.length > 0 ? [count] : []])) +
     1 +

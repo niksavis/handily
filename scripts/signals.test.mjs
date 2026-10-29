@@ -47,11 +47,26 @@ function signalsPath(mod) {
   return join(root, 'mods', mod, 'hooks', 'signals.ts')
 }
 
-async function tableOf(mod) {
+async function signalsModule(mod) {
   const path = signalsPath(mod)
   assert.ok(existsSync(path), `mods/${mod}/hooks/signals.ts is missing; each mod keeps the table`)
-  const { SIGNALS } = await import(pathToFileURL(path).href)
-  return SIGNALS
+  return import(pathToFileURL(path).href)
+}
+
+async function glyphSetsOf(mod) {
+  const path = join(root, 'mods', mod, 'hooks', 'glyphs.ts')
+  return (await import(pathToFileURL(path).href)).GLYPH_SETS
+}
+
+async function tableOf(mod, setName = 'plain') {
+  const { signalLooks } = await signalsModule(mod)
+  return signalLooks((await glyphSetsOf(mod))[setName])
+}
+
+function approvedColours() {
+  return Object.fromEntries(
+    Object.entries(APPROVED).map(([state, { color }]) => [state, { color }]),
+  )
 }
 
 const { displayWidth } = await import(
@@ -71,6 +86,21 @@ describe('the table of signals', () => {
         Object.entries(APPROVED).map(([state, { mark, color }]) => [state, { mark, color }]),
       )
       assert.deepEqual(table, approved)
+    })
+
+    test(`${mod} keeps only the theme colours in SIGNALS, so every mark comes from a glyph set`, async () => {
+      const { SIGNALS } = await signalsModule(mod)
+      assert.deepEqual(SIGNALS, approvedColours())
+    })
+
+    test(`${mod} draws each state with its pinned nerd icon and the same theme colour`, async () => {
+      const nerd = Object.fromEntries(
+        Object.entries(APPROVED).map(([state, { color }]) => [
+          state,
+          { mark: String.fromCodePoint(GLYPHS[state].nerd), color },
+        ]),
+      )
+      assert.deepEqual(await tableOf(mod, 'nerd'), nerd)
     })
   }
 
@@ -136,8 +166,13 @@ describe('the table of signals', () => {
 
 describe('the width of each mark', () => {
   for (const mod of SIGNAL_MODS) {
-    test(`each mark of ${mod} is one column wide`, async () => {
-      for (const [state, { mark }] of Object.entries(await tableOf(mod))) {
+    test(`each mark of ${mod} is one column wide in both glyph sets`, async () => {
+      const looks = [
+        ...Object.entries(await tableOf(mod)),
+        ...Object.entries(await tableOf(mod, 'nerd')),
+      ]
+      assert.equal(looks.length, 2 * Object.keys(APPROVED).length)
+      for (const [state, { mark }] of looks) {
         assert.equal([...mark].length, 1, `${state} mark ${mark} is more than one character`)
         assert.equal(displayWidth(mark), 1, `${state} mark ${mark} is not one column wide`)
         assert.doesNotMatch(

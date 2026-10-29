@@ -8,7 +8,7 @@ import { CONTEXT_CELLS, LIMIT_CELLS, gaugeForms } from './gauge'
 import type { PaneElements } from './pane'
 import { type Atom, type FlowAtom, type Part, fitAtoms, flowLines, spansWidth } from './parts'
 import { type RequestFacts, requestAtoms } from './request'
-import { SIGNALS } from './signals'
+import { SIGNALS, type SignalLooks } from './signals'
 import { type Vitals, addedCents, cents, dollars, lastCents } from './vitals'
 import { displayWidth } from './width'
 
@@ -18,6 +18,7 @@ export type SessionView = {
   checks: BoardChecks
   request: RequestFacts
   now: number
+  signals: SignalLooks
 }
 
 export type SessionLine = { key: string; parts: readonly Part[] }
@@ -43,9 +44,9 @@ function isBeforeReply(vitals: Vitals): boolean {
   return vitals.percent === undefined && (vitals.usd ?? 0) === 0
 }
 
-function waitsAtom(waits: number): FlowAtom {
+function waitsAtom(waits: number, signals: SignalLooks): FlowAtom {
   const verb = waits === 1 ? 'waits' : 'wait'
-  const text = `${SIGNALS.waitsForYou.mark} ${String(waits)} ${verb}`
+  const text = `${signals.waitsForYou.mark} ${String(waits)} ${verb}`
   return single([{ text, color: WAITS_COLOR }])
 }
 
@@ -68,7 +69,7 @@ function readingAtoms(vitals: Vitals, hasGauge: boolean): FlowAtom[] {
 }
 
 function contextAtoms(view: SessionView, hasGauge = true): FlowAtom[] {
-  const waits = view.waits === 0 ? [] : [waitsAtom(view.waits)]
+  const waits = view.waits === 0 ? [] : [waitsAtom(view.waits, view.signals)]
   return [...waits, ...readingAtoms(view.vitals, hasGauge)]
 }
 
