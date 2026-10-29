@@ -1,3 +1,4 @@
+import type { GlyphSet } from './glyphs'
 import { type LineMarks, lineMarks } from './lines'
 import { type GitMarks, type GitStatus, gitMarks } from './status'
 import { type GitFailure, type GitWatch, type LinesFailure, RUN_TIMEOUT_MS, SLOW_MS } from './watch'
@@ -54,8 +55,9 @@ function changedText(status: GitStatus): string {
   return status.isInitial ? 'no commits yet' : 'clean'
 }
 
-function summary(branch: string | undefined, status: GitStatus): HeaderPart[] {
-  const head = branch === undefined ? [] : [{ text: ` · ${branch}` }, ...aheadBehind(status)]
+function summary(branch: string | undefined, status: GitStatus, glyphs: GlyphSet): HeaderPart[] {
+  const head =
+    branch === undefined ? [] : [{ text: ` ${glyphs.branch} ${branch}` }, ...aheadBehind(status)]
   return [...head, { text: ` · ${changedText(status)}` }]
 }
 
@@ -143,7 +145,7 @@ function plain(text: string): HeaderPart[] {
   return [{ text }]
 }
 
-export function gitView(watch: GitWatch, now: number): GitView {
+export function gitView(watch: GitWatch, now: number, glyphs: GlyphSet): GitView {
   const none = { upstream: undefined, lines: undefined }
   if (watch.repo === null || watch.repo === undefined) {
     return {
@@ -167,7 +169,7 @@ export function gitView(watch: GitWatch, now: number): GitView {
   if (shown === undefined) return { ...base, header: [], notes: READING }
   const age = ageText(now - shown.at)
   const header = [
-    ...summary(watch.branch, shown.status),
+    ...summary(watch.branch, shown.status, glyphs),
     ...(watch.isSlow ? plain(` · ${age} old`) : []),
   ]
   return {

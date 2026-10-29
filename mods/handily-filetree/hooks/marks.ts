@@ -1,3 +1,4 @@
+import type { GlyphRole, GlyphSet } from './glyphs'
 import type { Mark, Sight, SightSource, Touch, TouchKind } from './touches'
 import { displayWidth, fitted, padToWidth } from './width'
 
@@ -5,7 +6,7 @@ export type MarkColumn = { label: number; hasAge: boolean }
 
 export type MarkCell = { mark: string; age: string }
 
-const SYMBOLS: Readonly<Record<TouchKind, string>> = { edit: '✎', read: '◦' }
+const ROLES: Readonly<Record<TouchKind, GlyphRole>> = { edit: 'edited', read: 'read' }
 const VERBS: Readonly<Record<TouchKind, string>> = { edit: 'edited', read: 'read' }
 const SYMBOL_COLUMNS = 1
 const AGE_COLUMNS = 3
@@ -23,11 +24,11 @@ const SECOND_MS = 1000
 
 export type TaskCounts = Readonly<Record<TouchKind, number>>
 
-export function taskCountsText(counts: TaskCounts, task: number): string {
+export function taskCountsText(counts: TaskCounts, task: number, glyphs: GlyphSet): string {
   const kinds: readonly TouchKind[] = ['edit', 'read']
   const parts = kinds
     .filter((kind) => counts[kind] > 0)
-    .map((kind) => `${SYMBOLS[kind]} ${String(counts[kind])} ${VERBS[kind]}`)
+    .map((kind) => `${glyphs[ROLES[kind]]} ${String(counts[kind])} ${VERBS[kind]}`)
   return `${parts.join(' · ')} while task ${String(task)} ran`
 }
 
@@ -84,8 +85,13 @@ function ageCell(column: MarkColumn, ms: number): string {
   return column.hasAge ? ` ${ageText(ms).padStart(AGE_COLUMNS)}` : ''
 }
 
-export function markCell(column: MarkColumn, mark: Mark, label: string, now: number): MarkCell {
-  const symbol = SYMBOLS[mark.kind]
+export function markCell(
+  column: MarkColumn,
+  mark: Mark,
+  text: { label: string; now: number; glyphs: GlyphSet },
+): MarkCell {
+  const { label, now, glyphs } = text
+  const symbol = glyphs[ROLES[mark.kind]]
   const name =
     column.label === 0
       ? ''
@@ -96,10 +102,10 @@ export function markCell(column: MarkColumn, mark: Mark, label: string, now: num
 export function sightCells(
   column: MarkColumn,
   sight: Sight,
-  text: { label: string; path: string; bodyColumns: number; now: number },
+  text: { label: string; path: string; bodyColumns: number; now: number; glyphs: GlyphSet },
 ): MarkCell & { path: string } {
   const labelColumns = column.label === 0 ? SHORT_LABEL : column.label
-  const name = `${SYMBOLS[sight.kind]} ${padToWidth(cutLabel(text.label, labelColumns), labelColumns)} `
+  const name = `${text.glyphs[ROLES[sight.kind]]} ${padToWidth(cutLabel(text.label, labelColumns), labelColumns)} `
   const age = ageCell(column, text.now - sight.at)
   const room = Math.max(text.bodyColumns - displayWidth(name) - displayWidth(age), 0)
   const path = fitted(text.path, room)
