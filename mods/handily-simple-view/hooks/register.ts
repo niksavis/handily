@@ -24,19 +24,26 @@ import {
   FILE_TOOLS,
   bashChanges,
   bashEnd,
-  erroredOutput,
   fileEdit,
   isRecord,
   lineCount,
+  refusalLine,
   shownPath,
 } from './output'
-import { READING_TOOLS, readingCount, readingTarget, streamingTarget } from './reading'
+import {
+  READING_TOOLS,
+  filePathTarget,
+  readingCount,
+  readingTarget,
+  streamingTarget,
+} from './reading'
 import {
   bashRow,
   changesBlock,
   fileRow,
   genericRow,
   readingRow,
+  refusedRow,
   type BashState,
   type GenericState,
   type RowLook,
@@ -341,12 +348,27 @@ async function bashUse(
   return Box({ flexDirection: 'column', children: [row, opened] })
 }
 
+async function refusedUse(
+  $: EngineInterface,
+  props: RenderPropsOf['ToolUse'],
+  look: RowLook,
+): Promise<RenderElement | null> {
+  const message = refusalLine(props.output)
+  if (message === null) return null
+  const root = await $.session.root()
+  const target = FILE_TOOLS.has(props.tool)
+    ? filePathTarget(props.input, root)
+    : streamingTarget(props.tool, props.input, root)
+  return refusedRow(look, props.tool, target ?? [], message)
+}
+
 async function fileUse(
   $: EngineInterface,
   props: RenderPropsOf['ToolUse'],
   look: RowLook,
 ): Promise<RenderElement | null> {
-  if (props.isRunning || props.isErrored) return null
+  if (props.isRunning) return null
+  if (props.isErrored) return refusedUse($, props, look)
   const edit = fileEdit(props.tool, props.output)
   if (edit === null) return null
   return fileRow(look, props.tool, shownPath(edit.path, await $.session.root()), edit.totals)
@@ -357,7 +379,7 @@ async function readingUse(
   props: RenderPropsOf['ToolUse'],
   look: RowLook,
 ): Promise<RenderElement | null> {
-  if (props.isErrored) return null
+  if (props.isErrored) return refusedUse($, props, look)
   if (props.isRunning || isPending(props)) {
     const target = streamingTarget(props.tool, props.input, await $.session.root())
     return target === null ? null : readingRow(look, props.tool, target, null)
@@ -429,7 +451,9 @@ async function bashResult(
 }
 
 function isHookRefusalRow(props: RenderPropsOf['ToolResult']): boolean {
-  return drawsGenericRow(props.tool) && erroredOutput(props.output)?.end.kind === 'refused'
+  const drawsRefusal =
+    drawsGenericRow(props.tool) || FILE_TOOLS.has(props.tool) || READING_TOOLS.has(props.tool)
+  return drawsRefusal && refusalLine(props.output) !== null
 }
 
 async function resultDrawing(

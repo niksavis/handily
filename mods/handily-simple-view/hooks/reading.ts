@@ -77,11 +77,18 @@ function searchTarget(pattern: string, input: Record<string, unknown>, root: str
   return [pattern, `in ${shownPath(input.path, root)}`]
 }
 
-export function streamingTarget(tool: string, input: unknown, root: string): string[] | null {
+export function filePathTarget(input: unknown, root: string): string[] | null {
   if (!isRecord(input)) return null
-  const named = tool === 'Read' ? input.file_path : input.pattern
+  const path = input.file_path
+  if (path === undefined) return []
+  return typeof path === 'string' ? [shownPath(path, root)] : null
+}
+
+export function streamingTarget(tool: string, input: unknown, root: string): string[] | null {
+  if (tool === 'Read') return filePathTarget(input, root)
+  if (!isRecord(input)) return null
+  const named = input.pattern
   if (named !== undefined && typeof named !== 'string') return null
-  if (tool === 'Read') return named === undefined ? [] : [shownPath(named, root)]
   if (input.path !== undefined && typeof input.path !== 'string') return null
   if (named === undefined) return []
   return searchTarget(tool === 'Grep' ? `"${named}"` : named, input, root)

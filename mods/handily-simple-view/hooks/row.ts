@@ -184,6 +184,24 @@ export function readingRow(
   ])
 }
 
+export function refusedRow(
+  look: RowLook,
+  tool: string,
+  target: readonly string[],
+  message: string,
+): RenderElement {
+  return line(look, 'row', 'error', [
+    { text: tool },
+    ...target.map((text) => ({
+      text,
+      style: { wrap: 'truncate-end' as const },
+      canShrink: true,
+      keptCells: Math.min(displayWidth(text), LABEL_KEPT_CELLS),
+    })),
+    ...errorCells('refused', message),
+  ])
+}
+
 export type GenericState = 'pending' | 'running' | 'done' | 'error'
 
 export type GenericView = {

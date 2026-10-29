@@ -17,6 +17,7 @@ screen changes.
 ● Append a probe line  printf  exit 0  0 lines  2.8s
   Updated README.md (+1 -0)
 ● Edit  src/app.ts  +2 -1
+● Edit  note.txt  refused  probe-guard: file tools are refused in this folder
 ● Read  mods/handily/.claude-plugin/plugin.json  18 lines
 ● Read  docs/design.md  lines 160-239 of 674
 ● WebSearch  handily claude code mods  done  16 lines  5.3s
@@ -30,24 +31,25 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 
 ## Rows
 
-| Call                                           | Row                                                                        | Result block under it               |
-| ---------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------- |
-| `Bash`, `Read`, `Grep`, `Glob`, before the run | description or tool, the parts of the input it can read, dim `…`           | as the engine draws it              |
-| `Bash`, running                                | description, program, dim `running`, time since the call started           | as the engine draws it              |
-| `Bash`, no error                               | description, program, `exit 0`, stdout line count, time                    | one `Updated` line per changed file |
-| `Bash`, `Exit code N`                          | description, program, `exit N`, the first non-empty error line, time       | empty                               |
-| `Bash`, refused by a hook                      | description, program, `refused`, the first line of the hook message, time  | empty                               |
-| `Bash`, another `Error:` text                  | description, program, `error`, the first non-empty line of the text, time  | empty                               |
-| `Edit`, `Write`                                | tool, file path, added and removed line totals                             | empty                               |
-| `Read`                                         | tool, file path, line count, or the range of lines that the call read      | empty                               |
-| `Grep`                                         | tool, pattern in quotes, `in` and the folder, the count of the output mode | empty                               |
-| `Glob`                                         | tool, pattern, `in` and the folder, the count of matched files             | empty                               |
-| `Read`, `Grep`, `Glob`, running                | tool, the path or the pattern from the input, dim `…`                      | as the engine draws it              |
-| Any other tool, before the run                 | tool name, input summary, dim `…`                                          | as the engine draws it              |
-| Any other tool, running                        | tool name, input summary, dim `running`, time since the call started       | as the engine draws it              |
-| Any other tool, no error                       | tool name, input summary, `done`, line count of the result, time           | empty                               |
-| Any other tool, error                          | tool name, input summary, `error`                                          | as the engine draws it              |
-| Any other tool, refused by a hook              | tool name, input summary, `error`                                          | empty                               |
+| Call                                                       | Row                                                                                         | Result block under it               |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `Bash`, `Read`, `Grep`, `Glob`, before the run             | description or tool, the parts of the input it can read, dim `…`                            | as the engine draws it              |
+| `Bash`, running                                            | description, program, dim `running`, time since the call started                            | as the engine draws it              |
+| `Bash`, no error                                           | description, program, `exit 0`, stdout line count, time                                     | one `Updated` line per changed file |
+| `Bash`, `Exit code N`                                      | description, program, `exit N`, the first non-empty error line, time                        | empty                               |
+| `Bash`, refused by a hook                                  | description, program, `refused`, the first line of the hook message, time                   | empty                               |
+| `Bash`, another `Error:` text                              | description, program, `error`, the first non-empty line of the text, time                   | empty                               |
+| `Edit`, `Write`                                            | tool, file path, added and removed line totals                                              | empty                               |
+| `Read`                                                     | tool, file path, line count, or the range of lines that the call read                       | empty                               |
+| `Grep`                                                     | tool, pattern in quotes, `in` and the folder, the count of the output mode                  | empty                               |
+| `Glob`                                                     | tool, pattern, `in` and the folder, the count of matched files                              | empty                               |
+| `Read`, `Grep`, `Glob`, running                            | tool, the path or the pattern from the input, dim `…`                                       | as the engine draws it              |
+| `Edit`, `Write`, `Read`, `Grep`, `Glob`, refused by a hook | tool, the path or the pattern from the input, `refused`, the first line of the hook message | empty                               |
+| Any other tool, before the run                             | tool name, input summary, dim `…`                                                           | as the engine draws it              |
+| Any other tool, running                                    | tool name, input summary, dim `running`, time since the call started                        | as the engine draws it              |
+| Any other tool, no error                                   | tool name, input summary, `done`, line count of the result, time                            | empty                               |
+| Any other tool, error                                      | tool name, input summary, `error`                                                           | as the engine draws it              |
+| Any other tool, refused by a hook                          | tool name, input summary, `error`                                                           | empty                               |
 
 - The description is the `description` that the model gave. Without one, the row shows the
   first command segment. An ellipsis (`…`) marks a cut or a segment that follows.
@@ -72,6 +74,10 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 - A hook that refuses a call before it runs sends `Error: PreToolUse:Bash hook error:`, the
   hook command in brackets and its message. The row leaves out all of that text up to the
   message, and shows the first line of the message after `refused`.
+- A hook refusal of `Edit`, `Write` or `Read` has the same shape, with the tool name in place of
+  `Bash`, as captured on Claude Code 2.1.312. The row shows the tool, the path, `refused` and
+  the first line of the message. Another error of these tools, such as
+  `File has not been read yet`, keeps the row and the error text of the engine.
 - Any other errored `Bash` text that starts with `Error:` and is not an exit code, such as a
   permission denial or a refusal at the permission question, shows `error` and the first
   non-empty line after `Error:`.
@@ -83,7 +89,8 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
   `CLAUDE_CODE_BASH_EDIT_DIFF` environment variable wins over the setting. Without either, the
   engine decides, and the mod cannot read that decision.
 - When an error line or a stderr line follows the description, the description keeps up to 40
-  cells. The terminal cuts the error line or the stderr line first.
+  cells. The terminal cuts the error line or the stderr line first. The path or the pattern of a
+  refused `Edit`, `Write`, `Read`, `Grep` or `Glob` row also keeps up to 40 cells.
 - A path inside the session root shows relative to the root, and the root itself shows as `.`.
   Another path shows in full.
 - The row shows the time only from 1 second. The engine gives no run time for a `Bash` call, so

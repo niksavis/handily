@@ -105,6 +105,11 @@ export function erroredOutput(output: unknown): ErroredOutput | null {
   return { end: { kind: 'error' }, body: output.slice(ERROR_PREFIX.length) }
 }
 
+export function refusalLine(output: unknown): string | null {
+  const errored = erroredOutput(output)
+  return errored?.end.kind === 'refused' ? firstNonEmptyLine(errored.body) : null
+}
+
 export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
   if (isErrored) {
     const errored = erroredOutput(output)
