@@ -68,7 +68,7 @@ import {
   withDeleted,
 } from './tree'
 import { marked } from './toast'
-import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
+import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
 import { type ToolTouch, isAnswered, searchedFiles, toolTouchOf } from './toolcall'
 import {
   MAIN_AGENT,
@@ -612,12 +612,13 @@ export const register: Register = (on) => {
     const { Box, Text, Button, Code, Markdown } = resolved
     const Select = 'Select' in resolved ? resolved.Select : undefined
     const { bodyColumns } = e.props
-    const elements = { Box, Text, Button, Select, Code, Markdown, bodyColumns }
+    const glyphs = await paneGlyphs($, e.surface)
+    const elements = { Box, Text, Button, Select, Code, Markdown, bodyColumns, glyphs }
     const cwd = await $.session.cwd()
     await syncRepo($, watch, cwd)
     watchShown($, watch)
     noticeFocus($, watch, e.props.isFocused)
-    const git = gitView(watch, await $.clock.now())
+    const git = gitView(watch, await $.clock.now(), glyphs)
     const rootName = folderName(cwd)
     const list = listerOf($, cwd, listings, git.marks)
     const isInline = e.props.placement === 'inline'
