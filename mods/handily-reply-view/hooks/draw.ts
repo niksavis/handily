@@ -760,11 +760,11 @@ function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: nu
       : null
   const actions = foldActions(fold, text)
   const together = buttonsTogether(context, actions)
-  if (together.columns <= context.width) {
+  if (together.columns + BUTTONS_GAP <= context.width) {
     return Box({
       key: 'fold-row',
       flexDirection: 'row',
-      children: [count, Box({ flexGrow: 1, minWidth: 2 }), together.element],
+      children: [count, Box({ flexGrow: 1, minWidth: BUTTONS_GAP }), together.element],
     })
   }
   return Box({

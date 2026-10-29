@@ -4465,6 +4465,39 @@ function widerThan(lines: readonly string[], columns: number): string[] {
 
 describe('a very narrow reply', () => {
   for (const surface of SURFACES) {
+    for (const width of [23, 24]) {
+      viewTest(
+        `in a reply of ${String(width)} columns the fold row leaves room for the gap and puts its buttons under the count on ${surface}`,
+        async (_world, $) => {
+          const columns = screenColumns(surface, width)
+          const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+          const folded = await sketchOf(ui, columns)
+          expect(folded.slice(-2)).toEqual(
+            onSurface(surface, [
+              '',
+              '~… 24 more lines~',
+              `${' '.repeat(width - 23)}[ more ] [ copy reply ]`,
+            ]).slice(1),
+          )
+          expect(widerThan(folded, columns)).toEqual([])
+          await ui.unmount()
+        },
+      )
+    }
+
+    viewTest(
+      `in a reply of 25 columns the fold row keeps more and copy reply on one line after the gap on ${surface}`,
+      async (_world, $) => {
+        const columns = screenColumns(surface, 25)
+        const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+        await ui.press({ key: 'fold' })
+        const opened = await sketchOf(ui, columns)
+        expect(opened.at(-1)).toBe(onSurface(surface, ['', '  [ less ] [ copy reply ]'])[1])
+        expect(widerThan(opened, columns)).toEqual([])
+        await ui.unmount()
+      },
+    )
+
     viewTest(
       `in a reply of 18 columns the fold row puts more and copy reply each on its own line on ${surface}`,
       async (world, $) => {

@@ -49,6 +49,20 @@ buttons at the right edge:
   `no screen is attached to this session`. It stays 10 seconds. When the copy throws, the reason
   is `the transcript shows why`, and the transcript holds the error.
 - On a narrow screen the count of hidden lines is cut at its end, so the buttons stay on its line.
+- When the reply is narrower than the two buttons and the gap of 2 columns before them, the count
+  stands on its own line and the buttons stand under it. When the two buttons do not fit on one
+  line, each button stands on its own line. A label wider than the reply is cut with `…`, and
+  the button still works:
+
+```text
+● Line 1
+  …
+  Line 30
+  … 24 more lines
+            [ more ]
+      [ copy reply ]
+```
+
 - A line counts as the rows that it takes on the screen. A long paragraph counts as several
   rows. When the 30 rows end inside a line, that line is cut at a word and ends with `…`.
 - A reply of 30 lines or fewer draws as Claude Code draws it, unless it holds a table or a
@@ -153,6 +167,18 @@ content draws with the highlighting of Claude Code for that language:
 
 `copy` copies the content of the block only, without the fences. A block without a tag draws a
 rule with no title.
+
+When the title line and its `copy` button do not fit the reply, the button stands under the
+title line, as the buttons of a diagram do:
+
+```text
+● Here is the plan:
+
+  ── plan ──────────
+            [ copy ]
+  1. Write the mocks
+  2. Ask the person
+```
 
 ## A diagram
 
