@@ -444,7 +444,7 @@ const SCENE_SCREENS: readonly {
     columns: 41,
     lines: [
       'Session  ctx — until the first reply',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
       '○ 3 Review the mocks with Codex    [ rm ]',
@@ -466,7 +466,7 @@ const SCENE_SCREENS: readonly {
     columns: 30,
     lines: [
       'Session  ctx —',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
       '○ 3 Review the mocks w… [ rm ]',
@@ -488,7 +488,7 @@ const SCENE_SCREENS: readonly {
     columns: 76,
     lines: [
       'Session  ctx — until the first reply',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks             ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
       '○ 3 Review the mocks with Codex                                       [ rm ]',
       '○ 4 Ask the person about tabs                                         [ rm ]',
@@ -826,7 +826,7 @@ describe(FOLD_CRITERION, () => {
         const ui = await mountTab($, surface, 'dock', 41)
         expect(await screen(ui, 41)).toEqual([
           'Session  ctx — until the first reply',
-          'Tasks  0 of 1 done',
+          'Tasks  ▱ 0/1 · ○1',
           '○ 1 Write the tab mocks            [ rm ]',
           '─────────────────────────────────────────',
           'Agents  16 · 1 failed',

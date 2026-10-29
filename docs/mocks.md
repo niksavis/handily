@@ -848,7 +848,7 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 ```text
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 │ ▶ 2 Write the tab mocks         4m [ rm ] │
 │     ▸ Edit docs/mocks.md          9 tools │
 │ ○ 3 Review the mocks with Codex    [ rm ] │
@@ -902,7 +902,7 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 ```text
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 │ ▶ 2 Write the tab mocks         4m [ rm ] │
 │     ▸ Edit docs/mocks.md          9 tools │
 │ ○ 3 Review the mocks with Codex    [ rm ] │
@@ -1001,12 +1001,32 @@ only, not live.
 `/board clear`: every done task leaves the list, and the toast names the count (8.6a). The
 fold button goes away with the last done task. A folded done group shows no `[ clear done ]`.
 
+#### 8.2d3 The task header: progress, a stalled task and the finish state (handily-9uj3n.6)
+
+```text
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │  done, in progress, pending
+│ ▶ 2 Write the tab mocks        16m [ rm ] │  16m in warning: in progress over 15m
+│ Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 · 14m        │  10 tasks: 8 cells, each a share
+│ Tasks  ✓ all 4 done · 14m                 │  finish state, in success
+```
+
+- The bar has one cell for each task, at most 8, as the bar of 8.2f. The done cells are `▰` in
+  `success`, the cells in progress are `▰` in `claude`, and the pending cells are a dim `▱`. A
+  task in progress gets at least one cell. `1/4` counts the done tasks of all tasks. `▶1` and
+  `○2` count the tasks in progress and pending, in the colour of their mark. A count of 0 is
+  left out. A narrow pane cuts the time first.
+- The time of a task in progress turns to `warning` after 15 minutes (`STALLED_AFTER_MS`,
+  docs/design.md). The mark and the row keep their look.
+- When every task is done, the header shows `✓ all 4 done` in `success`, and the time from the
+  first tool call to the end of the last task. That time stops when the work ends. A list with
+  a task that was never seen in progress shows no time.
+
 #### 8.2e Many agents: 20 in this session
 
 ```text
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 │ ▶ 2 Write the tab mocks         4m [ rm ] │
 │ ○ 3 Review the mocks with Codex    [ rm ] │
 │ [ +1 done ]                               │
@@ -1081,7 +1101,7 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 ```text
 ╭──────────────────────────────✕─╮
 │ [this session]  this machine   │  (engine tab row)
-│ Tasks  1 of 4 done · 14m       │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m  │
 │ ▶ 2 Write the tab… 4m [ rm ]   │
 │     ▸ Edit mocks.md  9 tools   │
 │ ○ 3 Review the mocks w… [ rm ] │
@@ -1128,7 +1148,7 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 ```text
 ╭────────────────────────────────────────────────────────────────────────────✕─╮
 │ [this session]  this machine                                                 │  (engine tab row)
-│ Tasks  1 of 4 done · 14m                                                     │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m                                                │
 │ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
 │ ○ 3 Review the mocks with Codex                                       [ rm ] │
 │ ○ 4 You: Ask the person about tabs                                    [ rm ] │
@@ -1195,7 +1215,7 @@ task list is empty too; otherwise the Agents section is left out.
 ```
 
 ```text
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 │ No plan update for 22 tool calls.         │
 │ [ Ask Claude for a plan ]                 │
 ```
@@ -1514,7 +1534,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
 │ Session  ctx 62% · $4.18 · turn +$0.31    │  NEW
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 │ ▶ 2 Write the tab mocks         4m [ rm ] │
 │     ▸ Edit docs/mocks.md          9 tools │
 │ ○ 3 Review the mocks with Codex    [ rm ] │
@@ -1539,7 +1559,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 │     checks 25 · 8 allowed · 16 asked      │  NEW
 │     1 denied                              │  NEW  "denied" in error
 │     [ last 5 checks ]                     │  NEW
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 ╰───────────────────────────────────────────╯
 ```
 
@@ -1555,7 +1575,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 │     asked    Bash npm test   scout        │
 │     allowed  Read hooks/pane.tsx          │
 │     allowed  Grep hooks/   Explore        │
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 ╰───────────────────────────────────────────╯
 ```
 
@@ -1565,7 +1585,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
 │ Session  ◆ 1 waits · ctx 62% · $4.18      │  NEW: ◆ and "waits" in warning
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 │ ▶ 2 Write the tab mocks         4m [ rm ] │
 │     ▸ Edit docs/mocks.md          9 tools │
 │ ○ 3 Review the mocks with Codex    [ rm ] │
@@ -1585,7 +1605,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tab row)
 │ Session  ◆ 1 waits · ctx 71% · $9.02      │
-│ Tasks  2 of 6 done · 41m                  │
+│ Tasks  ▰▰▰▱▱▱ 2/6 · ▶1 ○3 · 41m           │
 │ ▶ 3 Build the vitals line       6m [ rm ] │
 │ ○ 4 Wire the permission waits      [ rm ] │
 │ [ +2 done ]                               │
@@ -1630,7 +1650,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 │     Claude Code compacts it near the      │  pressed open
 │     limit. /compact or /clear frees it.   │
 │     last turn 6m · +$1.90 · 9 edits       │
-│ Tasks  3 of 6 done · 1h                   │
+│ Tasks  ▰▰▰▰▱▱ 3/6 · ▶1 ○2 · 1h            │
 ╰───────────────────────────────────────────╯
 ```
 
@@ -1653,7 +1673,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭──────────────────────────────✕─╮
 │ [this session]  this machine   │  (engine tab row)
 │ Session  ◆ 1 waits · ctx 71%   │  cost cut first, then ctx
-│ Tasks  2 of 6 done · 41m       │
+│ Tasks  ▰▰▰▱▱▱ 2/6 · ▶1 ○3 · 4… │
 │ ▶ 3 Build the vit… 6m [ rm ]   │
 │ ○ 4 Wire the permis… [ rm ]    │
 │ [ +2 done ]                    │
@@ -1677,7 +1697,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭─────────────────────────────────────────────────────────────────────────────────────────✕─╮
 │ [this session]  this machine                                                              │  (engine tab row)
 │ Session  ◆ 1 waits · ctx 71% ▰▰▰▰▰▰▰▱▱▱ 142k/200k · $9.02 · turn +$1.26 · 5h 31% · 7d 13% │  NEW
-│ Tasks  2 of 6 done · 41m                                                                  │
+│ Tasks  ▰▰▰▱▱▱ 2/6 · ▶1 ○3 · 41m                                                           │
 │ ▶ 3 Build the vitals line                                                       6m [ rm ] │
 │     ▸ Edit hooks/vitals.ts                                                       12 tools │
 │ ○ 4 Wire the permission waits                                                      [ rm ] │
@@ -1702,7 +1722,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭────────────────────────────────────────────────────────────────────────────✕─╮
 │ [this session]  this machine                                                 │  (engine tab row)
 │ Session  ◆ 1 waits · ctx 62% ▰▰▰▰▰▰▱▱▱▱ · $4.18 · turn +$0.31 · 5h 31%       │  NEW
-│ Tasks  1 of 4 done · 14m                                                     │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m                                                │
 │ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
 │ ○ 3 Review the mocks with Codex                                       [ rm ] │
 │ [ +1 done ]                                                                  │
@@ -1719,7 +1739,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭────────────────────────────────────────────────────────────────────────────✕─╮
 │ [this session]  this machine                                                 │  (engine tab row)
 │ Session  ctx 28% ▰▰▰▱▱▱▱▱▱▱ · $1.02 · last turn +$0.40 in 2m · 5h 9%         │
-│ Tasks  0 of 2 done · 3m                                                      │
+│ Tasks  ▱▱ 0/2 · ○2 · 3m                                                      │
 │ ○ 1 Read the design                                                   [ rm ] │
 │ ○ 2 Draw the plan                                                     [ rm ] │
 │ [ Add a task ______________________________ ][Add]                           │
@@ -1732,7 +1752,7 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ╭─────────────────────────────────────────✕─╮
 │ [this session]  this machine              │  (engine tabs)
 │ Session  ◆ 1 waits · ctx 62% · $4.18      │  Session is a native button
-│ Tasks  1 of 4 done · 14m                  │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
 │ ▶ 2 Write the tab mocks         4m [rm]   │
 │     ▸ Edit docs/mocks.md          9 tools │
 │ ───────────────────────────────────────── │

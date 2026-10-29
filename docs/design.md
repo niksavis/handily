@@ -117,7 +117,8 @@ draws its author word in `suggestion`, so a title cannot imitate the author.
 code at run time. `scripts/signals.test.mjs` fails when the table differs from this one, when
 another mod keeps a `hooks/signals.ts` that the test does not compare, or when a mark is not one
 column wide. The tabs of `handily-board` map their states to the signals as follows. The aging
-dots, `2▶`, `⌀` and `↻` are not built yet.
+dots, `2▶`, `⌀` and `↻` are not built yet. In their place, the time of a task in progress turns
+to `warning` after `STALLED_AFTER_MS` (handily-9uj3n.6).
 
 | Signal | this session: tasks | this session: agents | this machine |
 | --- | --- | --- | --- |
@@ -724,6 +725,10 @@ Defer to quiet-items:
   and holds done tasks, the refusal counts them and names the remedy of the caller. The person
   gets `/board clear`. Claude and a subagent get `task_update` with the status `removed`. An
   add never removes a task to make room.
+- The task header draws a bar of the done, in progress and pending tasks, with their counts,
+  and `✓ all N done` with the time until the last task ended (handily-9uj3n.6). The bar of the
+  header and the bar of a this machine card share `barCells` in `hooks/bar.ts`, so one rule
+  splits the cells. The approved mock is `docs/mocks.md` 8.2d3.
 - `task_add` takes `titles` for several tasks and `before` for a place (handily-9uj3n.5). It
   adds through `addTasks`, which checks the room for the whole batch first and then calls
   `addTask` for each title, so one bad title or a batch over the limit adds nothing. A batch of
@@ -801,6 +806,7 @@ The named thresholds:
 | `QUIET_MS` | 120000 | A running agent with no event for this time is `quiet` |
 | `LANES_FROM` | body 80 | From this body width, the agent rows have a `ctx` column and a lane |
 | `CHECKS_KEPT` | 20 | The board keeps the last 20 checks. `[ last 5 checks ]` shows 5 of them |
+| `STALLED_AFTER_MS` | 900000 (15 minutes) | A task in progress for longer draws its time in the warning colour (handily-9uj3n.6) |
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 

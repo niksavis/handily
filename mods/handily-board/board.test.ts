@@ -844,7 +844,7 @@ describe('the this session tab', () => {
           requestId: PANE,
           props: paneProps('dock', 80),
         })
-        expect(await ui.find({ type: 'Text', text: '1 of 3 done' })).toBeDefined()
+        expect(await ui.find({ type: 'Text', text: ' 1/3' })).toBeDefined()
         await ui.press({ key: 'done' })
         const done = await ui.find({ type: 'Text', text: /^Read the design doc$/ })
         expect(done?.props.dimColor).toBe(true)
@@ -2462,7 +2462,7 @@ describe('the pane follows the work', () => {
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
         'Session  ctx — until the first reply',
-        'Tasks  1 of 3 done · 4m',
+        'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 4m',
         '▶ 2 Write the mocks                4m [ rm ]',
         '    ▸ Edit docs/mocks.md             3 tools',
         '○ 3 Commit the mocks                  [ rm ]',
@@ -2476,7 +2476,7 @@ describe('the pane follows the work', () => {
       await seen.clock.advance(MINUTE)
       await bash($, 'npm test')
       expect((await screen(ui, WIDTH)).slice(1, 4)).toEqual([
-        'Tasks  1 of 3 done · 5m',
+        'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 5m',
         '▶ 2 Write the mocks                5m [ rm ]',
         '    ▸ Bash npm test                  4 tools',
       ])
@@ -2521,7 +2521,7 @@ describe('the pane follows the work', () => {
         ])
         expect(await screen(ui, WIDTH)).toEqual([
           'Session  ctx — until the first reply',
-          'Tasks  1 of 3 done · 7m',
+          'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 7m',
           '▶ 2 Mods match the terminal palet… 4m [ rm ]',
           '    ▸ Read src/file8.ts              9 tools',
           '    Mods match the terminal palette, such as',
@@ -2673,7 +2673,7 @@ describe('the pane follows the work', () => {
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
         'Session  ctx — until the first reply',
-        'Tasks  0 of 1 done · 0s',
+        'Tasks  ▱ 0/1 · ○1 · 0s',
         '▶ Now  Read src/file19.ts      20 tools · 0s',
         '○ 1 Write the mocks                   [ rm ]',
         'No plan update for 20 tool calls.',
@@ -3545,7 +3545,7 @@ const SESSION_SCREENS: readonly {
     columns: 41,
     lines: [
       'Session  ctx — until the first reply',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
       '○ 3 Review the mocks with Codex    [ rm ]',
@@ -3560,7 +3560,7 @@ const SESSION_SCREENS: readonly {
     columns: 30,
     lines: [
       'Session  ctx —',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
       '○ 3 Review the mocks w… [ rm ]',
@@ -3575,7 +3575,7 @@ const SESSION_SCREENS: readonly {
     columns: 80,
     lines: [
       'Session  ctx — until the first reply',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
       '○ 3 Review the mocks with Codex                                           [ rm ]',
       '○ 4 You: Ask the person about tabs                                        [ rm ]',
@@ -3953,7 +3953,7 @@ describe(PRESS_DONE_CRITERION, () => {
           '✓ Task 3 is now done',
           '"Review the mocks with Codex"',
         ])
-        expect((await screen(ui, 41))[1]).toBe('Tasks  2 of 4 done · 14m')
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ▰▰▰▱ 2/4 · ▶1 ○1 · 14m')
         await ui.press({ key: 'done' })
         const row = await rowOf(ui, 'task:3')
         expect(texts(row).map((cell) => [cell.text, cell.props.color])).toEqual([
@@ -4211,7 +4211,7 @@ describe(CLEAR_CRITERION, () => {
         ])
         await ui.press({ key: 'clear-done' })
         expect(seen.toasts.at(-1)).toEqual(['✓ Cleared 2 done tasks', 'tasks 1, 5'])
-        expect((await screen(ui, 41)).slice(1, 2)).toEqual(['Tasks  0 of 3 done · 14m'])
+        expect((await screen(ui, 41)).slice(1, 2)).toEqual(['Tasks  ▰▱▱ 0/3 · ▶1 ○2 · 14m'])
         expect(await ui.find({ key: 'done' })).toBeUndefined()
         expect(await ui.find({ key: 'clear-done' })).toBeUndefined()
         expect(await toldAtNextPrompt($)).toEqual([
@@ -4356,7 +4356,7 @@ describe(ONE_PRESS_RM_CRITERION, () => {
         expect(seen.toasts).toEqual([])
         expect(await screen(ui, 41)).toEqual([
           'Session  ctx — until the first reply',
-          'Tasks  0 of 1 done · 14m',
+          'Tasks  ▱ 0/1 · ○1 · 14m',
           '▶ Now  Edit docs/mocks.md  10 tools · 14m',
           '○ 4 You: Ask the person about tabs [ rm ]',
           '',
@@ -4856,7 +4856,7 @@ describe(SESSION_LINE_CRITERION, () => {
         for (const surface of SURFACES) {
           const ui = await mountTab($, surface, PANE, placement, columns)
           const lines = await screen(ui, columns)
-          expect(lines.slice(0, 2)).toEqual([line, 'Tasks  1 of 4 done · 14m'])
+          expect(lines.slice(0, 2)).toEqual([line, 'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m'])
           await ui.unmount()
         }
       },
@@ -6906,7 +6906,7 @@ for (const surface of SURFACES) {
         }
         expect(String(await modelTool($, {}))).toBe(before)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect((await screen(ui, 41))[1]).toBe('Tasks  1 of 98 done')
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ▱▱▱▱▱▱▱▱ 1/98 · ○97')
         await ui.unmount()
         const fits = await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two'] })
         expect(String(fits.result).split('\n')[0]).toBe('Added tasks 99, 100.')
@@ -6917,3 +6917,104 @@ for (const surface of SURFACES) {
 
 const BATCH_SHAPE =
   'task_add needs titles: a list of non-empty strings, for example {"titles": ["Write the tests", "Run the tests"]}.'
+
+const HEADER_BAR_CRITERION =
+  'When the list holds tasks, the header shows a bar split into done, in progress and pending, with the counts'
+
+const STALLED_CRITERION =
+  'When a task stays in progress longer than the set time, its time shows in the warning colour'
+
+const FINISH_CRITERION =
+  'When every task is done, the header shows the finish state with the total time'
+
+async function headerOf(ui: { find: Mounted['find'] }): Promise<Drawn> {
+  const header = drawnOf(await ui.find({ key: 'tasks-header' }))
+  if (header === null) throw new Error('no task header is drawn')
+  return header
+}
+
+function colouredParts(element: Drawn): (readonly [string, unknown])[] {
+  return texts(element)
+    .filter((text) => text.props.color !== undefined)
+    .map((text) => [text.text, text.props.color] as const)
+}
+
+for (const surface of SURFACES) {
+  describe(HEADER_BAR_CRITERION, () => {
+    test(
+      `the header draws the done, in progress and pending cells in their colours, with the counts, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m')
+        expect(colouredParts(await headerOf(ui))).toEqual([
+          ['▰', 'success'],
+          ['▰', 'claude'],
+          ['▶1', 'claude'],
+          ['○2', 'subtle'],
+        ])
+        await ui.unmount()
+        for (const title of ['Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']) {
+          await $.tool.call({ tool: TOOL_ADD, title })
+        }
+        await board($, 'done 3')
+        await board($, 'done 4')
+        const wide = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(wide, 41))[1]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 · 14m')
+        await wide.unmount()
+        const narrow = await mountTab($, surface, PANE, 'dock', 30)
+        expect((await screen(narrow, 30))[1]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 …')
+        await narrow.unmount()
+      },
+    )
+  })
+
+  describe(STALLED_CRITERION, () => {
+    test(
+      `the time of a task in progress turns to the warning colour after 15 minutes, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        const timeOf = async (): Promise<Drawn | undefined> => {
+          const ui = await mountTab($, surface, PANE, 'dock', 41)
+          const time = texts(await rowOf(ui, 'task:2')).find((text) => /^\d+m$/.test(text.text))
+          await ui.unmount()
+          return time
+        }
+        await seen.clock.advance(11 * MINUTE)
+        const due = await timeOf()
+        expect([due?.text, due?.props.color, due?.props.dimColor]).toEqual(['15m', undefined, true])
+        await seen.clock.advance(MINUTE)
+        const stalled = await timeOf()
+        expect([stalled?.text, stalled?.props.color]).toEqual(['16m', 'warning'])
+      },
+    )
+  })
+
+  describe(FINISH_CRITERION, () => {
+    test(
+      `the header of a list with every task done shows all done and the time until the last task ended, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        for (const id of ['2', '3', '4']) await board($, `done ${id}`)
+        await seen.clock.advance(5 * MINUTE)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ✓ all 4 done · 14m')
+        expect(colouredParts(await headerOf(ui))).toEqual([['✓ all 4 done', 'success']])
+        await ui.unmount()
+        await board($, 'open 4')
+        const reopened = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(reopened, 41))[1]).toBe('Tasks  ▰▰▰▱ 3/4 · ○1 · 19m')
+        await reopened.unmount()
+      },
+    )
+  })
+}

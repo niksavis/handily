@@ -9,6 +9,8 @@ import { maskedCredentials } from './credentials'
 
 export const PLAN_WARNING_CALLS = 20
 
+export const STALLED_AFTER_MS = 15 * 60_000
+
 const TASK_TOOL_PREFIX = 'mcp__handily-board__'
 const TARGET_CHARS_AT_MOST = 200
 const PATH_SEPARATORS = new Set(['/', '\\'])

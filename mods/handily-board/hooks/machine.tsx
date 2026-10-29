@@ -9,6 +9,7 @@ import type {
 import { elapsedText } from './activity'
 import { numberedNames } from './agent-rows'
 import { POLL_INTERVAL_MS, type AgentsFailure, type SessionKind } from './agents-json'
+import { progressBar } from './bar'
 import type {
   AgentCounts,
   Attention,
@@ -18,6 +19,7 @@ import type {
   MachineView,
   SessionCard,
 } from './cards'
+import { fitParts } from './parts'
 import type { AgentSummary } from './progress'
 import { SIGNALS, type SignalLook, needsYouText } from './signals'
 import { escaped, statusLook } from './tasks'
@@ -42,9 +44,6 @@ const CARD_INDENT = 2
 const ROW_INDENT = 4
 const NARROW_BELOW = 36
 const ROW_LAYOUT_FROM = 60
-const BAR_CELLS_AT_MOST = 8
-const BAR_DONE = '▰'
-const BAR_TO_DO = '▱'
 const CARD_RULE = '─'
 const GAP = '  '
 const SEPARATOR = ' · '
@@ -77,27 +76,9 @@ const ATTENTION_LOOKS: Record<Attention, SignalLook> = {
 const BADGES: Record<SessionKind, string> = { interactive: 'interactive', background: 'background' }
 const ROW_BADGES: Record<SessionKind, string> = { interactive: 'inter', background: 'bg' }
 
-export function progressBar(done: number, total: number): string {
-  const cells = Math.min(total, BAR_CELLS_AT_MOST)
-  const filled = Math.floor((done * cells) / total)
-  return BAR_DONE.repeat(filled) + BAR_TO_DO.repeat(cells - filled)
-}
-
 function shortName(name: string): string {
   if (displayWidth(name) <= ROW_NAME_AT_MOST) return name
   return `${cutToWidth(name, NAME_KEEP)}…${lastToWidth(name, NAME_KEEP)}`
-}
-
-function fitParts(parts: readonly Part[], columns: number): Part[] {
-  let room = columns
-  const kept: Part[] = []
-  for (const part of parts) {
-    if (room <= 0) break
-    const text = fitted(part.text, room)
-    room -= displayWidth(text)
-    kept.push({ ...part, text })
-  }
-  return kept
 }
 
 function drawParts(

@@ -216,7 +216,7 @@ Captures from the tests, docked at 41 columns:
 
 ```text
 Session  ctx — until the first reply
-Tasks  1 of 4 done · 14m
+Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 ▶ 2 Write the tab mocks         4m [ rm ]
     ▸ Edit docs/mocks.md          9 tools
 ○ 3 Review the mocks with Codex    [ rm ]
@@ -230,7 +230,7 @@ The same list inline above the prompt, at 80 columns:
 
 ```text
 Session  ctx — until the first reply
-Tasks  1 of 4 done · 14m
+Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 ▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]
 ○ 3 Review the mocks with Codex                                           [ rm ]
 ○ 4 You: Ask the person about tabs                                        [ rm ]
@@ -240,8 +240,15 @@ Tasks  1 of 4 done · 14m
 ```
 
 - The first line is the Session line. The next section describes it.
-- The header shows the done count and the time since the first tool call of the main loop.
-  Times use one short form: `9s`, `5m`, `1h`, `2d`. They round down.
+- The header shows a bar, the done count of all tasks, the counts of the tasks in progress
+  (`▶`) and pending (`○`), and the time since the first tool call of the main loop. The bar
+  has one cell for each task, at most 8. Its cells are done in `success`, in progress in
+  `claude` and pending in a dim `▱`. A count of 0 is left out. Times use one short form: `9s`,
+  `5m`, `1h`, `2d`. They round down. A narrow pane cuts the time first.
+- When every task is done, the header shows `✓ all 4 done · 22m` in `success`. The time runs
+  from the first tool call to the end of the last task, so it stops when the work ends.
+- When a task stays in progress for more than 15 minutes, its time turns to the `warning`
+  colour.
 - Each task is one line: a mark (`✓` done in `success`, `▶` in progress in `claude`, `○`
   pending in `subtle`), the number, the author and the title. A task by `claude` shows no
   author. A task by you shows `You:` and a tracker task shows `tracker`, in the theme colour
