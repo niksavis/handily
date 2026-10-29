@@ -1625,6 +1625,9 @@ describe('typed prompts', () => {
   )
 })
 
+const USAGE =
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+
 describe('/replies', () => {
   viewTest(
     'turns the reply view off and on, and the engine draws replies unchanged while it is off',
@@ -1656,9 +1659,7 @@ describe('/replies', () => {
   viewTest(
     'refuses an argument that it does not know and names the forms it takes',
     async (_world, $) => {
-      expect(await commandText($, 'off')).toBe(
-        '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.',
-      )
+      expect(await commandText($, 'off')).toBe(USAGE)
     },
   )
 
@@ -4207,4 +4208,189 @@ describe('diagram blocks', () => {
       },
     )
   }
+})
+
+const KEYBOARD_REPLY = [
+  'Two flows, a table and two commands:',
+  '',
+  '```mermaid',
+  TINY_SOURCE,
+  '```',
+  '',
+  '```sh',
+  'npm ci',
+  '```',
+  '',
+  '```mermaid',
+  SEQUENCE_SOURCE,
+  '```',
+  '',
+  SMALL_TABLE,
+  '',
+  '```ts',
+  'const a = 1',
+  'const b = 2',
+  '```',
+  '',
+  'The end.',
+].join('\n')
+
+const PROSE_REPLY = 'The tests pass.\n\nThe gates pass too.'
+
+const NO_REPLY = 'No reply to copy yet. /replies copy reads the last reply of this session.'
+
+async function replyEnds($: Engine, answer: string, agentId?: string): Promise<void> {
+  await $.turn.complete({
+    answer,
+    durationMs: 1000,
+    isAborted: false,
+    turnId: 'turn-1',
+    reason: 'answer',
+    ...(agentId === undefined ? {} : { agentId }),
+  })
+}
+
+function copyTest(name: string, surface: Surface, body: ViewBody): void {
+  test(name, async ($, on) => {
+    const world = engineBeneath(on)
+    on('turn.complete', (_$, e) => ({ text: e.answer }))
+    await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+    await body(world, $)
+  })
+}
+
+const BUTTON_COPIES = [
+  ['diagram', mermaidReply('Tiny:', TINY_SOURCE), 'block-1-copy'],
+  ['table', TABLE, 'block-1-copy'],
+  ['code', FENCE, 'block-1-copy'],
+  ['reply', LONG_REPLY, 'copy-reply'],
+] as const
+
+describe('copy from the keyboard', () => {
+  for (const surface of SURFACES) {
+    copyTest(
+      `/replies copy diagram, table and code copy the last block of that kind and the toast names it on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, KEYBOARD_REPLY)
+        for (const kind of ['diagram', 'table', 'code', 'reply']) {
+          expect(await commandText($, `copy ${kind}`)).toBe('')
+        }
+        expect(world.copies).toEqual([
+          SEQUENCE_SOURCE,
+          SMALL_TABLE,
+          'const a = 1\nconst b = 2',
+          KEYBOARD_REPLY,
+        ])
+        expect(world.toasts).toEqual([
+          { lines: ['✓ Copied the sequence source', '3 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the table as markdown', '3 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the ts block', '2 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the reply as markdown', '27 lines'], timeoutMs: 6000 },
+        ])
+      },
+    )
+
+    copyTest(
+      `/replies copy copies the text that the button of the block copies, with the same toast on ${surface}`,
+      surface,
+      async (world, $) => {
+        for (const [kind, text, key] of BUTTON_COPIES) {
+          const ui = await mountReply($, reply(text), surface)
+          await ui.press({ key })
+          await ui.unmount()
+          await replyEnds($, text)
+          expect(await commandText($, `copy ${kind}`)).toBe('')
+          const [pressed, typed] = world.copies.splice(0)
+          expect(pressed).toBeDefined()
+          expect(typed).toBe(pressed)
+          const [pressedToast, typedToast] = world.toasts.splice(0)
+          expect(pressedToast).toBeDefined()
+          expect(typedToast).toEqual(pressedToast)
+        }
+      },
+    )
+
+    copyTest(
+      `a last reply with no block of that kind names it and the command that copies the whole reply on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, KEYBOARD_REPLY)
+        await replyEnds($, PROSE_REPLY)
+        expect(await commandText($, 'copy diagram')).toBe(
+          'The last reply has no diagram. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy table')).toBe(
+          'The last reply has no table. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy code')).toBe(
+          'The last reply has no code block. /replies copy reply copies the whole reply.',
+        )
+        expect(world.copies).toEqual([])
+        expect(world.toasts).toEqual([])
+        expect(await commandText($, 'copy reply')).toBe('')
+        expect(world.copies).toEqual([PROSE_REPLY])
+      },
+    )
+
+    copyTest(
+      `a mermaid block counts as a diagram and not as code on ${surface}`,
+      surface,
+      async (world, $) => {
+        await replyEnds($, mermaidReply('Tiny:', TINY_SOURCE))
+        expect(await commandText($, 'copy code')).toBe(
+          'The last reply has no code block. /replies copy reply copies the whole reply.',
+        )
+        expect(await commandText($, 'copy diagram')).toBe('')
+        expect(world.copies).toEqual([TINY_SOURCE])
+        expect(world.toasts[0]?.lines[0]).toBe('✓ Copied the flowchart source')
+      },
+    )
+  }
+
+  copyTest(
+    'a diagram that does not draw is copied as its mermaid source',
+    'terminal',
+    async (world, $) => {
+      await replyEnds($, mermaidReply('Here is the flow:', MOCK_9_8_SOURCE))
+      expect(await commandText($, 'copy diagram')).toBe('')
+      expect(world.copies).toEqual([MOCK_9_8_SOURCE])
+      expect(world.toasts[0]?.lines[0]).toBe('✓ Copied the mermaid source')
+    },
+  )
+
+  copyTest(
+    'before the first reply /replies copy says there is none',
+    'terminal',
+    async (world, $) => {
+      expect(await commandText($, 'copy diagram')).toBe(NO_REPLY)
+      expect(await commandText($, 'copy reply')).toBe(NO_REPLY)
+      expect(await commandText($, 'copy picture')).toBe(USAGE)
+      expect(world.copies).toEqual([])
+    },
+  )
+
+  copyTest(
+    'the answer of a subagent and an empty answer leave the last reply as it was',
+    'terminal',
+    async (world, $) => {
+      await replyEnds($, FENCE)
+      await replyEnds($, PROSE_REPLY, 'agent-1')
+      await replyEnds($, '')
+      expect(await commandText($, 'copy code')).toBe('')
+      expect(world.copies).toEqual(['1. Write the mocks\n2. Ask the person'])
+    },
+  )
+
+  copyTest(
+    'a copy form that the command does not know gets the forms it takes',
+    'terminal',
+    async (world, $) => {
+      await replyEnds($, KEYBOARD_REPLY)
+      for (const args of ['copy', 'copy picture', 'copy diagram table', 'hints copy']) {
+        expect(await commandText($, args)).toBe(USAGE)
+      }
+      expect(world.copies).toEqual([])
+    },
+  )
 })

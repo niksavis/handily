@@ -326,10 +326,14 @@ theme:
 | `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
 | `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type     |
 
-| Command          | Effect                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------- |
-| `/replies`       | Turns the reply view off or on for this session, and replies with the new mode     |
-| `/replies hints` | Turns the diagram hints off or on for this session, and replies with the new state |
+| Command                 | Effect                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| `/replies`              | Turns the reply view off or on for this session, and replies with the new mode     |
+| `/replies hints`        | Turns the diagram hints off or on for this session, and replies with the new state |
+| `/replies copy diagram` | Copies the source of the last diagram of the last reply                            |
+| `/replies copy table`   | Copies the last table of the last reply as markdown                                |
+| `/replies copy code`    | Copies the content of the last code block of the last reply                        |
+| `/replies copy reply`   | Copies the whole last reply as markdown                                            |
 
 While the view is off, Claude Code draws every reply and every prompt unchanged.
 
@@ -337,6 +341,21 @@ The mod keeps the mode in the `mode` key of its `$.state`, so a change does not 
 sessions. When the session starts and the key is unset, the mod writes the `mode` setting to it.
 So a session starts with the mode of the setting, and `/replies` toggles from there. `/handily`
 shows the setting beside the mode when the two differ.
+
+## Copy from the keyboard
+
+A button in the transcript takes a click only. `/replies copy` gives a path from the keyboard. It
+reads the last reply of the main session, and copies the same text as the button of the block.
+The toast names what it copied, such as `✓ Copied the sequence source`. A mermaid block counts as
+a diagram and not as a code block. When the last reply has no block of that kind, the command
+says so and names the command that copies the whole reply:
+
+```text
+The last reply has no diagram. /replies copy reply copies the whole reply.
+```
+
+The mod keeps the last reply in memory for this session only. After a resume, `/replies copy`
+has no reply until Claude answers again. The answer of a subagent does not count.
 
 ## When the reply stays as Claude Code draws it
 

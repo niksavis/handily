@@ -41,6 +41,8 @@ export type DiagramDrawing = { kind: 'drawing'; name: string; lines: string[] }
 
 export type DiagramOutcome = DiagramDrawing | Refusal
 
+export type BlockCopy = { text: string; what: string }
+
 export type ReplyElements = Pick<
   Elements[RenderSurface],
   'Box' | 'Text' | 'Button' | 'Markdown' | 'Code'
@@ -171,14 +173,39 @@ function stackedButtons(context: Context, actions: readonly CopyAction[]): Butto
     : actions.map((action) => buttonRow(context, [fittedButton(context, action)]))
 }
 
+export function tableCopy(table: Table): BlockCopy {
+  return { text: table.source, what: 'the table as markdown' }
+}
+
+export function codeCopy(fence: Fence): BlockCopy {
+  const tag = fenceTag(fence)
+  return { text: fence.content, what: tag === '' ? 'the block' : `the ${tag} block` }
+}
+
+function diagramCopy(fence: Fence, name: string): BlockCopy {
+  return { text: fence.content, what: `the ${name} source` }
+}
+
+export function diagramSourceCopy(fence: Fence): BlockCopy {
+  const parsed = parseMermaid(fence.content)
+  return diagramCopy(fence, parsed.kind === 'refused' ? MERMAID_TAG : parsed.kind)
+}
+
+export function replyCopy(text: string): BlockCopy {
+  return { text, what: 'the reply as markdown' }
+}
+
+export function isDiagram(fence: Fence): boolean {
+  return fence.isClosed && fence.tag === MERMAID_TAG
+}
+
+function fenceTag(fence: Fence): string {
+  return cutToWidth(shownText(fence.tag), TAG_COLUMNS_AT_MOST)
+}
+
 function tableActions(table: Table, key: string): CopyAction[] {
   const text = textCopy(table)
-  const markdown = {
-    key: `${key}-copy`,
-    label: 'copy',
-    text: table.source,
-    what: 'the table as markdown',
-  }
+  const markdown = { key: `${key}-copy`, label: 'copy', ...tableCopy(table) }
   return text === ''
     ? [markdown]
     : [markdown, { key: `${key}-text`, label: 'copy as text', text, what: 'the table as text' }]
@@ -466,12 +493,11 @@ function ruleWithButtons(
 
 function fenceTitle(context: Context, fence: Fence, key: string): RenderElement {
   const room = Math.max(context.width - COPY_BUTTON_COLUMNS - BUTTONS_GAP, 4)
-  const tag = cutToWidth(shownText(fence.tag), TAG_COLUMNS_AT_MOST)
-  const what = tag === '' ? 'the block' : `the ${tag} block`
+  const copy = codeCopy(fence)
   return ruleWithButtons(
     context,
-    titleRule(tag, room),
-    copyButton(context, `${key}-copy`, 'copy', fence.content, what),
+    titleRule(fenceTag(fence), room),
+    copyButton(context, `${key}-copy`, 'copy', copy.text, copy.what),
     key,
   )
 }
@@ -514,13 +540,13 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     case 'flowchart': {
       const drawn = drawFlowchart(diagram, width)
       return drawn.kind === 'drawing'
-        ? { kind: 'drawing', name: 'flowchart', lines: drawn.lines }
+        ? { kind: 'drawing', name: diagram.kind, lines: drawn.lines }
         : drawn
     }
     case 'sequence': {
       const drawn = drawSequence(diagram, width)
       return drawn.kind === 'drawing'
-        ? { kind: 'drawing', name: 'sequence', lines: drawn.lines }
+        ? { kind: 'drawing', name: diagram.kind, lines: drawn.lines }
         : drawn
     }
   }
@@ -545,7 +571,7 @@ export function diagramOf(source: string, width: number, surface: RenderSurface)
 
 function diagramActions(fence: Fence, drawing: DiagramDrawing, key: string): CopyAction[] {
   return [
-    { key: `${key}-copy`, label: 'copy', text: fence.content, what: `the ${drawing.name} source` },
+    { key: `${key}-copy`, label: 'copy', ...diagramCopy(fence, drawing.name) },
     {
       key: `${key}-drawing`,
       label: 'copy drawing',
@@ -635,7 +661,7 @@ function pieceOf(context: Context, block: Block, index: number): Piece {
     case 'table':
       return tablePiece(context, block, key)
     case 'fence':
-      return context.drawsDiagrams && block.isClosed && block.tag === MERMAID_TAG
+      return context.drawsDiagrams && isDiagram(block)
         ? mermaidPiece(context, block, key)
         : fencePiece(context, block, key)
   }
@@ -660,6 +686,7 @@ function foldedPieces(pieces: readonly Piece[]): Drawing[] {
 
 function replyButtons(context: Context, fold: ReplyViewFold, text: string): RenderElement {
   const { Box, Button } = context.elements
+  const copy = replyCopy(text)
   return Box({
     flexDirection: 'row',
     flexShrink: 0,
@@ -673,7 +700,7 @@ function replyButtons(context: Context, fold: ReplyViewFold, text: string): Rend
           context.actions.fold(fold === 'folded' ? 'open' : 'folded')
         },
       }),
-      copyButton(context, 'copy-reply', 'copy reply', text, 'the reply as markdown'),
+      copyButton(context, 'copy-reply', 'copy reply', copy.text, copy.what),
     ],
   })
 }

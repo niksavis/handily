@@ -1,8 +1,19 @@
 import type { EngineInterface, Register, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold, ReplyViewMode } from '../types'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
-import { DEFAULT_COLUMNS, plural, replyTree, type ReplyActions } from './draw'
-import { blocksOf } from './markdown'
+import {
+  codeCopy,
+  DEFAULT_COLUMNS,
+  diagramSourceCopy,
+  isDiagram,
+  plural,
+  replyCopy,
+  replyTree,
+  tableCopy,
+  type BlockCopy,
+  type ReplyActions,
+} from './draw'
+import { blocksOf, type Block } from './markdown'
 import { framedPrompt } from './prompt'
 import { showToast } from './toast'
 
@@ -10,6 +21,9 @@ const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
 const HINTS = { plugin: 'handily-reply-view', key: 'hints' } as const
 const HINTS_ARGUMENT = 'hints'
+const COPY_ARGUMENT = 'copy'
+const REPLY_WORD = 'reply'
+const COPY_REPLY_COMMAND = `/replies ${COPY_ARGUMENT} ${REPLY_WORD}`
 const DRAWN_CHARACTERS_AT_MOST = 60_000
 
 const ON_TEXT =
@@ -19,9 +33,38 @@ const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
 const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
-  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+const NO_REPLY_TEXT = 'No reply to copy yet. /replies copy reads the last reply of this session.'
 const DIAGRAM_HINT =
   'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
+
+type BlockKind = 'diagram' | 'table' | 'code'
+
+const BLOCK_NAMES: Readonly<Record<BlockKind, string>> = {
+  diagram: 'diagram',
+  table: 'table',
+  code: 'code block',
+}
+
+const BLOCK_COPIES: Readonly<Record<BlockKind, (block: Block) => BlockCopy | null>> = {
+  diagram: (block) =>
+    block.kind === 'fence' && isDiagram(block) ? diagramSourceCopy(block) : null,
+  table: (block) => (block.kind === 'table' ? tableCopy(block) : null),
+  code: (block) => (block.kind === 'fence' && !isDiagram(block) ? codeCopy(block) : null),
+}
+
+function isBlockKind(word: string): word is BlockKind {
+  return Object.hasOwn(BLOCK_COPIES, word)
+}
+
+function lastCopyOf(reply: string, kind: BlockKind): BlockCopy | null {
+  const copies = blocksOf(reply).map(BLOCK_COPIES[kind])
+  return copies.findLast((copy) => copy !== null) ?? null
+}
+
+function noBlockText(kind: BlockKind): string {
+  return `The last reply has no ${BLOCK_NAMES[kind]}. ${COPY_REPLY_COMMAND} copies the whole reply.`
+}
 
 function lineCount(text: string): number {
   const kept = text.replace(/\r?\n$/, '')
@@ -50,7 +93,7 @@ async function copyText(
   $: EngineInterface,
   text: string,
   what: string,
-  surface: RenderSurface,
+  surface?: RenderSurface,
 ): Promise<void> {
   try {
     const result = await $.ui.copy({ text, surface })
@@ -81,6 +124,23 @@ function replyActions($: EngineInterface, id: string): ReplyActions {
   }
 }
 
+async function copied($: EngineInterface, copy: BlockCopy): Promise<undefined> {
+  await copyText($, copy.text, copy.what)
+  return undefined
+}
+
+async function copyFromReply(
+  $: EngineInterface,
+  reply: string | undefined,
+  word: string,
+): Promise<string | undefined> {
+  if (word === REPLY_WORD) return reply === undefined ? NO_REPLY_TEXT : copied($, replyCopy(reply))
+  if (!isBlockKind(word)) return USAGE_TEXT
+  if (reply === undefined) return NO_REPLY_TEXT
+  const copy = lastCopyOf(reply, word)
+  return copy === null ? noBlockText(word) : copied($, copy)
+}
+
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   const { value = 'folded' } = await $.state.get({ plugin: 'handily-reply-view', key: 'folds', id })
   return value
@@ -90,6 +150,7 @@ export const register: Register = (on, options) => {
   const defaultMode: ReplyViewMode = options.mode === 'off' ? 'off' : 'on'
   const drawsDiagrams = options.diagrams !== 'off'
   const defaultHints: ReplyViewMode = options.diagramHints === 'on' ? 'on' : 'off'
+  let lastReply: string | undefined
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -103,10 +164,24 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    const args = e.args.trim()
-    if (args === '') return { text: await toggle($, defaultMode) }
-    if (args === HINTS_ARGUMENT) return { text: await toggleHints($, defaultHints) }
+    const words = e.args
+      .trim()
+      .split(/\s+/)
+      .filter((word) => word !== '')
+    const [first, second, ...rest] = words
+    if (first === undefined) return { text: await toggle($, defaultMode) }
+    if (first === HINTS_ARGUMENT && second === undefined) {
+      return { text: await toggleHints($, defaultHints) }
+    }
+    if (first === COPY_ARGUMENT && second !== undefined && rest.length === 0) {
+      return { text: await copyFromReply($, lastReply, second) }
+    }
     return { text: USAGE_TEXT }
+  })
+
+  on('turn.complete', async (_$, e, next) => {
+    if (e.agentId === undefined && e.answer !== '') lastReply = e.answer
+    return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
