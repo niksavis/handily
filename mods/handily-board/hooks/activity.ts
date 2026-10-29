@@ -6,8 +6,11 @@ import type {
   BoardToolSight,
 } from '../types'
 import { maskedCredentials } from './credentials'
+import { isAllDone } from './tasks'
 
 export const PLAN_WARNING_CALLS = 20
+
+export const STALLED_AFTER_MS = 15 * 60_000
 
 const TASK_TOOL_PREFIX = 'mcp__handily-board__'
 const TARGET_CHARS_AT_MOST = 200
@@ -93,11 +96,17 @@ function clockOf(
 ): BoardTaskClock | undefined {
   if (clock === undefined) {
     return isRunning
-      ? { startedAt: now, startCalls: calls, endedAt: null, endCalls: null }
+      ? { startedAt: now, startCalls: calls, endedAt: null, endCalls: null, runAt: now }
       : undefined
   }
-  if (isRunning) return { ...clock, endedAt: null, endCalls: null }
+  if (isRunning) {
+    return clock.endedAt === null ? clock : { ...clock, endedAt: null, endCalls: null, runAt: now }
+  }
   return clock.endedAt === null ? { ...clock, endedAt: now, endCalls: calls } : clock
+}
+
+export function runStart(clock: BoardTaskClock): number {
+  return clock.runAt ?? clock.startedAt
 }
 
 export function withClocks(activity: BoardActivity, list: BoardList, now: number): BoardActivity {
@@ -108,7 +117,8 @@ export function withClocks(activity: BoardActivity, list: BoardList, now: number
     const clock = clockOf(activity.clocks[key], isRunning, now, activity.calls)
     if (clock !== undefined) clocks[key] = clock
   }
-  return { ...activity, clocks }
+  const doneAt = isAllDone(list) ? (activity.doneAt ?? now) : null
+  return { ...activity, clocks, doneAt }
 }
 
 export function withPlanUpdate(

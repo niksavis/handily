@@ -8,7 +8,14 @@ import type {
   ThemeKey,
 } from 'claude-code'
 import type { BoardActivity, BoardChecks, BoardList, BoardTask, BoardToolSight } from '../types'
-import { PLAN_REQUEST, callsText, elapsedText, planLag } from './activity'
+import {
+  PLAN_REQUEST,
+  STALLED_AFTER_MS,
+  callsText,
+  elapsedText,
+  planLag,
+  runStart,
+} from './activity'
 import { NO_AGENTS, drawAgents, shownNames } from './agent-rows'
 import { type AgentRow, waitingCount } from './agents'
 import type { PaneUi } from './board'
@@ -32,10 +39,13 @@ import {
   type TrackerLine,
   type TrackerView,
 } from './commands'
+import { BAR_EMPTY, BAR_FILLED, barCells } from './bar'
+import { PART_LEAD, fitParts } from './parts'
 import { AGENTS_VIEW_FAILED, CHANGE_FAILED, refusedParts } from './replies'
 import { SIGNALS } from './signals'
 import {
   doneCount,
+  isAllDone,
   escaped,
   paneTaskText,
   priorityText,
@@ -345,7 +355,9 @@ function clockLine(task: BoardTask, work: PaneWork): string {
 function runningAside(task: BoardTask, work: PaneWork): Cell | undefined {
   const clock = work.activity.clocks[String(task.id)]
   if (task.status !== 'in_progress' || clock === undefined) return undefined
-  return { text: elapsedText(work.now - clock.startedAt), style: { dimColor: true } }
+  const isStalled = work.now - runStart(clock) > STALLED_AFTER_MS
+  const style: TextStyle = isStalled ? { color: 'warning' } : { dimColor: true }
+  return { text: elapsedText(work.now - clock.startedAt), style }
 }
 
 function taskCells(task: BoardTask, numberWidth: number): Cell[] {
@@ -715,13 +727,74 @@ function drawSession(elements: PaneElements, work: PaneWork, layout: RowLayout):
   return [line, drawSessionDetails(elements, details, layout)]
 }
 
-function summaryText(list: BoardList, work: PaneWork): string {
+type HeaderPart = { text: string } & TextStyle
+
+function dimPart(text: string): HeaderPart {
+  return { text, dimColor: true }
+}
+
+function finishTime(activity: BoardActivity): string | undefined {
+  const { doneAt } = activity
+  const starts = Object.values(activity.clocks).flatMap((clock) =>
+    clock === undefined ? [] : [clock.startedAt],
+  )
+  const start = activity.firstAt ?? (starts.length === 0 ? undefined : Math.min(...starts))
+  if (start === undefined || doneAt === undefined || doneAt === null) return undefined
+  return elapsedText(doneAt - start)
+}
+
+function finishParts(total: number, activity: BoardActivity): HeaderPart[] {
+  const { mark, color } = SIGNALS.done
+  const spent = finishTime(activity)
+  return [
+    { text: `${mark} all ${String(total)} done`, color },
+    ...(spent === undefined ? [] : [dimPart(`${PART_LEAD}${spent}`)]),
+  ]
+}
+
+function countParts(doing: number, toDo: number): HeaderPart[] {
+  const counts = [
+    { text: `${SIGNALS.doing.mark}${String(doing)}`, color: SIGNALS.doing.color, count: doing },
+    { text: `${SIGNALS.toDo.mark}${String(toDo)}`, color: SIGNALS.toDo.color, count: toDo },
+  ].filter((part) => part.count > 0)
+  return counts.flatMap(({ text, color }, index) => [
+    dimPart(index === 0 ? PART_LEAD : ' '),
+    { text, color },
+  ])
+}
+
+function summaryParts(list: BoardList, work: PaneWork): HeaderPart[] {
   const { activity } = work
   const total = list.tasks.length
-  if (total === 0) return activity.calls > 0 ? 'none kept by Claude' : 'none in this session yet'
-  const done = `${String(doneCount(list))} of ${String(total)} done`
-  if (activity.firstAt === null) return done
-  return `${done} · ${elapsedText(work.now - activity.firstAt)}`
+  if (total === 0) {
+    return [dimPart(activity.calls > 0 ? 'none kept by Claude' : 'none in this session yet')]
+  }
+  const done = doneCount(list)
+  if (isAllDone(list)) return finishParts(total, activity)
+  const doing = list.tasks.filter((task) => task.status === 'in_progress').length
+  const cells = barCells(done, doing, total)
+  return [
+    { text: BAR_FILLED.repeat(cells.done), color: SIGNALS.done.color },
+    { text: BAR_FILLED.repeat(cells.doing), color: SIGNALS.doing.color },
+    dimPart(BAR_EMPTY.repeat(cells.toDo)),
+    dimPart(` ${String(done)}/${String(total)}`),
+    ...countParts(doing, total - done - doing),
+    ...(activity.firstAt === null
+      ? []
+      : [dimPart(`${PART_LEAD}${elapsedText(work.now - activity.firstAt)}`)]),
+  ].filter((part) => part.text !== '')
+}
+
+function drawHeader(elements: PaneElements, list: BoardList, work: PaneWork): RenderElement {
+  const { Box, Text } = elements
+  const parts = [{ text: TASKS_TITLE, bold: true }, dimPart('  '), ...summaryParts(list, work)]
+  return Box({
+    key: 'tasks-header',
+    flexDirection: 'row',
+    children: fitParts(parts, elements.bodyColumns).map(({ text, ...style }) =>
+      Text({ ...style, children: text }),
+    ),
+  })
 }
 
 export async function drawPane(
@@ -744,19 +817,7 @@ export async function drawPane(
         ...drawTracker(elements, host, await trackerView(host), act, layout),
         work.agents.length === 0 ? Text({ dimColor: true, children: NO_AGENTS }) : null,
       ]
-  const header = Box({
-    flexDirection: 'row',
-    children: [
-      Text({ bold: true, children: TASKS_TITLE }),
-      Text({
-        dimColor: true,
-        children: fitted(
-          `  ${summaryText(list, work)}`,
-          elements.bodyColumns - displayWidth(TASKS_TITLE),
-        ),
-      }),
-    ],
-  })
+  const header = drawHeader(elements, list, work)
   return Box({
     flexDirection: 'column',
     children: [

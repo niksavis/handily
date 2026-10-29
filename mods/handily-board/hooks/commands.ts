@@ -20,16 +20,19 @@ import {
   looksLikeItemId,
   moveTask,
   numbersText,
+  oneSpaced,
   openItems,
   priorityText,
   quoted,
   removeTask,
   setStatus,
+  setTitle,
   statusLook,
   statusWord,
   TRACKER_TEXT_IS_DATA,
   taskForItem,
   taskText,
+  titleRefusal,
   withTrackerNotice,
   withoutDone,
   type WorkItem,
@@ -53,6 +56,7 @@ export type BoardCommand =
   | { kind: 'add'; text: string }
   | { kind: 'rm'; text: string }
   | { kind: 'mv'; text: string }
+  | { kind: 'edit'; text: string }
   | { kind: 'status'; word: StatusWord; text: string }
   | { kind: 'unknown'; word: string }
 
@@ -110,13 +114,18 @@ export function withoutFinalPeriod(text: string): string {
   return text.replace(/\.+$/, '')
 }
 
+function firstWord(text: string): { word: string; rest: string } {
+  const space = text.search(/\s/)
+  if (space === -1) return { word: text, rest: '' }
+  return { word: text.slice(0, space), rest: text.slice(space).trim() }
+}
+
 export function parseBoardCommand(args: string): BoardCommand {
   const trimmed = args.trim()
   if (trimmed === '') return { kind: 'session' }
-  const space = trimmed.search(/\s/)
-  const word = space === -1 ? trimmed : trimmed.slice(0, space)
-  const text = space === -1 ? '' : trimmed.slice(space).trim()
-  if (word === 'add' || word === 'rm' || word === 'mv') return { kind: word, text }
+  const { word, rest: text } = firstWord(trimmed)
+  if (word === 'add' || word === 'rm' || word === 'mv' || word === 'edit')
+    return { kind: word, text }
   if (isStatusWord(word)) return { kind: 'status', word, text }
   if (text !== '') return { kind: 'unknown', word: trimmed }
   if (
@@ -132,7 +141,7 @@ export function parseBoardCommand(args: string): BoardCommand {
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {
@@ -468,6 +477,40 @@ export async function personStatus(
     noteRefusal,
     [`${statusLook(status).mark} Task ${number} is now ${shown}`, { quoted: task.title }],
   )
+}
+
+const EDIT_FORM =
+  '/board edit needs a task number and a title, for example /board edit 2 Write the tests.'
+
+type TitleOutcome =
+  { kind: 'missing'; list: BoardList } | { kind: 'same' | 'set'; task: BoardTask; list: BoardList }
+
+export async function personEdit(host: TaskHost, text: string): Promise<string> {
+  const { word: number, rest: title } = firstWord(text)
+  if (!isTaskNumber(number)) return EDIT_FORM
+  const large = tooLarge(number)
+  if (large !== undefined) return large
+  if (title === '') return `${NOT_CHANGED}: the new title is empty. ${EDIT_FORM}`
+  const refusal = titleRefusal(title)
+  if (refusal !== undefined) return `${NOT_CHANGED}: ${refusal}`
+  const id = Number(number)
+  const outcome = await host.edit<TitleOutcome>((list) => {
+    const task = findTask(list, id)
+    if (!task) return { list, value: { kind: 'missing', list } }
+    if (task.title === oneSpaced(title)) return { list, value: { kind: 'same', task, list } }
+    const next = setTitle(list, id, title)
+    return { list: next, value: { kind: 'set', task, list: next } }
+  })
+  if (outcome.kind === 'missing') return missingTaskReply(number, outcome.list)
+  const { task } = outcome
+  if (outcome.kind === 'same') {
+    return `Task ${String(id)} already has this title. Nothing changed.`
+  }
+  const retitled = findTask(outcome.list, id) ?? task
+  const change = `it set the title ${quoted(retitled.title)} on ${changedTask(task)}`
+  const noteRefusal = await tellModel(host, change, [task, retitled])
+  const reply = `Task ${String(id)} is now titled: ${taskText(retitled)}${toldSuffix(noteRefusal)}`
+  return withTrackerNotice(reply, [retitled])
 }
 
 export async function personClear(host: TaskHost): Promise<PersonReply> {

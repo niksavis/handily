@@ -27,6 +27,7 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board mv <n> before <m>` | Moves task `n` before task `m`                                          |
 | `/board mv <n> top`        | Moves task `n` to the start of the list                                 |
 | `/board mv <n> bottom`     | Moves task `n` to the end of the list                                   |
+| `/board edit <n> <title>`  | Gives task `n` a new title                                              |
 | `/board done <n>`          | Marks task `n` done                                                     |
 | `/board start <n>`         | Marks task `n` in progress                                              |
 | `/board open <n>`          | Marks task `n` pending                                                  |
@@ -52,7 +53,9 @@ Replies, from the tests:
 /board add Ship it       Added task 3: Ship it. Claude is told at your next prompt.
 /board mv 3 top          Moved task 3 to the top. Claude is told at your next prompt.
 /board mv 3 before 1     Task 3 is already before task 1. Nothing changed.
-/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.
+/board edit 3 Ship it now  Task 3 is now titled: Ship it now. Claude is told at your next prompt.
+/board edit 3            Not changed: the new title is empty. /board edit needs a task number and a title, for example /board edit 2 Write the tests.
+/board frob              Unknown argument "frob". Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.
 ```
 
 - `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
@@ -95,6 +98,9 @@ Replies, from the tests:
 - `/board mv` changes the order of the list, as `task_move` does. `top` and `bottom` are the
   ends of the whole list. The board draws the tasks by status, so on the board the task moves
   inside its status group. A move to the place that the task already has changes nothing.
+- `/board edit` keeps the author of the task and its place in the list. It refuses an empty
+  title, a title of more than 200 characters and a title with a line break, a control character
+  or a bidi control character by name, as `/board add` does, and keeps the old title.
 - An argument of one word with a hyphen, such as `app-cd34`, is read as an item id. When the
   tracker has no such item, the mod adds the word as text and says so.
 - `/board add <item id>` says why by name when `workitems` cannot read the item, and names
@@ -151,13 +157,19 @@ You can press every button on both tabs with the keyboard alone. A live check on
 
 | Tool          | Input                                                                  | Effect                               |
 | ------------- | ---------------------------------------------------------------------- | ------------------------------------ |
-| `task_add`    | `title`                                                                | Adds a pending task                  |
+| `task_add`    | `title`, or `titles` for several, and an optional `before` task id     | Adds pending tasks                   |
 | `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task |
 | `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before` |
 | `task_list`   | none                                                                   | Returns the list                     |
 
 - The mod registers the tools at `session.start`. The model calls them as
   `mcp__handily-board__<name>`. Each answer is the whole list, in the order of the work.
+- `task_add` with `titles` adds several tasks in one call, in the given order, and the answer
+  names the new ids: `Added tasks 2, 3, 4.` With `before`, the new tasks go before that task;
+  without it, they go at the end. A batch that would pass the limit of 100 tasks, or that holds
+  one bad title, is refused whole, and no task is added. The refusal names the title by its
+  place, such as `title 2`. A call of several titles draws the transcript row of Claude Code,
+  because the kept row names one task.
 - `task_move` changes the order of the list. The task ids do not change. A move that names an
   unknown id, or the same id twice, is refused with the ids that exist and the correct form.
 - A system prompt section (`handily-board:tasks`, scope `session`) tells the model to keep its
@@ -204,7 +216,7 @@ Captures from the tests, docked at 41 columns:
 
 ```text
 Session  ctx — until the first reply
-Tasks  1 of 4 done · 14m
+Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 ▶ 2 Write the tab mocks         4m [ rm ]
     ▸ Edit docs/mocks.md          9 tools
 ○ 3 Review the mocks with Codex    [ rm ]
@@ -218,7 +230,7 @@ The same list inline above the prompt, at 80 columns:
 
 ```text
 Session  ctx — until the first reply
-Tasks  1 of 4 done · 14m
+Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 ▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]
 ○ 3 Review the mocks with Codex                                           [ rm ]
 ○ 4 You: Ask the person about tabs                                        [ rm ]
@@ -228,8 +240,17 @@ Tasks  1 of 4 done · 14m
 ```
 
 - The first line is the Session line. The next section describes it.
-- The header shows the done count and the time since the first tool call of the main loop.
-  Times use one short form: `9s`, `5m`, `1h`, `2d`. They round down.
+- The header shows a bar, the done count of all tasks, the counts of the tasks in progress
+  (`▶`) and pending (`○`), and the time since the first tool call of the main loop. The bar
+  has one cell for each task, at most 8. Its cells are done in `success`, in progress in
+  `claude` and pending in a dim `▱`. A count of 0 is left out. Times use one short form: `9s`,
+  `5m`, `1h`, `2d`. They round down. A narrow pane cuts the time first.
+- When every task is done, the header shows `✓ all 4 done · 22m` in `success`. The time runs
+  from the first tool call to the moment that the last task was done, so it stops when the
+  work ends.
+- When the current run of a task in progress passes 15 minutes, its time turns to the
+  `warning` colour. A done task that you start again begins a new run. Its row still shows the
+  time since its first start.
 - Each task is one line: a mark (`✓` done in `success`, `▶` in progress in `claude`, `○`
   pending in `subtle`), the number, the author and the title. A task by `claude` shows no
   author. A task by you shows `You:` and a tracker task shows `tracker`, in the theme colour

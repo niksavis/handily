@@ -667,7 +667,7 @@ describe('/board add and /board rm', () => {
       ]
       for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board clear, /board list, /board stats or /board close.`,
         )
       }
     },
@@ -844,7 +844,7 @@ describe('the this session tab', () => {
           requestId: PANE,
           props: paneProps('dock', 80),
         })
-        expect(await ui.find({ type: 'Text', text: '1 of 3 done' })).toBeDefined()
+        expect(await ui.find({ type: 'Text', text: ' 1/3' })).toBeDefined()
         await ui.press({ key: 'done' })
         const done = await ui.find({ type: 'Text', text: /^Read the design doc$/ })
         expect(done?.props.dimColor).toBe(true)
@@ -2462,7 +2462,7 @@ describe('the pane follows the work', () => {
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
         'Session  ctx — until the first reply',
-        'Tasks  1 of 3 done · 4m',
+        'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 4m',
         '▶ 2 Write the mocks                4m [ rm ]',
         '    ▸ Edit docs/mocks.md             3 tools',
         '○ 3 Commit the mocks                  [ rm ]',
@@ -2476,7 +2476,7 @@ describe('the pane follows the work', () => {
       await seen.clock.advance(MINUTE)
       await bash($, 'npm test')
       expect((await screen(ui, WIDTH)).slice(1, 4)).toEqual([
-        'Tasks  1 of 3 done · 5m',
+        'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 5m',
         '▶ 2 Write the mocks                5m [ rm ]',
         '    ▸ Bash npm test                  4 tools',
       ])
@@ -2521,7 +2521,7 @@ describe('the pane follows the work', () => {
         ])
         expect(await screen(ui, WIDTH)).toEqual([
           'Session  ctx — until the first reply',
-          'Tasks  1 of 3 done · 7m',
+          'Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 7m',
           '▶ 2 Mods match the terminal palet… 4m [ rm ]',
           '    ▸ Read src/file8.ts              9 tools',
           '    Mods match the terminal palette, such as',
@@ -2673,7 +2673,7 @@ describe('the pane follows the work', () => {
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
         'Session  ctx — until the first reply',
-        'Tasks  0 of 1 done · 0s',
+        'Tasks  ▱ 0/1 · ○1 · 0s',
         '▶ Now  Read src/file19.ts      20 tools · 0s',
         '○ 1 Write the mocks                   [ rm ]',
         'No plan update for 20 tool calls.',
@@ -3298,6 +3298,19 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
   )
 
   test(
+    'a task_add of several titles keeps no row, so it draws the engine row and result',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      engineRows(on)
+      await start($)
+      const batch = await called($, seen, { tool: TOOL_ADD, titles: ['One', 'Two'] })
+      expect(await callRow($, 'terminal', useOf(batch))).toEqual(ENGINE_ROW)
+      expect(await resultBlock($, 'terminal', batch)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+    },
+  )
+
+  test(
     'a call with no kept row, and a call of another tool, draw the engine row',
     withToolIds,
     async ($, on) => {
@@ -3532,7 +3545,7 @@ const SESSION_SCREENS: readonly {
     columns: 41,
     lines: [
       'Session  ctx — until the first reply',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks         4m [ rm ]',
       '    ▸ Edit docs/mocks.md          9 tools',
       '○ 3 Review the mocks with Codex    [ rm ]',
@@ -3547,7 +3560,7 @@ const SESSION_SCREENS: readonly {
     columns: 30,
     lines: [
       'Session  ctx —',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab m… 4m [ rm ]',
       '    ▸ Edit docs/mocks… 9 tools',
       '○ 3 Review the mocks w… [ rm ]',
@@ -3562,7 +3575,7 @@ const SESSION_SCREENS: readonly {
     columns: 80,
     lines: [
       'Session  ctx — until the first reply',
-      'Tasks  1 of 4 done · 14m',
+      'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
       '▶ 2 Write the tab mocks                 ▸ Edit docs/mocks.md · 9 tools 4m [ rm ]',
       '○ 3 Review the mocks with Codex                                           [ rm ]',
       '○ 4 You: Ask the person about tabs                                        [ rm ]',
@@ -3940,7 +3953,7 @@ describe(PRESS_DONE_CRITERION, () => {
           '✓ Task 3 is now done',
           '"Review the mocks with Codex"',
         ])
-        expect((await screen(ui, 41))[1]).toBe('Tasks  2 of 4 done · 14m')
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ▰▰▰▱ 2/4 · ▶1 ○1 · 14m')
         await ui.press({ key: 'done' })
         const row = await rowOf(ui, 'task:3')
         expect(texts(row).map((cell) => [cell.text, cell.props.color])).toEqual([
@@ -4198,7 +4211,7 @@ describe(CLEAR_CRITERION, () => {
         ])
         await ui.press({ key: 'clear-done' })
         expect(seen.toasts.at(-1)).toEqual(['✓ Cleared 2 done tasks', 'tasks 1, 5'])
-        expect((await screen(ui, 41)).slice(1, 2)).toEqual(['Tasks  0 of 3 done · 14m'])
+        expect((await screen(ui, 41)).slice(1, 2)).toEqual(['Tasks  ▰▱▱ 0/3 · ▶1 ○2 · 14m'])
         expect(await ui.find({ key: 'done' })).toBeUndefined()
         expect(await ui.find({ key: 'clear-done' })).toBeUndefined()
         expect(await toldAtNextPrompt($)).toEqual([
@@ -4343,7 +4356,7 @@ describe(ONE_PRESS_RM_CRITERION, () => {
         expect(seen.toasts).toEqual([])
         expect(await screen(ui, 41)).toEqual([
           'Session  ctx — until the first reply',
-          'Tasks  0 of 1 done · 14m',
+          'Tasks  ▱ 0/1 · ○1 · 14m',
           '▶ Now  Edit docs/mocks.md  10 tools · 14m',
           '○ 4 You: Ask the person about tabs [ rm ]',
           '',
@@ -4843,7 +4856,7 @@ describe(SESSION_LINE_CRITERION, () => {
         for (const surface of SURFACES) {
           const ui = await mountTab($, surface, PANE, placement, columns)
           const lines = await screen(ui, columns)
-          expect(lines.slice(0, 2)).toEqual([line, 'Tasks  1 of 4 done · 14m'])
+          expect(lines.slice(0, 2)).toEqual([line, 'Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m'])
           await ui.unmount()
         }
       },
@@ -6675,6 +6688,381 @@ for (const surface of SURFACES) {
           ['Session  no context or cost on this host', 'No agents yet.'].join('\n'),
         )
         expect(reply).not.toMatch(/\d/)
+      },
+    )
+  })
+}
+
+const EDIT_CRITERION =
+  'When the person runs /board edit 3 new title, task 3 shows the new title and Claude receives a note naming the change'
+
+const EDIT_REFUSAL_CRITERION =
+  'When the new title is empty, too long or holds a control character, the command refuses by name and keeps the old title'
+
+const EDIT_FORM =
+  '/board edit needs a task number and a title, for example /board edit 2 Write the tests.'
+
+for (const surface of SURFACES) {
+  describe(EDIT_CRITERION, () => {
+    test(
+      `/board edit 3 gives task 3 the new title on the board and in the list on ${surface}, and the next prompt names the change`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await toldAtNextPrompt($)
+        expect(await board($, 'edit 3 Review the mocks with Ana')).toBe(
+          'Task 3 is now titled: "Review the mocks with Ana". Claude is told at your next prompt.',
+        )
+        expect(await board($, 'edit 4   Ask Ana about the tabs ')).toBe(
+          'Task 4 is now titled: Ask Ana about the tabs. Claude is told at your next prompt.',
+        )
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41)).slice(4, 6)).toEqual([
+          '○ 3 Review the mocks with Ana      [ rm ]',
+          '○ 4 You: Ask Ana about the tabs    [ rm ]',
+        ])
+        await ui.unmount()
+        expect(await toldAtNextPrompt($)).toEqual([
+          [
+            `${CHANGED} it set the title "Review the mocks with Ana" on task 3 by claude, titled "Review the mocks with Codex". it set the title "Ask Ana about the tabs" on task 4 by the person: Ask the person about tabs.`,
+            '',
+            'Tasks (1 of 4 done)',
+            '  1  done         claude   "Read the design"',
+            '  2  in progress  claude   "Write the tab mocks"',
+            '  3  pending      claude   "Review the mocks with Ana"',
+            '  4  pending      you      Ask Ana about the tabs',
+          ].join('\n'),
+        ])
+        expect(await board($, 'edit 3 Review the mocks with Ana')).toBe(
+          'Task 3 already has this title. Nothing changed.',
+        )
+        expect(await toldAtNextPrompt($)).toEqual([])
+      },
+    )
+  })
+
+  describe(EDIT_REFUSAL_CRITERION, () => {
+    test(
+      `an empty, a too long and a control character title are refused by name and the old title stays on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await toldAtNextPrompt($)
+        const before = await modelTool($, {})
+        const refusals: readonly (readonly [string, string])[] = [
+          ['edit 3', `Not changed: the new title is empty. ${EDIT_FORM}`],
+          ['edit 3   ', `Not changed: the new title is empty. ${EDIT_FORM}`],
+          [
+            `edit 3 ${'x'.repeat(201)}`,
+            'Not changed: the title has 201 characters. The limit is 200.',
+          ],
+          [
+            'edit 3 Review\u0007the mocks',
+            'Not changed: the title has a line break or a control character. Write it on one line.',
+          ],
+          [
+            'edit 3 Review\nthe mocks',
+            'Not changed: the title has a line break or a control character. Write it on one line.',
+          ],
+          [
+            'edit 3 Review \u202ethe mocks',
+            'Not changed: the title has a bidi control character, which can reorder the text. Remove it.',
+          ],
+          ['edit', EDIT_FORM],
+          ['edit three Review it', EDIT_FORM],
+          ['edit 9 Review it', 'No task 9. This session has tasks 1-4; /board list prints them.'],
+          [
+            'edit 1000000000000000000000 Review it',
+            '1000000000000000000000 is too large for a task number. /board list prints the task numbers.',
+          ],
+        ]
+        for (const [args, reply] of refusals) expect(await board($, args)).toBe(reply)
+        expect(await modelTool($, {})).toBe(before)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[4]).toBe('○ 3 Review the mocks with Codex    [ rm ]')
+        await ui.unmount()
+        expect(await toldAtNextPrompt($)).toEqual([])
+      },
+    )
+  })
+}
+
+const BATCH_CRITERION =
+  'When Claude calls task_add with several titles, every title is added in the given order and the answer lists the new ids'
+
+const BATCH_BEFORE_CRITERION =
+  'When Claude calls task_add with a before id, the new tasks sit before that task'
+
+const BATCH_LIMIT_CRITERION =
+  'When a batch would pass the task limit, the call refuses the whole batch and adds nothing'
+
+async function taskRowOrder(ui: { findAll: Mounted['findAll'] }): Promise<string> {
+  const keys = (await ui.findAll({ type: 'Button' })).map((button) => String(button.key))
+  return keys
+    .filter((key) => key.startsWith('open:task:'))
+    .map((key) => key.slice('open:task:'.length))
+    .join(' ')
+}
+
+for (const surface of SURFACES) {
+  describe(BATCH_CRITERION, () => {
+    test(
+      `task_add with titles adds each title in the given order and names the new ids, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await startOn($, surface)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
+        const added = await $.tool.call({
+          tool: TOOL_ADD,
+          titles: ['Draw the mocks', 'Write the tests', 'Ship the mod'],
+        })
+        expect(added.result).toBe(
+          [
+            'Added tasks 2, 3, 4.',
+            '',
+            'Tasks (0 of 4 done)',
+            '  1  pending      claude   "Read the design"',
+            '  2  pending      claude   "Draw the mocks"',
+            '  3  pending      claude   "Write the tests"',
+            '  4  pending      claude   "Ship the mod"',
+          ].join('\n'),
+        )
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await taskRowOrder(ui)).toBe('1 2 3 4')
+        expect((await screen(ui, 41)).slice(2, 6)).toEqual([
+          '○ 1 Read the design                [ rm ]',
+          '○ 2 Draw the mocks                 [ rm ]',
+          '○ 3 Write the tests                [ rm ]',
+          '○ 4 Ship the mod                   [ rm ]',
+        ])
+        await ui.unmount()
+        const one = await $.tool.call({ tool: TOOL_ADD, titles: ['Tag the release'] })
+        expect(String(one.result).split('\n')[0]).toBe('Added task 5: "Tag the release".')
+      },
+    )
+  })
+
+  describe(BATCH_BEFORE_CRITERION, () => {
+    test(
+      `task_add with before puts the new tasks before that task in the given order, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await startOn($, surface)
+        await fiveTasks($)
+        const added = await $.tool.call({ tool: TOOL_ADD, titles: ['Six', 'Seven'], before: 2 })
+        expect(String(added.result).split('\n')[0]).toBe('Added tasks 6, 7 before task 2.')
+        expect(await order($)).toBe('1 6 7 2 3 4 5')
+        const first = await $.tool.call({ tool: TOOL_ADD, title: 'Eight', before: 1 })
+        expect(String(first.result).split('\n')[0]).toBe('Added task 8 before task 1: "Eight".')
+        expect(await order($)).toBe('8 1 6 7 2 3 4 5')
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await taskRowOrder(ui)).toBe('8 1 6 7 2 3 4 5')
+        await ui.unmount()
+        expect((await $.tool.call({ tool: TOOL_ADD, titles: ['Nine'], before: 99 })).deny).toBe(
+          'No task 99. The ids are 1-8. Call task_list, then task_add with one of its ids as before.',
+        )
+        expect((await $.tool.call({ tool: TOOL_ADD, titles: ['Nine'], before: 'two' })).deny).toBe(
+          'task_add needs before as an integer task id that task_list shows, for example {"titles": ["Write the tests"], "before": 2}.',
+        )
+        expect(await order($)).toBe('8 1 6 7 2 3 4 5')
+      },
+    )
+  })
+
+  describe(BATCH_LIMIT_CRITERION, () => {
+    test(
+      `a batch that passes the limit, or holds one bad title, adds nothing and says why, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await startOn($, surface)
+        for (let index = 1; index <= 98; index += 1) {
+          await $.tool.call({ tool: TOOL_ADD, title: `Task ${String(index)}` })
+        }
+        await $.tool.call({ tool: TOOL_UPDATE, id: 7, status: 'completed' })
+        const before = String(await modelTool($, {}))
+        expect((await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two', 'Three'] })).deny).toBe(
+          'task_add refused: the list has 98 of 100 tasks, so 3 new tasks do not fit. Add at most 2, or remove a task first. 1 of them is done. Remove a done task with task_update and the status removed, then add the task.',
+        )
+        expect(
+          (await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two\nlines'], before: 1 })).deny,
+        ).toBe(
+          'task_add refused title 2: the title has a line break or a control character. Write it on one line.',
+        )
+        const shapes: readonly (readonly [Record<string, unknown>, string])[] = [
+          [{ titles: [] }, BATCH_SHAPE],
+          [{ titles: ['One', ' '] }, BATCH_SHAPE],
+          [{ titles: 'One' }, BATCH_SHAPE],
+          [{ title: 'One', titles: ['Two'] }, 'task_add takes title or titles, not both.'],
+        ]
+        for (const [input, deny] of shapes) {
+          expect((await $.tool.call({ tool: TOOL_ADD, ...input })).deny).toBe(deny)
+        }
+        expect(String(await modelTool($, {}))).toBe(before)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ▱▱▱▱▱▱▱▱ 1/98 · ○97')
+        await ui.unmount()
+        const fits = await $.tool.call({ tool: TOOL_ADD, titles: ['One', 'Two'] })
+        expect(String(fits.result).split('\n')[0]).toBe('Added tasks 99, 100.')
+      },
+    )
+  })
+}
+
+const BATCH_SHAPE =
+  'task_add needs titles: a list of non-empty strings, for example {"titles": ["Write the tests", "Run the tests"]}.'
+
+const HEADER_BAR_CRITERION =
+  'When the list holds tasks, the header shows a bar split into done, in progress and pending, with the counts'
+
+const STALLED_CRITERION =
+  'When a task stays in progress longer than the set time, its time shows in the warning colour'
+
+const FINISH_CRITERION =
+  'When every task is done, the header shows the finish state with the total time'
+
+async function headerOf(ui: { find: Mounted['find'] }): Promise<Drawn> {
+  const header = drawnOf(await ui.find({ key: 'tasks-header' }))
+  if (header === null) throw new Error('no task header is drawn')
+  return header
+}
+
+function colouredParts(element: Drawn): (readonly [string, unknown])[] {
+  return texts(element)
+    .filter((text) => text.props.color !== undefined)
+    .map((text) => [text.text, text.props.color] as const)
+}
+
+for (const surface of SURFACES) {
+  describe(HEADER_BAR_CRITERION, () => {
+    test(
+      `the header draws the done, in progress and pending cells in their colours, with the counts, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m')
+        expect(colouredParts(await headerOf(ui))).toEqual([
+          ['▰', 'success'],
+          ['▰', 'claude'],
+          ['▶1', 'claude'],
+          ['○2', 'subtle'],
+        ])
+        await ui.unmount()
+        for (const title of ['Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']) {
+          await $.tool.call({ tool: TOOL_ADD, title })
+        }
+        await board($, 'done 3')
+        await board($, 'done 4')
+        const wide = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(wide, 41))[1]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 · 14m')
+        await wide.unmount()
+        const narrow = await mountTab($, surface, PANE, 'dock', 30)
+        expect((await screen(narrow, 30))[1]).toBe('Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 …')
+        await narrow.unmount()
+      },
+    )
+  })
+
+  describe(STALLED_CRITERION, () => {
+    test(
+      `the time of a task in progress turns to the warning colour after 15 minutes, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        const timeOf = async (): Promise<Drawn | undefined> => {
+          const ui = await mountTab($, surface, PANE, 'dock', 41)
+          const time = texts(await rowOf(ui, 'task:2')).find((text) => /^\d+m$/.test(text.text))
+          await ui.unmount()
+          return time
+        }
+        await seen.clock.advance(11 * MINUTE)
+        const due = await timeOf()
+        expect([due?.text, due?.props.color, due?.props.dimColor]).toEqual(['15m', undefined, true])
+        await seen.clock.advance(MINUTE)
+        const stalled = await timeOf()
+        expect([stalled?.text, stalled?.props.color]).toEqual(['16m', 'warning'])
+      },
+    )
+
+    test(
+      `a done task that runs again is stalled only after 15 minutes of the new run, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await board($, 'done 2')
+        await seen.clock.advance(20 * MINUTE)
+        await board($, 'start 2')
+        const timeOf = async (): Promise<Drawn | undefined> => {
+          const ui = await mountTab($, surface, PANE, 'dock', 41)
+          const time = texts(await rowOf(ui, 'task:2')).find((text) => /^\d+m$/.test(text.text))
+          await ui.unmount()
+          return time
+        }
+        const restarted = await timeOf()
+        expect([restarted?.text, restarted?.props.color, restarted?.props.dimColor]).toEqual([
+          '24m',
+          undefined,
+          true,
+        ])
+        await seen.clock.advance(15 * MINUTE)
+        const due = await timeOf()
+        expect([due?.text, due?.props.color]).toEqual(['39m', undefined])
+        await seen.clock.advance(MINUTE)
+        const stalled = await timeOf()
+        expect([stalled?.text, stalled?.props.color]).toEqual(['40m', 'warning'])
+      },
+    )
+  })
+
+  describe(FINISH_CRITERION, () => {
+    test(
+      `the header of a list with every task done shows all done and the time until the last task ended, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        for (const id of ['2', '3', '4']) await board($, `done ${id}`)
+        await seen.clock.advance(5 * MINUTE)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ✓ all 4 done · 14m')
+        expect(colouredParts(await headerOf(ui))).toEqual([['✓ all 4 done', 'success']])
+        await ui.unmount()
+        await board($, 'open 4')
+        const reopened = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(reopened, 41))[1]).toBe('Tasks  ▰▰▰▱ 3/4 · ○1 · 19m')
+        await reopened.unmount()
+      },
+    )
+
+    test(
+      `the finish time ends when the last task is done, also a task that never ran, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await board($, 'done 2')
+        await seen.clock.advance(5 * MINUTE)
+        await board($, 'done 3')
+        await board($, 'done 4')
+        await seen.clock.advance(7 * MINUTE)
+        const ui = await mountTab($, surface, PANE, 'dock', 41)
+        expect((await screen(ui, 41))[1]).toBe('Tasks  ✓ all 4 done · 19m')
+        await ui.unmount()
       },
     )
   })

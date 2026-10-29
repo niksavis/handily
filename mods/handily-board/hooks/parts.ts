@@ -40,6 +40,18 @@ function partsLine(
   })
 }
 
+export function fitParts<T extends { text: string }>(parts: readonly T[], columns: number): T[] {
+  let room = columns
+  const kept: T[] = []
+  for (const part of parts) {
+    if (room <= 0) break
+    const text = fitted(part.text, room)
+    room -= displayWidth(text)
+    kept.push({ ...part, text })
+  }
+  return kept
+}
+
 export function drawPartLines(
   elements: PaneElements,
   key: string,
