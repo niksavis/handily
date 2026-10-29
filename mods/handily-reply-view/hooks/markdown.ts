@@ -24,8 +24,12 @@ const KEPT_CONTROLS: ReadonlySet<string> = new Set(['\t', '\n'])
 const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 const LINK = /!?\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g
 const AUTOLINK = /<((?:https?:\/\/|mailto:)[^>\s]+)>/g
-const PAIRED_MARK = /(\*\*|__|~~)(.+?)\1/g
-const ESCAPE_OR_CODE_SPAN = /\\([\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e])|`([^`]*)`/g
+const STAR_STRONG = /\*\*(.+?)\*\*/g
+const UNDERSCORE_STRONG = /(^|[^\p{L}\p{N}_])__(.+?)__(?![\p{L}\p{N}_])/gu
+const STRIKETHROUGH = /~~(.+?)~~/g
+const ESCAPE_OR_CODE_SPAN =
+  /\\([\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e])|(?<!`)(`+)(?!`)(.+?)(?<!`)\2(?!`)/g
+const PADDED_CODE = /^ (.*[^ ].*) $/
 const PRIVATE_USE_START = 0xe000
 const STAR_EMPHASIS = /\*(\S(?:[^*]*\S)?)\*/g
 const UNDERSCORE_EMPHASIS = /(^|[^\p{L}\p{N}_])_([^\s_](?:[^_]*[^\s_])?)_(?![\p{L}\p{N}_])/gu
@@ -139,6 +143,10 @@ function runsOf(text: string, marking: Marking): Run[] {
   return runs
 }
 
+function codeText(code: string): string {
+  return code.replace(PADDED_CODE, '$1')
+}
+
 function markedText(cell: string, keepsAddress: boolean): Run[] {
   const [mark = '', ...ends] = unusedCharacters(cell, 1 + 2 * MARK_FLAGS.length)
   const brackets: Brackets = new Map()
@@ -159,8 +167,10 @@ function markedText(cell: string, keepsAddress: boolean): Run[] {
     literals.push(literal)
     return `${mark}${String(literals.length - 1)}${mark}`
   }
-  const held = cell.replace(ESCAPE_OR_CODE_SPAN, (_found, escaped?: string, code?: string) =>
-    escaped === undefined ? wrap('isCode', hold(code ?? '')) : hold(escaped),
+  const held = cell.replace(
+    ESCAPE_OR_CODE_SPAN,
+    (_found, escaped: string | undefined, _ticks: string | undefined, code?: string) =>
+      escaped === undefined ? wrap('isCode', hold(codeText(code ?? ''))) : hold(escaped),
   )
   const text = held
     .replace(LINE_BREAK_TAG, ' ')
@@ -168,9 +178,12 @@ function markedText(cell: string, keepsAddress: boolean): Run[] {
       linkOf(linkText, address, keepsAddress, hold, wrap),
     )
     .replace(AUTOLINK, (_found, address: string) => wrap('isLink', hold(address)))
-    .replace(PAIRED_MARK, (_found, pair: string, inner: string) =>
-      pair === '~~' ? inner : wrap('isBold', inner),
+    .replace(STAR_STRONG, (_found, inner: string) => wrap('isBold', inner))
+    .replace(
+      UNDERSCORE_STRONG,
+      (_found, before: string, inner: string) => before + wrap('isBold', inner),
     )
+    .replace(STRIKETHROUGH, '$1')
     .replace(STAR_EMPHASIS, '$1')
     .replace(UNDERSCORE_EMPHASIS, '$1$2')
     .replace(ENTITY, (found, decimal?: string, hex?: string, name?: string) =>

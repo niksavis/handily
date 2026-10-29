@@ -5005,6 +5005,39 @@ describe('colour pass', () => {
   )
 
   viewTest(
+    'a code span of two backticks keeps a backtick inside it, and a code span with a space at each end drops one at each end',
+    async (world, $) => {
+      const ui = await mountReply(
+        $,
+        reply('| Code | Tick |\n| - | - |\n| ``a`b`` | `` `tick` `` |'),
+      )
+      expect((await sketchOf(ui))[2]).toBe('  &a`b&  %│% &`tick`&')
+      expect((await ui.find({ type: 'Text', text: /^a`b$/ }))?.props.color).toBe('permission')
+      expect((await ui.find({ type: 'Text', text: /^`tick`$/ }))?.props.color).toBe('permission')
+      await ui.press({ key: 'block-0-text' })
+      expect(world.copies).toEqual(['Code: a`b\nTick: `tick`'])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'two underscores inside a word stay as written while two stars inside a word draw bold',
+    async (_world, $) => {
+      const ui = await mountReply(
+        $,
+        reply('| Name | Note |\n| - | - |\n| my__private__var | x**bold**y |\n| __loud__ | ok |'),
+      )
+      expect((await sketchOf(ui)).slice(2)).toEqual([
+        '  my__private__var %│% x*bold*y',
+        '  *loud*             %│% ok',
+      ])
+      expect(await ui.find({ type: 'Text', text: /^my__private__var$/ })).toBeUndefined()
+      expect((await ui.find({ type: 'Text', text: /^bold$/ }))?.props.bold).toBe(true)
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
     'a box keeps its key of the cycle at 40 columns, where the flowchart turns top down',
     async (_world, $) => {
       const ui = await mountReply(

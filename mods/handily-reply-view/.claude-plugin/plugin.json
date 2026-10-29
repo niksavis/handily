@@ -31,7 +31,7 @@
     "tableStyle": {
       "type": "string",
       "title": "Table style",
-      "description": "How a table in a reply draws: rules between the columns (rules) or a full box (box). Under 40 columns both draw one block for each row.",
+      "description": "How a table in a reply draws: rules between the columns (rules) or a full box (box). Under 40 columns no box draws, and a table that does not fit draws one block for each row.",
       "options": ["rules", "box"],
       "default": "rules"
     }

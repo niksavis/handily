@@ -143,7 +143,9 @@ header line or its last row, so the buttons go under it:
 
 With the `tableStyle` setting `box`, a table on a screen of 40 columns or more draws in a full
 box. A double rule stands under the header, and a rule stands between each two rows. The box takes
-4 columns more than the `rules` style. Under 40 columns both styles draw the same:
+4 columns more than the `rules` style. Under 40 columns no box draws. A table that fits draws in
+the `rules` style, and a table that does not fit draws one block for each row. At 80 columns the
+box looks like this:
 
 ```text
   ┌───────────────┬───────┬──────┬────────────────────┐
@@ -156,10 +158,11 @@ box. A double rule stands under the header, and a rule stands between each two r
                               [ copy ] [ copy as text ]
 ```
 
-A screen narrower than 40 columns draws each row as a block. The view also draws blocks when a
-column of the table would get fewer than 6 cells. The first cell is the bold title of the block,
-and each other cell is a `label: value` line. The buttons stand on the title of the first block
-when they fit there, and otherwise on a line of their own under the last block:
+On a screen narrower than 40 columns, a table that does not fit draws each row as a block. The
+view also draws blocks when a column of the table would get fewer than 6 cells. The first cell is
+the bold title of the block, and each other cell is a `label: value` line. The buttons stand on
+the title of the first block when they fit there, and otherwise on a line of their own under the
+last block:
 
 ```text
   task-pane  [ copy ] [ copy as text ]
