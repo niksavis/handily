@@ -6,6 +6,27 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.12.0 - 2026-10-29
+
+### Changed
+
+- **The board shows its toasts in the shared toast layout and drops the toasts that the pane
+  already shows.** An add, a remove or a move from the pane that Claude is told about shows no
+  toast. A refusal starts with `■` and names its reason on its own line, such as
+  `■ Not added`, then `app-gh78 is closed in beads`, and stays 10 s. A status change from the
+  pane reads `✓ Task 3 is now done`, then the quoted title. The board that waits for a wider
+  terminal reads `◆ Board waits for a wider terminal`, then `run /board to open it here`. No
+  board toast holds a line break or the tracker notice. The replies of `/board` do not change
+  (handily-ftx0x.4).
+
+### Fixed
+
+- **board README says how the keyboard reaches the task rows.** `/board` already gives the keyboard
+  to the tab it brings forward, so Tab reaches the task rows at once. ctrl+x tab moves the keyboard
+  on to the next tab, and from the last tab back to the prompt. Pressed on the this session tab,
+  it gave the keyboard to the this machine tab, and Tab seemed to skip the task rows
+  (handily-9uj3n.10).
+
 ## handily-reply-view 0.11.0 - 2026-10-29
 
 ### Fixed
