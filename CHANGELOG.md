@@ -6,6 +6,37 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.15.0 - 2026-10-29
+
+### Added
+
+- **A wide board gives each agent row a ctx column and a lane.** From a body of 80 columns, each
+  agent row of `/board` shows the context of its latest model request and a lane on one time
+  axis, from the first spawn to now. The lane of an agent that waits for you ends in `◆`, and
+  the lane of a failed agent ends in `■`. Below 80 columns the rows stay as they were
+  (handily-xsjad.8).
+- **A machine card warns of a high context.** On the `this machine` tab, the card of a session
+  that runs the board shows `ctx 91% high` and the cost of that session when its context is at
+  80 percent or more. Under 80 percent, the card has no context line. Each session keeps the
+  figures in its store key (handily-xsjad.11).
+- **The files tab shows the files of one board task.** Each touch of a file keeps the board
+  tasks that were in progress at that moment. `/tree task 2` narrows the files tab to the files
+  read or edited while task 2 ran, with a counts line such as
+  `✎ 1 edited · ◦ 2 read while task 2 ran`. `[ clear ]` or the key `c` returns to the work view.
+  An opened task on the board gets a `[ files ]` button that runs `/tree task 2` when `/tree`
+  is listed (handily-02b2v.8).
+
+## handily-filetree 0.9.0 - 2026-10-29
+
+### Added
+
+- **The files tab shows the files of one board task.** Each touch of a file keeps the board
+  tasks that were in progress at that moment. `/tree task 2` narrows the files tab to the files
+  read or edited while task 2 ran, with a counts line such as
+  `✎ 1 edited · ◦ 2 read while task 2 ran`. `[ clear ]` or the key `c` returns to the work view.
+  An opened task on the board gets a `[ files ]` button that runs `/tree task 2` when `/tree`
+  is listed (handily-02b2v.8).
+
 ## handily-reply-view 0.12.0 - 2026-10-29
 
 ### Added

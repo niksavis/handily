@@ -1,6 +1,6 @@
 {
   "name": "handily-filetree",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it.",
   "author": {
     "name": "niksavis"
