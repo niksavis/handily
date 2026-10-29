@@ -3064,6 +3064,168 @@ Opened:
                                                         [ less ] [ copy reply ]
 ```
 
+### 9.12 A prompt rail in a prompts tab (handily-bktw4, approved 2026-10-29)
+
+The person moves through a long fullscreen transcript by their own prompts. They see the
+`prompts` tab first, which opens with `/replies prompts`. Approved by the person on 2026-10-29
+with the survey of epic handily-rt74l.
+
+Probe on Claude Code 2.1.312, 2026-10-29, fullscreen: `$.ui.scroll({ to: { requestId } })` on a
+`UserMessage` row moves the transcript from `command.run` and from a pane button press. A
+`requestId` of a row that is no longer drawn answers `nothing drawn under that requestId`. A
+command reply row does not undo the jump, so a command answers with a reply row.
+
+Commands: `/replies prompts` (open or close), `/replies prompts close`, `/replies next`,
+`/replies prev`, `/replies prompt 9`. Hotkeys while the pane holds the keyboard: `p`, `n`, `l`
+(last), `y` (copy the selected prompt), and Enter on a row jumps. The tab opens with the
+keyboard on `[ next ]`, and after a jump it stays on the pressed control.
+
+Jumps fail outside fullscreen, because the scrollback belongs to the terminal. The list still
+shows the prompts, and the refusal says why. A prompt from before a compaction may have no
+drawn row to jump to.
+
+#### A. Docked, body 41: 12 prompts, the transcript shows prompt 9
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [prompts]            │  (engine tab row)
+│ Prompts  12 · at 9 · since 10:02          │  at: the prompt at the top of the view
+│ [ prev ] [ next ] [ last ]                │  hotkeys p n l; focus on [ next ]
+│ ───────────────────────────────────────── │
+│   1 10:02 Read the design and t…  4 tools │
+│   2 10:09 Draw the band at 30 c…  7 tools │
+│   3 10:15 Why does Tab never re…  2 tools │
+│   4 10:21 Fix it                 11 tools │
+│   5 10:30 Run the checks          3 tools │
+│ ── compacted at 10:40 ──                  │  dim: the rows above are summarised
+│   6 10:41 Commit it               2 tools │
+│   7 10:44 Fix the width test      9 tools │
+│   8 10:47 Again, the 30 column …  5 tools │
+│ ▸ 9 10:51 Draw the mocks for th… 12 tools │  selected: ▸, bold, and 'at 9'
+│     Draw the mocks for the first batch    │
+│     and check every width with a script.  │
+│     ran 6m · Read 5 · Edit 4 · Bash 3     │
+│     [ copy prompt ]                       │  hotkey y
+│  10 10:58 Run the checks          3 tools │
+│  11 11:03 Commit it               2 tools │
+│  12 11:06 Why did the hook refu…  0 tools │
+╰───────────────────────────────────────────╯
+```
+
+#### B. Docked, body 41: the newest prompt runs now (last rows)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [prompts]            │  (engine tab row)
+│ Prompts  12 · at 12 · since 10:02         │
+│ [ prev ] [ next ] [ last ]                │
+│ ───────────────────────────────────────── │
+│  11 11:03 Commit it               2 tools │
+│ ▸12 11:06 Why did the hook re… ▶ 3 tools  │  ▶ and the word runs below
+│     Why did the hook refuse the commit?   │
+│     runs 40s · Bash 2 · Read 1            │
+╰───────────────────────────────────────────╯
+```
+
+#### C. Docked, body 41: 140 prompts (overflow) and a jump that failed
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [prompts]            │  (engine tab row)
+│ Prompts  140 · at 31 · since Mon 09:14    │
+│ [ prev ] [ next ] [ last ]                │
+│ ───────────────────────────────────────── │
+│ [ 40 earlier prompts · at 31 is here ]    │  the list draws the last 100
+│  41 14:02 Draw the mocks          3 tools │
+│  42 14:09 Check the widths        5 tools │
+│ ───────────────────────────────────────── │
+│ ■ could not jump to prompt 3              │  error colour + ■ + words
+│   the transcript did not move:            │  dim
+│   jumps work in fullscreen only           │  dim; the engine deny text is logged
+╰───────────────────────────────────────────╯
+```
+
+#### D. Docked, body 41: loading after a resume, and a prompt that is not a plain line
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [prompts]            │  (engine tab row)
+│ Prompts  reading the transcript…          │  loading: $.session.messages()
+│                                           │
+│   3 10:15 [image] what is this     1 tool │
+│   4 10:21 /review the diff        6 tools │
+│   5 10:30 Fix the first line ⏎ …  3 tools │
+╰───────────────────────────────────────────╯
+```
+
+#### E. Docked, body 30 (a narrow dock): the tools column keeps the count only
+
+```text
+╭──────────────────────────────✕─╮
+│ this session  files  [prom…    │  (engine tab row)
+│ Prompts 12 · at 9              │
+│ [ prev ] [ next ] [ last ]     │
+│ ────────────────────────────── │
+│   7 10:44 Fix the width…   9   │
+│   8 10:47 Again, the 30…   5   │
+│ ▸ 9 10:51 Draw the mock…  12   │
+│  10 10:58 Run the checks   3   │
+│  11 11:03 Commit it        2   │
+│  12 11:06 Why did the h…   0   │
+╰────────────────────────────────╯
+```
+
+#### F. Inline above the prompt, 80 columns (body 76): at most 8 rows, a window around 'at'
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Prompts  12 · at 9 · since 10:02   [ prev ] [ next ] [ last ]   rows 5-12    │
+│   5 10:30 Run the checks                                         3 tools     │
+│   6 10:41 Commit it                                              2 tools     │
+│   7 10:44 Fix the width test                                     9 tools     │
+│   8 10:47 Again, the 30 column frame                             5 tools     │
+│ ▸ 9 10:51 Draw the mocks for the first batch                    12 tools     │
+│  10 10:58 Run the checks                                         3 tools     │
+│  11 11:03 Commit it                                              2 tools     │
+│  12 11:06 Why did the hook refuse the commit                     0 tools     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### G. Desktop app, body 41 (native buttons; a jump needs the probe)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [prompts]            │  (engine tabs)
+│ Prompts  12 · at 9 · since 10:02          │
+│ [prev] [next] [last]                      │  native buttons
+│ ───────────────────────────────────────── │
+│   8 10:47 Again, the 30 column …  5 tools │
+│ ▸ 9 10:51 Draw the mocks for th… 12 tools │
+│  10 10:58 Run the checks          3 tools │
+╰───────────────────────────────────────────╯
+```
+
+**Empty:** with no prompt yet, the rail is not drawn. `/replies prompts` replies "No prompt yet in
+this session. The prompts tab opens after your first prompt."
+
+**Toasts** (handily layout; times by the length rule). They show only for a command when the tab is
+not shown:
+
+```text
+○ Prompt 9 of 12                                         7440 ms  (/replies next, prev or prompt N)
+"Draw the mocks for the first batch"
+10:51 · 12 tools
+
+○ Already at the first prompt                            6000 ms  (/replies prev on prompt 1)
+prompt 1 of 12
+
+■ Could not jump to prompt 3                            10000 ms  (a command jump refused)
+"Why does Tab never reach a row"
+jumps work in fullscreen only
+```
+
+**Settings:** none. The tab opens only on the command. The named constant is `PROMPTS_DRAWN` 100.
+
 ## 10. handily-filetree: where the agents work (approved 2026-10-27)
 
 Approved by the person on 2026-10-27 (handily-02b2v.1). The decisions behind these mocks are in
@@ -5025,7 +5187,8 @@ reader get B8 and `copy as text`.
 #### Reply-view
 
 - Tables keep their layout and gain colour.
-- `─┼─` under the header becomes `═╪═` in the drawing. `copy as text` keeps its `label: value` lines.
+- `─┼─` under the header becomes `═╪═` in the drawing. `copy as text` keeps its `label: value`
+  lines.
 - Cells show inline code, bold and links again; `copy` is unchanged.
 - A prismantis user finds the box under Table style `box`.
 - Diagrams keep every line, and only gain colour on the terminal.
@@ -5114,3 +5277,202 @@ reader get B8 and `copy as text`.
   until the first request. The model changes on `/model` at the next step.
 - **Desktop.** A text frame in a proportional face would not line up, so the desktop draws no frame.
   Desktop diagrams stay plain until the probe.
+
+---
+
+## 13. handily-tests: failed tests by name (handily-tm544, approved 2026-10-29)
+
+The person runs tests through Claude and wants the failing names and diffs without reading the
+raw output. They see the status line first, then the `tests` tab. Approved by the person on
+2026-10-29 with the survey of epic handily-rt74l. It is a new mod, because it needs its own
+status line, and Claude Code allows one status line for each plugin.
+
+Commands: `/tests` (open or close), `/tests close`, `/tests list`, `/tests clear`. `/tests` is
+free on Claude Code 2.1.312 (measured 2026-10-29). Hotkey while the pane holds the keyboard:
+`y` copies the opened failure. The tab opens on the first failure row.
+
+Release 1 reads vitest, jest, node --test and pytest. Cargo and go come in a later record. The
+stored output may be cut, so counts can be short, and the tab says so. A runner with a custom
+reporter is not read. Test output can hold secrets. It is shown only locally and never sent.
+
+### 13.1 Docked, body 41: the last run has 1 failure (first failure open)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [tests]              │  (engine tab row)
+│ Tests  ■ 1 failed · 3 of 4 passed         │  ■ and 'failed' in error
+│ vitest · npm test · 2m ago · 1.4s         │
+│ ───────────────────────────────────────── │
+│ ■ adds two numbers    math.test.ts:12     │  pressed open by default
+│     expected 5 to be 4                    │
+│     - Expected  4                         │  engine Code, format diff
+│     + Received  5                         │
+│     [ copy ]                              │  hotkey y
+│ [ +3 passed ]                             │
+│ ───────────────────────────────────────── │
+│ Runs  last 5 of 7                         │
+│ ■ 3/4    vitest  npm test             2m  │
+│ ✓ 4/4    vitest  npm test             9m  │
+│ ✓ 12/12  node    node --test         14m  │
+│ ■ 0/1    pytest  pytest -k login     31m  │  run by scout: the agent label below
+│     by scout                              │
+│ ✓ 9/9    pytest  pytest              40m  │
+│ [ +2 older runs ]                         │
+╰───────────────────────────────────────────╯
+```
+
+### 13.2 Docked, body 41: 14 failures (overflow); one other failure pressed open
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [tests]              │  (engine tab row)
+│ Tests  ■ 14 failed · 86 of 100 passed     │
+│ vitest · npm run check · 1m ago · 12s     │
+│ ───────────────────────────────────────── │
+│ ■ adds two numbers    math.test.ts:12     │
+│ ■ subtracts           math.test.ts:20     │
+│ ■ parses an empty t…  table.test.ts:8     │  pressed open
+│     parses an empty table with a header   │
+│     expected [] to deeply equal [ '' ]    │
+│     - Expected  [ "" ]                    │
+│     + Received  []                        │
+│     [ copy ]                              │
+│ ■ parses a wide cell  table.test.ts:31    │
+│ ■ draws the band at…  band.test.ts:77     │
+│ [ +9 more failed ]                        │  at most 5 failures before the fold
+│ [ +86 passed ]                            │
+╰───────────────────────────────────────────╯
+```
+
+### 13.3 Docked, body 41: all passed, a run in progress, empty
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [tests]              │  (engine tab row)
+│ Tests  ✓ 4 of 4 passed                    │  success colour + ✓ + 'passed'
+│ vitest · npm test · 10s ago · 1.2s        │
+│ No failure.                               │
+│                                           │
+│ Tests  ▶ npm test runs · 12s              │  while the Bash call runs
+│ last run: ■ 1 failed · 3 of 4 passed      │  dim; the old result stays below
+│                                           │
+│ Tests  no run yet                         │  empty
+│ A Bash call that runs vitest, jest,       │
+│ node --test or pytest fills this tab.     │
+│ Other output is not read.                 │
+╰───────────────────────────────────────────╯
+```
+
+### 13.4 Docked, body 41: runs it cannot read whole (each replaces the second line)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Tests  ■ 2 failed · output cut            │  words say it; no new mark
+│ vitest · npm test · counts may be short   │
+│                                           │
+│ Tests  ▶ npm test runs in the background  │  run_in_background or ctrl+b
+│ its output is not read here; a run in     │
+│ the foreground shows here                 │
+│                                           │
+│ Tests  ■ npm test was interrupted         │  interrupted: true
+│ no result                                 │
+│                                           │
+│ Tests  ■ vitest could not run the tests   │  the runner failed before a test
+│ Error: Cannot find module 'vitest'        │
+│                                           │
+│ Tests  ■ the run could not be read        │  parser threw; detail logged
+│ the transcript shows the raw output       │
+╰───────────────────────────────────────────╯
+```
+
+### 13.5 Docked, body 30 (a narrow dock)
+
+```text
+╭──────────────────────────────✕─╮
+│ this session  files  [tests]   │  (engine tab row)
+│ Tests  ■ 1 failed · 3 of 4     │
+│ vitest · npm test · 2m         │
+│ ────────────────────────────── │
+│ ■ adds two numbers             │
+│     math.test.ts:12            │
+│     expected 5 to be 4         │
+│     - Expected  4              │
+│     + Received  5              │
+│     [ copy ]                   │
+│ [ +3 passed ]                  │
+│ ────────────────────────────── │
+│ Runs  last 5 of 7              │
+│ ■ 3/4    vitest  npm test   2m │
+│ ✓ 4/4    vitest  npm test   9m │
+│ ✓ 12/12  node    node --t… 14m │
+│ [ +4 older runs ]              │
+╰────────────────────────────────╯
+```
+
+### 13.6 Inline above the prompt, 80 columns (body 76): at most 8 rows
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Tests  ■ 1 failed · 3 of 4 passed · vitest · npm test · 2m ago · 1.4s        │
+│ ■ adds two numbers                         src/math.test.ts:12     [ copy ]  │
+│     expected 5 to be 4                                                       │
+│     - Expected  4                                                            │
+│     + Received  5                                                            │
+│ [ +3 passed ]   Runs: ■ 3/4 2m · ✓ 4/4 9m · ✓ 12/12 14m · ■ 0/1 31m          │
+│ +2 more rows: a dock (fullscreen, 110 columns) shows every run               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### 13.7 Desktop app, body 41 (native buttons; the same tree)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  files  [tests]              │  (engine tabs)
+│ Tests  ■ 1 failed · 3 of 4 passed         │
+│ vitest · npm test · 2m ago · 1.4s         │
+│ ───────────────────────────────────────── │
+│ ■ adds two numbers    math.test.ts:12     │
+│     expected 5 to be 4                    │
+│     [copy]                                │  native button
+│ [+3 passed]                               │
+╰───────────────────────────────────────────╯
+```
+
+**Status line** (one per plugin, separate from the board's line):
+
+```text
+■ tests: 1 failed · 3 of 4 passed     (33 columns; statusLine failures or always)
+✓ tests: 4 of 4 passed                (22 columns; statusLine always only)
+▶ tests: npm test runs                (22 columns; statusLine always only)
+```
+
+**Toasts** (only with the setting `toast` on, and only when the tests tab is not shown):
+
+```text
+■ 1 test failed                                         10000 ms  (a run turns from pass to fail)
+"adds two numbers"
+/tests shows the diff
+
+■ 14 tests failed                                       10000 ms
+"adds two numbers" and 13 more
+/tests shows the diffs
+
+✓ Tests pass again                                       6000 ms  (after a failure)
+vitest · 4 of 4 passed
+
+✓ Copied the failure                                     6000 ms  ([ copy ] pressed)
+"adds two numbers"
+
+■ Copy failed                                           10000 ms  (clipboard refused)
+the transcript shows why
+```
+
+**Settings (`userConfig`)**
+
+| Setting | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `statusLine` | `failures`, `always`, `off` | `failures` | `failures` shows the line only while the last run failed |
+| `toast` | `on`, `off` | `off` | A toast on a new failure and on the recovery |
+
+The named constants are `RUNS_KEPT` 20 (in `$.state`, this session only), `FAILURES_SHOWN` 5 and
+`DIFF_LINES` 12.
