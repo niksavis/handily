@@ -58,12 +58,12 @@ upstream origin/main
 Now  2 agents
 ✎ main      hooks/pane.tsx             4s
 ◦ scout     docs/design.md             2s
-─────────────────────────────────────────
-▾ docs/  M2 ?1            ◦ scout      2s
+───────────────────────────────── [ +/- ]
+▾ docs/  M2 ?1
   M design.md             ◦ scout      2s
   ? filetree.md
   M mocks.md
-▾ hooks/  M1 D1           ✎ main       4s
+▾ hooks/  M1 D1
   D old-pane.tsx
   M pane.tsx              ✎ main       4s
     register.tsx          ◦ scout     40s
@@ -95,7 +95,7 @@ With nothing touched and nothing changed, the work view says so:
 Files  app · main · clean
 [ all files ] {agent: all} [ refresh ]
 Now  nothing read or edited yet
-─────────────────────────────────────────
+───────────────────────────────── [ +/- ]
 No changed or touched files.
 [ all files ] shows the whole tree.
 ```
@@ -124,7 +124,7 @@ Files  app · not a git repo
 [ work only ] {agent: all} [ refresh ]
 No git status here; git init adds it.
 Now  nothing read or edited yet
-─────────────────────────────────────────
+───────────────────────────────── [ +/- ]
 ▸ .git/  not listed
 ▸ node_modules/  not listed
 ▾ docs/
@@ -142,7 +142,8 @@ Now  nothing read or edited yet
   before.
 - The mod does not list `.git`, `node_modules`, `target`, `.venv`, `__pycache__`, `dist` and
   `.next`. Each shows `not listed`, and you cannot open it.
-- A file whose name starts with a dot is dim.
+- A file or folder whose name starts with a dot is dim, and so is each path that git reports as
+  ignored. [Ignored files](#ignored-files) says how the mod finds them.
 - A folder draws at most 200 entries. A button `[ +1,640 more in gen/ ]` draws the rest of that
   folder.
 - The mod keeps each listing for the session. A redraw, such as a scroll step, lists nothing
@@ -169,11 +170,11 @@ upstream origin/main
 Task 2  Write the tab mocks  [ clear ]
 {agent: all} [ refresh ]
 ✎ 1 edited · ◦ 2 read while task 2 ran
-─────────────────────────────────────────
-▾ docs/  M2 ?1            ◦ main       1m
+───────────────────────────────── [ +/- ]
+▾ docs/  M2 ?1
     install.md            ◦ main       1m
   M mocks.md              ✎ main       4m
-▾ hooks/  M1 D1           ◦ scout      3m
+▾ hooks/  M1 D1
   M pane.tsx              ◦ scout      3m
 ```
 
@@ -203,7 +204,7 @@ When there are more than 8, the last row says how many more there are. In a git 
 starts with two columns for the git letter. The test fixture, at 80 columns (body 76):
 
 ```text
-Files  app · main · 8 changed                      {agent: all}  [ refresh ]
+Files  app · main · 8 changed             {agent: all}  [ +/- ] [ refresh ]
 M hooks/pane.tsx                                          ✎ main          4s
 D hooks/old-pane.tsx                                      ✎ f00dfeed      3m
 M docs/design.md                                          ◦ scout         2s
@@ -229,7 +230,7 @@ Files  app · main ↑1 · 6 changed
 upstream origin/main
 [ work only ] {agent: all} [ refresh ]
 Now  nothing read or edited yet
-─────────────────────────────────────────
+───────────────────────────────── [ +/- ]
 ▸ .git/  not listed
 ▸ node_modules/  not listed
 ▾ docs/  M2 ?1
@@ -285,12 +286,12 @@ upstream origin/main
 Now  2 agents
 ✎ main      hooks/pane.tsx             7s
 ◦ scout     docs/design.md             5s
-─────────────────────────────────────────
-▾ docs/  M2 ?1     +16 -4 ◦ scout      5s
+───────────────────────────────── [ +/- ]
+▾ docs/  M2 ?1     +16 -4
   M design.md       +4 -1 ◦ scout      5s
   ? filetree.md
   M mocks.md       +12 -3
-▾ hooks/  M1 D1   +30 -89 ✎ main       7s
+▾ hooks/  M1 D1   +30 -89
   D old-pane.tsx   +0 -87
   M pane.tsx       +30 -2 ✎ main       7s
     register.tsx          ◦ scout     43s
@@ -367,7 +368,8 @@ retry in 10s  [ retry ]
 ## Marks: which agent read or edited a file
 
 A file that an agent read shows `◦`, and a file that an agent edited shows `✎`. The agent label
-and the age follow the mark. A folder shows the latest mark of the files under it. The `Now`
+and the age follow the mark. A closed folder shows the latest mark of the files under it. An open
+folder shows no mark and no age, because the rows under it show them. The `Now`
 block above the rule shows the latest file of each agent. The test fixture, in the all files view,
 after `main` edited `hooks/pane.tsx` and the subagent `scout` read `docs/design.md`:
 
@@ -378,16 +380,16 @@ upstream origin/main
 Now  2 agents
 ✎ main      hooks/pane.tsx             4s
 ◦ scout     docs/design.md             2s
-─────────────────────────────────────────
+───────────────────────────────── [ +/- ]
 ▸ .git/  not listed
 ▸ node_modules/  not listed
-▾ docs/  M2 ?1            ◦ scout      2s
+▾ docs/  M2 ?1
   M design.md             ◦ scout      2s
   ? filetree.md
     guide.md
     install.md
   M mocks.md
-▾ hooks/  M1 D1           ✎ main       4s
+▾ hooks/  M1 D1
   ▸ dist/  not listed
   D old-pane.tsx
   M pane.tsx              ✎ main       4s
@@ -411,6 +413,9 @@ M README.md
 - The age uses the short form of the board: `9s`, `5m`, `1h`, `2d`. It rounds down.
 - The mark shows while the call runs. When the call is denied, fails or ends in an error, the
   mark goes, and an earlier mark of the file shows again.
+- While a call of any agent runs on a file, its row draws on the `subtle` background, and the age
+  reads `now` in bold. The `Now` line of that agent also reads `now`. When the call ends, the
+  background goes and the age counts from the start of the call. The background does not move.
 - A `Grep` that found 40 files marks 12. The `Now` line of the agent then reads
   `and 28 more files from one Grep`.
 - At body 30 the age drops and the label cuts to 5 characters. Below body 28 the label drops,
@@ -454,9 +459,7 @@ Now  1 agent
 ✎ scout     docs/design.md             2s
   and 1 more file from one Bash
 
-▾ docs/  M1               ✎ scout      2s
   M design.md             ✎ scout      2s
-▾ hooks/  M1              ✎ scout      2s
   M pane.tsx              ✎ scout      2s
 ```
 
@@ -485,6 +488,107 @@ Now  scout
 
 The marks and the filter stay in the memory of the mod for the session. They are not in
 `$.state`, so a reload of the plugins clears them.
+
+## Folders, icons and the right column
+
+The test fixture, docked at body 41, in the all files view with the line counts, in the plain
+set and in the nerd set. The nerd mocks of `docs/mocks.md` write each icon as a circled letter:
+Ⓕ a closed folder, ⓕ an open folder, Ⓢ TypeScript, Ⓚ Markdown, Ⓙ data and Ⓓ the default icon.
+
+```text
+───────────────────────────────── [ +/- ]   ───────────────────────────────── [ +/- ]
+▸ build/  ignored                           ▸ Ⓕ build/  ignor…
+▸ docs/  M2        +16 -4                   ▸ Ⓕ docs/  M2      +16 -4
+▾ hooks/  M1       +30 -0                   ▾ ⓕ hooks/  M1     +30 -0
+  M pane.tsx       +30 -0                     M Ⓢ pane.tsx     +30 -0
+    register.tsx                                Ⓢ register.tsx
+▸ scripts/                                  ▸ Ⓕ scripts/
+  .gitignore                                  Ⓓ .gitignore
+  debug.log                                   Ⓓ debug.log
+  LICENSE                                     Ⓓ LICENSE
+  package.json                                Ⓙ package.json
+M README.md         +0 -2                   M Ⓚ README.md       +0 -2
+```
+
+- A folder with a git change below it draws its name in the colour of its strongest state. A
+  folder with no change draws its name in `planMode`. In the nerd set, the folder icon draws in
+  the same colour as the name.
+- The chevrons `▸` and `▾` draw dim, in both sets. The nerd set adds the folder icon after the
+  chevron.
+- In the nerd set on the terminal, a file row draws a type icon after the git letter. Code draws
+  in `suggestion`, docs in `merged`, and data, images and an unknown type in `inactive`. The file
+  name keeps the colour of its git letter. A name cuts 2 columns sooner. Below body 41 the type
+  icon drops, and the folder icon stays. The desktop draws no icon.
+- An open folder draws no agent mark and no age. A closed folder and a file keep both.
+- A count of zero, `+0` or `-0`, draws dim and keeps its sign.
+- A row Button draws to the body width, so the focus inversion covers the whole row. A folder
+  with a change list has two Buttons: the name opens the folder, and the rest of the row, from
+  the counts, opens the diff.
+
+| Type       | Extensions                                               | Icon                 | Code point |
+| ---------- | -------------------------------------------------------- | -------------------- | ---------- |
+| TypeScript | `ts`, `tsx`, `mts`, `cts`                                | `nf-seti-typescript` | `U+E628`   |
+| JavaScript | `js`, `jsx`, `mjs`, `cjs`                                | `nf-seti-javascript` | `U+E60C`   |
+| Python     | `py`                                                     | `nf-seti-python`     | `U+E606`   |
+| Shell      | `sh`, `bash`, `zsh`                                      | `nf-seti-shell`      | `U+E691`   |
+| Markdown   | `md`, `mdx`, `markdown`                                  | `nf-seti-markdown`   | `U+E609`   |
+| JSON       | `json`, `jsonc`                                          | `nf-seti-json`       | `U+E60B`   |
+| YAML       | `yaml`, `yml`                                            | `nf-seti-yml`        | `U+E6A8`   |
+| TOML       | `toml`                                                   | `nf-custom-toml`     | `U+E6B2`   |
+| Image      | `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `ico`, `bmp` | `nf-seti-image`      | `U+E60D`   |
+| Other      | any other name                                           | `nf-cod-file`        | `U+EA7B`   |
+
+The code points come from nerd-fonts `glyphnames.json` 3.5.1. `scripts/fixtures/glyphs.mjs` pins
+them, and `scripts/glyphs.test.mjs` checks them.
+
+### The right column
+
+The button on the rule, or `i` while the tab has the keyboard, cycles the right column through
+`+/-`, `date`, `size` and `lines`. The focus stays on the button, and its label names the
+column. The choice lasts for the session. On the desktop the button sits after `[ refresh ]`,
+and inline above the prompt it sits before `[ refresh ]` on the header row. Below body 41 the
+column and its button drop.
+
+The `lines` column of the test fixture, with `docs/` open:
+
+```text
+─────────────────────────────── [ lines ]
+▸ build/  ignored
+▾ docs/  M2
+  M design.md                       1,525
+    diagram.png                       bin
+    guide.md                            5
+    huge.md                       over 4M
+    locked.md                           ?
+  M mocks.md                           88
+```
+
+- `+/-` is the line count column of [Line counts](#line-counts).
+- `date` shows the time of the last change: `14:05` today, `10-27` this year, and the year
+  before that.
+- `size` shows `512B`, `3.1K`, `84K`, `1.2M` or `2.0G`, with one decimal under 10.
+- `lines` counts the lines of the file. A binary file shows `bin`, a file over 4 MiB shows
+  `over 4M`, and a file the mod cannot read shows `?`. The opened row says why, such as
+  `lines not counted: a binary file`.
+- The values draw dim and right-aligned. With no agent mark in the tree, they reach the right
+  edge. A folder shows no date, size or line count. A deleted file shows none.
+- The mod reads the size and the time of a file with one stat, and its lines with one read. It
+  does this only for the rows it draws, and only while the column shows `date`, `size` or
+  `lines`. It reads a file again after `[ refresh ]`, a git status, or a Bash, PowerShell, Edit
+  or Write call.
+
+### Ignored files
+
+After each git status, the mod runs
+`git --no-optional-locks status --porcelain=v2 -z --ignored=matching --untracked-files=normal -- .`
+once. Each path that it reports, and each path under a reported folder, draws dim. An ignored
+folder reads `ignored`. A folder that the mod does not list keeps `not listed`.
+
+- The call follows the rules of the line counts: one call at a time, at least 2 s from the start
+  of one call to the start of the next, and the 10 s timeout.
+- After two calls that take over 5 s, the mod runs it no more in this folder.
+- When it fails, gives no answer or prints over 4 MiB, nothing draws dim and the tree stays. The
+  debug log names the cause.
 
 ## Preview and diff
 
@@ -669,8 +773,8 @@ github.com/karanb192/awesome-claude-code-mods on 2026-10-28. handily copies no c
 
 ## State
 
-The mod keeps five values in `$.state`: the view (`work` or `all`), the open folders, the
-folders of the work view that you closed, and the folders that show all entries, one list for
-each view.
+The mod keeps six values in `$.state`: the view (`work` or `all`), the right column, the open
+folders, the folders of the work view that you closed, and the folders that show all entries,
+one list for each view.
 `types/index.d.ts` declares them. The values last for the session. The folder listings stay in
 the memory of the mod, not in `$.state`.

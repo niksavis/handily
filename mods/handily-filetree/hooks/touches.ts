@@ -161,6 +161,10 @@ export function revealSearch(
   })
 }
 
+export function runsOn(touches: Touches, path: string): boolean {
+  return [...touches.calls.values()].some((call) => call.path === path)
+}
+
 export function touchesOf(touches: Touches, path: string): Touch[] {
   return [...new Set(touches.files.get(path)?.values() ?? [])].sort((a, b) => b.at - a.at)
 }

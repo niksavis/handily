@@ -1,6 +1,6 @@
 import type { GlyphSet } from './glyphs'
 import { type LineMarks, lineMarks } from './lines'
-import { type GitMarks, type GitStatus, gitMarks } from './status'
+import { type GitMarks, type GitStatus, type IgnoredMarks, gitMarks, ignoredMarks } from './status'
 import { type GitFailure, type GitWatch, type LinesFailure, RUN_TIMEOUT_MS, SLOW_MS } from './watch'
 
 export type NoteTone = 'plain' | 'dim' | 'error' | 'warning'
@@ -16,6 +16,7 @@ export type GitView = {
   notes: readonly NoteLine[]
   footer: readonly NoteLine[]
   marks: GitMarks | undefined
+  ignored: IgnoredMarks | undefined
   isRepo: boolean
 }
 
@@ -117,8 +118,9 @@ function cutNote(status: GitStatus): readonly NoteLine[] {
 }
 
 function linesNotes(watch: GitWatch): readonly NoteLine[] {
-  if (watch.isLinesSkipped) return LINES_OFF
-  const failure = watch.linesFailure
+  const side = watch.sides.lines
+  if (side.isSkipped) return LINES_OFF
+  const failure = side.failure
   if (failure === undefined) return []
   return [line(`line counts not shown: ${linesReason(failure)}.`, 'dim', true)]
 }
@@ -146,7 +148,7 @@ function plain(text: string): HeaderPart[] {
 }
 
 export function gitView(watch: GitWatch, now: number, glyphs: GlyphSet): GitView {
-  const none = { upstream: undefined, lines: undefined }
+  const none = { upstream: undefined, lines: undefined, ignored: undefined }
   if (watch.repo === null || watch.repo === undefined) {
     return {
       header: plain(' · not a git repo'),
@@ -177,6 +179,7 @@ export function gitView(watch: GitWatch, now: number, glyphs: GlyphSet): GitView
     header,
     upstream: shown.status.upstream,
     lines: watch.lines === undefined ? undefined : lineMarks(watch.lines, repo.prefix),
+    ignored: watch.ignored === undefined ? undefined : ignoredMarks(watch.ignored, repo.prefix),
     notes: shownNotes(watch, age),
     footer: [...footer, ...linesNotes(watch)],
   }

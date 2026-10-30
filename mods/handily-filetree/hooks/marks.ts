@@ -4,7 +4,7 @@ import { displayWidth, fitted, padToWidth } from './width'
 
 export type MarkColumn = { label: number; hasAge: boolean }
 
-export type MarkCell = { mark: string; age: string }
+export type MarkCell = { mark: string; age: string; isNow: boolean }
 
 const ROLES: Readonly<Record<TouchKind, GlyphRole>> = { edit: 'edited', read: 'read' }
 const VERBS: Readonly<Record<TouchKind, string>> = { edit: 'edited', read: 'read' }
@@ -17,6 +17,7 @@ const WIDE_LABEL = 12
 const FULL_LABEL = 9
 const SHORT_LABEL = 5
 const CUT_MARK = '…'
+const NOW_AGE = 'now'
 const MINUTE_S = 60
 const HOUR_S = 3600
 const DAY_S = 86_400
@@ -81,35 +82,52 @@ function labelText(label: string, others: number, width: number): string {
   return cutLabel(label, width)
 }
 
-function ageCell(column: MarkColumn, ms: number): string {
-  return column.hasAge ? ` ${ageText(ms).padStart(AGE_COLUMNS)}` : ''
+function ageCell(column: MarkColumn, ms: number, isNow: boolean): string {
+  if (!column.hasAge) return ''
+  return ` ${(isNow ? NOW_AGE : ageText(ms)).padStart(AGE_COLUMNS)}`
 }
 
 export function markCell(
   column: MarkColumn,
   mark: Mark,
-  text: { label: string; now: number; glyphs: GlyphSet },
+  text: { label: string; now: number; glyphs: GlyphSet; isNow: boolean },
 ): MarkCell {
-  const { label, now, glyphs } = text
+  const { label, now, glyphs, isNow } = text
   const symbol = glyphs[ROLES[mark.kind]]
   const name =
     column.label === 0
       ? ''
       : ` ${padToWidth(labelText(label, mark.others, column.label), column.label)}`
-  return { mark: `${symbol}${name}`, age: ageCell(column, now - mark.at) }
+  return {
+    mark: `${symbol}${name}`,
+    age: ageCell(column, now - mark.at, isNow),
+    isNow: isNow && column.hasAge,
+  }
 }
 
 export function sightCells(
   column: MarkColumn,
   sight: Sight,
-  text: { label: string; path: string; bodyColumns: number; now: number; glyphs: GlyphSet },
+  text: {
+    label: string
+    path: string
+    bodyColumns: number
+    now: number
+    glyphs: GlyphSet
+    isNow: boolean
+  },
 ): MarkCell & { path: string } {
   const labelColumns = column.label === 0 ? SHORT_LABEL : column.label
   const name = `${text.glyphs[ROLES[sight.kind]]} ${padToWidth(cutLabel(text.label, labelColumns), labelColumns)} `
-  const age = ageCell(column, text.now - sight.at)
+  const age = ageCell(column, text.now - sight.at, text.isNow)
   const room = Math.max(text.bodyColumns - displayWidth(name) - displayWidth(age), 0)
   const path = fitted(text.path, room)
-  return { mark: name, path: column.hasAge ? padToWidth(path, room) : path, age }
+  return {
+    mark: name,
+    path: column.hasAge ? padToWidth(path, room) : path,
+    age,
+    isNow: text.isNow && column.hasAge,
+  }
 }
 
 export function hiddenText(hidden: number, source: SightSource): string {

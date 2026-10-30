@@ -3,7 +3,7 @@ import { FILES_PANE } from './commands'
 import { type Numstat, numstatArgv, parseNumstat } from './lines'
 import { type GitRepo, branchOf, findRepo, joinPath } from './repo'
 import { type Shell, shellStatus, stampOf } from './shellmarks'
-import { type GitStatus, parseStatus, statusArgv } from './status'
+import { type GitStatus, ignoredArgv, parseIgnored, parseStatus, statusArgv } from './status'
 
 const POLL_MS = 2000
 const RUN_GAP_MS = 2000
@@ -11,7 +11,7 @@ export const RUN_TIMEOUT_MS = 10_000
 export const SLOW_MS = 5000
 const RETRY_MS = 10_000
 const SLOW_RUNS_BEFORE_NO_UNTRACKED = 2
-const SLOW_RUNS_BEFORE_NO_LINES = 2
+const SLOW_RUNS_BEFORE_SIDE_OFF = 2
 const FRESH_MS = 2000
 const BASELINE_WAIT_MS = 1000
 
@@ -21,6 +21,27 @@ export type GitFailure =
   { kind: 'exit'; exitCode: number } | { kind: 'timeout' } | { kind: 'did-not-run' }
 
 export type LinesFailure = GitFailure | { kind: 'cut' }
+
+export type SideKind = 'lines' | 'ignored'
+
+export type SideRun = {
+  failure: LinesFailure | undefined
+  slowRuns: number
+  isSkipped: boolean
+  isRunning: boolean
+  isWanted: boolean
+  lastStartAt: number | undefined
+  gap: Timer | undefined
+}
+
+type SideSpec = {
+  name: string
+  argv: () => readonly string[]
+  isNeeded: (status: GitStatus) => boolean
+  keep: (watch: GitWatch, stdout: string) => void
+  drop: (watch: GitWatch) => void
+  offText: string
+}
 
 export type ShownStatus = { status: GitStatus; at: number; startedAt: number; changes: number }
 
@@ -53,13 +74,8 @@ export type GitWatch = {
   slowRuns: number
   isUntrackedSkipped: boolean
   lines: Numstat | undefined
-  linesFailure: LinesFailure | undefined
-  slowLineRuns: number
-  isLinesSkipped: boolean
-  isLinesRunning: boolean
-  isLinesWanted: boolean
-  lastLinesStartAt: number | undefined
-  linesGap: Timer | undefined
+  ignored: readonly string[] | undefined
+  sides: Record<SideKind, SideRun>
   retryAt: number | undefined
   wasFocused: boolean | undefined
   poll: Timer | undefined
@@ -70,6 +86,18 @@ export type GitWatch = {
   shell: Shell
   changes: number
   running: Promise<void>
+}
+
+function newSideRun(): SideRun {
+  return {
+    failure: undefined,
+    slowRuns: 0,
+    isSkipped: false,
+    isRunning: false,
+    isWanted: false,
+    lastStartAt: undefined,
+    gap: undefined,
+  }
 }
 
 export function newWatch(shell: Shell): GitWatch {
@@ -94,13 +122,8 @@ export function newWatch(shell: Shell): GitWatch {
     slowRuns: 0,
     isUntrackedSkipped: false,
     lines: undefined,
-    linesFailure: undefined,
-    slowLineRuns: 0,
-    isLinesSkipped: false,
-    isLinesRunning: false,
-    isLinesWanted: false,
-    lastLinesStartAt: undefined,
-    linesGap: undefined,
+    ignored: undefined,
+    sides: { lines: newSideRun(), ignored: newSideRun() },
     retryAt: undefined,
     wasFocused: undefined,
     poll: undefined,
@@ -119,13 +142,15 @@ function redraw($: EngineInterface): void {
 }
 
 export function stopWatch(watch: GitWatch): void {
-  const isWaiting = [watch.gap, watch.retry, watch.linesGap].some((timer) => timer !== undefined)
+  const sides = Object.values(watch.sides)
+  const gaps = sides.map((side) => side.gap)
+  const isWaiting = [watch.gap, watch.retry, ...gaps].some((timer) => timer !== undefined)
   if (isWaiting) watch.isStale = true
-  for (const timer of [watch.poll, watch.gap, watch.retry, watch.linesGap]) timer?.cancel()
+  for (const timer of [watch.poll, watch.gap, watch.retry, ...gaps]) timer?.cancel()
   watch.poll = undefined
   watch.gap = undefined
   watch.retry = undefined
-  watch.linesGap = undefined
+  for (const side of sides) side.gap = undefined
   watch.retryAt = undefined
 }
 
@@ -301,89 +326,129 @@ function hasLineChanges(status: GitStatus): boolean {
   return !status.isInitial && status.entries.some((entry) => entry.letter !== '?')
 }
 
-function settleLines(
+const SIDES: Readonly<Record<SideKind, SideSpec>> = {
+  lines: {
+    name: 'git diff --numstat',
+    argv: numstatArgv,
+    isNeeded: hasLineChanges,
+    keep: (watch, stdout) => {
+      watch.lines = parseNumstat(stdout)
+    },
+    drop: () => undefined,
+    offText: 'line counts are off',
+  },
+  ignored: {
+    name: 'git status --ignored',
+    argv: ignoredArgv,
+    isNeeded: () => true,
+    keep: (watch, stdout) => {
+      watch.ignored = parseIgnored(stdout)
+    },
+    drop: (watch) => {
+      watch.ignored = undefined
+    },
+    offText: 'ignored files are not dimmed',
+  },
+}
+
+function settleSide(
   $: EngineInterface,
   watch: GitWatch,
-  outcome: { result: ProcessRunResult } | { error: unknown },
-  tookMs: number,
+  kind: SideKind,
+  run: { outcome: { result: ProcessRunResult } | { error: unknown }; tookMs: number },
 ): void {
+  const spec = SIDES[kind]
+  const side = watch.sides[kind]
+  const { outcome } = run
   if ('error' in outcome) {
-    log($, `git diff --numstat did not run: ${String(outcome.error)}`)
-    const failure = failureOf(outcome.error, tookMs)
-    watch.linesFailure = failure === 'missing' ? { kind: 'did-not-run' } : failure
+    log($, `${spec.name} did not run: ${String(outcome.error)}`)
+    const failure = failureOf(outcome.error, run.tookMs)
+    side.failure = failure === 'missing' ? { kind: 'did-not-run' } : failure
+    spec.drop(watch)
     return
   }
   const { result } = outcome
   if (result.exitCode !== 0) {
-    log($, `git diff --numstat exited ${String(result.exitCode)}: ${result.stderr.trim()}`)
-    watch.linesFailure = { kind: 'exit', exitCode: result.exitCode }
+    log($, `${spec.name} exited ${String(result.exitCode)}: ${result.stderr.trim()}`)
+    side.failure = { kind: 'exit', exitCode: result.exitCode }
+    spec.drop(watch)
     return
   }
   if (result.isStdoutTruncated) {
-    log($, 'git diff --numstat is over 4 MiB, so no line count shows')
-    watch.linesFailure = { kind: 'cut' }
+    log($, `${spec.name} is over 4 MiB, so ${spec.offText}`)
+    side.failure = { kind: 'cut' }
+    spec.drop(watch)
     return
   }
-  watch.lines = parseNumstat(result.stdout)
+  spec.keep(watch, result.stdout)
 }
 
-async function runLines($: EngineInterface, watch: GitWatch, generation: number): Promise<void> {
+async function runSide(
+  $: EngineInterface,
+  watch: GitWatch,
+  run: { kind: SideKind; generation: number },
+): Promise<void> {
+  const { kind, generation } = run
+  const spec = SIDES[kind]
+  const side = watch.sides[kind]
   const { shown, cwd } = watch
-  watch.linesFailure = undefined
+  side.failure = undefined
   if (shown === undefined || cwd === undefined) return
-  if (watch.isLinesSkipped || !hasLineChanges(shown.status)) return
+  if (side.isSkipped || !spec.isNeeded(shown.status)) return
   const startedAt = await $.clock.now()
-  watch.lastLinesStartAt = startedAt
-  const outcome = await $.process.run(numstatArgv(), { cwd, timeoutMs: RUN_TIMEOUT_MS }).then(
+  side.lastStartAt = startedAt
+  const outcome = await $.process.run(spec.argv(), { cwd, timeoutMs: RUN_TIMEOUT_MS }).then(
     (result) => ({ result }),
     (error: unknown) => ({ error }),
   )
   const tookMs = (await $.clock.now()) - startedAt
   if (watch.generation !== generation || watch.shown !== shown) return
-  if (tookMs > SLOW_MS) watch.slowLineRuns += 1
-  if (watch.slowLineRuns >= SLOW_RUNS_BEFORE_NO_LINES) {
-    log($, `git diff --numstat took over ${String(SLOW_MS)} ms twice, so line counts are off`)
-    watch.isLinesSkipped = true
+  if (tookMs > SLOW_MS) side.slowRuns += 1
+  if (side.slowRuns >= SLOW_RUNS_BEFORE_SIDE_OFF) {
+    log($, `${spec.name} took over ${String(SLOW_MS)} ms twice, so ${spec.offText}`)
+    side.isSkipped = true
+    spec.drop(watch)
     return
   }
-  settleLines($, watch, outcome, tookMs)
+  settleSide($, watch, kind, { outcome, tookMs })
 }
 
-async function startLines($: EngineInterface, watch: GitWatch): Promise<void> {
+async function startSide($: EngineInterface, watch: GitWatch, kind: SideKind): Promise<void> {
   const { generation } = watch
+  const side = watch.sides[kind]
   const isCurrent = () => watch.generation === generation
   try {
     const now = await $.clock.now()
     if (!isCurrent()) return
-    const wait =
-      watch.lastLinesStartAt === undefined ? 0 : watch.lastLinesStartAt + RUN_GAP_MS - now
+    const wait = side.lastStartAt === undefined ? 0 : side.lastStartAt + RUN_GAP_MS - now
     if (wait > 0) {
-      watch.linesGap = $.clock.after(wait, () => {
-        watch.linesGap = undefined
-        requestLines($, watch)
+      side.gap = $.clock.after(wait, () => {
+        side.gap = undefined
+        requestSide($, watch, kind)
       })
       return
     }
-    await runLines($, watch, generation)
+    await runSide($, watch, { kind, generation })
     if (isCurrent()) redraw($)
   } finally {
-    if (isCurrent()) watch.isLinesRunning = false
+    if (isCurrent()) side.isRunning = false
   }
-  if (isCurrent() && watch.isLinesWanted) {
-    watch.isLinesWanted = false
-    requestLines($, watch)
+  if (isCurrent() && side.isWanted) {
+    side.isWanted = false
+    requestSide($, watch, kind)
   }
 }
 
-function requestLines($: EngineInterface, watch: GitWatch): void {
-  if (watch.linesGap !== undefined) return
-  if (watch.isLinesRunning) {
-    watch.isLinesWanted = true
+function requestSide($: EngineInterface, watch: GitWatch, kind: SideKind): void {
+  const side = watch.sides[kind]
+  if (side.gap !== undefined) return
+  if (side.isRunning) {
+    side.isWanted = true
     return
   }
-  watch.isLinesRunning = true
-  startLines($, watch).catch((error: unknown) => {
-    log($, `git diff --numstat failed: ${String(error)}`)
+  side.isRunning = true
+  startSide($, watch, kind).catch((error: unknown) => {
+    log($, `${SIDES[kind].name} failed: ${String(error)}`)
   })
 }
 
@@ -417,7 +482,9 @@ async function runStatus(
   const isCurrent = () => watch.generation === generation
   const shown = { status, startedAt, isUntrackedSkipped, cwd, prefix: repo.prefix, poll, isCurrent }
   await shellStatus($, watch.shell, shown)
-  if (isCurrent()) requestLines($, watch)
+  if (!isCurrent()) return
+  requestSide($, watch, 'lines')
+  requestSide($, watch, 'ignored')
 }
 
 async function startRun($: EngineInterface, watch: GitWatch, hasGap: boolean): Promise<void> {

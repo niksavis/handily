@@ -4,7 +4,7 @@ import { join, relative, sep } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { differingCopies, filesUnder, keepersOf, withModsTree } from './copies.mjs'
-import { GLYPHS } from './fixtures/glyphs.mjs'
+import { GLYPHS, TYPE_ICONS } from './fixtures/glyphs.mjs'
 import { APPROVED } from './fixtures/signals.mjs'
 
 const root = join(import.meta.dirname, '..')
@@ -739,5 +739,107 @@ describe('the literal free gate', () => {
         )
       },
     )
+  })
+})
+
+const TYPE_ICON_FILE = join(modsDir, 'handily-filetree', 'hooks', 'fileicons.ts')
+
+async function typeIconModule() {
+  return import(pathToFileURL(TYPE_ICON_FILE).href)
+}
+
+function typeIconSet(table) {
+  return Object.fromEntries(Object.entries(table).map(([type, { icon }]) => [type, icon]))
+}
+
+function typeIconDifferences(table, fixture) {
+  const found = Object.keys(table)
+  const pinned = Object.keys(fixture)
+  if (JSON.stringify(found) !== JSON.stringify(pinned)) {
+    return [`the type icons are ${found.join(', ')}, not ${pinned.join(', ')}`]
+  }
+  return pinned.flatMap((type) => {
+    const { icon, nerdName } = table[type]
+    const differences = []
+    if ([...icon].length !== 1 || icon.codePointAt(0) !== fixture[type].nerd) {
+      differences.push(
+        `the type icon of ${type} is ${glyphText(icon)}, not ${codePointText(fixture[type].nerd)}`,
+      )
+    }
+    if (nerdName !== fixture[type].nerdName) {
+      differences.push(`the nerd name of ${type} is ${nerdName}, not ${fixture[type].nerdName}`)
+    }
+    return differences
+  })
+}
+
+function sharedWithRoles(icons) {
+  const roles = new Map(Object.entries(GLYPHS).map(([role, { nerd }]) => [nerd, role]))
+  return Object.entries(icons).flatMap(([type, icon]) => {
+    const role = roles.get(icon.codePointAt(0))
+    return role === undefined
+      ? []
+      : [`the type icon of ${type}, ${glyphText(icon)}, is also the nerd glyph of ${role}`]
+  })
+}
+
+describe('the type icons of handily-filetree', () => {
+  test('mods/handily-filetree/hooks/fileicons.ts keeps the icons that scripts/fixtures/glyphs.mjs pins', async () => {
+    const { TYPE_ICONS: table } = await typeIconModule()
+    assert.deepEqual(typeIconDifferences(table, TYPE_ICONS), [])
+  })
+
+  test('mods/handily-filetree/hooks/fileicons.ts imports nothing but types', () => {
+    assert.deepEqual(valueImports(readFileSync(TYPE_ICON_FILE, 'utf8')), [])
+  })
+
+  test('each type icon is one code point, one column in every width.ts, no emoji, a private use icon of the BMP, and its own', async () => {
+    const { TYPE_ICONS: table } = await typeIconModule()
+    const icons = typeIconSet(table)
+    assert.deepEqual(glyphProblems({ nerd: icons }, await widthModules()), [])
+    assert.deepEqual(sharedWithRoles(icons), [])
+  })
+
+  test('names a type icon, a nerd name and a type list that differ from the fixture', () => {
+    const table = Object.fromEntries(
+      Object.entries(TYPE_ICONS).map(([type, { nerd, nerdName }]) => [
+        type,
+        { icon: String.fromCodePoint(nerd), nerdName },
+      ]),
+    )
+    assert.deepEqual(typeIconDifferences(table, TYPE_ICONS), [])
+    assert.deepEqual(
+      typeIconDifferences(
+        {
+          ...table,
+          markdown: { icon: '\u{E60A}', nerdName: 'nf-seti-markdown' },
+          json: { icon: '\u{E60B}', nerdName: 'nf-seti-config' },
+        },
+        TYPE_ICONS,
+      ),
+      [
+        'the type icon of markdown is U+E60A, not U+E609',
+        'the nerd name of json is nf-seti-config, not nf-seti-json',
+      ],
+    )
+    const withoutImage = Object.fromEntries(
+      Object.entries(table).filter(([type]) => type !== 'image'),
+    )
+    assert.deepEqual(typeIconDifferences(withoutImage, TYPE_ICONS), [
+      `the type icons are ${Object.keys(withoutImage).join(', ')}, not ${Object.keys(TYPE_ICONS).join(', ')}`,
+    ])
+  })
+
+  test('names a type icon that two types share, and one that is also the icon of a role', () => {
+    const icons = Object.fromEntries(
+      Object.entries(TYPE_ICONS).map(([type, { nerd }]) => [type, String.fromCodePoint(nerd)]),
+    )
+    assert.deepEqual(glyphProblems({ nerd: { ...icons, toml: '\u{E60B}' } }, ONE_COLUMN), [
+      'the nerd glyph of toml, U+E60B, is also the nerd glyph of json; each role has its own glyph',
+    ])
+    assert.deepEqual(sharedWithRoles({ ...icons, default: '\u{F07B}' }), [
+      'the type icon of default, U+F07B, is also the nerd glyph of folderClosed',
+    ])
+    assert.deepEqual(sharedWithRoles(icons), [])
   })
 })
