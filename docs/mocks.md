@@ -5472,7 +5472,7 @@ the transcript shows why
 | Setting | Values | Default | Effect |
 | --- | --- | --- | --- |
 | `statusLine` | `failures`, `always`, `off` | `failures` | `failures` shows the line only while the last run failed |
-| `toast` | `on`, `off` | `off` | A toast on a new failure and on the recovery |
+| `toasts` | `on`, `off` | `off` | A toast on a new failure and on the recovery. Named `toasts` because the toast gate reads `.toast` as a toast call. |
 
 The named constants are `RUNS_KEPT` 20 (in `$.state`, this session only), `FAILURES_SHOWN` 5 and
 `DIFF_LINES` 12.
