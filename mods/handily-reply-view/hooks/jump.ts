@@ -22,7 +22,8 @@ export type RailPort = {
   close: () => Promise<void>
   showToast: (parts: ToastParts) => void
   log: (text: string) => void
-  redraw: () => void
+  redraw: () => Promise<void>
+  hasEarlierPrompts: () => Promise<boolean>
 }
 
 export type RailCommand =
@@ -37,6 +38,9 @@ export type Jumped = { isMoved: true } | { isMoved: false; words: string }
 export const NO_PROMPT_TEXT =
   'No prompt yet in this session. The prompts tab opens after your first prompt.'
 const CLOSED_TEXT = 'Prompts tab closed.'
+const RESUMED_TEXT =
+  'No prompt since this session resumed. Prompts from before the resume are not listed. The prompts tab opens after your next prompt.'
+const GONE = 'that prompt is no longer in this list'
 const NOT_OPEN_TEXT = 'The prompts tab is not open. Run /replies prompts to open it.'
 const FULLSCREEN_ONLY = 'jumps work in fullscreen only'
 const NOT_DRAWN = 'its row is no longer drawn'
@@ -72,26 +76,32 @@ async function denyOf(port: RailPort, prompt: RailPrompt): Promise<string | unde
   }
 }
 
+async function refused(rail: Rail, port: RailPort, number: number, words: string): Promise<Jumped> {
+  rail.failure = { number, words }
+  await port.redraw()
+  return { isMoved: false, words }
+}
+
 export async function jumpTo(
   rail: Rail,
   port: RailPort,
   number: number,
   isFullscreen: boolean | undefined,
+  requestId?: string,
 ): Promise<Jumped> {
   const prompt = promptAt(rail, number)
-  if (prompt === undefined) return { isMoved: false, words: noPromptText(rail, number) }
+  if (prompt === undefined || (requestId !== undefined && prompt.requestId !== requestId)) {
+    return refused(rail, port, number, GONE)
+  }
   const deny = await denyOf(port, prompt)
   if (deny === undefined) {
     rail.at = number
     rail.failure = undefined
-    port.redraw()
+    await port.redraw()
     return { isMoved: true }
   }
   port.log(`reply-view: the jump to prompt ${String(number)} was refused: ${deny}`)
-  const words = refusalWords(deny, isFullscreen)
-  rail.failure = { number, words }
-  port.redraw()
-  return { isMoved: false, words }
+  return refused(rail, port, number, refusalWords(deny, isFullscreen))
 }
 
 function firstLineOf(prompt: RailPrompt): string {
@@ -184,7 +194,9 @@ export async function runRailCommand(
     await port.close()
     return CLOSED_TEXT
   }
-  if (promptsOf(rail).length === 0) return NO_PROMPT_TEXT
+  if (promptsOf(rail).length === 0) {
+    return (await port.hasEarlierPrompts()) ? RESUMED_TEXT : NO_PROMPT_TEXT
+  }
   switch (command.kind) {
     case 'toggle':
       return toggleRail(rail, port)

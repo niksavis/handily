@@ -4,6 +4,7 @@ import type {
   On,
   PromptOrigin,
   RenderPropsOf,
+  SessionMessage,
   UiCopyResult,
 } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
@@ -15,7 +16,15 @@ import { drawSequence } from './hooks/sequence'
 import { diagramOf, replyTree, type ReplyElements } from './hooks/draw'
 import { blocksOf } from './hooks/markdown'
 import { jumpTo, railCommandOf, runRailCommand, type RailPort } from './hooks/jump'
-import { addPrompt, endTurn, newRail, noteCompaction, noteTool, type Rail } from './hooks/rail'
+import {
+  addPrompt,
+  clearRail,
+  endTurn,
+  newRail,
+  noteCompaction,
+  noteTool,
+  type Rail,
+} from './hooks/rail'
 import { drawRail, type RailElements } from './hooks/rail-pane'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -54,6 +63,7 @@ type World = {
   pluginConfigs: unknown
   config: ConfigRow[]
   glyphs: unknown[]
+  messages: SessionMessage[]
 }
 
 function toastLines(text: string): string[] {
@@ -82,8 +92,10 @@ function engineBeneath(on: On): World {
     pluginConfigs: undefined,
     config: [],
     glyphs: [],
+    messages: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.messages', () => ({ value: world.messages }))
   on('config.list', () => ({ value: world.config }))
   on('config.set', (_$, e) => {
     world.config = world.config.map((row) => (row.key === e.key ? { ...row, value: e.value } : row))
@@ -5184,6 +5196,7 @@ const NO_PROMPT_YET =
   'No prompt yet in this session. The prompts tab opens after your first prompt.'
 
 type RailWorld = World & {
+  refusedTools: Set<string>
   opens: { id: string; focus: boolean }[]
   closes: string[]
   panes: Set<string>
@@ -5193,6 +5206,7 @@ type RailWorld = World & {
 function railBeneath(on: On): RailWorld {
   const world: RailWorld = {
     ...engineBeneath(on),
+    refusedTools: new Set(),
     opens: [],
     closes: [],
     panes: new Set(),
@@ -5220,7 +5234,10 @@ function railBeneath(on: On): RailWorld {
     })),
   }))
   on('session.compact', () => ({ messages: [COMPACT_SUMMARY] }))
-  on('tool.call', () => ({ result: '' }))
+  on('tool.call', (_$, e) =>
+    world.refusedTools.has(e.tool) ? { deny: 'The user refused this call.' } : { result: '' },
+  )
+  on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   return world
@@ -5556,7 +5573,8 @@ function fakePort(): FakePort {
     log: (text) => {
       port.logs.push(text)
     },
-    redraw: () => undefined,
+    redraw: () => Promise.resolve(),
+    hasEarlierPrompts: () => Promise.resolve(false),
   }
   return port
 }
@@ -5579,11 +5597,14 @@ function drawnRail(handle: RailHandle, columns = 41, placement: 'dock' | 'inline
     handle.rail,
     { bodyColumns: columns, placement, now: RAIL_START + 70 * MINUTE, doing: '▶', blocked: '■' },
     {
-      jump: (number) => {
-        handle.jumps.push(jumpTo(handle.rail, handle.port, number, true))
+      jump: (number, requestId) => {
+        handle.jumps.push(jumpTo(handle.rail, handle.port, number, true, requestId))
       },
       copy: (prompt) => {
         handle.copies.push(prompt.text)
+      },
+      showEarlier: () => {
+        handle.rail.showsEarlier = true
       },
     },
   )
@@ -5806,14 +5827,17 @@ describe('prompt rail: the prompts tab rows and widths', () => {
           uuid: 'prompt-1',
         })
         await replyEnds($, 'A cat.')
+        await typedCommand($, 'review', 'the diff', 'command-1')
+        await replyEnds($, 'The diff is fine.')
         await typedPrompt($, 'Fix the first line\nthen the second line', 'prompt-2')
         const ui = await mountRail($, surface, 'dock', 41)
         const lines = railLines(await ui.drawn())
-        expect(lines.slice(3, 5)).toEqual([
+        expect(lines.slice(3, 6)).toEqual([
           '  1 10:02 [image] what is this    0 tools',
-          '▸ 2 10:02 Fix the first line ⏎… ▶ 0 tools',
+          '  2 10:02 /review the diff        0 tools',
+          '▸ 3 10:02 Fix the first line ⏎… ▶ 0 tools',
         ])
-        expect(lines.slice(5, 7)).toEqual(['    Fix the first line', '    then the second line'])
+        expect(lines.slice(6, 8)).toEqual(['    Fix the first line', '    then the second line'])
         await ui.unmount()
       },
     )
@@ -5925,9 +5949,218 @@ describe('prompt rail: the prompts tab rows and widths', () => {
       'Prompts  140 · at 31 · since 10:02',
       '[ prev ] [ next ] [ last ]',
       '─'.repeat(41),
-      '40 earlier prompts · at 31 is among them',
+      '[ 40 earlier prompts · at 31 is here ]',
       '  41 10:42 Prompt 41              0 tools',
     ])
     expect(lines).toHaveLength(104)
+  })
+})
+
+const RESUME = { id: 'session-1' }
+
+async function typedCommand($: Engine, name: string, args: string, uuid: string) {
+  const line = `/${name} ${args}`.trim()
+  await $.prompt.submit({
+    text: line,
+    wait: false,
+    origin: { kind: 'composer' },
+    command: { name, args },
+  })
+  await $.session.append({
+    message: {
+      type: 'user',
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>`,
+        },
+      ],
+    },
+    door: 'command',
+    origin: { kind: 'composer' },
+    uuid,
+  })
+}
+
+describe('prompt rail: review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`a new prompt and a tool call redraw the prompts tab and no transcript row on ${surface}`, async ($, on) => {
+      let promptDraws = 0
+      on('ui.render', { component: 'UserMessage' }, () => {
+        promptDraws += 1
+        return ENGINE_ROW
+      })
+      railBeneath(on)
+      mock.clock(on, { now: RAIL_START })
+      await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+      await typedPrompt($, 'Read the design', 'prompt-1')
+      const row = await mountPrompt($, prompt('Read the design'), surface)
+      const pane = await mountRail($, surface, 'dock', 41)
+      await row.drawn()
+      const drawsBefore = promptDraws
+      expect(drawsBefore).toBeGreaterThan(0)
+      await $.tool.call(TOOL_CALLS.Read)
+      await typedPrompt($, 'Run the checks', 'prompt-2')
+      await $.tool.call(TOOL_CALLS.Bash)
+      await row.drawn()
+      expect(railLines(await pane.drawn()).slice(3, 5)).toEqual([
+        '  1 10:02 Read the design          1 tool',
+        '▸ 2 10:02 Run the checks         ▶ 1 tool',
+      ])
+      expect(promptDraws).toBe(drawsBefore)
+      await row.unmount()
+      await pane.unmount()
+    })
+
+    railTest('/clear empties the open tab at once', surface, async (_world, $, clock) => {
+      await playScenes($, clock, MOCK_A_SCENES.slice(0, 3))
+      const ui = await mountRail($, surface, 'dock', 41)
+      expect(railLines(await ui.drawn())[0]).toBe('Prompts  3 · at 3 · since 10:02')
+      await $.session.end({ sessionId: 'session-1', reason: 'clear', resume: RESUME })
+      expect(railLines(await ui.drawn())).toEqual(['Prompts  none yet'])
+      await ui.unmount()
+    })
+
+    railTest(
+      'after a resume /replies prompts and the tab say that earlier prompts are not listed',
+      surface,
+      async (world, $, clock) => {
+        world.messages.push({ role: 'user', text: 'An earlier prompt', toolUses: [] })
+        await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
+        expect(await railCommand($, 'prompts')).toBe(
+          'No prompt since this session resumed. Prompts from before the resume are not listed. The prompts tab opens after your next prompt.',
+        )
+        expect(world.opens).toEqual([])
+        await clock.set(RAIL_START + MINUTE)
+        await typedPrompt($, 'Run the checks', 'prompt-9')
+        const ui = await mountRail($, surface, 'dock', 41)
+        expect(railLines(await ui.drawn(), true).slice(3, 5)).toEqual([
+          '~not listed: the prompts before the resume~',
+          '*▸ 1* ~10:03~ *Run the checks       * @▶ 0 tools@',
+        ])
+        await ui.unmount()
+      },
+    )
+
+    railTest(
+      'a call that the person or a hook refused is not counted',
+      surface,
+      async (world, $) => {
+        world.refusedTools.add('Bash')
+        await typedPrompt($, 'Run the checks', 'prompt-1')
+        await $.tool.call(TOOL_CALLS.Bash)
+        await $.tool.call(TOOL_CALLS.Read)
+        await $.tool.call(TOOL_CALLS.Bash)
+        const ui = await mountRail($, surface, 'dock', 41)
+        const lines = railLines(await ui.drawn())
+        expect(lines[3]).toBe('▸ 1 10:02 Run the checks         ▶ 1 tool')
+        expect(lines[5]).toBe('    runs 0s · Read 1')
+        await ui.unmount()
+      },
+    )
+
+    railTest(
+      'a slash command that you type is a row, and the header names the day when the session crosses midnight',
+      surface,
+      async (_world, $, clock) => {
+        const monday = new Date(2026, 10, 2, 23, 50).getTime()
+        await clock.set(monday)
+        await typedPrompt($, 'Read the design', 'prompt-1')
+        await replyEnds($, 'Done.')
+        await clock.set(monday + 20 * MINUTE)
+        await typedCommand($, 'review', 'the diff', 'command-1')
+        await typedPrompt($, 'Agent a1 finished', 'note-1', { kind: 'task-notification' })
+        await typedCommand($, 'replies', 'prompts', 'command-2')
+        const ui = await mountRail($, surface, 'dock', 41)
+        const lines = railLines(await ui.drawn())
+        expect(lines[0]).toBe('Prompts  2 · at 2 · since Mon 23:50')
+        expect(lines.slice(3, 5)).toEqual([
+          '  1 23:50 Read the design         0 tools',
+          '▸ 2 00:10 /review the diff      ▶ 0 tools',
+        ])
+        expect(lines).toHaveLength(8)
+        await ui.unmount()
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    railTest(
+      'a command row that no typed command started is not a row, also after a command that kept no row',
+      surface,
+      async (_world, $) => {
+        await $.prompt.submit({
+          text: '/board',
+          wait: false,
+          origin: { kind: 'composer' },
+          command: { name: 'board', args: '' },
+        })
+        await $.prompt.submit({
+          text: 'Read the design',
+          wait: false,
+          origin: { kind: 'composer' },
+        })
+        await typedPrompt($, 'Read the design', 'prompt-1')
+        await $.session.append({
+          message: {
+            type: 'user',
+            role: 'user',
+            content: [{ type: 'text', text: '<local-command-stdout>Done</local-command-stdout>' }],
+          },
+          door: 'command',
+          origin: { kind: 'composer' },
+          uuid: 'command-1',
+        })
+        const ui = await mountRail($, surface, 'dock', 41)
+        expect(railLines(await ui.drawn())[0]).toBe('Prompts  1 · at 1 · since 10:02')
+        await ui.unmount()
+      },
+    )
+  }
+
+  test('a press on a row drawn before /clear says that the prompt is gone and does not move the transcript', async () => {
+    const handle = railHandle(MOCK_A_SCENES.slice(0, 3), 'terminal')
+    const before = drawnRail(handle)
+    clearRail(handle.rail)
+    addPrompt(handle.rail, 'prompt-new', 'Run the checks', RAIL_START + 30 * MINUTE)
+    for (const key of ['prompt-3', 'prompt-1']) {
+      const onPress = foundButton(before, key)?.props?.onPress
+      if (typeof onPress !== 'function') throw new Error(`no button ${key}`)
+      ;(onPress as (e: unknown) => void)({ surface: 'terminal' })
+      await Promise.all(handle.jumps)
+    }
+    expect(handle.port.scrolled).toEqual([])
+    expect(railLines(drawnRail(handle)).slice(-3)).toEqual([
+      '■ could not jump to prompt 1',
+      '  the transcript did not move:',
+      '  that prompt is no longer in this list',
+    ])
+  })
+
+  test('a new prompt clears an old refusal', async () => {
+    const handle = railHandle(MOCK_A_SCENES.slice(0, 3), 'terminal')
+    handle.port.answer = () => Promise.resolve({ deny: 'nothing drawn under that requestId' })
+    await pressRail(handle, 'prompt-1')
+    expect(railLines(drawnRail(handle)).join('\n')).toContain('could not jump to prompt 1')
+    addPrompt(handle.rail, 'prompt-4', 'Run the checks', RAIL_START + 30 * MINUTE)
+    expect(railLines(drawnRail(handle)).join('\n')).not.toContain('could not jump')
+  })
+
+  test('the earlier prompts line is a button that opens the earlier prompts and reaches at', async () => {
+    const scenes = Array.from({ length: 140 }, (_, index) => ({
+      text: `Prompt ${String(index + 1)}`,
+      minute: index,
+      tools: {},
+      ranMinutes: 0,
+    }))
+    const handle = railHandle(scenes, 'terminal')
+    handle.rail.at = 31
+    expect(railLines(drawnRail(handle))[3]).toBe('[ 40 earlier prompts · at 31 is here ]')
+    await pressRail(handle, 'earlier')
+    const lines = railLines(drawnRail(handle))
+    expect(lines[3]).toBe('   1 10:02 Prompt 1               0 tools')
+    expect(lines).toContain('▸ 31 10:32 Prompt 31              0 tools')
+    expect(lines).toHaveLength(3 + 140 + 3)
   })
 })

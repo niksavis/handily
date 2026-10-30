@@ -23,8 +23,9 @@ export type RailLayout = {
 }
 
 export type RailActions = {
-  jump: (number: number) => void
+  jump: (number: number, requestId: string) => void
   copy: (prompt: RailPrompt) => void
+  showEarlier: () => void
 }
 
 export const PROMPTS_DRAWN = 100
@@ -49,6 +50,8 @@ const CONTROLS = [
 const SECOND = 1000
 const MINUTE = 60 * SECOND
 const HOUR = 60 * MINUTE
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+const EARLIER_SESSION_TEXT = 'not listed: the prompts before the resume'
 
 type Row = { number: number; prompt: RailPrompt; isAt: boolean; isRunning: boolean }
 
@@ -120,7 +123,7 @@ function promptRow(context: Context, row: Row, rowLayout: RowLayout): RenderElem
     label: `prompt ${String(row.number)}`,
     plain: true,
     onPress: () => {
-      context.actions.jump(row.number)
+      context.actions.jump(row.number, row.prompt.requestId)
     },
     children: [
       Text({ bold: row.isAt, children: number }),
@@ -236,7 +239,8 @@ function controls(context: Context): RenderElement {
         ...(key === 'next' ? { autoFocus: true as const } : {}),
         onPress: () => {
           const target = targets[key]
-          if (target >= 1 && target <= count && target !== at) context.actions.jump(target)
+          const prompt = promptsOf(context.rail)[target - 1]
+          if (prompt !== undefined && target !== at) context.actions.jump(target, prompt.requestId)
         },
       }),
     ),
@@ -251,12 +255,23 @@ function controlsColumns(): number {
   )
 }
 
-function headerText(rail: Rail, columns: number, room: number): string {
+function isSameDay(left: number, right: number): boolean {
+  return new Date(left).toDateString() === new Date(right).toDateString()
+}
+
+function sinceText(at: number, now: number): string {
+  if (isSameDay(at, now)) return clockTime(at)
+  return `${DAYS[new Date(at).getDay()] ?? ''} ${clockTime(at)}`
+}
+
+function headerText(context: Context, room: number): string {
+  const { rail } = context
+  const columns = context.layout.bodyColumns
   const prompts = promptsOf(rail)
   const first = prompts[0]
   if (first === undefined) return fitted('Prompts  none yet', columns)
   const counts = `${String(prompts.length)} · at ${String(atNumber(rail))}`
-  const full = `Prompts  ${counts} · since ${clockTime(first.at)}`
+  const full = `Prompts  ${counts} · since ${sinceText(first.at, context.layout.now)}`
   if (displayWidth(full) <= room) return full
   return fitted(`Prompts ${counts}`, columns)
 }
@@ -294,20 +309,37 @@ function rowsOf(rail: Rail): Row[] {
 function earlierLine(context: Context, hidden: number): RenderElement[] {
   if (hidden <= 0) return []
   const at = atNumber(context.rail)
-  const among = at <= hidden ? ` · at ${String(at)} is among them` : ''
+  const here = at <= hidden ? ` · at ${String(at)} is here` : ''
+  const room = Math.max(1, context.layout.bodyColumns - BUTTON_CHROME_COLUMNS)
+  return [
+    context.elements.Box({
+      flexDirection: 'row',
+      children: context.elements.Button({
+        key: 'earlier',
+        label: fitted(`${plural(hidden, 'earlier prompt')}${here}`, room),
+        onPress: () => {
+          context.actions.showEarlier()
+        },
+      }),
+    }),
+  ]
+}
+
+function resumedLine(context: Context): RenderElement[] {
+  if (!context.rail.hasEarlier) return []
   return [
     context.elements.Text({
       dimColor: true,
-      children: fitted(`${plural(hidden, 'earlier prompt')}${among}`, context.layout.bodyColumns),
+      children: fitted(EARLIER_SESSION_TEXT, context.layout.bodyColumns),
     }),
   ]
 }
 
 function dockedList(context: Context, rows: readonly Row[]): RenderElement[] {
-  const hidden = Math.max(rows.length - PROMPTS_DRAWN, 0)
+  const hidden = context.rail.showsEarlier ? 0 : Math.max(rows.length - PROMPTS_DRAWN, 0)
   const drawn = rows.slice(hidden)
   const rowLayout = rowLayoutOf(drawn, context.layout)
-  const list: RenderElement[] = earlierLine(context, hidden)
+  const list: RenderElement[] = [...resumedLine(context), ...earlierLine(context, hidden)]
   let seen = 0
   for (const entry of context.rail.entries) {
     if (entry.kind === 'compaction') {
@@ -327,7 +359,7 @@ function docked(context: Context): RenderNode[] {
   const { Text } = context.elements
   const columns = context.layout.bodyColumns
   const rows = rowsOf(context.rail)
-  const header = Text({ bold: true, children: headerText(context.rail, columns, columns) })
+  const header = Text({ bold: true, children: headerText(context, columns) })
   if (rows.length === 0) return [header]
   return [
     header,
@@ -353,7 +385,7 @@ function inlineHead(context: Context, window: readonly Row[]): RenderElement[] {
   const last = window.at(-1)?.number ?? 0
   const range = `rows ${String(first)}-${String(last)}`
   const room = columns - INLINE_GAP - controlsColumns() - INLINE_GAP - displayWidth(range)
-  const header = headerText(context.rail, columns, room)
+  const header = headerText(context, room)
   if (displayWidth(header) <= room) {
     return [
       Box({
@@ -367,19 +399,14 @@ function inlineHead(context: Context, window: readonly Row[]): RenderElement[] {
       }),
     ]
   }
-  return [
-    Text({ bold: true, children: headerText(context.rail, columns, columns) }),
-    controls(context),
-  ]
+  return [Text({ bold: true, children: headerText(context, columns) }), controls(context)]
 }
 
 function inline(context: Context): RenderNode[] {
   const rows = rowsOf(context.rail)
   if (rows.length === 0) {
     const columns = context.layout.bodyColumns
-    return [
-      context.elements.Text({ bold: true, children: headerText(context.rail, columns, columns) }),
-    ]
+    return [context.elements.Text({ bold: true, children: headerText(context, columns) })]
   }
   const window = inlineWindow(rows, atNumber(context.rail))
   const rowLayout = rowLayoutOf(window, context.layout)

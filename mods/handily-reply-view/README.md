@@ -409,17 +409,23 @@ Prompts  12 · at 9 · since 10:02
  10 10:58 Run the checks          3 tools
 ```
 
-- Each row shows the number, the time, the first line of the prompt and the count of tool calls.
-  At a narrow width the row shows the count without the word `tools`.
+- Each row shows the number, the time, the first line of the prompt and the count of tool calls
+  that ran. A call that you or a hook refused does not count. At a narrow width the row shows the
+  count without the word `tools`. A slash command that you type, such as `/review the diff`, is a
+  row too. The `/replies` command is not.
+- When the first prompt is from another day, the header names the day, such as
+  `since Mon 09:14`.
 - `at` is the prompt of the last jump. Before a jump it is the newest prompt. The row of `at` has
   `▸` and bold text. Under it, the tab shows the whole prompt in up to 3 lines, how long its turn
   ran and the tools by name. The prompt that runs now shows `▶` and `runs`.
-- A press on a row, or Enter on it, moves the transcript to that prompt. `prev` (hotkey `p`),
+- A press on a row, or Enter on it, moves the transcript to that prompt. A row from a drawing
+  before a `/clear` names the prompt as gone and does not move the transcript. `prev` (hotkey `p`),
   `next` (`n`) and `last` (`l`) move to the previous, the next or the newest prompt. `copy prompt`
   (`y`) copies the whole prompt.
 - A compaction draws a dim rule at its time. A task notification, a message from another agent
   and a turn that continues with no text are not prompts.
-- The tab draws the last 100 prompts, and a dim line counts the earlier ones.
+- The tab draws the last 100 prompts. A button above them counts the earlier ones, such as
+  `[ 40 earlier prompts · at 31 is here ]`, and a press draws them all.
 - Above the prompt (not docked), the tab draws at most 8 rows around `at`, with the buttons on the
   header line.
 
@@ -439,9 +445,10 @@ terminal. When Claude Code does not move the transcript, the tab shows
 prompt from before a compaction can have no drawn row to jump to. The debug log keeps the answer
 of Claude Code.
 
-The mod keeps the list in memory for this session only. After a `/clear` or a resume, the list
-starts again with the next prompt that you type. A slash command that you type is not in the
-list.
+The mod keeps the list in memory for this session only. After a `/clear` the open tab empties at
+once. After a resume, the list starts again with the next prompt that you type, and the tab and
+`/replies prompts` say that the prompts from before the resume are not listed. The tab draws
+again only when its list changes, and no other row of the transcript draws again for it.
 
 ## Settings and the command
 

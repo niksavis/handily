@@ -1,4 +1,10 @@
-import type { EngineInterface, Register, RenderElement, RenderSurface } from 'claude-code'
+import type {
+  EngineInterface,
+  PromptSubmitCommand,
+  Register,
+  RenderElement,
+  RenderSurface,
+} from 'claude-code'
 import type { ReplyViewFold, ReplyViewMode } from '../types'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import {
@@ -24,6 +30,7 @@ import {
   newRail,
   noteCompaction,
   noteTool,
+  promptsOf,
   promptTextOf,
   type Rail,
 } from './rail'
@@ -33,6 +40,7 @@ import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast }
 
 const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
+const RAIL_VERSION = { plugin: 'handily-reply-view', key: 'railVersion' } as const
 const HINTS = { plugin: 'handily-reply-view', key: 'hints' } as const
 const HINTS_ARGUMENT = 'hints'
 const COPY_ARGUMENT = 'copy'
@@ -196,32 +204,59 @@ async function copyFromReply(
   return copy === null ? noBlockText(word) : copied($, copy, surface)
 }
 
-type RailSite = { rail: Rail; isOpen: boolean }
+type RailSite = { rail: Rail; version: number; command: string | undefined }
+
+async function hasEarlierPrompts($: EngineInterface, current?: string): Promise<boolean> {
+  try {
+    const messages = await $.session.messages()
+    return messages.some(
+      (message) =>
+        message.role === 'user' && message.text.trim() !== '' && message.text !== current,
+    )
+  } catch (error) {
+    logFailure($, 'the transcript was not read for earlier prompts', error)
+    return false
+  }
+}
+
+async function redrawRail($: EngineInterface, site: RailSite): Promise<void> {
+  site.version += 1
+  try {
+    await $.state.set(RAIL_VERSION, site.version)
+  } catch (error) {
+    logFailure($, 'the prompts tab did not draw again', error)
+  }
+}
 
 function railPortOf($: EngineInterface, site: RailSite): RailPort {
   return {
     scroll: (requestId) => $.ui.scroll({ to: { requestId }, block: 'start' }),
     pane: async () => (await $.ui.panes()).find((pane) => pane.id === PROMPTS_PANE.id),
-    open: async () => {
-      const opened = await $.ui.open({ ...PROMPTS_PANE, focus: true })
-      site.isOpen = true
-      return opened
-    },
+    open: () => $.ui.open({ ...PROMPTS_PANE, focus: true }),
     close: () => $.ui.close({ id: PROMPTS_PANE.id }),
+    hasEarlierPrompts: () => hasEarlierPrompts($),
     showToast: (parts) => {
       showGlyphToast($, parts)
     },
     log: (text) => {
       $.ui.log(text, { to: 'debug' })
     },
-    redraw: () => {
-      redrawRail($, site)
-    },
+    redraw: () => redrawRail($, site),
   }
 }
 
-function redrawRail($: EngineInterface, site: RailSite): void {
-  if (site.isOpen) $.ui.invalidate('ui.render')
+function slashLine(command: PromptSubmitCommand): string {
+  return `/${command.name} ${command.args}`.trim()
+}
+
+type KeptPrompt = { requestId: string; text: string; at?: number }
+
+async function keepPrompt($: EngineInterface, site: RailSite, kept: KeptPrompt): Promise<void> {
+  const isFirst = promptsOf(site.rail).length === 0
+  const at = kept.at ?? (await $.clock.now())
+  if (!addPrompt(site.rail, kept.requestId, kept.text, at)) return
+  if (isFirst) site.rail.hasEarlier = await hasEarlierPrompts($, kept.text)
+  await redrawRail($, site)
 }
 
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
@@ -237,7 +272,7 @@ export const register: Register = (on, options) => {
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
   let lastReply: string | undefined
-  const railSite: RailSite = { rail: newRail(), isOpen: false }
+  const railSite: RailSite = { rail: newRail(), version: 0, command: undefined }
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -293,9 +328,11 @@ export const register: Register = (on, options) => {
     return { text: USAGE_TEXT }
   })
 
-  on('session.end', async (_$, e, next) => {
+  on('session.end', async ($, e, next) => {
     lastReply = undefined
     clearRail(railSite.rail)
+    railSite.command = undefined
+    await redrawRail($, railSite)
     return next(e)
   })
 
@@ -303,33 +340,29 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined && e.answer !== '') lastReply = e.answer
     if (e.agentId === undefined && isTurnRunning(railSite.rail)) {
       endTurn(railSite.rail, await $.clock.now())
-      redrawRail($, railSite)
+      await redrawRail($, railSite)
     }
     return next(e)
   })
 
   on('tool.call', async ($, e, next) => {
-    if (e.agentId === undefined && noteTool(railSite.rail, e.tool)) redrawRail($, railSite)
-    return next(e)
+    const result = await next(e)
+    const hasRun = e.agentId === undefined && result.deny === undefined
+    if (hasRun && noteTool(railSite.rail, e.tool)) await redrawRail($, railSite)
+    return result
   })
 
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
       noteCompaction(railSite.rail, await $.clock.now())
-      redrawRail($, railSite)
+      await redrawRail($, railSite)
     }
     return result
   })
 
-  on('ui.close', async (_$, e, next) => {
-    const closed = await next(e)
-    if (e.id === PROMPTS_PANE.id) railSite.isOpen = false
-    return closed
-  })
-
   on('ui.render', { component: 'Pane', requestId: PROMPTS_PANE.id }, async ($, e) => {
-    railSite.isOpen = true
+    await $.state.get(RAIL_VERSION)
     const { Box, Text, Button } = $.ui.resolve(e)
     const glyphs = await paneGlyphs($, e.surface)
     const port = railPortOf($, railSite)
@@ -345,8 +378,12 @@ export const register: Register = (on, options) => {
         blocked: glyphs.blocked,
       },
       {
-        jump: (number) => {
-          void jumpTo(railSite.rail, port, number, isFullscreen)
+        jump: (number, requestId) => {
+          void jumpTo(railSite.rail, port, number, isFullscreen, requestId)
+        },
+        showEarlier: () => {
+          railSite.rail.showsEarlier = true
+          void port.redraw()
         },
         copy: (prompt) => {
           void copyText($, prompt.text, 'the prompt', e.surface)
@@ -356,6 +393,10 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    if (e.origin.kind === 'composer') {
+      const isListed = e.command !== undefined && e.command.name !== COMMAND
+      railSite.command = isListed ? slashLine(e.command) : undefined
+    }
     const isTypedProse = e.origin.kind === 'composer' && e.command === undefined
     if (!isTypedProse || !drawsDiagrams) return next(e)
     const { value: hints = defaultHints } = await $.state.get(HINTS)
@@ -364,15 +405,26 @@ export const register: Register = (on, options) => {
     return next({ ...e, context: [...(e.context ?? []), DIAGRAM_HINT] })
   })
 
+  on('session.append', { door: 'command' }, async ($, e, next) => {
+    const stored = await next(e)
+    const { command } = railSite
+    const isTyped = e.origin.kind === 'composer' && e.agentId === undefined
+    if (isTyped && command !== undefined && stored.uuid !== undefined) {
+      railSite.command = undefined
+      await keepPrompt($, railSite, { requestId: stored.uuid, text: command })
+    }
+    return stored
+  })
+
   on('session.append', { door: ['prompt', 'delivery'] }, async ($, e, next) => {
     const isTyped = e.origin.kind === 'composer' && e.agentId === undefined
     const appendedAt = await $.clock.now()
     const stored = await next(e)
     if (isTyped && stored.uuid !== undefined) {
-      const isPrompt =
-        stored.message.isMeta !== true &&
-        addPrompt(railSite.rail, stored.uuid, promptTextOf(stored.message.content), appendedAt)
-      if (isPrompt) redrawRail($, railSite)
+      if (stored.message.isMeta !== true) {
+        const text = promptTextOf(stored.message.content)
+        await keepPrompt($, railSite, { requestId: stored.uuid, text, at: appendedAt })
+      }
       try {
         await $.state.set(
           { plugin: 'handily-reply-view', key: 'submittedAt', id: stored.uuid },

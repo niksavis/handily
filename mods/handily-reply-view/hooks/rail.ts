@@ -16,6 +16,8 @@ export type Rail = {
   entries: RailEntry[]
   at: number | undefined
   failure: JumpFailure | undefined
+  showsEarlier: boolean
+  hasEarlier: boolean
 }
 
 const IMAGE_WORD = '[image]'
@@ -24,13 +26,15 @@ const CONTROLS = /\p{Cc}/gu
 const BIDI_CONTROLS = /[\u{061C}\u{200E}\u{200F}\u{202A}-\u{202E}\u{2066}-\u{2069}]/gu
 
 export function newRail(): Rail {
-  return { entries: [], at: undefined, failure: undefined }
+  return { entries: [], at: undefined, failure: undefined, showsEarlier: false, hasEarlier: false }
 }
 
 export function clearRail(rail: Rail): void {
   rail.entries = []
   rail.at = undefined
   rail.failure = undefined
+  rail.showsEarlier = false
+  rail.hasEarlier = false
 }
 
 export function promptsOf(rail: Rail): RailPrompt[] {
@@ -70,6 +74,7 @@ export function addPrompt(rail: Rail, requestId: string, text: string, at: numbe
   const prompt: RailPrompt = { requestId, text, at, tools: new Map(), endedAt: undefined }
   rail.entries.push({ kind: 'prompt', prompt })
   rail.at = undefined
+  rail.failure = undefined
   return true
 }
 
