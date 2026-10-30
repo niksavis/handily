@@ -6500,3 +6500,1532 @@ and table cells.
    prompts, and a reply frame costs columns on every reply.
 10. **Side-by-side layout.** Skip; the engine owns the transcript layout.
 11. **Loops panel and animated connectors (9).** Skip, as approved.
+
+---
+
+## 15. handily-reply-view on the prismantis base (handily-36bsx, approved 2026-10-30)
+
+**The person.** A developer who reads Claude's replies in the terminal, most often at 80 to 120
+columns, sometimes in a narrow split of 40 or 30. Their task: read an answer at a glance, find
+the one number or step that matters, and copy a block to use it. What they see first is the
+reply's first screen: a heading, a list, a table, a diagram or a chart.
+
+**The goal** (the person, 2026-10-30): "I still have not seen any meaningful improvement in
+showing diagrams, tables and other objects in the terminal as prismantis has it. The goal is to
+take that as the base and improve on it." Decided: reply-view draws every reply.
+
+**Reference.** prismantis (github.com/NahumLitvin/prismantis, MIT, by Nahum Litvin) at commit
+`f342453`, read only. handily copies no code from it and adds no dependency. The ideas taken
+from it are named in each part. Images viewed, plain Claude Code left and prismantis right:
+`docs/compare/` tables, text, headings, code, code-fold, diagrams, charts, footer, footnotes,
+layout, prompts, tools, copy, diff-cards and fallback-note; and `docs/headings/banner.png`,
+`docs/prompts/bubble.png`, `docs/prompts/bar.png`, `docs/pies/bars.png`, `docs/task-lists.png`,
+`docs/tools/chat.png`, `docs/mermaid/inline-tags.png` and `docs/clock/turn.png`.
+
+**Builds on, not redesigned:** 14.3 to 14.5 (box tables by default, prose highlighting, the
+palette) and record handily-36bsx.1; section 9 (tables, code, diagrams); 9.12 (the prompt rail,
+handily-bktw4); section 12 (colour convention); section 11 (glyph sets); design.md 4.10 and 2.
+
+### 15.0 Conventions
+
+- Conventions of 9.0, 12.0 and 14.0 apply. Blocks are plain text. A `Colours:` line under a
+  block names the look by theme key and by the catppuccin-mocha hex of 14.4; 15.9 lists every
+  role once. A meaning never rests on colour alone.
+- The screen width is in each heading. A reply has the 2-column bullet indent of today, so a
+  reply body is 78 at 80, 38 at 40 and 28 at 30.
+- In blocks of 40 and 30 columns a note may stand right of the screen edge, after `┊`. The edge
+  and the note are not on screen. Blocks of 80 columns or more keep their notes in a list below.
+- A block with no `Colours:` line takes the colours of its part's 80-column mock.
+- `[ copy ]`, `[ copy as text ]`, `[ copy drawing ]`, `[ more ]`, `[ less ]` are engine Buttons,
+  as today.
+- **Width check.** A script measured every line with `unicodedata.east_asian_width` (W or F
+  counts 2):
+  79 lines at 30, 120 lines at 40, 366 lines at 80, 12 lines at 120.
+  None is wider than its screen.
+- **Environment.** Terminal first. The desktop app is stated in each part. Mobile draws as the
+  desktop does (no pointer: the buttons are native).
+- **Streaming.** While a reply streams, Claude Code draws it, and reply-view draws the complete
+  reply once at the end (reply-view README 71). This holds for every mock here.
+
+### 15.1 Every reply: paragraphs, headings, lists, task lists, quotes and alerts
+
+Today a reply without a table, a fence or 31 lines goes to the engine `Markdown` element
+(`draw.ts` 933). With handily-36bsx.1 reply-view draws every reply and its paragraphs. This part
+draws the other block kinds itself on the terminal.
+
+#### 15.1a 80 columns, headingStyle banner (the default)
+
+```text
+● ╭──────────────────────────────╮
+  │ Ingest timeouts after v2.3.1 │
+  ╰──────────────────────────────╯
+
+  Since v2.3.1 deployed at 14:00, ingest p95 rose from 46 ms to 2 s. The
+  change cut pool_size from 32 to 4 in config/prod.yaml. Not yet rolled back;
+  see the deploy run (ci.example.com).
+
+  Impact
+  ━━━━━━
+
+  • p95 latency: 46 ms before 14:00, 2,000 ms after
+  • DB timeouts: 14, 18 and 15 an hour
+    ◦ every one is an acquire timeout
+      ▪ pool 4/4 busy, 40 to 89 waiting
+  • Still ongoing at 16:58
+
+  Why 4 is too few
+
+  1. Each INSERT holds a connection for its whole round trip.
+  2. At 430 writes a second, 4 connections leave 9 ms for each.
+     1. A slow query blocks the queue.
+  3. After 2 s the acquire times out and the reading is lost.
+```
+
+Colours:
+
+- H1 box and text `claude` + bold, mocha `#f9e2af`; H2 text `claude` + bold, the `━` rule
+  `claude`, mocha `#f9e2af`; H3 `merged` + bold, mocha `#cba6f7`; H4 to H6 bold only.
+- Bullets `•` `◦` `▪` and list numbers `inactive`, mocha `#cba6f7`.
+- "Not yet" bold, as written (`**Not yet**`); italic and `~~strike~~` draw as italic and
+  strikethrough, with no colour.
+- "the deploy run" is an engine `Link` (OSC 8), `suggestion` + underline, mocha `#89b4fa`;
+  "(ci.example.com)" dim. A link whose text differs from its address shows the host after it.
+- Numbers, durations, versions and paths by the rules of 14.5 (handily-36bsx.1).
+
+Notes:
+
+- The H1 box hugs the text. A level of nesting indents 2 columns. A nested ordered list keeps its
+  own numbers. A level of 4 or deeper keeps `▪` (15.1f).
+- Headings draw their text with no `#` marks, and a blank line follows a heading.
+- **Improves on prismantis:** the link host is shown for every link, not only `file://`, so a
+  reply cannot hide where a click goes (prismantis does this for `file://` links only). Paths do
+  not open on click, so no program list is needed (prismantis keeps a long list of program
+  extensions that must not link).
+
+#### 15.1b 80 columns: task lists, quotes, alerts and a rule
+
+```text
+● Follow-up:
+
+  [✓] Restore pool_size to 32
+  [✓] Confirm p95 returns to 45 ms
+  [ ] Check that tanks-db can take 32 connections
+      [ ] Ask the DB owner for max_connections
+  [ ] Add an alert on acquire timeouts
+  2 of 5 done
+
+  ▌ Rolling ingest back to v2.3.0: v2.3.1 cut the DB pool from 32 to 4, and
+  ▌ writes time out (pool 4/4 busy, up to 87 waiting).
+  ▌
+  ▌ ▌ A nested quote keeps its own bar.
+
+  ╭─ Note ─────────────────────────────────────────────────────────────────────╮
+  │ The deploy log shows v2.3.1 at 14:00:12, so the first slow sample came     │
+  │ 12 seconds after it.                                                       │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+
+  ╭─ Warning ──────────────────────────────────────────────────────────────────╮
+  │ Do not raise pool_size above max_connections on tanks-db.                  │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+
+  ──────────────────────────────────────────────────────────────────────────────
+
+  The two changes above need no new code.
+```
+
+Colours:
+
+- `[✓]` `success` (a state: never repainted, 14.4); the done text dim + strikethrough. `[ ]`
+  `inactive`, mocha `#9399b2`. "2 of 5 done" dim.
+- The quote bar `▌` `inactive`, mocha `#cba6f7`; quote text italic, mocha `#a6adc8`.
+- Alert boxes: border and label word in the kind's key. Note `suggestion` `#89b4fa`, Tip
+  `success`, Important `merged` `#cba6f7`, Warning `warning`, Caution `error`. The three state
+  keys keep the theme in every palette (14.4). The body text is plain.
+- The rule `───` (a `---` line) `inactive`, mocha `#9399b2`.
+
+Notes:
+
+- The done mark is the Done glyph of 11.0 (`✓`, or nf-cod-check in the nerd set).
+- "2 of 5 done" shows under a task list of 3 or more tasks, nested ones counted. It is the only
+  added text, and it reads as words for a screen reader. (prismantis draws a bar for this in its
+  `progress` style; the words fit at every width.)
+- An alert is a full-width box with the kind as a word on its top edge. Without colour, the word
+  still says the kind.
+
+#### 15.1c 80 columns: the other heading styles, side by side (H1, H2, H3)
+
+```text
+  bold                      underline                 uppercase
+
+● Ingest timeouts           ● Ingest timeouts           ● INGEST TIMEOUTS
+
+  Impact                      Impact                      Impact
+
+  Why 4 is too few            Why 4 is too few            Why 4 is too few
+```
+
+Colours: `bold`: as 15.1a with no box and no rule. `underline`: H1 and H2 also underlined (the
+attribute, not drawn here). `uppercase`: as `bold`, H1 in capitals. These are the four styles of
+prismantis; `banner` is the default, as there.
+
+#### 15.1d 40 columns (reply 38)
+
+```text
+● ╭───────────────────────╮              ┊ the box hugs; the text wraps in it
+  │ Ingest timeouts after │
+  │ v2.3.1                │
+  ╰───────────────────────╯
+
+  Impact                                 ┊ H2: bold and a rule
+  ━━━━━━
+
+  • p95 latency: 46 ms before 14:00,     ┊ a hanging indent
+    2,000 ms after
+    ◦ every one is an acquire
+      timeout
+  [✓] Restore pool_size to 32
+  [ ] Check that tanks-db can take 32
+      connections
+
+  ▌ Rolling ingest back to v2.3.0:
+  ▌ v2.3.1 cut the DB pool from 32 to
+  ▌ 4.
+
+  ╭─ Warning ──────────────────────────╮ ┊ alert box, 38 wide
+  │ Do not raise pool_size above       │
+  │ max_connections on tanks-db.       │
+  ╰────────────────────────────────────╯
+```
+
+#### 15.1e 40 columns: the five alert kinds
+
+```text
+● Five alert kinds, 40 columns:
+
+  ╭─ Note ─────────────────────────────╮ ┊ each kind: its word on the edge
+  │ Useful to know.                    │
+  ╰────────────────────────────────────╯
+  ╭─ Tip ──────────────────────────────╮
+  │ A better way.                      │
+  ╰────────────────────────────────────╯
+  ╭─ Important ────────────────────────╮
+  │ Needed to succeed.                 │
+  ╰────────────────────────────────────╯
+  ╭─ Warning ──────────────────────────╮
+  │ Needs your attention now.          │
+  ╰────────────────────────────────────╯
+  ╭─ Caution ──────────────────────────╮
+  │ Could lose data.                   │
+  ╰────────────────────────────────────╯
+```
+
+Colours: as 15.1b. Each box is 38 wide; a long body wraps inside the box.
+
+#### 15.1f 30 columns (reply 28): the H1 box and the alert boxes give way
+
+```text
+● Ingest timeouts after
+  v2.3.1
+  ━━━━━━━━━━━━━━━━━━━━━━       ┊ under 40: H1 draws as H2
+
+  • p95 latency: 46 ms before
+    14:00, 2,000 ms after
+  [ ] Check that tanks-db
+      can take 32 connections
+
+  ▌ Warning                    ┊ alert: a bar and the word
+  ▌ Do not raise pool_size
+  ▌ above max_connections on
+  ▌ tanks-db.
+```
+
+#### 15.1g 80 columns: overflow and edge cases
+
+```text
+● Edge cases:
+
+  • Level 1
+    ◦ Level 2
+      ▪ Level 3
+        ▪ Level 4 and deeper keep ▪ and stop indenting here
+        ▪ Level 5
+  •
+  • https://ci.example.com/runs/812/jobs/4471/steps/12/logs/raw?attempt=2&lin
+    es=all
+
+  ╭─ Note ─────────────────────────────────────────────────────────────────────╮
+  ╰────────────────────────────────────────────────────────────────────────────╯
+
+  ▌ [!TODO] An unknown alert kind stays a quote with its marker as text.
+
+  The link [x](javascript:alert(1)) draws as text: x (javascript:alert(1))
+```
+
+Notes:
+
+- A level of 4 or deeper keeps `▪` and the indent of level 4, so deep lists never walk off the
+  screen.
+- An empty list item keeps its bullet. A word longer than the width (a URL) splits at the width.
+- An alert with no body draws its edge and the label. An unknown kind (`[!TODO]`) draws as a
+  quote, with the marker as text.
+- A `javascript:` or `data:` link draws as text, its text then the address, and is not a `Link`.
+  Only `https:`, `http:` and `mailto:` become a `Link`.
+
+#### 15.1h Desktop app, highlight off, mode off
+
+- **Desktop:** prose blocks keep the engine `Markdown` element, which draws native headings,
+  lists and quotes in the app's own type. Tables draw as 14.3 P8. Probe P7 decides whether alerts
+  draw as boxes there; until then an alert draws as the engine draws the quote.
+- **Highlight off:** only the token colours of 14.5 go. Headings, lists, quotes and alerts still
+  draw as 15.1a to 15.1g. This changes criterion 4 of handily-36bsx.1 (open question 2).
+- **Mode off** (`/replies`): the engine draws every reply, as today.
+
+### 15.2 Code blocks
+
+The title line of 9.4 stays: the tag on the left, `[ copy ]` on the right, the code below with no
+frame, so a mouse selection takes only code. New: reply-view colours the code itself for eight
+languages, and folds a long block.
+
+#### 15.2a 80 columns: TypeScript
+
+```text
+● The retry wrapper:
+
+  ── ts ────────────────────────────────────────────────────────────  [ copy ]
+  import { Pool } from 'pg'
+
+  // exponential backoff with full jitter
+  export async function connectWithRetry(retries = 5): Promise<PoolClient> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await pool.connect()
+      } catch (err) {
+        if (attempt >= retries) throw err
+        await sleep(Math.random() * 100 * 2 ** attempt)
+      }
+    }
+  }
+```
+
+Colours (the code roles, one table in 15.9):
+
+- keyword (`import`, `export`, `async`, `function`, `for`, `let`, `try`, `return`, `await`,
+  `catch`, `if`, `throw`) `merged`, mocha `#cba6f7`;
+- string `'pg'` `planMode`, mocha `#a6e3a1`; number `5`, `0`, `100`, `2` `claude`, mocha
+  `#fab387`;
+- comment dim + italic, mocha `#9399b2`; a function name before `(` `suggestion`, mocha
+  `#89b4fa`; a type (`Promise`, `PoolClient`, a capitalised name after `:` or `<`) `permission`,
+  mocha `#f9e2af`;
+- punctuation and other names plain; the title line dim, as 9.4.
+
+#### 15.2b 80 columns: shell, coloured like a prompt
+
+```text
+  ── sh ────────────────────────────────────────────────────────────  [ copy ]
+  # Check that the tag exists, then restore the pool size
+  git fetch --tags && git show v2.3.0:config/prod.yaml | grep pool_size
+  sed -i 's/pool_size: 4/pool_size: 32/' config/prod.yaml
+  NODE_ENV=production npm run deploy -- --service "ingest" > deploy.log
+  echo "deployed $(git rev-parse --short HEAD)" ; exit $?
+```
+
+Colours: the command word (`git`, `grep`, `sed`, `npm`, `echo`, `exit`) `suggestion` + bold,
+mocha `#89b4fa`; a flag (`--tags`, `-i`, `--service`) `permission`, mocha `#89dceb`; a string
+`planMode`, mocha `#a6e3a1`; a variable or `$(…)` `merged`, mocha `#cba6f7`; an operator (`&&`,
+`|`, `;`, `>`) `inactive`, mocha `#9399b2`; a comment dim + italic; `NODE_ENV=production` plain.
+
+Notes:
+
+- The command word restarts after `|`, `&&`, `||`, `;` and at each line start, as prismantis
+  does. `VAR=value` before a command is skipped, as simple-view does for its program word.
+- No `$` prompt mark is added, so a mouse selection still pastes as a command. Tags `sh`, `bash`,
+  `zsh`, `shell`, `console` and a block with no tag whose first word is a known command draw this
+  way. `fish` and `powershell` go to the engine `Code` element.
+
+#### 15.2c 80 columns: Python, JSON, YAML, Markdown and a diff
+
+```text
+  ── py ────────────────────────────────────────────────────────────  [ copy ]
+  def p95(samples: list[float]) -> float:
+      """The 95th percentile."""
+      return sorted(samples)[int(len(samples) * 0.95)]  # no interpolation
+
+  ── json ──────────────────────────────────────────────────────────  [ copy ]
+  { "service": "ingest", "pool_size": 32, "retry": true, "owner": null }
+
+  ── yaml ──────────────────────────────────────────────────────────  [ copy ]
+  ingest:
+    pool_size: 32        # was 4 in v2.3.1
+    acquire_timeout_ms: 2000
+    hosts: [tanks-db.internal, "tanks-db-2"]
+
+  ── md ────────────────────────────────────────────────────────────  [ copy ]
+  ## Rollback
+  - Restore `pool_size` to **32**; see [the run](https://ci.example.com).
+
+  ── diff ──────────────────────────────────────────────────────────  [ copy ]
+  --- a/config/prod.yaml
+  +++ b/config/prod.yaml
+  @@ -3,3 +3,3 @@ ingest:
+  -  pool_size: 4
+  +  pool_size: 32
+     acquire_timeout_ms: 2000
+```
+
+Colours:
+
+- Python as TypeScript: `def`, `return` keywords; `"""…"""` a string; `# …` a comment; `p95`,
+  `sorted`, `int`, `len` function names before `(`; `list`, `float` types after `:` and `->`.
+- JSON and YAML: a key `suggestion`, mocha `#89b4fa`; a string `planMode`; a number `claude`;
+  `true`, `false`, `null` `merged`; a YAML comment dim + italic.
+- Markdown: `##` and the heading text bold `claude`; `-` `inactive`; `` `pool_size` ``
+  `permission`; `**32**` bold; the link text `suggestion` + underline.
+- Diff: a `+` line `success`, a `-` line `error`, both with their sign as the first character;
+  `@@ … @@` `inactive`; `---` and `+++` bold. These are state keys, kept in every palette.
+- JavaScript (`js`, `javascript`, `mjs`, `cjs`, `jsx`) draws as TypeScript without the type role.
+
+#### 15.2d 80 columns: a block over 20 lines folds
+
+```text
+● Here is the rollup:
+
+  ── ts · 45 lines ─────────────────────────────────────────────────  [ copy ]
+   1  export function rollupHourly(
+   2    readings: Reading[],
+   3  ): Bucket[] {
+   4    const HOUR_MS = 60 * 60 * 1000
+   5    // bucket the readings by tank and hour
+   6    const buckets = new Map<string, Bucket>()
+   7
+   8    for (const r of readings) {
+   9      if (!Number.isFinite(r.level)) continue
+  10      const hour = Math.floor(r.at / HOUR_MS) * HOUR_MS
+  11      const key = `${r.tankId}:${hour}`
+  12      const bucket = buckets.get(key)
+  13      if (bucket === undefined) {
+  14        buckets.set(key, { tankId: r.tankId, hour, sum: r.level, count: 1 })
+  15        continue
+  … 30 more lines                                                    [ more ]
+```
+
+Pressed `[ more ]` (the focus stays on the button, now `[ less ]`):
+
+```text
+  ── ts · 45 lines ─────────────────────────────────────────────────  [ copy ]
+   1  export function rollupHourly(
+   …
+  44    return [...buckets.values()]
+  45  }
+                                                                     [ less ]
+```
+
+Colours: the line numbers dim, mocha `#9399b2`; the code as 15.2a; "… 30 more lines" dim.
+
+Notes:
+
+- A block of more than 20 lines shows its first 15 and a line count with `[ more ]`. The title
+  says "45 lines". A gutter of line numbers shows only on a block that folds (prismantis numbers
+  a folded block too). `[ copy ]` copies the whole block, without the numbers.
+- In the reply fold (30 rows, 9.11), a folded block counts as its title, 15 lines and the count
+  line. So a reply of one 45-line block no longer folds at the reply level.
+- The block remembers its state per reply and block, as the reply fold does (`folds` state, by
+  request id and block key).
+
+#### 15.2e 40 columns (reply 38)
+
+```text
+● The retry wrapper:
+
+  ── ts ────────────────────  [ copy ]
+  export async function connectWithRe    ┊ a line splits at the width (9.9)
+  try(retries = 5): Promise<PoolClien
+  t> {
+
+  ── ts · 45 lines ──────────  [ copy ]
+   1  export function rollupHourly(      ┊ gutter: 4 columns
+   2    readings: Reading[],
+  … 43 more lines              [ more ]
+```
+
+#### 15.2f 30 columns (reply 28): no gutter below 40 columns
+
+```text
+● The fix:
+
+  ── sh ──────────  [ copy ]
+  git fetch --tags && git sho
+  w v2.3.0:config/prod.yaml
+
+  ── ts · 45 lines  [ copy ]   ┊ the title fits: buttons stay on it
+  export function rollupHour   ┊ no gutter under 40
+  ly(
+  … 44 more lines    [ more ]
+```
+
+#### 15.2g 80 columns: edge cases
+
+```text
+● Edge cases:
+
+  ── rust ──────────────────────────────────────────────────────────  [ copy ]
+  fn main() { println!("drawn by the engine Code element"); }
+
+  ────────────────────────────────────────────────────────────────  [ copy ]
+  a block with no tag: plain text, as 9.4
+
+  ── sh ────────────────────────────────────────────────────────────  [ copy ]
+  (empty block)
+
+  code block not closed: it runs to the end of the reply.
+  ── py ────────────────────────────────────────────────────────────  [ copy ]
+  print("the model forgot the closing fence")
+
+  ── json · 3,120 lines ────────────────────────────────────────────  [ copy ]
+  too long to colour: over 2,000 lines, so it draws plain.
+   1  {
+   2    "readings": [
+```
+
+Notes:
+
+- Another language (`rust` here) goes to the engine `Code` element with its `language`, which
+  colours it with the engine's highlighter (`index.d.ts` 1678).
+- An empty block draws its title line and "(empty block)" dim. A block not closed at the end of
+  a complete reply runs to the end, under one dim note.
+- A block of more than 2,000 lines or 100,000 characters draws plain, under one dim note (the
+  engine `Code` limit is 100,000 characters, `index.d.ts` 1666 to 1668).
+- A tab draws as 4 spaces; `[ copy ]` keeps the tab.
+- **Desktop:** every language goes to the engine `Code` element with its `language`, as today; the
+  fold and `[ copy ]` are native buttons.
+
+**Improves on prismantis:** `[ copy ]` exists today and stays. New against prismantis: the
+`N lines` count in the title, a fold that the reply fold accounts for, and the keyboard path
+`/replies copy code` (prismantis: `/prismantis copy code`, the same idea).
+
+### 15.3 Diagrams
+
+**What prismantis does better than 9.5 to 9.7 and 12.5** (`diagrams.png`, `inline-tags.png`,
+`fallback-note.png`):
+
+1. Every box is rounded, and border and label share the box's own colour. 9.x rounds only a
+   `(…)` source shape, and the cycle has 3 colours, so 5 boxes repeat.
+2. A sequence diagram draws its participants at the top and at the bottom, in the same colour.
+3. `**bold**`, `_italic_` and `<u>…</u>` in a label draw as styles.
+4. The fallback note names the size and the remedy ("shorten labels").
+
+handily takes 1 to 4. Decisions keep square corners and `◇`, and notes keep square corners, so
+the shapes still differ with no colour. The cycle grows to 6 colours under the mocha palette; the
+theme cycle stays at 3 keys, because the other theme keys look alike (12.1).
+
+#### 15.3a Flowchart LR, 80 columns (D1 with rounded boxes)
+
+```text
+● The view decides per block:
+
+  ── mermaid · flowchart ──────────────────────────  [ copy ] [ copy drawing ]
+  ╭────────╮   ╭───────╮   ┌──────────┐ yes  ╭─────────╮
+  │ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
+  ╰────────╯   ╰───────╯   └──────────┘  │   ╰─────────╯
+                                         │no ╭────────╮
+                                         └──▶│ Engine │
+                                             ╰────────╯
+```
+
+Colours: Prompt `suggestion` `#89b4fa`, Reply `planMode` `#a6e3a1`, ◇ Table? `merged`
+`#f5c2e7`, Columns `suggestion` / mocha `#fab387`, Engine `planMode` / mocha `#94e2d5`. With the
+theme keys, Columns and Engine repeat the first two keys; under mocha all five differ. Lines
+`inactive` `#9399b2`, heads `claude` `#cba6f7`, "yes" and "no" `inactive` (12.9 answer 3).
+
+#### 15.3b Sequence, 80 columns: the participants at both ends
+
+```text
+● The reply takes three steps:
+
+  ── mermaid · sequence ───────────────────────────  [ copy ] [ copy drawing ]
+  ╭─────╮        ╭────────╮        ╭────────────╮
+  │ You │        │ Claude │        │ reply-view │
+  ╰──┬──╯        ╰────┬───╯        ╰──────┬─────╯
+     │    prompt      │                   │
+     │───────────────▶│                   │
+     │                │    reply text     │
+     │                │──────────────────▶│
+     │  drawn reply   │                   │
+     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
+     │                │                   │──┐ cache by width
+     │                │                   │◀─┘
+     │                │       ┌───────────┴───────────┐
+     │                │       │ layout once per width │
+     │                │       └───────────┬───────────┘
+  ╭──┴──╮        ╭────┴───╮        ╭──────┴─────╮
+  │ You │        │ Claude │        │ reply-view │
+  ╰─────╯        ╰────────╯        ╰────────────╯
+```
+
+Colours: You `suggestion` `#89b4fa`, Claude `planMode` `#a6e3a1`, reply-view `merged` `#f5c2e7`,
+the same at the top and the bottom. Each message line and head takes its sender's colour (this
+replaces the `claude` heads of D2); the direction of the head already says who sends. The note box
+keeps square corners, `inactive`.
+
+Notes: the bottom row repeats when the lifelines are longer than 10 rows, so the names are on
+screen at the end of a long diagram.
+
+#### 15.3c State diagram, 80 columns
+
+```text
+● A task moves through five states:
+
+  ── mermaid · state ──────────────────────────────  [ copy ] [ copy drawing ]
+       ╭────────╮ claimed ╭─────────╮ pass ╭──────╮
+    ●─▶│ Queued │────────▶│ Running │──┬──▶│ Done │─▶◉
+       ╰────────╯         ╰──┬───▲──╯  │   ╰──────╯
+                    asks you │   │     │fail ╭────────╮
+                             │   │     └────▶│ Failed │
+                             ▼   │ answered  ╰────────╯
+                          ╭──────┴──╮
+                          │ Waiting │
+                          ╰─────────╯
+```
+
+Colours: each state its cycle colour, in source order; `●` (start) and `◉` (end) `claude`; lines
+`inactive`; labels "claimed", "asks you", "answered", "pass" and "fail" `inactive`.
+
+Notes: `stateDiagram` and `stateDiagram-v2` draw with the flowchart layout of `hooks/flowchart.ts`:
+a state is a rounded box, `[*]` is `●` at a start and `◉` at an end. As for 9.5, the final lines
+are the lines the code draws for this source. Nested states, `fork`, `join`, `choice` and notes
+do not draw yet, and say so.
+
+#### 15.3d The same state diagram at 40 columns: LR turns TD
+
+```text
+● A task moves through five states:
+
+  ── mermaid · state ─────────────────
+               [ copy ] [ copy drawing ]
+       ●                                 ┊ LR takes 55: it turns TD
+       ▼
+  ╭────────╮
+  │ Queued │
+  ╰────┬───╯
+       │ claimed
+       ▼
+  ╭─────────╮ asks you ╭─────────╮
+  │ Running │─────────▶│ Waiting │
+  │         │◀─────────│         │
+  ╰────┬────╯ answered ╰─────────╯
+     ┌─┴─────────┐
+     │ pass      │ fail
+     ▼           ▼
+  ╭──────╮  ╭────────╮
+  │ Done │  │ Failed │
+  ╰──┬───╯  ╰────────╯
+     ▼
+     ◉
+```
+
+#### 15.3e The same state diagram at 30 columns: too wide, the source with a note
+
+```text
+● A task moves through five
+  states:
+
+  diagram not drawn: it takes  ┊ Running beside Waiting needs 34
+  34 columns, the screen has
+  28. Widen the window or
+  shorten the labels.
+  ── mermaid ───────  [ copy ]
+  stateDiagram-v2
+    [*] --> Queued
+```
+
+#### 15.3f Class diagram, 80 columns
+
+```text
+● Reply-view parses a reply into blocks:
+
+  ── mermaid · class ──────────────────────────────  [ copy ] [ copy drawing ]
+  ╭─────────────────────╮ 1   holds  0..n  ╭──────────────────╮
+  │ Reply               │◆─────────────────│ Block            │
+  ├─────────────────────┤                  ├──────────────────┤
+  │ + text: string      │                  │ + rows(): number │
+  │ + blocks(): Block[] │                  ╰──────────────────╯
+  ╰─────────────────────╯                            △
+                                           ┌─────────┴───────────┐
+                                ╭──────────┴─────────╮   ╭───────┴───────╮
+                                │ Table              │   │ Fence         │
+                                ├────────────────────┤   ├───────────────┤
+                                │ + header: string[] │   │ + tag: string │
+                                ╰────────────────────╯   ╰───────────────╯
+```
+
+Colours: Reply, Block, Table and Fence take cycle colours 1 to 4 (border and name); members
+plain; `◆` (composition) and `△` (inheritance) `claude`; lines `inactive`; "1", "holds" and
+"0..n" `inactive`.
+
+Notes:
+
+- A class draws its name, a rule, and up to 10 members; `+ - # ~` stay as written.
+- `<|--` draws `△` at the parent, `*--` draws `◆` at the owner, `o--` draws `◇`, `-->` draws `▶`,
+  `..>` and `..|>` draw a dashed `╌` line. Cardinalities and labels draw as words beside the line.
+
+#### 15.3g The class diagram at 40 columns: too wide
+
+```text
+● Reply-view parses a reply into
+  blocks:
+
+  diagram not drawn: it takes 42         ┊ TD needs Table beside Fence: 42
+  columns, the screen has 38. Widen
+  the window or shorten the labels.
+  ── mermaid ─────────────────  [ copy ]
+  classDiagram
+    class Reply {
+```
+
+#### 15.3h ER diagram, 80 columns: top to bottom, cardinality as words
+
+```text
+● The session log keeps three tables:
+
+  ── mermaid · er ─────────────────────────────────  [ copy ] [ copy drawing ]
+  ╭─────────────────────╮
+  │ SESSION             │
+  ├─────────────────────┤
+  │ PK id       string  │
+  │    started  date    │
+  ╰──────────┬──────────╯
+             │ 1
+             │ has
+             │ 0..n
+  ╭──────────┴──────────╮
+  │ PROMPT              │
+  ├─────────────────────┤
+  │ PK id       string  │
+  │ FK session  string  │
+  │    text     string  │
+  ╰──────────┬──────────╯
+             │ 1
+             │ runs
+             │ 1..n
+  ╭──────────┴──────────╮
+  │ TOOL_CALL           │
+  ├─────────────────────┤
+  │ PK id       string  │
+  │ FK prompt   string  │
+  │    name     string  │
+  ╰─────────────────────╯
+```
+
+Colours: each entity its cycle colour (border and name); `PK` and `FK` bold; attribute names
+plain, types dim; the line `inactive`; "1", "has", "0..n", "runs", "1..n" `inactive`.
+
+Notes:
+
+- An ER diagram draws top to bottom, one entity under the next, so it fits at 30 columns too.
+- Cardinality draws as words, not crow's feet: `||` "1", `o|` "0..1", `o{` "0..n", `|{` "1..n".
+  A screen reader reads "1 has 0..n"; a crow's foot reads as noise.
+
+#### 15.3i The ER diagram at 30 columns (cut here; it draws whole)
+
+```text
+● The session log keeps three
+  tables:
+
+  ── mermaid · er ───────────
+     [ copy ] [ copy drawing ]
+  ╭─────────────────────╮
+  │ SESSION             │
+  ├─────────────────────┤
+  │ PK id       string  │
+  │    started  date    │
+             │ 1
+             │ has
+             │ 0..n
+  ╭──────────┴──────────╮
+  │ PROMPT              │
+     …                         ┊ cut here; it draws whole
+```
+
+#### 15.3j The notes for the new kinds, 80 columns
+
+```text
+  diagram not drawn: it takes 151 columns, the screen has 78. Widen the
+  window or shorten the labels.
+  diagram not drawn: gantt does not draw yet.
+  diagram not drawn: class Reply has 14 members, at most 10 draw.
+  diagram not drawn: erDiagram line 4: the cardinality }|..|| does not parse.
+  diagram not drawn: state Running holds nested states, which do not draw yet.
+```
+
+Colours: dim, as 9.8. The width note gains its remedy, as prismantis's does.
+
+**Limits** (design.md 4.10 table, new rows): class members 10 per class; ER attributes 12 per
+entity; states 40 (the box limit). **Diagram hints:** the hint text (`register.ts` 41 to 42) names
+the new kinds in the record that adds them.
+
+**Desktop:** every diagram stays in the engine `Code` element, plain, as 12.9 answer 5, until
+probe P7.
+
+### 15.4 Charts
+
+`xychart-beta` bar and line charts and `pie` draw as text from a `mermaid` block (prismantis
+`charts.png`, `pies/bars.png`). A pie draws as one bar per slice; there is no circle in text (14.10
+item 6 and prismantis's own `bars` style).
+
+#### 15.4a Bar chart, 80 columns: vertical bars, each value above its bar
+
+```text
+● p95 jumped at 14:00 and stayed high:
+
+  ── mermaid · bar chart ──────────────────────────  [ copy ] [ copy drawing ]
+  Ingest p95 by hour (ms)
+
+     2500 ┤                           2029    2032
+          │                          ▁▁▁▁▁▁  ▁▁▁▁▁▁   2007
+     2000 ┤                          ██████  ██████  ██████
+          │                          ██████  ██████  ██████
+     1500 ┤                          ██████  ██████  ██████
+          │                          ██████  ██████  ██████
+     1000 ┤                          ██████  ██████  ██████
+          │                          ██████  ██████  ██████
+      500 ┤    45      47      46    ██████  ██████  ██████
+          │  ▁▁▁▁▁▁  ▂▂▂▂▂▂  ▁▁▁▁▁▁  ██████  ██████  ██████
+        0 └─────────────────────────────────────────────────
+            11:00   12:00   13:00   14:00   15:00   16:00
+```
+
+Colours: bars `suggestion`, mocha `#89b4fa`; the tallest bar `claude`, mocha `#fab387`; the
+values above the bars and the axis numbers `planMode`, mocha `#a6e3a1`; the axis `inactive`,
+mocha `#9399b2`; the hours plain; the title bold.
+
+Notes:
+
+- Each bar prints its value, so the tallest is known without its colour.
+- 10 rows of plot. The top of a bar uses the eighth blocks `▁` to `█`, so 2,007 and 2,032 differ.
+- Vertical bars draw when every category label fits under its bar (at most 8 columns a bar) and
+  there are at most 12 bars; else the chart draws horizontally (15.4b).
+
+#### 15.4b Bar chart, 40 columns (reply 38): horizontal bars
+
+```text
+● p95 jumped at 14:00:
+
+  ── mermaid · bar chart ──────────────
+               [ copy ] [ copy drawing ]
+  Ingest p95 by hour (ms)
+  11:00 ▌                             45
+  12:00 ▌                             47
+  13:00 ▌                             46
+  14:00 █████████████████████▉      2029 ┊ eighth blocks part 2,029 and 2,032
+  15:00 ██████████████████████      2032
+  16:00 █████████████████████▋      2007
+        0                      2500      ┊ from 0 to the top tick
+```
+
+#### 15.4c Bar chart, 30 columns (reply 28)
+
+```text
+● p95 jumped at 14:00:
+
+  ── mermaid · bar ──────────
+     [ copy ] [ copy drawing ]
+  Ingest p95 by hour (ms)
+  11:00 ▎                   45 ┊ value column never cuts
+  12:00 ▍                   47
+  13:00 ▍                   46
+  14:00 █████████████▊    2029
+  15:00 █████████████▉    2032
+  16:00 █████████████▋    2007
+```
+
+#### 15.4d Line chart, 80 columns
+
+```text
+● Timeouts follow the p95 jump:
+
+  ── mermaid · line chart ─────────────────────────  [ copy ] [ copy drawing ]
+  Ingest p95 by hour (ms)
+
+     2500 ┤
+          │
+     2000 ┤                            ●───────●───────●
+          │                            │
+     1500 ┤                            │
+          │                            │
+     1000 ┤                            │
+          │                            │
+      500 ┤                            │
+          │                            │
+        0 ┤    ●───────●───────●───────╯
+          └────────────────────────────────────────────────
+             11:00   12:00   13:00   14:00   15:00   16:00
+```
+
+Colours: the line and `●` `suggestion`, mocha `#89b4fa`; axis and numbers as 15.4a.
+
+Notes: a change between two points draws as a step at the next point: `─` along, `╯` or `╮` at
+the turn, `│` up or down, `●` at the value. A second series draws `◆` in the next cycle colour,
+and the legend names both by shape. At 40 columns and below a line chart draws as the horizontal
+bars of 15.4b, with a note "line chart drawn as bars: the screen has 38 columns".
+
+#### 15.4e Two series, 80 columns: the legend by shape
+
+```text
+● p95 and p99 at three hours:
+
+  ── mermaid · bar chart ──────────────────────────  [ copy ] [ copy drawing ]
+  Latency by hour (ms)                                         █ p95   ▒ p99
+  11:00 █▎                                                                    45
+        ▒▒                                                                    80
+  14:00 ██████████████████████████████████████████████████████▍             2029
+        ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒    2400
+  16:00 █████████████████████████████████████████████████████▊              2007
+        ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒      2310
+```
+
+Colours: p95 `█` `suggestion` `#89b4fa`; p99 `▒` `planMode` `#a6e3a1`. The fill shape
+names the series, so a person who cannot tell the colours apart still can (prismantis tells the
+series apart by colour only).
+
+#### 15.4f Pie as bars, 80 columns: largest first, share and value
+
+```text
+● Where the time of a reply goes:
+
+  ── mermaid · pie chart ──────────────────────────  [ copy ] [ copy drawing ]
+  Time per reply stage (ms, 400 in all)
+  Draw   ███████████████████████████████▊                              53% · 212
+  Paint  █████████████████▍                                            29% · 116
+  Parse  ██████████▊                                                   18% ·  72
+```
+
+Colours: each slice its cycle colour in size order; shares and values `planMode`. The label at
+the left names the slice, so the colour carries nothing.
+
+#### 15.4g Pie, 40 and 30 columns
+
+```text
+● Where the time goes:
+
+  ── mermaid · pie chart ──────────────
+               [ copy ] [ copy drawing ]
+  Time per reply stage (ms, 400 in all)
+  Draw   █████████████▊              53% ┊ largest first
+  Paint  ███████▌                    29%
+  Parse  ████▋                       18%
+```
+
+```text
+● Where the time goes:
+
+  ── mermaid · pie ───────────
+     [ copy ] [ copy drawing ]
+  Time per reply stage
+  Draw  █████████          53%
+  Paint ████▉              29%
+  Parse █▊                 10%
+  Netw… █                   6% ┊ a label cuts with …; its share stays
+  Other ▍                   2%
+```
+
+#### 15.4h Below 0, 40 columns: horizontal bars around a 0 line
+
+```text
+● Change against last week (ms):
+
+  ── mermaid · bar chart ──────────────
+               [ copy ] [ copy drawing ]
+  Tue              ┃█████████▋    +120   ┊ ┃ is 0; bars grow left or right
+  Wed       ███████┃               -84
+  Thu              ┃▌               +6
+       -150        0        +150         ┊ the scale is symmetric
+```
+
+#### 15.4i Charts that do not draw, 80 columns
+
+```text
+  chart not drawn: the chart has no values.
+  chart not drawn: line 4: "n/a" is not a number.
+  chart not drawn: 64 bars, at most 40 draw.
+  chart not drawn: a pie slice is below 0.
+  chart not drawn: bar and line series with different scales do not draw yet.
+```
+
+Notes: the source then follows as a code block with `[ copy ]`, as 9.8. `/replies copy chart`
+copies the source of the last chart. **Desktop:** the chart lines go into the engine `Code`
+element, plain, as diagrams do.
+
+### 15.5 The chat layout
+
+`promptStyle` picks how a typed prompt draws: `rule` (today, the default), `bar` or `bubble`.
+`replyStyle` picks `off` (the default) or `frame`. prismantis's default is a bubble on each side.
+
+#### 15.5a 80 columns: rule (today, unchanged but the number)
+
+```text
+── you · 9 · 10:51 ─────────────────────────────────────────────────────────────
+❯ summarize ingest p95 and errors per hour from logs/hourly.csv in a table
+```
+
+Colours: the rule and "you · 9 · 10:51" `suggestion`, as today; the prompt row drawn by the
+engine. New: the prompt number of the 9.12 rail ("9") stands in the label, so the transcript and
+the rail use one number.
+
+#### 15.5b 80 columns: bubble
+
+```text
+                                                                 you · 9 · 10:51
+                               ╭───────────────────────────────────────────────╮
+                               │ summarize ingest p95 and errors per hour from │
+                               │ logs/hourly.csv in a table                    │
+                               ╰───────────────────────────────────────────────╯
+
+● Ingest p95 and errors per hour, from logs/hourly.csv:
+```
+
+Colours: the frame and the label `suggestion`, mocha `#a6e3a1`; the text plain. No fill until
+probe P1 shows that a `Box` `backgroundColor` fills to the frame.
+
+Notes: the bubble is as wide as its longest line plus 4, at most 3/4 of the screen (60 at 80),
+and flush right. The text wraps at words inside it. The label carries the rail number and the
+time.
+
+#### 15.5c 80 columns: bar
+
+```text
+▌ summarize ingest p95 and errors per hour from logs/hourly.csv in a table
+▌ you · 9 · 10:51
+
+● Ingest p95 and errors per hour, from logs/hourly.csv:
+```
+
+Colours: `▌` and the label `suggestion`; the text plain. The bar costs no row above the prompt,
+and the label goes under it.
+
+#### 15.5d 80 columns: replyStyle frame
+
+```text
+╭─ ● Claude ───────────────────────────────────────────────────────────────────╮
+│ Ingest p95 and errors per hour, from logs/hourly.csv:                        │
+│                                                                              │
+│ p95 jumped from 46 ms to 2 s at 14:00, and the timeouts started              │
+│ in the same hour.                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✻ Baked for 6s · done 10:51
+```
+
+Colours: the frame and "● Claude" `claude`, mocha `#fab387`; the footer as 15.7.
+
+Notes: the frame takes 4 columns where the bullet took 2, so every reply loses 2 columns, and a
+mouse selection over several lines takes the `│` on each side. `[ copy reply ]` and `/replies copy
+reply` copy the text without the frame. A reply that calls tools between its sentences draws one
+frame for each text block; only the first carries "● Claude".
+
+#### 15.5e 40 columns: bubble (at most 3/4 of the width: 30)
+
+```text
+                         you · 9 · 10:51 ┊ number and time
+          ╭────────────────────────────╮ ┊ 30 wide: 3/4 of 40
+          │ summarize ingest p95 and   │
+          │ errors per hour from       │
+          │ logs/hourly.csv in a table │
+          ╰────────────────────────────╯
+
+● Ingest p95 and errors per hour:
+```
+
+#### 15.5f 30 columns: a bubble draws as a bar
+
+```text
+▌ summarize ingest p95 and
+▌ errors per hour from
+▌ logs/hourly.csv in a table
+▌ you · 9 · 10:51              ┊ the label under the text
+
+● Ingest p95 and errors per
+  hour:
+```
+
+#### 15.5g 80 columns: a long prompt and an image prompt (bubble)
+
+```text
+                                                                 you · 9 · 10:51
+                                         ╭─────────────────────────────────────╮
+                                         │ Apply this patch and run the        │
+                                         │ tests:                              │
+                                         │ --- a/config/prod.yaml              │
+                                         │ +++ b/config/prod.yaml              │
+                                         │ @@ -3,3 +3,3 @@                     │
+                                         │ … 188 more lines (ctrl+o shows all) │
+                                         ╰─────────────────────────────────────╯
+```
+
+```text
+                                                                        you · 10
+                                              ╭────────────────────────────────╮
+                                              │ [Image #1] what is this panel? │
+                                              ╰────────────────────────────────╯
+```
+
+Notes:
+
+- A bubble or bar shows at most 6 rows: 5 lines of the prompt and "… N more lines (ctrl+o shows
+  all)". ctrl+o (`isExpanded`) draws the engine row in full, as today.
+- A prompt with an image keeps the engine's `[Image #1]` text. A queued prompt shows "you"
+  without a number or time until it is sent.
+- Task notifications, messages of other agents, plugin prompts and slash commands draw as the
+  engine draws them, as today (reply-view README 380 to 383).
+
+**With the prompt rail of 9.12.** The rail jumps by the request id of a `UserMessage` row
+(`$.ui.scroll`). Each style redraws that same row, so a jump lands on the bubble, the bar or the
+rule. The number in the label is the rail number; the rail and the label count the same typed
+prompts.
+
+**Clock.** The time of a prompt shows today when it is known (`submittedAt`, `register.ts`
+262 to 277). It stays, in each style, with no setting. The end time of a turn is in the footer
+(15.7).
+
+**Desktop:** the app draws prompts and replies as it does today, in every style.
+
+### 15.6 Tool rows: what reply-view takes and what simple-view keeps
+
+prismantis redraws tool rows (`tools.png`, `diff-cards.png`, `tools/chat.png`). handily already
+has simple-view for this (section 6, 7.2). Recommended split: **reply-view takes none of the tool
+rows.** It owns `AssistantMessage`, `UserMessage` and `TurnDuration`. simple-view keeps
+`ToolGroup` and the calls; handily-board keeps its `ToolResult` hook.
+
+| prismantis feature | Owner | What to do |
+| --- | --- | --- |
+| One line per call, a verb and its target | simple-view | Has it (section 6) |
+| Group summary, "Ran 3 commands, read 2 files · last: …" | simple-view | Has its own fold (7.2) |
+| Status dot for done, running, failed | simple-view | Has the state as a word; keep the word |
+| The shell command coloured in the row | simple-view | Reuse the shell tokenizer of 15.2b as a byte-identical `hooks/shell.ts`, checked by `scripts/copies.mjs` as `palette.ts` is |
+| Diff cards for edits | simple-view | `[ more ]` on an Edit row opens its diff in the engine `Code` element with `format: 'diff'` (`index.d.ts` 1701) |
+| `toolStyle: chat`, rows right-aligned and dim | none | Skip: it puts the target at the right, which a narrow screen cuts first |
+| `toolOutput: quiet` | simple-view and quiet-items | Have it |
+
+The two simple-view rows are a separate record in simple-view (outside this epic's globs). File
+it as adjacent work.
+
+### 15.7 The turn footer
+
+#### 15.7a 80 columns
+
+```text
+✻ Baked for 6m 20s · done 14:32
+✻ Cogitated for 1h 4m 12s · done 15:36
+✻ Sautéed for 3s
+```
+
+Colours: `✻` and the word dim, as the engine draws them; the duration and the end time
+`planMode`, mocha `#a6e3a1` (prismantis `footer.png` and `clock/turn.png`).
+
+Notes:
+
+- Line 1: a turn of 6 minutes. Line 2: over an hour. Line 3: the end time is not known (a
+  resumed session, or a probe shows no way to join it), so it is left out, never guessed.
+- The duration keeps the engine's format (`3s`, `1m 4s`, `index.d.ts` 10757).
+- The end time is the prompt's `submittedAt` plus `durationMs`, if probe P12 shows that the
+  footer row carries the prompt's request id; else a time kept at `turn.complete`.
+
+#### 15.7b 30 columns: the time goes first
+
+```text
+✻ Baked for 6m 20s · 14:32     ┊ "done" dropped first
+✻ Cogitated for 1h 4m 12s      ┊ still too wide: the time drops
+```
+
+Notes: when the line is wider than the screen, the word "done" drops first; when it is still
+too wide, the end time drops, and the duration always stays.
+While the line waits for background agents (`waitingFor`, `index.d.ts` 10779), or in the ctrl+o
+view (`isExpanded`), the engine draws the line. **Desktop:** the footer is the engine's (the
+terminal draws it; prismantis also skips it elsewhere).
+
+**Merge with handily-0noeh** ("charts from mermaid and a turn footer", open): split it, since it
+holds two releasable parts. Re-parent handily-0noeh under handily-36bsx and narrow it to the
+footer (it keeps its id, its history and its review), and move its pie criterion into the charts
+record of 15.14. Edit the epic first, then the children, so no recorded review goes stale twice.
+
+### 15.8 Side by side: consecutive tables, diagrams and charts
+
+#### 15.8a 120 columns: a table and a chart with no text between them
+
+```text
+● The numbers, then the shape:
+
+  ┌───────┬───────┬──────┐           ── mermaid · bar chart ────  [ copy ] [ copy drawing ]
+  │ Hour  │ p95   │ Errs │           p95 by hour (ms)
+  ╞═══════╪═══════╪══════╡           11:00 ▊                                           45
+  │ 11:00 │    45 │    0 │           14:00 █████████████████████████████████▎        2029
+  ├───────┼───────┼──────┤           15:00 █████████████████████████████████▍        2032
+  │ 14:00 │ 2,029 │   14 │
+  ├───────┼───────┼──────┤
+  │ 15:00 │ 2,032 │   18 │
+  └───────┴───────┴──────┘
+          [ copy ] [ copy as text ]
+```
+
+Colours: the table as 14.3 P1, the chart as 15.4b. 3 columns stand between the blocks.
+
+#### 15.8b 80 columns: the same reply stacks
+
+```text
+● The numbers, then the shape:
+
+  ┌───────┬───────┬──────┐
+  │ Hour  │ p95   │ Errs │
+  ╞═══════╪═══════╪══════╡
+  │ 11:00 │    45 │    0 │
+  ├───────┼───────┼──────┤
+  │ 14:00 │ 2,029 │   14 │
+  ├───────┼───────┼──────┤
+  │ 15:00 │ 2,032 │   18 │
+  └───────┴───────┴──────┘
+          [ copy ] [ copy as text ]
+
+  ── mermaid · bar chart ──────────────────────────  [ copy ] [ copy drawing ]
+  p95 by hour (ms)
+  11:00 █▎                                                                    45
+  14:00 █████████████████████████████████████████████████████▋              2029
+  15:00 █████████████████████████████████████████████████████▋              2032
+```
+
+Notes:
+
+- Blocks share a row when they follow each other with only blank lines between, and their widths
+  plus 3 columns between each fit the reply width. Otherwise the next block starts a new row, as
+  prismantis's `layout.png`. Each block keeps its own title line and buttons.
+- The row is as tall as its tallest block; tops align.
+- In the reply fold, a row counts as its tallest block.
+- `sideBySide` `off` stacks every block (15.10). A terminal screen reader reads a row across both
+  blocks, line by line, so a person who uses one sets it off (15.16).
+- **Desktop:** blocks stack.
+
+### 15.9 Roles and colours: one table for this section
+
+New roles live in `hooks/roles.ts` of reply-view only; the shared `palette.ts` (14.5) is not
+changed. Contrast is against `#1e1e2e`.
+
+| Role | Theme key | catppuccin-mocha | Contrast |
+| --- | --- | --- | --- |
+| H1 box and text, H2 text and `━` | `claude` + bold | `#f9e2af` | 12.9 |
+| H3 | `merged` + bold | `#cba6f7` | 8.1 |
+| Bullets and list numbers, quote bar | `inactive` | `#cba6f7` | 8.1 |
+| Task `[ ]`, rule `───`, chart axis, diagram lines | `inactive` | `#9399b2` | 5.8 |
+| Task `[✓]`, diff `+`, alert Tip | `success` | theme (a state) | — |
+| Diff `-`, alert Caution | `error` | theme (a state) | — |
+| Alert Warning | `warning` | theme (a state) | — |
+| Alert Note, link | `suggestion` | `#89b4fa` | 7.8 |
+| Alert Important | `merged` | `#cba6f7` | 8.1 |
+| Quote text | italic | `#a6adc8` | 7.4 |
+| Code keyword, shell variable, JSON `true` `false` `null` | `merged` | `#cba6f7` | 8.1 |
+| Code string | `planMode` | `#a6e3a1` | 11.0 |
+| Code number | `claude` | `#fab387` | 9.3 |
+| Code comment, gutter numbers | dim (+ italic for comments) | `#9399b2` | 5.8 |
+| Code function, shell command, JSON and YAML key | `suggestion` | `#89b4fa` | 7.8 |
+| Code type | `permission` | `#f9e2af` | 12.9 |
+| Shell flag | `permission` | `#89dceb` | 10.5 |
+| Shell operator | `inactive` | `#9399b2` | 5.8 |
+| Diagram and chart cycle 1 to 6 | `suggestion`, `planMode`, `merged` (3 keys) | `#89b4fa`, `#a6e3a1`, `#f5c2e7`, `#fab387`, `#94e2d5`, `#f9e2af` | 7.8 to 12.9 |
+| Chart values, axis numbers, footer duration and time | `planMode` | `#a6e3a1` | 11.0 |
+| Tallest bar | `claude` | `#fab387` | 9.3 |
+| Prompt rule, bar, bubble | `suggestion` | `#a6e3a1` | 11.0 |
+| Reply frame | `claude` | `#fab387` | 9.3 |
+
+- In the theme keys, a code number and a heading share `claude`, and a type and a shell flag share
+  `permission`; each pair never meets in one block kind. `suggestion` = `permission` in dark
+  themes (12.1), so a code type and a function name look alike there; the `(` after a function
+  tells them apart.
+- On a light theme mocha never draws (14.8 answer 12). `inactive` stays at 5.7:1 or better in
+  every built-in theme (12.1).
+
+### 15.10 Settings
+
+All in `mods/handily-reply-view/.claude-plugin/plugin.json` `userConfig`, beside `mode`,
+`diagrams`, `diagramHints`, `tableStyle` and `highlight`. A stored value outside the options draws
+the default and the debug log names it, as 14.3 P6.
+
+| Key | Options | Default | Description text |
+| --- | --- | --- | --- |
+| `headingStyle` | `banner`, `bold`, `underline`, `uppercase` | `banner` | "How a heading in a reply draws: a box around H1 and a rule under H2 (banner), bold in the heading colour (bold), bold with H1 and H2 underlined (underline), or bold with H1 in capitals (uppercase)." |
+| `promptStyle` | `rule`, `bar`, `bubble` | `rule` | "How a prompt that you type draws: under a rule labelled you (rule), with a bar at its left (bar), or in a frame at the right (bubble). Under 40 columns a bubble draws as a bar." |
+| `replyStyle` | `off`, `frame` | `off` | "Whether a reply draws in a frame labelled Claude (frame) or with its bullet only (off). The frame takes 4 columns." |
+| `sideBySide` | `on`, `off` | `on` | "Whether tables, diagrams and charts that follow each other share a row when they fit (on) or always stack (off)." |
+
+No `taskStyle`, `listMarker`, `pieStyle`, `codeFold` or `clock` setting: each has one look here
+(open question 6).
+
+### 15.11 Commands and keyboard access
+
+| Action | Key or command | Focus and notes |
+| --- | --- | --- |
+| Copy a block of the last reply | `/replies copy code`, `table`, `diagram`, `chart`, `reply` (`chart` is new) | — |
+| Open or close a folded code block or reply | The `[ more ]` and `[ less ]` Buttons; from the keyboard `/replies more` and `/replies less` on the last reply (new, probe P13) | After a press the focus stays on the button, whose label changes |
+| Reach a transcript button | ctrl+x Tab, if probe P14 shows that it reaches transcript Buttons; else the commands above | — |
+| Set the styles | `/config` › handily-reply-view | — |
+| Turn the view off or on | `/replies` (unchanged) | — |
+| Read a diagram, a chart or a table as words | `[ copy ]` (the source), `[ copy as text ]` (tables), `/replies copy …` | A pipe and a screen reader get the source |
+| See the full prompt | ctrl+o, as today | — |
+
+- No action is pointer-only once P13 lands. Until then, a fold needs a click, as today.
+- **A pipe** (`claude -p`) gets the model's markdown; no render hook runs there.
+- **A screen reader** reads the drawn lines. Box glyphs read as noise; every fact is also a word
+  (alert kinds, cardinalities, values, shares, "2 of 5 done").
+- **NO_COLOR** is still unverified (probe P6 of 14.8). Without colour, every element keeps a
+  shape or a word: the H1 box and the `━` rule, `▌`, `[✓]` with strikethrough, the alert word,
+  `+` and `-`, printed values, `█` and `▒`, the rounded and square corners.
+
+### 15.12 Migration (for a person who knows today's layout)
+
+- **Every reply changes.** Short replies are no longer the engine's: headings, lists, quotes and
+  alerts draw in reply-view's look. `/replies` turns the view off for a session, as before.
+- **Headings** gain a box (H1) and a rule (H2). Headings `bold` in `/config` comes closest to
+  today.
+- **Bullets** read `•` `◦` `▪`; numbered lists keep their numbers.
+- **Code** gains its own colours for 8 languages, and a block over 20 lines folds; `[ more ]`
+  opens it. `[ copy ]` stays where it was.
+- **Diagrams** gain rounded boxes and, under mocha, 6 colours; a sequence diagram repeats its
+  names at the bottom. State, class and ER diagrams draw where they showed their source.
+- **Charts** draw where an `xychart-beta` or `pie` block showed its source.
+- **Prompts** keep the `you` rule; the label gains the rail number. Bubble and bar are new options.
+- **The footer** colours its duration and keeps the engine's word.
+- **Side by side** happens only on wide screens; `sideBySide` `off` restores stacking.
+- A prismantis user finds: `headingStyle` (same 4 names), `promptStyle` (`bubble`, `bar`; no
+  `wide` or `chevron`), `replyStyle` (`frame` for `framed`), `tableStyle` `box`; and `/replies
+  copy …` for `/prismantis copy …`.
+
+### 15.13 Engine facts and probes
+
+Facts read in `mods/handily-reply-view/.claude-plugin/types/claude-code/index.d.ts` (2.1.31x, the
+generated types of the main checkout):
+
+| # | Fact | Lines | Used by |
+| --- | --- | --- | --- |
+| 1 | `RenderComponent` lists `AssistantMessage`, `UserMessage`, `TurnDuration`, `ToolUse`, `ToolGroup`, `ToolResult` | 9922 | 15.1, 15.5, 15.6, 15.7 |
+| 2 | `AssistantMessage` has `text`, `isFirstOfReply`, `isSummary`; no streaming flag | 10430 to 10466 (10435, 10439, 10451) | 15.1 |
+| 3 | `UserMessage` has `text` (a rewrite draws up to 100,000 characters), `origin`, `isExpanded`, `task`, `from` | 10371 to 10419 (10380, 10400) | 15.5 |
+| 4 | `TurnDuration` has `word`, `durationMs`, `isExpanded`, `waitingFor`; no end time | 10748 to 10818 (10752, 10757, 10779) | 15.7 |
+| 5 | `TextProps`: `color`, `backgroundColor`, `dimColor`, `italic`, `underline`, `strikethrough`, `inverse`, `wrap`; `size` and `mono` are ignored by the terminal | 13467 to 13532 (13492, 13504, 13519 to 13522) | 15.1 to 15.4 |
+| 6 | `BoxProps`: `flexWrap`, `alignItems`, `justifyContent`, `gap`, `columnGap`, `borderStyle`, `borderColor`, `backgroundColor`; `overflow` has no `scroll` | 928 to 1023 (986, 987, 989, 996, 997, 1017 to 1021) | 15.5, 15.8 |
+| 7 | `Link`: OSC 8 on the terminal, else the text then the URL dim; on a remote surface only `https:` | 10141, `LinkProps` 5835 to 5850 | 15.1a, 15.1g |
+| 8 | `Code`: `language`, `startLine` gutter, `format: 'diff'`, 100,000 characters per drawing | 10153, `CodeProps` 1662 to 1709 | 15.2, 15.6 |
+| 9 | `Markdown` leaf: the surface's own renderer | 10165 | 15.1h |
+| 10 | `ThemeKey` | 13542 | 15.9 |
+| 11 | `$.ui.copy` | 2609 | copy buttons |
+| 12 | The render viewport gives the columns | 10315, `RenderViewport` 11044 | widths |
+
+Probes (tmux from the main session, private `-L` server, as the lane quirks say; P1 to P11 are
+14.8's):
+
+| Probe | Question |
+| --- | --- |
+| P1, P6, P7, P11 | As 14.8: background fill, NO_COLOR, desktop, and whether reply-view's own wrap breaks where the engine's did |
+| P12 | Does the `TurnDuration` render event carry the request id of its turn's prompt, so the end time is `submittedAt + durationMs`? What does the engine print for a turn over an hour (`1h 4m 12s`?) and does its line already end with "done 11:13 AM" (seen on 2.1.295 in `footer.png`)? |
+| P13 | Can `/replies more` find the last reply's request id (the last `AssistantMessage` with `isFirstOfReply` drawn), and does a `folds` state write redraw that row? |
+| P14 | Does ctrl+x Tab move the focus onto Buttons in transcript rows, in fullscreen and outside it? (prismantis: "ctrl+x tab does not reach a hidden button", which implies it reaches an inline one.) |
+| P15 | Can a `Link` sit inside a `Text` with other spans, and does it wrap with the line? |
+| P16 | Does redrawing every short reply at its end flicker or jump the transcript? Compare a 3-line reply with mode on and off, at 80 columns. |
+| P17 | Draw the same TypeScript block through the engine `Code` element and through reply-view spans, side by side, in a dark and a light theme: is the own tokenizer visibly better? (open question 1) |
+| P18 | Does `justifyContent: 'flex-end'` flush a bubble to the right edge in a transcript row, and does a `UserMessage` rewrite keep `onScreen` for the rail? |
+
+### 15.14 Records (scope `mods/handily-reply-view/**` and `changelog.d/<id>.*.md`)
+
+Order: the largest visible change first. Each is releasable alone. Ids are proposals under epic
+handily-36bsx; .1 exists.
+
+**handily-36bsx.2 — headings, lists, task lists, quotes and alerts.** Files: `hooks/markdown.ts`,
+new `hooks/blocks.ts`, new `hooks/roles.ts` (every role of 15.9, data only, with the 6-colour
+cycle), `hooks/draw.ts` (`pieceOf`, `prosePiece`, the cycle read from `roles.ts`), `plugin.json`
+(`headingStyle`), README, new `blocks.test.ts`.
+
+- When a reply holds `#` to `######` headings, they draw in the headingStyle of 15.10, banner by
+  default, and a stored value outside the options draws banner and logs its name.
+- When a list nests, the bullets are `•` `◦` `▪`, each level indents 2, and level 4 or deeper
+  keeps the indent of level 4.
+- When a task list has 3 or more tasks, done ones draw `[✓]` dim and struck through, and a dim
+  "N of M done" line follows.
+- When a quote nests, each level draws its own `▌`.
+- When a quote starts with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, it
+  draws as a box with the kind as a word on its top edge, and under 40 columns as a bar with the
+  word on the first line.
+- When a link's text differs from its address, the host follows it dim; a `javascript:` or
+  `data:` address draws as text and is not a Link.
+- When highlight is off, headings, lists, quotes and alerts still draw as above.
+- When the palette is catppuccin-mocha on a dark theme, diagrams cycle 6 colours; with theme keys,
+  3.
+- When reply-view draws on the desktop, prose blocks go to the engine Markdown element.
+
+**handily-36bsx.3 — diagram shapes for flowchart and sequence.** Files: `hooks/flowchart.ts`,
+`hooks/sequence.ts`, `hooks/ink.ts`, README (diagrams part), new `shapes.test.ts`.
+
+- When a flowchart draws, every box but a decision has rounded corners, and a decision keeps
+  square corners and `◇`.
+- When a sequence diagram's lifelines are longer than 10 rows, the participants draw again at the
+  bottom in the same colours.
+- When a message draws, its line and head take the sender's cycle colour.
+- When a label holds `**bold**`, `_italic_` or `<u>…</u>`, it draws in that style and its width
+  counts without the marks.
+- When a diagram is too wide, the note ends with "Widen the window or shorten the labels."
+
+**handily-0noeh, narrowed — the turn footer.** Files: new `hooks/footer.ts`, `hooks/register.ts`
+(one `ui.render` hook on `TurnDuration`), README, new `footer.test.ts`.
+
+- When a turn ends on the terminal, its line draws the engine's word with the duration and the
+  end time in the number colour.
+- When the end time is not known, the line leaves it out.
+- When the line waits for background agents, or the view is ctrl+o, the engine draws it.
+- When the line is wider than the screen, "done" drops first, then the end time.
+
+**handily-36bsx.4 — code colours and folding.** Files: new `hooks/syntax.ts`, `hooks/draw.ts`
+(`fencePiece`), README, new `syntax.test.ts`. After .2 (both edit `draw.ts`).
+
+- When a fence is tagged ts, js, py, sh, json, yaml, md or diff, or an alias of 15.2, reply-view
+  colours it with the roles of 15.9, and a test pins each token class with a positive control.
+- When a shell line holds `|`, `&&`, `||` or `;`, the command word after it is coloured again.
+- When a fence has another tag, it goes to the engine Code element with that language.
+- When a block has more than 20 lines, it shows its first 15 with numbers and `[ more ]`, and
+  `[ copy ]` copies the whole block without numbers.
+- When a block has more than 2,000 lines or 100,000 characters, it draws plain under one note.
+- When reply-view draws on the desktop, every fence goes to the engine Code element.
+
+**handily-36bsx.5 — prompt bar and bubble.** Files: `hooks/prompt.ts`, `hooks/register.ts`
+(the `UserMessage` hook), `plugin.json` (`promptStyle`), README, new `prompt.test.ts`. After
+0noeh (both edit `register.ts`).
+
+- When promptStyle is rule, the prompt draws as today, and the label carries the rail number.
+- When promptStyle is bubble at 40 columns or more, the prompt draws flush right in a frame at
+  most 3/4 of the width; under 40, as bar.
+- When a prompt has more than 6 lines, bubble and bar show 5 and "N more lines (ctrl+o shows
+  all)".
+- When a rail jump targets the prompt, it lands on the redrawn row (a test with the rail's
+  request id).
+
+**handily-36bsx.6 — bar, line and pie charts.** Files: new `hooks/chart.ts`, `hooks/mermaid.ts`
+(parse `xychart-beta` and `pie`), `hooks/draw.ts` (`drawnDiagram` cases, a new `kinds.ts` table
+so later kinds need no `draw.ts` edit), `register.ts` (`copy chart` and the hint text), README,
+new `chart.test.ts`. After .4.
+
+- When a reply holds an `xychart-beta` bar chart with at most 12 bars that fit, it draws
+  vertically with each value above its bar; else horizontally.
+- When a chart has two series, the second draws `▒` (bars) or `◆` (line), and a legend names both
+  by shape.
+- When a reply holds a mermaid pie block, it draws one bar per slice, largest first, with share
+  and value (from handily-0noeh).
+- When a chart has no values, a value that is not a number, a pie slice below 0, or over 40 bars,
+  it draws as its source under a note that names the reason.
+- When `/replies copy chart` runs, it copies the last chart's source.
+
+**handily-36bsx.7 — state, class and ER diagrams.** Files: new `hooks/state.ts`,
+`hooks/classes.ts`, `hooks/er.ts`, `hooks/mermaid.ts`, `hooks/kinds.ts`, `register.ts` (hint
+text), README, new `kinds.test.ts`. After .6.
+
+- When a reply holds a stateDiagram, it draws with the flowchart layout, `●` for a start and `◉`
+  for an end.
+- When a reply holds a classDiagram, each class draws its name and up to 10 members, with `△`,
+  `◆`, `◇` and `▶` for the relations and their labels as words.
+- When a reply holds an erDiagram, entities draw top to bottom and cardinality draws as 1, 0..1,
+  0..n or 1..n.
+- When a diagram holds nested states, fork, join or choice, it draws as its source under a note.
+
+**handily-36bsx.8 — reply frame.** Files: `hooks/draw.ts` (`withBullet`), `plugin.json`
+(`replyStyle`), README, new `frame.test.ts`. After .6.
+
+- When replyStyle is frame, each text block of a reply draws in a frame, the first with "●
+  Claude", and copy copies no frame character.
+- When the screen is under 40 columns, no frame draws.
+
+**handily-36bsx.9 — side by side.** Files: `hooks/draw.ts` (`replyTree`), `plugin.json`
+(`sideBySide`), README, new `layout.test.ts`. Last.
+
+- When tables, diagrams or charts follow each other with only blank lines between and fit the
+  width with 3 columns between, they share a row with tops aligned; else they wrap.
+- When sideBySide is off, or on the desktop, they stack.
+- When the reply folds, a shared row counts as its tallest block.
+
+**Parallel lanes (at most 3, the person's limit):**
+
+| Wave | Lanes | Code files | Shared |
+| --- | --- | --- | --- |
+| 1 | .2, .3, 0noeh | `markdown`, `blocks`, `roles`, `draw`, `plugin.json` · `flowchart`, `sequence`, `ink` · `footer`, `register` | README only, separate parts |
+| 2 | .4, .5 | `syntax`, `draw` · `prompt`, `register`, `plugin.json` | README; `plugin.json` only in .5 |
+| 3 | .6 | `chart`, `mermaid`, `draw`, `kinds`, `register` | — |
+| 4 | .7, .8 | `state`, `classes`, `er`, `mermaid`, `kinds`, `register` · `draw`, `plugin.json` | `register.ts` only in .7 |
+| 5 | .9 | `draw`, `plugin.json` | — |
+
+- No two lanes of a wave edit the same code file. Each record writes its own test file and its
+  own `changelog.d/<id>.<category>.md`. The README is the one shared file: each record edits its
+  own part, and the second lane to merge rebases it.
+- `reply-view.test.ts` (5,173 lines) stays unchanged by new records, so lanes never collide there.
+  That a mod may hold several `*.test.ts` files is an assumption: check that `claude plugin test`
+  runs every one before wave 1.
+- Every wave waits for handily-36bsx.1, which waits for handily-bktw4.
+
+### 15.15 Decisions (each recommended answer approved on 2026-10-30)
+
+1. **Own tokenizer or the engine `Code` element?** The engine already colours code by language
+   (`index.d.ts` 10153, 1678). Recommend **the own tokenizer for the 8 languages on the
+   terminal**, as the person asked, because only it follows the palette and colours shell like a
+   prompt; probe P17 first, and if the engine's is as good, keep `Code` and colour only `sh`.
+2. **Highlight off: engine Markdown, or only the token colours off?** Criterion 4 of
+   handily-36bsx.1 says engine Markdown. Recommend **only the token colours off**, and edit that
+   criterion before .1 is claimed (a new edit makes its review stale, so record the review
+   again).
+3. **Heading default.** Recommend **banner**, as prismantis: it is the most visible change and
+   reads without colour. `bold` is the quiet choice.
+4. **Prompt default: rule, bar or bubble?** Recommend **rule** (today), with bar and bubble as
+   options. The rule is approved, the rail matches it, and a bubble moves the prompt to the right
+   edge, which a narrow split cuts first. prismantis's default is bubble.
+5. **Reply frame default.** Recommend **off**. It costs 2 more columns on every reply and puts `│`
+   into every mouse selection.
+6. **Fewer settings than prismantis.** Recommend **no** `taskStyle`, `listMarker`, `pieStyle`,
+   `clock` or `diffStyle`: one look each. `listMarker: dash` exists there to paste lists by mouse;
+   `[ copy reply ]` covers that.
+7. **Copy buttons on lists and quotes (prismantis has them).** Recommend **no**: a button row per
+   list doubles the rows of a short reply. `[ copy reply ]` and the commands cover it.
+8. **Footnotes** (`footnotes.png`). Recommend **later**, a small record after .2: superscript marks
+   and notes under a dim rule; no toast on click.
+9. **Side by side default.** Recommend **on**, with `off` named in the README's accessibility
+   part, since a terminal screen reader reads across both blocks.
+10. **Line chart at 40 columns and below.** Recommend **horizontal bars with a note**, because a
+    step line under 20 columns reads poorly.
+11. **The mocha path colour `#cba6f7` now also marks H3, bullets and keywords.** Recommend
+    **keeping it**: each sits in a different place (a path inside a sentence, H3 on its own
+    line, a bullet at the line start), and 14.4 chose it to part paths from inline code.
+
+### 15.16 Failure modes
+
+- **Narrow width.** At 30 columns the H1 box, the alert boxes, the code gutter, the bubble and the
+  reply frame give way, and diagrams wider than 28 columns show their source. Charts go
+  horizontal; long category labels cut with `…`, values never cut.
+- **Long names.** A heading longer than the width wraps inside its box. A diagram label over 16
+  columns cuts to 16 then 12 (4.10). A chart label cuts to its column.
+- **Colour blindness.** Alert kinds keep their word; series keep their fill shape; the tallest
+  bar keeps its printed value; diff lines keep `+` and `-`; done tasks keep `[✓]` and
+  strikethrough. The diagram cycle carries no meaning; labels do.
+- **Look-alike keys.** `suggestion` = `permission` in dark themes, so a code function and a type
+  look alike (15.9). `success` is blue in daltonized themes, so a Tip box and a Note box can look
+  alike; the word tells them apart.
+- **Screen reader.** Box glyphs, `━`, `▌` and bar blocks read as noise. Every fact is also a word
+  or a printed number, and `[ copy ]` gives the source. Side by side interleaves lines across
+  blocks; `sideBySide` `off` fixes it.
+- **A pipe.** `claude -p` prints the markdown; nothing here applies.
+- **NO_COLOR.** Unverified (P6). Shapes and words carry every meaning (15.11).
+- **Mouse selection.** The code gutter and the reply frame enter a selection; `[ copy ]` copies
+  clean text. Bullets and `[✓]` paste as drawn, not as markdown.
+- **Redraw.** Every reply now swaps from the engine's look to reply-view's at its end (14.8 answer
+  1 named this). Probe P16 measures it. If it jumps, the fallback is to redraw short replies only
+  when they hold a block kind of this section.
+- **Wrong parse.** A line such as `1) step` or `* * *` can read as a list or a rule where the
+  engine read text. The parser covers what Claude writes (CommonMark subset, as prismantis's
+  limits say); a fixture of real replies pins it.
+- **False tokens in code.** A hand tokenizer mis-colours an edge case (a regex literal, a nested
+  template string). Colour only; the text is never changed, and `[ copy ]` copies the source.
+- **Secrets.** A link's address can carry `user:pass@` or a `?token=`. The host shown after a link
+  drops any `user:pass@` part. The model's reply text itself is drawn as written; reply-view does
+  not mask it (the model already holds it), and nothing here logs reply text.
+- **Ambiguous-width glyphs.** In a CJK-locale terminal `• ◦ ▪ ▌ ━ ◆ △ ● ◉ ▒ █` may take two columns,
+  and
+  boxes, bars and charts break (12.10).
+- **Light themes.** mocha never draws there; `claude` (H1, H2, numbers in code) is 3.2:1 on white
+  and 2.1:1 in light-daltonized: the H1 box, the `━` rule and bold carry the heading there.
+- **Desktop.** Prose, code, diagrams and charts use engine elements; the look on the desktop
+  changes less than in the terminal, by design, until probe P7.
