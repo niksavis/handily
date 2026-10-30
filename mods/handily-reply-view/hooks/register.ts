@@ -13,13 +13,28 @@ import {
   type CopyLayout,
   type ReplyActions,
 } from './draw'
+import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
+import {
+  addPrompt,
+  clearRail,
+  endTurn,
+  isTurnRunning,
+  newRail,
+  noteCompaction,
+  noteTool,
+  promptsOf,
+  promptTextOf,
+  type Rail,
+} from './rail'
+import { drawRail } from './rail-pane'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
-import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
+import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
 
 const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
+const RAIL_VERSION = { plugin: 'handily-reply-view', key: 'railVersion' } as const
 const HINTS = { plugin: 'handily-reply-view', key: 'hints' } as const
 const HINTS_ARGUMENT = 'hints'
 const COPY_ARGUMENT = 'copy'
@@ -36,7 +51,7 @@ const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
 const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
-  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
 const NO_REPLY_TEXT = 'No reply to copy yet. /replies copy reads the last reply of this session.'
 const DIAGRAM_HINT =
   'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
@@ -183,6 +198,56 @@ async function copyFromReply(
   return copy === null ? noBlockText(word) : copied($, copy, surface)
 }
 
+type RailSite = { rail: Rail; version: number }
+
+async function hasEarlierPrompts($: EngineInterface, current?: string): Promise<boolean> {
+  try {
+    const messages = await $.session.messages()
+    return messages.some(
+      (message) =>
+        message.role === 'user' && message.text.trim() !== '' && message.text !== current,
+    )
+  } catch (error) {
+    logFailure($, 'the transcript was not read for earlier prompts', error)
+    return false
+  }
+}
+
+async function redrawRail($: EngineInterface, site: RailSite): Promise<void> {
+  site.version += 1
+  try {
+    await $.state.set(RAIL_VERSION, site.version)
+  } catch (error) {
+    logFailure($, 'the prompts tab did not draw again', error)
+  }
+}
+
+function railPortOf($: EngineInterface, site: RailSite): RailPort {
+  return {
+    scroll: (requestId) => $.ui.scroll({ to: { requestId }, block: 'start' }),
+    pane: async () => (await $.ui.panes()).find((pane) => pane.id === PROMPTS_PANE.id),
+    open: () => $.ui.open({ ...PROMPTS_PANE, focus: true }),
+    close: () => $.ui.close({ id: PROMPTS_PANE.id }),
+    hasEarlierPrompts: () => hasEarlierPrompts($),
+    showToast: (parts) => {
+      showGlyphToast($, parts)
+    },
+    log: (text) => {
+      $.ui.log(text, { to: 'debug' })
+    },
+    redraw: () => redrawRail($, site),
+  }
+}
+
+type KeptPrompt = { requestId: string; text: string; at: number }
+
+async function keepPrompt($: EngineInterface, site: RailSite, kept: KeptPrompt): Promise<void> {
+  const isFirst = promptsOf(site.rail).length === 0
+  if (!addPrompt(site.rail, kept.requestId, kept.text, kept.at)) return
+  if (isFirst) site.rail.hasEarlier = await hasEarlierPrompts($, kept.text)
+  await redrawRail($, site)
+}
+
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   const { value = 'folded' } = await $.state.get({ plugin: 'handily-reply-view', key: 'folds', id })
   return value
@@ -196,11 +261,12 @@ export const register: Register = (on, options) => {
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
   let lastReply: string | undefined
+  const railSite: RailSite = { rail: newRail(), version: 0 }
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
       description:
-        'handily · Turn the folded view of long replies, tables, code blocks and prompt rules off or on',
+        'handily · Turn the folded view of long replies, tables, code blocks and prompt rules off or on, and move between your prompts',
     })
     await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
@@ -222,6 +288,17 @@ export const register: Register = (on, options) => {
       .trim()
       .split(/\s+/)
       .filter((word) => word !== '')
+    const railCommand = railCommandOf(words)
+    if (railCommand !== undefined) {
+      return {
+        text: await runRailCommand(
+          railSite.rail,
+          railPortOf($, railSite),
+          railCommand,
+          e.presentation.isFullscreen,
+        ),
+      }
+    }
     const [first, second, ...rest] = words
     if (first === undefined) return { text: await toggle($, defaultMode) }
     if (first === HINTS_ARGUMENT && second === undefined) {
@@ -240,14 +317,67 @@ export const register: Register = (on, options) => {
     return { text: USAGE_TEXT }
   })
 
-  on('session.end', async (_$, e, next) => {
+  on('session.end', async ($, e, next) => {
     lastReply = undefined
+    clearRail(railSite.rail)
+    await redrawRail($, railSite)
     return next(e)
   })
 
-  on('turn.complete', async (_$, e, next) => {
+  on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined && e.answer !== '') lastReply = e.answer
+    if (e.agentId === undefined && isTurnRunning(railSite.rail)) {
+      endTurn(railSite.rail, await $.clock.now())
+      await redrawRail($, railSite)
+    }
     return next(e)
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    const hasRun = e.agentId === undefined && result.deny === undefined
+    if (hasRun && noteTool(railSite.rail, e.tool)) await redrawRail($, railSite)
+    return result
+  })
+
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
+      noteCompaction(railSite.rail, await $.clock.now())
+      await redrawRail($, railSite)
+    }
+    return result
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PROMPTS_PANE.id }, async ($, e) => {
+    await $.state.get(RAIL_VERSION)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const glyphs = await paneGlyphs($, e.surface)
+    const port = railPortOf($, railSite)
+    const isFullscreen = e.viewport?.isFullscreen
+    return drawRail(
+      { Box, Text, Button },
+      railSite.rail,
+      {
+        bodyColumns: e.props.bodyColumns,
+        placement: e.props.placement,
+        now: await $.clock.now(),
+        doing: glyphs.doing,
+        blocked: glyphs.blocked,
+      },
+      {
+        jump: (number, requestId) => {
+          void jumpTo(railSite.rail, port, number, isFullscreen, requestId)
+        },
+        showEarlier: () => {
+          railSite.rail.showsEarlier = true
+          void port.redraw()
+        },
+        copy: (prompt) => {
+          void copyText($, prompt.text, 'the prompt', e.surface)
+        },
+      },
+    )
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -264,6 +394,10 @@ export const register: Register = (on, options) => {
     const appendedAt = await $.clock.now()
     const stored = await next(e)
     if (isTyped && stored.uuid !== undefined) {
+      if (stored.message.isMeta !== true) {
+        const text = promptTextOf(stored.message.content)
+        await keepPrompt($, railSite, { requestId: stored.uuid, text, at: appendedAt })
+      }
       try {
         await $.state.set(
           { plugin: 'handily-reply-view', key: 'submittedAt', id: stored.uuid },
