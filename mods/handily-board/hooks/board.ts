@@ -48,6 +48,7 @@ export type PaneUi = {
   notes: () => ReadonlyMap<number, string>
   noteRow: (id: number, note: string | undefined) => void
   countParts: () => Promise<void>
+  keepClock: (isTicking: boolean) => void
 }
 
 function isBoardPane(pane: OpenPane): boolean {

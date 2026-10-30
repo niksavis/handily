@@ -22,7 +22,8 @@ each mod in the list with the bundle:
 ## What /handily prints
 
 `/handily` with no argument prints one line for each mod in the list, in five columns. The only
-argument that it takes is `glyphs` (see "Glyphs" below).
+arguments that it takes are `glyphs` (see "Glyphs" below) and `palette` (see "Palette"
+below).
 
 | Column      | What it shows                                                                   |
 | ----------- | ------------------------------------------------------------------------------- |
@@ -140,6 +141,39 @@ A box, a ? or a moved bar: this terminal has no Nerd Font Mono. Set Glyphs to pl
 A stored value other than `plain` or `nerd` draws plain. `/handily glyphs` names that value on
 its first line. With `nerd`, the board, the files tab and the toasts of every handily mod draw
 the icons in a terminal. The desktop app draws plain (handily-5jdtf).
+
+## Palette
+
+The setting Palette in `/config` under `handily` takes `theme` or `catppuccin-mocha`. The
+default is `theme`.
+
+- `theme`: the colours of your Claude Code theme.
+- `catppuccin-mocha`: fixed colours from Catppuccin Mocha for the frames, the gauge fill and
+  the rules of the board. They draw only on a dark theme. A light theme, or a theme that the
+  mod cannot read, keeps the theme colours.
+
+States always keep the theme keys: done, failed, waits, denied, high gauges and the git
+letters. So the daltonized themes keep working. The desktop app draws the theme colours.
+
+`/handily palette` names the stored value and the theme, then prints each role with its theme
+key and its hex. This is the start of the output with the setting `catppuccin-mocha` on the
+theme `dark`:
+
+```text
+Palette: catppuccin-mocha (stored). Theme: dark, so it draws.
+Role             Theme key    catppuccin-mocha
+session frame    claude       #cba6f7
+tasks frame      planMode     #89b4fa
+agents frame     merged       #f5c2e7
+log frame        inactive     #9399b2
+```
+
+A stored value other than `theme` or `catppuccin-mocha` draws `theme`. `/handily palette`
+names that value on its first line.
+
+The hex values are the colours of
+[Catppuccin Mocha](https://github.com/catppuccin/catppuccin), under the MIT licence. handily
+copies only the colour values, no code.
 
 ## Old plugin ids
 

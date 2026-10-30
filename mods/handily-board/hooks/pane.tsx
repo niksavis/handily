@@ -16,10 +16,20 @@ import {
   planLag,
   runStart,
 } from './activity'
-import { NO_AGENTS, drawAgents, shownNames } from './agent-rows'
+import {
+  type AgentsShown,
+  NO_AGENTS,
+  agentsShown,
+  digitOf,
+  drawAgents,
+  shownNames,
+} from './agent-rows'
 import { type AgentRow, waitingCount } from './agents'
 import type { PaneUi } from './board'
 import type { ContextView } from './breakdown'
+import { drawFamilies } from './checks'
+import { type BoardLog, type LogFilter, drawLog } from './log'
+import type { PaletteSetting } from './palette'
 import { SESSION_DETAILS, drawSessionDetails, hasSessionDetails } from './details'
 import {
   OPEN_ITEMS_SHOWN,
@@ -78,7 +88,15 @@ import {
   titlePart,
 } from './frame'
 import type { RequestFacts } from './request'
-import { drawSessionLines, flatLines, framedLines, sessionIndent } from './session'
+import {
+  RESETS_FROM,
+  type SessionView,
+  drawSessionLines,
+  flatLines,
+  framedLines,
+  sessionIndent,
+  sessionStateParts,
+} from './session'
 import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
 
 const DONE_GROUP = 'group:done'
@@ -94,6 +112,7 @@ export type PaneElements = {
   isInline: boolean
   canFrame: boolean
   signals: SignalLooks
+  palette: PaletteSetting
 }
 
 export type PaneWork = {
@@ -105,6 +124,8 @@ export type PaneWork = {
   request: RequestFacts
   hasTree: boolean
   context: ContextView
+  log: BoardLog
+  inView: string | undefined
 }
 
 type Act = (work: () => Promise<ToastParts | undefined>) => void
@@ -165,6 +186,7 @@ type PaneRow = {
 export type RowLayout = {
   expanded: ReadonlySet<string>
   toggle: (rowKey: string) => void
+  toggleAmong: (rowKey: string, among: readonly string[]) => void
 }
 
 const MORE_LABEL = '…'
@@ -347,17 +369,24 @@ function drawRow(
   return Box({ flexDirection: 'column', children: [line, under, opened] })
 }
 
+function toggled(keys: readonly string[], rowKey: string, among: readonly string[]): string[] {
+  const others = keys.filter((key) => key === rowKey || !among.includes(key))
+  return others.includes(rowKey) ? others.filter((key) => key !== rowKey) : [...others, rowKey]
+}
+
 function rowLayout(host: TaskHost, expanded: readonly string[], act: Act): RowLayout {
+  const edit = (rowKey: string, among: readonly string[]) => {
+    act(async () => {
+      await host.editExpanded((keys) => toggled(keys, rowKey, among))
+      return undefined
+    })
+  }
   return {
     expanded: new Set(expanded),
     toggle: (rowKey) => {
-      act(async () => {
-        await host.editExpanded((keys) =>
-          keys.includes(rowKey) ? keys.filter((key) => key !== rowKey) : [...keys, rowKey],
-        )
-        return undefined
-      })
+      edit(rowKey, [])
     },
+    toggleAmong: edit,
   }
 }
 
@@ -774,13 +803,15 @@ function drawSession(
   }
   const isOpenable = hasSessionDetails(details)
   const isOpen = layout.expanded.has(SESSION_DETAILS)
-  const view = {
+  const view: SessionView = {
     vitals: work.vitals,
     waits: waitingCount(work.agents),
     checks: work.checks,
     request: work.request,
     now: work.now,
     signals: elements.signals,
+    palette: elements.palette,
+    hasResets: elements.bodyColumns >= RESETS_FROM,
   }
   const lines = isFramedHere
     ? framedLines(view, inner.bodyColumns)
@@ -804,9 +835,15 @@ function drawSession(
             isFramedHere ? FRAMED_DETAIL_INDENT : undefined,
           )
         : null,
+    after: drawFamilies(inner, work.checks, details.names, layout, lineRoom(inner, isFramedHere)),
   })
   if (!isFramedHere) return drawn
-  return [drawFrame(elements, 'session', SESSION_LOOK, [titlePart(SESSION_LOOK)], drawn)]
+  const title = [titlePart(SESSION_LOOK, elements.palette)]
+  return [drawFrame(elements, 'session', SESSION_LOOK, title, drawn, sessionStateParts(view))]
+}
+
+function lineRoom(elements: PaneElements, isFramedHere: boolean): number {
+  return elements.bodyColumns - (isFramedHere ? 0 : sessionIndent(elements.isInline))
 }
 
 type HeaderPart = StyledPart
@@ -867,13 +904,14 @@ function summaryParts(list: BoardList, work: PaneWork, signals: SignalLooks): He
   ].filter((part) => part.text !== '')
 }
 
-function headerParts(list: BoardList, work: PaneWork, signals: SignalLooks): HeaderPart[] {
-  return [titlePart(TASKS_LOOK), dimPart('  '), ...summaryParts(list, work, signals)]
+function headerParts(list: BoardList, work: PaneWork, elements: PaneElements): HeaderPart[] {
+  const { signals, palette } = elements
+  return [titlePart(TASKS_LOOK, palette), dimPart('  '), ...summaryParts(list, work, signals)]
 }
 
 function drawHeader(elements: PaneElements, list: BoardList, work: PaneWork): RenderElement {
   const { Box, Text } = elements
-  const parts = headerParts(list, work, elements.signals)
+  const parts = headerParts(list, work, elements)
   return Box({
     key: 'tasks-header',
     flexDirection: 'row',
@@ -970,7 +1008,7 @@ export async function drawPane(
         ...drawTracker(inner, host, await trackerView(host), act, layout),
       ]
   const tasks = isFramedHere
-    ? [drawFrame(elements, 'tasks', TASKS_LOOK, headerParts(list, work, elements.signals), body)]
+    ? [drawFrame(elements, 'tasks', TASKS_LOOK, headerParts(list, work, elements), body)]
     : [drawHeader(elements, list, work), ...body]
   const countParts = () => {
     act(async () => {
@@ -979,6 +1017,14 @@ export async function drawPane(
     })
   }
   if (layout.expanded.has(SESSION_DETAILS) && work.context.isPartsDue) countParts()
+  const shown = agentsShown(elements, work.agents, layout.expanded)
+  ui.keepClock(shown.isCards)
+  const log = {
+    log: work.log,
+    names: shownNames(work.agents),
+    filter: logFilter(work, shown, layout),
+    layout,
+  }
   return Box({
     flexDirection: 'column',
     children: [
@@ -988,8 +1034,29 @@ export async function drawPane(
       ...tasks,
       work.agents.length === 0 && !hasList ? Text({ dimColor: true, children: NO_AGENTS }) : null,
       ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),
+      ...drawLog(elements, log),
       Text({ children: ' ' }),
       drawFooter(elements, host, act),
     ],
   })
+}
+
+function logFilter(work: PaneWork, shown: AgentsShown, layout: RowLayout): LogFilter | undefined {
+  const names = shownNames(work.agents)
+  const index = shown.drawn.findIndex((row) => layout.expanded.has(`agent:${row.id}`))
+  const open = shown.drawn[index]
+  if (open !== undefined) {
+    const name = names.get(open.id) ?? open.shownName
+    const where = shown.isCards ? 'card' : 'row'
+    const digit = digitOf(index)
+    const which = digit === undefined ? `its ${where}` : `${where} ${digit}`
+    return { agentId: open.id, name, why: `only ${name}, while ${which} is open` }
+  }
+  const inView = work.agents.find((row) => row.id === work.inView)
+  if (inView === undefined) return undefined
+  return {
+    agentId: inView.id,
+    name: inView.shownName,
+    why: `only ${inView.shownName}: its transcript is in view`,
+  }
 }

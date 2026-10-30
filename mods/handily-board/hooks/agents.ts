@@ -73,12 +73,14 @@ export type AgentRow = {
   answer: string | null
   plan: readonly BoardTask[] | null
   description: string | null
+  type: string | null
   parentId: string | null
   isParentKnown: boolean
   isSpawnSeen: boolean
   startedAt: number
   ageMs: number
   step: AgentStep | null
+  steps: number
   stall: AgentStall | null
 }
 
@@ -399,12 +401,14 @@ function rowOf(
     answer: agent.answer ?? null,
     plan: plan ?? null,
     description: agent.description === '' ? null : agent.description,
+    type: agent.type,
     parentId: agent.parentId,
     isParentKnown: agent.type !== null,
     isSpawnSeen: agent.isSpawnSeen,
     startedAt: agent.startedAt,
     ageMs: Math.max(endOf(agent, status, now) - agent.startedAt, 0),
     step: null,
+    steps: 0,
     stall: null,
   }
   return { row, rank: look === 'unlisted' && isEnded ? UNLISTED_ENDED_RANK : LOOK_RANKS[look] }
@@ -431,8 +435,16 @@ export function stepOf(
   return { context, output: usage.output_tokens, stopReason: stepped.stopReason }
 }
 
-export function withSteps(rows: readonly AgentRow[], steps: AgentSteps): AgentRow[] {
-  return rows.map((row) => ({ ...row, step: steps.get(row.id) ?? null }))
+export function withSteps(
+  rows: readonly AgentRow[],
+  steps: AgentSteps,
+  counts: ReadonlyMap<string, number>,
+): AgentRow[] {
+  return rows.map((row) => ({
+    ...row,
+    step: steps.get(row.id) ?? null,
+    steps: counts.get(row.id) ?? 0,
+  }))
 }
 
 export function newPulses(): AgentPulses {

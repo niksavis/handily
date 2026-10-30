@@ -1,4 +1,5 @@
-import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
+import type { Color, RenderElement, TextProps } from 'claude-code'
+import { type PaletteRole, type PaletteSetting, paletteColor } from './palette'
 import type { PaneElements } from './pane'
 import { fitParts } from './parts'
 import { cutToWidth, displayWidth } from './width'
@@ -15,20 +16,26 @@ const SIDE_LEFT = '│ '
 const SIDE_RIGHT = ' │'
 const TITLE_GAP = 1
 const EDGE_AT_LEAST = 1
+const END_CHROME = 3
 
 export const FRAME_TITLE_CHROME =
   displayWidth(TOP_LEAD) + TITLE_GAP + EDGE_AT_LEAST + displayWidth(TOP_END)
 
 export type StyledPart = { text: string } & Omit<TextProps, 'children'>
 
-export type SectionLook = { title: string; color: ThemeKey }
+export type SectionLook = { title: string; role: PaletteRole }
 
-export const SESSION_LOOK: SectionLook = { title: 'Session', color: 'claude' }
-export const TASKS_LOOK: SectionLook = { title: 'Tasks', color: 'planMode' }
-export const AGENTS_LOOK: SectionLook = { title: 'Agents', color: 'merged' }
+export const SESSION_LOOK: SectionLook = { title: 'Session', role: 'sessionFrame' }
+export const TASKS_LOOK: SectionLook = { title: 'Tasks', role: 'tasksFrame' }
+export const AGENTS_LOOK: SectionLook = { title: 'Agents', role: 'agentsFrame' }
+export const LOG_LOOK: SectionLook = { title: 'Log', role: 'logFrame' }
 
-export function titlePart(look: SectionLook): StyledPart {
-  return { text: look.title, bold: true, color: look.color }
+export function lookColor(look: SectionLook, palette: PaletteSetting): Color {
+  return paletteColor(look.role, palette)
+}
+
+export function titlePart(look: SectionLook, palette: PaletteSetting): StyledPart {
+  return { text: look.title, bold: true, color: lookColor(look, palette) }
 }
 
 export function isFramed(elements: PaneElements): boolean {
@@ -70,7 +77,7 @@ function chunks(word: string, room: number): string[] {
   return [...parts, rest]
 }
 
-function wrappedText(text: string, room: number): string[] {
+export function wrappedText(text: string, room: number): string[] {
   const lines: string[] = []
   let line = ''
   for (const word of text.split(' ').flatMap((one) => chunks(one, Math.max(room, 1)))) {
@@ -108,7 +115,7 @@ function wrappedLeaf(elements: PaneElements, leaf: RenderElement, room: number):
 
 function sideRow(
   elements: PaneElements,
-  color: ThemeKey,
+  color: Color,
   leaf: RenderElement,
   indent: number,
 ): RenderElement {
@@ -130,7 +137,7 @@ function sideRow(
 
 function framedLines(
   elements: PaneElements,
-  color: ThemeKey,
+  color: Color,
   element: RenderElement,
   indent: number,
 ): RenderElement[] {
@@ -149,29 +156,41 @@ function framedLines(
   return key === undefined ? children : [elements.Box({ key, flexDirection: 'column', children })]
 }
 
+function partsWidth(parts: readonly StyledPart[]): number {
+  return parts.reduce((sum, part) => sum + displayWidth(part.text), 0)
+}
+
 function topEdge(
   elements: PaneElements,
   key: string,
-  color: ThemeKey,
+  color: Color,
   title: readonly StyledPart[],
+  end: readonly StyledPart[],
 ): RenderElement {
   const { Box, Text } = elements
-  const room = elements.bodyColumns - FRAME_TITLE_CHROME
+  const endWidth = end.length === 0 ? 0 : partsWidth(end) + END_CHROME
+  const room = elements.bodyColumns - FRAME_TITLE_CHROME - endWidth
   const shown = fitParts(title, room)
-  const used = shown.reduce((sum, part) => sum + displayWidth(part.text), 0)
-  const fill = room - used + EDGE_AT_LEAST
+  const fill = room - partsWidth(shown) + EDGE_AT_LEAST
+  const edge = `${' '.repeat(TITLE_GAP)}${EDGE.repeat(fill)}`
   return Box({
     key: `${key}-header`,
     flexDirection: 'row',
     children: [
       Text({ color, children: TOP_LEAD }),
       ...drawStyledParts(elements, shown),
-      Text({ color, children: `${' '.repeat(TITLE_GAP)}${EDGE.repeat(fill)}${TOP_END}` }),
+      ...(end.length === 0
+        ? [Text({ color, children: `${edge}${TOP_END}` })]
+        : [
+            Text({ color, children: `${edge} ` }),
+            ...drawStyledParts(elements, end),
+            Text({ color, children: ` ${EDGE}${TOP_END}` }),
+          ]),
     ],
   })
 }
 
-function bottomEdge(elements: PaneElements, color: ThemeKey): RenderElement {
+function bottomEdge(elements: PaneElements, color: Color): RenderElement {
   const edge = EDGE.repeat(Math.max(elements.bodyColumns - 2, 0))
   return elements.Text({ color, children: `${BOTTOM_LEAD}${edge}${BOTTOM_END}` })
 }
@@ -182,16 +201,18 @@ export function drawFrame(
   look: SectionLook,
   title: readonly StyledPart[],
   lines: readonly (RenderElement | null)[],
+  end: readonly StyledPart[] = [],
 ): RenderElement {
+  const color = lookColor(look, elements.palette)
   return elements.Box({
     key: `frame:${key}`,
     flexDirection: 'column',
     children: [
-      topEdge(elements, key, look.color, title),
+      topEdge(elements, key, color, title, end),
       ...lines
         .filter((line) => line !== null)
-        .flatMap((line) => framedLines(elements, look.color, line, 0)),
-      bottomEdge(elements, look.color),
+        .flatMap((line) => framedLines(elements, color, line, 0)),
+      bottomEdge(elements, color),
     ],
   })
 }

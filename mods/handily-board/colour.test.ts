@@ -210,6 +210,11 @@ function numberProp(element: Drawn, name: string): number {
   return typeof value === 'number' ? value : 0
 }
 
+function hotkeyText(element: Drawn): string {
+  const { hotkey, plain } = element.props
+  return plain === true && typeof hotkey === 'string' ? `${hotkey}: ` : ''
+}
+
 function drawnWidth(element: Drawn): number {
   if (element.type === 'Text') return displayWidth(element.text)
   if (element.type === 'Button') {
@@ -217,7 +222,7 @@ function drawnWidth(element: Drawn): number {
       typeof element.props.label === 'string'
         ? element.text.length
         : element.children.reduce((sum, child) => sum + drawnWidth(child), 0)
-    return element.props.plain === true ? label : label + 4
+    return element.props.plain === true ? hotkeyText(element).length + label : label + 4
   }
   const inner =
     typeof element.props.width === 'number'
@@ -234,7 +239,11 @@ function texts(element: Drawn): Drawn[] {
 function screenOf(element: Drawn, width: number): string[] {
   if (element.type === 'Text') return [element.text]
   if (element.type === 'Button') {
-    return [element.props.plain === true ? element.text : `[ ${element.text} ]`]
+    return [
+      element.props.plain === true
+        ? `${hotkeyText(element)}${element.text}`
+        : `[ ${element.text} ]`,
+    ]
   }
   if (element.type === 'Input') {
     return [`[ ${String(element.props.placeholder)} ][${String(element.props.submitLabel)}]`]
@@ -264,6 +273,20 @@ function rowLine(children: readonly Drawn[], width: number): string {
     .join('')
 }
 
+const LOG_TITLE = /^(╭─ )?Log {2}/u
+
+function withoutLog(lines: readonly string[]): string[] {
+  const head = lines.findIndex((line) => LOG_TITLE.test(line))
+  if (head < 0) return [...lines]
+  const isFramed = lines[head]?.startsWith('╭') === true
+  const first = isFramed ? head : head - 1
+  const rest = lines.slice(head + 1)
+  const after = isFramed
+    ? rest.findIndex((line) => line.startsWith('╰')) + 1
+    : rest.findIndex((line) => line === '')
+  return [...lines.slice(0, first), ...lines.slice(head + 1 + Math.max(after, 0))]
+}
+
 async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<string[]> {
   const root = drawnOf(await ui.find({ type: 'Box' }))
   if (root === null) throw new Error('the pane drew no Box')
@@ -271,7 +294,7 @@ async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<s
   for (const line of lines) {
     expect(displayWidth(line) <= columns, `"${line}" is wider than ${String(columns)}`).toBe(true)
   }
-  return lines
+  return withoutLog(lines)
 }
 
 async function screenOn(
@@ -406,12 +429,14 @@ const FRAME_CRITERION =
   'When the board body is 41 columns or more on the terminal, the Session, Tasks and Agents sections each draw in a rounded text frame in their role key, with the section title on the top edge; below 41 columns, inline and on the desktop no frame draws and each title draws bold in its role key'
 
 const FRAMED_41 = [
-  '╭─ Session ─────────────────────────────╮',
-  '│ ctx ▰▰▰▰▰▰▰▱▱▱ 71%                    │',
+  '╭─ Session ───────────────── ▶ working ─╮',
+  '│ ctx ▰▰▰▰▰▰▰▱▱▱ 71% · 142k/200k        │',
   '│ $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │',
-  '│ opus-5-5 · high · accept edits        │',
+  '│ opus-5-5 · high · 1 req · accept edi… │',
   '│ turn 3m · 2 edits · 0 errors · +$0.31 │',
-  '│ gate ▮▮ f2                            │',
+  '│ gate 2 ▮▮                             │',
+  '│ 2 allowed · 0 asked · 0 denied        │',
+  '│ f: file 2  s: shell 0  o: other 0     │',
   '╰───────────────────────────────────────╯',
   '╭─ Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 3m ─────────╮',
   '│ ▶ 2 Build the vitals line   3m [ rm ] │',
@@ -420,7 +445,14 @@ const FRAMED_41 = [
   '│ [ +1 done ]                           │',
   '╰───────────────────────────────────────╯',
   '╭─ Agents  1 ───────────────────────────╮',
-  '│ ▶ scout     running          open  0s │',
+  '│ ╭────────────────╮                    │',
+  '│ │ 1: ▶ scout     │                    │',
+  '│ │ running        │                    │',
+  '│ │ scout the hoo… │                    │',
+  '│ │ gene…l-purpose │                    │',
+  '│ │ ctx —  out —   │                    │',
+  '│ │ 0 steps   0:00 │                    │',
+  '│ ╰────────────────╯                    │',
   '╰───────────────────────────────────────╯',
   '',
   '[ Add a task ][Add]',
@@ -444,9 +476,10 @@ describe(FRAME_CRITERION, () => {
       ] as const
       for (const [key, title, color] of looks) {
         const parts = await coloured(ui, key)
-        const edges = parts.filter((part) => EDGE.test(part.text))
+        const header = await coloured(ui, `${key.slice('frame:'.length)}-header`)
+        const edges = [parts.at(-1), ...header.filter((part) => EDGE.test(part.text))]
         expect(edges.length).toBeGreaterThan(2)
-        expect(new Set(edges.map((part) => part.color))).toEqual(new Set([color]))
+        expect(new Set(edges.map((part) => part?.color))).toEqual(new Set([color]))
         expect(parts.find((part) => part.text === title)).toEqual({
           text: title,
           color,
@@ -456,7 +489,7 @@ describe(FRAME_CRITERION, () => {
       }
       await ui.unmount()
       const wide = await screenOn($, 'terminal', 'dock', 60)
-      expect(wide[0]).toBe(`╭─ Session ${'─'.repeat(48)}╮`)
+      expect(wide[0]).toBe(`╭─ Session ${'─'.repeat(36)} ▶ working ─╮`)
     },
   )
 
@@ -477,7 +510,8 @@ describe(FRAME_CRITERION, () => {
         const ui = await mountTab($, surface, placement, columns)
         const lines = await screen(ui, columns)
         expect(lines.join('\n')).not.toMatch(/[╭╮╰╯│]/u)
-        expect(lines[0]?.startsWith('Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71%')).toBe(true)
+        expect(lines[0]?.startsWith('Session  ▶ working')).toBe(true)
+        expect(lines.join('\n')).toContain('ctx ▰▰▰▰▰▰▰▱▱▱ 71%')
         for (const [key, title, color] of [
           ['session', 'Session', 'claude'],
           ['tasks-header', 'Tasks', 'planMode'],
@@ -498,10 +532,11 @@ describe(FRAME_CRITERION, () => {
       world(on)
       await start($)
       const framed = await screenOn($, 'terminal', 'dock', 41)
-      expect(framed.slice(0, 5)).toEqual([
-        '╭─ Session ─────────────────────────────╮',
+      expect(framed.slice(0, 6)).toEqual([
+        '╭─ Session ──────────────────── ○ idle ─╮',
         '│ ctx — until the first reply           │',
         '│ limits — until the first reply        │',
+        '│ req —                                 │',
         '│ gate no checks yet                    │',
         '╰───────────────────────────────────────╯',
       ])
@@ -509,8 +544,8 @@ describe(FRAME_CRITERION, () => {
       expect(framed.at(-3)).toBe('No agents yet.')
       expect(framed.at(-4)?.startsWith('╰')).toBe(true)
       const flat = await screenOn($, 'desktop', 'dock', 41)
-      expect(flat[0]).toBe('Session  ctx — until the first reply')
-      expect(flat[1]?.startsWith('Tasks')).toBe(true)
+      expect(flat.slice(0, 3)).toEqual(['Session  ○ idle', 'ctx — until the first reply', 'req —'])
+      expect(flat[3]?.startsWith('Tasks')).toBe(true)
       expect(flat).toContain('No agents yet.')
     },
   )
@@ -530,7 +565,7 @@ const GAUGE_VIEWS: readonly {
     placement: 'dock',
     columns: 41,
     lines: [
-      '│ ctx ▰▰▰▰▰▰▰▱▱▱ 71%                    │',
+      '│ ctx ▰▰▰▰▰▰▰▱▱▱ 71% · 142k/200k        │',
       '│ $9.02 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │',
     ],
   },
@@ -538,21 +573,30 @@ const GAUGE_VIEWS: readonly {
     surface: 'desktop',
     placement: 'dock',
     columns: 41,
-    lines: ['Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.02', '5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%'],
+    lines: ['ctx ▰▰▰▰▰▰▰▱▱▱ 71% · 142k/200k · $9.02', '5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%'],
   },
   {
     surface: 'terminal',
     placement: 'dock',
     columns: 30,
-    lines: ['Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71%', '$9.02 · 5h ▰▱▱▱▱ 31% · 7d 13%'],
+    lines: ['ctx ▰▰▰▰▰▰▰▱▱▱ 71% · 142k/200k', '$9.02 · 5h ▰▱▱▱▱ 31% · 7d 13%'],
   },
   {
     surface: 'terminal',
     placement: 'inline',
     columns: 76,
-    lines: ['Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.02 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%'],
+    lines: [
+      'Session  ○ idle · ctx ▰▰▰▰▰▰▰▱▱▱ 71% · 142k/200k · $9.02',
+      '    5h ▰▱▱▱▱ 31% resets 2h · 7d ▱▱▱▱▱ 13% resets 2h',
+    ],
   },
 ]
+
+function readingKey(surface: Surface, placement: 'dock' | 'inline', columns: number): string {
+  return placement === 'inline' || (surface === 'terminal' && columns >= 41)
+    ? 'session'
+    : 'session-more'
+}
 
 describe(GAUGE_CRITERION, () => {
   for (const { surface, placement, columns, lines } of GAUGE_VIEWS) {
@@ -567,7 +611,7 @@ describe(GAUGE_CRITERION, () => {
         const first = shown.findIndex((line) => line.includes('ctx'))
         expect(shown.slice(first, first + lines.length)).toEqual(lines)
         const ui = await mountTab($, surface, placement, columns)
-        const parts = await coloured(ui, 'session')
+        const parts = await coloured(ui, readingKey(surface, placement, columns))
         expect(colourOf(parts, '▰▰▰▰▰▰▰')).toBe('claude')
         expect(colourOf(parts, '▱▱▱')).toBe('subtle')
         expect(parts.find((part) => part.text === '71%')?.dim).toBe(true)
@@ -584,19 +628,20 @@ describe(GAUGE_CRITERION, () => {
       await start($)
       await measure($, 91, 12.4, [limit('five_hour', 84), limit('seven_day', 13)])
       expect((await screenOn($, 'terminal', 'dock', 41)).slice(1, 3)).toEqual([
-        '│ ctx ▰▰▰▰▰▰▰▰▰▱ 91% high               │',
+        '│ ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · 182k/200k   │',
         '│ $12.40 · 5h ▰▰▰▰▱ 84% high · 7d 13%   │',
       ])
-      expect((await screenOn($, 'desktop', 'dock', 41)).slice(0, 2)).toEqual([
-        'Session  ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · $12.40',
-        '5h ▰▰▰▰▱ 84% high · 7d ▱▱▱▱▱ 13%',
+      expect((await screenOn($, 'desktop', 'dock', 41)).slice(0, 3)).toEqual([
+        'Session  ○ idle',
+        'ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · 182k/200k',
+        '$12.40 · 5h ▰▰▰▰▱ 84% high · 7d ▱▱▱▱▱ 13%',
       ])
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
-        const head = await coloured(ui, 'session')
+        const head = await coloured(ui, readingKey(surface, 'dock', 41))
         expect(colourOf(head, '▰▰▰▰▰▰▰▰▰')).toBe('warning')
         expect(colourOf(head, '91% high')).toBe('warning')
-        const money = surface === 'terminal' ? 'session-money' : 'session-more'
+        const money = surface === 'terminal' ? 'session-money' : 'session-more:1'
         const limits = await coloured(ui, money)
         expect(colourOf(limits, '▰▰▰▰')).toBe('warning')
         expect(colourOf(limits, '84% high')).toBe('warning')
@@ -613,9 +658,10 @@ describe(GAUGE_CRITERION, () => {
       await start($)
       await measure($, 19.9, 1, [limit('five_hour', 9), limit('seven_day', 99)])
       for (const surface of SURFACES) {
-        const lines = (await screenOn($, surface, 'inline', 76)).slice(0, 1)
+        const lines = (await screenOn($, surface, 'inline', 76)).slice(0, 2)
         expect(lines).toEqual([
-          'Session  ctx ▰▱▱▱▱▱▱▱▱▱ 20% · $1.00 · 5h ▱▱▱▱▱ 9% · 7d ▰▰▰▰▱ 99% high',
+          'Session  ○ idle · ctx ▰▱▱▱▱▱▱▱▱▱ 20% · 40k/200k · $1.00',
+          '    5h ▱▱▱▱▱ 9% resets 2h · 7d ▰▰▰▰▱ 99% high resets 2h',
         ])
       }
     },
@@ -623,7 +669,7 @@ describe(GAUGE_CRITERION, () => {
 })
 
 const GATE_CRITERION =
-  'When permission checks have run, the Session section shows one cell for each of the last 20 checks, oldest first, the counts of the file family, the shell family and every other tool, and 1 denied in error in place of the counts when a denied check is among the last 20; /board stats lists the same verdicts as words'
+  'When permission checks have run, the Session section shows the total and one cell for each of the last 20 checks, oldest first, a counts row with the verdicts, denied in error, and the counts of the file family, the shell family and every other tool on their Buttons; /board stats lists the same verdicts as words'
 
 async function checksRun($: Engine, seen: World, count: number): Promise<void> {
   seen.verdicts.set('npm test', 'ask')
@@ -646,20 +692,25 @@ describe(GATE_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         const gate = await coloured(ui, 'session-gate')
-        expect(gate.map((part) => part.text).join('')).toBe('gate ▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮ f15 s5 o5')
+        expect(gate.map((part) => part.text).join('')).toBe('gate 25 ▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮')
         expect(colourOf(gate, '▯')).toBe('permission')
         expect(colourOf(gate, '▮▮▮▮')).toBe('success')
-        expect(gate.find((part) => part.text === 'f15 s5 o5')?.dim).toBe(true)
+        const families = await coloured(ui, 'checks-families-row')
+        expect(families.map((part) => [part.text, part.dim])).toEqual([
+          ['file 15', true],
+          ['shell 5', true],
+          ['other 5', true],
+        ])
         await ui.unmount()
       }
       expect(
         (await screenOn($, 'terminal', 'dock', 30)).find((line) => line.startsWith('gate')),
-      ).toBe('gate ▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮')
+      ).toBe('gate 25 ▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮▯▮▮▮▮')
     },
   )
 
   test(
-    'a denied check among the last 20 puts 1 denied in error in place of the counts, and /board stats lists the verdicts as words',
+    'a denied check draws in error in the strip and on the counts row, and /board stats lists the verdicts as words',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
@@ -670,13 +721,15 @@ describe(GATE_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         const gate = await coloured(ui, 'session-gate')
-        expect(gate.map((part) => part.text).join('')).toBe('gate ▯▮▮▮■ 1 denied')
+        expect(gate.map((part) => part.text).join('')).toBe('gate 5 ▯▮▮▮■')
         expect(colourOf(gate, '■')).toBe('error')
-        expect(colourOf(gate, '1 denied')).toBe('error')
+        const counts = await coloured(ui, 'session-verdicts')
+        expect(counts.map((part) => part.text).join('')).toBe('3 allowed · 1 asked · 1 denied')
+        expect(colourOf(counts, '1 denied')).toBe('error')
         await ui.unmount()
       }
       const lines = (await board($, 'stats')).split('\n')
-      expect(lines).toContain('    checks 5 · 3 allowed · 1 asked · 1 denied')
+      expect(lines).toContain('    Checks 5: 3 allowed, 1 asked (the classifier or you), 1 denied.')
       expect(lines).toContain('    file 2 · shell 2 · other 1')
       expect(lines).toContain('    last 5 checks, oldest first: 1 asked, 3 allowed, 1 denied')
     },
@@ -712,7 +765,7 @@ const MODEL_CRITERION =
   'When a main-loop request starts, the Session section shows the model id without a leading claude-, the effort of that request and the permission mode from the latest classic SessionStart, UserPromptSubmit or Stop event; a part with no source is left out'
 
 async function modelLine($: Engine, surface: Surface): Promise<Coloured[] | undefined> {
-  const ui = await mountTab($, surface, 'dock', 41)
+  const ui = await mountTab($, surface, 'dock', 60)
   const found = await ui.find({ key: 'session-request' })
   const parts = found === undefined ? undefined : await coloured(ui, 'session-request')
   await ui.unmount()
@@ -730,10 +783,10 @@ describe(MODEL_CRITERION, () => {
     async ($, on) => {
       world(on)
       await start($)
-      for (const surface of SURFACES) expect(await modelLine($, surface)).toBeUndefined()
+      for (const surface of SURFACES) expect(lineText(await modelLine($, surface))).toBe('req —')
       await mainStep($, 'claude-opus-5-5', 'high')
       for (const surface of SURFACES) {
-        expect(lineText(await modelLine($, surface))).toBe('opus-5-5 · high')
+        expect(lineText(await modelLine($, surface))).toBe('opus-5-5 · high · 1 req')
       }
       const modes = [
         ['SessionStart', 'plan', 'plan', 'planMode'],
@@ -760,7 +813,7 @@ describe(MODEL_CRITERION, () => {
         }
         for (const surface of SURFACES) {
           const parts = await modelLine($, surface)
-          expect(lineText(parts)).toBe(`opus-5-5 · high · ${word}`)
+          expect(lineText(parts)).toBe(`opus-5-5 · high · 1 req · ${word}`)
           expect(colourOf(parts ?? [], word)).toBe(color)
         }
       }
@@ -768,7 +821,7 @@ describe(MODEL_CRITERION, () => {
   )
 
   test(
-    'a model with no effort leaves the effort out, a subagent step and a subagent event change nothing, and a mode alone shows alone',
+    'a model with no effort leaves the effort out, a subagent step and a subagent event change nothing, and a mode before any request shows after req —',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
@@ -778,7 +831,7 @@ describe(MODEL_CRITERION, () => {
         prompt: 'go on',
       })
       for (const surface of SURFACES) {
-        expect(lineText(await modelLine($, surface))).toBe('accept edits')
+        expect(lineText(await modelLine($, surface))).toBe('req — · accept edits')
       }
       await mainStep($, 'haiku-4-5')
       await mainStep($, 'claude-sonnet-5', 'max', SCOUT)
@@ -788,13 +841,13 @@ describe(MODEL_CRITERION, () => {
         agent_id: SCOUT,
       })
       for (const surface of SURFACES) {
-        expect(lineText(await modelLine($, surface))).toBe('haiku-4-5 · accept edits')
+        expect(lineText(await modelLine($, surface))).toBe('haiku-4-5 · 1 req · accept edits')
       }
       const before = seen.redraws
       await mainStep($, 'haiku-4-5')
-      expect(seen.redraws).toBe(before)
-      await mainStep($, 'claude-opus-5-5', 'low')
       expect(seen.redraws).toBe(before + 1)
+      await mainStep($, 'claude-opus-5-5', 'low')
+      expect(seen.redraws).toBe(before + 2)
       expect((await board($, 'stats')).split('\n')).toContain(
         '    model opus-5-5, effort low, mode accept edits',
       )
@@ -813,8 +866,8 @@ describe(MODEL_CRITERION, () => {
         prompt: 'go on',
       })
       for (const surface of SURFACES) {
-        expect(await screenOn($, surface, 'dock', 30)).toContain('opus-5-5 · high · accept edits')
-        expect(await screenOn($, surface, 'dock', 28)).toContain('opus-5-5 · high · accept ed…')
+        expect(await screenOn($, surface, 'dock', 30)).toContain('opus-5-5 · high · 1 req · acc…')
+        expect(await screenOn($, surface, 'dock', 28)).toContain('opus-5-5 · high · 1 req · a…')
       }
     },
   )
@@ -971,11 +1024,11 @@ describe(CALLS_CRITERION, () => {
         expect(underScout(lines)).toEqual(
           surface === 'terminal'
             ? [
-                '│     last calls                        │',
-                '│       ✓ Bash echo ***             20s │',
-                '│       ■ Bash npm test              3s │',
-                '│       ▸ Bash npm run check         3s │',
-                '│     answer: none yet                  │',
+                '│   last calls                          │',
+                '│     ✓ Bash echo ***               20s │',
+                '│     ■ Bash npm test                3s │',
+                '│     ▸ Bash npm run check           3s │',
+                '│   answer: none yet                    │',
               ]
             : [
                 '    last calls',
@@ -1025,7 +1078,7 @@ describe(CALLS_CRITERION, () => {
         const answer = ended.lines.find((line) => line.includes('answer:'))
         expect(bare(answer)).toBe(
           surface === 'terminal'
-            ? 'answer: Two mods read ui.render …'
+            ? 'answer: Two mods read ui.render wi…'
             : 'answer: Two mods read ui.render with…',
         )
         expect(ended.lines.join('\n')).not.toContain(TOKEN)

@@ -56,7 +56,7 @@ export function limitName(limit: SessionRateLimit): string {
   return LIMIT_NAMES[limit.kind] ?? escaped(limit.kind)
 }
 
-function resetsInMs(limit: SessionRateLimit, now: number): number | undefined {
+export function resetsInMs(limit: SessionRateLimit, now: number): number | undefined {
   if (limit.resetsAt === undefined) return undefined
   const at = Date.parse(limit.resetsAt)
   return Number.isFinite(at) ? at - now : undefined
