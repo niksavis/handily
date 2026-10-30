@@ -89,12 +89,10 @@ claude --plugin-dir mods/<name>
 
 ### Lane Dispatch Quirks
 
-- Commit the ledger before you dispatch a worktree lane for a new or reshaped record. An Agent isolation worktree forks from origin/main, not from the local HEAD. Start each lane with `git merge --ff-only main`, so its branch carries the ledger commit and its commit hooks accept the record id.
+- Create each lane with `basicly worktree create <name>`, which puts it at `../handily.worktrees/<name>` on branch `harness/<name>` with `node_modules` and the git hooks in place, and start the agent there without the isolation option of the Agent tool. Commit the ledger first, because the worktree forks from the local HEAD.
 - The Definition of Ready gate reads a `<word>` in an acceptance criterion as a placeholder and counts the criteria as absent. Write the thing by name, such as "the interpreter", not `<interpreter>`.
 - zsh has no `mapfile`. Read lines into an array with `arr=("${(@f)$(command)}")`, and check the count before you use the array.
-- A worktree lane has no `node_modules`, so `npm run check` and the pre-commit hook fail with "Cannot find module typescript/bin/tsc". Link the main checkout's `node_modules` into the lane with an absolute path before the gates, and remove the link after the commit. A relative link breaks the pre-commit snapshot with a bare "basicly hook failed: ValueError".
 - Commit the claim on main before a lane commits. The commit-msg hook reads the committed ledger, so a claim that is only in `pending-main.jsonl` refuses the lane's commit. Then run `git merge --ff-only main` in the lane.
-- A worktree lane has no lefthook runtime. Run `basicly hooks-build --runtime-only` in the lane. Never run `.basicly/bin/lefthook` by hand in a lane, because it rewrites the shared `.git/hooks` launchers to point at the lane.
 - The worktree-isolation guard refuses a tmux prompt in a lane. Run the live tmux check from the main session, on a copy of the lane's mods made with `git archive`.
 - The commit-msg hook refuses `merge:` as a type. It also refuses an apostrophe in the description. Use `chore:` for a merge commit, and write the description without an apostrophe.
 - The Definition of Ready trigger parser ends the situation at the first "I want". So "When I want my list, I want to" reads as an empty situation. Write the situation without "I want". A `<word>` in a comment that the review cites also reads as a placeholder, so write the thing by name there too.
@@ -107,6 +105,8 @@ claude --plugin-dir mods/<name>
 - Stage nothing else while a release is staged. A ledger commit with the staged `CHANGELOG.md` is refused by the changelog gate, because only a `chore(release)` commit may edit it.
 - In a live tmux check, wait for the text "Enter to confirm" before you answer the folder trust prompt, then send Down and Enter apart. A wait that matches `❯` stops on the "No, exit" row, and Enter then quits the session.
 - To test a mod setting in tmux without changing the user settings, start the session with `--settings` and a JSON object that sets `pluginConfigs` under both the plugin name and the name with `@inline`.
+- `basicly worktree cleanup <name>` refuses a merged lane, because the untracked `.basicly/ledger/redirect` and the ignored generated files count as uncommitted changes. Check that the branch is merged, then the person runs it with `--force`.
+- `npm run check` and the pre-commit hook take about 4 minutes. Run them with a 600 second timeout and write the output to a file, because the pipe-status hook refuses a status read after `| tail`.
 
 ### Knowledge Priming
 
