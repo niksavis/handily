@@ -50,6 +50,12 @@
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
     {
+      "name": "handily-tests",
+      "source": "./mods/handily-tests",
+      "version": "0.1.0",
+      "description": "A tests tab that lists each failed test by name with its file, line and assertion diff, read from the vitest, jest, node --test or pytest output of a Bash call. /tests opens it."
+    },
+    {
       "name": "handily-workitems",
       "source": "./mods/handily-workitems",
       "version": "0.8.0",
