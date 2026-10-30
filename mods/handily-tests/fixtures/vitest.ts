@@ -133,3 +133,36 @@ export const VITEST_BROKEN = [
   '   Duration  0.90s (transform 20ms, setup 0ms, collect 0ms, tests 0ms, environment 0ms, prepare 70ms)',
   '',
 ].join('\n')
+
+export const VITEST_SUITE_FAILED = [
+  '',
+  ' RUN  v3.2.4 /work/app',
+  '',
+  ' ❯ src/b.test.ts (0 test)',
+  ' ✓ src/a.test.ts (3 tests) 2ms',
+  '',
+  '⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯',
+  '',
+  ' FAIL  src/b.test.ts [ src/b.test.ts ]',
+  "Error: Cannot find module './b' imported from '/work/app/src/b.test.ts'",
+  ' ❯ src/b.test.ts:2:1',
+  '',
+  '⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯',
+  '',
+  ' Test Files  1 failed | 1 passed (2)',
+  '      Tests  3 passed (3)',
+  '   Start at  10:00:00',
+  '   Duration  1.10s (transform 30ms, setup 0ms, collect 20ms, tests 2ms, environment 0ms, prepare 80ms)',
+  '',
+].join('\n')
+
+export const VITEST_NO_FILES = [
+  '',
+  ' RUN  v3.2.4 /work/app',
+  '',
+  'No test files found, exiting with code 1',
+  '',
+  'include: **/*.{test,spec}.?(c|m)[jt]s?(x)',
+  'exclude:  **/node_modules/**, **/dist/**',
+  '',
+].join('\n')

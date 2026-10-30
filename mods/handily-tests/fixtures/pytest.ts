@@ -80,3 +80,24 @@ export const PYTEST_BROKEN = [
   '!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!',
   '=============================== 1 error in 0.08s ===============================',
 ].join('\n')
+
+export const PYTEST_QUIET_FAILED = [
+  'F...                                                                     [100%]',
+  '=================================== FAILURES ===================================',
+  '____________________________ test_adds_two_numbers _____________________________',
+  '',
+  '    def test_adds_two_numbers():',
+  '>       assert add(2, 3) == 4',
+  'E       assert 5 == 4',
+  'E        +  where 5 = add(2, 3)',
+  '',
+  'tests/test_math.py:12: AssertionError',
+  '=========================== short test summary info ============================',
+  'FAILED tests/test_math.py::test_adds_two_numbers - assert 5 == 4',
+  '1 failed, 3 passed in 0.03s',
+].join('\n')
+
+export const PYTEST_QUIET_PASSED = [
+  '....                                                                     [100%]',
+  '4 passed in 0.01s',
+].join('\n')

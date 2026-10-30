@@ -1,3 +1,4 @@
+import { update } from 'claude-code'
 import type {
   EngineInterface,
   Register,
@@ -15,7 +16,8 @@ import {
   toggleTests,
   unknownReply,
 } from './commands'
-import { bashOutputOf, isTestCommand, outcomeOf } from './output'
+import { isTestCommand } from './command'
+import { bashOutputOf, outcomeOf } from './output'
 import { type PaneActions, type PaneView, TESTS_PANE, drawDock, drawInline } from './pane'
 import {
   type Running,
@@ -130,9 +132,11 @@ async function recordRun(
     tookMs: Math.max(endedAt - startedAt, 0),
     outcome,
   }
-  const runs = await runsOf($)
-  const before = lastVerdict(runs)
-  await $.state.set(RUNS, keptRuns(run, runs))
+  let before: TestsRun | undefined
+  await update($, RUNS, (runs: TestsRuns = []) => {
+    before = lastVerdict(runs)
+    return keptRuns(run, runs)
+  })
   keep.look = newLook(run.id)
   const parts = keep.toasts === 'on' ? runToastParts(run, before) : undefined
   if (parts !== undefined && !(await isTabShown($))) showGlyphToast($, parts)
@@ -314,12 +318,11 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: TESTS_PANE.id }, async ($, e) => {
-    const { Box, Text, Button, Code } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const elements = {
       Box,
       Text,
       Button,
-      Code,
       bodyColumns: e.props.bodyColumns,
       marks: await paneGlyphs($, e.surface),
     }

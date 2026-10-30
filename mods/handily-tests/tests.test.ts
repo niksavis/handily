@@ -1,10 +1,16 @@
 import type { ConfigRow, On, RenderPropsOf, RenderSurface, ToolCallResult } from 'claude-code'
 import { describe, expect, mock, test, type Engine, type MockClock } from 'claude-code/testing'
 import { JEST_ONE_FAILED } from './fixtures/jest'
-import { NODE_SPEC_FAIL } from './fixtures/node'
-import { PYTEST_ONE_FAILED } from './fixtures/pytest'
-import { CARGO_FAILED, LISTING } from './fixtures/unknown'
-import { VITEST_ONE_FAILED, VITEST_PASSED, VITEST_TWO_FAILED } from './fixtures/vitest'
+import { NODE_CALC_FAIL, NODE_SPEC_FAIL } from './fixtures/node'
+import { PYTEST_ONE_FAILED, PYTEST_QUIET_FAILED } from './fixtures/pytest'
+import { CARGO_FAILED, LISTING, MOCHA_PASSED, PASS_LINES } from './fixtures/unknown'
+import {
+  VITEST_NO_FILES,
+  VITEST_ONE_FAILED,
+  VITEST_PASSED,
+  VITEST_SUITE_FAILED,
+  VITEST_TWO_FAILED,
+} from './fixtures/vitest'
 import { displayWidth } from './hooks/width'
 
 const ROOT = '/work/app'
@@ -239,8 +245,10 @@ const ONE_FAILED_SCREEN = [
   RULE_41,
   '■ adds two numbers        math.test.ts:12',
   '    expected 5 to be 4',
-  '    - Expected  4',
-  '    + Received  5',
+  '    - Expected',
+  '    + Received',
+  '    - 4',
+  '    + 5',
   '    [ copy ]',
   '+3 passed',
 ]
@@ -272,19 +280,18 @@ describe('the tests tab lists each failed test by name', () => {
         RULE_41,
         '■ adds two numbers        math.test.js:12',
         '    expect(received).toBe(expected)',
-        '    - Expected  4',
-        '    + Received  5',
+        '    Expected: 4',
+        '    Received: 5',
         '    [ copy ]',
       ])
       await bash($, 'node --test')
-      expect((await screen(ui)).slice(0, 9)).toEqual([
+      expect((await screen(ui)).slice(0, 8)).toEqual([
         'Tests  ■ 2 failed · 2 of 4 passed',
         'node · node --test · 0s ago · 0.0s',
         RULE_41,
         '■ adds two numbers        math.test.mjs:5',
-        '    Expected values to be strictly equal…',
-        '    - Expected  4',
-        '    + Received  5',
+        '    Expected values to be strictly equal:',
+        '    5 !== 4',
         '    [ copy ]',
         '■ parses a table         math.test.mjs:12',
       ])
@@ -295,7 +302,7 @@ describe('the tests tab lists each failed test by name', () => {
         RULE_41,
         '■ test_adds_two_numbers   test_math.py:12',
         '    assert 5 == 4',
-        '      +  where 5 = add(2, 3)',
+        '    +  where 5 = add(2, 3)',
         '    [ copy ]',
       ])
     })
@@ -363,8 +370,10 @@ describe('the tests tab lists each failed test by name', () => {
       '■ adds two numbers',
       '    math.test.ts:12',
       '    expected 5 to be 4',
-      '    - Expected  4',
-      '    + Received  5',
+      '    - Expected',
+      '    + Received',
+      '    - 4',
+      '    + 5',
       '    [ copy ]',
       '+3 passed',
     ])
@@ -384,9 +393,11 @@ describe('the tests tab lists each failed test by name', () => {
       'Tests  ■ 1 failed · 3 of 4 passed · vitest · npm test · 0s ago · 0.0s',
       '■ adds two numbers                             src/math.test.ts:12  [ copy ]',
       '    expected 5 to be 4',
-      '    - Expected  4',
-      '    + Received  5',
+      '    - Expected',
+      '    + Received',
+      '    - 4',
       '+3 passed   Runs: ■ 3/4 0s · ✓ 4/4 0s',
+      '+1 more rows: a dock (fullscreen, 110 columns) shows every run',
     ])
   })
 
@@ -444,7 +455,7 @@ describe('the tests tab lists each failed test by name', () => {
     expect(await ui.find({ key: 'copy' })).toMatchObject({ props: { hotkey: 'y' } })
     await ui.press({ key: 'copy' })
     expect(seen.copies).toEqual([
-      'adds two numbers\nsrc/math.test.ts:12\nexpected 5 to be 4\n- Expected  4\n+ Received  5',
+      'adds two numbers\nsrc/math.test.ts:12\nexpected 5 to be 4\n- Expected\n+ Received\n- 4\n+ 5',
     ])
     expect(seen.toasts).toEqual([expect.stringContaining('✓ Copied the failure')])
     seen.copyRefusal = 'no-clipboard'
@@ -478,6 +489,8 @@ describe('output with no known runner format changes nothing', () => {
         answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
         answer(seen, 'cargo build', failing(CARGO_FAILED))
         answer(seen, 'ls -la', { kind: 'ok', stdout: LISTING })
+        answer(seen, 'npx mocha', { kind: 'ok', stdout: MOCHA_PASSED })
+        answer(seen, './scripts/check-links.sh', failing(PASS_LINES))
         await start($)
         await bash($, 'npm test')
         const ui = await mountTests($, surface)
@@ -486,6 +499,8 @@ describe('output with no known runner format changes nothing', () => {
         const toasts = [...seen.toasts]
         await bash($, 'cargo build')
         await bash($, 'ls -la')
+        await bash($, 'npx mocha')
+        await bash($, './scripts/check-links.sh')
         expect(await screen(ui)).toEqual(before)
         expect(seen.statuses).toEqual(statuses)
         expect(seen.toasts).toEqual(toasts)
@@ -666,8 +681,10 @@ describe('/tests', () => {
         'vitest · npm test · 0s ago · 0.0s',
         '■ adds two numbers  src/math.test.ts:12',
         '    expected 5 to be 4',
-        '    - Expected  4',
-        '    + Received  5',
+        '    - Expected',
+        '    + Received',
+        '    - 4',
+        '    + 5',
       ].join('\n'),
     )
   })
@@ -741,5 +758,175 @@ describe('toasts', () => {
     await start($)
     await bash($, 'npm test')
     expect(seen.toasts).toEqual([])
+  })
+})
+
+function longPlaceRun(): string {
+  return [
+    ' RUN  v3.2.4 /work/app',
+    ' FAIL  packages/markdown-table-renderer/src/parse-markdown-table.test.ts > table > parses a table with a very long header name',
+    'AssertionError: expected 1 to be 2',
+    ' \u{276F} packages/markdown-table-renderer/src/parse-markdown-table.test.ts:120:5',
+    ' Test Files  1 failed (1)',
+    '      Tests  1 failed | 2 passed (3)',
+  ].join('\n')
+}
+
+describe('review repairs', () => {
+  for (const surface of SURFACES) {
+    test(`a node strict equal shows only the lines node printed, with no made-up diff, on the ${surface}`, async ($, on) => {
+      const seen = world(on)
+      answer(seen, 'node --test', failing(NODE_CALC_FAIL))
+      await start($)
+      await bash($, 'node --test')
+      const ui = await mountTests($, surface)
+      expect(await screen(ui)).toEqual([
+        'Tests  ■ 1 failed · 1 of 2 passed',
+        'node · node --test · 0s ago · 0.0s',
+        RULE_41,
+        '■ multiplies two numbers  calc.test.mjs:4',
+        '    Expected values to be strictly equal:',
+        '    6 !== 7',
+        '    [ copy ]',
+        '+1 passed',
+      ])
+      expect(await ui.find({ type: 'Code' })).toBeUndefined()
+    })
+
+    test(`the diff lines draw in the error and success colours on the ${surface}`, async ($, on) => {
+      const seen = world(on)
+      answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
+      await start($)
+      await bash($, 'npm test')
+      const ui = await mountTests($, surface)
+      expect((await ui.find({ type: 'Text', text: '- 4' }))?.props.color).toBe('error')
+      expect((await ui.find({ type: 'Text', text: '+ 5' }))?.props.color).toBe('success')
+    })
+
+    test(
+      `a file that fails to load after a failure shows a failure and no pass toast on the ${surface}`,
+      { options: { toasts: 'on' } },
+      async ($, on) => {
+        const seen = world(on)
+        answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
+        answer(seen, 'npm run test', failing(VITEST_SUITE_FAILED))
+        await start($)
+        await bash($, 'npm test')
+        await bash($, 'npm run test')
+        const ui = await mountTests($, surface)
+        expect((await screen(ui)).slice(0, 5)).toEqual([
+          'Tests  ■ 1 failed · 3 of 4 passed',
+          'vitest · npm run test · 0s ago · 0.0s',
+          RULE_41,
+          '■ src/b.test.ts               b.test.ts:2',
+          "    Error: Cannot find module './b' impo…",
+        ])
+        expect(seen.toasts.join('\n')).not.toContain('pass again')
+        expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+      },
+    )
+
+    test(`pytest -q output fills the tab on the ${surface}`, async ($, on) => {
+      const seen = world(on)
+      answer(seen, 'pytest -q', failing(PYTEST_QUIET_FAILED))
+      await start($)
+      await bash($, 'pytest -q')
+      const ui = await mountTests($, surface)
+      expect((await screen(ui)).slice(0, 5)).toEqual([
+        'Tests  ■ 1 failed · 3 of 4 passed',
+        'pytest · pytest -q · 0s ago · 0.0s',
+        RULE_41,
+        '■ test_adds_two_numbers   test_math.py:12',
+        '    assert 5 == 4',
+      ])
+    })
+
+    test(`vitest that finds no test files shows a run that found no tests on the ${surface}`, async ($, on) => {
+      const seen = world(on)
+      answer(seen, 'npm test', failing(VITEST_NO_FILES))
+      await start($)
+      await bash($, 'npm test')
+      const ui = await mountTests($, surface)
+      expect(await screen(ui)).toEqual([
+        'Tests  ■ vitest found no tests',
+        'No test files found, exiting with code 1',
+      ])
+    })
+
+    for (const [placement, columns] of [
+      ['dock', 30],
+      ['dock', 41],
+      ['inline', 30],
+      ['inline', 41],
+      ['inline', 76],
+    ] as const) {
+      test(`a long place fits beside the name, ${placement} at ${String(columns)} on the ${surface}`, async ($, on) => {
+        const seen = world(on)
+        answer(seen, 'npm test', failing(longPlaceRun()))
+        await start($)
+        await bash($, 'npm test')
+        const ui = await mountTests($, surface, placement, columns)
+        const lines = await screen(ui, columns)
+        const row = lines.find((line) => line.startsWith('■ parses'))
+        expect(row, lines.join('\n')).toBeDefined()
+        if (columns > 30 || placement === 'inline') expect(row).toMatch(/:120/)
+      })
+    }
+
+    test(`a long diff shows 12 lines and names the cut on the ${surface}`, async ($, on) => {
+      const seen = world(on)
+      const diff = Array.from({ length: 20 }, (_, index) => `- line ${String(index + 1)}`)
+      const text = [
+        ' RUN  v3.2.4 /work/app',
+        ' FAIL  src/a.test.ts > a > long',
+        'AssertionError: expected long to equal short',
+        '',
+        ...diff,
+        '',
+        ' \u{276F} src/a.test.ts:3:1',
+        ' Test Files  1 failed (1)',
+        '      Tests  1 failed (1)',
+      ].join('\n')
+      answer(seen, 'npm test', failing(text))
+      await start($)
+      await bash($, 'npm test')
+      const ui = await mountTests($, surface)
+      const lines = await screen(ui)
+      expect(lines.filter((line) => line.startsWith('    - line'))).toHaveLength(12)
+      expect(lines).toContain('    +8 more lines in the transcript')
+    })
+
+    test(`a run of 60 failures keeps 50 and names the cut on the ${surface}`, async ($, on) => {
+      const seen = world(on)
+      const blocks = Array.from({ length: 60 }, (_, index) =>
+        [` FAIL  src/a.test.ts > a > case ${String(index + 1)}`, 'AssertionError: no'].join('\n'),
+      )
+      const text = [
+        ' RUN  v3.2.4 /work/app',
+        ...blocks,
+        ' Test Files  1 failed (1)',
+        '      Tests  60 failed (60)',
+      ].join('\n')
+      answer(seen, 'npm test', failing(text))
+      await start($)
+      await bash($, 'npm test')
+      const ui = await mountTests($, surface)
+      const lines = await screen(ui)
+      expect(lines).toContain('[ +45 more failed ]')
+      expect(lines).toContain('+10 more failures in the transcript')
+    })
+  }
+
+  test('two Bash runs that end together both land in the runs list', async ($, on) => {
+    const seen = world(on)
+    answer(seen, 'npm test', failing(VITEST_ONE_FAILED), 500)
+    answer(seen, 'npm run test', { kind: 'ok', stdout: VITEST_PASSED }, 500)
+    await start($)
+    const first = bash($, 'npm test')
+    const second = bash($, 'npm run test', { agentId: 'agent-1' })
+    await seen.clock.advance(500)
+    await Promise.all([first, second])
+    const ui = await mountTests($, 'terminal')
+    expect(await screen(ui)).toContain('Runs  last 2 of 2')
   })
 })

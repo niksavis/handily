@@ -1,17 +1,22 @@
-import type { TestsFailure } from '../types'
 import {
+  type ReadFailure,
   type Reading,
   type RunnerReader,
   blocksOf,
   countBefore,
+  NO_TEST_RAN,
   dedented,
   linesOf,
   locationIn,
+  printedLines,
   withoutErrorName,
 } from './reading'
 
 const SESSION_HEAD = /^=+ test session starts =+$/m
-const SUMMARY = /^=+ (.+?) in [\d.]+s(?: \([^)]*\))? =+$/
+const SUMMARY = /^(=+ )?(.+?) in [\d.]+s(?: \([^)]*\))?(?: =+)?$/
+const COUNT_WORDS = '(?:failed|passed|skipped|errors?|xfailed|xpassed|warnings?|deselected)'
+const COUNTS = new RegExp(`^\\d+ ${COUNT_WORDS}(?:, \\d+ ${COUNT_WORDS})*$`)
+const NO_TESTS = 'no tests ran'
 const SECTION = /^=+ (.+?) =+$/
 const FAILURES_SECTION = 'FAILURES'
 const ERRORS_SECTION = 'ERRORS'
@@ -20,7 +25,6 @@ const ERROR_LINE = /^E(?:\s|$)(.*)$/
 const LOCATION = /^(\S+?\.py):(\d+): \S/
 const FAILED_LINE = /^FAILED (\S+?)::(\S+?)(?: - .*)?$/
 const INTERRUPTED = /^!+ (Interrupted: .+?) !+$/
-const FULL_DIFF = 'Full diff:'
 
 function sectionLines(lines: readonly string[], name: string): string[] {
   const start = lines.findIndex((line) => SECTION.exec(line)?.[1] === name)
@@ -41,14 +45,7 @@ function filesByName(lines: readonly string[]): Map<string, string> {
   return files
 }
 
-function diffOf(errors: readonly string[]): string[] {
-  const fullAt = errors.findIndex((line) => line.trim() === FULL_DIFF)
-  const explained = (fullAt < 0 ? errors : errors.slice(0, fullAt)).filter((line) => line !== '')
-  const full = fullAt < 0 ? [] : dedented(errors.slice(fullAt + 1))
-  return [...explained.map((line) => ` ${line}`), ...full.filter((line) => line.trim() !== '')]
-}
-
-function failureOf(block: readonly string[], files: ReadonlyMap<string, string>): TestsFailure {
+function failureOf(block: readonly string[], files: ReadonlyMap<string, string>): ReadFailure {
   const [head = '', ...body] = block
   const name = BLOCK_HEAD.exec(head)?.[1] ?? head
   const errors = dedented(
@@ -68,7 +65,7 @@ function failureOf(block: readonly string[], files: ReadonlyMap<string, string>)
     file: file ?? location?.file ?? null,
     line: location?.line ?? null,
     message: withoutErrorName(message.trim()),
-    diff: diffOf(rest),
+    diff: printedLines(rest),
   }
 }
 
@@ -80,16 +77,19 @@ function blocksIn(section: readonly string[]): string[][] {
   )
 }
 
-function brokenReason(lines: readonly string[]): string {
+function brokenReason(lines: readonly string[]): string | undefined {
   const errors = blocksIn(sectionLines(lines, ERRORS_SECTION))
   const firstError = errors
     .flatMap((block) => block.map((line) => ERROR_LINE.exec(line)?.[1]?.trim()))
     .find((line) => line !== undefined && line !== '')
   if (firstError !== undefined) return firstError
-  const interrupted = lines
-    .map((line) => INTERRUPTED.exec(line)?.[1])
-    .find((line) => line !== undefined)
-  return interrupted ?? 'no tests ran'
+  return lines.map((line) => INTERRUPTED.exec(line)?.[1]).find((line) => line !== undefined)
+}
+
+function summaryOf(line: string): string | undefined {
+  const counts = SUMMARY.exec(line)?.[2]
+  if (counts === undefined) return undefined
+  return COUNTS.test(counts) || counts === NO_TESTS ? counts : undefined
 }
 
 function read(text: string): Reading {
@@ -98,9 +98,7 @@ function read(text: string): Reading {
   const failures = blocksIn(sectionLines(lines, FAILURES_SECTION)).map((block) =>
     failureOf(block, files),
   )
-  const summary = lines
-    .map((line) => SUMMARY.exec(line)?.[1])
-    .findLast((line) => line !== undefined)
+  const summary = lines.map(summaryOf).findLast((line) => line !== undefined)
   if (summary === undefined) {
     return { kind: 'tests', passed: 0, failed: failures.length, total: 0, failures, isWhole: false }
   }
@@ -112,7 +110,12 @@ function read(text: string): Reading {
     0,
   )
   const ran = passed + countBefore(summary, 'failed') + skipped
-  if (ran === 0) return { kind: 'broken', reason: brokenReason(lines) }
+  if (ran === 0) {
+    const reason = brokenReason(lines)
+    return reason === undefined
+      ? { kind: 'empty', reason: NO_TEST_RAN }
+      : { kind: 'broken', reason }
+  }
   return {
     kind: 'tests',
     passed,
@@ -126,7 +129,6 @@ function read(text: string): Reading {
 export const PYTEST: RunnerReader = {
   runner: 'pytest',
   matches: (text) =>
-    SESSION_HEAD.test(text) ||
-    linesOf(text).some((line) => /\b(?:passed|failed)\b/.test(line) && SUMMARY.test(line)),
+    SESSION_HEAD.test(text) || linesOf(text).some((line) => summaryOf(line) !== undefined),
   read,
 }

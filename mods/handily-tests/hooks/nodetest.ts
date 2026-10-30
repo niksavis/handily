@@ -1,30 +1,27 @@
-import type { TestsFailure } from '../types'
 import {
+  type ReadFailure,
   type Reading,
   type RunnerReader,
   blocksOf,
-  brokenReason,
+  emptyOrBroken,
   dedented,
+  isSamePath,
   linesOf,
   locationIn,
-  primitiveDiff,
+  printedLines,
   withoutErrorName,
 } from './reading'
 
 const SPEC_SUMMARY = /^\u{2139} tests (\d+)$/mu
-const SPEC_RESULT = /^\s*[\u{2714}\u{2716}] .+ \(\d+(?:\.\d+)?m?s\)$/mu
 const SPEC_FAILING = /^\u{2716} failing tests:$/u
 const SPEC_TEST_AT = /^test at (.+)$/
 const SPEC_NAME = /^\u{2716} (.+?) \(\d+(?:\.\d+)?m?s\)$/u
 const TAP_HEAD = /^TAP version \d+$/m
 const TAP_NOT_OK = /^(\s*)not ok \d+ - (.+)$/
+const TAP_DIRECTIVE = / # (?:TODO|SKIP)\b/i
 const LOCATION = /^(?:file:\/\/)?(.+):(\d+):\d+$/
 const STACK_LINE = /^\s+at /
-const DIFF_LEGEND = '+ actual - expected'
-const DIFF_PART = /^[-+] /
 const SUBTESTS_FAILED = 'subtestsFailed'
-
-type Values = { actual: string | undefined; expected: string | undefined }
 
 type Where = { location: string; stack: readonly string[] }
 
@@ -40,50 +37,29 @@ function tapCount(text: string, word: string): number {
   return found === null ? 0 : Number(found[1])
 }
 
-function messageOf(head: string, details: readonly string[]): string {
-  const message = withoutErrorName(head)
-  const [first] = details
-  return message.endsWith(':') && first !== undefined ? `${message} ${first}` : message
-}
-
 function frameLine(stack: readonly string[], file: string): number | undefined {
   for (const line of stack) {
     const frame = FRAME.exec(line)
-    if (frame?.[1]?.endsWith(file) === true) return Number(frame[2])
+    if (frame?.[1] !== undefined && isSamePath(frame[1], file)) return Number(frame[2])
   }
   return undefined
 }
 
-function nodeFailure(
-  name: string,
-  where: Where,
-  errorLines: readonly string[],
-  values: Values,
-): TestsFailure {
+function nodeFailure(name: string, where: Where, errorLines: readonly string[]): ReadFailure {
   const location = locationIn(where.location.trim(), LOCATION)
   const lines = dedented(errorLines)
   const headAt = lines.findIndex((line) => line.trim() !== '')
   const stackAt = lines.findIndex((line) => STACK_LINE.test(line))
-  const body = lines.slice(headAt + 1, stackAt < 0 ? undefined : stackAt).map((line) => line.trim())
-  const diff = body.filter((line) => DIFF_PART.test(line) && line !== DIFF_LEGEND)
-  const details = body.filter((line) => line !== '' && line !== DIFF_LEGEND && !diff.includes(line))
-  const { actual, expected } = values
-  const hasValues = diff.length === 0 && actual !== undefined && expected !== undefined
   return {
     name,
     file: location?.file ?? null,
     line: location === undefined ? null : (frameLine(where.stack, location.file) ?? location.line),
-    message: messageOf((lines[headAt] ?? '').trim(), details),
-    diff: hasValues ? primitiveDiff(expected, actual) : diff,
+    message: withoutErrorName((lines[headAt] ?? '').trim()),
+    diff: printedLines(lines.slice(headAt + 1, stackAt < 0 ? undefined : stackAt)),
   }
 }
 
-function dumpedValue(lines: readonly string[], key: string): string | undefined {
-  const pattern = new RegExp(`^\\s+${key}: (.+?),?$`)
-  return lines.map((line) => pattern.exec(line)?.[1]).find((value) => value !== undefined)
-}
-
-function specFailures(lines: readonly string[]): TestsFailure[] {
+function specFailures(lines: readonly string[]): ReadFailure[] {
   const section = lines.findIndex((line) => SPEC_FAILING.test(line))
   if (section < 0) return []
   const blocks = blocksOf(
@@ -93,9 +69,8 @@ function specFailures(lines: readonly string[]): TestsFailure[] {
   )
   return blocks.map(([head = '', nameLine = '', ...rest]) => {
     const name = SPEC_NAME.exec(nameLine)?.[1] ?? nameLine
-    const values = { actual: dumpedValue(rest, 'actual'), expected: dumpedValue(rest, 'expected') }
     const where = { location: SPEC_TEST_AT.exec(head)?.[1] ?? '', stack: rest }
-    return nodeFailure(name, where, rest, values)
+    return nodeFailure(name, where, rest)
   })
 }
 
@@ -106,7 +81,7 @@ function readSpec(text: string): Reading {
     return { kind: 'tests', passed: 0, failed: failures.length, total: 0, failures, isWhole: false }
   }
   const total = specCount(text, 'tests')
-  if (total === 0) return { kind: 'broken', reason: brokenReason(lines) }
+  if (total === 0) return emptyOrBroken(lines)
   const failed = specCount(text, 'fail') + specCount(text, 'cancelled')
   return { kind: 'tests', passed: specCount(text, 'pass'), failed, total, failures, isWhole: true }
 }
@@ -121,7 +96,8 @@ type YamlBlock = Map<string, string[]>
 function yamlOf(lines: readonly string[]): YamlBlock {
   const fields: YamlBlock = new Map()
   const start = lines.findIndex((line) => line.trim() === '---')
-  const end = lines.findIndex((line) => line.trim() === '...')
+  const fence = (lines[start] ?? '').length - (lines[start] ?? '').trimStart().length
+  const end = lines.findIndex((line, index) => index > start && line === `${' '.repeat(fence)}...`)
   if (start < 0 || end < start) return fields
   const keyIndent = (lines[start + 1] ?? '').length - (lines[start + 1] ?? '').trimStart().length
   let key: string | undefined
@@ -144,7 +120,7 @@ function scalarOf(fields: YamlBlock, key: string): string | undefined {
   return value?.length === 1 ? value[0] : undefined
 }
 
-function tapFailures(lines: readonly string[]): TestsFailure[] {
+function tapFailures(lines: readonly string[]): ReadFailure[] {
   const blocks = blocksOf(
     lines,
     (line) => TAP_NOT_OK.test(line),
@@ -154,11 +130,10 @@ function tapFailures(lines: readonly string[]): TestsFailure[] {
     const fields = yamlOf(rest)
     const type = scalarOf(fields, 'type')
     const isSuite = type === 'suite' || scalarOf(fields, 'failureType') === SUBTESTS_FAILED
-    if (isSuite) return []
     const name = TAP_NOT_OK.exec(head)?.[2] ?? head
-    const values = { actual: scalarOf(fields, 'actual'), expected: scalarOf(fields, 'expected') }
+    if (isSuite || TAP_DIRECTIVE.test(name)) return []
     const where = { location: scalarOf(fields, 'location') ?? '', stack: fields.get('stack') ?? [] }
-    return [nodeFailure(name, where, fields.get('error') ?? [], values)]
+    return [nodeFailure(name, where, fields.get('error') ?? [])]
   })
 }
 
@@ -169,13 +144,13 @@ function readTap(text: string): Reading {
     return { kind: 'tests', passed: 0, failed: failures.length, total: 0, failures, isWhole: false }
   }
   const total = tapCount(text, 'tests')
-  if (total === 0) return { kind: 'broken', reason: brokenReason(lines) }
+  if (total === 0) return emptyOrBroken(lines)
   const failed = tapCount(text, 'fail') + tapCount(text, 'cancelled')
   return { kind: 'tests', passed: tapCount(text, 'pass'), failed, total, failures, isWhole: true }
 }
 
 export const NODE_TEST: RunnerReader = {
   runner: 'node',
-  matches: (text) => TAP_HEAD.test(text) || SPEC_SUMMARY.test(text) || SPEC_RESULT.test(text),
+  matches: (text) => TAP_HEAD.test(text) || SPEC_SUMMARY.test(text),
   read: (text) => (TAP_HEAD.test(text) ? readTap(text) : readSpec(text)),
 }

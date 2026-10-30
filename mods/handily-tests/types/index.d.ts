@@ -6,6 +6,7 @@ export type TestsFailure = {
   line: number | null
   message: string
   diff: readonly string[]
+  cutLines: number
 }
 
 export type TestsOutcome =
@@ -16,9 +17,11 @@ export type TestsOutcome =
       failed: number
       total: number
       failures: readonly TestsFailure[]
+      cutFailures: number
       isCut: boolean
     }
   | { kind: 'broken'; runner: TestsRunner; reason: string }
+  | { kind: 'empty'; runner: TestsRunner; reason: string }
   | { kind: 'interrupted'; runner: TestsRunner | null }
   | { kind: 'background'; runner: null }
   | { kind: 'unreadable'; runner: TestsRunner }

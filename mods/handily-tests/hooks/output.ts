@@ -1,9 +1,10 @@
 import type { ToolCallResult } from 'claude-code'
 import type { TestsFailure, TestsOutcome } from '../types'
+import { isTestCommand } from './command'
 import { JEST } from './jest'
 import { NODE_TEST } from './nodetest'
 import { PYTEST } from './pytest'
-import type { Reading, RunnerReader } from './reading'
+import { type ReadFailure, type Reading, type RunnerReader, normalPath } from './reading'
 import { VITEST } from './vitest'
 
 export type BashOutput = {
@@ -18,9 +19,10 @@ export const READERS: readonly RunnerReader[] = [VITEST, JEST, NODE_TEST, PYTEST
 const INTERRUPTED_MARK = '[Request interrupted by user for tool use]'
 const CUT_MARK = /\n\.\.\. \[\d+ lines truncated\] \.\.\.\s*$/
 const ESCAPE_SEQUENCE = new RegExp(String.raw`\u001B\[[0-9;?]*[ -/]*[@-~]`, 'g')
-const RUNNER_WORD = /(?:^|[\s;&|(/])(?:vitest|jest|pytest|py\.test)(?=$|\s)/
-const NODE_TEST_WORD = /(?:^|[\s;&|(])node\s+(?:\S+\s+)*?--test(?=$|[\s=])/
-const PACKAGE_TEST = /(?:^|[\s;&|(])(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test(?=$|[\s:])/
+
+export const DIFF_LINES = 12
+
+export const FAILURES_KEPT = 50
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null
@@ -32,10 +34,6 @@ function textOf(value: unknown): string {
 
 function withoutEscapes(text: string): string {
   return text.replace(ESCAPE_SEQUENCE, '')
-}
-
-export function isTestCommand(command: string): boolean {
-  return RUNNER_WORD.test(command) || NODE_TEST_WORD.test(command) || PACKAGE_TEST.test(command)
 }
 
 export function bashOutputOf(
@@ -70,11 +68,20 @@ export function readerOf(
   return readers.find((reader) => reader.matches(text))
 }
 
-function relativeFailure(failure: TestsFailure, cwd: string): TestsFailure {
-  const { file } = failure
-  const prefix = cwd.endsWith('/') ? cwd : `${cwd}/`
-  if (file === null || !file.startsWith(prefix)) return failure
-  return { ...failure, file: file.slice(prefix.length) }
+export function relativeFile(file: string | null, cwd: string): string | null {
+  if (file === null) return null
+  const path = normalPath(file)
+  const root = normalPath(cwd).replace(/\/$/, '')
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
+}
+
+function keptFailure(failure: ReadFailure, cwd: string): TestsFailure {
+  return {
+    ...failure,
+    file: relativeFile(failure.file, cwd),
+    diff: failure.diff.slice(0, DIFF_LINES),
+    cutLines: Math.max(failure.diff.length - DIFF_LINES, 0),
+  }
 }
 
 export function testsOutcome(
@@ -84,13 +91,16 @@ export function testsOutcome(
 ): TestsOutcome {
   const { runner } = reader
   if (reading.kind === 'broken') return { kind: 'broken', runner, reason: reading.reason }
+  if (reading.kind === 'empty') return { kind: 'empty', runner, reason: reading.reason }
+  const kept = reading.failures.slice(0, FAILURES_KEPT)
   return {
     kind: 'tests',
     runner,
     passed: reading.passed,
     failed: reading.failed,
     total: reading.total,
-    failures: reading.failures.map((failure) => relativeFailure(failure, site.cwd)),
+    failures: kept.map((failure) => keptFailure(failure, site.cwd)),
+    cutFailures: reading.failures.length - kept.length,
     isCut: site.isCut || !reading.isWhole,
   }
 }

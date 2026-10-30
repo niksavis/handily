@@ -1,27 +1,62 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { JEST_BROKEN, JEST_DEEP_FAILED, JEST_ONE_FAILED } from './fixtures/jest'
-import { NODE_REPO_PASS, NODE_SPEC_FAIL, NODE_TAP_FAIL } from './fixtures/node'
+import {
+  JEST_BROKEN,
+  JEST_COLOURED,
+  JEST_DEEP_FAILED,
+  JEST_ONE_FAILED,
+  JEST_SUITE_FAILED,
+  JEST_SUMMARY_REPEAT,
+} from './fixtures/jest'
+import {
+  NODE_CALC_FAIL,
+  NODE_REPO_PASS,
+  NODE_SPEC_FAIL,
+  NODE_SPEC_WINDOWS,
+  NODE_TAP_FAIL,
+  NODE_TAP_TODO,
+} from './fixtures/node'
 import {
   PYTEST_BROKEN,
   PYTEST_CLASS_FAILED,
   PYTEST_ONE_FAILED,
   PYTEST_PASSED,
+  PYTEST_QUIET_FAILED,
+  PYTEST_QUIET_PASSED,
 } from './fixtures/pytest'
-import { CARGO_FAILED, LISTING } from './fixtures/unknown'
+import { CARGO_FAILED, LISTING, MOCHA_PASSED, PASS_LINES } from './fixtures/unknown'
 import {
   VITEST_BROKEN,
+  VITEST_NO_FILES,
   VITEST_ONE_FAILED,
   VITEST_PASSED,
+  VITEST_SUITE_FAILED,
   VITEST_TWO_FAILED,
 } from './fixtures/vitest'
-import { bashOutputOf, isTestCommand, outcomeOf, readerOf } from './hooks/output'
+import { isTestCommand } from './hooks/command'
+import { bashOutputOf, outcomeOf, readerOf } from './hooks/output'
 
 const SITE = { command: 'npm test', cwd: '/work/app', log: () => undefined }
-const PRIMITIVE = ['- Expected  4', '+ Received  5']
+const VITEST_PRIMITIVE = ['- Expected', '+ Received', '- 4', '+ 5']
+const JEST_PRIMITIVE = ['Expected: 4', 'Received: 5']
 
-function outcome(text: string, command = 'npm test') {
+function outcome(text: string, command = 'npm test', cwd = SITE.cwd) {
   const output = { text, isCut: false, isInterrupted: false, isBackground: false }
-  return outcomeOf(output, { ...SITE, command })
+  return outcomeOf(output, { ...SITE, command, cwd })
+}
+
+function failuresOf(text: string, command = 'npm test', cwd = SITE.cwd) {
+  const read = outcome(text, command, cwd)
+  return read?.kind === 'tests' ? read.failures : undefined
+}
+
+function failure(fields: {
+  name: string
+  file: string | null
+  line: number | null
+  message: string
+  diff: readonly string[]
+}) {
+  return { ...fields, cutLines: 0 }
 }
 
 describe('the runner is found from the output format', () => {
@@ -35,24 +70,36 @@ describe('the runner is found from the output format', () => {
     expect(readerOf(NODE_TAP_FAIL)?.runner).toBe('node')
     expect(readerOf(PYTEST_ONE_FAILED)?.runner).toBe('pytest')
     expect(readerOf(PYTEST_BROKEN)?.runner).toBe('pytest')
+    expect(readerOf(PYTEST_QUIET_FAILED)?.runner).toBe('pytest')
+    expect(readerOf(PYTEST_QUIET_PASSED)?.runner).toBe('pytest')
   })
 
-  test('cargo output and a folder listing match no runner', () => {
-    expect(readerOf(CARGO_FAILED)).toBeUndefined()
-    expect(readerOf(LISTING)).toBeUndefined()
-    expect(outcome(CARGO_FAILED, 'cargo test')).toBeUndefined()
-    expect(outcome(LISTING, 'ls -la')).toBeUndefined()
+  test('cargo, mocha, PASS lines of another tool and a folder listing match no runner', () => {
+    for (const text of [CARGO_FAILED, LISTING, MOCHA_PASSED, PASS_LINES]) {
+      expect(readerOf(text), text).toBeUndefined()
+      expect(outcome(text), text).toBeUndefined()
+    }
   })
 
-  test('the command words that name a test run, and words that do not', () => {
+  test('only a command that runs tests counts as a test command', () => {
     for (const command of [
       'npm test',
       'npm run test',
+      'npm run test:unit',
+      'npm t',
       'pnpm test -- --run',
+      'yarn vitest run',
+      'bun test',
       'npx vitest run',
+      'npx --yes jest src',
       'jest src',
+      './node_modules/.bin/vitest run',
+      'CI=1 vitest run',
       'node --test scripts/*.test.mjs',
+      'node --test-reporter=tap --test',
       'cd app && python -m pytest -k login',
+      'uv run pytest -q',
+      'npm test 2>&1 | tail -40',
     ]) {
       expect(isTestCommand(command), command).toBe(true)
     }
@@ -61,6 +108,13 @@ describe('the runner is found from the output format', () => {
       'git commit -m "add a test"',
       'npm run check',
       'cat test.txt',
+      'npm install -D vitest',
+      'pnpm add -D jest',
+      'pip install pytest',
+      'grep -rn jest src',
+      'rg pytest',
+      'echo vitest',
+      'node scripts/build.mjs',
     ]) {
       expect(isTestCommand(command), command).toBe(false)
     }
@@ -68,7 +122,7 @@ describe('the runner is found from the output format', () => {
 })
 
 describe('vitest', () => {
-  test('reads one failed test by name with its file, line, message and diff', () => {
+  test('reads one failed test with its file, line, message and the diff lines it printed', () => {
     expect(outcome(VITEST_ONE_FAILED)).toEqual({
       kind: 'tests',
       runner: 'vitest',
@@ -76,28 +130,29 @@ describe('vitest', () => {
       failed: 1,
       total: 4,
       isCut: false,
+      cutFailures: 0,
       failures: [
-        {
+        failure({
           name: 'adds two numbers',
           file: 'src/math.test.ts',
           line: 12,
           message: 'expected 5 to be 4',
-          diff: PRIMITIVE,
-        },
+          diff: VITEST_PRIMITIVE,
+        }),
       ],
     })
   })
 
-  test('keeps the whole diff block of a deep equality', () => {
-    const read = outcome(VITEST_TWO_FAILED)
-    expect(read).toMatchObject({ passed: 3, failed: 2, total: 5 })
-    expect(read?.kind === 'tests' ? read.failures[1] : undefined).toEqual({
-      name: 'parses an empty table with a header',
-      file: 'src/table.test.ts',
-      line: 8,
-      message: "expected [] to deeply equal [ '' ]",
-      diff: ['- Expected', '+ Received', '- [', '-   "",', '- ]', '+ []'],
-    })
+  test('keeps the whole diff block of a deep equality as printed', () => {
+    expect(failuresOf(VITEST_TWO_FAILED)?.[1]).toEqual(
+      failure({
+        name: 'parses an empty table with a header',
+        file: 'src/table.test.ts',
+        line: 8,
+        message: "expected [] to deeply equal [ '' ]",
+        diff: ['- Expected', '+ Received', '- [', '-   "",', '- ]', '+ []'],
+      }),
+    )
   })
 
   test('reads a pass and a file that could not load', () => {
@@ -106,6 +161,35 @@ describe('vitest', () => {
       kind: 'broken',
       runner: 'vitest',
       reason: "Error: Cannot find module './math' imported from '/work/app/src/math.test.ts'",
+    })
+  })
+
+  test('a file that fails to load beside passing files counts as a failure, never as a pass', () => {
+    expect(outcome(VITEST_SUITE_FAILED)).toEqual({
+      kind: 'tests',
+      runner: 'vitest',
+      passed: 3,
+      failed: 1,
+      total: 4,
+      isCut: false,
+      cutFailures: 0,
+      failures: [
+        failure({
+          name: 'src/b.test.ts',
+          file: 'src/b.test.ts',
+          line: 2,
+          message: "Error: Cannot find module './b' imported from '/work/app/src/b.test.ts'",
+          diff: [],
+        }),
+      ],
+    })
+  })
+
+  test('No test files found reads as a run that found no tests', () => {
+    expect(outcome(VITEST_NO_FILES)).toEqual({
+      kind: 'empty',
+      runner: 'vitest',
+      reason: 'No test files found, exiting with code 1',
     })
   })
 })
@@ -119,28 +203,28 @@ describe('jest', () => {
       failed: 1,
       total: 4,
       isCut: false,
+      cutFailures: 0,
       failures: [
-        {
+        failure({
           name: 'adds two numbers',
           file: 'src/math.test.js',
           line: 12,
           message: 'expect(received).toBe(expected)',
-          diff: PRIMITIVE,
-        },
+          diff: JEST_PRIMITIVE,
+        }),
       ],
     })
   })
 
   test('keeps the diff lines of a deep equality and leaves out the code frame', () => {
-    const read = outcome(JEST_DEEP_FAILED)
-    expect(read?.kind === 'tests' ? read.failures : undefined).toEqual([
-      {
+    expect(failuresOf(JEST_DEEP_FAILED)).toEqual([
+      failure({
         name: 'parses an empty table',
         file: 'src/table.test.js',
         line: 7,
         message: 'expect(received).toEqual(expected)',
         diff: ['- Expected  - 3', '+ Received  + 1', '- Array [', '-   "",', '- ]', '+ Array []'],
-      },
+      }),
     ])
   })
 
@@ -150,6 +234,47 @@ describe('jest', () => {
       runner: 'jest',
       reason: "Cannot find module './math' from 'src/math.test.js'",
     })
+  })
+
+  test('a suite that failed to run beside a passing suite counts as a failure', () => {
+    expect(outcome(JEST_SUITE_FAILED)).toEqual({
+      kind: 'tests',
+      runner: 'jest',
+      passed: 2,
+      failed: 1,
+      total: 3,
+      isCut: false,
+      cutFailures: 0,
+      failures: [
+        failure({
+          name: 'src/broken.test.js',
+          file: 'src/broken.test.js',
+          line: null,
+          message: "Cannot find module './gone' from 'src/broken.test.js'",
+          diff: [],
+        }),
+      ],
+    })
+  })
+
+  test('lists a failure once when the summary of all failing tests repeats it', () => {
+    expect(failuresOf(JEST_SUMMARY_REPEAT)?.map((each) => each.name)).toEqual(['adds two numbers'])
+  })
+
+  test('reads coloured output, whose FAIL badge starts with a space', () => {
+    const output = bashOutputOf(
+      { result: { stdout: '', stderr: JEST_COLOURED, interrupted: false } },
+      false,
+    )
+    expect(failuresOf(output?.text ?? '')).toEqual([
+      failure({
+        name: 'adds two numbers',
+        file: 'src/math.test.js',
+        line: 12,
+        message: 'expect(received).toBe(expected)',
+        diff: JEST_PRIMITIVE,
+      }),
+    ])
   })
 })
 
@@ -162,56 +287,69 @@ describe('node --test', () => {
       failed: 0,
       total: 5,
       isCut: false,
+      cutFailures: 0,
       failures: [],
     })
   })
 
+  test('keeps only the lines that node printed for a strict equal, and makes up no diff', () => {
+    expect(failuresOf(NODE_CALC_FAIL, 'node --test calc.test.mjs')).toEqual([
+      failure({
+        name: 'multiplies two numbers',
+        file: 'calc.test.mjs',
+        line: 4,
+        message: 'Expected values to be strictly equal:',
+        diff: ['6 !== 7'],
+      }),
+    ])
+  })
+
   test('reads the failing tests of the spec reporter with the line of the assertion', () => {
-    const expected = [
-      {
+    expect(failuresOf(NODE_SPEC_FAIL)).toEqual([
+      failure({
         name: 'adds two numbers',
         file: 'test/math.test.mjs',
         line: 5,
-        message: 'Expected values to be strictly equal: 5 !== 4',
-        diff: ['- Expected  4', '+ Received  5'],
-      },
-      {
+        message: 'Expected values to be strictly equal:',
+        diff: ['5 !== 4'],
+      }),
+      failure({
         name: 'parses a table',
         file: 'test/math.test.mjs',
         line: 12,
         message: 'Expected values to be strictly deep-equal:',
-        diff: ['+ []', '- [', "-   ''", '- ]'],
-      },
-    ]
-    expect(outcome(NODE_SPEC_FAIL)).toEqual({
-      kind: 'tests',
-      runner: 'node',
-      passed: 2,
-      failed: 2,
-      total: 4,
-      isCut: false,
-      failures: expected,
-    })
+        diff: ['+ actual - expected', '+ []', '- [', "-   ''", '- ]'],
+      }),
+    ])
+    expect(outcome(NODE_SPEC_FAIL)).toMatchObject({ passed: 2, failed: 2, total: 4 })
   })
 
   test('reads the TAP reporter the same way and skips the failed suite', () => {
-    const read = outcome(NODE_TAP_FAIL)
-    expect(read).toMatchObject({ passed: 2, failed: 2, total: 4 })
-    expect(read?.kind === 'tests' ? read.failures : undefined).toEqual([
-      {
+    expect(outcome(NODE_TAP_FAIL)).toMatchObject({ passed: 2, failed: 2, total: 4 })
+    expect(failuresOf(NODE_TAP_FAIL)).toEqual(failuresOf(NODE_SPEC_FAIL))
+  })
+
+  test('a TODO test is no failure, and a ... line inside the error keeps the block whole', () => {
+    expect(failuresOf(NODE_TAP_TODO)).toEqual([
+      failure({
+        name: 'prints dots',
+        file: 'test/todo.test.mjs',
+        line: 6,
+        message: 'Expected values to be strictly equal:',
+        diff: ['+ actual - expected', "+ 'a...'", "- 'a'", '...'],
+      }),
+    ])
+  })
+
+  test('reads Windows paths relative to a Windows folder, with the line of the assertion', () => {
+    expect(failuresOf(NODE_SPEC_WINDOWS, 'node --test', 'C:\\work\\app')).toEqual([
+      failure({
         name: 'adds two numbers',
         file: 'test/math.test.mjs',
         line: 5,
-        message: 'Expected values to be strictly equal: 5 !== 4',
-        diff: ['- Expected  4', '+ Received  5'],
-      },
-      {
-        name: 'parses a table',
-        file: 'test/math.test.mjs',
-        line: 12,
-        message: 'Expected values to be strictly deep-equal:',
-        diff: ['+ []', '- [', "-   ''", '- ]'],
-      },
+        message: 'Expected values to be strictly equal:',
+        diff: ['5 !== 4'],
+      }),
     ])
   })
 })
@@ -225,30 +363,45 @@ describe('pytest', () => {
       failed: 1,
       total: 4,
       isCut: false,
+      cutFailures: 0,
       failures: [
-        {
+        failure({
           name: 'test_adds_two_numbers',
           file: 'tests/test_math.py',
           line: 12,
           message: 'assert 5 == 4',
-          diff: ['  +  where 5 = add(2, 3)'],
-        },
+          diff: ['+  where 5 = add(2, 3)'],
+        }),
       ],
     })
   })
 
   test('reads a class test with its full diff and counts the skipped test in the total', () => {
-    const read = outcome(PYTEST_CLASS_FAILED, 'pytest')
-    expect(read).toMatchObject({ passed: 1, failed: 1, total: 3 })
-    expect(read?.kind === 'tests' ? read.failures : undefined).toEqual([
-      {
+    expect(outcome(PYTEST_CLASS_FAILED, 'pytest')).toMatchObject({
+      passed: 1,
+      failed: 1,
+      total: 3,
+    })
+    expect(failuresOf(PYTEST_CLASS_FAILED, 'pytest')).toEqual([
+      failure({
         name: 'TestTable.test_parses_empty',
         file: 'tests/test_table.py',
         line: 8,
         message: "assert [] == ['']",
-        diff: ["   Right contains one more item: ''", "- ['']", '+ []'],
-      },
+        diff: ["Right contains one more item: ''", 'Full diff:', "- ['']", '+ []'],
+      }),
     ])
+  })
+
+  test('reads the quiet output of pytest -q, with its bare summary line', () => {
+    expect(outcome(PYTEST_QUIET_FAILED, 'pytest -q')).toEqual(outcome(PYTEST_ONE_FAILED, 'pytest'))
+    expect(outcome(PYTEST_QUIET_PASSED, 'pytest -q')).toMatchObject({
+      kind: 'tests',
+      passed: 4,
+      failed: 0,
+      total: 4,
+      isCut: false,
+    })
   })
 
   test('reads a pass and a collection error', () => {
@@ -258,6 +411,41 @@ describe('pytest', () => {
       runner: 'pytest',
       reason: "ModuleNotFoundError: No module named 'math_utils'",
     })
+  })
+})
+
+describe('the kept run', () => {
+  test('keeps 12 diff lines of a failure and counts the lines it cut', () => {
+    const diff = Array.from({ length: 20 }, (_, index) => `- line ${String(index + 1)}`)
+    const text = [
+      ' RUN  v3.2.4 /work/app',
+      ' FAIL  src/a.test.ts > a > long',
+      'AssertionError: expected long to equal short',
+      '',
+      ...diff,
+      '',
+      ' \u{276F} src/a.test.ts:3:1',
+      ' Test Files  1 failed (1)',
+      '      Tests  1 failed (1)',
+    ].join('\n')
+    const [first] = failuresOf(text) ?? []
+    expect(first?.diff).toEqual(diff.slice(0, 12))
+    expect(first?.cutLines).toBe(8)
+  })
+
+  test('keeps 50 failures of a run and counts the failures it cut', () => {
+    const blocks = Array.from({ length: 60 }, (_, index) =>
+      [` FAIL  src/a.test.ts > a > case ${String(index + 1)}`, 'AssertionError: no'].join('\n'),
+    )
+    const text = [
+      ' RUN  v3.2.4 /work/app',
+      ...blocks,
+      ' Test Files  1 failed (1)',
+      '      Tests  60 failed (60)',
+    ].join('\n')
+    const read = outcome(text)
+    expect(read?.kind === 'tests' ? read.failures.length : undefined).toBe(50)
+    expect(read).toMatchObject({ failed: 60, cutFailures: 10 })
   })
 })
 

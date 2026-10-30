@@ -1,6 +1,12 @@
-import type { TestsFailure, TestsRunner } from '../types'
+import type { TestsRunner } from '../types'
 
-export const DIFF_LINES = 12
+export type ReadFailure = {
+  name: string
+  file: string | null
+  line: number | null
+  message: string
+  diff: readonly string[]
+}
 
 export type Reading =
   | {
@@ -8,10 +14,11 @@ export type Reading =
       passed: number
       failed: number
       total: number
-      failures: readonly TestsFailure[]
+      failures: readonly ReadFailure[]
       isWhole: boolean
     }
   | { kind: 'broken'; reason: string }
+  | { kind: 'empty'; reason: string }
 
 export type RunnerReader = {
   runner: TestsRunner
@@ -21,7 +28,10 @@ export type RunnerReader = {
 
 export type Location = { file: string; line: number }
 
-const NO_TEST_RAN = 'no test ran'
+export type Crash = { file: string; line: number | null; reason: string }
+
+export const NO_TEST_RAN = 'no test ran'
+const DRIVE_PATH = /^\/(?=[A-Za-z]:\/)/
 
 export function linesOf(text: string): string[] {
   return text.split(/\r?\n/)
@@ -32,16 +42,23 @@ export function countBefore(text: string, word: string): number {
   return found === null ? 0 : Number(found[1])
 }
 
-export function primitiveDiff(expected: string, received: string): string[] {
-  return [`- Expected  ${expected}`, `+ Received  ${received}`]
+export function normalPath(path: string): string {
+  return path
+    .replace(/^file:\/\//, '')
+    .replaceAll('\\', '/')
+    .replace(DRIVE_PATH, '')
 }
 
-export function diffLine(line: string): string {
-  return line.startsWith('-') || line.startsWith('+') ? line : ` ${line}`
+export function isSamePath(longer: string, file: string): boolean {
+  const whole = normalPath(longer)
+  const tail = normalPath(file)
+  return whole === tail || whole.endsWith(`/${tail}`)
 }
 
-export function cappedDiff(lines: readonly string[]): string[] {
-  return lines.slice(0, DIFF_LINES).map(diffLine)
+export function printedLines(lines: readonly string[]): string[] {
+  return dedented(lines)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== '')
 }
 
 export function dedented(lines: readonly string[]): string[] {
@@ -70,8 +87,26 @@ export function firstLineOf(lines: readonly string[], pattern: RegExp): string |
   return lines.map((line) => line.trim()).find((line) => pattern.test(line))
 }
 
-export function brokenReason(lines: readonly string[]): string {
-  return firstLineOf(lines, /^(?:\w*Error\b|No test files found|no tests ran)/i) ?? NO_TEST_RAN
+export function emptyOrBroken(lines: readonly string[]): Reading {
+  const reason = firstLineOf(lines, /^\w*Error\b/)
+  return reason === undefined ? { kind: 'empty', reason: NO_TEST_RAN } : { kind: 'broken', reason }
+}
+
+export function crashFailure(crash: Crash): ReadFailure {
+  return { name: crash.file, file: crash.file, line: crash.line, message: crash.reason, diff: [] }
+}
+
+export function withCrashes(
+  reading: Extract<Reading, { kind: 'tests' }>,
+  crashes: readonly Crash[],
+): Reading {
+  if (crashes.length === 0) return reading
+  return {
+    ...reading,
+    failed: reading.failed + crashes.length,
+    total: reading.total + crashes.length,
+    failures: [...crashes.map(crashFailure), ...reading.failures],
+  }
 }
 
 export function blocksOf(

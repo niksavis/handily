@@ -1,7 +1,6 @@
 import type {
   BoxProps,
   ButtonProps,
-  CodeProps,
   ElementConstructor,
   RenderElement,
   RenderSurface,
@@ -26,8 +25,10 @@ import {
   runnerText,
   runningHeadline,
   shownCommand,
+  cutFailuresText,
+  cutLinesText,
 } from './runs'
-import { displayWidth, fitted, padToWidth } from './width'
+import { displayWidth, fitted, lastToWidth, padToWidth } from './width'
 
 export const TESTS_PANE = { id: 'tests', title: 'tests' } as const
 
@@ -47,7 +48,6 @@ export type PaneElements = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
   Button: ElementConstructor<ButtonProps>
-  Code: ElementConstructor<CodeProps>
   bodyColumns: number
   marks: GlyphSet
 }
@@ -81,6 +81,10 @@ const NO_RUN_LINES = [
 ]
 const NO_RUN_TEXT = 'A Bash call that runs vitest, jest, node --test or pytest fills this tab.'
 const DOCK_NOTE = 'a dock (fullscreen, 110 columns) shows every run'
+const PLACE_GAP = 2
+const CUT_MARK = '…'
+const COPY_WIDTH = displayWidth(`[ ${COPY_KEY} ]`)
+const DIFF_COLORS: Readonly<Record<string, ThemeKey>> = { '-': 'error', '+': 'success' }
 
 const ROLE_COLORS: Readonly<Record<HeadRole, ThemeKey | undefined>> = {
   blocked: 'error',
@@ -113,15 +117,38 @@ function dimLine(elements: PaneElements, text: string): RenderElement {
   return elements.Text({ dimColor: true, children: fitted(text, elements.bodyColumns) })
 }
 
-export function hunkOf(lines: readonly string[]): string {
-  const old = lines.filter((line) => !line.startsWith('+')).length
-  const added = lines.filter((line) => !line.startsWith('-')).length
-  return [`@@ -1,${String(old)} +1,${String(added)} @@`, ...lines].join('\n')
+export function tailFitted(text: string, width: number): string {
+  if (displayWidth(text) <= width) return text
+  if (width <= 0) return ''
+  return `${CUT_MARK}${lastToWidth(text, width - displayWidth(CUT_MARK))}`
 }
 
-function diffCode(elements: PaneElements, diff: readonly string[]): RenderElement[] {
-  if (diff.length === 0) return []
-  return [elements.Code({ source: hunkOf(diff), format: 'diff', wrap: 'truncate-end' })]
+export type FittedRow = { name: string; place: string }
+
+export function fittedRow(name: string, place: string, room: number): FittedRow {
+  if (place === '') return { name: fitted(name, room), place: '' }
+  const available = Math.max(room - PLACE_GAP, 0)
+  const nameFloor = Math.min(displayWidth(name), Math.floor(available / 2))
+  const placeRoom = Math.min(displayWidth(place), available - nameFloor)
+  const nameRoom = available - placeRoom
+  return {
+    name: padToWidth(fitted(name, nameRoom), nameRoom + PLACE_GAP),
+    place: tailFitted(place, placeRoom),
+  }
+}
+
+function diffLines(elements: PaneElements, failure: TestsFailure, room: number): RenderElement[] {
+  const { Text } = elements
+  const lines = failure.diff.map((line) => {
+    const color = DIFF_COLORS[line.charAt(0)]
+    const children = fitted(line, room)
+    return Text(color === undefined ? { children } : { color, children })
+  })
+  const cut =
+    failure.cutLines > 0
+      ? [Text({ dimColor: true, children: fitted(cutLinesText(failure.cutLines), room) })]
+      : []
+  return [...lines, ...cut]
 }
 
 function failureDetail(
@@ -132,14 +159,14 @@ function failureDetail(
 ): RenderElement {
   const { Box, Text, Button, bodyColumns } = elements
   const room = bodyColumns - DETAIL_INDENT
-  const place = isWide ? '' : placeOf(failure, false)
-  const lines = [...(place === '' ? [] : [place]), failure.message].filter((line) => line !== '')
+  const place = isWide ? '' : tailFitted(placeOf(failure, false), room)
+  const lines = [place, fitted(failure.message, room)].filter((line) => line !== '')
   return Box({
     flexDirection: 'column',
     paddingLeft: DETAIL_INDENT,
     children: [
-      ...lines.map((line) => Text({ children: fitted(line, room) })),
-      ...diffCode(elements, failure.diff),
+      ...lines.map((line) => Text({ children: line })),
+      ...diffLines(elements, failure, room),
       Button({
         key: COPY_KEY,
         label: COPY_KEY,
@@ -160,13 +187,9 @@ function failureRow(
 ): RenderElement {
   const { Text, Button, marks, bodyColumns } = elements
   const isWide = bodyColumns >= WIDE_BODY
-  const place = isWide ? placeOf(failure, false) : ''
   const lead = `${marks.blocked} `
-  const nameRoom = bodyColumns - displayWidth(lead) - (place === '' ? 0 : displayWidth(place) + 2)
-  const name =
-    place === ''
-      ? fitted(failure.name, nameRoom)
-      : padToWidth(fitted(failure.name, nameRoom), nameRoom + 2)
+  const room = bodyColumns - displayWidth(lead)
+  const { name, place } = fittedRow(failure.name, isWide ? placeOf(failure, false) : '', room)
   return Button({
     key: `failure:${String(index)}`,
     label: failure.name,
@@ -203,12 +226,15 @@ function failureRows(
     hidden > 0
       ? [Button({ key: 'more', label: `+${String(hidden)} more failed`, onPress: actions.more })]
       : []
+  const notKept =
+    outcome.cutFailures > 0 ? [dimLine(elements, cutFailuresText(outcome.cutFailures))] : []
   const passed =
     outcome.passed > 0 && !outcome.isCut
       ? [Text({ dimColor: true, children: `+${String(outcome.passed)} passed` })]
       : []
   const none = failures.length === 0 && outcome.failed === 0 && !outcome.isCut
-  return none ? [Text({ children: 'No failure.' })] : [rule(elements), ...rows, ...more, ...passed]
+  if (none) return [Text({ children: 'No failure.' })]
+  return [rule(elements), ...rows, ...more, ...notKept, ...passed]
 }
 
 function runLine(elements: PaneElements, run: TestsRun, now: number): RenderElement {
@@ -340,9 +366,9 @@ function inlineFailureRow(
   actions: PaneActions,
 ): RenderElement {
   const { Box, Text, Button, marks, bodyColumns } = elements
-  const place = placeOf(failure, true)
-  const copy = `[ ${COPY_KEY} ]`
-  const room = bodyColumns - displayWidth(copy) - displayWidth(place) - 4
+  const lead = `${marks.blocked} `
+  const room = bodyColumns - displayWidth(lead) - COPY_WIDTH - PLACE_GAP
+  const row = fittedRow(failure.name, placeOf(failure, true), room)
   return Box({
     flexDirection: 'row',
     children: [
@@ -353,12 +379,12 @@ function inlineFailureRow(
         onPress: () => {
           actions.open(index)
         },
-        children: [
-          Text({ color: 'error', children: `${marks.blocked} ` }),
-          padToWidth(fitted(failure.name, Math.max(room - 2, 1)), Math.max(room - 2, 1) + 2),
-        ],
+        children: [Text({ color: 'error', children: lead }), row.name],
       }),
-      Text({ dimColor: true, children: `${place}  ` }),
+      Text({
+        dimColor: true,
+        children: padToWidth(row.place, displayWidth(row.place) + PLACE_GAP),
+      }),
       Button({
         key: COPY_KEY,
         label: COPY_KEY,
@@ -382,15 +408,23 @@ function inlineDetails(
   failure: TestsFailure,
 ): { rows: RenderElement[]; hidden: number } {
   const { Box, Text, bodyColumns } = elements
+  const room = bodyColumns - DETAIL_INDENT
   const message = failure.message === '' ? [] : [failure.message]
   const diff = failure.diff.slice(0, Math.max(INLINE_DETAIL_ROWS - message.length, 0))
+  const shown = { ...failure, diff, cutLines: 0 }
   const rows = [
     ...message.map((line) => Text({ children: fitted(`    ${line}`, bodyColumns) })),
     ...(diff.length === 0
       ? []
-      : [Box({ paddingLeft: DETAIL_INDENT, children: diffCode(elements, diff) })]),
+      : [
+          Box({
+            flexDirection: 'column',
+            paddingLeft: DETAIL_INDENT,
+            children: diffLines(elements, shown, room),
+          }),
+        ]),
   ]
-  return { rows, hidden: failure.diff.length - diff.length }
+  return { rows, hidden: failure.diff.length - diff.length + failure.cutLines }
 }
 
 function passedText(run: TestsRun): string {

@@ -5,7 +5,8 @@ name in a pane tab named `tests`, with its file, its line and its assertion diff
 shows the count of the last run. [docs/mocks.md](../../docs/mocks.md), section 13, gives the
 approved design.
 
-Release 1 reads vitest, jest, node --test and pytest. The mod finds the runner from the format of
+Release 1 reads vitest, jest, node --test (the spec and the TAP reporter) and pytest, also
+`pytest -q`. The mod finds the runner from the format of
 the output, not from the command, so `npm test` that runs vitest counts as vitest. Output in any
 other format changes nothing: not the tab, not the status line and not the toasts. A runner with
 a custom reporter is not read. Cargo and go come in a later release.
@@ -47,17 +48,24 @@ vitest · npm test · 0s ago · 1.4s
 ─────────────────────────────────────────
 ■ adds two numbers        math.test.ts:12
     expected 5 to be 4
-    - Expected  4
-    + Received  5
+    - Expected
+    + Received
+    - 4
+    + 5
     [ copy ]
 +3 passed
 ```
 
-- The tab lists at most 5 failures. `[ +2 more failed ]` shows the rest.
+- The tab lists at most 5 failures. `[ +2 more failed ]` shows the rest. A run keeps at most
+  50 failures, and a dim line such as `+10 more failures in the transcript` names the rest.
 - With 2 runs or more, a `Runs` list follows with the last 5 runs, newest first. A run of a
   subagent shows its name under the row. `[ +2 older runs ]` shows every kept run.
 - The session keeps the last 20 runs. A new session starts empty.
-- The diff draws in the engine `Code` element as a diff, so it follows your theme.
+- Under the message, the tab shows the lines that the runner printed, and makes up none. A line
+  that starts with `-` draws in `error`, and a line that starts with `+` in `success`. A failure
+  keeps at most 12 lines, and a dim line such as `+8 more lines in the transcript` names the rest.
+- A test file or suite that fails to load counts as a failed test under its file name. It never
+  counts as a pass.
 - The mark and the word `failed` draw in `error`. A pass draws `✓` and `passed` in `success`.
 - On the desktop app the marks are plain, whatever the Glyphs setting of `handily` is.
 
@@ -70,6 +78,7 @@ A run that the mod cannot read whole never shows a pass. The words say what happ
 | It went to the background            | `▶ npm test runs in the background`                   |
 | It was interrupted                   | `■ npm test was interrupted` and `no result`          |
 | The runner failed before a test      | `■ vitest could not run the tests` and the error line |
+| The runner found no tests            | `■ vitest found no tests` and the line of the runner  |
 | The output matched, but was not read | `■ the run could not be read`; the debug log has why  |
 
 A Bash call in the background or an interrupted call counts as a test run only when its output

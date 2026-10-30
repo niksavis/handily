@@ -46,6 +46,18 @@ function cutToWidth(text: string, width: number): string {
   return kept
 }
 
+export function lastToWidth(text: string, width: number): string {
+  let kept = ''
+  let used = 0
+  for (const grapheme of graphemesOf(text).reverse()) {
+    const columns = columnsOf(grapheme)
+    if (used + columns > width) break
+    kept = grapheme + kept
+    used += columns
+  }
+  return kept
+}
+
 const CUT_MARK = '…'
 
 export function fitted(text: string, width: number): string {

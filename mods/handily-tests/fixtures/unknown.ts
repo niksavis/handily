@@ -29,3 +29,22 @@ export const LISTING = [
   'drwxr-xr-x  2 dev dev 4096 Oct 29 10:00 src',
   'drwxr-xr-x  2 dev dev 4096 Oct 29 10:00 tests',
 ].join('\n')
+
+export const MOCHA_PASSED = [
+  '',
+  '',
+  '  math',
+  '    ✔ adds two numbers',
+  '    ✔ subtracts (12ms)',
+  '',
+  '',
+  '  2 passing (20ms)',
+  '',
+].join('\n')
+
+export const PASS_LINES = [
+  'Checking links in 3 files',
+  'PASS docs/install.md',
+  'PASS docs/design.md',
+  'FAIL docs/mocks.md: 1 dead link',
+].join('\n')

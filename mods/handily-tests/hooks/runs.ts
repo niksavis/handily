@@ -40,7 +40,16 @@ export function ageText(ms: number): string {
 }
 
 export function isFailing(outcome: TestsOutcome): boolean {
-  return (outcome.kind === 'tests' && outcome.failed > 0) || outcome.kind === 'broken'
+  if (outcome.kind === 'tests') return outcome.failed > 0
+  return outcome.kind === 'broken' || outcome.kind === 'empty'
+}
+
+export function cutLinesText(count: number): string {
+  return `+${String(count)} more ${count === 1 ? 'line' : 'lines'} in the transcript`
+}
+
+export function cutFailuresText(count: number): string {
+  return `+${String(count)} more ${count === 1 ? 'failure' : 'failures'} in the transcript`
 }
 
 export function isPassing(outcome: TestsOutcome): boolean {
@@ -66,6 +75,8 @@ export function headlineOf(run: TestsRun): Headline {
       return testsHeadline(outcome)
     case 'broken':
       return { role: 'blocked', text: `${outcome.runner} could not run the tests`, tail: '' }
+    case 'empty':
+      return { role: 'blocked', text: `${outcome.runner} found no tests`, tail: '' }
     case 'interrupted':
       return { role: 'blocked', text: `${command} was interrupted`, tail: '' }
     case 'background':
@@ -94,6 +105,7 @@ export function metaLines(run: TestsRun, now: number): string[] {
         `${outcome.runner} · ${command} · ${ageText(now - run.endedAt)} ago · ${tookText(run.tookMs)}`,
       ]
     case 'broken':
+    case 'empty':
       return [outcome.reason]
     case 'interrupted':
       return ['no result']
@@ -209,7 +221,7 @@ export function runToastParts(run: TestsRun, before: TestsRun | undefined): Toas
 }
 
 export function lastVerdict(runs: TestsRuns): TestsRun | undefined {
-  return runs.find((run) => run.outcome.kind === 'tests' || run.outcome.kind === 'broken')
+  return runs.find((run) => run.outcome.kind === 'tests' || isFailing(run.outcome))
 }
 
 export function listText(run: TestsRun | undefined, now: number, marks: GlyphSet): string {
@@ -220,10 +232,16 @@ export function listText(run: TestsRun | undefined, now: number, marks: GlyphSet
   const failures = failuresOf(run).flatMap((failure) => {
     const place = placeOf(failure, true)
     const row = place === '' ? failure.name : `${failure.name}  ${place}`
-    const details = [failure.message, ...failure.diff].filter((line) => line !== '')
+    const cut = failure.cutLines > 0 ? [cutLinesText(failure.cutLines)] : []
+    const details = [failure.message, ...failure.diff, ...cut].filter((line) => line !== '')
     return [`${marks.blocked} ${row}`, ...details.map((line) => `    ${line}`)]
   })
-  return [head, ...metaLines(run, now), ...failures].join('\n')
+  const { outcome } = run
+  const notKept =
+    outcome.kind === 'tests' && outcome.cutFailures > 0
+      ? [cutFailuresText(outcome.cutFailures)]
+      : []
+  return [head, ...metaLines(run, now), ...failures, ...notKept].join('\n')
 }
 
 export function keptRuns(run: TestsRun, runs: TestsRuns): TestsRuns {
