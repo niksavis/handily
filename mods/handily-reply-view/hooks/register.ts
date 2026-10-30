@@ -13,10 +13,23 @@ import {
   type CopyLayout,
   type ReplyActions,
 } from './draw'
+import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
+import {
+  addPrompt,
+  clearRail,
+  endTurn,
+  isTurnRunning,
+  newRail,
+  noteCompaction,
+  noteTool,
+  promptTextOf,
+  type Rail,
+} from './rail'
+import { drawRail } from './rail-pane'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
-import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
+import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
 
 const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
@@ -36,7 +49,7 @@ const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
 const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
-  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
 const NO_REPLY_TEXT = 'No reply to copy yet. /replies copy reads the last reply of this session.'
 const DIAGRAM_HINT =
   'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
@@ -183,6 +196,34 @@ async function copyFromReply(
   return copy === null ? noBlockText(word) : copied($, copy, surface)
 }
 
+type RailSite = { rail: Rail; isOpen: boolean }
+
+function railPortOf($: EngineInterface, site: RailSite): RailPort {
+  return {
+    scroll: (requestId) => $.ui.scroll({ to: { requestId }, block: 'start' }),
+    pane: async () => (await $.ui.panes()).find((pane) => pane.id === PROMPTS_PANE.id),
+    open: async () => {
+      const opened = await $.ui.open({ ...PROMPTS_PANE, focus: true })
+      site.isOpen = true
+      return opened
+    },
+    close: () => $.ui.close({ id: PROMPTS_PANE.id }),
+    showToast: (parts) => {
+      showGlyphToast($, parts)
+    },
+    log: (text) => {
+      $.ui.log(text, { to: 'debug' })
+    },
+    redraw: () => {
+      redrawRail($, site)
+    },
+  }
+}
+
+function redrawRail($: EngineInterface, site: RailSite): void {
+  if (site.isOpen) $.ui.invalidate('ui.render')
+}
+
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   const { value = 'folded' } = await $.state.get({ plugin: 'handily-reply-view', key: 'folds', id })
   return value
@@ -196,11 +237,12 @@ export const register: Register = (on, options) => {
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
   let lastReply: string | undefined
+  const railSite: RailSite = { rail: newRail(), isOpen: false }
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
       description:
-        'handily · Turn the folded view of long replies, tables, code blocks and prompt rules off or on',
+        'handily · Turn the folded view of long replies, tables, code blocks and prompt rules off or on, and move between your prompts',
     })
     await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
@@ -222,6 +264,17 @@ export const register: Register = (on, options) => {
       .trim()
       .split(/\s+/)
       .filter((word) => word !== '')
+    const railCommand = railCommandOf(words)
+    if (railCommand !== undefined) {
+      return {
+        text: await runRailCommand(
+          railSite.rail,
+          railPortOf($, railSite),
+          railCommand,
+          e.presentation.isFullscreen,
+        ),
+      }
+    }
     const [first, second, ...rest] = words
     if (first === undefined) return { text: await toggle($, defaultMode) }
     if (first === HINTS_ARGUMENT && second === undefined) {
@@ -242,12 +295,64 @@ export const register: Register = (on, options) => {
 
   on('session.end', async (_$, e, next) => {
     lastReply = undefined
+    clearRail(railSite.rail)
     return next(e)
   })
 
-  on('turn.complete', async (_$, e, next) => {
+  on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined && e.answer !== '') lastReply = e.answer
+    if (e.agentId === undefined && isTurnRunning(railSite.rail)) {
+      endTurn(railSite.rail, await $.clock.now())
+      redrawRail($, railSite)
+    }
     return next(e)
+  })
+
+  on('tool.call', async ($, e, next) => {
+    if (e.agentId === undefined && noteTool(railSite.rail, e.tool)) redrawRail($, railSite)
+    return next(e)
+  })
+
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
+      noteCompaction(railSite.rail, await $.clock.now())
+      redrawRail($, railSite)
+    }
+    return result
+  })
+
+  on('ui.close', async (_$, e, next) => {
+    const closed = await next(e)
+    if (e.id === PROMPTS_PANE.id) railSite.isOpen = false
+    return closed
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PROMPTS_PANE.id }, async ($, e) => {
+    railSite.isOpen = true
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const glyphs = await paneGlyphs($, e.surface)
+    const port = railPortOf($, railSite)
+    const isFullscreen = e.viewport?.isFullscreen
+    return drawRail(
+      { Box, Text, Button },
+      railSite.rail,
+      {
+        bodyColumns: e.props.bodyColumns,
+        placement: e.props.placement,
+        now: await $.clock.now(),
+        doing: glyphs.doing,
+        blocked: glyphs.blocked,
+      },
+      {
+        jump: (number) => {
+          void jumpTo(railSite.rail, port, number, isFullscreen)
+        },
+        copy: (prompt) => {
+          void copyText($, prompt.text, 'the prompt', e.surface)
+        },
+      },
+    )
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -264,6 +369,10 @@ export const register: Register = (on, options) => {
     const appendedAt = await $.clock.now()
     const stored = await next(e)
     if (isTyped && stored.uuid !== undefined) {
+      const isPrompt =
+        stored.message.isMeta !== true &&
+        addPrompt(railSite.rail, stored.uuid, promptTextOf(stored.message.content), appendedAt)
+      if (isPrompt) redrawRail($, railSite)
       try {
         await $.state.set(
           { plugin: 'handily-reply-view', key: 'submittedAt', id: stored.uuid },

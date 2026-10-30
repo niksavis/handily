@@ -385,6 +385,64 @@ theme:
   rule, so a copy of that text holds no rule characters.
 - The desktop app draws each prompt as it draws it.
 
+## The prompts tab
+
+`/replies prompts` opens a `prompts` tab that lists each prompt that you typed in this session.
+You move through a long transcript by your own prompts. The tab opens with the keyboard on
+`[ next ]`. `/replies prompts` again, or `/replies prompts close`, closes it.
+
+```text
+Prompts  12 · at 9 · since 10:02
+[ prev ] [ next ] [ last ]
+─────────────────────────────────────────
+  1 10:02 Read the design and t…  4 tools
+  …
+  5 10:30 Run the checks          3 tools
+── compacted at 10:40 ──
+  6 10:41 Commit it               2 tools
+  …
+▸ 9 10:51 Draw the mocks for th… 12 tools
+    Draw the mocks for the first batch
+    and check every width with a script.
+    ran 6m · Read 5 · Edit 4 · Bash 3
+    [ copy prompt ]
+ 10 10:58 Run the checks          3 tools
+```
+
+- Each row shows the number, the time, the first line of the prompt and the count of tool calls.
+  At a narrow width the row shows the count without the word `tools`.
+- `at` is the prompt of the last jump. Before a jump it is the newest prompt. The row of `at` has
+  `▸` and bold text. Under it, the tab shows the whole prompt in up to 3 lines, how long its turn
+  ran and the tools by name. The prompt that runs now shows `▶` and `runs`.
+- A press on a row, or Enter on it, moves the transcript to that prompt. `prev` (hotkey `p`),
+  `next` (`n`) and `last` (`l`) move to the previous, the next or the newest prompt. `copy prompt`
+  (`y`) copies the whole prompt.
+- A compaction draws a dim rule at its time. A task notification, a message from another agent
+  and a turn that continues with no text are not prompts.
+- The tab draws the last 100 prompts, and a dim line counts the earlier ones.
+- Above the prompt (not docked), the tab draws at most 8 rows around `at`, with the buttons on the
+  header line.
+
+`/replies next`, `/replies prev` and `/replies prompt 9` move the transcript from the keyboard
+and reply with the prompt. When the tab is not shown, a toast also shows the prompt. With no
+prompt yet, each of these commands replies:
+
+```text
+No prompt yet in this session. The prompts tab opens after your first prompt.
+```
+
+A number outside the list gets the range, such as `No prompt 99. This session has prompts 1-12.`
+
+A jump works in fullscreen only, because outside fullscreen the scrollback belongs to the
+terminal. When Claude Code does not move the transcript, the tab shows
+`■ could not jump to prompt 3` and the reason in words, and a command replies with the reason. A
+prompt from before a compaction can have no drawn row to jump to. The debug log keeps the answer
+of Claude Code.
+
+The mod keeps the list in memory for this session only. After a `/clear` or a resume, the list
+starts again with the next prompt that you type. A slash command that you type is not in the
+list.
+
 ## Settings and the command
 
 | Setting        | Default | Use                                                                                           |
@@ -394,14 +452,19 @@ theme:
 | `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type     |
 | `tableStyle`   | `rules` | `rules` draws rules between the columns. `box` draws a full box at 40 columns or more         |
 
-| Command                 | Effect                                                                             |
-| ----------------------- | ---------------------------------------------------------------------------------- |
-| `/replies`              | Turns the reply view off or on for this session, and replies with the new mode     |
-| `/replies hints`        | Turns the diagram hints off or on for this session, and replies with the new state |
-| `/replies copy diagram` | Copies the source of the last diagram of the last reply                            |
-| `/replies copy table`   | Copies the last table of the last reply as markdown                                |
-| `/replies copy code`    | Copies the content of the last code block of the last reply                        |
-| `/replies copy reply`   | Copies the whole last reply as markdown                                            |
+| Command                  | Effect                                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `/replies`               | Turns the reply view off or on for this session, and replies with the new mode     |
+| `/replies hints`         | Turns the diagram hints off or on for this session, and replies with the new state |
+| `/replies copy diagram`  | Copies the source of the last diagram of the last reply                            |
+| `/replies copy table`    | Copies the last table of the last reply as markdown                                |
+| `/replies copy code`     | Copies the content of the last code block of the last reply                        |
+| `/replies copy reply`    | Copies the whole last reply as markdown                                            |
+| `/replies prompts`       | Opens or closes the prompts tab                                                    |
+| `/replies prompts close` | Closes the prompts tab                                                             |
+| `/replies next`          | Moves the transcript to the next prompt                                            |
+| `/replies prev`          | Moves the transcript to the previous prompt                                        |
+| `/replies prompt 9`      | Moves the transcript to prompt 9                                                   |
 
 While the view is off, Claude Code draws every reply and every prompt unchanged.
 
