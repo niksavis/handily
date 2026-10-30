@@ -124,7 +124,7 @@ bundle after your install fails its update with `Plugin "<name>" is not installe
 then installs that mod by its name.
 
 ```sh
-claude plugin marketplace update niksavis; for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view handily-filetree; do claude plugin update "$p@niksavis" || claude plugin install "$p@niksavis"; done
+claude plugin marketplace update niksavis; for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view handily-filetree handily-tests; do claude plugin update "$p@niksavis" || claude plugin install "$p@niksavis"; done
 ```
 
 After an update, type `/reload-plugins` in each open session, or restart Claude Code.
