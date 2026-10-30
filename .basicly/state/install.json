@@ -1,5 +1,5 @@
 {
-  "basicly_version": "0.35.0",
+  "basicly_version": "0.35.1",
   "core": {
     "agents/architect/agent.yaml": "sha256:e26f0ae38c9dc4a0eb59f408a9647cd29fd0da7e65a10752621476bf3406acd2",
     "agents/auditor/agent.yaml": "sha256:b68326d319210c5c25785033879e5ac3ab3ed1f7a46e506d94537921250608cc",
@@ -42,9 +42,10 @@
     "hooks/affected_checks.py": "sha256:4c056883fd480acab5be76b1f917724dfcaadcba2c983b4097af8716829b8558",
     "hooks/bare-var-guard.py": "sha256:594eff36889eb18fa13337efaa7e88051ec61273beff40ceb9bf4fa1467347e5",
     "hooks/catalog-lint.py": "sha256:a7578aa1bfebe9e7cb696ae8400827d3f7914c49085fbc44f8ea7334a8e451a3",
+    "hooks/change_scope.py": "sha256:113f8160386b3e56336f474a2cadb868715f50942d4b7b6d68c83e06556d8bfa",
     "hooks/check_execution.py": "sha256:5052217f094496fad098bd426662913b2c7edd4550493467ff28ebd282eb02f0",
-    "hooks/check_reuse.py": "sha256:550efe78990b14d23cdb8ac824af8dabde58735b122049ea2aa21515b590adef",
-    "hooks/check_runner.py": "sha256:d0192809bcc83eb2a211ed374735ffe13fe45bdbb7e6176058ee5c7c6e04cf28",
+    "hooks/check_reuse.py": "sha256:1ef93b0074bd35ee79c094a32fee82bc6f9ac7da6490a5a48228b135e97b84e8",
+    "hooks/check_runner.py": "sha256:ea98b989f66766e639e46fcd6d1fd6cc9a50bfd6cd4f53aee2988b559f06e894",
     "hooks/command_paths.py": "sha256:b83406f176168d3e85280ceb51b651eb187abc569195003937749a6da3b49467",
     "hooks/comment_ratchet.py": "sha256:d7f4766f673c5cff4f0c430511c9e54126620b30caec8f723f5c6bfd1d2ece89",
     "hooks/commit-msg.py": "sha256:f8670d91b7c7f77bb913d768b94cb25f64200b1abacfdb5e05bedcfee376525b",
@@ -115,6 +116,7 @@
     "kit/tracker/claims.py": "sha256:9c66d90019504cafcd91ff7910499291546425dfec2647c56b3762e1f91f028b",
     "kit/tracker/cli.py": "sha256:a9353738b50ca91be7a22994a8f4f4375f6bc204fba694d06f8538aa516ef00c",
     "kit/tracker/commands.py": "sha256:c852bad9b094a9c84cdb5cc4210f696078e02cbd73798fae74e9a8d1af0fc826",
+    "kit/tracker/conversation.py": "sha256:2b4030f21015e2713a8764c701c3b9f7e5459e074c4ddfd293ef0f25801c9616",
     "kit/tracker/derivation.py": "sha256:c28bfeb960646d5e7aacd43e98ce2081c48560903fac8f98a401d3d11d36b260",
     "kit/tracker/differential.py": "sha256:226895a04f3b5236ae8217f3e3dc7afe6dd083bd6d5341ef2f4843314ecd218a",
     "kit/tracker/edges.py": "sha256:a8a3b5afc3899d233777e0636c2f0d1cd69daeb997bc06b117d7c4632458cbff",
@@ -136,8 +138,8 @@
     "kit/tracker/migrate.py": "sha256:8362e46826a13d5bd57e659cd9857dc4e13132bc2faf26229681901b95c0b5d0",
     "kit/tracker/mirror.py": "sha256:b1907afcba7494b7fd5cb95230ab487304e0706cf1830b4616ffac989ba2ffd6",
     "kit/tracker/parent_progress.py": "sha256:39dd81be2e829276b52ecb3bbded0a3f9a5819627ec3bb78ed2585d987fc45db",
-    "kit/tracker/pin.py": "sha256:e3978f54ccc8a45c39f22b8e51d792c1d26bd99a1d94272439518fd64b49c321",
-    "kit/tracker/process_evidence.py": "sha256:def77081549ca745590530f151a262ffd93ad9db886a429669af298610575d50",
+    "kit/tracker/pin.py": "sha256:334bed06d64805d3cf74756a1e74fa3672c485745e3ef8dc851932add4f1133a",
+    "kit/tracker/process_evidence.py": "sha256:c6812a9584b029e849493308fb2997ddd3dee17bb7324bc91dfefa8661630830",
     "kit/tracker/provenance.py": "sha256:5800d8eda460d3e7179e7e920738ef50e04fad0ee15ada48db49e3243e99fc59",
     "kit/tracker/queries.py": "sha256:97495ba594b8ce4c4bb219dbff3db8a665295b06caaa90c8e8078ddb0d16475c",
     "kit/tracker/record_graph.py": "sha256:569d71cade806ec198585e38e3416230ea1bfcdbb0d4bfa1796eb558351e76a6",
@@ -323,6 +325,6 @@
     "templates/common/baseline.j2": "sha256:9cf48abf7d79710eca8d929127e5e9bcfc3fa70248e892c44c94edc234bf09ef",
     "templates/copilot/copilot_instructions_md.j2": "sha256:1646ed61a35551fcdf17c6335cbdac3a7991a8dd736fa57275bf04dd66c83a89"
   },
-  "installed_at": "2026-10-30T08:55:10.021654+00:00",
+  "installed_at": "2026-10-30T10:25:45.970415+00:00",
   "schema_version": 1
 }
