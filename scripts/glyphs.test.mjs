@@ -24,6 +24,7 @@ const GLYPH_MODS = [
   'handily-item-toasts',
   'handily-reply-view',
   'handily-simple-view',
+  'handily-tests',
 ]
 const LITERAL_FREE_MODS = [
   'handily-board',
@@ -31,6 +32,7 @@ const LITERAL_FREE_MODS = [
   'handily-item-toasts',
   'handily-reply-view',
   'handily-simple-view',
+  'handily-tests',
 ]
 const LITERAL_EXCEPTIONS = [
   {

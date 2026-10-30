@@ -71,7 +71,7 @@ in bash or zsh:
 
 ```sh
 claude plugin marketplace update niksavis
-for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view handily-filetree; do claude plugin update "$p@niksavis"; done
+for p in handily handily-workitems handily-quiet-items handily-board handily-item-toasts handily-simple-view handily-reply-view handily-filetree handily-tests; do claude plugin update "$p@niksavis"; done
 ```
 
 After an update, type `/reload-plugins` in each open session, or restart Claude Code.
@@ -96,6 +96,7 @@ After an update, type `/reload-plugins` in each open session, or restart Claude 
 | [`handily-reply-view`](mods/handily-reply-view/README.md) | Long replies fold, tables draw without box lines, copy buttons, a rule above each prompt | `/replies` |
 | [`handily-board`](mods/handily-board/README.md) | A board with two tabs: your tasks and agents, and every local session with its agents | `/board` |
 | [`handily-filetree`](mods/handily-filetree/README.md) | A files tab beside the board: the working folder as a tree, with the git state of each file | `/tree` |
+| [`handily-tests`](mods/handily-tests/README.md) | A tests tab and a status line: the failed tests of the last run by name, with their file, line and assertion | `/tests` |
 | [`handily`](mods/handily/README.md) | The bundle of all the mods above | `/handily` |
 
 [docs/guide.md](docs/guide.md) lists every command of each mod, with its arguments and its
@@ -124,6 +125,9 @@ Open a GitHub issue for a bug or an idea. [CONTRIBUTING.md](CONTRIBUTING.md) giv
 The design of the tables, code blocks and diagrams of `handily-reply-view` uses
 [prismantis](https://github.com/NahumLitvin/prismantis) by Nahum Litvin (MIT License), at
 commit `ed085d7c`, as a reference. handily copies no code from it and adds no dependency.
+
+The idea of `handily-tests` comes from redgreen (MIT License), a mod named in the survey of
+awesome-claude-code-mods on 2026-10-28. handily copies no code from it and adds no dependency.
 
 The ideas of `handily-filetree` come from
 [claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) by Kurt Buhler

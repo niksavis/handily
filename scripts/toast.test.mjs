@@ -27,6 +27,7 @@ const TOAST_MODS = [
   'handily-item-toasts',
   'handily-reply-view',
   'handily-simple-view',
+  'handily-tests',
 ]
 const COPY_TOAST_FILE = 'copy-toast.ts'
 const COPY_TOAST_MODS = ['handily-reply-view', 'handily-simple-view']

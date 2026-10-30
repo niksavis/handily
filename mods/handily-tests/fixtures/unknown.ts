@@ -1,0 +1,50 @@
+export const CARGO_FAILED = [
+  '   Compiling app v0.1.0 (/work/app)',
+  '    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s',
+  '     Running unittests src/lib.rs (target/debug/deps/app-1a2b3c)',
+  '',
+  'running 2 tests',
+  'test tests::subtracts ... ok',
+  'test tests::adds ... FAILED',
+  '',
+  'failures:',
+  '',
+  '---- tests::adds stdout ----',
+  "thread 'tests::adds' panicked at src/lib.rs:12:9:",
+  'assertion `left == right` failed',
+  '  left: 5',
+  ' right: 4',
+  '',
+  'failures:',
+  '    tests::adds',
+  '',
+  'test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s',
+].join('\n')
+
+export const LISTING = [
+  'total 24',
+  'drwxr-xr-x  5 dev dev 4096 Oct 29 10:00 .',
+  'drwxr-xr-x 10 dev dev 4096 Oct 29 10:00 ..',
+  '-rw-r--r--  1 dev dev  420 Oct 29 10:00 package.json',
+  'drwxr-xr-x  2 dev dev 4096 Oct 29 10:00 src',
+  'drwxr-xr-x  2 dev dev 4096 Oct 29 10:00 tests',
+].join('\n')
+
+export const MOCHA_PASSED = [
+  '',
+  '',
+  '  math',
+  '    ✔ adds two numbers',
+  '    ✔ subtracts (12ms)',
+  '',
+  '',
+  '  2 passing (20ms)',
+  '',
+].join('\n')
+
+export const PASS_LINES = [
+  'Checking links in 3 files',
+  'PASS docs/install.md',
+  'PASS docs/design.md',
+  'FAIL docs/mocks.md: 1 dead link',
+].join('\n')

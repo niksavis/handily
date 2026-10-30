@@ -20,13 +20,14 @@
       "claude-code",
       "claude-code-tools",
       "claude-code-mcp",
-      "handily-workitems",
-      "handily-quiet-items",
       "handily-board",
+      "handily-filetree",
       "handily-item-toasts",
-      "handily-simple-view",
+      "handily-quiet-items",
       "handily-reply-view",
-      "handily-filetree"
+      "handily-simple-view",
+      "handily-tests",
+      "handily-workitems"
     ]
   },
   "include": [

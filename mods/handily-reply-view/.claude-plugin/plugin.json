@@ -1,6 +1,6 @@
 {
   "name": "handily-reply-view",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Long replies fold to their first lines, tables draw with rules between their columns or in a full box with Table style box, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you.",
   "author": {
     "name": "niksavis"
