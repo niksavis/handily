@@ -411,8 +411,7 @@ Prompts  12 · at 9 · since 10:02
 
 - Each row shows the number, the time, the first line of the prompt and the count of tool calls
   that ran. A call that you or a hook refused does not count. At a narrow width the row shows the
-  count without the word `tools`. A slash command that you type, such as `/review the diff`, is a
-  row too. The `/replies` command is not.
+  count without the word `tools`.
 - When the first prompt is from another day, the header names the day, such as
   `since Mon 09:14`.
 - `at` is the prompt of the last jump. Before a jump it is the newest prompt. The row of `at` has

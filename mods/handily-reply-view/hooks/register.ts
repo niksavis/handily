@@ -1,10 +1,4 @@
-import type {
-  EngineInterface,
-  PromptSubmitCommand,
-  Register,
-  RenderElement,
-  RenderSurface,
-} from 'claude-code'
+import type { EngineInterface, Register, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold, ReplyViewMode } from '../types'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import {
@@ -204,7 +198,7 @@ async function copyFromReply(
   return copy === null ? noBlockText(word) : copied($, copy, surface)
 }
 
-type RailSite = { rail: Rail; version: number; command: string | undefined }
+type RailSite = { rail: Rail; version: number }
 
 async function hasEarlierPrompts($: EngineInterface, current?: string): Promise<boolean> {
   try {
@@ -245,16 +239,11 @@ function railPortOf($: EngineInterface, site: RailSite): RailPort {
   }
 }
 
-function slashLine(command: PromptSubmitCommand): string {
-  return `/${command.name} ${command.args}`.trim()
-}
-
-type KeptPrompt = { requestId: string; text: string; at?: number }
+type KeptPrompt = { requestId: string; text: string; at: number }
 
 async function keepPrompt($: EngineInterface, site: RailSite, kept: KeptPrompt): Promise<void> {
   const isFirst = promptsOf(site.rail).length === 0
-  const at = kept.at ?? (await $.clock.now())
-  if (!addPrompt(site.rail, kept.requestId, kept.text, at)) return
+  if (!addPrompt(site.rail, kept.requestId, kept.text, kept.at)) return
   if (isFirst) site.rail.hasEarlier = await hasEarlierPrompts($, kept.text)
   await redrawRail($, site)
 }
@@ -272,7 +261,7 @@ export const register: Register = (on, options) => {
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
   let lastReply: string | undefined
-  const railSite: RailSite = { rail: newRail(), version: 0, command: undefined }
+  const railSite: RailSite = { rail: newRail(), version: 0 }
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -331,7 +320,6 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     lastReply = undefined
     clearRail(railSite.rail)
-    railSite.command = undefined
     await redrawRail($, railSite)
     return next(e)
   })
@@ -393,27 +381,12 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (e.origin.kind === 'composer') {
-      const isListed = e.command !== undefined && e.command.name !== COMMAND
-      railSite.command = isListed ? slashLine(e.command) : undefined
-    }
     const isTypedProse = e.origin.kind === 'composer' && e.command === undefined
     if (!isTypedProse || !drawsDiagrams) return next(e)
     const { value: hints = defaultHints } = await $.state.get(HINTS)
     const { value: mode = defaultMode } = await $.state.get(MODE)
     if (hints === 'off' || mode === 'off') return next(e)
     return next({ ...e, context: [...(e.context ?? []), DIAGRAM_HINT] })
-  })
-
-  on('session.append', { door: 'command' }, async ($, e, next) => {
-    const stored = await next(e)
-    const { command } = railSite
-    const isTyped = e.origin.kind === 'composer' && e.agentId === undefined
-    if (isTyped && command !== undefined && stored.uuid !== undefined) {
-      railSite.command = undefined
-      await keepPrompt($, railSite, { requestId: stored.uuid, text: command })
-    }
-    return stored
   })
 
   on('session.append', { door: ['prompt', 'delivery'] }, async ($, e, next) => {

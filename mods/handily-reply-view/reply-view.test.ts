@@ -5810,7 +5810,7 @@ describe('prompt rail: the prompts tab rows and widths', () => {
     )
 
     railTest(
-      'an image, a slash command and a prompt of several lines show their first line',
+      'an image prompt and a prompt of several lines show their first line',
       surface,
       async (_world, $) => {
         await $.session.append({
@@ -5827,17 +5827,14 @@ describe('prompt rail: the prompts tab rows and widths', () => {
           uuid: 'prompt-1',
         })
         await replyEnds($, 'A cat.')
-        await typedCommand($, 'review', 'the diff', 'command-1')
-        await replyEnds($, 'The diff is fine.')
         await typedPrompt($, 'Fix the first line\nthen the second line', 'prompt-2')
         const ui = await mountRail($, surface, 'dock', 41)
         const lines = railLines(await ui.drawn())
-        expect(lines.slice(3, 6)).toEqual([
+        expect(lines.slice(3, 5)).toEqual([
           '  1 10:02 [image] what is this    0 tools',
-          '  2 10:02 /review the diff        0 tools',
-          '▸ 3 10:02 Fix the first line ⏎… ▶ 0 tools',
+          '▸ 2 10:02 Fix the first line ⏎… ▶ 0 tools',
         ])
-        expect(lines.slice(6, 8)).toEqual(['    Fix the first line', '    then the second line'])
+        expect(lines.slice(5, 7)).toEqual(['    Fix the first line', '    then the second line'])
         await ui.unmount()
       },
     )
@@ -5958,31 +5955,6 @@ describe('prompt rail: the prompts tab rows and widths', () => {
 
 const RESUME = { id: 'session-1' }
 
-async function typedCommand($: Engine, name: string, args: string, uuid: string) {
-  const line = `/${name} ${args}`.trim()
-  await $.prompt.submit({
-    text: line,
-    wait: false,
-    origin: { kind: 'composer' },
-    command: { name, args },
-  })
-  await $.session.append({
-    message: {
-      type: 'user',
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>`,
-        },
-      ],
-    },
-    door: 'command',
-    origin: { kind: 'composer' },
-    uuid,
-  })
-}
-
 describe('prompt rail: review repairs', () => {
   for (const surface of SURFACES) {
     test(`a new prompt and a tool call redraw the prompts tab and no transcript row on ${surface}`, async ($, on) => {
@@ -6061,7 +6033,7 @@ describe('prompt rail: review repairs', () => {
     )
 
     railTest(
-      'a slash command that you type is a row, and the header names the day when the session crosses midnight',
+      'the header names the day when the session crosses midnight, and a task notification is no row',
       surface,
       async (_world, $, clock) => {
         const monday = new Date(2026, 10, 2, 23, 50).getTime()
@@ -6069,51 +6041,16 @@ describe('prompt rail: review repairs', () => {
         await typedPrompt($, 'Read the design', 'prompt-1')
         await replyEnds($, 'Done.')
         await clock.set(monday + 20 * MINUTE)
-        await typedCommand($, 'review', 'the diff', 'command-1')
+        await typedPrompt($, 'Run the checks', 'prompt-2')
         await typedPrompt($, 'Agent a1 finished', 'note-1', { kind: 'task-notification' })
-        await typedCommand($, 'replies', 'prompts', 'command-2')
         const ui = await mountRail($, surface, 'dock', 41)
         const lines = railLines(await ui.drawn())
         expect(lines[0]).toBe('Prompts  2 · at 2 · since Mon 23:50')
         expect(lines.slice(3, 5)).toEqual([
           '  1 23:50 Read the design         0 tools',
-          '▸ 2 00:10 /review the diff      ▶ 0 tools',
+          '▸ 2 00:10 Run the checks        ▶ 0 tools',
         ])
         expect(lines).toHaveLength(8)
-        await ui.unmount()
-      },
-    )
-  }
-
-  for (const surface of SURFACES) {
-    railTest(
-      'a command row that no typed command started is not a row, also after a command that kept no row',
-      surface,
-      async (_world, $) => {
-        await $.prompt.submit({
-          text: '/board',
-          wait: false,
-          origin: { kind: 'composer' },
-          command: { name: 'board', args: '' },
-        })
-        await $.prompt.submit({
-          text: 'Read the design',
-          wait: false,
-          origin: { kind: 'composer' },
-        })
-        await typedPrompt($, 'Read the design', 'prompt-1')
-        await $.session.append({
-          message: {
-            type: 'user',
-            role: 'user',
-            content: [{ type: 'text', text: '<local-command-stdout>Done</local-command-stdout>' }],
-          },
-          door: 'command',
-          origin: { kind: 'composer' },
-          uuid: 'command-1',
-        })
-        const ui = await mountRail($, surface, 'dock', 41)
-        expect(railLines(await ui.drawn())[0]).toBe('Prompts  1 · at 1 · since 10:02')
         await ui.unmount()
       },
     )
