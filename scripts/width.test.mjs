@@ -19,6 +19,7 @@ const WIDTH_EXPORTS = {
     'padToWidth',
   ],
   'handily-simple-view': ['displayWidth', 'fitted', 'graphemesOf', 'isEmoji', 'padToWidth'],
+  'handily-tests': ['displayWidth', 'fitted', 'padToWidth'],
 }
 const WIDTH_MODS = Object.keys(WIDTH_EXPORTS)
 
