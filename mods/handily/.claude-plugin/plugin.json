@@ -1,6 +1,6 @@
 {
   "name": "handily",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded.",
   "author": { "name": "niksavis" },
   "dependencies": [
@@ -10,7 +10,8 @@
     "handily-item-toasts",
     "handily-simple-view",
     "handily-reply-view",
-    "handily-filetree"
+    "handily-filetree",
+    "handily-tests"
   ],
   "types": "./types/index.d.ts",
   "userConfig": {
