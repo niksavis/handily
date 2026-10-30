@@ -5476,3 +5476,1027 @@ the transcript shows why
 
 The named constants are `RUNS_KEPT` 20 (in `$.state`, this session only), `FAILURES_SHOWN` 5 and
 `DIFF_LINES` 12.
+
+---
+
+## 14. Parity pass: board, filetree and reply-view (handily-ntinw, approved 2026-10-30)
+
+Approved by the person on 2026-10-30, with each recommended answer of 14.8, after the comparison
+with prismantis, claude-flightdeck and claude-code-filetree of 2026-10-29 (epic handily-ntinw).
+handily copies no code from them and adds no dependency.
+
+Two answers changed on 2026-10-30. The person set prismantis as the base for reply-view, so
+reply-view draws every reply, not only the replies it redraws today (this reverses 14.8 answer 1),
+and the chat layout of 14.10 moves into the reply-view epic instead of being skipped.
+
+Conventions follow 8.0, 11.0 and 12.0. Blocks are plain, a `Colours:` line names theme keys, notes
+sit right of the frame, and the 11.0 stand-ins apply. New stand-ins, none of them an emoji: Ⓓ
+default file, Ⓘ image, Ⓙ data or config; Ⓚ and Ⓢ are reused from Alt B.
+
+**Width check.** A script measured every line with `unicodedata.east_asian_width`: W or F counts 2,
+private-use characters and the circled stand-ins count 1.
+
+- 403 framed lines: board 251 and filetree 152. Each line equals its frame exactly: 45 at body 41,
+  34 at body 30, 80 at body 76, 93 at body 89. None is off.
+- 67 reply-view lines: none is wider than its screen (80, 40 or 30).
+
+**Dark and light.** One block serves both themes, because colour goes through theme keys. Each
+Colours line says what changes in light themes.
+
+### 14.1 handily-board
+
+#### Layout decisions in these mocks
+
+- **Session title.** The frame title carries the session state, at the right: the waits first
+  (`warning`), then `▶ working` (`claude`) or `○ idle` (dim). At body 41 this frees row 1 for the
+  tokens over the window.
+- **Gate rows.** The gate becomes three rows:
+  - the strip with the total after the word `gate`;
+  - the verdict counts;
+  - three plain Buttons. A plain Button draws as `hotkey: label` (index.d.ts 1134).
+
+#### A. Docked, body 41: a turn runs, 2 agents (one waits), the log
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ ╭─ Session ───── ◆ 1 waits · ▶ working ─╮ │  NEW title right: waits, then working or idle
+│ │ ctx ▰▰▰▰▰▰▱▱▱▱ 66% · 663k/1.0M        │ │  button: opens the details; NEW tokens/window
+│ │ $9.02 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │ │
+│ │ opus-5-5 · high · 5 req · ttft 1.2s   │ │  NEW requests and ttft; no mode word (no source here)
+│ │ turn 3m · 2 edits · 0 errors · +$0.31 │ │
+│ │ gate 25 ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■          │ │  NEW total after "gate"
+│ │ 8 allowed · 16 asked · 1 denied       │ │  NEW counts row
+│ │ f: file 12  s: shell 7  o: other 6    │ │  NEW plain Buttons, hotkeys f s o
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Tasks  ▰▰▰▱▱▱ 2/6 · ▶1 ○3 · 41m ─────╮ │
+│ │ ▶ 3 Build the vitals line   6m [ rm ] │ │
+│ │ ○ 4 Wire the permission waits  [ rm ] │ │
+│ │ [ +2 done ]                           │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Agents  2 · 1 needs you ─────────────╮ │  NEW cards; ended stay folded
+│ │ ╭────────────────╮ ╭────────────────╮ │ │
+│ │ │ 1: ◆ scout     │ │ 2: ▶ Explore   │ │ │  card title: a plain Button, hotkey 1
+│ │ │ needs you      │ │ slow 45s       │ │ │
+│ │ │ Bash npm test  │ │ map the hooks  │ │ │  what it waits for, as the row today
+│ │ │ find the elem… │ │ Explore        │ │ │
+│ │ │ gene…pose      │ │ ctx 48k out 6k │ │ │
+│ │ │ ctx 31k out 2k │ │ 12 steps  3:02 │ │ │
+│ │ │ 7 steps   2:14 │ │                │ │ │
+│ │ ╰────────────────╯ ╰────────────────╯ │ │
+│ │ [ +2 ended ]                          │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Log  12 events ──────────────────────╮ │  NEW Log frame, newest first
+│ │ 14:02 scout     ■ denied Bash git p…  │ │
+│ │ 14:02 scout     ◆ waits Bash npm test │ │
+│ │ 14:01 main      Edit hooks/vitals.ts  │ │
+│ │ 14:00 Explore   spawned: map the ho…  │ │
+│ │ 13:59 you       run the gate pass     │ │
+│ │ [ +7 earlier ]                        │ │
+│ ╰───────────────────────────────────────╯ │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+Colours:
+
+- Frames as B1: Session `claude`, Tasks `planMode`, Agents `merged`; the new Log frame is
+  `inactive`.
+- Title state: `◆ 1 waits` `warning`; `▶ working` `claude`; `○ idle` dim.
+- Session rows: `663k/1.0M`, `5 req` and `ttft 1.2s` dim. The gate total is plain and the strip as
+  B1.
+- Counts: dim, except `1 denied` in `error`.
+- f s o Buttons: the engine draws the hotkey in its accent colour and the label dim.
+- Card border:
+  - `warning` with `◆` and "needs you";
+  - `error` with `■` and "failed";
+  - else `subtle`.
+- Card text: name bold, state word in the mark's key, type dim, tokens and clock dim.
+- Log: time dim, who plain. `■` with "denied" or "failed" in `error`, `◆ waits` in `warning`, `✓
+  done` in `success`.
+- Light themes: `claude` ≈ `warning` (12.1), so `◆ 1 waits` and `▶ working` look alike in colour.
+  The marks and the words tell them apart.
+
+#### B. Docked, body 41, empty: session start
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │
+│ ╭─ Session ──────────────────── ○ idle ─╮ │  "○ idle" dim
+│ │ ctx — until the first reply           │ │
+│ │ limits — until the first reply        │ │  ttft appears with the first request
+│ │ opus-5-5 · 0 req                      │ │  no counts row and no f s o until a check
+│ │ gate no checks yet                    │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Tasks  none in this session yet ─────╮ │
+│ │ Open in tracker: basicly · 29 open    │ │
+│ │ [ all 29 open ]  [ Add 10 as tasks ]  │ │
+│ ╰───────────────────────────────────────╯ │
+│ No agents yet.                            │
+│ ╭─ Log  nothing yet ────────────────────╮ │
+│ │ Prompts, spawns, edits, errors and    │ │
+│ │ denials show here, newest first.      │ │
+│ ╰───────────────────────────────────────╯ │
+│ [ Add a task ____________ ][Add]          │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as A; the empty texts are dim.
+
+#### C. Docked, body 41: key 1 pressed, card 1 open below the cards, the log filtered
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │
+│ ╭─ Agents  2 · 1 needs you ─────────────╮ │
+│ │ ╭────────────────╮ ╭────────────────╮ │ │
+│ │ │ 1: ◆ scout     │ │ 2: ▶ Explore   │ │ │  the focus stays on "1: ◆ scout"
+│ │ │ needs you      │ │ slow 45s       │ │ │
+│ │ │ Bash npm test  │ │ map the hooks  │ │ │
+│ │ │ find the elem… │ │ Explore        │ │ │
+│ │ │ gene…pose      │ │ ctx 48k out 6k │ │ │
+│ │ │ ctx 31k out 2k │ │ 12 steps  3:02 │ │ │
+│ │ │ 7 steps   2:14 │ │                │ │ │
+│ │ ╰────────────────╯ ╰────────────────╯ │ │
+│ │ 1 scout, opened:                      │ │  NEW: the opened card, as B4a
+│ │   find the element table in the       │ │  the full task, wrapped
+│ │   engine types                        │ │
+│ │   general-purpose · under main        │ │
+│ │   spawned 2m ago · 7 steps · 9 calls  │ │
+│ │   ctx 31k · out 2.4k                  │ │
+│ │   last calls                          │ │
+│ │     ✓ Read docs/design.md       40s   │ │
+│ │     ✓ Grep ui.render hooks/     20s   │ │
+│ │     ◆ Bash npm test             now   │ │
+│ │   answer: none yet                    │ │
+│ │ [ +2 ended ]                          │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Log  scout · 4 of 12 ────────────────╮ │
+│ │ only scout, while card 1 is open      │ │  NEW filter line, dim
+│ │ 14:02 scout     ■ denied Bash git p…  │ │
+│ │ 14:02 scout     ◆ waits Bash npm test │ │
+│ │ 14:01 scout     Edit docs/design.md   │ │
+│ │ 14:00 main      spawned scout         │ │
+│ ╰───────────────────────────────────────╯ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as B4a and A. The filter applies while the card is open, or while scout's transcript is in
+view (as filetree 10.10). Its dim line then reads "only scout: its transcript is in view".
+
+#### D. Docked, body 41: s pressed, the last 5 shell checks
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │
+│ ╭─ Session ───────────────── ▶ working ─╮ │
+│ │ ctx ▰▰▰▰▰▰▱▱▱▱ 66% · 663k/1.0M        │ │
+│ │ $9.02 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │ │
+│ │ opus-5-5 · high · 5 req · ttft 1.2s   │ │
+│ │ turn 3m · 2 edits · 0 errors · +$0.31 │ │
+│ │ gate 25 ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■          │ │
+│ │ 8 allowed · 16 asked · 1 denied       │ │
+│ │ f: file 12  s: shell 7  o: other 6    │ │  s pressed: "s: shell 7" is bold
+│ │ shell: last 5 of 7                    │ │  NEW, as 8.10d, one family
+│ │ denied   Bash git push --forc…        │ │  "denied" in error, word first
+│ │ asked    Bash npm test   scout        │ │
+│ │ asked    Bash npm run check           │ │
+│ │ allowed  Bash git status              │ │
+│ │ allowed  Bash ls hooks/  Explore      │ │
+│ │ [ hide shell ]                        │ │  Enter, Esc or s again hides
+│ ╰───────────────────────────────────────╯ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as 8.10d. The verdict word is first, so it does not rest on colour. Credentials are masked
+(`credentials.ts`).
+
+#### E. Docked, body 41, overflow: 6 agents do not fit as cards, so rows; long numbers and names
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │
+│ ╭─ Session ────── ◆ 2 wait · ▶ working ─╮ │
+│ │ ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · 182k/200k   │ │  "91% high" in warning
+│ │ $12.40 · 5h ▰▰▰▰▱ 84% high · 7d 13%   │ │
+│ │ opus-5-5 · max · 1,204 req · ttf…     │ │  ttft is cut first
+│ │ turn 1h · 9 edits · 2 errors · +$1.90 │ │
+│ │ gate 1,320 ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮■       │ │
+│ │ 1,290 allowed · 29 asked · 1 denied   │ │
+│ │ f: 999+  s: 214  o: 87                │ │  over 999: 999+; the words drop first
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Agents  6 · 2 need you · 1 failed ───╮ │  too many for cards: rows, digits 1-5
+│ │ 1 ◆ scout     needs you     open  2m  │ │
+│ │     waits for: permission · Bash…     │ │
+│ │ 2 ◆ lane-c    needs you     open  1m  │ │
+│ │     waits for: a plan approval        │ │
+│ │ 3 ■ lane-b    failed              4m  │ │
+│ │     failed after Bash npm test        │ │
+│ │ 4 ▶ Explore   slow 45s      open  3m  │ │
+│ │ 5 ▶ tester    quiet 3m      open  5m  │ │
+│ │   ▶ impl…nter plan 0/3      open  9s  │ │  the 6th row has no digit
+│ │ [ +2 ended ]                          │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Log  1,240 events · 100 kept ────────╮ │  kept: the last 100
+│ │ 14:31 lane-b    ■ failed Bash npm t…  │ │
+│ │ 14:31 Explore   Edit hooks/a-very-l…  │ │
+│ │ 14:30 you       now check the gate …  │ │
+│ │ 14:30 main      ✓ done tester 4m 2s   │ │
+│ │ 14:29 scout     ◆ waits Bash npm test │ │
+│ │ [ +95 earlier ]                       │ │
+│ ╰───────────────────────────────────────╯ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as A. `2 errors` is in `error`; the digit before each row is dim.
+
+#### F. Docked, body 41, error and partial states
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │
+│ ╭─ Session ───────────────── ▶ working ─╮ │
+│ │ no context or cost on this host       │ │  usage() refused (8.10i)
+│ │ opus-5-5 · high · req —               │ │  no request seen yet; ttft absent
+│ │ turn 3m · 2 edits · 0 errors          │ │
+│ │ gate no checks yet                    │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Agents  1 ───────────────────────────╮ │
+│ │ ╭────────────────╮                    │ │
+│ │ │ 1: ▶ Explore   │                    │ │
+│ │ │ running        │                    │ │
+│ │ │ map the hooks  │                    │ │
+│ │ │ Explore        │                    │ │
+│ │ │ ctx —  out —   │                    │ │  no step of the agent yet
+│ │ │ 0 steps   0:04 │                    │ │
+│ │ ╰────────────────╯                    │ │
+│ ╰───────────────────────────────────────╯ │
+│ ╭─ Log  2 events ───────────────────────╮ │
+│ │ 14:00 Explore   spawned: map the ho…  │ │
+│ │ 13:59 you       run the gate pass     │ │
+│ │ The log missed 3 events: the board    │ │  after a reload: dim, no error
+│ │ was reloaded. It keeps what it saw.   │ │
+│ ╰───────────────────────────────────────╯ │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as A; `—` and the missed-events note are dim.
+
+#### G. Docked, body 30: no frames, no cards, 3 log rows
+
+```text
+╭──────────────────────────────✕─╮
+│ [this session]  this machine   │
+│ Session  ◆ 1 waits · ▶ working │
+│ ctx ▰▰▰▰▰▰▱▱▱▱ 66% · $9.02     │  tokens move to the next row
+│ 663k/1.0M · 5h 31% · 7d 13%    │  the 5h and 7d gauges drop first
+│ opus-5-5 · high · 5 req        │  ttft drops at 30
+│ turn 3m · 2 edits · +$0.31     │
+│ gate 25 ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■   │
+│ 8 allowed · 16 asked           │
+│ 1 denied · f: 12  s: 7  o: 6   │  denied first, never cut; f s o drop words
+│ Tasks  ▰▰▰▱▱▱ 2/6 · ▶1 ○3 · 4… │
+│ ▶ 3 Build the vit… 6m [ rm ]   │
+│ [ +2 done ]                    │
+│ ────────────────────────────── │
+│ Agents 2 · 1 you               │
+│ 1 ◆ scout   needs you open 2m  │  rows, digits 1-5, name cut to 7
+│     waits for: permission ·…   │
+│ 2 ▶ Explore slow 45s  open 3m  │
+│ ────────────────────────────── │
+│ Log  12 events                 │  NEW Log, 3 rows, who cut to 5
+│ 14:02 scout ■ denied Bash g…   │
+│ 14:02 scout ◆ waits Bash np…   │
+│ 14:01 main  Edit hooks/vita…   │
+│ [ +9 earlier ]                 │
+╰────────────────────────────────╯
+```
+
+Colours: as B6. "Log" is bold in `inactive`.
+
+**Cut order at body 30:** the family words, then ttft, then the gauges, then `0 errors`. The waits
+and a non-zero denied or error count are never cut.
+
+#### H. Inline above the prompt, 80 columns (body 76): no frames, no cards, no log
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                 │
+│ Session  ◆ 1 waits · ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 66% · 663k/1.0M · $9.02      │  NEW state after the title; tokens
+│     5h ▰▱▱▱▱ 31% resets 2h · 7d ▱▱▱▱▱ 13% resets 4d                          │  NEW resets on the main line
+│     opus-5-5 · high · 5 req · ttft 1.2s · turn 3m · 2 edits · +$0.31         │  NEW requests and ttft; "0 errors" drops first
+│     gate 25 ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ 8 allowed · 16 asked · 1 denied             │
+│     f: file 12  s: shell 7  o: other 6                                       │  NEW plain Buttons
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m                                                │
+│ ▶ 2 Write the tab mocks           ▸ Edit docs/mocks.md · 9 tools   4m [ rm ] │
+│ Agents  2 · 1 needs you                                                      │
+│ 1 ◆ scout     needs you  waits for: permission · Bash npm test     open  2m  │  rows with digits; cards never inline
+│ 2 ▶ Explore   slow 45s   ▸ Bash npm run check                      open  3m  │
+│ [ Add a task ______________________________ ][Add]                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+Colours: as B7b. Inline takes 12 rows here, against 13 for B7b, because the log is left out. `/board
+log` prints the log instead.
+
+#### I. Docked, body 89: 4 cards fit; with 5 or more agents the lanes of 8.10k draw, with digits
+
+```text
+╭─────────────────────────────────────────────────────────────────────────────────────────✕─╮
+│ [this session]  this machine                                                              │  (engine tab row)
+│ ╭─ Session ───────────────────────────────────────────────────── ◆ 1 waits · ▶ working ─╮ │
+│ │ ctx ▰▰▰▰▰▰▱▱▱▱ 66% · 663k/1.0M · 5h ▰▱▱▱▱ 31% resets 2h · 7d ▱▱▱▱▱ 13% resets 4d      │ │
+│ │ $9.02 · opus-5-5 · high · 5 req · ttft 1.2s · turn 3m · 2 edits · 0 errors · +$0.31   │ │
+│ │ gate 25 ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ 8 allowed · 16 asked · 1 denied                          │ │
+│ │ f: file 12  s: shell 7  o: other 6                                                    │ │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────╯ │
+│ ╭─ Agents  4 · 1 needs you · 1 failed ──────────────────────────────────────────────────╮ │
+│ │ ╭──────────────────╮ ╭──────────────────╮ ╭──────────────────╮ ╭──────────────────╮   │ │
+│ │ │ 1: ◆ scout       │ │ 2: ■ lane-b      │ │ 3: ▶ Explore     │ │ 4: ▶ tester      │   │ │
+│ │ │ needs you        │ │ failed           │ │ slow 45s         │ │ quiet 3m         │   │ │
+│ │ │ Bash npm test    │ │ Bash npm test    │ │ map the hooks    │ │ run the gates    │   │ │
+│ │ │ find the element │ │ build the vitals │ │ Explore          │ │ tester           │   │ │
+│ │ │ general-purpose  │ │ implementer      │ │ ctx 48k out 6.1k │ │ ctx 12k out 0.8k │   │ │
+│ │ │ ctx 31k out 2.4k │ │ ctx 62k out 9.1k │ │ 12 steps    3:02 │ │ 4 steps     5:10 │   │ │
+│ │ │ 7 steps     2:14 │ │ 31 steps   12:40 │ │                  │ │                  │   │ │
+│ │ ╰──────────────────╯ ╰──────────────────╯ ╰──────────────────╯ ╰──────────────────╯   │ │
+│ │ [ +2 ended ]                                                                          │ │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────╯ │
+│ ╭─ Log  12 events ──────────────────────────────────────────────────────────────────────╮ │
+│ │ 14:02:11 scout     ■ denied Bash git push --force origin main                         │ │
+│ │ 14:02:03 scout     ◆ waits Bash npm test                                              │ │
+│ │ 14:01:40 main      Edit hooks/vitals.ts                                               │ │
+│ │ [ +9 earlier ]                                                                        │ │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────╯ │
+╰───────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+Colours: as A. From body 76 the log shows seconds.
+
+#### J. Desktop app, body 41: no frames, no cards, native buttons
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │
+│ Session  ◆ 1 waits · ▶ working            │
+│ ctx ▰▰▰▰▰▰▱▱▱▱ 66% · 663k/1.0M            │
+│ $9.02 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%       │
+│ opus-5-5 · high · 5 req · ttft 1.2s       │
+│ turn 3m · 2 edits · 0 errors · +$0.31     │
+│ gate 25 ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■              │
+│ 8 allowed · 16 asked · 1 denied           │
+│ [file 12] [shell 7] [other 6]             │  native buttons; hotkeys not verified on desktop
+│ Agents  2 · 1 needs you                   │
+│ [1 ◆ scout     needs you     open  2m]    │  rows, not cards
+│     waits for: permission · Bash…         │
+│ [2 ▶ Explore   slow 45s      open  3m]    │
+│ Log  12 events                            │
+│ 14:02 scout     ■ denied Bash git p…      │
+│ 14:02 scout     ◆ waits Bash npm test     │
+│ [+10 earlier]                             │
+╰───────────────────────────────────────────╯
+```
+
+Colours: as B6; titles are bold in their key.
+
+**`/board stats` gains these lines** (plain text):
+
+```text
+  Requests 5; time to first token 1.2 seconds (latest main request).
+  Context 663k of 1.0M tokens. Limits reset: 5h in 2 hours, 7d in 4 days.
+  Checks 25: 8 allowed, 16 asked (the classifier or you), 1 denied.
+```
+
+**`/board log [agent]`** prints the kept log, newest first, one line per event, with credentials
+masked.
+
+### 14.2 handily-filetree
+
+These mocks include the screenshot findings recorded on handily-ntinw:
+
+- An open folder row draws no agent mark and no age. A file and a closed folder keep them.
+- A zero count (`+0`, `-0`) draws dim.
+- The age column gets a right-edge probe (Q8 in section 6).
+
+#### K. Docked, body 41, work view, plain glyphs, column +/-
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ this session  this machine  [files]       │  (engine tab row)
+│ Files  app · main ↑1 · 6 changed +48 -93  │
+│ upstream origin/main                      │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx            now │  "now": a call on it runs
+│ ◦ scout     docs/design.md             2s │
+│ ───────────────────────────────── [ +/- ] │  NEW column button, hotkey i
+│ ▾ docs/  M2 ?1     +16 -4                 │  NEW open folder: no mark, no age; name warning
+│   M design.md       +4 -1 ◦ scout      2s │
+│   M mocks.md       +12 -3 ✎ main +1    1m │
+│   ? filetree.md           ✎ main      30s │
+│ ▾ hooks/  M1 D1   +30 -89                 │
+│   M pane.tsx       +30 -2 ✎ main      now │  NEW now row: background subtle, age "now"
+│   D old-pane.tsx   +0 -87 ✎ gene…se 2  3m │  "+0" dim
+│     register.tsx          ◦ scout     40s │
+│ ▸ scratch/  ?             ✎ Explore    5m │  closed folder keeps its mark and age
+│ M README.md         +2 -0                 │  "-0" dim
+│ work view: touched and changed files      │
+╰───────────────────────────────────────────╯
+```
+
+Colours:
+
+- Folder names: a folder with a change below it keeps F1's key (`error`, `warning` or `success`). A
+  folder with no change takes the new plain-folder key `planMode` (decision O7).
+- Chevrons dim.
+- `+N` `success` and `-N` `error`; a zero count is dim, with its sign kept.
+- The now row: background `subtle` on the whole row, text in its own keys, and the word `now` bold.
+- The column button is drawn by the engine; the rule is `subtle`.
+- Light themes: `planMode` is 6.8:1 on light, 6.5:1 on light-daltonized, 6.0:1 on dark and 4.8:1 on
+  #1e1e1e. In the daltonized themes `success` is blue and distinct from teal.
+
+#### L. Docked, body 41, work view, nerd glyphs: chevron, folder icon, type icon
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app Ⓨ main ↑1 · 6 changed +48 -93  │
+│ upstream origin/main                      │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  2 agents                             │
+│ Ⓔ main      hooks/pane.tsx            now │
+│ Ⓡ scout     docs/design.md             2s │
+│ ───────────────────────────────── [ +/- ] │
+│ ▾ ⓕ docs/  M2 ?1     +16 -4               │  NEW chevron = open or shut; icon in the folder colour
+│   M Ⓚ design.md     +4 -1 Ⓡ scout      2s │  NEW type icon after the git letter, type colour
+│   M Ⓚ mocks.md     +12 -3 Ⓔ main +1    1m │
+│   ? Ⓚ filetree.md         Ⓔ main      30s │
+│ ▾ ⓕ hooks/  M1 D1 +30 -89                 │
+│   M Ⓢ pane.tsx     +30 -2 Ⓔ main      now │
+│   D Ⓢ old-pane.t…  +0 -87 Ⓔ gene…se 2  3m │  the name is cut before the counts
+│     Ⓢ register.tsx        Ⓡ scout     40s │
+│ ▸ Ⓕ scratch/  ?           Ⓔ Explore    5m │
+│ M Ⓚ README.md       +2 -0                 │
+│   Ⓓ LICENSE                               │  Ⓓ the default icon (no known type)
+│ work view: touched and changed files      │
+╰───────────────────────────────────────────╯
+```
+
+Colours:
+
+- The folder icon and name share the folder's key (git or plain).
+- Type icons by family:
+  - code (Ⓢ): `suggestion`;
+  - docs (Ⓚ): `merged`;
+  - data and config (Ⓙ), image (Ⓘ) and default (Ⓓ): `inactive`.
+- The file name keeps its git key, so the git state never moves into the icon.
+- The chevrons stay `▸ ▾` in both sets (decision O8).
+
+#### M. Docked, body 41, all files, nerd, column date; ignored and dot files dim; a row focused
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app Ⓨ main ↑1 · 6 changed +48 -93  │
+│ upstream origin/main                      │
+│ [ work only ] {agent: all} [ refresh ]    │
+│ Now  nothing read or edited yet           │
+│ ──────────────────────────────── [ date ] │  button pressed once: +/- -> date
+│ ▸ Ⓕ .git/  not listed                     │  name dim (not listed, as today)
+│ ▸ Ⓕ node_modules/  not listed             │
+│ ▸ Ⓕ dist/  ignored                        │  NEW "ignored", dim; a plain folder colour is not drawn on it
+│ ▾ ⓕ docs/  M2 ?1                          │
+│   M Ⓚ design.md                     10-27 │  date: HH:MM today, MM-DD before, the year before that
+│   ? Ⓚ filetree.md                   14:05 │
+│     Ⓚ guide.md                      09-12 │
+│   M Ⓚ mocks.md                      13:58 │  focus: the engine inverts the whole row (padded)
+│ ▸ Ⓕ hooks/  M1 D1                         │
+│ ▸ Ⓕ scripts/                              │
+│   Ⓓ .env                            10-02 │  dot and ignored: dim
+│   Ⓓ .gitignore                      10-02 │
+│   Ⓓ debug.log                       14:07 │  ignored: dim, NEW
+│ M Ⓚ README.md                       14:01 │
+│   Ⓙ package.json                    10-20 │  Ⓙ data icon
+╰───────────────────────────────────────────╯
+```
+
+Colours:
+
+- Dim rows are fully dim, the icon included. Dim wins over the plain-folder key.
+- The `date`, `size` and `lines` values are dim and right-aligned in the place of the +/- column.
+- With no agent column the values reach the right edge.
+
+#### N. Docked, body 41: the size and the lines columns, with edge cases
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ──────────────────────────────── [ size ] │  second press
+│ ▾ ⓕ docs/  M2 ?1                          │
+│   M Ⓚ design.md                       84K │
+│   ? Ⓚ filetree.md                    3.1K │
+│   M Ⓚ mocks.md                       412K │
+│     Ⓘ diagram.png                    1.2M │  size: B, K, M, G, 1 decimal under 10
+│ ─────────────────────────────── [ lines ] │  third press; a fourth goes back to +/-
+│ ▾ ⓕ docs/  M2 ?1                          │
+│   M Ⓚ design.md                     1,525 │
+│   ? Ⓚ filetree.md                      88 │
+│   M Ⓚ mocks.md                      5,478 │
+│     Ⓘ diagram.png                     bin │  binary: "bin", dim
+│     Ⓚ huge-export.md              over 4M │  too large to count: "over 4M", dim
+│     Ⓚ locked.md                         ? │  unreadable: "?", dim; the row opened says why
+╰───────────────────────────────────────────╯
+```
+
+Colours: values dim. Folders show no date, size or lines; only `+/-` sums folders, as today.
+
+#### O. Docked, body 41, overflow
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app · main ↑12 ↓3 · 1,204 changed  │
+│ +12.4k -9.0k · upstream origin/rele…      │  totals move to line 2, as F3
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  5 agents                             │
+│ ✎ main      src/gen/very/long/pa…     now │
+│ ◦ scout     docs/a-very-long-name…     2s │
+│ [ +3 more agents ]                        │
+│ ───────────────────────────────── [ +/- ] │
+│ ▾ src…/  M999+ ?40 D8 +9.9k -8.1k         │  counts over 9,999 shorten, as F3
+│   M aaaaaaaaaaaaaaa… +999 -12 ✎ main  now │  a name is cut first, never the age
+│   ▸ gen/  ?1,201          ◦ scout      4m │  a closed folder: mark and age
+│ [ +1,640 more in src/ ]                   │  as today
+╰───────────────────────────────────────────╯
+```
+
+Colours: as K and F3.
+
+#### P. Docked, body 41, errors (each keeps the tree)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app · main · 6 changed             │
+│ git status failed: timed out. [ retry ]   │  as F4/10.5e; letters and colours of git wait
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  nothing read or edited yet           │
+│ ──────────────────────────────── [ date ] │
+│ ▾ docs/                                   │
+│     design.md                           ? │  stat failed: "?", dim; opened, the row says why
+│     mocks.md                        10-27 │
+│ Cannot list hooks/: permission denied.    │  in error, as today
+╰───────────────────────────────────────────╯
+```
+
+If the `--ignored` status fails, nothing dims, the tree stays, and the debug log names the failure.
+
+#### Q. Docked, body 41, empty (unchanged but the button)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app · main · clean                 │
+│ [ all files ] {agent: all} [ refresh ]    │
+│ Now  nothing read or edited yet           │
+│ ───────────────────────────────── [ +/- ] │  shown, so the choice can be made before a change
+│ No changed or touched files.              │
+│ [ all files ] shows the whole tree.       │
+╰───────────────────────────────────────────╯
+```
+
+#### R. Docked, body 30: the right column and its button drop; the colours stay
+
+```text
+╭──────────────────────────────✕─╮
+│ Files  app · main · 6 chang…   │
+│ [ all files ] [ refresh ]      │
+│ {agent: all}                   │
+│ Now  2 agents                  │
+│ ✎ main  hooks/pane.tsx    now  │
+│ ◦ scout docs/design.md     2s  │
+│ ────────────────────────────── │  no column button below body 41
+│ ▾ docs/  M2 ?1                 │  open folder: no mark
+│   M design.md    ◦ scout   2s  │
+│   M mocks.md     ✎ main    1m  │
+│ ▾ hooks/  M1 D1                │
+│   M pane.tsx     ✎ main   now  │  now row: background stays, age "now"
+│ ▸ scratch/  ?   ✎ Explo…  5m   │
+│ M README.md                    │
+╰────────────────────────────────╯
+```
+
+In the nerd set at 30 and 24, the type icon drops before the agent label. The folder icon stays.
+
+#### S. Inline above the prompt, 80 columns (body 76): flat, at most 8 rows
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Files  app · main ↑1 · 6 changed +48 -93    {agent: all} [ +/- ] [ refresh ] │  NEW [ +/- ] on the header row (hotkey i)
+│ M docs/design.md                 +4 -1  ◦ scout                           2s │
+│ M docs/mocks.md                 +12 -3  ✎ main +1                         1m │
+│ ? docs/filetree.md                      ✎ main                           30s │
+│ M hooks/pane.tsx                +30 -2  ✎ main                           now │  now row: background subtle
+│ D hooks/old-pane.tsx            +0 -87  ✎ gene…se 2                       3m │  "+0" dim
+│   hooks/register.tsx                    ◦ scout                          40s │
+│ +1 more: a dock (fullscreen, 110 columns) shows the tree                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### T. Desktop app, body 41: plain glyphs always, no type icons, native buttons
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Files  app · main ↑1 · 6 changed +48 -93  │
+│ upstream origin/main                      │
+│ [all files] {agent: all} [refresh] [+/-]  │  native button; hotkey i not verified
+│ Now  2 agents                             │
+│ ✎ main      hooks/pane.tsx            now │
+│ ───────────────────────────────────────── │
+│ ▾ docs/  M2 ?1     +16 -4                 │
+│   M design.md       +4 -1 ◦ scout      2s │
+│ ▾ hooks/  M1 D1   +30 -89                 │
+│   M pane.tsx       +30 -2 ✎ main      now │  now row: background needs the desktop probe
+│ ▸ scratch/  ?             ✎ Explore    5m │
+╰───────────────────────────────────────────╯
+```
+
+### 14.3 handily-reply-view
+
+Screens are 80, 40 and 30 columns. An inline 76 view does not apply, because replies draw in the
+transcript.
+
+#### P1. 80 columns: box is the default; prose highlighting on
+
+```text
+● The gate ran npm run check over 9 mods in 3m 12s. handily-board 0.19.0
+  passed 1,204 tests; docs/mocks.md gained section 14 at 14:05. p95 fell from
+  46 ms to 2 s, and the x86_64 build kept utf8 and sha256 in ./scripts/mods.mjs.
+
+  ┌───────────────┬───────┬──────┬────────────────────┐
+  │ Mod           │ Tests │ Gate │ Next               │
+  ╞═══════════════╪═══════╪══════╪════════════════════╡
+  │ handily-board │   212 │ pass │ frames, see design │
+  ├───────────────┼───────┼──────┼────────────────────┤
+  │ reply-view    │    98 │ fail │ npm test exits 1   │
+  ├───────────────┼───────┼──────┼────────────────────┤
+  │ filetree      │ 1,024 │ pass │ v0.13.0 in 3m 12s  │
+  └───────────────┴───────┴──────┴────────────────────┘
+                              [ copy ] [ copy as text ]
+```
+
+Colours (theme palette):
+
+- `npm run check` in `permission`.
+- In `planMode`: `9`, `3m`, `12s`, `0.19.0`, `1,204`, `14`, `14:05`, `46`, `2`, and in the cells
+  `212`, `98`, `1,024`.
+- Paths in `merged`: `docs/mocks.md`, `./scripts/mods.mjs`.
+- Plain: `p95`, `x86_64`, `utf8`, `sha256`, `handily-board`, "ms" and "s".
+- Table as R2: header `claude` + bold, borders `subtle`.
+- In a cell, `v0.13.0` and `3m 12s` also highlight, because the token rules apply inside cells (R3
+  left `0.6.0` plain; this changes it).
+
+Colours (catppuccin-mocha, dark theme only):
+
+- header `#f9e2af`, borders `#585b70`, numbers `#a6e3a1`;
+- inline code `#89dceb`, paths `#cba6f7`, links `#89b4fa` + underline.
+
+#### P2. 80 columns: a table with no data rows (box)
+
+```text
+● The columns of the report:
+
+  ┌─────┬───────┬──────┬──────┐
+  │ Mod │ Tests │ Gate │ Next │
+  └─────┴───────┴──────┴──────┘
+                       [ copy ]
+```
+
+#### P3. 40 columns (reply 38): the box fits; a wider table draws blocks
+
+```text
+● 3 mods passed in 3m 12s:
+
+  ┌──────────┬───────┬──────┐
+  │ Mod      │ Tests │ Gate │
+  ╞══════════╪═══════╪══════╡
+  │ board    │   212 │ pass │
+  ├──────────┼───────┼──────┤
+  │ filetree │ 1,024 │ pass │
+  └──────────┴───────┴──────┘
+    [ copy ] [ copy as text ]
+
+  handily-board
+               [ copy ] [ copy as text ]
+    Tests: 212
+    Next:  frames, see design
+```
+
+#### P4. 30 columns: blocks; prose wraps, highlights stay
+
+```text
+● The gate ran npm run
+  check over 9 mods in 3m
+  12s. docs/mocks.md gained
+  section 14.
+
+  board   [ copy ]
+    Tests: 212
+    Gate:  pass
+```
+
+A token that wraps keeps its colour on both lines. `copy as text` goes under the last block, which
+is not drawn here.
+
+#### P5. 80 columns: highlighting off (the same prose)
+
+```text
+● The gate ran npm run check over 9 mods in 3m 12s. handily-board 0.19.0
+  passed 1,204 tests; docs/mocks.md gained section 14 at 14:05. p95 fell from
+  46 ms to 2 s, and the x86_64 build kept utf8 and sha256 in ./scripts/mods.mjs.
+```
+
+Colours: only `npm run check` in `permission`, as the engine draws it today.
+
+#### P6. Debug log lines for a stored value outside the options (not on screen)
+
+```text
+~ debug log: handily-reply-view: userConfig tableStyle is "grid"; set it to
+~ rules or box in /config. Drawing box.
+~ debug log: handily: userConfig palette is "mocha"; set it to theme or
+~ catppuccin-mocha in /config. Drawing theme.
+```
+
+#### P7. /handily palette (a command reply, plain text)
+
+```text
+❯ /handily palette
+  Palette: catppuccin-mocha (stored). Theme: dark, so it draws.
+  Role           Theme key    catppuccin-mocha
+  table header   claude       #f9e2af
+  number         planMode     #a6e3a1
+  inline code    permission   #89dceb
+  path           merged       #cba6f7
+  link           suggestion   #89b4fa
+  rules          subtle       #585b70
+  States (done, failed, waits, git letters) keep the theme keys.
+  Palette colours from prismantis (MIT), Catppuccin (MIT).
+```
+
+On a light theme the second line reads: "Theme: light, so the theme colours draw; catppuccin-mocha
+is for dark themes."
+
+#### P8. Desktop app: rules, whatever the setting, until the desktop probe
+
+```text
+● The two mods ran their gates in 3m 12s:
+
+  Mod           │ Tests │ Gate │ Next                  [copy] [copy as text]
+  ══════════════╪═══════╪══════╪═══════════════════
+  handily-board │   212 │ pass │ frames, see design
+  reply-view    │    98 │ fail │ npm test exits 1
+```
+
+### 14.4 What the palette colours: one table for all three mods
+
+| Role | Mod | Theme key today | catppuccin-mocha | Contrast on #1e1e2e / on white |
+| --- | --- | --- | --- | --- |
+| Session frame, ctx and limit gauge fill | board | `claude` | `#cba6f7` | 8.1 / 2.0 |
+| Tasks frame | board | `planMode` | `#89b4fa` | 7.8 / 2.1 |
+| Agents frame | board | `merged` | `#f5c2e7` | 10.7 / 1.5 |
+| Log frame | board | `inactive` | `#9399b2` | 5.8 / 2.8 |
+| Table header | reply-view | `claude` | `#f9e2af` | 12.9 / 1.3 |
+| Table rules, box borders, gauge `▱` | reply-view, board | `subtle` | `#585b70` | 2.5 / 6.7 |
+| Numbers (cells and prose) | reply-view | `planMode` | `#a6e3a1` | 11.0 / 1.5 |
+| Inline code | reply-view | `permission` | `#89dceb` | 10.5 / 1.6 |
+| Paths in prose | reply-view | `merged` | `#cba6f7` | 8.1 / 2.0 |
+| Links | reply-view | `suggestion` | `#89b4fa` | 7.8 / 2.1 |
+| Diagram lines, labels | reply-view | `inactive` | `#9399b2` | 5.8 / 2.8 |
+| Diagram heads | reply-view | `claude` | `#cba6f7` | 8.1 / 2.0 |
+| Diagram cycle 1/2/3 | reply-view | `suggestion`/`planMode`/`merged` | `#89b4fa`/`#a6e3a1`/`#f5c2e7` | ≥7.8 |
+| Plain folder | filetree | `planMode` | `#89b4fa` | 7.8 / 2.1 |
+| Type icon: code / docs / other | filetree | `suggestion`/`merged`/`inactive` | `#89dceb`/`#f5c2e7`/`#9399b2` | ≥5.8 |
+
+- **States are never repainted.** `success`, `error` and `warning` keep the person's theme in every
+  palette: done, failed, waits, git letters, `+N` and `-N`, high gauges, denied. So does `claude` as
+  the doing mark, and so do the mode words. This keeps the daltonized themes working.
+- **Path colour.** prismantis gives paths and inline code the same `#89dceb`. I moved paths to its
+  accent `#cba6f7` so the two stay apart; this is a deliberate deviation.
+- **Light themes.** On white, mocha falls to 1.3-2.8:1. So the palette applies only when the
+  engine's `theme` row reads as a dark theme, and otherwise theme keys draw.
+
+### 14.5 Settings
+
+| Mod | Key | Options | Default | Description text |
+| --- | --- | --- | --- | --- |
+| `handily` (bundle, beside `glyphs`) | `palette` | `theme`, `catppuccin-mocha` | `theme` | "theme: the colours of your Claude Code theme. catppuccin-mocha: fixed colours from Catppuccin, for dark themes only; a light theme keeps the theme colours. States always keep the theme. /handily palette shows both." |
+| `handily-reply-view` | `tableStyle` | `rules`, `box` | `box` (was `rules`) | Unchanged text. A stored value outside the options now draws `box`. |
+| `handily-reply-view` | `highlight` | `on`, `off` | `on` | "Whether numbers, durations, versions, paths and inline code in a reply's prose and cells draw in their own colours (on) or as plain text (off)." |
+
+- There is no new board setting.
+- There is no filetree setting for the right column. The choice lasts for the session, as `[ all
+  files ]` does (decision O10).
+
+**The palette is read like Glyphs.**
+
+- Each mod keeps a byte-identical `hooks/palette.ts` (types only), checked by `scripts/copies.mjs`.
+- A mod reads the `handily` row of `$.config.list()` and the `theme` row.
+- A mod installed alone draws `theme`.
+
+**Highlight rules.** Each rule applies only where reply-view draws the text: paragraphs, list items
+and table cells.
+
+- **Boundary.** A token starts at the start of the text, after whitespace, or after `( [ " '`. It
+  ends before whitespace, the end of the text, or one of `, ; : . ) ] " ' ! ?` that is itself
+  followed by whitespace or the end. So a sentence's last full stop is not part of the token.
+- **Number.**
+  - Digits with optional thousands commas (`1,204`) and one decimal part (`3.14`).
+  - An optional leading `+` or `-` only at a boundary, and an optional `%` or `x` suffix.
+  - A digit with a letter, `_`, `-`, `#` or `.` right before it, or a letter or `_` right after it,
+    is not a number: `p95`, `x86_64`, `utf8`, `sha256`, `opus-5-5`, `2nd`, `695ce64`, `#123`,
+    `#a6e3a1`.
+- **Duration.** A number with a unit attached (`ms`, `s`, `m`, `h`, `d`, `min`) or chained (`1h30m`,
+  `3m12s`). Clock times `14:05` and `0:15` count. With a space (`46 ms`) only the number is
+  coloured.
+- **Version.** `v` followed by digits and one or more dot parts (`v2.1`), or two or more dots
+  without `v` (`0.14.0`). An optional pre-release part follows (`-rc.1`). One dot alone is a decimal
+  number.
+- **Range or date.** Digits joined by `-` or `–` (`1-5`, `2026-10-29`) form one token.
+- **Path.** A token with no whitespace that contains `/`, is not a URL (`://`) and has at least one
+  letter. It also needs one of:
+  - a leading `/`, `./`, `../` or `~/`;
+  - a trailing `/`;
+  - a last segment with an extension of 1 to 6 letters or digits (`docs/mocks.md`).
+  
+  These are not paths: `and/or`, `I/O`, `TCP/IP`, `24/7`, `1/2` and `src/gen`. A bare `README.md` is
+  not a path either.
+- **Inline code.** It draws in `permission` and gains no further highlight inside it.
+- **Never highlighted:** fenced code, links, headings, quotes, HTML, list markers and footnote
+  marks. These keep the engine `Markdown` element.
+
+### 14.6 Commands and keyboard access
+
+| Action | Key or command | Focus |
+| --- | --- | --- |
+| Give the board or the files tab the keyboard | ctrl+x Tab, or `/board` and `/tree` (existing) | First button |
+| Open or close agent N's card or row (N = 1 to 5) | `1` to `5` while the board has the keyboard; or Tab to `N: name`, Enter | Stays on the title Button |
+| Agent 6 and later | Tab to the row, Enter | — |
+| Last 5 file, shell or other checks | `f`, `s`, `o`; or Tab to the Button, Enter; again, or `[ hide … ]`, to close | Stays on the family Button |
+| Read the log as text | `/board log`, `/board log scout` | — |
+| Read every new number as words | `/board stats` | — |
+| Cycle the filetree column | `i`, or Tab to `[ +/- ]`, Enter | Stays on the button; its label changes |
+| Test the palette | `/handily palette` | — |
+| Set the palette, the table style or the highlight | `/config` | — |
+| Copy from replies | `/replies copy …` (unchanged) | — |
+
+- Esc gives the keyboard back to the prompt.
+- No action is pointer-only.
+- The cards, the log and the now row take no focus except their Buttons.
+- A pipe and a screen reader get `/board stats`, `/board log` and `copy as text`. Box glyphs and
+  icons carry nothing those do not also say.
+- NO_COLOR is still unverified (12.10). Without colour, the words carry every state: waits, working,
+  idle, denied, now, ignored, bin.
+
+### 14.7 Migration (for a person who knows today's layout)
+
+#### Board
+
+- The waits moved from the start of the first Session row to the frame title, followed by working or
+  idle. Inline and at body 30, they sit after "Session".
+- The first row is still the button that opens the details.
+- `f12 s7 o6` became a counts row and three buttons, `f: file 12 …`. `[ last 5 checks ]` in the
+  details stays.
+- At body 41, two or fewer agents now draw as cards, so the Agents frame grows from about 4 rows to
+  about 11. With more agents the rows of today return, each with a digit.
+- The Log is a new frame under Agents. It does not show inline.
+- The never-shipped `s` and `c` hotkey proposal of 8.10 is replaced by f, s and o (decision O4).
+
+#### Filetree
+
+- Open folders lost their agent mark and age. Open the folder, or read its files, to see them.
+- Plain folders now have a colour.
+- A header button `[ +/- ]` sits on the rule line, and `i` cycles the column. The +/- column of
+  today is its first state, so nothing moves until it is pressed.
+- In the nerd set, every row moves 2 columns right of the git letter, and names cut 2 columns
+  sooner.
+- Ignored files now draw dim.
+
+#### Reply-view
+
+- Tables draw in box style by default and take 4 more columns, so a wide table switches to blocks
+  sooner.
+- `/config` › Table style › `rules` restores today's look.
+- Numbers and paths gain colour; Highlight `off` restores today's prose.
+
+### 14.8 Decisions (each recommended answer approved on 2026-10-30)
+
+1. **Which replies get prose highlighting?** Only those reply-view already draws (over 30 lines, or
+   with a table or a fence), or every reply?
+   - Recommend **only those**. Taking every reply adds a visible redraw at the end of each short
+     reply and widens the failure surface.
+   - Revisit once a tmux probe shows whether that swap is noticeable.
+2. **Five token classes in five colours, or three?** Recommend **three**: numbers, durations and
+   versions share the number colour; paths and inline code each have their own. Five hues per
+   sentence is noise, and in the daltonized themes several keys collapse anyway.
+3. **Add the grid and minimal table styles?** Recommend **no**.
+   - prismantis grid is its rules style with a heavy header rule and a gap of 3.
+   - Its minimal style is rules without row rules, which handily's rules style already is when no
+     cell wraps.
+4. **Pane hotkeys f, s, o and 1 to 5 against the old `s` and `c` proposal.** Recommend **f s o and
+   the digits**, with the old proposal retired. The types allow one digit or one lowercase letter
+   (index.d.ts 1117-1124); the live firing is probe P3.
+5. **Card clock: tick every second?** Recommend **every second while the tab shows, with `m:ss`**. A
+   hidden tab does not draw (8, measured 2.1.296). Measure the cost lightly in the probe; no
+   synthetic load.
+6. **The approved "classifier or you" wording.** The engine's `ask` means "the mode's decider"
+   (index.d.ts 13759-13763), and `approver` is only `host` or `person`. So keep the word
+   **"asked"**, and spell it out once in `/board stats` and in the details as "asked (the classifier
+   or you)".
+7. **Plain folder key.** Recommend **`planMode`** over `suggestion`, which is the originals' blue:
+   - `suggestion` is 4.4:1 on light, below 4.5.
+   - `suggestion` equals the daltonized `success` blue, so a plain folder would match an `A` or `?`
+     folder.
+8. **Nerd chevrons: Nerd Font chevron glyphs or the plain `▸ ▾`?** Recommend **plain `▸ ▾` in both
+   sets**. They are already approved geometry, need no new code point and add no width risk.
+9. **The selected-row background.** Recommend the **engine's focus inversion, padded to the full
+   row**, and no second colour band. The `subtle` background is kept for the now row, so two
+   backgrounds never compete.
+10. **The right column: a setting or session-only?** Recommend **session-only**, as `[ all files ]`.
+11. **Date format.** Recommend `HH:MM` today, `MM-DD` this year, `YYYY` before. These are absolute,
+    so they never read as an agent age.
+12. **Palette on a light theme.** Recommend **fall back to theme keys** and say so in `/handily
+    palette`. A `catppuccin-latte` option can follow later if asked.
+13. **Animation of the now row.** Recommend **static** now, and an animation test only after the
+    probe shows that redraw cost and flicker are acceptable. The originals' shimmer needs a timer
+    per row.
+
+#### Engine facts for tmux probes from the main session
+
+| Probe | Question |
+| --- | --- |
+| P1 | Does `Text` or `Box` `backgroundColor` fill to the body edge, or only behind characters? Does padding with spaces carry it? |
+| P2 | Does the focus inversion of a row Button cover trailing padding spaces? |
+| P3 | Do the hotkeys `1` to `5`, `f`, `s`, `o` and `i` fire in a focused Pane in tmux? Does a digit ever reach the composer? |
+| P4 | How do hex `Color` values draw in an ANSI theme, a 256-colour terminal and a 16-colour terminal? |
+| P5 | What names does the `theme` row of `$.config.list()` hold (dark, light, daltonized, ansi)? |
+| P6 | Is colour dropped under `NO_COLOR=1 claude`? |
+| P7 | Desktop: `Box` borders, `backgroundColor`, hex colours, and Button hotkeys. |
+| P8 | Is the right-edge age column cut by one cell? The 2026-10-29 screenshot showed `4m` cut while `18s` was whole. Draw the ages `4m` (padded to 3 columns), `18s` and `now` at body 41 in the plain and nerd sets, capture with `tmux capture-pane -e`, and compare the last character with the frame `│`. |
+| P9 | How long does `git status --porcelain=v2 --ignored=matching` take, and how much does it print, on handily and on a large repo, against the existing gap, timeout and 4 MiB cut? |
+| P10 | Does `turn.step` give a first-chunk time for ttft and a main-loop marker for the request count? (s6fav probe; never assume a cache lifetime.) |
+| P11 | Does reply-view's own `Text` prose wrap at the same breaks as the engine `Markdown`? |
+
+**Notes on P8.**
+
+- The code pads the age to 3 columns (`marks.ts` 12 and 85), so `4m` and `18s` should be equally
+  wide. Unproven guesses:
+  - a nerd icon drawn wider than its cell (5jdtf noted this for WezTerm);
+  - the engine clipping a row of exactly the body width.
+- If the probe shows a cut, the fix belongs in the filetree record.
+
+### 14.9 Failure modes
+
+- **Height.** At body 41, cards and the Log add about 15 rows. On a short terminal the Tasks frame
+  scrolls off. Cards switch to rows above 2 agents, and the Log keeps 5 rows.
+- **Narrow width.**
+  - Body 30 drops the cards, the frames, the column and its button, the gauges and the family words.
+  - Box tables reach the block layout 4 columns sooner.
+  - The nerd type icons cost 2 columns of every name.
+- **Long names.** Card task, type and log targets cut with `…`. The opened card shows the full task,
+  and `/board log` prints full targets.
+- **Colour blindness.** Card borders (`warning`, `error`) and log marks always pair with `◆`, `■`
+  and a word. Type colours carry nothing that the icon shape does not. Folder state keeps its counts
+  (`M2 ?1`).
+- **Look-alike keys.**
+  - `claude` ≈ `warning` in light themes, so working and waits differ by `▶` and `◆`.
+  - `merged` (paths) is distinct from `permission` (code) in all four built-in themes.
+  - Under mocha, path, link and code are three different hexes.
+- **Light theme with mocha.** It would read at 1.3 to 2.8:1, so it never draws there. If the theme
+  row cannot be read (P5), mocha must default off.
+- **Screen reader and pipe.** Box glyphs and icons read as noise. Every fact is in `/board stats`,
+  `/board log`, `copy as text` and the opened rows.
+- **False highlights.** A word such as `node/v18` reads as a path. The rules are deliberately
+  narrow, the tests pin the negative list, and the setting turns it off.
+- **Dependent state.**
+  - The Log keeps only what it saw, so it is empty after a reload and says so.
+  - `--ignored` can be slow in a huge repo. It follows the existing gap and timeout, and failing
+    dims nothing.
+  - A `lines` count reads the file, so it is capped at 4 MiB and done only for drawn rows.
+- **Desktop.** No cards, no frames, no box, no type icons, and the now-row background is unverified.
+
+### 14.10 Ranked: the deferred and remaining items
+
+1. **Code block language header.** Already at parity: a fenced block has a dim title from its tag
+   and a copy button (reply-view README 188-190). No work.
+2. **GitHub alerts (`> [!NOTE]`) and heading styles.** Next, because the prose renderer from item 3
+   makes them cheap. Draw an alert as a label word plus a coloured side bar, never colour alone.
+3. **Search** (part of 17). A useful filter of the tree for keyboard users. Do it before the
+   treemap. It needs a key other than `s` if f, s, o stay on the board, but filetree is a separate
+   site, so `s` is free there.
+4. **Advisor panel (8).** Later. It only helps people who use an advisor agent, and server-side
+   advice is encrypted (flightdeck README "What is inferred").
+5. **More diagram kinds.** First state diagrams (the closest to flowchart), then class and ER.
+6. **Charts (xychart bar and line, pie).** Later and low. Text bars are cheap, but pie in text reads
+   poorly. Draw it as a table with a bar column.
+7. **Treemap** (part of 17). Low, because of its value per column at body 41. Preview already exists
+   (10.3).
+8. **Slash command output styling.** Low. The engine owns most of it, and a command reply is `{ text
+   }`.
+9. **Chat layout (prompt bubbles, reply frame).** Skip. The prompt rule `you` covers finding
+   prompts, and a reply frame costs columns on every reply.
+10. **Side-by-side layout.** Skip; the engine owns the transcript layout.
+11. **Loops panel and animated connectors (9).** Skip, as approved.
