@@ -24,3 +24,5 @@ body: |
   - `/reload-plugins` unloads an uninstalled plugin but keeps a disabled one loaded, as measured on Claude Code 2.1.296. To drop a mod from a running session, uninstall it before you reload.
   - The commit-msg hook refuses a `chore(release)` commit unless it names a record that you hold in progress. An epic cannot be claimed. Commit the release before you close its last record, then close the record.
   - Stage nothing else while a release is staged. A ledger commit with the staged `CHANGELOG.md` is refused by the changelog gate, because only a `chore(release)` commit may edit it.
+  - In a live tmux check, wait for the text "Enter to confirm" before you answer the folder trust prompt, then send Down and Enter apart. A wait that matches `❯` stops on the "No, exit" row, and Enter then quits the session.
+  - To test a mod setting in tmux without changing the user settings, start the session with `--settings` and a JSON object that sets `pluginConfigs` under both the plugin name and the name with `@inline`.
