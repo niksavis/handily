@@ -11,17 +11,17 @@ declare module 'claude-code' {
       /** The type of specialized agent to use for this task */
       subagent_type?: string
       /** Optional model override for this agent. Takes precedence over the agent definition's model frontmatter and the configured default subagent model. If omitted, uses the agent definition's model, else the default (inherits from the parent unless a default subagent model is configured). Ignored for subagent_type: "fork" — forks always inherit the parent model. */
-      model?: 'sonnet' | 'opus' | 'haiku' | 'fable'
+      model?: "sonnet" | "opus" | "haiku" | "fable"
       /** Reasoning effort for this agent. "lower" or "higher" is one step from the effort the agent would otherwise run at (normally yours), on whatever model it would otherwise use. Pass "lower" when the brief is mechanical and checkable against itself — bounded search, grep-and-report, a pattern you spelled out. Pass "higher" when one well-specified piece needs more reasoning than the work around it. Omit when neither clearly applies. Name a level (low, medium, high, xhigh, max) ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly ask for that level. "lower" and "higher" are ignored for subagent_type: "fork", isolation: "remote", and teammates. */
-      effort?: 'lower' | 'higher' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+      effort?: "lower" | "higher" | "low" | "medium" | "high" | "xhigh" | "max"
       /** Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running. */
       name?: string
       /** Deprecated; ignored. The session has a single implicit team. */
       team_name?: string
       /** Deprecated; ignored. Subagents inherit the parent session's permission mode; agent-definition frontmatter may override it. */
-      mode?: 'acceptEdits' | 'auto' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
+      mode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan"
       /** Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. "remote" launches the agent in a remote cloud environment (always runs in background; availability is gated). */
-      isolation?: 'worktree' | 'remote'
+      isolation?: "worktree" | "remote"
     }
     AppifactRepl: {
       /** Leave it out: the built-in SDK runs the code. Only to run a loaded appifact skill's own scripts/appifact_sdk.js instead: that skill's name. */
@@ -33,7 +33,7 @@ declare module 'claude-code' {
     }
     Artifact: {
       /** One of 'publish', 'list', 'read', 'delete', 'open', 'pin', 'unpin', 'quickstart'. Omitting it means 'publish'. **Calls** in the description says what each one does and takes, except as noted here. */
-      action?: 'publish' | 'list' | 'read' | 'delete' | 'open' | 'pin' | 'unpin' | 'quickstart'
+      action?: "publish" | "list" | "read" | "delete" | "open" | "pin" | "unpin" | "quickstart"
       /** publish: the local page Claude publishes (.html, or .md only when a skill says so). For an Artifact created from an Artifact type, it is one of that Artifact's data files. A short, distinctive basename also serves as the title when nothing else gives one. */
       file_path?: string
       /** Deprecated; Claude omits it and uses `icon`. */
@@ -41,14 +41,12 @@ declare module 'claude-code' {
       /** One short generic word for the artifact's browser-tab icon, such as chart, calendar, recipe, code or map: a plain signifier, never a product or brand name. Claude includes it on every page's first publish and omits it on a redeploy so the artifact keeps its icon, passing a new one only when the person asks. Ignored on an Artifact created from an Artifact type. */
       icon?: string
       /** Supporting files to publish alongside the page, as a map {"published/path": "source/path" | {from, contentType} | null}. The key is what the HTML references. The source is a path on disk, or {from, contentType} when the type cannot be inferred from the published extension. null removes that path on an update, and files left out are kept. A plain list publishes each file at its own spelling. Sources must be under the working directory or Claude's scratchpad directory. `preflight.js` at the artifact root is reserved: it runs against open pages when Claude publishes updates, and it must be a JavaScript module of at most 8 KiB whose default export is a function, or the publish is refused. */
-      files?:
-        | Array<{
-            /** Path relative to the working directory (or to `root`, which may be a folder in your scratchpad directory); the file is served at this same path next to the page. */
-            path: string
-            /** Servable media type; inferred from the extension for common types (css/js/json/png/…) — pass explicitly otherwise. */
-            contentType?: string
-          }>
-        | {}
+      files?: Array<{
+        /** Path relative to the working directory (or to `root`, which may be a folder in your scratchpad directory); the file is served at this same path next to the page. */
+        path: string
+        /** Servable media type; inferred from the extension for common types (css/js/json/png/…) — pass explicitly otherwise. */
+        contentType?: string
+      }> | {}
       /** The base directory that relative `files` sources resolve against, like a bundler root. It never changes the published path of a `files` entry. It is relative to the working directory, or absolute within it or within Claude's scratchpad directory. It requires `files`, except on an Artifact made from a type, where a data `file_path` is served at its path relative to `root`, unless a `files` map entry states its served path. Claude sends it with every such publish, set to the folder that holds the Artifact's files at their served paths. */
       root?: string
       /** publish only: true also pins the published artifact to the person's claude.ai sidebar once it is published. Claude passes it only when the person asked for that. A failed pin never fails the publish, and the result says so. */
@@ -56,13 +54,13 @@ declare module 'claude-code' {
       /** list only: the maximum number of artifacts to return (default 25). */
       limit?: number
       /** list: which listing to return. 'mine' is the default. The others are 'shared', 'all', 'types' and 'files' (with `url`). See **Calls**. */
-      scope?: 'mine' | 'shared' | 'all' | 'types' | 'files'
+      scope?: "mine" | "shared" | "all" | "types" | "files"
       /** list with scope 'types' only: limits the listing to the types whose title or description match this text best, ignoring case; a type that matches less well is left out, so a narrowed listing is not the whole catalog. Claude omits it when choosing a type for a request, unless a listing made without it says more types exist than it shows. */
       type_query?: string
       /** list only: the name of a published Artifact type, as a 'types' listing shows it (case does not matter). The listing then shows the Artifacts made from that type instead of the person's gallery. Claude passes this or `type_url`, not both. */
       type?: string
       /** quickstart only (required): what is being made — 'document' (writing people will keep editing or pass around as text, such as a memo, plan, spec, proposal or notes), 'slides' (a deck or one slide), 'design' (a visual design or prototype on a canvas), 'other' (a page to look at or use: an explainer, a diagram, anything interactive, a dashboard that shows data, anything else, or unsure). */
-      intent?: 'document' | 'slides' | 'design' | 'other'
+      intent?: "document" | "slides" | "design" | "other"
       /** quickstart only: false when a design system's link is already in hand (it is then read with its own call) or one was declined. Omitted or true, the result lists the design systems (not for a document) and, for slides or a design, attaches the default one's README. */
       design_systems?: boolean
       /** publish: the fallback title for an HTML page whose file has no <title>. It is a name, not a summary, and Claude keeps it the same across redeploys. On a `type_url` create, it is the new Artifact's name: what the person called it, or a short descriptive name. If it is left out, the Artifact is named after the type. */
@@ -78,7 +76,7 @@ declare module 'claude-code' {
       /** publish: the Artifact type to create this new, private Artifact from (a link from a 'types' listing). Claude omits `url`. Any `file_path`/`files` passed become the new Artifact's own files beside the type's fixed ones. read (no `url`): the type to describe. list: the type whose Artifacts to list, or Claude names the type with `type` instead. */
       type_url?: string
       /** Only with `type_url` and no `file_path`: when the new Artifact opens for the person. Claude passes "after_first_write" when it will fill the Artifact right after creating it with a files publish to its url, so the person does not first see it empty. The Artifact then opens on that first write. Otherwise Claude omits it, and the Artifact opens when created; Claude always omits it for a type whose content it writes through a connector, such as a Claude Docs document, since no publish or store write follows to open it. */
-      auto_open?: 'at_create' | 'after_first_write'
+      auto_open?: "at_create" | "after_first_write"
       /** read, for an artifact shared with the person: what Claude needs from it, which steers the isolated summary. */
       prompt?: string
       /** publish: a last-resort overwrite that **discards** the newer published version. On a conflict, Claude merges its changes onto the newer content that the rejection hands it and publishes again. Claude passes true only when the person explicitly said to discard that specific version, and the server may still refuse it over a version saved from inside the page. */
@@ -94,14 +92,14 @@ declare module 'claude-code' {
       /** publish: the runtime capabilities this page declares, as {name: config}. Claude loads the `artifact-capabilities` skill before passing it. On a redeploy Claude omits the field to keep what the page has, and {} clears it. */
       capabilities?: {}
       /** publish: the artifact's runtime version. Leaving it out keeps the current version (the default), 'latest' upgrades, and an exact version pins or rolls back. It changes how the published page behaves, so Claude passes it only when the author explicitly intends that change. */
-      contract?: 'latest' | string
+      contract?: "latest" | string
     }
     ArtifactCheck: {
-      action: 'verify'
+      action: "verify"
     }
     ArtifactComments: {
       /** 'read' reads the comment threads on the artifact at `url` (add `thread_id` for one thread, or `cursor` to continue a listing); 'reply' posts `text` into the thread `thread_id`; 'resolve' marks that thread resolved; 'watch' manages this session's artifact watches — with `url` it starts watching that artifact (`on: false` stops), with no `url` it lists this session's watches and rooms, and `replies: true` re-enables automatic comment replies that were stopped or paused for the artifact at `url` (only when the user explicitly asked; approved the way a publish is). */
-      action: 'read' | 'reply' | 'resolve' | 'watch'
+      action: "read" | "reply" | "resolve" | "watch"
       /** The artifact's claude.ai URL. Required for every action except a bare 'watch' listing. */
       url?: string
       /** reply: id of the comment thread to reply into. resolve: the thread to mark resolved. read: read just this one thread (the size cap can still elide a very long thread). Thread ids come from action "read" and from comment notifications. */
@@ -119,21 +117,12 @@ declare module 'claude-code' {
     }
     ArtifactData: {
       /** Reads: 'get' (one document: `collection` + `doc_id`), 'list' (a page of a collection: `collection`, with optional `query.limit`/`query.cursor`), 'query' (filtered: `collection` + `query`), 'profiles' (people's display names: `ids`, nothing else). Writes: 'set' (replace) or 'update' (merge) with `collection`, `doc_id`, and either `data` or `file_path`; 'str_replace' with `collection`, `doc_id`, `field`, `old_str`, `new_str` — swaps one exact, unique piece of text inside a string field without resending the field (`replace_all`: every occurrence); 'delete' with `collection` + `doc_id`; 'batch' with `writes`. Every action takes the artifact's `url`. */
-      action:
-        | 'get'
-        | 'list'
-        | 'query'
-        | 'set'
-        | 'update'
-        | 'delete'
-        | 'str_replace'
-        | 'batch'
-        | 'profiles'
+      action: "get" | "list" | "query" | "set" | "update" | "delete" | "str_replace" | "batch" | "profiles"
       /** The artifact's claude.ai URL. Required. */
       url?: string
       /** action 'batch' only: the writes to apply together, 1-50 entries of {op: 'set'|'update'|'delete', collection, doc_id, and for set/update exactly one of data (inline object) or file_path (a local JSON file), plus if_version — that document's last-read `version`, required for every entry whose document already exists (omit it only when creating); if any pinned document has changed since, or an existing document's entry carries no pin, the whole batch writes nothing and the result names the first such entry}. Each document is addressed at most once and the whole batch body is at most 1 MiB; the batch commits all-or-nothing where the server supports it, else (a batch with no pinned entry) in order one at a time (the result says which). Prefer it over separate calls whenever you write more than a couple of documents. */
       writes?: Array<{
-        op: 'set' | 'update' | 'delete'
+        op: "set" | "update" | "delete"
         collection: string
         doc_id: string
         data?: {}
@@ -151,7 +140,7 @@ declare module 'claude-code' {
         where?: unknown[][]
         order_by?: {
           field: string
-          direction?: 'asc' | 'desc'
+          direction?: "asc" | "desc"
         }
         limit?: number
         cursor?: string
@@ -173,7 +162,7 @@ declare module 'claude-code' {
       /** get, list and query: when given, each returned document is written as pretty-printed JSON to <out_dir>/<collection path>/<doc_id>.json (directories created as needed) and the result lists the files instead of the document contents — use it for large documents or many of them. */
       out_dir?: string
       /** Act at this access level instead of your own, to check what the page's access rules let such a user do — 'view' is someone the artifact is shared with who can only view it, 'interact' any signed-in viewer who can use the page, 'admin' someone who can edit it. It narrows, never raises, your access and keeps your identity (`me` is still you); at 'view' nothing can be written, your own data/users subtree included. At a lowered level a write the rules refuse reads as not found and a refused read as empty. Omit it to act as yourself. */
-      as_level?: 'view' | 'interact' | 'admin'
+      as_level?: "view" | "interact" | "admin"
     }
     AskUserQuestion: {
       /** Questions to ask the user (1-4 questions) */
@@ -238,18 +227,7 @@ declare module 'claude-code' {
     }
     CronList: {}
     DesignSync: {
-      method:
-        | 'list_projects'
-        | 'get_project'
-        | 'list_files'
-        | 'get_file'
-        | 'finalize_plan'
-        | 'write_files'
-        | 'delete_files'
-        | 'register_assets'
-        | 'unregister_assets'
-        | 'create_project'
-        | 'report_validate'
+      method: "list_projects" | "get_project" | "list_files" | "get_file" | "finalize_plan" | "write_files" | "delete_files" | "register_assets" | "unregister_assets" | "create_project" | "report_validate"
       /** Required for all methods except list_projects and create_project */
       projectId?: string
       /** get_file: file path to read */
@@ -269,7 +247,7 @@ declare module 'claude-code' {
         /** Inline file contents (UTF-8 text, or base64 when encoding is "base64"). For small dynamic content only — anything you have on disk should use localPath instead. */
         data?: string
         /** Set to "base64" for binary inline data */
-        encoding?: 'base64'
+        encoding?: "base64"
         mimeType?: string
       }>
       /** delete_files: paths to delete. unregister_assets: paths whose Design System pane card should be removed. Max 256 per call — split larger batches across multiple calls under the same planId. */
@@ -313,15 +291,15 @@ declare module 'claude-code' {
       /** Replace all occurrences of old_string (default false) */
       replace_all?: boolean
     }
-    'enable__mcp__claude-in-chrome': {
+    "enable__mcp__claude-in-chrome": {
       /** Optional: what you are about to do in the browser, in one or two sentences. */
       task?: string
     }
-    'enable__mcp__remote-devices__Claude_Browser': {
+    "enable__mcp__remote-devices__Claude_Browser": {
       /** Optional: what you are about to do in the browser, in one or two sentences. */
       task?: string
     }
-    'enable__mcp__remote-devices__computer': {
+    "enable__mcp__remote-devices__computer": {
       /** Optional: what you are about to do on the computer, in one or two sentences. */
       task?: string
     }
@@ -337,14 +315,14 @@ declare module 'claude-code' {
       /** Deprecated: no longer used. */
       allowedPrompts?: Array<{
         /** The tool this prompt applies to */
-        tool: 'Bash'
+        tool: "Bash"
         /** Semantic description of the action, e.g. "run tests", "install dependencies" */
         prompt: string
       }>
     }
     ExitWorktree: {
       /** "keep" leaves the worktree and branch on disk; "remove" deletes both. */
-      action: 'keep' | 'remove'
+      action: "keep" | "remove"
       /** Required true when action is "remove" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise. */
       discard_changes?: boolean
     }
@@ -380,16 +358,7 @@ declare module 'claude-code' {
     }
     LSP: {
       /** The LSP operation to perform */
-      operation:
-        | 'goToDefinition'
-        | 'findReferences'
-        | 'hover'
-        | 'documentSymbol'
-        | 'workspaceSymbol'
-        | 'goToImplementation'
-        | 'prepareCallHierarchy'
-        | 'incomingCalls'
-        | 'outgoingCalls'
+      operation: "goToDefinition" | "findReferences" | "hover" | "documentSymbol" | "workspaceSymbol" | "goToImplementation" | "prepareCallHierarchy" | "incomingCalls" | "outgoingCalls"
       /** The absolute or relative path to the file */
       filePath: string
       /** The line number (1-based, as shown in editors) */
@@ -444,9 +413,9 @@ declare module 'claude-code' {
       /** The new source for the cell */
       new_source: string
       /** The type of the cell (code or markdown). If not specified, it defaults to the current cell type. If using edit_mode=insert, this is required. */
-      cell_type?: 'code' | 'markdown'
+      cell_type?: "code" | "markdown"
       /** The type of edit to make (replace, insert, delete). Defaults to replace. */
-      edit_mode?: 'replace' | 'insert' | 'delete'
+      edit_mode?: "replace" | "insert" | "delete"
     }
     OfferChromeSetup: {
       /** A short phrase naming what the task needs the user's own browser for. */
@@ -454,14 +423,7 @@ declare module 'claude-code' {
     }
     Poll: {}
     Projects: {
-      method:
-        | 'project_info'
-        | 'project_read'
-        | 'project_search'
-        | 'project_write'
-        | 'project_delete'
-        | 'project_memory_list'
-        | 'project_memory_read'
+      method: "project_info" | "project_read" | "project_search" | "project_write" | "project_delete" | "project_memory_list" | "project_memory_read"
       /** project_read/project_write/project_delete: doc path. project_write: an existing path is replaced in place; a new bare filename (no "/") is namespaced to "claude/<name>". project_memory_read: memory file path as listed by project_memory_list. */
       path?: string
       /** project_write: inline doc text. Mutually exclusive with local_path. Use local_path for anything you have on disk. */
@@ -479,7 +441,7 @@ declare module 'claude-code' {
       proposals: Array<{
         /** kebab-case skill slug; must not contain "claude" or "anthropic"; at most 64 characters for a new skill */
         name: string
-        kind: 'new' | 'improvement'
+        kind: "new" | "improvement"
         /** Name of the existing skill to update. Required when kind is 'improvement'; omit for 'new'. */
         target?: string
         /** One short sentence saying when to use this skill: aim for under 200 characters, never more than 1024, and no angle brackets. Shown on the review card and saved as the skill's description, which is what decides when the skill is used. For an improvement, reuse the existing skill's description unless the change alters when the skill applies. */
@@ -500,7 +462,7 @@ declare module 'claude-code' {
       /** The plugin's folder on this machine: the one that holds .claude-plugin/plugin.json, or a mod's hooks/ where there is no manifest yet. */
       path: string
       /** Where to publish. The one destination is the library of the organization the session is signed in to. */
-      destination?: 'organization'
+      destination?: "organization"
       /** What the plugin does, in a sentence: used only for a manifest written for a folder that has none. */
       description?: string
       /** True only when the person said to replace the plugin of the same name that is already in their uploads on claude.ai. */
@@ -522,7 +484,7 @@ declare module 'claude-code' {
         }
         folder: string
         /** Whether a plugin of this name on the shelf is replaced. */
-        mode: 'new' | 'replace'
+        mode: "new" | "replace"
         /** What a yes sets off, a sentence each, in order. */
         steps: string[]
         /** What the person is warned of, a sentence each: a file sent although its name is one a secret hides under, and that other entries stay behind unnamed. */
@@ -550,15 +512,7 @@ declare module 'claude-code' {
         /** The entries that stay and are named, each with why. */
         stays: Array<{
           path: string
-          why:
-            | 'link'
-            | 'hard-link'
-            | 'ignored'
-            | 'secret'
-            | 'never'
-            | 'generated'
-            | 'special'
-            | 'backslash'
+          why: "link" | "hard-link" | "ignored" | "secret" | "never" | "generated" | "special" | "backslash"
           words: string
         }>
         /** The list, a line each, of every file sent and every entry that stays and is named, and a last line saying so where entries stay unnamed: its sha256, and the file that holds it. */
@@ -576,7 +530,7 @@ declare module 'claude-code' {
     PushNotification: {
       /** The notification body. Keep it under 200 characters; mobile OSes truncate. */
       message: string
-      status: 'proactive'
+      status: "proactive"
     }
     Read: {
       /** The absolute path to the file to read */
@@ -604,15 +558,7 @@ declare module 'claude-code' {
     }
     ReadNotifications: {}
     RemoteTrigger: {
-      action:
-        | 'list'
-        | 'get'
-        | 'create'
-        | 'update'
-        | 'run'
-        | 'create_webhook_trigger'
-        | 'list_runs'
-        | 'get_run_log'
+      action: "list" | "get" | "create" | "update" | "run" | "create_webhook_trigger" | "list_runs" | "get_run_log"
       /** Required for get, update, run, and list_runs */
       trigger_id?: string
       /** Required for get_run_log: a run session id (cse_… or session_…, from list_runs) */
@@ -624,7 +570,7 @@ declare module 'claude-code' {
     }
     ReportFindings: {
       /** Effort level the review ran at */
-      level?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+      level?: "low" | "medium" | "high" | "xhigh" | "max"
       /** Verified findings, most-severe first; empty if none survived */
       findings: Array<{
         /** Repo-relative path of the file the finding is in */
@@ -640,9 +586,9 @@ declare module 'claude-code' {
         /** Short kebab-case slug of the finding type, e.g. "correctness", "simplification", "efficiency", "test-coverage" */
         category?: string
         /** Set when a verify pass ran; absent on inline-only reviews */
-        verdict?: 'CONFIRMED' | 'PLAUSIBLE'
+        verdict?: "CONFIRMED" | "PLAUSIBLE"
         /** Set ONLY when re-reporting after applying fixes: what happened to this finding */
-        outcome?: 'fixed' | 'skipped' | 'no_change_needed'
+        outcome?: "fixed" | "skipped" | "no_change_needed"
       }>
     }
     request_computer: {
@@ -674,7 +620,7 @@ declare module 'claude-code' {
     }
     SendFeedback: {
       /** What kind of feedback this is. */
-      type: 'bug' | 'idea' | 'missing_capability'
+      type: "bug" | "idea" | "missing_capability"
       /** Short, specific one-line summary of the issue. */
       title: string
       /** Labeled bullets, in order: **What happened:** (observed vs. expected, exact error text if short); **What the user said:** (quoted, or "User didn't comment; observed by the model."); **Repro:** (minimal steps); **Evidence:** (request IDs, timestamps, paths, versions; omit if none); optionally a final **Cause:** only if verified in-session. One to three lines per bullet. No narrative paragraphs, no speculation, no secrets. */
@@ -682,26 +628,9 @@ declare module 'claude-code' {
       /** Optional short tag naming the part of Claude Code this is about (e.g. "hooks config", "/help", "file editing"). Leave blank if unclear. */
       area?: string
       /** When the report is about MODEL BEHAVIOR (not a product bug), the closest failure mode, or `other` when it is a model-behavior issue that fits no listed value. Omit only when the report is a product/tool bug with no model-behavior component. */
-      failure_mode?:
-        | 'instruction_following'
-        | 'destructive_actions'
-        | 'code_quality'
-        | 'repetition_and_looping'
-        | 'model_regression'
-        | 'overconfidence_and_hallucination'
-        | 'context_and_memory'
-        | 'overeager'
-        | 'over_correction'
-        | 'stopping_short'
-        | 'dispute_or_decline'
-        | 'subagent_overspawn'
-        | 'tone_or_preachiness'
-        | 'excessive_questions'
-        | 'unwanted_scope'
-        | 'other'
+      failure_mode?: "instruction_following" | "destructive_actions" | "code_quality" | "repetition_and_looping" | "model_regression" | "overconfidence_and_hallucination" | "context_and_memory" | "overeager" | "over_correction" | "stopping_short" | "dispute_or_decline" | "subagent_overspawn" | "tone_or_preachiness" | "excessive_questions" | "unwanted_scope" | "other"
       /** What kind of task the session was doing when the issue occurred, or `other` when it is a clear task that fits no listed value. Omit only if genuinely unclear. */
-      task_category?:
-        'code_edit' | 'debug' | 'explain' | 'plan' | 'shell' | 'search' | 'review' | 'other'
+      task_category?: "code_edit" | "debug" | "explain" | "plan" | "shell" | "search" | "review" | "other"
     }
     SendFile: {
       /** Recipient: a peer session name from ListAgents, or an explicit uds:<socket> / bridge:<session id> address */
@@ -721,15 +650,51 @@ declare module 'claude-code' {
       /** Ask a session ON THIS MACHINE to send you ONE notice when it next goes idle (finishes its turn with nothing queued) or exits — opt-in, one-shot, no polling. With a message: deliver it now AND subscribe. Without a message (omit it): a pure subscription that costs the other session nothing. */
       notify_when_idle?: boolean
     }
+    SendToProject: {
+      /** Name for the new project — normally the repository or folder name the skill reported. Kept to one line of at most 46 characters. */
+      project_name: string
+      /** Only when /send-to-project named an existing Claude Project to send to: its id as the command gave it, unchanged. Omit to create a new project. */
+      project_id?: string
+      /** Add this folder’s GitHub origin as the project’s repository. The tool reads the remote from git itself; pass false when the folder has no GitHub origin or the user said not to add it. */
+      attach_git_remote: boolean
+      /** Where this tool’s description says it sends one message: summary alone, which is the message. Otherwise the brief you drafted of the work to carry on, in the propose_project_setup shape: summary (2–3 plain sentences, no markdown: what the work is, where it stands and what is left; it is also saved in project memory), sessions (≤4 threads for work left unfinished: title, self-contained prompt, one-line description, basis, who ∈ claude|you, produces ∈ pr|doc|decision), routines (≤3, only when asked for or when a check was run by hand on more than one day: name, 5-field UTC cron at most hourly, prompt, description), and, for a new project only (never with project_id), instructions (standing rules that recurred, as a few short bullet lines; never a description of the project or the work), icon (one of Projects, Folder, Code, Database, HandHeart, Beaker, Wrench, Activity, Chart, Team, Users, Book, Box, Note, File, Lightbulb, Palette, Star, Flag, Home, Sun, Clock, Calendar, Scroll, …) and color. Leave name out: project_name names a new project and an existing one keeps its own. evidence.sessions_matched = how many of the quoted sessions the brief draws on (the tool fills the other counts). Every field is optional; send only what the work supports. Shown to the user on the confirmation pane, or on Claude Desktop’s permission card. After their Yes on the pane, or a click on Desktop’s card that Desktop attests, the brief is posted as the project’s setup card as given (a new project’s icon, color and instructions are set on the project at create instead of going on the setup card). After any other allow (another host application, a hook, or a Desktop build that does not attest clicks), everything goes on the setup card for the user to confirm. No thread starts on approval in either case: the setup card lists them and the user starts each one there. */
+      proposal: {
+        name?: string
+        icon?: "Projects" | "Folder" | "Code" | "Database" | "HandHeart" | "Beaker" | "Wrench" | "Activity" | "Chart" | "Team" | "Users" | "Book" | "Box" | "Note" | "File" | "Lightbulb" | "Palette" | "Star" | "Flag" | "Home" | "Sun" | "Clock" | "Calendar" | "Scroll" | "Moon" | "MoonStars" | "SunHorizon" | "Owl" | "Atom" | "DNA" | "Orbit" | "Globe" | "Cloud" | "Hammer" | "Key" | "Lock" | "Camera" | "Microphone" | "CoffeeCup" | "Gift" | "Ghost" | "GraduationCap" | "Library" | "Spreadsheet" | "Slides" | "Checklist" | "Clipboard" | "Image" | "Bookmark" | "Bank" | "Signpost" | "MapPin" | "Mailbox" | "Heart" | "Lightning" | "Shapes" | "Goal" | "Scale" | "Eye" | "Binoculars" | "Bullhorn" | "PaperPlane" | "ChartLine" | "Timer"
+        color?: "red" | "orange" | "green" | "aqua" | "blue" | "violet" | "magenta"
+        summary?: string
+        instructions?: string
+        routines?: {
+          name: string
+          cron_expression: string
+          prompt: string
+          description?: string
+        }[]
+        sessions?: Array<{
+          title: string
+          prompt: string
+          description: string
+          basis: string
+          who: "claude" | "you"
+          produces: "pr" | "doc" | "decision"
+        }>
+        evidence?: {
+          sessions_matched?: number
+          sessions_considered?: number
+          window_days?: number
+        }
+      }
+    }
+    SendToProjectContext: {}
     SendUserFile: {
       /** File paths (absolute or relative to cwd) to send to the user. Always pass an array, even for a single file. */
       files: string[]
       /** Optional short caption for the file(s). */
       caption?: string
       /** Use 'proactive' when you're surfacing a file the user hasn't asked for and needs to see now — a generated artifact, a completed report. Use 'normal' when replying to something the user just said. */
-      status: 'normal' | 'proactive'
+      status: "normal" | "proactive"
       /** How the client should present the file. 'render' opens it inline in the side panel (for HTML, SVG, Mermaid, images, PDFs — anything the user wants to look at now). 'attach' shows a download card only, no inline preview (for deliverables the user will save and open elsewhere). Omit to let the client decide by file type — today that means renderable types render and everything else attaches, same as before this parameter existed. */
-      display?: 'render' | 'attach'
+      display?: "render" | "attach"
     }
     SendUserMessage: {
       /** The message for the user. Supports markdown formatting. */
@@ -737,7 +702,7 @@ declare module 'claude-code' {
     }
     ShareOnboardingGuide: {
       /** 'check' (default): if ONBOARDING.md is present locally, uploads it to the most-recent guide (creates one if none exist); otherwise reports the existing link without uploading. 'update': upload to a specific guide by short_code. 'create': always make a new link. 'delete': remove a guide. */
-      mode: 'check' | 'update' | 'create' | 'delete'
+      mode: "check" | "update" | "create" | "delete"
       /** Short code of a specific guide to target (returned by a previous call). Honored by check, update, and delete — skips the org-wide lookup and targets this guide directly. */
       short_code?: string
     }
@@ -766,14 +731,14 @@ declare module 'claude-code' {
         }[]
       }[]
       /** How this suggestion started: 'user_asked' or 'proactive'. */
-      trigger?: 'user_asked' | 'proactive'
+      trigger?: "user_asked" | "proactive"
     }
     SuggestSkills: {
       /** Topic keywords from the user's request. */
       keywords: string[]
       contextLabel?: string
       /** How this suggestion started: 'user_asked' or 'proactive'. */
-      trigger?: 'user_asked' | 'proactive'
+      trigger?: "user_asked" | "proactive"
     }
     TaskCreate: {
       /** A brief title for the task */
@@ -806,7 +771,7 @@ declare module 'claude-code' {
       /** Present continuous form shown in spinner when in_progress (e.g., "Running tests") */
       activeForm?: string
       /** New status for the task */
-      status?: 'pending' | 'in_progress' | 'completed' | 'deleted'
+      status?: "pending" | "in_progress" | "completed" | "deleted"
       /** Task IDs that this task blocks */
       addBlocks?: string[]
       /** Task IDs that block this task */
@@ -820,7 +785,7 @@ declare module 'claude-code' {
       /** The updated todo list */
       todos: Array<{
         content: string
-        status: 'pending' | 'in_progress' | 'completed'
+        status: "pending" | "in_progress" | "completed"
         activeForm: string
       }>
     }
@@ -850,7 +815,7 @@ declare module 'claude-code' {
       /** Never include search results from these domains */
       blocked_domains?: string[]
       /** "standard": the normal web search: quick and cheap; right for straightforward lookups (reference facts, official pages, documentation, well-known people, places and topics) and simple follow-up lookups. "extended": a thorough, fresh search at several times the cost and latency. */
-      mode: 'standard' | 'extended'
+      mode: "standard" | "extended"
     }
     Workflow: {
       /** Self-contained workflow script. Must begin with `export const meta = { name, description, phases }` (pure literal, no computed values) followed by the script body using agent()/parallel()/pipeline()/phase(). */
@@ -882,110 +847,107 @@ declare module 'claude-code' {
 // `e.tool === "Bash"` the `result` of `next(e)` is the tool's record.
 declare module 'claude-code' {
   interface BuiltinToolResults {
-    Agent:
-      | {
-          agentId: string
-          /** @internal Count of leading harness-authored content blocks (hand-back provenance bookkeeping; not a stable consumer field) */
-          harnessNoteCount?: number
-          /** @internal Count of trailing harness-authored content blocks (hand-back provenance bookkeeping; not a stable consumer field) */
-          harnessTailCount?: number
-          /** @internal Fingerprint binding the harness section counts to the exact content they were computed against; a hook rewrite invalidates the counts rather than misplacing rewritten bytes */
-          harnessSectionHash?: string
-          agentType?: string
-          /** @internal How the report reached this result when the subagent reports through the SubagentHandback tool: 'send' = delivered, passed by auto mode's review or with a note that the review could not run; 'flagged' = delivered under a SECURITY WARNING; 'withheld' = nothing was delivered */
-          handback?: 'send' | 'flagged' | 'withheld'
-          /** @internal The report a 'send' or 'flagged' hand-back delivered, for a client to render instead of content */
-          handbackReport?: {
-            /** The subagent's whole report, never truncated, with a backslash inserted into text that imitates harness markup, such as a system tag (`<system-reminder>`), a `[harness:` line or a turn marker (`Human:` at the start of a line) */
-            text: string
-            /** Auto mode's warning to show above `text`: a SECURITY WARNING, or a note that the review could not run */
-            warning?: string
-          }
-          content: Array<{
-            type: 'text'
-            text: string
-            citations?: unknown[] | null
-          }>
-          resolvedModel?: string
-          modelsUsed?: string[]
-          totalToolUseCount: number
-          totalDurationMs: number
-          totalTokens: number
-          usage: {
-            input_tokens: number
-            output_tokens: number
-            cache_creation_input_tokens: number | null
-            cache_read_input_tokens: number | null
-            server_tool_use: {
-              web_search_requests: number
-              web_fetch_requests: number
-            } | null
-            service_tier: string | null
-            cache_creation: {
-              ephemeral_1h_input_tokens: number
-              ephemeral_5m_input_tokens: number
-            } | null
-            inference_geo?: string | null
-            speed?: string | null
-            iterations?: unknown
-            output_tokens_details?: {
-              thinking_tokens?: number | null
-            } | null
-            fallback_credit?: unknown
-          }
-          toolsUsed?: string[]
-          toolStats?: {
-            readCount: number
-            searchCount: number
-            bashCount: number
-            editFileCount: number
-            linesAdded: number
-            linesRemoved: number
-            otherToolCount: number
-            frameCount?: number
-          }
-          status: 'completed'
-          prompt: string
-          worktreePath?: string
-          worktreeBranch?: string
-          /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
-          canContinueAgent?: boolean
-        }
-      | {
-          status: 'async_launched'
-          isAsync?: true
-          /** The ID of the async agent */
-          agentId: string
-          /** The description of the task */
-          description: string
-          /** Model in use at the backgrounding transition (a pre-background swap is reflected here) */
-          resolvedModel?: string
-          /** Ordered distinct models used before backgrounding (length > 1 means a mid-run swap) */
-          modelsUsed?: string[]
-          /** The prompt for the agent */
-          prompt: string
-          /** Path to the output file for checking agent progress */
-          outputFile: string
-          /** Whether the calling agent has Read/Bash tools to check progress */
-          canReadOutputFile?: boolean
-          /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
-          canContinueAgent?: boolean
-          /** @internal True when this unisolated write-capable agent was launched into a working directory where another one is already running and a worktree could have been made here (drives a model-facing note; not a stable consumer field) */
-          sharesCwd?: boolean
-        }
-      | {
-          status: 'remote_launched'
-          /** The ID of the remote agent task */
-          taskId: string
-          /** The URL of the cloud session */
-          sessionUrl: string
-          /** The description of the task */
-          description: string
-          /** The prompt for the agent */
-          prompt: string
-          /** Path to the output file for checking agent progress */
-          outputFile: string
-        }
+    Agent: {
+      agentId: string
+      /** @internal Count of leading harness-authored content blocks (hand-back provenance bookkeeping; not a stable consumer field) */
+      harnessNoteCount?: number
+      /** @internal Count of trailing harness-authored content blocks (hand-back provenance bookkeeping; not a stable consumer field) */
+      harnessTailCount?: number
+      /** @internal Fingerprint binding the harness section counts to the exact content they were computed against; a hook rewrite invalidates the counts rather than misplacing rewritten bytes */
+      harnessSectionHash?: string
+      agentType?: string
+      /** @internal How the report reached this result when the subagent reports through the SubagentHandback tool: 'send' = delivered, passed by auto mode's review or with a note that the review could not run; 'flagged' = delivered under a SECURITY WARNING; 'withheld' = nothing was delivered */
+      handback?: "send" | "flagged" | "withheld"
+      /** @internal The report a 'send' or 'flagged' hand-back delivered, for a client to render instead of content */
+      handbackReport?: {
+        /** The subagent's whole report, never truncated, with a backslash inserted into text that imitates harness markup, such as a system tag (`<system-reminder>`), a `[harness:` line or a turn marker (`Human:` at the start of a line) */
+        text: string
+        /** Auto mode's warning to show above `text`: a SECURITY WARNING, or a note that the review could not run */
+        warning?: string
+      }
+      content: Array<{
+        type: "text"
+        text: string
+        citations?: unknown[] | null
+      }>
+      resolvedModel?: string
+      modelsUsed?: string[]
+      totalToolUseCount: number
+      totalDurationMs: number
+      totalTokens: number
+      usage: {
+        input_tokens: number
+        output_tokens: number
+        cache_creation_input_tokens: number | null
+        cache_read_input_tokens: number | null
+        server_tool_use: {
+          web_search_requests: number
+          web_fetch_requests: number
+        } | null
+        service_tier: string | null
+        cache_creation: {
+          ephemeral_1h_input_tokens: number
+          ephemeral_5m_input_tokens: number
+        } | null
+        inference_geo?: string | null
+        speed?: string | null
+        iterations?: unknown
+        output_tokens_details?: {
+          thinking_tokens?: number | null
+        } | null
+        fallback_credit?: unknown
+      }
+      toolsUsed?: string[]
+      toolStats?: {
+        readCount: number
+        searchCount: number
+        bashCount: number
+        editFileCount: number
+        linesAdded: number
+        linesRemoved: number
+        otherToolCount: number
+        frameCount?: number
+      }
+      status: "completed"
+      prompt: string
+      worktreePath?: string
+      worktreeBranch?: string
+      /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
+      canContinueAgent?: boolean
+    } | {
+      status: "async_launched"
+      isAsync?: true
+      /** The ID of the async agent */
+      agentId: string
+      /** The description of the task */
+      description: string
+      /** Model in use at the backgrounding transition (a pre-background swap is reflected here) */
+      resolvedModel?: string
+      /** Ordered distinct models used before backgrounding (length > 1 means a mid-run swap) */
+      modelsUsed?: string[]
+      /** The prompt for the agent */
+      prompt: string
+      /** Path to the output file for checking agent progress */
+      outputFile: string
+      /** Whether the calling agent has Read/Bash tools to check progress */
+      canReadOutputFile?: boolean
+      /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
+      canContinueAgent?: boolean
+      /** @internal True when this unisolated write-capable agent was launched into a working directory where another one is already running and a worktree could have been made here (drives a model-facing note; not a stable consumer field) */
+      sharesCwd?: boolean
+    } | {
+      status: "remote_launched"
+      /** The ID of the remote agent task */
+      taskId: string
+      /** The URL of the cloud session */
+      sessionUrl: string
+      /** The description of the task */
+      description: string
+      /** The prompt for the agent */
+      prompt: string
+      /** Path to the output file for checking agent progress */
+      outputFile: string
+    }
     AppifactRepl: {
       /** The script's stdout */
       output: string
@@ -1002,7 +964,7 @@ declare module 'claude-code' {
         /** The call's text block, fenced */
         text: string
         images: Array<{
-          media_type: 'image/png' | 'image/jpeg'
+          media_type: "image/png" | "image/jpeg"
           /** base64 */
           data: string
         }>
@@ -1010,3666 +972,3478 @@ declare module 'claude-code' {
       /** The tools the script's artifact calls reached whose names this conversation's prompt did not yet carry: the tool_result opens with a tools-used-before-summary line naming them */
       toolsUsed?: string[]
     }
-    Artifact:
-      | {
-          created_from_type: true
-          already_created?: true
-          url: string
-          version: string
-          owned?: boolean
-          path?: string
-          title?: string
-          type: {
-            url: string
-            release: string
-          }
-          own_files: string[]
-          type_files: string[]
-          served_at?: string
-          served_root?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          auto_open?: 'at_create' | 'after_first_write'
-          warnings?: string[]
-          files_error?: string
-          files_error_kind?: 'type_owned_path'
-          provisioned?: {
-            store: string
-            project_id: string
-            file_id?: string
-            node_id?: string
-          }
-          liveSubscription?: string
-          pinned?: boolean
-          instructions?: string
-          instructions_chars?: number
-          instructions_clipped?: boolean
-          instructions_unavailable?: string
-          init_references?: {
-            docs: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: {
-              path: string
-              why: string
-            }[]
-          }
-          after_quickstart?: {
-            design_system?: string
-            saved_system?: string
-            saved_system_dir?: string
-            saved_pages_dir?: string
-            not_listed?: boolean
-          }
-          design_systems?: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-          design_systems_note?: string
-          design_system?: {
-            url?: string
-            default?: string
-            title?: string
-            store?: boolean
-            docs?: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: string
-          }
-        }
-      | {
-          opened: true
-          url: string
-          artifact_id: string
-          title?: string
-          owned?: boolean
-        }
-      | {
-          url: string
+    Artifact: {
+      created_from_type: true
+      already_created?: true
+      url: string
+      version: string
+      owned?: boolean
+      path?: string
+      title?: string
+      type: {
+        url: string
+        release: string
+      }
+      own_files: string[]
+      type_files: string[]
+      served_at?: string
+      served_root?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      auto_open?: "at_create" | "after_first_write"
+      warnings?: string[]
+      files_error?: string
+      files_error_kind?: "type_owned_path"
+      provisioned?: {
+        store: string
+        project_id: string
+        file_id?: string
+        node_id?: string
+      }
+      liveSubscription?: string
+      pinned?: boolean
+      instructions?: string
+      instructions_chars?: number
+      instructions_clipped?: boolean
+      instructions_unavailable?: string
+      init_references?: {
+        docs: {
           path: string
-          artifact_id?: string
-          title?: string
-          version?: string
-          capabilities?: unknown
-          stored?: {
-            contract: string
-            preferredContract?: string
-            capabilities?: {}
-            carried?: boolean
-            read?: string
-          }
-          warnings?: string[]
-          publishesRemaining?: number
-          publishesResetAt?: number
-          contract?: string
-          updated?: boolean
-          owned?: boolean
-          icon?: string
-          faviconSent?: true
-          iconDropped?: true
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: {
+          path: string
+          why: string
+        }[]
+      }
+      after_quickstart?: {
+        design_system?: string
+        saved_system?: string
+        saved_system_dir?: string
+        saved_pages_dir?: string
+        not_listed?: boolean
+      }
+      design_systems?: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
           audience?: string
-          seq?: number
-          unchanged?: true
-          merged_over?: {
-            base: string
-            live?: string
-            changed?: Array<{
-              path: string
-              sha256: string | null
-            }>
-            omitted?: number
-          }
-          liveSubscription?: string
-          verifyGuide?: string
-          editsApplied?: number
-          editsNotWritten?:
-            'write_failed' | 'not_writable' | 'changed_during_publish' | 'hard_linked'
-          seededThread?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          pinned?: boolean
-          /** The Artifact type (and release) this Artifact was created from */
-          type?: {
-            url: string
-            release: string
-            latest?: string
-            blocked?: {
-              to?: string
-              reason: string
-              conflict_count?: number
-              paths?: string[]
-            }
-          }
-          own_files?: string[]
-          type_files?: string[]
-          served_at?: string
-          served_root?: string
-          new_files?: string[]
-          unchanged_files?: string[]
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+      design_systems_note?: string
+      design_system?: {
+        url?: string
+        default?: string
+        title?: string
+        store?: boolean
+        docs?: {
+          path: string
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: string
+      }
+    } | {
+      opened: true
+      url: string
+      artifact_id: string
+      title?: string
+      owned?: boolean
+    } | {
+      url: string
+      path: string
+      artifact_id?: string
+      title?: string
+      version?: string
+      capabilities?: unknown
+      stored?: {
+        contract: string
+        preferredContract?: string
+        capabilities?: {}
+        carried?: boolean
+        read?: string
+      }
+      warnings?: string[]
+      publishesRemaining?: number
+      publishesResetAt?: number
+      contract?: string
+      updated?: boolean
+      owned?: boolean
+      icon?: string
+      faviconSent?: true
+      iconDropped?: true
+      audience?: string
+      seq?: number
+      unchanged?: true
+      merged_over?: {
+        base: string
+        live?: string
+        changed?: Array<{
+          path: string
+          sha256: string | null
+        }>
+        omitted?: number
+      }
+      liveSubscription?: string
+      verifyGuide?: string
+      editsApplied?: number
+      editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
+      seededThread?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      pinned?: boolean
+      /** The Artifact type (and release) this Artifact was created from */
+      type?: {
+        url: string
+        release: string
+        latest?: string
+        blocked?: {
+          to?: string
+          reason: string
+          conflict_count?: number
+          paths?: string[]
         }
-      | {
-          artifacts: Array<{
+      }
+      own_files?: string[]
+      type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
+    } | {
+      artifacts: Array<{
+        title: string
+        url: string
+        favicon?: string
+        updatedAt?: string
+        rel?: "mine" | "shared"
+        external?: true
+        role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
+        pinned?: boolean
+      }>
+      truncated?: boolean
+      total?: number
+      total_at_least?: true
+      pins_enabled?: boolean
+      scope?: "shared" | "all"
+      external_listed?: true
+    } | {
+      read: {
+        url: string
+        bytes: number
+        code: number
+        codeText: string
+        result: string
+        durationMs: number
+        title?: string
+      }
+      owned?: boolean
+      artifactRead?: {
+        slug: string
+        ver?: string
+        seeded?: false
+      }
+    } | {
+      artifact_types: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+      }[]
+      query?: string
+      more?: boolean
+      dropped?: number
+      unavailable?: boolean
+      docs_unfillable?: boolean
+    } | {
+      artifact_type: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+        release?: string
+        files: string[]
+        files_omitted?: number
+        instructions_file: boolean
+        instructions?: string
+        instructions_chars?: number
+        instructions_clipped?: boolean
+        instructions_unavailable?: string
+        capabilities: string[]
+        creatable?: boolean
+      }
+      read_of_type_link?: true
+      type_file?: {
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }
+      type_files_read?: Array<{
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }>
+    } | {
+      type_instances: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
+          audience?: string
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+    } | {
+      quickstart: {
+        intent: string
+        match?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        match_of?: number
+        ask_first?: boolean
+        types?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }[]
+        types_more?: boolean
+        dashboard_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        motion_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        types_unavailable?: boolean
+        types_ruled?: boolean
+        types_ambiguous?: boolean
+        types_partial?: boolean
+        types_note?: string
+        types_hooked?: boolean
+        docs_connector?: boolean
+        design_systems?: {
+          type?: string
+          type_url?: string
+          scope: string
+          instances: {
             title: string
             url: string
-            favicon?: string
-            updatedAt?: string
-            rel?: 'mine' | 'shared'
-            external?: true
-            role?: 'editor' | 'commenter' | 'reader' | 'viewer'
-            pinned?: boolean
-          }>
-          truncated?: boolean
-          total?: number
-          total_at_least?: true
-          pins_enabled?: boolean
-          scope?: 'shared' | 'all'
-          external_listed?: true
-        }
-      | {
-          read: {
-            url: string
-            bytes: number
-            code: number
-            codeText: string
-            result: string
-            durationMs: number
-            title?: string
-          }
-          owned?: boolean
-          artifactRead?: {
-            slug: string
-            ver?: string
-            seeded?: false
-          }
-        }
-      | {
-          artifact_types: {
-            title: string
-            type_url: string
             description?: string
-            tier?: string
+            created_at?: string
+            rel?: string
+            audience?: string
+            outsiders_may_have_written?: true
+            default?: string
           }[]
-          query?: string
           more?: boolean
+          overflow?: boolean
           dropped?: number
           unavailable?: boolean
-          docs_unfillable?: boolean
         }
-      | {
-          artifact_type: {
-            title: string
-            type_url: string
-            description?: string
-            tier?: string
-            release?: string
-            files: string[]
-            files_omitted?: number
-            instructions_file: boolean
-            instructions?: string
-            instructions_chars?: number
-            instructions_clipped?: boolean
-            instructions_unavailable?: string
-            capabilities: string[]
-            creatable?: boolean
-          }
-          read_of_type_link?: true
-          type_file?: {
+        design_systems_note?: string
+        design_systems_off?: boolean
+        design_system?: {
+          url?: string
+          default?: string
+          title?: string
+          store?: boolean
+          docs?: {
             path: string
-            content?: string
-            chars?: number
+            text: string
+            chars: number
             clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }
-          type_files_read?: Array<{
-            path: string
-            content?: string
-            chars?: number
-            clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }>
-        }
-      | {
-          type_instances: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-        }
-      | {
-          quickstart: {
-            intent: string
-            match?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            match_of?: number
-            ask_first?: boolean
-            types?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }[]
-            types_more?: boolean
-            dashboard_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            motion_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            types_unavailable?: boolean
-            types_ruled?: boolean
-            types_ambiguous?: boolean
-            types_partial?: boolean
-            types_note?: string
-            types_hooked?: boolean
-            docs_connector?: boolean
-            design_systems?: {
-              type?: string
-              type_url?: string
-              scope: string
-              instances: {
-                title: string
-                url: string
-                description?: string
-                created_at?: string
-                rel?: string
-                audience?: string
-                default?: string
-              }[]
-              more?: boolean
-              overflow?: boolean
-              dropped?: number
-              unavailable?: boolean
-            }
-            design_systems_note?: string
-            design_systems_off?: boolean
-            design_system?: {
-              url?: string
-              default?: string
-              title?: string
-              store?: boolean
-              docs?: {
-                path: string
-                text: string
-                chars: number
-                clipped?: boolean
-              }[]
-              unavailable?: string
-            }
-            design_guidance?: boolean
-            start_kit?: {
-              type?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              system_url?: string
-              system?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              skill_in_result: boolean
-              capabilities_skill: boolean
-              repl_tool?: boolean
-            }
-          }
-        }
-      | {
-          threads_dropped?: boolean
-          thread_filter?: string
-          scoped_dispatch?: boolean
-          foreign?: true
-          cursor?: string
-          outside_org?: boolean
-          page_owns_threads?: boolean
-          names?: {}
-          threads: {
-            id: string
-            created_at?: string
-            resolved: boolean
-            resolved_degraded?: boolean
-            resolved_by_claude?: boolean
-            claude_activated: boolean
-            activated_degraded?: boolean
-            carried?: boolean
-            anchor_path?: string
-            span_quote?: string
-            anchor_file?: string
-            anchor_file_degraded?: boolean
-            anchor_file_sha?: string
-            anchor_moved_at?: string
-            anchor_label?: string
-            anchor_detail?: string
-            anchor_snippet?: string
-            anchor_region?: boolean
-            region_inside?: string[]
-            comments_degraded?: boolean
-            comments: {
-              id: string
-              account: string
-              role?: string
-              text: string
-              created_at?: string
-              sent_to_claude?: boolean
-              sent_to_claude_degraded?: boolean
-              sent_by_viewer?: boolean
-              posted_by_artifact?: boolean
-              awaiting_reply?: boolean
-              presence?: string
-              access?: string
-              outside?: true
-            }[]
           }[]
+          unavailable?: string
         }
-      | {
-          replied: boolean
-          thread_id: string
-          comment_id?: string
-          replayed?: boolean
-          not_activated?: boolean
-          summon_answered?: boolean
-          summon_foreign?: boolean
-          already_answered?: boolean
-          page_owns_threads?: boolean
-          standing_reply_id?: string
-        }
-      | {
-          thread_resolved: boolean
-          thread_id: string
-          not_activated?: boolean
-          not_authorized?: boolean
-          summon_foreign?: boolean
-          relayed_credential?: boolean
-          page_owns_threads?: boolean
-        }
-      | {
-          watch: {
-            url: string
-            watching: boolean
-            outcome: string
-            reason?: string
-            durable_skip_reason?: string
-            task_id?: string
-            since?: number
-            token_expires_at?: number
-            auto_reply?: string
-            can_edit?: boolean
-            user_turn?: boolean
-            named_by_user?: boolean
-            replies_declined?: boolean
-            rail?: string
-            trigger_id?: string
-            durable_since?: string
-            status?: number
-            detail?: string
-            note?: string
-            events?: string[]
-          }
-        }
-      | {
-          unwatch: {
-            url: string
-            was_watching: boolean
-          }
-        }
-      | {
-          resume_replies: {
-            url: string
-            resumed: boolean
-            outcome: string
-            reason?: string
-            task_id?: string
-            stop_kind?: string
-            in_place?: boolean
-            connecting?: boolean
-          }
-        }
-      | {
-          watches: Array<
-            | {
-                url: string
-                task_id: string
-                since: number
-                explicit: boolean
-                connected: boolean
-                connecting?: boolean
-                token_expires_at: number
-                armed_via?: string
-                auto_reply?: string
-                unread_plain_comments?: number
-                summons_awaiting_reply?: number
-                comments_uncounted?: boolean
-                comments_partially_counted?: boolean
-              }
-            | {
-                url: string
-                rail: 'durable_wake'
-                trigger_id: string
-                since: string
-                events?: string[]
-                restored?: boolean
-              }
-            | {
-                url: string
-                rail: 'live_stopped'
-                since?: number
-                explicit?: boolean
-                armed_via?: string
-                auto_reply: string
-                stop_kind: string
-              }
-          >
-          filter_url?: string
-          arms?: {
-            url: string
-            rail?: string
-            state: string
-            reconnect?: boolean
-            failures?: number
-            max_failures?: number
-            next_in_s?: number
-            last_failure?: string
-            reason?: string
-            detail?: string
-            server_message?: string
-            at?: number
-          }[]
-        }
-      | {
-          db_read: {
-            op: string
-            collection: string
-            doc_id?: string
-            found?: boolean
-            as_level?: string
-            as_level_confirmed?: boolean
-            docs?: {
-              id: string
-              data: {}
-              version?: number
-              updatedAt?: string
-            }[]
-            next_cursor?: string
-            me_id?: string
-            ordered_by?: {
-              field: string
-              limit: number
-            }
-            foreign?: true
-            outside_writer?: true
-            saved?: {
-              dir: string
-              files: {
-                id: string
-                path: string
-                bytes: number
-                compact?: boolean
-                version?: number
-                updatedAt?: string
-              }[]
-              skipped: {
-                id: string
-                reason: string
-              }[]
-            }
-          }
-        }
-      | {
-          db_profiles: {
-            ids: string[]
-            profiles?: {}
-            unavailable?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          as_level?: string
-          as_level_confirmed?: boolean
-          db_write:
-            | {
-                op: string
-                collection: string
-                doc_id: string
-                field?: string
-                replace_all?: true
-                version?: number
-                committed: boolean
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-              }
-            | {
-                op: 'batch'
-                committed: boolean
-                results: {
-                  op: string
-                  collection: string
-                  doc_id: string
-                  field?: string
-                  replace_all?: true
-                  version?: number
-                }[]
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-                fallback?: 'sequential'
-              }
-        }
-      | {
-          room_send: {
-            url: string
-            topic: string
-            delivered: boolean
-            peers?: number
-            reason?: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_upload: {
-            id: string
-            url: string
-            size_bytes: number
-            content_type: string
-            sha256?: string
-            file_name: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_uploads: {
-            url: string
-            results: Array<
-              | {
-                  file_path: string
-                  status: 'uploaded'
-                  id: string
-                  url: string
-                  size_bytes: number
-                  content_type: string
-                  sha256?: string
-                  file_name: string
-                }
-              | {
-                  file_path: string
-                  status: 'failed' | 'not_attempted'
-                  reason: string
-                  message: string
-                  may_be_stored?: true
-                }
-            >
-          }
-        }
-      | {
-          asset_list: {
-            url: string
-            assets: {
-              id: string
-              url: string
-              content_type: string
-              size_bytes: number
-              sha256?: string
-              created_at: string
-            }[]
-            usage: {
-              files: number
-              bytes: number
-              max_files: number
-              max_bytes: number
-            }
-            next?: string
-            cowritten?: true
-            outside_writer?: true
-          }
-        }
-      | {
-          asset_read: {
-            id: string
-            path: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            foreign?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_delete: {
-            id: string
-            deleted: boolean
-          }
-        }
-      | {
-          asset_copy: {
-            url: string
-            from_url: string
-            assets: {
-              from_id: string
-              id: string
-              url: string
-              size_bytes: number
-              content_type: string
-              sha256?: string
-            }[]
-          }
-        }
-      | {
-          file_list: {
-            url: string
-            ver: string
+        design_guidance?: boolean
+        start_kit?: {
+          type?: {
+            dir: string
             files: {
               path: string
-              content_type: string
-              size_bytes: number
-              sha256: string
-              live?: true
+              bytes: number
             }[]
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            narrowed?: true
-            single_page?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-            stored?: {
-              contract: string
-              capabilities?: {}
-            }
-          }
-        }
-      | {
-          file_read: {
-            url?: string
-            title?: string
-            path: string
-            saved_to: string
-            ver: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            content?: string
-            content_scrubbed?: true
-            as_served?: true
-            source?: true
-            live?: true
-            live_verified?: true
-            seq?: number
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          files_read: {
-            url: string
-            title?: string
-            ver: string
-            saved_dir: string
-            files: Array<
-              | {
-                  path: string
-                  saved_to: string
-                  size_bytes: number
-                  content_type: string
-                  sha256: string
-                  content?: string
-                  content_scrubbed?: true
-                  as_served?: true
-                  source?: true
-                  foreign?: true
-                }
-              | {
-                  path: string
-                  error: string
-                }
-            >
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          artifact_delete: {
-            url: string
-            deleted: true
-            already_gone?: boolean
-          }
-        }
-      | {
-          pin: {
-            action: 'pin' | 'unpin'
-            url: string
-            pinned: boolean
-            title?: string
-          }
-        }
-      | {
-          shared: {
-            url: string
-            mode: string
-            access: string
-            read_mode: string
-            added: number
-            editors?: number
-            unchanged?: boolean
-            org_name?: string
-            title?: string
-          }
-        }
-      | {
-          page_versions: {
-            url: string
-            rows: {
-              id: string
-              createdAt?: string
-              current?: true
-            }[]
-            degraded?: true
-            cut?: true
-          }
-        }
-      | {
-          verify: {
-            url: string
-            ver: string
-            state: string
-            entries: unknown[]
-            truncated?: boolean
-            dropped?: number
-            waited?: boolean
-            foreign?: true
-          }
-        }
-      | {
-          preview: {
-            file: string
-            bytes: number
-            widths: number[]
-            themes: string[]
-            shots: {
-              width: number
-              theme: string
-              height?: number
-              pageHeight?: number
-              path?: string
-              base64?: string
-              error?: string
-            }[]
-            issues: {
-              kind: string
-              text: string
-            }[]
-            issuesDropped?: number
-            renderError?: string
-          }
-        }
-      | {
-          emulatorPreview: {
-            file: string
-            outcome: string
-            pictures: {
+            skipped: {
               path: string
-              base64?: string
-            }[]
-            marks?: string[]
-            errors?: string[]
-            outline?: string
-            stopped?: string
-          }
-        }
-    ArtifactCheck:
-      | {
-          created_from_type: true
-          already_created?: true
-          url: string
-          version: string
-          owned?: boolean
-          path?: string
-          title?: string
-          type: {
-            url: string
-            release: string
-          }
-          own_files: string[]
-          type_files: string[]
-          served_at?: string
-          served_root?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          auto_open?: 'at_create' | 'after_first_write'
-          warnings?: string[]
-          files_error?: string
-          files_error_kind?: 'type_owned_path'
-          provisioned?: {
-            store: string
-            project_id: string
-            file_id?: string
-            node_id?: string
-          }
-          liveSubscription?: string
-          pinned?: boolean
-          instructions?: string
-          instructions_chars?: number
-          instructions_clipped?: boolean
-          instructions_unavailable?: string
-          init_references?: {
-            docs: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: {
-              path: string
-              why: string
-            }[]
-          }
-          after_quickstart?: {
-            design_system?: string
-            saved_system?: string
-            saved_system_dir?: string
-            saved_pages_dir?: string
-            not_listed?: boolean
-          }
-          design_systems?: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-          design_systems_note?: string
-          design_system?: {
-            url?: string
-            default?: string
-            title?: string
-            store?: boolean
-            docs?: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: string
-          }
-        }
-      | {
-          opened: true
-          url: string
-          artifact_id: string
-          title?: string
-          owned?: boolean
-        }
-      | {
-          url: string
-          path: string
-          artifact_id?: string
-          title?: string
-          version?: string
-          capabilities?: unknown
-          stored?: {
-            contract: string
-            preferredContract?: string
-            capabilities?: {}
-            carried?: boolean
-            read?: string
-          }
-          warnings?: string[]
-          publishesRemaining?: number
-          publishesResetAt?: number
-          contract?: string
-          updated?: boolean
-          owned?: boolean
-          icon?: string
-          faviconSent?: true
-          iconDropped?: true
-          audience?: string
-          seq?: number
-          unchanged?: true
-          merged_over?: {
-            base: string
-            live?: string
-            changed?: Array<{
-              path: string
-              sha256: string | null
-            }>
-            omitted?: number
-          }
-          liveSubscription?: string
-          verifyGuide?: string
-          editsApplied?: number
-          editsNotWritten?:
-            'write_failed' | 'not_writable' | 'changed_during_publish' | 'hard_linked'
-          seededThread?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          pinned?: boolean
-          /** The Artifact type (and release) this Artifact was created from */
-          type?: {
-            url: string
-            release: string
-            latest?: string
-            blocked?: {
-              to?: string
               reason: string
-              conflict_count?: number
-              paths?: string[]
-            }
+            }[]
           }
-          own_files?: string[]
-          type_files?: string[]
-          served_at?: string
-          served_root?: string
-          new_files?: string[]
-          unchanged_files?: string[]
+          system_url?: string
+          system?: {
+            dir: string
+            files: {
+              path: string
+              bytes: number
+            }[]
+            skipped: {
+              path: string
+              reason: string
+            }[]
+          }
+          skill_in_result: boolean
+          capabilities_skill: boolean
+          repl_tool?: boolean
         }
-      | {
-          artifacts: Array<{
-            title: string
-            url: string
-            favicon?: string
-            updatedAt?: string
-            rel?: 'mine' | 'shared'
-            external?: true
-            role?: 'editor' | 'commenter' | 'reader' | 'viewer'
-            pinned?: boolean
-          }>
-          truncated?: boolean
-          total?: number
-          total_at_least?: true
-          pins_enabled?: boolean
-          scope?: 'shared' | 'all'
-          external_listed?: true
+      }
+    } | {
+      threads_dropped?: boolean
+      thread_filter?: string
+      scoped_dispatch?: boolean
+      foreign?: true
+      cursor?: string
+      outside_org?: boolean
+      page_owns_threads?: boolean
+      names?: {}
+      threads: {
+        id: string
+        created_at?: string
+        resolved: boolean
+        resolved_degraded?: boolean
+        resolved_by_claude?: boolean
+        claude_activated: boolean
+        activated_degraded?: boolean
+        carried?: boolean
+        anchor_path?: string
+        span_quote?: string
+        anchor_file?: string
+        anchor_file_degraded?: boolean
+        anchor_file_sha?: string
+        anchor_moved_at?: string
+        anchor_label?: string
+        anchor_detail?: string
+        anchor_snippet?: string
+        anchor_region?: boolean
+        region_inside?: string[]
+        comments_degraded?: boolean
+        comments: {
+          id: string
+          account: string
+          role?: string
+          text: string
+          created_at?: string
+          sent_to_claude?: boolean
+          sent_to_claude_degraded?: boolean
+          sent_by_viewer?: boolean
+          posted_by_artifact?: boolean
+          awaiting_reply?: boolean
+          presence?: string
+          access?: string
+          outside?: true
+        }[]
+      }[]
+    } | {
+      replied: boolean
+      thread_id: string
+      comment_id?: string
+      replayed?: boolean
+      not_activated?: boolean
+      summon_answered?: boolean
+      summon_foreign?: boolean
+      already_answered?: boolean
+      page_owns_threads?: boolean
+      standing_reply_id?: string
+    } | {
+      thread_resolved: boolean
+      thread_id: string
+      not_activated?: boolean
+      not_authorized?: boolean
+      summon_foreign?: boolean
+      relayed_credential?: boolean
+      page_owns_threads?: boolean
+    } | {
+      watch: {
+        url: string
+        watching: boolean
+        outcome: string
+        reason?: string
+        durable_skip_reason?: string
+        task_id?: string
+        since?: number
+        token_expires_at?: number
+        auto_reply?: string
+        can_edit?: boolean
+        user_turn?: boolean
+        named_by_user?: boolean
+        replies_declined?: boolean
+        rail?: string
+        trigger_id?: string
+        durable_since?: string
+        status?: number
+        detail?: string
+        note?: string
+        events?: string[]
+      }
+    } | {
+      unwatch: {
+        url: string
+        was_watching: boolean
+      }
+    } | {
+      resume_replies: {
+        url: string
+        resumed: boolean
+        outcome: string
+        reason?: string
+        task_id?: string
+        stop_kind?: string
+        in_place?: boolean
+        connecting?: boolean
+      }
+    } | {
+      watches: Array<{
+        url: string
+        task_id: string
+        since: number
+        explicit: boolean
+        connected: boolean
+        connecting?: boolean
+        token_expires_at: number
+        armed_via?: string
+        auto_reply?: string
+        unread_plain_comments?: number
+        summons_awaiting_reply?: number
+        comments_uncounted?: boolean
+        comments_partially_counted?: boolean
+      } | {
+        url: string
+        rail: "durable_wake"
+        trigger_id: string
+        since: string
+        events?: string[]
+        restored?: boolean
+      } | {
+        url: string
+        rail: "live_stopped"
+        since?: number
+        explicit?: boolean
+        armed_via?: string
+        auto_reply: string
+        stop_kind: string
+      }>
+      filter_url?: string
+      arms?: {
+        url: string
+        rail?: string
+        state: string
+        reconnect?: boolean
+        failures?: number
+        max_failures?: number
+        next_in_s?: number
+        last_failure?: string
+        reason?: string
+        detail?: string
+        server_message?: string
+        at?: number
+      }[]
+    } | {
+      db_read: {
+        op: string
+        collection: string
+        doc_id?: string
+        found?: boolean
+        as_level?: string
+        as_level_confirmed?: boolean
+        docs?: {
+          id: string
+          data: {}
+          version?: number
+          updatedAt?: string
+        }[]
+        next_cursor?: string
+        me_id?: string
+        ordered_by?: {
+          field: string
+          limit: number
         }
-      | {
-          read: {
-            url: string
+        foreign?: true
+        outside_writer?: true
+        saved?: {
+          dir: string
+          files: {
+            id: string
+            path: string
             bytes: number
-            code: number
-            codeText: string
-            result: string
-            durationMs: number
-            title?: string
-          }
-          owned?: boolean
-          artifactRead?: {
-            slug: string
-            ver?: string
-            seeded?: false
-          }
-        }
-      | {
-          artifact_types: {
-            title: string
-            type_url: string
-            description?: string
-            tier?: string
+            compact?: boolean
+            version?: number
+            updatedAt?: string
           }[]
-          query?: string
+          skipped: {
+            id: string
+            reason: string
+          }[]
+        }
+      }
+    } | {
+      db_profiles: {
+        ids: string[]
+        profiles?: {}
+        unavailable?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      as_level?: string
+      as_level_confirmed?: boolean
+      db_write: {
+        op: string
+        collection: string
+        doc_id: string
+        field?: string
+        replace_all?: true
+        version?: number
+        committed: boolean
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+      } | {
+        op: "batch"
+        committed: boolean
+        results: {
+          op: string
+          collection: string
+          doc_id: string
+          field?: string
+          replace_all?: true
+          version?: number
+        }[]
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+        fallback?: "sequential"
+      }
+    } | {
+      room_send: {
+        url: string
+        topic: string
+        delivered: boolean
+        peers?: number
+        reason?: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_upload: {
+        id: string
+        url: string
+        size_bytes: number
+        content_type: string
+        sha256?: string
+        file_name: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_uploads: {
+        url: string
+        results: Array<{
+          file_path: string
+          status: "uploaded"
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+          file_name: string
+        } | {
+          file_path: string
+          status: "failed" | "not_attempted"
+          reason: string
+          message: string
+          may_be_stored?: true
+        }>
+      }
+    } | {
+      asset_list: {
+        url: string
+        assets: {
+          id: string
+          url: string
+          content_type: string
+          size_bytes: number
+          sha256?: string
+          created_at: string
+        }[]
+        usage: {
+          files: number
+          bytes: number
+          max_files: number
+          max_bytes: number
+        }
+        next?: string
+        cowritten?: true
+        outside_writer?: true
+      }
+    } | {
+      asset_read: {
+        id: string
+        path: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        foreign?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_delete: {
+        id: string
+        deleted: boolean
+      }
+    } | {
+      asset_copy: {
+        url: string
+        from_url: string
+        assets: {
+          from_id: string
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+        }[]
+      }
+    } | {
+      file_list: {
+        url: string
+        ver: string
+        files: {
+          path: string
+          content_type: string
+          size_bytes: number
+          sha256: string
+          live?: true
+        }[]
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        narrowed?: true
+        single_page?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+        stored?: {
+          contract: string
+          capabilities?: {}
+        }
+      }
+    } | {
+      file_read: {
+        url?: string
+        title?: string
+        path: string
+        saved_to: string
+        ver: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        content?: string
+        content_scrubbed?: true
+        as_served?: true
+        source?: true
+        live?: true
+        live_verified?: true
+        seq?: number
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      files_read: {
+        url: string
+        title?: string
+        ver: string
+        saved_dir: string
+        files: Array<{
+          path: string
+          saved_to: string
+          size_bytes: number
+          content_type: string
+          sha256: string
+          content?: string
+          content_scrubbed?: true
+          as_served?: true
+          source?: true
+          foreign?: true
+        } | {
+          path: string
+          error: string
+        }>
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      artifact_delete: {
+        url: string
+        deleted: true
+        already_gone?: boolean
+      }
+    } | {
+      pin: {
+        action: "pin" | "unpin"
+        url: string
+        pinned: boolean
+        title?: string
+      }
+    } | {
+      shared: {
+        url: string
+        mode: string
+        access: string
+        read_mode: string
+        added: number
+        editors?: number
+        unchanged?: boolean
+        org_name?: string
+        title?: string
+      }
+    } | {
+      page_versions: {
+        url: string
+        rows: {
+          id: string
+          createdAt?: string
+          current?: true
+        }[]
+        degraded?: true
+        cut?: true
+      }
+    } | {
+      verify: {
+        url: string
+        ver: string
+        state: string
+        entries: unknown[]
+        truncated?: boolean
+        dropped?: number
+        waited?: boolean
+        foreign?: true
+      }
+    } | {
+      preview: {
+        file: string
+        bytes: number
+        widths: number[]
+        themes: string[]
+        shots: {
+          width: number
+          theme: string
+          height?: number
+          pageHeight?: number
+          path?: string
+          base64?: string
+          error?: string
+        }[]
+        issues: {
+          kind: string
+          text: string
+        }[]
+        issuesDropped?: number
+        renderError?: string
+      }
+    } | {
+      emulatorPreview: {
+        file: string
+        outcome: string
+        pictures: {
+          path: string
+          base64?: string
+        }[]
+        marks?: string[]
+        errors?: string[]
+        outline?: string
+        stopped?: string
+      }
+    }
+    ArtifactCheck: {
+      created_from_type: true
+      already_created?: true
+      url: string
+      version: string
+      owned?: boolean
+      path?: string
+      title?: string
+      type: {
+        url: string
+        release: string
+      }
+      own_files: string[]
+      type_files: string[]
+      served_at?: string
+      served_root?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      auto_open?: "at_create" | "after_first_write"
+      warnings?: string[]
+      files_error?: string
+      files_error_kind?: "type_owned_path"
+      provisioned?: {
+        store: string
+        project_id: string
+        file_id?: string
+        node_id?: string
+      }
+      liveSubscription?: string
+      pinned?: boolean
+      instructions?: string
+      instructions_chars?: number
+      instructions_clipped?: boolean
+      instructions_unavailable?: string
+      init_references?: {
+        docs: {
+          path: string
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: {
+          path: string
+          why: string
+        }[]
+      }
+      after_quickstart?: {
+        design_system?: string
+        saved_system?: string
+        saved_system_dir?: string
+        saved_pages_dir?: string
+        not_listed?: boolean
+      }
+      design_systems?: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
+          audience?: string
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+      design_systems_note?: string
+      design_system?: {
+        url?: string
+        default?: string
+        title?: string
+        store?: boolean
+        docs?: {
+          path: string
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: string
+      }
+    } | {
+      opened: true
+      url: string
+      artifact_id: string
+      title?: string
+      owned?: boolean
+    } | {
+      url: string
+      path: string
+      artifact_id?: string
+      title?: string
+      version?: string
+      capabilities?: unknown
+      stored?: {
+        contract: string
+        preferredContract?: string
+        capabilities?: {}
+        carried?: boolean
+        read?: string
+      }
+      warnings?: string[]
+      publishesRemaining?: number
+      publishesResetAt?: number
+      contract?: string
+      updated?: boolean
+      owned?: boolean
+      icon?: string
+      faviconSent?: true
+      iconDropped?: true
+      audience?: string
+      seq?: number
+      unchanged?: true
+      merged_over?: {
+        base: string
+        live?: string
+        changed?: Array<{
+          path: string
+          sha256: string | null
+        }>
+        omitted?: number
+      }
+      liveSubscription?: string
+      verifyGuide?: string
+      editsApplied?: number
+      editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
+      seededThread?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      pinned?: boolean
+      /** The Artifact type (and release) this Artifact was created from */
+      type?: {
+        url: string
+        release: string
+        latest?: string
+        blocked?: {
+          to?: string
+          reason: string
+          conflict_count?: number
+          paths?: string[]
+        }
+      }
+      own_files?: string[]
+      type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
+    } | {
+      artifacts: Array<{
+        title: string
+        url: string
+        favicon?: string
+        updatedAt?: string
+        rel?: "mine" | "shared"
+        external?: true
+        role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
+        pinned?: boolean
+      }>
+      truncated?: boolean
+      total?: number
+      total_at_least?: true
+      pins_enabled?: boolean
+      scope?: "shared" | "all"
+      external_listed?: true
+    } | {
+      read: {
+        url: string
+        bytes: number
+        code: number
+        codeText: string
+        result: string
+        durationMs: number
+        title?: string
+      }
+      owned?: boolean
+      artifactRead?: {
+        slug: string
+        ver?: string
+        seeded?: false
+      }
+    } | {
+      artifact_types: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+      }[]
+      query?: string
+      more?: boolean
+      dropped?: number
+      unavailable?: boolean
+      docs_unfillable?: boolean
+    } | {
+      artifact_type: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+        release?: string
+        files: string[]
+        files_omitted?: number
+        instructions_file: boolean
+        instructions?: string
+        instructions_chars?: number
+        instructions_clipped?: boolean
+        instructions_unavailable?: string
+        capabilities: string[]
+        creatable?: boolean
+      }
+      read_of_type_link?: true
+      type_file?: {
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }
+      type_files_read?: Array<{
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }>
+    } | {
+      type_instances: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
+          audience?: string
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+    } | {
+      quickstart: {
+        intent: string
+        match?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        match_of?: number
+        ask_first?: boolean
+        types?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }[]
+        types_more?: boolean
+        dashboard_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        motion_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        types_unavailable?: boolean
+        types_ruled?: boolean
+        types_ambiguous?: boolean
+        types_partial?: boolean
+        types_note?: string
+        types_hooked?: boolean
+        docs_connector?: boolean
+        design_systems?: {
+          type?: string
+          type_url?: string
+          scope: string
+          instances: {
+            title: string
+            url: string
+            description?: string
+            created_at?: string
+            rel?: string
+            audience?: string
+            outsiders_may_have_written?: true
+            default?: string
+          }[]
           more?: boolean
+          overflow?: boolean
           dropped?: number
           unavailable?: boolean
-          docs_unfillable?: boolean
         }
-      | {
-          artifact_type: {
-            title: string
-            type_url: string
-            description?: string
-            tier?: string
-            release?: string
-            files: string[]
-            files_omitted?: number
-            instructions_file: boolean
-            instructions?: string
-            instructions_chars?: number
-            instructions_clipped?: boolean
-            instructions_unavailable?: string
-            capabilities: string[]
-            creatable?: boolean
-          }
-          read_of_type_link?: true
-          type_file?: {
+        design_systems_note?: string
+        design_systems_off?: boolean
+        design_system?: {
+          url?: string
+          default?: string
+          title?: string
+          store?: boolean
+          docs?: {
             path: string
-            content?: string
-            chars?: number
+            text: string
+            chars: number
             clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }
-          type_files_read?: Array<{
-            path: string
-            content?: string
-            chars?: number
-            clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }>
-        }
-      | {
-          type_instances: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-        }
-      | {
-          quickstart: {
-            intent: string
-            match?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            match_of?: number
-            ask_first?: boolean
-            types?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }[]
-            types_more?: boolean
-            dashboard_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            motion_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            types_unavailable?: boolean
-            types_ruled?: boolean
-            types_ambiguous?: boolean
-            types_partial?: boolean
-            types_note?: string
-            types_hooked?: boolean
-            docs_connector?: boolean
-            design_systems?: {
-              type?: string
-              type_url?: string
-              scope: string
-              instances: {
-                title: string
-                url: string
-                description?: string
-                created_at?: string
-                rel?: string
-                audience?: string
-                default?: string
-              }[]
-              more?: boolean
-              overflow?: boolean
-              dropped?: number
-              unavailable?: boolean
-            }
-            design_systems_note?: string
-            design_systems_off?: boolean
-            design_system?: {
-              url?: string
-              default?: string
-              title?: string
-              store?: boolean
-              docs?: {
-                path: string
-                text: string
-                chars: number
-                clipped?: boolean
-              }[]
-              unavailable?: string
-            }
-            design_guidance?: boolean
-            start_kit?: {
-              type?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              system_url?: string
-              system?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              skill_in_result: boolean
-              capabilities_skill: boolean
-              repl_tool?: boolean
-            }
-          }
-        }
-      | {
-          threads_dropped?: boolean
-          thread_filter?: string
-          scoped_dispatch?: boolean
-          foreign?: true
-          cursor?: string
-          outside_org?: boolean
-          page_owns_threads?: boolean
-          names?: {}
-          threads: {
-            id: string
-            created_at?: string
-            resolved: boolean
-            resolved_degraded?: boolean
-            resolved_by_claude?: boolean
-            claude_activated: boolean
-            activated_degraded?: boolean
-            carried?: boolean
-            anchor_path?: string
-            span_quote?: string
-            anchor_file?: string
-            anchor_file_degraded?: boolean
-            anchor_file_sha?: string
-            anchor_moved_at?: string
-            anchor_label?: string
-            anchor_detail?: string
-            anchor_snippet?: string
-            anchor_region?: boolean
-            region_inside?: string[]
-            comments_degraded?: boolean
-            comments: {
-              id: string
-              account: string
-              role?: string
-              text: string
-              created_at?: string
-              sent_to_claude?: boolean
-              sent_to_claude_degraded?: boolean
-              sent_by_viewer?: boolean
-              posted_by_artifact?: boolean
-              awaiting_reply?: boolean
-              presence?: string
-              access?: string
-              outside?: true
-            }[]
           }[]
+          unavailable?: string
         }
-      | {
-          replied: boolean
-          thread_id: string
-          comment_id?: string
-          replayed?: boolean
-          not_activated?: boolean
-          summon_answered?: boolean
-          summon_foreign?: boolean
-          already_answered?: boolean
-          page_owns_threads?: boolean
-          standing_reply_id?: string
-        }
-      | {
-          thread_resolved: boolean
-          thread_id: string
-          not_activated?: boolean
-          not_authorized?: boolean
-          summon_foreign?: boolean
-          relayed_credential?: boolean
-          page_owns_threads?: boolean
-        }
-      | {
-          watch: {
-            url: string
-            watching: boolean
-            outcome: string
-            reason?: string
-            durable_skip_reason?: string
-            task_id?: string
-            since?: number
-            token_expires_at?: number
-            auto_reply?: string
-            can_edit?: boolean
-            user_turn?: boolean
-            named_by_user?: boolean
-            replies_declined?: boolean
-            rail?: string
-            trigger_id?: string
-            durable_since?: string
-            status?: number
-            detail?: string
-            note?: string
-            events?: string[]
-          }
-        }
-      | {
-          unwatch: {
-            url: string
-            was_watching: boolean
-          }
-        }
-      | {
-          resume_replies: {
-            url: string
-            resumed: boolean
-            outcome: string
-            reason?: string
-            task_id?: string
-            stop_kind?: string
-            in_place?: boolean
-            connecting?: boolean
-          }
-        }
-      | {
-          watches: Array<
-            | {
-                url: string
-                task_id: string
-                since: number
-                explicit: boolean
-                connected: boolean
-                connecting?: boolean
-                token_expires_at: number
-                armed_via?: string
-                auto_reply?: string
-                unread_plain_comments?: number
-                summons_awaiting_reply?: number
-                comments_uncounted?: boolean
-                comments_partially_counted?: boolean
-              }
-            | {
-                url: string
-                rail: 'durable_wake'
-                trigger_id: string
-                since: string
-                events?: string[]
-                restored?: boolean
-              }
-            | {
-                url: string
-                rail: 'live_stopped'
-                since?: number
-                explicit?: boolean
-                armed_via?: string
-                auto_reply: string
-                stop_kind: string
-              }
-          >
-          filter_url?: string
-          arms?: {
-            url: string
-            rail?: string
-            state: string
-            reconnect?: boolean
-            failures?: number
-            max_failures?: number
-            next_in_s?: number
-            last_failure?: string
-            reason?: string
-            detail?: string
-            server_message?: string
-            at?: number
-          }[]
-        }
-      | {
-          db_read: {
-            op: string
-            collection: string
-            doc_id?: string
-            found?: boolean
-            as_level?: string
-            as_level_confirmed?: boolean
-            docs?: {
-              id: string
-              data: {}
-              version?: number
-              updatedAt?: string
-            }[]
-            next_cursor?: string
-            me_id?: string
-            ordered_by?: {
-              field: string
-              limit: number
-            }
-            foreign?: true
-            outside_writer?: true
-            saved?: {
-              dir: string
-              files: {
-                id: string
-                path: string
-                bytes: number
-                compact?: boolean
-                version?: number
-                updatedAt?: string
-              }[]
-              skipped: {
-                id: string
-                reason: string
-              }[]
-            }
-          }
-        }
-      | {
-          db_profiles: {
-            ids: string[]
-            profiles?: {}
-            unavailable?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          as_level?: string
-          as_level_confirmed?: boolean
-          db_write:
-            | {
-                op: string
-                collection: string
-                doc_id: string
-                field?: string
-                replace_all?: true
-                version?: number
-                committed: boolean
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-              }
-            | {
-                op: 'batch'
-                committed: boolean
-                results: {
-                  op: string
-                  collection: string
-                  doc_id: string
-                  field?: string
-                  replace_all?: true
-                  version?: number
-                }[]
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-                fallback?: 'sequential'
-              }
-        }
-      | {
-          room_send: {
-            url: string
-            topic: string
-            delivered: boolean
-            peers?: number
-            reason?: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_upload: {
-            id: string
-            url: string
-            size_bytes: number
-            content_type: string
-            sha256?: string
-            file_name: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_uploads: {
-            url: string
-            results: Array<
-              | {
-                  file_path: string
-                  status: 'uploaded'
-                  id: string
-                  url: string
-                  size_bytes: number
-                  content_type: string
-                  sha256?: string
-                  file_name: string
-                }
-              | {
-                  file_path: string
-                  status: 'failed' | 'not_attempted'
-                  reason: string
-                  message: string
-                  may_be_stored?: true
-                }
-            >
-          }
-        }
-      | {
-          asset_list: {
-            url: string
-            assets: {
-              id: string
-              url: string
-              content_type: string
-              size_bytes: number
-              sha256?: string
-              created_at: string
-            }[]
-            usage: {
-              files: number
-              bytes: number
-              max_files: number
-              max_bytes: number
-            }
-            next?: string
-            cowritten?: true
-            outside_writer?: true
-          }
-        }
-      | {
-          asset_read: {
-            id: string
-            path: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            foreign?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_delete: {
-            id: string
-            deleted: boolean
-          }
-        }
-      | {
-          asset_copy: {
-            url: string
-            from_url: string
-            assets: {
-              from_id: string
-              id: string
-              url: string
-              size_bytes: number
-              content_type: string
-              sha256?: string
-            }[]
-          }
-        }
-      | {
-          file_list: {
-            url: string
-            ver: string
+        design_guidance?: boolean
+        start_kit?: {
+          type?: {
+            dir: string
             files: {
               path: string
-              content_type: string
-              size_bytes: number
-              sha256: string
-              live?: true
+              bytes: number
             }[]
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            narrowed?: true
-            single_page?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-            stored?: {
-              contract: string
-              capabilities?: {}
-            }
-          }
-        }
-      | {
-          file_read: {
-            url?: string
-            title?: string
-            path: string
-            saved_to: string
-            ver: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            content?: string
-            content_scrubbed?: true
-            as_served?: true
-            source?: true
-            live?: true
-            live_verified?: true
-            seq?: number
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          files_read: {
-            url: string
-            title?: string
-            ver: string
-            saved_dir: string
-            files: Array<
-              | {
-                  path: string
-                  saved_to: string
-                  size_bytes: number
-                  content_type: string
-                  sha256: string
-                  content?: string
-                  content_scrubbed?: true
-                  as_served?: true
-                  source?: true
-                  foreign?: true
-                }
-              | {
-                  path: string
-                  error: string
-                }
-            >
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          artifact_delete: {
-            url: string
-            deleted: true
-            already_gone?: boolean
-          }
-        }
-      | {
-          pin: {
-            action: 'pin' | 'unpin'
-            url: string
-            pinned: boolean
-            title?: string
-          }
-        }
-      | {
-          shared: {
-            url: string
-            mode: string
-            access: string
-            read_mode: string
-            added: number
-            editors?: number
-            unchanged?: boolean
-            org_name?: string
-            title?: string
-          }
-        }
-      | {
-          page_versions: {
-            url: string
-            rows: {
-              id: string
-              createdAt?: string
-              current?: true
-            }[]
-            degraded?: true
-            cut?: true
-          }
-        }
-      | {
-          verify: {
-            url: string
-            ver: string
-            state: string
-            entries: unknown[]
-            truncated?: boolean
-            dropped?: number
-            waited?: boolean
-            foreign?: true
-          }
-        }
-      | {
-          preview: {
-            file: string
-            bytes: number
-            widths: number[]
-            themes: string[]
-            shots: {
-              width: number
-              theme: string
-              height?: number
-              pageHeight?: number
-              path?: string
-              base64?: string
-              error?: string
-            }[]
-            issues: {
-              kind: string
-              text: string
-            }[]
-            issuesDropped?: number
-            renderError?: string
-          }
-        }
-      | {
-          emulatorPreview: {
-            file: string
-            outcome: string
-            pictures: {
+            skipped: {
               path: string
-              base64?: string
-            }[]
-            marks?: string[]
-            errors?: string[]
-            outline?: string
-            stopped?: string
-          }
-        }
-    ArtifactComments:
-      | {
-          created_from_type: true
-          already_created?: true
-          url: string
-          version: string
-          owned?: boolean
-          path?: string
-          title?: string
-          type: {
-            url: string
-            release: string
-          }
-          own_files: string[]
-          type_files: string[]
-          served_at?: string
-          served_root?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          auto_open?: 'at_create' | 'after_first_write'
-          warnings?: string[]
-          files_error?: string
-          files_error_kind?: 'type_owned_path'
-          provisioned?: {
-            store: string
-            project_id: string
-            file_id?: string
-            node_id?: string
-          }
-          liveSubscription?: string
-          pinned?: boolean
-          instructions?: string
-          instructions_chars?: number
-          instructions_clipped?: boolean
-          instructions_unavailable?: string
-          init_references?: {
-            docs: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: {
-              path: string
-              why: string
-            }[]
-          }
-          after_quickstart?: {
-            design_system?: string
-            saved_system?: string
-            saved_system_dir?: string
-            saved_pages_dir?: string
-            not_listed?: boolean
-          }
-          design_systems?: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-          design_systems_note?: string
-          design_system?: {
-            url?: string
-            default?: string
-            title?: string
-            store?: boolean
-            docs?: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: string
-          }
-        }
-      | {
-          opened: true
-          url: string
-          artifact_id: string
-          title?: string
-          owned?: boolean
-        }
-      | {
-          url: string
-          path: string
-          artifact_id?: string
-          title?: string
-          version?: string
-          capabilities?: unknown
-          stored?: {
-            contract: string
-            preferredContract?: string
-            capabilities?: {}
-            carried?: boolean
-            read?: string
-          }
-          warnings?: string[]
-          publishesRemaining?: number
-          publishesResetAt?: number
-          contract?: string
-          updated?: boolean
-          owned?: boolean
-          icon?: string
-          faviconSent?: true
-          iconDropped?: true
-          audience?: string
-          seq?: number
-          unchanged?: true
-          merged_over?: {
-            base: string
-            live?: string
-            changed?: Array<{
-              path: string
-              sha256: string | null
-            }>
-            omitted?: number
-          }
-          liveSubscription?: string
-          verifyGuide?: string
-          editsApplied?: number
-          editsNotWritten?:
-            'write_failed' | 'not_writable' | 'changed_during_publish' | 'hard_linked'
-          seededThread?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          pinned?: boolean
-          /** The Artifact type (and release) this Artifact was created from */
-          type?: {
-            url: string
-            release: string
-            latest?: string
-            blocked?: {
-              to?: string
               reason: string
-              conflict_count?: number
-              paths?: string[]
-            }
+            }[]
           }
-          own_files?: string[]
-          type_files?: string[]
-          served_at?: string
-          served_root?: string
-          new_files?: string[]
-          unchanged_files?: string[]
+          system_url?: string
+          system?: {
+            dir: string
+            files: {
+              path: string
+              bytes: number
+            }[]
+            skipped: {
+              path: string
+              reason: string
+            }[]
+          }
+          skill_in_result: boolean
+          capabilities_skill: boolean
+          repl_tool?: boolean
         }
-      | {
-          artifacts: Array<{
-            title: string
-            url: string
-            favicon?: string
-            updatedAt?: string
-            rel?: 'mine' | 'shared'
-            external?: true
-            role?: 'editor' | 'commenter' | 'reader' | 'viewer'
-            pinned?: boolean
-          }>
-          truncated?: boolean
-          total?: number
-          total_at_least?: true
-          pins_enabled?: boolean
-          scope?: 'shared' | 'all'
-          external_listed?: true
+      }
+    } | {
+      threads_dropped?: boolean
+      thread_filter?: string
+      scoped_dispatch?: boolean
+      foreign?: true
+      cursor?: string
+      outside_org?: boolean
+      page_owns_threads?: boolean
+      names?: {}
+      threads: {
+        id: string
+        created_at?: string
+        resolved: boolean
+        resolved_degraded?: boolean
+        resolved_by_claude?: boolean
+        claude_activated: boolean
+        activated_degraded?: boolean
+        carried?: boolean
+        anchor_path?: string
+        span_quote?: string
+        anchor_file?: string
+        anchor_file_degraded?: boolean
+        anchor_file_sha?: string
+        anchor_moved_at?: string
+        anchor_label?: string
+        anchor_detail?: string
+        anchor_snippet?: string
+        anchor_region?: boolean
+        region_inside?: string[]
+        comments_degraded?: boolean
+        comments: {
+          id: string
+          account: string
+          role?: string
+          text: string
+          created_at?: string
+          sent_to_claude?: boolean
+          sent_to_claude_degraded?: boolean
+          sent_by_viewer?: boolean
+          posted_by_artifact?: boolean
+          awaiting_reply?: boolean
+          presence?: string
+          access?: string
+          outside?: true
+        }[]
+      }[]
+    } | {
+      replied: boolean
+      thread_id: string
+      comment_id?: string
+      replayed?: boolean
+      not_activated?: boolean
+      summon_answered?: boolean
+      summon_foreign?: boolean
+      already_answered?: boolean
+      page_owns_threads?: boolean
+      standing_reply_id?: string
+    } | {
+      thread_resolved: boolean
+      thread_id: string
+      not_activated?: boolean
+      not_authorized?: boolean
+      summon_foreign?: boolean
+      relayed_credential?: boolean
+      page_owns_threads?: boolean
+    } | {
+      watch: {
+        url: string
+        watching: boolean
+        outcome: string
+        reason?: string
+        durable_skip_reason?: string
+        task_id?: string
+        since?: number
+        token_expires_at?: number
+        auto_reply?: string
+        can_edit?: boolean
+        user_turn?: boolean
+        named_by_user?: boolean
+        replies_declined?: boolean
+        rail?: string
+        trigger_id?: string
+        durable_since?: string
+        status?: number
+        detail?: string
+        note?: string
+        events?: string[]
+      }
+    } | {
+      unwatch: {
+        url: string
+        was_watching: boolean
+      }
+    } | {
+      resume_replies: {
+        url: string
+        resumed: boolean
+        outcome: string
+        reason?: string
+        task_id?: string
+        stop_kind?: string
+        in_place?: boolean
+        connecting?: boolean
+      }
+    } | {
+      watches: Array<{
+        url: string
+        task_id: string
+        since: number
+        explicit: boolean
+        connected: boolean
+        connecting?: boolean
+        token_expires_at: number
+        armed_via?: string
+        auto_reply?: string
+        unread_plain_comments?: number
+        summons_awaiting_reply?: number
+        comments_uncounted?: boolean
+        comments_partially_counted?: boolean
+      } | {
+        url: string
+        rail: "durable_wake"
+        trigger_id: string
+        since: string
+        events?: string[]
+        restored?: boolean
+      } | {
+        url: string
+        rail: "live_stopped"
+        since?: number
+        explicit?: boolean
+        armed_via?: string
+        auto_reply: string
+        stop_kind: string
+      }>
+      filter_url?: string
+      arms?: {
+        url: string
+        rail?: string
+        state: string
+        reconnect?: boolean
+        failures?: number
+        max_failures?: number
+        next_in_s?: number
+        last_failure?: string
+        reason?: string
+        detail?: string
+        server_message?: string
+        at?: number
+      }[]
+    } | {
+      db_read: {
+        op: string
+        collection: string
+        doc_id?: string
+        found?: boolean
+        as_level?: string
+        as_level_confirmed?: boolean
+        docs?: {
+          id: string
+          data: {}
+          version?: number
+          updatedAt?: string
+        }[]
+        next_cursor?: string
+        me_id?: string
+        ordered_by?: {
+          field: string
+          limit: number
         }
-      | {
-          read: {
-            url: string
+        foreign?: true
+        outside_writer?: true
+        saved?: {
+          dir: string
+          files: {
+            id: string
+            path: string
             bytes: number
-            code: number
-            codeText: string
-            result: string
-            durationMs: number
-            title?: string
-          }
-          owned?: boolean
-          artifactRead?: {
-            slug: string
-            ver?: string
-            seeded?: false
-          }
-        }
-      | {
-          artifact_types: {
-            title: string
-            type_url: string
-            description?: string
-            tier?: string
+            compact?: boolean
+            version?: number
+            updatedAt?: string
           }[]
-          query?: string
+          skipped: {
+            id: string
+            reason: string
+          }[]
+        }
+      }
+    } | {
+      db_profiles: {
+        ids: string[]
+        profiles?: {}
+        unavailable?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      as_level?: string
+      as_level_confirmed?: boolean
+      db_write: {
+        op: string
+        collection: string
+        doc_id: string
+        field?: string
+        replace_all?: true
+        version?: number
+        committed: boolean
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+      } | {
+        op: "batch"
+        committed: boolean
+        results: {
+          op: string
+          collection: string
+          doc_id: string
+          field?: string
+          replace_all?: true
+          version?: number
+        }[]
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+        fallback?: "sequential"
+      }
+    } | {
+      room_send: {
+        url: string
+        topic: string
+        delivered: boolean
+        peers?: number
+        reason?: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_upload: {
+        id: string
+        url: string
+        size_bytes: number
+        content_type: string
+        sha256?: string
+        file_name: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_uploads: {
+        url: string
+        results: Array<{
+          file_path: string
+          status: "uploaded"
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+          file_name: string
+        } | {
+          file_path: string
+          status: "failed" | "not_attempted"
+          reason: string
+          message: string
+          may_be_stored?: true
+        }>
+      }
+    } | {
+      asset_list: {
+        url: string
+        assets: {
+          id: string
+          url: string
+          content_type: string
+          size_bytes: number
+          sha256?: string
+          created_at: string
+        }[]
+        usage: {
+          files: number
+          bytes: number
+          max_files: number
+          max_bytes: number
+        }
+        next?: string
+        cowritten?: true
+        outside_writer?: true
+      }
+    } | {
+      asset_read: {
+        id: string
+        path: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        foreign?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_delete: {
+        id: string
+        deleted: boolean
+      }
+    } | {
+      asset_copy: {
+        url: string
+        from_url: string
+        assets: {
+          from_id: string
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+        }[]
+      }
+    } | {
+      file_list: {
+        url: string
+        ver: string
+        files: {
+          path: string
+          content_type: string
+          size_bytes: number
+          sha256: string
+          live?: true
+        }[]
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        narrowed?: true
+        single_page?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+        stored?: {
+          contract: string
+          capabilities?: {}
+        }
+      }
+    } | {
+      file_read: {
+        url?: string
+        title?: string
+        path: string
+        saved_to: string
+        ver: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        content?: string
+        content_scrubbed?: true
+        as_served?: true
+        source?: true
+        live?: true
+        live_verified?: true
+        seq?: number
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      files_read: {
+        url: string
+        title?: string
+        ver: string
+        saved_dir: string
+        files: Array<{
+          path: string
+          saved_to: string
+          size_bytes: number
+          content_type: string
+          sha256: string
+          content?: string
+          content_scrubbed?: true
+          as_served?: true
+          source?: true
+          foreign?: true
+        } | {
+          path: string
+          error: string
+        }>
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      artifact_delete: {
+        url: string
+        deleted: true
+        already_gone?: boolean
+      }
+    } | {
+      pin: {
+        action: "pin" | "unpin"
+        url: string
+        pinned: boolean
+        title?: string
+      }
+    } | {
+      shared: {
+        url: string
+        mode: string
+        access: string
+        read_mode: string
+        added: number
+        editors?: number
+        unchanged?: boolean
+        org_name?: string
+        title?: string
+      }
+    } | {
+      page_versions: {
+        url: string
+        rows: {
+          id: string
+          createdAt?: string
+          current?: true
+        }[]
+        degraded?: true
+        cut?: true
+      }
+    } | {
+      verify: {
+        url: string
+        ver: string
+        state: string
+        entries: unknown[]
+        truncated?: boolean
+        dropped?: number
+        waited?: boolean
+        foreign?: true
+      }
+    } | {
+      preview: {
+        file: string
+        bytes: number
+        widths: number[]
+        themes: string[]
+        shots: {
+          width: number
+          theme: string
+          height?: number
+          pageHeight?: number
+          path?: string
+          base64?: string
+          error?: string
+        }[]
+        issues: {
+          kind: string
+          text: string
+        }[]
+        issuesDropped?: number
+        renderError?: string
+      }
+    } | {
+      emulatorPreview: {
+        file: string
+        outcome: string
+        pictures: {
+          path: string
+          base64?: string
+        }[]
+        marks?: string[]
+        errors?: string[]
+        outline?: string
+        stopped?: string
+      }
+    }
+    ArtifactComments: {
+      created_from_type: true
+      already_created?: true
+      url: string
+      version: string
+      owned?: boolean
+      path?: string
+      title?: string
+      type: {
+        url: string
+        release: string
+      }
+      own_files: string[]
+      type_files: string[]
+      served_at?: string
+      served_root?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      auto_open?: "at_create" | "after_first_write"
+      warnings?: string[]
+      files_error?: string
+      files_error_kind?: "type_owned_path"
+      provisioned?: {
+        store: string
+        project_id: string
+        file_id?: string
+        node_id?: string
+      }
+      liveSubscription?: string
+      pinned?: boolean
+      instructions?: string
+      instructions_chars?: number
+      instructions_clipped?: boolean
+      instructions_unavailable?: string
+      init_references?: {
+        docs: {
+          path: string
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: {
+          path: string
+          why: string
+        }[]
+      }
+      after_quickstart?: {
+        design_system?: string
+        saved_system?: string
+        saved_system_dir?: string
+        saved_pages_dir?: string
+        not_listed?: boolean
+      }
+      design_systems?: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
+          audience?: string
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+      design_systems_note?: string
+      design_system?: {
+        url?: string
+        default?: string
+        title?: string
+        store?: boolean
+        docs?: {
+          path: string
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: string
+      }
+    } | {
+      opened: true
+      url: string
+      artifact_id: string
+      title?: string
+      owned?: boolean
+    } | {
+      url: string
+      path: string
+      artifact_id?: string
+      title?: string
+      version?: string
+      capabilities?: unknown
+      stored?: {
+        contract: string
+        preferredContract?: string
+        capabilities?: {}
+        carried?: boolean
+        read?: string
+      }
+      warnings?: string[]
+      publishesRemaining?: number
+      publishesResetAt?: number
+      contract?: string
+      updated?: boolean
+      owned?: boolean
+      icon?: string
+      faviconSent?: true
+      iconDropped?: true
+      audience?: string
+      seq?: number
+      unchanged?: true
+      merged_over?: {
+        base: string
+        live?: string
+        changed?: Array<{
+          path: string
+          sha256: string | null
+        }>
+        omitted?: number
+      }
+      liveSubscription?: string
+      verifyGuide?: string
+      editsApplied?: number
+      editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
+      seededThread?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      pinned?: boolean
+      /** The Artifact type (and release) this Artifact was created from */
+      type?: {
+        url: string
+        release: string
+        latest?: string
+        blocked?: {
+          to?: string
+          reason: string
+          conflict_count?: number
+          paths?: string[]
+        }
+      }
+      own_files?: string[]
+      type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
+    } | {
+      artifacts: Array<{
+        title: string
+        url: string
+        favicon?: string
+        updatedAt?: string
+        rel?: "mine" | "shared"
+        external?: true
+        role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
+        pinned?: boolean
+      }>
+      truncated?: boolean
+      total?: number
+      total_at_least?: true
+      pins_enabled?: boolean
+      scope?: "shared" | "all"
+      external_listed?: true
+    } | {
+      read: {
+        url: string
+        bytes: number
+        code: number
+        codeText: string
+        result: string
+        durationMs: number
+        title?: string
+      }
+      owned?: boolean
+      artifactRead?: {
+        slug: string
+        ver?: string
+        seeded?: false
+      }
+    } | {
+      artifact_types: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+      }[]
+      query?: string
+      more?: boolean
+      dropped?: number
+      unavailable?: boolean
+      docs_unfillable?: boolean
+    } | {
+      artifact_type: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+        release?: string
+        files: string[]
+        files_omitted?: number
+        instructions_file: boolean
+        instructions?: string
+        instructions_chars?: number
+        instructions_clipped?: boolean
+        instructions_unavailable?: string
+        capabilities: string[]
+        creatable?: boolean
+      }
+      read_of_type_link?: true
+      type_file?: {
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }
+      type_files_read?: Array<{
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }>
+    } | {
+      type_instances: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
+          audience?: string
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+    } | {
+      quickstart: {
+        intent: string
+        match?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        match_of?: number
+        ask_first?: boolean
+        types?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }[]
+        types_more?: boolean
+        dashboard_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        motion_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        types_unavailable?: boolean
+        types_ruled?: boolean
+        types_ambiguous?: boolean
+        types_partial?: boolean
+        types_note?: string
+        types_hooked?: boolean
+        docs_connector?: boolean
+        design_systems?: {
+          type?: string
+          type_url?: string
+          scope: string
+          instances: {
+            title: string
+            url: string
+            description?: string
+            created_at?: string
+            rel?: string
+            audience?: string
+            outsiders_may_have_written?: true
+            default?: string
+          }[]
           more?: boolean
+          overflow?: boolean
           dropped?: number
           unavailable?: boolean
-          docs_unfillable?: boolean
         }
-      | {
-          artifact_type: {
-            title: string
-            type_url: string
-            description?: string
-            tier?: string
-            release?: string
-            files: string[]
-            files_omitted?: number
-            instructions_file: boolean
-            instructions?: string
-            instructions_chars?: number
-            instructions_clipped?: boolean
-            instructions_unavailable?: string
-            capabilities: string[]
-            creatable?: boolean
-          }
-          read_of_type_link?: true
-          type_file?: {
+        design_systems_note?: string
+        design_systems_off?: boolean
+        design_system?: {
+          url?: string
+          default?: string
+          title?: string
+          store?: boolean
+          docs?: {
             path: string
-            content?: string
-            chars?: number
+            text: string
+            chars: number
             clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }
-          type_files_read?: Array<{
-            path: string
-            content?: string
-            chars?: number
-            clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }>
-        }
-      | {
-          type_instances: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-        }
-      | {
-          quickstart: {
-            intent: string
-            match?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            match_of?: number
-            ask_first?: boolean
-            types?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }[]
-            types_more?: boolean
-            dashboard_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            motion_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            types_unavailable?: boolean
-            types_ruled?: boolean
-            types_ambiguous?: boolean
-            types_partial?: boolean
-            types_note?: string
-            types_hooked?: boolean
-            docs_connector?: boolean
-            design_systems?: {
-              type?: string
-              type_url?: string
-              scope: string
-              instances: {
-                title: string
-                url: string
-                description?: string
-                created_at?: string
-                rel?: string
-                audience?: string
-                default?: string
-              }[]
-              more?: boolean
-              overflow?: boolean
-              dropped?: number
-              unavailable?: boolean
-            }
-            design_systems_note?: string
-            design_systems_off?: boolean
-            design_system?: {
-              url?: string
-              default?: string
-              title?: string
-              store?: boolean
-              docs?: {
-                path: string
-                text: string
-                chars: number
-                clipped?: boolean
-              }[]
-              unavailable?: string
-            }
-            design_guidance?: boolean
-            start_kit?: {
-              type?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              system_url?: string
-              system?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              skill_in_result: boolean
-              capabilities_skill: boolean
-              repl_tool?: boolean
-            }
-          }
-        }
-      | {
-          threads_dropped?: boolean
-          thread_filter?: string
-          scoped_dispatch?: boolean
-          foreign?: true
-          cursor?: string
-          outside_org?: boolean
-          page_owns_threads?: boolean
-          names?: {}
-          threads: {
-            id: string
-            created_at?: string
-            resolved: boolean
-            resolved_degraded?: boolean
-            resolved_by_claude?: boolean
-            claude_activated: boolean
-            activated_degraded?: boolean
-            carried?: boolean
-            anchor_path?: string
-            span_quote?: string
-            anchor_file?: string
-            anchor_file_degraded?: boolean
-            anchor_file_sha?: string
-            anchor_moved_at?: string
-            anchor_label?: string
-            anchor_detail?: string
-            anchor_snippet?: string
-            anchor_region?: boolean
-            region_inside?: string[]
-            comments_degraded?: boolean
-            comments: {
-              id: string
-              account: string
-              role?: string
-              text: string
-              created_at?: string
-              sent_to_claude?: boolean
-              sent_to_claude_degraded?: boolean
-              sent_by_viewer?: boolean
-              posted_by_artifact?: boolean
-              awaiting_reply?: boolean
-              presence?: string
-              access?: string
-              outside?: true
-            }[]
           }[]
+          unavailable?: string
         }
-      | {
-          replied: boolean
-          thread_id: string
-          comment_id?: string
-          replayed?: boolean
-          not_activated?: boolean
-          summon_answered?: boolean
-          summon_foreign?: boolean
-          already_answered?: boolean
-          page_owns_threads?: boolean
-          standing_reply_id?: string
-        }
-      | {
-          thread_resolved: boolean
-          thread_id: string
-          not_activated?: boolean
-          not_authorized?: boolean
-          summon_foreign?: boolean
-          relayed_credential?: boolean
-          page_owns_threads?: boolean
-        }
-      | {
-          watch: {
-            url: string
-            watching: boolean
-            outcome: string
-            reason?: string
-            durable_skip_reason?: string
-            task_id?: string
-            since?: number
-            token_expires_at?: number
-            auto_reply?: string
-            can_edit?: boolean
-            user_turn?: boolean
-            named_by_user?: boolean
-            replies_declined?: boolean
-            rail?: string
-            trigger_id?: string
-            durable_since?: string
-            status?: number
-            detail?: string
-            note?: string
-            events?: string[]
-          }
-        }
-      | {
-          unwatch: {
-            url: string
-            was_watching: boolean
-          }
-        }
-      | {
-          resume_replies: {
-            url: string
-            resumed: boolean
-            outcome: string
-            reason?: string
-            task_id?: string
-            stop_kind?: string
-            in_place?: boolean
-            connecting?: boolean
-          }
-        }
-      | {
-          watches: Array<
-            | {
-                url: string
-                task_id: string
-                since: number
-                explicit: boolean
-                connected: boolean
-                connecting?: boolean
-                token_expires_at: number
-                armed_via?: string
-                auto_reply?: string
-                unread_plain_comments?: number
-                summons_awaiting_reply?: number
-                comments_uncounted?: boolean
-                comments_partially_counted?: boolean
-              }
-            | {
-                url: string
-                rail: 'durable_wake'
-                trigger_id: string
-                since: string
-                events?: string[]
-                restored?: boolean
-              }
-            | {
-                url: string
-                rail: 'live_stopped'
-                since?: number
-                explicit?: boolean
-                armed_via?: string
-                auto_reply: string
-                stop_kind: string
-              }
-          >
-          filter_url?: string
-          arms?: {
-            url: string
-            rail?: string
-            state: string
-            reconnect?: boolean
-            failures?: number
-            max_failures?: number
-            next_in_s?: number
-            last_failure?: string
-            reason?: string
-            detail?: string
-            server_message?: string
-            at?: number
-          }[]
-        }
-      | {
-          db_read: {
-            op: string
-            collection: string
-            doc_id?: string
-            found?: boolean
-            as_level?: string
-            as_level_confirmed?: boolean
-            docs?: {
-              id: string
-              data: {}
-              version?: number
-              updatedAt?: string
-            }[]
-            next_cursor?: string
-            me_id?: string
-            ordered_by?: {
-              field: string
-              limit: number
-            }
-            foreign?: true
-            outside_writer?: true
-            saved?: {
-              dir: string
-              files: {
-                id: string
-                path: string
-                bytes: number
-                compact?: boolean
-                version?: number
-                updatedAt?: string
-              }[]
-              skipped: {
-                id: string
-                reason: string
-              }[]
-            }
-          }
-        }
-      | {
-          db_profiles: {
-            ids: string[]
-            profiles?: {}
-            unavailable?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          as_level?: string
-          as_level_confirmed?: boolean
-          db_write:
-            | {
-                op: string
-                collection: string
-                doc_id: string
-                field?: string
-                replace_all?: true
-                version?: number
-                committed: boolean
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-              }
-            | {
-                op: 'batch'
-                committed: boolean
-                results: {
-                  op: string
-                  collection: string
-                  doc_id: string
-                  field?: string
-                  replace_all?: true
-                  version?: number
-                }[]
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-                fallback?: 'sequential'
-              }
-        }
-      | {
-          room_send: {
-            url: string
-            topic: string
-            delivered: boolean
-            peers?: number
-            reason?: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_upload: {
-            id: string
-            url: string
-            size_bytes: number
-            content_type: string
-            sha256?: string
-            file_name: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_uploads: {
-            url: string
-            results: Array<
-              | {
-                  file_path: string
-                  status: 'uploaded'
-                  id: string
-                  url: string
-                  size_bytes: number
-                  content_type: string
-                  sha256?: string
-                  file_name: string
-                }
-              | {
-                  file_path: string
-                  status: 'failed' | 'not_attempted'
-                  reason: string
-                  message: string
-                  may_be_stored?: true
-                }
-            >
-          }
-        }
-      | {
-          asset_list: {
-            url: string
-            assets: {
-              id: string
-              url: string
-              content_type: string
-              size_bytes: number
-              sha256?: string
-              created_at: string
-            }[]
-            usage: {
-              files: number
-              bytes: number
-              max_files: number
-              max_bytes: number
-            }
-            next?: string
-            cowritten?: true
-            outside_writer?: true
-          }
-        }
-      | {
-          asset_read: {
-            id: string
-            path: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            foreign?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_delete: {
-            id: string
-            deleted: boolean
-          }
-        }
-      | {
-          asset_copy: {
-            url: string
-            from_url: string
-            assets: {
-              from_id: string
-              id: string
-              url: string
-              size_bytes: number
-              content_type: string
-              sha256?: string
-            }[]
-          }
-        }
-      | {
-          file_list: {
-            url: string
-            ver: string
+        design_guidance?: boolean
+        start_kit?: {
+          type?: {
+            dir: string
             files: {
               path: string
-              content_type: string
-              size_bytes: number
-              sha256: string
-              live?: true
+              bytes: number
             }[]
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            narrowed?: true
-            single_page?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-            stored?: {
-              contract: string
-              capabilities?: {}
-            }
-          }
-        }
-      | {
-          file_read: {
-            url?: string
-            title?: string
-            path: string
-            saved_to: string
-            ver: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            content?: string
-            content_scrubbed?: true
-            as_served?: true
-            source?: true
-            live?: true
-            live_verified?: true
-            seq?: number
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          files_read: {
-            url: string
-            title?: string
-            ver: string
-            saved_dir: string
-            files: Array<
-              | {
-                  path: string
-                  saved_to: string
-                  size_bytes: number
-                  content_type: string
-                  sha256: string
-                  content?: string
-                  content_scrubbed?: true
-                  as_served?: true
-                  source?: true
-                  foreign?: true
-                }
-              | {
-                  path: string
-                  error: string
-                }
-            >
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          artifact_delete: {
-            url: string
-            deleted: true
-            already_gone?: boolean
-          }
-        }
-      | {
-          pin: {
-            action: 'pin' | 'unpin'
-            url: string
-            pinned: boolean
-            title?: string
-          }
-        }
-      | {
-          shared: {
-            url: string
-            mode: string
-            access: string
-            read_mode: string
-            added: number
-            editors?: number
-            unchanged?: boolean
-            org_name?: string
-            title?: string
-          }
-        }
-      | {
-          page_versions: {
-            url: string
-            rows: {
-              id: string
-              createdAt?: string
-              current?: true
-            }[]
-            degraded?: true
-            cut?: true
-          }
-        }
-      | {
-          verify: {
-            url: string
-            ver: string
-            state: string
-            entries: unknown[]
-            truncated?: boolean
-            dropped?: number
-            waited?: boolean
-            foreign?: true
-          }
-        }
-      | {
-          preview: {
-            file: string
-            bytes: number
-            widths: number[]
-            themes: string[]
-            shots: {
-              width: number
-              theme: string
-              height?: number
-              pageHeight?: number
-              path?: string
-              base64?: string
-              error?: string
-            }[]
-            issues: {
-              kind: string
-              text: string
-            }[]
-            issuesDropped?: number
-            renderError?: string
-          }
-        }
-      | {
-          emulatorPreview: {
-            file: string
-            outcome: string
-            pictures: {
+            skipped: {
               path: string
-              base64?: string
-            }[]
-            marks?: string[]
-            errors?: string[]
-            outline?: string
-            stopped?: string
-          }
-        }
-    ArtifactData:
-      | {
-          created_from_type: true
-          already_created?: true
-          url: string
-          version: string
-          owned?: boolean
-          path?: string
-          title?: string
-          type: {
-            url: string
-            release: string
-          }
-          own_files: string[]
-          type_files: string[]
-          served_at?: string
-          served_root?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          auto_open?: 'at_create' | 'after_first_write'
-          warnings?: string[]
-          files_error?: string
-          files_error_kind?: 'type_owned_path'
-          provisioned?: {
-            store: string
-            project_id: string
-            file_id?: string
-            node_id?: string
-          }
-          liveSubscription?: string
-          pinned?: boolean
-          instructions?: string
-          instructions_chars?: number
-          instructions_clipped?: boolean
-          instructions_unavailable?: string
-          init_references?: {
-            docs: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: {
-              path: string
-              why: string
-            }[]
-          }
-          after_quickstart?: {
-            design_system?: string
-            saved_system?: string
-            saved_system_dir?: string
-            saved_pages_dir?: string
-            not_listed?: boolean
-          }
-          design_systems?: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-          design_systems_note?: string
-          design_system?: {
-            url?: string
-            default?: string
-            title?: string
-            store?: boolean
-            docs?: {
-              path: string
-              text: string
-              chars: number
-              clipped?: boolean
-            }[]
-            unavailable?: string
-          }
-        }
-      | {
-          opened: true
-          url: string
-          artifact_id: string
-          title?: string
-          owned?: boolean
-        }
-      | {
-          url: string
-          path: string
-          artifact_id?: string
-          title?: string
-          version?: string
-          capabilities?: unknown
-          stored?: {
-            contract: string
-            preferredContract?: string
-            capabilities?: {}
-            carried?: boolean
-            read?: string
-          }
-          warnings?: string[]
-          publishesRemaining?: number
-          publishesResetAt?: number
-          contract?: string
-          updated?: boolean
-          owned?: boolean
-          icon?: string
-          faviconSent?: true
-          iconDropped?: true
-          audience?: string
-          seq?: number
-          unchanged?: true
-          merged_over?: {
-            base: string
-            live?: string
-            changed?: Array<{
-              path: string
-              sha256: string | null
-            }>
-            omitted?: number
-          }
-          liveSubscription?: string
-          verifyGuide?: string
-          editsApplied?: number
-          editsNotWritten?:
-            'write_failed' | 'not_writable' | 'changed_during_publish' | 'hard_linked'
-          seededThread?: string
-          files_written?: {
-            path: string
-            sha256: string
-          }[]
-          files_removed?: string[]
-          pinned?: boolean
-          /** The Artifact type (and release) this Artifact was created from */
-          type?: {
-            url: string
-            release: string
-            latest?: string
-            blocked?: {
-              to?: string
               reason: string
-              conflict_count?: number
-              paths?: string[]
-            }
+            }[]
           }
-          own_files?: string[]
-          type_files?: string[]
-          served_at?: string
-          served_root?: string
-          new_files?: string[]
-          unchanged_files?: string[]
+          system_url?: string
+          system?: {
+            dir: string
+            files: {
+              path: string
+              bytes: number
+            }[]
+            skipped: {
+              path: string
+              reason: string
+            }[]
+          }
+          skill_in_result: boolean
+          capabilities_skill: boolean
+          repl_tool?: boolean
         }
-      | {
-          artifacts: Array<{
-            title: string
-            url: string
-            favicon?: string
-            updatedAt?: string
-            rel?: 'mine' | 'shared'
-            external?: true
-            role?: 'editor' | 'commenter' | 'reader' | 'viewer'
-            pinned?: boolean
-          }>
-          truncated?: boolean
-          total?: number
-          total_at_least?: true
-          pins_enabled?: boolean
-          scope?: 'shared' | 'all'
-          external_listed?: true
+      }
+    } | {
+      threads_dropped?: boolean
+      thread_filter?: string
+      scoped_dispatch?: boolean
+      foreign?: true
+      cursor?: string
+      outside_org?: boolean
+      page_owns_threads?: boolean
+      names?: {}
+      threads: {
+        id: string
+        created_at?: string
+        resolved: boolean
+        resolved_degraded?: boolean
+        resolved_by_claude?: boolean
+        claude_activated: boolean
+        activated_degraded?: boolean
+        carried?: boolean
+        anchor_path?: string
+        span_quote?: string
+        anchor_file?: string
+        anchor_file_degraded?: boolean
+        anchor_file_sha?: string
+        anchor_moved_at?: string
+        anchor_label?: string
+        anchor_detail?: string
+        anchor_snippet?: string
+        anchor_region?: boolean
+        region_inside?: string[]
+        comments_degraded?: boolean
+        comments: {
+          id: string
+          account: string
+          role?: string
+          text: string
+          created_at?: string
+          sent_to_claude?: boolean
+          sent_to_claude_degraded?: boolean
+          sent_by_viewer?: boolean
+          posted_by_artifact?: boolean
+          awaiting_reply?: boolean
+          presence?: string
+          access?: string
+          outside?: true
+        }[]
+      }[]
+    } | {
+      replied: boolean
+      thread_id: string
+      comment_id?: string
+      replayed?: boolean
+      not_activated?: boolean
+      summon_answered?: boolean
+      summon_foreign?: boolean
+      already_answered?: boolean
+      page_owns_threads?: boolean
+      standing_reply_id?: string
+    } | {
+      thread_resolved: boolean
+      thread_id: string
+      not_activated?: boolean
+      not_authorized?: boolean
+      summon_foreign?: boolean
+      relayed_credential?: boolean
+      page_owns_threads?: boolean
+    } | {
+      watch: {
+        url: string
+        watching: boolean
+        outcome: string
+        reason?: string
+        durable_skip_reason?: string
+        task_id?: string
+        since?: number
+        token_expires_at?: number
+        auto_reply?: string
+        can_edit?: boolean
+        user_turn?: boolean
+        named_by_user?: boolean
+        replies_declined?: boolean
+        rail?: string
+        trigger_id?: string
+        durable_since?: string
+        status?: number
+        detail?: string
+        note?: string
+        events?: string[]
+      }
+    } | {
+      unwatch: {
+        url: string
+        was_watching: boolean
+      }
+    } | {
+      resume_replies: {
+        url: string
+        resumed: boolean
+        outcome: string
+        reason?: string
+        task_id?: string
+        stop_kind?: string
+        in_place?: boolean
+        connecting?: boolean
+      }
+    } | {
+      watches: Array<{
+        url: string
+        task_id: string
+        since: number
+        explicit: boolean
+        connected: boolean
+        connecting?: boolean
+        token_expires_at: number
+        armed_via?: string
+        auto_reply?: string
+        unread_plain_comments?: number
+        summons_awaiting_reply?: number
+        comments_uncounted?: boolean
+        comments_partially_counted?: boolean
+      } | {
+        url: string
+        rail: "durable_wake"
+        trigger_id: string
+        since: string
+        events?: string[]
+        restored?: boolean
+      } | {
+        url: string
+        rail: "live_stopped"
+        since?: number
+        explicit?: boolean
+        armed_via?: string
+        auto_reply: string
+        stop_kind: string
+      }>
+      filter_url?: string
+      arms?: {
+        url: string
+        rail?: string
+        state: string
+        reconnect?: boolean
+        failures?: number
+        max_failures?: number
+        next_in_s?: number
+        last_failure?: string
+        reason?: string
+        detail?: string
+        server_message?: string
+        at?: number
+      }[]
+    } | {
+      db_read: {
+        op: string
+        collection: string
+        doc_id?: string
+        found?: boolean
+        as_level?: string
+        as_level_confirmed?: boolean
+        docs?: {
+          id: string
+          data: {}
+          version?: number
+          updatedAt?: string
+        }[]
+        next_cursor?: string
+        me_id?: string
+        ordered_by?: {
+          field: string
+          limit: number
         }
-      | {
-          read: {
-            url: string
+        foreign?: true
+        outside_writer?: true
+        saved?: {
+          dir: string
+          files: {
+            id: string
+            path: string
             bytes: number
-            code: number
-            codeText: string
-            result: string
-            durationMs: number
-            title?: string
-          }
-          owned?: boolean
-          artifactRead?: {
-            slug: string
-            ver?: string
-            seeded?: false
-          }
-        }
-      | {
-          artifact_types: {
-            title: string
-            type_url: string
-            description?: string
-            tier?: string
+            compact?: boolean
+            version?: number
+            updatedAt?: string
           }[]
-          query?: string
+          skipped: {
+            id: string
+            reason: string
+          }[]
+        }
+      }
+    } | {
+      db_profiles: {
+        ids: string[]
+        profiles?: {}
+        unavailable?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      as_level?: string
+      as_level_confirmed?: boolean
+      db_write: {
+        op: string
+        collection: string
+        doc_id: string
+        field?: string
+        replace_all?: true
+        version?: number
+        committed: boolean
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+      } | {
+        op: "batch"
+        committed: boolean
+        results: {
+          op: string
+          collection: string
+          doc_id: string
+          field?: string
+          replace_all?: true
+          version?: number
+        }[]
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+        fallback?: "sequential"
+      }
+    } | {
+      room_send: {
+        url: string
+        topic: string
+        delivered: boolean
+        peers?: number
+        reason?: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_upload: {
+        id: string
+        url: string
+        size_bytes: number
+        content_type: string
+        sha256?: string
+        file_name: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_uploads: {
+        url: string
+        results: Array<{
+          file_path: string
+          status: "uploaded"
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+          file_name: string
+        } | {
+          file_path: string
+          status: "failed" | "not_attempted"
+          reason: string
+          message: string
+          may_be_stored?: true
+        }>
+      }
+    } | {
+      asset_list: {
+        url: string
+        assets: {
+          id: string
+          url: string
+          content_type: string
+          size_bytes: number
+          sha256?: string
+          created_at: string
+        }[]
+        usage: {
+          files: number
+          bytes: number
+          max_files: number
+          max_bytes: number
+        }
+        next?: string
+        cowritten?: true
+        outside_writer?: true
+      }
+    } | {
+      asset_read: {
+        id: string
+        path: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        foreign?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_delete: {
+        id: string
+        deleted: boolean
+      }
+    } | {
+      asset_copy: {
+        url: string
+        from_url: string
+        assets: {
+          from_id: string
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+        }[]
+      }
+    } | {
+      file_list: {
+        url: string
+        ver: string
+        files: {
+          path: string
+          content_type: string
+          size_bytes: number
+          sha256: string
+          live?: true
+        }[]
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        narrowed?: true
+        single_page?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+        stored?: {
+          contract: string
+          capabilities?: {}
+        }
+      }
+    } | {
+      file_read: {
+        url?: string
+        title?: string
+        path: string
+        saved_to: string
+        ver: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        content?: string
+        content_scrubbed?: true
+        as_served?: true
+        source?: true
+        live?: true
+        live_verified?: true
+        seq?: number
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      files_read: {
+        url: string
+        title?: string
+        ver: string
+        saved_dir: string
+        files: Array<{
+          path: string
+          saved_to: string
+          size_bytes: number
+          content_type: string
+          sha256: string
+          content?: string
+          content_scrubbed?: true
+          as_served?: true
+          source?: true
+          foreign?: true
+        } | {
+          path: string
+          error: string
+        }>
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      artifact_delete: {
+        url: string
+        deleted: true
+        already_gone?: boolean
+      }
+    } | {
+      pin: {
+        action: "pin" | "unpin"
+        url: string
+        pinned: boolean
+        title?: string
+      }
+    } | {
+      shared: {
+        url: string
+        mode: string
+        access: string
+        read_mode: string
+        added: number
+        editors?: number
+        unchanged?: boolean
+        org_name?: string
+        title?: string
+      }
+    } | {
+      page_versions: {
+        url: string
+        rows: {
+          id: string
+          createdAt?: string
+          current?: true
+        }[]
+        degraded?: true
+        cut?: true
+      }
+    } | {
+      verify: {
+        url: string
+        ver: string
+        state: string
+        entries: unknown[]
+        truncated?: boolean
+        dropped?: number
+        waited?: boolean
+        foreign?: true
+      }
+    } | {
+      preview: {
+        file: string
+        bytes: number
+        widths: number[]
+        themes: string[]
+        shots: {
+          width: number
+          theme: string
+          height?: number
+          pageHeight?: number
+          path?: string
+          base64?: string
+          error?: string
+        }[]
+        issues: {
+          kind: string
+          text: string
+        }[]
+        issuesDropped?: number
+        renderError?: string
+      }
+    } | {
+      emulatorPreview: {
+        file: string
+        outcome: string
+        pictures: {
+          path: string
+          base64?: string
+        }[]
+        marks?: string[]
+        errors?: string[]
+        outline?: string
+        stopped?: string
+      }
+    }
+    ArtifactData: {
+      created_from_type: true
+      already_created?: true
+      url: string
+      version: string
+      owned?: boolean
+      path?: string
+      title?: string
+      type: {
+        url: string
+        release: string
+      }
+      own_files: string[]
+      type_files: string[]
+      served_at?: string
+      served_root?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      auto_open?: "at_create" | "after_first_write"
+      warnings?: string[]
+      files_error?: string
+      files_error_kind?: "type_owned_path"
+      provisioned?: {
+        store: string
+        project_id: string
+        file_id?: string
+        node_id?: string
+      }
+      liveSubscription?: string
+      pinned?: boolean
+      instructions?: string
+      instructions_chars?: number
+      instructions_clipped?: boolean
+      instructions_unavailable?: string
+      init_references?: {
+        docs: {
+          path: string
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: {
+          path: string
+          why: string
+        }[]
+      }
+      after_quickstart?: {
+        design_system?: string
+        saved_system?: string
+        saved_system_dir?: string
+        saved_pages_dir?: string
+        not_listed?: boolean
+      }
+      design_systems?: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
+          audience?: string
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+      design_systems_note?: string
+      design_system?: {
+        url?: string
+        default?: string
+        title?: string
+        store?: boolean
+        docs?: {
+          path: string
+          text: string
+          chars: number
+          clipped?: boolean
+        }[]
+        unavailable?: string
+      }
+    } | {
+      opened: true
+      url: string
+      artifact_id: string
+      title?: string
+      owned?: boolean
+    } | {
+      url: string
+      path: string
+      artifact_id?: string
+      title?: string
+      version?: string
+      capabilities?: unknown
+      stored?: {
+        contract: string
+        preferredContract?: string
+        capabilities?: {}
+        carried?: boolean
+        read?: string
+      }
+      warnings?: string[]
+      publishesRemaining?: number
+      publishesResetAt?: number
+      contract?: string
+      updated?: boolean
+      owned?: boolean
+      icon?: string
+      faviconSent?: true
+      iconDropped?: true
+      audience?: string
+      seq?: number
+      unchanged?: true
+      merged_over?: {
+        base: string
+        live?: string
+        changed?: Array<{
+          path: string
+          sha256: string | null
+        }>
+        omitted?: number
+      }
+      liveSubscription?: string
+      verifyGuide?: string
+      editsApplied?: number
+      editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
+      seededThread?: string
+      files_written?: {
+        path: string
+        sha256: string
+      }[]
+      files_removed?: string[]
+      pinned?: boolean
+      /** The Artifact type (and release) this Artifact was created from */
+      type?: {
+        url: string
+        release: string
+        latest?: string
+        blocked?: {
+          to?: string
+          reason: string
+          conflict_count?: number
+          paths?: string[]
+        }
+      }
+      own_files?: string[]
+      type_files?: string[]
+      served_at?: string
+      served_root?: string
+      new_files?: string[]
+      unchanged_files?: string[]
+    } | {
+      artifacts: Array<{
+        title: string
+        url: string
+        favicon?: string
+        updatedAt?: string
+        rel?: "mine" | "shared"
+        external?: true
+        role?: "editor" | "commenter" | "reader" | "viewer"
+        outsidersMayHaveWritten?: true
+        pinned?: boolean
+      }>
+      truncated?: boolean
+      total?: number
+      total_at_least?: true
+      pins_enabled?: boolean
+      scope?: "shared" | "all"
+      external_listed?: true
+    } | {
+      read: {
+        url: string
+        bytes: number
+        code: number
+        codeText: string
+        result: string
+        durationMs: number
+        title?: string
+      }
+      owned?: boolean
+      artifactRead?: {
+        slug: string
+        ver?: string
+        seeded?: false
+      }
+    } | {
+      artifact_types: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+      }[]
+      query?: string
+      more?: boolean
+      dropped?: number
+      unavailable?: boolean
+      docs_unfillable?: boolean
+    } | {
+      artifact_type: {
+        title: string
+        type_url: string
+        description?: string
+        tier?: string
+        release?: string
+        files: string[]
+        files_omitted?: number
+        instructions_file: boolean
+        instructions?: string
+        instructions_chars?: number
+        instructions_clipped?: boolean
+        instructions_unavailable?: string
+        capabilities: string[]
+        creatable?: boolean
+      }
+      read_of_type_link?: true
+      type_file?: {
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }
+      type_files_read?: Array<{
+        path: string
+        content?: string
+        chars?: number
+        clipped?: boolean
+        unread?: "withheld" | "not_listed" | "not_text" | "too_large" | "unavailable" | "result_full"
+        why?: string
+      }>
+    } | {
+      type_instances: {
+        type?: string
+        type_url?: string
+        scope: string
+        instances: {
+          title: string
+          url: string
+          description?: string
+          created_at?: string
+          rel?: string
+          audience?: string
+          outsiders_may_have_written?: true
+          default?: string
+        }[]
+        more?: boolean
+        overflow?: boolean
+        dropped?: number
+        unavailable?: boolean
+      }
+    } | {
+      quickstart: {
+        intent: string
+        match?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        match_of?: number
+        ask_first?: boolean
+        types?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }[]
+        types_more?: boolean
+        dashboard_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        motion_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        types_unavailable?: boolean
+        types_ruled?: boolean
+        types_ambiguous?: boolean
+        types_partial?: boolean
+        types_note?: string
+        types_hooked?: boolean
+        docs_connector?: boolean
+        design_systems?: {
+          type?: string
+          type_url?: string
+          scope: string
+          instances: {
+            title: string
+            url: string
+            description?: string
+            created_at?: string
+            rel?: string
+            audience?: string
+            outsiders_may_have_written?: true
+            default?: string
+          }[]
           more?: boolean
+          overflow?: boolean
           dropped?: number
           unavailable?: boolean
-          docs_unfillable?: boolean
         }
-      | {
-          artifact_type: {
-            title: string
-            type_url: string
-            description?: string
-            tier?: string
-            release?: string
-            files: string[]
-            files_omitted?: number
-            instructions_file: boolean
-            instructions?: string
-            instructions_chars?: number
-            instructions_clipped?: boolean
-            instructions_unavailable?: string
-            capabilities: string[]
-            creatable?: boolean
-          }
-          read_of_type_link?: true
-          type_file?: {
+        design_systems_note?: string
+        design_systems_off?: boolean
+        design_system?: {
+          url?: string
+          default?: string
+          title?: string
+          store?: boolean
+          docs?: {
             path: string
-            content?: string
-            chars?: number
+            text: string
+            chars: number
             clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }
-          type_files_read?: Array<{
-            path: string
-            content?: string
-            chars?: number
-            clipped?: boolean
-            unread?:
-              'withheld' | 'not_listed' | 'not_text' | 'too_large' | 'unavailable' | 'result_full'
-            why?: string
-          }>
-        }
-      | {
-          type_instances: {
-            type?: string
-            type_url?: string
-            scope: string
-            instances: {
-              title: string
-              url: string
-              description?: string
-              created_at?: string
-              rel?: string
-              audience?: string
-              default?: string
-            }[]
-            more?: boolean
-            overflow?: boolean
-            dropped?: number
-            unavailable?: boolean
-          }
-        }
-      | {
-          quickstart: {
-            intent: string
-            match?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            match_of?: number
-            ask_first?: boolean
-            types?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }[]
-            types_more?: boolean
-            dashboard_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            motion_type?: {
-              title: string
-              type_url: string
-              description?: string
-              tier?: string
-            }
-            types_unavailable?: boolean
-            types_ruled?: boolean
-            types_ambiguous?: boolean
-            types_partial?: boolean
-            types_note?: string
-            types_hooked?: boolean
-            docs_connector?: boolean
-            design_systems?: {
-              type?: string
-              type_url?: string
-              scope: string
-              instances: {
-                title: string
-                url: string
-                description?: string
-                created_at?: string
-                rel?: string
-                audience?: string
-                default?: string
-              }[]
-              more?: boolean
-              overflow?: boolean
-              dropped?: number
-              unavailable?: boolean
-            }
-            design_systems_note?: string
-            design_systems_off?: boolean
-            design_system?: {
-              url?: string
-              default?: string
-              title?: string
-              store?: boolean
-              docs?: {
-                path: string
-                text: string
-                chars: number
-                clipped?: boolean
-              }[]
-              unavailable?: string
-            }
-            design_guidance?: boolean
-            start_kit?: {
-              type?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              system_url?: string
-              system?: {
-                dir: string
-                files: {
-                  path: string
-                  bytes: number
-                }[]
-                skipped: {
-                  path: string
-                  reason: string
-                }[]
-              }
-              skill_in_result: boolean
-              capabilities_skill: boolean
-              repl_tool?: boolean
-            }
-          }
-        }
-      | {
-          threads_dropped?: boolean
-          thread_filter?: string
-          scoped_dispatch?: boolean
-          foreign?: true
-          cursor?: string
-          outside_org?: boolean
-          page_owns_threads?: boolean
-          names?: {}
-          threads: {
-            id: string
-            created_at?: string
-            resolved: boolean
-            resolved_degraded?: boolean
-            resolved_by_claude?: boolean
-            claude_activated: boolean
-            activated_degraded?: boolean
-            carried?: boolean
-            anchor_path?: string
-            span_quote?: string
-            anchor_file?: string
-            anchor_file_degraded?: boolean
-            anchor_file_sha?: string
-            anchor_moved_at?: string
-            anchor_label?: string
-            anchor_detail?: string
-            anchor_snippet?: string
-            anchor_region?: boolean
-            region_inside?: string[]
-            comments_degraded?: boolean
-            comments: {
-              id: string
-              account: string
-              role?: string
-              text: string
-              created_at?: string
-              sent_to_claude?: boolean
-              sent_to_claude_degraded?: boolean
-              sent_by_viewer?: boolean
-              posted_by_artifact?: boolean
-              awaiting_reply?: boolean
-              presence?: string
-              access?: string
-              outside?: true
-            }[]
           }[]
+          unavailable?: string
         }
-      | {
-          replied: boolean
-          thread_id: string
-          comment_id?: string
-          replayed?: boolean
-          not_activated?: boolean
-          summon_answered?: boolean
-          summon_foreign?: boolean
-          already_answered?: boolean
-          page_owns_threads?: boolean
-          standing_reply_id?: string
-        }
-      | {
-          thread_resolved: boolean
-          thread_id: string
-          not_activated?: boolean
-          not_authorized?: boolean
-          summon_foreign?: boolean
-          relayed_credential?: boolean
-          page_owns_threads?: boolean
-        }
-      | {
-          watch: {
-            url: string
-            watching: boolean
-            outcome: string
-            reason?: string
-            durable_skip_reason?: string
-            task_id?: string
-            since?: number
-            token_expires_at?: number
-            auto_reply?: string
-            can_edit?: boolean
-            user_turn?: boolean
-            named_by_user?: boolean
-            replies_declined?: boolean
-            rail?: string
-            trigger_id?: string
-            durable_since?: string
-            status?: number
-            detail?: string
-            note?: string
-            events?: string[]
-          }
-        }
-      | {
-          unwatch: {
-            url: string
-            was_watching: boolean
-          }
-        }
-      | {
-          resume_replies: {
-            url: string
-            resumed: boolean
-            outcome: string
-            reason?: string
-            task_id?: string
-            stop_kind?: string
-            in_place?: boolean
-            connecting?: boolean
-          }
-        }
-      | {
-          watches: Array<
-            | {
-                url: string
-                task_id: string
-                since: number
-                explicit: boolean
-                connected: boolean
-                connecting?: boolean
-                token_expires_at: number
-                armed_via?: string
-                auto_reply?: string
-                unread_plain_comments?: number
-                summons_awaiting_reply?: number
-                comments_uncounted?: boolean
-                comments_partially_counted?: boolean
-              }
-            | {
-                url: string
-                rail: 'durable_wake'
-                trigger_id: string
-                since: string
-                events?: string[]
-                restored?: boolean
-              }
-            | {
-                url: string
-                rail: 'live_stopped'
-                since?: number
-                explicit?: boolean
-                armed_via?: string
-                auto_reply: string
-                stop_kind: string
-              }
-          >
-          filter_url?: string
-          arms?: {
-            url: string
-            rail?: string
-            state: string
-            reconnect?: boolean
-            failures?: number
-            max_failures?: number
-            next_in_s?: number
-            last_failure?: string
-            reason?: string
-            detail?: string
-            server_message?: string
-            at?: number
-          }[]
-        }
-      | {
-          db_read: {
-            op: string
-            collection: string
-            doc_id?: string
-            found?: boolean
-            as_level?: string
-            as_level_confirmed?: boolean
-            docs?: {
-              id: string
-              data: {}
-              version?: number
-              updatedAt?: string
-            }[]
-            next_cursor?: string
-            me_id?: string
-            ordered_by?: {
-              field: string
-              limit: number
-            }
-            foreign?: true
-            outside_writer?: true
-            saved?: {
-              dir: string
-              files: {
-                id: string
-                path: string
-                bytes: number
-                compact?: boolean
-                version?: number
-                updatedAt?: string
-              }[]
-              skipped: {
-                id: string
-                reason: string
-              }[]
-            }
-          }
-        }
-      | {
-          db_profiles: {
-            ids: string[]
-            profiles?: {}
-            unavailable?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          as_level?: string
-          as_level_confirmed?: boolean
-          db_write:
-            | {
-                op: string
-                collection: string
-                doc_id: string
-                field?: string
-                replace_all?: true
-                version?: number
-                committed: boolean
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-              }
-            | {
-                op: 'batch'
-                committed: boolean
-                results: {
-                  op: string
-                  collection: string
-                  doc_id: string
-                  field?: string
-                  replace_all?: true
-                  version?: number
-                }[]
-                usage?: {
-                  documents: number
-                  max_documents: number
-                }
-                embedded?: {
-                  strings: number
-                  kb: number
-                }
-                warnings?: string[]
-                fallback?: 'sequential'
-              }
-        }
-      | {
-          room_send: {
-            url: string
-            topic: string
-            delivered: boolean
-            peers?: number
-            reason?: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_upload: {
-            id: string
-            url: string
-            size_bytes: number
-            content_type: string
-            sha256?: string
-            file_name: string
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_uploads: {
-            url: string
-            results: Array<
-              | {
-                  file_path: string
-                  status: 'uploaded'
-                  id: string
-                  url: string
-                  size_bytes: number
-                  content_type: string
-                  sha256?: string
-                  file_name: string
-                }
-              | {
-                  file_path: string
-                  status: 'failed' | 'not_attempted'
-                  reason: string
-                  message: string
-                  may_be_stored?: true
-                }
-            >
-          }
-        }
-      | {
-          asset_list: {
-            url: string
-            assets: {
-              id: string
-              url: string
-              content_type: string
-              size_bytes: number
-              sha256?: string
-              created_at: string
-            }[]
-            usage: {
-              files: number
-              bytes: number
-              max_files: number
-              max_bytes: number
-            }
-            next?: string
-            cowritten?: true
-            outside_writer?: true
-          }
-        }
-      | {
-          asset_read: {
-            id: string
-            path: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            foreign?: true
-          }
-        }
-      | {
-          written?: {
-            url: string
-          }
-          owned?: boolean
-          asset_delete: {
-            id: string
-            deleted: boolean
-          }
-        }
-      | {
-          asset_copy: {
-            url: string
-            from_url: string
-            assets: {
-              from_id: string
-              id: string
-              url: string
-              size_bytes: number
-              content_type: string
-              sha256?: string
-            }[]
-          }
-        }
-      | {
-          file_list: {
-            url: string
-            ver: string
+        design_guidance?: boolean
+        start_kit?: {
+          type?: {
+            dir: string
             files: {
               path: string
-              content_type: string
-              size_bytes: number
-              sha256: string
-              live?: true
+              bytes: number
             }[]
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            narrowed?: true
-            single_page?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-            stored?: {
-              contract: string
-              capabilities?: {}
-            }
-          }
-        }
-      | {
-          file_read: {
-            url?: string
-            title?: string
-            path: string
-            saved_to: string
-            ver: string
-            size_bytes: number
-            content_type: string
-            sha256: string
-            content?: string
-            content_scrubbed?: true
-            as_served?: true
-            source?: true
-            live?: true
-            live_verified?: true
-            seq?: number
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          files_read: {
-            url: string
-            title?: string
-            ver: string
-            saved_dir: string
-            files: Array<
-              | {
-                  path: string
-                  saved_to: string
-                  size_bytes: number
-                  content_type: string
-                  sha256: string
-                  content?: string
-                  content_scrubbed?: true
-                  as_served?: true
-                  source?: true
-                  foreign?: true
-                }
-              | {
-                  path: string
-                  error: string
-                }
-            >
-            cowritten?: true
-            outside_writer?: true
-            public_read?: true
-            from_type?: true
-            type?: {
-              url: string
-              title?: string
-            }
-            foreign?: true
-          }
-        }
-      | {
-          artifact_delete: {
-            url: string
-            deleted: true
-            already_gone?: boolean
-          }
-        }
-      | {
-          pin: {
-            action: 'pin' | 'unpin'
-            url: string
-            pinned: boolean
-            title?: string
-          }
-        }
-      | {
-          shared: {
-            url: string
-            mode: string
-            access: string
-            read_mode: string
-            added: number
-            editors?: number
-            unchanged?: boolean
-            org_name?: string
-            title?: string
-          }
-        }
-      | {
-          page_versions: {
-            url: string
-            rows: {
-              id: string
-              createdAt?: string
-              current?: true
-            }[]
-            degraded?: true
-            cut?: true
-          }
-        }
-      | {
-          verify: {
-            url: string
-            ver: string
-            state: string
-            entries: unknown[]
-            truncated?: boolean
-            dropped?: number
-            waited?: boolean
-            foreign?: true
-          }
-        }
-      | {
-          preview: {
-            file: string
-            bytes: number
-            widths: number[]
-            themes: string[]
-            shots: {
-              width: number
-              theme: string
-              height?: number
-              pageHeight?: number
-              path?: string
-              base64?: string
-              error?: string
-            }[]
-            issues: {
-              kind: string
-              text: string
-            }[]
-            issuesDropped?: number
-            renderError?: string
-          }
-        }
-      | {
-          emulatorPreview: {
-            file: string
-            outcome: string
-            pictures: {
+            skipped: {
               path: string
-              base64?: string
+              reason: string
             }[]
-            marks?: string[]
-            errors?: string[]
-            outline?: string
-            stopped?: string
           }
+          system_url?: string
+          system?: {
+            dir: string
+            files: {
+              path: string
+              bytes: number
+            }[]
+            skipped: {
+              path: string
+              reason: string
+            }[]
+          }
+          skill_in_result: boolean
+          capabilities_skill: boolean
+          repl_tool?: boolean
         }
+      }
+    } | {
+      threads_dropped?: boolean
+      thread_filter?: string
+      scoped_dispatch?: boolean
+      foreign?: true
+      cursor?: string
+      outside_org?: boolean
+      page_owns_threads?: boolean
+      names?: {}
+      threads: {
+        id: string
+        created_at?: string
+        resolved: boolean
+        resolved_degraded?: boolean
+        resolved_by_claude?: boolean
+        claude_activated: boolean
+        activated_degraded?: boolean
+        carried?: boolean
+        anchor_path?: string
+        span_quote?: string
+        anchor_file?: string
+        anchor_file_degraded?: boolean
+        anchor_file_sha?: string
+        anchor_moved_at?: string
+        anchor_label?: string
+        anchor_detail?: string
+        anchor_snippet?: string
+        anchor_region?: boolean
+        region_inside?: string[]
+        comments_degraded?: boolean
+        comments: {
+          id: string
+          account: string
+          role?: string
+          text: string
+          created_at?: string
+          sent_to_claude?: boolean
+          sent_to_claude_degraded?: boolean
+          sent_by_viewer?: boolean
+          posted_by_artifact?: boolean
+          awaiting_reply?: boolean
+          presence?: string
+          access?: string
+          outside?: true
+        }[]
+      }[]
+    } | {
+      replied: boolean
+      thread_id: string
+      comment_id?: string
+      replayed?: boolean
+      not_activated?: boolean
+      summon_answered?: boolean
+      summon_foreign?: boolean
+      already_answered?: boolean
+      page_owns_threads?: boolean
+      standing_reply_id?: string
+    } | {
+      thread_resolved: boolean
+      thread_id: string
+      not_activated?: boolean
+      not_authorized?: boolean
+      summon_foreign?: boolean
+      relayed_credential?: boolean
+      page_owns_threads?: boolean
+    } | {
+      watch: {
+        url: string
+        watching: boolean
+        outcome: string
+        reason?: string
+        durable_skip_reason?: string
+        task_id?: string
+        since?: number
+        token_expires_at?: number
+        auto_reply?: string
+        can_edit?: boolean
+        user_turn?: boolean
+        named_by_user?: boolean
+        replies_declined?: boolean
+        rail?: string
+        trigger_id?: string
+        durable_since?: string
+        status?: number
+        detail?: string
+        note?: string
+        events?: string[]
+      }
+    } | {
+      unwatch: {
+        url: string
+        was_watching: boolean
+      }
+    } | {
+      resume_replies: {
+        url: string
+        resumed: boolean
+        outcome: string
+        reason?: string
+        task_id?: string
+        stop_kind?: string
+        in_place?: boolean
+        connecting?: boolean
+      }
+    } | {
+      watches: Array<{
+        url: string
+        task_id: string
+        since: number
+        explicit: boolean
+        connected: boolean
+        connecting?: boolean
+        token_expires_at: number
+        armed_via?: string
+        auto_reply?: string
+        unread_plain_comments?: number
+        summons_awaiting_reply?: number
+        comments_uncounted?: boolean
+        comments_partially_counted?: boolean
+      } | {
+        url: string
+        rail: "durable_wake"
+        trigger_id: string
+        since: string
+        events?: string[]
+        restored?: boolean
+      } | {
+        url: string
+        rail: "live_stopped"
+        since?: number
+        explicit?: boolean
+        armed_via?: string
+        auto_reply: string
+        stop_kind: string
+      }>
+      filter_url?: string
+      arms?: {
+        url: string
+        rail?: string
+        state: string
+        reconnect?: boolean
+        failures?: number
+        max_failures?: number
+        next_in_s?: number
+        last_failure?: string
+        reason?: string
+        detail?: string
+        server_message?: string
+        at?: number
+      }[]
+    } | {
+      db_read: {
+        op: string
+        collection: string
+        doc_id?: string
+        found?: boolean
+        as_level?: string
+        as_level_confirmed?: boolean
+        docs?: {
+          id: string
+          data: {}
+          version?: number
+          updatedAt?: string
+        }[]
+        next_cursor?: string
+        me_id?: string
+        ordered_by?: {
+          field: string
+          limit: number
+        }
+        foreign?: true
+        outside_writer?: true
+        saved?: {
+          dir: string
+          files: {
+            id: string
+            path: string
+            bytes: number
+            compact?: boolean
+            version?: number
+            updatedAt?: string
+          }[]
+          skipped: {
+            id: string
+            reason: string
+          }[]
+        }
+      }
+    } | {
+      db_profiles: {
+        ids: string[]
+        profiles?: {}
+        unavailable?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      as_level?: string
+      as_level_confirmed?: boolean
+      db_write: {
+        op: string
+        collection: string
+        doc_id: string
+        field?: string
+        replace_all?: true
+        version?: number
+        committed: boolean
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+      } | {
+        op: "batch"
+        committed: boolean
+        results: {
+          op: string
+          collection: string
+          doc_id: string
+          field?: string
+          replace_all?: true
+          version?: number
+        }[]
+        usage?: {
+          documents: number
+          max_documents: number
+        }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
+        fallback?: "sequential"
+      }
+    } | {
+      room_send: {
+        url: string
+        topic: string
+        delivered: boolean
+        peers?: number
+        reason?: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_upload: {
+        id: string
+        url: string
+        size_bytes: number
+        content_type: string
+        sha256?: string
+        file_name: string
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_uploads: {
+        url: string
+        results: Array<{
+          file_path: string
+          status: "uploaded"
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+          file_name: string
+        } | {
+          file_path: string
+          status: "failed" | "not_attempted"
+          reason: string
+          message: string
+          may_be_stored?: true
+        }>
+      }
+    } | {
+      asset_list: {
+        url: string
+        assets: {
+          id: string
+          url: string
+          content_type: string
+          size_bytes: number
+          sha256?: string
+          created_at: string
+        }[]
+        usage: {
+          files: number
+          bytes: number
+          max_files: number
+          max_bytes: number
+        }
+        next?: string
+        cowritten?: true
+        outside_writer?: true
+      }
+    } | {
+      asset_read: {
+        id: string
+        path: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        foreign?: true
+      }
+    } | {
+      written?: {
+        url: string
+      }
+      owned?: boolean
+      asset_delete: {
+        id: string
+        deleted: boolean
+      }
+    } | {
+      asset_copy: {
+        url: string
+        from_url: string
+        assets: {
+          from_id: string
+          id: string
+          url: string
+          size_bytes: number
+          content_type: string
+          sha256?: string
+        }[]
+      }
+    } | {
+      file_list: {
+        url: string
+        ver: string
+        files: {
+          path: string
+          content_type: string
+          size_bytes: number
+          sha256: string
+          live?: true
+        }[]
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        narrowed?: true
+        single_page?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+        stored?: {
+          contract: string
+          capabilities?: {}
+        }
+      }
+    } | {
+      file_read: {
+        url?: string
+        title?: string
+        path: string
+        saved_to: string
+        ver: string
+        size_bytes: number
+        content_type: string
+        sha256: string
+        content?: string
+        content_scrubbed?: true
+        as_served?: true
+        source?: true
+        live?: true
+        live_verified?: true
+        seq?: number
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      files_read: {
+        url: string
+        title?: string
+        ver: string
+        saved_dir: string
+        files: Array<{
+          path: string
+          saved_to: string
+          size_bytes: number
+          content_type: string
+          sha256: string
+          content?: string
+          content_scrubbed?: true
+          as_served?: true
+          source?: true
+          foreign?: true
+        } | {
+          path: string
+          error: string
+        }>
+        cowritten?: true
+        outside_writer?: true
+        public_read?: true
+        from_type?: true
+        type?: {
+          url: string
+          title?: string
+        }
+        foreign?: true
+      }
+    } | {
+      artifact_delete: {
+        url: string
+        deleted: true
+        already_gone?: boolean
+      }
+    } | {
+      pin: {
+        action: "pin" | "unpin"
+        url: string
+        pinned: boolean
+        title?: string
+      }
+    } | {
+      shared: {
+        url: string
+        mode: string
+        access: string
+        read_mode: string
+        added: number
+        editors?: number
+        unchanged?: boolean
+        org_name?: string
+        title?: string
+      }
+    } | {
+      page_versions: {
+        url: string
+        rows: {
+          id: string
+          createdAt?: string
+          current?: true
+        }[]
+        degraded?: true
+        cut?: true
+      }
+    } | {
+      verify: {
+        url: string
+        ver: string
+        state: string
+        entries: unknown[]
+        truncated?: boolean
+        dropped?: number
+        waited?: boolean
+        foreign?: true
+      }
+    } | {
+      preview: {
+        file: string
+        bytes: number
+        widths: number[]
+        themes: string[]
+        shots: {
+          width: number
+          theme: string
+          height?: number
+          pageHeight?: number
+          path?: string
+          base64?: string
+          error?: string
+        }[]
+        issues: {
+          kind: string
+          text: string
+        }[]
+        issuesDropped?: number
+        renderError?: string
+      }
+    } | {
+      emulatorPreview: {
+        file: string
+        outcome: string
+        pictures: {
+          path: string
+          base64?: string
+        }[]
+        marks?: string[]
+        errors?: string[]
+        outline?: string
+        stopped?: string
+      }
+    }
     AskUserQuestion: {
       /** The questions that were asked */
       questions: Array<{
@@ -4678,7 +4452,7 @@ declare module 'claude-code' {
         /** Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach". */
         header: string
         /** How the user answers. "choice" (the default when omitted): picks from options. "text": a free-text box, no options — for open-ended input. "number": a slider/stepper between min and max — for quantities. */
-        kind?: 'choice' | 'text' | 'number'
+        kind?: "choice" | "text" | "number"
         /** Optional single helper line shown under the question. */
         description?: string
         /** Choices for a "choice" question: 2-4 distinct options; with multiSelect false they must be mutually exclusive. Omit for "text" and "number" questions. There should be no 'Other' or 'Skip' option; the form lets the user type their own answer or leave a question unanswered. */
@@ -4745,6 +4519,8 @@ declare module 'claude-code' {
       backgroundCwdHint?: string
       /** True when this backgrounded command is terminated at its caller's final response, so no completion notification can follow (a synchronous subagent's command, or a headless session that takes no further input and is not waiting for background commands); absent when the command survives */
       backgroundEndsWithFinalResponse?: true
+      /** True when the subagent that owns this backgrounded command parks for its end and is woken by it */
+      backgroundWakesOwner?: true
       /** Flag to indicate if sandbox mode was overridden */
       dangerouslyDisableSandbox?: boolean
       /** Semantic interpretation for non-error exit codes with special meaning */
@@ -4765,7 +4541,7 @@ declare module 'claude-code' {
       gitOperation?: {
         commit?: {
           sha: string
-          kind: 'committed' | 'amended' | 'cherry-picked'
+          kind: "committed" | "amended" | "cherry-picked"
           branch?: string
         }
         push?: {
@@ -4773,22 +4549,12 @@ declare module 'claude-code' {
         }
         branch?: {
           ref: string
-          action: 'merged' | 'rebased'
+          action: "merged" | "rebased"
         }
         pr?: {
           number: number
           url?: string
-          action:
-            | 'created'
-            | 'edited'
-            | 'merged'
-            | 'commented'
-            | 'closed'
-            | 'reopened'
-            | 'ready'
-            | 'draft'
-            | 'auto-merge-enabled'
-            | 'auto-merge-disabled'
+          action: "created" | "edited" | "merged" | "commented" | "closed" | "reopened" | "ready" | "draft" | "auto-merge-enabled" | "auto-merge-disabled"
         }
       }
       /** @internal Per-file diff of the working-tree changes this command made, for rendering and for PostToolUse Bash hooks (changedFiles: absolute paths of every changed file known, shown or not, at most 200; cut when shorter than files.length + moreFiles); not surfaced to the model. */
@@ -4840,79 +4606,68 @@ declare module 'claude-code' {
         nextFireAt?: number
       }>
     }
-    DesignSync:
-      | {
-          method: 'list_projects'
-          notice?: string
-          projects: {
-            projectId: string
-            name: string
-            ownerDisplayName?: string
-            isOwned?: boolean
-            updatedAt?: string
-          }[]
-        }
-      | {
-          method: 'get_project'
-          notice?: string
-          projectId: string
-          name: string
-          type?: string
-          ownerDisplayName?: string
-          isOwned?: boolean
-          canEdit?: boolean
-        }
-      | {
-          method: 'list_files'
-          notice?: string
-          paths: string[]
-        }
-      | {
-          method: 'get_file'
-          notice?: string
-          path: string
-          content: string
-          contentType: string
-          isBase64: boolean
-          truncated: boolean
-        }
-      | {
-          method: 'finalize_plan'
-          notice?: string
-          planId: string
-          writes: string[]
-          deletes: string[]
-        }
-      | {
-          method: 'write_files'
-          notice?: string
-          written: number
-        }
-      | {
-          method: 'delete_files'
-          notice?: string
-          deleted: number
-        }
-      | {
-          method: 'register_assets'
-          notice?: string
-          registered: number
-        }
-      | {
-          method: 'unregister_assets'
-          notice?: string
-          unregistered: number
-        }
-      | {
-          method: 'create_project'
-          notice?: string
-          projectId: string
-          name: string
-        }
-      | {
-          method: 'report_validate'
-          notice?: string
-        }
+    DesignSync: {
+      method: "list_projects"
+      notice?: string
+      projects: {
+        projectId: string
+        name: string
+        ownerDisplayName?: string
+        isOwned?: boolean
+        updatedAt?: string
+      }[]
+    } | {
+      method: "get_project"
+      notice?: string
+      projectId: string
+      name: string
+      type?: string
+      ownerDisplayName?: string
+      isOwned?: boolean
+      canEdit?: boolean
+    } | {
+      method: "list_files"
+      notice?: string
+      paths: string[]
+    } | {
+      method: "get_file"
+      notice?: string
+      path: string
+      content: string
+      contentType: string
+      isBase64: boolean
+      truncated: boolean
+    } | {
+      method: "finalize_plan"
+      notice?: string
+      planId: string
+      writes: string[]
+      deletes: string[]
+    } | {
+      method: "write_files"
+      notice?: string
+      written: number
+    } | {
+      method: "delete_files"
+      notice?: string
+      deleted: number
+    } | {
+      method: "register_assets"
+      notice?: string
+      registered: number
+    } | {
+      method: "unregister_assets"
+      notice?: string
+      unregistered: number
+    } | {
+      method: "create_project"
+      notice?: string
+      projectId: string
+      name: string
+    } | {
+      method: "report_validate"
+      notice?: string
+    }
     Edit: {
       /** The file path that was edited */
       filePath: string
@@ -4936,7 +4691,7 @@ declare module 'claude-code' {
       replaceAll: boolean
       gitDiff?: {
         filename: string
-        status: 'modified' | 'added'
+        status: "modified" | "added"
         additions: number
         deletions: number
         changes: number
@@ -4946,14 +4701,16 @@ declare module 'claude-code' {
       }
       /** True when the edit was held for the machine owner to review instead of written; the file is unchanged */
       staged?: boolean
+      /** @internal Which message a staged result gave (see stagedResultWording); absent unless staged */
+      stagedWording?: "review" | "card" | "cloud" | "linked" | "policy"
     }
-    'enable__mcp__claude-in-chrome': {
+    "enable__mcp__claude-in-chrome": {
       message: string
     }
-    'enable__mcp__remote-devices__Claude_Browser': {
+    "enable__mcp__remote-devices__Claude_Browser": {
       message: string
     }
-    'enable__mcp__remote-devices__computer': {
+    "enable__mcp__remote-devices__computer": {
       message: string
     }
     EndConversation: {
@@ -4985,7 +4742,7 @@ declare module 'claude-code' {
       requestId?: string
     }
     ExitWorktree: {
-      action: 'keep' | 'remove'
+      action: "keep" | "remove"
       originalCwd: string
       worktreePath: string
       worktreeBranch?: string
@@ -5012,46 +4769,42 @@ declare module 'claude-code' {
       attachments_prefix?: string
       reason?: string
     }
-    GetTask:
-      | {
-          taskId: string
-          statusMessage: string
-          createdAt: string
-          lastUpdatedAt: string
-          status: 'working'
-        }
-      | {
-          taskId: string
-          statusMessage: string
-          createdAt: string
-          lastUpdatedAt: string
-          status: 'completed'
-          result: {
-            content: {
-              type: 'text'
-              text: string
-            }[]
-            isError: boolean
-          }
-        }
-      | {
-          taskId: string
-          statusMessage: string
-          createdAt: string
-          lastUpdatedAt: string
-          status: 'failed'
-          error: {
-            code: number
-            message: string
-          }
-        }
-      | {
-          taskId: string
-          statusMessage: string
-          createdAt: string
-          lastUpdatedAt: string
-          status: 'cancelled'
-        }
+    GetTask: {
+      taskId: string
+      statusMessage: string
+      createdAt: string
+      lastUpdatedAt: string
+      status: "working"
+    } | {
+      taskId: string
+      statusMessage: string
+      createdAt: string
+      lastUpdatedAt: string
+      status: "completed"
+      result: {
+        content: {
+          type: "text"
+          text: string
+        }[]
+        isError: boolean
+      }
+    } | {
+      taskId: string
+      statusMessage: string
+      createdAt: string
+      lastUpdatedAt: string
+      status: "failed"
+      error: {
+        code: number
+        message: string
+      }
+    } | {
+      taskId: string
+      statusMessage: string
+      createdAt: string
+      lastUpdatedAt: string
+      status: "cancelled"
+    }
     ListAgents: {
       /** Formatted list of reachable agents */
       listing: string
@@ -5114,16 +4867,7 @@ declare module 'claude-code' {
     }
     LSP: {
       /** The LSP operation that was performed */
-      operation:
-        | 'goToDefinition'
-        | 'findReferences'
-        | 'hover'
-        | 'documentSymbol'
-        | 'workspaceSymbol'
-        | 'goToImplementation'
-        | 'prepareCallHierarchy'
-        | 'incomingCalls'
-        | 'outgoingCalls'
+      operation: "goToDefinition" | "findReferences" | "hover" | "documentSymbol" | "workspaceSymbol" | "goToImplementation" | "prepareCallHierarchy" | "incomingCalls" | "outgoingCalls"
       /** The formatted result of the LSP operation */
       result: string
       /** The file path the operation was performed on */
@@ -5134,8 +4878,8 @@ declare module 'claude-code' {
       fileCount?: number
     }
     memory_list: {
-      outcome: 'ok' | 'refused' | 'failed'
-      store_kind?: 'personal' | 'project'
+      outcome: "ok" | "refused" | "failed"
+      store_kind?: "personal" | "project"
       entries?: {
         path: string
         bytes?: number
@@ -5152,9 +4896,9 @@ declare module 'claude-code' {
       message?: string
     }
     memory_read: {
-      outcome: 'ok' | 'not_found' | 'refused' | 'failed'
+      outcome: "ok" | "not_found" | "refused" | "failed"
       path: string
-      store_kind?: 'personal' | 'project'
+      store_kind?: "personal" | "project"
       content?: string
       updatedAt?: string
       version?: string
@@ -5162,13 +4906,13 @@ declare module 'claude-code' {
       message?: string
     }
     memory_write: {
-      outcome: 'ok' | 'conflict' | 'missing' | 'refused' | 'failed'
+      outcome: "ok" | "conflict" | "missing" | "refused" | "failed"
       path: string
-      store_kind?: 'personal' | 'project'
+      store_kind?: "personal" | "project"
       version?: string
       bytes?: number
       content?: string
-      op?: 'created' | 'updated'
+      op?: "created" | "updated"
       currentVersion?: string
       currentContent?: string
       reason?: string
@@ -5190,7 +4934,7 @@ declare module 'claude-code' {
       /** The ID of the cell that was edited */
       cell_id?: string
       /** The type of the cell */
-      cell_type: 'code' | 'markdown'
+      cell_type: "code" | "markdown"
       /** The programming language of the notebook */
       language: string
       /** The edit mode that was used */
@@ -5205,7 +4949,7 @@ declare module 'claude-code' {
       updated_file: string
     }
     OfferChromeSetup: {
-      outcome: 'connected' | 'not_now' | 'no_attempt_yet'
+      outcome: "connected" | "not_now" | "no_attempt_yet"
     }
     Poll: {
       /** Rendered event envelopes, or "(no pending events)" */
@@ -5215,29 +4959,24 @@ declare module 'claude-code' {
       /** Wake events still queued after this chunk; they follow in the next delivery */
       remainingWakeCount: number
       /** Each delivered event's images and documents, 1:1 with the events. Absent when none has any */
-      media?: Array<
-        Array<
-          | {
-              type: 'image'
-              source: {
-                type: 'base64'
-                media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-                data: string
-              }
-            }
-          | {
-              type: 'document'
-              source: {
-                type: 'base64'
-                media_type: 'application/pdf'
-                data: string
-              }
-            }
-        >
-      >
+      media?: Array<Array<{
+        type: "image"
+        source: {
+          type: "base64"
+          media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+          data: string
+        }
+      } | {
+        type: "document"
+        source: {
+          type: "base64"
+          media_type: "application/pdf"
+          data: string
+        }
+      }>>
       toolsUsed?: string[]
       provenance?: Array<{
-        authority: 'human-principal' | 'human-other' | 'peer-agent' | 'world-event'
+        authority: "human-principal" | "human-other" | "peer-agent" | "world-event"
         senderId?: string
         senderText?: string
       } | null>
@@ -5247,94 +4986,87 @@ declare module 'claude-code' {
         fields: {}
       } | null>
     }
-    Projects:
-      | {
-          method: 'project_info'
-          notice?: string
-          local_file?: string
-          name: string
-          description: string
-          instructions: string
-          docs: Array<{
-            path: string
-            created_at: string | null
-          }>
-          files?: Array<{
-            path: string
-            file_kind: string
-            created_at: string | null
-          }>
-          sync_sources?: Array<{
-            type: string | null
-            config: {}
-          }>
-          knowledge: {
-            knowledge_size: number
-            max_knowledge_size: number
-          }
-        }
-      | {
-          method: 'project_read'
-          notice?: string
-          path: string
-          /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
-          version?: string
-          file_kind?: string
-          content?: string
-          local_file?: string
-          /** @internal Size in UTF-8 bytes of the document's whole text. Set only when the text is in local_file and project_read had a token limit on inline text. */
-          size_bytes?: number
-          created_at: string | null
-        }
-      | {
-          method: 'project_search'
-          notice?: string
-          rag: boolean
-          hits?: {
-            name?: string
-            doc_uuid?: string
-            text?: string
-          }[]
-          docs?: string[]
-        }
-      | {
-          method: 'project_write'
-          notice?: string
-          path: string
-          doc_uuid: string
-          /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
-          version?: string
-          replaced: boolean
-          present_to_user?: boolean
-          local_path?: string
-        }
-      | {
-          method: 'project_delete'
-          notice?: string
-          path: string
-          deleted: boolean
-        }
-      | {
-          method: 'project_memory_list'
-          notice?: string
-          files: Array<{
-            path: string
-            size_bytes: number
-            updated_at: string | null
-            truncated: boolean
-          }>
-          truncated: boolean
-        }
-      | {
-          method: 'project_memory_read'
-          notice?: string
-          path: string
-          content?: string
-          local_file?: string
-          size_bytes: number
-          updated_at: string | null
-          truncated: boolean
-        }
+    Projects: {
+      method: "project_info"
+      notice?: string
+      local_file?: string
+      name: string
+      description: string
+      instructions: string
+      docs: Array<{
+        path: string
+        created_at: string | null
+      }>
+      files?: Array<{
+        path: string
+        file_kind: string
+        created_at: string | null
+      }>
+      sync_sources?: Array<{
+        type: string | null
+        config: {}
+      }>
+      knowledge: {
+        knowledge_size: number
+        max_knowledge_size: number
+      }
+    } | {
+      method: "project_read"
+      notice?: string
+      path: string
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
+      version?: string
+      file_kind?: string
+      content?: string
+      local_file?: string
+      /** @internal Size in UTF-8 bytes of the document's whole text. Set only when the text is in local_file and project_read had a token limit on inline text. */
+      size_bytes?: number
+      created_at: string | null
+    } | {
+      method: "project_search"
+      notice?: string
+      rag: boolean
+      hits?: {
+        name?: string
+        doc_uuid?: string
+        text?: string
+      }[]
+      docs?: string[]
+    } | {
+      method: "project_write"
+      notice?: string
+      path: string
+      doc_uuid: string
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
+      version?: string
+      replaced: boolean
+      present_to_user?: boolean
+      local_path?: string
+    } | {
+      method: "project_delete"
+      notice?: string
+      path: string
+      deleted: boolean
+    } | {
+      method: "project_memory_list"
+      notice?: string
+      files: Array<{
+        path: string
+        size_bytes: number
+        updated_at: string | null
+        truncated: boolean
+      }>
+      truncated: boolean
+    } | {
+      method: "project_memory_read"
+      notice?: string
+      path: string
+      content?: string
+      local_file?: string
+      size_bytes: number
+      updated_at: string | null
+      truncated: boolean
+    }
     propose_skills: {
       /** Number of proposals shown on the review card */
       proposalCount: number
@@ -5346,7 +5078,7 @@ declare module 'claude-code' {
       askUser: boolean
     }
     PublishPlugin: {
-      state: 'published' | 'in-review' | 'publishing' | 'on-shelf' | 'refused'
+      state: "published" | "in-review" | "publishing" | "on-shelf" | "refused"
       refusal?: string
       lines: string[]
     }
@@ -5354,110 +5086,104 @@ declare module 'claude-code' {
       message: string
       pushSent?: boolean
       localSent?: boolean
-      disabledReason?: 'config_off' | 'user_present' | 'no_transport'
+      disabledReason?: "config_off" | "user_present" | "no_transport"
       /** ISO timestamp captured at tool execution on the emitting process. Optional — resumed sessions replay pre-sentAt outputs verbatim. */
       sentAt?: string
     }
-    Read:
-      | {
-          type: 'text'
-          file: {
-            /** The path to the file that was read */
-            filePath: string
-            /** The content of the file */
-            content: string
-            /** Number of lines in the returned content */
-            numLines: number
-            /** The starting line number */
-            startLine: number
-            /** Total number of lines in the file */
-            totalLines: number
-            /** True when a whole-file read was auto-paginated because it exceeded the token cap (the content is a partial first page). A programmatic signal for internal consumers; survives output reconstruction (unlike the render-time banner). */
-            truncatedByTokenCap?: boolean
-          }
-          /** Set when this Read completed a saved Artifact source file: the Artifact and the version of it that now counts as viewed. */
-          artifactRead?: {
-            slug: string
-            ver: string
-          }
+    Read: {
+      type: "text"
+      file: {
+        /** The path to the file that was read */
+        filePath: string
+        /** The content of the file */
+        content: string
+        /** Number of lines in the returned content */
+        numLines: number
+        /** The starting line number */
+        startLine: number
+        /** Total number of lines in the file */
+        totalLines: number
+        /** True when a whole-file read was auto-paginated because it exceeded the token cap (the content is a partial first page). A programmatic signal for internal consumers; survives output reconstruction (unlike the render-time banner). */
+        truncatedByTokenCap?: boolean
+      }
+      /** Set when this Read completed a saved Artifact source file: the Artifact and the version of it that now counts as viewed. */
+      artifactRead?: {
+        slug: string
+        ver: string
+      }
+    } | {
+      type: "image"
+      file: {
+        /** Base64-encoded image data */
+        base64: string
+        /** The MIME type of the image */
+        type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+        /** Original file size in bytes */
+        originalSize: number
+        /** Image dimension info for coordinate mapping */
+        dimensions?: {
+          /** Original image width in pixels */
+          originalWidth?: number
+          /** Original image height in pixels */
+          originalHeight?: number
+          /** Displayed image width in pixels (after resizing) */
+          displayWidth?: number
+          /** Displayed image height in pixels (after resizing) */
+          displayHeight?: number
         }
-      | {
-          type: 'image'
-          file: {
-            /** Base64-encoded image data */
-            base64: string
-            /** The MIME type of the image */
-            type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-            /** Original file size in bytes */
-            originalSize: number
-            /** Image dimension info for coordinate mapping */
-            dimensions?: {
-              /** Original image width in pixels */
-              originalWidth?: number
-              /** Original image height in pixels */
-              originalHeight?: number
-              /** Displayed image width in pixels (after resizing) */
-              displayWidth?: number
-              /** Displayed image height in pixels (after resizing) */
-              displayHeight?: number
-            }
-          }
-        }
-      | {
-          type: 'notebook'
-          file: {
-            /** The path to the notebook file */
-            filePath: string
-            /** Array of notebook cells */
-            cells: unknown[]
-          }
-        }
-      | {
-          type: 'pdf'
-          file: {
-            /** The path to the PDF file */
-            filePath: string
-            /** Base64-encoded PDF data */
-            base64: string
-            /** Original file size in bytes */
-            originalSize: number
-          }
-        }
-      | {
-          type: 'parts'
-          file: {
-            /** The path to the PDF file */
-            filePath: string
-            /** Original file size in bytes */
-            originalSize: number
-            /** Number of pages extracted */
-            count: number
-            /** Directory containing extracted page images */
-            outputDir: string
-          }
-          /** Document page number of the first extracted page (1 when no range was requested); labels the page images in the model-facing tool_result */
-          firstPage?: number
-          /** @internal Number of pages in the document. Set only when the call named no page range and the PDF was too long to read whole, so only its first pages were extracted */
-          totalPages?: number
-          /** Extracted page images, in page order. Present only transiently in-process: the page image bytes are delivered solely as image blocks in the model-facing tool_result content and are not retained on the tool_use_result, so this key is absent on the emitted/persisted result */
-          pages?: Array<{
-            /** Base64-encoded page image; empty when the page could not be processed */
-            base64: string
-            /** The MIME type of the image */
-            mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-            /** Why the page could not be processed as an image; set only when base64 is empty */
-            error?: string
-          }>
-        }
-      | {
-          type: 'file_unchanged'
-          file: {
-            /** The path to the file */
-            filePath: string
-          }
-          /** Set when the dedup matched a startup-seeded entry (CLAUDE.md / nested memory) rather than a prior Read tool_result */
-          source?: 'seeded'
-        }
+      }
+    } | {
+      type: "notebook"
+      file: {
+        /** The path to the notebook file */
+        filePath: string
+        /** Array of notebook cells */
+        cells: unknown[]
+      }
+    } | {
+      type: "pdf"
+      file: {
+        /** The path to the PDF file */
+        filePath: string
+        /** Base64-encoded PDF data */
+        base64: string
+        /** Original file size in bytes */
+        originalSize: number
+      }
+    } | {
+      type: "parts"
+      file: {
+        /** The path to the PDF file */
+        filePath: string
+        /** Original file size in bytes */
+        originalSize: number
+        /** Number of pages extracted */
+        count: number
+        /** Directory containing extracted page images */
+        outputDir: string
+      }
+      /** Document page number of the first extracted page (1 when no range was requested); labels the page images in the model-facing tool_result */
+      firstPage?: number
+      /** @internal Number of pages in the document. Set only when the call named no page range and the PDF was too long to read whole, so only its first pages were extracted */
+      totalPages?: number
+      /** Extracted page images, in page order. Present only transiently in-process: the page image bytes are delivered solely as image blocks in the model-facing tool_result content and are not retained on the tool_use_result, so this key is absent on the emitted/persisted result */
+      pages?: Array<{
+        /** Base64-encoded page image; empty when the page could not be processed */
+        base64: string
+        /** The MIME type of the image */
+        mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+        /** Why the page could not be processed as an image; set only when base64 is empty */
+        error?: string
+      }>
+    } | {
+      type: "file_unchanged"
+      file: {
+        /** The path to the file */
+        filePath: string
+      }
+      /** Set when the dedup matched a startup-seeded entry (CLAUDE.md / nested memory) rather than a prior Read tool_result */
+      source?: "seeded"
+    }
     ReadMcpResourceDirTool: {
       /** Direct children of the directory resource. Subdirectories appear with mimeType "inode/directory". */
       resources: Array<{
@@ -5512,7 +5238,7 @@ declare module 'claude-code' {
       /** Number of findings reported */
       count: number
       /** Effort level the review ran at */
-      level?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+      level?: "low" | "medium" | "high" | "xhigh" | "max"
       /** Echoed for the result body */
       findings: Array<{
         /** Repo-relative path of the file the finding is in */
@@ -5528,9 +5254,9 @@ declare module 'claude-code' {
         /** Short kebab-case slug of the finding type, e.g. "correctness", "simplification", "efficiency", "test-coverage" */
         category?: string
         /** Set when a verify pass ran; absent on inline-only reviews */
-        verdict?: 'CONFIRMED' | 'PLAUSIBLE'
+        verdict?: "CONFIRMED" | "PLAUSIBLE"
         /** Set ONLY when re-reporting after applying fixes: what happened to this finding */
-        outcome?: 'fixed' | 'skipped' | 'no_change_needed'
+        outcome?: "fixed" | "skipped" | "no_change_needed"
       }>
     }
     request_computer: {
@@ -5595,9 +5321,36 @@ declare module 'claude-code' {
       }[]
     }
     SendMessage: unknown
+    SendToProject: {
+      /** Whether the call went through: a project was created (mode 'new') or the existing project was reached (mode 'existing'; savedToMemory and handedOff say what landed there). False means nothing was created or sent; see reason and mayExist. */
+      created: boolean
+      reason?: string
+      mayExist?: boolean
+      projectId?: string
+      projectName?: string
+      projectUrl?: string
+      attachedRepo?: string | null
+      appInstallPending?: boolean
+      mode?: "new" | "existing"
+      savedToMemory?: boolean
+      memoryOmitted?: boolean
+      handedOff?: boolean
+      setupSubmitted?: boolean
+      setupUncertain?: boolean
+      threadsOnCard?: number
+      message?: "sent" | "uncertain" | "not_sent" | null
+      openedInBrowser?: boolean
+      browserOpenPending?: boolean
+      notes?: string[]
+    }
+    SendToProjectContext: {
+      /** delivered: context holds what the command read. already_delivered: an earlier call in this run returned it. nothing_read: the run sends one message and read no context. no_run: no /send-to-project run of the user’s waits in this turn. */
+      status: "delivered" | "already_delivered" | "nothing_read" | "no_run"
+      context?: string
+    }
     SendUserFile: {
       caption?: string
-      display?: 'render' | 'attach'
+      display?: "render" | "attach"
       /** Resolved file metadata */
       attachments: {
         path: string
@@ -5646,7 +5399,7 @@ declare module 'claude-code' {
       rendered_locally?: boolean
     }
     ShareOnboardingGuide: {
-      status: 'created' | 'updated' | 'deleted' | 'has_existing' | 'unavailable'
+      status: "created" | "updated" | "deleted" | "has_existing" | "unavailable"
       share_url?: string
       short_code?: string
       message: string
@@ -5655,37 +5408,35 @@ declare module 'claude-code' {
       role?: string
       dismissed?: boolean
     }
-    Skill:
-      | {
-          /** Whether the skill is valid */
-          success: boolean
-          /** The name of the skill */
-          commandName: string
-          /** Tools allowed by this skill */
-          allowedTools?: string[]
-          /** Resolved model the skill turn runs on when a frontmatter model override took effect; omitted otherwise */
-          model?: string
-          /** Execution status */
-          status?: 'inline'
-          /** True when the skill instructions were loaded read-only (nothing was executed) */
-          readOnly?: boolean
-        }
-      | {
-          /** Whether the skill completed successfully */
-          success: boolean
-          /** The name of the skill */
-          commandName: string
-          /** Execution status */
-          status: 'forked'
-          /** The ID of the sub-agent that executed the skill */
-          agentId: string
-          /** The result from the forked skill execution */
-          result: string
-          /** True when the sub-agent was launched in the background: `result` describes the launch, and the skill outcome arrives later as a task notification. */
-          background?: boolean
-          /** The tools-used-before-summary line the tool_result opens with: the tools the sub-agent called that this conversation's requests did not yet name */
-          toolsUsedLine?: string
-        }
+    Skill: {
+      /** Whether the skill is valid */
+      success: boolean
+      /** The name of the skill */
+      commandName: string
+      /** Tools allowed by this skill */
+      allowedTools?: string[]
+      /** Resolved model the skill turn runs on when a frontmatter model override took effect; omitted otherwise */
+      model?: string
+      /** Execution status */
+      status?: "inline"
+      /** True when the skill instructions were loaded read-only (nothing was executed) */
+      readOnly?: boolean
+    } | {
+      /** Whether the skill completed successfully */
+      success: boolean
+      /** The name of the skill */
+      commandName: string
+      /** Execution status */
+      status: "forked"
+      /** The ID of the sub-agent that executed the skill */
+      agentId: string
+      /** The result from the forked skill execution */
+      result: string
+      /** True when the sub-agent was launched in the background: `result` describes the launch, and the skill outcome arrives later as a task notification. */
+      background?: boolean
+      /** The tools-used-before-summary line the tool_result opens with: the tools the sub-agent called that this conversation's requests did not yet name */
+      toolsUsedLine?: string
+    }
     SuggestConnectors: {
       connectors: {
         name?: string
@@ -5701,7 +5452,7 @@ declare module 'claude-code' {
         description: string
       }[]
       note: string
-      trigger?: 'user_asked' | 'proactive'
+      trigger?: "user_asked" | "proactive"
     }
     SuggestSkills: {
       results: Array<{
@@ -5713,7 +5464,7 @@ declare module 'claude-code' {
         presents_as?: string | null
         installation_preference?: string | null
       }>
-      trigger?: 'user_asked' | 'proactive'
+      trigger?: "user_asked" | "proactive"
     }
     TaskCreate: {
       task: {
@@ -5726,7 +5477,7 @@ declare module 'claude-code' {
         id: string
         subject: string
         description: string
-        status: 'pending' | 'in_progress' | 'completed'
+        status: "pending" | "in_progress" | "completed"
         blocks: string[]
         blockedBy: string[]
       } | null
@@ -5735,7 +5486,7 @@ declare module 'claude-code' {
       tasks: Array<{
         id: string
         subject: string
-        status: 'pending' | 'in_progress' | 'completed'
+        status: "pending" | "in_progress" | "completed"
         owner?: string
         blockedBy: string[]
       }>
@@ -5764,13 +5515,13 @@ declare module 'claude-code' {
       /** The todo list before the update */
       oldTodos: Array<{
         content: string
-        status: 'pending' | 'in_progress' | 'completed'
+        status: "pending" | "in_progress" | "completed"
         activeForm: string
       }>
       /** The todo list after the update */
       newTodos: Array<{
         content: string
-        status: 'pending' | 'in_progress' | 'completed'
+        status: "pending" | "in_progress" | "completed"
         activeForm: string
       }>
     }
@@ -5819,32 +5570,29 @@ declare module 'claude-code' {
       /** The search query that was executed */
       query: string
       /** Search results and/or text commentary from the model */
-      results: Array<
-        | {
-            /** ID of the tool use */
-            tool_use_id: string
-            /** Array of search hits */
-            content: Array<{
-              /** The title of the search result */
-              title: string
-              /** The URL of the search result */
-              url: string
-              /** Page text. PostToolUse hooks get it; tool_use_result does not. */
-              snippet?: string
-            }>
-          }
-        | string
-      >
+      results: Array<{
+        /** ID of the tool use */
+        tool_use_id: string
+        /** Array of search hits */
+        content: Array<{
+          /** The title of the search result */
+          title: string
+          /** The URL of the search result */
+          url: string
+          /** Page text. PostToolUse hooks get it; tool_use_result does not. */
+          snippet?: string
+        }>
+      } | string>
       /** Time taken to complete the search operation */
       durationSeconds: number
       /** Number of web searches performed */
       searchCount?: number
     }
     Workflow: {
-      status: 'async_launched' | 'remote_launched'
+      status: "async_launched" | "remote_launched"
       taskId: string
       /** TaskType of the registered background task — 'local_workflow' for in-process runs, 'remote_agent' when remote:true dispatches to CCR. Set on all new writes; absent only on transcripts written before this field existed. */
-      taskType?: 'local_workflow' | 'remote_agent'
+      taskType?: "local_workflow" | "remote_agent"
       /** meta.name from the workflow script — same value as task_started.workflow_name. Set on all new writes; absent only on transcripts written before this field existed. */
       workflowName?: string
       /** Local workflow run identifier for resumeFromRunId. Absent for remote_launched (the CCR session URL is the resume handle there) and on transcripts written before this field existed. */
@@ -5863,7 +5611,7 @@ declare module 'claude-code' {
     }
     Write: {
       /** Whether a new file was created or an existing file was updated */
-      type: 'create' | 'update'
+      type: "create" | "update"
       /** The path to the file that was written */
       filePath: string
       /** The content that was written to the file */
@@ -5880,7 +5628,7 @@ declare module 'claude-code' {
       originalFile: string | null
       gitDiff?: {
         filename: string
-        status: 'modified' | 'added'
+        status: "modified" | "added"
         additions: number
         deletions: number
         changes: number
@@ -5892,6 +5640,8 @@ declare module 'claude-code' {
       userModified?: boolean
       /** True when the write was held for the machine owner to review instead of written; the file is unchanged */
       staged?: boolean
+      /** @internal Which message a staged result gave (see stagedResultWording); absent unless staged */
+      stagedWording?: "review" | "card" | "cloud" | "linked" | "policy"
     }
   }
 }
