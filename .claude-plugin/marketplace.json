@@ -10,7 +10,7 @@
     {
       "name": "handily",
       "source": "./mods/handily",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {
