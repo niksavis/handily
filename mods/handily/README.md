@@ -16,6 +16,7 @@ each mod in the list with the bundle:
 - `handily-simple-view`
 - `handily-reply-view`
 - `handily-filetree`
+- `handily-tests`
 
 `/handily` reads the same list, so it always checks the mods that the bundle installs.
 
@@ -53,8 +54,9 @@ handily-item-toasts  0.6.0  loaded  on       A toast when a work item changes…
 handily-simple-view  0.7.0  loaded  on       One short row for each tool call…
 handily-reply-view   0.6.0  loaded  on       Long replies fold to their first…
 handily-filetree     0.2.0  loaded  -        A files tab beside the board
+handily-tests        0.1.0  loaded  -        A tests tab that lists each…
 
-handily: 7 of 7 mods loaded, 0 off or paused
+handily: 8 of 8 mods loaded, 0 off or paused
 ```
 
 A mod that did not load gets a second line with the command that fixes it. This is the output
@@ -71,8 +73,9 @@ handily-simple-view  0.7.0  loaded         on       One short row for each…
 handily-reply-view   0.6.0  loaded         on       Long replies fold to their…
 handily-filetree     -      not loaded     -
   Run claude --debug to see why
+handily-tests        0.1.0  loaded         -        A tests tab that lists…
 
-handily: 5 of 7 mods loaded, 1 off or paused
+handily: 6 of 8 mods loaded, 1 off or paused
 ```
 
 `/handily` reads the `mode` setting of each mod from the rows of the `/config` menu. When the
@@ -88,8 +91,9 @@ handily-item-toasts  0.6.0  loaded  off (default on)  A toast when a work item�
 handily-simple-view  0.7.0  loaded  off (default on)  One short row for each…
 handily-reply-view   0.6.0  loaded  off (default on)  Long replies fold to…
 handily-filetree     0.2.0  loaded  -                 A files tab beside the…
+handily-tests        0.1.0  loaded  -                 A tests tab that lists…
 
-handily: 7 of 7 mods loaded, 3 off or paused
+handily: 8 of 8 mods loaded, 3 off or paused
 ```
 
 | State         | Second line                     | Theme colour |
@@ -171,7 +175,7 @@ handily-workitems@handily  old id of handily-workitems, user settings
 handily marketplace        old marketplace of these ids
   Run claude plugin marketplace remove handily
 
-handily: 7 of 7 mods loaded, 0 off or paused
+handily: 8 of 8 mods loaded, 0 off or paused
 Run each command above, then type /reload-plugins
 ```
 

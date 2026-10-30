@@ -7,7 +7,7 @@ import subprocess  # nosec B404
 import sys
 import time
 import tomllib
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 CONFIG_FILE = "basicly.toml"
@@ -247,8 +247,9 @@ def scoped_skips(repo_root: Path, mode: str, changed: list[str] | None = None) -
     if not changed:
         return {}
     skips: dict[str, str] = {}
+    matcher = _hook_module("check_reuse").matcher
     for name, globs in declared.items():
-        if not any(PurePosixPath(path).full_match(glob) for path in changed for glob in globs):
+        if not any(matcher(tuple(globs)).match(path) for path in changed):
             skips[name] = f"no changed path matches its inputs ({' '.join(globs)})"
     return skips
 
@@ -341,6 +342,9 @@ def run_checks(
         print(f"No verify checks configured for mode '{mode}' in {CONFIG_FILE}; nothing to gate.")
         return 0
     selection, skips = _planned_skips(repo_root, mode, checks, (scope_to_diff, changed))
+    known = changed if changed is not None else diff_paths(repo_root) if scope_to_diff else None
+    scope = _hook_module("change_scope")
+    checks = scope.file_scoped(repo_root, _mode_entries(repo_root, mode), checks, known, skips)
     if selection and selection["invalid_snapshot"]:
         print(f"affected checks failed: {selection['fallback']}", file=sys.stderr)
         _record_selection(repo_root, selection, [])
@@ -349,8 +353,16 @@ def run_checks(
     interpreter_before = interpreter_target(home)
     reuse = _hook_module("check_reuse")
     at = reuse.key(repo_root, interpreter_before)
-    for name in reuse.passed(repo_root, at) & {name for name, _ in checks}:
-        skips.setdefault(name, "passed for this exact tree in an earlier hook run")
+    declared = load_inputs(repo_root, mode)
+    scoped = reuse.input_keys(
+        repo_root,
+        at,
+        [(name, command, declared[name]) for name, command in checks if name in declared],
+    )
+    keys = {name: scoped.get(name, at) for name, _ in checks}
+    for name, key in keys.items():
+        if key is not None and name in reuse.passed(repo_root, key):
+            skips.setdefault(name, "passed with these inputs in an earlier hook run")
     total_start = time.perf_counter()
     execution = _hook_module("check_execution")
     share = _hook_module("cpu_share")
@@ -361,11 +373,11 @@ def run_checks(
         lambda command, root: share.expand(resolve_command(command, root), jobs),
     )
     total_elapsed = time.perf_counter() - total_start
-    reuse.record(
-        repo_root,
-        at,
-        [r["name"] for r in outcomes if r["disposition"] == "executed" and r["returncode"] == 0],
-    )
+    passes: dict[str, list[str]] = {}
+    for r in outcomes:
+        if r["disposition"] == "executed" and r["returncode"] == 0 and keys[r["name"]]:
+            passes.setdefault(keys[r["name"]], []).append(r["name"])
+    reuse.record(repo_root, passes)
     if selection is not None:
         _record_selection(repo_root, selection, outcomes)
     blocked = [r["name"] for r in outcomes if r["disposition"] == "not-run"]

@@ -1,0 +1,25 @@
+{
+  "name": "handily-tests",
+  "version": "0.1.0",
+  "description": "A tests tab that lists each failed test by name with its file, line and assertion diff, read from the vitest, jest, node --test or pytest output of a Bash call. /tests opens it.",
+  "author": {
+    "name": "niksavis"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "statusLine": {
+      "type": "string",
+      "title": "Status line",
+      "description": "failures: the status line shows the last test run while it failed. always: it also shows a pass and a run in progress. off: the mod sets no status line.",
+      "options": ["failures", "always", "off"],
+      "default": "failures"
+    },
+    "toasts": {
+      "type": "string",
+      "title": "Toasts",
+      "description": "on: a toast when a test run turns from pass to fail and when it passes again, while the tests tab is not shown. off: no toast for a run.",
+      "options": ["on", "off"],
+      "default": "off"
+    }
+  }
+}

@@ -8,6 +8,7 @@ declare module 'claude-code' {
   interface PluginState {
     'handily-reply-view': {
       mode: ReplyViewMode
+      railVersion: number
       hints: ReplyViewMode
       folds: StateFamily<ReplyViewFold>
       submittedAt: StateFamily<number>

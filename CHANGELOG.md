@@ -6,6 +6,39 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.15.0 - 2026-10-30
+
+### Added
+
+- **reply-view lists your prompts in a prompts tab and jumps between them.** `/replies prompts`
+  opens a `prompts` tab with one row for each prompt that you typed: its number, its time, its
+  first line and its count of tool calls. The selected prompt shows `▸`, the whole prompt in up to
+  3 lines and the tools by name. A press on a row, the buttons `prev`, `next` and `last`, and the
+  commands `/replies next`, `/replies prev` and `/replies prompt 9` move the transcript to that
+  prompt in fullscreen. A jump that Claude Code refuses shows `could not jump to prompt` and the
+  reason in words. A compaction draws a dim rule in the list (handily-bktw4).
+
+## handily-tests 0.1.0 - 2026-10-30
+
+### Added
+
+- **The new mod `handily-tests` lists each failed test by name.** It reads the output of a Bash
+  call that runs vitest, jest, node --test or pytest. The runner comes from the output format,
+  so `npm test` that runs vitest counts as vitest. The `tests` tab shows each failure with its
+  file, its line and its assertion diff, and a list of the last runs. `/tests` opens the tab,
+  `/tests close` closes it, `/tests list` prints the last run as text and `/tests clear` empties
+  it. The status line shows `tests: 1 failed · 3 of 4 passed`, and the setting `statusLine` can
+  turn it off. A cut, background or interrupted run says so in words and never shows a pass.
+  Output in another format changes nothing. The bundle `handily` installs the mod, and
+  `/handily` lists it (handily-tm544).
+
+## handily 0.10.0 - 2026-10-30
+
+### Added
+
+- **The bundle `handily` installs `handily-tests`, and `/handily` lists it.** One install of
+  `handily` now gets 8 mods (handily-tm544).
+
 ## handily 0.9.0 - 2026-10-29
 
 ### Added
