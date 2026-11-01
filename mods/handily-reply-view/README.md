@@ -196,6 +196,7 @@ last block:
   the cell shows.
 - A table without data rows that does not fit the width shows its headings, one on each line.
 - An empty cell draws no line in a block, and `copy as text` leaves it out.
+- In a block, a label wider than half the reply is cut with `…`, so the value keeps room.
 
 ## Highlighting
 
@@ -241,7 +242,17 @@ Claude wrote it, such as `-` or `1.`, and a nested item keeps its indent, at mos
 of the reply. These keep the Markdown element of Claude Code, with no highlight:
 
 - headings, quotes, HTML and indented code;
-- a paragraph or a list that holds a link, an image, a footnote mark or an HTML tag.
+- a paragraph or a list that holds a bracket, an HTML tag or an entity such as `&copy;`;
+- a paragraph or a list with a `*`, `_`, `~` or a backtick that the view cannot prove simple,
+  such as `**/*.md`, `** foo**`, `_snake_case_`, emphasis or a code span across two lines, or
+  a backslash at the end of a line;
+- a list with a paragraph or indented code after a blank line inside an item.
+
+When a reply holds a link reference definition, such as `[docs]: https://example.com`, all of
+its prose keeps the Markdown element, so each reference finds its address. The view draws a line
+itself only when its text is the same as CommonMark gives: `**bold**`, `*italic*`, `~~struck~~`
+and `_italic_` between spaces or punctuation, `snake_case` words, a `*` between spaces, escapes
+and code spans on one line.
 
 On the desktop app the prose of a reply draws in the Markdown element of Claude Code, so only the
 cells of a table highlight there.

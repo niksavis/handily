@@ -16,11 +16,13 @@ import {
 } from './markdown'
 import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
-import { prosePartsOf, type DrawnLine, type ProsePart } from './prose'
+import { holdsLinkDefinition, prosePartsOf, type DrawnLine, type ProsePart } from './prose'
 import { drawSequence } from './sequence'
 import {
   columnWidths,
+  CUT_MARK,
   fieldsOf,
+  fittedCell,
   framedWidth,
   labelOf,
   labelWidth,
@@ -39,7 +41,7 @@ import {
   type TableLook,
   type TableStyle,
 } from './table'
-import { cutToWidth, displayWidth, fitted } from './width'
+import { cutToWidth, displayWidth, fitted, graphemesOf } from './width'
 
 export const FOLD_AFTER_ROWS = 30
 export const DEFAULT_COLUMNS = 80
@@ -62,7 +64,6 @@ const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> =
 }
 const PROSE_SURFACE: RenderSurface = 'terminal'
 const BOX_SURFACE: RenderSurface = 'terminal'
-const CUT_MARK = '…'
 
 export type DiagramDrawing = InkedDrawing & { name: string }
 
@@ -110,11 +111,23 @@ type Context = {
   tableStyle: TableStyle
   highlight: boolean
   palette: PaletteSetting
+  drawsProse: boolean
   actions: ReplyActions
 }
 
 function rowsOf(line: string, width: number): number {
-  return Math.max(1, Math.ceil(displayWidth(line) / Math.max(width, 1)))
+  const room = Math.max(width, 1)
+  let rows = 1
+  let used = 0
+  for (const grapheme of graphemesOf(line)) {
+    const columns = displayWidth(grapheme)
+    if (used > 0 && used + columns > room) {
+      rows += 1
+      used = 0
+    }
+    used += columns
+  }
+  return rows
 }
 
 function sum(numbers: readonly number[]): number {
@@ -278,7 +291,7 @@ function markdownItem(context: Context, lines: readonly string[], key?: string):
 }
 
 function proseItem(context: Context, part: ProsePart, index: number): ProseItem {
-  const key = `line-${String(index)}`
+  const key = `prose-${String(index)}`
   switch (part.kind) {
     case 'drawn':
       return drawnItem(context, part.line, key)
@@ -317,7 +330,7 @@ function itemsPiece(context: Context, items: readonly ProseItem[]): Piece {
 }
 
 function prosePiece(context: Context, prose: Prose): Piece {
-  if (context.surface !== PROSE_SURFACE) {
+  if (!context.drawsProse) {
     const item = markdownItem(context, prose.lines.map(shownText))
     return {
       rows: item.rows,
@@ -643,6 +656,10 @@ function titleLine(context: Context, buttons: Buttons | null, title: RenderEleme
   return buttons === null ? title : lineWithButtons(context, title, buttons, context.width)
 }
 
+function labelRoom(context: Context): number {
+  return Math.max(Math.floor((context.width - FIELD_INDENT - 1) / 2), 2)
+}
+
 function rowBlock(
   context: Context,
   look: TableLook,
@@ -651,7 +668,7 @@ function rowBlock(
   buttons: Buttons | null,
 ): Drawing {
   const { Box, Text } = context.elements
-  const labels = labelWidth(look)
+  const labels = Math.min(labelWidth(look), labelRoom(context))
   const fields = fieldsOf(look, row)
   const valueWidth = context.width - FIELD_INDENT - labels - 1
   const title = cellLine(context, rowTitle(row, index), 'title', 'title', 'truncate-end')
@@ -671,7 +688,13 @@ function rowBlock(
               Box({
                 width: labels,
                 flexShrink: 0,
-                children: Text({ children: cellSpans(context, labelOf(field.label), 'label') }),
+                children: Text({
+                  children: cellSpans(
+                    context,
+                    labelOf(fittedCell(field.label, labels - 1)),
+                    'label',
+                  ),
+                }),
               }),
               Box({
                 flexShrink: 1,
@@ -1020,6 +1043,10 @@ function isProse(block: Block): boolean {
   return block.kind === 'prose'
 }
 
+function isDefiningProse(block: Block): boolean {
+  return block.kind === 'prose' && holdsLinkDefinition(block.lines)
+}
+
 export function replyWidth(columns: number, hasBullet: boolean): number {
   return columns - (hasBullet ? BULLET_COLUMNS : 0)
 }
@@ -1115,6 +1142,7 @@ export function replyTree(
     tableStyle: layout.tableStyle,
     highlight: layout.highlight,
     palette: layout.palette,
+    drawsProse: layout.surface === PROSE_SURFACE && !blocks.some(isDefiningProse),
     actions,
   }
   const pieces = blocks.map((block, index) => pieceOf(context, block, index))

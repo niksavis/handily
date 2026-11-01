@@ -1,4 +1,4 @@
-import { markedLine, shownText, type Run } from './markdown'
+import { isSimpleInline, markedLine, shownText, type Run } from './markdown'
 
 export type DrawnLine = { indent: number; marker: string; runs: Run[] }
 
@@ -17,8 +17,8 @@ const HTML_BLOCK = /^ {0,3}<(?:\/?[A-Za-z][\w-]*|!--)/
 const LINK_DEFINITION = /^ {0,3}\[[^\]]+\]:/
 const LIST_ITEM = /^( *)([-*+]|\d{1,9}[.)])(?: +(.*))?$/
 const INDENTED = /^(?: {4}|\t)/
+const INDENTED_AT_ALL = /^\s/
 const LEADING_SPACES = /^ */
-const ENGINE_INLINE = /!?\[[^\]]*\]\(|\]\[|\[\^|<\/?[A-Za-z][^>]*>|<(?:https?:|mailto:)/
 
 function isBlank(line: string): boolean {
   return line.trim() === ''
@@ -41,7 +41,8 @@ function joins(unit: Unit | null, line: string, blanks: number): unit is Unit {
   if (unit === null || isSingleEngineLine(line) || startsEngineRun(line)) {
     return unit?.kind === 'engine' && blanks === 0
   }
-  if (unit.kind === 'list') return blanks === 0 || LIST_ITEM.test(line) || INDENTED.test(line)
+  if (unit.kind === 'list')
+    return blanks === 0 || LIST_ITEM.test(line) || INDENTED_AT_ALL.test(line)
   return blanks === 0 && !LIST_ITEM.test(line)
 }
 
@@ -69,8 +70,27 @@ function unitsOf(lines: readonly string[]): Unit[] {
   return units
 }
 
+function inlineOf(line: string, inList: boolean): string {
+  const item = inList ? LIST_ITEM.exec(line) : null
+  return (item === null ? line : (item[3] ?? '')).trim()
+}
+
+function hasParagraphAfterBlank(unit: Unit): boolean {
+  return unit.lines.some(
+    (line, index) =>
+      index > 0 && isBlank(unit.lines[index - 1] ?? '') && !isBlank(line) && !LIST_ITEM.test(line),
+  )
+}
+
 function needsEngine(unit: Unit): boolean {
-  return unit.kind === 'engine' || unit.lines.some((line) => ENGINE_INLINE.test(line))
+  if (unit.kind === 'engine') return true
+  const inList = unit.kind === 'list'
+  if (inList && hasParagraphAfterBlank(unit)) return true
+  return !unit.lines.every((line) => isBlank(line) || isSimpleInline(inlineOf(line, inList)))
+}
+
+export function holdsLinkDefinition(lines: readonly string[]): boolean {
+  return lines.some((line) => LINK_DEFINITION.test(line))
 }
 
 function runsOf(text: string): Run[] {

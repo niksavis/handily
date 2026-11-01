@@ -1,8 +1,9 @@
 import type { ConfigRow, On, RenderPropsOf } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 import { replyTree, type ReplyElements } from './hooks/draw'
-import { tokensOf, type Token } from './hooks/highlight'
-import { blocksOf } from './hooks/markdown'
+import { highlightedRuns, tokensOf, type Token } from './hooks/highlight'
+import { blocksOf, copiedCell, markedCell, PLAIN_MARK, textOfRuns } from './hooks/markdown'
+import { copiedCell as baseCopiedCell, markedCell as baseMarkedCell } from './fixtures/base-cells'
 import { displayWidth } from './hooks/width'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -607,13 +608,13 @@ describe('prose highlighting', () => {
         const ui = await mountReply($, reply, 'terminal', columns)
         const nodes = nodesOf(await ui.drawn())
         const rowOf = (key: string) => nodes.find((node) => node.props?.key === key)
-        const [lead, text] = (rowOf('line-3')?.children ?? []) as Node[]
+        const [lead, text] = (rowOf('prose-3')?.children ?? []) as Node[]
         expect(lead?.props).toEqual({ width: 8, flexShrink: 0 })
         expect(text?.props).toEqual({ flexShrink: 1 })
         expect(inline((text?.children ?? [])[0])).toBe(
           'a deeply nested item that wraps at =3= s in §docs/mocks.md§',
         )
-        const [continued] = (rowOf('line-4')?.children ?? []) as Node[]
+        const [continued] = (rowOf('prose-4')?.children ?? []) as Node[]
         expect(continued?.props).toEqual({ width: continuedLead, flexShrink: 0 })
         await ui.unmount()
       },
@@ -881,4 +882,171 @@ describe('copy with the highlight on and off', () => {
       )
     }
   }
+})
+
+async function proseLook(ui: { drawn: () => Promise<unknown> }) {
+  const nodes = nodesOf(await ui.drawn())
+  return {
+    markdown: nodes
+      .filter((node) => node.type === 'Markdown')
+      .map((node) => String(node.props?.text)),
+    drawn: nodes
+      .filter((node) => node.type === 'Box' && /^prose-\d+$/.test(String(node.props?.key)))
+      .map(inline),
+  }
+}
+
+const ENGINE_PROSE = [
+  [
+    'a reference link with its definition in another block',
+    'See [docs][id] now.\n\n[id]: https://x.example',
+  ],
+  [
+    'a shortcut reference with its definition in another block',
+    '[docs] is here.\n\nmore 3 text\n\n[docs]: https://x.example',
+  ],
+  ['emphasis across a line break', '**hello\nworld**'],
+  ['a code span across a line break', 'a `span\nover` lines'],
+  ['an indented code block inside a list item', '- parent\n\n      **literal**'],
+  ['named entities', '&copy; &mdash; &rarr;'],
+  ['a backslash hard break', 'hello\\\nworld'],
+  ['two stars before a space', '** foo**'],
+  ['an underscore word with underscores inside', '_snake_case_'],
+  ['a glob with two stars', 'edit **/*.md'],
+  ['two globs in one line', 'match **/*.ts and src/**/*.js files'],
+  ['a paragraph after a blank line inside a list item', '- item 3\n\n  a paragraph of the item'],
+] as const
+
+describe('prose that reply-view cannot prove simple goes whole to the engine Markdown', () => {
+  for (const [what, text] of ENGINE_PROSE) {
+    sceneTest(
+      `${what} draws as the engine Markdown with the text unchanged`,
+      {},
+      async (_world, $) => {
+        const ui = await mountReply($, text, 'terminal')
+        expect(await proseLook(ui)).toEqual({ markdown: [text], drawn: [] })
+        await ui.unmount()
+      },
+    )
+  }
+
+  sceneTest(
+    'a link reference definition sends every prose block of the reply whole to the engine Markdown',
+    {},
+    async (_world, $) => {
+      const first = 'Use [docs] for 3 s.\n\nplain 7 here'
+      const second = 'more 9 text\n\n[docs]: https://x.example'
+      const ui = await mountReply(
+        $,
+        [first, '', '| A |', '| --- |', '| 1 |', '', second].join('\n'),
+        'terminal',
+      )
+      expect(await proseLook(ui)).toEqual({ markdown: [first, second], drawn: [] })
+      await ui.unmount()
+    },
+  )
+
+  for (const [text, shown] of [
+    [
+      'snake_case_words and __init__ and 2 * 3 * 4',
+      'snake_case_words and *init* and =2= * =3= * =4=',
+    ],
+    ['a \\* b \\_ c \\` d', 'a * b _ c ` d'],
+    ['``a`b`` and `x` here', '&a`b& and &x& here'],
+    ['**bold** and *it* and ~~gone~~ in (_paren_).', '*bold* and /it/ and !gone! in (/paren/).'],
+    ['~/a and ~/b moved', '§~/a§ and §~/b§ moved'],
+  ] as const) {
+    sceneTest(
+      `reply-view draws the simple line ${text} as CommonMark does`,
+      {},
+      async (_world, $) => {
+        const ui = await mountReply($, text, 'terminal')
+        expect(await proseLook(ui)).toEqual({ markdown: [], drawn: [shown] })
+        await ui.unmount()
+      },
+    )
+  }
+})
+
+const WIDE_LABEL_TABLE = [
+  `| AAAAA | BBBBB | CCCCC | DDDDD | ${'Heading'.repeat(14)} |`,
+  '| --- | --- | --- | --- | --- |',
+  '| v | v | v | v | v |',
+].join('\n')
+
+describe('a table with a very long heading', () => {
+  for (const columns of [80, 40, 30]) {
+    sceneTest(
+      `every line fits ${String(columns)} columns and every value stays visible`,
+      {},
+      async (_world, $) => {
+        const ui = await mountReply($, WIDE_LABEL_TABLE, 'terminal', columns)
+        const drawn = (await sketchOf(ui, columns)).map((line) => line.replace(MARK_CHARACTERS, ''))
+        expect(drawn.filter((line) => displayWidth(line) > columns)).toEqual([])
+        expect(drawn.join('\n').match(/(?<![\w])v(?![\w])/g)).toHaveLength(5)
+        await ui.unmount()
+      },
+    )
+  }
+})
+
+const CELL_ALPHABET = ['*', '_', '~', '`', '\\', 'a', ' ', '&amp;', '[x](y)', '**'] as const
+
+function cellInputs(): string[] {
+  const inputs: string[] = ['*a*_b_', '~~x~~_y_', '**b**_c_', '_a_*b*', '*a*~~b~~']
+  let level: string[] = ['']
+  for (let length = 1; length <= 3; length += 1) {
+    level = level.flatMap((start) => CELL_ALPHABET.map((part) => start + part))
+    inputs.push(...level)
+  }
+  return inputs
+}
+
+describe('copy as text is the same as before this record', () => {
+  test('copy as text and the shown text of a cell equal the base parser for 1,115 cell inputs', () => {
+    const inputs = cellInputs()
+    expect(inputs).toHaveLength(1115)
+    const differs = inputs.filter(
+      (cell) =>
+        copiedCell(cell) !== baseCopiedCell(cell) ||
+        textOfRuns(markedCell(cell)) !==
+          baseMarkedCell(cell)
+            .map((run) => run.text)
+            .join(''),
+    )
+    expect(differs).toEqual([])
+    expect(copiedCell('*a*_b_')).toBe('a_b_')
+  })
+})
+
+describe('the fold counts wide characters', () => {
+  for (const [columns, count] of [
+    [80, 1111],
+    [40, 511],
+    [30, 361],
+  ] as const) {
+    sceneTest(
+      `a list item of ${String(count)} wide characters folds at ${String(columns)} columns`,
+      {},
+      async (_world, $) => {
+        const ui = await mountReply($, `1. ${'界'.repeat(count)}`, 'terminal', columns)
+        expect((await ui.findAll({ type: 'Button' })).map((found) => found.props.label)).toEqual([
+          'more',
+          'copy reply',
+        ])
+        await ui.unmount()
+      },
+    )
+  }
+})
+
+describe('the highlight takes linear time', () => {
+  test('a line of 120,000 characters with 40,000 numbers highlights in under 1,000 ms', () => {
+    const text = '12 '.repeat(40_000)
+    const started = performance.now()
+    const runs = highlightedRuns([{ text, mark: PLAIN_MARK }])
+    const took = performance.now() - started
+    expect(runs.filter((run) => run.mark.token === 'number')).toHaveLength(40_000)
+    expect(took).toBeLessThan(1000)
+  })
 })

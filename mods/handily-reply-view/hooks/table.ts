@@ -11,13 +11,14 @@ import {
   type Run,
   type Table,
 } from './markdown'
-import { cutToWidth, displayWidth, graphemesOf, padToWidth } from './width'
+import { cutToWidth, displayWidth, fitted, graphemesOf, padToWidth } from './width'
 
 const COLUMN_RULE = '│'
 const COLUMN_GAP = displayWidth(` ${COLUMN_RULE} `)
 const SIDE_COLUMNS = displayWidth(`${COLUMN_RULE} `)
 const LONG_COLUMN_CELLS_AT_LEAST = 12
 const COLUMN_CELLS_AT_LEAST = 6
+export const CUT_MARK = '…'
 
 export const TABLE_STYLES = ['rules', 'box'] as const
 
@@ -393,6 +394,21 @@ export function fieldsOf(look: TableLook, row: readonly Cell[]): Field[] {
     .slice(1)
     .map((label, index) => ({ label, value: row[index + 1] ?? EMPTY_CELL }))
     .filter((field) => field.value.text !== '')
+}
+
+export function fittedCell(cell: Cell, width: number): Cell {
+  const text = fitted(cell.text, width)
+  if (text === cell.text) return cell
+  const kept = text.slice(0, -CUT_MARK.length)
+  const runs: Run[] = []
+  let at = 0
+  for (const run of cell.runs) {
+    const piece = run.text.slice(0, Math.max(kept.length - at, 0))
+    if (piece !== '') runs.push({ text: piece, mark: run.mark })
+    at += run.text.length
+  }
+  addRun(runs, CUT_MARK, PLAIN_MARK)
+  return { text, runs }
 }
 
 export function labelOf(cell: Cell): Cell {

@@ -43,10 +43,6 @@ export function tokensOf(text: string): TokenSpan[] {
   }).filter((span) => span !== null)
 }
 
-function tokenAt(spans: readonly TokenSpan[], at: number): Token | null {
-  return spans.find((span) => at >= span.start && at < span.end)?.token ?? null
-}
-
 function takesToken(mark: Mark): boolean {
   return !mark.isCode && !mark.isLink
 }
@@ -55,10 +51,14 @@ export function highlightedRuns(runs: readonly Run[]): Run[] {
   const spans = tokensOf(runs.map((run) => run.text).join(''))
   const highlighted: Run[] = []
   let at = 0
+  let next = 0
   for (const run of runs) {
     const first = highlighted.length
     for (const character of run.text) {
-      const token = takesToken(run.mark) ? tokenAt(spans, at) : null
+      while ((spans[next]?.end ?? Infinity) <= at) next += 1
+      const span = spans[next]
+      const isInside = span !== undefined && at >= span.start
+      const token = takesToken(run.mark) && isInside ? span.token : null
       const last = highlighted.length > first ? highlighted.at(-1) : undefined
       if (last?.mark.token === token) last.text += character
       else highlighted.push({ text: character, mark: { ...run.mark, token } })
