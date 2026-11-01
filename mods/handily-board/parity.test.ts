@@ -1471,6 +1471,21 @@ async function spawnUnnamed($: Engine, id: string, description: string): Promise
   })
 }
 
+const RUNNING_TITLE = /^(╭─ )?Agents {2}1(?: |$)/u
+
+async function endedScout($: Engine, seen: World, surface: Surface): Promise<AgentInfo> {
+  await start($, surface)
+  await spawn($, SCOUT, 'scout', 'find the element table')
+  const scout = listed(SCOUT, 'scout', 'general-purpose', 'find the element table')
+  seen.agents.push(scout)
+  await screenOn($, surface, 'dock', 41)
+  await agentTurnEnds($, SCOUT, 'answer')
+  scout.status = 'completed'
+  await screenOn($, surface, 'dock', 41)
+  await seen.clock.advance(MINUTE)
+  return scout
+}
+
 async function endLines($: Engine): Promise<string[]> {
   return (await board($, 'log')).split('\n').filter((line) => /[✓■] (done|aborted)/u.test(line))
 }
@@ -1532,21 +1547,56 @@ for (const surface of SURFACES) {
     )
 
     test(
-      `a resumed agent that ends again gets a new end line, on ${surface}`,
+      `a resumed agent runs again and gets one new end line, with a tool call or with text only, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
-        await start($, surface)
-        await spawn($, SCOUT, 'scout', 'find the element table')
-        seen.agents.push(listed(SCOUT, 'scout', 'general-purpose', 'find the element table'))
-        await agentTurnEnds($, SCOUT, 'answer')
-        await screenOn($, surface, 'dock', 41)
-        await seen.clock.advance(MINUTE)
-        await $.turn.start({ text: 'go on', turnId: 'turn-again', agentId: SCOUT })
+        const scout = await endedScout($, seen, surface)
+        scout.status = 'running'
+        await $.turn.start({ text: 'go on', turnId: 'turn-two', agentId: SCOUT })
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
+        expect(await endLines($)).toEqual(['14:00:00 scout ✓ done 4m'])
         await bash($, 'git status', SCOUT)
         await screenOn($, surface, 'dock', 41)
         await agentTurnEnds($, SCOUT, 'answer')
+        scout.status = 'completed'
         await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual(['14:01:00 scout ✓ done 4m', '14:00:00 scout ✓ done 4m'])
+        await seen.clock.advance(MINUTE)
+        await $.turn.start({ text: 'go on', turnId: 'turn-three', agentId: SCOUT })
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
+        await agentTurnEnds($, SCOUT, 'aborted')
+        await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual([
+          '14:02:00 scout ■ aborted 4m',
+          '14:01:00 scout ✓ done 4m',
+          '14:00:00 scout ✓ done 4m',
+        ])
+      },
+    )
+
+    test(
+      `an agent resumed by a spawn runs again and gets no duplicate end line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const scout = await endedScout($, seen, surface)
+        scout.status = 'running'
+        await $.agent.spawn({
+          tool_use_id: `spawn:${SCOUT}`,
+          prompt: 'look again',
+          description: 'look again',
+          subagentType: 'general-purpose',
+          provider: { plugin: 'engine', tier: 'core' },
+          parentModel: 'opus',
+          background: true,
+          fork: false,
+          name: 'scout',
+          resume: { agentId: SCOUT },
+        })
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
+        expect(await endLines($)).toEqual(['14:00:00 scout ✓ done 4m'])
+        await agentTurnEnds($, SCOUT, 'answer')
         expect(await endLines($)).toEqual(['14:01:00 scout ✓ done 4m', '14:00:00 scout ✓ done 4m'])
       },
     )

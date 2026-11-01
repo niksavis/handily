@@ -64,6 +64,7 @@ export type AgentRow = {
   label: string
   shownName: string
   look: AgentLook
+  listedStatus: AgentStatus | null
   isEnded: boolean
   isAging: boolean
   call: BoardToolSight | null
@@ -160,6 +161,8 @@ export function withSpawn(agents: Agents, id: string, facts: SpawnFacts, at: num
     withAgent(agents, id, at, (agent) => ({
       ...agent,
       startedAt: agent.isSpawnSeen ? agent.startedAt : at,
+      seenAt: at,
+      endedAt: null,
       isSpawnSeen: true,
       description: agent.description ?? facts.description,
       type: agent.type ?? facts.type,
@@ -167,6 +170,15 @@ export function withSpawn(agents: Agents, id: string, facts: SpawnFacts, at: num
       parentId: agent.parentId ?? facts.parentId ?? null,
     })),
   )
+}
+
+export function withRunStart(agents: Agents, agentId: string, now: number): BoardAgent[] {
+  return withAgent(agents, agentId, now, (agent) => ({
+    ...agent,
+    seenAt: now,
+    endedAt: null,
+    hasLoopEvents: true,
+  }))
 }
 
 export function withCallStart(
@@ -251,6 +263,10 @@ export function withTurnEnd(
   )
 }
 
+function isListedEnd(agent: BoardAgent, status: AgentStatus): boolean {
+  return ENDED_STATUSES.has(status) && agent.listedStatus !== status
+}
+
 function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgent {
   return {
     ...agent,
@@ -261,7 +277,7 @@ function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgen
     type: info.type,
     name: info.name ?? agent.name,
     parentId: info.parentId ?? agent.parentId,
-    endedAt: ENDED_STATUSES.has(info.status) ? (agent.endedAt ?? now) : agent.endedAt,
+    endedAt: isListedEnd(agent, info.status) ? (agent.endedAt ?? now) : agent.endedAt,
   }
 }
 
@@ -279,8 +295,9 @@ type RowStatus = AgentStatus | 'unknown'
 
 function statusOf(agent: BoardAgent): RowStatus {
   if (agent.listedStatus !== null) {
-    if (ENDED_STATUSES.has(agent.listedStatus)) return agent.listedStatus
-    if (agent.endedAt !== null) return 'completed'
+    const isListedEnded = ENDED_STATUSES.has(agent.listedStatus)
+    if (agent.endedAt !== null) return isListedEnded ? agent.listedStatus : 'completed'
+    if (isListedEnded) return 'running'
     return agent.isListed ? agent.listedStatus : 'unknown'
   }
   if (agent.running.length > 0 && agent.endedAt === null) return 'running'
@@ -394,6 +411,7 @@ function rowOf(
     label: baseLabel(agent),
     shownName: agent.label ?? escaped(baseLabel(agent)),
     look,
+    listedStatus: agent.listedStatus,
     isEnded,
     isAging: isAgingNow(agent, status),
     call: sightOf(agent, waiting),
@@ -528,6 +546,11 @@ export async function noteAsk(
 ): Promise<void> {
   const at = await host.now()
   await host.change((agents) => withCallAsked(agents, agentId, callId, { at, target }))
+}
+
+export async function noteRunStart(host: AgentHost, agentId: string): Promise<void> {
+  const now = await host.now()
+  await host.change((agents) => withRunStart(agents, agentId, now))
 }
 
 export async function noteTurnEnd(host: AgentHost, agentId: string, answer: string): Promise<void> {

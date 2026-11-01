@@ -1,5 +1,6 @@
 import { update } from 'claude-code'
 import type {
+  AgentStatus,
   EngineInterface,
   HookFailure,
   PromptOrigin,
@@ -38,7 +39,6 @@ import {
 } from './activity'
 import {
   type AgentHost,
-  type AgentLook,
   type AgentPulses,
   type AgentRow,
   type AgentStep,
@@ -48,6 +48,7 @@ import {
   labelledAgents,
   noteAgentList,
   noteAsk,
+  noteRunStart,
   noteSpawn,
   newPulses,
   noteTurnEnd,
@@ -760,7 +761,12 @@ type StepsKeep = { last: Map<string, AgentStep>; counts: Map<string, number> }
 
 type AgentRun = 'running' | 'ended'
 
-type LogKeep = { current: BoardLog; denied: Set<string>; runs: Map<string, AgentRun> }
+type LogKeep = {
+  current: BoardLog
+  denied: Set<string>
+  runs: Map<string, AgentRun>
+  listed: Map<string, AgentStatus | null>
+}
 
 type SessionKeeps = {
   vitals: VitalsKeep
@@ -816,13 +822,13 @@ const TURN_END_KINDS: Readonly<Record<TurnCompleteReason, LogKind>> = {
   error: 'failed',
 }
 
-const LISTED_END_KINDS: Readonly<Partial<Record<AgentLook, LogKind>>> = {
-  done: 'done',
+const LISTED_END_KINDS: Readonly<Partial<Record<AgentStatus, LogKind>>> = {
+  completed: 'done',
   failed: 'failed',
   killed: 'aborted',
 }
 
-function noteRunStart(keep: LogKeep, agentId: string): void {
+function noteLogRun(keep: LogKeep, agentId: string): void {
   keep.runs.set(agentId, 'running')
 }
 
@@ -837,12 +843,18 @@ function noteAgentEnd(
   noteEvent($, keep, at, event)
 }
 
+function listedEndKind(status: AgentStatus | null): LogKind | undefined {
+  return status === null ? undefined : LISTED_END_KINDS[status]
+}
+
 function noteListedEnds($: EngineInterface, keep: LogKeep, rows: readonly AgentRow[]): void {
   for (const row of rows) {
-    const kind = LISTED_END_KINDS[row.look]
+    const kind = listedEndKind(row.listedStatus)
+    const before = keep.listed.get(row.id)
+    keep.listed.set(row.id, row.listedStatus)
     const run = keep.runs.get(row.id)
     if (run === undefined) keep.runs.set(row.id, kind === undefined ? 'running' : 'ended')
-    else if (kind !== undefined && run === 'running') {
+    else if (kind !== undefined && run === 'running' && before !== row.listedStatus) {
       const at = row.startedAt + row.ageMs
       noteAgentEnd($, keep, at, { kind, agentId: row.id, detail: elapsedText(row.ageMs) })
     }
@@ -1534,7 +1546,7 @@ export const register: Register = (on, options) => {
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
-  const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
+  const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map(), listed: new Map() }
   const notes: RowNotes = new Map()
   const asks: BoardTask[] = []
   const pulses = newPulses()
@@ -1605,7 +1617,8 @@ export const register: Register = (on, options) => {
       await noteVitals($, vitals, (current) => withTurnStart(current, now))
       await noteTrend($, trend, trendTurnStarted)
     } else {
-      noteRunStart(log, e.agentId)
+      noteLogRun(log, e.agentId)
+      await noteRunStart(agentHostOf($), e.agentId)
     }
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
@@ -1702,6 +1715,7 @@ export const register: Register = (on, options) => {
       log.current = EMPTY_LOG
       log.denied.clear()
       log.runs.clear()
+      log.listed.clear()
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await $.state.set(PLAN_ID, null)
@@ -1797,7 +1811,7 @@ export const register: Register = (on, options) => {
       return answer
     }
     const callId = e.tool_use_id
-    noteRunStart(log, agentId)
+    noteLogRun(log, agentId)
     const from = await $.clock.now()
     heard(pulses, agentId, from)
     pulses.callsFrom.set(callId, from)
@@ -1848,7 +1862,7 @@ export const register: Register = (on, options) => {
       parentId: e.parentAgentId,
     }
     await noteSpawn(agentHostOf($), spawned.agentId, facts, at)
-    noteRunStart(log, spawned.agentId)
+    noteLogRun(log, spawned.agentId)
     noteEvent($, log, at, { kind: 'spawn', agentId: spawned.agentId, detail: e.description })
     if (e.parentAgentId === undefined) await noteVitals($, vitals, withTurnSpawn)
     await shareAgents($, machine)
