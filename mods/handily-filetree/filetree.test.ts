@@ -17,13 +17,15 @@ const PLUGIN = 'handily-filetree'
 const PANE = 'files'
 const SURFACES: readonly RenderSurface[] = ['terminal', 'desktop']
 const RULE_41 = '─'.repeat(41)
+const COLUMN_RULE_41 = `${'─'.repeat(33)} [ +/- ]`
+const COLUMN_BUTTON = '[ +/- ]'
 const CONTROLS = '[ work only ] {agent: all} [ refresh ]'
 const NOW_EMPTY = 'Now  nothing read or edited yet'
 
 type FakeFolder = FsEntry[] | string
 
 type FakeFile = {
-  kind: 'file' | 'dir'
+  kind: 'file' | 'dir' | 'other'
   text: string
   mtimeMs: number
   size?: number
@@ -48,6 +50,9 @@ type World = {
   numstats: GitRun[]
   numstatStarts: number[]
   numstatAnswer: GitAnswer
+  ignoreds: GitRun[]
+  ignoredStarts: number[]
+  ignoredAnswer: GitAnswer
   runStarts: number[]
   inFlight: number
   mostInFlight: number
@@ -65,7 +70,7 @@ type World = {
   toasts: string[]
 }
 
-type WorldOptions = { unplacedReason?: string }
+type WorldOptions = { unplacedReason?: string; now?: number }
 
 const NO_CHANGES: GitAnswer = { kind: 'ok', stdout: '# branch.oid 1a2b3c\0# branch.head main\0' }
 
@@ -91,19 +96,25 @@ function fakeGit(on: On, seen: World): void {
   })
   on('process.run', async (_$, e) => {
     const isNumstat = e.argv[3] === '--numstat'
+    const isIgnored = e.argv.includes('--ignored=matching')
     const run = { argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs }
     if (isNumstat) {
       seen.numstats.push(run)
       seen.numstatStarts.push(seen.clock.now())
+    } else if (isIgnored) {
+      seen.ignoreds.push(run)
+      seen.ignoredStarts.push(seen.clock.now())
     } else {
       seen.runs.push(run)
       seen.runStarts.push(seen.clock.now())
     }
     const answer = isNumstat
       ? seen.numstatAnswer
-      : e.argv[4] === 'diff'
-        ? seen.diffAnswer
-        : seen.answer
+      : isIgnored
+        ? seen.ignoredAnswer
+        : e.argv[4] === 'diff'
+          ? seen.diffAnswer
+          : seen.answer
     if (answer.kind === 'exit')
       return { value: gitResult('', answer.exitCode, answer.stderr, false) }
     seen.inFlight += 1
@@ -168,12 +179,15 @@ function world(on: On, entries: readonly [string, FakeFolder][], options: WorldO
     numstats: [],
     numstatStarts: [],
     numstatAnswer: { kind: 'ok', stdout: '' },
+    ignoreds: [],
+    ignoredStarts: [],
+    ignoredAnswer: { kind: 'ok', stdout: '' },
     runStarts: [],
     inFlight: 0,
     mostInFlight: 0,
     cwd: ROOT,
     answer: NO_CHANGES,
-    clock: mock.clock(on, { now: 1_000_000 }),
+    clock: mock.clock(on, { now: options.now ?? 1_000_000 }),
     commands: [],
     panes: new Set(),
     shown: undefined,
@@ -351,9 +365,26 @@ async function screen(ui: { find: Mounted['find'] }, columns = 41): Promise<stri
   return lines
 }
 
+function isRuleLine(line: string, columns: number): boolean {
+  if (line === '─'.repeat(columns)) return true
+  return /^─+ \[ [^\]]+ \]$/.test(line) && displayWidth(line) === columns
+}
+
+function ruleAt(lines: readonly string[], columns: number): number {
+  return lines.findIndex((line) => isRuleLine(line, columns))
+}
+
+function ruleOn(surface: RenderSurface): string {
+  return surface === 'terminal' ? COLUMN_RULE_41 : RULE_41
+}
+
+function controlsOn(surface: RenderSurface, controls = CONTROLS): string[] {
+  return surface === 'terminal' ? [controls] : [controls, COLUMN_BUTTON]
+}
+
 async function treeLines(ui: { find: Mounted['find'] }, columns = 41): Promise<string[]> {
   const lines = await screen(ui, columns)
-  return lines.slice(lines.indexOf('─'.repeat(columns)) + 1)
+  return lines.slice(ruleAt(lines, columns) + 1)
 }
 
 describe('/tree', () => {
@@ -433,10 +464,10 @@ describe('the files tab, docked', () => {
       const ui = await mountFiles($, surface)
       expect(await screen(ui)).toEqual([
         'Files  app · not a git repo',
-        CONTROLS,
+        ...controlsOn(surface),
         'No git status here; git init adds it.',
         NOW_EMPTY,
-        RULE_41,
+        ruleOn(surface),
         '▸ .git/  not listed',
         '▸ node_modules/  not listed',
         '▸ docs/',
@@ -451,6 +482,7 @@ describe('the files tab, docked', () => {
       expect((await ui.findAll({ type: 'Button' })).map((button) => button.key)).toEqual([
         'view',
         'refresh',
+        'column',
         'open:docs',
         'open:hooks',
         'open:scripts',
@@ -490,7 +522,7 @@ describe('the files tab, docked', () => {
       await ui.press({ key: 'open:docs' })
       await ui.press({ key: 'open:hooks' })
       expect(await treeLines(ui)).not.toContain('    design.md')
-      expect(await ui.find({ type: 'Text', text: '▸ docs/' })).toBeDefined()
+      expect(await treeLines(ui)).toContain('▸ docs/')
       await ui.unmount()
     }
   })
@@ -716,7 +748,7 @@ describe('the files tab, inline above the prompt', () => {
       const ui = await mountFiles($, surface, 'inline', 76)
       const lines = await screen(ui, 76)
       expect(lines).toEqual([
-        'Files  app · not a git repo{agent: all}  [ refresh ]',
+        'Files  app · not a git repo{agent: all}  [ +/- ] [ refresh ]',
         inlineRow('i.md', '◦ main          1s'),
         inlineRow('a.md', '◦ main          9s'),
         inlineRow('b.md', '◦ main          8s'),
@@ -728,6 +760,7 @@ describe('the files tab, inline above the prompt', () => {
       ])
       expect(lines.length - 1).toBe(8)
       expect((await ui.findAll({ type: 'Button' })).map((button) => button.key)).toEqual([
+        'column',
         'refresh',
       ])
       await ui.unmount()
@@ -880,7 +913,7 @@ async function openFiles(
 
 async function headerOf(ui: { find: Mounted['find'] }, columns = 41): Promise<string[]> {
   const lines = await screen(ui, columns)
-  return lines.slice(0, lines.indexOf('─'.repeat(columns)))
+  return lines.slice(0, ruleAt(lines, columns))
 }
 
 function underTool(on: On): void {
@@ -898,7 +931,7 @@ describe('git status: letters and counts', () => {
       expect(await headerOf(ui)).toEqual([
         'Files  app · main ↑1 · 6 changed',
         UPSTREAM_LINE,
-        CONTROLS,
+        ...controlsOn(surface),
         NOW_EMPTY,
       ])
       expect(await treeLines(ui)).toEqual([
@@ -1101,7 +1134,7 @@ describe('git status: letters and counts', () => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
     const ui = await openFiles($, seen, 'desktop', 'inline', 76)
     expect((await screen(ui, 76))[0]).toBe(
-      'Files  app · main ↑1 · 6 changed{agent: all}  [ refresh ]',
+      'Files  app · main ↑1 · 6 changed{agent: all}  [ +/- ] [ refresh ]',
     )
     await ui.unmount()
   })
@@ -1233,7 +1266,7 @@ describe('git status: when it runs', () => {
       const ui = await mountSettled($, seen, surface)
       expect(await headerOf(ui)).toEqual([
         'Files  app · not a git repo',
-        CONTROLS,
+        ...controlsOn(surface),
         'No git status here; git init adds it.',
         NOW_EMPTY,
       ])
@@ -1442,7 +1475,7 @@ describe('git status: errors', () => {
       const ui = await mountSettled($, seen, surface)
       expect(await headerOf(ui)).toEqual([
         'Files  app · git status failed',
-        CONTROLS,
+        ...controlsOn(surface),
         'git status failed: exit 128.',
         'Run git status in a shell to see why.',
         'retry in 10s  [ retry ]',
@@ -1721,20 +1754,20 @@ describe('marks: which agent read or edited each file', () => {
       expect(await screen(ui)).toEqual([
         'Files  app · main ↑1 · 6 changed',
         UPSTREAM_LINE,
-        CONTROLS,
+        ...controlsOn(surface),
         'Now  2 agents',
         '✎ main      hooks/pane.tsx             4s',
         '◦ scout     docs/design.md             2s',
-        RULE_41,
+        ruleOn(surface),
         '▸ .git/  not listed',
         '▸ node_modules/  not listed',
-        '▾ docs/  M2 ?1            ◦ scout      2s',
+        '▾ docs/  M2 ?1',
         '  M design.md             ◦ scout      2s',
         '  ? filetree.md',
         '    guide.md',
         '    install.md',
         '  M mocks.md',
-        '▾ hooks/  M1 D1           ✎ main       4s',
+        '▾ hooks/  M1 D1',
         '  ▸ dist/  not listed',
         '  D old-pane.tsx',
         '  M pane.tsx              ✎ main       4s',
@@ -1817,7 +1850,7 @@ describe('marks: narrow docks and inline', () => {
         '✎ main  docs/mocks.md',
         '◦ scout docs/design.md',
       ])
-      expect(lines).toContain('▾ docs/  M2 ?1         ✎ main')
+      expect(lines).toContain('▾ docs/  M2 ?1')
       expect(lines).toContain('  M design.md          ◦ scout')
       expect(lines).toContain('  M mocks.md           ✎ main+')
       expect(lines).toContain('▸ hooks/  M1 D1        ✎ main')
@@ -1861,7 +1894,7 @@ describe('marks: narrow docks and inline', () => {
       await touched($, seen)
       await ui.redraw(paneProps('inline', 76))
       const lines = await screen(ui, 76)
-      expect(lines[0]).toBe('Files  app · main ↑1 · 6 changed{agent: all}  [ refresh ]')
+      expect(lines[0]).toBe('Files  app · main ↑1 · 6 changed{agent: all}  [ +/- ] [ refresh ]')
       expect(lines.slice(1)).toEqual([
         inlineRow('M docs/mocks.md', '✎ main +1       1s'),
         inlineRow('M docs/design.md', '◦ scout         3s'),
@@ -1889,15 +1922,15 @@ describe('marks: a call that is denied or fails', () => {
         const call = edit($, 'hooks/register.tsx', SCOUT).catch(() => undefined)
         const again = edit($, 'hooks/pane.tsx').catch(() => undefined)
         await seen.clock.advance(500)
-        expect(await treeLines(ui)).toContain('    register.tsx          ✎ a1b2c3d4   0s')
-        expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ main       0s')
+        expect(await treeLines(ui)).toContain('    register.tsx          ✎ a1b2c3d4  now')
+        expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ main      now')
         expect(await headerOf(ui)).toContain('Now  2 agents')
         await seen.clock.advance(500)
         await Promise.all([call, again])
         await ui.redraw(DOCKED_PANE)
         expect(await treeLines(ui)).toContain('    register.tsx')
         expect(await treeLines(ui)).toContain('  M pane.tsx              ◦ main       6s')
-        expect((await headerOf(ui)).slice(3)).toEqual([
+        expect((await headerOf(ui)).slice(2 + controlsOn(surface).length)).toEqual([
           'Now  1 agent',
           '◦ main      hooks/pane.tsx             6s',
         ])
@@ -1932,19 +1965,23 @@ describe('marks: the agent filter', () => {
       expect(await headerOf(ui)).toEqual([
         'Files  app · main ↑1 · 6 changed',
         UPSTREAM_LINE,
-        '[ work only ] {agent: scout} [ refresh ]',
+        ...controlsOn(surface, '[ work only ] {agent: scout} [ refresh ]'),
         'scout is in view, so only scout shows',
         'Now  scout',
         '◦ scout     docs/design.md             2s',
       ])
       const tree = await treeLines(ui)
-      expect(tree).toContain('▾ docs/  M2 ?1            ◦ scout      2s')
-      expect(tree).toContain('▾ hooks/  M1 D1           ◦ scout      4s')
+      expect(tree).toContain('▾ docs/  M2 ?1')
+      expect(tree).toContain('▾ hooks/  M1 D1')
       expect(tree).toContain('  M pane.tsx')
       expect(tree).toContain('    register.tsx          ◦ scout      4s')
       expect(tree.filter((line) => line.includes('main'))).toEqual([])
       await ui.redraw(DOCKED_PANE)
-      expect((await headerOf(ui)).slice(2, 4)).toEqual([CONTROLS, 'Now  2 agents'])
+      const controls = controlsOn(surface)
+      expect((await headerOf(ui)).slice(2, 3 + controls.length)).toEqual([
+        ...controls,
+        'Now  2 agents',
+      ])
       expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ main       4s')
       await ui.unmount()
     })
@@ -2008,7 +2045,7 @@ describe('marks: a Grep', () => {
       await seen.clock.advance(9000)
       await ui.press({ key: 'open:src' })
       await ui.press({ key: 'open:src/gen' })
-      expect((await headerOf(ui)).slice(2)).toEqual([
+      expect((await headerOf(ui)).slice(1 + controlsOn(surface).length)).toEqual([
         'Now  1 agent',
         '◦ main      src/gen/a0001.ts           9s',
         '  and 28 more files from one Grep',
@@ -2016,8 +2053,6 @@ describe('marks: a Grep', () => {
       const tree = await treeLines(ui)
       const marked = tree.filter((line) => line.includes('◦ main'))
       expect(marked).toEqual([
-        '▾ src/                    ◦ main       9s',
-        '  ▾ gen/                  ◦ main       9s',
         ...numbered(12).map((entry) => `      ${entry.name}${' '.repeat(12)}◦ main       9s`),
       ])
       expect(tree).toContain('      a0013.ts')
@@ -2107,16 +2142,14 @@ describe('marks: a Bash call', () => {
       expect(seen.runs).toHaveLength(2)
       await ui.press({ key: 'open:docs' })
       await ui.press({ key: 'open:hooks' })
-      expect((await headerOf(ui)).slice(2)).toEqual([
+      expect((await headerOf(ui)).slice(1 + controlsOn(surface).length)).toEqual([
         'Now  1 agent',
         '✎ scout     docs/design.md             2s',
         '  and 1 more file from one Bash',
       ])
       const tree = await treeLines(ui)
       expect(tree.filter((line) => line.includes('✎'))).toEqual([
-        '▾ docs/  M1               ✎ scout      2s',
         '  M design.md             ✎ scout      2s',
-        '▾ hooks/  M1              ✎ scout      2s',
         '  M pane.tsx              ✎ scout      2s',
       ])
       expect(tree).toContain('    mocks.md')
@@ -2163,7 +2196,7 @@ describe('marks: a Bash call', () => {
       await seen.clock.advance(2000)
       expect(seen.runs).toHaveLength(3)
       await openRow(ui, ['docs', 'hooks'], 'docs/mocks.md')
-      expect((await headerOf(ui)).slice(2)).toEqual([NOW_EMPTY])
+      expect((await headerOf(ui)).slice(1 + controlsOn(surface).length)).toEqual([NOW_EMPTY])
       const tree = await treeLines(ui)
       const row = tree.indexOf('  M mocks.md              ✎ 2 agents   2s')
       expect(tree.slice(row, row + 3)).toEqual([
@@ -2452,15 +2485,15 @@ describe('marks: a Bash call', () => {
       expect(seen.runs).toEqual([])
       expect(await screen(ui)).toEqual([
         'Files  app · not a git repo',
-        CONTROLS,
+        ...controlsOn(surface),
         'No git status here; git init adds it.',
         'Now  1 agent',
         '✎ scout     docs/guide.md              5s',
         '  and 1 more file from one Bash',
-        RULE_41,
+        ruleOn(surface),
         '▸ .git/  not listed',
         '▸ node_modules/  not listed',
-        '▾ docs/                   ✎ scout      5s',
+        '▾ docs/',
         '    design.md',
         '    guide.md              ✎ scout      5s',
         '    install.md',
@@ -2604,6 +2637,15 @@ async function openRow(
   await ui.press({ key: `file:${path}` })
 }
 
+async function folderDiff(
+  ui: { press: Mounted['press'] },
+  folders: readonly string[],
+  path: string,
+): Promise<void> {
+  await openRow(ui, folders, path)
+  await ui.press({ key: 'diff-folder' })
+}
+
 describe('preview and diff: the open row', () => {
   for (const surface of SURFACES) {
     test(`a press on a file row opens it with its agents, its git state and four buttons, one row at a time, on the ${surface}`, async ($, on) => {
@@ -2624,11 +2666,11 @@ describe('preview and diff: the open row', () => {
         '      read by scout 3m ago',
         '      modified, not staged',
         '      [ preview ] [ diff ] [ copy path ]',
-        '      [ @ to prompt ]',
+        '      [ @ to prompt ] [ diff docs/ ]',
         '▸ hooks/  M1 D1',
       ])
       expect((await ui.findAll({ type: 'Button' })).map((button) => button.key)).toEqual(
-        expect.arrayContaining(['preview', 'diff', 'copy-path', 'to-prompt']),
+        expect.arrayContaining(['preview', 'diff', 'copy-path', 'to-prompt', 'diff-folder']),
       )
       expect((await ui.find({ key: 'preview' }))?.props.hotkey).toBeUndefined()
       await ui.press({ key: 'file:docs/design.md' })
@@ -2988,7 +3030,7 @@ describe('preview and diff: diff', () => {
 
 describe('preview and diff: a folder', () => {
   for (const surface of SURFACES) {
-    test(`a press on the counts of a folder shows one Code per changed file, from one git diff, on the ${surface}`, async ($, on) => {
+    test(`the folder diff button of an opened file row shows one Code per changed file of its folder, from one git diff, on the ${surface}`, async ($, on) => {
       const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
       const design = ['@@ -1 +1 @@', '-a', '+b'].join('\n')
       const mocks = ['@@ -0,0 +1 @@', '+c'].join('\n')
@@ -2998,7 +3040,7 @@ describe('preview and diff: a folder', () => {
       }
       textFile(seen, 'docs/filetree.md', 'new\n')
       const ui = await openFiles($, seen, surface)
-      await ui.press({ key: 'diff:docs' })
+      await folderDiff(ui, ['docs'], 'docs/design.md')
       expect(diffRuns(seen)).toEqual([
         {
           argv: [...DIFF_ARGV, 'docs/design.md', 'docs/mocks.md'],
@@ -3055,7 +3097,7 @@ describe('preview and diff: a folder', () => {
       return { value: { isCopied: true as const } }
     })
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:src' })
+    await folderDiff(ui, ['src', 'src/gen'], 'src/gen/a0001.ts')
     const codes = await ui.findAll({ type: 'Code' })
     expect(codes.length).toBeGreaterThan(10)
     expect(codes.length).toBeLessThan(50)
@@ -3075,12 +3117,12 @@ describe('preview and diff: a folder', () => {
       names.slice(0, 50),
     ])
     expect((await screen(ui)).slice(2, 5)).toEqual([
-      'src/  60 changed files vs HEAD',
+      'src/gen/  60 changed files vs HEAD',
       'first 50 of 60 changed files shown',
       '[ copy the git diff command ]',
     ])
     await ui.press({ key: 'copy-command' })
-    expect(copies).toEqual([{ text: `${DIFF_COMMAND} src`, surface: 'terminal' }])
+    expect(copies).toEqual([{ text: `${DIFF_COMMAND} src/gen`, surface: 'terminal' }])
     await ui.unmount()
   })
 })
@@ -3181,7 +3223,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
       ].join(''),
     }
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:n' })
+    await folderDiff(ui, ['n'], `n/${names[0] ?? ''}`)
     expect(diffRuns(seen).map((run) => run.argv)).toEqual([
       [...DIFF_ARGV, ...names.map((name) => `n/${name}`)],
     ])
@@ -3241,7 +3283,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
       ].join('\n'),
     }
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:r' })
+    await folderDiff(ui, ['r'], 'r/new.txt')
     expect(diffRuns(seen)[0]?.argv).toContain('--no-renames')
     expect((await ui.findAll({ type: 'Code' })).map((code) => code.props.source)).toEqual([
       added,
@@ -3276,7 +3318,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
       return { value: { isCopied: true as const } }
     })
     const ui = await openFiles($, seen)
-    await ui.press({ key: `diff:${folderName}` })
+    await folderDiff(ui, [folderName], `${folderName}/a0001.ts`)
     await ui.press({ key: 'copy-command' })
     expect(copies).toEqual([`${DIFF_COMMAND} 'it'${BACKSLASH}''s src'`])
     await ui.unmount()
@@ -3295,7 +3337,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     const whole = `${fileDiff('c/a.ts', [ONE_LINE_HUNK])}${fileDiff('c/b.ts', [HUNK_A])}`
     seen.diffAnswer = { kind: 'ok', stdout: whole.slice(0, whole.indexOf('+const c')), isCut: true }
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:c' })
+    await folderDiff(ui, ['c'], 'c/a.ts')
     const lines = await screen(ui)
     expect(lines.slice(lines.indexOf(RULE_41) + 1)).toEqual([
       'c/a.ts  M +1 -1',
@@ -3329,7 +3371,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     await ui.unmount()
   })
 
-  test('an untracked folder and a folder inside it draw their counts with no diff button, and a file in it diffs from its text', async ($, on) => {
+  test('an untracked folder and a folder inside it draw their counts with no folder diff button, and a file in it diffs from its text', async ($, on) => {
     const seen = gitWorld(
       on,
       [
@@ -3344,10 +3386,9 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     await ui.press({ key: 'open:scratch' })
     await ui.press({ key: 'open:scratch/deep' })
     expect((await treeLines(ui)).slice(0, 2)).toEqual(['▾ scratch/  ?', '  ▾ deep/  ?'])
-    expect(await ui.find({ key: 'diff:scratch' })).toBeUndefined()
-    expect(await ui.find({ key: 'diff:scratch/deep' })).toBeUndefined()
     const before = seen.runs.length
     await ui.press({ key: 'file:scratch/deep/g.ts' })
+    expect(await ui.find({ key: 'diff-folder' })).toBeUndefined()
     await ui.press({ key: 'diff' })
     expect(seen.runs).toHaveLength(before)
     expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+g')
@@ -3365,9 +3406,9 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     textFile(seen, 'a.ts', 'a\n')
     const ui = await openFiles($, seen)
     expect(await treeLines(ui)).toEqual(['▸ deep/  ?', '? a.ts'])
-    expect(await ui.find({ key: 'diff:deep' })).toBeUndefined()
     const before = seen.runs.length
     await openRow(ui, [], 'a.ts')
+    expect(await ui.find({ key: 'diff-folder' })).toBeUndefined()
     await ui.press({ key: 'diff' })
     expect(seen.runs).toHaveLength(before)
     expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+a')
@@ -3412,11 +3453,11 @@ async function workTouches($: Engine, seen: World): Promise<void> {
 }
 
 const WORK_TREE = [
-  '▾ docs/  M2 ?1            ◦ scout      2s',
+  '▾ docs/  M2 ?1',
   '  M design.md             ◦ scout      2s',
   '  ? filetree.md',
   '  M mocks.md',
-  '▾ hooks/  M1 D1           ✎ main       4s',
+  '▾ hooks/  M1 D1',
   '  D old-pane.tsx',
   '  M pane.tsx              ✎ main       4s',
   '    register.tsx          ◦ scout     40s',
@@ -3450,11 +3491,11 @@ describe('the work view', () => {
       expect(await screen(ui)).toEqual([
         'Files  app · main ↑1 · 7 changed',
         UPSTREAM_LINE,
-        WORK_CONTROLS,
+        ...controlsOn(surface, WORK_CONTROLS),
         'Now  2 agents',
         '✎ main      hooks/pane.tsx             4s',
         '◦ scout     docs/design.md             2s',
-        RULE_41,
+        ruleOn(surface),
         ...WORK_TREE,
       ])
       expect((await ui.find({ type: 'Text', text: WORK_NOTE }))?.props.dimColor).toBe(true)
@@ -3486,9 +3527,9 @@ describe('the work view', () => {
       const ui = await mountWork($, seen, surface)
       expect(await screen(ui)).toEqual([
         'Files  app · main · clean',
-        WORK_CONTROLS,
+        ...controlsOn(surface, WORK_CONTROLS),
         NOW_EMPTY,
-        RULE_41,
+        ruleOn(surface),
         'No changed or touched files.',
         '[ all files ] shows the whole tree.',
       ])
@@ -3506,9 +3547,9 @@ describe('the work view', () => {
       const ui = await mountWork($, seen, surface)
       expect(await screen(ui)).toEqual([
         'Files  app · main · no commits yet',
-        WORK_CONTROLS,
+        ...controlsOn(surface, WORK_CONTROLS),
         NOW_EMPTY,
-        RULE_41,
+        ruleOn(surface),
         'This folder is empty.',
       ])
       await ui.unmount()
@@ -3562,7 +3603,7 @@ describe('the work view', () => {
       const ui = await mountSettled($, seen, surface, 'inline', 76)
       const lines = await screen(ui, 76)
       expect(lines).toEqual([
-        'Files  app · main · 8 changed{agent: all}  [ refresh ]',
+        'Files  app · main · 8 changed{agent: all}  [ +/- ] [ refresh ]',
         inlineRow('M hooks/pane.tsx', '✎ main          4s'),
         inlineRow('D hooks/old-pane.tsx', '✎ f00dfeed      3m'),
         inlineRow('M docs/design.md', '◦ scout         2s'),
@@ -3619,7 +3660,7 @@ describe('the work view', () => {
     await workTouches($, seen)
     await ui.select({ key: 'agent', value: 'main' })
     expect(await treeLines(ui)).toEqual([
-      '▾ hooks/  M1 D1           ✎ main       4s',
+      '▾ hooks/  M1 D1',
       '  M pane.tsx              ✎ main       4s',
       WORK_NOTE,
     ])
@@ -3633,7 +3674,7 @@ describe('the work view', () => {
     await read($, 'node_modules/lib/index.d.ts')
     await ui.redraw(DOCKED_PANE)
     expect(await treeLines(ui)).toEqual([
-      '▾ node_modules/lib/       ◦ main       0s',
+      '▾ node_modules/lib/',
       '    index.d.ts            ◦ main       0s',
       WORK_NOTE,
     ])
@@ -3671,7 +3712,7 @@ describe('the work view: review repairs', () => {
       expect(await treeLines(ui)).toEqual(['▸ hooks/                  ✎ scout      5s', WORK_NOTE])
       await ui.press({ key: 'open:hooks' })
       expect(await treeLines(ui)).toEqual([
-        '▾ hooks/                  ✎ scout      5s',
+        '▾ hooks/',
         '  ▸ dist/  not listed',
         '    new.tsx',
         '    pane.tsx',
@@ -3689,7 +3730,7 @@ describe('the work view: review repairs', () => {
       await read($, './docs/./design.md')
       await ui.redraw(DOCKED_PANE)
       expect(await treeLines(ui)).toEqual([
-        '▾ docs/                   ◦ main       0s',
+        '▾ docs/',
         '    design.md             ◦ main       0s',
         '  README.md               ◦ main       0s',
         WORK_NOTE,
@@ -3856,16 +3897,17 @@ describe('the work view of a large repo', () => {
       await seen.clock.advance(36_000)
       await mainEditsScoutReads($, seen)
       const scoutTree = [
-        '▾ docs/  M2 ?1            ◦ scout      2s',
+        '▾ docs/  M2 ?1',
         '  M design.md             ◦ scout      2s',
         '  M mocks.md              ◦ scout      3m',
-        '▾ hooks/  M1 D1           ◦ scout     40s',
+        '▾ hooks/  M1 D1',
         '    register.tsx          ◦ scout     40s',
         WORK_NOTE,
       ]
       await ui.redraw({ ...DOCKED_PANE, view: { agentId: SCOUT } })
-      expect((await headerOf(ui)).slice(2, 4)).toEqual([
-        '[ all files ] {agent: scout} [ refresh ]',
+      const scoutControls = controlsOn(surface, '[ all files ] {agent: scout} [ refresh ]')
+      expect((await headerOf(ui)).slice(2, 3 + scoutControls.length)).toEqual([
+        ...scoutControls,
         'scout is in view, so only scout shows',
       ])
       expect(await treeLines(ui)).toEqual(scoutTree)
@@ -3946,11 +3988,12 @@ describe('the work view of a large repo: review repairs', () => {
       await $.ui.select({ plugin: PLUGIN, key: 'agent', value: `agent:${SCOUT}` })
       expect((await headerOf(ui))[1]).toBe('[ all files ] {agent: scout} [ refresh ]')
       expect(await treeLines(ui)).toEqual([
-        '▾ docs/notes/draft/  M2   ◦ scout      0s',
+        '▾ docs/notes/draft/  M2',
         '  M plan.md               ◦ scout      0s',
         WORK_NOTE,
       ])
-      expect(await ui.find({ key: 'diff:docs' })).toBeDefined()
+      await ui.press({ key: 'file:docs/notes/draft/plan.md' })
+      expect((await ui.find({ key: 'diff-folder' }))?.props.label).toBe('diff docs/notes/draft/')
       await ui.unmount()
     })
 
@@ -4090,19 +4133,27 @@ function taskScene(on: On, surface: RenderSurface) {
   return { seen, board, surface }
 }
 
-const TASK_2_SCREEN = [
-  'Files  app · main ↑1 · 7 changed',
-  UPSTREAM_LINE,
-  'Task 2  Write the tab mocks  [ clear ]',
-  '{agent: all} [ refresh ]',
-  '✎ 1 edited · ◦ 2 read while task 2 ran',
-  RULE_41,
-  '▾ docs/  M2 ?1            ◦ main       1m',
-  '    install.md            ◦ main       1m',
-  '  M mocks.md              ✎ main       4m',
-  '▾ hooks/  M1 D1           ◦ scout      3m',
-  '  M pane.tsx              ◦ scout      3m',
-]
+const TASK_CONTROLS = '{agent: all} [ refresh ]'
+
+function taskControlsOn(surface: RenderSurface): string {
+  return surface === 'terminal' ? TASK_CONTROLS : `${TASK_CONTROLS} ${COLUMN_BUTTON}`
+}
+
+function task2Screen(surface: RenderSurface): string[] {
+  return [
+    'Files  app · main ↑1 · 7 changed',
+    UPSTREAM_LINE,
+    'Task 2  Write the tab mocks  [ clear ]',
+    taskControlsOn(surface),
+    '✎ 1 edited · ◦ 2 read while task 2 ran',
+    ruleOn(surface),
+    '▾ docs/  M2 ?1',
+    '    install.md            ◦ main       1m',
+    '  M mocks.md              ✎ main       4m',
+    '▾ hooks/  M1 D1',
+    '  M pane.tsx              ◦ scout      3m',
+  ]
+}
 
 describe(TASK_TOUCH_CRITERION, () => {
   for (const surface of SURFACES) {
@@ -4128,7 +4179,7 @@ describe(TASK_TOUCH_CRITERION, () => {
       const first = await taskTab($, seen, surface, 1)
       expect((await headerOf(first)).at(-1)).toBe('◦ 1 read while task 1 ran')
       expect(await treeLines(first)).toEqual([
-        '▾ docs/  M2 ?1            ◦ main       5m',
+        '▾ docs/  M2 ?1',
         '  M design.md             ◦ main       5m',
       ])
       await first.unmount()
@@ -4147,7 +4198,7 @@ describe(TASK_FILES_CRITERION, () => {
       await start($)
       await taskWork($, seen, board)
       const ui = await taskTab($, seen, surface, 2)
-      expect(await screen(ui)).toEqual(TASK_2_SCREEN)
+      expect(await screen(ui)).toEqual(task2Screen(surface))
       expect(seen.opens.at(-1)).toEqual({ id: PANE, title: 'files', focus: true })
       expect((await ui.find({ key: 'clear-task' }))?.props.hotkey).toBe('c')
       await ui.unmount()
@@ -4173,7 +4224,7 @@ describe(TASK_FILES_CRITERION, () => {
       const ui = await taskTab($, seen, surface, 3)
       expect((await headerOf(ui)).slice(2)).toEqual([
         'Task 3  Review the mocks  [ clear ]',
-        '{agent: all} [ refresh ]',
+        taskControlsOn(surface),
         'No file touched while task 3 ran.',
       ])
       expect((await ui.find({ type: 'Text', text: /^No file touched/ }))?.props.dimColor).toBe(true)
@@ -4475,10 +4526,10 @@ describe('the edits of the last turn: the button and the steps', () => {
       const { seen } = editScene(on)
       const ui = await workFiles($, seen, surface)
       await threeEdits($, seen)
-      expect((await headerOf(ui)).slice(0, 5)).toEqual([
+      expect((await headerOf(ui)).slice(0, 4 + controlsOn(surface).length)).toEqual([
         'Files  app · main ↑1 · 6 changed',
         UPSTREAM_LINE,
-        WORK_CONTROLS,
+        ...controlsOn(surface, WORK_CONTROLS),
         '[ last turn: 3 edits ]',
         'Now  2 agents',
       ])
@@ -4512,7 +4563,7 @@ describe('the edits of the last turn: the button and the steps', () => {
       await pressHotkey(ui, 'p')
       expect((await stepHead(ui))[0]).toBe('edit 2 of 3 · last turn · 3m')
       await pressHotkey(ui, 'b')
-      expect((await headerOf(ui))[3]).toBe('[ last turn: 3 edits ]')
+      expect((await headerOf(ui))[2 + controlsOn(surface).length]).toBe('[ last turn: 3 edits ]')
       await ui.unmount()
     })
 
@@ -4542,9 +4593,16 @@ describe('the edits of the last turn: the button and the steps', () => {
       expect(await ui.find({ key: 'last-turn' })).toBeUndefined()
       await read($, 'docs/design.md')
       await endTurnOf($)
-      expect((await headerOf(ui)).slice(2, 4)).toEqual([WORK_CONTROLS, '[ last turn: no edits ]'])
+      const controls = controlsOn(surface, WORK_CONTROLS)
+      expect((await headerOf(ui)).slice(2, 3 + controls.length)).toEqual([
+        ...controls,
+        '[ last turn: no edits ]',
+      ])
       await ui.press({ key: 'last-turn' })
-      expect((await headerOf(ui)).slice(3, 5)).toEqual(['[ last turn: no edits ]', BASH_NOTE])
+      expect((await headerOf(ui)).slice(2 + controls.length, 4 + controls.length)).toEqual([
+        '[ last turn: no edits ]',
+        BASH_NOTE,
+      ])
       expect((await ui.find({ type: 'Text', text: BASH_NOTE }))?.props.dimColor).toBe(true)
       await ui.unmount()
     })
@@ -4556,7 +4614,7 @@ describe('the edits of the last turn: the button and the steps', () => {
       await endTurnOf($)
       await write($, 'docs/filetree.md', NEW_FILE, SCOUT)
       await endTurnOf($, SCOUT)
-      expect((await headerOf(ui))[3]).toBe('[ last turn: 1 edit ]')
+      expect((await headerOf(ui))[2 + controlsOn(surface).length]).toBe('[ last turn: 1 edit ]')
       await ui.press({ key: 'last-turn' })
       expect((await stepHead(ui))[1]).toBe('hooks/pane.tsx  ✎ main · Edit · +2 -1')
       await endTurnOf($)
@@ -4713,7 +4771,7 @@ describe('the edits of the last turn: one edit', () => {
       await write($, 'docs/big.md', big.join('\n'))
       for (let index = 1; index < 52; index += 1) await edit($, `hooks/a${String(index)}.ts`)
       await endTurnOf($)
-      expect((await headerOf(ui))[3]).toBe('[ last turn: 52 edits ]')
+      expect((await headerOf(ui))[2 + controlsOn(surface).length]).toBe('[ last turn: 52 edits ]')
       await ui.press({ key: 'last-turn' })
       expect((await screen(ui)).slice(2)).toEqual([
         'edit 1 of 50 · first 50 kept · 0s',
@@ -4920,11 +4978,11 @@ const APP_LINES = [
 ].join('')
 
 const COUNTED_WORK_TREE = [
-  '▾ docs/  M2 ?1     +16 -4 ◦ scout      5s',
+  '▾ docs/  M2 ?1     +16 -4',
   '  M design.md       +4 -1 ◦ scout      5s',
   '  ? filetree.md',
   '  M mocks.md       +12 -3',
-  '▾ hooks/  M1 D1   +30 -89 ✎ main       7s',
+  '▾ hooks/  M1 D1   +30 -89',
   '  D old-pane.tsx   +0 -87',
   '  M pane.tsx       +30 -2 ✎ main       7s',
   '    register.tsx          ◦ scout     43s',
@@ -4991,7 +5049,8 @@ describe('git colours and line counts', () => {
       expect((await propsOf(ui, 'added/')).color).toBe('success')
       expect((await propsOf(ui, 'scratch/')).color).toBe('success')
       expect((await propsOf(ui, '▸ ')).color).toBeUndefined()
-      expect((await propsOf(ui, '▸ plain/')).color).toBeUndefined()
+      expect((await propsOf(ui, '▸ ')).dimColor).toBe(true)
+      expect((await propsOf(ui, 'plain/')).color).toBe('planMode')
       await ui.unmount()
       seen.answer = {
         kind: 'ok',
@@ -5020,7 +5079,7 @@ describe('git colours and line counts', () => {
       expect(await headerOf(ui)).toEqual([
         'Files  app · main ↑1 · 7 changed +48 -93',
         UPSTREAM_LINE,
-        WORK_CONTROLS,
+        ...controlsOn(surface, WORK_CONTROLS),
         'Now  2 agents',
         '✎ main      hooks/pane.tsx             7s',
         '◦ scout     docs/design.md             5s',
@@ -5030,7 +5089,8 @@ describe('git colours and line counts', () => {
       expect((await propsOf(ui, '-93')).color).toBe('error')
       expect((await propsOf(ui, '+16')).color).toBe('success')
       expect((await propsOf(ui, '-4')).color).toBe('error')
-      expect((await propsOf(ui, '+0')).color).toBe('success')
+      expect((await propsOf(ui, '+0')).color).toBeUndefined()
+      expect((await propsOf(ui, '+0')).dimColor).toBe(true)
       expect((await propsOf(ui, '-87')).color).toBe('error')
       await ui.unmount()
     })
@@ -5066,7 +5126,7 @@ describe('git colours and line counts', () => {
       expect(await headerOf(ui)).toEqual([
         'Files  app · main ↑1 ↓2 · 5 changed',
         '+47k -311 · upstream origin/main',
-        CONTROLS,
+        ...controlsOn(surface),
         NOW_EMPTY,
       ])
       expect(await treeLines(ui)).toEqual([
@@ -5093,7 +5153,7 @@ describe('git colours and line counts', () => {
       expect(await headerOf(ui)).toEqual([
         'Files  app · main ↑1 · 6 changed',
         UPSTREAM_LINE,
-        CONTROLS,
+        ...controlsOn(surface),
         NOW_EMPTY,
       ])
       const lines = await screen(ui)
@@ -5159,7 +5219,11 @@ describe('git colours and line counts', () => {
       expect((await propsOf(ui, 'upstream fork/lane-b')).dimColor).toBe(true)
       seen.answer = { kind: 'ok', stdout: `${branch}${changed('.M', 'README.md')}` }
       await changeIndex(seen)
-      expect(await headerOf(ui)).toEqual(['Files  app · main · 1 changed', CONTROLS, NOW_EMPTY])
+      expect(await headerOf(ui)).toEqual([
+        'Files  app · main · 1 changed',
+        ...controlsOn(surface),
+        NOW_EMPTY,
+      ])
       expect(await ui.find({ type: 'Text', text: /^upstream/ })).toBeUndefined()
       await ui.unmount()
     })
@@ -5184,7 +5248,7 @@ describe('git colours and line counts', () => {
       seen.numstatAnswer = { kind: 'ok', stdout: APP_LINES }
       const ui = await openFiles($, seen, surface, 'inline', 76)
       expect(await screen(ui, 76)).toEqual([
-        'Files  app · main ↑1 · 6 changed +48 -93{agent: all}  [ refresh ]',
+        'Files  app · main ↑1 · 6 changed +48 -93{agent: all}  [ +/- ] [ refresh ]',
         inlineCounted('M docs/design.md', '+4 -1'),
         '? docs/filetree.md',
         inlineCounted('M docs/mocks.md', '+12 -3'),
@@ -5331,12 +5395,11 @@ describe('git colours and line counts: review repairs', () => {
       await call
       await seen.clock.advance(5000)
       await ui.press({ key: 'open:hooks' })
-      expect((await headerOf(ui)).slice(2)).toEqual([
+      expect((await headerOf(ui)).slice(1 + controlsOn(surface).length)).toEqual([
         'Now  1 agent',
         '✎ scout     hooks/pane.tsx             9s',
       ])
       expect((await treeLines(ui)).filter((line) => line.includes('✎'))).toEqual([
-        '▾ hooks/  M1              ✎ scout      9s',
         '  M pane.tsx              ✎ scout      9s',
       ])
       await ui.unmount()
@@ -5428,39 +5491,41 @@ const NERD_TO_PLAIN: readonly (readonly [string, string])[] = [
   ['\u{F418}', '·'],
 ]
 
-function asPlain(line: string): string {
-  return NERD_TO_PLAIN.reduce((text, [nerd, plain]) => text.replaceAll(nerd, plain), line)
-}
-
 function hasNerdMark(line: string): boolean {
   return NERD_TO_PLAIN.some(([nerd]) => line.includes(nerd))
 }
 
-const PLAIN_MARKS_SCREEN = [
-  'Files  app · main ↑1 · 6 changed',
-  UPSTREAM_LINE,
-  CONTROLS,
-  'Now  2 agents',
-  '✎ main      hooks/pane.tsx             4s',
-  '◦ scout     docs/design.md             2s',
-  RULE_41,
-  '▸ .git/  not listed',
-  '▸ node_modules/  not listed',
-  '▾ docs/  M2 ?1            ◦ scout      2s',
-  '  M design.md             ◦ scout      2s',
-  '  ? filetree.md',
-  '    guide.md',
-  '    install.md',
-  '  M mocks.md',
-  '▾ hooks/  M1 D1           ✎ main       4s',
-  '  ▸ dist/  not listed',
-  '  D old-pane.tsx',
-  '  M pane.tsx              ✎ main       4s',
-  '    register.tsx',
-  '▸ scripts/',
-  '  .gitignore',
-  'M README.md',
-]
+const MARKDOWN_ICON = '\u{E609}'
+const TYPESCRIPT_ICON = '\u{E628}'
+const DEFAULT_ICON = '\u{EA7B}'
+
+function plainMarksScreen(surface: RenderSurface): string[] {
+  return [
+    'Files  app · main ↑1 · 6 changed',
+    UPSTREAM_LINE,
+    ...controlsOn(surface),
+    'Now  2 agents',
+    '✎ main      hooks/pane.tsx             4s',
+    '◦ scout     docs/design.md             2s',
+    ruleOn(surface),
+    '▸ .git/  not listed',
+    '▸ node_modules/  not listed',
+    '▾ docs/  M2 ?1',
+    '  M design.md             ◦ scout      2s',
+    '  ? filetree.md',
+    '    guide.md',
+    '    install.md',
+    '  M mocks.md',
+    '▾ hooks/  M1 D1',
+    '  ▸ dist/  not listed',
+    '  D old-pane.tsx',
+    '  M pane.tsx              ✎ main       4s',
+    '    register.tsx',
+    '▸ scripts/',
+    '  .gitignore',
+    'M README.md',
+  ]
+}
 
 const NERD_MARKS_SCREEN = [
   'Files  app \u{F418} main ↑1 · 6 changed',
@@ -5469,23 +5534,23 @@ const NERD_MARKS_SCREEN = [
   'Now  2 agents',
   '\u{EA73} main      hooks/pane.tsx             4s',
   '\u{EA70} scout     docs/design.md             2s',
-  RULE_41,
-  '\u{F07B} .git/  not listed',
-  '\u{F07B} node_modules/  not listed',
-  '\u{F07C} docs/  M2 ?1            \u{EA70} scout      2s',
-  '  M design.md             \u{EA70} scout      2s',
-  '  ? filetree.md',
-  '    guide.md',
-  '    install.md',
-  '  M mocks.md',
-  '\u{F07C} hooks/  M1 D1           \u{EA73} main       4s',
-  '  \u{F07B} dist/  not listed',
-  '  D old-pane.tsx',
-  '  M pane.tsx              \u{EA73} main       4s',
-  '    register.tsx',
-  '\u{F07B} scripts/',
-  '  .gitignore',
-  'M README.md',
+  COLUMN_RULE_41,
+  '▸ \u{F07B}  .git/  not listed',
+  '▸ \u{F07B}  node_modules/  not listed',
+  '▾ \u{F07C}  docs/  M2 ?1',
+  `  M ${MARKDOWN_ICON}  design.md          \u{EA70} scout      2s`,
+  `  ? ${MARKDOWN_ICON}  filetree.md`,
+  `    ${MARKDOWN_ICON}  guide.md`,
+  `    ${MARKDOWN_ICON}  install.md`,
+  `  M ${MARKDOWN_ICON}  mocks.md`,
+  '▾ \u{F07C}  hooks/  M1 D1',
+  '  ▸ \u{F07B}  dist/  not listed',
+  `  D ${TYPESCRIPT_ICON}  old-pane.tsx`,
+  `  M ${TYPESCRIPT_ICON}  pane.tsx           \u{EA73} main       4s`,
+  `    ${TYPESCRIPT_ICON}  register.tsx`,
+  '▸ \u{F07B}  scripts/',
+  `  ${DEFAULT_ICON}  .gitignore`,
+  `M ${MARKDOWN_ICON}  README.md`,
 ]
 
 function nerdOn(surface: RenderSurface): boolean {
@@ -5493,7 +5558,7 @@ function nerdOn(surface: RenderSurface): boolean {
 }
 
 function marksScreenOn(surface: RenderSurface): readonly string[] {
-  return nerdOn(surface) ? NERD_MARKS_SCREEN : PLAIN_MARKS_SCREEN
+  return nerdOn(surface) ? NERD_MARKS_SCREEN : plainMarksScreen(surface)
 }
 
 async function glyphsTo($: Engine, value: 'plain' | 'nerd'): Promise<void> {
@@ -5526,7 +5591,7 @@ async function countedWork($: Engine, on: On, surface: RenderSurface, columns: n
 
 describe('the glyph sets: the files tab', () => {
   for (const surface of SURFACES) {
-    test(`with glyphs nerd the ${surface} draws ${nerdOn(surface) ? 'the edited, read, closed folder, open folder and branch icons' : 'the plain marks'}`, async ($, on) => {
+    test(`with glyphs nerd the ${surface} draws ${nerdOn(surface) ? 'the edited, read, closed folder, open folder, branch and type icons' : 'the plain marks'}`, async ($, on) => {
       const { seen, ui } = await marksScene($, on, surface, 'nerd')
       expect(seen.glyphs).toEqual(['nerd'])
       expect(await screen(ui)).toEqual(marksScreenOn(surface))
@@ -5536,7 +5601,7 @@ describe('the glyph sets: the files tab', () => {
     test(`with glyphs plain the ${surface} draws the plain marks`, async ($, on) => {
       const { seen, ui } = await marksScene($, on, surface, 'plain')
       expect(seen.glyphs).toEqual(['plain'])
-      expect(await screen(ui)).toEqual(PLAIN_MARKS_SCREEN)
+      expect(await screen(ui)).toEqual(plainMarksScreen(surface))
       await ui.unmount()
     })
 
@@ -5545,7 +5610,7 @@ describe('the glyph sets: the files tab', () => {
       await glyphsTo($, 'nerd')
       expect(await screen(ui)).toEqual(marksScreenOn(surface))
       await glyphsTo($, 'plain')
-      expect(await screen(ui)).toEqual(PLAIN_MARKS_SCREEN)
+      expect(await screen(ui)).toEqual(plainMarksScreen(surface))
       await ui.unmount()
     })
 
@@ -5601,18 +5666,22 @@ describe('the glyph sets: the files tab', () => {
     })
 
     for (const columns of [41, 30, 24]) {
-      test(`at body ${String(columns)} every line has the same width in both sets, and the git letters, arrows and line counts stay, on the ${surface}`, async ($, on) => {
+      const typed = columns >= 41
+      test(`at body ${String(columns)} every line fits in both sets, the folder icon follows the chevron, ${typed ? 'a type icon follows the git letter' : 'no type icon draws'}, and the git letters, arrows and line counts stay, on the ${surface}`, async ($, on) => {
         const ui = await countedWork($, on, surface, columns)
         const plain = await screen(ui, columns)
         await glyphsTo($, 'nerd')
         const nerd = await screen(ui, columns)
-        expect(nerd.map((line) => displayWidth(line))).toEqual(
-          plain.map((line) => displayWidth(line)),
-        )
-        expect(nerd.map(asPlain)).toEqual(plain)
+        expect(nerd).toHaveLength(plain.length)
         expect(nerd.filter(hasNerdMark).length > 0).toBe(nerdOn(surface))
         expect(plain.filter(hasNerdMark)).toEqual([])
-        expect(nerd.join('\n')).toContain('M design.md')
+        if (!nerdOn(surface)) expect(nerd).toEqual(plain)
+        const hasTypeIcon = nerd.some((line) => line.includes(MARKDOWN_ICON))
+        expect(hasTypeIcon).toBe(nerdOn(surface) && typed)
+        expect(nerd.join('\n')).toContain(
+          hasTypeIcon ? `M ${MARKDOWN_ICON}  design.md` : 'M design.md',
+        )
+        expect(nerd.some((line) => line.startsWith('▾ '))).toBe(true)
         expect(nerd[0]).toContain('↑1')
         await ui.unmount()
       })
@@ -5626,7 +5695,710 @@ describe('the glyph sets: the files tab', () => {
       'Files  app \u{F418} main ↑1 · 7 changed +48 -93',
       UPSTREAM_LINE,
     ])
-    expect(await treeLines(ui)).toContain('  M design.md       +4 -1 \u{EA70} scout      2s')
+    expect(await treeLines(ui)).toContain(
+      `  M ${MARKDOWN_ICON}  design.md    +4 -1 \u{EA70} scout      2s`,
+    )
     await ui.unmount()
   })
+})
+
+const PARITY_NOW = new Date(2026, 9, 30, 15, 0).getTime()
+const JSON_ICON = '\u{E60B}'
+const FOLDER_ICON = '\u{F07B}'
+const OPEN_FOLDER_ICON = '\u{F07C}'
+const PRIVATE_USE = /[\u{E000}-\u{F8FF}]/u
+
+function localTime(month: number, day: number, hour = 9, minute = 0, year = 2026): number {
+  return new Date(year, month - 1, day, hour, minute).getTime()
+}
+
+const PARITY_APP: [string, FsEntry[]][] = [
+  [
+    '.',
+    [
+      file('README.md'),
+      file('LICENSE'),
+      file('package.json'),
+      file('.gitignore'),
+      file('debug.log'),
+      folder('docs'),
+      folder('hooks'),
+      folder('scripts'),
+      folder('build'),
+    ],
+  ],
+  ['docs', ['design.md', 'mocks.md', 'guide.md', 'diagram.png', 'huge.md', 'locked.md'].map(file)],
+  ['hooks', [file('pane.tsx'), file('register.tsx')]],
+  ['scripts', [file('mods.mjs')]],
+  ['build', [file('out.js')]],
+]
+
+const PARITY_CHANGES = statusOf(
+  [
+    changed('.M', 'docs/design.md'),
+    changed('.M', 'docs/mocks.md'),
+    changed('.M', 'hooks/pane.tsx'),
+    changed('M.', 'README.md'),
+  ],
+  { ab: '+1 -0' },
+)
+
+const PARITY_LINES = [
+  numstatLine('4', '1', 'docs/design.md'),
+  numstatLine('12', '3', 'docs/mocks.md'),
+  numstatLine('30', '0', 'hooks/pane.tsx'),
+  numstatLine('0', '2', 'README.md'),
+].join('')
+
+const PARITY_IGNORED = '! build/\0! debug.log\0'
+
+function parityFiles(seen: World): void {
+  textFile(seen, 'README.md', 'readme\n', { mtimeMs: localTime(10, 30, 14, 1) })
+  textFile(seen, 'LICENSE', 'MIT\n', { mtimeMs: localTime(1, 5, 9, 0, 2025) })
+  textFile(seen, 'package.json', '{}\n', { mtimeMs: localTime(10, 20) })
+  textFile(seen, '.gitignore', 'build/\n', { mtimeMs: localTime(10, 2) })
+  textFile(seen, 'debug.log', 'log\n', { mtimeMs: localTime(10, 30, 14, 7) })
+  textFile(seen, 'docs/design.md', lineText(1525), {
+    mtimeMs: localTime(10, 27),
+    size: 84 * 1024 + 10,
+  })
+  textFile(seen, 'docs/mocks.md', lineText(88), { mtimeMs: localTime(10, 30, 13, 58), size: 3200 })
+  textFile(seen, 'docs/guide.md', lineText(5), {
+    mtimeMs: localTime(9, 12, 9, 0, 2025),
+    size: 412 * 1024,
+  })
+  textFile(seen, 'docs/diagram.png', `PNG${NUL}data`, {
+    mtimeMs: localTime(10, 29),
+    size: 1.25 * MIB,
+  })
+  textFile(seen, 'docs/huge.md', 'x\n', { mtimeMs: localTime(10, 28), size: 5 * MIB })
+  textFile(seen, 'docs/locked.md', 'secret\n', {
+    mtimeMs: localTime(10, 26),
+    denial: 'EACCES: permission denied, open',
+  })
+  textFile(seen, 'hooks/pane.tsx', 'a\nb\n', { mtimeMs: localTime(10, 30, 14, 30) })
+  textFile(seen, 'hooks/register.tsx', 'a\n', { mtimeMs: localTime(10, 25) })
+  textFile(seen, 'scripts/mods.mjs', 'a\n', { mtimeMs: localTime(10, 1) })
+  textFile(seen, 'build/out.js', 'a\n', { mtimeMs: localTime(10, 1) })
+}
+
+function parityWorld(on: On, glyphs: 'plain' | 'nerd' = 'plain'): World {
+  const seen = world(on, PARITY_APP, { now: PARITY_NOW })
+  gitFolder(seen)
+  parityFiles(seen)
+  seen.answer = { kind: 'ok', stdout: PARITY_CHANGES }
+  seen.numstatAnswer = { kind: 'ok', stdout: PARITY_LINES }
+  seen.ignoredAnswer = { kind: 'ok', stdout: PARITY_IGNORED }
+  seen.config = [glyphsRow(glyphs)]
+  return seen
+}
+
+async function textsOf(ui: { findAll: Mounted['findAll'] }, text: string | RegExp) {
+  return (await ui.findAll({ type: 'Text', text })).map((found) => found.props)
+}
+
+async function buttonText(ui: Found, key: string): Promise<string> {
+  const drawn = drawnOf(await ui.find({ key }))
+  if (drawn === null) throw new Error(`no Button ${key}`)
+  return drawn.text
+}
+
+async function columnTo(ui: Viewed & { findAll: Mounted['findAll'] }, label: string) {
+  for (let press = 0; press < 4; press += 1) {
+    if ((await ui.find({ key: 'column' }))?.props.label === label) return
+    await pressHotkey(ui, 'i')
+  }
+  expect((await ui.find({ key: 'column' }))?.props.label).toBe(label)
+}
+
+function atEdge(name: string, value: string, columns = 41): string {
+  return `${name}${' '.repeat(columns - displayWidth(name) - displayWidth(value))}${value}`
+}
+
+async function settledFacts(seen: World): Promise<void> {
+  await seen.clock.settle()
+  await seen.clock.settle()
+}
+
+describe('parity: folder colours', () => {
+  for (const surface of SURFACES) {
+    test(`a folder with no git change below it draws its name, and its icon in the nerd set, in planMode, and a changed folder keeps its git key, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on, 'nerd')
+      const ui = await openFiles($, seen, surface)
+      const icon = nerdOn(surface) ? `${FOLDER_ICON}  ` : ''
+      expect((await propsOf(ui, `${icon}scripts/`)).color).toBe('planMode')
+      expect((await propsOf(ui, `${icon}docs/`)).color).toBe('warning')
+      expect((await propsOf(ui, `${icon}hooks/`)).color).toBe('warning')
+      for (const chevron of await textsOf(ui, '▸ ')) expect(chevron.dimColor).toBe(true)
+      await ui.redraw(paneProps('dock', 30))
+      expect(await treeLines(ui, 30)).toContain(`▸ ${icon}scripts/`)
+      expect((await propsOf(ui, `${icon}scripts/`)).color).toBe('planMode')
+      await ui.unmount()
+    })
+  }
+})
+
+describe('parity: chevrons and type icons', () => {
+  for (const surface of SURFACES) {
+    test(`with glyphs nerd the ${surface} draws ${nerdOn(surface) ? 'the chevron, then the folder icon, and a type icon after the git letter in its family key, with the default icon for an unknown type' : 'the chevron and no folder or type icon'}`, async ($, on) => {
+      const seen = parityWorld(on, 'nerd')
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:hooks' })
+      const lines = await treeLines(ui)
+      if (!nerdOn(surface)) {
+        expect(lines.filter((line) => PRIVATE_USE.test(line))).toEqual([])
+        expect(lines).toContain('▾ hooks/  M1       +30 -0')
+        expect(lines).toContain('  LICENSE')
+        await ui.unmount()
+        return
+      }
+      expect(lines).toEqual([
+        `▸ ${FOLDER_ICON}  build/  igno…`,
+        `▸ ${FOLDER_ICON}  docs/  M2     +16 -4`,
+        `▾ ${OPEN_FOLDER_ICON}  hooks/  M1    +30 -0`,
+        `  M ${TYPESCRIPT_ICON}  pane.tsx    +30 -0`,
+        `    ${TYPESCRIPT_ICON}  register.t…`,
+        `▸ ${FOLDER_ICON}  scripts/`,
+        `  ${DEFAULT_ICON}  .gitignore`,
+        `  ${DEFAULT_ICON}  debug.log`,
+        `  ${DEFAULT_ICON}  LICENSE`,
+        `  ${JSON_ICON}  package.json`,
+        `M ${MARKDOWN_ICON}  README.md      +0 -2`,
+      ])
+      expect((await propsOf(ui, `${TYPESCRIPT_ICON}  `)).color).toBe('suggestion')
+      expect((await propsOf(ui, `${MARKDOWN_ICON}  `)).color).toBe('merged')
+      expect((await propsOf(ui, `${JSON_ICON}  `)).color).toBe('inactive')
+      const defaults = await textsOf(ui, `${DEFAULT_ICON}  `)
+      expect(defaults.map((props) => [props.color, props.dimColor])).toEqual([
+        [undefined, true],
+        [undefined, true],
+        ['inactive', undefined],
+      ])
+      expect((await propsOf(ui, 'README.md')).color).toBe('warning')
+      await ui.redraw(paneProps('dock', 30))
+      const narrow = await treeLines(ui, 30)
+      expect(narrow).toContain(`▾ ${OPEN_FOLDER_ICON}  hooks/  M1`)
+      expect(narrow).toContain('  M pane.tsx')
+      expect(narrow.join('\n')).not.toContain(TYPESCRIPT_ICON)
+      await ui.unmount()
+      const inline = await mountSettled($, seen, surface, 'inline', 76)
+      expect(await screen(inline, 76)).toContain(
+        inlineCounted(`M ${MARKDOWN_ICON}  docs/design.md`, '+4 -1'),
+      )
+      await inline.unmount()
+    })
+
+    test(`with glyphs plain the ${surface} draws the chevrons and no folder or type icon`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:hooks' })
+      const lines = await treeLines(ui)
+      expect(lines.filter((line) => PRIVATE_USE.test(line))).toEqual([])
+      expect(lines.slice(0, 4)).toEqual([
+        '▸ build/  ignored',
+        '▸ docs/  M2        +16 -4',
+        '▾ hooks/  M1       +30 -0',
+        '  M pane.tsx       +30 -0',
+      ])
+      await ui.unmount()
+    })
+  }
+})
+
+describe('parity: open folders and zero counts', () => {
+  for (const surface of SURFACES) {
+    test(`an open folder draws no agent mark and no age, and a file and a closed folder keep both, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map())
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await mainEditsScoutReads($, seen)
+      await ui.redraw(DOCKED_PANE)
+      expect(await treeLines(ui)).toContain('▸ docs/  M2 ?1            ◦ scout      2s')
+      await ui.press({ key: 'open:docs' })
+      const open = await treeLines(ui)
+      expect(open).toContain('▾ docs/  M2 ?1')
+      expect(open).toContain('  M design.md             ◦ scout      2s')
+      await ui.redraw(paneProps('dock', 30))
+      const narrow = await treeLines(ui, 30)
+      expect(narrow).toContain('▾ docs/  M2 ?1')
+      expect(narrow.filter((line) => line.startsWith('▸ hooks/'))[0]).toContain('✎ main')
+      await ui.unmount()
+    })
+
+    test(`a zero line count draws +0 or -0 dim and keeps its sign, beside counts in their keys, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      expect(await treeLines(ui)).toContain('M README.md         +0 -2')
+      const zeros = (await ui.findAll({ type: 'Text', text: /^[+-]0$/ })).map((found) => [
+        drawnOf(found)?.text,
+        found.props.dimColor,
+        found.props.color,
+      ])
+      expect(zeros).toEqual([
+        ['-0', true, undefined],
+        ['+0', true, undefined],
+      ])
+      expect((await propsOf(ui, '+30')).color).toBe('success')
+      expect((await propsOf(ui, '-2')).color).toBe('error')
+      await ui.unmount()
+      const inline = await mountSettled($, seen, surface, 'inline', 76)
+      expect(await screen(inline, 76)).toContain(inlineCounted('M README.md', '+0 -2'))
+      expect((await propsOf(inline, '+0')).dimColor).toBe(true)
+      await inline.unmount()
+    })
+  }
+})
+
+describe('parity: ignored and dot files', () => {
+  for (const surface of SURFACES) {
+    test(`a path that git status --ignored=matching reports, or a name that starts with a dot, draws dim, and an ignored folder reads ignored, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on, 'nerd')
+      seen.numstatAnswer = { kind: 'ok', stdout: '' }
+      const ui = await openFiles($, seen, surface)
+      expect(seen.ignoreds).toEqual([
+        {
+          argv: [
+            'git',
+            '--no-optional-locks',
+            'status',
+            '--porcelain=v2',
+            '-z',
+            '--ignored=matching',
+            '--untracked-files=normal',
+            '--',
+            '.',
+          ],
+          cwd: ROOT,
+          timeoutMs: 10_000,
+        },
+      ])
+      const icon = nerdOn(surface) ? `${FOLDER_ICON}  ` : ''
+      expect(await treeLines(ui)).toContain(`▸ ${icon}build/  ignored`)
+      expect((await propsOf(ui, `${icon}build/`)).dimColor).toBe(true)
+      expect((await propsOf(ui, `${icon}build/`)).color).toBeUndefined()
+      expect((await propsOf(ui, '  ignored')).dimColor).toBe(true)
+      const name = (text: string) => (nerdOn(surface) ? text : `  ${text}`)
+      expect((await propsOf(ui, name('debug.log'))).dimColor).toBe(true)
+      expect((await propsOf(ui, name('.gitignore'))).dimColor).toBe(true)
+      expect((await propsOf(ui, name('LICENSE'))).dimColor).toBe(false)
+      if (nerdOn(surface)) {
+        const icons = await textsOf(ui, `${DEFAULT_ICON}  `)
+        expect(icons.map((props) => props.dimColor)).toEqual([true, true, undefined])
+      }
+      await ui.press({ key: 'open:build' })
+      expect((await propsOf(ui, name('out.js'))).dimColor).toBe(true)
+      await ui.unmount()
+    })
+
+    test(`when git status --ignored fails nothing dims, the tree stays, and the debug log names the failure, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      seen.ignoredAnswer = { kind: 'exit', exitCode: 128, stderr: 'fatal: bad ignore file' }
+      const ui = await openFiles($, seen, surface)
+      expect(await treeLines(ui)).toContain('▸ build/')
+      expect((await propsOf(ui, 'build/')).color).toBe('planMode')
+      expect((await propsOf(ui, '  debug.log')).dimColor).toBe(false)
+      expect((await propsOf(ui, '  .gitignore')).dimColor).toBe(true)
+      expect(seen.logs.some((log) => log.includes('git status --ignored exited 128'))).toBe(true)
+      expect(await ui.find({ type: 'Text', text: /ignored/ })).toBeUndefined()
+      await ui.unmount()
+    })
+  }
+
+  test('git status --ignored runs after each git status at least 2 s apart, and after two slow runs it stops and nothing dims', async ($, on) => {
+    const seen = parityWorld(on)
+    seen.ignoredAnswer = { kind: 'ok', stdout: PARITY_IGNORED, tookMs: 6000 }
+    const ui = await openFiles($, seen)
+    await seen.clock.advance(6000)
+    expect(seen.ignoreds).toHaveLength(1)
+    expect((await propsOf(ui, '  debug.log')).dimColor).toBe(true)
+    await changeIndex(seen)
+    await seen.clock.advance(6000)
+    expect(seen.ignoreds).toHaveLength(2)
+    const gaps = seen.ignoredStarts
+      .slice(1)
+      .map((at, index) => at - (seen.ignoredStarts[index] ?? 0))
+    expect(gaps.every((gap) => gap >= 2000)).toBe(true)
+    expect((await propsOf(ui, '  debug.log')).dimColor).toBe(false)
+    expect(seen.logs.some((log) => log.includes('ignored files are not dimmed'))).toBe(true)
+    await changeIndex(seen)
+    await seen.clock.advance(6000)
+    expect(seen.runs).toHaveLength(3)
+    expect(seen.ignoreds).toHaveLength(2)
+    expect(await treeLines(ui)).toContain('▸ build/')
+    await ui.unmount()
+  })
+
+  test('a git status --ignored that gives no answer in 10 s dims nothing and says so in the debug log', async ($, on) => {
+    const seen = parityWorld(on)
+    seen.ignoredAnswer = SLOW_DIFF
+    const ui = await openFiles($, seen)
+    await seen.clock.advance(10_000)
+    expect((await propsOf(ui, '  debug.log')).dimColor).toBe(false)
+    expect(seen.logs.some((log) => log.includes('git status --ignored did not run'))).toBe(true)
+    await ui.unmount()
+  })
+})
+
+describe('parity: the focused row band', () => {
+  for (const surface of SURFACES) {
+    for (const columns of [41, 30]) {
+      test(`each row Button draws to the body width, so the focus inversion covers the whole row, at body ${String(columns)} on the ${surface}`, async ($, on) => {
+        const seen = parityWorld(on, 'nerd')
+        const ui = await openFiles($, seen, surface, 'dock', columns)
+        await ui.press({ key: 'open:hooks' })
+        for (const key of ['file:LICENSE', 'file:hooks/pane.tsx', 'open:scripts', 'open:build']) {
+          expect(displayWidth(await buttonText(ui, key)), key).toBe(columns)
+        }
+        expect(displayWidth(await buttonText(ui, 'open:hooks'))).toBe(columns)
+        expect(await ui.find({ key: 'diff:hooks' })).toBeUndefined()
+        await ui.unmount()
+      })
+    }
+  }
+})
+
+describe('parity: the right column', () => {
+  for (const surface of SURFACES) {
+    test(`the column button and i cycle +/-, date, size and lines, the choice lasts for the session, and dates read HH:MM today, MM-DD this year and the year before that, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:docs' })
+      const button = await ui.find({ key: 'column' })
+      expect([button?.props.label, button?.props.hotkey]).toEqual(['+/-', 'i'])
+      expect(await screen(ui)).toContain(surface === 'terminal' ? COLUMN_RULE_41 : COLUMN_BUTTON)
+      await ui.press({ key: 'column' })
+      await settledFacts(seen)
+      expect((await ui.find({ key: 'column' }))?.props.label).toBe('date')
+      expect(await treeLines(ui)).toEqual([
+        '▸ build/  ignored',
+        '▾ docs/  M2',
+        atEdge('  M design.md', '10-27'),
+        atEdge('    diagram.png', '10-29'),
+        atEdge('    guide.md', '2025'),
+        atEdge('    huge.md', '10-28'),
+        atEdge('    locked.md', '10-26'),
+        atEdge('  M mocks.md', '13:58'),
+        '▸ hooks/  M1',
+        '▸ scripts/',
+        atEdge('  .gitignore', '10-02'),
+        atEdge('  debug.log', '14:07'),
+        atEdge('  LICENSE', '2025'),
+        atEdge('  package.json', '10-20'),
+        atEdge('M README.md', '14:01'),
+      ])
+      expect((await propsOf(ui, '13:58')).dimColor).toBe(true)
+      await pressHotkey(ui, 'i')
+      await settledFacts(seen)
+      expect((await ui.find({ key: 'column' }))?.props.label).toBe('size')
+      const sizes = await treeLines(ui)
+      expect(sizes.slice(2, 8)).toEqual([
+        atEdge('  M design.md', '84K'),
+        atEdge('    diagram.png', '1.2M'),
+        atEdge('    guide.md', '412K'),
+        atEdge('    huge.md', '5.0M'),
+        atEdge('    locked.md', '7B'),
+        atEdge('  M mocks.md', '3.1K'),
+      ])
+      await ui.unmount()
+      const again = await mountSettled($, seen, surface)
+      expect((await again.find({ key: 'column' }))?.props.label).toBe('size')
+      await pressHotkey(again, 'i')
+      expect((await again.find({ key: 'column' }))?.props.label).toBe('lines')
+      await pressHotkey(again, 'i')
+      expect((await again.find({ key: 'column' }))?.props.label).toBe('+/-')
+      await again.unmount()
+    })
+
+    test(`below body 41 the column and its button hide, and inline at body 76 the button sits on the header row, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      await columnTo(ui, 'date')
+      await ui.redraw(paneProps('dock', 30))
+      await settledFacts(seen)
+      expect(await ui.find({ key: 'column' })).toBeUndefined()
+      const narrow = await screen(ui, 30)
+      expect(narrow.join('\n')).not.toMatch(/\d\d:\d\d|\d\d-\d\d|\+\/-/)
+      expect(narrow).toContain('─'.repeat(30))
+      await ui.unmount()
+      const inline = await mountSettled($, seen, surface, 'inline', 76)
+      await settledFacts(seen)
+      const lines = await screen(inline, 76)
+      expect(lines[0]).toBe(
+        'Files  app · main ↑1 · 4 changed +46 -6{agent: all}  [ date ] [ refresh ]',
+      )
+      expect(lines).toContain(atEdge('M README.md', '14:01', 76))
+      expect((await inline.find({ key: 'column' }))?.props.hotkey).toBe('i')
+      await inline.unmount()
+    })
+
+    test(`the lines column shows bin, over 4M and ? dim for a binary, a large and an unreadable file, and the opened row says why, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:docs' })
+      await columnTo(ui, 'lines')
+      await settledFacts(seen)
+      expect((await treeLines(ui)).slice(2, 8)).toEqual([
+        atEdge('  M design.md', '1,525'),
+        atEdge('    diagram.png', 'bin'),
+        atEdge('    guide.md', '5'),
+        atEdge('    huge.md', 'over 4M'),
+        atEdge('    locked.md', '?'),
+        atEdge('  M mocks.md', '88'),
+      ])
+      for (const text of ['bin', 'over 4M', '?', '1,525']) {
+        expect((await propsOf(ui, text)).dimColor).toBe(true)
+      }
+      const why = async (path: string) => {
+        await ui.press({ key: `file:${path}` })
+        return (await treeLines(ui)).find((line) => line.includes('lines not counted'))
+      }
+      expect(await why('docs/diagram.png')).toBe('      lines not counted: a binary file')
+      expect(await why('docs/huge.md')).toBe('      lines not counted: over 4 MiB')
+      expect(await why('docs/locked.md')).toBe('      lines not counted: permission')
+      expect(seen.reads).not.toContain(`${ROOT}/docs/huge.md`)
+      await ui.unmount()
+    })
+  }
+
+  test('the column reads no file while it shows +/-, and reads each drawn file once while it shows lines', async ($, on) => {
+    const seen = parityWorld(on)
+    const ui = await openFiles($, seen)
+    await ui.press({ key: 'open:docs' })
+    await settledFacts(seen)
+    await ui.redraw(DOCKED_PANE)
+    await settledFacts(seen)
+    expect(seen.reads.filter((path) => path.startsWith(`${ROOT}/docs/`))).toEqual([])
+    await columnTo(ui, 'lines')
+    await settledFacts(seen)
+    await ui.redraw(DOCKED_PANE)
+    await settledFacts(seen)
+    const reads = seen.reads.filter((path) => path === `${ROOT}/docs/design.md`)
+    expect(reads).toHaveLength(1)
+    await ui.unmount()
+  })
+})
+
+describe('parity: the now row', () => {
+  for (const surface of SURFACES) {
+    test(`while a tool call of any agent runs on a file its row draws on the subtle background with the age now in bold, until the call ends, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map([['Edit', { answer: 'ok', tookMs: 3000 }]]))
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:hooks' })
+      const call = edit($, 'hooks/pane.tsx', SCOUT)
+      await seen.clock.advance(1000)
+      expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ scout     now')
+      const row = await ui.find({ key: 'file:hooks/pane.tsx' })
+      const parts = drawnOf(row)?.children ?? []
+      expect(parts.length > 0).toBe(true)
+      expect(parts.every((part) => part.props.backgroundColor === 'subtle')).toBe(true)
+      expect(displayWidth(parts.map((part) => part.text).join(''))).toBe(41)
+      expect((await propsOf(ui, ' now')).bold).toBe(true)
+      expect((await headerOf(ui)).at(-1)).toBe('✎ scout     hooks/pane.tsx            now')
+      await ui.unmount()
+      const inline = await mountSettled($, seen, surface, 'inline', 76)
+      const flat = await inline.find({ key: 'flat:hooks/pane.tsx' })
+      expect(drawnOf(flat)?.children.every((part) => part.props.backgroundColor === 'subtle')).toBe(
+        true,
+      )
+      expect(displayWidth(drawnOf(flat)?.text ?? '')).toBe(76)
+      await inline.unmount()
+      await seen.clock.advance(2000)
+      await call
+      const docked = await mountSettled($, seen, surface)
+      expect(await treeLines(docked)).toContain('  M pane.tsx              ✎ scout      3s')
+      const after = drawnOf(await docked.find({ key: 'file:hooks/pane.tsx' }))?.children ?? []
+      expect(after.some((part) => part.props.backgroundColor !== undefined)).toBe(false)
+      await docked.unmount()
+    })
+  }
+})
+
+describe('parity: the age column at the right edge', () => {
+  for (const surface of SURFACES) {
+    for (const glyphs of ['plain', 'nerd'] as const) {
+      test(`the ages 4m, 18s and now end in the last body column in the ${glyphs} set on the ${surface}`, async ($, on) => {
+        const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+        seen.config = [glyphsRow(glyphs)]
+        fakeTools(on, seen, new Map([['Edit', { answer: 'ok', tookMs: 5000 }]]))
+        boardKnowsScout(on)
+        const ui = await openFiles($, seen, surface)
+        await ui.press({ key: 'open:docs' })
+        await ui.press({ key: 'open:hooks' })
+        await read($, 'docs/design.md', SCOUT)
+        await seen.clock.advance(222_000)
+        await read($, 'docs/mocks.md')
+        await seen.clock.advance(18_000)
+        const call = edit($, 'hooks/pane.tsx')
+        await seen.clock.advance(1000)
+        const ends = new Map<string, string>()
+        for (const line of await treeLines(ui)) {
+          const age = ['4m', '18s', 'now'].find((one) => line.endsWith(` ${one}`))
+          if (age !== undefined) ends.set(age, line)
+        }
+        expect([...ends.keys()].sort()).toEqual(['18s', '4m', 'now'])
+        for (const line of ends.values()) expect(displayWidth(line)).toBe(41)
+        await seen.clock.advance(4000)
+        await call
+        await ui.unmount()
+      })
+    }
+  }
+})
+
+const ABORTED = 'HooksError: handily-filetree: $.process.run(git) aborted'
+
+describe('repair: background git runs after a reopen', () => {
+  for (const surface of SURFACES) {
+    test(`when the engine aborts the line count and ignored runs after /tree close and /tree, no failure shows and the keeper runs them again within 30 s, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 4 changed +46 -6')
+      await ui.unmount()
+      expect(await tree($, 'close')).toBe('Tree closed.')
+      seen.numstatAnswer = { kind: 'reject', message: ABORTED, tookMs: 0 }
+      seen.ignoredAnswer = { kind: 'reject', message: ABORTED, tookMs: 0 }
+      touch(seen, `${GIT_DIR}/index`)
+      expect(await tree($, '')).toBe('Tree opened: files.')
+      const again = await mountSettled($, seen, surface)
+      await seen.clock.advance(2000)
+      await again.redraw(DOCKED_PANE)
+      expect(seen.numstats).toHaveLength(2)
+      expect((await screen(again)).join('\n')).not.toContain('did not start')
+      seen.numstatAnswer = { kind: 'ok', stdout: PARITY_LINES }
+      seen.ignoredAnswer = { kind: 'ok', stdout: PARITY_IGNORED }
+      await seen.clock.advance(30_000)
+      await again.redraw(DOCKED_PANE)
+      expect((await headerOf(again))[0]).toBe('Files  app · main ↑1 · 4 changed +46 -6')
+      expect((await screen(again)).join('\n')).not.toContain('not shown')
+      expect((await propsOf(again, '  debug.log')).dimColor).toBe(true)
+      expect(seen.logs.some((log) => log.includes('git diff --numstat was aborted'))).toBe(true)
+      await again.unmount()
+    })
+
+    test(`when the engine aborts a git status of the poll, the header shows no failure and the keeper runs it again within 30 s, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      seen.answer = { kind: 'reject', message: ABORTED, tookMs: 0 }
+      touch(seen, `${GIT_DIR}/index`)
+      await seen.clock.advance(2000)
+      expect(seen.runs).toHaveLength(2)
+      await ui.redraw(DOCKED_PANE)
+      expect((await headerOf(ui))[0]).not.toContain('failed')
+      seen.answer = { kind: 'ok', stdout: PARITY_CHANGES }
+      await seen.clock.advance(30_000)
+      await ui.redraw(DOCKED_PANE)
+      expect(seen.runs.length).toBeGreaterThanOrEqual(3)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 4 changed +46 -6')
+      await ui.unmount()
+    })
+  }
+})
+
+describe('repair: the now age belongs to its own agent', () => {
+  for (const surface of SURFACES) {
+    test(`while scout edits a file that main read after the edit began, the row keeps the subtle background but the age of main is not now, and the Now line of main is not now, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map([['Edit', { answer: 'ok', tookMs: 5000 }]]))
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:hooks' })
+      const call = edit($, 'hooks/pane.tsx', SCOUT)
+      await seen.clock.advance(1000)
+      await read($, 'hooks/pane.tsx')
+      await seen.clock.advance(1000)
+      await ui.redraw(DOCKED_PANE)
+      expect(await treeLines(ui)).toContain('  M pane.tsx              ◦ main +1    1s')
+      const row = drawnOf(await ui.find({ key: 'file:hooks/pane.tsx' }))?.children ?? []
+      expect(row.every((part) => part.props.backgroundColor === 'subtle')).toBe(true)
+      expect((await headerOf(ui)).slice(-2)).toEqual([
+        '◦ main      hooks/pane.tsx             1s',
+        '✎ scout     hooks/pane.tsx            now',
+      ])
+      await $.ui.select({ plugin: PLUGIN, key: 'agent', value: `agent:${SCOUT}` })
+      expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ scout     now')
+      await seen.clock.advance(3000)
+      await call
+      await ui.unmount()
+    })
+  }
+})
+
+describe('repair: slow side runs whose result is stale', () => {
+  for (const side of ['lines', 'ignored'] as const) {
+    test(`two slow ${side} runs turn that run off even when the index changed during each run`, async ($, on) => {
+      const seen = parityWorld(on)
+      const slow: GitAnswer = { kind: 'ok', stdout: '', tookMs: 6000 }
+      if (side === 'lines') seen.numstatAnswer = slow
+      else seen.ignoredAnswer = slow
+      const ui = await openFiles($, seen)
+      const runsOf = () => (side === 'lines' ? seen.numstats : seen.ignoreds).length
+      for (let change = 0; change < 4; change += 1) {
+        await seen.clock.advance(3000)
+        touch(seen, `${GIT_DIR}/index`)
+      }
+      await seen.clock.advance(12_000)
+      const off = side === 'lines' ? 'line counts are off' : 'ignored files are not dimmed'
+      expect(seen.logs.some((log) => log.includes(off))).toBe(true)
+      const before = runsOf()
+      expect(before).toBe(2)
+      touch(seen, `${GIT_DIR}/index`)
+      await seen.clock.advance(12_000)
+      expect(runsOf()).toBe(before)
+      if (side === 'lines') {
+        await ui.redraw(DOCKED_PANE)
+        expect((await screen(ui)).at(-1)).toBe('line counts off: git is slow here.')
+      }
+      await ui.unmount()
+    })
+  }
+})
+
+describe('repair: the ignored parse and the file kinds', () => {
+  for (const surface of SURFACES) {
+    test(`the original path after a rename record is not read as ignored, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      seen.ignoredAnswer = {
+        kind: 'ok',
+        stdout: `2 R. N... 100644 100644 100644 ${HASH} ${HASH} R100 LICENSE\0! debug.log\0`,
+      }
+      const ui = await openFiles($, seen, surface)
+      expect((await propsOf(ui, '  debug.log')).dimColor).toBe(false)
+      expect((await propsOf(ui, 'build/')).color).toBe('planMode')
+      await ui.unmount()
+    })
+
+    test(`a link to a folder and a FIFO show ? dim in the lines column, are never read, and the opened row says why, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const docs = PARITY_APP.find(([path]) => path === 'docs')?.[1] ?? []
+      seen.folders.set('docs', [...docs, link('site'), link('pipe')])
+      seen.files.set(`${ROOT}/docs/site`, { kind: 'dir', text: '', mtimeMs: 1 })
+      seen.files.set(`${ROOT}/docs/pipe`, { kind: 'other', text: '', mtimeMs: 1 })
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:docs' })
+      await columnTo(ui, 'lines')
+      await settledFacts(seen)
+      const lines = await treeLines(ui)
+      expect(lines).toContain(atEdge('    pipe', '?'))
+      expect(lines).toContain(atEdge('    site', '?'))
+      expect(seen.reads.filter((path) => /docs\/(site|pipe)$/.test(path))).toEqual([])
+      const why = async (path: string) => {
+        await ui.press({ key: `file:${path}` })
+        const opened = await treeLines(ui)
+        const at = opened.findIndex((line) => line.startsWith('      lines not shown'))
+        return opened.slice(at, at + 2)
+      }
+      expect(await why('docs/site')).toEqual([
+        '      lines not shown: it leads to a',
+        '      folder',
+      ])
+      expect(await why('docs/pipe')).toEqual([
+        '      lines not shown: it is not a',
+        '      regular file',
+      ])
+      await ui.unmount()
+    })
+  }
 })

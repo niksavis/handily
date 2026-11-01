@@ -4,6 +4,8 @@ export type FiletreeView = 'work' | 'all'
 
 export type FiletreeGlyphs = 'plain' | 'nerd'
 
+export type FiletreeColumn = 'changes' | 'date' | 'size' | 'lines'
+
 declare module 'claude-code' {
   interface PluginState {
     'handily-filetree': {
@@ -12,6 +14,7 @@ declare module 'claude-code' {
       shut: FiletreePaths
       workWhole: FiletreePaths
       view: FiletreeView
+      column: FiletreeColumn
       ready: { root: string }
       glyphs: FiletreeGlyphs
     }

@@ -1,18 +1,23 @@
 import type { ConfigSetInput, EngineInterface, RenderSurface } from 'claude-code'
-import { DEFAULT_GLYPHS, GLYPH_SETS, type GlyphSet, type GlyphSetting } from './glyphs'
+import { DEFAULT_GLYPHS, type GlyphSetting } from './glyphs'
 import { changedGlyphSetting, glyphSettingNow, showToast, type ToastParts } from './toast'
 
 const GLYPHS = { plugin: 'handily-filetree', key: 'glyphs' } as const
 
 const SETTING_SURFACE: RenderSurface = 'terminal'
 
+const OTHER_SURFACE_GLYPHS: GlyphSetting = 'plain'
+
 async function glyphsOf($: EngineInterface): Promise<GlyphSetting> {
   return (await $.state.get(GLYPHS)).value ?? DEFAULT_GLYPHS
 }
 
-export async function paneGlyphs($: EngineInterface, surface: RenderSurface): Promise<GlyphSet> {
-  if (surface !== SETTING_SURFACE) return GLYPH_SETS.plain
-  return GLYPH_SETS[await glyphsOf($)]
+export async function paneGlyphSetting(
+  $: EngineInterface,
+  surface: RenderSurface,
+): Promise<GlyphSetting> {
+  if (surface !== SETTING_SURFACE) return OTHER_SURFACE_GLYPHS
+  return glyphsOf($)
 }
 
 export async function keepGlyphSetting($: EngineInterface): Promise<void> {
