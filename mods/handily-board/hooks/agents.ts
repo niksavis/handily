@@ -65,6 +65,7 @@ export type AgentRow = {
   shownName: string
   look: AgentLook
   isEnded: boolean
+  isAging: boolean
   call: BoardToolSight | null
   callId: string | null
   isCallRunning: boolean
@@ -285,7 +286,7 @@ function statusOf(agent: BoardAgent): RowStatus {
     if (agent.isListed || ENDED_STATUSES.has(agent.listedStatus)) return agent.listedStatus
     return agent.endedAt === null ? 'unknown' : 'completed'
   }
-  if (agent.running.length > 0) return 'running'
+  if (agent.running.length > 0 && agent.endedAt === null) return 'running'
   return agent.endedAt === null ? 'unknown' : 'completed'
 }
 
@@ -324,11 +325,15 @@ function isEndedRow(agent: BoardAgent, look: AgentLook): boolean {
   return look === 'done' || look === 'killed'
 }
 
+function isAgingNow(agent: BoardAgent, status: RowStatus): boolean {
+  if (status !== 'unknown' && ENDED_STATUSES.has(status)) return false
+  return agent.running.length > 0 || status !== 'unknown'
+}
+
 function endOf(agent: BoardAgent, status: RowStatus, now: number): number {
-  if (agent.running.length > 0) return now
+  if (isAgingNow(agent, status)) return now
   if (status === 'unknown') return agent.seenAt
-  if (ENDED_STATUSES.has(status)) return agent.endedAt ?? now
-  return now
+  return agent.endedAt ?? now
 }
 
 function shortId(id: string): string {
@@ -393,6 +398,7 @@ function rowOf(
     shownName: agent.label ?? escaped(baseLabel(agent)),
     look,
     isEnded,
+    isAging: isAgingNow(agent, status),
     call: sightOf(agent, waiting),
     callId: running?.id ?? null,
     isCallRunning: running !== undefined,

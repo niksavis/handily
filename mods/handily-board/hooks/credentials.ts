@@ -17,6 +17,9 @@ const SECRET_FLAG_VALUE = new RegExp(
   'gi',
 )
 
+const MYSQL_GLUED_PASSWORD =
+  /(\b(?:mysql\w*|mariadb[\w-]*)\s[^\n|;&]*?(?<=\s)-p)(?:"[^"]*"|'[^']*'|[^\s"']+)/g
+
 const USER_FLAG_PASSWORD = /(\s(?:-u|--user)\s+["']?[^\s:"']+):[^\s"']+/g
 
 const AUTH_SCHEME_VALUE = /\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi
@@ -39,6 +42,7 @@ const TOKEN_SHAPES = new RegExp(
 export function maskedCredentials(text: string): string {
   return text
     .replace(URL_USER_INFO, `$1${MASK}@`)
+    .replace(MYSQL_GLUED_PASSWORD, `$1${MASK}`)
     .replace(SECRET_ASSIGNMENT, `$1$2${MASK}`)
     .replace(SECRET_FLAG_VALUE, `$1$2${MASK}`)
     .replace(USER_FLAG_PASSWORD, `$1:${MASK}`)

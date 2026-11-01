@@ -1322,6 +1322,30 @@ for (const surface of SURFACES) {
     )
 
     test(
+      `the theme auto draws catppuccin-mocha and an ANSI theme keeps the theme keys, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await paletteScene($, seen, { palette: MOCHA, theme: 'auto' })
+        const auto = await frameColours($, surface)
+        expect(auto.fill).toBe(surface === 'terminal' ? '#cba6f7' : 'claude')
+        if (surface === 'terminal') {
+          expect(auto.edges).toEqual(['#cba6f7', '#89b4fa', '#f5c2e7', '#9399b2'])
+        }
+        for (const theme of ['dark-ansi', 'light-ansi']) {
+          seen.config = { ...seen.config, theme }
+          await setConfig($, 'theme', theme, 'engine')
+          const ansi = await frameColours($, surface)
+          expect(ansi.fill).toBe('claude')
+          expect(ansi.empty).toBe('subtle')
+          if (surface === 'terminal') {
+            expect(ansi.edges).toEqual(['claude', 'planMode', 'merged', 'inactive'])
+          }
+        }
+      },
+    )
+
+    test(
       `the default theme palette draws the theme keys, on ${surface}`,
       withWorkitems,
       async ($, on) => {
@@ -1399,3 +1423,202 @@ for (const surface of SURFACES) {
     )
   })
 }
+
+async function heldAsk($: Engine, seen: World, surface: Surface): Promise<{ call: Promise<void> }> {
+  await start($, surface)
+  await spawn($, SCOUT, 'scout', 'find the element table')
+  seen.verdicts.set('npm test', 'ask')
+  seen.isAskHeld = true
+  const call = bash($, 'npm test', SCOUT)
+  await seen.asked
+  await seen.clock.advance(SECOND)
+  return { call }
+}
+
+async function agentTurnEnds($: Engine, agentId: string, reason: 'answer' | 'aborted') {
+  await $.turn.complete({
+    turnId: `turn-${agentId}`,
+    reason,
+    answer: '',
+    durationMs: 4 * MINUTE,
+    isAborted: reason === 'aborted',
+    agentId,
+  })
+}
+
+function agentsTitle(lines: readonly string[]): string {
+  return inner(sectionOf(lines, 'Agents')[0] ?? '')
+}
+
+for (const surface of SURFACES) {
+  describe(LOG_CRITERION, () => {
+    test(
+      `an agent that ends while its ask waits leaves the asked state and the Log records its end, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const { call } = await heldAsk($, seen, surface)
+        expect((await screenOn($, surface, 'dock', 41)).join('\n')).toContain('asked')
+        await agentTurnEnds($, SCOUT, 'answer')
+        const lines = await screenOn($, surface, 'dock', 41)
+        expect(agentsTitle(lines)).toMatch(/^(╭─ )?Agents {2}all 1 done/u)
+        expect(sectionOf(lines, 'Agents').join('\n')).not.toMatch(/asked|running/u)
+        expect((await board($, 'log')).split('\n')[0]).toBe('14:00:01 scout ✓ done 4m')
+        seen.waiting.shift()?.()
+        await call
+      },
+    )
+
+    test(
+      `an agent that the agent list reports as ended gets one end line in the Log, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const { call } = await heldAsk($, seen, surface)
+        seen.agents.push(listed(SCOUT, 'scout', 'general-purpose', 'find the element table'))
+        await screenOn($, surface, 'dock', 41)
+        const scout = seen.agents[0]
+        if (scout !== undefined) scout.status = 'completed'
+        await seen.clock.advance(MINUTE)
+        const lines = await screenOn($, surface, 'dock', 41)
+        expect(sectionOf(lines, 'Agents').join('\n')).not.toMatch(/asked|running/u)
+        await screenOn($, surface, 'dock', 41)
+        expect((await board($, 'log')).split('\n')).toEqual([
+          '14:01:01 scout ✓ done 11s',
+          '14:00:00 scout spawned: find the element table',
+        ])
+        if (scout !== undefined) scout.status = 'killed'
+        seen.agents.push(listed(EXPLORE, 'Explore', 'Explore', 'map the hooks'))
+        const explore = seen.agents[1]
+        if (explore !== undefined) explore.status = 'killed'
+        await screenOn($, surface, 'dock', 41)
+        expect((await board($, 'log Explore')).split('\n')).toEqual([
+          '14:01:01 Explore ■ aborted 0s',
+        ])
+        seen.waiting.shift()?.()
+        await call
+      },
+    )
+
+    test(
+      `an aborted agent turn is logged as aborted, not done, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        await start($, surface)
+        await spawn($, SCOUT, 'scout', 'find the element table')
+        await agentTurnEnds($, SCOUT, 'aborted')
+        expect((await board($, 'log')).split('\n')[0]).toBe('14:00:00 scout ■ aborted 4m')
+        const ui = await mountTab($, surface, 'dock', 41)
+        const log = body(sectionOf(await screen(ui, 41), 'Log'))
+        expect(log[1]).toBe('14:00 scout     ■ aborted 4m')
+        expect(colourOf(await coloured(ui, 'log:0'), '■ aborted')).toBe('error')
+        await ui.unmount()
+      },
+    )
+
+    test(
+      `a password glued to -p in a mysql command is masked in the Log, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        await spawn($, SCOUT, 'scout', 'find the element table')
+        seen.failing.add('mysql -u root -phunter2secret -h db')
+        await bash($, 'mysql -u root -phunter2secret -h db', SCOUT)
+        expect((await board($, 'log')).split('\n')[0]).toBe(
+          '14:00:00 scout ■ failed Bash mysql -u root -p*** -h db',
+        )
+        const lines = await screenOn($, surface, 'dock', 89)
+        expect(lines.join('\n')).toContain('mysql -u root -p*** -h db')
+        expect(lines.join('\n')).not.toContain('hunter2')
+      },
+    )
+  })
+
+  describe(STATS_CRITERION, () => {
+    test(
+      `/board log filters by the name of the agent and by its id, not by the drawn name, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        const id = 'a0000009implementer'
+        await spawn($, id, 'implementer', 'build the feature')
+        seen.agents.push(listed(id, 'implementer', 'general-purpose', 'build the feature'))
+        await edit($, 'hooks/log.ts', id)
+        const all = await board($, 'log')
+        expect(all.split('\n')[0]).toBe('14:00:00 impl…nter Edit hooks/log.ts')
+        expect(await board($, 'log implementer')).toBe(all)
+        expect(await board($, `log ${id}`)).toBe(all)
+        expect(await board($, 'log a0000009')).toBe(all)
+        expect(await board($, 'log main')).toBe('The log has no event of "main".')
+      },
+    )
+  })
+
+  describe(REQUEST_CRITERION, () => {
+    test(
+      `the request count and the ttft reset on /clear and on a resume, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        for (const reason of ['clear', 'resume'] as const) {
+          seen.ttftMs = 1_200
+          await mainStep($)
+          expect(modelRow(await screenOn($, surface, 'dock', 41))).toBe(
+            'opus-5-5 · high · 1 req · ttft 1.2s',
+          )
+          await $.session.end({ reason, sessionId: 's1', resume: { id: 's1' } })
+          expect(modelRow(await screenOn($, surface, 'dock', 41))).toBe('opus-5-5 · high · req —')
+          expect(await board($, 'stats')).not.toContain('Requests')
+        }
+      },
+    )
+  })
+}
+
+describe(CARDS_CRITERION, () => {
+  test(
+    'a desktop render does not stop the clock of the terminal cards',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await cardScene($, seen, 'terminal')
+      await screenOn($, 'terminal', 'dock', 41)
+      await screenOn($, 'desktop', 'dock', 41)
+      const before = seen.redraws
+      await seen.clock.advance(SECOND)
+      expect(seen.redraws - before).toBe(1)
+      expect((await screenOn($, 'terminal', 'dock', 41)).join('\n')).toContain('1 step    2:01')
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `the clock stops while no card runs and starts again when one runs, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await cardScene($, seen, surface)
+        const explore = seen.agents[1]
+        if (explore !== undefined) explore.status = 'completed'
+        const ui = await mountTab($, surface, 'dock', 41)
+        await screen(ui, 41)
+        const stopped = seen.redraws
+        await seen.clock.advance(3 * SECOND)
+        expect(seen.redraws).toBe(stopped)
+        if (explore !== undefined) explore.status = 'running'
+        await screen(ui, 41)
+        await ui.unmount()
+        const again = await mountTab($, surface, 'dock', 41)
+        await screen(again, 41)
+        const running = seen.redraws
+        await seen.clock.advance(SECOND)
+        expect(seen.redraws - running).toBe(surface === 'terminal' ? 1 : 0)
+        await again.unmount()
+      },
+    )
+  }
+})

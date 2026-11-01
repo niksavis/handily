@@ -489,7 +489,7 @@ The context and a limit at 80 percent or more, from the tests at 41 columns:
 - From 80 percent, a gauge and its percent take the theme key `warning`, with the word `high`.
 - The model row counts the main-loop requests as `5 req` and shows the time to first token of
   the latest one as `ttft 1.2s`. Before the first request it shows `req —` and no ttft. A narrow
-  row drops the ttft first.
+  row drops the ttft first. `/clear` and a resume set the count and the ttft back to `req —`.
 - The model row shows the model of the latest main-loop request, from `TurnStepInput.model`,
   with no leading `claude-`. The effort comes from `TurnStepInput.effort` of that request. A
   model with no effort shows none. The permission mode comes from the latest classic
@@ -870,13 +870,17 @@ Log  7 events
 - The board keeps the last 100 events in memory. It shows 5 at body 41 and 3 at body 30, with a
   button for the earlier ones. Inline above the prompt it shows no log. From body 76 the time
   has seconds.
-- `you` is a prompt of the person, `main` the main loop, and an agent its name. `denied` and
-  `failed` take `error`, `done` takes `success`.
+- `you` is a prompt of the person, `main` the main loop, and an agent its name. `denied`,
+  `failed` and `aborted` take `error`, `done` takes `success`.
+- An agent end shows once: `done`, `failed`, or `aborted` for an interrupted or killed agent. The
+  board logs it when the turn of the agent ends, or when the agent list first says that the
+  agent ended.
 - The board masks the credentials of each event with `***`, as for the permission checks.
 - While an agent card or row is open, or the transcript of an agent is in view, the Log shows
   only the events of that agent, under a dim line such as `only scout, while card 1 is open`.
 - `/board log` prints the kept log as text, newest first. `/board log scout` prints the events of
-  one agent.
+  one agent. It takes the full name of the agent or its id, not the name that a narrow row cuts,
+  and `main` or `you`.
 
 - Order: needs you first, then failed, then asked and running, on hold, pending and idle, each
   in spawn order. Ended agents fold into `+N ended`. At most 6 active agents show. The rest fold
@@ -1177,12 +1181,12 @@ setting of its own. The captures in this file show the plain marks.
 ### Palette
 
 The frames, the gauge fill and the rules follow the setting Palette of the bundle `handily`.
-With `catppuccin-mocha` on a dark theme, they draw the Catppuccin Mocha colours, such as
-`#cba6f7` for the Session frame. With `theme`, on a light theme, on a theme that the board cannot
-read, and on the desktop app, they draw the theme keys. States keep the theme keys in every
-palette: done, failed, waits, denied, high gauges and the git letters. `/handily palette` lists
-each role. The board reads the setting when the session starts and after a change of it or of
-the theme in `/config`.
+With `catppuccin-mocha` on a dark theme or the theme `auto`, they draw the Catppuccin Mocha
+colours, such as `#cba6f7` for the Session frame. With `theme`, on a light theme, on an ANSI
+theme, on a theme that the board cannot read, and on the desktop app, they draw the theme keys.
+States keep the theme keys in every palette: done, failed, waits, denied, high gauges and the
+git letters. `/handily palette` lists each role. The board reads the setting when the session
+starts and after a change of it or of the theme in `/config`.
 
 ## Lifetime
 

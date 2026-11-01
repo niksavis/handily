@@ -153,8 +153,8 @@ default is `theme`.
 
 - `theme`: the colours of your Claude Code theme.
 - `catppuccin-mocha`: fixed colours from Catppuccin Mocha for the frames, the gauge fill and
-  the rules of the board. They draw only on a dark theme. A light theme, or a theme that the
-  mod cannot read, keeps the theme colours.
+  the rules of the board. They draw on a dark theme and on the theme `auto`. A light theme, an
+  ANSI theme, or a theme that the mod cannot read, keeps the theme colours.
 
 States always keep the theme keys: done, failed, waits, denied, high gauges and the git
 letters. So the daltonized themes keep working. The desktop app draws the theme colours.

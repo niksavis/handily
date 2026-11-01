@@ -21,7 +21,8 @@ import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
 
 export const LOG_KEPT = 100
 
-export type LogKind = 'prompt' | 'spawn' | 'done' | 'failed' | 'edit' | 'error' | 'denied'
+export type LogKind =
+  'prompt' | 'spawn' | 'done' | 'failed' | 'aborted' | 'edit' | 'error' | 'denied'
 
 export type LogEvent = { at: number; kind: LogKind; agentId: string | null; detail: string }
 
@@ -55,6 +56,8 @@ const EMPTY_TEXT = 'Prompts, spawns, edits, errors and denials show here, newest
 const NOTHING_YET = 'nothing yet'
 const BUTTON_CHROME = 4
 const CUT_MARK = '…'
+const SHORT_ID = 8
+const END_KINDS: ReadonlySet<LogKind> = new Set<LogKind>(['done', 'failed', 'aborted'])
 
 export function withEvent(log: BoardLog, event: LogEvent): BoardLog {
   return { events: [...log.events, event].slice(-LOG_KEPT), seen: log.seen + 1 }
@@ -75,10 +78,22 @@ export function logTime(at: number, hasSeconds: boolean): string {
   return hasSeconds ? `${minutes}:${twoDigits(date.getSeconds())}` : minutes
 }
 
+export function isEndLogged(log: BoardLog, agentId: string): boolean {
+  const last = log.events.findLast((event) => event.agentId === agentId)
+  return last !== undefined && END_KINDS.has(last.kind)
+}
+
 export function whoOf(event: LogEvent, names: ReadonlyMap<string, string>): string {
   if (event.kind === 'prompt') return PERSON
   if (event.agentId === null) return MAIN_LOOP
-  return names.get(event.agentId) ?? escaped(event.agentId.slice(0, 8))
+  return names.get(event.agentId) ?? escaped(event.agentId.slice(0, SHORT_ID))
+}
+
+function isEventOf(event: LogEvent, who: string, labels: ReadonlyMap<string, string>): boolean {
+  if (event.kind === 'prompt') return who === PERSON
+  const { agentId } = event
+  if (agentId === null) return who === MAIN_LOOP
+  return who === agentId || who === agentId.slice(0, SHORT_ID) || labels.get(agentId) === who
 }
 
 function marked(mark: string, word: string, detail: string, color: StyledPart['color']) {
@@ -97,6 +112,8 @@ function whatParts(event: LogEvent, signals: SignalLooks): StyledPart[] {
       return marked(done.mark, 'done', event.detail, SIGNALS.done.color)
     case 'failed':
       return marked(blocked.mark, 'failed', event.detail, SIGNALS.blocked.color)
+    case 'aborted':
+      return marked(blocked.mark, 'aborted', event.detail, SIGNALS.blocked.color)
     case 'error':
       return marked(blocked.mark, 'failed', event.detail, SIGNALS.blocked.color)
     case 'denied':
@@ -240,19 +257,17 @@ export function drawLog(outer: PaneElements, view: LogView): RenderElement[] {
   ]
 }
 
-export function logText(
-  log: BoardLog,
-  names: ReadonlyMap<string, string>,
-  signals: SignalLooks,
-  who: string,
-): string {
+export type LogWho = { names: ReadonlyMap<string, string>; labels: ReadonlyMap<string, string> }
+
+export function logText(log: BoardLog, who: LogWho, signals: SignalLooks, asked: string): string {
+  const { names, labels } = who
   const lines = eventsOf(log, undefined)
-    .filter((event) => who === '' || whoOf(event, names) === who)
+    .filter((event) => asked === '' || isEventOf(event, asked, labels))
     .map(
       (event) =>
         `${logTime(event.at, true)} ${whoOf(event, names)} ${partsText(whatParts(event, signals))}`,
     )
   if (lines.length > 0) return lines.join('\n')
-  if (who !== '') return `The log has no event of ${JSON.stringify(who)}.`
+  if (asked !== '') return `The log has no event of ${JSON.stringify(asked)}.`
   return 'The log is empty. It keeps the prompts, spawns, completions, edits, errors and denials that the board saw since it loaded.'
 }

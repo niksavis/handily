@@ -14,6 +14,7 @@
   (handily-ntinw.1).
 - **A Palette setting and `/handily palette`.** The bundle `handily` declares the setting
   Palette in `/config`, `theme` or `catppuccin-mocha`, with the default `theme`. With
-  `catppuccin-mocha` on a dark theme, the board frames, the gauge fill and the rules draw the
-  Catppuccin Mocha colours (MIT). States keep the theme keys. `/handily palette` names the
-  stored value and the theme and prints each role with its theme key and hex (handily-ntinw.1).
+  `catppuccin-mocha` on a dark theme or the theme `auto`, the board frames, the gauge fill and
+  the rules draw the Catppuccin Mocha colours (MIT). An ANSI theme keeps the theme keys. States
+  keep the theme keys. `/handily palette` names the stored value and the theme and prints each
+  role with its theme key and hex (handily-ntinw.1).

@@ -1022,11 +1022,11 @@ const MOCHA_ON_LIGHT = 'so the theme colours draw; catppuccin-mocha is for dark 
 describe('/handily palette', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`shows catppuccin-mocha, the dark theme that draws it and each role with its theme key and hex on ${surface}`, async ($, on) => {
-      fakeWorld(on, { palette: 'catppuccin-mocha', theme: 'dark-ansi' })
+      fakeWorld(on, { palette: 'catppuccin-mocha', theme: 'dark-daltonized' })
       await startSession($, surface)
       expect(await handily($, 'palette')).toBe(
         [
-          'Palette: catppuccin-mocha (stored). Theme: dark-ansi, so it draws.',
+          'Palette: catppuccin-mocha (stored). Theme: dark-daltonized, so it draws.',
           ...PALETTE_ROWS,
         ].join('\n'),
       )
@@ -1040,6 +1040,19 @@ describe('/handily palette', () => {
       )
     })
   }
+
+  test('says catppuccin-mocha draws under the theme auto, and the theme colours draw under an ANSI theme', async ($, on) => {
+    const world = fakeWorld(on, { palette: 'catppuccin-mocha', theme: 'auto' })
+    expect((await runHandily($, 'palette')).split('\n')[0]).toBe(
+      'Palette: catppuccin-mocha (stored). Theme: auto, so it draws.',
+    )
+    for (const theme of ['dark-ansi', 'light-ansi']) {
+      world.theme = theme
+      expect((await handily($, 'palette')).split('\n')[0]).toBe(
+        `Palette: catppuccin-mocha (stored). Theme: ${theme}, so the theme colours draw; catppuccin-mocha is not for ANSI themes.`,
+      )
+    }
+  })
 
   test('says the theme colours draw when the theme is light or cannot be read', async ($, on) => {
     const world = fakeWorld(on, { palette: 'catppuccin-mocha', theme: 'light-daltonized' })

@@ -51,6 +51,10 @@ export function withStep(
   }
 }
 
+export function withRequestsCleared(facts: RequestFacts): RequestFacts {
+  return { ...facts, requests: NO_REQUEST.requests, ttftMs: NO_REQUEST.ttftMs }
+}
+
 export function withFirstToken(facts: RequestFacts, ms: number): RequestFacts {
   return { ...facts, ttftMs: Math.max(ms, 0) }
 }

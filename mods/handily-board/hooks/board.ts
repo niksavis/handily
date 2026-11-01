@@ -1,4 +1,4 @@
-import type { PluginOptions } from 'claude-code'
+import type { PluginOptions, RenderSurface } from 'claude-code'
 import { marked, type ToastParts } from './toast'
 
 export const TASKS_PANE = { id: 'tasks', title: 'this session' } as const
@@ -48,7 +48,7 @@ export type PaneUi = {
   notes: () => ReadonlyMap<number, string>
   noteRow: (id: number, note: string | undefined) => void
   countParts: () => Promise<void>
-  keepClock: (isTicking: boolean) => void
+  keepClock: (surface: RenderSurface, isTicking: boolean) => void
 }
 
 function isBoardPane(pane: OpenPane): boolean {

@@ -5,11 +5,13 @@ import type {
   PromptOrigin,
   PromptSubmitInput,
   Register,
+  RenderSurface,
   SessionEndReason,
   Timer,
   ToolCheckInput,
   ToolCheckResult,
   ToolSpec,
+  TurnCompleteReason,
   TurnStepResult,
 } from 'claude-code'
 import {
@@ -36,7 +38,9 @@ import {
 } from './activity'
 import {
   type AgentHost,
+  type AgentLook,
   type AgentPulses,
+  type AgentRow,
   type AgentStep,
   NEEDS_YOU_AFTER_MS,
   agentView,
@@ -82,12 +86,20 @@ import {
   EMPTY_LOG,
   LOG_KEPT,
   type LogKind,
+  isEndLogged,
   logDetail,
   logText,
   withEvent,
 } from './log'
 import { keepChangedPaletteSetting, keepPaletteSetting, shownPalette } from './palette-setting'
-import { type RequestFacts, NO_REQUEST, withFirstToken, withMode, withStep } from './request'
+import {
+  type RequestFacts,
+  NO_REQUEST,
+  withFirstToken,
+  withMode,
+  withRequestsCleared,
+  withStep,
+} from './request'
 import { sessionBlockText } from './session'
 import { SESSION_DETAILS, detailsText } from './details'
 import { statsText } from './stats'
@@ -592,6 +604,7 @@ type Redraw = {
   bandTimer: Timer | undefined
   bandSawTab: boolean | undefined
   clock: Timer | undefined
+  clockSurfaces: Set<RenderSurface>
 }
 
 function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): void {
@@ -616,6 +629,7 @@ function noteTabSeen($: EngineInterface, redraw: Redraw, isSeen: boolean): void 
 function stopRedraw(redraw: Redraw): void {
   redraw.timer?.cancel()
   redraw.timer = undefined
+  redraw.clockSurfaces.clear()
   stopClock(redraw)
 }
 
@@ -629,8 +643,15 @@ async function tickClock($: EngineInterface, redraw: Redraw): Promise<void> {
   else stopClock(redraw)
 }
 
-function keepClock($: EngineInterface, redraw: Redraw, isTicking: boolean): void {
-  if (!isTicking) {
+function keepClock(
+  $: EngineInterface,
+  redraw: Redraw,
+  surface: RenderSurface,
+  isTicking: boolean,
+): void {
+  if (isTicking) redraw.clockSurfaces.add(surface)
+  else redraw.clockSurfaces.delete(surface)
+  if (redraw.clockSurfaces.size === 0) {
     stopClock(redraw)
     return
   }
@@ -757,6 +778,7 @@ async function workOf($: EngineInterface, keeps: SessionKeeps, inView?: string):
   const { value: activity } = await $.state.get(ACTIVITY)
   const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps.last, keeps.steps.counts)
   const agents = withStalls(rows, keeps.pulses, now)
+  noteListedEnds($, keeps.log, agents, now)
   const trend = await trendOf($, keeps.trend)
   return {
     now,
@@ -774,6 +796,36 @@ async function workOf($: EngineInterface, keeps: SessionKeeps, inView?: string):
     log: keeps.log.current,
     inView,
   }
+}
+
+const TURN_END_KINDS: Readonly<Record<TurnCompleteReason, LogKind>> = {
+  answer: 'done',
+  aborted: 'aborted',
+  refusal: 'failed',
+  error: 'failed',
+}
+
+const LISTED_END_KINDS: Readonly<Partial<Record<AgentLook, LogKind>>> = {
+  done: 'done',
+  failed: 'failed',
+  killed: 'aborted',
+}
+
+function noteListedEnds(
+  $: EngineInterface,
+  keep: LogKeep,
+  rows: readonly AgentRow[],
+  now: number,
+): void {
+  for (const row of rows) {
+    const kind = LISTED_END_KINDS[row.look]
+    if (kind === undefined || isEndLogged(keep.current, row.id)) continue
+    noteEvent($, keep, now, { kind, agentId: row.id, detail: elapsedText(row.ageMs) })
+  }
+}
+
+function agentLabels(rows: readonly AgentRow[]): Map<string, string> {
+  return new Map(rows.map((row) => [row.id, row.label]))
 }
 
 function noteEvent(
@@ -1158,8 +1210,8 @@ function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep, redraw: Red
       $.ui.invalidate('ui.render')
     },
     countParts: () => countParts($, parts),
-    keepClock: (isTicking) => {
-      keepClock($, redraw, isTicking)
+    keepClock: (surface, isTicking) => {
+      keepClock($, redraw, surface, isTicking)
     },
   }
 }
@@ -1447,6 +1499,7 @@ export const register: Register = (on, options) => {
     bandTimer: undefined,
     bandSawTab: undefined,
     clock: undefined,
+    clockSurfaces: new Set(),
   }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
@@ -1571,7 +1624,7 @@ export const register: Register = (on, options) => {
       )
     } else {
       const { agentId } = e
-      const kind = e.reason === 'error' || e.reason === 'refusal' ? 'failed' : 'done'
+      const kind = TURN_END_KINDS[e.reason]
       const detail = elapsedText(e.durationMs)
       noteEvent($, log, await $.clock.now(), { kind, agentId, detail })
       await noteTurnEnd(agentHostOf($), agentId, e.answer)
@@ -1609,6 +1662,7 @@ export const register: Register = (on, options) => {
     pulses.callsFrom.clear()
     if (NEW_SESSION_REASONS.has(e.reason)) {
       await noteVitals($, vitals, withClear)
+      noteRequest($, request, withRequestsCleared)
       await setTrend($, trend, EMPTY_TREND)
       breakdown.view = UNREAD_PARTS
       await shareContext($, machine, vitals)
@@ -1835,8 +1889,8 @@ export const register: Register = (on, options) => {
           trend,
           log,
         })
-        const names = shownNames(work.agents)
-        return { text: logText(log.current, names, await sessionSignals($), command.text) }
+        const who = { names: shownNames(work.agents), labels: agentLabels(work.agents) }
+        return { text: logText(log.current, who, await sessionSignals($), command.text) }
       }
       case 'add':
         return { text: (await personAdd(host, command.text)).text }
@@ -1978,6 +2032,7 @@ export const register: Register = (on, options) => {
       bodyColumns,
       isInline: placement === 'inline',
       canFrame: e.surface === 'terminal',
+      surface: e.surface,
       signals: await drawnSignals($, e.surface),
       palette: await shownPalette($, e.surface),
     }

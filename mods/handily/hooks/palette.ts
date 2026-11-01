@@ -2,7 +2,7 @@ import type { Color, ConfigRow, ThemeKey } from 'claude-code'
 
 export type PaletteSetting = 'theme' | 'catppuccin-mocha'
 
-export type ThemeShade = 'dark' | 'light' | 'unknown'
+export type ThemeShade = 'dark' | 'light' | 'auto' | 'ansi' | 'unknown'
 
 export type PaletteRole =
   | 'sessionFrame'
@@ -61,6 +61,10 @@ const SETTING_KEY_SUFFIX = '.palette'
 
 const THEME_KEY = 'theme'
 
+const AUTO_THEME = 'auto'
+
+const ANSI_THEME = /-ansi$/
+
 const DARK_THEME = /^dark(?:-|$)/
 
 const LIGHT_THEME = /^light(?:-|$)/
@@ -103,12 +107,15 @@ export function themeNameOf(rows: readonly ConfigRow[]): string | undefined {
 
 export function themeShadeOf(name: string | undefined): ThemeShade {
   if (name === undefined) return 'unknown'
+  if (name === AUTO_THEME) return 'auto'
+  if (ANSI_THEME.test(name)) return 'ansi'
   if (DARK_THEME.test(name)) return 'dark'
   return LIGHT_THEME.test(name) ? 'light' : 'unknown'
 }
 
 export function drawnPalette(setting: PaletteSetting, shade: ThemeShade): PaletteSetting {
-  return setting === 'catppuccin-mocha' && shade === 'dark' ? setting : DEFAULT_PALETTE
+  const isDrawn = shade === 'dark' || shade === 'auto'
+  return setting === 'catppuccin-mocha' && isDrawn ? setting : DEFAULT_PALETTE
 }
 
 export function paletteColor(role: PaletteRole, drawn: PaletteSetting): Color {

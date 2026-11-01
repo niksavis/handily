@@ -4,6 +4,7 @@ import type {
   ElementConstructor,
   InputProps,
   RenderElement,
+  RenderSurface,
   TextProps,
   ThemeKey,
 } from 'claude-code'
@@ -111,6 +112,7 @@ export type PaneElements = {
   bodyColumns: number
   isInline: boolean
   canFrame: boolean
+  surface: RenderSurface
   signals: SignalLooks
   palette: PaletteSetting
 }
@@ -1018,7 +1020,7 @@ export async function drawPane(
   }
   if (layout.expanded.has(SESSION_DETAILS) && work.context.isPartsDue) countParts()
   const shown = agentsShown(elements, work.agents, layout.expanded)
-  ui.keepClock(shown.isCards)
+  ui.keepClock(elements.surface, shown.isCards && shown.drawn.some((row) => row.isAging))
   const log = {
     log: work.log,
     names: shownNames(work.agents),

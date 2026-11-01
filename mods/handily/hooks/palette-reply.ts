@@ -38,6 +38,8 @@ function themeText(report: PaletteReport): string {
   if (report.setting !== MOCHA) return `Theme: ${name}.`
   const shade = themeShadeOf(report.theme)
   if (drawnPalette(report.setting, shade) === MOCHA) return `Theme: ${name}, so it draws.`
+  if (shade === 'ansi')
+    return `Theme: ${name}, so the theme colours draw; ${MOCHA} is not for ANSI themes.`
   return `Theme: ${name}, so the theme colours draw; ${MOCHA} is for dark themes.`
 }
 
