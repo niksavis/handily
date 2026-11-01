@@ -518,7 +518,7 @@ describe('box tables by default', () => {
 
   for (const columns of [80, 40, 30]) {
     sceneTest(
-      `every line of the mock P1 table fits ${String(columns)} columns, and the highlight changes no width`,
+      `every line of the mock P1 table fits ${String(columns)} columns`,
       {},
       async (_world, $) => {
         const ui = await mountReply($, P1_TABLE.join('\n'), 'terminal', columns)
@@ -869,7 +869,7 @@ describe('copy with the highlight on and off', () => {
   for (const surface of SURFACES) {
     for (const highlight of ['on', 'off']) {
       sceneTest(
-        `copy, copy as text and copy reply copy the same text with the highlight ${highlight} on ${surface}`,
+        `copy and copy as text copy the table source and its text with the highlight ${highlight} on ${surface}`,
         { options: { highlight } },
         async (world, $) => {
           const ui = await mountReply($, P1, surface)
