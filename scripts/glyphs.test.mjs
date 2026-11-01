@@ -3,7 +3,14 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { differingCopies, filesUnder, keepersOf, withModsTree } from './copies.mjs'
+import {
+  differingCopies,
+  filesUnder,
+  keepersOf,
+  listedKeeperProblems,
+  valueImports,
+  withModsTree,
+} from './copies.mjs'
 import { GLYPHS, TYPE_ICONS } from './fixtures/glyphs.mjs'
 import { APPROVED } from './fixtures/signals.mjs'
 
@@ -92,36 +99,7 @@ function columnsText(columns) {
 }
 
 function keeperProblems(dir, listed) {
-  const keepers = keepersOf(dir, GLYPH_FILE)
-  const unlisted = keepers
-    .filter((mod) => !listed.includes(mod))
-    .map(
-      (mod) =>
-        `mods/${mod}/hooks/${GLYPH_FILE} is not in GLYPH_MODS of scripts/glyphs.test.mjs; add the mod there`,
-    )
-  const missing = listed
-    .filter((mod) => !keepers.includes(mod))
-    .map((mod) => `GLYPH_MODS lists ${mod}, but mods/${mod}/hooks/${GLYPH_FILE} is missing`)
-  return [...unlisted, ...missing]
-}
-
-const NAMED = String.raw`\{[^}]*\}`
-const NAMESPACE = String.raw`\*(?:\s+as\s+[\w$]+)?`
-const SOURCE = String.raw`\s*(?:'[^'\n]*'|"[^"\n]*")`
-const MODULE_STATEMENT = new RegExp(
-  [
-    String.raw`^[ \t]*import\s+(?:type\s+)?(?:[\w$]+\s*,?\s*)?(?:${NAMED}|${NAMESPACE})?\s*from${SOURCE}`,
-    String.raw`^[ \t]*export\s+(?:type\s+)?(?:${NAMED}|${NAMESPACE})\s*from${SOURCE}`,
-    String.raw`^[ \t]*import${SOURCE}`,
-  ].join('|'),
-  'gm',
-)
-const TYPE_STATEMENT = /^\s*(?:import|export)\s+type\b/
-
-function valueImports(text) {
-  return [...text.matchAll(MODULE_STATEMENT)]
-    .map(([statement]) => statement.trim())
-    .filter((statement) => !TYPE_STATEMENT.test(statement))
+  return listedKeeperProblems(dir, GLYPH_FILE, listed, 'GLYPH_MODS of scripts/glyphs.test.mjs')
 }
 
 function glyphProblems(sets, widths) {

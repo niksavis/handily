@@ -1,14 +1,18 @@
 import { update } from 'claude-code'
 import type {
+  AgentStatus,
   EngineInterface,
   HookFailure,
   PromptOrigin,
+  PromptSubmitInput,
   Register,
+  RenderSurface,
   SessionEndReason,
   Timer,
   ToolCheckInput,
   ToolCheckResult,
   ToolSpec,
+  TurnCompleteReason,
   TurnStepResult,
 } from 'claude-code'
 import {
@@ -23,6 +27,7 @@ import {
 } from './attention'
 import {
   EMPTY_ACTIVITY,
+  elapsedText,
   isNoteDue,
   isTaskTool,
   planLag,
@@ -35,6 +40,7 @@ import {
 import {
   type AgentHost,
   type AgentPulses,
+  type AgentRow,
   type AgentStep,
   NEEDS_YOU_AFTER_MS,
   agentView,
@@ -42,6 +48,7 @@ import {
   labelledAgents,
   noteAgentList,
   noteAsk,
+  noteRunStart,
   noteSpawn,
   newPulses,
   noteTurnEnd,
@@ -75,7 +82,24 @@ import {
   partsOf,
 } from './breakdown'
 import { EMPTY_CHECKS, withCheck } from './checks'
-import { type RequestFacts, NO_REQUEST, requestWords, withMode, withStep } from './request'
+import {
+  type BoardLog,
+  EMPTY_LOG,
+  LOG_KEPT,
+  type LogKind,
+  logDetail,
+  logText,
+  withEvent,
+} from './log'
+import { keepChangedPaletteSetting, keepPaletteSetting, shownPalette } from './palette-setting'
+import {
+  type RequestFacts,
+  NO_REQUEST,
+  withFirstToken,
+  withMode,
+  withRequestsCleared,
+  withStep,
+} from './request'
 import { sessionBlockText } from './session'
 import { SESSION_DETAILS, detailsText } from './details'
 import { statsText } from './stats'
@@ -97,7 +121,8 @@ import {
   withoutFinalPeriod,
 } from './commands'
 import { lastSegment } from './agents-json'
-import { stepText } from './agent-rows'
+import { shownNames, stepText } from './agent-rows'
+import { DEFAULT_PALETTE } from './palette'
 import { drawMachine } from './machine'
 import {
   type Machine,
@@ -193,6 +218,7 @@ import { EMPTY_TREND, trendMeasured, trendTurnEnded, trendTurnStarted } from './
 import {
   EMPTY_VITALS,
   type Vitals,
+  isEditTool,
   sharedContext,
   withMeasure,
   withClear,
@@ -241,6 +267,7 @@ const BOARD_NOT_OPENED = refusedParts(
   '/board list prints the tasks',
 )
 const REDRAW_INTERVAL_MS = 10_000
+const CLOCK_INTERVAL_MS = 1_000
 const ENGINE_ORIGIN = 'engine'
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
   'composer',
@@ -576,6 +603,9 @@ type Redraw = {
   timer: Timer | undefined
   bandTimer: Timer | undefined
   bandSawTab: boolean | undefined
+  clock: Timer | undefined
+  clockTicks: number
+  clockSurfaces: Map<RenderSurface, number>
 }
 
 function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): void {
@@ -600,6 +630,46 @@ function noteTabSeen($: EngineInterface, redraw: Redraw, isSeen: boolean): void 
 function stopRedraw(redraw: Redraw): void {
   redraw.timer?.cancel()
   redraw.timer = undefined
+  redraw.clockSurfaces.clear()
+  stopClock(redraw)
+}
+
+function stopClock(redraw: Redraw): void {
+  redraw.clock?.cancel()
+  redraw.clock = undefined
+}
+
+function dropUndrawnSurfaces(redraw: Redraw): void {
+  const previous = redraw.clockTicks
+  redraw.clockTicks += 1
+  for (const [surface, drawnAt] of redraw.clockSurfaces) {
+    if (drawnAt < previous) redraw.clockSurfaces.delete(surface)
+  }
+}
+
+async function tickClock($: EngineInterface, redraw: Redraw): Promise<void> {
+  dropUndrawnSurfaces(redraw)
+  if (redraw.clockSurfaces.size > 0 && (await isSessionTabSeen($))) $.ui.invalidate('ui.render')
+  else stopClock(redraw)
+}
+
+function keepClock(
+  $: EngineInterface,
+  redraw: Redraw,
+  surface: RenderSurface,
+  isTicking: boolean,
+): void {
+  if (isTicking) redraw.clockSurfaces.set(surface, redraw.clockTicks)
+  else redraw.clockSurfaces.delete(surface)
+  if (redraw.clockSurfaces.size === 0) {
+    stopClock(redraw)
+    return
+  }
+  redraw.clock ??= $.clock.every(CLOCK_INTERVAL_MS, () => {
+    tickClock($, redraw).catch((error: unknown) => {
+      $.ui.log(`handily-board: the card clocks did not tick: ${String(error)}`, { to: 'debug' })
+    })
+  })
 }
 
 function isBoardPaneId(id: string): boolean {
@@ -687,7 +757,16 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
   }
 }
 
-type StepsKeep = Map<string, AgentStep>
+type StepsKeep = { last: Map<string, AgentStep>; counts: Map<string, number> }
+
+type AgentRun = 'running' | 'ended'
+
+type LogKeep = {
+  current: BoardLog
+  denied: Set<string>
+  runs: Map<string, AgentRun>
+  listed: Map<string, AgentStatus | null>
+}
 
 type SessionKeeps = {
   vitals: VitalsKeep
@@ -697,6 +776,7 @@ type SessionKeeps = {
   pulses: AgentPulses
   breakdown: PartsKeep
   trend: TrendKeep
+  log: LogKeep
 }
 
 async function isTreeListed($: EngineInterface): Promise<boolean> {
@@ -710,11 +790,12 @@ async function isTreeListed($: EngineInterface): Promise<boolean> {
   }
 }
 
-async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork> {
+async function workOf($: EngineInterface, keeps: SessionKeeps, inView?: string): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
-  const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps)
+  const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps.last, keeps.steps.counts)
   const agents = withStalls(rows, keeps.pulses, now)
+  noteListedEnds($, keeps.log, agents)
   const trend = await trendOf($, keeps.trend)
   return {
     now,
@@ -729,7 +810,104 @@ async function workOf($: EngineInterface, keeps: SessionKeeps): Promise<PaneWork
       parts: keeps.breakdown.view,
       isPartsDue: keeps.breakdown.view.kind === 'unread' || keeps.breakdown.isStale,
     },
+    log: keeps.log.current,
+    inView,
   }
+}
+
+const TURN_END_KINDS: Readonly<Record<TurnCompleteReason, LogKind>> = {
+  answer: 'done',
+  aborted: 'aborted',
+  refusal: 'failed',
+  error: 'failed',
+}
+
+const LISTED_END_KINDS: Readonly<Partial<Record<AgentStatus, LogKind>>> = {
+  completed: 'done',
+  failed: 'failed',
+  killed: 'aborted',
+}
+
+function noteLogRun(keep: LogKeep, agentId: string): void {
+  keep.runs.set(agentId, 'running')
+}
+
+function noteAgentEnd(
+  $: EngineInterface,
+  keep: LogKeep,
+  at: number,
+  event: { kind: LogKind; agentId: string; detail: string },
+): void {
+  if (keep.runs.get(event.agentId) === 'ended') return
+  keep.runs.set(event.agentId, 'ended')
+  noteEvent($, keep, at, event)
+}
+
+function listedEndKind(status: AgentStatus | null): LogKind | undefined {
+  return status === null ? undefined : LISTED_END_KINDS[status]
+}
+
+function noteListedEnds($: EngineInterface, keep: LogKeep, rows: readonly AgentRow[]): void {
+  for (const row of rows) {
+    const kind = listedEndKind(row.listedStatus)
+    const before = keep.listed.get(row.id)
+    keep.listed.set(row.id, row.listedStatus)
+    const run = keep.runs.get(row.id)
+    if (run === undefined) keep.runs.set(row.id, kind === undefined ? 'running' : 'ended')
+    else if (kind !== undefined && run === 'running' && before !== row.listedStatus) {
+      const at = row.startedAt + row.ageMs
+      noteAgentEnd($, keep, at, { kind, agentId: row.id, detail: elapsedText(row.ageMs) })
+    }
+  }
+}
+
+function agentLabels(rows: readonly AgentRow[]): Map<string, string> {
+  return new Map(rows.map((row) => [row.id, row.label]))
+}
+
+function noteEvent(
+  $: EngineInterface,
+  keep: LogKeep,
+  at: number,
+  event: { kind: LogKind; agentId: string | null; detail: string },
+): void {
+  keep.current = withEvent(keep.current, { at, ...event, detail: logDetail(event.detail) })
+  $.ui.invalidate('ui.render')
+}
+
+async function notePrompt($: EngineInterface, keep: LogKeep, e: PromptSubmitInput): Promise<void> {
+  const isPrompt = PERSON_ORIGINS.has(e.origin.kind) && e.command === undefined && !e.isMeta
+  if (!isPrompt || e.text.trim() === '') return
+  noteEvent($, keep, await $.clock.now(), { kind: 'prompt', agentId: null, detail: e.text })
+}
+
+function callDetail(sight: BoardToolSight): string {
+  return sight.target === null ? sight.tool : `${sight.tool} ${sight.target}`
+}
+
+function keepDenied(keep: LogKeep, callId: string): void {
+  keep.denied.add(callId)
+  const [oldest] = keep.denied
+  if (keep.denied.size > LOG_KEPT && oldest !== undefined) keep.denied.delete(oldest)
+}
+
+type CallEvent = { callId: string; agentId: string | undefined; isError: boolean }
+
+async function noteCallEvent(
+  $: EngineInterface,
+  keep: LogKeep,
+  sight: BoardToolSight,
+  call: CallEvent,
+): Promise<void> {
+  const { agentId, isError } = call
+  if (keep.denied.delete(call.callId)) return
+  if (!isError && !isEditTool(sight.tool)) return
+  const kind = isError ? 'error' : 'edit'
+  noteEvent($, keep, await $.clock.now(), {
+    kind,
+    agentId: agentId ?? null,
+    detail: callDetail(sight),
+  })
 }
 
 function noteStep(
@@ -738,10 +916,11 @@ function noteStep(
   agentId: string,
   stepped: TurnStepResult,
 ): void {
+  steps.counts.set(agentId, (steps.counts.get(agentId) ?? 0) + 1)
   const step = stepOf(stepped)
   if (step === undefined) return
-  const drawn = stepText(steps.get(agentId) ?? null)
-  steps.set(agentId, step)
+  const drawn = stepText(steps.last.get(agentId) ?? null)
+  steps.last.set(agentId, step)
   if (stepText(step) !== drawn) $.ui.invalidate('ui.render')
 }
 
@@ -872,15 +1051,20 @@ async function noticeWait($: EngineInterface, attention: AttentionKeep, callId: 
 
 async function noteCheck(
   $: EngineInterface,
-  keep: ChecksKeep,
+  keeps: { checks: ChecksKeep; log: LogKeep },
   attention: AttentionKeep,
   e: CheckedCall,
   verdict: ToolCheckResult,
 ) {
   const target = isRecord(e.input) ? toolTarget(e.input, await $.session.cwd()) : null
   const check = { decision: verdict.decision, tool: e.tool, target, agentId: e.agentId ?? null }
-  keep.current = withCheck(keep.current, check)
+  keeps.checks.current = withCheck(keeps.checks.current, check)
   $.ui.invalidate('ui.render')
+  if (verdict.decision === 'deny') {
+    keepDenied(keeps.log, e.tool_use_id)
+    const detail = callDetail({ tool: e.tool, target })
+    noteEvent($, keeps.log, await $.clock.now(), { kind: 'denied', agentId: check.agentId, detail })
+  }
   if (verdict.decision !== 'ask') return
   const { agentId, tool_use_id: callId } = e
   if (agentId !== undefined) await noteAsk(agentHostOf($), agentId, callId, target)
@@ -911,6 +1095,8 @@ function vitalsText(vitals: Vitals, now: number): string {
     request: NO_REQUEST,
     now,
     signals: PLAIN_SIGNALS,
+    palette: DEFAULT_PALETTE,
+    hasResets: true,
   }
   return `${sessionBlockText(view)}\n${detailsText(vitals, now)}`
 }
@@ -920,9 +1106,9 @@ function noteRequest(
   keep: RequestKeep,
   change: (facts: RequestFacts) => RequestFacts,
 ): void {
-  const drawn = requestWords(keep.current)
+  const drawn = JSON.stringify(keep.current)
   keep.current = change(keep.current)
-  if (requestWords(keep.current) !== drawn) $.ui.invalidate('ui.render')
+  if (JSON.stringify(keep.current) !== drawn) $.ui.invalidate('ui.render')
 }
 
 type ClassicFacts = { permission_mode?: string; agent_id?: string }
@@ -1009,7 +1195,7 @@ async function resetAgentLists($: EngineInterface): Promise<void> {
 
 type RowNotes = Map<number, string>
 
-function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep): PaneUi {
+function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep, redraw: Redraw): PaneUi {
   return {
     open: async (pane, focus) => {
       const opened = await $.ui.open(
@@ -1061,6 +1247,9 @@ function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep): PaneUi {
       $.ui.invalidate('ui.render')
     },
     countParts: () => countParts($, parts),
+    keepClock: (surface, isTicking) => {
+      keepClock($, redraw, surface, isTicking)
+    },
   }
 }
 
@@ -1342,14 +1531,22 @@ function toolFailed($: EngineInterface, tool: string, error: HookFailure): { den
 export const register: Register = (on, options) => {
   const mode = boardMode(options)
   const band = bandSetting(options)
-  const redraw: Redraw = { timer: undefined, bandTimer: undefined, bandSawTab: undefined }
+  const redraw: Redraw = {
+    timer: undefined,
+    bandTimer: undefined,
+    bandSawTab: undefined,
+    clock: undefined,
+    clockTicks: 0,
+    clockSurfaces: new Map(),
+  }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const request: RequestKeep = { current: NO_REQUEST }
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
-  const steps: StepsKeep = new Map()
+  const steps: StepsKeep = { last: new Map(), counts: new Map() }
+  const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map(), listed: new Map() }
   const notes: RowNotes = new Map()
   const asks: BoardTask[] = []
   const pulses = newPulses()
@@ -1366,11 +1563,12 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | plan | clear | list | stats | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | plan | clear | list | stats | log [agent] | close]',
       immediate: true,
     })
     await keepGlyphSetting($)
-    if (mode === 'always') await openUnasked(uiOf($, notes, breakdown))
+    await keepPaletteSetting($)
+    if (mode === 'always') await openUnasked(uiOf($, notes, breakdown, redraw))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
     const host = sessionsHost($)
@@ -1387,6 +1585,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (result.deny !== undefined) return result
     if (await keepChangedGlyphSetting($, e)) await refreshStatus($, attention)
+    if (await keepChangedPaletteSetting($, e)) $.ui.invalidate('ui.render')
     return result
   })
 
@@ -1417,6 +1616,9 @@ export const register: Register = (on, options) => {
       const now = await $.clock.now()
       await noteVitals($, vitals, (current) => withTurnStart(current, now))
       await noteTrend($, trend, trendTurnStarted)
+    } else {
+      noteLogRun(log, e.agentId)
+      await noteRunStart(agentHostOf($), e.agentId)
     }
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
@@ -1428,7 +1630,18 @@ export const register: Register = (on, options) => {
     const { agentId } = e
     if (agentId === undefined) {
       noteRequest($, request, (facts) => withStep(facts, e.model, e.effort))
-      return yield* next(e)
+      const sentAt = await $.clock.now()
+      const stream = next(e)
+      let isFirst = true
+      for await (const chunk of stream) {
+        if (isFirst && chunk.kind !== 'engine') {
+          isFirst = false
+          const ms = (await $.clock.now()) - sentAt
+          noteRequest($, request, (facts) => withFirstToken(facts, ms))
+        }
+        yield chunk
+      }
+      return await stream.result
     }
     heard(pulses, agentId, await $.clock.now())
     const stepped = yield* next(e)
@@ -1452,6 +1665,9 @@ export const register: Register = (on, options) => {
       )
     } else {
       const { agentId } = e
+      const kind = TURN_END_KINDS[e.reason]
+      const detail = elapsedText(e.durationMs)
+      noteAgentEnd($, log, await $.clock.now(), { kind, agentId, detail })
       await noteTurnEnd(agentHostOf($), agentId, e.answer)
       await forgetAsks($, attention, (_callId, ask) => ask.agentId === agentId)
       await shareAgents($, machine)
@@ -1481,11 +1697,13 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
-    steps.clear()
+    steps.last.clear()
+    steps.counts.clear()
     pulses.heardAt.clear()
     pulses.callsFrom.clear()
     if (NEW_SESSION_REASONS.has(e.reason)) {
       await noteVitals($, vitals, withClear)
+      noteRequest($, request, withRequestsCleared)
       await setTrend($, trend, EMPTY_TREND)
       breakdown.view = UNREAD_PARTS
       await shareContext($, machine, vitals)
@@ -1494,6 +1712,10 @@ export const register: Register = (on, options) => {
       attention.asks.clear()
       await refreshStatus($, attention)
       checks.current = EMPTY_CHECKS
+      log.current = EMPTY_LOG
+      log.denied.clear()
+      log.runs.clear()
+      log.listed.clear()
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await $.state.set(PLAN_ID, null)
@@ -1533,14 +1755,19 @@ export const register: Register = (on, options) => {
     const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
     const taken = await takeChanges($)
     const answered = await takeAnswered($)
+    const enter = async (sent: PromptSubmitInput) => {
+      const entered = await next(sent)
+      if (entered.drop === undefined) await notePrompt($, log, e)
+      return entered
+    }
     try {
       const answers = answered.length === 0 ? undefined : answersText(answered)
       const isTold = taken.length > 0 || answers !== undefined
       const list = await readList(hostOf($))
       const changes = isTold ? personNote(taken, list, answers) : undefined
       const notes = [changes, plan?.text].filter((text) => text !== undefined)
-      if (notes.length === 0) return await next(e)
-      const entered = await next({ ...e, context: [...(e.context ?? []), ...notes] })
+      if (notes.length === 0) return await enter(e)
+      const entered = await enter({ ...e, context: [...(e.context ?? []), ...notes] })
       if (entered.drop !== undefined) {
         await putBackChanges($, taken)
         await putBackAnswered($, answered)
@@ -1579,16 +1806,21 @@ export const register: Register = (on, options) => {
       await noteVitals($, vitals, (current) =>
         withTurnCall(current, e.tool, answer.isError === true),
       )
+      const call = { callId: e.tool_use_id, agentId, isError: answer.isError === true }
+      await noteCallEvent($, log, sight, call)
       return answer
     }
     const callId = e.tool_use_id
+    noteLogRun(log, agentId)
     const from = await $.clock.now()
     heard(pulses, agentId, from)
     pulses.callsFrom.set(callId, from)
     try {
-      return await untilSettled($, attention, callId, () =>
+      const answer = await untilSettled($, attention, callId, () =>
         trackAgentCall(agentHostOf($), agentId, { id: callId, ...sight }, () => next(e)),
       )
+      await noteCallEvent($, log, sight, { callId, agentId, isError: answer.isError === true })
+      return answer
     } finally {
       pulses.callsFrom.delete(callId)
       heard(pulses, agentId, await $.clock.now())
@@ -1611,7 +1843,7 @@ export const register: Register = (on, options) => {
     const { tool_use_id: callId } = e
     if (callId === undefined || next.origin.plugin !== ENGINE_ORIGIN) return verdict
     if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
-    await noteCheck($, checks, attention, { ...e, tool_use_id: callId }, verdict)
+    await noteCheck($, { checks, log }, attention, { ...e, tool_use_id: callId }, verdict)
     return verdict
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the check was not kept (${next.error.kind})`, { to: 'debug' })
@@ -1630,6 +1862,8 @@ export const register: Register = (on, options) => {
       parentId: e.parentAgentId,
     }
     await noteSpawn(agentHostOf($), spawned.agentId, facts, at)
+    noteLogRun(log, spawned.agentId)
+    noteEvent($, log, at, { kind: 'spawn', agentId: spawned.agentId, detail: e.description })
     if (e.parentAgentId === undefined) await noteVitals($, vitals, withTurnSpawn)
     await shareAgents($, machine)
     return spawned
@@ -1667,11 +1901,11 @@ export const register: Register = (on, options) => {
     const command = parseBoardCommand(e.args)
     switch (command.kind) {
       case 'session':
-        return { text: await sessionCommand(uiOf($, notes, breakdown), mode) }
+        return { text: await sessionCommand(uiOf($, notes, breakdown, redraw), mode) }
       case 'machine':
-        return { text: await openBoard(uiOf($, notes, breakdown), SESSIONS_PANE) }
+        return { text: await openBoard(uiOf($, notes, breakdown, redraw), SESSIONS_PANE) }
       case 'close':
-        return { text: await closeBoard(uiOf($, notes, breakdown)) }
+        return { text: await closeBoard(uiOf($, notes, breakdown, redraw)) }
       case 'clear':
         return { text: (await personClear(host)).text }
       case 'list': {
@@ -1685,10 +1919,24 @@ export const register: Register = (on, options) => {
         await countParts($, breakdown)
         return {
           text: statsText(
-            await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend }),
+            await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend, log }),
             await sessionSignals($),
           ),
         }
+      case 'log': {
+        const work = await workOf($, {
+          vitals,
+          checks,
+          request,
+          steps,
+          pulses,
+          breakdown,
+          trend,
+          log,
+        })
+        const who = { names: shownNames(work.agents), labels: agentLabels(work.agents) }
+        return { text: logText(log.current, who, await sessionSignals($), command.text) }
+      }
       case 'add':
         return { text: (await personAdd(host, command.text)).text }
       case 'rm':
@@ -1742,7 +1990,7 @@ export const register: Register = (on, options) => {
     keepBandTime($, redraw, isTimed(view))
     const { Box, Text, Button } = $.ui.resolve(e)
     const signals = await drawnSignals($, e.surface)
-    const ui = uiOf($, notes, breakdown)
+    const ui = uiOf($, notes, breakdown, redraw)
     const failed = (error: unknown) => {
       ui.log(`handily-board: the board did not open from the band: ${String(error)}`)
       ui.showToast(BOARD_NOT_OPENED)
@@ -1829,12 +2077,15 @@ export const register: Register = (on, options) => {
       bodyColumns,
       isInline: placement === 'inline',
       canFrame: e.surface === 'terminal',
+      surface: e.surface,
       signals: await drawnSignals($, e.surface),
+      palette: await shownPalette($, e.surface),
     }
-    const work = await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend })
+    const keeps = { vitals, checks, request, steps, pulses, breakdown, trend, log }
+    const work = await workOf($, keeps, e.props.view.agentId)
     clearStatus($, attention)
     startRedraw($, redraw, attention)
-    return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown), work)
+    return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown, redraw), work)
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {

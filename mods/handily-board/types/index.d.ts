@@ -2,6 +2,8 @@ export type BoardStatus = 'pending' | 'in_progress' | 'completed'
 
 export type BoardGlyphs = 'plain' | 'nerd'
 
+export type BoardPalette = 'theme' | 'catppuccin-mocha'
+
 export type BoardAuthor = 'model' | 'person' | 'tracker'
 
 export type BoardSource =
@@ -110,6 +112,7 @@ export type BoardChecks = {
   denied: number
   families: Readonly<Record<BoardCheckFamily, number>>
   last: readonly BoardCheck[]
+  lastByFamily: Readonly<Record<BoardCheckFamily, readonly BoardCheck[]>>
 }
 
 export type BoardAgent = {
@@ -165,6 +168,7 @@ declare module 'claude-code' {
       trend: BoardTrend
       ready: { root: string }
       glyphs: BoardGlyphs
+      palette: BoardPalette
     }
   }
 }

@@ -64,7 +64,9 @@ export type AgentRow = {
   label: string
   shownName: string
   look: AgentLook
+  listedStatus: AgentStatus | null
   isEnded: boolean
+  isAging: boolean
   call: BoardToolSight | null
   callId: string | null
   isCallRunning: boolean
@@ -73,12 +75,14 @@ export type AgentRow = {
   answer: string | null
   plan: readonly BoardTask[] | null
   description: string | null
+  type: string | null
   parentId: string | null
   isParentKnown: boolean
   isSpawnSeen: boolean
   startedAt: number
   ageMs: number
   step: AgentStep | null
+  steps: number
   stall: AgentStall | null
 }
 
@@ -157,6 +161,8 @@ export function withSpawn(agents: Agents, id: string, facts: SpawnFacts, at: num
     withAgent(agents, id, at, (agent) => ({
       ...agent,
       startedAt: agent.isSpawnSeen ? agent.startedAt : at,
+      seenAt: at,
+      endedAt: null,
       isSpawnSeen: true,
       description: agent.description ?? facts.description,
       type: agent.type ?? facts.type,
@@ -164,6 +170,15 @@ export function withSpawn(agents: Agents, id: string, facts: SpawnFacts, at: num
       parentId: agent.parentId ?? facts.parentId ?? null,
     })),
   )
+}
+
+export function withRunStart(agents: Agents, agentId: string, now: number): BoardAgent[] {
+  return withAgent(agents, agentId, now, (agent) => ({
+    ...agent,
+    seenAt: now,
+    endedAt: null,
+    hasLoopEvents: true,
+  }))
 }
 
 export function withCallStart(
@@ -225,10 +240,6 @@ export function withCallAsked(
   )
 }
 
-function unasked(call: BoardAgentCall): BoardAgentCall {
-  return { id: call.id, tool: call.tool, target: call.target }
-}
-
 function firstAnswerLine(answer: string): string {
   const line = answer.split('\n').find((one) => one.trim() !== '') ?? ''
   return maskedCredentials(line.trim()).slice(0, ANSWER_CHARS_AT_MOST)
@@ -246,10 +257,14 @@ export function withTurnEnd(
       seenAt: now,
       endedAt: now,
       hasLoopEvents: true,
-      running: agent.running.map(unasked),
+      running: [],
       answer: firstAnswerLine(answer),
     })),
   )
+}
+
+function isListedEnd(agent: BoardAgent, status: AgentStatus): boolean {
+  return ENDED_STATUSES.has(status) && agent.listedStatus !== status
 }
 
 function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgent {
@@ -262,7 +277,7 @@ function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgen
     type: info.type,
     name: info.name ?? agent.name,
     parentId: info.parentId ?? agent.parentId,
-    endedAt: ENDED_STATUSES.has(info.status) ? (agent.endedAt ?? now) : agent.endedAt,
+    endedAt: isListedEnd(agent, info.status) ? (agent.endedAt ?? now) : agent.endedAt,
   }
 }
 
@@ -280,10 +295,12 @@ type RowStatus = AgentStatus | 'unknown'
 
 function statusOf(agent: BoardAgent): RowStatus {
   if (agent.listedStatus !== null) {
-    if (agent.isListed || ENDED_STATUSES.has(agent.listedStatus)) return agent.listedStatus
-    return agent.endedAt === null ? 'unknown' : 'completed'
+    const isListedEnded = ENDED_STATUSES.has(agent.listedStatus)
+    if (agent.endedAt !== null) return isListedEnded ? agent.listedStatus : 'completed'
+    if (isListedEnded) return 'running'
+    return agent.isListed ? agent.listedStatus : 'unknown'
   }
-  if (agent.running.length > 0) return 'running'
+  if (agent.running.length > 0 && agent.endedAt === null) return 'running'
   return agent.endedAt === null ? 'unknown' : 'completed'
 }
 
@@ -322,11 +339,15 @@ function isEndedRow(agent: BoardAgent, look: AgentLook): boolean {
   return look === 'done' || look === 'killed'
 }
 
+function isAgingNow(agent: BoardAgent, status: RowStatus): boolean {
+  if (status !== 'unknown' && ENDED_STATUSES.has(status)) return false
+  return agent.running.length > 0 || status !== 'unknown'
+}
+
 function endOf(agent: BoardAgent, status: RowStatus, now: number): number {
-  if (agent.running.length > 0) return now
+  if (isAgingNow(agent, status)) return now
   if (status === 'unknown') return agent.seenAt
-  if (ENDED_STATUSES.has(status)) return agent.endedAt ?? now
-  return now
+  return agent.endedAt ?? now
 }
 
 function shortId(id: string): string {
@@ -390,7 +411,9 @@ function rowOf(
     label: baseLabel(agent),
     shownName: agent.label ?? escaped(baseLabel(agent)),
     look,
+    listedStatus: agent.listedStatus,
     isEnded,
+    isAging: isAgingNow(agent, status),
     call: sightOf(agent, waiting),
     callId: running?.id ?? null,
     isCallRunning: running !== undefined,
@@ -399,12 +422,14 @@ function rowOf(
     answer: agent.answer ?? null,
     plan: plan ?? null,
     description: agent.description === '' ? null : agent.description,
+    type: agent.type,
     parentId: agent.parentId,
     isParentKnown: agent.type !== null,
     isSpawnSeen: agent.isSpawnSeen,
     startedAt: agent.startedAt,
     ageMs: Math.max(endOf(agent, status, now) - agent.startedAt, 0),
     step: null,
+    steps: 0,
     stall: null,
   }
   return { row, rank: look === 'unlisted' && isEnded ? UNLISTED_ENDED_RANK : LOOK_RANKS[look] }
@@ -431,8 +456,16 @@ export function stepOf(
   return { context, output: usage.output_tokens, stopReason: stepped.stopReason }
 }
 
-export function withSteps(rows: readonly AgentRow[], steps: AgentSteps): AgentRow[] {
-  return rows.map((row) => ({ ...row, step: steps.get(row.id) ?? null }))
+export function withSteps(
+  rows: readonly AgentRow[],
+  steps: AgentSteps,
+  counts: ReadonlyMap<string, number>,
+): AgentRow[] {
+  return rows.map((row) => ({
+    ...row,
+    step: steps.get(row.id) ?? null,
+    steps: counts.get(row.id) ?? 0,
+  }))
 }
 
 export function newPulses(): AgentPulses {
@@ -513,6 +546,11 @@ export async function noteAsk(
 ): Promise<void> {
   const at = await host.now()
   await host.change((agents) => withCallAsked(agents, agentId, callId, { at, target }))
+}
+
+export async function noteRunStart(host: AgentHost, agentId: string): Promise<void> {
+  const now = await host.now()
+  await host.change((agents) => withRunStart(agents, agentId, now))
 }
 
 export async function noteTurnEnd(host: AgentHost, agentId: string, answer: string): Promise<void> {

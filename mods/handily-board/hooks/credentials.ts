@@ -17,6 +17,17 @@ const SECRET_FLAG_VALUE = new RegExp(
   'gi',
 )
 
+const MYSQL_WORD = /(?:^|[\s"'`(;|&/\\])(?:mysql\w*|mariadb[\w-]*)(?:\.exe)?(?=$|[\s"'`);|&])/i
+
+const GLUED_PASSWORD = /(^|[\s"'`(;|&])-p[^\s].*/g
+
+function maskedMysqlPasswords(text: string): string {
+  const found = MYSQL_WORD.exec(text)
+  if (found === null) return text
+  const after = found.index + found[0].length
+  return `${text.slice(0, after)}${text.slice(after).replace(GLUED_PASSWORD, `$1-p${MASK}`)}`
+}
+
 const USER_FLAG_PASSWORD = /(\s(?:-u|--user)\s+["']?[^\s:"']+):[^\s"']+/g
 
 const AUTH_SCHEME_VALUE = /\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi
@@ -37,7 +48,7 @@ const TOKEN_SHAPES = new RegExp(
 )
 
 export function maskedCredentials(text: string): string {
-  return text
+  return maskedMysqlPasswords(text)
     .replace(URL_USER_INFO, `$1${MASK}@`)
     .replace(SECRET_ASSIGNMENT, `$1$2${MASK}`)
     .replace(SECRET_FLAG_VALUE, `$1$2${MASK}`)

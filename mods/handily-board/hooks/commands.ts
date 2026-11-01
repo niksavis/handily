@@ -60,6 +60,7 @@ export type BoardCommand =
   | { kind: 'rm'; text: string }
   | { kind: 'mv'; text: string }
   | { kind: 'edit'; text: string }
+  | { kind: 'log'; text: string }
   | { kind: 'status'; word: StatusWord; text: string }
   | { kind: 'answer' | 'pick' | 'reject' | 'undo'; text: string }
   | { kind: 'unknown'; word: string }
@@ -128,7 +129,7 @@ export function parseBoardCommand(args: string): BoardCommand {
   const trimmed = args.trim()
   if (trimmed === '') return { kind: 'session' }
   const { word, rest: text } = firstWord(trimmed)
-  if (word === 'add' || word === 'rm' || word === 'mv' || word === 'edit')
+  if (word === 'add' || word === 'rm' || word === 'mv' || word === 'edit' || word === 'log')
     return { kind: word, text }
   if (word === 'answer' || word === 'pick' || word === 'reject' || word === 'undo') {
     return { kind: word, text }
@@ -149,7 +150,7 @@ export function parseBoardCommand(args: string): BoardCommand {
 }
 
 export function unknownReply(word: string): string {
-  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats or /board close.`
+  return `Unknown argument ${JSON.stringify(word)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats, /board log [agent] or /board close.`
 }
 
 export async function trackerView(host: TaskHost): Promise<TrackerView> {

@@ -39,6 +39,7 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board clear`             | Removes every done task                                                 |
 | `/board list`              | Prints the list as text. With no tasks, it lists the open tracker items |
 | `/board stats`             | Prints the session figures and the agents as text                       |
+| `/board log [agent]`       | Prints the kept log as text, or the events of one agent                 |
 | `/board close`             | Closes the board                                                        |
 
 Replies, from the tests:
@@ -83,7 +84,8 @@ Replies, from the tests:
       trend after 2 turns
       no breakdown on this host
       limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d
-      checks 2 · 1 allowed · 1 asked
+      Context 124k of 200k tokens. Limits reset: 5h in 2 hours, 7d in 4 days.
+      Checks 2: 1 allowed, 1 asked (the classifier or you), 0 denied.
       file 1 · shell 1 · other 0
       last 2 checks, oldest first: 1 allowed, 1 asked
   Agents  2 · 1 needs you
@@ -92,7 +94,9 @@ Replies, from the tests:
   ```
 
   Each line follows the same rules as the board, in words: the reply draws no gauge and no gate
-  cell. When a request has run, a line names the model, the effort and the mode. The last line
+  cell. When a request has run, a line names the model, the effort and the mode, and a line
+  such as `Requests 5; time to first token 1.2 seconds (latest main request).` counts the main
+  loop requests. `asked` counts the checks that the classifier or you answered. The last line
   of the checks lists the verdicts of the last 20 checks, oldest first. The waits are the agents
   that need you. Each
   agent line has the state of its row, such as `slow 45s`, and the context of its latest model
@@ -161,6 +165,8 @@ You can press every button on both tabs with the keyboard alone. A live check on
 | Tab, Shift+Tab             | Moves the focus to the next or the previous button, in reading order                                                        |
 | Enter                      | Presses the button that has the focus                                                                                       |
 | Esc                        | Gives the keyboard back to the prompt. The board stays open                                                                 |
+| `f`, `s`, `o`              | Shows or hides the last 5 checks of the file, shell or other family                                                         |
+| `1` to `5`                 | Opens or closes the agent with that digit                                                                                   |
 
 - `/board` already gives the keyboard to the tab it brings forward. Press Tab, not ctrl+x tab.
   ctrl+x tab there moves the keyboard to the this machine tab, whose cards have no button, so
@@ -419,36 +425,49 @@ For you  ◆ 3 open
 
 The Session section shows the context, the cost, the limits, the model, the turn and the
 permission checks of this session. On the terminal, from a body of 41 columns, the Session,
-Tasks and Agents sections each draw in a rounded frame of text, with the title on the top edge.
-A capture from the tests, docked at 41 columns, while a main turn runs:
+Tasks, Agents and Log sections each draw in a rounded frame of text, with the title on the top
+edge. A capture from the tests, docked at 41 columns, while a main turn runs and before the
+first model request:
 
 ```text
-╭─ Session ─────────────────────────────╮
-│ ctx ▰▰▰▰▰▰▰▱▱▱ 71%                    │
-│ $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │
-│ opus-5-5 · high · accept edits        │
-│ turn 3m · 2 edits · 1 error · +$0.31  │
-│ gate ▮▮■ 1 denied                     │
+╭─ Session ───────────────── ▶ working ─╮
+│ ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k        │
+│ $4.18                                 │
+│ req —                                 │
+│ turn 0s · 0 edits · 0 errors · +$0.31 │
+│ gate 10 ▮▮▮▮▮▮▮▮▮▮                    │
+│ 10 allowed · 0 asked · 0 denied       │
+│ f: file 10  s: shell 0  o: other 0    │
 ╰───────────────────────────────────────╯
 ```
 
 The same session on the desktop app, docked at 41 columns, draws no frame:
 
 ```text
-Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.33
-5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%
-opus-5-5 · high · accept edits
-turn 3m · 2 edits · 1 error · +$0.31
-gate ▮▮■ 1 denied
+Session  ▶ working
+ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.18
+req —
+turn 0s · 0 edits · 0 errors · +$0.31
+gate 10 ▮▮▮▮▮▮▮▮▮▮
+10 allowed · 0 asked · 0 denied
+f: file 10  s: shell 0  o: other 0
 ```
 
 Inline above the prompt, at 76 columns, the board draws no frame and joins the rows that fit:
 
 ```text
-Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%
-    opus-5-5 · high · accept edits · turn 3m · 2 edits · 1 error · +$0.31
-    gate ▮▮■ 1 denied
+Session  ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.18
+    req — · turn 0s · 0 edits · 0 errors · +$0.31
+    gate 10 ▮▮▮▮▮▮▮▮▮▮ 10 allowed · 0 asked · 0 denied
+    f: file 10  s: shell 0  o: other 0
 ```
+
+- The frame title ends with the waits, if any, and then `▶ working` in `claude` while a main
+  turn runs, or `○ idle` dim after it. Without a frame, the same words follow the title.
+- When the board knows the context window, the context shows the tokens over the window, such
+  as `124k/200k` or `663k/1.0M`, after the percent. A narrow row moves them to the next line.
+- From a body of 56 columns, each limit shows when it resets, such as `5h ▰▱▱▱▱ 31% resets 2h`.
+  A narrower body keeps the reset times in the details.
 
 The context and a limit at 80 percent or more, from the tests at 41 columns:
 
@@ -468,6 +487,9 @@ The context and a limit at 80 percent or more, from the tests at 41 columns:
   `session.measure`, each with a gauge of 5 cells and the percent used. When the row is too
   narrow, the gauge of a limit goes first and its percent stays.
 - From 80 percent, a gauge and its percent take the theme key `warning`, with the word `high`.
+- The model row counts the main-loop requests as `5 req` and shows the time to first token of
+  the latest one as `ttft 1.2s`. Before the first request it shows `req —` and no ttft. A narrow
+  row drops the ttft first. `/clear` and a resume set the count and the ttft back to `req —`.
 - The model row shows the model of the latest main-loop request, from `TurnStepInput.model`,
   with no leading `claude-`. The effort comes from `TurnStepInput.effort` of that request. A
   model with no effort shows none. The permission mode comes from the latest classic
@@ -482,12 +504,16 @@ The context and a limit at 80 percent or more, from the tests at 41 columns:
   `error` and is never cut. A narrow row drops `0 errors` first. When there is room, the row also
   counts the agents that the main loop spawned in the turn. A subagent turn does not start or end
   a turn here.
-- The gate row has one cell for each of the last 20 permission checks, oldest first: `▮` allowed
-  in `success`, `▯` asked in `permission`, `■` denied in `error`. Then come the counts of the
-  file family (`f`, Read, Edit, Write, NotebookEdit, Glob and Grep), the shell family (`s`, Bash
-  and PowerShell) and every other tool (`o`), dim. When a denied check is among the last 20,
-  `1 denied` in `error` takes the place of the counts. A narrow row drops the counts. On the
-  terminal frame, `gate no checks yet` shows before the first check.
+- The gate row starts with the total of the checks, such as `gate 25`, then has one cell for
+  each of the last 20 permission checks, oldest first: `▮` allowed in `success`, `▯` asked in
+  `permission`, `■` denied in `error`. A counts row shows `allowed`, `asked` and `denied`. A
+  denied count above 0 takes `error` and is never cut. When the counts fit, they join the gate
+  row. On the terminal frame, `gate no checks yet` shows before the first check.
+- Three plain buttons name the counts of the file family (`f`, Read, Edit, Write,
+  NotebookEdit, Glob and Grep), the shell family (`s`, Bash and PowerShell) and every other tool
+  (`o`). Press `f`, `s` or `o`, or the button, to show the last 5 checks of that family, verdict
+  word first, under `shell: last 5 of 7`. The same key hides them again. A narrow row drops the
+  family words, and a count over 999 reads `999+`.
 - Before the first reply, the head reads `ctx — until the first reply`, also when the engine
   reports a cost of `$0.00`. A resumed session shows the figures that `$.session.usage()` gives
   at session start. `/clear` empties the figures again.
@@ -699,6 +725,8 @@ Session  ctx — until the first reply
   password in a URL, a value after a key such as `token=`, `password:` or `--api-key`, a
   `Bearer` or `Basic` value, `-u user:password`, and token shapes such as `ghp_…`, `sk-…`,
   `AKIA…` and a JSON Web Token. The tests check each kind.
+- After a `mysql` or `mariadb` word, the board masks from a password glued to `-p` to the end
+  of the line, so `mysql -phunter2 app` shows as `mysql -p***`.
 - The board counts only the checks of the calls that Claude Code raises for the model. It keeps
   the checks in memory, so a reload of the mod or `/clear` empties them.
 - The masking covers the checks and the `waits for:` line. The agent rows and the task rows draw
@@ -781,23 +809,81 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
 - The tool column shows `▸` and the call that runs now, or the last call. Below 36 columns the
   tool column is left out. Docked, a failed agent gets a second line, `failed after` its last
   call. Inline, that text is in the tool column.
-- From a body of 80 columns, docked or inline, each agent row adds a `ctx` column and a lane.
-  `ctx` is the context of the latest model request of the agent, or `ctx —` before the first
-  one. The lanes share one time axis, from the first spawn of the drawn rows to now, in 20
-  cells. An agent in a closed fold does not move the axis. The header names the axis. A lane
-  draws `━` while the agent ran and `·` before and after. The lane of an agent that waits for
-  you ends in `◆` in the theme colour `warning`, and the lane of a failed agent ends in `■` in
-  the theme colour `error`. The `waits for:` and `failed after` text moves into the tool
-  column, so each agent keeps one line. A capture from the tests, docked at 89 columns:
+- On the terminal, from a body of 41 columns, the agents that are not folded draw as cards side
+  by side when each card gets at least 18 columns: 2 at body 41, 4 at body 89, never more than
+  five. A card shows the name as a plain button with its digit, the state word, the wait or
+  failure line, the task, the type, the `ctx` and `out` tokens, the steps and a clock. The clock
+  ticks each second while the tab shows, and stops when it is hidden. A capture from the tests:
 
   ```text
-  Agents  3 · 1 needs you · 1 failed · lanes from 20m ago to now
-  ◆ scout     needs you waits for: permission · Bash… ctx 31k ············━━━━━━━◆ open  8m
-  ■ lane-b    failed    failed after Bash npm run bu… ctx —   ━━━━━━━■············       8m
-  ▶ Explore   running   Read src/a.ts                 ctx 48k ·················━━━ open  3m
+  ╭─ Agents  2 · 1 failed ────────────────╮
+  │ ╭────────────────╮ ╭────────────────╮ │
+  │ │ 1: ■ scout     │ │ 2: ▶ Explore   │ │
+  │ │ failed         │ │ quiet 2m       │ │
+  │ │ Bash npm test  │ │ map the hooks  │ │
+  │ │ find the elem… │ │ Explore        │ │
+  │ │ gene…l-purpose │ │ ctx 48k out 6k │ │
+  │ │ ctx 31k out 2k │ │ 1 step    2:00 │ │
+  │ │ 3 steps   2:10 │ │                │ │
+  │ ╰────────────────╯ ╰────────────────╯ │
+  ╰───────────────────────────────────────╯
   ```
 
-  Below a body of 80 columns, the rows keep the form above, with no `ctx` and no lane.
+- The first 5 agents have the digits 1 to 5. Press a digit to open that agent under the cards
+  or in its row, and the same digit to close it. A sixth agent has no digit.
+- When the cards do not fit, a terminal body of 80 columns or more draws the lanes below, and a
+  narrower body draws rows. Inline and on the desktop app the agents always draw as rows.
+- With lanes, each agent row adds a `ctx` column and a lane. `ctx` is the context of the latest
+  model request of the agent, or `ctx —` before the first one. The lanes share one time axis, from
+  the first spawn of the drawn rows to now, in 20 cells. An agent in a closed fold does not move the
+  axis. The header names the axis. A lane draws `━` while the agent ran and `·` before and after.
+  The lane of an agent that waits for you ends in `◆` in the theme colour `warning`, and the lane of
+  a failed agent ends in `■` in the theme colour `error`. The `waits for:` and `failed after` text
+  moves into the tool column, so each agent keeps one line. A capture from the tests, docked at 89
+  columns with 5 agents, unframed:
+
+  ```text
+  Agents  5 · 1 needs you · 1 failed · lanes from 20m ago to now
+  1: ◆ scout     needs you waits for: permission… ctx 31k ············━━━━━━━◆ open  8m
+  2: ■ lane-b    failed    failed after Bash npm… ctx —   ━━━━━━━■············       8m
+  3: ▶ Explore   running   Read src/a.ts          ctx 48k ·················━━━ open  3m
+  4: ▶ tester    running                          ctx —   ···················━ open  1m
+  5: ▶ docs      running                          ctx —   ···················━ open  1m
+  ```
+
+  Rows keep the form above, with no `ctx` and no lane.
+
+### Log
+
+The Log section shows the prompts, the spawns, the completions, the edits, the errors and the
+denials of the session, newest first, as time, who and what. A capture from the tests, docked at
+41 columns on the desktop app:
+
+```text
+Log  7 events
+14:03 scout     ✓ done 4m
+14:02 scout     ■ denied Bash git push h…
+14:02 scout     ■ failed Bash npm test
+14:02 scout     Edit docs/design.md
+14:02 main      Edit hooks/vitals.ts
+[ +2 earlier ]
+```
+
+- The board keeps the last 100 events in memory. It shows 5 at body 41 and 3 at body 30, with a
+  button for the earlier ones. Inline above the prompt it shows no log. From body 76 the time
+  has seconds.
+- `you` is a prompt of the person, `main` the main loop, and an agent its name. `denied`,
+  `failed` and `aborted` take `error`, `done` takes `success`.
+- An agent end shows once for each run: `done`, `failed`, or `aborted` for an interrupted or
+  killed agent. The board logs it when the turn of the agent ends, or at the time the agent list
+  first says that the agent ended. An agent that had ended before the board saw it run, also
+  after `/clear`, gets no end line.
+- The board masks the credentials of each event with `***`, as for the permission checks.
+- While an agent card or row is open, or the transcript of an agent is in view, the Log shows
+  only the events of that agent, under a dim line such as `only scout, while card 1 is open`.
+- `/board log` prints the kept log as text, newest first. `/board log scout` prints the events of
+  one agent. It takes the name that the board draws, such as `Explore 2`, the full name of the
+  agent or its id, and `main` or `you`.
 
 - Order: needs you first, then failed, then asked and running, on hold, pending and idle, each
   in spawn order. Ended agents fold into `+N ended`. At most 6 active agents show. The rest fold
@@ -1094,6 +1180,16 @@ setting of its own. The captures in this file show the plain marks.
 - These marks are the same in both sets: the running call mark `▸`, the progress bar `▰ ▱`, the
   gauges, the gate strip cells `▮ ▯ ■`, the lane cells `━ ·`, the rules `─` and the row bullet
   `●`.
+
+### Palette
+
+The frames, the gauge fill and the rules follow the setting Palette of the bundle `handily`.
+With `catppuccin-mocha` on a dark theme or the theme `auto`, they draw the Catppuccin Mocha
+colours, such as `#cba6f7` for the Session frame. With `theme`, on a light theme, on an ANSI
+theme, on a theme that the board cannot read, and on the desktop app, they draw the theme keys.
+States keep the theme keys in every palette: done, failed, waits, denied, high gauges and the
+git letters. `/handily palette` lists each role. The board reads the setting when the session
+starts and after a change of it or of the theme in `/config`.
 
 ## Lifetime
 

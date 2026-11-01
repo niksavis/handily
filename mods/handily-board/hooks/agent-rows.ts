@@ -1,6 +1,7 @@
-import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
+import type { Color, RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardTask, BoardToolSight } from '../types'
 import { elapsedText } from './activity'
+import { type CardFacts, cardSlots, drawCards } from './agent-cards'
 import type { AgentCallLine, AgentLook, AgentRow, AgentStall, AgentStep } from './agents'
 import {
   AGENTS_LOOK,
@@ -13,12 +14,14 @@ import {
   titlePart,
 } from './frame'
 import { LANE_CELLS, type LaneAxis, hasLanes, laneAxis, laneOf } from './lanes'
+import { cutName } from './names'
+import { type PaletteSetting, paletteColor } from './palette'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
 import { SIGNALS, type Signal, type SignalLooks, needsYouText } from './signals'
 import { escaped, paneTaskText, statusLook } from './tasks'
 import { tokensText } from './tokens'
-import { cutToWidth, displayWidth, fitted, lastToWidth } from './width'
+import { displayWidth, fitted } from './width'
 
 export const AGENT_ROWS_AT_MOST = 6
 export const NO_AGENTS = 'No agents yet.'
@@ -26,14 +29,17 @@ export const NAME_CUT_ABOVE = 9
 
 const MORE_AGENTS = 'group:more-agents'
 const ENDED_AGENTS = 'group:ended-agents'
-const NAME_HEAD = 4
 const NAME_GAP = 1
+const NAME_AT_LEAST = 5
+const HOTKEY_COLUMNS = 3
+const DIGITS_AT_MOST = 5
 const MARK_COLUMNS = 2
+const OPENED_INDENT = 2
 const TIME_COLUMNS = 3
 const DOCKED_COLUMNS = 9
 const INLINE_COLUMNS = 10
-const TOOL_COLUMN_FROM = 36
-const FRAMED_TOOL_COLUMN_FROM = 38
+const TOOL_COLUMN_FROM = 39
+const FRAMED_TOOL_COLUMN_FROM = 41
 const DETAIL_INDENT = 4
 const PLAN_FOLD_ABOVE = 5
 const PLAN_SIDE = 2
@@ -53,13 +59,14 @@ const ANSWER_LEAD = 'answer: '
 const NO_ANSWER_YET = 'none yet'
 const NO_ANSWER = 'none'
 const FAILED_ANSWER = 'none, the run failed'
-const RULE_COLOR: ThemeKey = 'subtle'
 const RUNNING_CALL_LOOK: TextStyle & { mark: string } = { mark: '▸', dimColor: true }
 const CALL_SIGNALS: Record<Exclude<AgentCallLine['outcome'], 'running'>, Signal> = {
   ok: 'done',
   failed: 'blocked',
 }
 const NO_CONTEXT = 'ctx —'
+const NO_TOKENS = 'ctx —  out —'
+const THOUSAND = 1_000
 const CONTEXT_COLUMNS = 7
 const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
   mark: string
@@ -108,12 +115,6 @@ const STATE_WORDS: Record<AgentLook, string> = {
   done: 'done',
   killed: 'killed',
   unlisted: 'not listed',
-}
-
-export function cutName(name: string, width: number): string {
-  if (displayWidth(name) <= width) return name
-  const head = cutToWidth(name, NAME_HEAD)
-  return `${head}…${lastToWidth(name, Math.max(width - displayWidth(head) - 1, 0))}`
 }
 
 export function numberedNames(labels: readonly string[], cutAbove: number): string[] {
@@ -202,20 +203,59 @@ function laneColumns(
   ]
 }
 
+function nameColumns(
+  elements: PaneElements,
+  columns: number,
+  lanesWidth: number,
+  hasToolColumn: boolean,
+): number {
+  const openWidth = displayWidth(OPEN_LABEL) + (hasToolColumn ? NAME_GAP : 0)
+  const rowWidth = HOTKEY_COLUMNS + MARK_COLUMNS + columns + NAME_GAP + lanesWidth + openWidth
+  const room = elements.bodyColumns - rowWidth - NAME_GAP - TIME_COLUMNS - NAME_GAP
+  return Math.max(room, NAME_AT_LEAST)
+}
+
+function nameButton(
+  elements: PaneElements,
+  row: AgentRow,
+  name: string,
+  digit: string | undefined,
+  layout: RowLayout,
+): RenderElement {
+  const { Box, Text, Button } = elements
+  const look = lookOf(row.look, elements.signals)
+  const button = Button({
+    key: `open:agent:${row.id}`,
+    plain: true,
+    ...(digit === undefined ? {} : { hotkey: digit }),
+    onPress: () => {
+      layout.toggle(`agent:${row.id}`)
+    },
+    children: [
+      Text({ color: look.color, children: `${look.mark} ` }),
+      Text({ bold: true, children: name }),
+    ],
+  })
+  if (digit !== undefined) return button
+  return Box({
+    flexDirection: 'row',
+    children: [Text({ children: ' '.repeat(HOTKEY_COLUMNS) }), button],
+  })
+}
+
 function agentLine(
   elements: PaneElements,
   row: AgentRow,
   name: string,
+  digit: string | undefined,
   layout: RowLayout,
   openAgents: () => void,
   axis: LaneAxis | null,
   hasToolColumn: boolean,
 ): RenderElement {
   const { Box, Text, Button } = elements
-  const look = lookOf(row.look, elements.signals)
   const columns = elements.isInline ? INLINE_COLUMNS : DOCKED_COLUMNS
   const state = stateText(row)
-  const nameWidth = Math.max(columns, displayWidth(name)) + NAME_GAP
   const stateWidth = Math.max(columns, displayWidth(state.text)) + NAME_GAP
   const time = elapsedText(row.ageMs)
   const timeWidth = NAME_GAP + Math.max(TIME_COLUMNS, displayWidth(time))
@@ -225,34 +265,21 @@ function agentLine(
   const context = contextText(row)
   const lanes = axis === null ? [] : laneColumns(elements, row, axis, context)
   const lanesWidth = axis === null ? 0 : contextWidth(context) + LANE_CELLS
-  const detailWidth = Math.max(
-    elements.bodyColumns -
-      MARK_COLUMNS -
-      nameWidth -
-      stateWidth -
-      lanesWidth -
-      openWidth -
-      timeWidth,
-    0,
-  )
+  const fixed = HOTKEY_COLUMNS + MARK_COLUMNS + stateWidth + lanesWidth + openWidth + timeWidth
+  const nameRoom = nameColumns(elements, columns, lanesWidth, hasToolColumn)
+  const shownName = cutName(name, nameRoom)
+  const nameWidth = Math.min(Math.max(columns, displayWidth(shownName)), nameRoom) + NAME_GAP
+  const detailWidth = Math.max(elements.bodyColumns - fixed - nameWidth, 0)
   const isDetailWhole = elements.isInline || axis !== null
   const detail = hasToolColumn ? fitted(detailText(row, isDetailWhole), detailWidth) : ''
   return Box({
     key: `row:agent:${row.id}`,
     flexDirection: 'row',
     children: [
-      fixedBox(elements, MARK_COLUMNS, Text({ color: look.color, children: `${look.mark} ` })),
       fixedBox(
         elements,
-        nameWidth,
-        Button({
-          key: `open:agent:${row.id}`,
-          plain: true,
-          onPress: () => {
-            layout.toggle(`agent:${row.id}`)
-          },
-          children: [Text({ bold: true, children: name })],
-        }),
+        HOTKEY_COLUMNS + MARK_COLUMNS + nameWidth,
+        nameButton(elements, row, shownName, digit, layout),
       ),
       fixedBox(elements, stateWidth, Text({ ...state.style, children: state.text })),
       Box({
@@ -472,7 +499,7 @@ function parentText(row: AgentRow, names: ReadonlyMap<string, string>): string |
   return names.get(row.parentId) ?? row.parentId.slice(0, 8)
 }
 
-function openedLines(
+export function openedLines(
   elements: PaneElements,
   row: AgentRow,
   names: ReadonlyMap<string, string>,
@@ -501,9 +528,10 @@ function drawAgent(
   openAgents: () => void,
   axis: LaneAxis | null,
   hasToolColumn: boolean,
+  digit: string | undefined,
 ): RenderElement {
   const name = names.get(row.id) ?? escaped(row.label)
-  const head = agentLine(elements, row, name, layout, openAgents, axis, hasToolColumn)
+  const head = agentLine(elements, row, name, digit, layout, openAgents, axis, hasToolColumn)
   const hasSecondLine = !elements.isInline && axis === null
   const failure =
     row.look === 'failed' && hasSecondLine
@@ -561,8 +589,9 @@ function titleParts(
   rows: readonly AgentRow[],
   axis: LaneAxis | null,
   columns: number,
+  palette: PaletteSetting,
 ): StyledPart[] {
-  const title = titlePart(AGENTS_LOOK)
+  const title = titlePart(AGENTS_LOOK, palette)
   const parts = [...headerParts(rows), ...(axis === null ? [] : [lanesPart(axis)])]
   const plain = parts.map((part) => part.text).join(' · ')
   if (plain === '') return [title]
@@ -587,7 +616,10 @@ function drawHeader(
   return elements.Box({
     key: 'agents',
     flexDirection: 'row',
-    children: drawStyledParts(elements, titleParts(rows, axis, elements.bodyColumns)),
+    children: drawStyledParts(
+      elements,
+      titleParts(rows, axis, elements.bodyColumns, elements.palette),
+    ),
   })
 }
 
@@ -627,6 +659,163 @@ function foldButton(key: string, label: string, layout: RowLayout): FoldButton {
   }
 }
 
+export function digitOf(index: number): string | undefined {
+  return index < DIGITS_AT_MOST ? String(index + 1) : undefined
+}
+
+export type AgentsShown = { drawn: readonly AgentRow[]; isCards: boolean; slots: number }
+
+export function agentsShown(
+  outer: PaneElements,
+  rows: readonly AgentRow[],
+  expanded: ReadonlySet<string>,
+): AgentsShown {
+  const isFramedHere = isFramed(outer)
+  const active = rows.filter((row) => !row.isEnded)
+  const ended = rows.filter((row) => row.isEnded)
+  const hidden = active.length - AGENT_ROWS_AT_MOST
+  const shown =
+    hidden > 0 && !expanded.has(MORE_AGENTS) ? active.slice(0, AGENT_ROWS_AT_MOST) : active
+  const drawn = expanded.has(ENDED_AGENTS) ? [...shown, ...ended] : shown
+  const slots = isFramedHere ? cardSlots(framedElements(outer).bodyColumns) : 0
+  return { drawn, isCards: drawn.length > 0 && drawn.length <= slots, slots }
+}
+
+function tokenForms(step: AgentStep | null): string[] {
+  if (step === null) return [NO_TOKENS]
+  const whole = (count: number) =>
+    count < THOUSAND ? String(Math.round(count)) : `${String(Math.round(count / THOUSAND))}k`
+  return [
+    `ctx ${tokensText(step.context)} out ${tokensText(step.output)}`,
+    `ctx ${whole(step.context)} out ${whole(step.output)}`,
+  ]
+}
+
+function cardWait(row: AgentRow): string | null {
+  if (row.look === 'needsYou') return row.call === null ? 'permission' : callText(row.call)
+  if (row.look !== 'failed') return null
+  return row.call === null ? 'before its first call' : callText(row.call)
+}
+
+function cardBorder(row: AgentRow, elements: PaneElements): Color {
+  if (row.look === 'needsYou') return SIGNALS.waitsForYou.color
+  if (row.look === 'failed') return SIGNALS.blocked.color
+  return paletteColor('rules', elements.palette)
+}
+
+function cardOf(
+  elements: PaneElements,
+  row: AgentRow,
+  name: string,
+  digit: string | undefined,
+  layout: RowLayout,
+): CardFacts {
+  return {
+    id: row.id,
+    digit,
+    name,
+    mark: lookOf(row.look, elements.signals),
+    state: stateText(row),
+    wait: cardWait(row),
+    task: row.description === null ? '' : escaped(row.description),
+    type: row.type === null ? '' : escaped(row.type),
+    tokens: tokenForms(row.step),
+    steps: row.steps,
+    clockMs: row.ageMs,
+    border: cardBorder(row, elements),
+    onPress: () => {
+      layout.toggle(`agent:${row.id}`)
+    },
+  }
+}
+
+type CardsView = {
+  names: ReadonlyMap<string, string>
+  layout: RowLayout
+  now: number
+  openAgents: () => void
+}
+
+function openedHead(
+  elements: PaneElements,
+  row: AgentRow,
+  lead: string,
+  openAgents: () => void,
+): RenderElement {
+  const { Box, Button, Text } = elements
+  const isOpenable = OPENABLE_LOOKS.has(row.look)
+  const room = elements.bodyColumns - (isOpenable ? FOLD_GAP + displayWidth(OPEN_LABEL) : 0)
+  return Box({
+    flexDirection: 'row',
+    children: [
+      Text({ children: fitted(`${lead}, opened:`, room) }),
+      isOpenable
+        ? Box({
+            flexShrink: 0,
+            marginLeft: FOLD_GAP,
+            children: [
+              Button({
+                key: `tasks:agent:${row.id}`,
+                label: OPEN_LABEL,
+                plain: true,
+                dimColor: true,
+                onPress: openAgents,
+              }),
+            ],
+          })
+        : null,
+    ],
+  })
+}
+
+function openedCard(
+  elements: PaneElements,
+  row: AgentRow,
+  view: CardsView,
+  digit: string | undefined,
+): RenderElement {
+  const { names, layout, now } = view
+  const name = names.get(row.id) ?? escaped(row.label)
+  const lead = digit === undefined ? name : `${digit} ${name}`
+  const detailElements = {
+    ...elements,
+    bodyColumns: elements.bodyColumns - OPENED_INDENT + DETAIL_INDENT,
+  }
+  return elements.Box({
+    key: `opened:agent:${row.id}`,
+    flexDirection: 'column',
+    children: [
+      openedHead(elements, row, lead, view.openAgents),
+      elements.Box({
+        key: `under:agent:${row.id}`,
+        flexDirection: 'column',
+        paddingLeft: OPENED_INDENT,
+        children: openedLines(detailElements, row, names, layout, now),
+      }),
+    ],
+  })
+}
+
+function cardsBody(
+  elements: PaneElements,
+  drawn: readonly AgentRow[],
+  slots: number,
+  view: CardsView,
+): RenderElement[] {
+  const { names, layout } = view
+  const cards = drawn.map((row, index) =>
+    cardOf(elements, row, names.get(row.id) ?? escaped(row.label), digitOf(index), layout),
+  )
+  return [
+    ...drawCards(elements, cards, slots),
+    ...drawn.flatMap((row, index) =>
+      layout.expanded.has(`agent:${row.id}`)
+        ? [openedCard(elements, row, view, digitOf(index))]
+        : [],
+    ),
+  ]
+}
+
 export function drawAgents(
   outer: PaneElements,
   rows: readonly AgentRow[],
@@ -645,12 +834,23 @@ export function drawAgents(
   const isMoreShown = layout.expanded.has(MORE_AGENTS)
   const isEndedShown = layout.expanded.has(ENDED_AGENTS)
   const shown = hidden > 0 && !isMoreShown ? active.slice(0, AGENT_ROWS_AT_MOST) : active
-  const drawn = isEndedShown ? [...shown, ...ended] : shown
-  const axis = hasLanes(outer.bodyColumns) ? laneAxis(drawn, now) : null
+  const { drawn, isCards, slots } = agentsShown(outer, rows, layout.expanded)
+  const hasLaneRows = !isCards && isFramedHere && hasLanes(outer.bodyColumns)
+  const axis = hasLaneRows ? laneAxis(drawn, now) : null
   const toolColumnFrom = isFramedHere ? FRAMED_TOOL_COLUMN_FROM : TOOL_COLUMN_FROM
   const hasToolColumn = elements.isInline || elements.bodyColumns >= toolColumnFrom
   const draw = (row: AgentRow) =>
-    drawAgent(elements, row, names, layout, now, openAgents, axis, hasToolColumn)
+    drawAgent(
+      elements,
+      row,
+      names,
+      layout,
+      now,
+      openAgents,
+      axis,
+      hasToolColumn,
+      digitOf(drawn.indexOf(row)),
+    )
   const folds = [
     hidden > 0
       ? foldButton(MORE_AGENTS, foldLabel(isMoreShown, hidden, 'more agents'), layout)
@@ -659,13 +859,14 @@ export function drawAgents(
       ? foldButton(ENDED_AGENTS, foldLabel(isEndedShown, ended.length, 'ended'), layout)
       : null,
   ].filter((fold) => fold !== null)
-  const body = [
-    ...shown.map(draw),
-    drawFolds(elements, folds),
-    ...(isEndedShown ? ended.map(draw) : []),
-  ]
+  const body = isCards
+    ? [
+        ...cardsBody(elements, drawn, slots, { names, layout, now, openAgents }),
+        drawFolds(elements, folds),
+      ]
+    : [...shown.map(draw), drawFolds(elements, folds), ...(isEndedShown ? ended.map(draw) : [])]
   if (isFramedHere) {
-    const title = titleParts(rows, axis, outer.bodyColumns - FRAME_TITLE_CHROME)
+    const title = titleParts(rows, axis, outer.bodyColumns - FRAME_TITLE_CHROME, outer.palette)
     return [drawFrame(outer, 'agents', AGENTS_LOOK, title, body)]
   }
   return [
@@ -673,7 +874,12 @@ export function drawAgents(
       ? null
       : Box({
           key: 'agents-rule',
-          children: [Text({ color: RULE_COLOR, children: '─'.repeat(elements.bodyColumns) })],
+          children: [
+            Text({
+              color: paletteColor('rules', elements.palette),
+              children: '─'.repeat(elements.bodyColumns),
+            }),
+          ],
         }),
     drawHeader(elements, rows, axis),
     ...body,

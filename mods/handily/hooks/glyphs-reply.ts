@@ -6,6 +6,8 @@ import {
   type GlyphRole,
   type GlyphSetting,
 } from './glyphs'
+import { PALETTE_ARGUMENT } from './palette-reply'
+import { storedOptionOf } from './settings'
 
 export const GLYPHS_ARGUMENT = 'glyphs'
 
@@ -37,14 +39,8 @@ const NERD_TEST_LINES = [
   'A box, a ? or a moved bar: this terminal has no Nerd Font Mono. Set Glyphs to plain in /config.',
 ]
 
-function fieldOf(value: unknown, field: string): unknown {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
-  if (!Object.hasOwn(value, field)) return undefined
-  return (value as Record<string, unknown>)[field]
-}
-
 export function storedGlyphsOf(pluginConfigs: unknown, rowPluginId: string): unknown {
-  return fieldOf(fieldOf(fieldOf(pluginConfigs, rowPluginId), 'options'), 'glyphs')
+  return storedOptionOf(pluginConfigs, rowPluginId, GLYPHS_ARGUMENT)
 }
 
 export function refusedGlyphsOf(stored: unknown): unknown {
@@ -76,5 +72,5 @@ export function glyphsReplyText(report: GlyphsReport): string {
 }
 
 export function argumentRefusal(args: string): string {
-  return `/handily takes no argument or ${GLYPHS_ARGUMENT}; ${JSON.stringify(args)} is neither.`
+  return `/handily takes no argument, ${GLYPHS_ARGUMENT} or ${PALETTE_ARGUMENT}; ${JSON.stringify(args)} is none of them.`
 }

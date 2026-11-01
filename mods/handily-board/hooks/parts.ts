@@ -1,4 +1,4 @@
-import type { RenderElement, ThemeKey } from 'claude-code'
+import type { Color, RenderElement } from 'claude-code'
 import type { PaneElements } from './pane'
 import { displayWidth, fitted } from './width'
 
@@ -6,7 +6,7 @@ export const PART_LEAD = ' · '
 
 const CUT_MARK = '…'
 
-export type Part = { text: string; color?: ThemeKey }
+export type Part = { text: string; color?: Color }
 
 function partsWidth(parts: readonly Part[], lead: string): number {
   return displayWidth(parts.map((part) => part.text).join(lead))
@@ -86,7 +86,7 @@ export function fitLineText(line: FitLine): string {
 
 export type Atom = { parts: readonly Part[]; dropRank?: number }
 
-export type FlowAtom = { forms: readonly (readonly Part[])[] }
+export type FlowAtom = { forms: readonly (readonly Part[])[]; isWhole?: boolean }
 
 function joined(atoms: readonly Atom[], lead: string): Part[] {
   return atoms.flatMap((atom, index) =>
@@ -135,7 +135,8 @@ export function flowLines(
     const line = lines.at(-1) ?? []
     const lineRoom = lines.length === 1 ? firstRoom : room
     const used = line.length === 0 ? 0 : spansWidth(line) + displayWidth(lead)
-    const form = atom.forms.find((one) => used + spansWidth(one) <= lineRoom)
+    const forms = line.length > 0 && atom.isWhole === true ? atom.forms.slice(0, 1) : atom.forms
+    const form = forms.find((one) => used + spansWidth(one) <= lineRoom)
     if (form !== undefined) lines[lines.length - 1] = withAtom(line, form, lead)
     else lines.push(firstFitting(room, atom.forms))
   }

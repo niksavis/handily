@@ -5,6 +5,10 @@ export const CONTEXT_HIGH = 80
 
 const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'NotebookEdit'])
 
+export function isEditTool(tool: string): boolean {
+  return EDIT_TOOLS.has(tool)
+}
+
 export type TurnCounts = { edits: number; errors: number; spawned: number }
 
 export type LastTurn = TurnCounts & { durationMs: number; heldCents: number | undefined }
@@ -130,7 +134,7 @@ function withCount(vitals: Vitals, change: (counts: TurnCounts) => TurnCounts): 
 export function withTurnCall(vitals: Vitals, tool: string, isError: boolean): Vitals {
   return withCount(vitals, (counts) => ({
     ...counts,
-    edits: counts.edits + (EDIT_TOOLS.has(tool) && !isError ? 1 : 0),
+    edits: counts.edits + (isEditTool(tool) && !isError ? 1 : 0),
     errors: counts.errors + (isError ? 1 : 0),
   }))
 }

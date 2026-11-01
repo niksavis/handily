@@ -10,6 +10,9 @@ import {
   storedGlyphsOf,
   type GlyphsReport,
 } from './glyphs-reply'
+import { DEFAULT_PALETTE, paletteRowOf, paletteSettingOf, themeNameOf } from './palette'
+import { PALETTE_ARGUMENT, paletteReplyText, type PaletteReport } from './palette-reply'
+import { storedOptionOf } from './settings'
 import {
   bundledMods,
   manifestDescription,
@@ -175,6 +178,22 @@ async function glyphsReportOf($: EngineInterface): Promise<GlyphsReport> {
   }
 }
 
+async function paletteReportOf($: EngineInterface): Promise<PaletteReport> {
+  const rows = await $.config.list()
+  const row = paletteRowOf(rows)
+  const pluginConfigs = await $.settings.read({ key: 'pluginConfigs' })
+  const stored =
+    row === undefined ? undefined : storedOptionOf(pluginConfigs, row.provider.plugin, 'palette')
+  const theme = themeNameOf(rows)
+  try {
+    return { setting: paletteSettingOf(rows), stored, theme }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    $.ui.log(reason, { to: 'debug' })
+    return { setting: DEFAULT_PALETTE, stored: stored ?? row?.value, theme }
+  }
+}
+
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -187,6 +206,7 @@ export const register: Register = (on) => {
   on('command.run', { command: COMMAND }, async ($, e) => {
     const args = e.args.trim()
     if (args === GLYPHS_ARGUMENT) return { text: glyphsReplyText(await glyphsReportOf($)) }
+    if (args === PALETTE_ARGUMENT) return { text: paletteReplyText(await paletteReportOf($)) }
     if (args !== '') return { text: argumentRefusal(args) }
     const mods = bundledMods(await $.fs.read(manifestPath($.plugin.root)))
     const loaded = await loadedMods($, mods)

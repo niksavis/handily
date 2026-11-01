@@ -257,6 +257,8 @@ function enabledWithout(name: string): Record<string, boolean> {
 type World = {
   modeSettings: Readonly<Record<string, ConfigValue>>
   glyphs: ConfigValue | undefined
+  palette: ConfigValue | undefined
+  theme: ConfigValue | undefined
   otherRows: ConfigRow[]
   pluginConfigs: unknown
   enabledPlugins: unknown
@@ -272,6 +274,8 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
   const full: World = {
     modeSettings: MODE_SETTINGS,
     glyphs: undefined,
+    palette: undefined,
+    theme: 'dark',
     otherRows: [],
     pluginConfigs: undefined,
     enabledPlugins: ALL_ENABLED,
@@ -301,7 +305,11 @@ function fakeWorld(on: On, world: Partial<World> = {}): World {
     return { value: scoped === undefined ? {} : { enabledPlugins: scoped } }
   })
   on('config.list', () => ({
-    value: [...configRows(full.modeSettings, full.glyphs), ...full.otherRows],
+    value: [
+      ...configRows(full.modeSettings, full.glyphs, full.theme),
+      ...(full.palette === undefined ? [] : [paletteRow(full.palette)]),
+      ...full.otherRows,
+    ],
   }))
   on('fs.read', (_$, e) => {
     full.reads.push(e.path)
@@ -330,20 +338,38 @@ function glyphsRow(value: ConfigValue, plugin = 'handily@niksavis'): ConfigRow {
   }
 }
 
+function paletteRow(value: ConfigValue, plugin = 'handily@niksavis'): ConfigRow {
+  return {
+    key: `${plugin.replace(/@.*$/, '')}.palette`,
+    label: 'Palette',
+    kind: 'choice',
+    value,
+    options: ['theme', 'catppuccin-mocha'],
+    provider: { plugin, tier: 'user' },
+    isLocked: false,
+  }
+}
+
 function configRows(
   modeSettings: Readonly<Record<string, ConfigValue>>,
   glyphs?: ConfigValue,
+  themeName?: ConfigValue,
 ): ConfigRow[] {
-  const theme: ConfigRow = {
-    key: 'theme',
-    label: 'Theme',
-    kind: 'choice',
-    value: 'dark',
-    provider: { plugin: 'engine', tier: 'core' },
-    isLocked: false,
-  }
+  const theme: ConfigRow[] =
+    themeName === undefined
+      ? []
+      : [
+          {
+            key: 'theme',
+            label: 'Theme',
+            kind: 'choice',
+            value: themeName,
+            provider: { plugin: 'engine', tier: 'core' },
+            isLocked: false,
+          },
+        ]
   return [
-    theme,
+    ...theme,
     ...(glyphs === undefined ? [] : [glyphsRow(glyphs)]),
     ...Object.entries(modeSettings).map(([plugin, value]) => ({
       key: `${plugin}.mode`,
@@ -356,8 +382,8 @@ function configRows(
   ]
 }
 
-async function startSession(engine: Engine): Promise<void> {
-  await engine.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+async function startSession(engine: Engine, surface: RenderSurface = 'terminal'): Promise<void> {
+  await engine.session.start({ cwd: '/work/app', surface, isInteractive: true })
 }
 
 async function handily(engine: Engine, args = ''): Promise<string> {
@@ -636,10 +662,13 @@ describe('/handily reply', () => {
   test('refuses another argument, names it and gives the accepted forms', async ($, on) => {
     fakeWorld(on)
     expect(await runHandily($, 'all')).toBe(
-      '/handily takes no argument or glyphs; "all" is neither.',
+      '/handily takes no argument, glyphs or palette; "all" is none of them.',
     )
     expect(await handily($, ' glyph ')).toBe(
-      '/handily takes no argument or glyphs; "glyph" is neither.',
+      '/handily takes no argument, glyphs or palette; "glyph" is none of them.',
+    )
+    expect(await handily($, 'palettes')).toBe(
+      '/handily takes no argument, glyphs or palette; "palettes" is none of them.',
     )
   })
 
@@ -959,6 +988,104 @@ describe('glyphSettingOf', () => {
     )
     expect(() => glyphSettingOf([glyphsRow(true)])).toThrow(
       'handily: userConfig glyphs is true; set it to plain or nerd in /config.',
+    )
+  })
+})
+
+const PALETTE_ROWS = [
+  'Role             Theme key    catppuccin-mocha',
+  'session frame    claude       #cba6f7',
+  'tasks frame      planMode     #89b4fa',
+  'agents frame     merged       #f5c2e7',
+  'log frame        inactive     #9399b2',
+  'table header     claude       #f9e2af',
+  'rules            subtle       #585b70',
+  'number           planMode     #a6e3a1',
+  'inline code      permission   #89dceb',
+  'path             merged       #cba6f7',
+  'link             suggestion   #89b4fa',
+  'diagram line     inactive     #9399b2',
+  'diagram head     claude       #cba6f7',
+  'diagram cycle 1  suggestion   #89b4fa',
+  'diagram cycle 2  planMode     #a6e3a1',
+  'diagram cycle 3  merged       #f5c2e7',
+  'plain folder     planMode     #89b4fa',
+  'code icon        suggestion   #89dceb',
+  'docs icon        merged       #f5c2e7',
+  'other icon       inactive     #9399b2',
+  'States (done, failed, waits, git letters) keep the theme keys.',
+  'Palette colours from Catppuccin Mocha (MIT).',
+]
+
+const MOCHA_ON_LIGHT = 'so the theme colours draw; catppuccin-mocha is for dark themes.'
+
+describe('/handily palette', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`shows catppuccin-mocha, the dark theme that draws it and each role with its theme key and hex on ${surface}`, async ($, on) => {
+      fakeWorld(on, { palette: 'catppuccin-mocha', theme: 'dark-daltonized' })
+      await startSession($, surface)
+      expect(await handily($, 'palette')).toBe(
+        [
+          'Palette: catppuccin-mocha (stored). Theme: dark-daltonized, so it draws.',
+          ...PALETTE_ROWS,
+        ].join('\n'),
+      )
+    })
+
+    test(`shows the theme default and the theme when the bundle lists no palette row on ${surface}`, async ($, on) => {
+      fakeWorld(on)
+      await startSession($, surface)
+      expect(await handily($, ' palette ')).toBe(
+        ['Palette: theme (the default). Theme: dark.', ...PALETTE_ROWS].join('\n'),
+      )
+    })
+  }
+
+  test('says catppuccin-mocha draws under the theme auto, and the theme colours draw under an ANSI theme', async ($, on) => {
+    const world = fakeWorld(on, { palette: 'catppuccin-mocha', theme: 'auto' })
+    expect((await runHandily($, 'palette')).split('\n')[0]).toBe(
+      'Palette: catppuccin-mocha (stored). Theme: auto, so it draws.',
+    )
+    for (const theme of ['dark-ansi', 'light-ansi']) {
+      world.theme = theme
+      expect((await handily($, 'palette')).split('\n')[0]).toBe(
+        `Palette: catppuccin-mocha (stored). Theme: ${theme}, so the theme colours draw; catppuccin-mocha is not for ANSI themes.`,
+      )
+    }
+  })
+
+  test('says the theme colours draw when the theme is light or cannot be read', async ($, on) => {
+    const world = fakeWorld(on, { palette: 'catppuccin-mocha', theme: 'light-daltonized' })
+    expect((await runHandily($, 'palette')).split('\n')[0]).toBe(
+      `Palette: catppuccin-mocha (stored). Theme: light-daltonized, ${MOCHA_ON_LIGHT}`,
+    )
+    world.theme = undefined
+    expect((await handily($, 'palette')).split('\n')[0]).toBe(
+      `Palette: catppuccin-mocha (stored). Theme: not read, ${MOCHA_ON_LIGHT}`,
+    )
+    world.theme = 'solarized'
+    expect((await handily($, 'palette')).split('\n')[0]).toBe(
+      `Palette: catppuccin-mocha (stored). Theme: solarized, ${MOCHA_ON_LIGHT}`,
+    )
+  })
+
+  test('names a stored value outside theme and catppuccin-mocha and draws theme', async ($, on) => {
+    const world = fakeWorld(on, { palette: 'mocha' })
+    expect((await runHandily($, 'palette')).split('\n')[0]).toBe(
+      'Palette: theme. The stored value "mocha" is not theme or catppuccin-mocha, so theme draws. Set Palette in /config › handily. Theme: dark.',
+    )
+    expect(world.debugLines).toEqual([
+      'handily: userConfig palette is "mocha"; set it to theme or catppuccin-mocha in /config. Drawing theme.',
+    ])
+  })
+
+  test('names the value stored in the settings of the install whose row sets the palette', async ($, on) => {
+    fakeWorld(on, {
+      palette: 'theme',
+      pluginConfigs: { 'handily@niksavis': { options: { palette: 'latte' } } },
+    })
+    expect((await runHandily($, 'palette')).split('\n')[0]).toBe(
+      'Palette: theme. The stored value "latte" is not theme or catppuccin-mocha, so theme draws. Set Palette in /config › handily. Theme: dark.',
     )
   })
 })
