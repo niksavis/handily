@@ -8,6 +8,7 @@ import type {
   RenderSurface,
   SelectProps,
   TextProps,
+  ThemeKey,
 } from 'claude-code'
 import { filterValue } from './agents'
 import {
@@ -18,8 +19,16 @@ import {
   buttonRows,
   rowWidth,
 } from './buttons'
+import {
+  COLUMN_HOTKEY,
+  COLUMN_LABELS,
+  type ColumnDraw,
+  type ColumnValue,
+  columnValue,
+} from './column'
+import { FAMILY_COLORS, TYPE_ICONS, fileTypeOf } from './fileicons'
 import type { GitView, NoteLine, NoteTone } from './gitview'
-import type { GlyphSet } from './glyphs'
+import { GLYPH_SETS, type GlyphSet } from './glyphs'
 import { type LineCount, type LineMarks, lineNumber } from './lines'
 import {
   type MarkColumn,
@@ -34,12 +43,12 @@ import {
   type TaskCounts,
   touchText,
 } from './marks'
-import type { GitCount, GitLetter, GitMarks } from './status'
+import type { GitCount, GitLetter, GitMarks, IgnoredMarks } from './status'
 import type { EntryRow, Listing, TreeRow } from './tree'
 import type { Mark, Sight, Touch } from './touches'
 import { displayWidth, fitted } from './width'
 import { type WorkPath, chainTop, flatEntryRow } from './work'
-import type { FiletreeView } from '../types'
+import type { FiletreeColumn, FiletreeView } from '../types'
 
 export type PaneElements = {
   Box: ElementConstructor<BoxProps>
@@ -50,6 +59,8 @@ export type PaneElements = {
   Markdown: ElementConstructor<MarkdownProps>
   bodyColumns: number
   glyphs: GlyphSet
+  hasIcons: boolean
+  surface: RenderSurface
 }
 
 export type TaskDraw = {
@@ -72,6 +83,7 @@ export type TouchDraw = {
   agent: string | undefined
   inView: string | undefined
   pick: (value: string) => void
+  runsOn: (path: string) => boolean
   now: number
   task: TaskDraw | undefined
 }
@@ -85,6 +97,7 @@ type PaneView = {
   opened: string | undefined
   choice: FiletreeView
   lastTurn: LastTurnDraw | undefined
+  column: ColumnDraw
 }
 
 export type PaneActions = {
@@ -130,6 +143,13 @@ const INDENT = '  '
 const DETAIL_INDENT = '  '
 const MARKED_ROOM = 3
 const RULE = '─'
+const RULE_SURFACE: RenderSurface = 'terminal'
+const COLUMN_KEY = 'column'
+const COLUMN_ROW_KEY = 'column-row'
+const FOLDER_DIFF_KEY = 'diff-folder'
+const ROW_BACKGROUND: ThemeKey = 'subtle'
+const PLAIN_FOLDER: ThemeKey = 'planMode'
+const IGNORED = 'ignored'
 const NOT_LISTED = 'not listed'
 const DOCK_HINT = 'a dock (fullscreen, 110 columns) shows the tree'
 const NO_WORK = 'No changed or touched files.'
@@ -147,7 +167,15 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
 
 type LetterColor = 'success' | 'warning' | 'error'
 
-export type Part = { text: string; color?: LetterColor; dimColor?: boolean; bold?: boolean }
+export type Part = {
+  text: string
+  color?: ThemeKey
+  dimColor?: boolean
+  bold?: boolean
+  backgroundColor?: ThemeKey
+}
+
+type Look = Pick<Part, 'color' | 'dimColor'>
 
 const STATE_WORDS: Readonly<Record<GitLetter, string>> = {
   M: 'modified',
@@ -215,15 +243,19 @@ export function wrapped(text: string, width: number): string[] {
 
 export type HeaderRows = 'one' | 'two'
 
+function countLook(count: number, color: ThemeKey): Look {
+  return count === 0 ? { dimColor: true } : { color }
+}
+
 function lineParts(count: LineCount): Part[] {
   return [
-    { text: `+${lineNumber(count.added)}`, color: 'success' },
+    { text: `+${lineNumber(count.added)}`, ...countLook(count.added, 'success') },
     { text: ' ' },
-    { text: `-${lineNumber(count.removed)}`, color: 'error' },
+    { text: `-${lineNumber(count.removed)}`, ...countLook(count.removed, 'error') },
   ]
 }
 
-function hasLineCounts(elements: PaneElements): boolean {
+function hasRightColumn(elements: PaneElements): boolean {
   return elements.bodyColumns >= LINES_BODY
 }
 
@@ -245,7 +277,7 @@ export function drawHeader(
     { text: `  ${shownName(rootName)}` },
     ...git.header.map((part) => ({ ...part, text: shownName(part.text) })),
   ]
-  const total = hasLineCounts(elements) ? git.lines?.total : undefined
+  const total = hasRightColumn(elements) ? git.lines?.total : undefined
   const totals = total === undefined ? [] : lineParts(total)
   const withTotals = [...head, { text: ' ' }, ...totals]
   const isTotalsOnTop = totals.length > 0 && partsWidth(withTotals) <= room
@@ -283,6 +315,35 @@ function refreshSpec(actions: PaneActions): ButtonSpec {
 
 function refreshButton(elements: PaneElements, actions: PaneActions): RenderElement {
   return buttonOf(elements.Button, refreshSpec(actions), displayWidth(REFRESH))
+}
+
+function columnSpec(column: ColumnDraw): ButtonSpec {
+  return {
+    key: COLUMN_KEY,
+    label: COLUMN_LABELS[column.choice],
+    hotkey: COLUMN_HOTKEY,
+    onPress: () => {
+      column.cycle()
+    },
+  }
+}
+
+function isColumnOnRule(elements: PaneElements): boolean {
+  return elements.surface === RULE_SURFACE
+}
+
+function drawRule(elements: PaneElements, column: ColumnDraw): RenderElement {
+  const { Box, Text, Button, bodyColumns } = elements
+  if (!hasRightColumn(elements) || !isColumnOnRule(elements)) {
+    return Text({ children: RULE.repeat(Math.max(bodyColumns, 0)) })
+  }
+  const spec = columnSpec(column)
+  const rule = RULE.repeat(Math.max(bodyColumns - rowWidth([spec]) - BUTTON_GAP, 0))
+  return Box({
+    key: COLUMN_ROW_KEY,
+    flexDirection: 'row',
+    children: [Text({ children: `${rule} ` }), buttonOf(Button, spec, bodyColumns)],
+  })
 }
 
 function viewSpec(actions: PaneActions, choice: FiletreeView): ButtonSpec {
@@ -337,7 +398,11 @@ function filterWidth(elements: PaneElements, touched: TouchDraw): number {
   return displayWidth(`${FILTER_LABEL}: ${shownName(shown)}`) + SELECT_CHROME
 }
 
-function drawControls(elements: PaneElements, view: PaneView): RenderElement[] {
+function controlRows(
+  elements: PaneElements,
+  view: PaneView,
+  columns: readonly ButtonSpec[],
+): RenderElement[] {
   const { Box, Text, Button, bodyColumns } = elements
   const switcher = view.touched.task === undefined ? [viewSpec(view.actions, view.choice)] : []
   const refresh = refreshSpec(view.actions)
@@ -345,10 +410,16 @@ function drawControls(elements: PaneElements, view: PaneView): RenderElement[] {
   const select = filterSelect(elements, view.touched)
   const filter = { children: select, width: filterWidth(elements, view.touched) }
   const room = { room: bodyColumns, indent: 0, key: 'controls' }
-  if (select.length === 0) return buttonRows(elements, specs, room)
-  if (rowWidth(specs) + BUTTON_GAP + filter.width > bodyColumns) {
-    return buttonRows(elements, specs, { ...room, tail: filter })
+  if (select.length === 0) return buttonRows(elements, [...specs, ...columns], room)
+  const width = rowWidth(specs) + BUTTON_GAP + filter.width
+  if (width > bodyColumns) {
+    return [
+      ...buttonRows(elements, specs, { ...room, tail: filter }),
+      ...buttonRows(elements, columns, { ...room, key: COLUMN_ROW_KEY }),
+    ]
   }
+  const isBeside = width + BUTTON_GAP + rowWidth(columns) <= bodyColumns
+  const after = [refresh, ...(isBeside ? columns : [])]
   return [
     Box({
       flexDirection: 'row',
@@ -358,11 +429,16 @@ function drawControls(elements: PaneElements, view: PaneView): RenderElement[] {
           Text({ children: ' ' }),
         ]),
         ...select,
-        Text({ children: ' ' }),
-        buttonOf(Button, refresh, bodyColumns),
+        ...after.flatMap((spec) => [Text({ children: ' ' }), buttonOf(Button, spec, bodyColumns)]),
       ],
     }),
+    ...(isBeside ? [] : buttonRows(elements, columns, { ...room, key: COLUMN_ROW_KEY })),
   ]
+}
+
+function drawControls(elements: PaneElements, view: PaneView): RenderElement[] {
+  const isBelow = hasRightColumn(elements) && !isColumnOnRule(elements)
+  return controlRows(elements, view, isBelow ? [columnSpec(view.column)] : [])
 }
 
 function drawTaskLine(elements: PaneElements, task: TaskDraw): RenderElement {
@@ -462,8 +538,9 @@ function drawSight(elements: PaneElements, sight: Sight, touched: TouchDraw): Re
     bodyColumns,
     now: touched.now,
     glyphs: elements.glyphs,
+    isNow: sight.isRunning === true,
   })
-  const age = cells.age === '' ? [] : [Text({ dimColor: true, children: cells.age })]
+  const age = cells.age === '' ? [] : drawParts(Text, [agePart(cells)])
   const line = Box({
     key: `now:${sight.agent}`,
     flexDirection: 'row',
@@ -515,10 +592,6 @@ function drawNotes(
   return notes.flatMap((note) => drawNote(elements, note, actions))
 }
 
-function folderText(row: { name: string; depth: number }, mark: string): string {
-  return `${indentOf(row.depth)}${mark} ${shownName(row.name)}/`
-}
-
 export function fittedParts(parts: readonly Part[], width: number): Part[] {
   let rest = fitted(parts.map((part) => part.text).join(''), width)
   const kept: Part[] = []
@@ -537,8 +610,24 @@ export function fittedParts(parts: readonly Part[], width: number): Part[] {
 
 export function drawParts(Text: PaneElements['Text'], parts: readonly Part[]): RenderElement[] {
   return parts.map((part) =>
-    Text({ color: part.color, dimColor: part.dimColor, bold: part.bold, children: part.text }),
+    Text({
+      color: part.color,
+      dimColor: part.dimColor,
+      bold: part.bold,
+      backgroundColor: part.backgroundColor,
+      children: part.text,
+    }),
   )
+}
+
+function padded(parts: readonly Part[], width: number): Part[] {
+  const room = width - partsWidth(parts)
+  return room > 0 ? [...parts, { text: ' '.repeat(room) }] : [...parts]
+}
+
+function onBackground(parts: readonly Part[], color: ThemeKey | undefined): Part[] {
+  if (color === undefined) return [...parts]
+  return parts.map((part) => ({ ...part, backgroundColor: color }))
 }
 
 function hasChangeList(counts: readonly GitCount[]): boolean {
@@ -552,18 +641,17 @@ function countParts(counts: readonly GitCount[]): Part[] {
   ])
 }
 
-function markedParts(letter: GitLetter, name: string): Part[] {
-  const color = LETTER_COLORS[letter]
-  return [{ text: letter, color }, { text: ' ' }, { text: name, color }]
-}
-
 function partsWidth(parts: readonly Part[]): number {
   return parts.reduce((sum, part) => sum + displayWidth(part.text), 0)
 }
 
-type CountCell = { width: number; parts: readonly Part[] }
+type CountCell = { width: number; parts: readonly Part[]; reservesMark: boolean }
 
 type CountColumn = { width: number; cellOf: (path: string, isFolder: boolean) => CountCell }
+
+type CountPath = { path: string; isFolder: boolean }
+
+type ColumnPath = CountPath & { hasMark: boolean }
 
 function countCellParts(lines: LineMarks, path: string, isFolder: boolean): Part[] {
   const found = isFolder ? lines.folderOf(path) : lines.fileOf(path)
@@ -572,11 +660,10 @@ function countCellParts(lines: LineMarks, path: string, isFolder: boolean): Part
 }
 
 function countColumn(
-  elements: PaneElements,
   lines: LineMarks | undefined,
-  paths: readonly { path: string; isFolder: boolean }[],
+  paths: readonly CountPath[],
 ): CountColumn | undefined {
-  if (lines === undefined || !hasLineCounts(elements)) return undefined
+  if (lines === undefined) return undefined
   const width = Math.max(
     0,
     ...paths.map(({ path, isFolder }) => partsWidth(countCellParts(lines, path, isFolder))),
@@ -584,8 +671,52 @@ function countColumn(
   if (width === 0) return undefined
   return {
     width,
-    cellOf: (path, isFolder) => ({ width, parts: countCellParts(lines, path, isFolder) }),
+    cellOf: (path, isFolder) => ({
+      width,
+      parts: countCellParts(lines, path, isFolder),
+      reservesMark: true,
+    }),
   }
+}
+
+function valueOf(view: PaneView, path: string): ColumnValue | undefined {
+  const { column } = view
+  return columnValue(column.choice, column.factsOf(path), view.touched.now)
+}
+
+function valueColumn(view: PaneView, paths: readonly ColumnPath[]): CountColumn | undefined {
+  const { column, git } = view
+  const files = paths
+    .filter(({ path, isFolder }) => !isFolder && git.marks?.letterOf(path) !== 'D')
+    .map(({ path }) => path)
+  column.want(files, column.choice === 'lines')
+  const values = new Map(
+    files.flatMap((path) => {
+      const value = valueOf(view, path)
+      return value === undefined ? [] : [[path, value.text] as const]
+    }),
+  )
+  const width = Math.max(0, ...[...values.values()].map((text) => displayWidth(text)))
+  if (width === 0) return undefined
+  const reservesMark = paths.some(({ hasMark }) => hasMark)
+  return {
+    width,
+    cellOf: (path, isFolder) => {
+      const text = isFolder ? undefined : values.get(path)
+      const parts = text === undefined ? [] : [{ text, dimColor: true }]
+      return { width, parts, reservesMark }
+    },
+  }
+}
+
+function rightColumn(
+  elements: PaneElements,
+  view: PaneView,
+  paths: readonly ColumnPath[],
+): CountColumn | undefined {
+  if (!hasRightColumn(elements)) return undefined
+  if (view.column.choice === 'changes') return countColumn(view.git.lines, paths)
+  return valueColumn(view, paths)
 }
 
 function nameRoom(
@@ -595,8 +726,8 @@ function nameRoom(
   count: CountCell | undefined,
 ): number {
   const countRoom = count === undefined ? 0 : count.width + COUNT_GAP
-  const markRoom =
-    mark === undefined && count === undefined ? 0 : markWidth(touched.column) + MARK_GAP
+  const hasMarkRoom = mark !== undefined || count?.reservesMark === true
+  const markRoom = hasMarkRoom ? markWidth(touched.column) + MARK_GAP : 0
   return width - countRoom - markRoom
 }
 
@@ -604,22 +735,30 @@ function markLabel(touched: TouchDraw, mark: Mark): string {
   return isShared(mark) ? sharedLabel(mark) : shownName(touched.labelOf(mark.agent))
 }
 
-function markParts(touched: TouchDraw, mark: Mark, glyphs: GlyphSet): Part[] {
-  const label = markLabel(touched, mark)
-  const cell = markCell(touched.column, mark, { label, now: touched.now, glyphs })
-  return cell.age === ''
-    ? [{ text: cell.mark }]
-    : [{ text: cell.mark }, { text: cell.age, dimColor: true }]
+function agePart(cell: { age: string; isNow: boolean }): Part {
+  return cell.isNow ? { text: cell.age, bold: true } : { text: cell.age, dimColor: true }
 }
+
+function markParts(
+  touched: TouchDraw,
+  mark: Mark,
+  site: { glyphs: GlyphSet; isNow: boolean },
+): Part[] {
+  const label = markLabel(touched, mark)
+  const cell = markCell(touched.column, mark, { label, now: touched.now, ...site })
+  return cell.age === '' ? [{ text: cell.mark }] : [{ text: cell.mark }, agePart(cell)]
+}
+
+type LineCells = { mark: Mark | undefined; count: CountCell | undefined; isNow: boolean }
 
 function markedLine(
   parts: readonly Part[],
   width: number,
   touched: TouchDraw,
-  cells: { mark: Mark | undefined; count: CountCell | undefined },
+  cells: LineCells,
   glyphs: GlyphSet,
 ): { head: Part[]; tail: Part[] } {
-  const { mark, count } = cells
+  const { mark, count, isNow } = cells
   const room = nameRoom(width, touched, mark, count)
   const head = fittedParts(parts, room)
   const isCounted = count !== undefined && count.parts.length > 0
@@ -630,7 +769,9 @@ function markedLine(
       ? []
       : [{ text: ' '.repeat(COUNT_GAP + count.width - partsWidth(count.parts)) }, ...count.parts]
   const markTail =
-    mark === undefined ? [] : [{ text: ' '.repeat(MARK_GAP) }, ...markParts(touched, mark, glyphs)]
+    mark === undefined
+      ? []
+      : [{ text: ' '.repeat(MARK_GAP) }, ...markParts(touched, mark, { glyphs, isNow })]
   return { head, tail: [gap, ...countTail, ...markTail] }
 }
 
@@ -639,10 +780,45 @@ function folderColor(counts: readonly GitCount[]): LetterColor | undefined {
   return STRONGEST_FIRST.find((color) => colors.has(color))
 }
 
-function folderName(text: string, name: string, counts: readonly GitCount[]): Part[] {
+function hasDotPart(name: string): boolean {
+  return name.split('/').some((part) => part.startsWith('.'))
+}
+
+function isIgnoredPath(ignored: IgnoredMarks | undefined, path: string): boolean {
+  return ignored?.isIgnored(path) === true
+}
+
+function folderLook(counts: readonly GitCount[], isDim: boolean): Look {
   const color = folderColor(counts)
-  if (color === undefined) return [{ text: `${text}${name}/` }]
-  return [{ text }, { text: `${name}/`, color }]
+  if (color !== undefined) return { color }
+  return isDim ? { dimColor: true } : { color: PLAIN_FOLDER }
+}
+
+type FolderName = {
+  name: string
+  counts: readonly GitCount[]
+  isIgnored: boolean
+  isListed: boolean
+}
+
+function folderNameParts(lead: readonly Part[], label: string, folder: FolderName): Part[] {
+  const isIgnored = folder.isIgnored && folder.counts.length === 0
+  const look = folderLook(folder.counts, isIgnored || hasDotPart(folder.name))
+  const word: Part[] =
+    isIgnored && folder.isListed ? [{ text: `  ${IGNORED}`, dimColor: true }] : []
+  return [...lead, { text: label, ...look }, ...word]
+}
+
+function treeFolderParts(
+  elements: PaneElements,
+  row: { name: string; depth: number; isOpen: boolean },
+  folder: FolderName,
+): Part[] {
+  const role = row.isOpen ? 'folderOpen' : 'folderClosed'
+  const indent: Part[] = row.depth === 0 ? [] : [{ text: indentOf(row.depth) }]
+  const chevron: Part = { text: `${GLYPH_SETS.plain[role]} `, dimColor: true }
+  const icon = elements.hasIcons ? `${elements.glyphs[role]} ` : ''
+  return folderNameParts([...indent, chevron], `${icon}${shownName(row.name)}/`, folder)
 }
 
 function drawFolder(
@@ -651,40 +827,29 @@ function drawFolder(
   draw: TreeDraw,
 ): RenderElement {
   const { Box, Text, Button, bodyColumns } = elements
-  const indent = displayWidth(indentOf(row.depth))
-  const mark = row.isOpen ? elements.glyphs.folderOpen : elements.glyphs.folderClosed
   const top = chainTop(row)
   const gitCounts = draw.marks?.countsOf(top) ?? []
-  const nameParts = folderName(`${mark} `, shownName(row.name), gitCounts)
+  const isIgnored = isIgnoredPath(draw.ignored, row.path)
+  const nameParts = treeFolderParts(elements, row, {
+    name: row.name,
+    counts: gitCounts,
+    isIgnored,
+    isListed: true,
+  })
   const line = markedLine(
     [...nameParts, ...countParts(gitCounts)],
-    bodyColumns - indent,
+    bodyColumns,
     draw.touched,
     {
-      mark: draw.touched.folderMark(row.path),
+      mark: row.isOpen ? undefined : draw.touched.folderMark(row.path),
       count: draw.counts?.cellOf(top, true),
+      isNow: false,
     },
     elements.glyphs,
   )
-  const name = line.head.slice(0, nameParts.length)
-  const counts = line.head.slice(nameParts.length)
-  const countButton =
-    counts.length === 0 || !hasChangeList(gitCounts)
-      ? drawParts(Text, counts)
-      : [
-          Button({
-            key: `diff:${top}`,
-            plain: true,
-            onPress: () => {
-              draw.actions.diff(top, true)
-            },
-            children: drawParts(Text, counts),
-          }),
-        ]
   return Box({
     key: `folder:${row.path}`,
     flexDirection: 'row',
-    paddingLeft: indent,
     children: [
       Button({
         key: `open:${row.path}`,
@@ -692,11 +857,35 @@ function drawFolder(
         onPress: () => {
           draw.actions.toggle(row.path)
         },
-        children: drawParts(Text, name),
+        children: drawParts(Text, padded([...line.head, ...line.tail], bodyColumns)),
       }),
-      ...countButton,
-      ...drawParts(Text, line.tail),
     ],
+  })
+}
+
+function drawPruned(
+  elements: PaneElements,
+  row: EntryRow & { kind: 'pruned' },
+  draw: TreeDraw,
+): RenderElement {
+  const { Box, Text, bodyColumns } = elements
+  const parts = [
+    ...treeFolderParts(
+      elements,
+      { ...row, isOpen: false },
+      {
+        name: row.name,
+        counts: [],
+        isIgnored: isIgnoredPath(draw.ignored, row.path),
+        isListed: false,
+      },
+    ),
+    { text: `  ${NOT_LISTED}` },
+  ]
+  return Box({
+    key: `pruned:${row.path}`,
+    flexDirection: 'row',
+    children: drawParts(Text, fittedParts(parts, bodyColumns)),
   })
 }
 
@@ -712,30 +901,70 @@ function renameDetail(
   return [elements.Text({ children: fitted(text, elements.bodyColumns) })]
 }
 
+function hasTypeIcons(elements: PaneElements): boolean {
+  return elements.hasIcons && hasRightColumn(elements)
+}
+
+function typeIconParts(elements: PaneElements, name: string, isDim: boolean): Part[] {
+  if (!hasTypeIcons(elements)) return []
+  const { icon, family } = TYPE_ICONS[fileTypeOf(name)]
+  const look: Look = isDim ? { dimColor: true } : { color: FAMILY_COLORS[family] }
+  return [{ text: `${icon} `, ...look }]
+}
+
+type FileName = {
+  lead: string
+  slot: string
+  name: string
+  letter: GitLetter | undefined
+  isDim: boolean
+}
+
+function fileNameParts(elements: PaneElements, file: FileName): Part[] {
+  const shown = shownName(file.name)
+  const icon = typeIconParts(elements, file.name, file.isDim)
+  if (file.letter === undefined) {
+    const lead = `${file.lead}${file.slot}`
+    if (icon.length === 0) return [{ text: `${lead}${shown}`, dimColor: file.isDim }]
+    return [{ text: lead }, ...icon, { text: shown, dimColor: file.isDim }]
+  }
+  const color = LETTER_COLORS[file.letter]
+  const lead: Part[] = file.lead === '' ? [] : [{ text: file.lead }]
+  return [...lead, { text: file.letter, color }, { text: ' ' }, ...icon, { text: shown, color }]
+}
+
+function rowBackground(isRunning: boolean): ThemeKey | undefined {
+  return isRunning ? ROW_BACKGROUND : undefined
+}
+
 function fileLine(
   elements: PaneElements,
   row: EntryRow & { kind: 'file' },
   draw: TreeDraw,
-): RenderElement[] {
-  const { Text, bodyColumns } = elements
+): Part[] {
+  const { bodyColumns } = elements
   const { marks, touched } = draw
   const mark = touched.fileMark(row.path)
-  const name = `${indentOf(row.depth)}${INDENT}${shownName(row.name)}`
   const letter = marks?.letterOf(row.path)
-  if (letter === undefined && mark === undefined) {
-    return [Text({ dimColor: row.isDot, children: fitted(name, bodyColumns) })]
-  }
+  const isDim = letter === undefined && (row.isDot || isIgnoredPath(draw.ignored, row.path))
   const count = draw.counts?.cellOf(row.path, false)
+  const isRunning = touched.runsOn(row.path)
   const room = nameRoom(bodyColumns, touched, mark, count)
-  const parts =
+  const iconRoom = partsWidth(typeIconParts(elements, row.name, isDim))
+  const depth =
     letter === undefined
-      ? [{ text: name, dimColor: row.isDot }]
-      : [
-          { text: indentOf(Math.min(row.depth, Math.floor(Math.max(room - MARKED_ROOM, 0) / 2))) },
-          ...markedParts(letter, shownName(row.name)),
-        ]
-  const line = markedLine(parts, bodyColumns, touched, { mark, count }, elements.glyphs)
-  return drawParts(Text, [...line.head, ...line.tail])
+      ? row.depth
+      : Math.min(row.depth, Math.floor(Math.max(room - MARKED_ROOM - iconRoom, 0) / 2))
+  const parts = fileNameParts(elements, {
+    lead: indentOf(depth),
+    slot: letter === undefined ? INDENT : '',
+    name: row.name,
+    letter,
+    isDim,
+  })
+  const isNow = mark?.isRunning === true
+  const line = markedLine(parts, bodyColumns, touched, { mark, count, isNow }, elements.glyphs)
+  return onBackground(padded([...line.head, ...line.tail], bodyColumns), rowBackground(isRunning))
 }
 
 function stateWords(marks: GitMarks, path: string): string | undefined {
@@ -754,6 +983,27 @@ function stateText(
   const words = stateWords(marks, path)
   if (words === undefined || count === undefined || count.parts.length === 0) return words
   return `${words}${PART_GAP}${count.parts.map((part) => part.text).join('')}`
+}
+
+function folderOf(path: string): string | undefined {
+  const cut = path.lastIndexOf('/')
+  return cut < 0 ? undefined : path.slice(0, cut)
+}
+
+function folderDiffSpecs(path: string, draw: TreeDraw): ButtonSpec[] {
+  const folder = folderOf(path)
+  if (folder === undefined || draw.marks === undefined) return []
+  const counts = draw.marks.countsOf(folder)
+  if (counts.length === 0 || !hasChangeList(counts)) return []
+  return [
+    {
+      key: FOLDER_DIFF_KEY,
+      label: `diff ${shownName(folder)}/`,
+      onPress: () => {
+        draw.actions.diff(folder, true)
+      },
+    },
+  ]
 }
 
 function rowButtons(path: string, draw: TreeDraw): ButtonSpec[] {
@@ -792,6 +1042,7 @@ function rowButtons(path: string, draw: TreeDraw): ButtonSpec[] {
         actions.mention(path)
       },
     },
+    ...folderDiffSpecs(path, draw),
   ]
 }
 
@@ -807,11 +1058,10 @@ function openedDetail(
   const touches = touched
     .touchesOf(row.path)
     .map((touch) => touchText(touch, (agent) => shownName(touched.labelOf(agent)), touched.now))
-  const state =
-    marks === undefined
-      ? undefined
-      : stateText(marks, row.path, draw.counts?.cellOf(row.path, false))
-  const lines = state === undefined ? touches : [...touches, state]
+  const changes = draw.choice === 'changes' ? draw.counts?.cellOf(row.path, false) : undefined
+  const state = marks === undefined ? undefined : stateText(marks, row.path, changes)
+  const why = draw.whyOf(row.path)
+  const lines = [...touches, ...[state, why].filter((line) => line !== undefined)]
   return [
     ...lines
       .flatMap((text) => wrapped(text, room))
@@ -825,7 +1075,7 @@ function drawFile(
   row: EntryRow & { kind: 'file' },
   draw: TreeDraw,
 ): RenderElement[] {
-  const { Box, Button } = elements
+  const { Box, Text, Button } = elements
   const { marks } = draw
   const isOpened = draw.opened === row.path
   return [
@@ -839,7 +1089,7 @@ function drawFile(
           onPress: () => {
             draw.actions.openFile(row.path)
           },
-          children: fileLine(elements, row, draw),
+          children: drawParts(Text, fileLine(elements, row, draw)),
         }),
       ],
     }),
@@ -851,24 +1101,19 @@ function drawFile(
 type TreeDraw = {
   actions: PaneActions
   marks: GitMarks | undefined
+  ignored: IgnoredMarks | undefined
   counts: CountColumn | undefined
+  choice: FiletreeColumn
+  whyOf: (path: string) => string | undefined
   touched: TouchDraw
   opened: string | undefined
   isRepo: boolean
 }
 
 function drawEntry(elements: PaneElements, row: EntryRow, draw: TreeDraw): RenderElement[] {
-  const { Text, bodyColumns } = elements
   switch (row.kind) {
     case 'pruned':
-      return [
-        Text({
-          children: fitted(
-            `${folderText(row, elements.glyphs.folderClosed)}  ${NOT_LISTED}`,
-            bodyColumns,
-          ),
-        }),
-      ]
+      return [drawPruned(elements, row, draw)]
     case 'file':
       return drawFile(elements, row, draw)
     case 'folder':
@@ -999,8 +1244,6 @@ function isEntry(row: TreeRow): row is EntryRow {
   return row.kind === 'file' || row.kind === 'folder' || row.kind === 'pruned'
 }
 
-type CountPath = { path: string; isFolder: boolean }
-
 function treeCountPath(row: EntryRow): CountPath {
   switch (row.kind) {
     case 'file':
@@ -1023,20 +1266,53 @@ function workNote(elements: PaneElements, rows: readonly TreeRow[]): RenderEleme
   )
 }
 
+function rowMark(row: EntryRow, touched: TouchDraw): Mark | undefined {
+  switch (row.kind) {
+    case 'file':
+      return touched.fileMark(row.path)
+    case 'folder':
+      return row.isOpen ? undefined : touched.folderMark(row.path)
+    case 'pruned':
+      return undefined
+  }
+}
+
+function columnPaths(
+  rows: readonly EntryRow[],
+  touched: TouchDraw,
+  pathOf: (row: EntryRow) => CountPath,
+): ColumnPath[] {
+  return rows.map((row) => ({ ...pathOf(row), hasMark: rowMark(row, touched) !== undefined }))
+}
+
+function whyOf(elements: PaneElements, view: PaneView): (path: string) => string | undefined {
+  return (path) => (hasRightColumn(elements) ? valueOf(view, path)?.why : undefined)
+}
+
 export function drawTree(
   elements: PaneElements,
   rootName: string,
   rows: readonly TreeRow[],
   view: PaneView,
 ): RenderElement {
-  const { Box, Text, bodyColumns } = elements
+  const { Box, bodyColumns } = elements
   const { git, actions, touched, opened } = view
   const isTask = touched.task !== undefined
   const isWork = view.choice === 'work' && !isTask
   const isCut = rows.length > TREE_ROWS
   const drawn = isCut ? rows.slice(0, TREE_ROWS) : rows
-  const counts = countColumn(elements, git.lines, drawn.filter(isEntry).map(treeCountPath))
-  const draw: TreeDraw = { actions, marks: git.marks, touched, opened, isRepo: git.isRepo, counts }
+  const paths = columnPaths(drawn.filter(isEntry), touched, treeCountPath)
+  const draw: TreeDraw = {
+    actions,
+    marks: git.marks,
+    ignored: git.ignored,
+    counts: rightColumn(elements, view, paths),
+    choice: view.column.choice,
+    whyOf: whyOf(elements, view),
+    touched,
+    opened,
+    isRepo: git.isRepo,
+  }
   const body =
     isWork && rows.length === 0
       ? drawNoWork(elements, actions)
@@ -1049,7 +1325,7 @@ export function drawTree(
     children: [
       drawHeader(elements, rootName, git, bodyColumns, 'two'),
       ...drawTop(elements, view),
-      Text({ children: RULE.repeat(Math.max(bodyColumns, 0)) }),
+      drawRule(elements, view.column),
       ...body,
       ...drawNotes(elements, git.footer, actions),
       ...(isWork ? workNote(elements, rows) : []),
@@ -1057,14 +1333,25 @@ export function drawTree(
   })
 }
 
-function flatMark(row: EntryRow, touched: TouchDraw): Mark | undefined {
+function flatParts(elements: PaneElements, row: EntryRow, view: PaneView): Part[] {
+  const { git } = view
+  const { marks } = git
+  const name = shownName(row.name)
+  const slot = git.isRepo ? INDENT : ''
   switch (row.kind) {
-    case 'file':
-      return touched.fileMark(row.path)
-    case 'folder':
-      return touched.folderMark(row.path)
     case 'pruned':
-      return undefined
+      return [{ text: `${slot}${name}/  ${NOT_LISTED}` }]
+    case 'folder': {
+      const counts = marks?.countsOf(row.path) ?? []
+      const isIgnored = isIgnoredPath(git.ignored, row.path)
+      const folder = { name: row.name, counts, isIgnored, isListed: true }
+      return [...folderNameParts([{ text: slot }], `${name}/`, folder), ...countParts(counts)]
+    }
+    case 'file': {
+      const letter = marks?.letterOf(row.path)
+      const isDim = letter === undefined && (row.isDot || isIgnoredPath(git.ignored, row.path))
+      return fileNameParts(elements, { lead: '', slot, name: row.name, letter, isDim })
+    }
   }
 }
 
@@ -1075,37 +1362,29 @@ function flatRow(
   counts: CountColumn | undefined,
 ): RenderElement {
   const { Box, Text, bodyColumns } = elements
-  const { git, touched } = view
-  const { marks } = git
-  const name = shownName(row.name)
-  const slot = git.isRepo ? INDENT : ''
-  const letter = row.kind === 'file' ? marks?.letterOf(row.path) : undefined
-  const parts: Part[] = (() => {
-    switch (row.kind) {
-      case 'pruned':
-        return [{ text: `${slot}${name}/  ${NOT_LISTED}` }]
-      case 'folder': {
-        const gitCounts = marks?.countsOf(row.path) ?? []
-        return [...folderName(slot, name, gitCounts), ...countParts(gitCounts)]
-      }
-      case 'file':
-        return letter === undefined
-          ? [{ text: `${slot}${name}`, dimColor: row.isDot }]
-          : markedParts(letter, name)
-    }
-  })()
+  const { touched } = view
   const { path, isFolder } = flatCountPath(row)
+  const isRunning = row.kind === 'file' && touched.runsOn(row.path)
+  const mark = rowMark(row, touched)
   const line = markedLine(
-    parts,
+    flatParts(elements, row, view),
     bodyColumns,
     touched,
-    { mark: flatMark(row, touched), count: counts?.cellOf(path, isFolder) },
+    {
+      mark,
+      count: counts?.cellOf(path, isFolder),
+      isNow: row.kind === 'file' && mark?.isRunning === true,
+    },
     elements.glyphs,
   )
+  const parts = [...line.head, ...line.tail]
   return Box({
     key: `flat:${row.path}`,
     flexDirection: 'row',
-    children: drawParts(Text, [...line.head, ...line.tail]),
+    children: drawParts(
+      Text,
+      isRunning ? onBackground(padded(parts, bodyColumns), ROW_BACKGROUND) : parts,
+    ),
   })
 }
 
@@ -1125,7 +1404,7 @@ function inlineRows(
   if (work.length === 0) return [Text({ children: fitted(NO_WORK, bodyColumns) })]
   const rows = work.map(flatEntryRow)
   const shown = rows.length <= INLINE_ROWS ? rows : rows.slice(0, INLINE_ROWS - 1)
-  const counts = countColumn(elements, view.git.lines, shown.map(flatCountPath))
+  const counts = rightColumn(elements, view, columnPaths(shown, view.touched, flatCountPath))
   const drawn = shown.map((row) => flatRow(elements, row, view, counts))
   if (rows.length <= INLINE_ROWS) return drawn
   const hidden = countText(rows.length - shown.length)
@@ -1140,12 +1419,19 @@ export function drawInline(
   site: { root: Listing; rootName: string; work: readonly WorkPath[] },
   view: PaneView,
 ): RenderElement {
-  const { Box, Text, bodyColumns } = elements
+  const { Box, Text, Button, bodyColumns } = elements
   const select = filterSelect(elements, view.touched)
   const filterRoom =
     select.length === 0 ? 0 : filterWidth(elements, view.touched) + displayWidth(INLINE_GAP)
-  const headerWidth = bodyColumns - displayWidth(REFRESH) - BUTTON_CHROME - BUTTON_GAP - filterRoom
+  const columns = hasRightColumn(elements) ? [columnSpec(view.column)] : []
+  const columnRoom = columns.length === 0 ? 0 : rowWidth(columns) + BUTTON_GAP
+  const headerWidth =
+    bodyColumns - displayWidth(REFRESH) - BUTTON_CHROME - BUTTON_GAP - filterRoom - columnRoom
   const gap = select.length === 0 ? [] : [Text({ children: INLINE_GAP })]
+  const columnButtons = columns.flatMap((spec) => [
+    buttonOf(Button, spec, bodyColumns),
+    Text({ children: ' ' }),
+  ])
   return Box({
     flexDirection: 'column',
     children: [
@@ -1156,7 +1442,7 @@ export function drawInline(
           drawHeader(elements, site.rootName, view.git, headerWidth, 'one'),
           Box({
             flexDirection: 'row',
-            children: [...select, ...gap, refreshButton(elements, view.actions)],
+            children: [...select, ...gap, ...columnButtons, refreshButton(elements, view.actions)],
           }),
         ],
       }),

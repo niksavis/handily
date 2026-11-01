@@ -35,6 +35,55 @@ export function statusArgv(isUntrackedSkipped: boolean): readonly string[] {
   ]
 }
 
+export function ignoredArgv(): readonly string[] {
+  return [
+    'git',
+    '--no-optional-locks',
+    'status',
+    '--porcelain=v2',
+    '-z',
+    '--ignored=matching',
+    '--untracked-files=normal',
+    '--',
+    '.',
+  ]
+}
+
+export type IgnoredMarks = { isIgnored: (path: string) => boolean }
+
+const IGNORED_RECORD = '! '
+
+const RENAMED_RECORD = '2 '
+
+export function parseIgnored(stdout: string): readonly string[] {
+  const records = stdout.split('\0')
+  records.pop()
+  const ignored: string[] = []
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index] ?? ''
+    if (record.startsWith(RENAMED_RECORD)) index += 1
+    else if (record.startsWith(IGNORED_RECORD)) {
+      const path = record.slice(IGNORED_RECORD.length).replace(/\/$/, '')
+      if (path !== '') ignored.push(path)
+    }
+  }
+  return ignored
+}
+
+export function ignoredMarks(ignored: readonly string[], prefix: string): IgnoredMarks {
+  const paths = new Set<string>()
+  let isAllIgnored = false
+  for (const path of ignored) {
+    const inCwd = underPrefix(path, prefix)
+    if (inCwd !== undefined && inCwd !== '') paths.add(inCwd)
+    else if (prefix === path || prefix.startsWith(`${path}/`)) isAllIgnored = true
+  }
+  return {
+    isIgnored: (path) =>
+      isAllIgnored || paths.has(path) || foldersAbove(path).some((folder) => paths.has(folder)),
+  }
+}
+
 const FIELDS_BEFORE_PATH = { ordinary: 8, renamed: 9, unmerged: 10, untracked: 1 } as const
 const AHEAD_BEHIND = /^# branch\.ab \+(\d+) -(\d+)$/
 const UPSTREAM = '# branch.upstream '

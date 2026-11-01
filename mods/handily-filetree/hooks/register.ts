@@ -1,6 +1,7 @@
 import { update } from 'claude-code'
 import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from 'claude-code'
 import { agentOfFilter, labelsOf } from './agents'
+import { type ColumnDraw, DEFAULT_COLUMN, nextColumn } from './column'
 import {
   FILES_PANE,
   type TreeUi,
@@ -27,7 +28,9 @@ import {
   readLastTurn,
   shownStep,
 } from './edits'
+import { type Facts, clearFacts, factsOf, newFacts, staleFacts, wantFacts } from './facts'
 import { type GitView, gitView } from './gitview'
+import { GLYPH_SETS } from './glyphs'
 import type { LookSite } from './look'
 import { type Looking, lookActionsOf, newLooking, resetLooking } from './looking'
 import { drawLook } from './lookpane'
@@ -68,7 +71,12 @@ import {
   withDeleted,
 } from './tree'
 import { marked } from './toast'
-import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
+import {
+  keepChangedGlyphSetting,
+  keepGlyphSetting,
+  paneGlyphSetting,
+  showGlyphToast,
+} from './toasting'
 import { type ToolTouch, isAnswered, searchedFiles, toolTouchOf } from './toolcall'
 import {
   MAIN_AGENT,
@@ -80,12 +88,14 @@ import {
   newTouches,
   noteClocks,
   revealSearch,
+  runsOn,
   taskTouches,
   touchView,
   touchesOf,
 } from './touches'
 import {
   type GitWatch,
+  type ShownStatus,
   forgetRepo,
   freshStatus,
   newWatch,
@@ -93,6 +103,8 @@ import {
   noticeFocus,
   requestStatus,
   resetWatch,
+  startKeeper,
+  stopKeeper,
   stopWatch,
   syncRepo,
   watchShown,
@@ -105,6 +117,7 @@ const WHOLE = { plugin: 'handily-filetree', key: 'whole' } as const
 const SHUT = { plugin: 'handily-filetree', key: 'shut' } as const
 const WORK_WHOLE = { plugin: 'handily-filetree', key: 'workWhole' } as const
 const VIEW = { plugin: 'handily-filetree', key: 'view' } as const
+const COLUMN = { plugin: 'handily-filetree', key: 'column' } as const
 const CHANGING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Edit', 'Write'])
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
 const BOARD_AGENTS = { plugin: 'handily-board', key: 'agents' } as const
@@ -169,7 +182,13 @@ type BaseActions = Pick<PaneActions, 'toggle' | 'showAll' | 'refresh' | 'retry' 
 
 function actionsOf(
   $: EngineInterface,
-  site: { cwd: string; listings: Listings; watch: GitWatch; work: WorkTree | undefined },
+  site: {
+    cwd: string
+    listings: Listings
+    watch: GitWatch
+    work: WorkTree | undefined
+    facts: Facts
+  },
 ): BaseActions {
   const { cwd, listings, watch, work } = site
   const failed = (error: unknown) => {
@@ -195,6 +214,7 @@ function actionsOf(
     },
     refresh: () => {
       listings.clear()
+      staleFacts(site.facts)
       forgetRepo(watch)
       $.ui.invalidate('ui.render')
     },
@@ -452,9 +472,32 @@ async function touchDrawOf(
       filter.picked = agentOfFilter(value)
       redraw($)
     },
+    runsOn: (path) => runsOn(touches, resolvedPath(cwd, path)),
     now: await $.clock.now(),
     task:
       task === undefined ? undefined : await taskDrawOf($, task, touched.files.values(), filter),
+  }
+}
+
+async function columnDrawOf(
+  $: EngineInterface,
+  site: { cwd: string; facts: Facts },
+): Promise<ColumnDraw> {
+  const { cwd, facts } = site
+  return {
+    choice: (await $.state.get(COLUMN)).value ?? DEFAULT_COLUMN,
+    cycle: () => {
+      update($, COLUMN, (current = DEFAULT_COLUMN) => nextColumn(current)).catch(
+        (error: unknown) => {
+          $.ui.log(`handily-filetree: the column did not change: ${String(error)}`)
+        },
+      )
+    },
+    factsOf: (path) => factsOf(facts, absolutePath(cwd, path)),
+    want: (paths, needsLines) => {
+      const wanted = { paths: paths.map((path) => absolutePath(cwd, path)), needsLines }
+      wantFacts($, facts, wanted)
+    },
   }
 }
 
@@ -493,6 +536,8 @@ export const register: Register = (on) => {
   const looking = newLooking()
   const edits = newEdits()
   const stepSite = { edits, looking }
+  const facts = newFacts()
+  let factsStatus: ShownStatus | undefined
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -501,6 +546,7 @@ export const register: Register = (on) => {
       argumentHint: '[close | task <n>]',
       immediate: true,
     })
+    await startKeeper($, watch)
     await $.state.set({ plugin: 'handily-filetree', key: 'ready' }, { root: $.plugin.root })
     await keepGlyphSetting($)
     return next(e)
@@ -515,11 +561,13 @@ export const register: Register = (on) => {
 
   on('session.end', async (_$, e, next) => {
     listings.clear()
+    stopKeeper(watch)
     resetWatch(watch)
     clearTouches(touches)
     clearShell(shell)
     resetLooking(looking)
     clearEdits(edits)
+    clearFacts(facts)
     filter.picked = undefined
     filter.task = undefined
     return next(e)
@@ -532,11 +580,13 @@ export const register: Register = (on) => {
       stopWatch(watch)
       resetLooking(looking)
       closeSteps(edits)
+      clearFacts(facts)
     }
     return closed
   })
 
   on('tool.call', async ($, e, next) => {
+    await startKeeper($, watch)
     const seen = await seenCallOf($, e)
     await noteBoardClocks($, touches)
     if (seen !== undefined) await beginCall($, touches, e.tool_use_id, seen)
@@ -552,6 +602,7 @@ export const register: Register = (on) => {
       if (isShell) await endShell($, context, { id: e.tool_use_id, answer })
       if (CHANGING_TOOLS.has(e.tool)) {
         noteChange(watch)
+        staleFacts(facts)
         requestStatus($, watch)
       }
     }
@@ -567,11 +618,13 @@ export const register: Register = (on) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    await startKeeper($, watch)
     requestStatus($, watch)
     return next(e)
   })
 
   on('command.run', { command: 'tree' }, async ($, e) => {
+    await startKeeper($, watch)
     const command = parseTreeCommand(e.args)
     switch (command.kind) {
       case 'toggle':
@@ -611,17 +664,35 @@ export const register: Register = (on) => {
     const resolved = $.ui.resolve(e)
     const { Box, Text, Button, Code, Markdown } = resolved
     const Select = 'Select' in resolved ? resolved.Select : undefined
-    const { bodyColumns } = e.props
-    const glyphs = await paneGlyphs($, e.surface)
-    const elements = { Box, Text, Button, Select, Code, Markdown, bodyColumns, glyphs }
+    const { bodyColumns, placement } = e.props
+    const setting = await paneGlyphSetting($, e.surface)
+    const glyphs = GLYPH_SETS[setting]
+    const hasIcons = setting === 'nerd'
+    const { surface } = e
+    const elements = {
+      Box,
+      Text,
+      Button,
+      Select,
+      Code,
+      Markdown,
+      bodyColumns,
+      glyphs,
+      hasIcons,
+      surface,
+    }
     const cwd = await $.session.cwd()
     await syncRepo($, watch, cwd)
     watchShown($, watch)
     noticeFocus($, watch, e.props.isFocused)
+    if (watch.shown !== factsStatus) {
+      factsStatus = watch.shown
+      staleFacts(facts)
+    }
     const git = gitView(watch, await $.clock.now(), glyphs)
     const rootName = folderName(cwd)
     const list = listerOf($, cwd, listings, git.marks)
-    const isInline = e.props.placement === 'inline'
+    const isInline = placement === 'inline'
     const task = isInline ? undefined : filter.task
     const site = { cwd, bodyColumns, inView: e.props.view.agentId, task }
     const touched = await touchDrawOf($, site, touches, filter)
@@ -629,7 +700,7 @@ export const register: Register = (on) => {
     const isWorkTree = choice === 'work' || task !== undefined
     const tree = isWorkTree ? workTree(workPaths(workSourceOf(git, touched))) : undefined
     const actions = {
-      ...actionsOf($, { cwd, listings, watch, work: tree }),
+      ...actionsOf($, { cwd, listings, watch, work: tree, facts }),
       ...lookActionsOf($, looking, () => lookSiteOf(watch, cwd)),
     }
     const view = {
@@ -639,6 +710,7 @@ export const register: Register = (on) => {
       opened: looking.opened,
       choice,
       lastTurn: lastTurnOf($, stepSite),
+      column: await columnDrawOf($, { cwd, facts }),
     }
     const { reading } = edits
     const step = edits.at === undefined ? undefined : shownStep(reading, edits.at)
