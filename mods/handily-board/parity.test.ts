@@ -1696,10 +1696,10 @@ for (const surface of SURFACES) {
         seen.failing.add('mysql -u root -phunter2secret -h db')
         await bash($, 'mysql -u root -phunter2secret -h db', SCOUT)
         expect((await board($, 'log')).split('\n')[0]).toBe(
-          '14:00:00 scout ■ failed Bash mysql -u root -p*** -h db',
+          '14:00:00 scout ■ failed Bash mysql -u root -p***',
         )
         const lines = await screenOn($, surface, 'dock', 89)
-        expect(lines.join('\n')).toContain('mysql -u root -p*** -h db')
+        expect(lines.join('\n')).toContain('mysql -u root -p***')
         expect(lines.join('\n')).not.toContain('hunter2')
       },
     )

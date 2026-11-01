@@ -19,7 +19,7 @@ const SECRET_FLAG_VALUE = new RegExp(
 
 const MYSQL_WORD = /(?:^|[\s"'`(;|&/\\])(?:mysql\w*|mariadb[\w-]*)(?:\.exe)?(?=$|[\s"'`);|&])/i
 
-const GLUED_PASSWORD = /(^|[\s"'`(;|&])-p(?:"[^"]*"?|'[^']*'?|[^\s"'`;|&()]+)/g
+const GLUED_PASSWORD = /(^|[\s"'`(;|&])-p[^\s].*/g
 
 function maskedMysqlPasswords(text: string): string {
   const found = MYSQL_WORD.exec(text)

@@ -725,6 +725,8 @@ Session  ctx — until the first reply
   password in a URL, a value after a key such as `token=`, `password:` or `--api-key`, a
   `Bearer` or `Basic` value, `-u user:password`, and token shapes such as `ghp_…`, `sk-…`,
   `AKIA…` and a JSON Web Token. The tests check each kind.
+- After a `mysql` or `mariadb` word, the board masks from a password glued to `-p` to the end
+  of the line, so `mysql -phunter2 app` shows as `mysql -p***`.
 - The board counts only the checks of the calls that Claude Code raises for the model. It keeps
   the checks in memory, so a reload of the mod or `/clear` empties them.
 - The masking covers the checks and the `waits for:` line. The agent rows and the task rows draw
