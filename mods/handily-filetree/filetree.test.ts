@@ -5535,22 +5535,22 @@ const NERD_MARKS_SCREEN = [
   '\u{EA73} main      hooks/pane.tsx             4s',
   '\u{EA70} scout     docs/design.md             2s',
   COLUMN_RULE_41,
-  '▸ \u{F07B} .git/  not listed',
-  '▸ \u{F07B} node_modules/  not listed',
-  '▾ \u{F07C} docs/  M2 ?1',
-  `  M ${MARKDOWN_ICON} design.md           \u{EA70} scout      2s`,
-  `  ? ${MARKDOWN_ICON} filetree.md`,
-  `    ${MARKDOWN_ICON} guide.md`,
-  `    ${MARKDOWN_ICON} install.md`,
-  `  M ${MARKDOWN_ICON} mocks.md`,
-  '▾ \u{F07C} hooks/  M1 D1',
-  '  ▸ \u{F07B} dist/  not listed',
-  `  D ${TYPESCRIPT_ICON} old-pane.tsx`,
-  `  M ${TYPESCRIPT_ICON} pane.tsx            \u{EA73} main       4s`,
-  `    ${TYPESCRIPT_ICON} register.tsx`,
-  '▸ \u{F07B} scripts/',
-  `  ${DEFAULT_ICON} .gitignore`,
-  `M ${MARKDOWN_ICON} README.md`,
+  '▸ \u{F07B}  .git/  not listed',
+  '▸ \u{F07B}  node_modules/  not listed',
+  '▾ \u{F07C}  docs/  M2 ?1',
+  `  M ${MARKDOWN_ICON}  design.md          \u{EA70} scout      2s`,
+  `  ? ${MARKDOWN_ICON}  filetree.md`,
+  `    ${MARKDOWN_ICON}  guide.md`,
+  `    ${MARKDOWN_ICON}  install.md`,
+  `  M ${MARKDOWN_ICON}  mocks.md`,
+  '▾ \u{F07C}  hooks/  M1 D1',
+  '  ▸ \u{F07B}  dist/  not listed',
+  `  D ${TYPESCRIPT_ICON}  old-pane.tsx`,
+  `  M ${TYPESCRIPT_ICON}  pane.tsx           \u{EA73} main       4s`,
+  `    ${TYPESCRIPT_ICON}  register.tsx`,
+  '▸ \u{F07B}  scripts/',
+  `  ${DEFAULT_ICON}  .gitignore`,
+  `M ${MARKDOWN_ICON}  README.md`,
 ]
 
 function nerdOn(surface: RenderSurface): boolean {
@@ -5679,7 +5679,7 @@ describe('the glyph sets: the files tab', () => {
         const hasTypeIcon = nerd.some((line) => line.includes(MARKDOWN_ICON))
         expect(hasTypeIcon).toBe(nerdOn(surface) && typed)
         expect(nerd.join('\n')).toContain(
-          hasTypeIcon ? `M ${MARKDOWN_ICON} design.md` : 'M design.md',
+          hasTypeIcon ? `M ${MARKDOWN_ICON}  design.md` : 'M design.md',
         )
         expect(nerd.some((line) => line.startsWith('▾ '))).toBe(true)
         expect(nerd[0]).toContain('↑1')
@@ -5696,7 +5696,7 @@ describe('the glyph sets: the files tab', () => {
       UPSTREAM_LINE,
     ])
     expect(await treeLines(ui)).toContain(
-      `  M ${MARKDOWN_ICON} design.md     +4 -1 \u{EA70} scout      2s`,
+      `  M ${MARKDOWN_ICON}  design.md    +4 -1 \u{EA70} scout      2s`,
     )
     await ui.unmount()
   })
@@ -5825,7 +5825,7 @@ describe('parity: folder colours', () => {
     test(`a folder with no git change below it draws its name, and its icon in the nerd set, in planMode, and a changed folder keeps its git key, on the ${surface}`, async ($, on) => {
       const seen = parityWorld(on, 'nerd')
       const ui = await openFiles($, seen, surface)
-      const icon = nerdOn(surface) ? `${FOLDER_ICON} ` : ''
+      const icon = nerdOn(surface) ? `${FOLDER_ICON}  ` : ''
       expect((await propsOf(ui, `${icon}scripts/`)).color).toBe('planMode')
       expect((await propsOf(ui, `${icon}docs/`)).color).toBe('warning')
       expect((await propsOf(ui, `${icon}hooks/`)).color).toBe('warning')
@@ -5853,22 +5853,22 @@ describe('parity: chevrons and type icons', () => {
         return
       }
       expect(lines).toEqual([
-        `▸ ${FOLDER_ICON} build/  ignor…`,
-        `▸ ${FOLDER_ICON} docs/  M2      +16 -4`,
-        `▾ ${OPEN_FOLDER_ICON} hooks/  M1     +30 -0`,
-        `  M ${TYPESCRIPT_ICON} pane.tsx     +30 -0`,
-        `    ${TYPESCRIPT_ICON} register.tsx`,
-        `▸ ${FOLDER_ICON} scripts/`,
-        `  ${DEFAULT_ICON} .gitignore`,
-        `  ${DEFAULT_ICON} debug.log`,
-        `  ${DEFAULT_ICON} LICENSE`,
-        `  ${JSON_ICON} package.json`,
-        `M ${MARKDOWN_ICON} README.md       +0 -2`,
+        `▸ ${FOLDER_ICON}  build/  igno…`,
+        `▸ ${FOLDER_ICON}  docs/  M2     +16 -4`,
+        `▾ ${OPEN_FOLDER_ICON}  hooks/  M1    +30 -0`,
+        `  M ${TYPESCRIPT_ICON}  pane.tsx    +30 -0`,
+        `    ${TYPESCRIPT_ICON}  register.t…`,
+        `▸ ${FOLDER_ICON}  scripts/`,
+        `  ${DEFAULT_ICON}  .gitignore`,
+        `  ${DEFAULT_ICON}  debug.log`,
+        `  ${DEFAULT_ICON}  LICENSE`,
+        `  ${JSON_ICON}  package.json`,
+        `M ${MARKDOWN_ICON}  README.md      +0 -2`,
       ])
-      expect((await propsOf(ui, `${TYPESCRIPT_ICON} `)).color).toBe('suggestion')
-      expect((await propsOf(ui, `${MARKDOWN_ICON} `)).color).toBe('merged')
-      expect((await propsOf(ui, `${JSON_ICON} `)).color).toBe('inactive')
-      const defaults = await textsOf(ui, `${DEFAULT_ICON} `)
+      expect((await propsOf(ui, `${TYPESCRIPT_ICON}  `)).color).toBe('suggestion')
+      expect((await propsOf(ui, `${MARKDOWN_ICON}  `)).color).toBe('merged')
+      expect((await propsOf(ui, `${JSON_ICON}  `)).color).toBe('inactive')
+      const defaults = await textsOf(ui, `${DEFAULT_ICON}  `)
       expect(defaults.map((props) => [props.color, props.dimColor])).toEqual([
         [undefined, true],
         [undefined, true],
@@ -5877,13 +5877,13 @@ describe('parity: chevrons and type icons', () => {
       expect((await propsOf(ui, 'README.md')).color).toBe('warning')
       await ui.redraw(paneProps('dock', 30))
       const narrow = await treeLines(ui, 30)
-      expect(narrow).toContain(`▾ ${OPEN_FOLDER_ICON} hooks/  M1`)
+      expect(narrow).toContain(`▾ ${OPEN_FOLDER_ICON}  hooks/  M1`)
       expect(narrow).toContain('  M pane.tsx')
       expect(narrow.join('\n')).not.toContain(TYPESCRIPT_ICON)
       await ui.unmount()
       const inline = await mountSettled($, seen, surface, 'inline', 76)
       expect(await screen(inline, 76)).toContain(
-        inlineCounted(`M ${MARKDOWN_ICON} docs/design.md`, '+4 -1'),
+        inlineCounted(`M ${MARKDOWN_ICON}  docs/design.md`, '+4 -1'),
       )
       await inline.unmount()
     })
@@ -5973,7 +5973,7 @@ describe('parity: ignored and dot files', () => {
           timeoutMs: 10_000,
         },
       ])
-      const icon = nerdOn(surface) ? `${FOLDER_ICON} ` : ''
+      const icon = nerdOn(surface) ? `${FOLDER_ICON}  ` : ''
       expect(await treeLines(ui)).toContain(`▸ ${icon}build/  ignored`)
       expect((await propsOf(ui, `${icon}build/`)).dimColor).toBe(true)
       expect((await propsOf(ui, `${icon}build/`)).color).toBeUndefined()
@@ -5983,7 +5983,7 @@ describe('parity: ignored and dot files', () => {
       expect((await propsOf(ui, name('.gitignore'))).dimColor).toBe(true)
       expect((await propsOf(ui, name('LICENSE'))).dimColor).toBe(false)
       if (nerdOn(surface)) {
-        const icons = await textsOf(ui, `${DEFAULT_ICON} `)
+        const icons = await textsOf(ui, `${DEFAULT_ICON}  `)
         expect(icons.map((props) => props.dimColor)).toEqual([true, true, undefined])
       }
       await ui.press({ key: 'open:build' })

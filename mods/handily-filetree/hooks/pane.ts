@@ -817,7 +817,7 @@ function treeFolderParts(
   const role = row.isOpen ? 'folderOpen' : 'folderClosed'
   const indent: Part[] = row.depth === 0 ? [] : [{ text: indentOf(row.depth) }]
   const chevron: Part = { text: `${GLYPH_SETS.plain[role]} `, dimColor: true }
-  const icon = elements.hasIcons ? `${elements.glyphs[role]} ` : ''
+  const icon = elements.hasIcons ? `${elements.glyphs[role]}${ICON_GAP}` : ''
   return folderNameParts([...indent, chevron], `${icon}${shownName(row.name)}/`, folder)
 }
 
@@ -901,6 +901,8 @@ function renameDetail(
   return [elements.Text({ children: fitted(text, elements.bodyColumns) })]
 }
 
+const ICON_GAP = '  '
+
 function hasTypeIcons(elements: PaneElements): boolean {
   return elements.hasIcons && hasRightColumn(elements)
 }
@@ -909,7 +911,7 @@ function typeIconParts(elements: PaneElements, name: string, isDim: boolean): Pa
   if (!hasTypeIcons(elements)) return []
   const { icon, family } = TYPE_ICONS[fileTypeOf(name)]
   const look: Look = isDim ? { dimColor: true } : { color: FAMILY_COLORS[family] }
-  return [{ text: `${icon} `, ...look }]
+  return [{ text: `${icon}${ICON_GAP}`, ...look }]
 }
 
 type FileName = {
