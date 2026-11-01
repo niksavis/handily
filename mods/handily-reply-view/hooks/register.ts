@@ -28,6 +28,7 @@ import {
   promptTextOf,
   type Rail,
 } from './rail'
+import { keepChangedPaletteSetting, keepPaletteSetting, shownPalette } from './palette-setting'
 import { drawRail } from './rail-pane'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
 import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
@@ -41,11 +42,41 @@ const COPY_ARGUMENT = 'copy'
 const REPLY_WORD = 'reply'
 const COPY_REPLY_COMMAND = `/replies ${COPY_ARGUMENT} ${REPLY_WORD}`
 const DRAWN_CHARACTERS_AT_MOST = 60_000
-const TABLE_STYLE_KEY = 'tableStyle'
 const MARKETPLACE_SUFFIX = /@.*$/
+const HIGHLIGHTS = ['on', 'off'] as const
+
+type Highlight = (typeof HIGHLIGHTS)[number]
+
+const DEFAULT_HIGHLIGHT: Highlight = 'on'
+
+type CheckedSetting = {
+  key: string
+  options: readonly string[]
+  fallback: string
+  isOption: (value: unknown) => boolean
+}
+
+function isHighlight(value: unknown): value is Highlight {
+  return HIGHLIGHTS.some((option) => option === value)
+}
+
+const CHECKED_SETTINGS: readonly CheckedSetting[] = [
+  {
+    key: 'tableStyle',
+    options: TABLE_STYLES,
+    fallback: `Drawing ${DEFAULT_TABLE_STYLE}.`,
+    isOption: isTableStyle,
+  },
+  {
+    key: 'highlight',
+    options: HIGHLIGHTS,
+    fallback: `Highlight stays ${DEFAULT_HIGHLIGHT}.`,
+    isOption: isHighlight,
+  },
+]
 
 const ON_TEXT =
-  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw with rules between their columns, or in a full box when the Table style setting is box. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
+  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, paths and inline code in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
 const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
@@ -93,26 +124,28 @@ function fieldOf(value: unknown, field: string): unknown {
   return Object.hasOwn(value, field) ? (value as Record<string, unknown>)[field] : undefined
 }
 
-function refusedTableStyles(pluginConfigs: unknown, plugin: string): unknown[] {
+function refusedValues(pluginConfigs: unknown, plugin: string, setting: CheckedSetting): unknown[] {
   if (typeof pluginConfigs !== 'object' || pluginConfigs === null) return []
   return Object.keys(pluginConfigs)
     .filter((id) => id.replace(MARKETPLACE_SUFFIX, '') === plugin)
-    .map((id) => fieldOf(fieldOf(fieldOf(pluginConfigs, id), 'options'), TABLE_STYLE_KEY))
-    .filter((stored) => stored !== undefined && !isTableStyle(stored))
+    .map((id) => fieldOf(fieldOf(fieldOf(pluginConfigs, id), 'options'), setting.key))
+    .filter((stored) => stored !== undefined && !setting.isOption(stored))
 }
 
-function tableStyleRefusal(stored: unknown): string {
-  return `reply-view: the setting ${TABLE_STYLE_KEY} holds ${JSON.stringify(stored)}, which is not ${TABLE_STYLES.join(' or ')}, so tables draw as ${DEFAULT_TABLE_STYLE}. Set Table style in /config.`
+function settingRefusal(plugin: string, setting: CheckedSetting, stored: unknown): string {
+  return `${plugin}: userConfig ${setting.key} is ${JSON.stringify(stored)}; set it to ${setting.options.join(' or ')} in /config. ${setting.fallback}`
 }
 
-async function logRefusedTableStyle($: EngineInterface): Promise<void> {
+async function logRefusedSettings($: EngineInterface): Promise<void> {
   try {
     const pluginConfigs = await $.settings.read({ key: 'pluginConfigs' })
-    for (const stored of refusedTableStyles(pluginConfigs, $.plugin.name)) {
-      $.ui.log(tableStyleRefusal(stored), { to: 'debug' })
+    for (const setting of CHECKED_SETTINGS) {
+      for (const stored of refusedValues(pluginConfigs, $.plugin.name, setting)) {
+        $.ui.log(settingRefusal($.plugin.name, setting, stored), { to: 'debug' })
+      }
     }
   } catch (error) {
-    logFailure($, `the setting ${TABLE_STYLE_KEY} was not read`, error)
+    logFailure($, 'the settings were not read', error)
   }
 }
 
@@ -260,6 +293,8 @@ export const register: Register = (on, options) => {
   const tableStyle: TableStyle = isTableStyle(options.tableStyle)
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
+  const highlight =
+    (isHighlight(options.highlight) ? options.highlight : DEFAULT_HIGHLIGHT) === 'on'
   let lastReply: string | undefined
   const railSite: RailSite = { rail: newRail(), version: 0 }
   on('session.start', async ($, e, next) => {
@@ -271,8 +306,9 @@ export const register: Register = (on, options) => {
     await $.state.set({ plugin: 'handily-reply-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
     if (mode === undefined) await $.state.set(MODE, defaultMode, { ifVersion: version })
-    await logRefusedTableStyle($)
+    await logRefusedSettings($)
     await keepGlyphSetting($)
+    await keepPaletteSetting($)
     return next(e)
   })
 
@@ -280,6 +316,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (result.deny !== undefined) return result
     await keepChangedGlyphSetting($, e)
+    await keepChangedPaletteSetting($, e)
     return result
   })
 
@@ -456,6 +493,8 @@ export const register: Register = (on, options) => {
             surface: e.surface,
             drawsDiagrams,
             tableStyle,
+            highlight,
+            palette: await shownPalette($, e.surface),
           },
           await foldOf($, e.requestId),
           replyActions($, e.requestId),

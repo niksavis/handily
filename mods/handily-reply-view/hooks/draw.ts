@@ -1,13 +1,28 @@
-import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
+import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { drawFlowchart } from './flowchart'
+import { highlightedRuns } from './highlight'
 import type { Ink, InkedDrawing, InkRun } from './ink'
-import { shownText, type Block, type Fence, type Prose, type Table } from './markdown'
+import {
+  PLAIN_MARK,
+  shownText,
+  textOfRuns,
+  type Block,
+  type Fence,
+  type Mark,
+  type Prose,
+  type Run,
+  type Table,
+} from './markdown'
 import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
+import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
+import { holdsLinkDefinition, prosePartsOf, type DrawnLine, type ProsePart } from './prose'
 import { drawSequence } from './sequence'
 import {
   columnWidths,
+  CUT_MARK,
   fieldsOf,
+  fittedCell,
   framedWidth,
   labelOf,
   labelWidth,
@@ -21,13 +36,12 @@ import {
   textCopy,
   textOfSpans,
   type Cell,
-  type CellMark,
   type Span,
   type TableFrame,
   type TableLook,
   type TableStyle,
 } from './table'
-import { cutToWidth, displayWidth, fitted } from './width'
+import { cutToWidth, displayWidth, fitted, graphemesOf } from './width'
 
 export const FOLD_AFTER_ROWS = 30
 export const DEFAULT_COLUMNS = 80
@@ -42,13 +56,15 @@ const TAG_COLUMNS_AT_MOST = 24
 const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const DRAWINGS_KEPT = 32
-const DIAGRAM_CYCLE: readonly ThemeKey[] = ['suggestion', 'planMode', 'merged']
-const INK_COLORS: Readonly<Record<Exclude<Ink, number | 'plain'>, ThemeKey>> = {
-  line: 'inactive',
-  head: 'claude',
-  label: 'inactive',
+const DIAGRAM_CYCLE: readonly PaletteRole[] = ['diagramCycle1', 'diagramCycle2', 'diagramCycle3']
+const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> = {
+  line: 'diagramLine',
+  head: 'diagramHead',
+  label: 'diagramLine',
 }
-const RULE_COLOR: ThemeKey = 'subtle'
+const PROSE_SURFACE: RenderSurface = 'terminal'
+const BOX_SURFACE: RenderSurface = 'terminal'
+const MARGIN_SURFACE: RenderSurface = 'terminal'
 
 export type DiagramDrawing = InkedDrawing & { name: string }
 
@@ -79,6 +95,8 @@ export type ReplyLayout = {
   surface: RenderSurface
   drawsDiagrams: boolean
   tableStyle: TableStyle
+  highlight: boolean
+  palette: PaletteSetting
 }
 
 type Drawing = { element: RenderElement; rows: number }
@@ -92,11 +110,25 @@ type Context = {
   surface: RenderSurface
   drawsDiagrams: boolean
   tableStyle: TableStyle
+  highlight: boolean
+  palette: PaletteSetting
+  drawsProse: boolean
   actions: ReplyActions
 }
 
 function rowsOf(line: string, width: number): number {
-  return Math.max(1, Math.ceil(displayWidth(line) / Math.max(width, 1)))
+  const room = Math.max(width, 1)
+  let rows = 1
+  let used = 0
+  for (const grapheme of graphemesOf(line)) {
+    const columns = displayWidth(grapheme)
+    if (used > 0 && used + columns > room) {
+      rows += 1
+      used = 0
+    }
+    used += columns
+  }
+  return rows
 }
 
 function sum(numbers: readonly number[]): number {
@@ -122,16 +154,117 @@ function cutLine(line: string, columns: number): string {
   const kept = cutToWidth(line, Math.max(columns - 1, 1))
   const space = kept.lastIndexOf(' ')
   const word = space > kept.length / 2 ? kept.slice(0, space) : kept
-  return `${word.trimEnd()}…`
+  return `${word.trimEnd()}${CUT_MARK}`
 }
 
-function prosePiece(context: Context, prose: Prose): Piece {
-  const lines = prose.lines.map(shownText)
+type ProseItem = {
+  rows: number
+  whole: () => RenderElement
+  cut: (rows: number) => RenderElement | null
+}
+
+function paint(context: Context, role: PaletteRole): Color {
+  return paletteColor(role, context.palette)
+}
+
+function tokenColor(context: Context, mark: Mark): Color | undefined {
+  if (!context.highlight || mark.token === null) return undefined
+  return paint(context, mark.token)
+}
+
+function styledSpan(
+  context: Context,
+  text: string,
+  mark: Mark,
+  look: { color: Color | undefined; isBold: boolean },
+): CellChild {
+  const style = {
+    ...(look.color === undefined ? {} : { color: look.color }),
+    ...(look.isBold ? { bold: true } : {}),
+    ...(mark.isLink ? { underline: true } : {}),
+    ...(mark.isItalic ? { italic: true } : {}),
+    ...(mark.isStrike ? { strikethrough: true } : {}),
+  }
+  return Object.keys(style).length === 0
+    ? text
+    : context.elements.Text({ ...style, children: text })
+}
+
+function proseColor(context: Context, mark: Mark): Color | undefined {
+  if (mark.isLink) return paint(context, 'link')
+  if (mark.isCode) return context.highlight ? paint(context, 'inlineCode') : undefined
+  return tokenColor(context, mark)
+}
+
+function shownRuns(context: Context, runs: readonly Run[]): readonly Run[] {
+  return context.highlight ? highlightedRuns(runs) : runs
+}
+
+function cutRuns(runs: readonly Run[], kept: number): Run[] {
+  const cut: Run[] = []
+  let left = kept
+  for (const run of runs) {
+    if (left <= 0) break
+    cut.push({ text: run.text.slice(0, left), mark: run.mark })
+    left -= run.text.length
+  }
+  return [...cut, { text: CUT_MARK, mark: PLAIN_MARK }]
+}
+
+function leadOf(context: Context, line: DrawnLine): string {
+  const indent = ' '.repeat(Math.min(line.indent, Math.floor(context.width / 2)))
+  return line.marker === '' ? indent : `${indent}${line.marker} `
+}
+
+function drawnLineElement(
+  context: Context,
+  line: DrawnLine,
+  runs: readonly Run[],
+  key: string,
+): RenderElement {
+  const { Box, Text } = context.elements
+  const spans = shownRuns(context, runs).map((run) =>
+    styledSpan(context, run.text, run.mark, {
+      color: proseColor(context, run.mark),
+      isBold: run.mark.isBold,
+    }),
+  )
+  const text = Text({ children: spans.length === 0 ? ' ' : spans })
+  const lead = leadOf(context, line)
+  if (lead === '') return Box({ key, children: text })
+  return Box({
+    key,
+    flexDirection: 'row',
+    children: [
+      Box({ width: displayWidth(lead), flexShrink: 0, children: Text({ children: lead }) }),
+      Box({ flexShrink: 1, children: text }),
+    ],
+  })
+}
+
+function drawnItem(context: Context, line: DrawnLine, key: string): ProseItem {
+  const text = textOfRuns(line.runs)
+  const room = Math.max(context.width - displayWidth(leadOf(context, line)), 1)
+  const rows = rowsOf(text, room)
+  return {
+    rows,
+    whole: () => drawnLineElement(context, line, line.runs, key),
+    cut: (budget) => {
+      if (budget <= 0) return null
+      const kept = cutLine(text, budget * room)
+      const runs = cutRuns(line.runs, kept.length - CUT_MARK.length)
+      return drawnLineElement(context, line, runs, key)
+    },
+  }
+}
+
+function markdownItem(context: Context, lines: readonly string[], key?: string): ProseItem {
   const rows = lines.map((line, index) => {
     if (line.trim() !== '') return rowsOf(line, context.width)
     return (lines[index - 1] ?? '').trim() === '' ? 0 : 1
   })
-  const draw = (shown: readonly string[]) => context.elements.Markdown({ text: shown.join('\n') })
+  const draw = (shown: readonly string[]) =>
+    context.elements.Markdown({ ...(key === undefined ? {} : { key }), text: shown.join('\n') })
   return {
     rows: sum(rows),
     whole: () => draw(lines),
@@ -145,15 +278,92 @@ function prosePiece(context: Context, prose: Prose): Piece {
           used += needed
           continue
         }
-        if (budget > used) {
-          shown.push(cutLine(line, (budget - used) * context.width))
+        if (budget > used) shown.push(cutLine(line, (budget - used) * context.width))
+        break
+      }
+      return shown.length === 0 ? null : draw(shown)
+    },
+  }
+}
+
+function proseItem(
+  context: Context,
+  part: Exclude<ProsePart, { kind: 'blank' }>,
+  key: string,
+): ProseItem {
+  return part.kind === 'drawn'
+    ? drawnItem(context, part.line, key)
+    : markdownItem(context, shownText(part.text).split('\n'), key)
+}
+
+function spacedItem(context: Context, item: ProseItem): ProseItem {
+  const spaced = (element: RenderElement) =>
+    context.elements.Box({ flexDirection: 'column', marginTop: 1, children: element })
+  return {
+    rows: item.rows + 1,
+    whole: () => spaced(item.whole()),
+    cut: (budget) => {
+      const cut = budget > 1 ? item.cut(budget - 1) : null
+      return cut === null ? null : spaced(cut)
+    },
+  }
+}
+
+function proseItems(context: Context, parts: readonly ProsePart[]): ProseItem[] {
+  const items: ProseItem[] = []
+  let isSpaced = false
+  for (const [index, part] of parts.entries()) {
+    if (part.kind === 'blank') {
+      isSpaced = items.length > 0
+      continue
+    }
+    const item = proseItem(context, part, `prose-${String(index)}`)
+    items.push(isSpaced ? spacedItem(context, item) : item)
+    isSpaced = false
+  }
+  return items
+}
+
+function itemsPiece(context: Context, items: readonly ProseItem[]): Piece {
+  const column = (children: RenderElement[]) =>
+    context.elements.Box({ flexDirection: 'column', children })
+  return {
+    rows: sum(items.map((item) => item.rows)),
+    whole: () => column(items.map((item) => item.whole())),
+    cut: (budget) => {
+      const shown: RenderElement[] = []
+      let used = 0
+      for (const item of items) {
+        if (used + item.rows <= budget) {
+          shown.push(item.whole())
+          used += item.rows
+          continue
+        }
+        const cut = item.cut(budget - used)
+        if (cut !== null) {
+          shown.push(cut)
           used = budget
         }
         break
       }
-      return shown.length === 0 ? null : { element: draw(shown), rows: used }
+      return shown.length === 0 ? null : { element: column(shown), rows: used }
     },
   }
+}
+
+function prosePiece(context: Context, prose: Prose): Piece {
+  if (!context.drawsProse) {
+    const item = markdownItem(context, prose.lines.map(shownText))
+    return {
+      rows: item.rows,
+      whole: item.whole,
+      cut: (budget) => {
+        const element = item.cut(budget)
+        return element === null ? null : { element, rows: Math.min(budget, item.rows) }
+      },
+    }
+  }
+  return itemsPiece(context, proseItems(context, prosePartsOf(prose.lines)))
 }
 
 type Buttons = { element: RenderElement; columns: number }
@@ -283,34 +493,31 @@ type CellRole = 'header' | 'heading' | 'label' | 'title' | 'value'
 
 type CellChild = RenderElement | string
 
-function cellColor(mark: CellMark, role: CellRole): ThemeKey | undefined {
-  if (mark.isLink) return 'suggestion'
-  if (mark.isCode) return 'permission'
-  if (role === 'header' || role === 'heading' || role === 'label') return 'claude'
-  return mark.isNumber ? 'planMode' : undefined
+function isHeading(role: CellRole): boolean {
+  return role === 'header' || role === 'heading' || role === 'label'
 }
 
-function isBoldCell(mark: CellMark, role: CellRole): boolean {
+function cellColor(context: Context, mark: Mark, role: CellRole): Color | undefined {
+  if (mark.isLink) return paint(context, 'link')
+  if (mark.isCode && context.highlight) return paint(context, 'inlineCode')
+  if (isHeading(role)) return paint(context, 'tableHeader')
+  return tokenColor(context, mark)
+}
+
+function isBoldCell(mark: Mark, role: CellRole): boolean {
   if (role === 'header') return true
   return (role === 'label' || role === 'value') && mark.isBold
 }
 
-function cellSpan(context: Context, text: string, mark: CellMark, role: CellRole): CellChild {
-  const color = cellColor(mark, role)
-  const isBold = isBoldCell(mark, role)
-  if (color === undefined && !isBold && !mark.isLink) return text
-  return context.elements.Text({
-    children: text,
-    ...(color === undefined ? {} : { color }),
-    ...(isBold ? { bold: true } : {}),
-    ...(mark.isLink ? { underline: true } : {}),
+function cellSpan(context: Context, text: string, mark: Mark, role: CellRole): CellChild {
+  return styledSpan(context, text, mark, {
+    color: cellColor(context, mark, role),
+    isBold: isBoldCell(mark, role),
   })
 }
 
 function cellSpans(context: Context, cell: Cell, role: CellRole): CellChild[] {
-  return cell.runs.map((run) =>
-    cellSpan(context, run.text, { ...run.mark, isNumber: cell.isNumber }, role),
-  )
+  return cell.runs.map((run) => cellSpan(context, run.text, run.mark, role))
 }
 
 function cellLine(
@@ -331,7 +538,7 @@ function cellLine(
 function tableLine(context: Context, spans: readonly Span[], key: string, isHeader: boolean) {
   const { Box, Text } = context.elements
   const children = spans.map((span) => {
-    if (span.kind === 'rule') return Text({ color: RULE_COLOR, children: span.text })
+    if (span.kind === 'rule') return Text({ color: paint(context, 'rules'), children: span.text })
     if (span.kind === 'space') return span.text
     return cellSpan(context, span.text, span.mark, isHeader ? 'header' : 'value')
   })
@@ -340,7 +547,10 @@ function tableLine(context: Context, spans: readonly Span[], key: string, isHead
 
 function tableRule(context: Context, text: string, key: string) {
   const { Box, Text } = context.elements
-  return Box({ key, children: Text({ color: RULE_COLOR, wrap: 'truncate-end', children: text }) })
+  return Box({
+    key,
+    children: Text({ color: paint(context, 'rules'), wrap: 'truncate-end', children: text }),
+  })
 }
 
 function ruleRow(context: Context, text: string, key: string) {
@@ -381,12 +591,14 @@ function columnsPiece(
   const top = frame.top === null ? null : ruleLine(widths, frame.top)
   const bottom = frame.bottom === null ? null : ruleLine(widths, frame.bottom)
   const lastRowLine = rowSpans.at(-1)?.at(-1)
-  const place = buttonsPlace(
-    context,
-    room,
-    top ?? textOfSpans(headerSpans[0] ?? []),
-    bottom ?? (lastRowLine === undefined ? undefined : textOfSpans(lastRowLine)),
-  )
+  const place = frame.hasSides
+    ? 'under'
+    : buttonsPlace(
+        context,
+        room,
+        textOfSpans(headerSpans[0] ?? []),
+        lastRowLine === undefined ? undefined : textOfSpans(lastRowLine),
+      )
   const placed = (text: RenderElement, line: string, at: ButtonsPlace) =>
     place === at
       ? lineWithButtons(
@@ -397,7 +609,7 @@ function columnsPiece(
         )
       : text
   const heading = [
-    ...(top === null ? [] : [placed(tableRule(context, top, 'top'), top, 'header')]),
+    ...(top === null ? [] : [tableRule(context, top, 'top')]),
     ...headerSpans.map((spans, index) => {
       const text = tableLine(
         context,
@@ -405,12 +617,13 @@ function columnsPiece(
         index === 0 ? 'header' : `header-${String(index)}`,
         true,
       )
-      return index === 0 && top === null ? placed(text, textOfSpans(spans), 'header') : text
+      return index === 0 ? placed(text, textOfSpans(spans), 'header') : text
     }),
-    tableRule(context, ruleLine(widths, frame.header), 'header-rule'),
+    ...(frame.hasSides && rowSpans.length === 0
+      ? []
+      : [tableRule(context, ruleLine(widths, frame.header), 'header-rule')]),
   ]
-  const closing =
-    bottom === null ? [] : [placed(tableRule(context, bottom, 'bottom'), bottom, 'last-row')]
+  const closing = bottom === null ? [] : [tableRule(context, bottom, 'bottom')]
   const lastRow = rowSpans.length - 1
   const drawnRows = rowSpans.map((lines, index) =>
     Box({
@@ -418,7 +631,7 @@ function columnsPiece(
       flexDirection: 'column',
       children: lines.map((spans, lineIndex) => {
         const text = tableLine(context, spans, `line-${String(lineIndex)}`, false)
-        const isLast = bottom === null && index === lastRow && lineIndex === lines.length - 1
+        const isLast = index === lastRow && lineIndex === lines.length - 1
         return isLast ? placed(text, textOfSpans(spans), 'last-row') : text
       }),
     }),
@@ -461,6 +674,10 @@ function titleLine(context: Context, buttons: Buttons | null, title: RenderEleme
   return buttons === null ? title : lineWithButtons(context, title, buttons, context.width)
 }
 
+function labelRoom(context: Context): number {
+  return Math.max(Math.floor((context.width - FIELD_INDENT - 1) / 2), 2)
+}
+
 function rowBlock(
   context: Context,
   look: TableLook,
@@ -469,7 +686,7 @@ function rowBlock(
   buttons: Buttons | null,
 ): Drawing {
   const { Box, Text } = context.elements
-  const labels = labelWidth(look)
+  const labels = Math.min(labelWidth(look), labelRoom(context))
   const fields = fieldsOf(look, row)
   const valueWidth = context.width - FIELD_INDENT - labels - 1
   const title = cellLine(context, rowTitle(row, index), 'title', 'title', 'truncate-end')
@@ -489,7 +706,13 @@ function rowBlock(
               Box({
                 width: labels,
                 flexShrink: 0,
-                children: Text({ children: cellSpans(context, labelOf(field.label), 'label') }),
+                children: Text({
+                  children: cellSpans(
+                    context,
+                    labelOf(fittedCell(field.label, labels - 1)),
+                    'label',
+                  ),
+                }),
               }),
               Box({
                 flexShrink: 1,
@@ -565,7 +788,8 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
 }
 
 function frameOf(context: Context): TableFrame {
-  return TABLE_FRAMES[context.columns < BLOCKS_BELOW_COLUMNS ? 'rules' : context.tableStyle]
+  const isBoxed = context.surface === BOX_SURFACE && context.columns >= BLOCKS_BELOW_COLUMNS
+  return TABLE_FRAMES[isBoxed ? context.tableStyle : 'rules']
 }
 
 function columnsFor(context: Context, look: TableLook, frame: TableFrame): number[] | null {
@@ -726,13 +950,14 @@ function titleWithButtons(
   }
 }
 
-function inkColor(ink: Ink): ThemeKey | undefined {
+function inkRole(ink: Ink): PaletteRole | undefined {
   if (typeof ink === 'number') return DIAGRAM_CYCLE[ink % DIAGRAM_CYCLE.length]
-  return ink === 'plain' ? undefined : INK_COLORS[ink]
+  return ink === 'plain' ? undefined : INK_ROLES[ink]
 }
 
 function inkSpan(context: Context, run: InkRun): CellChild {
-  const color = inkColor(run.ink)
+  const role = inkRole(run.ink)
+  const color = role === undefined ? undefined : paint(context, role)
   return color === undefined ? run.text : context.elements.Text({ color, children: run.text })
 }
 
@@ -832,6 +1057,14 @@ export function blockCopyOf(block: Block, layout: CopyLayout): KindCopy | null {
   }
 }
 
+function isProse(block: Block): boolean {
+  return block.kind === 'prose'
+}
+
+function isDefiningProse(block: Block): boolean {
+  return block.kind === 'prose' && holdsLinkDefinition(block.lines)
+}
+
 export function replyWidth(columns: number, hasBullet: boolean): number {
   return columns - (hasBullet ? BULLET_COLUMNS : 0)
 }
@@ -893,6 +1126,21 @@ function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: nu
   })
 }
 
+function blocksColumn(
+  elements: ReplyElements,
+  surface: RenderSurface,
+  blocks: readonly RenderElement[],
+): RenderElement {
+  const { Box } = elements
+  if (surface !== MARGIN_SURFACE) return Box({ flexDirection: 'column', gap: 1, children: blocks })
+  return Box({
+    flexDirection: 'column',
+    children: blocks.map((block, index) =>
+      index === 0 ? block : Box({ flexDirection: 'column', marginTop: 1, children: block }),
+    ),
+  })
+}
+
 function withBullet(elements: ReplyElements, layout: ReplyLayout, body: RenderElement) {
   if (!layout.hasBullet) return body
   const { Box, Text } = elements
@@ -925,12 +1173,16 @@ export function replyTree(
     surface: layout.surface,
     drawsDiagrams: layout.drawsDiagrams,
     tableStyle: layout.tableStyle,
+    highlight: layout.highlight,
+    palette: layout.palette,
+    drawsProse: layout.surface === PROSE_SURFACE && !blocks.some(isDefiningProse),
     actions,
   }
   const pieces = blocks.map((block, index) => pieceOf(context, block, index))
   const total = sum(pieces.map((piece) => piece.rows)) + Math.max(pieces.length - 1, 0)
   const isLong = total > FOLD_AFTER_ROWS
-  if (!isLong && blocks.every((block) => block.kind === 'prose')) return null
+  const isEngineReply = layout.surface !== PROSE_SURFACE && blocks.every(isProse)
+  if (blocks.length === 0 || (!isLong && isEngineReply)) return null
   const { Box } = elements
   const shown =
     isLong && fold === 'folded'
@@ -943,11 +1195,11 @@ export function replyTree(
     flexDirection: 'column',
     children: [
       divider('opened-top'),
-      Box({
-        flexDirection: 'column',
-        gap: 1,
-        children: shown.map((drawing) => drawing.element),
-      }),
+      blocksColumn(
+        elements,
+        layout.surface,
+        shown.map((drawing) => drawing.element),
+      ),
       divider('opened-bottom'),
       isLong ? foldRow(context, fold, text, hidden) : null,
     ],

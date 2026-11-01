@@ -4,6 +4,8 @@ export type ReplyViewGlyphs = 'plain' | 'nerd'
 
 export type ReplyViewFold = 'folded' | 'open'
 
+export type ReplyViewPalette = 'theme' | 'catppuccin-mocha'
+
 declare module 'claude-code' {
   interface PluginState {
     'handily-reply-view': {
@@ -14,6 +16,7 @@ declare module 'claude-code' {
       submittedAt: StateFamily<number>
       ready: { root: string }
       glyphs: ReplyViewGlyphs
+      palette: ReplyViewPalette
     }
   }
 }

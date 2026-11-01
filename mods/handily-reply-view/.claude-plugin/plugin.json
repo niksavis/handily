@@ -1,7 +1,7 @@
 {
   "name": "handily-reply-view",
   "version": "0.15.0",
-  "description": "Long replies fold to their first lines, tables draw with rules between their columns or in a full box with Table style box, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you.",
+  "description": "Long replies fold to their first lines, tables draw in a full box or with rules between their columns with Table style rules, numbers, paths and inline code in replies draw in their own colours, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you.",
   "author": {
     "name": "niksavis"
   },
@@ -33,7 +33,14 @@
       "title": "Table style",
       "description": "How a table in a reply draws: rules between the columns (rules) or a full box (box). Under 40 columns no box draws, and a table that does not fit draws one block for each row.",
       "options": ["rules", "box"],
-      "default": "rules"
+      "default": "box"
+    },
+    "highlight": {
+      "type": "string",
+      "title": "Highlight",
+      "description": "Whether numbers, durations, versions, paths and inline code in a reply's prose and cells draw in their own colours (on) or as plain text (off).",
+      "options": ["on", "off"],
+      "default": "on"
     }
   }
 }

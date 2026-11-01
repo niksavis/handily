@@ -1,3 +1,4 @@
+import type { Token } from './highlight'
 import { graphemesOf, isEmoji } from './width'
 
 export type Alignment = 'left' | 'right' | 'center'
@@ -46,6 +47,24 @@ const LAST_CODE_POINT = 0x10ffff
 const FIRST_SURROGATE = 0xd800
 const LAST_SURROGATE = 0xdfff
 const LINE_BREAK_TAG = /<br\s*\/?>/gi
+const ENTITY_LIKE = /&(?:#\d+|#[xX][\da-fA-F]+|[A-Za-z][A-Za-z\d]*);/
+const UNPROVEN_SIGN = /[[\]]|<[A-Za-z/!?]/
+const PAIR_BEFORE = String.raw`(?<=^|[\s(["'])`
+const PAIR_AFTER = String.raw`(?=$|[\s.,;:!?)\]"'])`
+const PAIR_EDGE = String.raw`[^\s*_~]`
+const INNER_UNDERSCORE = String.raw`(?<=[\p{L}\p{N}])_(?=[\p{L}\p{N}])`
+const STAR_PAIR = new RegExp(
+  `${PAIR_BEFORE}(\\*\\*|~~|\\*)(?=${PAIR_EDGE})(?:[^*_~]|${INNER_UNDERSCORE})*?${PAIR_EDGE}\\1${PAIR_AFTER}`,
+  'gu',
+)
+const UNDERSCORE_PAIR = new RegExp(
+  `${PAIR_BEFORE}(__|_)(?=${PAIR_EDGE})[^*_~]*?${PAIR_EDGE}\\1${PAIR_AFTER}`,
+  'gu',
+)
+const LITERAL_DELIMITER =
+  /(?<=[\p{L}\p{N}])_+(?=[\p{L}\p{N}])|(?<=^|\s)[*_](?=\s|$)|(?<=^|\s)~(?=\/)/gu
+const DELIMITER = /[*_~`]/
+const PROVEN = 'x'
 const INDENTED_CODE = /^(?: {4}|\t)/
 const LEADING_SPACES = /^ */
 
@@ -86,15 +105,29 @@ function entityText(found: string, decimal?: string, hex?: string, name?: string
   return isCharacter ? String.fromCodePoint(code) : found
 }
 
-export type Mark = { isCode: boolean; isBold: boolean; isLink: boolean }
+export type Mark = {
+  isCode: boolean
+  isBold: boolean
+  isLink: boolean
+  isItalic: boolean
+  isStrike: boolean
+  token: Token | null
+}
 
 export type Run = { text: string; mark: Mark }
 
-type MarkFlag = keyof Mark
+type MarkFlag = Exclude<keyof Mark, 'token'>
 
-const MARK_FLAGS: readonly MarkFlag[] = ['isCode', 'isBold', 'isLink']
+const MARK_FLAGS: readonly MarkFlag[] = ['isCode', 'isBold', 'isLink', 'isItalic', 'isStrike']
 
-export const PLAIN_MARK: Mark = { isCode: false, isBold: false, isLink: false }
+export const PLAIN_MARK: Mark = {
+  isCode: false,
+  isBold: false,
+  isLink: false,
+  isItalic: false,
+  isStrike: false,
+  token: null,
+}
 
 type Hold = (literal: string) => string
 
@@ -109,7 +142,7 @@ function linkOf(text: string, address: string, keepsAddress: boolean, held: Hold
 }
 
 export function sameMark(one: Mark, other: Mark): boolean {
-  return MARK_FLAGS.every((flag) => one[flag] === other[flag])
+  return one.token === other.token && MARK_FLAGS.every((flag) => one[flag] === other[flag])
 }
 
 type Marking = { brackets: Brackets; held: RegExp; literals: readonly string[] }
@@ -120,10 +153,14 @@ function runsOf(text: string, marking: Marking): Run[] {
   const add = (found: string) => {
     if (found === '') return
     const shown = found.replace(/\t/g, ' ')
+    const isOpen = (flag: MarkFlag) => (depths.get(flag) ?? 0) > 0
     const mark: Mark = {
-      isCode: (depths.get('isCode') ?? 0) > 0,
-      isBold: (depths.get('isBold') ?? 0) > 0,
-      isLink: (depths.get('isLink') ?? 0) > 0,
+      isCode: isOpen('isCode'),
+      isBold: isOpen('isBold'),
+      isLink: isOpen('isLink'),
+      isItalic: isOpen('isItalic'),
+      isStrike: isOpen('isStrike'),
+      token: null,
     }
     const last = runs.at(-1)
     if (last !== undefined && sameMark(last.mark, mark)) last.text += shown
@@ -147,7 +184,9 @@ function codeText(code: string): string {
   return code.replace(PADDED_CODE, '$1')
 }
 
-function markedText(cell: string, keepsAddress: boolean): Run[] {
+type TextMarking = { keepsAddress: boolean; marksEmphasis: boolean }
+
+function markedText(cell: string, marking: TextMarking): Run[] {
   const [mark = '', ...ends] = unusedCharacters(cell, 1 + 2 * MARK_FLAGS.length)
   const brackets: Brackets = new Map()
   const wrappers = new Map<MarkFlag, [string, string]>()
@@ -162,6 +201,7 @@ function markedText(cell: string, keepsAddress: boolean): Run[] {
     const [open = '', close = ''] = wrappers.get(flag) ?? []
     return `${open}${text}${close}`
   }
+  const emphasis: Wrap = (flag, text) => (marking.marksEmphasis ? wrap(flag, text) : text)
   const literals: string[] = []
   const hold: Hold = (literal) => {
     literals.push(literal)
@@ -175,7 +215,7 @@ function markedText(cell: string, keepsAddress: boolean): Run[] {
   const text = held
     .replace(LINE_BREAK_TAG, ' ')
     .replace(LINK, (_found, linkText: string, address: string) =>
-      linkOf(linkText, address, keepsAddress, hold, wrap),
+      linkOf(linkText, address, marking.keepsAddress, hold, wrap),
     )
     .replace(AUTOLINK, (_found, address: string) => wrap('isLink', hold(address)))
     .replace(STAR_STRONG, (_found, inner: string) => wrap('isBold', inner))
@@ -183,9 +223,12 @@ function markedText(cell: string, keepsAddress: boolean): Run[] {
       UNDERSCORE_STRONG,
       (_found, before: string, inner: string) => before + wrap('isBold', inner),
     )
-    .replace(STRIKETHROUGH, '$1')
-    .replace(STAR_EMPHASIS, '$1')
-    .replace(UNDERSCORE_EMPHASIS, '$1$2')
+    .replace(STRIKETHROUGH, (_found, inner: string) => emphasis('isStrike', inner))
+    .replace(STAR_EMPHASIS, (_found, inner: string) => emphasis('isItalic', inner))
+    .replace(
+      UNDERSCORE_EMPHASIS,
+      (_found, before: string, inner: string) => before + emphasis('isItalic', inner),
+    )
     .replace(ENTITY, (found, decimal?: string, hex?: string, name?: string) =>
       hold(entityText(found, decimal, hex, name)),
     )
@@ -196,12 +239,26 @@ export function textOfRuns(runs: readonly Run[]): string {
   return runs.map((run) => run.text).join('')
 }
 
+export function markedLine(line: string): Run[] {
+  return markedText(line, { keepsAddress: true, marksEmphasis: true })
+}
+
 export function markedCell(cell: string): Run[] {
-  return markedText(cell, false)
+  return markedText(cell, { keepsAddress: false, marksEmphasis: false })
 }
 
 export function copiedCell(cell: string): string {
-  return textOfRuns(markedText(cell, true))
+  return textOfRuns(markedText(cell, { keepsAddress: true, marksEmphasis: false }))
+}
+
+export function isSimpleInline(line: string): boolean {
+  if (line.endsWith('\\') || ENTITY_LIKE.test(line) || UNPROVEN_SIGN.test(line)) return false
+  const plain = line
+    .replace(ESCAPE_OR_CODE_SPAN, PROVEN)
+    .replace(STAR_PAIR, PROVEN)
+    .replace(UNDERSCORE_PAIR, PROVEN)
+    .replace(LITERAL_DELIMITER, PROVEN)
+  return !DELIMITER.test(plain)
 }
 
 export function cellsOf(line: string): string[] {
