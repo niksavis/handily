@@ -1060,7 +1060,7 @@ for (const surface of SURFACES) {
   })
 }
 
-async function logScene($: Engine, seen: World, surface: Surface): Promise<void> {
+async function logScene($: Engine, seen: World, surface: Surface, isEnded = true): Promise<void> {
   await start($, surface)
   await prompt($, `run the gate pass with password=${TOKEN}`)
   await seen.clock.advance(MINUTE)
@@ -1074,7 +1074,7 @@ async function logScene($: Engine, seen: World, surface: Surface): Promise<void>
   seen.verdicts.set(`git push https://${TOKEN}@example.org/repo`, 'deny')
   await bash($, `git push https://${TOKEN}@example.org/repo`, SCOUT)
   await seen.clock.advance(MINUTE)
-  await turnEnds($, 'turn-s', SCOUT)
+  if (isEnded) await turnEnds($, 'turn-s', SCOUT)
 }
 
 const LOG_CRITERION =
@@ -1169,10 +1169,14 @@ for (const surface of SURFACES) {
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
-        await logScene($, seen, surface)
+        await logScene($, seen, surface, false)
         const ui = await mountTab($, surface, 'dock', 41)
         await ui.press({ key: `open:agent:${SCOUT}` })
         await ui.unmount()
+        await turnEnds($, 'turn-s', SCOUT)
+        const ended = await mountTab($, surface, 'dock', 41)
+        await ended.press({ key: 'group:ended-agents' })
+        await ended.unmount()
         const opened = await mountTab($, surface, 'dock', 41)
         const log = body(sectionOf(await screen(opened, 41), 'Log'))
         const where = framed(surface, 41) ? 'card 1' : 'row 1'
@@ -1450,53 +1454,168 @@ function agentsTitle(lines: readonly string[]): string {
   return inner(sectionOf(lines, 'Agents')[0] ?? '')
 }
 
+function agentsText(lines: readonly string[]): string {
+  return sectionOf(lines, 'Agents').join('\n')
+}
+
+async function spawnUnnamed($: Engine, id: string, description: string): Promise<void> {
+  await $.agent.spawn({
+    tool_use_id: `spawn:${id}`,
+    prompt: description,
+    description,
+    subagentType: 'Explore',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'opus',
+    background: true,
+    fork: false,
+  })
+}
+
+async function endLines($: Engine): Promise<string[]> {
+  return (await board($, 'log')).split('\n').filter((line) => /[✓■] (done|aborted)/u.test(line))
+}
+
 for (const surface of SURFACES) {
   describe(LOG_CRITERION, () => {
     test(
-      `an agent that ends while its ask waits leaves the asked state and the Log records its end, on ${surface}`,
-      withWorkitems,
-      async ($, on) => {
-        const seen = world(on)
-        const { call } = await heldAsk($, seen, surface)
-        expect((await screenOn($, surface, 'dock', 41)).join('\n')).toContain('asked')
-        await agentTurnEnds($, SCOUT, 'answer')
-        const lines = await screenOn($, surface, 'dock', 41)
-        expect(agentsTitle(lines)).toMatch(/^(╭─ )?Agents {2}all 1 done/u)
-        expect(sectionOf(lines, 'Agents').join('\n')).not.toMatch(/asked|running/u)
-        expect((await board($, 'log')).split('\n')[0]).toBe('14:00:01 scout ✓ done 4m')
-        seen.waiting.shift()?.()
-        await call
-      },
-    )
-
-    test(
-      `an agent that the agent list reports as ended gets one end line in the Log, on ${surface}`,
+      `an agent aborted while its ask waits ends with no asked state and no running call, also with its row unfolded, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
         const { call } = await heldAsk($, seen, surface)
         seen.agents.push(listed(SCOUT, 'scout', 'general-purpose', 'find the element table'))
+        expect(agentsText(await screenOn($, surface, 'dock', 41))).toContain('asked')
+        await agentTurnEnds($, SCOUT, 'aborted')
+        const ui = await mountTab($, surface, 'dock', 41)
+        await ui.press({ key: 'group:ended-agents' })
+        const lines = await screen(ui, 41)
+        await ui.unmount()
+        expect(agentsTitle(lines)).toMatch(/^(╭─ )?Agents {2}all 1 done/u)
+        expect(agentsText(lines)).toContain('scout')
+        expect(agentsText(lines)).not.toMatch(/asked|running|▸/u)
+        seen.failing.add('npm test')
+        seen.waiting.shift()?.()
+        await call
+        const scout = seen.agents[0]
+        if (scout !== undefined) scout.status = 'killed'
+        await screenOn($, surface, 'dock', 41)
+        expect((await board($, 'log')).split('\n')).toEqual([
+          '14:00:01 scout ■ failed Bash npm test',
+          '14:00:01 scout ■ aborted 4m',
+          '14:00:00 scout spawned: find the element table',
+        ])
+      },
+    )
+
+    test(
+      `an end that the agent list reports is logged once, at the time the board learned it, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        await spawn($, SCOUT, 'scout', 'find the element table')
+        seen.agents.push(listed(SCOUT, 'scout', 'general-purpose', 'find the element table'))
         await screenOn($, surface, 'dock', 41)
         const scout = seen.agents[0]
         if (scout !== undefined) scout.status = 'completed'
         await seen.clock.advance(MINUTE)
-        const lines = await screenOn($, surface, 'dock', 41)
-        expect(sectionOf(lines, 'Agents').join('\n')).not.toMatch(/asked|running/u)
+        expect(agentsText(await screenOn($, surface, 'dock', 41))).not.toMatch(/running/u)
         await screenOn($, surface, 'dock', 41)
         expect((await board($, 'log')).split('\n')).toEqual([
-          '14:01:01 scout ✓ done 11s',
+          '14:00:10 scout ✓ done 10s',
           '14:00:00 scout spawned: find the element table',
         ])
-        if (scout !== undefined) scout.status = 'killed'
-        seen.agents.push(listed(EXPLORE, 'Explore', 'Explore', 'map the hooks'))
-        const explore = seen.agents[1]
-        if (explore !== undefined) explore.status = 'killed'
+        await agentTurnEnds($, SCOUT, 'answer')
         await screenOn($, surface, 'dock', 41)
-        expect((await board($, 'log Explore')).split('\n')).toEqual([
-          '14:01:01 Explore ■ aborted 0s',
-        ])
-        seen.waiting.shift()?.()
-        await call
+        expect(await endLines($)).toEqual(['14:00:10 scout ✓ done 10s'])
+      },
+    )
+
+    test(
+      `a resumed agent that ends again gets a new end line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        await spawn($, SCOUT, 'scout', 'find the element table')
+        seen.agents.push(listed(SCOUT, 'scout', 'general-purpose', 'find the element table'))
+        await agentTurnEnds($, SCOUT, 'answer')
+        await screenOn($, surface, 'dock', 41)
+        await seen.clock.advance(MINUTE)
+        await $.turn.start({ text: 'go on', turnId: 'turn-again', agentId: SCOUT })
+        await bash($, 'git status', SCOUT)
+        await screenOn($, surface, 'dock', 41)
+        await agentTurnEnds($, SCOUT, 'answer')
+        await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual(['14:01:00 scout ✓ done 4m', '14:00:00 scout ✓ done 4m'])
+      },
+    )
+
+    test(
+      `101 agents that end get one end line each, and a later render logs and redraws nothing, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        for (let index = 0; index < 101; index += 1) {
+          const id = `a${String(index).padStart(4, '0')}many`
+          seen.agents.push(listed(id, `agent${String(index)}`, 'general-purpose', 'do the work'))
+        }
+        await board($, 'log')
+        for (const agent of seen.agents) agent.status = 'completed'
+        await board($, 'log')
+        expect(await endLines($)).toHaveLength(100)
+        const redraws = []
+        for (let render = 0; render < 3; render += 1) {
+          const before = seen.redraws
+          await screenOn($, surface, 'dock', 41)
+          await board($, 'log')
+          redraws.push(seen.redraws - before)
+        }
+        expect(redraws).toEqual([0, 0, 0])
+      },
+    )
+
+    test(
+      `an agent already ended when the board first sees it, or still listed after /clear, gets no end line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        seen.agents.push({
+          ...listed(SCOUT, 'scout', 'general-purpose', 'old'),
+          status: 'completed',
+        })
+        await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual([])
+        seen.agents.push(listed(EXPLORE, 'Explore', 'Explore', 'map the hooks'))
+        await screenOn($, surface, 'dock', 41)
+        const explore = seen.agents[1]
+        if (explore !== undefined) explore.status = 'completed'
+        await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+        await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual([])
+      },
+    )
+
+    test(
+      `a recorded turn end wins over a listed running status until a new call starts, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        await spawn($, SCOUT, 'scout', 'find the element table')
+        seen.agents.push(listed(SCOUT, 'scout', 'general-purpose', 'find the element table'))
+        await bash($, 'git status', SCOUT)
+        await agentTurnEnds($, SCOUT, 'answer')
+        await seen.clock.advance(MINUTE)
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
+          /^(╭─ )?Agents {2}all 1 done/u,
+        )
+        await bash($, 'git log', SCOUT)
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
+          /^(╭─ )?Agents {2}1(?: |$)/u,
+        )
       },
     )
 
@@ -1555,6 +1674,35 @@ for (const surface of SURFACES) {
         expect(await board($, 'log main')).toBe('The log has no event of "main".')
       },
     )
+
+    test(
+      `/board log takes each drawn name of two unnamed Explore agents as exactly that agent, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($, surface)
+        for (const [id, file] of [
+          [SCOUT, 'docs/one.md'],
+          [EXPLORE, 'docs/two.md'],
+        ] as const) {
+          await spawnUnnamed($, id, `read ${file}`)
+          seen.agents.push({ id, type: 'Explore', status: 'running', description: `read ${file}` })
+          await edit($, file, id)
+          await seen.clock.advance(MINUTE)
+        }
+        expect(await board($, 'log Explore')).toBe(
+          ['14:00:00 Explore Edit docs/one.md', '14:00:00 Explore spawned: read docs/one.md'].join(
+            '\n',
+          ),
+        )
+        expect(await board($, 'log Explore 2')).toBe(
+          [
+            '14:01:00 Explore 2 Edit docs/two.md',
+            '14:01:00 Explore 2 spawned: read docs/two.md',
+          ].join('\n'),
+        )
+      },
+    )
   })
 
   describe(REQUEST_CRITERION, () => {
@@ -1592,6 +1740,25 @@ describe(CARDS_CRITERION, () => {
       await seen.clock.advance(SECOND)
       expect(seen.redraws - before).toBe(1)
       expect((await screenOn($, 'terminal', 'dock', 41)).join('\n')).toContain('1 step    2:01')
+    },
+  )
+
+  test(
+    'the clock stops when the terminal pane unmounts while a desktop pane stays',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await cardScene($, seen, 'terminal')
+      const terminal = await mountTab($, 'terminal', 'dock', 41)
+      await screen(terminal, 41)
+      const desktop = await mountTab($, 'desktop', 'dock', 41)
+      await screen(desktop, 41)
+      await terminal.unmount()
+      await seen.clock.advance(2 * SECOND)
+      const stopped = seen.redraws
+      await seen.clock.advance(3 * SECOND)
+      expect(seen.redraws).toBe(stopped)
+      await desktop.unmount()
     },
   )
 

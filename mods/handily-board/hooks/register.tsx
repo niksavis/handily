@@ -86,7 +86,6 @@ import {
   EMPTY_LOG,
   LOG_KEPT,
   type LogKind,
-  isEndLogged,
   logDetail,
   logText,
   withEvent,
@@ -604,7 +603,8 @@ type Redraw = {
   bandTimer: Timer | undefined
   bandSawTab: boolean | undefined
   clock: Timer | undefined
-  clockSurfaces: Set<RenderSurface>
+  clockTicks: number
+  clockSurfaces: Map<RenderSurface, number>
 }
 
 function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): void {
@@ -638,8 +638,17 @@ function stopClock(redraw: Redraw): void {
   redraw.clock = undefined
 }
 
+function dropUndrawnSurfaces(redraw: Redraw): void {
+  const previous = redraw.clockTicks
+  redraw.clockTicks += 1
+  for (const [surface, drawnAt] of redraw.clockSurfaces) {
+    if (drawnAt < previous) redraw.clockSurfaces.delete(surface)
+  }
+}
+
 async function tickClock($: EngineInterface, redraw: Redraw): Promise<void> {
-  if (await isSessionTabSeen($)) $.ui.invalidate('ui.render')
+  dropUndrawnSurfaces(redraw)
+  if (redraw.clockSurfaces.size > 0 && (await isSessionTabSeen($))) $.ui.invalidate('ui.render')
   else stopClock(redraw)
 }
 
@@ -649,7 +658,7 @@ function keepClock(
   surface: RenderSurface,
   isTicking: boolean,
 ): void {
-  if (isTicking) redraw.clockSurfaces.add(surface)
+  if (isTicking) redraw.clockSurfaces.set(surface, redraw.clockTicks)
   else redraw.clockSurfaces.delete(surface)
   if (redraw.clockSurfaces.size === 0) {
     stopClock(redraw)
@@ -749,7 +758,9 @@ async function recordNote($: EngineInterface, calls: number): Promise<void> {
 
 type StepsKeep = { last: Map<string, AgentStep>; counts: Map<string, number> }
 
-type LogKeep = { current: BoardLog; denied: Set<string> }
+type AgentRun = 'running' | 'ended'
+
+type LogKeep = { current: BoardLog; denied: Set<string>; runs: Map<string, AgentRun> }
 
 type SessionKeeps = {
   vitals: VitalsKeep
@@ -778,7 +789,7 @@ async function workOf($: EngineInterface, keeps: SessionKeeps, inView?: string):
   const { value: activity } = await $.state.get(ACTIVITY)
   const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps.last, keeps.steps.counts)
   const agents = withStalls(rows, keeps.pulses, now)
-  noteListedEnds($, keeps.log, agents, now)
+  noteListedEnds($, keeps.log, agents)
   const trend = await trendOf($, keeps.trend)
   return {
     now,
@@ -811,16 +822,30 @@ const LISTED_END_KINDS: Readonly<Partial<Record<AgentLook, LogKind>>> = {
   killed: 'aborted',
 }
 
-function noteListedEnds(
+function noteRunStart(keep: LogKeep, agentId: string): void {
+  keep.runs.set(agentId, 'running')
+}
+
+function noteAgentEnd(
   $: EngineInterface,
   keep: LogKeep,
-  rows: readonly AgentRow[],
-  now: number,
+  at: number,
+  event: { kind: LogKind; agentId: string; detail: string },
 ): void {
+  if (keep.runs.get(event.agentId) === 'ended') return
+  keep.runs.set(event.agentId, 'ended')
+  noteEvent($, keep, at, event)
+}
+
+function noteListedEnds($: EngineInterface, keep: LogKeep, rows: readonly AgentRow[]): void {
   for (const row of rows) {
     const kind = LISTED_END_KINDS[row.look]
-    if (kind === undefined || isEndLogged(keep.current, row.id)) continue
-    noteEvent($, keep, now, { kind, agentId: row.id, detail: elapsedText(row.ageMs) })
+    const run = keep.runs.get(row.id)
+    if (run === undefined) keep.runs.set(row.id, kind === undefined ? 'running' : 'ended')
+    else if (kind !== undefined && run === 'running') {
+      const at = row.startedAt + row.ageMs
+      noteAgentEnd($, keep, at, { kind, agentId: row.id, detail: elapsedText(row.ageMs) })
+    }
   }
 }
 
@@ -1499,7 +1524,8 @@ export const register: Register = (on, options) => {
     bandTimer: undefined,
     bandSawTab: undefined,
     clock: undefined,
-    clockSurfaces: new Set(),
+    clockTicks: 0,
+    clockSurfaces: new Map(),
   }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
@@ -1508,7 +1534,7 @@ export const register: Register = (on, options) => {
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
-  const log: LogKeep = { current: EMPTY_LOG, denied: new Set() }
+  const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
   const notes: RowNotes = new Map()
   const asks: BoardTask[] = []
   const pulses = newPulses()
@@ -1578,6 +1604,8 @@ export const register: Register = (on, options) => {
       const now = await $.clock.now()
       await noteVitals($, vitals, (current) => withTurnStart(current, now))
       await noteTrend($, trend, trendTurnStarted)
+    } else {
+      noteRunStart(log, e.agentId)
     }
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
@@ -1626,7 +1654,7 @@ export const register: Register = (on, options) => {
       const { agentId } = e
       const kind = TURN_END_KINDS[e.reason]
       const detail = elapsedText(e.durationMs)
-      noteEvent($, log, await $.clock.now(), { kind, agentId, detail })
+      noteAgentEnd($, log, await $.clock.now(), { kind, agentId, detail })
       await noteTurnEnd(agentHostOf($), agentId, e.answer)
       await forgetAsks($, attention, (_callId, ask) => ask.agentId === agentId)
       await shareAgents($, machine)
@@ -1673,6 +1701,7 @@ export const register: Register = (on, options) => {
       checks.current = EMPTY_CHECKS
       log.current = EMPTY_LOG
       log.denied.clear()
+      log.runs.clear()
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await $.state.set(PLAN_ID, null)
@@ -1768,6 +1797,7 @@ export const register: Register = (on, options) => {
       return answer
     }
     const callId = e.tool_use_id
+    noteRunStart(log, agentId)
     const from = await $.clock.now()
     heard(pulses, agentId, from)
     pulses.callsFrom.set(callId, from)
@@ -1818,6 +1848,7 @@ export const register: Register = (on, options) => {
       parentId: e.parentAgentId,
     }
     await noteSpawn(agentHostOf($), spawned.agentId, facts, at)
+    noteRunStart(log, spawned.agentId)
     noteEvent($, log, at, { kind: 'spawn', agentId: spawned.agentId, detail: e.description })
     if (e.parentAgentId === undefined) await noteVitals($, vitals, withTurnSpawn)
     await shareAgents($, machine)

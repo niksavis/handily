@@ -228,10 +228,6 @@ export function withCallAsked(
   )
 }
 
-function unasked(call: BoardAgentCall): BoardAgentCall {
-  return { id: call.id, tool: call.tool, target: call.target }
-}
-
 function firstAnswerLine(answer: string): string {
   const line = answer.split('\n').find((one) => one.trim() !== '') ?? ''
   return maskedCredentials(line.trim()).slice(0, ANSWER_CHARS_AT_MOST)
@@ -249,7 +245,7 @@ export function withTurnEnd(
       seenAt: now,
       endedAt: now,
       hasLoopEvents: true,
-      running: agent.running.map(unasked),
+      running: [],
       answer: firstAnswerLine(answer),
     })),
   )
@@ -283,8 +279,9 @@ type RowStatus = AgentStatus | 'unknown'
 
 function statusOf(agent: BoardAgent): RowStatus {
   if (agent.listedStatus !== null) {
-    if (agent.isListed || ENDED_STATUSES.has(agent.listedStatus)) return agent.listedStatus
-    return agent.endedAt === null ? 'unknown' : 'completed'
+    if (ENDED_STATUSES.has(agent.listedStatus)) return agent.listedStatus
+    if (agent.endedAt !== null) return 'completed'
+    return agent.isListed ? agent.listedStatus : 'unknown'
   }
   if (agent.running.length > 0 && agent.endedAt === null) return 'running'
   return agent.endedAt === null ? 'unknown' : 'completed'

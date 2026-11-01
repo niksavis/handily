@@ -872,15 +872,16 @@ Log  7 events
   has seconds.
 - `you` is a prompt of the person, `main` the main loop, and an agent its name. `denied`,
   `failed` and `aborted` take `error`, `done` takes `success`.
-- An agent end shows once: `done`, `failed`, or `aborted` for an interrupted or killed agent. The
-  board logs it when the turn of the agent ends, or when the agent list first says that the
-  agent ended.
+- An agent end shows once for each run: `done`, `failed`, or `aborted` for an interrupted or
+  killed agent. The board logs it when the turn of the agent ends, or at the time the agent list
+  first says that the agent ended. An agent that had ended before the board saw it run, also
+  after `/clear`, gets no end line.
 - The board masks the credentials of each event with `***`, as for the permission checks.
 - While an agent card or row is open, or the transcript of an agent is in view, the Log shows
   only the events of that agent, under a dim line such as `only scout, while card 1 is open`.
 - `/board log` prints the kept log as text, newest first. `/board log scout` prints the events of
-  one agent. It takes the full name of the agent or its id, not the name that a narrow row cuts,
-  and `main` or `you`.
+  one agent. It takes the name that the board draws, such as `Explore 2`, the full name of the
+  agent or its id, and `main` or `you`.
 
 - Order: needs you first, then failed, then asked and running, on hold, pending and idle, each
   in spawn order. Ended agents fold into `+N ended`. At most 6 active agents show. The rest fold

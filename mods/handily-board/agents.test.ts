@@ -1757,10 +1757,10 @@ async function scoutAsks($: Engine, seen: World): Promise<Asking> {
 async function scoutTurnEnds($: Engine): Promise<void> {
   await $.turn.complete({
     turnId: 'scout-turn',
-    reason: 'answer',
-    answer: 'done',
+    reason: 'aborted',
+    answer: '',
     durationMs: 1,
-    isAborted: false,
+    isAborted: true,
     agentId: SCOUT,
   })
 }
@@ -2037,7 +2037,13 @@ describe(CLEARS_CRITERION, () => {
       await seen.clock.advance(NEEDS_YOU_AFTER_MS)
       await waitingShown($)
       await scoutTurnEnds($)
-      await clearedRow($, '1: ▶ scout     running   ▸ Bash… open  2m')
+      for (const surface of SURFACES) {
+        const ui = await mountTab($, surface, 'dock', 41)
+        const lines = await screen(ui, 41)
+        expect(sessionHead(lines)).toBe('Session  ○ idle')
+        expect(agentLines(lines).slice(0, 2)).toEqual(['Agents  all 1 done', '[ +1 ended ]'])
+        await ui.unmount()
+      }
       dialog.answer('deny')
       await call
     },
@@ -2224,8 +2230,26 @@ describe(CHECKS_CRITERION, () => {
       ['mysql --password hunter2 -h db', 'mysql --password *** -h db'],
       ['mysql -u root -phunter2secret -h db', 'mysql -u root -p*** -h db'],
       ['mysqldump -p"pa ss" app', 'mysqldump -p*** app'],
-      ['mysql -p -h db', 'mysql -p -h db'],
+      ["mysql -e 'SELECT 1;' -phunter2", "mysql -e 'SELECT 1;' -p***"],
+      ['mysql -e "select a|b" -phunter2', 'mysql -e "select a|b" -p***'],
+      ['"/usr/bin/mysql" -phunter2', '"/usr/bin/mysql" -p***'],
+      ['MYSQL -phunter2', 'MYSQL -p***'],
+      ['mysql.exe -phunter2', 'mysql.exe -p***'],
+      ['C:\\tools\\mysql.exe -phunter2', 'C:\\tools\\mysql.exe -p***'],
+      ['mysql -pfirst -psecond', 'mysql -p*** -p***'],
+      ['MYSQL_PWD=x mariadb-dump -phunter2 app', 'MYSQL_PWD=*** mariadb-dump -p*** app'],
+      ['cd /srv && mysqlsh -phunter2', 'cd /srv && mysqlsh -p***'],
+      [
+        'docker run --name mysql -p3306:3306 -d mysql:8',
+        'docker run --name mysql -p3306:3306 -d mysql:8',
+      ],
+      ['find . -name mysql -prune', 'find . -name mysql -prune'],
+      ['ls mysql -prt', 'ls mysql -prt'],
+      ['mysql --execute "ssh -p2222 host"', 'mysql --execute "ssh -p2222 host"'],
       ['ssh -p2222 host', 'ssh -p2222 host'],
+      ['mkdir -p dir', 'mkdir -p dir'],
+      ['mysql -p -h db', 'mysql -p -h db'],
+      ['mysql -p dbname', 'mysql -p dbname'],
       ["psql --token='abc def' -d app", 'psql --token=*** -d app'],
       ['gh auth login --with-token "abc def"', 'gh auth login --with-token ***'],
       ['curl -u deploy:hunter22 https://x.dev', 'curl -u deploy:*** https://x.dev'],

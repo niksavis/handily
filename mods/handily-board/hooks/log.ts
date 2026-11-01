@@ -57,10 +57,10 @@ const NOTHING_YET = 'nothing yet'
 const BUTTON_CHROME = 4
 const CUT_MARK = '…'
 const SHORT_ID = 8
-const END_KINDS: ReadonlySet<LogKind> = new Set<LogKind>(['done', 'failed', 'aborted'])
 
 export function withEvent(log: BoardLog, event: LogEvent): BoardLog {
-  return { events: [...log.events, event].slice(-LOG_KEPT), seen: log.seen + 1 }
+  const events = [...log.events, event].sort((a, b) => a.at - b.at)
+  return { events: events.slice(-LOG_KEPT), seen: log.seen + 1 }
 }
 
 export function logDetail(text: string): string {
@@ -78,22 +78,29 @@ export function logTime(at: number, hasSeconds: boolean): string {
   return hasSeconds ? `${minutes}:${twoDigits(date.getSeconds())}` : minutes
 }
 
-export function isEndLogged(log: BoardLog, agentId: string): boolean {
-  const last = log.events.findLast((event) => event.agentId === agentId)
-  return last !== undefined && END_KINDS.has(last.kind)
-}
-
 export function whoOf(event: LogEvent, names: ReadonlyMap<string, string>): string {
   if (event.kind === 'prompt') return PERSON
   if (event.agentId === null) return MAIN_LOOP
   return names.get(event.agentId) ?? escaped(event.agentId.slice(0, SHORT_ID))
 }
 
-function isEventOf(event: LogEvent, who: string, labels: ReadonlyMap<string, string>): boolean {
-  if (event.kind === 'prompt') return who === PERSON
-  const { agentId } = event
-  if (agentId === null) return who === MAIN_LOOP
-  return who === agentId || who === agentId.slice(0, SHORT_ID) || labels.get(agentId) === who
+function isAgentAsked(agentId: string, asked: string, who: LogWho): boolean {
+  return (
+    asked === agentId || asked === agentId.slice(0, SHORT_ID) || who.labels.get(agentId) === asked
+  )
+}
+
+function askedAgents(log: BoardLog, who: LogWho, asked: string): ReadonlySet<string> {
+  const drawn = [...who.names].filter(([, name]) => name === asked).map(([agentId]) => agentId)
+  if (drawn.length > 0) return new Set(drawn)
+  const logged = log.events.map((event) => event.agentId).filter((agentId) => agentId !== null)
+  return new Set(logged.filter((agentId) => isAgentAsked(agentId, asked, who)))
+}
+
+function isEventOf(event: LogEvent, asked: string, agents: ReadonlySet<string>): boolean {
+  if (event.kind === 'prompt') return asked === PERSON
+  if (event.agentId === null) return asked === MAIN_LOOP
+  return agents.has(event.agentId)
 }
 
 function marked(mark: string, word: string, detail: string, color: StyledPart['color']) {
@@ -260,9 +267,10 @@ export function drawLog(outer: PaneElements, view: LogView): RenderElement[] {
 export type LogWho = { names: ReadonlyMap<string, string>; labels: ReadonlyMap<string, string> }
 
 export function logText(log: BoardLog, who: LogWho, signals: SignalLooks, asked: string): string {
-  const { names, labels } = who
+  const { names } = who
+  const agents = askedAgents(log, who, asked)
   const lines = eventsOf(log, undefined)
-    .filter((event) => asked === '' || isEventOf(event, asked, labels))
+    .filter((event) => asked === '' || isEventOf(event, asked, agents))
     .map(
       (event) =>
         `${logTime(event.at, true)} ${whoOf(event, names)} ${partsText(whatParts(event, signals))}`,
