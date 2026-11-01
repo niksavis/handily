@@ -1,4 +1,4 @@
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, FsStat } from 'claude-code'
 import { reasonOf } from './reason'
 import { READ_LIMIT_BYTES, isBinary, linesOf } from './source'
 
@@ -77,9 +77,15 @@ function log($: EngineInterface, text: string): void {
   $.ui.log(`handily-filetree: ${text}`)
 }
 
+const NOT_A_FILE: Readonly<Record<Exclude<FsStat['kind'], 'file'>, string>> = {
+  dir: 'it leads to a folder',
+  other: 'it is not a regular file',
+}
+
 async function statOf($: EngineInterface, at: string): Promise<StatFact> {
   try {
-    const { size, mtimeMs } = await $.fs.stat(at)
+    const { kind, size, mtimeMs } = await $.fs.stat(at)
+    if (kind !== 'file') return { kind: 'failed', reason: NOT_A_FILE[kind] }
     return { kind: 'stat', size, mtimeMs }
   } catch (error) {
     log($, `cannot stat ${at}: ${String(error)}`)

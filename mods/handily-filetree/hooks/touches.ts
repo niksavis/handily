@@ -10,6 +10,7 @@ export type Touch = {
   at: number
   shell?: readonly string[]
   isFolder?: boolean
+  isRunning?: true
 }
 
 export type SightSource = 'call' | 'Grep' | 'Bash'
@@ -223,7 +224,8 @@ export function markShell(
 
 function filesWithCalls(touches: Touches): Map<string, Map<string, Touch>> {
   const files = new Map([...touches.files].map(([path, byAgent]) => [path, new Map(byAgent)]))
-  for (const { path, ...touch } of touches.calls.values()) {
+  for (const { path, ...call } of touches.calls.values()) {
+    const touch: Touch = { ...call, isRunning: true }
     const byAgent = files.get(path) ?? new Map<string, Touch>()
     if (isNewer(touch, byAgent.get(touch.agent))) byAgent.set(touch.agent, touch)
     files.set(path, byAgent)
@@ -235,7 +237,7 @@ function sightsWithCalls(touches: Touches): Map<string, Sight> {
   const sights = new Map(touches.sights)
   for (const call of touches.calls.values()) {
     if (isNewer(call, sights.get(call.agent))) {
-      sights.set(call.agent, { ...call, hidden: 0, source: 'call' })
+      sights.set(call.agent, { ...call, hidden: 0, source: 'call', isRunning: true })
     }
   }
   return sights

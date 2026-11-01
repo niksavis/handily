@@ -25,7 +25,7 @@ const NOW_EMPTY = 'Now  nothing read or edited yet'
 type FakeFolder = FsEntry[] | string
 
 type FakeFile = {
-  kind: 'file' | 'dir'
+  kind: 'file' | 'dir' | 'other'
   text: string
   mtimeMs: number
   size?: number
@@ -2637,6 +2637,15 @@ async function openRow(
   await ui.press({ key: `file:${path}` })
 }
 
+async function folderDiff(
+  ui: { press: Mounted['press'] },
+  folders: readonly string[],
+  path: string,
+): Promise<void> {
+  await openRow(ui, folders, path)
+  await ui.press({ key: 'diff-folder' })
+}
+
 describe('preview and diff: the open row', () => {
   for (const surface of SURFACES) {
     test(`a press on a file row opens it with its agents, its git state and four buttons, one row at a time, on the ${surface}`, async ($, on) => {
@@ -2657,11 +2666,11 @@ describe('preview and diff: the open row', () => {
         '      read by scout 3m ago',
         '      modified, not staged',
         '      [ preview ] [ diff ] [ copy path ]',
-        '      [ @ to prompt ]',
+        '      [ @ to prompt ] [ diff docs/ ]',
         '▸ hooks/  M1 D1',
       ])
       expect((await ui.findAll({ type: 'Button' })).map((button) => button.key)).toEqual(
-        expect.arrayContaining(['preview', 'diff', 'copy-path', 'to-prompt']),
+        expect.arrayContaining(['preview', 'diff', 'copy-path', 'to-prompt', 'diff-folder']),
       )
       expect((await ui.find({ key: 'preview' }))?.props.hotkey).toBeUndefined()
       await ui.press({ key: 'file:docs/design.md' })
@@ -3021,7 +3030,7 @@ describe('preview and diff: diff', () => {
 
 describe('preview and diff: a folder', () => {
   for (const surface of SURFACES) {
-    test(`a press on the counts of a folder shows one Code per changed file, from one git diff, on the ${surface}`, async ($, on) => {
+    test(`the folder diff button of an opened file row shows one Code per changed file of its folder, from one git diff, on the ${surface}`, async ($, on) => {
       const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
       const design = ['@@ -1 +1 @@', '-a', '+b'].join('\n')
       const mocks = ['@@ -0,0 +1 @@', '+c'].join('\n')
@@ -3031,7 +3040,7 @@ describe('preview and diff: a folder', () => {
       }
       textFile(seen, 'docs/filetree.md', 'new\n')
       const ui = await openFiles($, seen, surface)
-      await ui.press({ key: 'diff:docs' })
+      await folderDiff(ui, ['docs'], 'docs/design.md')
       expect(diffRuns(seen)).toEqual([
         {
           argv: [...DIFF_ARGV, 'docs/design.md', 'docs/mocks.md'],
@@ -3088,7 +3097,7 @@ describe('preview and diff: a folder', () => {
       return { value: { isCopied: true as const } }
     })
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:src' })
+    await folderDiff(ui, ['src', 'src/gen'], 'src/gen/a0001.ts')
     const codes = await ui.findAll({ type: 'Code' })
     expect(codes.length).toBeGreaterThan(10)
     expect(codes.length).toBeLessThan(50)
@@ -3108,12 +3117,12 @@ describe('preview and diff: a folder', () => {
       names.slice(0, 50),
     ])
     expect((await screen(ui)).slice(2, 5)).toEqual([
-      'src/  60 changed files vs HEAD',
+      'src/gen/  60 changed files vs HEAD',
       'first 50 of 60 changed files shown',
       '[ copy the git diff command ]',
     ])
     await ui.press({ key: 'copy-command' })
-    expect(copies).toEqual([{ text: `${DIFF_COMMAND} src`, surface: 'terminal' }])
+    expect(copies).toEqual([{ text: `${DIFF_COMMAND} src/gen`, surface: 'terminal' }])
     await ui.unmount()
   })
 })
@@ -3214,7 +3223,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
       ].join(''),
     }
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:n' })
+    await folderDiff(ui, ['n'], `n/${names[0] ?? ''}`)
     expect(diffRuns(seen).map((run) => run.argv)).toEqual([
       [...DIFF_ARGV, ...names.map((name) => `n/${name}`)],
     ])
@@ -3274,7 +3283,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
       ].join('\n'),
     }
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:r' })
+    await folderDiff(ui, ['r'], 'r/new.txt')
     expect(diffRuns(seen)[0]?.argv).toContain('--no-renames')
     expect((await ui.findAll({ type: 'Code' })).map((code) => code.props.source)).toEqual([
       added,
@@ -3309,7 +3318,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
       return { value: { isCopied: true as const } }
     })
     const ui = await openFiles($, seen)
-    await ui.press({ key: `diff:${folderName}` })
+    await folderDiff(ui, [folderName], `${folderName}/a0001.ts`)
     await ui.press({ key: 'copy-command' })
     expect(copies).toEqual([`${DIFF_COMMAND} 'it'${BACKSLASH}''s src'`])
     await ui.unmount()
@@ -3328,7 +3337,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     const whole = `${fileDiff('c/a.ts', [ONE_LINE_HUNK])}${fileDiff('c/b.ts', [HUNK_A])}`
     seen.diffAnswer = { kind: 'ok', stdout: whole.slice(0, whole.indexOf('+const c')), isCut: true }
     const ui = await openFiles($, seen)
-    await ui.press({ key: 'diff:c' })
+    await folderDiff(ui, ['c'], 'c/a.ts')
     const lines = await screen(ui)
     expect(lines.slice(lines.indexOf(RULE_41) + 1)).toEqual([
       'c/a.ts  M +1 -1',
@@ -3362,7 +3371,7 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     await ui.unmount()
   })
 
-  test('an untracked folder and a folder inside it draw their counts with no diff button, and a file in it diffs from its text', async ($, on) => {
+  test('an untracked folder and a folder inside it draw their counts with no folder diff button, and a file in it diffs from its text', async ($, on) => {
     const seen = gitWorld(
       on,
       [
@@ -3377,10 +3386,9 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     await ui.press({ key: 'open:scratch' })
     await ui.press({ key: 'open:scratch/deep' })
     expect((await treeLines(ui)).slice(0, 2)).toEqual(['▾ scratch/  ?', '  ▾ deep/  ?'])
-    expect(await ui.find({ key: 'diff:scratch' })).toBeUndefined()
-    expect(await ui.find({ key: 'diff:scratch/deep' })).toBeUndefined()
     const before = seen.runs.length
     await ui.press({ key: 'file:scratch/deep/g.ts' })
+    expect(await ui.find({ key: 'diff-folder' })).toBeUndefined()
     await ui.press({ key: 'diff' })
     expect(seen.runs).toHaveLength(before)
     expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+g')
@@ -3398,9 +3406,9 @@ describe('preview and diff: names, renames and cuts as git prints them', () => {
     textFile(seen, 'a.ts', 'a\n')
     const ui = await openFiles($, seen)
     expect(await treeLines(ui)).toEqual(['▸ deep/  ?', '? a.ts'])
-    expect(await ui.find({ key: 'diff:deep' })).toBeUndefined()
     const before = seen.runs.length
     await openRow(ui, [], 'a.ts')
+    expect(await ui.find({ key: 'diff-folder' })).toBeUndefined()
     await ui.press({ key: 'diff' })
     expect(seen.runs).toHaveLength(before)
     expect((await codeOf(ui))?.source).toBe('@@ -0,0 +1,1 @@\n+a')
@@ -3984,7 +3992,8 @@ describe('the work view of a large repo: review repairs', () => {
         '  M plan.md               ◦ scout      0s',
         WORK_NOTE,
       ])
-      expect(await ui.find({ key: 'diff:docs' })).toBeDefined()
+      await ui.press({ key: 'file:docs/notes/draft/plan.md' })
+      expect((await ui.find({ key: 'diff-folder' }))?.props.label).toBe('diff docs/notes/draft/')
       await ui.unmount()
     })
 
@@ -6041,8 +6050,8 @@ describe('parity: the focused row band', () => {
         for (const key of ['file:LICENSE', 'file:hooks/pane.tsx', 'open:scripts', 'open:build']) {
           expect(displayWidth(await buttonText(ui, key)), key).toBe(columns)
         }
-        const changed = `${await buttonText(ui, 'open:hooks')}${await buttonText(ui, 'diff:hooks')}`
-        expect(displayWidth(changed)).toBe(columns)
+        expect(displayWidth(await buttonText(ui, 'open:hooks'))).toBe(columns)
+        expect(await ui.find({ key: 'diff:hooks' })).toBeUndefined()
         await ui.unmount()
       })
     }
@@ -6236,5 +6245,160 @@ describe('parity: the age column at the right edge', () => {
         await ui.unmount()
       })
     }
+  }
+})
+
+const ABORTED = 'HooksError: handily-filetree: $.process.run(git) aborted'
+
+describe('repair: background git runs after a reopen', () => {
+  for (const surface of SURFACES) {
+    test(`when the engine aborts the line count and ignored runs after /tree close and /tree, no failure shows and the keeper runs them again within 30 s, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 4 changed +46 -6')
+      await ui.unmount()
+      expect(await tree($, 'close')).toBe('Tree closed.')
+      seen.numstatAnswer = { kind: 'reject', message: ABORTED, tookMs: 0 }
+      seen.ignoredAnswer = { kind: 'reject', message: ABORTED, tookMs: 0 }
+      touch(seen, `${GIT_DIR}/index`)
+      expect(await tree($, '')).toBe('Tree opened: files.')
+      const again = await mountSettled($, seen, surface)
+      await seen.clock.advance(2000)
+      await again.redraw(DOCKED_PANE)
+      expect(seen.numstats).toHaveLength(2)
+      expect((await screen(again)).join('\n')).not.toContain('did not start')
+      seen.numstatAnswer = { kind: 'ok', stdout: PARITY_LINES }
+      seen.ignoredAnswer = { kind: 'ok', stdout: PARITY_IGNORED }
+      await seen.clock.advance(30_000)
+      await again.redraw(DOCKED_PANE)
+      expect((await headerOf(again))[0]).toBe('Files  app · main ↑1 · 4 changed +46 -6')
+      expect((await screen(again)).join('\n')).not.toContain('not shown')
+      expect((await propsOf(again, '  debug.log')).dimColor).toBe(true)
+      expect(seen.logs.some((log) => log.includes('git diff --numstat was aborted'))).toBe(true)
+      await again.unmount()
+    })
+
+    test(`when the engine aborts a git status of the poll, the header shows no failure and the keeper runs it again within 30 s, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const ui = await openFiles($, seen, surface)
+      seen.answer = { kind: 'reject', message: ABORTED, tookMs: 0 }
+      touch(seen, `${GIT_DIR}/index`)
+      await seen.clock.advance(2000)
+      expect(seen.runs).toHaveLength(2)
+      await ui.redraw(DOCKED_PANE)
+      expect((await headerOf(ui))[0]).not.toContain('failed')
+      seen.answer = { kind: 'ok', stdout: PARITY_CHANGES }
+      await seen.clock.advance(30_000)
+      await ui.redraw(DOCKED_PANE)
+      expect(seen.runs.length).toBeGreaterThanOrEqual(3)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main ↑1 · 4 changed +46 -6')
+      await ui.unmount()
+    })
+  }
+})
+
+describe('repair: the now age belongs to its own agent', () => {
+  for (const surface of SURFACES) {
+    test(`while scout edits a file that main read after the edit began, the row keeps the subtle background but the age of main is not now, and the Now line of main is not now, on the ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+      fakeTools(on, seen, new Map([['Edit', { answer: 'ok', tookMs: 5000 }]]))
+      boardKnowsScout(on)
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:hooks' })
+      const call = edit($, 'hooks/pane.tsx', SCOUT)
+      await seen.clock.advance(1000)
+      await read($, 'hooks/pane.tsx')
+      await seen.clock.advance(1000)
+      await ui.redraw(DOCKED_PANE)
+      expect(await treeLines(ui)).toContain('  M pane.tsx              ◦ main +1    1s')
+      const row = drawnOf(await ui.find({ key: 'file:hooks/pane.tsx' }))?.children ?? []
+      expect(row.every((part) => part.props.backgroundColor === 'subtle')).toBe(true)
+      expect((await headerOf(ui)).slice(-2)).toEqual([
+        '◦ main      hooks/pane.tsx             1s',
+        '✎ scout     hooks/pane.tsx            now',
+      ])
+      await $.ui.select({ plugin: PLUGIN, key: 'agent', value: `agent:${SCOUT}` })
+      expect(await treeLines(ui)).toContain('  M pane.tsx              ✎ scout     now')
+      await seen.clock.advance(3000)
+      await call
+      await ui.unmount()
+    })
+  }
+})
+
+describe('repair: slow side runs whose result is stale', () => {
+  for (const side of ['lines', 'ignored'] as const) {
+    test(`two slow ${side} runs turn that run off even when the index changed during each run`, async ($, on) => {
+      const seen = parityWorld(on)
+      const slow: GitAnswer = { kind: 'ok', stdout: '', tookMs: 6000 }
+      if (side === 'lines') seen.numstatAnswer = slow
+      else seen.ignoredAnswer = slow
+      const ui = await openFiles($, seen)
+      const runsOf = () => (side === 'lines' ? seen.numstats : seen.ignoreds).length
+      for (let change = 0; change < 4; change += 1) {
+        await seen.clock.advance(3000)
+        touch(seen, `${GIT_DIR}/index`)
+      }
+      await seen.clock.advance(12_000)
+      const off = side === 'lines' ? 'line counts are off' : 'ignored files are not dimmed'
+      expect(seen.logs.some((log) => log.includes(off))).toBe(true)
+      const before = runsOf()
+      expect(before).toBe(2)
+      touch(seen, `${GIT_DIR}/index`)
+      await seen.clock.advance(12_000)
+      expect(runsOf()).toBe(before)
+      if (side === 'lines') {
+        await ui.redraw(DOCKED_PANE)
+        expect((await screen(ui)).at(-1)).toBe('line counts off: git is slow here.')
+      }
+      await ui.unmount()
+    })
+  }
+})
+
+describe('repair: the ignored parse and the file kinds', () => {
+  for (const surface of SURFACES) {
+    test(`the original path after a rename record is not read as ignored, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      seen.ignoredAnswer = {
+        kind: 'ok',
+        stdout: `2 R. N... 100644 100644 100644 ${HASH} ${HASH} R100 LICENSE\0! debug.log\0`,
+      }
+      const ui = await openFiles($, seen, surface)
+      expect((await propsOf(ui, '  debug.log')).dimColor).toBe(false)
+      expect((await propsOf(ui, 'build/')).color).toBe('planMode')
+      await ui.unmount()
+    })
+
+    test(`a link to a folder and a FIFO show ? dim in the lines column, are never read, and the opened row says why, on the ${surface}`, async ($, on) => {
+      const seen = parityWorld(on)
+      const docs = PARITY_APP.find(([path]) => path === 'docs')?.[1] ?? []
+      seen.folders.set('docs', [...docs, link('site'), link('pipe')])
+      seen.files.set(`${ROOT}/docs/site`, { kind: 'dir', text: '', mtimeMs: 1 })
+      seen.files.set(`${ROOT}/docs/pipe`, { kind: 'other', text: '', mtimeMs: 1 })
+      const ui = await openFiles($, seen, surface)
+      await ui.press({ key: 'open:docs' })
+      await columnTo(ui, 'lines')
+      await settledFacts(seen)
+      const lines = await treeLines(ui)
+      expect(lines).toContain(atEdge('    pipe', '?'))
+      expect(lines).toContain(atEdge('    site', '?'))
+      expect(seen.reads.filter((path) => /docs\/(site|pipe)$/.test(path))).toEqual([])
+      const why = async (path: string) => {
+        await ui.press({ key: `file:${path}` })
+        const opened = await treeLines(ui)
+        const at = opened.findIndex((line) => line.startsWith('      lines not shown'))
+        return opened.slice(at, at + 2)
+      }
+      expect(await why('docs/site')).toEqual([
+        '      lines not shown: it leads to a',
+        '      folder',
+      ])
+      expect(await why('docs/pipe')).toEqual([
+        '      lines not shown: it is not a',
+        '      regular file',
+      ])
+      await ui.unmount()
+    })
   }
 })

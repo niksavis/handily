@@ -13,9 +13,12 @@ const RETRY_MS = 10_000
 const SLOW_RUNS_BEFORE_NO_UNTRACKED = 2
 const SLOW_RUNS_BEFORE_SIDE_OFF = 2
 const FRESH_MS = 2000
+const KEEPER_MS = 30_000
+const KEEPER_MISSED_TICKS = 2
 const BASELINE_WAIT_MS = 1000
 
 const NOT_ON_PATH = /ENOENT|not found|no such file|cannot find/i
+const ABORTED = /\baborted\b/i
 
 export type GitFailure =
   { kind: 'exit'; exitCode: number } | { kind: 'timeout' } | { kind: 'did-not-run' }
@@ -32,6 +35,7 @@ export type SideRun = {
   isWanted: boolean
   lastStartAt: number | undefined
   gap: Timer | undefined
+  gapAt: number | undefined
 }
 
 type SideSpec = {
@@ -47,6 +51,8 @@ export type ShownStatus = { status: GitStatus; at: number; startedAt: number; ch
 
 type Stamps = { index: string; head: string }
 
+type RunFailure = GitFailure | 'missing' | 'aborted'
+
 export type ShownRun = {
   status: GitStatus
   startedAt: number
@@ -58,6 +64,11 @@ export type ShownRun = {
 }
 
 export type GitWatch = {
+  keeper: Timer | undefined
+  keeperArmedAt: number | undefined
+  keeperTicks: number
+  needsHeal: boolean
+  gapAt: number | undefined
   cwd: string | undefined
   repo: GitRepo | null | undefined
   branch: string | undefined
@@ -97,6 +108,7 @@ function newSideRun(): SideRun {
     isWanted: false,
     lastStartAt: undefined,
     gap: undefined,
+    gapAt: undefined,
   }
 }
 
@@ -106,6 +118,11 @@ export function newWatch(shell: Shell): GitWatch {
     shell,
     changes: 0,
     running: Promise.resolve(),
+    keeper: undefined,
+    keeperArmedAt: undefined,
+    keeperTicks: 0,
+    needsHeal: false,
+    gapAt: undefined,
     cwd: undefined,
     repo: undefined,
     branch: undefined,
@@ -157,7 +174,80 @@ export function stopWatch(watch: GitWatch): void {
 export function resetWatch(watch: GitWatch): void {
   stopWatch(watch)
   watch.slowMark?.cancel()
-  Object.assign(watch, newWatch(watch.shell), { generation: watch.generation + 1 })
+  Object.assign(watch, newWatch(watch.shell), {
+    generation: watch.generation + 1,
+    keeper: watch.keeper,
+    keeperArmedAt: watch.keeperArmedAt,
+    keeperTicks: watch.keeperTicks,
+  })
+}
+
+function noteAborted($: EngineInterface, watch: GitWatch, name: string): void {
+  log($, `${name} was aborted with the call that started it; git status runs again`)
+  watch.needsHeal = true
+  watch.isStale = true
+}
+
+function isOverdue(at: number | undefined, now: number): boolean {
+  return at !== undefined && now > at + POLL_MS
+}
+
+async function healWatch($: EngineInterface, watch: GitWatch, now: number): Promise<void> {
+  const sides = Object.values(watch.sides)
+  const isStuck =
+    (watch.gap !== undefined && isOverdue(watch.gapAt, now)) ||
+    (watch.retry !== undefined && isOverdue(watch.retryAt, now)) ||
+    sides.some((side) => side.gap !== undefined && isOverdue(side.gapAt, now))
+  if (!watch.needsHeal && !isStuck) return
+  if (!(await isFilesShown($))) return
+  log($, 'the git watch lost a timer or a call; it starts again')
+  stopWatch(watch)
+  watch.needsHeal = false
+  watch.isStale = true
+  watch.isRunning = false
+  for (const side of sides) side.isRunning = false
+  watchShown($, watch)
+}
+
+function isWaiting(watch: GitWatch): boolean {
+  const timers = [watch.gap, watch.retry, ...Object.values(watch.sides).map((side) => side.gap)]
+  return watch.needsHeal || timers.some((timer) => timer !== undefined)
+}
+
+async function keepWatch($: EngineInterface, watch: GitWatch): Promise<void> {
+  watch.keeperTicks += 1
+  if (watch.poll === undefined && !watch.needsHeal) {
+    stopKeeper(watch)
+    return
+  }
+  if (isWaiting(watch)) await healWatch($, watch, await $.clock.now())
+}
+
+function isKeeperAlive(watch: GitWatch, now: number): boolean {
+  const armedAt = watch.keeperArmedAt
+  if (watch.keeper === undefined || armedAt === undefined) return false
+  const due = Math.floor((now - armedAt) / KEEPER_MS)
+  return watch.keeperTicks >= due - KEEPER_MISSED_TICKS
+}
+
+export async function startKeeper($: EngineInterface, watch: GitWatch): Promise<void> {
+  const now = await $.clock.now()
+  if (!isKeeperAlive(watch, now)) {
+    watch.keeper?.cancel()
+    watch.keeperArmedAt = now
+    watch.keeperTicks = 0
+    watch.keeper = $.clock.every(KEEPER_MS, () => {
+      keepWatch($, watch).catch((error: unknown) => {
+        log($, `the git keeper failed: ${String(error)}`)
+      })
+    })
+  }
+  if (watch.needsHeal) await healWatch($, watch, now)
+}
+
+export function stopKeeper(watch: GitWatch): void {
+  watch.keeper?.cancel()
+  watch.keeper = undefined
 }
 
 export function forgetRepo(watch: GitWatch): void {
@@ -247,16 +337,23 @@ async function beginWatch($: EngineInterface, watch: GitWatch): Promise<void> {
   }
 }
 
+function caught($: EngineInterface, watch: GitWatch, what: string): (error: unknown) => void {
+  return (error) => {
+    if (ABORTED.test(String(error))) noteAborted($, watch, what)
+    else log($, `${what} failed: ${String(error)}`)
+  }
+}
+
+function startPoll($: EngineInterface, watch: GitWatch): void {
+  watch.poll = $.clock.every(POLL_MS, () => {
+    tick($, watch).catch(caught($, watch, 'the git poll'))
+  })
+  beginWatch($, watch).catch(caught($, watch, 'the start of the git watch'))
+}
+
 export function watchShown($: EngineInterface, watch: GitWatch): void {
   if (watch.repo === null || watch.repo === undefined || watch.poll !== undefined) return
-  watch.poll = $.clock.every(POLL_MS, () => {
-    tick($, watch).catch((error: unknown) => {
-      log($, `the git poll failed: ${String(error)}`)
-    })
-  })
-  beginWatch($, watch).catch((error: unknown) => {
-    log($, `the git watch did not start: ${String(error)}`)
-  })
+  startPoll($, watch)
 }
 
 export function noticeFocus($: EngineInterface, watch: GitWatch, isFocused: boolean): void {
@@ -265,7 +362,8 @@ export function noticeFocus($: EngineInterface, watch: GitWatch, isFocused: bool
   if (wasFocused === false && isFocused) requestStatus($, watch)
 }
 
-function failureOf(error: unknown, tookMs: number): GitFailure | 'missing' {
+function failureOf(error: unknown, tookMs: number): RunFailure {
+  if (ABORTED.test(String(error))) return 'aborted'
   if (NOT_ON_PATH.test(String(error))) return 'missing'
   return tookMs >= RUN_TIMEOUT_MS ? { kind: 'timeout' } : { kind: 'did-not-run' }
 }
@@ -295,7 +393,8 @@ function settle(
   if ('error' in outcome) {
     log($, `git status did not run: ${String(outcome.error)}`)
     const failure = failureOf(outcome.error, timing.endedAt - timing.startedAt)
-    if (failure === 'missing') watch.isGitMissing = true
+    if (failure === 'aborted') noteAborted($, watch, 'git status')
+    else if (failure === 'missing') watch.isGitMissing = true
     else fail($, watch, failure, timing.endedAt)
     return undefined
   }
@@ -363,6 +462,10 @@ function settleSide(
   if ('error' in outcome) {
     log($, `${spec.name} did not run: ${String(outcome.error)}`)
     const failure = failureOf(outcome.error, run.tookMs)
+    if (failure === 'aborted') {
+      noteAborted($, watch, spec.name)
+      return
+    }
     side.failure = failure === 'missing' ? { kind: 'did-not-run' } : failure
     spec.drop(watch)
     return
@@ -402,7 +505,7 @@ async function runSide(
     (error: unknown) => ({ error }),
   )
   const tookMs = (await $.clock.now()) - startedAt
-  if (watch.generation !== generation || watch.shown !== shown) return
+  if (watch.generation !== generation) return
   if (tookMs > SLOW_MS) side.slowRuns += 1
   if (side.slowRuns >= SLOW_RUNS_BEFORE_SIDE_OFF) {
     log($, `${spec.name} took over ${String(SLOW_MS)} ms twice, so ${spec.offText}`)
@@ -410,6 +513,7 @@ async function runSide(
     spec.drop(watch)
     return
   }
+  if (watch.shown !== shown) return
   settleSide($, watch, kind, { outcome, tookMs })
 }
 
@@ -422,6 +526,7 @@ async function startSide($: EngineInterface, watch: GitWatch, kind: SideKind): P
     if (!isCurrent()) return
     const wait = side.lastStartAt === undefined ? 0 : side.lastStartAt + RUN_GAP_MS - now
     if (wait > 0) {
+      side.gapAt = now + wait
       side.gap = $.clock.after(wait, () => {
         side.gap = undefined
         requestSide($, watch, kind)
@@ -496,6 +601,7 @@ async function startRun($: EngineInterface, watch: GitWatch, hasGap: boolean): P
     const wait =
       !hasGap || watch.lastStartAt === undefined ? 0 : watch.lastStartAt + RUN_GAP_MS - now
     if (wait > 0) {
+      watch.gapAt = now + wait
       watch.gap = $.clock.after(wait, () => {
         watch.gap = undefined
         requestStatus($, watch)

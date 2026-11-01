@@ -103,6 +103,8 @@ import {
   noticeFocus,
   requestStatus,
   resetWatch,
+  startKeeper,
+  stopKeeper,
   stopWatch,
   syncRepo,
   watchShown,
@@ -493,7 +495,8 @@ async function columnDrawOf(
     },
     factsOf: (path) => factsOf(facts, absolutePath(cwd, path)),
     want: (paths, needsLines) => {
-      wantFacts($, facts, { paths: paths.map((path) => absolutePath(cwd, path)), needsLines })
+      const wanted = { paths: paths.map((path) => absolutePath(cwd, path)), needsLines }
+      wantFacts($, facts, wanted)
     },
   }
 }
@@ -543,6 +546,7 @@ export const register: Register = (on) => {
       argumentHint: '[close | task <n>]',
       immediate: true,
     })
+    await startKeeper($, watch)
     await $.state.set({ plugin: 'handily-filetree', key: 'ready' }, { root: $.plugin.root })
     await keepGlyphSetting($)
     return next(e)
@@ -557,6 +561,7 @@ export const register: Register = (on) => {
 
   on('session.end', async (_$, e, next) => {
     listings.clear()
+    stopKeeper(watch)
     resetWatch(watch)
     clearTouches(touches)
     clearShell(shell)
@@ -581,6 +586,7 @@ export const register: Register = (on) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    await startKeeper($, watch)
     const seen = await seenCallOf($, e)
     await noteBoardClocks($, touches)
     if (seen !== undefined) await beginCall($, touches, e.tool_use_id, seen)
@@ -612,11 +618,13 @@ export const register: Register = (on) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    await startKeeper($, watch)
     requestStatus($, watch)
     return next(e)
   })
 
   on('command.run', { command: 'tree' }, async ($, e) => {
+    await startKeeper($, watch)
     const command = parseTreeCommand(e.args)
     switch (command.kind) {
       case 'toggle':

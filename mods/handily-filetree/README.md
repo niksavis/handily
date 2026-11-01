@@ -346,8 +346,14 @@ How the mod reads the state:
   request during a run starts one more run after it. The run at the start of a Bash call is the
   only run that does not wait for the 2 s gap. [A Bash call](#a-bash-call) says when it runs.
 - After two runs that take over 5 s, the mod adds `--untracked-files=no` and says so.
-
-When git fails, the tree stays, and the header says what failed:
+- Claude Code can abort a git call when the call that started it is gone, for example a draw of
+  the tab that a newer draw replaced. An aborted call is not a git failure: the tab shows no
+  error and keeps its counts. The next tool call, prompt or `/tree` runs git status again after
+  an abort, and so does a keeper every 30 s while the tab is watched. The keeper also starts git
+  status again after a wait that never ended.
+- The line counts and the ignored status each count a run over 5 s also when a newer status
+  replaced its result, so two slow runs turn them off in a repo that changes all the time.
+  When git fails, the tree stays, and the header says what failed:
 
 ```text
 Files  app · git status failed
@@ -413,9 +419,11 @@ M README.md
 - The age uses the short form of the board: `9s`, `5m`, `1h`, `2d`. It rounds down.
 - The mark shows while the call runs. When the call is denied, fails or ends in an error, the
   mark goes, and an earlier mark of the file shows again.
-- While a call of any agent runs on a file, its row draws on the `subtle` background, and the age
-  reads `now` in bold. The `Now` line of that agent also reads `now`. When the call ends, the
-  background goes and the age counts from the start of the call. The background does not move.
+- While a call of any agent runs on a file, its row draws on the `subtle` background. The age
+  reads `now` in bold only when the mark on the row is that running call, so another agent that
+  touched the file later keeps its own age. The `Now` line of the agent that runs the call also
+  reads `now`. The agent and task filters apply. When the call ends, the background goes and the
+  age counts from the start of the call. The background does not move.
 - A `Grep` that found 40 files marks 12. The `Now` line of the agent then reads
   `and 28 more files from one Grep`.
 - At body 30 the age drops and the label cuts to 5 characters. Below body 28 the label drops,
@@ -521,9 +529,9 @@ M README.md         +0 -2                   M Ⓚ README.md       +0 -2
   icon drops, and the folder icon stays. The desktop draws no icon.
 - An open folder draws no agent mark and no age. A closed folder and a file keep both.
 - A count of zero, `+0` or `-0`, draws dim and keeps its sign.
-- A row Button draws to the body width, so the focus inversion covers the whole row. A folder
-  with a change list has two Buttons: the name opens the folder, and the rest of the row, from
-  the counts, opens the diff.
+- Each row is one Button that draws to the body width, so the focus inversion covers the whole
+  row. A press on a folder row opens or closes it. The diff of a folder is the
+  `[ diff docs/ ]` button of an opened file row in it.
 
 | Type       | Extensions                                               | Icon                 | Code point |
 | ---------- | -------------------------------------------------------- | -------------------- | ---------- |
@@ -594,7 +602,7 @@ folder reads `ignored`. A folder that the mod does not list keeps `not listed`.
 
 A press on a file row opens it. One row is open at a time. A press on another row opens that
 row, and a second press on the open row closes it. The open row shows the agents that read or
-edited the file, its git state and four buttons. The test fixture, after `scout` read
+edited the file, its git state and its buttons. The test fixture, after `scout` read
 `docs/mocks.md` and `main` edited it 2 minutes later:
 
 ```text
@@ -603,16 +611,17 @@ edited the file, its git state and four buttons. The test fixture, after `scout`
       read by scout 3m ago
       modified, not staged
       [ preview ] [ diff ] [ copy path ]
-      [ @ to prompt ]
+      [ @ to prompt ] [ diff docs/ ]
 ```
 
-| Button            | Effect                                                                 |
-| ----------------- | ---------------------------------------------------------------------- |
-| `[ preview ]`     | Shows the file in the tab                                              |
-| `[ diff ]`        | Shows the change of the file against `HEAD`. Only in a git repo        |
-| `[ copy path ]`   | Copies the path, such as `docs/mocks.md`, to the clipboard             |
-| `[ @ to prompt ]` | Puts `@docs/mocks.md` in the prompt at the cursor. It does not send it |
-| `[ back ]`        | Goes back to the tree                                                  |
+| Button            | Effect                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------ |
+| `[ preview ]`     | Shows the file in the tab                                                                        |
+| `[ diff ]`        | Shows the change of the file against `HEAD`. Only in a git repo                                  |
+| `[ copy path ]`   | Copies the path, such as `docs/mocks.md`, to the clipboard                                       |
+| `[ @ to prompt ]` | Puts `@docs/mocks.md` in the prompt at the cursor. It does not send it                           |
+| `[ diff docs/ ]`  | Shows the change of each file in the folder of the file. Only when that folder has a change list |
+| `[ back ]`        | Goes back to the tree                                                                            |
 
 The buttons have no key, because a key does not reach the tab inside tmux.
 
@@ -674,8 +683,8 @@ hooks/pane.tsx  M · +3 -2 vs HEAD
 - A binary change reads `binary file changed`. A file with no change reads
   `no change against HEAD`.
 
-A press on the counts of a folder, such as `M2 ?1`, shows the diff of each changed file under it,
-one Code element for each file:
+`[ diff docs/ ]` on an opened file row shows the diff of each changed file in the folder of that
+file, one Code element for each file:
 
 ```text
 [ back ] [ copy path ]
@@ -693,8 +702,8 @@ docs/mocks.md  M +1 -0
 - The diff shows at most 50 files. Over 50, the note reads `first 50 of 60 changed files shown`,
   and `[ copy the git diff command ]` copies the command for the whole folder. Each argument
   that a shell would split or expand is in single quotes.
-- The counts of an untracked folder, `?`, are not a button, because git status does not list the
-  files in it. Open the folder and press a file in it: its diff is the whole file.
+- A file in an untracked folder, `?`, has no folder diff button, because git status does not
+  list the files in it. Its own `[ diff ]` shows the whole file.
 - When the 2,000 lines or the 100,000 characters are used, the next files read
   `not shown; the pane is full`.
 

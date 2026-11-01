@@ -146,6 +146,7 @@ const RULE = '─'
 const RULE_SURFACE: RenderSurface = 'terminal'
 const COLUMN_KEY = 'column'
 const COLUMN_ROW_KEY = 'column-row'
+const FOLDER_DIFF_KEY = 'diff-folder'
 const ROW_BACKGROUND: ThemeKey = 'subtle'
 const PLAIN_FOLDER: ThemeKey = 'planMode'
 const IGNORED = 'ignored'
@@ -537,7 +538,7 @@ function drawSight(elements: PaneElements, sight: Sight, touched: TouchDraw): Re
     bodyColumns,
     now: touched.now,
     glyphs: elements.glyphs,
-    isNow: touched.runsOn(sight.path),
+    isNow: sight.isRunning === true,
   })
   const age = cells.age === '' ? [] : drawParts(Text, [agePart(cells)])
   const line = Box({
@@ -846,35 +847,20 @@ function drawFolder(
     },
     elements.glyphs,
   )
-  const name = line.head.slice(0, nameParts.length)
-  const counts = line.head.slice(nameParts.length)
-  const isDiffed = counts.length > 0 && hasChangeList(gitCounts)
-  const opener = (parts: readonly Part[]) =>
-    Button({
-      key: `open:${row.path}`,
-      plain: true,
-      onPress: () => {
-        draw.actions.toggle(row.path)
-      },
-      children: drawParts(Text, parts),
-    })
-  const children = isDiffed
-    ? [
-        opener(name),
-        Button({
-          key: `diff:${top}`,
-          plain: true,
-          onPress: () => {
-            draw.actions.diff(top, true)
-          },
-          children: drawParts(
-            Text,
-            padded([...counts, ...line.tail], bodyColumns - partsWidth(name)),
-          ),
-        }),
-      ]
-    : [opener(padded([...line.head, ...line.tail], bodyColumns))]
-  return Box({ key: `folder:${row.path}`, flexDirection: 'row', children })
+  return Box({
+    key: `folder:${row.path}`,
+    flexDirection: 'row',
+    children: [
+      Button({
+        key: `open:${row.path}`,
+        plain: true,
+        onPress: () => {
+          draw.actions.toggle(row.path)
+        },
+        children: drawParts(Text, padded([...line.head, ...line.tail], bodyColumns)),
+      }),
+    ],
+  })
 }
 
 function drawPruned(
@@ -947,8 +933,8 @@ function fileNameParts(elements: PaneElements, file: FileName): Part[] {
   return [...lead, { text: file.letter, color }, { text: ' ' }, ...icon, { text: shown, color }]
 }
 
-function rowBackground(isNow: boolean): ThemeKey | undefined {
-  return isNow ? ROW_BACKGROUND : undefined
+function rowBackground(isRunning: boolean): ThemeKey | undefined {
+  return isRunning ? ROW_BACKGROUND : undefined
 }
 
 function fileLine(
@@ -962,7 +948,7 @@ function fileLine(
   const letter = marks?.letterOf(row.path)
   const isDim = letter === undefined && (row.isDot || isIgnoredPath(draw.ignored, row.path))
   const count = draw.counts?.cellOf(row.path, false)
-  const isNow = touched.runsOn(row.path)
+  const isRunning = touched.runsOn(row.path)
   const room = nameRoom(bodyColumns, touched, mark, count)
   const iconRoom = partsWidth(typeIconParts(elements, row.name, isDim))
   const depth =
@@ -976,8 +962,9 @@ function fileLine(
     letter,
     isDim,
   })
+  const isNow = mark?.isRunning === true
   const line = markedLine(parts, bodyColumns, touched, { mark, count, isNow }, elements.glyphs)
-  return onBackground(padded([...line.head, ...line.tail], bodyColumns), rowBackground(isNow))
+  return onBackground(padded([...line.head, ...line.tail], bodyColumns), rowBackground(isRunning))
 }
 
 function stateWords(marks: GitMarks, path: string): string | undefined {
@@ -996,6 +983,27 @@ function stateText(
   const words = stateWords(marks, path)
   if (words === undefined || count === undefined || count.parts.length === 0) return words
   return `${words}${PART_GAP}${count.parts.map((part) => part.text).join('')}`
+}
+
+function folderOf(path: string): string | undefined {
+  const cut = path.lastIndexOf('/')
+  return cut < 0 ? undefined : path.slice(0, cut)
+}
+
+function folderDiffSpecs(path: string, draw: TreeDraw): ButtonSpec[] {
+  const folder = folderOf(path)
+  if (folder === undefined || draw.marks === undefined) return []
+  const counts = draw.marks.countsOf(folder)
+  if (counts.length === 0 || !hasChangeList(counts)) return []
+  return [
+    {
+      key: FOLDER_DIFF_KEY,
+      label: `diff ${shownName(folder)}/`,
+      onPress: () => {
+        draw.actions.diff(folder, true)
+      },
+    },
+  ]
 }
 
 function rowButtons(path: string, draw: TreeDraw): ButtonSpec[] {
@@ -1034,6 +1042,7 @@ function rowButtons(path: string, draw: TreeDraw): ButtonSpec[] {
         actions.mention(path)
       },
     },
+    ...folderDiffSpecs(path, draw),
   ]
 }
 
@@ -1355,12 +1364,17 @@ function flatRow(
   const { Box, Text, bodyColumns } = elements
   const { touched } = view
   const { path, isFolder } = flatCountPath(row)
-  const isNow = row.kind === 'file' && touched.runsOn(row.path)
+  const isRunning = row.kind === 'file' && touched.runsOn(row.path)
+  const mark = rowMark(row, touched)
   const line = markedLine(
     flatParts(elements, row, view),
     bodyColumns,
     touched,
-    { mark: rowMark(row, touched), count: counts?.cellOf(path, isFolder), isNow },
+    {
+      mark,
+      count: counts?.cellOf(path, isFolder),
+      isNow: row.kind === 'file' && mark?.isRunning === true,
+    },
     elements.glyphs,
   )
   const parts = [...line.head, ...line.tail]
@@ -1369,7 +1383,7 @@ function flatRow(
     flexDirection: 'row',
     children: drawParts(
       Text,
-      isNow ? onBackground(padded(parts, bodyColumns), ROW_BACKGROUND) : parts,
+      isRunning ? onBackground(padded(parts, bodyColumns), ROW_BACKGROUND) : parts,
     ),
   })
 }
