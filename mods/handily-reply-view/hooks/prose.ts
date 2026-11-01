@@ -110,9 +110,9 @@ function drawnLine(line: string, inList: boolean): DrawnLine {
 
 function drawnParts(unit: Unit): ProsePart[] {
   const inList = unit.kind === 'list'
-  return unit.lines.map((line) =>
-    isBlank(line) ? { kind: 'blank' } : { kind: 'drawn', line: drawnLine(line, inList) },
-  )
+  return unit.lines
+    .filter((line) => !isBlank(line))
+    .map((line) => ({ kind: 'drawn', line: drawnLine(line, inList) }))
 }
 
 export function prosePartsOf(lines: readonly string[]): ProsePart[] {

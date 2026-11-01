@@ -64,6 +64,7 @@ const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> =
 }
 const PROSE_SURFACE: RenderSurface = 'terminal'
 const BOX_SURFACE: RenderSurface = 'terminal'
+const MARGIN_SURFACE: RenderSurface = 'terminal'
 
 export type DiagramDrawing = InkedDrawing & { name: string }
 
@@ -257,11 +258,6 @@ function drawnItem(context: Context, line: DrawnLine, key: string): ProseItem {
   }
 }
 
-function blankItem(context: Context, key: string): ProseItem {
-  const { Box, Text } = context.elements
-  return { rows: 1, whole: () => Box({ key, children: Text({ children: ' ' }) }), cut: () => null }
-}
-
 function markdownItem(context: Context, lines: readonly string[], key?: string): ProseItem {
   const rows = lines.map((line, index) => {
     if (line.trim() !== '') return rowsOf(line, context.width)
@@ -290,16 +286,42 @@ function markdownItem(context: Context, lines: readonly string[], key?: string):
   }
 }
 
-function proseItem(context: Context, part: ProsePart, index: number): ProseItem {
-  const key = `prose-${String(index)}`
-  switch (part.kind) {
-    case 'drawn':
-      return drawnItem(context, part.line, key)
-    case 'blank':
-      return blankItem(context, key)
-    case 'engine':
-      return markdownItem(context, shownText(part.text).split('\n'), key)
+function proseItem(
+  context: Context,
+  part: Exclude<ProsePart, { kind: 'blank' }>,
+  key: string,
+): ProseItem {
+  return part.kind === 'drawn'
+    ? drawnItem(context, part.line, key)
+    : markdownItem(context, shownText(part.text).split('\n'), key)
+}
+
+function spacedItem(context: Context, item: ProseItem): ProseItem {
+  const spaced = (element: RenderElement) =>
+    context.elements.Box({ flexDirection: 'column', marginTop: 1, children: element })
+  return {
+    rows: item.rows + 1,
+    whole: () => spaced(item.whole()),
+    cut: (budget) => {
+      const cut = budget > 1 ? item.cut(budget - 1) : null
+      return cut === null ? null : spaced(cut)
+    },
   }
+}
+
+function proseItems(context: Context, parts: readonly ProsePart[]): ProseItem[] {
+  const items: ProseItem[] = []
+  let isSpaced = false
+  for (const [index, part] of parts.entries()) {
+    if (part.kind === 'blank') {
+      isSpaced = items.length > 0
+      continue
+    }
+    const item = proseItem(context, part, `prose-${String(index)}`)
+    items.push(isSpaced ? spacedItem(context, item) : item)
+    isSpaced = false
+  }
+  return items
 }
 
 function itemsPiece(context: Context, items: readonly ProseItem[]): Piece {
@@ -341,11 +363,7 @@ function prosePiece(context: Context, prose: Prose): Piece {
       },
     }
   }
-  const parts = prosePartsOf(prose.lines)
-  return itemsPiece(
-    context,
-    parts.map((part, index) => proseItem(context, part, index)),
-  )
+  return itemsPiece(context, proseItems(context, prosePartsOf(prose.lines)))
 }
 
 type Buttons = { element: RenderElement; columns: number }
@@ -1108,6 +1126,21 @@ function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: nu
   })
 }
 
+function blocksColumn(
+  elements: ReplyElements,
+  surface: RenderSurface,
+  blocks: readonly RenderElement[],
+): RenderElement {
+  const { Box } = elements
+  if (surface !== MARGIN_SURFACE) return Box({ flexDirection: 'column', gap: 1, children: blocks })
+  return Box({
+    flexDirection: 'column',
+    children: blocks.map((block, index) =>
+      index === 0 ? block : Box({ flexDirection: 'column', marginTop: 1, children: block }),
+    ),
+  })
+}
+
 function withBullet(elements: ReplyElements, layout: ReplyLayout, body: RenderElement) {
   if (!layout.hasBullet) return body
   const { Box, Text } = elements
@@ -1162,11 +1195,11 @@ export function replyTree(
     flexDirection: 'column',
     children: [
       divider('opened-top'),
-      Box({
-        flexDirection: 'column',
-        gap: 1,
-        children: shown.map((drawing) => drawing.element),
-      }),
+      blocksColumn(
+        elements,
+        layout.surface,
+        shown.map((drawing) => drawing.element),
+      ),
       divider('opened-bottom'),
       isLong ? foldRow(context, fold, text, hidden) : null,
     ],

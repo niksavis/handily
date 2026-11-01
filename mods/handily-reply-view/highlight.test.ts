@@ -172,7 +172,10 @@ function boxLines(props: Record<string, unknown>, children: unknown[], width: nu
           ...lines(child, inner),
         ])
       : rowLines(children, inner, gap)
-  return flowed.map((line) => (line === '' ? line : ' '.repeat(indent) + line))
+  return [
+    ...Array<string>(Number(props.marginTop ?? 0)).fill(''),
+    ...flowed.map((line) => (line === '' ? line : ' '.repeat(indent) + line)),
+  ]
 }
 
 function lines(node: unknown, width: number): string[] {
@@ -1049,4 +1052,95 @@ describe('the highlight takes linear time', () => {
     expect(runs.filter((run) => run.mark.token === 'number')).toHaveLength(40_000)
     expect(took).toBeLessThan(1000)
   })
+})
+
+const MIXED_REPLY = [
+  'Paragraph one has 3 items.',
+  '',
+  'See [docs](https://x.example) now.',
+  '',
+  '- first 1',
+  '- second 2',
+  '',
+  '| A | B |',
+  '| --- | --- |',
+  '| 1 | 2 |',
+].join('\n')
+
+function whitespaceTexts(tree: unknown): Node[] {
+  return textsOf(tree).filter((node) => {
+    const [only, ...more] = node.children ?? []
+    return more.length === 0 && typeof only === 'string' && only !== '' && only.trim() === ''
+  })
+}
+
+function columnGaps(tree: unknown): unknown[] {
+  return nodesOf(tree)
+    .filter((node) => node.type === 'Box' && node.props?.flexDirection === 'column')
+    .map((node) => node.props?.gap)
+    .filter((gap) => gap !== undefined)
+}
+
+describe('one blank line between the blocks of a reply', () => {
+  sceneTest(
+    'a drawn paragraph, an engine paragraph, a list and a table stand one blank line apart on the terminal, made by a top margin and no gap or blank text',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, MIXED_REPLY, 'terminal')
+      expect(await sketchOf(ui)).toEqual([
+        '● Paragraph one has =3= items.',
+        '',
+        '  See [docs](https://x.example) now.',
+        '',
+        '  - first =1=',
+        '  - second =2=',
+        '',
+        '  %┌───┬───┐%',
+        '  %│% @*A*@ %│% @*B*@ %│%',
+        '  %╞═══╪═══╡%',
+        '  %│% =1= %│% =2= %│%',
+        '  %└───┴───┘%',
+        '  [ copy ] [ copy as text ]',
+      ])
+      const tree = await ui.drawn()
+      expect(columnGaps(tree)).toEqual([])
+      expect(whitespaceTexts(tree)).toEqual([])
+      expect(nodesOf(tree).filter((node) => node.props?.marginTop === 1)).toHaveLength(3)
+      await ui.unmount()
+    },
+  )
+
+  sceneTest(
+    'the desktop draws the same reply as before, one gap between blocks',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, MIXED_REPLY, 'desktop')
+      expect(await sketchOf(ui)).toEqual([
+        'Paragraph one has 3 items.',
+        '',
+        'See [docs](https://x.example) now.',
+        '',
+        '- first 1',
+        '- second 2',
+        '',
+        '@*A*@ %│% @*B*@  [ copy ] [ copy as text ]',
+        '%══╪══%',
+        '=1= %│% =2=',
+      ])
+      const tree = await ui.drawn()
+      expect(columnGaps(tree)).toEqual([1])
+      expect(nodesOf(tree).filter((node) => node.props?.marginTop !== undefined)).toEqual([])
+      await ui.unmount()
+    },
+  )
+
+  sceneTest(
+    'a list with a blank line between its items draws no blank line inside it, and the reply starts and ends with no blank line',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, '\n\n- first 1\n\n- second 2\n\n', 'terminal')
+      expect(await sketchOf(ui)).toEqual(['● - first =1=', '  - second =2='])
+      await ui.unmount()
+    },
+  )
 })
