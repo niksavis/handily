@@ -4533,6 +4533,12 @@ declare module 'claude-code' {
       persistedOutputPath?: string
       /** Total size of the output in bytes (set when output is too large for inline) */
       persistedOutputSize?: number
+      /** @internal True when stdout holds the first part of the persisted output, a line saying that the middle was left out, and then its last lines */
+      stdoutHoldsOutputEnd?: boolean
+      /** @internal Tells the model that the kernel killed a process for lack of memory while the command ran */
+      memoryLimitNote?: string
+      /** @internal One line of advice for the model after a finished command, set by a rule in a feature flag */
+      triggeredNote?: string
       /** Model-facing note listing readFileState entries whose mtime bumped during this command (set when WRITE_COMMAND_MARKERS matches) */
       staleReadFileStateHint?: string
       /** Model-facing system-reminder appended when a gh command reports a GitHub API rate-limit error */
