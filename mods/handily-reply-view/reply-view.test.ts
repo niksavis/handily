@@ -141,6 +141,14 @@ function viewTest(name: string, body: ViewBody): void {
   })
 }
 
+function rulesTest(name: string, body: ViewBody): void {
+  test(name, { options: { tableStyle: 'rules' } }, async ($, on) => {
+    const world = engineBeneath(on)
+    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    await body(world, $)
+  })
+}
+
 function reply(text: string, extra: Partial<RenderPropsOf['AssistantMessage']> = {}) {
   return { text, isFirstOfReply: true, ...extra }
 }
@@ -350,6 +358,10 @@ function shownLines(from: number, to: number): string[] {
   return Array.from({ length: to - from + 1 }, (_, index) => `  Line ${String(from + index)}`)
 }
 
+function highlightedLines(from: number, to: number): string[] {
+  return Array.from({ length: to - from + 1 }, (_, index) => `  Line =${String(from + index)}=`)
+}
+
 const TABLE = [
   'The state of the mods:',
   '',
@@ -476,10 +488,15 @@ const FENCE = [
 describe('long reply', () => {
   for (const surface of SURFACES) {
     viewTest(
-      `a reply of 30 lines or fewer draws as the engine draws it on ${surface}`,
+      `a reply of 30 lines or fewer draws whole with its numbers highlighted on the terminal and as the engine draws it on the desktop on ${surface}`,
       async (_world, $) => {
         const ui = await mountReply($, reply(shownLines(1, 30).join('\n')), surface)
-        expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        if (surface === 'terminal') {
+          expect(await sketchOf(ui)).toEqual(['● Line =1=', ...highlightedLines(2, 30)])
+          expect(await ui.findAll({ type: 'Button' })).toEqual([])
+        } else {
+          expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        }
         await ui.unmount()
       },
     )
@@ -491,8 +508,8 @@ describe('long reply', () => {
         const folded = await sketchOf(ui)
         if (surface === 'terminal') {
           expect(folded).toEqual([
-            '● Line 1',
-            ...shownLines(2, 30),
+            '● Line =1=',
+            ...highlightedLines(2, 30),
             edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'),
           ])
         } else {
@@ -513,14 +530,13 @@ describe('long reply', () => {
       await ui.press({ key: 'fold' })
       expect(await sketchOf(ui)).toEqual([
         `● ${DIVIDER}`,
-        '  Line 1',
-        ...shownLines(2, 54),
+        ...highlightedLines(1, 54),
         `  ${DIVIDER}`,
         edges('', '[ less ] [ copy reply ]'),
       ])
       await ui.press({ key: 'fold' })
       const folded = await sketchOf(ui)
-      expect(folded[0]).toBe('● Line 1')
+      expect(folded[0]).toBe('● Line =1=')
       expect(folded.some((line) => line.includes(DIVIDER))).toBe(false)
       expect(await ui.find({ key: 'opened-top' })).toBeUndefined()
       expect(await ui.find({ key: 'opened-bottom' })).toBeUndefined()
@@ -680,7 +696,7 @@ describe('long reply', () => {
 
   viewTest('a block after the first of a reply draws no bullet', async (_world, $) => {
     const ui = await mountReply($, reply(LONG_REPLY, { isFirstOfReply: false }))
-    expect((await sketchOf(ui))[0]).toBe('  Line 1')
+    expect((await sketchOf(ui))[0]).toBe('  Line =1=')
     await ui.unmount()
   })
 
@@ -693,7 +709,7 @@ describe('long reply', () => {
 })
 
 describe('tables', () => {
-  viewTest(
+  rulesTest(
     'a table that fits draws subtle column rules and a subtle double rule under a bold header, and no row rules',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE))
@@ -718,7 +734,7 @@ describe('tables', () => {
     expect(RULE_CHARACTERS.map((rule) => displayWidth(rule))).toEqual([1, 1, 1, 1, 1])
   })
 
-  viewTest(
+  rulesTest(
     'a table that does not fit 39 columns draws one block per row with the buttons on the first title',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 39)
@@ -737,7 +753,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a block title too long to sit beside the buttons keeps its place and the buttons go under the blocks',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 36)
@@ -755,7 +771,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a wrapped table with no room on its header line or its last row puts the buttons on a line under it',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 40)
@@ -773,7 +789,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a wrapped table at 80 columns separates its rows by a dotted rule and copies no rule characters',
     async (world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE))
@@ -815,7 +831,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a wrapped table whose header line is full puts the buttons after the short last row',
     async (_world, $) => {
       const table = [
@@ -838,7 +854,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a wrapped table at 120 columns whose last row is full puts the buttons on a line under it',
     async (_world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE), 'terminal', 120)
@@ -855,7 +871,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a column wider than 12 cells wraps and shares the width by the width of its widest cell',
     async (_world, $) => {
       const ui = await mountReply($, reply(CHANGES_TABLE), 'terminal', 120)
@@ -873,7 +889,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a column of 12 cells keeps its natural width beside a column that wraps',
     async (_world, $) => {
       const table = [
@@ -895,7 +911,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a table whose cells are all 12 cells or less keeps its natural widths and draws no row rules',
     async (_world, $) => {
       const table = [
@@ -915,7 +931,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a table of a header, its rule and 28 rows takes 30 lines and does not fold',
     async (_world, $) => {
       const rows = Array.from({ length: 28 }, (_, index) => `| row ${String(index + 1)} | ok |`)
@@ -929,12 +945,12 @@ describe('tables', () => {
         `● ${headed('Name   │ State')}  [ copy ] [ copy as text ]`,
         `  ${subtle('═══════╪══════')}`,
       ])
-      expect(drawn.at(-1)).toBe(`  ${ruled('row 28 │ ok')}`)
+      expect(drawn.at(-1)).toBe(`  ${ruled('row =28= │ ok')}`)
       await ui.unmount()
     },
   )
 
-  viewTest(
+  rulesTest(
     'a wrapped table counts the header rule and the rule between its rows when it folds',
     async (_world, $) => {
       const rows = Array.from(
@@ -951,14 +967,14 @@ describe('tables', () => {
       expect(drawn.slice(0, 6)).toEqual([
         `● ${headed('Mod         │ State    │ Next')}`,
         `  ${subtle('════════════╪══════════╪══════════════')}`,
-        `  ${ruled('row 1 name  │ released │ follows the')}`,
+        `  ${ruled('row =1= name  │ released │ follows the')}`,
         `  ${ruled('            │          │ work')}`,
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
-        `  ${ruled('row 2 name  │ released │ follows the')}`,
+        `  ${ruled('row =2= name  │ released │ follows the')}`,
       ])
       expect(drawn.slice(25)).toEqual([
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
-        `  ${ruled('row 9 name  │ released │ follows the')}`,
+        `  ${ruled('row =9= name  │ released │ follows the')}`,
         `  ${ruled('            │          │ work')}`,
         '  ~… 7 more lines~  [ more ] [ copy reply ]',
       ])
@@ -966,7 +982,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'copy copies the table as markdown and copy as text copies label and value lines',
     async (world, $) => {
       const ui = await mountReply($, reply(TABLE))
@@ -992,7 +1008,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest('keeps a column right-aligned when the table says so', async (_world, $) => {
+  rulesTest('keeps a column right-aligned when the table says so', async (_world, $) => {
     const table = ['| Mod | Tests |', '| :-- | --: |', '| a | 7 |', '| b | 140 |'].join('\n')
     const ui = await mountReply($, reply(table))
     expect((await sketchOf(ui)).slice(0, 4)).toEqual([
@@ -1004,7 +1020,7 @@ describe('tables', () => {
     await ui.unmount()
   })
 
-  viewTest(
+  rulesTest(
     'a cell keeps the text inside backticks as written on the screen and in copy as text',
     async (world, $) => {
       const table = [
@@ -1044,16 +1060,17 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
-    'a line with a bar but no delimiter row draws as the engine draws it',
+  rulesTest(
+    'a line with a bar but no delimiter row draws as prose and not as a table',
     async (_world, $) => {
       const ui = await mountReply($, reply('a | b\nnext line'))
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expect(await sketchOf(ui)).toEqual(['● a | b', '  next line'])
+      expect(await ui.findAll({ type: 'Button' })).toEqual([])
       await ui.unmount()
     },
   )
 
-  viewTest('a line indented by four spaces is code, not a table row', async (_world, $) => {
+  rulesTest('a line indented by four spaces is code, not a table row', async (_world, $) => {
     const text = ['    a | b', '    --- | ---', '    c | d', '', '```sh', 'ls', '```'].join('\n')
     const ui = await mountReply($, reply(text))
     expect(await sketchOf(ui)).toEqual([
@@ -1067,7 +1084,7 @@ describe('tables', () => {
     await ui.unmount()
   })
 
-  viewTest(
+  rulesTest(
     'a table ends where a code fence opens, even when the fence line holds a bar',
     async (world, $) => {
       const text = [
@@ -1093,7 +1110,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a table with no data rows that does not fit shows its headings and no copy as text',
     async (_world, $) => {
       const text = '| Very long heading | Another very long heading |\n| --- | --- |'
@@ -1106,7 +1123,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a long column keeps its longest word whole when the longest words of the long columns fit together',
     async (_world, $) => {
       const ui = await mountReply($, reply(MODS_TABLE))
@@ -1116,13 +1133,13 @@ describe('tables', () => {
         '',
         `  ${headed('Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step')}`,
         `  ${subtle('════════════════════╪═════════╪═══════╪═══════╪══════╪═══════╪════════════════')}`,
-        '  handily-reply-view  %│%   0.6.0 %│%   =212= %│%  =2638= %│% pass %│% Ana   %│% diagrams in the',
+        '  handily-reply-view  %│%   =0.6.0= %│%   =212= %│%  =2638= %│% pass %│% Ana   %│% diagrams in the',
         `  ${ruled('                    │         │       │       │      │       │ terminal')}`,
         dotted,
-        '  handily-simple-view %│%   0.9.1 %│%   =341= %│%  =4120= %│% pass %│% Bo    %│% one row for',
+        '  handily-simple-view %│%   =0.9.1= %│%   =341= %│%  =4120= %│% pass %│% Bo    %│% one row for',
         `  ${ruled('                    │         │       │       │      │       │ every tool')}`,
         dotted,
-        '  handily-board       %│%   1.2.0 %│%    =98= %│%  =3310= %│% fail %│% Cy    %│% agents of other',
+        '  handily-board       %│%   =1.2.0= %│%    =98= %│%  =3310= %│% fail %│% Cy    %│% agents of other',
         `  ${ruled('                    │         │       │       │      │       │ sessions')}`,
         `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
       ])
@@ -1130,7 +1147,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a long column keeps its longest word whole on desktop, where the table has two columns more',
     async (_world, $) => {
       const ui = await mountReply($, reply(MODS_TABLE), 'desktop')
@@ -1142,13 +1159,13 @@ describe('tables', () => {
         '',
         headed('Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step'),
         subtle('════════════════════╪═════════╪═══════╪═══════╪══════╪═══════╪══════════════════'),
-        'handily-reply-view  %│%   0.6.0 %│%   =212= %│%  =2638= %│% pass %│% Ana   %│% diagrams in the',
+        'handily-reply-view  %│%   =0.6.0= %│%   =212= %│%  =2638= %│% pass %│% Ana   %│% diagrams in the',
         ruled('                    │         │       │       │      │       │ terminal'),
         dotted,
-        'handily-simple-view %│%   0.9.1 %│%   =341= %│%  =4120= %│% pass %│% Bo    %│% one row for every',
+        'handily-simple-view %│%   =0.9.1= %│%   =341= %│%  =4120= %│% pass %│% Bo    %│% one row for every',
         ruled('                    │         │       │       │      │       │ tool'),
         dotted,
-        'handily-board       %│%   1.2.0 %│%    =98= %│%  =3310= %│% fail %│% Cy    %│% agents of other',
+        'handily-board       %│%   =1.2.0= %│%    =98= %│%  =3310= %│% fail %│% Cy    %│% agents of other',
         ruled('                    │         │       │       │      │       │ sessions'),
         `${' '.repeat(80 - 25)}[ copy ] [ copy as text ]`,
       ])
@@ -1156,29 +1173,29 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a long column splits a word at its width as before when the longest words of the long columns do not fit together',
     async (_world, $) => {
       const ui = await mountReply($, reply(PATHS_TABLE))
       expect(await sketchOf(ui)).toEqual([
         `● ${headed('Path                               │ Note')}  [ copy ] [ copy as text ]`,
         `  ${subtle('═══════════════════════════════════╪══════════════════════════════════════════')}`,
-        `  ${ruled('mods/handily-reply-view/hooks/tabl │ the note names')}`,
-        `  ${ruled('e-of-the-reply-view.ts             │ handily-simple-view-and-handily-board as')}`,
+        '  §mods/handily-reply-view/hooks/tabl§ %│% the note names',
+        '  §e-of-the-reply-view.ts§             %│% handily-simple-view-and-handily-board as',
         `  ${ruled('                                   │ one long word')}`,
       ])
       await ui.unmount()
     },
   )
 
-  viewTest(
+  rulesTest(
     'a long column keeps its longest word whole when the words fit but the 12 cell width of each long column does not',
     async (_world, $) => {
       const ui = await mountReply($, reply(FILES_TABLE))
       expect(await sketchOf(ui)).toEqual([
         `● ${headed('File                                                     │ Change     │ Note')}`,
         `  ${subtle('═════════════════════════════════════════════════════════╪════════════╪═══════')}`,
-        `  ${ruled('mods/handily-reply-view/hooks/table-of-the-reply-view.ts │ keeps      │ the')}`,
+        '  §mods/handily-reply-view/hooks/table-of-the-reply-view.ts§ %│% keeps      %│% the',
         `  ${ruled('                                                         │ every word │ note')}`,
         `  ${ruled('                                                         │ whole when │ is')}`,
         `  ${ruled('                                                         │ room       │ plain')}`,
@@ -1189,7 +1206,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a long column keeps its longest word whole when the other long column keeps 6 cells',
     async (_world, $) => {
       const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 41)
@@ -1204,7 +1221,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'a long column splits a word as before when a whole word leaves another long column under 6 cells',
     async (_world, $) => {
       const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 40)
@@ -1223,7 +1240,7 @@ describe('tables', () => {
     const indent = surface === 'terminal' ? 2 : 0
     const lead = ' '.repeat(indent)
 
-    viewTest(
+    rulesTest(
       `every column border of a table of emoji, flags, keycaps and CJK text lines up on ${surface}`,
       async (_world, $) => {
         const ui = await mountReply($, reply(WHO_TABLE), surface)
@@ -1242,7 +1259,7 @@ describe('tables', () => {
       },
     )
 
-    viewTest(
+    rulesTest(
       `a table of emoji, flags, keycaps and CJK text keeps each word whole and its borders in line when it wraps on ${surface}`,
       async (_world, $) => {
         const ui = await mountReply($, reply(WIDE_WHO_TABLE), surface, 60)
@@ -1272,7 +1289,7 @@ describe('tables', () => {
     )
   }
 
-  viewTest('an emoji takes two columns when the columns of a table align', async (_world, $) => {
+  rulesTest('an emoji takes two columns when the columns of a table align', async (_world, $) => {
     const text = [
       '| Check | Result | Note |',
       '| --- | --- | --- |',
@@ -1297,7 +1314,7 @@ describe('tables', () => {
     await ui.unmount()
   })
 
-  viewTest(
+  rulesTest(
     'a table of emoji that is wider than the screen in columns draws one block per row',
     async (_world, $) => {
       const text = ['| Step | State |', '| --- | --- |', `| build | ${'✅'.repeat(10)} |`].join(
@@ -1314,7 +1331,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'copy as text drops markdown marks, escapes and entities and keeps the address of a link',
     async (world, $) => {
       const table = [
@@ -1327,7 +1344,7 @@ describe('tables', () => {
       expect((await sketchOf(ui)).slice(1)).toEqual([
         `  ${subtle('═════╪══════════════════════════')}`,
         '  #1   %│% draft & ^_https://x.example_^',
-        '  ^_docs_^ %│% 5 * 3 < 4',
+        '  ^_docs_^ %│% =5= * =3= < =4=',
       ])
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual([
@@ -1343,7 +1360,7 @@ describe('tables', () => {
     },
   )
 
-  viewTest(
+  rulesTest(
     'copy as text copies a hidden character as written while the screen shows its escape',
     async (world, $) => {
       const text = ['| Name | Value |', '| --- | --- |', '| zero\u200bwidth | ok |'].join('\n')
@@ -1356,7 +1373,7 @@ describe('tables', () => {
   )
 
   for (const surface of SURFACES) {
-    viewTest(
+    rulesTest(
       `a small table in a reply of 18 columns puts each button on its own line under it on ${surface}`,
       async (_world, $) => {
         const columns = screenColumns(surface, 18)
@@ -1376,7 +1393,7 @@ describe('tables', () => {
       },
     )
 
-    viewTest(
+    rulesTest(
       `the blocks of a table in a reply of 18 columns put each button on its own line under them on ${surface}`,
       async (_world, $) => {
         const columns = screenColumns(surface, 18)
@@ -1390,7 +1407,7 @@ describe('tables', () => {
       },
     )
 
-    viewTest(
+    rulesTest(
       `a table button wider than a reply of 12 columns cuts its label to fit and still copies on ${surface}`,
       async (world, $) => {
         const columns = screenColumns(surface, 12)
@@ -1699,7 +1716,7 @@ describe('/replies', () => {
       const table = await mountReply($, reply(TABLE), 'terminal', COLUMNS, 'message-2')
       expect(await table.drawn()).toEqual(ENGINE_ROW)
       expect(await commandText($)).toBe(
-        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw with rules between their columns, or in a full box when the Table style setting is box. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
+        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, paths and inline code in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
       )
       expect((await sketchOf(ui)).at(-1)).toBe(
         edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'),
@@ -3915,6 +3932,8 @@ function laidOut(text: string): void {
       surface: 'terminal',
       drawsDiagrams: true,
       tableStyle: 'rules',
+      highlight: true,
+      palette: 'theme',
     },
     'folded',
     { copy: () => undefined, fold: () => undefined },
@@ -4007,8 +4026,10 @@ describe('diagram blocks', () => {
             columns,
           )
           const folded = await sketchOf(ui, columns)
+          const shownLead =
+            surface === 'terminal' ? lead.map((line) => line.replace(/(\d+)$/, '=$1=')) : lead
           expect(folded.slice(0, -1)).toEqual(
-            onSurface(surface, [...lead, '', ...diagramTitleLines(width)]),
+            onSurface(surface, [...shownLead, '', ...diagramTitleLines(width)]),
           )
           expect(folded.at(-1)).toContain(`~… ${String(drawing.length)} more lines~`)
           expect(await ui.find({ type: 'Code' })).toBeUndefined()
@@ -4736,7 +4757,7 @@ const GATES_RULES = [
   '@*Mod*@           %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@  [ copy ] [ copy as text ]',
   `%${'═'.repeat(14)}╪${'═'.repeat(7)}╪${'═'.repeat(6)}╪${'═'.repeat(19)}%`,
   '&handily-board& %│%   =212= %│% *pass* %│% frames, see ^_design_^',
-  '&reply-view&    %│%    =98= %│% *fail* %│% &npm test& exits 1',
+  '&reply-view&    %│%    =98= %│% *fail* %│% &npm test& exits =1=',
 ]
 
 function boxRule(left: string, fill: string, cross: string, right: string): string {
@@ -4751,23 +4772,28 @@ const GATES_BOX = [
   boxRule('╞', '═', '╪', '╡'),
   '%│% &handily-board& %│%   =212= %│% *pass* %│% frames, see ^_design_^ %│%',
   boxRule('├', '─', '┼', '┤'),
-  '%│% &reply-view&    %│%    =98= %│% *fail* %│% &npm test& exits 1   %│%',
+  '%│% &reply-view&    %│%    =98= %│% *fail* %│% &npm test& exits =1=   %│%',
   boxRule('└', '─', '┴', '┘'),
 ]
 
-function gatesBox(surface: Surface): string[] {
-  if (surface === 'terminal') return [...GATES_BOX, `${' '.repeat(28)}${GATES_BOX_BUTTONS}`]
-  const [top = '', ...rest] = GATES_BOX
-  return [`${top}  ${GATES_BOX_BUTTONS}`, ...rest]
+function gatesBox(): string[] {
+  return [...GATES_BOX, `${' '.repeat(28)}${GATES_BOX_BUTTONS}`]
+}
+
+function gatesDrawn(surface: Surface): string[] {
+  return surface === 'terminal' ? gatesBox() : GATES_RULES
 }
 
 const SMALL_BOX = [
-  '%┌───┬───┐%  [ copy ] [ copy as text ]',
+  '%┌───┬───┐%',
   '%│% @*A*@ %│% @*B*@ %│%',
   '%╞═══╪═══╡%',
   '%│% =1= %│% =2= %│%',
   '%└───┴───┘%',
+  '[ copy ] [ copy as text ]',
 ]
+
+const SMALL_RULES = ['@*A*@ %│% @*B*@  [ copy ] [ copy as text ]', '%══╪══%', '=1= %│% =2=']
 
 const GATES_BLOCKS = [
   '*&handily-board&*',
@@ -4778,12 +4804,12 @@ const GATES_BLOCKS = [
   '*&reply-view&*',
   '  @Tests:@ =98=',
   '  @Gate:@ *fail*',
-  '  @Next:@ &npm test& exits 1',
+  '  @Next:@ &npm test& exits =1=',
   `${' '.repeat(12)}[ copy ] [ copy as text ]`,
 ]
 
 const TABLE_STYLE_REFUSAL =
-  'reply-view: the setting tableStyle holds "fancy", which is not rules or box, so tables draw as rules. Set Table style in /config.'
+  'handily-reply-view: userConfig tableStyle is "fancy"; set it to rules or box in /config. Drawing box.'
 
 const MOCK_9_6_COLOURED = [
   '^╭────────╮^   =┌───────┐=   §┌──────────┐§ °yes°  ^┌─────────┐^',
@@ -4849,7 +4875,7 @@ describe('colour pass', () => {
       async (_world, $) => {
         const ui = await mountReply($, reply(GATES_TABLE), surface)
         expect(await sketchOf(ui)).toEqual(
-          onSurface(surface, ['The two mods ran their gates:', '', ...GATES_RULES]),
+          onSurface(surface, ['The two mods ran their gates:', '', ...gatesDrawn(surface)]),
         )
         const headers = await ui.findAll({ type: 'Text', text: /^(Mod|Tests|Gate|Next)$/ })
         expect(headers.map((found) => [found.text, found.props.color, found.props.bold])).toEqual([
@@ -4866,8 +4892,9 @@ describe('colour pass', () => {
       },
     )
 
-    viewTest(
+    colourTest(
       `a cell draws inline code in permission, bold text bold and a link underlined in suggestion, counts only the shown text and copies its markdown on ${surface}`,
+      { tableStyle: 'rules' },
       async (world, $) => {
         const ui = await mountReply($, reply(GATES_TABLE), surface)
         const drawn = await sketchOf(ui)
@@ -4889,12 +4916,12 @@ describe('colour pass', () => {
     )
 
     colourTest(
-      `the box style draws a full box with a double rule under the header and a rule between rows at 80 columns on ${surface}`,
+      `the box style draws a full box with a double rule under the header and a rule between rows at 80 columns on the terminal and the rules layout on the desktop on ${surface}`,
       { tableStyle: 'box' },
       async (world, $) => {
         const ui = await mountReply($, reply(GATES_TABLE), surface)
         expect(await sketchOf(ui)).toEqual(
-          onSurface(surface, ['The two mods ran their gates:', '', ...gatesBox(surface)]),
+          onSurface(surface, ['The two mods ran their gates:', '', ...gatesDrawn(surface)]),
         )
         await ui.press({ key: 'block-1-copy' })
         expect(world.copies).toEqual([GATES_MARKDOWN])
@@ -4904,28 +4931,41 @@ describe('colour pass', () => {
     )
 
     colourTest(
-      `the box style draws a full box at 40 columns on ${surface}`,
+      `the box style draws a full box at 40 columns on the terminal and the rules layout on the desktop on ${surface}`,
       { tableStyle: 'box' },
       async (_world, $) => {
         const ui = await mountReply($, reply(SMALL_TABLE), surface, 40)
-        expect(await sketchOf(ui, 40)).toEqual(onSurface(surface, SMALL_BOX))
+        expect(await sketchOf(ui, 40)).toEqual(
+          onSurface(surface, surface === 'terminal' ? SMALL_BOX : SMALL_RULES),
+        )
         await ui.unmount()
       },
     )
 
-    for (const options of [{ tableStyle: 'rules' }, {}] as Record<string, string>[]) {
-      colourTest(
-        `the table draws the rules layout when the setting is ${JSON.stringify(options)} on ${surface}`,
-        options,
-        async (_world, $) => {
-          const ui = await mountReply($, reply(GATES_TABLE), surface)
-          expect(await sketchOf(ui)).toEqual(
-            onSurface(surface, ['The two mods ran their gates:', '', ...GATES_RULES]),
-          )
-          await ui.unmount()
-        },
-      )
-    }
+    colourTest(
+      `the table draws the rules layout when the setting is rules on ${surface}`,
+      { tableStyle: 'rules' },
+      async (_world, $) => {
+        const ui = await mountReply($, reply(GATES_TABLE), surface)
+        expect(await sketchOf(ui)).toEqual(
+          onSurface(surface, ['The two mods ran their gates:', '', ...GATES_RULES]),
+        )
+        await ui.unmount()
+      },
+    )
+
+    colourTest(
+      `the table draws a box with a rule between every row on the terminal and the rules layout on the desktop when the setting is unset on ${surface}`,
+      {},
+      async (world, $) => {
+        const ui = await mountReply($, reply(GATES_TABLE), surface)
+        expect(await sketchOf(ui)).toEqual(
+          onSurface(surface, ['The two mods ran their gates:', '', ...gatesDrawn(surface)]),
+        )
+        expect(world.debugLogs).toEqual([])
+        await ui.unmount()
+      },
+    )
 
     for (const tableStyle of ['rules', 'box']) {
       colourTest(
@@ -4960,12 +5000,12 @@ describe('colour pass', () => {
     }
 
     colourTest(
-      `a stored table style that is neither rules nor box draws the rules layout and the log names it on ${surface}`,
+      `a stored table style that is neither rules nor box draws the box on the terminal and the log names it on ${surface}`,
       { tableStyle: 'fancy' },
       async (world, $) => {
         const ui = await mountReply($, reply(GATES_TABLE), surface)
         expect(await sketchOf(ui)).toEqual(
-          onSurface(surface, ['The two mods ran their gates:', '', ...GATES_RULES]),
+          onSurface(surface, ['The two mods ran their gates:', '', ...gatesDrawn(surface)]),
         )
         expect(world.debugLogs).toEqual([TABLE_STYLE_REFUSAL])
         await ui.unmount()
@@ -4979,7 +5019,7 @@ describe('colour pass', () => {
       async (world, $) => {
         const ui = await mountReply($, reply(GATES_TABLE), surface)
         expect(await sketchOf(ui)).toEqual(
-          onSurface(surface, ['The two mods ran their gates:', '', ...gatesBox(surface)]),
+          onSurface(surface, ['The two mods ran their gates:', '', ...gatesDrawn(surface)]),
         )
         expect(world.debugLogs).toEqual([])
         await ui.unmount()
@@ -5029,8 +5069,9 @@ describe('colour pass', () => {
     )
   }
 
-  viewTest(
+  colourTest(
     'an entity that names a private use character shows that character and starts no mark',
+    { tableStyle: 'rules' },
     async (world, $) => {
       const ui = await mountReply($, reply('| Name | Note |\n| - | - |\n| &#xE001;x | `y` |'))
       expect((await sketchOf(ui))[2]).toBe('  \u{E001}x   %│% &y&')
@@ -5040,8 +5081,9 @@ describe('colour pass', () => {
     },
   )
 
-  viewTest(
+  colourTest(
     'a code span of two backticks keeps a backtick inside it, and a code span with a space at each end drops one at each end',
+    { tableStyle: 'rules' },
     async (world, $) => {
       const ui = await mountReply(
         $,
@@ -5056,8 +5098,9 @@ describe('colour pass', () => {
     },
   )
 
-  viewTest(
+  colourTest(
     'two underscores inside a word stay as written while two stars inside a word draw bold',
+    { tableStyle: 'rules' },
     async (_world, $) => {
       const ui = await mountReply(
         $,

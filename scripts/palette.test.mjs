@@ -9,7 +9,7 @@ import { PALETTE } from './fixtures/palette.mjs'
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const PALETTE_FILE = 'palette.ts'
-const PALETTE_MODS = ['handily', 'handily-board']
+const PALETTE_MODS = ['handily', 'handily-board', 'handily-reply-view']
 const PALETTE_LIST = 'PALETTE_MODS of scripts/palette.test.mjs'
 const TABLE_HEADER =
   '| Role | Mod | Theme key today | catppuccin-mocha | Contrast on #1e1e2e / on white |'

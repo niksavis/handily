@@ -1,3 +1,4 @@
+import type { Token } from './highlight'
 import { graphemesOf, isEmoji } from './width'
 
 export type Alignment = 'left' | 'right' | 'center'
@@ -86,15 +87,29 @@ function entityText(found: string, decimal?: string, hex?: string, name?: string
   return isCharacter ? String.fromCodePoint(code) : found
 }
 
-export type Mark = { isCode: boolean; isBold: boolean; isLink: boolean }
+export type Mark = {
+  isCode: boolean
+  isBold: boolean
+  isLink: boolean
+  isItalic: boolean
+  isStrike: boolean
+  token: Token | null
+}
 
 export type Run = { text: string; mark: Mark }
 
-type MarkFlag = keyof Mark
+type MarkFlag = Exclude<keyof Mark, 'token'>
 
-const MARK_FLAGS: readonly MarkFlag[] = ['isCode', 'isBold', 'isLink']
+const MARK_FLAGS: readonly MarkFlag[] = ['isCode', 'isBold', 'isLink', 'isItalic', 'isStrike']
 
-export const PLAIN_MARK: Mark = { isCode: false, isBold: false, isLink: false }
+export const PLAIN_MARK: Mark = {
+  isCode: false,
+  isBold: false,
+  isLink: false,
+  isItalic: false,
+  isStrike: false,
+  token: null,
+}
 
 type Hold = (literal: string) => string
 
@@ -109,7 +124,7 @@ function linkOf(text: string, address: string, keepsAddress: boolean, held: Hold
 }
 
 export function sameMark(one: Mark, other: Mark): boolean {
-  return MARK_FLAGS.every((flag) => one[flag] === other[flag])
+  return one.token === other.token && MARK_FLAGS.every((flag) => one[flag] === other[flag])
 }
 
 type Marking = { brackets: Brackets; held: RegExp; literals: readonly string[] }
@@ -120,10 +135,14 @@ function runsOf(text: string, marking: Marking): Run[] {
   const add = (found: string) => {
     if (found === '') return
     const shown = found.replace(/\t/g, ' ')
+    const isOpen = (flag: MarkFlag) => (depths.get(flag) ?? 0) > 0
     const mark: Mark = {
-      isCode: (depths.get('isCode') ?? 0) > 0,
-      isBold: (depths.get('isBold') ?? 0) > 0,
-      isLink: (depths.get('isLink') ?? 0) > 0,
+      isCode: isOpen('isCode'),
+      isBold: isOpen('isBold'),
+      isLink: isOpen('isLink'),
+      isItalic: isOpen('isItalic'),
+      isStrike: isOpen('isStrike'),
+      token: null,
     }
     const last = runs.at(-1)
     if (last !== undefined && sameMark(last.mark, mark)) last.text += shown
@@ -183,9 +202,12 @@ function markedText(cell: string, keepsAddress: boolean): Run[] {
       UNDERSCORE_STRONG,
       (_found, before: string, inner: string) => before + wrap('isBold', inner),
     )
-    .replace(STRIKETHROUGH, '$1')
-    .replace(STAR_EMPHASIS, '$1')
-    .replace(UNDERSCORE_EMPHASIS, '$1$2')
+    .replace(STRIKETHROUGH, (_found, inner: string) => wrap('isStrike', inner))
+    .replace(STAR_EMPHASIS, (_found, inner: string) => wrap('isItalic', inner))
+    .replace(
+      UNDERSCORE_EMPHASIS,
+      (_found, before: string, inner: string) => before + wrap('isItalic', inner),
+    )
     .replace(ENTITY, (found, decimal?: string, hex?: string, name?: string) =>
       hold(entityText(found, decimal, hex, name)),
     )
@@ -194,6 +216,10 @@ function markedText(cell: string, keepsAddress: boolean): Run[] {
 
 export function textOfRuns(runs: readonly Run[]): string {
   return runs.map((run) => run.text).join('')
+}
+
+export function markedLine(line: string): Run[] {
+  return markedText(line, true)
 }
 
 export function markedCell(cell: string): Run[] {

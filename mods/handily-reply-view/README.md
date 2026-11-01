@@ -1,16 +1,19 @@
 # handily-reply-view
 
-`reply-view` makes long replies of Claude short and structured on the screen. A reply longer than
-30 lines folds to its first lines. A markdown table draws with rules between its columns and a
-double rule under its header. The `tableStyle` setting `box` draws a full box around it. Each
-table and each fenced code block gets a
-`copy` button. A mermaid flowchart or sequence diagram draws as a diagram, with a `copy` button
+`reply-view` makes long replies of Claude short and structured on the screen. On the terminal it
+draws every reply. A reply longer than 30 lines folds to its first lines. A markdown table draws
+in a full box, with a double rule under its header and a rule between its rows. The `tableStyle`
+setting `rules` draws rules between its columns only. Numbers, durations, versions, paths and
+inline code in the prose and the cells of a reply draw in their own colours. The `highlight`
+setting `off` draws them as plain text. Each table and each fenced code block gets a `copy`
+button. A mermaid flowchart or sequence diagram draws as a diagram, with a `copy` button
 for its source and a `copy drawing` button for the drawing. Each prompt that you type opens under
 a coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view off
 and on for the session. The model still reads the full reply and the prompt as you typed it. Only
 the screen changes.
 
-The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3.
+The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
+tables by default, highlighting and the palette follow sections 14.3 to 14.5.
 
 [docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
 
@@ -66,20 +69,45 @@ buttons at the right edge:
 
 - A line counts as the rows that it takes on the screen. A long paragraph counts as several
   rows. When the 30 rows end inside a line, that line is cut at a word and ends with `…`.
-- A reply of 30 lines or fewer draws as Claude Code draws it, unless it holds a table or a
-  fenced block.
+- On the terminal, a reply of 30 lines or fewer draws whole, with no fold row. On the desktop
+  app, such a reply draws as Claude Code draws it, unless it holds a table or a fenced block.
 - While a reply streams, Claude Code draws it itself, and the view draws the reply only when it
   is complete, so the look of the reply changes once at the end.
 
 ## A table
 
-By default a table draws in the `rules` style, without a box. The columns stay aligned, the
+By default a table on a screen of 40 columns or more draws in a full box. A double rule stands
+under the header, and a rule stands between each two rows. The `copy` and `copy as text` buttons
+stand under the box and end at its right edge. At 80 columns the box looks like this:
+
+```text
+  ┌───────────────┬───────┬──────┬────────────────────┐
+  │ Mod           │ Tests │ Gate │ Next               │
+  ╞═══════════════╪═══════╪══════╪════════════════════╡
+  │ handily-board │   212 │ pass │ frames, see design │
+  ├───────────────┼───────┼──────┼────────────────────┤
+  │ reply-view    │    98 │ fail │ npm test exits 1   │
+  └───────────────┴───────┴──────┴────────────────────┘
+                              [ copy ] [ copy as text ]
+```
+
+- A table with no data rows draws its header in the box, with no double rule.
+- The box takes 4 columns more than the `rules` style, so a wide table draws one block for each
+  row sooner.
+- Under 40 columns no box draws. A table that fits draws in the `rules` style, and a table that
+  does not fit draws one block for each row.
+- On the desktop app a table draws in the `rules` style, whatever the setting. The box waits for
+  a check of how the desktop app draws it.
+- A stored `tableStyle` value other than `rules` or `box` draws the box, and the debug log names
+  the value: `handily-reply-view: userConfig tableStyle is "grid"; set it to rules or box in
+/config. Drawing box.`
+
+The `tableStyle` setting `rules` draws a table without a box. The columns stay aligned, the
 header is bold, and a column that the table aligns to the right stays right-aligned. A `│` stands
 between the columns on every line, and a double `═` line with a `╪` at each column stands under
-the header. The rules span the width of the
-table, not the width of the screen. Each rule character takes one column, so the rules do not
-change the widths of the columns. The `copy` and `copy as text` buttons stand on the header line
-when they fit after the headings:
+the header. The rules span the width of the table, not the width of the screen. Each rule
+character takes one column, so the rules do not change the widths of the columns. The `copy` and
+`copy as text` buttons stand on the header line when they fit after the headings:
 
 ```text
   Mod         │ State    │ Next  [ copy ] [ copy as text ]
@@ -91,9 +119,9 @@ when they fit after the headings:
 The table has these colours, by the theme keys of Claude Code:
 
 - The header cells are bold, in `claude`.
-- The rules are in `subtle`.
-- A cell that holds only a number, such as `212` or `1,024`, is in `planMode`. `0.6.0` is not a
-  number, so it stays plain.
+- The rules and the box are in `subtle`.
+- Numbers, durations, versions and paths in a cell draw by the rules of
+  [Highlighting](#highlighting), such as `212`, `1,024`, `v0.13.0` and `3m 12s`.
 - Inline code is in `permission`, as Claude Code draws inline code. Bold text is bold. A link
   shows its text, underlined, in `suggestion`.
 
@@ -101,8 +129,8 @@ When the table does not fit the width of the screen, a long cell wraps at the sp
 column, and the rows stay aligned. A column whose widest cell is 12 cells or less is short and
 keeps its width. Every other column is long. The long columns share the rest of the width by the
 width of their widest cell, and each long column gets at least 12 cells when the screen has room
-for that. When a cell wraps, a dotted `┄` line separates the rows, so you can see where each
-row ends. A table where no cell wraps has no row rules.
+for that. In the `rules` style, when a cell wraps, a dotted `┄` line separates the rows, so you
+can see where each row ends. A `rules` table where no cell wraps has no row rules.
 
 At 120 columns, a column of short phrases such as `Buttons on the header row` is long, so it
 wraps and gives its width to the other long columns:
@@ -118,7 +146,7 @@ wraps and gives its width to the other long columns:
                 │ reader lost the columns                                │ rows stay aligned on a normal screen
 ```
 
-The view puts the buttons in the first of these places where they fit:
+In the `rules` style, the view puts the buttons in the first of these places where they fit:
 
 1. The header line, after the headings.
 2. The last line of the last row, after its text.
@@ -141,23 +169,6 @@ header line or its last row, so the buttons go under it:
                                                      [ copy ] [ copy as text ]
 ```
 
-With the `tableStyle` setting `box`, a table on a screen of 40 columns or more draws in a full
-box. A double rule stands under the header, and a rule stands between each two rows. The box takes
-4 columns more than the `rules` style. Under 40 columns no box draws. A table that fits draws in
-the `rules` style, and a table that does not fit draws one block for each row. At 80 columns the
-box looks like this:
-
-```text
-  ┌───────────────┬───────┬──────┬────────────────────┐
-  │ Mod           │ Tests │ Gate │ Next               │
-  ╞═══════════════╪═══════╪══════╪════════════════════╡
-  │ handily-board │   212 │ pass │ frames, see design │
-  ├───────────────┼───────┼──────┼────────────────────┤
-  │ reply-view    │    98 │ fail │ npm test exits 1   │
-  └───────────────┴───────┴──────┴────────────────────┘
-                              [ copy ] [ copy as text ]
-```
-
 On a screen narrower than 40 columns, a table that does not fit draws each row as a block. The
 view also draws blocks when a column of the table would get fewer than 6 cells. The first cell is
 the bold title of the block, and each other cell is a `label: value` line. The buttons stand on
@@ -178,12 +189,84 @@ last block:
 - `copy as text` does not copy an aligned table. Spaces line up only in a font where each
   character has the same width, and most emails and chats use another font.
 - A table with no data rows has no `copy as text` button.
-- A cell shows inline code, bold text and links in their colours, without the markdown marks: no
-  `**`, no `_`, no backticks, no backslash escapes, a link as its text. The text between two
+- A cell shows inline code, bold, italic and struck text and links in their looks, without the
+  markdown marks: no `**`, no `_`, no `~~`, no backticks, no backslash escapes, a link as its
+  text. The text between two
   backticks keeps its marks, such as `**/*.ts`. The width of a column counts only the text that
   the cell shows.
 - A table without data rows that does not fit the width shows its headings, one on each line.
 - An empty cell draws no line in a block, and `copy as text` leaves it out.
+
+## Highlighting
+
+With the `highlight` setting `on`, the default, the view draws the numbers, durations, versions,
+paths and inline code of a reply in three colours. The rules apply where the view draws the text:
+paragraphs, list items and table cells. At 80 columns a reply looks like this:
+
+```text
+● The gate ran npm run check over 9 mods in 3m 12s. handily-board 0.19.0
+  passed 1,204 tests; docs/mocks.md gained section 14 at 14:05. p95 fell from
+  46 ms to 2 s, and the x86_64 build kept utf8 and sha256 in ./scripts/mods.mjs.
+```
+
+| What                         | Colour       | Examples                                     |
+| ---------------------------- | ------------ | -------------------------------------------- |
+| Numbers, durations, versions | `planMode`   | `9`, `1,204`, `3m`, `12s`, `14:05`, `0.19.0` |
+| Paths                        | `merged`     | `docs/mocks.md`, `./scripts/mods.mjs`        |
+| Inline code                  | `permission` | `npm run check`                              |
+
+- A token starts at the start of the text, after a space, or after `(`, `[`, `"` or `'`. It ends
+  before a space, the end of the text, or the closing marks `, ; : . ) ] " ' ! ?` before a space
+  or the end. So the full stop at the end of a sentence is not part of a token.
+- A number has digits, optional thousands commas and one decimal part. A sign at the start and a
+  `%` or `x` at the end belong to it. A digit after a letter, `_`, `-`, `#` or `.`, or before a
+  letter or `_`, is no number: `p95`, `x86_64`, `utf8`, `sha256`, `opus-5-5`, `695ce64` and
+  `#123` stay plain.
+- A duration is a number with `ms`, `s`, `m`, `h`, `d` or `min` attached, such as `46ms` or
+  `1h30m`, or a clock time such as `14:05`. In `46 ms` only the number is coloured.
+- A version is `v` and digits with one or more dot parts, such as `v2.1`, or digits with two or
+  more dots, such as `0.14.0`. A part such as `-rc.1` belongs to it.
+- Digits joined by `-` or `–`, such as `1-5` or `2026-10-29`, are one token.
+- A path has a `/`, a letter, no `://`, and a leading `/`, `./`, `../` or `~/`, a trailing `/` or
+  an extension of 1 to 6 letters or digits. `and/or`, `I/O`, `TCP/IP`, `24/7`, `1/2`, `src/gen`,
+  a bare `README.md` and `https://x.y/z` stay plain.
+- Inline code draws in `permission`, with no other colour inside it.
+- A token never starts inside a word: the `3` in `f(3)` stays plain.
+
+The `highlight` setting `off` leaves out only these colours. Inline code then draws plain, and
+the view still draws every reply. The highlight changes no width and no copied text.
+
+On the terminal the view draws paragraphs and list items itself. A list item keeps its marker as
+Claude wrote it, such as `-` or `1.`, and a nested item keeps its indent, at most half the width
+of the reply. These keep the Markdown element of Claude Code, with no highlight:
+
+- headings, quotes, HTML and indented code;
+- a paragraph or a list that holds a link, an image, a footnote mark or an HTML tag.
+
+On the desktop app the prose of a reply draws in the Markdown element of Claude Code, so only the
+cells of a table highlight there.
+
+## The palette
+
+The `palette` setting of the `handily` bundle picks the colours. With `catppuccin-mocha` and a
+dark theme, or the theme `auto`, the view draws fixed hex colours on the terminal. A light theme,
+an ANSI theme and the desktop app keep the theme keys. `/handily palette` shows both.
+
+| Part                     | Theme key                          | catppuccin-mocha                |
+| ------------------------ | ---------------------------------- | ------------------------------- |
+| Table header             | `claude`                           | `#f9e2af`                       |
+| Rules and box            | `subtle`                           | `#585b70`                       |
+| Numbers                  | `planMode`                         | `#a6e3a1`                       |
+| Inline code              | `permission`                       | `#89dceb`                       |
+| Paths                    | `merged`                           | `#cba6f7`                       |
+| Links                    | `suggestion`                       | `#89b4fa`                       |
+| Diagram lines and labels | `inactive`                         | `#9399b2`                       |
+| Diagram heads            | `claude`                           | `#cba6f7`                       |
+| Diagram boxes, in turn   | `suggestion`, `planMode`, `merged` | `#89b4fa`, `#a6e3a1`, `#f5c2e7` |
+
+The mod reads the `handily` row and the `theme` row of `/config` when the session starts and when
+either changes, and draws its replies again. A mod installed without the `handily` bundle draws
+the theme keys.
 
 ## A fenced block
 
@@ -451,12 +534,13 @@ again only when its list changes, and no other row of the transcript draws again
 
 ## Settings and the command
 
-| Setting        | Default | Use                                                                                           |
-| -------------- | ------- | --------------------------------------------------------------------------------------------- |
-| `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                 |
-| `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source |
-| `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type     |
-| `tableStyle`   | `rules` | `rules` draws rules between the columns. `box` draws a full box at 40 columns or more         |
+| Setting        | Default | Use                                                                                                         |
+| -------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                               |
+| `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source               |
+| `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type                   |
+| `tableStyle`   | `box`   | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns                       |
+| `highlight`    | `on`    | `on` draws numbers, durations, versions, paths and inline code in their own colours. `off` draws them plain |
 
 | Command                  | Effect                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------- |
@@ -505,7 +589,7 @@ count.
 ## When the reply stays as Claude Code draws it
 
 - The mode is off. `/replies` turned it off for this session, or the `mode` setting is `off`.
-- The reply is 30 lines or fewer and holds no table and no fenced block.
+- On the desktop app, the reply is 30 lines or fewer and holds no table and no fenced block.
 - The block is a summary of the text that Claude wrote between two tool calls.
 - The reply is longer than 60000 characters.
 - Drawing the reply failed. The mod writes the reason to the transcript.

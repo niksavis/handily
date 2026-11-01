@@ -1,3 +1,4 @@
+import { highlightedRuns } from './highlight'
 import {
   copiedCell,
   markedCell,
@@ -17,13 +18,12 @@ const COLUMN_GAP = displayWidth(` ${COLUMN_RULE} `)
 const SIDE_COLUMNS = displayWidth(`${COLUMN_RULE} `)
 const LONG_COLUMN_CELLS_AT_LEAST = 12
 const COLUMN_CELLS_AT_LEAST = 6
-const NUMBER = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/
 
 export const TABLE_STYLES = ['rules', 'box'] as const
 
 export type TableStyle = (typeof TABLE_STYLES)[number]
 
-export const DEFAULT_TABLE_STYLE: TableStyle = 'rules'
+export const DEFAULT_TABLE_STYLE: TableStyle = 'box'
 
 export function isTableStyle(value: unknown): value is TableStyle {
   return TABLE_STYLES.some((style) => style === value)
@@ -59,9 +59,7 @@ export const TABLE_FRAMES: Readonly<Record<TableStyle, TableFrame>> = {
   },
 }
 
-export type Cell = { text: string; runs: Run[]; isNumber: boolean }
-
-export type CellMark = Mark & { isNumber: boolean }
+export type Cell = { text: string; runs: Run[] }
 
 export type TableLook = {
   header: Cell[]
@@ -71,7 +69,7 @@ export type TableLook = {
   words: number[]
 }
 
-const EMPTY_CELL: Cell = { text: '', runs: [], isNumber: false }
+const EMPTY_CELL: Cell = { text: '', runs: [] }
 
 type CellText = (cell: string) => string
 
@@ -80,15 +78,14 @@ function sum(numbers: readonly number[]): number {
 }
 
 function plainCellOf(text: string): Cell {
-  return { text, runs: [{ text, mark: PLAIN_MARK }], isNumber: false }
+  return { text, runs: [{ text, mark: PLAIN_MARK }] }
 }
 
 function cellOf(source: string): Cell {
   const runs = markedCell(source)
     .map((run) => ({ text: shownText(run.text), mark: run.mark }))
     .filter((run) => run.text !== '')
-  const text = textOfRuns(runs)
-  return { text, runs, isNumber: NUMBER.test(text) }
+  return { text: textOfRuns(runs), runs: highlightedRuns(runs) }
 }
 
 function headerOf(table: Table, text: CellText): string[] {
@@ -284,7 +281,7 @@ function runsOfLines(cell: Cell, lines: readonly string[]): Run[][] {
   })
 }
 
-type CellLine = { text: string; runs: Run[]; isNumber: boolean }
+type CellLine = { text: string; runs: Run[] }
 
 function alignedLines(
   look: TableLook,
@@ -293,23 +290,22 @@ function alignedLines(
 ): CellLine[][] {
   const wrapped = widths.map((width, index) => {
     const cell = cells[index] ?? EMPTY_CELL
-    return { cell, lines: runsOfLines(cell, wrapCell(cell.text, width)) }
+    return runsOfLines(cell, wrapCell(cell.text, width))
   })
-  const height = Math.max(1, ...wrapped.map(({ lines }) => lines.length))
+  const height = Math.max(1, ...wrapped.map((lines) => lines.length))
   return Array.from({ length: height }, (_, line) =>
-    wrapped.map(({ cell, lines }, index) => {
+    wrapped.map((lines, index) => {
       const runs = lines[line] ?? []
       return {
         text: aligned(textOfRuns(runs), widths[index] ?? 0, look.alignments[index] ?? 'left'),
         runs,
-        isNumber: cell.isNumber,
       }
     }),
   )
 }
 
 export type Span =
-  | { text: string; kind: 'cell'; mark: CellMark }
+  | { text: string; kind: 'cell'; mark: Mark }
   | { text: string; kind: 'space' }
   | { text: string; kind: 'rule' }
 
@@ -353,7 +349,7 @@ function spansOf(line: readonly CellLine[], frame: TableFrame): Span[] {
     const text = cell.text.trim()
     addSpace(cell.text.slice(0, lead))
     for (const run of trimmedRuns(cell.runs)) {
-      spans.push({ text: run.text, kind: 'cell', mark: { ...run.mark, isNumber: cell.isNumber } })
+      spans.push({ text: run.text, kind: 'cell', mark: run.mark })
     }
     addSpace(cell.text.slice(lead + text.length))
   }
@@ -402,7 +398,7 @@ export function fieldsOf(look: TableLook, row: readonly Cell[]): Field[] {
 export function labelOf(cell: Cell): Cell {
   const runs = cell.runs.map((run) => ({ ...run }))
   addRun(runs, ':', PLAIN_MARK)
-  return { text: `${cell.text}:`, runs, isNumber: cell.isNumber }
+  return { text: `${cell.text}:`, runs }
 }
 
 export function labelWidth(look: TableLook): number {
