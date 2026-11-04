@@ -23,7 +23,7 @@ const LOOK_FLAGS: readonly LookFlag[] = ['isBold', 'isItalic', 'isUnderline']
 
 const LABEL_MARKS: readonly { flag: LookFlag; pattern: RegExp }[] = [
   { flag: 'isUnderline', pattern: /<u>(.+?)<\/u>/dgi },
-  { flag: 'isBold', pattern: /\*\*(.+?)\*\*/dg },
+  { flag: 'isBold', pattern: /(?<!\*)\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*(?!\*)/dg },
   {
     flag: 'isItalic',
     pattern: /(?<=^|[^\p{L}\p{N}_])_([^\s_](?:[^_]*[^\s_])?)_(?![\p{L}\p{N}_])/dgu,

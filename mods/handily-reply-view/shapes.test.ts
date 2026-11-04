@@ -1,5 +1,7 @@
 import type { On } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
+import { drawFlowchart } from './hooks/flowchart'
+import type { InkedDrawing } from './hooks/ink'
 import { parseMermaid, type SequenceDiagram } from './hooks/mermaid'
 import { drawSequence } from './hooks/sequence'
 import { displayWidth } from './hooks/width'
@@ -173,6 +175,31 @@ function sequenceLines(source: string): string[] {
   return drawn.lines
 }
 
+function flowchartDrawing(source: string): InkedDrawing {
+  const chart = parseMermaid(source)
+  if (chart.kind !== 'flowchart') throw new Error(`not a flowchart: ${chart.kind}`)
+  const drawn = drawFlowchart(chart, 78)
+  if (drawn.kind !== 'drawing') throw new Error(drawn.reason)
+  return drawn
+}
+
+function boxed(...rows: string[]): string[] {
+  const inner = Math.max(...rows.map(displayWidth))
+  const pad = (row: string) => row + ' '.repeat(inner - displayWidth(row))
+  return [
+    `╭${'─'.repeat(inner + 2)}╮`,
+    ...rows.map((row) => `│ ${pad(row)} │`),
+    `╰${'─'.repeat(inner + 2)}╯`,
+  ]
+}
+
+function styledRuns(drawing: InkedDrawing): string[] {
+  return drawing.inked
+    .flat()
+    .filter((run) => run.looks.isBold || run.looks.isItalic || run.looks.isUnderline)
+    .map((run) => run.text)
+}
+
 function messages(count: number): string[] {
   return Array.from({ length: count }, (_, index) => `  A->>B: m${String(index)}`)
 }
@@ -311,6 +338,28 @@ describe('label markup', () => {
       )
     }
   }
+})
+
+describe('marks where markdown sees none', () => {
+  for (const label of ['y = x ** 2 + z ** 3', 'f(**a, **b)', '***a***']) {
+    test(`the label ${label} draws as written and its box fits the written text`, () => {
+      const drawing = flowchartDrawing(lines('flowchart TD', `  A["${label}"]`))
+      expect(drawing.lines).toEqual(boxed(label))
+      expect(styledRuns(drawing)).toEqual([])
+    })
+  }
+
+  test('an underline split by a line break draws as written and its box fits both lines', () => {
+    const drawing = flowchartDrawing(lines('flowchart TD', '  A[<u>one<br>two</u>]'))
+    expect(drawing.lines).toEqual(boxed('<u>one', 'two</u>'))
+    expect(styledRuns(drawing)).toEqual([])
+  })
+
+  test('a bold pair with no space inside its marks still draws bold', () => {
+    const drawing = flowchartDrawing(lines('flowchart TD', '  A[x **2** y]'))
+    expect(drawing.lines).toEqual(boxed('x 2 y'))
+    expect(styledRuns(drawing)).toEqual(['2'])
+  })
 })
 
 describe('the width note', () => {
