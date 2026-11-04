@@ -14,6 +14,8 @@ declare module 'claude-code' {
       hints: ReplyViewMode
       folds: StateFamily<ReplyViewFold>
       submittedAt: StateFamily<number>
+      endedAt: StateFamily<number>
+      showsTurnDuration: boolean
       ready: { root: string }
       glyphs: ReplyViewGlyphs
       palette: ReplyViewPalette

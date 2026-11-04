@@ -14,6 +14,16 @@ import {
   type ReplyActions,
 } from './draw'
 import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
+import {
+  isEngineTurnLine,
+  isTurnLineRow,
+  keepChangedTurnDurationSetting,
+  keepTurnDurationSetting,
+  keepTurnEnd,
+  showsTurnDuration,
+  turnEndOf,
+  turnLine,
+} from './footer'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
 import {
@@ -309,6 +319,7 @@ export const register: Register = (on, options) => {
     await logRefusedSettings($)
     await keepGlyphSetting($)
     await keepPaletteSetting($)
+    await keepTurnDurationSetting($)
     return next(e)
   })
 
@@ -317,6 +328,7 @@ export const register: Register = (on, options) => {
     if (result.deny !== undefined) return result
     await keepChangedGlyphSetting($, e)
     await keepChangedPaletteSetting($, e)
+    await keepChangedTurnDurationSetting($, e.key)
     return result
   })
 
@@ -445,6 +457,42 @@ export const register: Register = (on, options) => {
       }
     }
     return stored
+  })
+
+  on('session.append', { door: 'notice' }, async ($, e, next) => {
+    const appendedAt = await $.clock.now()
+    const stored = await next(e)
+    if (stored.uuid !== undefined && isTurnLineRow(stored.message)) {
+      try {
+        await keepTurnEnd($, stored.uuid, appendedAt)
+      } catch (error) {
+        logFailure($, `the end time of turn line ${stored.uuid} was not kept`, error)
+      }
+    }
+    return stored
+  })
+
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    if (isEngineTurnLine(e)) return next(e)
+    let drawn: RenderElement | null = null
+    try {
+      const { value: mode = defaultMode } = await $.state.get(MODE)
+      if (mode === 'on' && (await showsTurnDuration($))) {
+        drawn = turnLine(
+          $.ui.resolve(e),
+          {
+            word: e.props.word,
+            durationMs: e.props.durationMs,
+            endedAt: await turnEndOf($, e.requestId),
+          },
+          e.viewport?.columns ?? DEFAULT_COLUMNS,
+          await shownPalette($, e.surface),
+        )
+      }
+    } catch (error) {
+      logFailure($, `the engine draws turn line ${e.requestId}`, error)
+    }
+    return drawn ?? next(e)
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {

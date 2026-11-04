@@ -543,6 +543,33 @@ once. After a resume, the list starts again with the next prompt that you type, 
 `/replies prompts` say that the prompts from before the resume are not listed. The tab draws
 again only when its list changes, and no other row of the transcript draws again for it.
 
+## The line at the end of a turn
+
+When a turn ends, Claude Code draws a dim line with a word, the duration and the end time. On
+the terminal the mod draws this line again. It keeps the word of Claude Code. The duration and
+the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` with the
+`catppuccin-mocha` palette:
+
+```text
+✻ Baked for 6m 20s · done 14:32
+✻ Cogitated for 1h 4m 12s · done 14:32
+✻ Baked for 3s
+```
+
+- Claude Code can add parts to this line that a mod cannot read: the token budget, the count of
+  hidden messages of `/focus`, and the count of tasks that still run. The line of the mod does
+  not show these parts. `/replies` turns the view off and gives the line back to Claude Code.
+- The duration has the format of Claude Code: `3s`, `1m 4s`, `1h 4m 12s`.
+- The end time is the moment the session kept the line, in 24-hour time, as the time over a
+  prompt. The mod keeps it in `$.state` for this session only. A line from before a resume, or a
+  line whose time the mod did not see, shows no end time, as in the third line above. The mod
+  never guesses a time.
+- When the line is wider than the screen, `done` drops first, as in `✻ Baked for 6m 20s · 14:32`.
+  When the line is still too wide, the end time drops. The duration always stays.
+- Claude Code draws the line itself while the line waits for background agents, in the ctrl+o
+  view and with `--verbose`, when the `Show turn duration` setting of `/config` is off, and when
+  the mode is off. The desktop app draws its own line.
+
 ## Settings and the command
 
 | Setting        | Default | Use                                                                                                         |
