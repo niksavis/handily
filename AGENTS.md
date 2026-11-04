@@ -93,6 +93,8 @@ claude --plugin-dir mods/<name>
 - The Definition of Ready gate reads a `<word>` in an acceptance criterion as a placeholder and counts the criteria as absent. Write the thing by name, such as "the interpreter", not `<interpreter>`.
 - A record id has 5 or 6 characters after `handily-`. Read a new id from the `id` field of the created event, split at `#`, and never with a fixed-length pattern, which cut `handily-ev56ne` and the commit-msg hook refused the commit.
 - Run no gate in a worktree while an agent edits it. The run reads half-written tests and reports failures that are not real.
+- The organization security plugin skips the classic hooks of a user mod and some function hooks with no matcher, such as `session.append` with no door, and prints a line in the transcript on each turn. Register no classic hook, give every `session.append` hook a door matcher, and check a new hook live for a `hook was skipped` line.
+- In a tmux live check, a prompt typed while the session still starts is lost. Wait until the footer shows `auto mode on` on four reads in a row, press Escape on any `Enter to select` question, and only then type the prompt.
 - zsh has no `mapfile`. Read lines into an array with `arr=("${(@f)$(command)}")`, and check the count before you use the array.
 - Commit the claim on main before a lane commits. The commit-msg hook reads the committed ledger, so a claim that is only in `pending-main.jsonl` refuses the lane's commit. Then run `git merge --ff-only main` in the lane.
 - The worktree-isolation guard refuses a tmux prompt in a lane. Run the live tmux check from the main session, on a copy of the lane's mods made with `git archive`.
