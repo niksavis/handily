@@ -1,4 +1,5 @@
 import type {
+  AgentStatus,
   ConfigRow,
   EngineInterface,
   RenderElement,
@@ -7,10 +8,12 @@ import type {
 } from 'claude-code'
 import type { ReplyElements } from './draw'
 import { paletteColor, type PaletteSetting } from './palette'
-import { clockTime } from './prompt'
+import { endTimeText, type TimeFormat } from './turn-time'
 import { displayWidth } from './width'
 
-export type TurnLine = { word: string; durationMs: number; endedAt: number | undefined }
+export type TurnLine = { word: string; durationMs: number; endTime: string | undefined }
+
+export type BackgroundTask = { id: string; type: string }
 
 type FooterElements = Pick<ReplyElements, 'Box' | 'Text'>
 
@@ -27,6 +30,10 @@ const DAY_SECONDS = 24 * HOUR_SECONDS
 const TURN_LINE_ROW = 'turn_duration'
 const TURN_DURATION_ROW = 'turnDuration'
 const SHOWS_TURN_DURATION = { plugin: 'handily-reply-view', key: 'showsTurnDuration' } as const
+const BACKGROUND_TASKS = { plugin: 'handily-reply-view', key: 'backgroundTasks' } as const
+const WORK_VERSION = { plugin: 'handily-reply-view', key: 'workVersion' } as const
+const RUNNING_AGENT: readonly AgentStatus[] = ['pending', 'running', 'waiting']
+const AGENT_TASK = 'subagent'
 
 function engineDuration(ms: number): string {
   if (ms < MINUTE_SECONDS * SECOND) return `${String(Math.floor(ms / SECOND))}s`
@@ -67,8 +74,7 @@ export function turnLine(
   const color = paletteColor('number', palette)
   const word = `${line.word} for `
   const duration = engineDuration(line.durationMs)
-  const time = line.endedAt === undefined ? undefined : clockTime(line.endedAt)
-  const end = lineEndOf(`${word}${duration}`, time, columns)
+  const end = lineEndOf(`${word}${duration}`, line.endTime, columns)
   return Box({
     flexDirection: 'row',
     marginTop: 1,
@@ -103,17 +109,18 @@ export async function keepTurnEnd(
   await $.state.set({ plugin: 'handily-reply-view', key: 'endedAt', id: requestId }, endedAt)
 }
 
-export async function turnEndOf(
+export async function endTimeOf(
   $: EngineInterface,
   requestId: string,
-): Promise<number | undefined> {
+  format: TimeFormat,
+): Promise<string | undefined> {
   if (requestId === '') return undefined
-  const { value } = await $.state.get({
+  const { value: endedAt } = await $.state.get({
     plugin: 'handily-reply-view',
     key: 'endedAt',
     id: requestId,
   })
-  return value
+  return endedAt === undefined ? undefined : endTimeText(endedAt, await $.clock.now(), format)
 }
 
 function showsTurnDurationIn(rows: readonly ConfigRow[]): boolean {
@@ -139,4 +146,25 @@ export async function keepChangedTurnDurationSetting(
 
 export async function showsTurnDuration($: EngineInterface): Promise<boolean> {
   return (await $.state.get(SHOWS_TURN_DURATION)).value === true
+}
+
+export async function keepBackgroundTasks(
+  $: EngineInterface,
+  tasks: readonly BackgroundTask[] | undefined,
+): Promise<void> {
+  const kept = (tasks ?? []).filter((task) => task.type !== AGENT_TASK).map((task) => task.id)
+  await $.state.set(BACKGROUND_TASKS, kept)
+}
+
+export async function noteWorkChange($: EngineInterface): Promise<void> {
+  const { value: version = 0 } = await $.state.get(WORK_VERSION)
+  await $.state.set(WORK_VERSION, version + 1)
+}
+
+export async function isWorkRunning($: EngineInterface): Promise<boolean> {
+  await $.state.get(WORK_VERSION)
+  const { value: tasks = [] } = await $.state.get(BACKGROUND_TASKS)
+  if (tasks.length > 0) return true
+  const agents = await $.agent.list()
+  return agents.some((agent) => RUNNING_AGENT.includes(agent.status))
 }

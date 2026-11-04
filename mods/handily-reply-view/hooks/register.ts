@@ -15,14 +15,18 @@ import {
 } from './draw'
 import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
 import {
+  endTimeOf,
   isEngineTurnLine,
   isTurnLineRow,
+  isWorkRunning,
+  keepBackgroundTasks,
   keepChangedTurnDurationSetting,
   keepTurnDurationSetting,
   keepTurnEnd,
+  noteWorkChange,
   showsTurnDuration,
-  turnEndOf,
   turnLine,
+  type BackgroundTask,
 } from './footer'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
@@ -41,6 +45,7 @@ import {
 import { keepChangedPaletteSetting, keepPaletteSetting, shownPalette } from './palette-setting'
 import { drawRail } from './rail-pane'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
+import { timeFormatOf } from './turn-time'
 import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
 
 const COMMAND = 'replies'
@@ -291,6 +296,25 @@ async function keepPrompt($: EngineInterface, site: RailSite, kept: KeptPrompt):
   await redrawRail($, site)
 }
 
+async function recheckWork($: EngineInterface): Promise<void> {
+  try {
+    await noteWorkChange($)
+  } catch (error) {
+    logFailure($, 'the turn lines did not check the running work again', error)
+  }
+}
+
+async function keepTasksOf(
+  $: EngineInterface,
+  tasks: readonly BackgroundTask[] | undefined,
+): Promise<void> {
+  try {
+    await keepBackgroundTasks($, tasks)
+  } catch (error) {
+    logFailure($, 'the background tasks were not kept', error)
+  }
+}
+
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   const { value = 'folded' } = await $.state.get({ plugin: 'handily-reply-view', key: 'folds', id })
   return value
@@ -379,6 +403,7 @@ export const register: Register = (on, options) => {
       endTurn(railSite.rail, await $.clock.now())
       await redrawRail($, railSite)
     }
+    if (e.agentId !== undefined) await recheckWork($)
     return next(e)
   })
 
@@ -459,9 +484,22 @@ export const register: Register = (on, options) => {
     return stored
   })
 
-  on('session.append', { door: 'notice' }, async ($, e, next) => {
+  on('classic.Stop', async ($, e, next) => {
+    const result = await next(e)
+    await keepTasksOf($, e.background_tasks)
+    return result
+  })
+
+  on('classic.SubagentStop', async ($, e, next) => {
+    const result = await next(e)
+    await keepTasksOf($, e.background_tasks)
+    return result
+  })
+
+  on('session.append', async ($, e, next) => {
     const appendedAt = await $.clock.now()
     const stored = await next(e)
+    if (e.origin.kind === 'task-notification') await recheckWork($)
     if (stored.uuid !== undefined && isTurnLineRow(stored.message)) {
       try {
         await keepTurnEnd($, stored.uuid, appendedAt)
@@ -477,13 +515,15 @@ export const register: Register = (on, options) => {
     let drawn: RenderElement | null = null
     try {
       const { value: mode = defaultMode } = await $.state.get(MODE)
-      if (mode === 'on' && (await showsTurnDuration($))) {
+      const isOwn = mode === 'on' && (await showsTurnDuration($)) && !(await isWorkRunning($))
+      const format = isOwn ? await timeFormatOf($) : undefined
+      if (format !== undefined) {
         drawn = turnLine(
           $.ui.resolve(e),
           {
             word: e.props.word,
             durationMs: e.props.durationMs,
-            endedAt: await turnEndOf($, e.requestId),
+            endTime: await endTimeOf($, e.requestId, format),
           },
           e.viewport?.columns ?? DEFAULT_COLUMNS,
           await shownPalette($, e.surface),
