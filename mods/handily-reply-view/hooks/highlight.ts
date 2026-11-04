@@ -66,7 +66,7 @@ export function highlightedRuns(runs: readonly Run[]): Run[] {
       const token = takesToken(run.mark) && isInside ? span.token : null
       const last = highlighted.length > first ? highlighted.at(-1) : undefined
       if (last?.mark.token === token) last.text += character
-      else highlighted.push({ text: character, mark: { ...run.mark, token } })
+      else highlighted.push({ ...run, text: character, mark: { ...run.mark, token } })
       at += character.length
     }
   }

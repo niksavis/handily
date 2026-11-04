@@ -1496,13 +1496,13 @@ describe('fenced blocks', () => {
       ].join('\n')
       const ui = await mountReply($, reply(text))
       expect(await sketchOf(ui)).toEqual([
-        '● 1. Add:',
+        '● °1.°Add:',
         '',
         `  ~── python ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── python '.length)}~  [ copy ]`,
         '  def f():',
         '      return 1',
         '',
-        '  2. Run it',
+        '  °2.°Run it',
       ])
       await ui.press({ key: 'block-1-copy' })
       expect(world.copies).toEqual(['def f():\n    return 1'])
@@ -3932,6 +3932,8 @@ function laidOut(text: string): void {
       surface: 'terminal',
       drawsDiagrams: true,
       tableStyle: 'rules',
+      headingStyle: 'banner',
+      doneGlyph: '✓',
       highlight: true,
       palette: 'theme',
     },

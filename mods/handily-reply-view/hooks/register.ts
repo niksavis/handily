@@ -14,6 +14,7 @@ import {
   type ReplyActions,
 } from './draw'
 import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
+import { DEFAULT_HEADING_STYLE, HEADING_STYLES, isHeadingStyle, type HeadingStyle } from './blocks'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
 import {
@@ -72,6 +73,12 @@ const CHECKED_SETTINGS: readonly CheckedSetting[] = [
     options: HIGHLIGHTS,
     fallback: `Highlight stays ${DEFAULT_HIGHLIGHT}.`,
     isOption: isHighlight,
+  },
+  {
+    key: 'headingStyle',
+    options: HEADING_STYLES,
+    fallback: `Drawing ${DEFAULT_HEADING_STYLE}.`,
+    isOption: isHeadingStyle,
   },
 ]
 
@@ -293,6 +300,9 @@ export const register: Register = (on, options) => {
   const tableStyle: TableStyle = isTableStyle(options.tableStyle)
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
+  const headingStyle: HeadingStyle = isHeadingStyle(options.headingStyle)
+    ? options.headingStyle
+    : DEFAULT_HEADING_STYLE
   const highlight =
     (isHighlight(options.highlight) ? options.highlight : DEFAULT_HIGHLIGHT) === 'on'
   let lastReply: string | undefined
@@ -493,6 +503,8 @@ export const register: Register = (on, options) => {
             surface: e.surface,
             drawsDiagrams,
             tableStyle,
+            headingStyle,
+            doneGlyph: (await paneGlyphs($, e.surface)).done,
             highlight,
             palette: await shownPalette($, e.surface),
           },

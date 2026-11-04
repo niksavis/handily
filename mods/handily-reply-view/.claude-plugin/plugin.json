@@ -35,6 +35,13 @@
       "options": ["rules", "box"],
       "default": "box"
     },
+    "headingStyle": {
+      "type": "string",
+      "title": "Heading style",
+      "description": "How a heading in a reply draws: a box around H1 and a rule under H2 (banner), bold in the heading colour (bold), bold with H1 and H2 underlined (underline), or bold with H1 in capitals (uppercase).",
+      "options": ["banner", "bold", "underline", "uppercase"],
+      "default": "banner"
+    },
     "highlight": {
       "type": "string",
       "title": "Highlight",

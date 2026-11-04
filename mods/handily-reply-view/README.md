@@ -1,17 +1,17 @@
 # handily-reply-view
 
 `reply-view` makes long replies of Claude short and structured on the screen. On the terminal it
-draws every reply. A reply longer than 30 lines folds to its first lines. A markdown table draws
-in a full box, with a double rule under its header and a rule between its rows. The `tableStyle`
-setting `rules` draws rules between its columns only. Numbers, durations, versions and paths in
-the prose and the cells of a reply draw in their own colours, and inline code draws in the code
-colour of Claude Code. The `highlight` setting `off` draws the numbers, durations, versions and
-paths as plain text. Each table and each fenced code block gets a `copy` button. A mermaid
-flowchart or sequence diagram draws as a diagram, with a `copy` button for its source and a
-`copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
-labelled `you`, so you find it when you scroll. `/replies` switches the view off and on for the
-session. The model still reads the full reply and the prompt as you typed it. Only the screen
-changes.
+draws every reply, with its own look for headings, lists, task lists, quotes and alerts. A reply
+longer than 30 lines folds to its first lines. A markdown table draws in a full box, with a
+double rule under its header and a rule between its rows. The `tableStyle` setting `rules` draws
+rules between its columns only. Numbers, durations, versions and paths in the prose and the cells
+of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
+The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
+table and each fenced code block gets a `copy` button. A mermaid flowchart or sequence diagram
+draws as a diagram, with a `copy` button for its source and a `copy drawing` button for the
+drawing. Each prompt that you type opens under a coloured rule labelled `you`, so you find it when
+you scroll. `/replies` switches the view off and on for the session. The model still reads the
+full reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -242,25 +242,113 @@ The `highlight` setting `off` leaves out only the colours of numbers, durations,
 paths. Inline code keeps `permission`, as Claude Code draws it, and the view still draws every
 reply. The highlight changes no width and no copied text.
 
-On the terminal the view draws paragraphs and list items itself. A list item keeps its marker as
-Claude wrote it, such as `-` or `1.`, and a nested item keeps its indent, at most half the width
-of the reply. These keep the Markdown element of Claude Code, with no highlight:
+On the terminal the view draws paragraphs, headings, lists, task lists, quotes and alerts itself.
+[Headings, lists, quotes and alerts](#headings-lists-quotes-and-alerts) shows how. The token
+colours apply in paragraphs, list items and table cells, and not in headings, quotes or alerts.
+These keep the Markdown element of Claude Code, with no highlight:
 
-- headings, quotes, HTML and indented code;
-- a paragraph or a list that holds a bracket, an HTML tag or an entity such as `&copy;`;
-- a paragraph or a list with a `*`, `_`, `~` or a backtick that the view cannot prove simple,
-  such as `**/*.md`, `** foo**`, `_snake_case_`, emphasis or a code span across two lines, or
-  a backslash at the end of a line;
-- a list with a paragraph or indented code after a blank line inside an item.
+- HTML, indented code, a rule such as `---`, and a heading underlined with `===` or `---`;
+- a line that holds a bracket that is not a simple link, an image, an HTML tag or an entity such
+  as `&copy;`;
+- a line with a `*`, `_`, `~` or a backtick that the view cannot prove simple, such as `**/*.md`,
+  `** foo**`, `_snake_case_`, emphasis or a code span across two lines, or a backslash at the end
+  of a line;
+- a list with a paragraph or indented code after a blank line inside an item, a heading or a
+  quote inside an item, or a nested numbered list that does not start at 1;
+- a quote with a line that has no `>`, with a list, a heading or code inside it, or with a
+  shallower line right after a deeper one;
+- a block that follows one of these with no blank line between them.
 
 When a reply holds a link reference definition, such as `[docs]: https://example.com`, all of
 its prose keeps the Markdown element, so each reference finds its address. The view draws a line
 itself only when its text is the same as CommonMark gives: `**bold**`, `*italic*`, `~~struck~~`
-and `_italic_` between spaces or punctuation, `snake_case` words, a `*` between spaces, escapes
-and code spans on one line.
+and `_italic_` between spaces or punctuation, `snake_case` words, a `*` between spaces, escapes,
+code spans on one line and simple links.
 
 On the desktop app the prose of a reply draws in the Markdown element of Claude Code, so only the
 cells of a table highlight there.
+
+## Headings, lists, quotes and alerts
+
+On the terminal a heading draws without its `#` marks, and a blank line follows it. The
+`headingStyle` setting picks the look. With `banner`, the default, a box hugs H1 and a `━` rule
+stands under H2. At 80 columns a reply looks like this:
+
+```text
+● ╭──────────────────────────────╮
+  │ Ingest timeouts after v2.3.1 │
+  ╰──────────────────────────────╯
+
+  Impact
+  ━━━━━━
+
+  p95 rose to 2 s.
+
+  Why 4 is too few
+```
+
+- H1 and H2 are bold in `claude`, H3 is bold in `merged`, and H4 to H6 are bold.
+- `bold` draws no box and no rule. `underline` also underlines H1 and H2. `uppercase` draws H1 in
+  capitals.
+- Under 40 columns the box gives way, and H1 draws as H2. A long heading wraps inside its box.
+- A stored `headingStyle` value outside the options draws `banner`, and the debug log names the
+  value.
+
+A list draws the bullets `•`, `◦` and `▪` by its level, and a numbered list keeps its numbers.
+Each level indents to the text of its parent, 2 columns for a bullet. Level 4 and deeper keep
+the indent of level 4. The bullets and numbers are in `inactive`. An empty item keeps its bullet.
+
+```text
+● • Level 1
+    ◦ Level 2
+      ▪ Level 3
+        ▪ Level 4 and deeper keep ▪ and stop indenting here
+        ▪ Level 5
+```
+
+A task draws `[✓]` in `success` when it is done, with its text dim and struck through, and
+`[ ]` in `inactive` when it is open. The `✓` is the Done glyph of the `glyphs` setting, so the
+nerd set draws nf-cod-check. Under a task list of 3 or more tasks, nested ones counted, a
+dim line counts the done tasks:
+
+```text
+● [✓] Restore pool_size to 32
+  [✓] Confirm p95 returns to 45 ms
+  [ ] Check that tanks-db can take 32 connections
+      [ ] Ask the DB owner for max_connections
+  [ ] Add an alert on acquire timeouts
+  2 of 5 done
+```
+
+Each level of a quote draws its own `▌` in `inactive`, and the quote text is italic. A long line
+wraps with a bar on each row.
+
+```text
+● ▌ Rolling ingest back to v2.3.0: v2.3.1 cut the DB pool from 32 to 4, and
+  ▌ writes time out (pool 4/4 busy, up to 87 waiting).
+  ▌
+  ▌ ▌ A nested quote keeps its own bar.
+  ▌ ▌ ▌ And a third level.
+```
+
+A quote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` is
+an alert. It draws as a box across the reply, with the kind as a word on its top edge. The edge
+and the word are in `suggestion`, `success`, `merged`, `warning` or `error`, and the body is
+plain. Under 40 columns the alert draws as a bar with the word on its first line. An alert of
+another kind, such as `[!TODO]`, keeps the Markdown element.
+
+```text
+● ╭─ Warning ──────────────────────────╮
+  │ Do not raise pool_size above       │
+  │ max_connections on tanks-db.       │
+  ╰────────────────────────────────────╯
+```
+
+A link draws its text in `suggestion`, underlined, as a link that you can open. When the text
+differs from the address, the host follows in dim, such as `the deploy run (ci.example.com)`. The
+host leaves out a user name and a password. Only `https:`, `http:` and `mailto:` addresses become
+a link. Any other address, such as `javascript:` or `data:`, draws as text, then the address in
+dim.
 
 ## The palette
 
@@ -268,17 +356,22 @@ The `palette` setting of the `handily` bundle picks the colours. With `catppucci
 dark theme, or the theme `auto`, the view draws fixed hex colours on the terminal. A light theme,
 an ANSI theme and the desktop app keep the theme keys. `/handily palette` shows both.
 
-| Part                     | Theme key                          | catppuccin-mocha                |
-| ------------------------ | ---------------------------------- | ------------------------------- |
-| Table header             | `claude`                           | `#f9e2af`                       |
-| Rules and box            | `subtle`                           | `#585b70`                       |
-| Numbers                  | `planMode`                         | `#a6e3a1`                       |
-| Inline code              | `permission`                       | `#89dceb`                       |
-| Paths                    | `merged`                           | `#cba6f7`                       |
-| Links                    | `suggestion`                       | `#89b4fa`                       |
-| Diagram lines and labels | `inactive`                         | `#9399b2`                       |
-| Diagram heads            | `claude`                           | `#cba6f7`                       |
-| Diagram boxes, in turn   | `suggestion`, `planMode`, `merged` | `#89b4fa`, `#a6e3a1`, `#f5c2e7` |
+| Part                        | Theme key                          | catppuccin-mocha                                                 |
+| --------------------------- | ---------------------------------- | ---------------------------------------------------------------- |
+| Table header                | `claude`                           | `#f9e2af`                                                        |
+| Rules and box               | `subtle`                           | `#585b70`                                                        |
+| Numbers                     | `planMode`                         | `#a6e3a1`                                                        |
+| Inline code                 | `permission`                       | `#89dceb`                                                        |
+| Paths                       | `merged`                           | `#cba6f7`                                                        |
+| Links                       | `suggestion`                       | `#89b4fa`                                                        |
+| Diagram lines and labels    | `inactive`                         | `#9399b2`                                                        |
+| Diagram heads               | `claude`                           | `#cba6f7`                                                        |
+| Diagram boxes, in turn      | `suggestion`, `planMode`, `merged` | `#89b4fa`, `#a6e3a1`, `#f5c2e7`, `#fab387`, `#94e2d5`, `#f9e2af` |
+| H1 and H2                   | `claude`                           | `#f9e2af`                                                        |
+| H3                          | `merged`                           | `#cba6f7`                                                        |
+| Bullets, numbers, quote bar | `inactive`                         | `#cba6f7`                                                        |
+| Open task `[ ]`             | `inactive`                         | `#9399b2`                                                        |
+| Quote text                  | no colour                          | `#a6adc8`                                                        |
 
 The mod reads the `handily` row and the `theme` row of `/config` when the session starts and when
 either changes, and draws its replies again. A mod installed without the `handily` bundle draws
@@ -550,13 +643,14 @@ again only when its list changes, and no other row of the transcript draws again
 
 ## Settings and the command
 
-| Setting        | Default | Use                                                                                            |
-| -------------- | ------- | ---------------------------------------------------------------------------------------------- |
-| `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                  |
-| `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source  |
-| `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type      |
-| `tableStyle`   | `box`   | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns          |
-| `highlight`    | `on`    | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain |
+| Setting        | Default  | Use                                                                                                 |
+| -------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `mode`         | `on`     | The mode when a session starts: `on` or `off`                                                       |
+| `diagrams`     | `on`     | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source       |
+| `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type           |
+| `tableStyle`   | `box`    | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns               |
+| `highlight`    | `on`     | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain      |
+| `headingStyle` | `banner` | `banner` draws a box around H1 and a rule under H2. `bold`, `underline` and `uppercase` draw no box |
 
 | Command                  | Effect                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------- |
