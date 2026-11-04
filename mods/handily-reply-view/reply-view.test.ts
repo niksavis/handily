@@ -2623,12 +2623,12 @@ const MOCK_9_6_SOURCE = linesOf(
 )
 
 const MOCK_9_6_DRAWING = [
-  '╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐',
+  '╭────────╮   ╭───────╮   ┌──────────┐ yes  ╭─────────╮',
   '│ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │',
-  '╰────────╯   └───────┘   └──────────┘  │   └─────────┘',
-  '                                       │no ┌────────┐',
+  '╰────────╯   ╰───────╯   └──────────┘  │   ╰─────────╯',
+  '                                       │no ╭────────╮',
   '                                       └──▶│ Engine │',
-  '                                           └────────┘',
+  '                                           ╰────────╯',
 ]
 
 const MOCK_9_6_LOOP_SOURCE = linesOf(
@@ -2639,18 +2639,18 @@ const MOCK_9_6_LOOP_SOURCE = linesOf(
 )
 
 const MOCK_9_6_LOOP_DRAWING = [
-  '┌───────┐',
+  '╭───────╮',
   '│ Build │◀───────┐',
-  '└───┬───┘        │',
+  '╰───┬───╯        │',
   '    ▼            │',
   '┌────────┐       │',
   '│ ◇ Test │───────┘ fail',
   '└───┬────┘',
   '    │ pass',
   '    ▼',
-  '┌─────────┐',
+  '╭─────────╮',
   '│ Release │',
-  '└─────────┘',
+  '╰─────────╯',
 ]
 
 const REPLY_COLUMNS = 78
@@ -2878,9 +2878,9 @@ describe('flowchart drawings', () => {
       '                 ┌─────────┴─────────┐',
       '                 │ yes               │ no',
       '                 ▼                   ▼',
-      '       ┌──────────────────┐  ┌───────────────┐',
+      '       ╭──────────────────╮  ╭───────────────╮',
       '       │ Parse the subset │  │ Draw as today │',
-      '       └─────────┬────────┘  └───────────────┘',
+      '       ╰─────────┬────────╯  ╰───────────────╯',
       '                 ▼',
       '       ┌───────────────────┐',
       '       │ ◇ Fits the width? │',
@@ -2888,9 +2888,9 @@ describe('flowchart drawings', () => {
       '       ┌─────────┴─────────┐',
       '       │ yes               │ no',
       '       ▼                   ▼',
-      '┌──────────────┐ ┌───────────────────┐',
+      '╭──────────────╮ ╭───────────────────╮',
       '│ Draw the art │ │ Source and a note │',
-      '└──────────────┘ └───────────────────┘',
+      '╰──────────────╯ ╰───────────────────╯',
     ])
   })
 
@@ -2902,9 +2902,9 @@ describe('flowchart drawings', () => {
       '     │ Prompt │',
       '     ╰────┬───╯',
       '          ▼',
-      '      ┌───────┐',
+      '      ╭───────╮',
       '      │ Reply │',
-      '      └───┬───┘',
+      '      ╰───┬───╯',
       '          ▼',
       '    ┌──────────┐',
       '    │ ◇ Table? │',
@@ -2912,9 +2912,9 @@ describe('flowchart drawings', () => {
       '    ┌─────┴──────┐',
       '    │ yes        │ no',
       '    ▼            ▼',
-      '┌─────────┐ ┌────────┐',
+      '╭─────────╮ ╭────────╮',
       '│ Columns │ │ Engine │',
-      '└─────────┘ └────────┘',
+      '╰─────────╯ ╰────────╯',
     ]
     expect(drawnLines(MOCK_9_6_SOURCE, width - 1)).toEqual(fallback)
     expect(drawnLines(MOCK_9_6_SOURCE, 38)).toEqual(fallback)
@@ -2922,51 +2922,51 @@ describe('flowchart drawings', () => {
 
   test('box labels wrap at 16 columns, then at 12, and an edge label is cut to 12 with an ellipsis', () => {
     expect(drawnLines(LONG_LABELS_SOURCE, REPLY_COLUMNS).slice(0, 5)).toEqual([
-      '         ┌─────────────────────────────────────────┐',
+      '         ╭─────────────────────────────────────────╮',
       '         │ Pick the next record from the ready set │',
-      '         └────────────────────┬────────────────────┘',
+      '         ╰────────────────────┬────────────────────╯',
       '         ┌────────────────────┴─────────────────────┐',
       '         │ when the queue holds more work than fits │',
     ])
     expect(drawnLines(LONG_LABELS_SOURCE, 41)).toEqual([
-      '           ┌─────────────────┐',
+      '           ╭─────────────────╮',
       '           │ Pick the next   │',
       '           │ record from the │',
       '           │ ready set       │',
-      '           └────────┬────────┘',
+      '           ╰────────┬────────╯',
       '         ┌──────────┴──────────┐',
       '         │ when the qu…        │',
       '         ▼                     ▼',
-      '┌──────────────────┐ ┌──────────────────┐',
+      '╭──────────────────╮ ╭──────────────────╮',
       '│ Build the record │ │ Write the change │',
-      '└──────────────────┘ │ summary          │',
-      '                     └──────────────────┘',
+      '╰──────────────────╯ │ summary          │',
+      '                     ╰──────────────────╯',
     ])
     expect(drawnLines(LONG_LABELS_SOURCE, 40)).toEqual([
-      '     ┌─────────────┐',
+      '     ╭─────────────╮',
       '     │ Pick the    │',
       '     │ next record │',
       '     │ from the    │',
       '     │ ready set   │',
-      '     └──────┬──────┘',
+      '     ╰──────┬──────╯',
       '     ┌──────┴───────┐',
       '     │ when the qu… │',
       '     ▼              ▼',
-      '┌───────────┐ ┌───────────┐',
+      '╭───────────╮ ╭───────────╮',
       '│ Build the │ │ Write the │',
       '│ record    │ │ change    │',
-      '└───────────┘ │ summary   │',
-      '              └───────────┘',
+      '╰───────────╯ │ summary   │',
+      '              ╰───────────╯',
     ])
   })
 
   test('a flowchart still too wide after the cuts names its narrowest width', () => {
     expect(drawnLines(LONG_LABELS_SOURCE, 27)).toHaveLength(14)
     expect(drawFlowchart(flowchartOf(LONG_LABELS_SOURCE), 26)).toEqual(
-      notDrawn('it takes 27 columns, the screen has 26'),
+      notDrawn('it takes 27 columns, the screen has 26. Widen the window or shorten the labels'),
     )
     expect(drawFlowchart(flowchartOf(MOCK_9_6_SOURCE), 20)).toEqual(
-      notDrawn('it takes 22 columns, the screen has 20'),
+      notDrawn('it takes 22 columns, the screen has 20. Widen the window or shorten the labels'),
     )
   })
 
@@ -2988,20 +2988,20 @@ describe('flowchart drawings', () => {
       REPLY_COLUMNS,
     )
     expect(lines).toEqual([
-      ' ┌──────────┐',
+      ' ╭──────────╮',
       ' │ 表格对齐 │',
-      ' └─────┬────┘',
+      ' ╰─────┬────╯',
       '    ┌──┴───┐',
       '    ▼      │',
-      '┌────────┐ │',
+      '╭────────╮ │',
       `│ ${TECHIE} Ana │ │`,
-      '└───┬────┘ │',
+      '╰───┬────╯ │',
       '    │      └─┐',
       '    │ 日本語 │',
       '    ▼        ▼',
-      ' ┌────────────┐',
+      ' ╭────────────╮',
       ` │ ${AUSTRIA} Bo ${KEYCAP_ONE}   │`,
-      ' └────────────┘',
+      ' ╰────────────╯',
     ])
     for (const box of [lines.slice(0, 3), lines.slice(11, 14)]) {
       expect(new Set(box.map(displayWidth)).size).toBe(1)
@@ -3034,9 +3034,9 @@ describe('flowchart drawings', () => {
       '   ┌─────┴╌╌╌╌╌┐',
       '   │ keep      ╎',
       '   │           ╎',
-      '┌──┴────┐ ┌────┴───┐',
+      '╭──┴────╮ ╭────┴───╮',
       '│ Plain │ │ Dashed │',
-      '└───────┘ └────────┘',
+      '╰───────╯ ╰────────╯',
     ])
   })
 
@@ -3054,19 +3054,19 @@ describe('flowchart drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '        ┌───────┐',
+      '        ╭───────╮',
       '        │ Start │',
-      '        └───┬───┘',
+      '        ╰───┬───╯',
       '   ┌────────┴┬──────┐',
       '   ▼         ▼      │',
-      '┌──────┐ ┌───────┐  │',
+      '╭──────╮ ╭───────╮  │',
       '│ Left │ │ Right │  │',
-      '└──┬───┘ └───┬───┘  │',
+      '╰──┬───╯ ╰───┬───╯  │',
       '   └────────┬┘┌─────┘',
       '            ▼ ▼',
-      '         ┌──────┐',
+      '         ╭──────╮',
       '         │ Join │',
-      '         └──────┘',
+      '         ╰──────╯',
     ])
   })
 
@@ -3077,38 +3077,38 @@ describe('flowchart drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '       ┌───┐',
+      '       ╭───╮',
       '       │ A │',
-      '       └─┬─┘',
+      '       ╰─┬─╯',
       '  ┌──────┼──────┐',
       '  ▼      ▼      ▼',
-      '┌───┐  ┌───┐  ┌───┐',
+      '╭───╮  ╭───╮  ╭───╮',
       '│ B │  │ D │  │ C │',
-      '└─┬─┘  └─┬─┘  └─┬─┘',
+      '╰─┬─╯  ╰─┬─╯  ╰─┬─╯',
       '  └─────┬┘┌─────┴┐',
       '        ▼ ▼      ▼',
-      '      ┌─────┐  ┌───┐',
+      '      ╭─────╮  ╭───╮',
       '      │ E   │  │ F │',
-      '      └─────┘  └───┘',
+      '      ╰─────╯  ╰───╯',
     ])
   })
 
   test('boxes that link every box below share one bus row', () => {
     expect(drawnLines('flowchart TD\n  A1 & A2 --> B1 & B2', REPLY_COLUMNS)).toEqual([
-      '┌────┐  ┌────┐',
+      '╭────╮  ╭────╮',
       '│ A1 │  │ A2 │',
-      '└──┬─┘  └──┬─┘',
+      '╰──┬─╯  ╰──┬─╯',
       '   ├───────┤',
       '   ▼       ▼',
-      '┌────┐  ┌────┐',
+      '╭────╮  ╭────╮',
       '│ B1 │  │ B2 │',
-      '└────┘  └────┘',
+      '╰────╯  ╰────╯',
     ])
   })
 
   test('two edges between the same boxes draw as one line with both labels', () => {
     expect(drawnLines('flowchart TD\n  A -->|first| B\n  A -.->|second| B', REPLY_COLUMNS)).toEqual(
-      ['┌───┐', '│ A │', '└─┬─┘', '  │ first', '  │ second', '  ▼', '┌───┐', '│ B │', '└───┘'],
+      ['╭───╮', '│ A │', '╰─┬─╯', '  │ first', '  │ second', '  ▼', '╭───╮', '│ B │', '╰───╯'],
     )
   })
 
@@ -3127,22 +3127,22 @@ describe('flowchart drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '┌───┐',
+      '╭───╮',
       '│ A │◀─────────┐',
-      '└─┬─┘          │',
+      '╰─┬─╯          │',
       '  ▼            │',
-      '┌───┐          │',
+      '╭───╮          │',
       '│ B │◀───────┐ │',
-      '└─┬─┘        │ │',
+      '╰─┬─╯        │ │',
       '  ▼          │ │',
-      '┌───┐        │ │',
+      '╭───╮        │ │',
       '│ C │◀─────┐ │ │',
       '│   │──────│─│─┘ back to a',
-      '└─┬─┘      │ │',
+      '╰─┬─╯      │ │',
       '  ▼        │ │',
-      '┌───┐      │ │',
+      '╭───╮      │ │',
       '│ D │──────┴─┘   again',
-      '└───┘            back to b',
+      '╰───╯            back to b',
     ])
   })
 
@@ -3150,24 +3150,24 @@ describe('flowchart drawings', () => {
     const down = linesOf('flowchart TD', '  A --> C', '  B --> C', '  B --> D')
     const across = linesOf('flowchart LR', '  B --> A', '  C --> A', '  C --> D')
     expect(drawnLines(down, REPLY_COLUMNS)).toEqual([
-      '┌───┐  ┌───┐',
+      '╭───╮  ╭───╮',
       '│ A │  │ B │',
-      '└─┬─┘  └─┬─┘',
+      '╰─┬─╯  ╰─┬─╯',
       '  │ ┌────┴─┐',
       '  ▼ ▼      ▼',
-      '┌─────┐  ┌───┐',
+      '╭─────╮  ╭───╮',
       '│ C   │  │ D │',
-      '└─────┘  └───┘',
+      '╰─────╯  ╰───╯',
     ])
     expect(drawnLines(across, REPLY_COLUMNS)).toEqual([
-      '┌───┐      ┌───┐',
+      '╭───╮      ╭───╮',
       '│ B │──┐   │ A │',
-      '└───┘  └──▶│   │',
-      '┌───┐  ┌──▶│   │',
-      '│ C │──┤   └───┘',
-      '└───┘  │   ┌───┐',
+      '╰───╯  └──▶│   │',
+      '╭───╮  ┌──▶│   │',
+      '│ C │──┤   ╰───╯',
+      '╰───╯  │   ╭───╮',
       '       └──▶│ D │',
-      '           └───┘',
+      '           ╰───╯',
     ])
     for (const source of [down, across]) {
       expect(drawnLinks(drawnLines(source, REPLY_COLUMNS))).toEqual(chartLinks(flowchartOf(source)))
@@ -3177,14 +3177,14 @@ describe('flowchart drawings', () => {
   test('the link reader finds the false link of two links that join', () => {
     expect(
       drawnLinks([
-        '┌───┐  ┌───┐',
+        '╭───╮  ╭───╮',
         '│ A │  │ B │',
-        '└─┬─┘  └─┬─┘',
+        '╰─┬─╯  ╰─┬─╯',
         '  └───┬──┴───┐',
         '      ▼      ▼',
-        '    ┌───┐  ┌───┐',
+        '    ╭───╮  ╭───╮',
         '    │ C │  │ D │',
-        '    └───┘  └───┘',
+        '    ╰───╯  ╰───╯',
       ]),
     ).toEqual(['A>C', 'A>D', 'B>C', 'B>D'])
   })
@@ -3192,37 +3192,37 @@ describe('flowchart drawings', () => {
   test('each label and each arrowhead belongs to one link', () => {
     expect(drawnLines('flowchart TD\n  A -->|yes| C\n  B --> C\n  B --> D', REPLY_COLUMNS)).toEqual(
       [
-        '  ┌───┐  ┌───┐',
+        '  ╭───╮  ╭───╮',
         '  │ A │  │ B │',
-        '  └─┬─┘  └─┬─┘',
+        '  ╰─┬─╯  ╰─┬─╯',
         ' ┌──┘  ┌───┴──┐',
         ' │ yes │      │',
         ' ▼     ▼      ▼',
-        '┌─────────┐ ┌───┐',
+        '╭─────────╮ ╭───╮',
         '│ C       │ │ D │',
-        '└─────────┘ └───┘',
+        '╰─────────╯ ╰───╯',
       ],
     )
     expect(drawnLines('flowchart TD\n  A -->|yes| C\n  B -->|no| C', REPLY_COLUMNS)).toEqual([
-      '┌───┐  ┌───┐',
+      '╭───╮  ╭───╮',
       '│ A │  │ B │',
-      '└─┬─┘  └─┬─┘',
+      '╰─┬─╯  ╰─┬─╯',
       '  └┐     │',
       '   │ yes │ no',
       '   ▼     ▼',
-      ' ┌─────────┐',
+      ' ╭─────────╮',
       ' │ C       │',
-      ' └─────────┘',
+      ' ╰─────────╯',
     ])
     expect(drawnLines('flowchart TD\n  A --- C\n  B --> C', REPLY_COLUMNS)).toEqual([
-      '┌───┐  ┌───┐',
+      '╭───╮  ╭───╮',
       '│ A │  │ B │',
-      '└─┬─┘  └─┬─┘',
+      '╰─┬─╯  ╰─┬─╯',
       '  └──┐ ┌─┘',
       '     │ ▼',
-      '   ┌─┴───┐',
+      '   ╭─┴───╮',
       '   │ C   │',
-      '   └─────┘',
+      '   ╰─────╯',
     ])
   })
 
@@ -3230,15 +3230,15 @@ describe('flowchart drawings', () => {
     const source = linesOf('flowchart TD', '  A --> B & C & D', '  E --> C')
     const lines = drawnLines(source, REPLY_COLUMNS)
     expect(lines).toEqual([
-      '      ┌───┐  ┌───┐',
+      '      ╭───╮  ╭───╮',
       '      │ A │  │ E │',
-      '      └─┬─┘  └─┬─┘',
+      '      ╰─┬─╯  ╰─┬─╯',
       '  ┌─────┴┬─────│┐',
       '  │      │     └│─┐',
       '  ▼      ▼      ▼ ▼',
-      '┌───┐  ┌───┐  ┌─────┐',
+      '╭───╮  ╭───╮  ╭─────╮',
       '│ B │  │ D │  │ C   │',
-      '└───┘  └───┘  └─────┘',
+      '╰───╯  ╰───╯  ╰─────╯',
     ])
     expect(lines.join('\n')).not.toContain('┼')
     expect(drawnLinks(lines)).toEqual(chartLinks(flowchartOf(source)))
@@ -3271,15 +3271,15 @@ describe('flowchart drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '┌───┐      ┌───┐',
+      '╭───╮      ╭───╮',
       '│ A │──┬──▶│ B │──┐',
-      '└───┘  │   └───┘  │',
-      '  ▲    │   ┌───┐  │   ┌───┐',
+      '╰───╯  │   ╰───╯  │',
+      '  ▲    │   ╭───╮  │   ╭───╮',
       '  │    ├──▶│ C │──┼──▶│ E │',
-      '  │    │   └───┘  │   └─┬─┘',
-      '  │    │   ┌───┐  │     │',
+      '  │    │   ╰───╯  │   ╰─┬─╯',
+      '  │    │   ╭───╮  │     │',
       '  │    └──▶│ D │──┘     │',
-      '  │        └───┘        │',
+      '  │        ╰───╯        │',
       '  │                     │',
       '  └─────────────────────┘',
       '                        retry',
@@ -3328,9 +3328,9 @@ describe('flowchart drawings', () => {
 
   test('a tab and a bidi control in a label do not move a border', () => {
     expect(drawnLines('flowchart LR\n  A[Tab\there] --> B[Bidi\u202Ex]', REPLY_COLUMNS)).toEqual([
-      '┌──────────┐   ┌───────┐',
+      '╭──────────╮   ╭───────╮',
       '│ Tab here │──▶│ Bidix │',
-      '└──────────┘   └───────┘',
+      '╰──────────╯   ╰───────╯',
     ])
   })
 
@@ -3372,9 +3372,9 @@ const MOCK_9_7_SOURCE = linesOf(
 )
 
 const MOCK_9_7_DRAWING = [
-  '┌─────┐        ┌────────┐        ┌────────────┐',
+  '╭─────╮        ╭────────╮        ╭────────────╮',
   '│ You │        │ Claude │        │ reply-view │',
-  '└──┬──┘        └────┬───┘        └──────┬─────┘',
+  '╰──┬──╯        ╰────┬───╯        ╰──────┬─────╯',
   '   │    prompt      │                   │',
   '   │───────────────▶│                   │',
   '   │                │    reply text     │',
@@ -3386,6 +3386,9 @@ const MOCK_9_7_DRAWING = [
   '   │                │       ┌───────────┴───────────┐',
   '   │                │       │ layout once per width │',
   '   │                │       └───────────┬───────────┘',
+  '╭──┴──╮        ╭────┴───╮        ╭──────┴─────╮',
+  '│ You │        │ Claude │        │ reply-view │',
+  '╰─────╯        ╰────────╯        ╰────────────╯',
 ]
 
 const MOCK_9_7_ALT_SOURCE = linesOf(
@@ -3400,9 +3403,9 @@ const MOCK_9_7_ALT_SOURCE = linesOf(
 )
 
 const MOCK_9_7_ALT_DRAWING = [
-  '┌─────┐        ┌───────┐',
+  '╭─────╮        ╭───────╮',
   '│ App │        │ Cache │',
-  '└──┬──┘        └───┬───┘',
+  '╰──┬──╯        ╰───┬───╯',
   '   │  1. get key   │',
   '   │──────────────▶│',
   '┄┄ alt: hit ┄┄┄┄┄┄┄┼┄┄┄┄',
@@ -3526,9 +3529,9 @@ describe('sequence drawings', () => {
       '   │                │            └──────┬──────┘',
     ])
     expect(drawnSequence(MOCK_9_7_SOURCE, MOCK_9_7_TOO_WIDE_COLUMNS)).toEqual([
-      '┌─────┐        ┌────────┐        ┌────────────┐',
+      '╭─────╮        ╭────────╮        ╭────────────╮',
       '│ You │        │ Claude │        │ reply-view │',
-      '└──┬──┘        └────┬───┘        └──────┬─────┘',
+      '╰──┬──╯        ╰────┬───╯        ╰──────┬─────╯',
       '   │    prompt      │                   │',
       '   │───────────────▶│                   │',
       '   │                │      reply        │',
@@ -3545,9 +3548,14 @@ describe('sequence drawings', () => {
       '   │                │             │ once per │',
       '   │                │             │ width    │',
       '   │                │             └─────┬────┘',
+      '╭──┴──╮        ╭────┴───╮        ╭──────┴─────╮',
+      '│ You │        │ Claude │        │ reply-view │',
+      '╰─────╯        ╰────────╯        ╰────────────╯',
     ])
     expect(drawSequence(sequenceOf(MOCK_9_7_SOURCE), MOCK_9_7_TOO_WIDE_COLUMNS - 1)).toEqual(
-      notDrawn(`it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 49`),
+      notDrawn(
+        `it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 49. Widen the window or shorten the labels`,
+      ),
     )
   })
 
@@ -3577,9 +3585,9 @@ describe('sequence drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '      ┌───────┐        ┌─────┐           ┌───────┐',
+      '      ╭───────╮        ╭─────╮           ╭───────╮',
       '      │ Alice │        │ Bob │           │ Carol │',
-      '      └───┬───┘        └──┬──┘           └───┬───┘',
+      '      ╰───┬───╯        ╰──┬──╯           ╰───┬───╯',
       '┄┄ loop: every minute ┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄',
       '          │     ping      │                  │',
       '          │───────────────│─────────────────×│',
@@ -3606,6 +3614,9 @@ describe('sequence drawings', () => {
       '          │×╌╌╌╌╌╌╌╌╌╌╌╌╌╌│                  │',
       '          │    async      │                  │',
       '          │──────────────▷│                  │',
+      '      ╭───┴───╮        ╭──┴──╮           ╭───┴───╮',
+      '      │ Alice │        │ Bob │           │ Carol │',
+      '      ╰───────╯        ╰─────╯           ╰───────╯',
     ])
   })
 
@@ -3633,9 +3644,9 @@ describe('sequence drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '┌───┐        ┌───┐        ┌───┐',
+      '╭───╮        ╭───╮        ╭───╮',
       '│ A │        │ B │        │ C │',
-      '└─┬─┘        └─┬─┘        └─┬─┘',
+      '╰─┬─╯        ╰─┬─╯        ╰─┬─╯',
       '┄┄ par: to Bo ┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
       '  │    one     │            │',
       '  │───────────▶│            │',
@@ -3655,6 +3666,9 @@ describe('sequence drawings', () => {
       '  │   tint     │            │',
       '  │◀───────────│────────────│',
       '┄┄ end ┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄',
+      '╭─┴─╮        ╭─┴─╮        ╭─┴─╮',
+      '│ A │        │ B │        │ C │',
+      '╰───╯        ╰───╯        ╰───╯',
     ])
   })
 
@@ -3674,9 +3688,9 @@ describe('sequence drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '┌───┐        ┌───┐',
+      '╭───╮        ╭───╮',
       '│ A │        │ B │',
-      '└─┬─┘        └─┬─┘',
+      '╰─┬─╯        ╰─┬─╯',
       '  │     a      │',
       '  │───────────▶│',
       '┄┄ alt: first ┄┼┄┄┄┄┄',
@@ -3696,9 +3710,9 @@ describe('sequence drawings', () => {
         REPLY_COLUMNS,
       ),
     ).toEqual([
-      '┌───┐        ┌───┐',
+      '╭───╮        ╭───╮',
       '│ A │        │ B │',
-      '└─┬─┘        └─┬─┘',
+      '╰─┬─╯        ╰─┬─╯',
       '┄┄ par: one ┄┄┄┼┄┄',
       '  ┄┄ opt: o ┄┄┄┼',
       '  ┄┄ end ┄┄┄┄┄┄┼',
@@ -3721,9 +3735,9 @@ describe('sequence drawings', () => {
         30,
       ),
     ).toEqual([
-      '┌───┐        ┌───┐',
+      '╭───╮        ╭───╮',
       '│ A │        │ B │',
-      '└─┬─┘        └─┬─┘',
+      '╰─┬─╯        ╰─┬─╯',
       '┄┄ loop: while the cache h… ┄┄',
       '  │    hi      │',
       '  │───────────▶│',
@@ -3745,9 +3759,9 @@ describe('sequence drawings', () => {
       REPLY_COLUMNS,
     )
     expect(lines).toEqual([
-      '┌──────────┐        ┌────────┐',
+      '╭──────────╮        ╭────────╮',
       `│ 表格对齐 │        │ ${TECHIE} Ana │`,
-      '└─────┬────┘        └────┬───┘',
+      '╰─────┬────╯        ╰────┬───╯',
       '      │ 日本語のテスト   │',
       '      │─────────────────▶│',
       `      │    ${AUSTRIA} Bo ${KEYCAP_ONE}      │`,
@@ -3763,12 +3777,12 @@ describe('sequence drawings', () => {
     ).toEqual([...Array<number[]>(6).fill([6, 25]), [6], ...Array<number[]>(3).fill([6, 25])])
   })
 
-  test('119 drawn rows draw and 121 rows name the limit of 120', () => {
+  test('120 drawn rows with the participants at the bottom draw and 122 rows name the limit of 120', () => {
     const source = (count: number) =>
       linesOf('sequenceDiagram', ...Array<string>(count).fill('  A->>B: ask'))
-    expect(drawnSequence(source(58), REPLY_COLUMNS)).toHaveLength(119)
-    expect(drawSequence(sequenceOf(source(59)), REPLY_COLUMNS)).toEqual(
-      notDrawn('121 rows, at most 120 draw'),
+    expect(drawnSequence(source(57), REPLY_COLUMNS)).toHaveLength(120)
+    expect(drawSequence(sequenceOf(source(58)), REPLY_COLUMNS)).toEqual(
+      notDrawn('122 rows, at most 120 draw'),
     )
   })
 
@@ -3805,8 +3819,12 @@ describe('sequence drawings', () => {
   })
 
   for (const [count, width, reason] of [
-    [12, REPLY_COLUMNS, 'it takes 387 columns, the screen has 78'],
-    [2, 60, '243 rows, at most 120 draw'],
+    [
+      12,
+      REPLY_COLUMNS,
+      'it takes 387 columns, the screen has 78. Widen the window or shorten the labels',
+    ],
+    [2, 60, '246 rows, at most 120 draw'],
   ] as const) {
     test(`${String(count)} participants and 60 long messages lay out within the step budget at ${String(width)} columns`, () => {
       const people = numbered('P', count)
@@ -4089,9 +4107,9 @@ describe('diagram blocks', () => {
             ...drawnLines(MOCK_9_6_SOURCE, width),
             '',
             ...diagramTitleLines(width, 'sequence'),
-            '┌─────┐        ┌────────┐',
+            '╭─────╮        ╭────────╮',
             '│ You │        │ Claude │',
-            '└──┬──┘        └────┬───┘',
+            '╰──┬──╯        ╰────┬───╯',
             '   │    prompt      │',
             '   │───────────────▶│',
             '   │     reply      │',
@@ -4127,7 +4145,7 @@ describe('diagram blocks', () => {
         expect(world.copies).toEqual([MOCK_9_7_SOURCE, MOCK_9_7_DRAWING.join('\n')])
         expect(world.toasts).toEqual([
           { lines: ['✓ Copied the sequence source', '6 lines'], timeoutMs: 6000 },
-          { lines: ['✓ Copied the sequence drawing', '14 lines'], timeoutMs: 6000 },
+          { lines: ['✓ Copied the sequence drawing', '17 lines'], timeoutMs: 6000 },
         ])
         await ui.unmount()
       },
@@ -4161,7 +4179,7 @@ describe('diagram blocks', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● The reply takes three steps:',
         '',
-        `  ~diagram not drawn: it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 38.~`,
+        `  ~diagram not drawn: it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 38. Widen the window or shorten the labels.~`,
         '  ~── mermaid ─────────────────~  [ copy ]',
         ...MOCK_9_7_SOURCE.split('\n').map((line) => `  ${line}`),
       ])
@@ -4189,7 +4207,7 @@ describe('diagram blocks', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● Wide:',
         '',
-        '  ~diagram not drawn: it takes 59 columns, the screen has 38.~',
+        '  ~diagram not drawn: it takes 59 columns, the screen has 38. Widen the window or shorten the labels.~',
         '  ~── mermaid ─────────────────~  [ copy ]',
         '  flowchart TD',
         '    A[Start] --> B[Alpha box] & C[Bravo box] & D[Charlie box] & E[Delta box]',
@@ -4814,43 +4832,46 @@ const TABLE_STYLE_REFUSAL =
   'handily-reply-view: userConfig tableStyle is "fancy"; set it to rules or box in /config. Drawing box.'
 
 const MOCK_9_6_COLOURED = [
-  '^╭────────╮^   =┌───────┐=   §┌──────────┐§ °yes°  ^┌─────────┐^',
+  '^╭────────╮^   =╭───────╮=   §┌──────────┐§ °yes°  ^╭─────────╮^',
   '^│ Prompt │^°──°@▶@=│ Reply │=°──°@▶@§│ ◇ Table? │§°──┬──°@▶@^│ Columns │^',
-  '^╰────────╯^   =└───────┘=   §└──────────┘§  °│°   ^└─────────┘^',
-  '                                       °│°°no° =┌────────┐=',
+  '^╰────────╯^   =╰───────╯=   §└──────────┘§  °│°   ^╰─────────╯^',
+  '                                       °│°°no° =╭────────╮=',
   '                                       °└──°@▶@=│ Engine │=',
-  '                                           =└────────┘=',
+  '                                           =╰────────╯=',
 ]
 
 const MOCK_9_7_COLOURED = [
-  '^┌─────┐^        =┌────────┐=        §┌────────────┐§',
+  '^╭─────╮^        =╭────────╮=        §╭────────────╮§',
   '^│ You │^        =│ Claude │=        §│ reply-view │§',
-  '^└──┬──┘^        =└────┬───┘=        §└──────┬─────┘§',
+  '^╰──┬──╯^        =╰────┬───╯=        §╰──────┬─────╯§',
   '   °│°    prompt      °│°                   °│°',
-  '   °│───────────────°@▶@°│°                   °│°',
+  '   °│°^───────────────▶^°│°                   °│°',
   '   °│°                °│°    reply text     °│°',
-  '   °│°                °│──────────────────°@▶@°│°',
+  '   °│°                °│°=──────────────────▶=°│°',
   '   °│°  drawn reply   °│°                   °│°',
-  '   °│°@◀@°╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│°',
-  '   °│°                °│°                   °│──┐° cache by width',
-  '   °│°                °│°                   °│°@◀@°─┘°',
+  '   °│°§◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌§°│°§╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌§°│°',
+  '   °│°                °│°                   °│°§──┐§ cache by width',
+  '   °│°                °│°                   °│°§◀─┘§',
   '   °│°                °│°       °┌───────────┴───────────┐°',
   '   °│°                °│°       °│° layout once per width °│°',
   '   °│°                °│°       °└───────────┬───────────┘°',
+  '^╭──┴──╮^        =╭────┴───╮=        §╭──────┴─────╮§',
+  '^│ You │^        =│ Claude │=        §│ reply-view │§',
+  '^╰─────╯^        =╰────────╯=        §╰────────────╯§',
 ]
 
 const MOCK_9_7_ALT_COLOURED = [
-  '^┌─────┐^        =┌───────┐=',
+  '^╭─────╮^        =╭───────╮=',
   '^│ App │^        =│ Cache │=',
-  '^└──┬──┘^        =└───┬───┘=',
+  '^╰──┬──╯^        =╰───┬───╯=',
   '   °│°  1. get key   °│°',
-  '   °│──────────────°@▶@°│°',
+  '   °│°^──────────────▶^°│°',
   '°┄┄ °°alt: hit °°┄┄┄┄┄┄┄┼┄┄┄┄°',
   '   °│°   2. value    °│°',
-  '   °│°@◀@°╌╌╌╌╌╌╌╌╌╌╌╌╌╌│°',
+  '   °│°=◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌=°│°',
   '°┄┄ °°else: miss °°┄┄┄┄┄┼┄┄┄┄°',
   '   °│°   3. none     °│°',
-  '   °│°@◀@°╌╌╌╌╌╌╌╌╌╌╌╌╌╌│°',
+  '   °│°=◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌=°│°',
   '°┄┄ °°end °°┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄°',
 ]
 
@@ -5054,13 +5075,23 @@ describe('colour pass', () => {
     )
   }
 
-  for (const [diagram, source, coloured] of [
-    ['flowchart', MOCK_9_6_SOURCE, MOCK_9_6_COLOURED],
-    ['sequence', MOCK_9_7_SOURCE, MOCK_9_7_COLOURED],
-    ['sequence', MOCK_9_7_ALT_SOURCE, MOCK_9_7_ALT_COLOURED],
+  for (const [diagram, source, coloured, links] of [
+    ['flowchart', MOCK_9_6_SOURCE, MOCK_9_6_COLOURED, 'heads in claude and lines'],
+    [
+      'sequence',
+      MOCK_9_7_SOURCE,
+      MOCK_9_7_COLOURED,
+      'messages in the key of the sender and lifelines',
+    ],
+    [
+      'sequence',
+      MOCK_9_7_ALT_SOURCE,
+      MOCK_9_7_ALT_COLOURED,
+      'messages in the key of the sender and lifelines',
+    ],
   ] as const) {
     viewTest(
-      `a terminal ${diagram} draws each box in the next key of the cycle, heads in claude and lines and labels in inactive: ${coloured[1] ?? ''}`,
+      `a terminal ${diagram} draws each box in the next key of the cycle, ${links} and labels in inactive: ${coloured[1] ?? ''}`,
       async (_world, $) => {
         const ui = await mountReply($, reply(mermaidReply('The flow:', source)))
         const drawn = await sketchOf(ui)

@@ -1,15 +1,24 @@
 import {
   BLANK,
   drawingOf,
+  fittedLabel,
   inkRunsOf,
+  markedLabel,
+  PLAIN_LOOKS,
+  plainLabel,
+  prefixed,
+  relabelled,
+  textsOf,
   type Ink,
   type InkedCell,
   type InkedDrawing,
   type InkRun,
+  type Label,
+  type Looks,
 } from './ink'
 import type { FlowDirection, FlowNode, FlowShape, Flowchart, Refusal, Stroke } from './mermaid'
 import { wrapCell } from './table'
-import { displayWidth, fitted, graphemesOf, padToWidth } from './width'
+import { displayWidth, graphemesOf } from './width'
 
 export type FlowDrawing = InkedDrawing
 
@@ -71,7 +80,8 @@ const DASHED_HORIZONTAL = '╌'
 type Corners = readonly [string, string, string, string]
 
 const SQUARE_CORNERS: Corners = ['┌', '┐', '└', '┘']
-const ROUNDED_CORNERS: Corners = ['╭', '╮', '╰', '╯']
+export const ROUNDED_CORNERS: Corners = ['╭', '╮', '╰', '╯']
+const TOO_WIDE_REMEDY = 'Widen the window or shorten the labels'
 const BORDER_ACROSS = '─'
 const BORDER_DOWN = '│'
 const PORT_BELOW = '┬'
@@ -113,9 +123,9 @@ type Graph = {
   reach: Map<number, string>
 }
 
-type Shape = { lines: string[]; width: number; height: number; shape: FlowShape }
+type Shape = { lines: Label[]; width: number; height: number; shape: FlowShape }
 
-type Entry = { label: string[]; arrow: boolean; offset: number; sharing: string | null }
+type Entry = { label: Label[]; arrow: boolean; offset: number; sharing: string | null }
 
 type Plan = {
   graph: Graph
@@ -134,7 +144,7 @@ type Point = { row: number; col: number }
 
 type Trace = { link: Link; bits: number; solid: boolean }
 
-type Cell = { glyph: string | null; traces: Trace[]; ink: Ink }
+type Cell = { glyph: string | null; traces: Trace[]; ink: Ink; looks: Looks }
 
 class DrawingFault extends Error {
   constructor(readonly reason: string) {
@@ -148,6 +158,12 @@ function refusal(reason: string): Refusal {
   return { kind: 'refused', reason, line: null, limit: null }
 }
 
+export function tooWide(columns: number, width: number): Refusal {
+  return refusal(
+    `it takes ${String(columns)} columns, the screen has ${String(width)}. ${TOO_WIDE_REMEDY}`,
+  )
+}
+
 export function tick(meter: LayoutMeter, steps = 1): void {
   meter.steps += steps
 }
@@ -158,6 +174,10 @@ export function shown(text: string): string {
 
 export function widest(lines: readonly string[]): number {
   return Math.max(0, ...lines.map(displayWidth))
+}
+
+export function shownLabel(line: string): Label {
+  return markedLabel(shown(line))
 }
 
 function pairKey(from: number, to: number): string {
@@ -209,7 +229,7 @@ class Networks {
 class Canvas {
   private readonly rows = new Map<number, Map<number, Cell>>()
 
-  put(row: number, col: number, text: string, ink: Ink): void {
+  put(row: number, col: number, text: string, ink: Ink, looks: Looks = PLAIN_LOOKS): void {
     let at = col
     let pending = ''
     let last: Cell | null = null
@@ -220,10 +240,18 @@ class Canvas {
         else last.glyph = `${last.glyph ?? ''}${grapheme}`
         continue
       }
-      last = this.claim(row, at, pending + grapheme, ink)
+      last = this.claim(row, at, pending + grapheme, ink, looks)
       pending = ''
-      if (columns > 1) this.claim(row, at + 1, '', ink)
+      if (columns > 1) this.claim(row, at + 1, '', ink, looks)
       at += columns
+    }
+  }
+
+  putLabel(row: number, col: number, label: Label, ink: Ink): void {
+    let at = col
+    for (const run of label.runs) {
+      this.put(row, at, run.text, ink, run.looks)
+      at += displayWidth(run.text)
     }
   }
 
@@ -326,16 +354,21 @@ class Canvas {
     return Number.isFinite(left) ? left : 0
   }
 
-  private claim(row: number, col: number, glyph: string, ink: Ink): Cell {
+  private claim(row: number, col: number, glyph: string, ink: Ink, looks: Looks): Cell {
     if (this.rows.get(row)?.has(col) === true) throw new DrawingFault(LINES_OVERLAP)
-    const cell: Cell = { glyph, traces: [], ink }
+    const cell: Cell = { glyph, traces: [], ink, looks }
     this.cellsOf(row).set(col, cell)
     return cell
   }
 
   private line(point: Point, trace: Trace): void {
     const cells = this.cellsOf(point.row)
-    const cell = cells.get(point.col) ?? { glyph: null, traces: [], ink: 'line' }
+    const cell = cells.get(point.col) ?? {
+      glyph: null,
+      traces: [],
+      ink: 'line',
+      looks: PLAIN_LOOKS,
+    }
     if (cell.glyph !== null) throw new DrawingFault(LINES_OVERLAP)
     cell.traces.push(trace)
     cells.set(point.col, cell)
@@ -351,7 +384,7 @@ class Canvas {
 }
 
 function inkedOf(cell: Cell | undefined): InkedCell {
-  return cell === undefined ? BLANK : { glyph: glyphOf(cell), ink: cell.ink }
+  return cell === undefined ? BLANK : { glyph: glyphOf(cell), ink: cell.ink, looks: cell.looks }
 }
 
 function glyphOf(cell: Cell): string {
@@ -584,32 +617,36 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
 
 function shapeOf(node: FlowNode, wrap: number | null, turning: boolean): Shape {
   const text = node.label
-    .map(shown)
-    .flatMap((line) => (wrap === null ? [line] : wrapCell(line, wrap)))
-  const lines = text.length === 0 ? [''] : text
-  if (turning && lines.length < 2) lines.push('')
+    .map(shownLabel)
+    .flatMap((line) => (wrap === null ? [line] : relabelled(line, wrapCell(line.text, wrap))))
+  const lines = text.length === 0 ? [plainLabel('')] : text
+  if (turning && lines.length < 2) lines.push(plainLabel(''))
   const marked =
     node.shape === 'decision'
-      ? lines.map((line, at) => (at === 0 ? DECISION_MARK : DECISION_INDENT) + line)
+      ? lines.map((line, at) => prefixed(at === 0 ? DECISION_MARK : DECISION_INDENT, line))
       : lines
   return {
     lines: marked,
-    width: widest(marked) + BOX_PADDING,
+    width: widest(textsOf(marked)) + BOX_PADDING,
     height: marked.length + 2,
     shape: node.shape,
   }
 }
 
-function edgeLabel(label: readonly string[], cut: number | null): string[] {
+function edgeLabel(label: readonly string[], cut: number | null): Label[] {
   return label
-    .map(shown)
-    .filter((line) => line.trim() !== '')
-    .map((line) => (cut === null ? line : fitted(line, cut)))
+    .map(shownLabel)
+    .filter((line) => line.text.trim() !== '')
+    .map((line) => (cut === null ? line : fittedLabel(line, cut)))
+}
+
+export function widestLabel(labels: readonly Label[] | undefined): number {
+  return widest(textsOf(labels ?? []))
 }
 
 function entryGap(entries: readonly Entry[], at: number, direction: FlowDirection): number {
   if (direction === 'LR') return (entries[at + 1]?.label.length ?? 0) + 1
-  const label = widest(entries[at]?.label ?? [])
+  const label = widestLabel(entries[at]?.label)
   return label === 0 ? ENTRY_SPACING : label + LABEL_INDENT + 1
 }
 
@@ -628,7 +665,7 @@ function grown(shape: Shape, direction: FlowDirection, span: number): Shape {
   if (direction === 'TD') return { ...shape, width: Math.max(shape.width, span + DOWN_ENTRY_ROOM) }
   const height = Math.max(shape.height, span + ACROSS_ENTRY_ROOM)
   const lines = [...shape.lines]
-  while (lines.length < height - 2) lines.push('')
+  while (lines.length < height - 2) lines.push(plainLabel(''))
   return { ...shape, lines, height }
 }
 
@@ -708,7 +745,7 @@ function separation(plan: Plan, above: number, below: number, direction: FlowDir
   const first = plan.entries[below]?.[0]
   const between = (first?.offset ?? 0) - (last?.offset ?? 0)
   if (direction === 'TD') {
-    const label = widest(last?.label ?? [])
+    const label = widestLabel(last?.label)
     return Math.max(boxes, (label === 0 ? 1 : label + LABEL_INDENT + 1) - between)
   }
   return Math.max(boxes, (first?.label.length ?? 0) + 1 - between)
@@ -879,12 +916,15 @@ function tracksOf(items: readonly BusItem[], meter: LayoutMeter): Band {
 
 function drawBox(canvas: Canvas, shape: Shape, row: number, col: number, ink: Ink): void {
   const [topLeft, topRight, bottomLeft, bottomRight] =
-    shape.shape === 'rounded' ? ROUNDED_CORNERS : SQUARE_CORNERS
+    shape.shape === 'decision' ? SQUARE_CORNERS : ROUNDED_CORNERS
   const across = BORDER_ACROSS.repeat(shape.width - 2)
   canvas.put(row, col, `${topLeft}${across}${topRight}`, ink)
   shape.lines.forEach((line, at) => {
-    const inner = padToWidth(line, shape.width - BOX_PADDING)
-    canvas.put(row + 1 + at, col, `${BORDER_DOWN} ${inner} ${BORDER_DOWN}`, ink)
+    const columns = displayWidth(line.text)
+    const room = ' '.repeat(shape.width - BOX_PADDING - columns)
+    canvas.put(row + 1 + at, col, `${BORDER_DOWN} `, ink)
+    canvas.putLabel(row + 1 + at, col + 2, line, ink)
+    canvas.put(row + 1 + at, col + 2 + columns, `${room} ${BORDER_DOWN}`, ink)
   })
   canvas.put(row + shape.height - 1, col, `${bottomLeft}${across}${bottomRight}`, ink)
 }
@@ -901,11 +941,11 @@ function sourcesOf(graph: Graph, layer: readonly number[]): Segment[] {
   return layer.flatMap((vertex) => graph.outgoing[vertex] ?? [])
 }
 
-function placeText(canvas: Canvas, row: number, col: number, lines: readonly string[]): void {
+function placeText(canvas: Canvas, row: number, col: number, lines: readonly Label[]): void {
   let at = row
-  while (!lines.every((line, index) => canvas.fits(at + index, col, line))) at += 1
+  while (!lines.every((line, index) => canvas.fits(at + index, col, line.text))) at += 1
   lines.forEach((line, index) => {
-    canvas.put(at + index, col, line, 'label')
+    canvas.putLabel(at + index, col, line, 'label')
   })
 }
 
@@ -981,7 +1021,7 @@ function drawDown(plan: Plan): Canvas {
           else canvas.mark(arrowRow + 1, to, PORT_ABOVE)
         }
         entry.label.forEach((line, index) => {
-          canvas.put(linkTop + band.trackCount + index, to + LABEL_INDENT, line, 'label')
+          canvas.putLabel(linkTop + band.trackCount + index, to + LABEL_INDENT, line, 'label')
         })
       }
     }
@@ -1038,7 +1078,7 @@ function labelStartOf(
   const port = owned[0] === undefined ? 0 : entryAt(plan, ports, owned[0])
   const low = port - entry.label.length
   const high = port - 1
-  const columns = widest(entry.label)
+  const columns = widestLabel(entry.label)
   const busColumn = (source: number) => STUB_COLUMNS + BUS_SPACING * (band.tracks.get(source) ?? 0)
   const runStarts = owned.map((segment) =>
     (ports[segment.from] ?? 0) === port ? 0 : busColumn(segment.from),
@@ -1087,7 +1127,7 @@ function acrossBandOf(
     if (entry.label.length === 0) continue
     const start = labelStartOf(plan, band, segments, entry, ports)
     labelStarts.set(entry, start)
-    width = Math.max(width, start + widest(entry.label) + 1)
+    width = Math.max(width, start + widestLabel(entry.label) + 1)
   }
   return { ...band, width, labelStarts }
 }
@@ -1152,7 +1192,7 @@ function drawAcross(plan: Plan): Canvas {
         }
         const start = band.labelStarts.get(entry) ?? 0
         entry.label.forEach((line, index) => {
-          canvas.put(to - entry.label.length + index, linkLeft + start, line, 'label')
+          canvas.putLabel(to - entry.label.length + index, linkLeft + start, line, 'label')
         })
       }
     }
@@ -1266,7 +1306,7 @@ export function drawFlowchart(
     return refusal(`${String(shortest)} rows, at most ${String(MOST_ROWS)} draw`)
   }
   if (Number.isFinite(narrowest)) {
-    return refusal(`it takes ${String(narrowest)} columns, the screen has ${String(width)}`)
+    return tooWide(narrowest, width)
   }
   return refusal(fault ?? LINES_OVERLAP)
 }

@@ -414,12 +414,12 @@ the source:
 ● The view decides per block:
 
   ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
-  ╭────────╮   ┌───────┐   ┌──────────┐ yes  ┌─────────┐
+  ╭────────╮   ╭───────╮   ┌──────────┐ yes  ╭─────────╮
   │ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
-  ╰────────╯   └───────┘   └──────────┘  │   └─────────┘
-                                         │no ┌────────┐
+  ╰────────╯   ╰───────╯   └──────────┘  │   ╰─────────╯
+                                         │no ╭────────╮
                                          └──▶│ Engine │
-                                             └────────┘
+                                             ╰────────╯
 ```
 
 - `copy` copies the mermaid source, without the fences. The toast names it, such as
@@ -431,11 +431,19 @@ the source:
 - When the title line and the buttons do not fit on one line, the buttons stand on a line of
   their own under the title line.
   When the two buttons do not fit on one line, each button stands on its own line.
+- Every box has rounded corners `╭╮╰╯`. A decision `{…}` keeps square corners and the mark `◇`,
+  and a note of a sequence diagram keeps square corners. So the shapes differ also with no colour.
 - On the terminal, the boxes take the colours `suggestion`, `planMode` and `merged` in turn, in
   the order of their first mention in the source. A box keeps its colour when the flowchart turns
-  top down. The arrow heads are in `claude`. The lines, the lifelines, the edge labels and the
-  `alt` rows are in `inactive`. The text of a message and of a note is plain.
-- `copy drawing` copies the plain lines, with no colour codes.
+  top down. The arrow heads of a flowchart are in `claude`. The line and the head of a message in
+  a sequence diagram take the colour of the participant that sends it. The other lines, the
+  lifelines, the edge labels and the `alt` rows are in `inactive`. The text of a message and of a
+  note is plain.
+- A label that holds `**bold**`, `_italic_` or `<u>underline</u>` draws in that style, without the
+  marks. The width of the label counts without the marks. A `_` inside a word, as in
+  `snake_case_name`, stays as written.
+- `copy drawing` copies the plain lines, with no colour codes and no marks. `copy` copies the
+  source with its marks.
 - On the desktop app, the drawing draws in a code block with no colour, so its lines keep their
   columns.
 - A diagram draws whole or as its source. It never draws in part.
@@ -462,7 +470,7 @@ Other reasons that the note names:
 - `classDiagram does not draw yet.`, and the same for each other kind of diagram.
 - `subgraph does not draw yet.`, and the same for `direction`.
 - `box does not draw yet.`, and the same for `create` and `destroy` in a sequence diagram.
-- `it takes 59 columns, the screen has 38.`
+- `it takes 59 columns, the screen has 38. Widen the window or shorten the labels.`
 - `52 boxes, at most 40 draw.` The limits of one diagram are 80 source lines, 8000 source
   characters, 40 boxes, 60 edges, 12 participants, 60 messages and notes, and 120 drawn rows.
 - `the block is empty.`
@@ -508,9 +516,9 @@ A `sequenceDiagram` draws under the title line `── mermaid · sequence ─�
 ● The reply takes three steps:
 
   ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
-  ┌─────┐        ┌────────┐        ┌────────────┐
+  ╭─────╮        ╭────────╮        ╭────────────╮
   │ You │        │ Claude │        │ reply-view │
-  └──┬──┘        └────┬───┘        └──────┬─────┘
+  ╰──┬──╯        ╰────┬───╯        ╰──────┬─────╯
      │    prompt      │                   │
      │───────────────▶│                   │
      │                │    reply text     │
@@ -522,10 +530,15 @@ A `sequenceDiagram` draws under the title line `── mermaid · sequence ─�
      │                │       ┌───────────┴───────────┐
      │                │       │ layout once per width │
      │                │       └───────────┬───────────┘
+  ╭──┴──╮        ╭────┴───╮        ╭──────┴─────╮
+  │ You │        │ Claude │        │ reply-view │
+  ╰─────╯        ╰────────╯        ╰────────────╯
 ```
 
 - Each participant and actor gets a box and a lifeline `│`, in the order of its first mention.
-  The boxes keep at least 8 columns between them. The columns between two lifelines hold the
+  When the lifelines are longer than 10 rows, the boxes draw again under the last row, in the same
+  colours. These 3 rows count in the limit of 120 drawn rows. The boxes keep at least 8 columns
+  between them. The columns between two lifelines hold the
   widest label between them plus 4.
 - A message takes one row for its label and one row for its arrow. The label stands between the
   two lifelines at the left end of the arrow. `->>` draws a solid arrow `─▶`, and `-->>` draws a
@@ -758,4 +771,4 @@ count.
 - Each prompt that you type keeps its time in `$.state` for this session.
 - A `subgraph`, a sequence diagram with `box`, `create` or `destroy`, and every other kind of
   diagram draw as their source.
-- A sequence diagram draws no participant boxes under its last row, and an actor draws as a box.
+- An actor of a sequence diagram draws as a box.
