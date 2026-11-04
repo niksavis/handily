@@ -543,6 +543,44 @@ once. After a resume, the list starts again with the next prompt that you type, 
 `/replies prompts` say that the prompts from before the resume are not listed. The tab draws
 again only when its list changes, and no other row of the transcript draws again for it.
 
+## The line at the end of a turn
+
+When a turn ends, Claude Code draws a dim line with a word, the duration and the end time. On
+the terminal the mod draws this line again. It keeps the word of Claude Code. The duration and
+the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` with the
+`catppuccin-mocha` palette. With `LANG=en_US.UTF-8` the lines read:
+
+```text
+✻ Baked for 6m 20s · done 2:32 PM
+✻ Cogitated for 1h 4m 12s · done 2:32 PM
+✻ Baked for 3s
+```
+
+- The line of the mod does not show two parts that Claude Code can add, because a mod cannot read
+  them: the token budget, and `N messages hidden (/focus to show)`. `/replies` turns the view off
+  and gives the line back to Claude Code.
+- The duration has the format of Claude Code: `3s`, `1m 4s`, `1h 4m 12s`.
+- The end time has the format of Claude Code. The `Time format` setting of `/config` and the
+  `timeZone` setting apply, and `auto` takes the locale from `LC_ALL`, `LC_TIME` or `LANG`, such
+  as `2:32 PM` for `en_US` and `14:32` for `de_DE`. A line from an earlier day names the day, such
+  as `Tuesday 2:32 PM`. When `Time format` is a pattern with `%`, Claude Code draws the line.
+- The end time is the moment the session kept the line. The mod keeps it in `$.state` for this
+  session only. A line from before a resume, or a line whose time the mod did not see, shows no
+  end time, as in the third line above. The mod never guesses a time.
+- When the line is wider than the screen, `done` drops first, as in `✻ Baked for 6m 20s · 2:32 PM`.
+  When the line is still too wide, the end time drops. The duration always stays.
+- Claude Code draws the line itself in the ctrl+o view and with `--verbose`, when the
+  `Show turn duration` setting of `/config` is off, and when the mode is off. The desktop app draws
+  its own line.
+- The mod does not see a background shell, a monitor or a workflow. While one of them still runs,
+  Claude Code says that it still runs, and the line of the mod can say `done`. The only list of
+  these tasks reaches the classic `Stop` hooks, and a security plugin of an organization can skip
+  the classic hooks of a mod.
+- While an agent or a teammate of the session still runs, Claude Code draws every turn line,
+  because its line then waits for the agents or says that they still run. An agent counts while
+  `$.agent.list()` shows it as `pending`, `running` or `waiting`. The mod checks the agents again
+  when an agent ends a turn and when a task notification arrives, and then draws its own line.
+
 ## Settings and the command
 
 | Setting        | Default | Use                                                                                                         |
