@@ -3,6 +3,8 @@ import type {
   On,
   RenderPropsOf,
   SessionUsage,
+  TelemetryLogInput,
+  TelemetryRecordEntry,
   ToolCallArgs,
   ToolCallResult,
 } from 'claude-code'
@@ -64,6 +66,7 @@ type World = {
   isRefused: boolean
   toasts: string[]
   logs: string[]
+  collected: TelemetryLogInput[]
 }
 
 type Hold = { flight: Flight; arrive: () => void; gate: Promise<void> }
@@ -109,6 +112,7 @@ function world(on: On, heldTools: readonly string[] = []): World {
     isRefused: false,
     toasts: [],
     logs: [],
+    collected: [],
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({ value: FRESH_USAGE }))
@@ -140,6 +144,10 @@ function world(on: On, heldTools: readonly string[] = []): World {
   })
   on('ui.log', (_$, e) => {
     state.logs.push(e.text)
+    return { value: undefined }
+  })
+  on('telemetry.log', { to: 'collector' }, (_$, e) => {
+    state.collected.push(e)
     return { value: undefined }
   })
   on('command.run', { command: 'tasks' }, (_$, e, next) => {
@@ -1678,12 +1686,50 @@ type Verdict = 'allow' | 'ask' | 'deny'
 
 type Answer = 'allow' | 'deny'
 
-type Dialog = { opened: (count: number) => Promise<void>; answer: (behavior: Answer) => void }
+type Dialog = {
+  opened: (count: number) => Promise<void>
+  answer: (behavior: Answer) => void
+  callOf: (asked: string) => string
+}
+
+function askedOf(input: unknown): string | undefined {
+  if (!isRecord(input)) return undefined
+  const asked = [input.command, input.file_path].find((value) => typeof value === 'string')
+  return typeof asked === 'string' ? asked : undefined
+}
 
 function verdictOf(verdicts: Readonly<Record<string, Verdict>>, input: unknown): Verdict {
-  if (!isRecord(input)) return 'allow'
-  const asked = [input.command, input.file_path].find((value) => typeof value === 'string')
-  return typeof asked === 'string' ? (verdicts[asked] ?? 'allow') : 'allow'
+  const asked = askedOf(input)
+  return asked === undefined ? 'allow' : (verdicts[asked] ?? 'allow')
+}
+
+type Settling = { decision: 'accept' | 'reject'; source: string; mode: 'default' | 'auto' }
+
+const PERSON_ALLOWS: Settling = { decision: 'accept', source: 'user_temporary', mode: 'default' }
+const CLASSIFIER_ALLOWS: Settling = { decision: 'accept', source: 'config', mode: 'auto' }
+
+function decisionRecord(callId: string, settling: Settling): TelemetryRecordEntry {
+  return {
+    to: 'collector',
+    event: 'tool_decision',
+    attributes: {
+      tool_use_id: callId,
+      decision: settling.decision,
+      source: settling.source,
+      permission_mode: settling.mode,
+    },
+    loggedAt: '2026-11-04T10:00:00.000Z',
+  }
+}
+
+async function settles(
+  $: Engine,
+  dialog: Dialog,
+  asked: string,
+  settling: Settling,
+): Promise<void> {
+  await $.telemetry.log(decisionRecord(dialog.callOf(asked), settling))
+  dialog.answer(settling.decision === 'accept' ? 'allow' : 'deny')
 }
 
 function decisionOf(behavior: Answer) {
@@ -1695,8 +1741,15 @@ function decisionOf(behavior: Answer) {
 function personDialog(on: On, verdicts: Readonly<Record<string, Verdict>>): Dialog {
   const open: ((behavior: Answer) => void)[] = []
   const waiters: { count: number; resolve: () => void }[] = []
+  const calls = new Map<string, string>()
   let opened = 0
-  on('tool.check', (_$, e) => ({ decision: verdictOf(verdicts, e.input) }))
+  on('tool.check', (_$, e) => {
+    const decision = verdictOf(verdicts, e.input)
+    if (decision === 'ask' && e.tool_use_id !== undefined) {
+      calls.set(askedOf(e.input) ?? '', e.tool_use_id)
+    }
+    return { decision }
+  })
   on('classic.PermissionRequest', async () => {
     const behavior = await new Promise<Answer>((resolve) => {
       open.push(resolve)
@@ -1716,20 +1769,17 @@ function personDialog(on: On, verdicts: Readonly<Record<string, Verdict>>): Dial
       if (first === undefined) throw new Error('no permission dialog is open')
       first(behavior)
     },
+    callOf: (asked) => {
+      const callId = calls.get(asked)
+      if (callId === undefined) throw new Error(`no check asked about ${asked}`)
+      return callId
+    },
   }
 }
 
-function classifier(
-  on: On,
-  clock: MockClock,
-  verdicts: Readonly<Record<string, Verdict>>,
-  answerAfterMs: number,
-): void {
+function classifier(on: On, verdicts: Readonly<Record<string, Verdict>>): void {
   on('tool.check', (_$, e) => ({ decision: verdictOf(verdicts, e.input) }))
-  on('classic.PermissionRequest', async () => {
-    if (answerAfterMs > 0) await clock.sleep(answerAfterMs)
-    return decisionOf('allow')
-  })
+  on('classic.PermissionRequest', () => decisionOf('allow'))
 }
 
 async function measureSession($: Engine): Promise<void> {
@@ -2067,12 +2117,7 @@ const SECRETS = [BEARER, URL_PASSWORD, QUERY_TOKEN, GITHUB_TOKEN]
 
 async function sixChecks($: Engine, on: On): Promise<void> {
   const seen = world(on)
-  classifier(
-    on,
-    seen.clock,
-    { 'npm test': 'ask', [`${ROOT}/docs/mocks.md`]: 'ask', [PUSH]: 'deny' },
-    0,
-  )
+  classifier(on, { 'npm test': 'ask', [`${ROOT}/docs/mocks.md`]: 'ask', [PUSH]: 'deny' })
   await start($)
   await spawn($, SCOUT, 'general-purpose', 'scout the hooks', { name: 'scout' })
   await spawn($, EXPLORE, 'Explore', 'find the element table')
@@ -2285,15 +2330,17 @@ describe(CHECKS_CRITERION, () => {
 const CLASSIFIER_CRITERION =
   'When the classifier answers an ask with no dialog, no needs you mark is drawn'
 
+const SCOUT_RUNS_ROW = '1: ▶ scout     running   ▸ Bash… open  2m'
+
 describe(CLASSIFIER_CRITERION, () => {
   test(
-    'an ask that the classifier settles in 0.6 s draws asked while it waits and no needs you mark before or after the 3 s mark',
+    'an ask that the classifier settles in 0.6 s draws asked while it waits and no needs you mark while the call runs past the 3 s mark',
     withWorkitems,
     async ($, on) => {
-      const seen = world(on)
-      classifier(on, seen.clock, { 'npm test': 'ask' }, 600)
+      const seen = world(on, ['Bash'])
+      const decider = personDialog(on, { 'npm test': 'ask' })
       const { call } = await scoutAsks($, seen)
-      await seen.clock.settle()
+      await decider.opened(1)
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         expect(agentLines(await screen(ui, 41))[bySurface(surface, 3, 1)]).toBe(
@@ -2302,9 +2349,54 @@ describe(CLASSIFIER_CRITERION, () => {
         await ui.unmount()
       }
       await seen.clock.advance(600)
-      expect(await call).toEqual({ result: '' })
+      await settles($, decider, 'npm test', CLASSIFIER_ALLOWS)
+      await flightOf(seen, 'Bash').arrived(1)
       await seen.clock.advance(NEEDS_YOU_AFTER_MS)
-      await clearedRow($, '1: ▶ scout     running   Bash n… open  2m')
+      await clearedRow($, SCOUT_RUNS_ROW)
+      flightOf(seen, 'Bash').release()
+      expect(await call).toEqual({ result: 'released' })
+    },
+  )
+})
+
+const SETTLED_CRITERION =
+  'When the engine records tool_decision for a call that the board holds as asked, the board forgets that ask at once, on the main loop and for an agent'
+
+describe(SETTLED_CRITERION, () => {
+  test(
+    'an ask that the person allows in 1 s draws running and no needs you mark while the call runs past the 3 s mark',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, ['Bash'])
+      const dialog = personDialog(on, { 'npm test': 'ask' })
+      const { call } = await scoutAsks($, seen)
+      await dialog.opened(1)
+      await seen.clock.advance(1_000)
+      await settles($, dialog, 'npm test', PERSON_ALLOWS)
+      await flightOf(seen, 'Bash').arrived(1)
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+      await clearedRow($, SCOUT_RUNS_ROW)
+      flightOf(seen, 'Bash').release()
+      expect(await call).toEqual({ result: 'released' })
+    },
+  )
+
+  test(
+    'an ask that the person allows after 5 s draws needs you at the 3 s mark and running again at the decision, while the call runs',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, ['Bash'])
+      const dialog = personDialog(on, { 'npm test': 'ask' })
+      const { call } = await scoutAsks($, seen)
+      await dialog.opened(1)
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+      await waitingShown($)
+      await seen.clock.advance(5_000 - NEEDS_YOU_AFTER_MS)
+      await settles($, dialog, 'npm test', PERSON_ALLOWS)
+      await flightOf(seen, 'Bash').arrived(1)
+      await clearedRow($, SCOUT_RUNS_ROW)
+      flightOf(seen, 'Bash').release()
+      expect(await call).toEqual({ result: 'released' })
     },
   )
 })

@@ -981,6 +981,7 @@ The engine event behind each number:
 | `checks 25 · 8 allowed · 16 asked · 1 denied` | `tool.check`: `decision`, with `tool`, `input` and `agentId` |
 | `slow 45s`, `3 edits`, `0 errors` | `tool.call`: the time until `next(e)` settles, the count of edit calls, and `isError` |
 | `quiet 3m` | the time since the last `turn.step`, `tool.check` or `tool.call` with the `agentId` of the agent |
+| `needs you`, `◆ 1 waits`, the notice | `tool.check`: `decision` `ask` with `tool_use_id`, and no `tool_decision` record with that `tool_use_id` on `telemetry.log` to `collector` within 3 s |
 | `failed`, `running`, `2 agents spawned` | `$.agent.list()`: `status` |
 | `1 compaction` | `session.compact` |
 
@@ -1003,14 +1004,25 @@ The numbers that the engine does not give:
     plugin `cc-plugin-sec-default` runs first and sends the event on. `classic.Notification`
     recorded nothing.
   - While the dialog waited, `$.agent.list()` reported the agent as `running`, not `waiting`.
-  - In auto mode, `tool.check` also answered `ask`, and the classifier settled the call in about
-    0.6 s with no dialog.
+  - In auto mode, `tool.check` also answered `ask`, and the classifier settled the ask with no
+    dialog. That quick call ended about 0.6 s later. The end of a call is not the time of the
+    decision, because an allowed call ends only after it ran.
   - With the files pane given the keyboard by ctrl+x tab, the hotkey `r` did not fire. So the
     hotkeys `s` and `c` are not adopted, and section 8.7 holds. The recheck of handily-ykphy found
     that ctrl+x tab had moved the keyboard to another pane, and that pane hotkeys do fire. Adopting
     `s` and `c` is now a design choice, not a limit of the engine.
 
-  So an `ask` that stays unsettled is the only sign of a waiting person.
+  The handily-bc7hqa probe found the decision on Claude Code 2.1.318 on 2026-11-04. When the
+  dialog or the classifier settles an ask, the engine logs the record `tool_decision` on
+  `telemetry.log` to `collector`. The record needs no telemetry setting, and it carries the
+  attributes `tool_use_id`, `decision`, `source` and `permission_mode`. Then the tool runs.
+  - In the default mode the record came 11 ms after the approval, with `decision` `accept` and
+    `source` `user_temporary`. The dialog had been open for 5 s.
+  - In auto mode the record came 0.4 s after the check, with `source` `config`.
+
+  So the board forgets an ask at its `tool_decision` record, not at the end of the call. The
+  hook passes every record on unchanged. An `ask` with no decision after 3 s is the only sign of
+  a waiting person.
 - No cost and no context where the host gives no usage. Then the Session line reads
   `no context or cost on this host` and draws no number.
 
