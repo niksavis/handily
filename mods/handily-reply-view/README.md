@@ -254,7 +254,7 @@ These keep the Markdown element of Claude Code, with no highlight:
   `** foo**`, `_snake_case_`, emphasis or a code span across two lines, or a backslash at the end
   of a line;
 - a list with a paragraph or indented code after a blank line inside an item, a heading or a
-  quote inside an item, or a nested numbered list that does not start at 1;
+  quote inside an item, a nested numbered list that does not start at 1, or a numbered task;
 - a quote with a line that has no `>`, with a list, a heading or code inside it, or with a
   shallower line right after a deeper one;
 - a block that follows one of these with no blank line between them.
@@ -309,7 +309,8 @@ the indent of level 4. The bullets and numbers are in `inactive`. An empty item 
 A task draws `[✓]` in `success` when it is done, with its text dim and struck through, and
 `[ ]` in `inactive` when it is open. The `✓` is the Done glyph of the `glyphs` setting, so the
 nerd set draws nf-cod-check. Under a task list of 3 or more tasks, nested ones counted, a
-dim line counts the done tasks:
+dim line counts the done tasks. A change of the bullet character, such as `-` to `+`, starts a
+new list with its own count:
 
 ```text
 ● [✓] Restore pool_size to 32

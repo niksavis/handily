@@ -332,9 +332,36 @@ function lineBox(context: Context, children: CellChild[], key: string): RenderEl
   return Box({ key, children: Text({ wrap: 'truncate-end', children }) })
 }
 
-function wholeItem(context: Context, lines: readonly RenderElement[], key: string): ProseItem {
-  const draw = () => context.elements.Box({ key, flexDirection: 'column', children: [...lines] })
-  return { rows: lines.length, whole: draw, cut: () => null }
+function linesItem(context: Context, lines: readonly RenderElement[], key: string): ProseItem {
+  const column = (shown: RenderElement[]) =>
+    context.elements.Box({ key, flexDirection: 'column', children: shown })
+  return {
+    rows: lines.length,
+    whole: () => column([...lines]),
+    cut: (budget) => (budget <= 0 ? null : column(lines.slice(0, budget))),
+  }
+}
+
+type Frame = { top: RenderElement; bottom: RenderElement }
+
+function framedItem(
+  context: Context,
+  frame: Frame,
+  body: readonly RenderElement[],
+  key: string,
+): ProseItem {
+  const column = (shown: readonly RenderElement[]) =>
+    context.elements.Box({
+      key,
+      flexDirection: 'column',
+      children: [frame.top, ...shown, frame.bottom],
+    })
+  const edges = 2
+  return {
+    rows: body.length + edges,
+    whole: () => column(body),
+    cut: (budget) => (budget <= edges ? null : column(body.slice(0, budget - edges))),
+  }
 }
 
 function headingRole(level: number): ReplyRole | undefined {
@@ -353,7 +380,9 @@ function headingItem(
   const color = role === undefined ? undefined : roleColor(context, role)
   const isUpper = style === 'uppercase' && part.level === 1
   const runs = isUpper
-    ? part.runs.map((run) => ({ ...run, text: run.text.toUpperCase() }))
+    ? part.runs.map((run) =>
+        run.mark.isCode || run.isDim === true ? run : { ...run, text: run.text.toUpperCase() },
+      )
     : part.runs
   const isBanner = style === 'banner' && part.level <= RULED_LEVELS
   const isBoxed = isBanner && part.level === 1 && drawsBoxes(context)
@@ -374,31 +403,33 @@ function headingItem(
   })
   if (isBoxed) {
     const rule = RULE.repeat(widest + 2)
-    return wholeItem(
+    return framedItem(
       context,
-      [
-        lineBox(context, [edge(`╭${rule}╮`)], `${key}-top`),
-        ...textLines,
-        lineBox(context, [edge(`╰${rule}╯`)], `${key}-bottom`),
-      ],
+      {
+        top: lineBox(context, [edge(`╭${rule}╮`)], `${key}-top`),
+        bottom: lineBox(context, [edge(`╰${rule}╯`)], `${key}-bottom`),
+      },
+      textLines,
       key,
     )
   }
   const rule = isBanner
     ? [lineBox(context, [edge(HEADING_RULE.repeat(widest))], `${key}-rule`)]
     : []
-  return wholeItem(context, [...textLines, ...rule], key)
+  return linesItem(context, [...textLines, ...rule], key)
 }
 
 type BarRow = { depth: number; runs: Run[]; base?: Color }
 
 function barRows(context: Context, lines: readonly QuoteLine[]): BarRow[] {
-  return lines.flatMap((line) =>
-    wrappedRuns(line.runs, context.width - QUOTE_BAR.length * line.depth).map((runs) => ({
-      depth: line.depth,
+  const deepest = Math.max(Math.floor(context.width / 2 / QUOTE_BAR.length), 1)
+  return lines.flatMap((line) => {
+    const depth = Math.min(line.depth, deepest)
+    return wrappedRuns(line.runs, context.width - QUOTE_BAR.length * depth).map((runs) => ({
+      depth,
       runs,
-    })),
-  )
+    }))
+  })
 }
 
 function barItem(
@@ -462,23 +493,23 @@ function alertItem(
   const edge = (text: string) => Text({ color, children: text })
   const body = part.lines.flatMap((runs) => wrappedRuns(runs, inner))
   const top = `╭${RULE} ${word} ${RULE.repeat(Math.max(inner - displayWidth(word) - 1, 0))}╮`
-  return wholeItem(
+  return framedItem(
     context,
-    [
-      lineBox(context, [edge(top)], `${key}-top`),
-      ...body.map((runs, index) =>
-        lineBox(
-          context,
-          [
-            edge('│ '),
-            ...proseSpans(context, runs, {}),
-            edge(`${' '.repeat(Math.max(inner - runsWidth(runs), 0))} │`),
-          ],
-          `${key}-line-${String(index)}`,
-        ),
+    {
+      top: lineBox(context, [edge(top)], `${key}-top`),
+      bottom: lineBox(context, [edge(`╰${RULE.repeat(inner + 2)}╯`)], `${key}-bottom`),
+    },
+    body.map((runs, index) =>
+      lineBox(
+        context,
+        [
+          edge('│ '),
+          ...proseSpans(context, runs, {}),
+          edge(`${' '.repeat(Math.max(inner - runsWidth(runs), 0))} │`),
+        ],
+        `${key}-line-${String(index)}`,
       ),
-      lineBox(context, [edge(`╰${RULE.repeat(inner + 2)}╯`)], `${key}-bottom`),
-    ],
+    ),
     key,
   )
 }
@@ -490,7 +521,7 @@ function tallyItem(
 ): ProseItem {
   const { Text } = context.elements
   const text = `${String(part.done)} of ${String(part.total)} done`
-  return wholeItem(
+  return linesItem(
     context,
     [lineBox(context, [Text({ dimColor: true, children: text })], `${key}-line`)],
     key,

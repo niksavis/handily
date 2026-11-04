@@ -552,7 +552,7 @@ describe('quotes (handily-36bsx.2)', () => {
     ['a lazy line that continues a quote', '> a quote\nthat continues'],
     ['a shallower line right after a nested quote', '> > inner\n> outer'],
     ['a list inside a quote', '> - item'],
-    ['an unknown alert kind', '> [!TODO] An unknown kind'],
+    ['an alert marker of an unknown kind on its own line', '> [!TODO]\n> body'],
   ] as const) {
     sceneTest(`${what} goes to the engine Markdown`, {}, async (_world, $) => {
       const ui = await mountReply($, text, 'terminal')
@@ -560,6 +560,17 @@ describe('quotes (handily-36bsx.2)', () => {
       await ui.unmount()
     })
   }
+
+  sceneTest(
+    'the same alert marker of a supported kind draws as an alert, not as the engine Markdown',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, '> [!NOTE]\n> body', 'terminal')
+      expect(await markdownTexts(ui)).toEqual([])
+      expect((await shapeOf(ui)).at(0)).toMatch(/^● ╭─ Note ─+╮$/)
+      await ui.unmount()
+    },
+  )
 })
 
 const ALERTS = [
@@ -702,13 +713,139 @@ describe('links (handily-36bsx.2)', () => {
     },
   )
 
-  sceneTest(
-    'a link with a title, an image and a reference link go to the engine Markdown',
-    {},
-    async (_world, $) => {
-      const text = 'A [t](https://x.example "title") and ![i](a.png) and [r][ref].'
+  for (const [what, text] of [
+    ['a link with a title', 'A [t](https://x.example "title") here.'],
+    ['an image', 'An ![i](a.png) here.'],
+    ['a reference link', 'A [r][ref] here.'],
+  ] as const) {
+    sceneTest(`${what} goes to the engine Markdown`, {}, async (_world, $) => {
       const ui = await mountReply($, text, 'terminal')
       expect(await markdownTexts(ui)).toEqual([text])
+      await ui.unmount()
+    })
+  }
+})
+
+async function leavesIn(ui: Ui, color: string): Promise<string[]> {
+  return nodesOf(await ui.drawn())
+    .filter((node) => node.type === 'Text' && node.props?.color === color)
+    .map(leafText)
+}
+
+describe('the block review findings (handily-36bsx.2)', () => {
+  sceneTest(
+    'an ordered task list goes to the engine Markdown, so it keeps its numbers',
+    {},
+    async (_world, $) => {
+      const text = '1. [x] Restore\n2. [ ] Check\n3. [ ] Add'
+      const ui = await mountReply($, text, 'terminal')
+      expect(await markdownTexts(ui)).toEqual([text])
+      await ui.unmount()
+    },
+  )
+
+  sceneTest(
+    'a change of bullet character starts a new list, and each list of 3 or more tasks has its own tally',
+    {},
+    async (_world, $) => {
+      const text = '- [x] a\n- [ ] b\n- [ ] c\n\n+ [x] d\n+ [x] e\n+ [ ] f'
+      const ui = await mountReply($, text, 'terminal')
+      expect(await shapeOf(ui)).toEqual([
+        '● [✓] a',
+        '  [ ] b',
+        '  [ ] c',
+        '  1 of 3 done',
+        '  [✓] d',
+        '  [✓] e',
+        '  [ ] f',
+        '  2 of 3 done',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  sceneTest('two lists of 2 and 1 tasks show no tally', {}, async (_world, $) => {
+    const ui = await mountReply($, '- [x] one\n- [ ] two\n* [ ] three', 'terminal')
+    expect(await shapeOf(ui)).toEqual(['● [✓] one', '  [ ] two', '  [ ] three'])
+    await ui.unmount()
+  })
+
+  for (const [text, code] of [
+    ['# ` a`', ' a'],
+    ['# `a `', 'a '],
+    ['> ` a`', ' a'],
+  ] as const) {
+    sceneTest(
+      `the code span of ${text} keeps its spaces as ${JSON.stringify(code)}`,
+      {},
+      async (_world, $) => {
+        const ui = await mountReply($, text, 'terminal')
+        expect(await leavesIn(ui, 'permission')).toEqual([code])
+        await ui.unmount()
+      },
+    )
+  }
+
+  for (const [columns, depth] of [
+    [30, 15],
+    [40, 20],
+    [80, 40],
+  ] as const) {
+    sceneTest(
+      `a quote ${String(depth)} levels deep fits ${String(columns)} columns and keeps its text`,
+      {},
+      async (_world, $) => {
+        const ui = await mountReply($, `${'>'.repeat(depth)} x`, 'terminal', columns)
+        const drawn = await shapeOf(ui, columns)
+        expect(wider(drawn, columns)).toEqual([])
+        expect(drawn).toHaveLength(1)
+        expect(drawn[0]).toMatch(/▌ x$/)
+        await ui.unmount()
+      },
+    )
+  }
+
+  sceneTest(
+    'a folded heading longer than the fold shows its first rows in the preview',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, `# ${'word '.repeat(500)}`, 'terminal')
+      const drawn = await shapeOf(ui)
+      expect(drawn[0]).toMatch(/^● ╭─+╮$/)
+      expect(drawn[1]).toMatch(/^ {2}│ word word/)
+      expect(drawn.at(-2)).toMatch(/^ {2}╰─+╯$/)
+      expect(drawn.at(-1)).toMatch(/^ {2}… \d+ more lines/)
+      await ui.unmount()
+    },
+  )
+
+  sceneTest(
+    'a folded alert longer than the fold shows its edge, its word and its first rows',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, `> [!NOTE]\n> ${'word '.repeat(500)}`, 'terminal')
+      const drawn = await shapeOf(ui)
+      expect(drawn[0]).toMatch(/^● ╭─ Note ─+╮$/)
+      expect(drawn[1]).toMatch(/^ {2}│ word word/)
+      expect(drawn.at(-2)).toMatch(/^ {2}╰─+╯$/)
+      expect(drawn.at(-1)).toMatch(/^ {2}… \d+ more lines/)
+      await ui.unmount()
+    },
+  )
+
+  sceneTest('a quote keeps a no-break space at both ends of its text', {}, async (_world, $) => {
+    const ui = await mountReply($, '>\u00a0word\u00a0', 'terminal')
+    expect((await textNodes(ui, /word/)).map(leafText)).toEqual(['\u00a0word\u00a0'])
+    await ui.unmount()
+  })
+
+  sceneTest(
+    'the uppercase headingStyle leaves inline code and the link host as written',
+    { options: { headingStyle: 'uppercase' } },
+    async (_world, $) => {
+      const text = '# Run `npm ci` then see [the docs](https://example.com/Docs)'
+      const ui = await mountReply($, text, 'terminal')
+      expect(await shapeOf(ui)).toEqual(['● RUN npm ci THEN SEE THE DOCS (example.com)'])
       await ui.unmount()
     },
   )

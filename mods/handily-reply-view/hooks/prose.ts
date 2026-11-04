@@ -4,7 +4,9 @@ import {
   listOf,
   proseRunsOf,
   quoteOf,
+  withoutEdgeSpaces,
   type AlertKind,
+  type ListEntry,
   type ListLine,
   type ListMark,
 } from './blocks'
@@ -36,7 +38,6 @@ const NESTED_LINK_DEFINITION = /^[\s>]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+[\s>]*)*\[[
 const LIST_ITEM = /^( *)([-*+]|\d{1,9}[.)])(?: +(.*))?$/
 const INDENTED = /^(?: {4}|\t)/
 const INDENTED_AT_ALL = /^\s/
-const TALLIED_FROM_TASKS = 3
 
 function isBlank(line: string): boolean {
   return line.trim() === ''
@@ -115,18 +116,20 @@ function drawn(line: ListLine): ProsePart {
 }
 
 function paragraphParts(unit: Unit): ProsePart[] | null {
-  const texts = unit.lines.map((line) => line.trim())
+  const texts = unit.lines.map(withoutEdgeSpaces)
   if (!texts.every(isSimpleLine)) return null
   return texts.map((text) => drawn({ indent: 0, marker: '', mark: 'none', text }))
 }
 
+function isSimpleEntry(entry: ListEntry): boolean {
+  return entry.kind === 'tally' || isSimpleLine(entry.line.text)
+}
+
 function listParts(unit: Unit, doneGlyph: string): ProsePart[] | null {
   if (hasParagraphAfterBlank(unit)) return null
-  const list = listOf(unit.lines, doneGlyph)
-  if (list === null || !list.lines.every((line) => isSimpleLine(line.text))) return null
-  const lines = list.lines.map(drawn)
-  if (list.tasks < TALLIED_FROM_TASKS) return lines
-  return [...lines, { kind: 'tally', done: list.done, total: list.tasks }]
+  const entries = listOf(unit.lines, doneGlyph)
+  if (entries === null || !entries.every(isSimpleEntry)) return null
+  return entries.map((entry) => (entry.kind === 'line' ? drawn(entry.line) : entry))
 }
 
 function headingParts(unit: Unit): ProsePart[] | null {

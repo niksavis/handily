@@ -17,6 +17,10 @@ const ATX_OPENING = /^ {0,3}(#{1,6})(?=[ \t]|$)(.*)$/
 const CLOSING_SEQUENCE = /(?:^|[ \t]+)#+$/
 const EDGE_SPACES = /^[ \t]+|[ \t]+$/g
 
+export function withoutEdgeSpaces(text: string): string {
+  return text.replace(EDGE_SPACES, '')
+}
+
 export function headingOf(line: string): Heading | null {
   const found = ATX_OPENING.exec(line)
   const marks = found?.[1]
@@ -32,7 +36,8 @@ export type ListMark = 'none' | 'bullet' | 'number' | 'open' | 'done'
 
 export type ListLine = { indent: number; marker: string; mark: ListMark; text: string }
 
-export type ListModel = { lines: ListLine[]; tasks: number; done: number }
+export type ListEntry =
+  { kind: 'line'; line: ListLine } | { kind: 'tally'; done: number; total: number }
 
 type OpenItem = { content: number; indent: number; text: number; kind: string; hasText: boolean }
 
@@ -45,6 +50,7 @@ const OPEN_MARK = '[ ]'
 const DEEPEST_INDENTED_LEVEL = 4
 const CODE_INDENT = 4
 const FIRST_NUMBER = 1
+const TALLIED_FROM_TASKS = 3
 
 function isBlank(line: string): boolean {
   return line.trim() === ''
@@ -78,7 +84,9 @@ function startsBlock(text: string): boolean {
 }
 
 function interrupts(number: string | undefined, content: string): boolean {
-  return content.trim() !== '' && (number === undefined || Number(number) === FIRST_NUMBER)
+  return (
+    withoutEdgeSpaces(content) !== '' && (number === undefined || Number(number) === FIRST_NUMBER)
+  )
 }
 
 export function interruptsText(line: string): boolean {
@@ -86,12 +94,17 @@ export function interruptsText(line: string): boolean {
   return item !== null && interrupts(item[3], item[5] ?? '')
 }
 
-export function listOf(lines: readonly string[], doneGlyph: string): ListModel | null {
+export function listOf(lines: readonly string[], doneGlyph: string): ListEntry[] | null {
   const open: OpenItem[] = []
-  const drawn: ListLine[] = []
+  const entries: ListEntry[] = []
   let afterText = false
   let tasks = 0
   let done = 0
+  const endList = () => {
+    if (tasks >= TALLIED_FROM_TASKS) entries.push({ kind: 'tally', done, total: tasks })
+    tasks = 0
+    done = 0
+  }
   for (const line of lines) {
     if (isBlank(line)) {
       afterText = false
@@ -100,9 +113,9 @@ export function listOf(lines: readonly string[], doneGlyph: string): ListModel |
     const item = LIST_ITEM_PARTS.exec(line)
     if (item === null) {
       const owner = open.at(-1)
-      const text = line.trim()
+      const text = withoutEdgeSpaces(line)
       if (owner?.hasText !== true || startsBlock(text)) return null
-      drawn.push({ indent: owner.text, marker: '', mark: 'none', text })
+      entries.push({ kind: 'line', line: { indent: owner.text, marker: '', mark: 'none', text } })
       afterText = true
       continue
     }
@@ -117,18 +130,20 @@ export function listOf(lines: readonly string[], doneGlyph: string): ListModel |
     if (indent >= (parent?.content ?? 0) + CODE_INDENT || spaces > CODE_INDENT) return null
     const kind = number === undefined ? marker : marker.slice(-1)
     const startsList = sibling?.kind !== kind
-    const isEmpty = content.trim() === ''
+    const isEmpty = withoutEdgeSpaces(content) === ''
     if (startsList && afterText && !interrupts(number, content)) return null
     const level = open.length + 1
+    if (level === 1 && startsList) endList()
     const deepest = open[DEEPEST_INDENTED_LEVEL - 1]
     const shownIndent =
       level > DEEPEST_INDENTED_LEVEL ? (deepest?.indent ?? 0) : (parent?.text ?? 0)
     const task = TASK.exec(content)
+    if (task !== null && number !== undefined) return null
     const mark = markOf(number, task)
     const shown = shownMarker(mark, level, marker, doneGlyph)
-    const text = (task === null ? content : (task[2] ?? '')).trim()
+    const text = withoutEdgeSpaces(task === null ? content : (task[2] ?? ''))
     if (startsBlock(text)) return null
-    drawn.push({ indent: shownIndent, marker: shown, mark, text })
+    entries.push({ kind: 'line', line: { indent: shownIndent, marker: shown, mark, text } })
     open.push({
       content: indent + marker.length + Math.max(spaces, 1),
       indent: shownIndent,
@@ -140,7 +155,8 @@ export function listOf(lines: readonly string[], doneGlyph: string): ListModel |
     if (mark === 'done') done += 1
     afterText = !isEmpty
   }
-  return { lines: drawn, tasks, done }
+  endList()
+  return entries
 }
 
 export type AlertKind = 'note' | 'tip' | 'important' | 'warning' | 'caution'
@@ -191,7 +207,7 @@ export function quoteOf(lines: readonly string[]): QuoteModel | null {
     const row = quoteRowOf(line)
     const last = rows.at(-1)
     if (row.depth === 0 || CODE_START.test(row.text)) return null
-    const text = row.text.trim()
+    const text = withoutEdgeSpaces(row.text)
     if (startsBlock(text)) return null
     if (last !== undefined && row.depth < last.depth && last.text !== '') return null
     rows.push({ depth: row.depth, text })
@@ -239,12 +255,16 @@ type Cell = { grapheme: string; run: Run; columns: number }
 
 type Stretch = { isSpace: boolean; cells: Cell[] }
 
+function isBreakable(grapheme: string, run: Run): boolean {
+  return grapheme === ' ' && !run.mark.isCode
+}
+
 function stretchesOf(runs: readonly Run[]): Stretch[] {
   const stretches: Stretch[] = []
   for (const run of runs) {
     for (const grapheme of graphemesOf(run.text)) {
       const cell = { grapheme, run, columns: displayWidth(grapheme) }
-      const isSpace = grapheme === ' '
+      const isSpace = isBreakable(grapheme, run)
       const last = stretches.at(-1)
       if (last?.isSpace === isSpace) last.cells.push(cell)
       else stretches.push({ isSpace, cells: [cell] })
@@ -266,7 +286,7 @@ function runsOfCells(cells: readonly Cell[]): Run[] {
 }
 
 function withoutTrailingSpaces(cells: readonly Cell[]): Cell[] {
-  const end = cells.findLastIndex((cell) => cell.grapheme !== ' ')
+  const end = cells.findLastIndex((cell) => !isBreakable(cell.grapheme, cell.run))
   return cells.slice(0, end + 1)
 }
 
