@@ -13,8 +13,6 @@ import { displayWidth } from './width'
 
 export type TurnLine = { word: string; durationMs: number; endTime: string | undefined }
 
-export type BackgroundTask = { id: string; type: string }
-
 type FooterElements = Pick<ReplyElements, 'Box' | 'Text'>
 
 type LineEnd = { done: string; time: string }
@@ -30,10 +28,8 @@ const DAY_SECONDS = 24 * HOUR_SECONDS
 const TURN_LINE_ROW = 'turn_duration'
 const TURN_DURATION_ROW = 'turnDuration'
 const SHOWS_TURN_DURATION = { plugin: 'handily-reply-view', key: 'showsTurnDuration' } as const
-const BACKGROUND_TASKS = { plugin: 'handily-reply-view', key: 'backgroundTasks' } as const
 const WORK_VERSION = { plugin: 'handily-reply-view', key: 'workVersion' } as const
 const RUNNING_AGENT: readonly AgentStatus[] = ['pending', 'running', 'waiting']
-const AGENT_TASK = 'subagent'
 
 function engineDuration(ms: number): string {
   if (ms < MINUTE_SECONDS * SECOND) return `${String(Math.floor(ms / SECOND))}s`
@@ -148,14 +144,6 @@ export async function showsTurnDuration($: EngineInterface): Promise<boolean> {
   return (await $.state.get(SHOWS_TURN_DURATION)).value === true
 }
 
-export async function keepBackgroundTasks(
-  $: EngineInterface,
-  tasks: readonly BackgroundTask[] | undefined,
-): Promise<void> {
-  const kept = (tasks ?? []).filter((task) => task.type !== AGENT_TASK).map((task) => task.id)
-  await $.state.set(BACKGROUND_TASKS, kept)
-}
-
 export async function noteWorkChange($: EngineInterface): Promise<void> {
   const { value: version = 0 } = await $.state.get(WORK_VERSION)
   await $.state.set(WORK_VERSION, version + 1)
@@ -163,8 +151,6 @@ export async function noteWorkChange($: EngineInterface): Promise<void> {
 
 export async function isWorkRunning($: EngineInterface): Promise<boolean> {
   await $.state.get(WORK_VERSION)
-  const { value: tasks = [] } = await $.state.get(BACKGROUND_TASKS)
-  if (tasks.length > 0) return true
   const agents = await $.agent.list()
   return agents.some((agent) => RUNNING_AGENT.includes(agent.status))
 }

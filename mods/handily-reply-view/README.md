@@ -572,16 +572,14 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 - Claude Code draws the line itself in the ctrl+o view and with `--verbose`, when the
   `Show turn duration` setting of `/config` is off, and when the mode is off. The desktop app draws
   its own line.
-- While work of the session still runs, Claude Code draws every turn line, because its line then
-  waits for them or says that they still run. The mod counts this work:
-  - an agent or a teammate that `$.agent.list()` shows as `pending`, `running` or `waiting`;
-  - a background shell, monitor, workflow or other task in the in-flight list that Claude Code
-    hands to the `Stop` and `SubagentStop` hooks.
-- The mod checks the agents again when an agent ends a turn and when a task notification arrives.
-  It reads the task list again at the end of each turn. So after a background shell ends, Claude
-  Code draws the lines until the turn that its notification starts has ended. A task that starts
-  after the last turn ended, such as one that a subagent starts, does not show in that list. While
-  it runs, the line of the mod can say `done` where Claude Code says `still running`.
+- The mod does not see a background shell, a monitor or a workflow. While one of them still runs,
+  Claude Code says that it still runs, and the line of the mod can say `done`. The only list of
+  these tasks reaches the classic `Stop` hooks, and a security plugin of an organization can skip
+  the classic hooks of a mod.
+- While an agent or a teammate of the session still runs, Claude Code draws every turn line,
+  because its line then waits for the agents or says that they still run. An agent counts while
+  `$.agent.list()` shows it as `pending`, `running` or `waiting`. The mod checks the agents again
+  when an agent ends a turn and when a task notification arrives, and then draws its own line.
 
 ## Settings and the command
 

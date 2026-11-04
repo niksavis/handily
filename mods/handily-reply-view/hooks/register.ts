@@ -19,14 +19,12 @@ import {
   isEngineTurnLine,
   isTurnLineRow,
   isWorkRunning,
-  keepBackgroundTasks,
   keepChangedTurnDurationSetting,
   keepTurnDurationSetting,
   keepTurnEnd,
   noteWorkChange,
   showsTurnDuration,
   turnLine,
-  type BackgroundTask,
 } from './footer'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
@@ -304,17 +302,6 @@ async function recheckWork($: EngineInterface): Promise<void> {
   }
 }
 
-async function keepTasksOf(
-  $: EngineInterface,
-  tasks: readonly BackgroundTask[] | undefined,
-): Promise<void> {
-  try {
-    await keepBackgroundTasks($, tasks)
-  } catch (error) {
-    logFailure($, 'the background tasks were not kept', error)
-  }
-}
-
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   const { value = 'folded' } = await $.state.get({ plugin: 'handily-reply-view', key: 'folds', id })
   return value
@@ -467,6 +454,7 @@ export const register: Register = (on, options) => {
     const isTyped = e.origin.kind === 'composer' && e.agentId === undefined
     const appendedAt = await $.clock.now()
     const stored = await next(e)
+    if (e.origin.kind === 'task-notification') await recheckWork($)
     if (isTyped && stored.uuid !== undefined) {
       if (stored.message.isMeta !== true) {
         const text = promptTextOf(stored.message.content)
@@ -484,22 +472,9 @@ export const register: Register = (on, options) => {
     return stored
   })
 
-  on('classic.Stop', async ($, e, next) => {
-    const result = await next(e)
-    await keepTasksOf($, e.background_tasks)
-    return result
-  })
-
-  on('classic.SubagentStop', async ($, e, next) => {
-    const result = await next(e)
-    await keepTasksOf($, e.background_tasks)
-    return result
-  })
-
-  on('session.append', async ($, e, next) => {
+  on('session.append', { door: 'notice' }, async ($, e, next) => {
     const appendedAt = await $.clock.now()
     const stored = await next(e)
-    if (e.origin.kind === 'task-notification') await recheckWork($)
     if (stored.uuid !== undefined && isTurnLineRow(stored.message)) {
       try {
         await keepTurnEnd($, stored.uuid, appendedAt)

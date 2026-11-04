@@ -16,7 +16,6 @@ declare module 'claude-code' {
       submittedAt: StateFamily<number>
       endedAt: StateFamily<number>
       showsTurnDuration: boolean
-      backgroundTasks: string[]
       workVersion: number
       ready: { root: string }
       glyphs: ReplyViewGlyphs

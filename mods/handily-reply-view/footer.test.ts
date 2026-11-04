@@ -1,5 +1,6 @@
 import type { AgentInfo, AgentStatus, ConfigRow, ConfigValue, On, RenderPropsOf } from 'claude-code'
 import { describe, expect, mock, test, type Engine, type MockClock } from 'claude-code/testing'
+import { register } from './hooks/register'
 import { displayWidth } from './hooks/width'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -20,12 +21,6 @@ const US_TIME = new Intl.DateTimeFormat('en-US', TODAY).format(ENDED_AT)
 const DRAWN_BAKED = ['', `~✻~ ~Baked for ~=6m 20s=~ · done ~=${US_TIME}=`]
 const RUNNING: readonly AgentStatus[] = ['pending', 'running', 'waiting']
 const ENDED: readonly AgentStatus[] = ['idle', 'completed', 'failed', 'killed']
-const STOP_BASE = {
-  session_id: 's1',
-  transcript_path: '/work/t.jsonl',
-  cwd: '/work/app',
-  stop_hook_active: false,
-} as const
 
 type Surface = (typeof SURFACES)[number]
 
@@ -72,9 +67,7 @@ function engineBeneath(on: On, scene: Scene): World {
   })
   on('settings.read', () => ({ value: world.settings }))
   on('agent.list', () => ({ value: world.agents }))
-  on('classic.Stop', () => ({}))
   on('turn.complete', () => ({ text: '' }))
-  on('classic.SubagentStop', () => ({}))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.render', () => ENGINE_ROW)
   on('ui.toast', () => ({ value: undefined }))
@@ -161,15 +154,6 @@ async function sketchOf(ui: { drawn: () => Promise<unknown> }): Promise<string[]
 
 function unmarked(line: string): string {
   return line.replace(/[~=]/g, '')
-}
-
-function backgroundTask(task: Readonly<Record<string, string>>) {
-  return {
-    id: task.id ?? '',
-    type: task.type ?? '',
-    status: 'running',
-    description: 'npm test',
-  }
 }
 
 async function toggleReplies($: Engine): Promise<void> {
@@ -529,78 +513,68 @@ describe('the turn footer', () => {
     })
   }
 
-  footerTest(
-    'a waiting line with no waitingFor is drawn by the engine while an agent runs, and by the mod once its notification arrives',
-    {},
-    async (world, $) => {
-      world.agents = [agent('running')]
-      await appendTurnLine($)
-      const ui = await mountLine($, BAKED)
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
-      world.agents = [agent('completed')]
-      await $.session.append({
-        message: {
-          type: 'attachment',
-          name: 'queued_command',
-          role: 'user',
-          content: [{ type: 'text', text: 'the agent ended' }],
-        },
-        door: 'delivery',
-        origin: { kind: 'task-notification' },
-        uuid: 'notification-1',
-      })
-      expect(await sketchOf(ui)).toEqual(DRAWN_BAKED)
-      await ui.unmount()
-    },
-  )
-
-  for (const [what, raise] of [
+  for (const [door, message] of [
     [
-      'the turn ends',
-      ($: Engine, tasks: readonly Record<string, string>[]) =>
-        $.classic.Stop({ ...STOP_BASE, background_tasks: [...tasks].map(backgroundTask) }),
+      'delivery',
+      {
+        type: 'attachment',
+        name: 'queued_command',
+        role: 'user',
+        content: [{ type: 'text', text: 'the agent ended' }],
+      },
     ],
     [
-      'a subagent ends',
-      ($: Engine, tasks: readonly Record<string, string>[]) =>
-        $.classic.SubagentStop({
-          ...STOP_BASE,
-          agent_id: 'agent-1',
-          agent_transcript_path: '/work/a.jsonl',
-          agent_type: 'general-purpose',
-          background_tasks: [...tasks].map(backgroundTask),
-        }),
+      'prompt',
+      { type: 'user', role: 'user', content: [{ type: 'text', text: 'the agent ended' }] },
     ],
   ] as const) {
     footerTest(
-      `while a background shell runs when ${what} the engine draws the line, and the mod draws it once no task runs`,
+      `a waiting line with no waitingFor is drawn by the engine while an agent runs, and by the mod once its notification arrives at the ${door} door`,
       {},
-      async (_world, $) => {
+      async (world, $) => {
+        world.agents = [agent('running')]
         await appendTurnLine($)
         const ui = await mountLine($, BAKED)
-        expect(await sketchOf(ui)).toEqual(DRAWN_BAKED)
-        await raise($, [{ id: 'shell-1', type: 'shell' }])
         expect(await ui.drawn()).toEqual(ENGINE_ROW)
-        await raise($, [])
+        world.agents = [agent('completed')]
+        await $.session.append({
+          message: { ...message, content: [...message.content] },
+          door,
+          origin: { kind: 'task-notification' },
+          uuid: 'notification-1',
+        })
         expect(await sketchOf(ui)).toEqual(DRAWN_BAKED)
         await ui.unmount()
       },
     )
   }
+})
 
-  footerTest(
-    'a subagent among the background tasks holds the line only while the agent list shows it running',
-    {},
-    async (world, $) => {
-      world.agents = [agent('completed')]
-      await $.classic.Stop({
-        ...STOP_BASE,
-        background_tasks: [backgroundTask({ id: 'agent-1', type: 'subagent' })],
-      })
-      await appendTurnLine($)
-      const ui = await mountLine($, BAKED)
-      expect(await sketchOf(ui)).toEqual(DRAWN_BAKED)
-      await ui.unmount()
-    },
-  )
+type Registration = { event: string; matcher: unknown }
+
+function registrations(): Registration[] {
+  const found: Registration[] = []
+  const recorder = (event: string, ...rest: unknown[]) => {
+    found.push({ event, matcher: rest.length > 1 ? rest[0] : undefined })
+  }
+  register(recorder as unknown as On, {})
+  return found
+}
+
+function hasDoor(matcher: unknown): boolean {
+  return typeof matcher === 'object' && matcher !== null && 'door' in matcher
+}
+
+describe('the hooks that an organization security plugin skips', () => {
+  test('the mod registers no classic hook and no session.append hook without a door matcher', () => {
+    const found = registrations()
+    const skipped = found.filter(
+      (registration) =>
+        registration.event.startsWith('classic.') ||
+        (registration.event === 'session.append' && !hasDoor(registration.matcher)),
+    )
+    expect(skipped).toEqual([])
+    expect(found).toContainEqual({ event: 'session.append', matcher: { door: 'notice' } })
+    expect(found).toContainEqual({ event: 'ui.render', matcher: { component: 'TurnDuration' } })
+  })
 })
