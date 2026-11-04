@@ -53,6 +53,8 @@ declare module 'claude-code' {
       pin?: boolean
       /** list only: the maximum number of artifacts to return (default 25). */
       limit?: number
+      /** list only: the `next_page_token` a listing of the same scope gave, to list the artifacts after it. */
+      page_token?: string
       /** list: which listing to return. 'mine' is the default. The others are 'shared', 'all', 'types' and 'files' (with `url`). See **Calls**. */
       scope?: "mine" | "shared" | "all" | "types" | "files"
       /** list with scope 'types' only: limits the listing to the types whose title or description match this text best, ignoring case; a type that matches less well is left out, so a narrowed listing is not the whole catalog. Claude omits it when choosing a type for a request, unless a listing made without it says more types exist than it shows. */
@@ -530,7 +532,7 @@ declare module 'claude-code' {
     PushNotification: {
       /** The notification body. Keep it under 200 characters; mobile OSes truncate. */
       message: string
-      status: "proactive"
+      status?: "proactive"
     }
     Read: {
       /** The absolute path to the file to read */
@@ -557,6 +559,10 @@ declare module 'claude-code' {
       uri: string
     }
     ReadNotifications: {}
+    ReadWidgetContext: {
+      /** A view id as a reminder named it, to read only that view; omit it to read every held view. */
+      view?: string
+    }
     RemoteTrigger: {
       action: "list" | "get" | "create" | "update" | "run" | "create_webhook_trigger" | "list_runs" | "get_run_log"
       /** Required for get, update, run, and list_runs */
@@ -701,9 +707,9 @@ declare module 'claude-code' {
       message: string
     }
     ShareOnboardingGuide: {
-      /** 'check' (default): if ONBOARDING.md is present locally, uploads it to the most-recent guide (creates one if none exist); otherwise reports the existing link without uploading. 'update': upload to a specific guide by short_code. 'create': always make a new link. 'delete': remove a guide. */
+      /** 'check' (default): if ONBOARDING.md is present locally, uploads it to the most-recent guide (creates one if none exist); otherwise reports the existing link without uploading. 'update': upload to a specific guide by short_code. 'create': always make a new link. 'delete': remove the guide named by short_code; with no short_code, nothing is deleted and the user's guides are listed. */
       mode: "check" | "update" | "create" | "delete"
-      /** Short code of a specific guide to target (returned by a previous call). Honored by check, update, and delete — skips the org-wide lookup and targets this guide directly. */
+      /** Short code of one guide, from an earlier call's result. Required by delete. With check or update, targets that guide instead of the most recently updated one. */
       short_code?: string
     }
     ShowOnboardingRolePicker: {}
@@ -833,6 +839,22 @@ declare module 'claude-code' {
       /** Run ID of a prior Workflow invocation to resume from. Completed agent() calls with unchanged (prompt, opts) return their cached results instantly; only edited or new calls re-run. Same-session only. Stop the prior run first (TaskStop) before resuming. */
       resumeFromRunId?: string
     }
+    WrapUp: {
+      /** Two or three short sentences to the user, under 300 characters if you can: what is now true or changed, then where it stands, including what is not done or not verified. */
+      recap: string
+      /** The one decision that is the user's call, under 100 characters if you can: a choice, a go-ahead, an approval. No reason, no recommendation, no list of the options the buttons give. */
+      ask?: string
+      /** true when your work stops here until the user answers; omit when the answer can wait. */
+      blocked?: boolean
+      /** One or two buttons that answer ask, your recommendation first; a second only when it is a realistic alternative. Needs ask. */
+      actions?: Array<{
+        /** A reply: the button's text, which a click sends you as the user's message. 1-3 plain words, at most 24 characters ("Yes, fix 1", "Not now"). The first button is your pick, so no need to say so. Each word starts with a letter or digit. No quotes, code marks, arrows, emoji, @ or =. Write & only between blanks. */
+        label: string
+      } | {
+        /** One of the app's own buttons, which asks you to check this turn's changes (verify) or, on an open pull request, to fix its failing checks, address its requested changes or resolve its merge conflicts. The app shows it only while that applies, so prefer a reply. */
+        action: "verify" | "fix_ci" | "address_comments" | "resolve_conflicts"
+      }>
+    }
     Write: {
       /** The absolute path to the file to write (must be absolute, not relative) */
       file_path: string
@@ -914,6 +936,12 @@ declare module 'claude-code' {
       worktreeBranch?: string
       /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
       canContinueAgent?: boolean
+      /** @internal The subagent's TaskCreate and TaskUpdate calls that landed, in order: each call's tool, input and result text. The subagent writes the session's task list, and no other row of the main transcript shows these calls (not a stable consumer field) */
+      taskCalls?: Array<{
+        name: "TaskCreate" | "TaskUpdate"
+        input: unknown
+        result: string
+      }>
     } | {
       status: "async_launched"
       isAsync?: true
@@ -1146,6 +1174,7 @@ declare module 'claude-code' {
       truncated?: boolean
       total?: number
       total_at_least?: true
+      next_page_token?: string
       pins_enabled?: boolean
       scope?: "shared" | "all"
       external_listed?: true
@@ -2014,6 +2043,7 @@ declare module 'claude-code' {
       truncated?: boolean
       total?: number
       total_at_least?: true
+      next_page_token?: string
       pins_enabled?: boolean
       scope?: "shared" | "all"
       external_listed?: true
@@ -2882,6 +2912,7 @@ declare module 'claude-code' {
       truncated?: boolean
       total?: number
       total_at_least?: true
+      next_page_token?: string
       pins_enabled?: boolean
       scope?: "shared" | "all"
       external_listed?: true
@@ -3750,6 +3781,7 @@ declare module 'claude-code' {
       truncated?: boolean
       total?: number
       total_at_least?: true
+      next_page_token?: string
       pins_enabled?: boolean
       scope?: "shared" | "all"
       external_listed?: true
@@ -4535,6 +4567,10 @@ declare module 'claude-code' {
       persistedOutputSize?: number
       /** @internal True when stdout holds the first part of the persisted output, a line saying that the middle was left out, and then its last lines */
       stdoutHoldsOutputEnd?: boolean
+      /** @internal Path to a saved copy of the output that the command piped into tail */
+      tailInputPath?: string
+      /** @internal Model-facing note about the file at tailInputPath */
+      tailInputNote?: string
       /** @internal Tells the model that the kernel killed a process for lack of memory while the command ran */
       memoryLimitNote?: string
       /** @internal One line of advice for the model after a finished command, set by a rule in a feature flag */
@@ -4631,6 +4667,7 @@ declare module 'claude-code' {
       ownerDisplayName?: string
       isOwned?: boolean
       canEdit?: boolean
+      moveState?: "moving" | "moved"
     } | {
       method: "list_files"
       notice?: string
@@ -5181,14 +5218,6 @@ declare module 'claude-code' {
         /** Why the page could not be processed as an image; set only when base64 is empty */
         error?: string
       }>
-    } | {
-      type: "file_unchanged"
-      file: {
-        /** The path to the file */
-        filePath: string
-      }
-      /** Set when the dedup matched a startup-seeded entry (CLAUDE.md / nested memory) rather than a prior Read tool_result */
-      source?: "seeded"
     }
     ReadMcpResourceDirTool: {
       /** Direct children of the directory resource. Subdirectories appear with mimeType "inode/directory". */
@@ -5234,6 +5263,21 @@ declare module 'claude-code' {
       remaining: number
       /** RFC3339 timestamp, by this machine's clock, of when this call read the queue. Missing from results saved before this field existed. */
       read_at?: string
+    }
+    ReadWidgetContext: {
+      /** The views' shared text and images, or a note. */
+      blocks: Array<{
+        type: "text"
+        text: string
+      } | {
+        type: "image"
+        source: {
+          type: "base64"
+          media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+          data: string
+        }
+      }>
+      isError: boolean
     }
     RemoteTrigger: {
       status: number
@@ -5476,6 +5520,8 @@ declare module 'claude-code' {
       task: {
         id: string
         subject: string
+        /** The task's description as saved. It can differ from the tool_use input if Claude Code corrects a malformed call or a PreToolUse hook changes the input. Absent in results from older Claude Code versions. */
+        description?: string
       }
     }
     TaskGet: {
@@ -5566,6 +5612,8 @@ declare module 'claude-code' {
       durationMs: number
       /** The URL that was fetched */
       url: string
+      /** @internal The model may get the result as a search result that it can cite. */
+      citable?: true
       artifactRead?: {
         slug: string
         ver?: string
@@ -5614,6 +5662,10 @@ declare module 'claude-code' {
       warning?: string
       /** Set if syntax check failed */
       error?: string
+    }
+    WrapUp: {
+      /** Whether the call put a question to the user */
+      asks: boolean
     }
     Write: {
       /** Whether a new file was created or an existing file was updated */
