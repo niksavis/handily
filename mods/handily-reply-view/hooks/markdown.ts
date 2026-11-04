@@ -67,6 +67,7 @@ const DELIMITER = /[*_~`]/
 const PROVEN = 'x'
 const INDENTED_CODE = /^(?: {4}|\t)/
 const LEADING_SPACES = /^ */
+const PROSE_LINK = /(?<![\\!\]])\[([^[\]`\\<>]+)\]\(((?:[^()\s<>`\\]|\([^()\s<>`\\]*\))+)\)/g
 
 function escapedUnits(text: string): string {
   return Array.from(
@@ -114,7 +115,7 @@ export type Mark = {
   token: Token | null
 }
 
-export type Run = { text: string; mark: Mark }
+export type Run = { text: string; mark: Mark; href?: string; isDim?: boolean }
 
 type MarkFlag = Exclude<keyof Mark, 'token'>
 
@@ -259,6 +260,31 @@ export function isSimpleInline(line: string): boolean {
     .replace(UNDERSCORE_PAIR, PROVEN)
     .replace(LITERAL_DELIMITER, PROVEN)
   return !DELIMITER.test(plain)
+}
+
+export type LineSegment = { text: string; address: string | null }
+
+export function lineSegmentsOf(line: string): LineSegment[] {
+  const segments: LineSegment[] = []
+  let at = 0
+  for (const found of line.matchAll(PROSE_LINK)) {
+    if (found.index > at) segments.push({ text: line.slice(at, found.index), address: null })
+    segments.push({ text: found[1] ?? '', address: found[2] ?? '' })
+    at = found.index + found[0].length
+  }
+  if (at < line.length) segments.push({ text: line.slice(at), address: null })
+  return segments
+}
+
+export function isSimpleLine(line: string): boolean {
+  const segments = lineSegmentsOf(line)
+  const held = segments.map((segment) => (segment.address === null ? segment.text : PROVEN))
+  return (
+    isSimpleInline(held.join('')) &&
+    segments.every(
+      (segment) => isSimpleInline(segment.text) && !ENTITY_LIKE.test(segment.address ?? ''),
+    )
+  )
 }
 
 export function cellsOf(line: string): string[] {

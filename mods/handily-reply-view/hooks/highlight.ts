@@ -20,6 +20,10 @@ const URL_MARK = '://'
 const LETTER = /\p{L}/u
 const PATH_STARTS = ['/', './', '../', '~/'] as const
 const EXTENSION = /\.[A-Za-z0-9]{1,6}$/
+const ADDRESS_PART = String.raw`(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)`
+const IPV4_ADDRESS = new RegExp(String.raw`^${ADDRESS_PART}(?:\.${ADDRESS_PART}){3}$`)
+const SLASH_COMMAND = /^\/[A-Za-z][\w:-]*$/
+const NEVER_TOKENS: readonly RegExp[] = [IPV4_ADDRESS, SLASH_COMMAND]
 
 function isPath(core: string): boolean {
   if (!core.includes('/') || core.includes(URL_MARK) || !LETTER.test(core)) return false
@@ -28,6 +32,7 @@ function isPath(core: string): boolean {
 }
 
 export function tokenOf(core: string): Token | null {
+  if (NEVER_TOKENS.some((shape) => shape.test(core))) return null
   if (NUMBER_SHAPES.some((shape) => shape.test(core))) return 'number'
   return isPath(core) ? 'path' : null
 }
@@ -61,7 +66,7 @@ export function highlightedRuns(runs: readonly Run[]): Run[] {
       const token = takesToken(run.mark) && isInside ? span.token : null
       const last = highlighted.length > first ? highlighted.at(-1) : undefined
       if (last?.mark.token === token) last.text += character
-      else highlighted.push({ text: character, mark: { ...run.mark, token } })
+      else highlighted.push({ ...run, text: character, mark: { ...run.mark, token } })
       at += character.length
     }
   }

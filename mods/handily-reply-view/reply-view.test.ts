@@ -1496,13 +1496,13 @@ describe('fenced blocks', () => {
       ].join('\n')
       const ui = await mountReply($, reply(text))
       expect(await sketchOf(ui)).toEqual([
-        '● 1. Add:',
+        '● °1.°Add:',
         '',
         `  ~── python ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── python '.length)}~  [ copy ]`,
         '  def f():',
         '      return 1',
         '',
-        '  2. Run it',
+        '  °2.°Run it',
       ])
       await ui.press({ key: 'block-1-copy' })
       expect(world.copies).toEqual(['def f():\n    return 1'])
@@ -1716,7 +1716,7 @@ describe('/replies', () => {
       const table = await mountReply($, reply(TABLE), 'terminal', COLUMNS, 'message-2')
       expect(await table.drawn()).toEqual(ENGINE_ROW)
       expect(await commandText($)).toBe(
-        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, paths and inline code in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
+        'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, durations, versions and paths in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
       )
       expect((await sketchOf(ui)).at(-1)).toBe(
         edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'),
@@ -3932,6 +3932,8 @@ function laidOut(text: string): void {
       surface: 'terminal',
       drawsDiagrams: true,
       tableStyle: 'rules',
+      headingStyle: 'banner',
+      doneGlyph: '✓',
       highlight: true,
       palette: 'theme',
     },

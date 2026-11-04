@@ -1,5 +1,6 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
+import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
 import { drawFlowchart } from './flowchart'
 import { highlightedRuns } from './highlight'
 import type { Ink, InkedDrawing, InkRun } from './ink'
@@ -16,7 +17,14 @@ import {
 } from './markdown'
 import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
-import { holdsLinkDefinition, prosePartsOf, type DrawnLine, type ProsePart } from './prose'
+import {
+  holdsLinkDefinition,
+  prosePartsOf,
+  type DrawnLine,
+  type ProsePart,
+  type QuoteLine,
+} from './prose'
+import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole } from './roles'
 import { drawSequence } from './sequence'
 import {
   columnWidths,
@@ -56,7 +64,6 @@ const TAG_COLUMNS_AT_MOST = 24
 const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const DRAWINGS_KEPT = 32
-const DIAGRAM_CYCLE: readonly PaletteRole[] = ['diagramCycle1', 'diagramCycle2', 'diagramCycle3']
 const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> = {
   line: 'diagramLine',
   head: 'diagramHead',
@@ -65,6 +72,26 @@ const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> =
 const PROSE_SURFACE: RenderSurface = 'terminal'
 const BOX_SURFACE: RenderSurface = 'terminal'
 const MARGIN_SURFACE: RenderSurface = 'terminal'
+const MOCHA = 'catppuccin-mocha'
+const BOX_SIDES = '│  │'.length
+const QUOTE_BAR = '▌ '
+const HEADING_RULE = '━'
+const RULED_LEVELS = 2
+const MINOR_LEVEL = 3
+const MARKER_ROLES: Readonly<Record<DrawnLine['mark'], ReplyRole | undefined>> = {
+  none: undefined,
+  bullet: 'marker',
+  number: 'marker',
+  open: 'taskOpen',
+  done: 'taskDone',
+}
+const ALERT_ROLES: Readonly<Record<AlertKind, ReplyRole>> = {
+  note: 'alertNote',
+  tip: 'alertTip',
+  important: 'alertImportant',
+  warning: 'alertWarning',
+  caution: 'alertCaution',
+}
 
 export type DiagramDrawing = InkedDrawing & { name: string }
 
@@ -80,7 +107,7 @@ export type CopyLayout = { width: number; surface: RenderSurface; drawsDiagrams:
 
 export type ReplyElements = Pick<
   Elements[RenderSurface],
-  'Box' | 'Text' | 'Button' | 'Markdown' | 'Code'
+  'Box' | 'Text' | 'Button' | 'Markdown' | 'Code' | 'Link'
 >
 
 export type ReplyActions = {
@@ -95,6 +122,8 @@ export type ReplyLayout = {
   surface: RenderSurface
   drawsDiagrams: boolean
   tableStyle: TableStyle
+  headingStyle: HeadingStyle
+  doneGlyph: string
   highlight: boolean
   palette: PaletteSetting
 }
@@ -110,6 +139,8 @@ type Context = {
   surface: RenderSurface
   drawsDiagrams: boolean
   tableStyle: TableStyle
+  headingStyle: HeadingStyle
+  doneGlyph: string
   highlight: boolean
   palette: PaletteSetting
   drawsProse: boolean
@@ -172,28 +203,70 @@ function tokenColor(context: Context, mark: Mark): Color | undefined {
   return paint(context, mark.token)
 }
 
-function styledSpan(
-  context: Context,
-  text: string,
-  mark: Mark,
-  look: { color: Color | undefined; isBold: boolean },
-): CellChild {
+function roleColor(context: Context, role: ReplyRole): Color | undefined {
+  const look = ROLE_LOOKS[role]
+  return context.palette === MOCHA ? (look.mocha ?? look.key) : look.key
+}
+
+type SpanLook = {
+  color: Color | undefined
+  isBold: boolean
+  isDim?: boolean
+  isItalic?: boolean
+  isStrike?: boolean
+  isUnderline?: boolean
+}
+
+function styledSpan(context: Context, text: string, mark: Mark, look: SpanLook): CellChild {
   const style = {
     ...(look.color === undefined ? {} : { color: look.color }),
     ...(look.isBold ? { bold: true } : {}),
-    ...(mark.isLink ? { underline: true } : {}),
-    ...(mark.isItalic ? { italic: true } : {}),
-    ...(mark.isStrike ? { strikethrough: true } : {}),
+    ...(look.isDim === true ? { dimColor: true } : {}),
+    ...(mark.isLink || look.isUnderline === true ? { underline: true } : {}),
+    ...(mark.isItalic || look.isItalic === true ? { italic: true } : {}),
+    ...(mark.isStrike || look.isStrike === true ? { strikethrough: true } : {}),
   }
   return Object.keys(style).length === 0
     ? text
     : context.elements.Text({ ...style, children: text })
 }
 
-function proseColor(context: Context, mark: Mark): Color | undefined {
+function proseColor(context: Context, mark: Mark, base?: Color): Color | undefined {
   if (mark.isLink) return paint(context, 'link')
-  if (mark.isCode) return context.highlight ? paint(context, 'inlineCode') : undefined
-  return tokenColor(context, mark)
+  if (mark.isCode) return paint(context, 'inlineCode')
+  return tokenColor(context, mark) ?? base
+}
+
+type ProseLook = Omit<SpanLook, 'color' | 'isBold'> & { base?: Color; isBold?: boolean }
+
+function linkedSpans(
+  context: Context,
+  runs: readonly Run[],
+  spanOf: (run: Run) => CellChild,
+): CellChild[] {
+  const groups: { href: string | undefined; runs: Run[] }[] = []
+  for (const run of runs) {
+    const last = groups.at(-1)
+    if (last !== undefined && run.href !== undefined && last.href === run.href) last.runs.push(run)
+    else groups.push({ href: run.href, runs: [run] })
+  }
+  return groups.flatMap((group) =>
+    group.href === undefined
+      ? group.runs.map(spanOf)
+      : [context.elements.Link({ href: group.href, children: group.runs.map(spanOf) })],
+  )
+}
+
+function proseSpans(context: Context, runs: readonly Run[], look: ProseLook): CellChild[] {
+  const { base, isBold = false, ...flags } = look
+  return linkedSpans(context, runs, (run) =>
+    styledSpan(context, run.text, run.mark, {
+      ...flags,
+      color: proseColor(context, run.mark, base),
+      isBold: run.mark.isBold || isBold,
+      isDim: run.isDim === true || flags.isDim === true,
+    }),
+  )
 }
 
 function shownRuns(context: Context, runs: readonly Run[]): readonly Run[] {
@@ -205,15 +278,27 @@ function cutRuns(runs: readonly Run[], kept: number): Run[] {
   let left = kept
   for (const run of runs) {
     if (left <= 0) break
-    cut.push({ text: run.text.slice(0, left), mark: run.mark })
+    cut.push({ ...run, text: run.text.slice(0, left) })
     left -= run.text.length
   }
   return [...cut, { text: CUT_MARK, mark: PLAIN_MARK }]
 }
 
+function indentOf(context: Context, line: DrawnLine): string {
+  return ' '.repeat(Math.min(line.indent, Math.floor(context.width / 2)))
+}
+
 function leadOf(context: Context, line: DrawnLine): string {
-  const indent = ' '.repeat(Math.min(line.indent, Math.floor(context.width / 2)))
+  const indent = indentOf(context, line)
   return line.marker === '' ? indent : `${indent}${line.marker} `
+}
+
+function leadText(context: Context, line: DrawnLine): RenderElement {
+  const { Text } = context.elements
+  const role = MARKER_ROLES[line.mark]
+  if (role === undefined || line.marker === '') return Text({ children: leadOf(context, line) })
+  const marker = Text({ color: roleColor(context, role), children: line.marker })
+  return Text({ children: [indentOf(context, line), marker, ' '] })
 }
 
 function drawnLineElement(
@@ -223,12 +308,8 @@ function drawnLineElement(
   key: string,
 ): RenderElement {
   const { Box, Text } = context.elements
-  const spans = shownRuns(context, runs).map((run) =>
-    styledSpan(context, run.text, run.mark, {
-      color: proseColor(context, run.mark),
-      isBold: run.mark.isBold,
-    }),
-  )
+  const isDone = line.mark === 'done'
+  const spans = proseSpans(context, shownRuns(context, runs), { isDim: isDone, isStrike: isDone })
   const text = Text({ children: spans.length === 0 ? ' ' : spans })
   const lead = leadOf(context, line)
   if (lead === '') return Box({ key, children: text })
@@ -236,10 +317,215 @@ function drawnLineElement(
     key,
     flexDirection: 'row',
     children: [
-      Box({ width: displayWidth(lead), flexShrink: 0, children: Text({ children: lead }) }),
+      Box({ width: displayWidth(lead), flexShrink: 0, children: leadText(context, line) }),
       Box({ flexShrink: 1, children: text }),
     ],
   })
+}
+
+function drawsBoxes(context: Context): boolean {
+  return context.columns >= BLOCKS_BELOW_COLUMNS
+}
+
+function lineBox(context: Context, children: CellChild[], key: string): RenderElement {
+  const { Box, Text } = context.elements
+  return Box({ key, children: Text({ wrap: 'truncate-end', children }) })
+}
+
+function linesItem(context: Context, lines: readonly RenderElement[], key: string): ProseItem {
+  const column = (shown: RenderElement[]) =>
+    context.elements.Box({ key, flexDirection: 'column', children: shown })
+  return {
+    rows: lines.length,
+    whole: () => column([...lines]),
+    cut: (budget) => (budget <= 0 ? null : column(lines.slice(0, budget))),
+  }
+}
+
+type Frame = { top: RenderElement; bottom: RenderElement }
+
+function framedItem(
+  context: Context,
+  frame: Frame,
+  body: readonly RenderElement[],
+  key: string,
+): ProseItem {
+  const column = (shown: readonly RenderElement[]) =>
+    context.elements.Box({
+      key,
+      flexDirection: 'column',
+      children: [frame.top, ...shown, frame.bottom],
+    })
+  const edges = 2
+  return {
+    rows: body.length + edges,
+    whole: () => column(body),
+    cut: (budget) => (budget <= edges ? null : column(body.slice(0, budget - edges))),
+  }
+}
+
+function headingRole(level: number): ReplyRole | undefined {
+  if (level <= RULED_LEVELS) return 'heading'
+  return level === MINOR_LEVEL ? 'minorHeading' : undefined
+}
+
+function headingItem(
+  context: Context,
+  part: Extract<ProsePart, { kind: 'heading' }>,
+  key: string,
+): ProseItem {
+  const { Text } = context.elements
+  const style = context.headingStyle
+  const role = headingRole(part.level)
+  const color = role === undefined ? undefined : roleColor(context, role)
+  const isUpper = style === 'uppercase' && part.level === 1
+  const runs = isUpper
+    ? part.runs.map((run) =>
+        run.mark.isCode || run.isDim === true ? run : { ...run, text: run.text.toUpperCase() },
+      )
+    : part.runs
+  const isBanner = style === 'banner' && part.level <= RULED_LEVELS
+  const isBoxed = isBanner && part.level === 1 && drawsBoxes(context)
+  const look = {
+    base: color,
+    isBold: true,
+    isUnderline: style === 'underline' && part.level <= RULED_LEVELS,
+  }
+  const lines = wrappedRuns(runs, isBoxed ? context.width - BOX_SIDES : context.width)
+  const widest = Math.max(1, ...lines.map(runsWidth))
+  const edge = (text: string) => Text({ color, bold: true, children: text })
+  const textLines = lines.map((line, index) => {
+    const spans = proseSpans(context, line, look)
+    const children = isBoxed
+      ? [edge('│ '), ...spans, edge(`${' '.repeat(widest - runsWidth(line))} │`)]
+      : spans
+    return lineBox(context, children, `${key}-line-${String(index)}`)
+  })
+  if (isBoxed) {
+    const rule = RULE.repeat(widest + 2)
+    return framedItem(
+      context,
+      {
+        top: lineBox(context, [edge(`╭${rule}╮`)], `${key}-top`),
+        bottom: lineBox(context, [edge(`╰${rule}╯`)], `${key}-bottom`),
+      },
+      textLines,
+      key,
+    )
+  }
+  const rule = isBanner
+    ? [lineBox(context, [edge(HEADING_RULE.repeat(widest))], `${key}-rule`)]
+    : []
+  return linesItem(context, [...textLines, ...rule], key)
+}
+
+type BarRow = { depth: number; runs: Run[]; base?: Color }
+
+function barRows(context: Context, lines: readonly QuoteLine[]): BarRow[] {
+  const deepest = Math.max(Math.floor(context.width / 2 / QUOTE_BAR.length), 1)
+  return lines.flatMap((line) => {
+    const depth = Math.min(line.depth, deepest)
+    return wrappedRuns(line.runs, context.width - QUOTE_BAR.length * depth).map((runs) => ({
+      depth,
+      runs,
+    }))
+  })
+}
+
+function barItem(
+  context: Context,
+  rows: readonly BarRow[],
+  look: { bar: Color | undefined; text: ProseLook },
+  key: string,
+): ProseItem {
+  const { Box, Text } = context.elements
+  const drawn = rows.map((row, index) =>
+    lineBox(
+      context,
+      [
+        Text({ color: look.bar, children: QUOTE_BAR.repeat(row.depth) }),
+        ...proseSpans(context, row.runs, { ...look.text, base: row.base ?? look.text.base }),
+      ],
+      `${key}-row-${String(index)}`,
+    ),
+  )
+  const column = (shown: RenderElement[]) => Box({ key, flexDirection: 'column', children: shown })
+  return {
+    rows: drawn.length,
+    whole: () => column(drawn),
+    cut: (budget) => (budget <= 0 ? null : column(drawn.slice(0, budget))),
+  }
+}
+
+function quoteItem(
+  context: Context,
+  part: Extract<ProsePart, { kind: 'quote' }>,
+  key: string,
+): ProseItem {
+  return barItem(
+    context,
+    barRows(context, part.lines),
+    {
+      bar: roleColor(context, 'marker'),
+      text: { base: roleColor(context, 'quoteText'), isItalic: true },
+    },
+    key,
+  )
+}
+
+function alertItem(
+  context: Context,
+  part: Extract<ProsePart, { kind: 'alert' }>,
+  key: string,
+): ProseItem {
+  const { Text } = context.elements
+  const color = roleColor(context, ALERT_ROLES[part.alert])
+  const word = ALERT_WORDS[part.alert]
+  if (!drawsBoxes(context)) {
+    const wordRow = { depth: 1, runs: [{ text: word, mark: PLAIN_MARK }], base: color }
+    const body = barRows(
+      context,
+      part.lines.map((runs) => ({ depth: 1, runs })),
+    )
+    return barItem(context, [wordRow, ...body], { bar: color, text: {} }, key)
+  }
+  const inner = context.width - BOX_SIDES
+  const edge = (text: string) => Text({ color, children: text })
+  const body = part.lines.flatMap((runs) => wrappedRuns(runs, inner))
+  const top = `╭${RULE} ${word} ${RULE.repeat(Math.max(inner - displayWidth(word) - 1, 0))}╮`
+  return framedItem(
+    context,
+    {
+      top: lineBox(context, [edge(top)], `${key}-top`),
+      bottom: lineBox(context, [edge(`╰${RULE.repeat(inner + 2)}╯`)], `${key}-bottom`),
+    },
+    body.map((runs, index) =>
+      lineBox(
+        context,
+        [
+          edge('│ '),
+          ...proseSpans(context, runs, {}),
+          edge(`${' '.repeat(Math.max(inner - runsWidth(runs), 0))} │`),
+        ],
+        `${key}-line-${String(index)}`,
+      ),
+    ),
+    key,
+  )
+}
+
+function tallyItem(
+  context: Context,
+  part: Extract<ProsePart, { kind: 'tally' }>,
+  key: string,
+): ProseItem {
+  const { Text } = context.elements
+  const text = `${String(part.done)} of ${String(part.total)} done`
+  return linesItem(
+    context,
+    [lineBox(context, [Text({ dimColor: true, children: text })], `${key}-line`)],
+    key,
+  )
 }
 
 function drawnItem(context: Context, line: DrawnLine, key: string): ProseItem {
@@ -291,9 +577,20 @@ function proseItem(
   part: Exclude<ProsePart, { kind: 'blank' }>,
   key: string,
 ): ProseItem {
-  return part.kind === 'drawn'
-    ? drawnItem(context, part.line, key)
-    : markdownItem(context, shownText(part.text).split('\n'), key)
+  switch (part.kind) {
+    case 'drawn':
+      return drawnItem(context, part.line, key)
+    case 'engine':
+      return markdownItem(context, shownText(part.text).split('\n'), key)
+    case 'heading':
+      return headingItem(context, part, key)
+    case 'quote':
+      return quoteItem(context, part, key)
+    case 'alert':
+      return alertItem(context, part, key)
+    case 'tally':
+      return tallyItem(context, part, key)
+  }
 }
 
 function spacedItem(context: Context, item: ProseItem): ProseItem {
@@ -363,7 +660,7 @@ function prosePiece(context: Context, prose: Prose): Piece {
       },
     }
   }
-  return itemsPiece(context, proseItems(context, prosePartsOf(prose.lines)))
+  return itemsPiece(context, proseItems(context, prosePartsOf(prose.lines, context.doneGlyph)))
 }
 
 type Buttons = { element: RenderElement; columns: number }
@@ -499,7 +796,7 @@ function isHeading(role: CellRole): boolean {
 
 function cellColor(context: Context, mark: Mark, role: CellRole): Color | undefined {
   if (mark.isLink) return paint(context, 'link')
-  if (mark.isCode && context.highlight) return paint(context, 'inlineCode')
+  if (mark.isCode) return paint(context, 'inlineCode')
   if (isHeading(role)) return paint(context, 'tableHeader')
   return tokenColor(context, mark)
 }
@@ -764,12 +1061,12 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
       : [headingsBlock(context, look, titled)]
   const under = isOnTitle ? [] : buttonsUnder(context, actions, context.width)
   const column = (shown: readonly Drawing[]) =>
-    Box({
-      key: `${key}-blocks`,
-      flexDirection: 'column',
-      gap: 1,
-      children: shown.map((block) => block.element),
-    })
+    blocksColumn(
+      context.elements,
+      context.surface,
+      shown.map((block) => block.element),
+      `${key}-blocks`,
+    )
   return {
     rows: sum(blocks.map((block) => block.rows)) + blocks.length - 1 + under.length,
     whole: () => Box({ key, flexDirection: 'column', children: [column(blocks), ...under] }),
@@ -788,7 +1085,7 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
 }
 
 function frameOf(context: Context): TableFrame {
-  const isBoxed = context.surface === BOX_SURFACE && context.columns >= BLOCKS_BELOW_COLUMNS
+  const isBoxed = context.surface === BOX_SURFACE && drawsBoxes(context)
   return TABLE_FRAMES[isBoxed ? context.tableStyle : 'rules']
 }
 
@@ -950,14 +1247,16 @@ function titleWithButtons(
   }
 }
 
-function inkRole(ink: Ink): PaletteRole | undefined {
-  if (typeof ink === 'number') return DIAGRAM_CYCLE[ink % DIAGRAM_CYCLE.length]
-  return ink === 'plain' ? undefined : INK_ROLES[ink]
+function inkColor(context: Context, ink: Ink): Color | undefined {
+  if (typeof ink === 'number') {
+    const cycle = DIAGRAM_CYCLES[context.palette]
+    return cycle[ink % cycle.length]
+  }
+  return ink === 'plain' ? undefined : paint(context, INK_ROLES[ink])
 }
 
 function inkSpan(context: Context, run: InkRun): CellChild {
-  const role = inkRole(run.ink)
-  const color = role === undefined ? undefined : paint(context, role)
+  const color = inkColor(context, run.ink)
   return color === undefined ? run.text : context.elements.Text({ color, children: run.text })
 }
 
@@ -1130,10 +1429,15 @@ function blocksColumn(
   elements: ReplyElements,
   surface: RenderSurface,
   blocks: readonly RenderElement[],
+  key?: string,
 ): RenderElement {
   const { Box } = elements
-  if (surface !== MARGIN_SURFACE) return Box({ flexDirection: 'column', gap: 1, children: blocks })
+  const keyed = key === undefined ? {} : { key }
+  if (surface !== MARGIN_SURFACE) {
+    return Box({ ...keyed, flexDirection: 'column', gap: 1, children: blocks })
+  }
   return Box({
+    ...keyed,
     flexDirection: 'column',
     children: blocks.map((block, index) =>
       index === 0 ? block : Box({ flexDirection: 'column', marginTop: 1, children: block }),
@@ -1173,6 +1477,8 @@ export function replyTree(
     surface: layout.surface,
     drawsDiagrams: layout.drawsDiagrams,
     tableStyle: layout.tableStyle,
+    headingStyle: layout.headingStyle,
+    doneGlyph: layout.doneGlyph,
     highlight: layout.highlight,
     palette: layout.palette,
     drawsProse: layout.surface === PROSE_SURFACE && !blocks.some(isDefiningProse),

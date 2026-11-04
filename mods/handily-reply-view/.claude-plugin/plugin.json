@@ -35,10 +35,17 @@
       "options": ["rules", "box"],
       "default": "box"
     },
+    "headingStyle": {
+      "type": "string",
+      "title": "Heading style",
+      "description": "How a heading in a reply draws: a box around H1 and a rule under H2 (banner), bold in the heading colour (bold), bold with H1 and H2 underlined (underline), or bold with H1 in capitals (uppercase).",
+      "options": ["banner", "bold", "underline", "uppercase"],
+      "default": "banner"
+    },
     "highlight": {
       "type": "string",
       "title": "Highlight",
-      "description": "Whether numbers, durations, versions, paths and inline code in a reply's prose and cells draw in their own colours (on) or as plain text (off).",
+      "description": "Whether numbers, durations, versions and paths in a reply's prose and cells draw in their own colours (on) or as plain text (off). Inline code keeps the colour that Claude Code gives it.",
       "options": ["on", "off"],
       "default": "on"
     }
