@@ -240,6 +240,22 @@ export function withCallAsked(
   )
 }
 
+function withoutAsk(call: BoardAgentCall): BoardAgentCall {
+  const { asked, ...settled } = call
+  return asked === undefined ? call : settled
+}
+
+export function withCallSettled(agents: Agents, agentId: string, callId: string): BoardAgent[] {
+  return agents.map((agent) =>
+    agent.id === agentId
+      ? {
+          ...agent,
+          running: agent.running.map((call) => (call.id === callId ? withoutAsk(call) : call)),
+        }
+      : agent,
+  )
+}
+
 function firstAnswerLine(answer: string): string {
   const line = answer.split('\n').find((one) => one.trim() !== '') ?? ''
   return maskedCredentials(line.trim()).slice(0, ANSWER_CHARS_AT_MOST)
@@ -546,6 +562,10 @@ export async function noteAsk(
 ): Promise<void> {
   const at = await host.now()
   await host.change((agents) => withCallAsked(agents, agentId, callId, { at, target }))
+}
+
+export async function noteSettled(host: AgentHost, agentId: string, callId: string): Promise<void> {
+  await host.change((agents) => withCallSettled(agents, agentId, callId))
 }
 
 export async function noteRunStart(host: AgentHost, agentId: string): Promise<void> {

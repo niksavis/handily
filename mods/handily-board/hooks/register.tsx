@@ -8,6 +8,7 @@ import type {
   Register,
   RenderSurface,
   SessionEndReason,
+  TelemetryLogInput,
   Timer,
   ToolCheckInput,
   ToolCheckResult,
@@ -49,6 +50,7 @@ import {
   noteAgentList,
   noteAsk,
   noteRunStart,
+  noteSettled,
   noteSpawn,
   newPulses,
   noteTurnEnd,
@@ -269,6 +271,7 @@ const BOARD_NOT_OPENED = refusedParts(
 const REDRAW_INTERVAL_MS = 10_000
 const CLOCK_INTERVAL_MS = 1_000
 const ENGINE_ORIGIN = 'engine'
+const DECISION_EVENT = 'tool_decision'
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
   'composer',
   'bridge',
@@ -999,6 +1002,26 @@ async function forgetAsks(
   const forgotten = [...attention.asks].filter(([callId, ask]) => isForgotten(callId, ask))
   for (const [callId] of forgotten) attention.asks.delete(callId)
   if (forgotten.some(([, ask]) => ask.agentId !== undefined)) await refreshStatus($, attention)
+}
+
+function decidedCallId(e: TelemetryLogInput): string | undefined {
+  if (e.to !== 'collector' || e.event !== DECISION_EVENT) return undefined
+  const { tool_use_id: callId } = e.attributes
+  return typeof callId === 'string' ? callId : undefined
+}
+
+async function settleAsk(
+  $: EngineInterface,
+  attention: AttentionKeep,
+  callId: string,
+): Promise<void> {
+  const ask = attention.asks.get(callId)
+  if (ask === undefined) return
+  attention.asks.delete(callId)
+  if (ask.agentId === undefined) return
+  await noteSettled(agentHostOf($), ask.agentId, callId)
+  $.ui.invalidate('ui.render')
+  await refreshStatus($, attention)
 }
 
 async function untilSettled<R>(
@@ -1847,6 +1870,20 @@ export const register: Register = (on, options) => {
     return verdict
   }).catch(($, e, next) => {
     $.ui.log(`handily-board: the check was not kept (${next.error.kind})`, { to: 'debug' })
+    return next(e)
+  })
+
+  on('telemetry.log', { to: 'collector' }, async ($, e, next) => {
+    const callId = next.origin.plugin === ENGINE_ORIGIN ? decidedCallId(e) : undefined
+    if (callId !== undefined) {
+      try {
+        await settleAsk($, attention, callId)
+      } catch (error) {
+        $.ui.log(`handily-board: the settled ask was not cleared: ${String(error)}`, {
+          to: 'debug',
+        })
+      }
+    }
     return next(e)
   })
 

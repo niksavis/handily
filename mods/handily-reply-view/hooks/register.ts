@@ -15,6 +15,18 @@ import {
 } from './draw'
 import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
 import { DEFAULT_HEADING_STYLE, HEADING_STYLES, isHeadingStyle, type HeadingStyle } from './blocks'
+import {
+  endTimeOf,
+  isEngineTurnLine,
+  isTurnLineRow,
+  isWorkRunning,
+  keepChangedTurnDurationSetting,
+  keepTurnDurationSetting,
+  keepTurnEnd,
+  noteWorkChange,
+  showsTurnDuration,
+  turnLine,
+} from './footer'
 import { blocksOf } from './markdown'
 import { framedPrompt } from './prompt'
 import {
@@ -32,6 +44,7 @@ import {
 import { keepChangedPaletteSetting, keepPaletteSetting, shownPalette } from './palette-setting'
 import { drawRail } from './rail-pane'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
+import { timeFormatOf } from './turn-time'
 import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
 
 const COMMAND = 'replies'
@@ -288,6 +301,14 @@ async function keepPrompt($: EngineInterface, site: RailSite, kept: KeptPrompt):
   await redrawRail($, site)
 }
 
+async function recheckWork($: EngineInterface): Promise<void> {
+  try {
+    await noteWorkChange($)
+  } catch (error) {
+    logFailure($, 'the turn lines did not check the running work again', error)
+  }
+}
+
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   const { value = 'folded' } = await $.state.get({ plugin: 'handily-reply-view', key: 'folds', id })
   return value
@@ -319,6 +340,7 @@ export const register: Register = (on, options) => {
     await logRefusedSettings($)
     await keepGlyphSetting($)
     await keepPaletteSetting($)
+    await keepTurnDurationSetting($)
     return next(e)
   })
 
@@ -327,6 +349,7 @@ export const register: Register = (on, options) => {
     if (result.deny !== undefined) return result
     await keepChangedGlyphSetting($, e)
     await keepChangedPaletteSetting($, e)
+    await keepChangedTurnDurationSetting($, e.key)
     return result
   })
 
@@ -377,6 +400,7 @@ export const register: Register = (on, options) => {
       endTurn(railSite.rail, await $.clock.now())
       await redrawRail($, railSite)
     }
+    if (e.agentId !== undefined) await recheckWork($)
     return next(e)
   })
 
@@ -440,6 +464,7 @@ export const register: Register = (on, options) => {
     const isTyped = e.origin.kind === 'composer' && e.agentId === undefined
     const appendedAt = await $.clock.now()
     const stored = await next(e)
+    if (e.origin.kind === 'task-notification') await recheckWork($)
     if (isTyped && stored.uuid !== undefined) {
       if (stored.message.isMeta !== true) {
         const text = promptTextOf(stored.message.content)
@@ -455,6 +480,44 @@ export const register: Register = (on, options) => {
       }
     }
     return stored
+  })
+
+  on('session.append', { door: 'notice' }, async ($, e, next) => {
+    const appendedAt = await $.clock.now()
+    const stored = await next(e)
+    if (stored.uuid !== undefined && isTurnLineRow(stored.message)) {
+      try {
+        await keepTurnEnd($, stored.uuid, appendedAt)
+      } catch (error) {
+        logFailure($, `the end time of turn line ${stored.uuid} was not kept`, error)
+      }
+    }
+    return stored
+  })
+
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    if (isEngineTurnLine(e)) return next(e)
+    let drawn: RenderElement | null = null
+    try {
+      const { value: mode = defaultMode } = await $.state.get(MODE)
+      const isOwn = mode === 'on' && (await showsTurnDuration($)) && !(await isWorkRunning($))
+      const format = isOwn ? await timeFormatOf($) : undefined
+      if (format !== undefined) {
+        drawn = turnLine(
+          $.ui.resolve(e),
+          {
+            word: e.props.word,
+            durationMs: e.props.durationMs,
+            endTime: await endTimeOf($, e.requestId, format),
+          },
+          e.viewport?.columns ?? DEFAULT_COLUMNS,
+          await shownPalette($, e.surface),
+        )
+      }
+    } catch (error) {
+      logFailure($, `the engine draws turn line ${e.requestId}`, error)
+    }
+    return drawn ?? next(e)
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
