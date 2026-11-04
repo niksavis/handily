@@ -6,6 +6,56 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.17.0 - 2026-11-04
+
+### Added
+
+- **The line at the end of a turn shows its duration and end time in colour.** On the terminal
+  handily-reply-view draws the line such as `✻ Baked for 6m 20s · done 2:32 PM` again. It keeps
+  the word of Claude Code, and the duration and the end time draw in the number colour of the
+  palette. The end time has the format of Claude Code: the `Time format` and `timeZone` settings
+  and the locale of `LC_ALL`, `LC_TIME` or `LANG`. A line whose end time the mod did not see
+  shows no time. When the line is wider than the screen, `done` drops first, then the end time.
+  Claude Code still draws the line while an agent of the session runs, in the ctrl+o view, when
+  `Show turn duration` is off, when the `Time format` is a pattern, when `/replies` is off and on
+  the desktop app. The line of the mod does not show the token budget or the count of hidden
+  messages. It does not see a background shell, monitor or workflow, so it can say done while one
+  still runs (handily-0noeh).
+- **Headings, lists, task lists, quotes, alerts and links in replies draw in their own look.** On
+  the terminal handily-reply-view now draws these blocks itself, by `docs/mocks.md` 15.1. A
+  heading draws without its `#` marks. The new `headingStyle` setting picks its look: `banner`,
+  the default, draws a box around H1 and a `━` rule under H2, and `bold`, `underline` and
+  `uppercase` draw no box. A stored value outside the options draws `banner`, and the debug log
+  names the value. A list draws the bullets `•`, `◦` and `▪` by its level, and level 4 and
+  deeper keep the indent of level 4. A done task draws `[✓]` with its text dim and struck
+  through, and a task list of 3 or more tasks ends with a dim line such as `2 of 5 done`. Each
+  level of a quote draws its own `▌`. A quote that starts with `[!NOTE]`, `[!TIP]`,
+  `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` draws as a box with the kind as a word on its top
+  edge, and under 40 columns as a bar with the word on its first line. A link draws as a link,
+  and the host of its address follows in dim when the text differs from the address. A
+  `javascript:` or `data:` address draws as text. The `highlight` setting `off` leaves these
+  looks as they are. With the `catppuccin-mocha` palette on a dark theme, the boxes of a diagram
+  cycle 6 colours, and with the theme keys 3. On the desktop app prose keeps the look of Claude
+  Code. A block that the view cannot prove simple keeps the look of Claude Code, and copy and
+  copy as text copy the same text as before (handily-36bsx.2).
+- **Diagrams draw rounded boxes, coloured messages and styled labels.** In reply-view, every box
+  of a flowchart and every participant of a sequence diagram has rounded corners. A decision and
+  a note keep square corners. A sequence diagram with lifelines longer than 10 rows draws its
+  participants again at the bottom in the same colours. The line and the head of a message take
+  the colour of the sender. A label with `**bold**`, `_italic_` or `<u>underline</u>` draws in
+  that style, and its width counts without the marks. The note of a diagram that is too wide
+  ends with "Widen the window or shorten the labels." (handily-36bsx.3)
+
+### Changed
+
+- **Inline code keeps its colour with the highlight off, and addresses and slash commands stay
+  plain.** In handily-reply-view the `highlight` setting `off` now leaves out only the colours of
+  numbers, durations, versions and paths. Inline code keeps `permission`, as Claude Code draws
+  it and as mock P5 shows. An IPv4 address such as `192.168.1.1` and a slash command such as
+  `/config` no longer highlight. When a narrow table draws one block for each row on the
+  terminal, one blank line now stands between the blocks, made the same way as the blank line
+  between the blocks of a reply (handily-8wxdwh).
+
 ## handily-board 0.19.1 - 2026-11-04
 
 ### Fixed
