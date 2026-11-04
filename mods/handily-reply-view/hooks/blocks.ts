@@ -89,6 +89,36 @@ function interrupts(number: string | undefined, content: string): boolean {
   )
 }
 
+function kindOf(marker: string, number: string | undefined): string {
+  return number === undefined ? marker : marker.slice(-1)
+}
+
+export type TopList = { lines: string[]; blanksBefore: number }
+
+export function topListsOf(lines: readonly string[]): TopList[] {
+  const lists: TopList[] = []
+  let content = -1
+  let kind: string | undefined
+  for (const line of lines) {
+    const item = LIST_ITEM_PARTS.exec(line)
+    const indent = (item?.[1] ?? '').length
+    const isTop = item !== null && (content < 0 || indent < content)
+    const itemKind = item === null ? undefined : kindOf(item[2] ?? '', item[3])
+    const last = lists.at(-1)
+    if (last === undefined || (isTop && itemKind !== kind)) {
+      const hasBlank = last !== undefined && last.lines.at(-1) === ''
+      if (hasBlank) last.lines.pop()
+      lists.push({ lines: [], blanksBefore: hasBlank ? 1 : 0 })
+    }
+    if (isTop) {
+      kind = itemKind
+      content = indent + (item[2] ?? '').length + Math.max((item[4] ?? '').length, 1)
+    }
+    lists.at(-1)?.lines.push(line)
+  }
+  return lists
+}
+
 export function interruptsText(line: string): boolean {
   const item = LIST_ITEM_PARTS.exec(line)
   return item !== null && interrupts(item[3], item[5] ?? '')
@@ -128,7 +158,7 @@ export function listOf(lines: readonly string[], doneGlyph: string): ListEntry[]
     while (open.length > 0 && indent < (open.at(-1)?.content ?? 0)) sibling = open.pop()
     const parent = open.at(-1)
     if (indent >= (parent?.content ?? 0) + CODE_INDENT || spaces > CODE_INDENT) return null
-    const kind = number === undefined ? marker : marker.slice(-1)
+    const kind = kindOf(marker, number)
     const startsList = sibling?.kind !== kind
     const isEmpty = withoutEdgeSpaces(content) === ''
     if (startsList && afterText && !interrupts(number, content)) return null

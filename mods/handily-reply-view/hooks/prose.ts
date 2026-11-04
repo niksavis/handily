@@ -4,6 +4,7 @@ import {
   listOf,
   proseRunsOf,
   quoteOf,
+  topListsOf,
   withoutEdgeSpaces,
   type AlertKind,
   type ListEntry,
@@ -90,7 +91,16 @@ function unitsOf(lines: readonly string[]): Unit[] {
     }
     blanks = 0
   }
-  return units
+  return units.flatMap(eachList)
+}
+
+function eachList(unit: Unit): Unit[] {
+  if (unit.kind !== 'list') return [unit]
+  return topListsOf(unit.lines).map((list, index) => ({
+    kind: 'list',
+    lines: list.lines,
+    blanksBefore: index === 0 ? unit.blanksBefore : list.blanksBefore,
+  }))
 }
 
 function hasParagraphAfterBlank(unit: Unit): boolean {

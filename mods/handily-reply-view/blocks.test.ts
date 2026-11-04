@@ -755,11 +755,51 @@ describe('the block review findings (handily-36bsx.2)', () => {
         '  [ ] b',
         '  [ ] c',
         '  1 of 3 done',
+        '',
         '  [✓] d',
         '  [✓] e',
         '  [ ] f',
         '  2 of 3 done',
       ])
+      await ui.unmount()
+    },
+  )
+
+  sceneTest(
+    'an ordered task list goes to the engine on its own, and the unordered task list after a blank line draws with its marks, its tally and one blank line by a top margin',
+    {},
+    async (_world, $) => {
+      const ordered = '1. [x] build\n2. [ ] ship'
+      const ui = await mountReply($, `${ordered}\n\n- [x] a\n- [x] b\n- [ ] c`, 'terminal')
+      expect(await markdownTexts(ui)).toEqual([ordered])
+      expect(await shapeOf(ui)).toEqual([
+        '● 1. [x] build',
+        '  2. [ ] ship',
+        '',
+        '  [✓] a',
+        '  [✓] b',
+        '  [ ] c',
+        '  2 of 3 done',
+      ])
+      const tree = await ui.drawn()
+      expect(nodesOf(tree).filter((node) => node.props?.marginTop === 1)).toHaveLength(1)
+      expect(nodesOf(tree).filter((node) => node.props?.gap !== undefined)).toEqual([])
+      await ui.unmount()
+    },
+  )
+
+  sceneTest(
+    'a reply that ends with an alert box ends at the bottom edge of the box, with no row or margin after it',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, 'Para.\n\n> [!TIP]\n> Run `npm ci` first.', 'terminal')
+      const drawn = await shapeOf(ui)
+      expect(drawn).toHaveLength(5)
+      expect(drawn.at(-1)).toMatch(/^ {2}╰─+╯$/)
+      const tree = await ui.drawn()
+      const after = (node: Node) =>
+        node.props?.marginBottom !== undefined || node.props?.paddingBottom !== undefined
+      expect(nodesOf(tree).filter(after)).toEqual([])
       await ui.unmount()
     },
   )
