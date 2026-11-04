@@ -657,8 +657,9 @@ the tests:
 
 - A wait is the same wait that the agent rows show as `needs you`: an ask of a subagent that is
   not settled after 3 seconds. One wait names the agent and the call. Two or more waits show
-  their count. An agent that the engine lists as `waiting` (`on hold`) is no wait, and an ask
-  that the auto mode classifier settles before 3 seconds sets no line.
+  their count. An agent that the engine lists as `waiting` (`on hold`) is no wait. An ask that
+  is settled before 3 seconds, by you or by the auto mode classifier, sets no line, also when
+  the call then runs longer.
 - The line never names the context, because the Claude Code status line already shows it. A
   context of 80 percent or more shows `high` on the Session line of the board.
 - The board clears the line when nothing waits, and while the `this session` tab is shown and
@@ -685,9 +686,10 @@ app needs you: Claude waits for permission: Bash npm test
 - Each wait sends at most one notice. The board decides at the 3 second mark. A wait that starts
   while the `this session` tab is shown and placed sends no notice, also when the tab closes
   later.
-- An ask that is settled before 3 seconds, such as an ask that the auto mode classifier settles
-  in about 0.6 seconds, sends no notice. A classifier that takes longer than 3 seconds looks like
-  a wait, because Claude Code gives a mod no event for an open permission dialog.
+- An ask that is settled before 3 seconds sends no notice, also when the call then runs longer.
+  An ask is settled when Claude Code records the decision for the call. You settle it in the
+  dialog, or the auto mode classifier settles it with no dialog. The next section names the
+  record.
 - Claude Code sends the notice through the notification channel of your settings
   (`preferredNotifChannel`). When it reports that it sent nothing, for example on the desktop
   app, with notifications turned off, or when a hook refused it, the board shows the same text as
@@ -798,14 +800,16 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   the row says `needs you`, the header counts it, and the Session line counts it as a wait.
   Docked, the row gets a second line, `waits for: permission ·` and the call. Inline, that text
   is in the tool column.
-- The mark clears when the call ends, because it ran or because the answer refused it, and when
-  the turn of the agent ends. An ask that the auto mode classifier settles before 3 seconds, as
-  it does in about 0.6 seconds (measured on Claude Code 2.1.312), never shows `needs you`.
-- Claude Code gives a mod no event when a permission dialog opens or when its answer comes. So
-  the board reads an ask that is not settled after 3 seconds as a wait for you. An allowed call
-  ends only after it ran. While it runs, the row still says `needs you`. A call that the
-  classifier allows and that then runs longer than 3 seconds also shows `needs you` until it
-  ends.
+- The mark clears when Claude Code records the decision for the call, the telemetry record
+  `tool_decision`. The record comes when you answer the dialog, or when the auto mode classifier
+  answers with no dialog. It needs no telemetry setting. The board reads the record as it goes
+  to the collector, and passes it on unchanged. The mark also clears when the call ends and when
+  the turn of the agent ends.
+- So an ask that is settled before 3 seconds never shows `needs you`, also when the call then
+  runs longer. A probe on Claude Code 2.1.318 measured the record 11 ms after an approval in the
+  dialog, and 0.4 seconds after the check in auto mode.
+- Claude Code gives a mod no event when a permission dialog opens. So the board reads an ask
+  that has no decision after 3 seconds as a wait for you.
 - The tool column shows `▸` and the call that runs now, or the last call. Below 36 columns the
   tool column is left out. Docked, a failed agent gets a second line, `failed after` its last
   call. Inline, that text is in the tool column.
