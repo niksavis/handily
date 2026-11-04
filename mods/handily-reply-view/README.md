@@ -3,14 +3,15 @@
 `reply-view` makes long replies of Claude short and structured on the screen. On the terminal it
 draws every reply. A reply longer than 30 lines folds to its first lines. A markdown table draws
 in a full box, with a double rule under its header and a rule between its rows. The `tableStyle`
-setting `rules` draws rules between its columns only. Numbers, durations, versions, paths and
-inline code in the prose and the cells of a reply draw in their own colours. The `highlight`
-setting `off` draws them as plain text. Each table and each fenced code block gets a `copy`
-button. A mermaid flowchart or sequence diagram draws as a diagram, with a `copy` button
-for its source and a `copy drawing` button for the drawing. Each prompt that you type opens under
-a coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view off
-and on for the session. The model still reads the full reply and the prompt as you typed it. Only
-the screen changes.
+setting `rules` draws rules between its columns only. Numbers, durations, versions and paths in
+the prose and the cells of a reply draw in their own colours, and inline code draws in the code
+colour of Claude Code. The `highlight` setting `off` draws the numbers, durations, versions and
+paths as plain text. Each table and each fenced code block gets a `copy` button. A mermaid
+flowchart or sequence diagram draws as a diagram, with a `copy` button for its source and a
+`copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
+labelled `you`, so you find it when you scroll. `/replies` switches the view off and on for the
+session. The model still reads the full reply and the prompt as you typed it. Only the screen
+changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -171,9 +172,9 @@ header line or its last row, so the buttons go under it:
 
 On a screen narrower than 40 columns, a table that does not fit draws each row as a block. The
 view also draws blocks when a column of the table would get fewer than 6 cells. The first cell is
-the bold title of the block, and each other cell is a `label: value` line. The buttons stand on
-the title of the first block when they fit there, and otherwise on a line of their own under the
-last block:
+the bold title of the block, and each other cell is a `label: value` line. One blank line stands
+between two blocks. The buttons stand on the title of the first block when they fit there, and
+otherwise on a line of their own under the last block:
 
 ```text
   task-pane  [ copy ] [ copy as text ]
@@ -231,11 +232,15 @@ paragraphs, list items and table cells. At 80 columns a reply looks like this:
 - A path has a `/`, a letter, no `://`, and a leading `/`, `./`, `../` or `~/`, a trailing `/` or
   an extension of 1 to 6 letters or digits. `and/or`, `I/O`, `TCP/IP`, `24/7`, `1/2`, `src/gen`,
   a bare `README.md` and `https://x.y/z` stay plain.
+- An IPv4 address, such as `192.168.1.1`, stays plain. So does a slash and one word, such as
+  `/config` or `/tmp`, because it reads as a slash command. `/usr/bin`, `/tmp/` and `/a.md` are
+  paths.
 - Inline code draws in `permission`, with no other colour inside it.
 - A token never starts inside a word: the `3` in `f(3)` stays plain.
 
-The `highlight` setting `off` leaves out only these colours. Inline code then draws plain, and
-the view still draws every reply. The highlight changes no width and no copied text.
+The `highlight` setting `off` leaves out only the colours of numbers, durations, versions and
+paths. Inline code keeps `permission`, as Claude Code draws it, and the view still draws every
+reply. The highlight changes no width and no copied text.
 
 On the terminal the view draws paragraphs and list items itself. A list item keeps its marker as
 Claude wrote it, such as `-` or `1.`, and a nested item keeps its indent, at most half the width
@@ -545,13 +550,13 @@ again only when its list changes, and no other row of the transcript draws again
 
 ## Settings and the command
 
-| Setting        | Default | Use                                                                                                         |
-| -------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
-| `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                               |
-| `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source               |
-| `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type                   |
-| `tableStyle`   | `box`   | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns                       |
-| `highlight`    | `on`    | `on` draws numbers, durations, versions, paths and inline code in their own colours. `off` draws them plain |
+| Setting        | Default | Use                                                                                            |
+| -------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `mode`         | `on`    | The mode when a session starts: `on` or `off`                                                  |
+| `diagrams`     | `on`    | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source  |
+| `diagramHints` | `off`   | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type      |
+| `tableStyle`   | `box`   | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns          |
+| `highlight`    | `on`    | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain |
 
 | Command                  | Effect                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------- |

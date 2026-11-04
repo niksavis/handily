@@ -38,7 +38,7 @@
     "highlight": {
       "type": "string",
       "title": "Highlight",
-      "description": "Whether numbers, durations, versions, paths and inline code in a reply's prose and cells draw in their own colours (on) or as plain text (off).",
+      "description": "Whether numbers, durations, versions and paths in a reply's prose and cells draw in their own colours (on) or as plain text (off). Inline code keeps the colour that Claude Code gives it.",
       "options": ["on", "off"],
       "default": "on"
     }

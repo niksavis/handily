@@ -192,7 +192,7 @@ function styledSpan(
 
 function proseColor(context: Context, mark: Mark): Color | undefined {
   if (mark.isLink) return paint(context, 'link')
-  if (mark.isCode) return context.highlight ? paint(context, 'inlineCode') : undefined
+  if (mark.isCode) return paint(context, 'inlineCode')
   return tokenColor(context, mark)
 }
 
@@ -499,7 +499,7 @@ function isHeading(role: CellRole): boolean {
 
 function cellColor(context: Context, mark: Mark, role: CellRole): Color | undefined {
   if (mark.isLink) return paint(context, 'link')
-  if (mark.isCode && context.highlight) return paint(context, 'inlineCode')
+  if (mark.isCode) return paint(context, 'inlineCode')
   if (isHeading(role)) return paint(context, 'tableHeader')
   return tokenColor(context, mark)
 }
@@ -764,12 +764,12 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
       : [headingsBlock(context, look, titled)]
   const under = isOnTitle ? [] : buttonsUnder(context, actions, context.width)
   const column = (shown: readonly Drawing[]) =>
-    Box({
-      key: `${key}-blocks`,
-      flexDirection: 'column',
-      gap: 1,
-      children: shown.map((block) => block.element),
-    })
+    blocksColumn(
+      context.elements,
+      context.surface,
+      shown.map((block) => block.element),
+      `${key}-blocks`,
+    )
   return {
     rows: sum(blocks.map((block) => block.rows)) + blocks.length - 1 + under.length,
     whole: () => Box({ key, flexDirection: 'column', children: [column(blocks), ...under] }),
@@ -1130,10 +1130,15 @@ function blocksColumn(
   elements: ReplyElements,
   surface: RenderSurface,
   blocks: readonly RenderElement[],
+  key?: string,
 ): RenderElement {
   const { Box } = elements
-  if (surface !== MARGIN_SURFACE) return Box({ flexDirection: 'column', gap: 1, children: blocks })
+  const keyed = key === undefined ? {} : { key }
+  if (surface !== MARGIN_SURFACE) {
+    return Box({ ...keyed, flexDirection: 'column', gap: 1, children: blocks })
+  }
   return Box({
+    ...keyed,
     flexDirection: 'column',
     children: blocks.map((block, index) =>
       index === 0 ? block : Box({ flexDirection: 'column', marginTop: 1, children: block }),
