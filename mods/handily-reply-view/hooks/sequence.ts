@@ -1,12 +1,29 @@
-import { MOST_ROWS, shown, tick, widest, type LayoutMeter } from './flowchart'
+import {
+  MOST_ROWS,
+  ROUNDED_CORNERS,
+  shown,
+  shownLabel,
+  tick,
+  tooWide,
+  widestLabel,
+  type LayoutMeter,
+} from './flowchart'
 import {
   BLANK,
   drawingOf,
+  fittedLabel,
   inkRunsOf,
+  markedLabel,
+  PLAIN_LOOKS,
+  plainLabel,
+  prefixed,
+  relabelled,
   type Ink,
   type InkedCell,
   type InkedDrawing,
   type InkRun,
+  type Label,
+  type Looks,
 } from './ink'
 import type {
   Message,
@@ -20,7 +37,7 @@ import type {
   Stroke,
 } from './mermaid'
 import { wrapCell } from './table'
-import { displayWidth, fitted, graphemesOf, padToWidth } from './width'
+import { displayWidth, graphemesOf } from './width'
 
 export type SequenceDrawing = InkedDrawing
 
@@ -49,6 +66,7 @@ const NOTE_DOWN = '│'
 const NOTE_ACROSS = '─'
 const LOOP_TOP = '┐'
 const LOOP_BOTTOM = '┘'
+const LONG_LIFELINE_ROWS = 10
 
 const STROKES: Readonly<Record<Stroke, { across: string; down: string }>> = {
   solid: { across: '─', down: '│' },
@@ -61,10 +79,10 @@ const HEADS: Readonly<Record<Exclude<MessageHead, 'none'>, { right: string; left
   open: { right: '▷', left: '◁' },
 }
 
-type Box = { lines: string[]; width: number; height: number }
+type Box = { lines: Label[]; width: number; height: number }
 
 type Step =
-  { kind: 'event'; at: number; event: SequenceEvent } | { kind: 'row'; depth: number; text: string }
+  { kind: 'event'; at: number; event: SequenceEvent } | { kind: 'row'; depth: number; text: Label }
 
 type Reach = { low: number; high: number; left: number; right: number }
 
@@ -73,7 +91,8 @@ type Layout = {
   left: number
   right: number
   height: number
-  labels: string[][]
+  foot: number | null
+  labels: Label[][]
 }
 
 type Parts = {
@@ -98,7 +117,7 @@ function refusal(reason: string): Refusal {
 class Grid {
   private readonly rows = new Map<number, Map<number, InkedCell>>()
 
-  put(row: number, col: number, text: string, ink: Ink): void {
+  put(row: number, col: number, text: string, ink: Ink, looks: Looks = PLAIN_LOOKS): void {
     const cells = this.cellsOf(row)
     let at = col
     let pending = ''
@@ -108,13 +127,25 @@ class Grid {
         const before = cells.get(at - 1)
         if (at === col) pending += grapheme
         else
-          cells.set(at - 1, { glyph: `${before?.glyph ?? ''}${grapheme}`, ink: before?.ink ?? ink })
+          cells.set(at - 1, {
+            glyph: `${before?.glyph ?? ''}${grapheme}`,
+            ink: before?.ink ?? ink,
+            looks: before?.looks ?? looks,
+          })
         continue
       }
-      cells.set(at, { glyph: pending + grapheme, ink })
+      cells.set(at, { glyph: pending + grapheme, ink, looks })
       pending = ''
-      if (columns > 1) cells.set(at + 1, { glyph: '', ink })
+      if (columns > 1) cells.set(at + 1, { glyph: '', ink, looks })
       at += columns
+    }
+  }
+
+  putLabel(row: number, col: number, label: Label, ink: Ink): void {
+    let at = col
+    for (const run of label.runs) {
+      this.put(row, at, run.text, ink, run.looks)
+      at += displayWidth(run.text)
     }
   }
 
@@ -134,36 +165,36 @@ class Grid {
   }
 }
 
-function boxOf(label: readonly string[]): Box {
-  const lines = label.length === 0 ? [''] : label.map(shown)
-  return { lines, width: widest(lines) + BOX_PADDING, height: lines.length + 2 }
+function boxOf(label: readonly Label[]): Box {
+  const lines = label.length === 0 ? [plainLabel('')] : [...label]
+  return { lines, width: widestLabel(lines) + BOX_PADDING, height: lines.length + 2 }
 }
 
-function textOf(event: SequenceEvent): string[] {
-  const lines = event.text.map(shown).filter((line) => line.trim() !== '')
+function textOf(event: SequenceEvent): Label[] {
+  const lines = event.text.map(shownLabel).filter((line) => line.text.trim() !== '')
   if (event.kind === 'note' || event.number === null) return lines
   const number = `${String(event.number)}.`
   const [first, ...rest] = lines
-  return [first === undefined ? number : `${number} ${first}`, ...rest]
+  return [first === undefined ? plainLabel(number) : prefixed(`${number} `, first), ...rest]
 }
 
 class Labels {
-  private readonly wraps: Map<number, string[]>[]
+  private readonly wraps: Map<number, Label[]>[]
   private readonly least: (number | undefined)[]
   readonly widest: number
 
   constructor(
-    private readonly texts: readonly string[][],
+    private readonly texts: readonly Label[][],
     private readonly meter: LayoutMeter,
   ) {
-    this.wraps = texts.map(() => new Map<number, string[]>())
+    this.wraps = texts.map(() => new Map<number, Label[]>())
     this.least = texts.map(() => undefined)
-    this.widest = Math.max(1, ...texts.map(widest))
+    this.widest = Math.max(1, ...texts.map(widestLabel))
   }
 
-  at(index: number, wrap: number | null): string[] {
+  at(index: number, wrap: number | null): Label[] {
     const text = this.texts[index] ?? []
-    if (wrap === null || wrap >= widest(text)) return text
+    if (wrap === null || wrap >= widestLabel(text)) return text
     const lines = this.wrapped(index, wrap)
     if (lines.length <= Math.max(MOST_LABEL_LINES, text.length)) return lines
     return this.wrapped(index, this.leastOf(index))
@@ -175,7 +206,7 @@ class Labels {
     const text = this.texts[index] ?? []
     const most = Math.max(MOST_LABEL_LINES, text.length)
     let low = 1
-    let high = Math.max(widest(text), 1)
+    let high = Math.max(widestLabel(text), 1)
     while (low < high) {
       const middle = Math.floor((low + high) / 2)
       if (this.wrapped(index, middle).length <= most) high = middle
@@ -185,12 +216,14 @@ class Labels {
     return low
   }
 
-  private wrapped(index: number, width: number): string[] {
+  private wrapped(index: number, width: number): Label[] {
     const wraps = this.wraps[index]
     const known = wraps?.get(width)
     if (known !== undefined) return known
     tick(this.meter)
-    const lines = (this.texts[index] ?? []).flatMap((line) => wrapCell(line, width))
+    const lines = (this.texts[index] ?? []).flatMap((line) =>
+      relabelled(line, wrapCell(line.text, width)),
+    )
     wraps?.set(width, lines)
     return lines
   }
@@ -200,12 +233,12 @@ function sectionWord(block: SequenceBlock): string {
   return block.kind === 'par' ? 'and' : 'else'
 }
 
-function rowText(word: string, label: readonly string[], depth: number, width: number): string {
-  const text = label.map(shown).join(' ').trim()
-  if (text === '') return word
+function rowText(word: string, label: readonly string[], depth: number, width: number): Label {
+  const text = markedLabel(label.map(shown).join(' ').trim())
+  if (text.text === '') return plainLabel(word)
   const ends = displayWidth(ROW_HEAD) + 1 + ROW_TAIL_AT_LEAST + 2 * DEPTH_INDENT * depth
   const room = width - ends - displayWidth(`${word}: `)
-  return `${word}: ${fitted(text, Math.max(room, 1))}`
+  return prefixed(`${word}: `, fittedLabel(text, Math.max(room, 1)))
 }
 
 function blockEnd(block: SequenceBlock): number {
@@ -287,12 +320,12 @@ function noteReach(placement: NotePlacement, low: number, high: number, width: n
   }
 }
 
-function noteReachOf(note: Note, places: readonly number[], label: string[]): Reach {
+function noteReachOf(note: Note, places: readonly number[], label: Label[]): Reach {
   return noteReach(note.placement, Math.min(...places), Math.max(...places), boxOf(label).width)
 }
 
-function loopReach(place: number, label: string[]): Reach {
-  const width = widest(label)
+function loopReach(place: number, label: Label[]): Reach {
+  const width = widestLabel(label)
   const right = width === 0 ? LOOP_COLUMNS : LOOP_LABEL_OFFSET - 1 + width
   return { low: place, high: place, left: -1, right }
 }
@@ -301,12 +334,12 @@ function isLoop(places: readonly number[]): boolean {
   return places[0] === places[1]
 }
 
-function reachOf(event: SequenceEvent, places: readonly number[], label: string[]): Reach | null {
+function reachOf(event: SequenceEvent, places: readonly number[], label: Label[]): Reach | null {
   if (event.kind === 'note') return noteReachOf(event, places, label)
   return isLoop(places) ? loopReach(places[0] ?? 0, label) : null
 }
 
-function stepHeight(step: Step, label: string[], places: number[]): number {
+function stepHeight(step: Step, label: Label[], places: number[]): number {
   if (step.kind === 'row') return 1
   if (step.event.kind === 'note') return Math.max(label.length, 1) + 2
   if (isLoop(places)) return Math.max(label.length, LOOP_ROWS)
@@ -329,7 +362,7 @@ function layoutOf(parts: Parts, wrap: number | null): Layout {
     const place = places[at] ?? []
     const reach = reachOf(event, place, label)
     if (reach === null) {
-      atLeast(Math.min(...place), widest(label) + LABEL_ROOM)
+      atLeast(Math.min(...place), widestLabel(label) + LABEL_ROOM)
       return
     }
     reaches.push(reach)
@@ -350,43 +383,46 @@ function layoutOf(parts: Parts, wrap: number | null): Layout {
     left = Math.min(left, (lifelines[reach.low] ?? 0) - reach.left)
     right = Math.max(right, (lifelines[reach.high] ?? 0) + reach.right)
   }
-  let height = Math.max(...boxes.map((box) => box.height))
+  const header = Math.max(...boxes.map((box) => box.height))
+  let height = header
   for (const step of steps) {
     tick(meter)
     if (step.kind === 'row') {
-      const least = displayWidth(ROW_HEAD) + displayWidth(step.text) + 1 + ROW_TAIL_AT_LEAST
+      const least = displayWidth(ROW_HEAD) + displayWidth(step.text.text) + 1 + ROW_TAIL_AT_LEAST
       right = Math.max(right, left + 2 * DEPTH_INDENT * step.depth + least - 1)
     }
     const at = step.kind === 'event' ? step.at : -1
     height += stepHeight(step, labels[at] ?? [], places[at] ?? [])
   }
-  return { lifelines, left, right, height, labels }
+  const foot = height - header > LONG_LIFELINE_ROWS ? height : null
+  if (foot !== null) height += header
+  return { lifelines, left, right, height, foot, labels }
 }
 
-function drawBox(grid: Grid, box: Box, top: number, left: number, port: number, ink: Ink) {
+function drawBox(grid: Grid, box: Box, top: number, left: number, ink: Ink) {
+  const [topLeft, topRight, bottomLeft, bottomRight] = ROUNDED_CORNERS
   const across = NOTE_ACROSS.repeat(box.width - 2)
-  grid.put(top, left, `┌${across}┐`, ink)
+  grid.put(top, left, `${topLeft}${across}${topRight}`, ink)
   box.lines.forEach((line, index) => {
-    const row = `${NOTE_DOWN} ${padToWidth(line, box.width - 4)} ${NOTE_DOWN}`
-    grid.put(top + 1 + index, left, row, ink)
+    grid.put(top + 1 + index, left, `${NOTE_DOWN}${' '.repeat(box.width - 2)}${NOTE_DOWN}`, ink)
+    grid.putLabel(top + 1 + index, left + 2, line, ink)
   })
-  grid.put(top + box.height - 1, left, `└${across}┘`, ink)
-  grid.put(top + box.height - 1, port, PORT_BELOW, ink)
+  grid.put(top + box.height - 1, left, `${bottomLeft}${across}${bottomRight}`, ink)
 }
 
-function drawNote(grid: Grid, layout: Layout, top: number, reach: Reach, label: string[]): void {
+function drawNote(grid: Grid, layout: Layout, top: number, reach: Reach, label: Label[]): void {
   const left = (layout.lifelines[reach.low] ?? 0) - reach.left
   const right = (layout.lifelines[reach.high] ?? 0) + reach.right
-  const lines = label.length === 0 ? [''] : label
+  const lines = label.length === 0 ? [plainLabel('')] : label
   const inner = right - left - 1
-  const indent = Math.floor((inner - 2 - widest(lines)) / 2)
+  const indent = Math.floor((inner - 2 - widestLabel(lines)) / 2)
   const bottom = top + lines.length + 1
   grid.put(top, left, `┌${NOTE_ACROSS.repeat(inner)}┐`, 'line')
   grid.put(bottom, left, `└${NOTE_ACROSS.repeat(inner)}┘`, 'line')
   lines.forEach((line, index) => {
-    const text = padToWidth(' '.repeat(indent) + line, inner - 2)
     grid.put(top + 1 + index, left, NOTE_DOWN, 'line')
-    grid.put(top + 1 + index, left + 1, ` ${text} `, 'plain')
+    grid.put(top + 1 + index, left + 1, ' '.repeat(inner), 'plain')
+    grid.putLabel(top + 1 + index, left + 2 + indent, line, 'plain')
     grid.put(top + 1 + index, right, NOTE_DOWN, 'line')
   })
   for (const lifeline of layout.lifelines) {
@@ -396,29 +432,32 @@ function drawNote(grid: Grid, layout: Layout, top: number, reach: Reach, label: 
   }
 }
 
-function putHead(
-  grid: Grid,
-  row: number,
-  col: number,
-  head: MessageHead,
-  side: Side,
-  stroke: Stroke,
-) {
-  if (head === 'none') grid.put(row, col, STROKES[stroke].across, 'line')
-  else grid.put(row, col, HEADS[head][side], 'head')
+type Arrow = { head: MessageHead; side: Side; stroke: Stroke; sender: number }
+
+function putHead(grid: Grid, row: number, col: number, arrow: Arrow) {
+  const { head, side, stroke, sender } = arrow
+  grid.put(row, col, head === 'none' ? STROKES[stroke].across : HEADS[head][side], sender)
 }
 
-function drawLoop(grid: Grid, top: number, lifeline: number, event: Message, label: string[]) {
+function drawLoop(
+  grid: Grid,
+  top: number,
+  place: number,
+  lifeline: number,
+  event: Message,
+  label: Label[],
+) {
   const { across, down } = STROKES[event.stroke]
   const rows = Math.max(label.length, LOOP_ROWS)
-  grid.put(top, lifeline + 1, `${across}${across}${LOOP_TOP}`, 'line')
+  grid.put(top, lifeline + 1, `${across}${across}${LOOP_TOP}`, place)
   for (let row = 1; row < rows - 1; row++) {
-    grid.put(top + row, lifeline + LOOP_COLUMNS, down, 'line')
+    grid.put(top + row, lifeline + LOOP_COLUMNS, down, place)
   }
-  putHead(grid, top + rows - 1, lifeline + 1, event.head, 'left', event.stroke)
-  grid.put(top + rows - 1, lifeline + 2, `${across}${LOOP_BOTTOM}`, 'line')
+  const arrow: Arrow = { head: event.head, side: 'left', stroke: event.stroke, sender: place }
+  putHead(grid, top + rows - 1, lifeline + 1, arrow)
+  grid.put(top + rows - 1, lifeline + 2, `${across}${LOOP_BOTTOM}`, place)
   label.forEach((line, index) => {
-    grid.put(top + index, lifeline + LOOP_LABEL_OFFSET, line, 'plain')
+    grid.putLabel(top + index, lifeline + LOOP_LABEL_OFFSET, line, 'plain')
   })
 }
 
@@ -428,35 +467,37 @@ function drawMessage(
   top: number,
   event: Message,
   places: number[],
-  label: string[],
+  label: Label[],
 ): void {
   const [from = 0, to = 0] = places
   const low = Math.min(from, to)
   const high = Math.max(from, to)
   const start = layout.lifelines[low] ?? 0
   const end = layout.lifelines[high] ?? 0
-  const column = Math.floor((start + (layout.lifelines[low + 1] ?? end) - widest(label)) / 2)
+  const column = Math.floor((start + (layout.lifelines[low + 1] ?? end) - widestLabel(label)) / 2)
   label.forEach((line, index) => {
-    grid.put(top + index, column, line, 'plain')
+    grid.putLabel(top + index, column, line, 'plain')
   })
   const row = top + label.length
   const crossed = new Set(layout.lifelines.slice(low + 1, high))
   const { across } = STROKES[event.stroke]
   for (let col = start + 1; col < end; col++) {
-    if (!crossed.has(col)) grid.put(row, col, across, 'line')
+    if (!crossed.has(col)) grid.put(row, col, across, from)
   }
-  if (to > from) putHead(grid, row, end - 1, event.head, 'right', event.stroke)
-  else putHead(grid, row, start + 1, event.head, 'left', event.stroke)
+  const arrow = { head: event.head, stroke: event.stroke, sender: from }
+  if (to > from) putHead(grid, row, end - 1, { ...arrow, side: 'right' })
+  else putHead(grid, row, start + 1, { ...arrow, side: 'left' })
 }
 
 function drawRow(grid: Grid, layout: Layout, row: number, step: Step & { kind: 'row' }): void {
   const left = layout.left + DEPTH_INDENT * step.depth
   const right = layout.right - DEPTH_INDENT * step.depth
   grid.put(row, left, ROW_HEAD, 'line')
-  const label = `${step.text} `
-  grid.put(row, left + displayWidth(ROW_HEAD), label, 'label')
+  const labelLeft = left + displayWidth(ROW_HEAD)
+  grid.putLabel(row, labelLeft, step.text, 'label')
+  grid.put(row, labelLeft + displayWidth(step.text.text), ' ', 'label')
   const lifelines = new Set(layout.lifelines)
-  for (let col = left + displayWidth(ROW_HEAD + label); col <= right; col++) {
+  for (let col = labelLeft + displayWidth(step.text.text) + 1; col <= right; col++) {
     grid.put(row, col, lifelines.has(col) ? ROW_CROSSING : ROW_FILL, 'line')
   }
 }
@@ -464,12 +505,18 @@ function drawRow(grid: Grid, layout: Layout, row: number, step: Step & { kind: '
 function inkedLinesOf(parts: Parts, layout: Layout): InkRun[][] {
   const { places, boxes, steps } = parts
   const grid = new Grid()
+  const end = layout.foot ?? layout.height
   boxes.forEach((box, at) => {
     const lifeline = layout.lifelines[at] ?? 0
-    for (let row = box.height; row < layout.height; row++) {
+    const left = lifeline - Math.floor(box.width / 2)
+    for (let row = box.height; row < end; row++) {
       grid.put(row, lifeline, LIFELINE, 'line')
     }
-    drawBox(grid, box, 0, lifeline - Math.floor(box.width / 2), lifeline, at)
+    drawBox(grid, box, 0, left, at)
+    grid.put(box.height - 1, lifeline, PORT_BELOW, at)
+    if (layout.foot === null) return
+    drawBox(grid, box, layout.foot, left, at)
+    grid.put(layout.foot, lifeline, PORT_ABOVE, at)
   })
   let row = Math.max(...boxes.map((box) => box.height))
   for (const step of steps) {
@@ -482,8 +529,10 @@ function inkedLinesOf(parts: Parts, layout: Layout): InkRun[][] {
     const label = layout.labels[step.at] ?? []
     const place = places[step.at] ?? []
     if (event.kind === 'note') drawNote(grid, layout, row, noteReachOf(event, place, label), label)
-    else if (isLoop(place)) drawLoop(grid, row, layout.lifelines[place[0] ?? 0] ?? 0, event, label)
-    else drawMessage(grid, layout, row, event, place, label)
+    else if (isLoop(place)) {
+      const sender = place[0] ?? 0
+      drawLoop(grid, row, sender, layout.lifelines[sender] ?? 0, event, label)
+    } else drawMessage(grid, layout, row, event, place, label)
     row += stepHeight(step, label, place)
   }
   return Array.from({ length: layout.height }, (_, at) => grid.line(at, layout.left, layout.right))
@@ -500,7 +549,7 @@ function partsOf(diagram: SequenceDiagram, width: number, meter: LayoutMeter): P
   return {
     diagram,
     places: placesOf(diagram),
-    boxes: diagram.participants.map((participant) => boxOf(participant.label)),
+    boxes: diagram.participants.map((participant) => boxOf(participant.label.map(shownLabel))),
     labels: new Labels(diagram.events.map(textOf), meter),
     steps: stepsOf(diagram, width, meter),
     meter,
@@ -540,7 +589,7 @@ export function drawSequence(
   }
   const layout = fittedLayout(parts, width)
   if (typeof layout === 'number') {
-    return refusal(`it takes ${String(layout)} columns, the screen has ${String(width)}`)
+    return tooWide(layout, width)
   }
   if (layout.height > MOST_ROWS) {
     return refusal(`${String(layout.height)} rows, at most ${String(MOST_ROWS)} draw`)

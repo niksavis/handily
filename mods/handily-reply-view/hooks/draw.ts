@@ -2,7 +2,7 @@ import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { drawFlowchart } from './flowchart'
 import { highlightedRuns } from './highlight'
-import type { Ink, InkedDrawing, InkRun } from './ink'
+import { textPropsOf, type Ink, type InkedDrawing, type InkRun } from './ink'
 import {
   PLAIN_MARK,
   shownText,
@@ -957,8 +957,13 @@ function inkRole(ink: Ink): PaletteRole | undefined {
 
 function inkSpan(context: Context, run: InkRun): CellChild {
   const role = inkRole(run.ink)
-  const color = role === undefined ? undefined : paint(context, role)
-  return color === undefined ? run.text : context.elements.Text({ color, children: run.text })
+  const look = {
+    ...(role === undefined ? {} : { color: paint(context, role) }),
+    ...textPropsOf(run.looks),
+  }
+  return Object.keys(look).length === 0
+    ? run.text
+    : context.elements.Text({ ...look, children: run.text })
 }
 
 function drawingBody(context: Context, drawing: DiagramDrawing, key: string): RenderElement {
