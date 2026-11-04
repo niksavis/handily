@@ -14,6 +14,7 @@ import {
   type ReplyActions,
 } from './draw'
 import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
+import { DEFAULT_HEADING_STYLE, HEADING_STYLES, isHeadingStyle, type HeadingStyle } from './blocks'
 import {
   endTimeOf,
   isEngineTurnLine,
@@ -86,10 +87,16 @@ const CHECKED_SETTINGS: readonly CheckedSetting[] = [
     fallback: `Highlight stays ${DEFAULT_HIGHLIGHT}.`,
     isOption: isHighlight,
   },
+  {
+    key: 'headingStyle',
+    options: HEADING_STYLES,
+    fallback: `Drawing ${DEFAULT_HEADING_STYLE}.`,
+    isOption: isHeadingStyle,
+  },
 ]
 
 const ON_TEXT =
-  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, paths and inline code in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
+  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, durations, versions and paths in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
 const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
@@ -314,6 +321,9 @@ export const register: Register = (on, options) => {
   const tableStyle: TableStyle = isTableStyle(options.tableStyle)
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
+  const headingStyle: HeadingStyle = isHeadingStyle(options.headingStyle)
+    ? options.headingStyle
+    : DEFAULT_HEADING_STYLE
   const highlight =
     (isHighlight(options.highlight) ? options.highlight : DEFAULT_HIGHLIGHT) === 'on'
   let lastReply: string | undefined
@@ -556,6 +566,8 @@ export const register: Register = (on, options) => {
             surface: e.surface,
             drawsDiagrams,
             tableStyle,
+            headingStyle,
+            doneGlyph: (await paneGlyphs($, e.surface)).done,
             highlight,
             palette: await shownPalette($, e.surface),
           },

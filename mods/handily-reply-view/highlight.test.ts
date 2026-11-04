@@ -253,6 +253,8 @@ function treeLines(text: string, columns: number, highlight: boolean): string[] 
       surface: 'terminal',
       drawsDiagrams: true,
       tableStyle: 'box',
+      headingStyle: 'banner',
+      doneGlyph: '✓',
       highlight,
       palette: 'theme',
     },
@@ -263,10 +265,7 @@ function treeLines(text: string, columns: number, highlight: boolean): string[] 
 }
 
 function withoutTokenMarks(line: string): string {
-  return line
-    .replace(/=([^=]+)=/g, '$1')
-    .replace(/§([^§]+)§/g, '$1')
-    .replace(/&([^&]+)&/g, '$1')
+  return line.replace(/=([^=]+)=/g, '$1').replace(/§([^§]+)§/g, '$1')
 }
 
 function tokenTexts(text: string): [string, Token][] {
@@ -296,7 +295,7 @@ const P1_PROSE_DRAWN = [
 ]
 
 const P1_PROSE_PLAIN = [
-  '● The gate ran npm run check over 9 mods in 3m 12s. handily-board 0.19.0',
+  '● The gate ran &npm run check& over 9 mods in 3m 12s. handily-board 0.19.0',
   '  passed 1,204 tests; docs/mocks.md gained section 14 at 14:05. p95 fell from',
   '  46 ms to 2 s, and the x86_64 build kept utf8 and sha256 in ./scripts/mods.mjs.',
 ]
@@ -422,10 +421,10 @@ describe('the token rules of mocks 14.5', () => {
   test('a path needs a leading /, ./, ../ or ~/, a trailing / or an extension, and a letter', () => {
     expect(
       tokenTexts(
-        '/tmp ./a ../b ~/c src/ docs/mocks.md I/O TCP/IP 24/7 src/gen README.md 1/2.5 https://x.y/a.md http://x.y/',
+        '/tmp/x /tmp ./a ../b ~/c src/ docs/mocks.md I/O TCP/IP 24/7 src/gen README.md 1/2.5 https://x.y/a.md http://x.y/',
       ),
     ).toEqual([
-      ['/tmp', 'path'],
+      ['/tmp/x', 'path'],
       ['./a', 'path'],
       ['../b', 'path'],
       ['~/c', 'path'],
@@ -568,7 +567,7 @@ describe('prose highlighting', () => {
   )
 
   sceneTest(
-    'list items draw their marker as written and highlight their text, and a nested item keeps its indent',
+    'list items draw the bullets • ◦ and their numbers in inactive and highlight their text, and a nested item indents 2',
     {},
     async (_world, $) => {
       const reply = [
@@ -583,22 +582,18 @@ describe('prose highlighting', () => {
       expect(await sketchOf(ui)).toEqual([
         '● Steps:',
         '',
-        '  - ran =9= checks in =3m= =12s=',
-        '    - read §docs/mocks.md§',
-        '  1. bumped to =v0.13.0=',
-        '  2. *kept* p95 and /utf8/ and !x86_64!',
+        '  °•° ran =9= checks in =3m= =12s=',
+        '    °◦° read §docs/mocks.md§',
+        '  °1.° bumped to =v0.13.0=',
+        '  °2.° *kept* p95 and /utf8/ and !x86_64!',
       ])
       await ui.unmount()
     },
   )
 
-  for (const [columns, continuedLead] of [
-    [80, 20],
-    [40, 19],
-    [30, 14],
-  ] as const) {
+  for (const columns of [80, 40, 30]) {
     sceneTest(
-      `a nested list item at ${String(columns)} columns keeps its marker apart from its text, and a deep indent stops at half the body width`,
+      `a nested list item at ${String(columns)} columns keeps its marker apart from its text, and a continuation line keeps the text column of its item`,
       {},
       async (_world, $) => {
         const reply = [
@@ -618,14 +613,14 @@ describe('prose highlighting', () => {
           'a deeply nested item that wraps at =3= s in §docs/mocks.md§',
         )
         const [continued] = (rowOf('prose-4')?.children ?? []) as Node[]
-        expect(continued?.props).toEqual({ width: continuedLead, flexShrink: 0 })
+        expect(continued?.props).toEqual({ width: 8, flexShrink: 0 })
         await ui.unmount()
       },
     )
   }
 
   sceneTest(
-    'headings, quotes, links, footnotes and HTML keep the engine Markdown element, and the paragraphs around them highlight',
+    'a quote with a lazy line, footnotes and HTML keep the engine Markdown element, and the heading, the link and the paragraphs around them draw in reply-view',
     {},
     async (_world, $) => {
       const reply = [
@@ -643,18 +638,19 @@ describe('prose highlighting', () => {
       const ui = await mountReply($, reply, 'terminal')
       const markdown = await ui.findAll({ type: 'Markdown' })
       expect(markdown.map((found) => found.props.text)).toEqual([
-        [
-          '# Results 2026',
-          '',
-          'See [the run](https://ci.example/runs/4) for 3 s.',
-          '',
-          '> a quote of 5 lines',
-          'that continues',
-          '',
-          'A note[^1] and <b>8</b> tags.',
-        ].join('\n'),
+        ['> a quote of 5 lines', 'that continues', '', 'A note[^1] and <b>8</b> tags.'].join('\n'),
       ])
-      expect((await sketchOf(ui)).at(-1)).toBe('  plain =7= in §src/a.ts§')
+      const drawn = await sketchOf(ui)
+      expect(drawn.slice(0, 7)).toEqual([
+        '● @*╭──────────────╮*@',
+        '  @*│ *@@*Results 2026*@@* │*@',
+        '  @*╰──────────────╯*@',
+        '',
+        '  See ^_the run_^~ (ci.example)~ for =3= s.',
+        '',
+        '  > a quote of 5 lines',
+      ])
+      expect(drawn.at(-1)).toBe('  plain =7= in §src/a.ts§')
       await ui.unmount()
     },
   )
@@ -669,7 +665,7 @@ describe('prose highlighting', () => {
         const ui = await mountReply($, reply, 'terminal')
         const drawn = await sketchOf(ui)
         const shown = `kept ${negative} beside =46= and §docs/a.md§`
-        expect(drawn.slice(0, 3)).toEqual([`● ${shown}`, '', `  - ${shown}`])
+        expect(drawn.slice(0, 3)).toEqual([`● ${shown}`, '', `  °•° ${shown}`])
         expect(drawn.filter((line) => line.includes('beside'))).toHaveLength(3)
         expect(drawn.find((line) => line.includes('│') && line.includes('beside'))).toContain(shown)
         await ui.unmount()
@@ -681,7 +677,7 @@ describe('prose highlighting', () => {
 describe('highlight off', () => {
   for (const surface of SURFACES) {
     sceneTest(
-      `when highlight is off, reply-view still draws mock P1 and leaves out only the token colours on ${surface}`,
+      `when highlight is off, reply-view still draws mock P1 and leaves out only the token colours, as mock P5 shows, on ${surface}`,
       { options: { highlight: 'off' } },
       async (world, $) => {
         const ui = await mountReply($, P1, surface)
@@ -692,7 +688,10 @@ describe('highlight off', () => {
         } else {
           expect(drawn.slice(4)).toEqual(P1_RULES_DESKTOP.map(plain))
         }
-        expect(await coloursIn(ui, /\d|docs|npm/)).toEqual([undefined])
+        expect(await coloursIn(ui, /\d|docs/)).toEqual([undefined])
+        expect(await coloursIn(ui, /npm run check/)).toEqual(
+          surface === 'terminal' ? ['permission'] : [],
+        )
         expect(world.debugLogs).toEqual([])
         await ui.unmount()
       },
@@ -733,6 +732,120 @@ describe('highlight off', () => {
       expect(world.debugLogs).toEqual([
         'handily-reply-view: userConfig highlight is "loud"; set it to on or off in /config. Highlight stays on.',
       ])
+      await ui.unmount()
+    },
+  )
+})
+
+const CODE_REPLY = [
+  'Run `npm test` on docs/a.md in 3 s at v1.2.3.',
+  '',
+  '- run `npm test` again in 2 s',
+  '',
+  '| Step | Command |',
+  '| --- | --- |',
+  '| check 4 | `npm run check` in src/b.ts |',
+].join('\n')
+
+describe('inline code with highlight off (handily-8wxdwh)', () => {
+  for (const surface of SURFACES) {
+    sceneTest(
+      `when highlight is off, inline code draws in permission as mock P5 shows, and numbers, durations, versions and paths draw plain on ${surface}`,
+      { options: { highlight: 'off' } },
+      async (_world, $) => {
+        const ui = await mountReply($, CODE_REPLY, surface)
+        expect(await coloursIn(ui, /^npm (?:run check|test)$/)).toEqual(['permission'])
+        expect(await coloursIn(ui, /\d|docs|src/)).toEqual([undefined])
+        if (surface === 'terminal') {
+          expect((await sketchOf(ui)).slice(0, 3)).toEqual([
+            '● Run &npm test& on docs/a.md in 3 s at v1.2.3.',
+            '',
+            '  °•° run &npm test& again in 2 s',
+          ])
+        }
+        await ui.unmount()
+      },
+    )
+  }
+})
+
+describe('IPv4 addresses and slash commands (handily-8wxdwh)', () => {
+  test('192.168.1.1 and /config are no token, while v1.2.3 and docs/a.md beside them are', () => {
+    expect(tokenTexts('kept 192.168.1.1 and /config beside v1.2.3 and docs/a.md.')).toEqual([
+      ['v1.2.3', 'number'],
+      ['docs/a.md', 'path'],
+    ])
+  })
+
+  test('an address with a part over 255, five parts, and a path that starts like a slash command stay tokens', () => {
+    expect(tokenTexts('10.0.19041.1 and 1.2.3.4.5 and /config/ and /usr/bin and /a.md')).toEqual([
+      ['10.0.19041.1', 'number'],
+      ['1.2.3.4.5', 'number'],
+      ['/config/', 'path'],
+      ['/usr/bin', 'path'],
+      ['/a.md', 'path'],
+    ])
+  })
+
+  sceneTest(
+    'a paragraph and a cell draw 192.168.1.1 and /config plain, and v1.2.3 and docs/a.md beside them in their colours',
+    {},
+    async (_world, $) => {
+      const line = 'ping 192.168.1.1 then /config at v1.2.3 in docs/a.md'
+      const reply = [line, '', '| A |', '| --- |', `| ${line} |`].join('\n')
+      const ui = await mountReply($, reply, 'terminal')
+      const drawn = await sketchOf(ui)
+      const shown = 'ping 192.168.1.1 then /config at =v1.2.3= in §docs/a.md§'
+      expect(drawn[0]).toBe(`● ${shown}`)
+      expect(drawn.find((found) => found.includes('│') && found.includes('ping'))).toContain(shown)
+      await ui.unmount()
+    },
+  )
+})
+
+const NARROW_TABLE = [
+  '| Mod | State | Next |',
+  '| --- | --- | --- |',
+  '| task-pane | released | follows the work |',
+  '| simple-view | released | click to expand |',
+].join('\n')
+
+describe('the row blocks of a narrow table (handily-8wxdwh)', () => {
+  sceneTest(
+    'one blank line stands between the row blocks on the terminal, made by a top margin as between top level blocks, with no gap',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, NARROW_TABLE, 'terminal', 30)
+      const drawn = (await sketchOf(ui, 30)).map((line) => line.replace(MARK_CHARACTERS, ''))
+      expect(drawn).toEqual([
+        '● task-pane',
+        '    State: released',
+        '    Next:  follows the work',
+        '',
+        '  simple-view',
+        '    State: released',
+        '    Next:  click to expand',
+        '     [ copy ] [ copy as text ]',
+      ])
+      const tree = await ui.drawn()
+      expect(columnGaps(tree)).toEqual([])
+      expect(whitespaceTexts(tree)).toEqual([])
+      const spaced = nodesOf(tree).filter((node) => node.props?.marginTop === 1)
+      expect(spaced.map((node) => (node.children?.[0] as Node | undefined)?.props?.key)).toEqual([
+        'row-1',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  sceneTest(
+    'the desktop keeps one gap between the row blocks, as between its top level blocks',
+    {},
+    async (_world, $) => {
+      const ui = await mountReply($, NARROW_TABLE, 'desktop', 30)
+      const tree = await ui.drawn()
+      expect(columnGaps(tree)).toEqual([1, 1])
+      expect(nodesOf(tree).filter((node) => node.props?.marginTop !== undefined)).toEqual([])
       await ui.unmount()
     },
   )
@@ -785,7 +898,7 @@ describe('the palette', () => {
   }
 
   sceneTest(
-    'catppuccin-mocha on a dark theme draws the diagram lines, labels, heads and the three cycle colours in their hex values',
+    'catppuccin-mocha on a dark theme draws the diagram lines, labels, heads and the first four colours of the six colour cycle in their hex values',
     { config: paletteRows(MOCHA, 'dark') },
     async (_world, $) => {
       const ui = await mountReply($, DIAGRAM, 'terminal')
@@ -799,8 +912,8 @@ describe('the palette', () => {
         line: '#9399b2',
         heads: ['#cba6f7'],
         label: '#9399b2',
-        boxes: ['#89b4fa', '#a6e3a1', '#f5c2e7'],
-        all: ['#89b4fa', '#9399b2', '#a6e3a1', '#cba6f7', '#f5c2e7'],
+        boxes: ['#89b4fa', '#a6e3a1', '#f5c2e7', '#fab387'],
+        all: ['#89b4fa', '#9399b2', '#a6e3a1', '#cba6f7', '#f5c2e7', '#fab387'],
       })
       await ui.unmount()
     },
@@ -1057,7 +1170,7 @@ describe('the highlight takes linear time', () => {
 const MIXED_REPLY = [
   'Paragraph one has 3 items.',
   '',
-  'See [docs](https://x.example) now.',
+  'See <b>docs</b> now.',
   '',
   '- first 1',
   '- second 2',
@@ -1090,10 +1203,10 @@ describe('one blank line between the blocks of a reply', () => {
       expect(await sketchOf(ui)).toEqual([
         '● Paragraph one has =3= items.',
         '',
-        '  See [docs](https://x.example) now.',
+        '  See <b>docs</b> now.',
         '',
-        '  - first =1=',
-        '  - second =2=',
+        '  °•° first =1=',
+        '  °•° second =2=',
         '',
         '  %┌───┬───┐%',
         '  %│% @*A*@ %│% @*B*@ %│%',
@@ -1118,7 +1231,7 @@ describe('one blank line between the blocks of a reply', () => {
       expect(await sketchOf(ui)).toEqual([
         'Paragraph one has 3 items.',
         '',
-        'See [docs](https://x.example) now.',
+        'See <b>docs</b> now.',
         '',
         '- first 1',
         '- second 2',
@@ -1139,7 +1252,7 @@ describe('one blank line between the blocks of a reply', () => {
     {},
     async (_world, $) => {
       const ui = await mountReply($, '\n\n- first 1\n\n- second 2\n\n', 'terminal')
-      expect(await sketchOf(ui)).toEqual(['● - first =1=', '  - second =2='])
+      expect(await sketchOf(ui)).toEqual(['● °•° first =1=', '  °•° second =2='])
       await ui.unmount()
     },
   )
