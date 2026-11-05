@@ -408,9 +408,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a git graph, a mind map or a timeline draws as a diagram.
-The diagram has a dim title line and two buttons at the right edge. The drawing replaces the
-source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map or a timeline
+draws as a diagram. The diagram has a dim title line and two buttons at the right edge. The
+drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -469,8 +469,8 @@ reason:
 
 Other reasons that the note names:
 
-- `gantt does not draw yet.`, and the same for each other kind of diagram that this part does not
-  name.
+- `journey does not draw yet.`, and the same for each other kind of diagram that this part does
+  not name.
 - `direction does not draw yet.`, for a `direction` line outside a `subgraph`.
 - The reasons of a `subgraph` that does not draw, in the part on groups in a flowchart.
 - `box does not draw yet.`, and the same for `create` and `destroy` in a sequence diagram.
@@ -851,6 +851,164 @@ A cardinality draws as a word, not as a crow's foot:
 - These draw as the source under a note that names the reason: a `subgraph`, a relationship from
   an entity to itself, and a cardinality that does not parse, such as
   `line 3: the cardinality }|..|x does not parse.`
+
+## A chart
+
+A fenced `mermaid` block that holds an `xychart-beta` or `xychart` bar chart or line chart, or a
+`pie`, draws as a chart. The title line names the kind, such as `── mermaid · bar chart ──`. The
+syntax is the one of the Mermaid pages
+[XY Chart](https://mermaid.js.org/syntax/xyChart.html) and
+[Pie chart](https://mermaid.js.org/syntax/pie.html), Mermaid 12.3.0.
+
+A bar chart with at most 12 bars draws upright when each label is 8 columns or less and the chart
+fits the screen. Each value stands above its bar:
+
+```text
+● p95 jumped at 14:00 and stayed high:
+
+  ── mermaid · bar chart ────────────────────────────  [ copy ] [ copy drawing ]
+  Ingest p95 by hour (ms)
+
+  2500 ┤                      2029   2032
+       │                      ▁▁▁▁▁  ▁▁▁▁▁  2007
+  2000 ┤                      █████  █████  █████
+       │                      █████  █████  █████
+  1500 ┤                      █████  █████  █████
+       │                      █████  █████  █████
+  1000 ┤                      █████  █████  █████
+       │                      █████  █████  █████
+   500 ┤  45     47     46    █████  █████  █████
+       │ ▁▁▁▁▁  ▂▂▂▂▂  ▁▁▁▁▁  █████  █████  █████
+     0 └─────────────────────────────────────────
+         11:00  12:00  13:00  14:00  15:00  16:00
+```
+
+Any other bar chart draws across, with each value at the right edge. This is the same chart at 40
+columns:
+
+```text
+  Ingest p95 by hour (ms)
+  11:00 ▌                             45
+  12:00 ▌                             47
+  13:00 ▌                             46
+  14:00 █████████████████████▉      2029
+  15:00 ██████████████████████      2032
+  16:00 █████████████████████▋      2007
+        0                      2500
+```
+
+- The top of a bar uses the eighth blocks `▁` to `█`, and the end of a bar across uses `▏` to
+  `█`. So 2029 and 2032 differ.
+- The scale starts at 0 and ends at a round number above the largest value. A y-axis range such
+  as `y-axis "Latency" 0 --> 3000` sets the scale when it holds every value.
+- A bar chart with a value below 0 draws across, around a line `┃` at 0. Each value shows its sign,
+  such as `+120` and `-84`.
+- A line chart draws steps: `─` along, `╯` or `╮` at a change, `│` up or down, and `●` at each
+  value. A row under the labels prints each value. On a screen of 40 columns or less, and when the
+  steps do not fit, a line chart draws as bars across with a note under it, such as
+  `line chart drawn as bars: the screen has 38 columns.`
+- A chart with two series draws the second series as `▒` for bars or `◇` for a line. A legend at
+  the right of the title names both series by their shape, such as `█ p95   ▒ p99`. A series with
+  no name shows as `series 1` or `series 2`.
+- A pie draws one bar per slice, largest first, with its share and its value, such as
+  `53% · 212`. On a narrow screen the value goes first. Then the labels cut with `…`.
+- On the terminal, the bars take `suggestion` and then `planMode`. The tallest bar of a chart with
+  one series is in `claude`. The values and the scale numbers are in `planMode`, and the axis is in
+  `inactive`. The title is bold. The slices of a pie take the colours of the boxes in turn, in size
+  order.
+- The titles of the x-axis and the y-axis follow the chart in one dim line.
+- `copy` copies the mermaid source and `copy drawing` copies the drawn lines.
+  `/replies copy chart` copies the source of the last chart of the last reply.
+- On the desktop app, the chart draws in a code block with no colour, as a diagram does.
+- The `diagrams` setting `off` draws a chart as its source, as it draws a diagram.
+
+These draw as the source under a note that starts with `chart not drawn:` and names the reason:
+
+- a chart with no values, such as `bar []`
+- a value that is not a number, such as `line 4: "n/a" is not a number.`
+- a pie slice below 0, or slices that add up to 0
+- more than 40 bars, points or slices, such as `41 bars, at most 40 draw.`
+- more than 2 series, or bar and line series in one chart
+- an x-axis with a number range, such as `x-axis 1 --> 10`, and a point label, such as
+  `line [540 "PaLM"]`
+- an x-axis with more or fewer labels than the series has values
+
+## A gantt diagram
+
+A `gantt` block draws each task as one row, with a bar across one date axis that all the tasks
+share. The title line is `── mermaid · gantt ──`. The syntax is the one of the Mermaid page
+[Gantt diagrams](https://mermaid.js.org/syntax/gantt.html), Mermaid 12.3.0. This is the example of
+that page at 80 columns:
+
+```text
+● The plan of the gantt work:
+
+  ── mermaid · gantt ────────────────────────────────  [ copy ] [ copy drawing ]
+  Adding GANTT diagram functionality to mermaid
+  A section
+    Completed task                ░░░░░         ┊                ┊
+    Active task                          ▓▓▓▓▓▓▓▓                ┊
+    Future task                                 █████████████    ┊
+    Future task2                                ┊           █████████████
+  Critical tasks
+    Completed task in the critic… ░░░           ┊                ┊
+    Implement parser and jison        ░░░░░░    ┊                ┊
+    Create tests for parser                ▓▓▓▓▓▓▓▓              ┊
+    Future task in critical line                ┊ ██████████████ ┊
+    Create tests for renderer                   ┊              █████
+    Add to mermaid                              ┊                ┊ █████████████
+    Functionality added                         ┊                ┊             ◇
+  Documentation
+    Describe gantt syntax             ▓▓▓▓▓▓▓▓▓ ┊                ┊
+    Add gantt diagram to demo pa…             ███                ┊
+    Add another diagram to demo…              █████              ┊
+  Last section
+    Describe gantt syntax                       ┊ █████████      ┊
+    Add gantt diagram to demo pa…               ┊         ███    ┊
+    Add another diagram to demo…                ┊           ██████
+                                  ──────────────┴────────────────┴──────────────
+                                                01-12            01-19
+  █ task   ▓ active   ░ done   ◇ milestone   █ crit
+```
+
+- Each `section` is a bold heading in its cycle colour. Its tasks indent by 2 and their bars take
+  the same colour.
+- The fill tells the kind of a task, also with no colour: `█` a task, `▓` an `active` task, `░` a
+  `done` task in `inactive`, and `◇` a `milestone` in the middle of its time. A `crit` task draws
+  in `claude` with a bold label. The last line names the kinds that the diagram holds.
+- `┊` marks each date of the axis in the rows of the tasks. The view picks the smallest step of
+  the axis that keeps its dates apart, or the step of `tickInterval` when its dates fit. `weekday`
+  sets the first day of a week step.
+- A task starts at a date in the `dateFormat`, after the tasks of `after a1 b2` (the latest end),
+  or at the end of the task before it. It ends at a date, after a duration such as `3d`, `20h` or
+  `1M`, or at `until a1` (the earliest start). `inclusiveEndDates` adds a day to an end date.
+- A part of a duration counts as Mermaid 12.3.0 counts it. A duration in days or weeks rounds to
+  whole days, so `0.5d` is 1 day and `0.5w` is 4 days. A duration in months or years drops the
+  part, so `1.5M` is 1 month and `0.5y` adds no time. A part of a millisecond drops.
+- `dateFormat` reads `YYYY`, `M`, `MM`, `MMM`, `MMMM`, `D`, `DD`, `H`, `HH`, `h`, `hh`, `a`, `A`,
+  `m`, `mm`, `s`, `ss`, `S`, `SS`, `SSS`, `X` and `x`. The default is `YYYY-MM-DD`. A format with
+  no date, such as `HH:mm`, reads its times on one day.
+- `axisFormat` reads the `%` codes of the Mermaid page, except `%U`, `%W` and `%Z`. With no
+  `axisFormat`, the axis shows `%m-%d` in one year and `%Y-%m-%d` across years, and the time for
+  steps shorter than a day. Mermaid shows `%Y-%m-%d`. The shorter dates fit more steps on a narrow
+  screen.
+- The view reads every date and time in UTC.
+- `click`, `todayMarker`, `topAxis`, `weekend`, `includes`, `accTitle`, `accDescr` and a `%%`
+  comment draw nothing.
+- `copy` copies the mermaid source and `copy drawing` copies the drawn lines. On the desktop app,
+  the diagram draws in a code block with no colour.
+
+These draw as the source under a note that names the reason:
+
+- `excludes` and a `vert` marker
+- an id that no task has, such as `line 3: no task has the id zz.`, and `after` or `until`
+  references that loop
+- a date that does not match the `dateFormat`, an end that is not a date or a duration, a first
+  task with no start, and a task that ends before it starts
+- a `dateFormat` token such as `YY`, `Q` or `Do`, and an `axisFormat` code such as `%U`
+- no task, or more than 60 tasks
+- a screen too narrow for a label of 4 columns and 10 columns of bars, such as
+  `it takes 15 columns, the screen has 14. Widen the window or shorten the labels.`
 
 ## A git graph
 
@@ -1238,6 +1396,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | `/replies`               | Turns the reply view off or on for this session, and replies with the new mode     |
 | `/replies hints`         | Turns the diagram hints off or on for this session, and replies with the new state |
 | `/replies copy diagram`  | Copies the source of the last diagram of the last reply                            |
+| `/replies copy chart`    | Copies the source of the last chart of the last reply                              |
 | `/replies copy table`    | Copies the last table of the last reply as markdown                                |
 | `/replies copy code`     | Copies the content of the last code block of the last reply                        |
 | `/replies copy reply`    | Copies the whole last reply as markdown                                            |
@@ -1261,7 +1420,8 @@ reads the last reply of the main session. It copies the same text as the `copy` 
 block, and its toast names it as that button does, such as `✓ Copied the sequence source`. The
 command lays the reply out at the width of the terminal where it runs, as the reply draws there.
 
-- A mermaid block counts as a diagram and not as a code block.
+- A mermaid block counts as a diagram and not as a code block. A block that holds a `pie`, an
+  `xychart` or an `xychart-beta` counts as a chart and not as a diagram.
 - A diagram that does not draw copies as its button does: `✓ Copied the mermaid block`.
 - With the `diagrams` setting `off`, a mermaid block draws as a code block, so
   `/replies copy code` copies it and `/replies copy diagram` does not.

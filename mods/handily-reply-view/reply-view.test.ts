@@ -1702,7 +1702,7 @@ describe('typed prompts', () => {
 })
 
 const USAGE =
-  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
 
 describe('/replies', () => {
   viewTest(
@@ -2244,8 +2244,8 @@ describe('mermaid flowcharts', () => {
     [linesOf('flowchart TD', '  A --> B', '  B@{ icon: "fa:user" }'), 3, 'icons'],
     [linesOf('flowchart TD', '  A["`**bold**`"]'), 2, 'markdown strings'],
     [linesOf('flowchart TD', '  A -->|"`md`"| B'), 2, 'markdown strings'],
-    [linesOf('gantt', '  title A plan'), 1, 'gantt'],
-    [linesOf('pie title Pets', '  "Dogs" : 3'), 1, 'pie'],
+    [linesOf('journey', '  title A plan'), 1, 'journey'],
+    [linesOf('quadrantChart', '  title Pets'), 1, 'quadrantChart'],
     [linesOf('requirementDiagram', '  element test_entity {', '  }'), 1, 'requirementDiagram'],
   ] as const) {
     test(`${reason} is refused by name on line ${String(line)}`, () => {
@@ -4121,7 +4121,7 @@ describe('diagram blocks', () => {
               '~diagram not drawn: line 3 does not parse.~',
               ...todaysFence(MOCK_9_8_SOURCE, width),
               '',
-              '~diagram not drawn: gantt does not draw yet.~',
+              '~diagram not drawn: the gantt diagram has no tasks.~',
               ...todaysFence(GANTT_SOURCE, width),
               '',
               '~diagram not drawn: the block is empty.~',
