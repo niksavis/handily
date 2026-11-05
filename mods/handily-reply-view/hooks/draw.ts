@@ -34,7 +34,9 @@ import {
   type ProsePart,
   type QuoteLine,
 } from './prose'
+import { drawRadar } from './radar'
 import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole } from './roles'
+import { drawSankey } from './sankey'
 import { drawSequence } from './sequence'
 import { drawState } from './state'
 import {
@@ -61,6 +63,7 @@ import {
   type TableStyle,
 } from './table'
 import { drawTimeline } from './timeline'
+import { drawTreemap } from './treemap'
 import { cutToWidth, displayWidth, fitted, graphemesOf } from './width'
 
 export const FOLD_AFTER_ROWS = 30
@@ -1261,6 +1264,18 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'packet': {
       const drawn = drawPacket(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'sankey': {
+      const drawn = drawSankey(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'radar': {
+      const drawn = drawRadar(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'treemap': {
+      const drawn = drawTreemap(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

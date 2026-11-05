@@ -8,8 +8,11 @@ import { kanbanBuilder, type Kanban, type KanbanBuilder } from './kanban'
 import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
 import { packetBuilder, type Packet, type PacketBuilder } from './packet'
 import { quadrantBuilder, type QuadrantBuilder, type QuadrantChart } from './quadrant'
+import { radarBuilder, type Radar, type RadarBuilder } from './radar'
+import { sankeyBuilder, type Sankey, type SankeyBuilder } from './sankey'
 import { StateBuilder, type StateDiagram } from './state'
 import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
+import { treemapBuilder, type Treemap, type TreemapBuilder } from './treemap'
 
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
 
@@ -38,6 +41,9 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'quadrantChart',
   'kanban',
   'packet',
+  'sankey',
+  'radar-beta',
+  'treemap-beta',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -54,6 +60,9 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   quadrant: 'quadrant chart',
   kanban: 'kanban board',
   packet: 'packet diagram',
+  sankey: 'sankey diagram',
+  radar: 'radar diagram',
+  treemap: 'treemap',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -150,6 +159,9 @@ export type MermaidDiagram =
   | QuadrantChart
   | Kanban
   | Packet
+  | Sankey
+  | Radar
+  | Treemap
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -809,6 +821,9 @@ type Builder =
   | QuadrantBuilder
   | KanbanBuilder
   | PacketBuilder
+  | SankeyBuilder
+  | RadarBuilder
+  | TreemapBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -836,6 +851,12 @@ function builderOf(header: Statement): Builder {
   if (kanban !== null) return kanban
   const packet = packetBuilder(header)
   if (packet !== null) return packet
+  const sankey = sankeyBuilder(header)
+  if (sankey !== null) return sankey
+  const radar = radarBuilder(header)
+  if (radar !== null) return radar
+  const treemap = treemapBuilder(header)
+  if (treemap !== null) return treemap
   throw unknownHeader(header)
 }
 

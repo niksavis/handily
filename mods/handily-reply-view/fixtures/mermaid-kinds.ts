@@ -56,6 +56,9 @@ export const KIND_SAMPLES: Readonly<Record<string, string>> = {
   quadrantChart: 'quadrantChart\n  quadrant-1 Plan\n  Task A: [0.3, 0.6]',
   kanban: 'kanban\n  todo[Todo]\n    docs[Write the docs]',
   packet: 'packet\n  0-15: "Source Port"\n  16-31: "Destination Port"',
+  sankey: 'sankey\n  Solar,Grid,60\n  Grid,Homes,40',
+  'radar-beta': 'radar-beta\n  axis a, b, c\n  curve x{1, 2, 3}',
+  'treemap-beta': 'treemap-beta\n  "Parts"\n    "Left": 3\n    "Right": 1',
 }
 
 export function drawsSample(kind: string): boolean {
