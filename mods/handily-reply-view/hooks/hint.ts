@@ -1,12 +1,6 @@
 import { DIAGRAM_LIMITS, DRAWN_DIAGRAM_KINDS } from './mermaid'
 
-export const UNDRAWN_STATEMENTS: readonly string[] = [
-  'subgraph',
-  'direction',
-  'box',
-  'create',
-  'destroy',
-]
+export const UNDRAWN_STATEMENTS: readonly string[] = ['direction', 'box', 'create', 'destroy']
 
 function listedWithOr(words: readonly string[]): string {
   const last = words.at(-1) ?? ''

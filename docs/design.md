@@ -1278,8 +1278,13 @@ Diagrams:
 
 - reply-view has its own text renderer for mermaid `flowchart` with `TD`, `TB` or `LR`, and for
   `sequenceDiagram`.
-- Another diagram kind draws as its source. So do `subgraph`, `direction`, `box`, `create` and
-  `destroy`. One dim note above the source names the reason.
+- A flowchart `subgraph` draws as a frame with a dotted border around its boxes, with its title
+  on the top edge. A box belongs to the first subgraph that names it, as in Mermaid. The frames
+  keep one order in every level, and each frame is only as wide as its boxes and its title need.
+- Another diagram kind draws as its source. So do a `subgraph` inside a `subgraph`, an edge to a
+  `subgraph`, a `direction` line outside a `subgraph`, `box`, `create` and `destroy`. A flowchart
+  draws as its source when a loop needs its box last in a level where the frames keep another
+  order. One dim note above the source names the reason.
 - A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
   tall diagram.
 - A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16

@@ -1790,7 +1790,7 @@ describe('/replies', () => {
 })
 
 const MEASURED_HINT =
-  'The terminal draws a mermaid block in a reply as a diagram. When a flow, an exchange or a structure reads better as a diagram, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gitGraph, mindmap, timeline. A flowchart is TD or LR. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
+  'The terminal draws a mermaid block in a reply as a diagram. When a flow, an exchange or a structure reads better as a diagram, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gitGraph, mindmap, timeline. A flowchart is TD or LR. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
 const HINT_CHARACTERS_AT_MOST = 540
 const HINTS_ON =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 210 tokens.'
@@ -2238,7 +2238,19 @@ describe('mermaid flowcharts', () => {
   }
 
   for (const [source, line, reason] of [
-    [linesOf('flowchart TD', '  A --> B', '  subgraph one', '  C', '  end'), 3, 'subgraph'],
+    [
+      linesOf(
+        'flowchart TD',
+        '  A --> B',
+        '  subgraph one',
+        '  subgraph two',
+        '  C',
+        '  end',
+        '  end',
+      ),
+      4,
+      'a subgraph inside a subgraph',
+    ],
     [linesOf('flowchart TD', '  direction LR'), 2, 'direction'],
     [linesOf('flowchart RL', '  A --> B'), 1, 'flowchart RL'],
     [linesOf('graph BT', '  A --> B'), 1, 'graph BT'],
@@ -2853,6 +2865,26 @@ function generatedCharts(seed: number, count: number): string[] {
   })
 }
 
+function groupedCharts(seed: number, count: number): string[] {
+  let state = seed
+  const next = (below: number) => {
+    state = (state * 1103515245 + 12345) % 2147483648
+    return Math.floor((state / 2147483648) * below)
+  }
+  return generatedCharts(seed, count).map((source) => {
+    const [header = '', declared = '', ...edges] = source.split('\n')
+    const names = declared.trim().split(' & ')
+    const groups = 1 + next(2)
+    const owner = names.map((_, at) => (at < groups ? at : next(groups + 1) - 1))
+    const blocks = Array.from({ length: groups }, (_, group) => [
+      `  subgraph G${String(group)} [Group ${String(group)}]`,
+      ...names.filter((_, at) => owner[at] === group).map((name) => `    ${name}`),
+      '  end',
+    ])
+    return linesOf(header, declared, ...blocks.flat(), ...edges)
+  })
+}
+
 function chain(count: number, direction = 'TD'): string[] {
   return [
     `flowchart ${direction}`,
@@ -3268,6 +3300,79 @@ describe('flowchart drawings', () => {
     expect(drawn.filter(([shown, held]) => JSON.stringify(shown) !== JSON.stringify(held))).toEqual(
       [],
     )
+  })
+
+  test('500 generated charts with subgraphs draw their frames and only the links they hold', () => {
+    const drawn = groupedCharts(20261105, 500).flatMap((source) => {
+      const chart = flowchartOf(source)
+      const result = drawFlowchart(chart, REPLY_COLUMNS)
+      if (result.kind !== 'drawing') return []
+      const framed = (chart.groups ?? []).every((group) =>
+        result.lines.some((line) => line.includes(`┄ ${group.label.join(' ')} ┄`)),
+      )
+      return [[drawnLinks(result.lines), chartLinks(chart), framed]]
+    })
+    expect(drawn.length).toBeGreaterThan(450)
+    expect(
+      drawn.filter(
+        ([shown, held, framed]) => JSON.stringify(shown) !== JSON.stringify(held) || !framed,
+      ),
+    ).toEqual([])
+  })
+
+  test('a loop into a subgraph draws when the subgraphs keep one order with its box last, and draws only its links', () => {
+    const source = linesOf(
+      'flowchart TD',
+      '  subgraph G0',
+      '    N1',
+      '    N6',
+      '  end',
+      '  subgraph G1',
+      '    N2',
+      '    N4',
+      '  end',
+      '  N1 --> N7',
+      '  N7 --> N1',
+      '  N4 --> N1',
+      '  N6 --> N2',
+    )
+    const lines = drawnLines(source, REPLY_COLUMNS)
+    expect(lines).toEqual([
+      '┌┄ G1 ┄┄┄┐ ┌┄ G0 ┄┄┄┐',
+      '┆        ┆ ┆        ┆',
+      '┆ ╭────╮ ┆ ┆ ╭────╮ ┆',
+      '┆ │ N4 │ ┆ ┆ │ N6 │ ┆',
+      '┆ ╰──┬─╯ ┆ ┆ ╰──┬─╯ ┆',
+      '┆    └──────────│┐  ┆',
+      '┆     ┌─────────┘│  ┆',
+      '┆     ▼  ┆ ┆     ▼  ┆',
+      '┆ ╭────╮ ┆ ┆ ╭────╮ ┆',
+      '┆ │ N2 │ ┆ ┆ │ N1 │◀───────┐',
+      '┆ ╰────╯ ┆ ┆ ╰──┬─╯ ┆      │',
+      '└┄┄┄┄┄┄┄┄┘ └┄┄┄┄│┄┄┄┘      │',
+      '                ▼          │',
+      '             ╭────╮        │',
+      '             │ N7 │────────┘',
+      '             ╰────╯',
+    ])
+    expect(drawnLinks(lines)).toEqual(chartLinks(flowchartOf(source)))
+  })
+
+  test('500 generated charts with subgraphs refuse only for their width or the order of their loops when they draw with no subgraph', () => {
+    const refused = groupedCharts(20261105, 500).flatMap((source) => {
+      const chart = flowchartOf(source)
+      const plain = { ...chart, groups: [] }
+      if (drawFlowchart(plain, REPLY_COLUMNS).kind !== 'drawing') return []
+      const result = drawFlowchart(chart, REPLY_COLUMNS)
+      return result.kind === 'drawing' ? [] : [result.reason]
+    })
+    expect(
+      refused.filter(
+        (reason) =>
+          !reason.startsWith('it takes ') &&
+          reason !== 'its loops and its subgraphs cannot keep one order',
+      ),
+    ).toEqual([])
   })
 
   test('the label of a loop is cut to 12 columns when the labels must fit', () => {

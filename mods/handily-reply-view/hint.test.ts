@@ -4,7 +4,6 @@ import { DRAWN_DIAGRAM_KINDS, parseMermaid } from './hooks/mermaid'
 import { drawsSample, KIND_SAMPLES, MERMAID_KINDS, namesKind } from './fixtures/mermaid-kinds'
 
 const UNDRAWN_SAMPLES: Readonly<Record<string, string>> = {
-  subgraph: 'flowchart TD\n  A --> B\n  subgraph one\n  C\n  end',
   direction: 'flowchart TD\n  direction LR',
   box: 'sequenceDiagram\n  box Aqua Group\n  participant A\n  end',
   create: 'sequenceDiagram\n  A->>B: hi\n  create participant C',
@@ -51,7 +50,7 @@ describe('the diagram hint', () => {
     expect(UNDRAWN_STATEMENTS.map((word) => refusalReason(UNDRAWN_SAMPLES[word] ?? ''))).toEqual(
       UNDRAWN_STATEMENTS.map((word) => `${word} does not draw yet`),
     )
-    expect(DIAGRAM_HINT).toContain('Do not use subgraph, direction, box, create or destroy.')
+    expect(DIAGRAM_HINT).toContain('Do not use direction, box, create or destroy.')
   })
 
   test('the hint keeps the limits of the parser and its guidance on labels and prose', () => {
