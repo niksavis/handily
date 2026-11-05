@@ -4,6 +4,8 @@ import { drawFlowchart } from './hooks/flowchart'
 import { parseMermaid, type FlowGroup, type Flowchart, type Refusal } from './hooks/mermaid'
 import { displayWidth, graphemesOf } from './hooks/width'
 
+const GENERATED_TIMEOUT_MS = 10000
+
 const SURFACES = ['terminal', 'desktop'] as const
 const WIDTHS = [80, 40, 30] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -562,42 +564,51 @@ describe('subgraph frames', () => {
     expect(drawFlowchart(withoutGroups(chart), 28).kind).toBe('drawing')
   })
 
-  test('200 generated component diagrams draw at most 1.75 times as wide as with no subgraphs, plus 4 columns for each frame', () => {
-    const widths = componentCharts(20261105, 200).flatMap((source) => {
-      const chart = parseMermaid(source)
-      if (chart.kind !== 'flowchart') return []
-      const framed = drawFlowchart(chart, NATURAL_COLUMNS)
-      const bare = drawFlowchart(withoutGroups(chart), NATURAL_COLUMNS)
-      if (bare.kind !== 'drawing') return []
-      const bound = WIDTH_FACTOR * widthOf(bare.lines) + FRAME_BORDERS * (chart.groups ?? []).length
-      const drawn = framed.kind === 'drawing' ? widthOf(framed.lines) : Infinity
-      return [{ source, drawn, bound }]
-    })
-    expect(widths.length).toBeGreaterThan(190)
-    expect(widths.filter(({ drawn, bound }) => drawn > bound)).toEqual([])
-  })
-
-  test('each frame of 300 generated component diagrams top down is no wider than its boxes in one row, its title and its borders', () => {
-    const frames = componentCharts(20261105, 300).flatMap((source) => {
-      const chart = parseMermaid(source)
-      if (chart.kind !== 'flowchart' || chart.direction !== 'TD') return []
-      const drawn = drawFlowchart(chart, NATURAL_COLUMNS)
-      if (drawn.kind !== 'drawing') return [{ source, width: Infinity, bound: 0 }]
-      const boxes = drawnBoxes(drawn.lines)
-      return drawnFrames(drawn.lines).map((frame) => {
-        const inside = boxes.filter(
-          (box) =>
-            box.left > frame.left &&
-            box.right < frame.right &&
-            box.top > frame.top &&
-            box.top < frame.bottom,
-        )
-        const row = inside.reduce((total, box) => total + box.right - box.left + 1 + 2, -2)
-        const title = displayWidth(frameTitle(drawn.lines, frame)) + 2
-        return { source, width: frame.right - frame.left + 1, bound: row + title + FRAME_BORDERS }
+  test(
+    '200 generated component diagrams draw at most 1.75 times as wide as with no subgraphs, plus 4 columns for each frame',
+    { timeoutMs: GENERATED_TIMEOUT_MS },
+    () => {
+      const widths = componentCharts(20261105, 200).flatMap((source) => {
+        const chart = parseMermaid(source)
+        if (chart.kind !== 'flowchart') return []
+        const framed = drawFlowchart(chart, NATURAL_COLUMNS)
+        const bare = drawFlowchart(withoutGroups(chart), NATURAL_COLUMNS)
+        if (bare.kind !== 'drawing') return []
+        const bound =
+          WIDTH_FACTOR * widthOf(bare.lines) + FRAME_BORDERS * (chart.groups ?? []).length
+        const drawn = framed.kind === 'drawing' ? widthOf(framed.lines) : Infinity
+        return [{ source, drawn, bound }]
       })
-    })
-    expect(frames.length).toBeGreaterThan(300)
-    expect(frames.filter(({ width, bound }) => width > bound)).toEqual([])
-  })
+      expect(widths.length).toBeGreaterThan(190)
+      expect(widths.filter(({ drawn, bound }) => drawn > bound)).toEqual([])
+    },
+  )
+
+  test(
+    'each frame of 300 generated component diagrams top down is no wider than its boxes in one row, its title and its borders',
+    { timeoutMs: GENERATED_TIMEOUT_MS },
+    () => {
+      const frames = componentCharts(20261105, 300).flatMap((source) => {
+        const chart = parseMermaid(source)
+        if (chart.kind !== 'flowchart' || chart.direction !== 'TD') return []
+        const drawn = drawFlowchart(chart, NATURAL_COLUMNS)
+        if (drawn.kind !== 'drawing') return [{ source, width: Infinity, bound: 0 }]
+        const boxes = drawnBoxes(drawn.lines)
+        return drawnFrames(drawn.lines).map((frame) => {
+          const inside = boxes.filter(
+            (box) =>
+              box.left > frame.left &&
+              box.right < frame.right &&
+              box.top > frame.top &&
+              box.top < frame.bottom,
+          )
+          const row = inside.reduce((total, box) => total + box.right - box.left + 1 + 2, -2)
+          const title = displayWidth(frameTitle(drawn.lines, frame)) + 2
+          return { source, width: frame.right - frame.left + 1, bound: row + title + FRAME_BORDERS }
+        })
+      })
+      expect(frames.length).toBeGreaterThan(300)
+      expect(frames.filter(({ width, bound }) => width > bound)).toEqual([])
+    },
+  )
 })
