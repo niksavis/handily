@@ -52,6 +52,10 @@ describe('the names of the drawn kinds', () => {
       'git graph',
       'mind map',
       'timeline',
+      'user journey',
+      'quadrant chart',
+      'kanban board',
+      'packet diagram',
     ])
   })
 })
@@ -64,11 +68,11 @@ describe('the diagram hint', () => {
   })
 
   test('a kind added to the drawn list joins the hint text', () => {
-    const grown = diagramHint([...DRAWN_DIAGRAM_KINDS, 'journey'])
+    const grown = diagramHint([...DRAWN_DIAGRAM_KINDS, 'zenuml'])
     expect(grown).not.toBe(DIAGRAM_HINT)
-    expect(hintKinds(DIAGRAM_HINT)).not.toContain('journey')
-    expect(hintKinds(grown)).toEqual([...DRAWN_DIAGRAM_KINDS, 'journey'])
-    expect(grown).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}, journey.`)
+    expect(hintKinds(DIAGRAM_HINT)).not.toContain('zenuml')
+    expect(hintKinds(grown)).toEqual([...DRAWN_DIAGRAM_KINDS, 'zenuml'])
+    expect(grown).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}, zenuml.`)
   })
 
   test('each statement that the hint forbids is refused by the parser by its name', () => {
@@ -79,9 +83,7 @@ describe('the diagram hint', () => {
   })
 
   test('the hint allows a subgraph in a flowchart and the parser refuses one inside another', () => {
-    expect(DIAGRAM_HINT).toContain(
-      'A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph.',
-    )
+    expect(DIAGRAM_HINT).toContain('A flowchart is TD or LR and has no subgraph in a subgraph.')
     expect(diagramOf(GROUPED, 78, 'terminal').kind).toBe('drawing')
     expect(refusalReason(NESTED)).toBe('a subgraph inside a subgraph does not draw yet')
   })

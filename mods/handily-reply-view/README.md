@@ -7,12 +7,13 @@ double rule under its header and a rule between its rows. The `tableStyle` setti
 rules between its columns only. Numbers, durations, versions and paths in the prose and the cells
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
-table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram, ER diagram, git graph, mind map or timeline draws as a diagram, with
-a `copy` button for its source and a `copy drawing` button for the drawing. Each prompt that you
-type opens under a coloured rule labelled `you`, so you find it when you scroll. `/replies`
-switches the view off and on for the session. The model still reads the full reply and the prompt
-as you typed it. Only the screen changes.
+table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram, state
+diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey, quadrant chart,
+kanban or packet diagram draws as a diagram, with a `copy` button for its source and a
+`copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
+labelled `you`, so you find it when you scroll. `/replies` switches the view off and on for the
+session. The model still reads the full reply and the prompt as you typed it. Only the screen
+changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -410,9 +411,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map or a timeline
-draws as a diagram. The diagram has a dim title line and two buttons at the right edge. The
-drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
+user journey, a quadrant chart, a kanban or a packet diagram draws as a diagram. The diagram has a
+dim title line and two buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -470,7 +471,7 @@ reason:
 
 Other reasons that the note names:
 
-- `journey does not draw yet.`, and the same for each other kind of diagram that this part does
+- `zenuml does not draw yet.`, and the same for each other kind of diagram that this part does
   not name.
 - `direction does not draw yet.`, for a `direction` line outside a `subgraph`.
 - The reasons of a `subgraph` that does not draw, in the part on groups in a flowchart.
@@ -644,14 +645,14 @@ same prompt differ only in a mod that adds the hint as the context of the prompt
 hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The hint text has 516 characters,
+hint of 350 characters that named only two kinds at 154 tokens. The hint text has 522 characters,
 and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
 changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey, quadrantChart, kanban, packet. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1303,6 +1304,274 @@ At 40 columns, the events wrap in their column:
 
 The syntax follows the [timeline page](https://mermaid.js.org/syntax/timeline.html) of Mermaid
 12.3.0.
+
+## A user journey
+
+A `journey` draws a score bar for each task, under the title line `── mermaid · journey ──`:
+
+```text
+● A day at work:
+
+  ── mermaid · journey ──────────────────────────────  [ copy ] [ copy drawing ]
+  My working day
+  ┄┄ Go to work ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  █████ 5  Make tea       Me
+  ███░░ 3  Go upstairs    Me
+  █░░░░ 1  Do work        Me, Cat
+  ┄┄ Go home ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  █████ 5  Go downstairs  Me
+  █████ 5  Sit down       Me
+```
+
+At 30 columns, the actors stand under their task:
+
+```text
+  My working day
+  ┄┄ Go to work ┄┄┄┄┄┄┄┄
+  █████ 5  Make tea
+           Me
+  ███░░ 3  Go upstairs
+           Me
+```
+
+- `title` draws its text in bold on the first line. A `section` draws as a dotted row with its
+  name, as in a timeline.
+- A task `Make tea: 5: Me, Cat` draws its score as a bar of 5 cells and as a number, then its
+  name, then its actors. The bars stand in one column, so the rise and fall of the scores read
+  down the column. A score with a fraction, such as `3.5`, draws a part of a cell. A task whose
+  name is only `<br>` draws its score with an empty name.
+- When the widest task name takes more than half of the room after the bars, or leaves fewer
+  than 12 columns for the actors, the actors stand under their task.
+- On the terminal, each section, its bars and its scores take the colours `suggestion`,
+  `planMode` and `merged` in turn. The task names are plain. The empty cells `░`, the actors and
+  the dotted rows are in `inactive`.
+- `#` and `%%` start a comment, as in Mermaid. The keywords `title` and `section` may be in any
+  case. `accTitle` and `accDescr` draw nothing. Mermaid reads only the score and the actors of a
+  task, so a third `:` and the text after it draw nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a task with no score or a section with a `:`
+  (`line 2 does not parse.`), a score that is not a number (`line 2: "high" is not a number.`), a
+  score outside 1 to 5, also below 0 (`line 2: the score -1 is not from 1 to 5.`), a journey with
+  no task (`the journey has no tasks.`) and a screen narrower than the bars and 10 columns of the
+  names.
+- Mermaid takes any number as a score and draws its face off the scale. The bar has no room
+  outside 1 to 5, so such a score draws as the source.
+
+The syntax follows the [user journey page](https://mermaid.js.org/syntax/userJourney.html) of
+Mermaid 12.3.0.
+
+## A quadrant chart
+
+A `quadrantChart` draws its four quadrants in a frame, under the title line
+`── mermaid · quadrant ──`:
+
+```text
+● Where the campaigns stand:
+
+  ── mermaid · quadrant ─────────────────────────────  [ copy ] [ copy drawing ]
+  Reach and engagement of campaigns
+  ▲ High Engagement
+  ┌────────── Need to promote ──────────┬───────── We should expand ──────────┐
+  │                                     │                                     │
+  │                                     │                                     │
+  │              Campaign F ●           │                                     │
+  │                                     │     ● Campaign C                    │
+  │                      ● Campaign A   │                                     │
+  │                                     │                                     │
+  ├──────────── Re-evaluate ────────────┼────────── May be improved ──────────┤
+  │                                     │                                     │
+  │                  Campaign E ●       │                    ● Campaign D     │
+  │                                     │                                     │
+  │                      Campaign B ●   │                                     │
+  │                                     │                                     │
+  │                                     │                                     │
+  └─────────────────────────────────────┴─────────────────────────────────────┘
+  ▼ Low Engagement
+  ◀ Low Reach                                                      High Reach ▶
+```
+
+At 40 columns, a point whose name does not fit beside it draws a key against its `●`, and the
+name stands under the chart:
+
+```text
+  ┌ Need to promote ┬ We should expa… ┐
+  │                 │                 │
+  │                 │                 │
+  │           ●3    │                 │
+  │                 │  ● Campaign C   │
+  │          ●1     │                 │
+  ...
+  ◀ Low Reach              High Reach ▶
+  1 Campaign A
+  2 Campaign D
+  3 Campaign F
+```
+
+- Each quadrant has 6 rows and half of the width. A point `Campaign A: [0.3, 0.6]` draws `●` in
+  the cell of its place. A point at `0.5` draws in the right or the upper quadrant.
+- The name of a point stands one space after `●`, or one space before it when the right has no
+  room. The name keeps one free cell to a border and to the next name.
+- When neither side has room, the point draws a key `1` to `9` or `A` to `Z` against its `●`,
+  with no space, such as `●2`. The key and the name stand under the chart. A key never stands
+  alone, so a key never reads as a part of a name: a name always has a space after its `●`, and
+  a key never has one. The key is bold in the colour of its quadrant. The form alone tells a key
+  from a name, so this holds also on the desktop app, which draws no colour.
+- Every mark keeps two free cells to the next mark and to any name in its row. Points that fall
+  closer together in one row share one mark at the left one, and their names join with a comma.
+  So points 0.012 apart draw as a few marks such as `●1  ●2  ●3`, and not as a row of keys.
+- With points, the name of each quadrant stands on the top edge of the quadrant, as in Mermaid. A
+  name too wide for the edge is cut with `…`. With no point, each name stands in the middle of its
+  quadrant.
+- The top text of the `y-axis` stands above the frame after `▲`, and the bottom text under the
+  frame after `▼`. The left text of the `x-axis` stands under the frame after `◀`, and the right
+  text at the right edge before `▶`.
+- An `x-axis` that ends with `-->` and no right text draws its text with `→`, as Mermaid adds `⟶`.
+  A `y-axis` that ends with `-->` and no top text draws its text above the frame after `▲`.
+- On the terminal, each quadrant name and the `●` of each point in the quadrant take one colour:
+  `quadrant-2` `suggestion`, `quadrant-1` `planMode`, `quadrant-3` `merged`. `quadrant-4` takes
+  `suggestion` again in the `theme` palette, so no two quadrants side by side share a colour. The
+  names of the points are plain. The frame and the axes are in `inactive`.
+- A style after a point, such as `radius: 12, color: #ff3300`, a class `:::name`, `classDef`,
+  `accTitle` and `accDescr` draw nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a point outside 0 to 1
+  (`line 2: 1.5 is not from 0 to 1.`), a point that Mermaid does not read, such as `1.0`, `.5` or
+  a name with `(` or `:` outside quotes (`line 2 does not parse.`), a style that Mermaid does not
+  know, a markdown string (`markdown strings does not draw yet.`), more than 35 points
+  (`36 points, at most 35 draw.`) and a screen narrower than 19 columns.
+
+The syntax follows the [quadrant chart page](https://mermaid.js.org/syntax/quadrantChart.html) of
+Mermaid 12.3.0.
+
+## A kanban
+
+A `kanban` draws its columns side by side, each with its cards, under the title line
+`── mermaid · kanban ──`:
+
+```text
+● The board for this week:
+
+  ── mermaid · kanban ───────────────────────────────  [ copy ] [ copy drawing ]
+  Todo                      In progress               Done
+  ╭──────────────────────╮  ╭──────────────────────╮  ╭──────────────────────╮
+  │ Write the parser     │  │ Pick the glyphs for  │  │ Read the Mermaid     │
+  │ High · H-12          │  │ the cards            │  │ page                 │
+  ╰──────────────────────╯  │ niksa                │  ╰──────────────────────╯
+  ╭──────────────────────╮  ╰──────────────────────╯
+  │ Draw the board       │
+  ╰──────────────────────╯
+```
+
+When a card has less than 16 columns, each column stands under the one before it, as a dotted row
+with its cards under it:
+
+```text
+  ┄┄ Todo ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ╭──────────────────────────╮
+  │ Write the parser         │
+  │ High · H-12              │
+  ╰──────────────────────────╯
+  ╭──────────────────────────╮
+  │ Draw the board           │
+  ╰──────────────────────────╯
+  ┄┄ In progress ┄┄┄┄┄┄┄┄┄┄┄┄┄
+```
+
+- The indentation of the first node sets the level of the columns, as in Mermaid. Each node at
+  that level starts a column. Each node with more indentation is a card of the column above it.
+- A node draws its text from `id[text]`, `[text]` or `id` alone. `(…)`, `((…))`, `{{…}}`, `)…(`,
+  `))…((` and `(-…-)` draw the same card, as Mermaid draws them. A quoted text `["…"]` may hold
+  brackets.
+- The metadata `@{ … }` of a card draws its `priority`, `ticket` and `assigned` under its text,
+  joined by `·`, such as `High · MC-2038 · knsv`. A `label` in the metadata replaces the text.
+- On a board, a column name that wraps takes more rows, and the other column names get the same
+  rows. So the first cards of all columns start on one row.
+- Stacked cards all take the width of the widest card, from 16 columns up to the screen.
+- On the terminal, each column name is bold, in the colours `suggestion`, `planMode` and `merged`
+  in turn. The text of a card is plain. The frames, the metadata and the dotted rows are in
+  `inactive`.
+- `%%` starts a comment. A class line `:::urgent` draws nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a node that Mermaid does not read, such as `a[A (b)]` or
+  `[text` with no end (`line 3 does not parse.`), an icon (`icons does not draw yet.`), a markdown
+  string, metadata on more than one line, a card left of the first column
+  (`line 3 stands left of the first column.`), a kanban with no column
+  (`the kanban has no columns.`), more than 40 cards (`41 boxes, at most 40 draw.`) and a screen
+  narrower than 14 columns.
+
+The syntax follows the [kanban page](https://mermaid.js.org/syntax/kanban.html) of Mermaid
+12.3.0.
+
+## A packet diagram
+
+A `packet` or `packet-beta` draws its fields in rows of 32 bits, under the title line
+`── mermaid · packet ──`:
+
+```text
+● The TCP header:
+
+  ── mermaid · packet ───────────────────────────────  [ copy ] [ copy drawing ]
+  TCP Packet
+  ┌0────────────────────────────15┬16───────────────────────────31┐
+  │          Source Port          │       Destination Port        │
+  ├32─────────────────────────────┴─────────────────────────────63┤
+  │                        Sequence Number                        │
+  ├64───────────────────────────────────────────────────────────95┤
+  │                     Acknowledgment Number                     │
+  ├96───99┬100─────105┬─┬─┬─┬─┬─┬─┬112─────────────────────────127┤
+  │   1   │ Reserved  │2│3│4│5│6│7│            Window             │
+  ├128────┴───────────┴─┴─┴─┴─┴─┴─┼144─────────────────────────159┤
+  │           Checksum            │        Urgent Pointer         │
+  ├160────────────────────────────┴────────────────────────────191┤
+  │                     (Options and Padding)                     │
+  ├192─────────────────────────────────────────────────────────223┤
+  │                    Data (variable length)                     │
+  ├224─────────────────────────────────────────────────────────255┤
+  │                    Data (variable length)                     │
+  └───────────────────────────────────────────────────────────────┘
+  1 Data Offset  bits 96-99
+  2 URG  bit 106
+  3 ACK  bit 107
+  4 PSH  bit 108
+  5 RST  bit 109
+  6 SYN  bit 110
+  7 FIN  bit 111
+```
+
+At 40 columns, a row holds 16 bits, and a note under the drawing says so:
+
+```text
+  UDP Packet
+  ┌0────────────────────────────15┐
+  │          Source Port          │
+  ├16───────────────────────────31┤
+  │       Destination Port        │
+  ...
+  └───────────────────────────────┘
+  16 bits a row: 32 bits take 65
+  columns, the screen has 38.
+```
+
+- Each bit takes 2 columns. A row holds 32 bits, as in Mermaid. When 32 bits do not fit the
+  screen, a row holds 16 bits, then 8 bits, and the note names the width.
+- A field that crosses the end of a row continues on the next row, with its name again, as in
+  Mermaid. The first and the last bit of each field stand on the rule above it, when they fit
+  between the joins of the rule.
+- A name that does not fit its field draws a key `1` to `9` or `A` to `Z`. The key, the name and
+  the bits of the field stand under the drawing.
+- `start-end`, `start` and `+count` set the bits of a field, as in Mermaid. A name is in double or
+  single quotes, and `\"` keeps a quote. `title` draws its text in bold on the first line. `%%`
+  starts a comment. `accTitle` and `accDescr` draw nothing.
+- On the terminal, each field takes the colours `suggestion`, `planMode` and `merged` in turn,
+  and a key is bold. The bit numbers are plain. The frame and the note are in `inactive`.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a field that does not start where the last one ends
+  (`line 3: the field starts at bit 9, not at bit 8.`), a field that ends before it starts, a field
+  of `+0` bits, a name with no quotes (`line 2 does not parse.`), a packet with no field
+  (`the packet has no fields.`), more than 120 rows (`627 rows, at most 120 draw.`) and a screen
+  narrower than 17 columns.
+
+The syntax follows the [packet page](https://mermaid.js.org/syntax/packet.html) of Mermaid 12.3.0.
 
 ## A prompt that you type
 
