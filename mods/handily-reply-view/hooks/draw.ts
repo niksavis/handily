@@ -24,6 +24,7 @@ import {
 } from './markdown'
 import { DIAGRAM_NAMES, parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { drawMindmap } from './mindmap'
+import { drawPacket } from './packet'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
 import { drawQuadrant } from './quadrant'
 import {
@@ -1256,6 +1257,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'kanban': {
       const drawn = drawKanban(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'packet': {
+      const drawn = drawPacket(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

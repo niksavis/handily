@@ -6,6 +6,7 @@ import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph
 import { journeyBuilder, type Journey, type JourneyBuilder } from './journey'
 import { kanbanBuilder, type Kanban, type KanbanBuilder } from './kanban'
 import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
+import { packetBuilder, type Packet, type PacketBuilder } from './packet'
 import { quadrantBuilder, type QuadrantBuilder, type QuadrantChart } from './quadrant'
 import { StateBuilder, type StateDiagram } from './state'
 import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
@@ -36,6 +37,7 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'journey',
   'quadrantChart',
   'kanban',
+  'packet',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -51,6 +53,7 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   journey: 'user journey',
   quadrant: 'quadrant chart',
   kanban: 'kanban board',
+  packet: 'packet diagram',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -146,6 +149,7 @@ export type MermaidDiagram =
   | Journey
   | QuadrantChart
   | Kanban
+  | Packet
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -804,6 +808,7 @@ type Builder =
   | JourneyBuilder
   | QuadrantBuilder
   | KanbanBuilder
+  | PacketBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -829,6 +834,8 @@ function builderOf(header: Statement): Builder {
   if (quadrant !== null) return quadrant
   const kanban = kanbanBuilder(header)
   if (kanban !== null) return kanban
+  const packet = packetBuilder(header)
+  if (packet !== null) return packet
   throw unknownHeader(header)
 }
 

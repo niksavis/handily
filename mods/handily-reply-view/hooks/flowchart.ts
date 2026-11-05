@@ -56,16 +56,16 @@ const DECISION_INDENT = '  '
 const CONTROL = /\p{Cc}/gu
 const BIDI_CONTROL = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g
 
-const UP = 1
-const DOWN = 2
-const LEFT = 4
-const RIGHT = 8
+export const UP = 1
+export const DOWN = 2
+export const LEFT = 4
+export const RIGHT = 8
 const VERTICAL = UP | DOWN
 const HORIZONTAL = LEFT | RIGHT
 
 const SOLID_VERTICAL = '│'
 
-const SOLID_GLYPHS: Readonly<Record<number, string>> = {
+export const SOLID_GLYPHS: Readonly<Record<number, string>> = {
   [UP]: SOLID_VERTICAL,
   [DOWN]: SOLID_VERTICAL,
   [VERTICAL]: SOLID_VERTICAL,
