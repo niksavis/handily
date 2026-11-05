@@ -1361,8 +1361,9 @@ does. The title line is `── mermaid · requirement ──`:
   its target, as in Mermaid. `a <- copies - b` reads from `b` to `a`.
 - A box stands above the boxes that its relations point at. A relation to the next box runs down
   the middle. Any other relation runs on its own line at the right of the stack.
-- When the stack is too wide, the field values wrap in their column. When less than 10 columns are
-  left for a value, the value stands under its field name.
+- When the stack is too wide, the field values wrap at spaces in their column, and a long word
+  stays whole while the stack fits. Only then does a word break inside, with no character lost.
+  When less than 10 columns are left for a value, the value stands under its field name.
 - On the terminal, the boxes take the colours `suggestion`, `planMode` and `merged` in turn. The
   field names, the lines and the relation types are in `inactive`. `⊕` and the arrow heads are in
   `claude`. The values are plain.

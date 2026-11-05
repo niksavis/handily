@@ -1,5 +1,5 @@
-import { shownLabel } from './flowchart'
-import { PLAIN_LOOKS, relabelled, type InkedDrawing, type Label } from './ink'
+import { shownLabel, wrappedLabel as flowWrapped } from './flowchart'
+import { PLAIN_LOOKS, type InkedDrawing, type Label } from './ink'
 import {
   AccessibilityLines,
   DiagramFault,
@@ -12,7 +12,6 @@ import {
 } from './mermaid'
 import { withLooks } from './outline'
 import { drawStack, stackOrder, type Piece, type Stack, type StackBox } from './stack'
-import { wrapCell } from './table'
 import { displayWidth } from './width'
 
 export type RequirementField = { key: string; value: string[] }
@@ -242,8 +241,16 @@ export function requirementBuilder(header: Statement): RequirementBuilder | null
   return new RequirementBuilder()
 }
 
-function wrappedLabel(label: Label, wrap: number | null): Label[] {
-  return wrap === null ? [label] : relabelled(label, wrapCell(label.text, wrap))
+type Wrap = { columns: number; breaksWords: boolean } | null
+
+function wrappedLabel(label: Label, wrap: Wrap): Label[] {
+  return wrap === null
+    ? [label]
+    : flowWrapped(label, wrap.columns, wrap.breaksWords ? wrap.columns : Infinity)
+}
+
+function narrower(wrap: Wrap, columns: number): Wrap {
+  return wrap === null ? null : { ...wrap, columns: wrap.columns - columns }
 }
 
 function keyPiece(text: string): Piece {
@@ -254,25 +261,26 @@ function labelPieces(label: Label): Piece[] {
   return label.runs.map((run) => ({ text: run.text, ink: 'plain', looks: run.looks }))
 }
 
-function fieldRows(field: RequirementField, wrap: number | null): Piece[][] {
+function fieldRows(field: RequirementField, wrap: Wrap): Piece[][] {
   const key = `${field.key}: `
   const keyWidth = displayWidth(key)
   const values = field.value.map(shownLabel)
-  const isBeside = wrap === null || wrap - keyWidth >= LEAST_VALUE_COLUMNS
+  const isBeside = wrap === null || wrap.columns - keyWidth >= LEAST_VALUE_COLUMNS
   if (isBeside) {
-    const room = wrap === null ? null : wrap - keyWidth
-    const lines = values.flatMap((value) => wrappedLabel(value, room))
+    const lines = values.flatMap((value) => wrappedLabel(value, narrower(wrap, keyWidth)))
     const indent = ' '.repeat(keyWidth)
     return lines.map((value, at) => [keyPiece(at === 0 ? key : indent), ...labelPieces(value)])
   }
-  const lines = values.flatMap((value) => wrappedLabel(value, wrap - HANGING_INDENT.length))
+  const lines = values.flatMap((value) =>
+    wrappedLabel(value, narrower(wrap, HANGING_INDENT.length)),
+  )
   return [
     [keyPiece(key.trimEnd())],
     ...lines.map((value) => [keyPiece(HANGING_INDENT), ...labelPieces(value)]),
   ]
 }
 
-function stackBoxOf(box: RequirementBox, wrap: number | null): StackBox {
+function stackBoxOf(box: RequirementBox, wrap: Wrap): StackBox {
   const type = shownLabel(`«${box.type}»`)
   const name = withLooks(shownLabel(box.name), NAME_LOOKS)
   return {
@@ -281,7 +289,7 @@ function stackBoxOf(box: RequirementBox, wrap: number | null): StackBox {
   }
 }
 
-function stackOf(diagram: RequirementDiagram, wrap: number | null): Stack {
+function stackOf(diagram: RequirementDiagram, wrap: Wrap): Stack {
   const index = new Map(diagram.boxes.map((box, at) => [box.name, at]))
   const ties = diagram.relations.map((relation) => ({
     from: index.get(relation.from) ?? 0,
@@ -313,8 +321,11 @@ export function drawRequirements(
   diagram: RequirementDiagram,
   width: number,
 ): InkedDrawing | Refusal {
+  const wraps = [false, true].flatMap((breaksWords) =>
+    NARROWER_WRAPS.map((columns) => ({ columns, breaksWords })),
+  )
   let drawn = drawStack(stackOf(diagram, null), width)
-  for (const wrap of NARROWER_WRAPS) {
+  for (const wrap of wraps) {
     if (drawn.kind === 'drawing') return drawn
     drawn = drawStack(stackOf(diagram, wrap), width)
   }

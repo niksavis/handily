@@ -16,6 +16,7 @@ import {
   WIDTHS,
   type Span,
 } from './fixtures/diagram-view'
+import { diagramOf } from './hooks/draw'
 import { parseMermaid } from './hooks/mermaid'
 
 const HEAD = 'claude'
@@ -295,6 +296,23 @@ describe('a mermaid requirement diagram', () => {
       ],
       relations: [{ from: 'Test suite', to: 'Login works', type: 'verifies' }],
     })
+  })
+
+  test('a name longer than the wrap keeps whole when the box can widen to hold it', () => {
+    const drawn = diagramOf(
+      lines(
+        'requirementDiagram',
+        '  requirement PasswordStorageRequirement {',
+        '    id: 1',
+        '    text: Store passwords hashed with bcrypt.',
+        '  }',
+      ),
+      30,
+      'terminal',
+    )
+    expect(drawn.kind === 'drawing' ? drawn.lines : drawn).toContain(
+      '│ PasswordStorageRequirement │',
+    )
   })
 
   test('each requirement type keyword names its type, and a second definition of a name keeps the first', () => {
