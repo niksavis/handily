@@ -102,79 +102,103 @@ const CLASSES = lines(
 )
 
 const CLASSES_DRAWN = [
-  '         ╭─────────────────────╮',
-  '         │ Reply               │',
-  '         ├─────────────────────┤',
-  '         │ + text: string      │',
-  '         │ + blocks(): Block[] │',
-  '         ╰──────────┬──────────╯',
-  '                    │ 1',
-  '                    │',
-  '                    ◆',
-  '                    │ holds',
-  '                    │ 0..n',
-  '                    │',
-  '          ╭─────────┴────────╮',
-  '          │ Block            │',
-  '          ├──────────────────┤',
-  '          │ + rows(): number │',
-  '          ╰─────────┬────────╯',
-  '                    │',
-  '                    △',
-  '          ┌─────────┴──────────┐',
-  '          │                    │',
-  '╭─────────┴──────────╮ ╭───────┴───────╮',
-  '│ Table              │ │ Fence         │',
-  '├────────────────────┤ ├───────────────┤',
-  '│ + header: string[] │ │ + tag: string │',
-  '╰────────────────────╯ ╰───────────────╯',
+  '╭─────────────────────╮',
+  '│ Reply               │',
+  '├─────────────────────┤',
+  '│ + text: string      │',
+  '│ + blocks(): Block[] │',
+  '╰─────────────────────╯',
+  '           ◆ 1',
+  '           │ holds',
+  '           │ 0..n',
+  '╭──────────┴──────────╮',
+  '│ Block               │◁─┐',
+  '├─────────────────────┤  │',
+  '│ + rows(): number    │  │',
+  '╰─────────────────────╯  │',
+  '           △             │',
+  '           │             │',
+  '╭──────────┴──────────╮  │',
+  '│ Table               │  │',
+  '├─────────────────────┤  │',
+  '│ + header: string[]  │  │',
+  '╰─────────────────────╯  │',
+  '                         │',
+  '╭─────────────────────╮  │',
+  '│ Fence               ├──┘',
+  '├─────────────────────┤',
+  '│ + tag: string       │',
+  '╰─────────────────────╯',
 ]
 
-const CLASSES_WRAPPED_AT_16 = [
-  '     ╭────────────────╮',
-  '     │ Reply          │',
-  '     ├────────────────┤',
-  '     │ + text: string │',
-  '     │ + blocks():    │',
-  '     │   Block[]      │',
-  '     ╰────────┬───────╯',
-]
+const BOARD = lines(
+  'classDiagram',
+  '  class Board {',
+  '    +tasks: Task[]',
+  '    +open()',
+  '  }',
+  '  class Agent {',
+  '    +id: string',
+  '    +settle()',
+  '  }',
+  '  class Task {',
+  '    +title: string',
+  '  }',
+  '  Board "1" --> "*" Agent : shows',
+  '  Board *-- Task : keeps',
+  '  Agent <|-- Explorer',
+)
 
-const CLASSES_WRAPPED_AT_12 = [
-  '      ╭─────────────╮',
-  '      │ Reply       │',
-  '      ├─────────────┤',
-  '      │ + text:     │',
-  '      │   string    │',
-  '      │ + blocks(): │',
-  '      │   Block[]   │',
-  '      ╰──────┬──────╯',
+const BOARD_DRAWN = [
+  '╭────────────────╮',
+  '│ Board          ├─ 1 shows ─┐',
+  '├────────────────┤           │',
+  '│ +tasks: Task[] │           │',
+  '│ +open()        │           │',
+  '╰────────────────╯           │',
+  '         ◆                   │',
+  '         │ keeps             │',
+  '         │                   │',
+  '╭────────┴───────╮           │',
+  '│ Task           │           │',
+  '├────────────────┤           │',
+  '│ +title: string │           │',
+  '╰────────────────╯           │',
+  '                             │',
+  '╭────────────────╮           │',
+  '│ Agent          │◀ * ───────┘',
+  '├────────────────┤',
+  '│ +id: string    │',
+  '│ +settle()      │',
+  '╰────────────────╯',
+  '         △',
+  '         │',
+  '╭────────┴───────╮',
+  '│ Explorer       │',
+  '╰────────────────╯',
 ]
-
-function classesHead(body: number): string[] {
-  if (body >= 40) return CLASSES_DRAWN
-  return body >= 38 ? CLASSES_WRAPPED_AT_16 : CLASSES_WRAPPED_AT_12
-}
 
 const FLEET = lines('classDiagram', '  Fleet o-- Car : owns', '  Car --> Engine : runs on')
 
 const FLEET_DRAWN = [
-  '╭───────╮',
-  '│ Fleet │',
-  '╰───┬───╯',
-  '    │',
-  '    ◇',
-  '    │ owns',
-  '    │',
-  ' ╭──┴──╮',
-  ' │ Car │',
-  ' ╰──┬──╯',
-  '    │ runs on',
-  '    ▼',
+  '╭────────╮',
+  '│ Fleet  │',
+  '╰────────╯',
+  '     ◇',
+  '     │ owns',
+  '     │',
+  '╭────┴───╮',
+  '│ Car    │',
+  '╰────┬───╯',
+  '     │',
+  '     │ runs on',
+  '     ▼',
   '╭────────╮',
   '│ Engine │',
   '╰────────╯',
 ]
+
+const JOINS = /[┌┐└┘├┤┬┴┼]/
 
 const SESSION_LOG = lines(
   'erDiagram',
@@ -336,6 +360,11 @@ async function drawnRows(ui: Mounted, surface: Surface): Promise<Span[][]> {
 
 function firstToastLine(toast: string): string | undefined {
   return toast.split(/\s{2,}/)[0]
+}
+
+async function openedRows(ui: Mounted, surface: Surface): Promise<Span[][]> {
+  if ((await ui.find({ key: 'fold' })) !== undefined) await ui.press({ key: 'fold' })
+  return drawnRows(ui, surface)
 }
 
 function rowText(row: readonly Span[]): string {
@@ -532,13 +561,8 @@ describe('class diagrams', () => {
         `a class diagram draws each class with its members and the relation marks and fits the body on ${surface} at ${String(columns)} columns`,
         async (world, $) => {
           const ui = await mountDiagram($, CLASSES, surface, columns)
-          if ((await ui.find({ key: 'fold' })) !== undefined) await ui.press({ key: 'fold' })
-          const rows = (await drawnRows(ui, surface)).map(rowText)
-          const head = classesHead(bodyWidth(surface, columns))
-          expect(rows.slice(0, head.length)).toEqual(head)
-          for (const text of ['◆', '△', '│ 1', '│ holds', '│ 0..n', '│ Fence', '│ + tag:']) {
-            expect(rows.some((row) => row.includes(text))).toBe(true)
-          }
+          const rows = (await openedRows(ui, surface)).map(rowText)
+          expect(rows).toEqual(CLASSES_DRAWN)
           expect(tooWide(rows, surface, columns)).toEqual([])
           expect(await ui.find({ type: 'Text', text: /── mermaid · class ─/ })).toBeDefined()
           await ui.press({ key: 'block-1-copy' })
@@ -547,10 +571,33 @@ describe('class diagrams', () => {
           await ui.unmount()
         },
       )
+
+      viewTest(
+        `each class relation has its own route with its mark next to its owner and fits the body on ${surface} at ${String(columns)} columns`,
+        async (_world, $) => {
+          const ui = await mountDiagram($, BOARD, surface, columns)
+          const rows = (await openedRows(ui, surface)).map(rowText)
+          if (bodyWidth(surface, columns) >= 30) expect(rows).toEqual(BOARD_DRAWN)
+          expect(tooWide(rows, surface, columns)).toEqual([])
+          const boardEnd = rows.findIndex((row) => row.startsWith('╰')) + 1
+          expect(rows[boardEnd]).toMatch(/^ +◆ +│$/)
+          expect(rows[boardEnd + 1]).toMatch(/^ +│ keeps +│$/)
+          const agent = rows.findIndex((row) => row.includes('│ Agent'))
+          const agentEnd = rows.findIndex((row, at) => at > agent && row.startsWith('╰'))
+          const explorer = rows.findIndex((row) => row.includes('│ Explorer'))
+          expect(rows[agentEnd + 1]?.trim()).toBe('△')
+          expect(rows.slice(agentEnd + 1, explorer - 1).filter((row) => JOINS.test(row))).toEqual(
+            [],
+          )
+          expect(rows.find((row) => row.includes('│ Agent'))).toMatch(/│◀ \* ─+┘$/)
+          expect(rows.find((row) => row.includes('│ Board'))).toMatch(/├─ 1 shows ─┐$/)
+          await ui.unmount()
+        },
+      )
     }
 
     viewTest(
-      `a class diagram draws ◇ under the owner of an aggregation and an arrow head at the end of an association on ${surface}`,
+      `a class diagram draws ◇ next to the owner of an aggregation and an arrow head at the end of an association on ${surface}`,
       async (_world, $) => {
         const ui = await mountDiagram($, FLEET, surface)
         expect((await drawnRows(ui, surface)).map(rowText)).toEqual(FLEET_DRAWN)
@@ -563,12 +610,13 @@ describe('class diagrams', () => {
     'the class names take the cycle colours, the members are plain and the marks are in claude on terminal',
     async (_world, $) => {
       const ui = await mountDiagram($, CLASSES, 'terminal')
-      const rows = await drawnRows(ui, 'terminal')
+      const rows = await openedRows(ui, 'terminal')
       expect(
         ['Reply', 'Block', 'Table', 'Fence'].map((name) => colourOf(rows, `│ ${name} `)),
       ).toEqual([CYCLE[0], CYCLE[1], CYCLE[2], CYCLE[0]])
       expect([styleAt(rows, '+ text: string'), styleAt(rows, '+ tag: string')]).toEqual([{}, {}])
-      expect(['◆', '△'].map((mark) => styleAt(rows, mark))).toEqual([
+      expect(['◆', '△', '◁'].map((mark) => styleAt(rows, mark))).toEqual([
+        { color: HEAD },
         { color: HEAD },
         { color: HEAD },
       ])
@@ -755,6 +803,12 @@ describe('ER diagrams', () => {
       })
     })
   }
+
+  test('the mixed cardinality }|..|| draws as 1..n and 1 on a dashed line', () => {
+    expect(parseMermaid(lines('erDiagram', '  CUSTOMER }|..|| ACCOUNT : holds'))).toMatchObject({
+      relations: [{ fromCard: '1..n', toCard: '1', stroke: 'dashed', label: 'holds' }],
+    })
+  })
 
   test('the cardinality words and the optional line read as their symbols do', () => {
     expect(

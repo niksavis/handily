@@ -7252,7 +7252,7 @@ Notes:
   window or shorten the labels.
   diagram not drawn: gantt does not draw yet.
   diagram not drawn: class Reply has 14 members, at most 10 draw.
-  diagram not drawn: erDiagram line 4: the cardinality }|..|| does not parse.
+  diagram not drawn: line 4: the cardinality }|..|x does not parse.
   diagram not drawn: state Running holds nested states, which do not draw yet.
 ```
 

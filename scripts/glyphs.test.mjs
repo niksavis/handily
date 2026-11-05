@@ -51,7 +51,7 @@ const LITERAL_EXCEPTIONS = [
     why: 'the arrow head of a sequence message',
   },
   {
-    file: 'mods/handily-reply-view/hooks/classes.ts',
+    file: 'mods/handily-reply-view/hooks/stack.ts',
     glyph: '◆',
     why: 'the composition arrowhead of a class diagram relation, as the mermaid syntax names it',
   },

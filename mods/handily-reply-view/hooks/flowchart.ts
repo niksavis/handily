@@ -44,7 +44,6 @@ const DOWN_ENTRY_ROOM = 5
 const ACROSS_ENTRY_ROOM = 4
 const DECISION_MARK = '◇ '
 const DECISION_INDENT = '  '
-const HANGING_INDENT = '  '
 const CONTROL = /\p{Cc}/gu
 const BIDI_CONTROL = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g
 
@@ -87,8 +86,6 @@ const BORDER_ACROSS = '─'
 const BORDER_DOWN = '│'
 const PORT_BELOW = '┬'
 const PORT_ABOVE = '┴'
-const RULE_LEFT = '├'
-const RULE_RIGHT = '┤'
 const ARROW_DOWN = '▼'
 const ARROW_RIGHT = '▶'
 const ARROW_LEFT = '◀'
@@ -126,7 +123,7 @@ type Graph = {
   reach: Map<number, string>
 }
 
-type Shape = { lines: Label[]; width: number; height: number; shape: FlowShape; rule?: number }
+type Shape = { lines: Label[]; width: number; height: number; shape: FlowShape }
 
 type Entry = { label: Label[]; arrow: boolean; offset: number; sharing: string | null }
 
@@ -618,41 +615,16 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   return { nodes: chart.nodes, layerOf, layers, outgoing, incoming, loops, turns, real, reach }
 }
 
-function wrappedLabel(label: readonly string[], wrap: number | null): Label[] {
-  return label
-    .map(shownLabel)
-    .flatMap((line) => (wrap === null ? [line] : relabelled(line, wrapCell(line.text, wrap))))
-}
-
 function pointShape(node: FlowNode): Shape {
   const lines = [shownLabel(node.label[0] ?? '')]
   return { lines, width: widestLabel(lines), height: 1, shape: node.shape }
 }
 
-function hangingLines(line: string, wrap: number | null): Label[] {
-  const [first, ...rest] = wrappedLabel([line], wrap)
-  return first === undefined ? [] : [first, ...rest.map((more) => prefixed(HANGING_INDENT, more))]
-}
-
-function titledShape(node: FlowNode, wrap: number | null, titleLines: number): Shape {
-  const title = wrappedLabel(node.label.slice(0, titleLines), wrap)
-  const body = node.label.slice(titleLines).flatMap((line) => hangingLines(line, wrap))
-  const lines = [...title, ...body]
-  return {
-    lines,
-    width: widest(textsOf(lines)) + BOX_PADDING,
-    height: lines.length + 3,
-    shape: node.shape,
-    rule: title.length,
-  }
-}
-
 function shapeOf(node: FlowNode, wrap: number | null, turning: boolean): Shape {
   if (node.shape === 'point') return pointShape(node)
-  if (node.titleLines !== undefined && node.titleLines < node.label.length) {
-    return titledShape(node, wrap, node.titleLines)
-  }
-  const text = wrappedLabel(node.label, wrap)
+  const text = node.label
+    .map(shownLabel)
+    .flatMap((line) => (wrap === null ? [line] : relabelled(line, wrapCell(line.text, wrap))))
   const lines = text.length === 0 ? [plainLabel('')] : text
   if (turning && lines.length < 2) lines.push(plainLabel(''))
   const marked =
@@ -699,8 +671,7 @@ function grown(shape: Shape, direction: FlowDirection, span: number): Shape {
   if (direction === 'TD') return { ...shape, width: Math.max(shape.width, span + DOWN_ENTRY_ROOM) }
   const height = Math.max(shape.height, span + ACROSS_ENTRY_ROOM)
   const lines = [...shape.lines]
-  const ruleRows = shape.rule === undefined ? 0 : 1
-  while (lines.length < height - 2 - ruleRows) lines.push(plainLabel(''))
+  while (lines.length < height - 2) lines.push(plainLabel(''))
   return { ...shape, lines, height }
 }
 
@@ -957,19 +928,14 @@ function drawBox(canvas: Canvas, shape: Shape, row: number, col: number, ink: In
   const [topLeft, topRight, bottomLeft, bottomRight] =
     shape.shape === 'decision' ? SQUARE_CORNERS : ROUNDED_CORNERS
   const across = BORDER_ACROSS.repeat(shape.width - 2)
-  const rule = shape.rule ?? shape.lines.length
   canvas.put(row, col, `${topLeft}${across}${topRight}`, ink)
   shape.lines.forEach((line, at) => {
     const columns = displayWidth(line.text)
     const room = ' '.repeat(shape.width - BOX_PADDING - columns)
-    const lineRow = row + 1 + at + (at < rule ? 0 : 1)
-    canvas.put(lineRow, col, `${BORDER_DOWN} `, ink)
-    canvas.putLabel(lineRow, col + 2, line, at < rule ? ink : 'plain')
-    canvas.put(lineRow, col + 2 + columns, `${room} ${BORDER_DOWN}`, ink)
+    canvas.put(row + 1 + at, col, `${BORDER_DOWN} `, ink)
+    canvas.putLabel(row + 1 + at, col + 2, line, ink)
+    canvas.put(row + 1 + at, col + 2 + columns, `${room} ${BORDER_DOWN}`, ink)
   })
-  if (rule < shape.lines.length) {
-    canvas.put(row + 1 + rule, col, `${RULE_LEFT}${across}${RULE_RIGHT}`, ink)
-  }
   canvas.put(row + shape.height - 1, col, `${bottomLeft}${across}${bottomRight}`, ink)
 }
 

@@ -1,4 +1,5 @@
-import { drawFlowchart, type FlowDrawing, type LayoutMeter } from './flowchart'
+import { shownLabel } from './flowchart'
+import { prefixed, relabelled, type InkedDrawing, type Label } from './ink'
 import {
   DiagramFault,
   doesNotParse,
@@ -6,12 +7,12 @@ import {
   notDrawnYet,
   refuseOverLimits,
   textLines,
-  type FlowEdge,
-  type FlowNode,
   type Refusal,
   type Statement,
   type Stroke,
 } from './mermaid'
+import { drawStack, type Piece, type Stack, type StackBox, type StackMark } from './stack'
+import { wrapCell } from './table'
 
 export const MOST_MEMBERS = 10
 
@@ -68,11 +69,14 @@ const ENDS: Readonly<Record<string, EndSyntax>> = {
   '>': { kind: 'association', marksThisEnd: false },
 }
 
-const MARKS: Readonly<Partial<Record<RelationKind, string>>> = {
-  inheritance: '△',
-  composition: '◆',
-  aggregation: '◇',
+const MARKS: Readonly<Partial<Record<RelationKind, StackMark>>> = {
+  inheritance: 'triangle',
+  composition: 'diamond',
+  aggregation: 'hollowDiamond',
 }
+
+const NARROWER_WRAPS: readonly number[] = [24, 16, 12]
+const HANGING_INDENT = '  '
 
 function idOf(written: string): string {
   const isQuoted = written.length > 1 && written.startsWith(BACKTICK) && written.endsWith(BACKTICK)
@@ -206,66 +210,87 @@ export class ClassBuilder {
   }
 }
 
-function nodeOf(box: ClassBox): FlowNode {
+function wrapped(text: string, wrap: number | null): Label[] {
+  const label = shownLabel(text)
+  return wrap === null ? [label] : relabelled(label, wrapCell(label.text, wrap))
+}
+
+function memberRows(member: string, wrap: number | null): Piece[][] {
+  const [first, ...rest] = wrapped(member, wrap)
+  const lines =
+    first === undefined ? [] : [first, ...rest.map((more) => prefixed(HANGING_INDENT, more))]
+  return lines.map((line) =>
+    line.runs.map((run) => ({ text: run.text, ink: 'plain', looks: run.looks })),
+  )
+}
+
+function boxOf(box: ClassBox, wrap: number | null): StackBox {
   const title = box.annotation === null ? [box.name] : [`«${box.annotation}»`, box.name]
   return {
-    id: box.id,
-    shape: 'rounded',
-    label: [...title, ...box.members],
-    titleLines: title.length,
+    title: title.flatMap((line) => wrapped(line, wrap)),
+    body: box.members.flatMap((member) => memberRows(member, wrap)),
   }
 }
 
-function filled(...parts: readonly (readonly string[])[]): string[] {
-  return parts.flat().filter((part) => part !== '')
-}
-
-function markerKey(relation: Relation, index: number): string {
-  const shared = relation.fromCard === ''
-  return `${BACKTICK}${shared ? `${relation.from} ${relation.kind} ${relation.stroke}` : String(index)}`
-}
-
-function chartParts(diagram: ClassDiagram): { markers: FlowNode[]; edges: FlowEdge[] } {
-  const markers = new Map<string, FlowNode>()
-  const edges: FlowEdge[] = []
-  diagram.relations.forEach((relation, index) => {
-    const { from, to, stroke, kind } = relation
-    const mark = MARKS[kind]
-    if (mark === undefined) {
-      const label = filled([relation.fromCard], relation.label, [relation.toCard])
-      edges.push({ from, to, stroke, arrow: kind === 'association', label })
-      return
-    }
-    const marker = markerKey(relation, index)
-    if (!markers.has(marker)) {
-      markers.set(marker, { id: marker, shape: 'point', label: [mark] })
-      edges.push({ from, to: marker, stroke, arrow: false, label: filled([relation.fromCard]) })
-    }
-    edges.push({
-      from: marker,
-      to,
-      stroke,
-      arrow: false,
-      label: filled(relation.label, [relation.toCard]),
-    })
+function orderOf(diagram: ClassDiagram): number[] {
+  const index = new Map(diagram.classes.map((box, at) => [box.id, at]))
+  const children = diagram.classes.map((): number[] => [])
+  const rank = (relation: Relation) => (MARKS[relation.kind] === undefined ? 1 : 0)
+  const owned = new Set<number>()
+  for (const relation of [...diagram.relations].sort((one, other) => rank(one) - rank(other))) {
+    const from = index.get(relation.from) ?? 0
+    const to = index.get(relation.to) ?? 0
+    children[from]?.push(to)
+    owned.add(to)
+  }
+  const order: number[] = []
+  const seen = new Set<number>()
+  const visit = (at: number): void => {
+    if (seen.has(at)) return
+    seen.add(at)
+    order.push(at)
+    for (const child of children[at] ?? []) visit(child)
+  }
+  diagram.classes.forEach((_, at) => {
+    if (!owned.has(at)) visit(at)
   })
-  return { markers: [...markers.values()], edges }
+  diagram.classes.forEach((_, at) => {
+    visit(at)
+  })
+  return order
 }
 
-export function drawClasses(
-  diagram: ClassDiagram,
-  width: number,
-  meter: LayoutMeter = { steps: 0 },
-): FlowDrawing | Refusal {
-  const { markers, edges } = chartParts(diagram)
-  return drawFlowchart(
-    {
-      kind: 'flowchart',
-      direction: 'TD',
-      nodes: [...diagram.classes.map(nodeOf), ...markers],
-      edges,
-    },
-    width,
-    meter,
-  )
+function cardinality(text: string): Label | null {
+  return text === '' ? null : shownLabel(text)
+}
+
+function stackOf(diagram: ClassDiagram, wrap: number | null): Stack {
+  const order = orderOf(diagram)
+  const place = new Map(order.map((at, position) => [diagram.classes[at]?.id ?? '', position]))
+  return {
+    boxes: order.flatMap((at) => {
+      const box = diagram.classes[at]
+      return box === undefined ? [] : [boxOf(box, wrap)]
+    }),
+    links: diagram.relations.map((relation) => ({
+      from: place.get(relation.from) ?? 0,
+      to: place.get(relation.to) ?? 0,
+      stroke: relation.stroke,
+      fromEnd: { mark: MARKS[relation.kind] ?? null, text: cardinality(relation.fromCard) },
+      toEnd: {
+        mark: relation.kind === 'association' ? 'arrow' : null,
+        text: cardinality(relation.toCard),
+      },
+      label: relation.label.map(shownLabel).filter((line) => line.text.trim() !== ''),
+    })),
+  }
+}
+
+export function drawClasses(diagram: ClassDiagram, width: number): InkedDrawing | Refusal {
+  let drawn = drawStack(stackOf(diagram, null), width)
+  for (const wrap of NARROWER_WRAPS) {
+    if (drawn.kind === 'drawing') return drawn
+    drawn = drawStack(stackOf(diagram, wrap), width)
+  }
+  return drawn
 }

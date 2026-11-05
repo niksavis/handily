@@ -602,58 +602,66 @@ and as `◉` where a transition ends at it. Each state that ends at `[*]` gets i
 
 ## A class diagram
 
-A `classDiagram` draws top down under the title line `── mermaid · class ──`. Each class is a
-rounded box with its name, a rule and its members:
+A `classDiagram` draws under the title line `── mermaid · class ──`. Each class is a rounded box
+with its name, a rule and its members. The classes stand one under the next, as the entities of an
+ER diagram do, and each relation has its own route, so no two relations share a line:
 
 ```text
 ● Reply-view parses a reply into blocks:
 
   ── mermaid · class ────────────────────────────────  [ copy ] [ copy drawing ]
-           ╭─────────────────────╮
-           │ Reply               │
-           ├─────────────────────┤
-           │ + text: string      │
-           │ + blocks(): Block[] │
-           ╰──────────┬──────────╯
-                      │ 1
-                      │
-                      ◆
-                      │ holds
-                      │ 0..n
-                      │
-            ╭─────────┴────────╮
-            │ Block            │
-            ├──────────────────┤
-            │ + rows(): number │
-            ╰─────────┬────────╯
-                      │
-                      △
-            ┌─────────┴──────────┐
-            │                    │
-  ╭─────────┴──────────╮ ╭───────┴───────╮
-  │ Table              │ │ Fence         │
-  ├────────────────────┤ ├───────────────┤
-  │ + header: string[] │ │ + tag: string │
-  ╰────────────────────╯ ╰───────────────╯
+  ╭─────────────────────╮
+  │ Reply               │
+  ├─────────────────────┤
+  │ + text: string      │
+  │ + blocks(): Block[] │
+  ╰─────────────────────╯
+             ◆ 1
+             │ holds
+             │ 0..n
+  ╭──────────┴──────────╮
+  │ Block               │◁─┐
+  ├─────────────────────┤  │
+  │ + rows(): number    │  │
+  ╰─────────────────────╯  │
+             △             │
+             │             │
+  ╭──────────┴──────────╮  │
+  │ Table               │  │
+  ├─────────────────────┤  │
+  │ + header: string[]  │  │
+  ╰─────────────────────╯  │
+                           │
+  ╭─────────────────────╮  │
+  │ Fence               ├──┘
+  ├─────────────────────┤
+  │ + tag: string       │
+  ╰─────────────────────╯
 ```
 
-| Source             | Drawing                                               |
-| ------------------ | ----------------------------------------------------- |
-| `A <\|-- B`        | `△` under the parent `A`, a solid line to `B`         |
-| `A ..\|> B`        | `△` under the interface `B`, a dashed line to `A`     |
-| `A *-- B`          | `◆` under the owner `A`, a solid line to the part `B` |
-| `A o-- B`          | `◇` under the owner `A`, a solid line to the part `B` |
-| `A --> B`          | a solid line from `A` to an arrow head at `B`         |
-| `A ..> B`          | a dashed line from `A` to an arrow head at `B`        |
-| `A -- B`, `A .. B` | a solid or a dashed line with no head                 |
+- A parent or an owner stands above its children and parts. Each child follows its parent when it
+  can, so the relation runs down the middle. Any other relation runs on its own line at the right
+  of the stack. Where two lines cross, the vertical line stays whole.
+- The mark of a relation stands next to the box of its parent or owner: in the row under the box
+  for a relation down the middle, and in the column right of the box for a relation on the right.
+  An arrow head stands next to the box that the arrow points at.
 
-- The mark stands one row under the parent or the owner. The children of one parent share one
-  `△`. The parts of one owner share one `◆` or `◇` when no cardinality stands at the owner.
-- A cardinality and a label draw as words beside the line. The cardinality of the owner stands
-  above the mark, and the label and the other cardinality stand below it. On a line with no mark,
-  the words read from the upper class to the lower class, such as `1`, `places`, `*`.
-- A class shows its members as you wrote them, with `+ - # ~`, `$` and `*`. A member that wraps
-  continues 2 columns in. A class with more than 10 members draws as the source under the note
+| Source             | Down the middle                  | On the right                     |
+| ------------------ | -------------------------------- | -------------------------------- |
+| `A <\|-- B`        | `△` under the parent `A`         | `◁` beside the parent `A`        |
+| `A ..\|> B`        | `△` under `B`, a dashed line     | `◁` beside `B`, a dashed line    |
+| `A *-- B`          | `◆` under the owner `A`          | `◆` beside the owner `A`         |
+| `A o-- B`          | `◇` under the owner `A`          | `◇` beside the owner `A`         |
+| `A --> B`          | `▼` above `B`                    | `◀` beside `B`                   |
+| `A ..> B`          | `▼` above `B`, a dashed line     | `◀` beside `B`, a dashed line    |
+| `A -- B`, `A .. B` | a solid or a dashed line, no end | a solid or a dashed line, no end |
+
+- A cardinality draws as a word beside the end of its own class, such as `◆ 1` under `Reply` and
+  `0..n` over `Block`. The label stands between them on a line down the middle, and next to the
+  first class of the source line on a line at the right, such as `1 shows`.
+- A class shows its members as you wrote them, with `+ - # ~`, `$` and `*`. When the stack is too
+  wide, a long name or member wraps, and a member that wraps continues 2 columns in. A class with
+  more than 10 members draws as the source under the note
   `class Reply has 14 members, at most 10 draw.`
 - An annotation such as `<<interface>>` draws as `«interface»` above the name. A class label such
   as `class Animal["Animal with a label"]` replaces the name, and a name in backticks draws without
@@ -970,6 +978,6 @@ count.
 - A `subgraph`, a sequence diagram with `box`, `create` or `destroy`, a state diagram with nested
   states, a fork, a join, a choice or a note, a class diagram with a namespace or a note, and every
   other kind of diagram draw as their source.
-- A class diagram always draws top down, whatever its `direction`, so the marks `△`, `◆` and `◇`
-  stand under the parent or the owner. An ER diagram always draws top to bottom.
+- A class diagram and an ER diagram always draw one box under the next, whatever their
+  `direction`.
 - An actor of a sequence diagram draws as a box.

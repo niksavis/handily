@@ -35,7 +35,7 @@ export type FlowDirection = 'TD' | 'LR'
 
 export type FlowShape = 'box' | 'rounded' | 'decision' | 'point'
 
-export type FlowNode = { id: string; shape: FlowShape; label: string[]; titleLines?: number }
+export type FlowNode = { id: string; shape: FlowShape; label: string[] }
 
 export type FlowEdge = { from: string; to: string; stroke: Stroke; arrow: boolean; label: string[] }
 
