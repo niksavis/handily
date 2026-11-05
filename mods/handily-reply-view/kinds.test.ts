@@ -1,6 +1,7 @@
 import type { On } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 import { parseMermaid } from './hooks/mermaid'
+import { drawState } from './hooks/state'
 import { displayWidth } from './hooks/width'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -79,6 +80,62 @@ const TASK_STATES_DRAWN = [
   '                            │                      │',
   '                            └──────────────────────┘',
   '                                                   answered',
+]
+
+const WORK_STATES = lines(
+  'stateDiagram-v2',
+  '    [*] --> open: br create',
+  '    open --> in_progress: claim',
+  '    in_progress --> in_progress: comment, tick criteria',
+  '    in_progress --> closed: all criteria validated',
+  '    in_progress --> open: blocked, waits on external',
+  '    closed --> [*]',
+)
+
+const WORK_STATES_DRAWN = [
+  '      ●',
+  '      │ br create',
+  '      ▼',
+  '  ╭──────╮',
+  '  │ open │◀─────────────────────────┐',
+  '  ╰───┬──╯                          │',
+  '      │ claim                       │',
+  '      ▼                             │',
+  '╭─────────────╮                     │',
+  '│ in_progress │─────────────────────┘ blocked, waits on external',
+  '│             │──┐ comment, tick criteria',
+  '│             │◀─┘',
+  '╰─────┬───────╯',
+  '      │ all criteria validated',
+  '      ▼',
+  ' ╭────────╮',
+  ' │ closed │',
+  ' ╰────┬───╯',
+  '      ▼',
+  '      ◉',
+]
+
+const WORK_STATES_CUT = [
+  '      ●',
+  '      │ br create',
+  '      ▼',
+  '  ╭──────╮',
+  '  │ open │◀───────────────┐',
+  '  ╰───┬──╯                │',
+  '      │ claim             │',
+  '      ▼                   │',
+  '╭─────────────╮           │',
+  '│ in_progress │───────────┘ blocked, wa…',
+  '│             │──┐ comment, ti…',
+  '│             │◀─┘',
+  '╰─────┬───────╯',
+  '      │ all criteri…',
+  '      ▼',
+  ' ╭────────╮',
+  ' │ closed │',
+  ' ╰────┬───╯',
+  '      ▼',
+  '      ◉',
 ]
 
 const CLASSES = lines(
@@ -387,6 +444,14 @@ async function noteOf(ui: Mounted): Promise<string | undefined> {
   return (await ui.find({ type: 'Text', text: /^diagram not drawn:/ }))?.text
 }
 
+function stateLines(source: string, width: number): string[] {
+  const diagram = parseMermaid(source)
+  if (diagram.kind !== 'state') throw new Error(`not a state diagram: ${diagram.kind}`)
+  const drawn = drawState(diagram, width)
+  if (drawn.kind !== 'drawing') throw new Error(`not drawn: ${drawn.reason}`)
+  return drawn.lines
+}
+
 function refusedBy(reason: string, line: number | null = null) {
   return { kind: 'refused', reason, line, limit: null }
 }
@@ -459,6 +524,108 @@ describe('state diagrams', () => {
     }
   }
 
+  for (const surface of SURFACES) {
+    viewTest(
+      `a transition from a state to itself draws as a loop beside the state with its label on ${surface} at 80 columns`,
+      async (world, $) => {
+        const ui = await mountDiagram($, WORK_STATES, surface)
+        const rows = (await drawnRows(ui, surface)).map(rowText)
+        expect(rows).toEqual(WORK_STATES_DRAWN)
+        expect(tooWide(rows, surface, 80)).toEqual([])
+        await ui.press({ key: 'block-1-drawing' })
+        expect(world.copies).toEqual([WORK_STATES_DRAWN.join('\n')])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `a state diagram with a loop on a state that does not fit shows its source under the width note on ${surface} at 30 columns`,
+      async (world, $) => {
+        const ui = await mountDiagram($, WORK_STATES, surface, 30)
+        expect(await noteOf(ui)).toBe(widthNote(30, surface, 40))
+        expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
+        await ui.press({ key: 'block-1-copy' })
+        expect(world.copies).toEqual([WORK_STATES])
+        await ui.unmount()
+      },
+    )
+  }
+
+  viewTest(
+    'a transition from a state to itself keeps its loop and a label cut to 12 columns on desktop at 40 columns',
+    async (_world, $) => {
+      const ui = await mountDiagram($, WORK_STATES, 'desktop', 40)
+      const rows = (await drawnRows(ui, 'desktop')).map(rowText)
+      expect(rows).toEqual(WORK_STATES_CUT)
+      expect(tooWide(rows, 'desktop', 40)).toEqual([])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'a state diagram with a loop on a state that takes 40 columns shows its source under the width note on terminal at 40 columns',
+    async (world, $) => {
+      const ui = await mountDiagram($, WORK_STATES, 'terminal', 40)
+      expect(await noteOf(ui)).toBe(widthNote(40, 'terminal', 40))
+      expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
+      await ui.press({ key: 'block-1-copy' })
+      expect(world.copies).toEqual([WORK_STATES])
+      await ui.unmount()
+    },
+  )
+
+  for (const [name, source, drawn] of [
+    [
+      'with no label draws a loop with no label',
+      lines('stateDiagram-v2', '  [*] --> A', '  A --> A', '  A --> [*]'),
+      ['  ●', '  ▼', '╭───╮', '│ A │──┐', '│   │◀─┘', '╰─┬─╯', '  ▼', '  ◉'],
+    ],
+    [
+      'written twice draws one loop with both labels',
+      lines(
+        'stateDiagram-v2',
+        '  [*] --> A',
+        '  A --> A : retry',
+        '  A --> A : wait',
+        '  A --> [*]',
+      ),
+      ['  ●', '  ▼', '╭───╮', '│ A │──┐ retry', '│   │◀─┘ wait', '╰─┬─╯', '  ▼', '  ◉'],
+    ],
+    [
+      'in a diagram that draws across draws above the state, as high as its label',
+      lines(
+        'stateDiagram-v2',
+        '  direction LR',
+        '  [*] --> A',
+        '  A --> A : retry',
+        '  A --> A : wait',
+        '  A --> A : tick',
+        '  A --> [*]',
+      ),
+      [
+        '     ┌─┐ retry',
+        '     │ │ wait',
+        '     │ ▼ tick',
+        '    ╭┴──╮',
+        '●──▶│ A │───────▶◉',
+        '    ╰───╯',
+      ],
+    ],
+  ] as const) {
+    test(`a transition from a state to itself ${name}`, () => {
+      expect(stateLines(source, 78)).toEqual(drawn)
+    })
+  }
+
+  test('a transition from a state to itself parses as a transition', () => {
+    expect(parseMermaid(lines('stateDiagram-v2', '  A --> A : wait'))).toEqual({
+      kind: 'state',
+      direction: 'TD',
+      states: [{ id: 'A', label: ['A'] }],
+      transitions: [{ from: 'A', to: 'A', label: ['wait'] }],
+    })
+  })
+
   test('a state takes its description, a transition its label, and styles and comments draw nothing', () => {
     expect(
       parseMermaid(
@@ -490,11 +657,6 @@ describe('state diagrams', () => {
 
   for (const [source, reason, line] of [
     [lines('stateDiagram-v2', '  direction RL', '  A --> B'), 'direction RL does not draw yet', 2],
-    [
-      lines('stateDiagram-v2', '  A --> A'),
-      'a transition from a state to itself does not draw yet',
-      2,
-    ],
     [lines('stateDiagram-v2', '  A --> B', '  note right of A : hi'), 'note does not draw yet', 3],
     [lines('stateDiagram-v2', '  A -> B'), 'line 2 does not parse', 2],
     [lines('stateDiagram-v2 LR', '  A --> B'), 'line 1 does not parse', 1],

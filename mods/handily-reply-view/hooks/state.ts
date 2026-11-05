@@ -145,9 +145,6 @@ export class StateBuilder {
     const from = found[1] ?? ''
     const to = found[2] ?? ''
     if (from === PSEUDO_STATE && to === PSEUDO_STATE) throw doesNotParse(line)
-    if (from === to) {
-      throw lineFault(line, 'a transition from a state to itself does not draw yet')
-    }
     if (from !== PSEUDO_STATE) this.state(from)
     if (to !== PSEUDO_STATE) this.state(to)
     const label = (found[3] ?? '').trim()

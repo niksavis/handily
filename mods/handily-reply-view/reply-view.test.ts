@@ -3169,12 +3169,70 @@ describe('flowchart drawings', () => {
     )
   })
 
+  test('an edge from a box to itself draws as a loop on the right of the box', () => {
+    expect(drawnLines('flowchart TD\n  A --> A', REPLY_COLUMNS)).toEqual([
+      '╭───╮',
+      '│ A │──┐',
+      '│   │◀─┘',
+      '╰───╯',
+    ])
+  })
+
+  test('an edge from a box to itself in an LR flowchart draws as a loop above the box', () => {
+    expect(drawnLines('flowchart LR\n  A --> A', REPLY_COLUMNS)).toEqual([
+      ' ┌─┐',
+      ' │ ▼',
+      '╭┴──╮',
+      '│ A │',
+      '╰───╯',
+    ])
+  })
+
+  test('a loop on a box keeps its label clear of the next box and of a loop back', () => {
+    expect(
+      drawnLines(linesOf('flowchart TD', '  A --> B & C', '  B -->|retry| B'), REPLY_COLUMNS),
+    ).toEqual([
+      '        ╭───╮',
+      '        │ A │',
+      '        ╰─┬─╯',
+      '  ┌───────┴───────┐',
+      '  ▼               ▼',
+      '╭───╮           ╭───╮',
+      '│ B │──┐ retry  │ C │',
+      '│   │◀─┘        ╰───╯',
+      '╰───╯',
+    ])
+    expect(
+      drawnLines(
+        linesOf('flowchart TD', '  A --> B --> C --> D', '  D -->|back up| A', '  C -->|again| C'),
+        REPLY_COLUMNS,
+      ),
+    ).toEqual([
+      '╭───╮',
+      '│ A │◀─────────┐',
+      '╰─┬─╯          │',
+      '  ▼            │',
+      '╭───╮          │',
+      '│ B │          │',
+      '╰─┬─╯          │',
+      '  ▼            │',
+      '╭───╮          │',
+      '│ C │──┐ again │',
+      '│   │◀─┘       │',
+      '╰─┬─╯          │',
+      '  ▼            │',
+      '╭───╮          │',
+      '│ D │──────────┘ back up',
+      '╰───╯',
+    ])
+  })
+
+  test('a loop on a box adds no loop back, so three loops back still draw', () => {
+    const source = linesOf(loopsBack(3), '  N1 --> N1', '  N5 --> N5')
+    expect(drawFlowchart(flowchartOf(source), REPLY_COLUMNS).kind).toBe('drawing')
+  })
+
   for (const [name, source, reason] of [
-    [
-      'an edge from a box to itself',
-      'flowchart TD\n  A --> A',
-      'an edge from a box to itself does not draw yet',
-    ],
     [
       'loops at two boxes of one level',
       'flowchart TD\n  A --> B\n  A --> C\n  B --> A\n  C --> A',

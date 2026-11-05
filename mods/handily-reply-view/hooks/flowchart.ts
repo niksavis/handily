@@ -34,6 +34,10 @@ const ACROSS_BOX_GAP = 0
 const DOWN_LOOP_GAP = 7
 const ACROSS_LOOP_GAP = 2
 const LOOP_SPACING = 2
+const SELF_LOOP_ROWS = 2
+const SELF_LOOP_COLUMNS = 3
+const SELF_LOOP_INSET = 1
+const SELF_LOOP_LEAST_WIDTH = SELF_LOOP_INSET + SELF_LOOP_COLUMNS + 1
 const LABEL_INDENT = 2
 const STUB_COLUMNS = 2
 const BUS_SPACING = 2
@@ -160,6 +164,7 @@ type Graph = {
   outgoing: Segment[][]
   incoming: Segment[][]
   loops: Link[]
+  selfLoops: Map<number, Link>
   turns: Set<number>
   real: Set<string>
   reach: Map<number, string>
@@ -174,6 +179,7 @@ type Plan = {
   shapes: (Shape | null)[]
   entries: Entry[][]
   entryOf: Map<Segment, Entry>
+  selfLabels: Map<number, Label[]>
   titles: Label[]
   writtenTitles: Label[]
   cut: number | null
@@ -199,6 +205,8 @@ type Frame = {
 }
 
 type Band = { tracks: Map<number, number>; trackCount: number }
+
+type SelfLoopRoom = { top: number; bottom: number; right: number }
 
 type Point = { row: number; col: number }
 
@@ -529,7 +537,6 @@ function linksOf(chart: Flowchart, meter: LayoutMeter): Link[] {
     const from = index.get(edge.from)
     const to = index.get(edge.to)
     if (from === undefined || to === undefined) throw new DrawingFault('an edge names no box')
-    if (from === to) throw new DrawingFault('an edge from a box to itself does not draw yet')
     const key = `${String(from)}>${String(to)}`
     const known = links.get(key)
     if (known === undefined) {
@@ -846,14 +853,16 @@ function graphOf(chart: Flowchart, meter: LayoutMeter, perRow = Infinity): Graph
   const count = chart.nodes.length
   const groupOf = membershipsOf(chart)
   const links = linksOf(chart, meter)
-  const loopSet = loopsOf(count, links, meter)
+  const selfLoops = new Map(links.filter(isSelfLoop).map((link) => [link.from, link]))
+  const others = links.filter((link) => !isSelfLoop(link))
+  const loopSet = loopsOf(count, others, meter)
   if (loopSet.size > MOST_LOOPS) {
     throw new DrawingFault(`${String(loopSet.size)} loops back, at most ${String(MOST_LOOPS)} draw`)
   }
-  const forward = links.filter((link) => !loopSet.has(link))
+  const forward = others.filter((link) => !loopSet.has(link))
   const layerOf = layersOf(count, forward, meter)
   if (Number.isFinite(perRow)) {
-    settleUnlinked(layerOf, groupOf, new Set(links.flatMap((link) => [link.from, link.to])))
+    settleUnlinked(layerOf, groupOf, new Set(others.flatMap((link) => [link.from, link.to])))
     wrapLayers(layerOf, groupOf, perRow)
   }
   const outgoing: Segment[][] = Array.from({ length: count }, () => [])
@@ -909,10 +918,15 @@ function graphOf(chart: Flowchart, meter: LayoutMeter, perRow = Infinity): Graph
     outgoing,
     incoming,
     loops,
+    selfLoops,
     turns,
     real,
     reach,
   }
+}
+
+function isSelfLoop(link: Link): boolean {
+  return link.from === link.to
 }
 
 function pointShape(node: FlowNode): Shape {
@@ -1054,6 +1068,9 @@ function planOf(
   width: number,
 ): Plan {
   const rank = new Map(graph.layers.flatMap((layer) => layer.map((vertex, at) => [vertex, at])))
+  const selfLabels = new Map(
+    [...graph.selfLoops].map(([vertex, link]) => [vertex, edgeLabel(link.label, attempt)]),
+  )
   const entryOf = new Map<Segment, Entry>()
   const entries = graph.layerOf.map((_, vertex) => {
     const owned = entriesOf(graph, vertex, rank, attempt, split)
@@ -1069,7 +1086,10 @@ function planOf(
     const shape = cachedShape(cache, node, vertex, attempt.wrap, wordRoom, graph.turns.has(vertex))
     const own = entries[vertex] ?? []
     const span = spreadEntries(own, attempt.direction)
-    return own.length > 1 ? grown(shape, attempt.direction, span) : shape
+    const sized = own.length > 1 ? grown(shape, attempt.direction, span) : shape
+    const label = selfLabels.get(vertex)
+    if (label === undefined) return sized
+    return selfLoopedShape(sized, attempt.direction, downSideRows(graph, vertex, label))
   })
   const titles = graph.clusters.map((cluster) => titleOf(cluster.label, attempt.wrap))
   const writtenTitles = graph.clusters.map((cluster) => titleOf(cluster.label, null))
@@ -1078,6 +1098,7 @@ function planOf(
     shapes,
     entries,
     entryOf,
+    selfLabels,
     titles,
     writtenTitles,
     cut: attempt.cut,
@@ -1086,6 +1107,63 @@ function planOf(
     compact: attempt.compact,
     meter,
   }
+}
+
+function selfRowsOf(label: readonly Label[]): number {
+  return Math.max(SELF_LOOP_ROWS, label.length)
+}
+
+function labelRoom(label: readonly Label[]): number {
+  const columns = widestLabel(label)
+  return columns === 0 ? 0 : columns + 1
+}
+
+function leavesBack(graph: Graph, vertex: number): boolean {
+  return graph.loops.some((link) => link.from === vertex)
+}
+
+function entersBack(graph: Graph, vertex: number): boolean {
+  return graph.loops.some((link) => link.to === vertex)
+}
+
+function selfLoopTop(graph: Graph, vertex: number): number {
+  return leavesBack(graph, vertex) ? 2 : 1
+}
+
+function downSideRows(graph: Graph, vertex: number, label: readonly Label[]): number {
+  return selfLoopTop(graph, vertex) - 1 + selfRowsOf(label) + (entersBack(graph, vertex) ? 1 : 0)
+}
+
+function selfLoopedShape(shape: Shape, direction: FlowDirection, rows: number): Shape {
+  if (direction === 'LR') return { ...shape, width: Math.max(shape.width, SELF_LOOP_LEAST_WIDTH) }
+  const lines = [...shape.lines]
+  while (lines.length < rows) lines.push(plainLabel(''))
+  return { ...shape, lines, height: lines.length + 2 }
+}
+
+function selfRoom(plan: Plan, vertex: number, direction: FlowDirection): number {
+  const label = plan.selfLabels.get(vertex)
+  if (label === undefined) return 0
+  return direction === 'TD' ? SELF_LOOP_COLUMNS + labelRoom(label) : selfRowsOf(label)
+}
+
+function acrossSelfColumns(plan: Plan, vertex: number): number {
+  const label = plan.selfLabels.get(vertex)
+  return label === undefined ? 0 : SELF_LOOP_INSET + SELF_LOOP_COLUMNS + labelRoom(label)
+}
+
+function downLoopRow(plan: Plan, vertex: number, leaving: boolean): number {
+  const { graph } = plan
+  const label = plan.selfLabels.get(vertex)
+  if (label === undefined) {
+    return loopSide(plan.shapes[vertex]?.height ?? 1, graph.turns.has(vertex), leaving)
+  }
+  return leaving ? 1 : selfLoopTop(graph, vertex) + selfRowsOf(label)
+}
+
+function downRowOf(plan: Plan, tops: readonly number[]) {
+  return (vertex: number, leaving: boolean) =>
+    (tops[plan.graph.layerOf[vertex] ?? 0] ?? 0) + downLoopRow(plan, vertex, leaving)
 }
 
 function titleOf(label: readonly string[], wrap: number | null): Label {
@@ -1120,7 +1198,8 @@ function separation(plan: Plan, above: number, below: number, direction: FlowDir
     crossSize(plan, above, direction) -
     crossOffset(plan, above, direction) +
     (direction === 'TD' ? DOWN_BOX_GAP : ACROSS_BOX_GAP) +
-    crossOffset(plan, below, direction)
+    crossOffset(plan, below, direction) +
+    selfRoom(plan, direction === 'TD' ? above : below, direction)
   const last = plan.entries[above]?.at(-1)
   const first = plan.entries[below]?.[0]
   const between = (first?.offset ?? 0) - (last?.offset ?? 0)
@@ -1222,8 +1301,9 @@ function vertexExtent(
   port: number,
   start: number,
 ): Extent {
-  let lo = start
-  let hi = start + crossSize(plan, vertex, direction) - 1
+  const looped = selfRoom(plan, vertex, direction)
+  let lo = direction === 'TD' ? start : start - looped
+  let hi = start + crossSize(plan, vertex, direction) - 1 + (direction === 'TD' ? looped : 0)
   for (const entry of plan.entries[vertex] ?? []) {
     if (entry.label.length === 0) continue
     const at = port + entry.offset
@@ -1977,18 +2057,69 @@ function drawDown(plan: Plan): Canvas {
       written: plan.writtenTitles[group] ?? plainLabel(''),
     })
   })
-  drawDownLoops(plan, canvas, tops, starts)
+  const reach = canvas.width
+  const rooms = drawDownSelfLoops(plan, canvas, tops, starts)
+  drawDownLoops(plan, canvas, tops, starts, channelAfter(plan, tops, reach, rooms))
   return canvas
 }
 
-function drawDownLoops(plan: Plan, canvas: Canvas, tops: number[], starts: number[]): void {
+function drawDownSelfLoops(
+  plan: Plan,
+  canvas: Canvas,
+  tops: number[],
+  starts: number[],
+): SelfLoopRoom[] {
+  const { graph } = plan
+  return [...graph.selfLoops].map(([vertex, link]) => {
+    tick(plan.meter)
+    const label = plan.selfLabels.get(vertex) ?? []
+    const out = (tops[graph.layerOf[vertex] ?? 0] ?? 0) + selfLoopTop(graph, vertex)
+    const back = out + selfRowsOf(label) - 1
+    const side = (starts[vertex] ?? 0) + (plan.shapes[vertex]?.width ?? 1)
+    const turn = side + SELF_LOOP_COLUMNS - 1
+    const points = [
+      { row: out, col: side },
+      { row: out, col: turn },
+      { row: back, col: turn },
+      { row: back, col: link.arrow ? side + 1 : side },
+    ]
+    canvas.path(points, link, link.stroke, LEFT, LEFT)
+    if (link.arrow) canvas.put(back, side, ARROW_LEFT, 'head')
+    label.forEach((line, index) => {
+      canvas.putLabel(out + index, turn + 2, line, 'label')
+    })
+    return { top: out, bottom: back, right: side + selfRoom(plan, vertex, 'TD') - 1 }
+  })
+}
+
+function channelAfter(
+  plan: Plan,
+  tops: number[],
+  reach: number,
+  rooms: readonly SelfLoopRoom[],
+): number {
+  const rowOf = downRowOf(plan, tops)
+  const spans = plan.graph.loops.map((link) => {
+    const ends = [rowOf(link.from, true), rowOf(link.to, false)]
+    return { top: Math.min(...ends), bottom: Math.max(...ends) }
+  })
+  const crossed = rooms.filter((room) =>
+    spans.some((span) => span.top <= room.bottom && room.top <= span.bottom),
+  )
+  return Math.max(reach - 1 + DOWN_LOOP_GAP, ...crossed.map((room) => room.right + LOOP_SPACING))
+}
+
+function drawDownLoops(
+  plan: Plan,
+  canvas: Canvas,
+  tops: number[],
+  starts: number[],
+  first: number,
+): void {
   const { graph, meter } = plan
   if (graph.loops.length === 0) return
-  const rowOf = (vertex: number, leaving: boolean) =>
-    (tops[graph.layerOf[vertex] ?? 0] ?? 0) +
-    loopSide(plan.shapes[vertex]?.height ?? 1, graph.turns.has(vertex), leaving)
+  const rowOf = downRowOf(plan, tops)
   const rightOf = (vertex: number) => (starts[vertex] ?? 0) + (plan.shapes[vertex]?.width ?? 1)
-  const first = canvas.width - 1 + DOWN_LOOP_GAP
   const loops = sortedLoops(graph.loops, (link) => rowOf(link.from, true) - rowOf(link.to, false))
   const outermost = first + LOOP_SPACING * (loops.length - 1)
   const arrowed = new Set<number>()
@@ -2100,7 +2231,9 @@ function drawAcross(plan: Plan): Canvas {
   let left = before(0)
   graph.layers.forEach((layer, at) => {
     lefts.push(left)
-    const boxes = layer.map((vertex) => plan.shapes[vertex]?.width ?? 1)
+    const boxes = layer.map((vertex) =>
+      Math.max(plan.shapes[vertex]?.width ?? 1, acrossSelfColumns(plan, vertex)),
+    )
     const width = Math.max(1, ...boxes, ...titled(at))
     widths.push(width)
     const band = acrossBandOf(plan, layer, graph.layers[at + 1] ?? [], ports)
@@ -2170,8 +2303,34 @@ function drawAcross(plan: Plan): Canvas {
       written: plan.writtenTitles[group] ?? plainLabel(''),
     })
   })
+  drawAcrossSelfLoops(plan, canvas, lefts, starts)
   drawAcrossLoops(plan, canvas, lefts, starts)
   return canvas
+}
+
+function drawAcrossSelfLoops(plan: Plan, canvas: Canvas, lefts: number[], starts: number[]): void {
+  const { graph } = plan
+  graph.selfLoops.forEach((link, vertex) => {
+    tick(plan.meter)
+    const label = plan.selfLabels.get(vertex) ?? []
+    const top = starts[vertex] ?? 0
+    const high = top - selfRowsOf(label)
+    const exit = (lefts[graph.layerOf[vertex] ?? 0] ?? 0) + SELF_LOOP_INSET
+    const turn = exit + SELF_LOOP_COLUMNS - 1
+    canvas.mark(top, exit, PORT_ABOVE)
+    const points = [
+      { row: top - 1, col: exit },
+      { row: high, col: exit },
+      { row: high, col: turn },
+      { row: link.arrow ? top - 2 : top - 1, col: turn },
+    ]
+    canvas.path(points, link, link.stroke, DOWN, DOWN)
+    if (link.arrow) canvas.put(top - 1, turn, ARROW_DOWN, 'head')
+    else canvas.mark(top, turn, PORT_ABOVE)
+    label.forEach((line, index) => {
+      canvas.putLabel(high + index, turn + 2, line, 'label')
+    })
+  })
 }
 
 function drawAcrossLoops(plan: Plan, canvas: Canvas, lefts: number[], starts: number[]): void {
