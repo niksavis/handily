@@ -49,6 +49,7 @@ const DOWN_FRAME_ROOM = 1
 const ACROSS_FRAME_ROOM = 2
 const FRAME_TITLE_INDENT = 2
 const TITLE_PADDING = 4
+const LABELS_KEPT = 4096
 const NARROW_TEXT = /^[\x20-\x7e\u2500-\u257f]*$/
 const FRAME_INSETS: Readonly<Record<FlowDirection, number>> = { TD: 2, LR: 1 }
 const FRAME_GAPS: Readonly<Record<FlowDirection, number>> = { TD: 1, LR: 0 }
@@ -234,8 +235,19 @@ export function widest(lines: readonly string[]): number {
   return Math.max(0, ...lines.map(displayWidth))
 }
 
+function remembered<T>(cache: Map<string, T>, key: string, make: () => T): T {
+  const known = cache.get(key)
+  if (known !== undefined) return known
+  if (cache.size >= LABELS_KEPT) cache.clear()
+  const made = make()
+  cache.set(key, made)
+  return made
+}
+
+const shownLabels = new Map<string, Label>()
+
 export function shownLabel(line: string): Label {
-  return markedLabel(shown(line))
+  return remembered(shownLabels, line, () => markedLabel(shown(line)))
 }
 
 function pairKey(from: number, to: number): string {
@@ -2207,7 +2219,13 @@ function attemptsOf(
     rules.map((labels) => ({ direction: 'TD', ...labels }))
   const packings = framed ? [true, false] : [false]
   const packed = (labelled: readonly Labelled[], perRow: number): Attempt[] =>
-    labelled.flatMap((attempt) => packings.map((compact) => ({ ...attempt, compact, perRow })))
+    labelled.flatMap((attempt) =>
+      (Number.isFinite(perRow) ? packings.slice(0, 1) : packings).map((compact) => ({
+        ...attempt,
+        compact,
+        perRow,
+      })),
+    )
   const caps = rowCapsOf(widest)
   const everyRow = (labelled: readonly Labelled[]): Attempt[] => [
     ...packed(labelled, Infinity),
