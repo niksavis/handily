@@ -6,6 +6,110 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.19.0 - 2026-11-05
+
+### Added
+
+- **A Mermaid user journey draws as score bars.** In reply-view, a `journey` draws its title,
+  each section as a dotted row, and each task as a bar of 5 cells with its score, its name and its
+  actors. The bars stand in one column, and each section takes one cycle colour. On a narrow
+  screen, the actors stand under their task. A task with no score, a score outside 1 to 5 and a
+  journey with no task draw as the source under a note that names the reason.
+  (handily-2dpxv0.5)
+- **A Mermaid quadrant chart draws in a frame of four quadrants.** In reply-view, a
+  `quadrantChart` draws each point as `●` with its name beside it, the name of each quadrant on
+  its edge, and the axis texts around the frame. A point and the name of its quadrant take one
+  cycle colour. When a name does not fit beside its point, the point draws a key and the name
+  stands under the chart. A point outside 0 to 1, a point that Mermaid does not read and more
+  than 35 points draw as the source under a note that names the reason. (handily-2dpxv0.6)
+- **A Mermaid kanban draws as a board of cards.** In reply-view, a `kanban` draws its columns
+  side by side, each with its name in a cycle colour and its cards in rounded frames. A card shows
+  its text and its priority, ticket and assignee. On a narrow screen, the columns stand one under
+  the next. An icon, metadata on more than one line, a card left of the first column and more than
+  40 cards draw as the source under a note that names the reason. (handily-2dpxv0.11)
+- **A Mermaid packet diagram draws in rows of bits.** In reply-view, a `packet` or `packet-beta`
+  draws each field in a frame of 2 columns per bit, 32 bits a row, with the first and the last
+  bit of each field on the rule above it. A name too wide for its field draws a key, and the key
+  and the name stand under the drawing. On a narrow screen, a row holds 16 or 8 bits, and a note
+  says so. A gap between fields, a field that ends before it starts and a name with no quotes
+  draw as the source under a note that names the reason. (handily-2dpxv0.13)
+- **A Mermaid sankey diagram draws as flows.** In reply-view, a `sankey` or `sankey-beta` block
+  draws one row for each node with its total, in the order of the flow. Under each node, one row
+  for each link draws a bar to scale and its value, in the colour of its target. A link that
+  closes a cycle, a value that is not a number or is below 0, and a line that does not parse draw
+  as the source under a note that names the reason. The diagram hint names `sankey`, and its
+  first sentences are shorter, so the hint stays under 540 characters. (handily-2dpxv0.12)
+- **A Mermaid radar diagram draws as bars.** In reply-view, a `radar-beta` block draws one bar for
+  each axis and curve against one scale from `min` to `max`, and each curve takes one cycle
+  colour. On a narrow screen, each axis stands on its own row with its curves under it. A curve
+  with the wrong count of values, a value below 0 and a line that does not parse draw as the
+  source under a note that names the reason. The diagram hint names `radar-beta`.
+  (handily-2dpxv0.17)
+- **A Mermaid treemap draws as a tree with bars.** In reply-view, a `treemap-beta` or `treemap`
+  block draws its items as a tree, the largest first in each level. Each item has a bar for its
+  share of the whole and its value with commas between the thousands. A value that is not a
+  number, a name with no quotes and a tree too deep for the screen draw as the source under a
+  note that names the reason. The diagram hint names `treemap-beta`. (handily-2dpxv0.19)
+- **A Mermaid requirement diagram draws in the terminal.** In reply-view, a `requirementDiagram`
+  draws its requirements and elements one under the next. Each box shows its type in `«»`, its
+  name in bold and its fields, such as `Risk: High`. A relation draws its type, such as
+  `«satisfies»`, on a dashed line with an arrow head, and `contains` draws a solid line with `⊕`
+  next to the box that contains. A relation to a name that the diagram does not define, a
+  relation from a box to itself, a `title` line and a value that Mermaid refuses draw as the
+  source under a note that names the reason. The desktop app shows the drawing in a plain code
+  block (handily-2dpxv0.7).
+- **A Mermaid C4 diagram draws in the terminal.** In reply-view, a `C4Context`, `C4Container`,
+  `C4Component`, `C4Dynamic` or `C4Deployment` block draws with the layout of a flowchart. Each
+  element is a box with its name in bold, its kind and technology in brackets, such as
+  `[Database Container: Postgres]`, and its description. Each boundary and deployment node is a
+  dotted frame, and a nested one names its outer boundaries. A relation draws its label and its
+  technology, `BiRel` draws `⇄`, and a `C4Dynamic` numbers its relations. A relation to a boundary
+  or to an unknown alias, a diagram too wide for the screen and syntax that Mermaid refuses draw
+  as the source under a note that names the reason. The diagram hint names `C4Context and the
+  other C4 kinds`, and two of its sentences are shorter, so the hint has 518 characters. Its token
+  count is not measured yet (handily-2dpxv0.8).
+- **A Mermaid architecture diagram draws in the terminal.** In reply-view, an `architecture-beta`
+  block draws with the layout of a flowchart. Each service is a box with its title, each group is
+  a dotted frame, and a nested group names its outer groups. A junction is a small box with `●`.
+  `-->` and `<--` draw an arrow head, `<-->` draws `⇄`, and an edge title stands beside its line.
+  The diagram draws left to right when most edges join a left and a right side. An icon cannot
+  draw in a terminal, so it does not show. An edge to a group, an unknown id and other syntax that
+  Mermaid refuses draw as the source under a note that names the reason. The diagram hint names
+  `architecture-beta` and has 537 characters (handily-2dpxv0.9).
+- **A Mermaid block diagram draws as a grid of boxes.** In reply-view, a `block` or `block-beta`
+  draws its blocks in rows of `columns`, with spans, `space`, groups in dotted frames, block
+  arrows and straight links with their labels. The gap between two blocks side by side grows
+  to hold the label of their link. On a narrow screen, the columns and the gaps get
+  narrower and the labels wrap at their spaces. A link that needs a bend, a link that crosses a
+  block and a screen that is too narrow draw the source under a note that names the reason. The
+  diagram hint names `block`, and its token cost is not measured again yet. (handily-2dpxv0.10)
+- **A wide drawing in a code block keeps its columns.** In reply-view, a code block with no tag
+  or a plain-text tag, with at least 2 lines of box-drawing characters, ASCII rules such as
+  `+---+`, tree branches or arrows such as `-->`, no longer wraps when it is wider than the reply.
+  Each line stays on one row and is cut at the edge with `…`, and one dim note above the block
+  names the width and says `Widen the window to see this drawing.` `copy` copies the block as
+  written. A code block with the tag of a language, such as `python` or `diff`, and a long shell
+  command wrap as before. (handily-2dpxv0.25)
+
+### Changed
+
+- **The diagram hint names the kinds that do not draw.** In reply-view, the hint that
+  `diagramHints` adds to a typed prompt now says that each Mermaid kind draws except the few that
+  do not, such as `zenuml` and `venn-beta`. Before, it listed every kind that draws. The list
+  comes from the kinds that the parser knows, so the hint gets shorter as more kinds draw. It has
+  474 characters and costs about 215 tokens, measured with `claude -p` on Claude Code 2.1.318.
+  (handily-2dpxv0.11)
+
+### Fixed
+
+- **A wrapped box label keeps every word and every character.** In reply-view, a box label in a
+  flowchart or a state diagram that is too wide wraps at spaces and keeps a long word whole while
+  its box can widen. A word breaks inside only when the drawing does not fit otherwise, and it
+  keeps every character (handily-2dpxv0.8).
+- **A frame title uses the width of its frame.** In reply-view, a flowchart `subgraph` title is no
+  longer cut to the label width when the labels wrap. It takes the room on the top edge of its
+  own frame (handily-2dpxv0.8).
+
 ## handily-reply-view 0.18.0 - 2026-11-05
 
 ### Added
