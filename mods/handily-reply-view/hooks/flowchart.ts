@@ -185,10 +185,12 @@ function refusal(reason: string): Refusal {
   return { kind: 'refused', reason, line: null, limit: null }
 }
 
+export function widthClause(columns: number, width: number): string {
+  return `it takes ${String(columns)} columns, the screen has ${String(width)}`
+}
+
 export function tooWide(columns: number, width: number): Refusal {
-  return refusal(
-    `it takes ${String(columns)} columns, the screen has ${String(width)}. ${TOO_WIDE_REMEDY}`,
-  )
+  return refusal(`${widthClause(columns, width)}. ${TOO_WIDE_REMEDY}`)
 }
 
 export function tick(meter: LayoutMeter, steps = 1): void {

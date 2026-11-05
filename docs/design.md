@@ -1273,6 +1273,12 @@ Tables:
 Code:
 
 - The engine `Code` element highlights the code. reply-view has no highlighter of its own.
+- A code block that holds a drawing and is wider than the reply keeps each line on one row. The
+  `Code` element cuts the row at the edge with `…` (`wrap: 'truncate-end'`), and one dim note
+  names the width: `drawing cut: it takes 87 columns, the screen has 78. Widen the window to see
+  this drawing.` A box-drawing character or an ASCII rule such as `+---+` marks a drawing. A
+  code block with no drawing wraps as before, because a cut hides the end of a command
+  (handily-2dpxv0.25).
 
 Diagrams:
 

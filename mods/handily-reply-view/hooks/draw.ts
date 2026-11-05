@@ -4,7 +4,7 @@ import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle 
 import { chartName, drawChart, isChartSource } from './charts'
 import { drawClasses } from './classes'
 import { drawEntities } from './er'
-import { drawFlowchart } from './flowchart'
+import { drawFlowchart, widthClause } from './flowchart'
 import { drawGantt } from './gantt'
 import { drawGitGraph } from './gitgraph'
 import { highlightedRuns } from './highlight'
@@ -79,6 +79,8 @@ const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const DRAWINGS_KEPT = 32
 const DRAW_FAILED = 'reply-view could not draw it'
+const DRAWING_LINE = /[\u2500-\u259F]|[+`\\|][-=]{2,}|[-=]{2,}\+/
+const CUT_REMEDY = 'Widen the window to see this drawing'
 const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> = {
   line: 'diagramLine',
   head: 'diagramHead',
@@ -1162,6 +1164,18 @@ function fenceTitle(context: Context, fence: Fence, copy: BlockCopy, key: string
   )
 }
 
+function isDrawingCut(lines: readonly string[], width: number): boolean {
+  return (
+    lines.some((line) => displayWidth(line) > width) &&
+    lines.some((line) => DRAWING_LINE.test(line))
+  )
+}
+
+function cutNote(lines: readonly string[], width: number): string {
+  const widest = Math.max(...lines.map(displayWidth))
+  return `drawing cut: ${widthClause(widest, width)}. ${CUT_REMEDY}.`
+}
+
 function fencePiece(
   context: Context,
   fence: Fence,
@@ -1170,8 +1184,10 @@ function fencePiece(
 ): Piece {
   const { Box, Code } = context.elements
   const lines = fence.content === '' ? [] : shownText(fence.content).split('\n')
-  const rows = lines.map((line) => rowsOf(line, context.width))
+  const isCut = isDrawingCut(lines, context.width)
+  const rows = lines.map((line) => (isCut ? 1 : rowsOf(line, context.width)))
   const language = LANGUAGE_TAG.test(fence.tag) ? fence.tag : undefined
+  const wrap = isCut ? { wrap: 'truncate-end' as const } : {}
   const title = fenceTitle(context, fence, copy, key)
   const draw = (shown: readonly string[]) =>
     Box({
@@ -1179,10 +1195,10 @@ function fencePiece(
       flexDirection: 'column',
       children: [
         title.element,
-        shown.length === 0 ? null : Code({ source: shown.join('\n'), language }),
+        shown.length === 0 ? null : Code({ source: shown.join('\n'), language, ...wrap }),
       ],
     })
-  return {
+  const piece: Piece = {
     rows: title.rows + sum(rows),
     whole: () => draw(lines),
     cut: (budget) => {
@@ -1195,6 +1211,29 @@ function fencePiece(
         count += 1
       }
       return { element: draw(lines.slice(0, count)), rows: used }
+    },
+  }
+  return isCut ? notedPiece(context, cutNote(lines, context.width), piece, `${key}-cut`) : piece
+}
+
+function notedPiece(context: Context, note: string, piece: Piece, key: string): Piece {
+  const { Box, Text } = context.elements
+  const noteRows = rowsOf(note, context.width)
+  const noted = (element: RenderElement) =>
+    Box({
+      key: `${key}-noted`,
+      flexDirection: 'column',
+      children: [
+        Box({ key: `${key}-note`, children: Text({ dimColor: true, children: note }) }),
+        element,
+      ],
+    })
+  return {
+    rows: noteRows + piece.rows,
+    whole: () => noted(piece.whole()),
+    cut: (budget) => {
+      const cut = piece.cut(budget - noteRows)
+      return cut === null ? null : { element: noted(cut.element), rows: noteRows + cut.rows }
     },
   }
 }
@@ -1395,27 +1434,13 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
 }
 
 function notDrawnPiece(context: Context, fence: Fence, refusal: Refusal, key: string): Piece {
-  const { Box, Text } = context.elements
   const note = `${isChartSource(fence.content) ? 'chart' : 'diagram'} not drawn: ${refusal.reason}.`
-  const noteRows = rowsOf(note, context.width)
-  const fenced = fencePiece(context, fence, key, mermaidCopy(fence, refusal))
-  const noted = (element: RenderElement) =>
-    Box({
-      key: `${key}-noted`,
-      flexDirection: 'column',
-      children: [
-        Box({ key: `${key}-note`, children: Text({ dimColor: true, children: note }) }),
-        element,
-      ],
-    })
-  return {
-    rows: noteRows + fenced.rows,
-    whole: () => noted(fenced.whole()),
-    cut: (budget) => {
-      const cut = fenced.cut(budget - noteRows)
-      return cut === null ? null : { element: noted(cut.element), rows: noteRows + cut.rows }
-    },
-  }
+  return notedPiece(
+    context,
+    note,
+    fencePiece(context, fence, key, mermaidCopy(fence, refusal)),
+    key,
+  )
 }
 
 function mermaidPiece(context: Context, fence: Fence, key: string): Piece {

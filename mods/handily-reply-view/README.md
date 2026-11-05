@@ -408,6 +408,37 @@ title line, as the buttons of a diagram do:
   2. Ask the person
 ```
 
+### A drawing wider than the reply
+
+A code block that holds a drawing keeps each line on one row when its widest line is wider than
+the reply. The row is cut at the right edge with `…`, and one dim note above the block names the
+width:
+
+```text
+● Here it is:
+
+  drawing cut: it takes 87 columns, the screen has 78. Widen the window to see
+  this drawing.
+  ── text ────────────────────────────────────────────────────────────  [ copy ]
+  ┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────…
+  │ Claude Code  │────▶│ handily-reply-   │────▶│ handily-board    │────▶│ git …
+  │ the engine   │     │ view draws       │     │ shows the tasks  │     │ enfo…
+  └──────────────┘     └──────────────────┘     └──────────────────┘     └─────…
+```
+
+- A block holds a drawing when a line holds a box-drawing character, such as `┌`, `│` or `├──`,
+  or an ASCII rule, such as `+---+`, `|--` or `` `-- ``.
+- The view cuts a row and does not wrap it. A wrapped row starts again at the left edge, so the
+  boxes, the tree and the table lose their columns. Then the person cannot see where a line
+  ends, or whether the drawing is broken.
+- The view cuts a row and does not scroll it. A row of a reply cannot scroll sideways, because
+  a box has only the overflow `visible` and `hidden`.
+- A code block with no drawing, such as a long shell command, wraps as before and has no note. A
+  wrapped command shows each character, and a cut command hides its end.
+- A drawing that fits the reply draws as before, with no note.
+- `copy` copies the block as written, with the whole lines.
+- On the desktop app, the same rule applies, with the width of the reply there.
+
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
