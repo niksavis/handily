@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 import { drawFlowchart } from './hooks/flowchart'
 import type { InkedDrawing } from './hooks/ink'
-import { parseMermaid, type SequenceDiagram } from './hooks/mermaid'
+import { parseMermaid, type Flowchart, type SequenceDiagram } from './hooks/mermaid'
 import { drawSequence } from './hooks/sequence'
 import { displayWidth } from './hooks/width'
 
@@ -386,4 +386,86 @@ describe('the width note', () => {
       )
     }
   }
+})
+
+const POINT_SOURCES = ['A', 'B', 'C', 'D'] as const
+const POINT_CELLS = new Set(['◉', '━', '┃'])
+
+function pointChart(direction: 'TD' | 'LR', entries: number): Flowchart {
+  const sources = POINT_SOURCES.slice(0, entries)
+  return {
+    kind: 'flowchart',
+    direction,
+    nodes: [
+      ...sources.map((id) => ({ id, shape: 'rounded' as const, label: [id] })),
+      { id: 'end', shape: 'point' as const, label: ['◉'] },
+    ],
+    edges: sources.map((from, at) => ({
+      from,
+      to: 'end',
+      stroke: 'solid' as const,
+      arrow: true,
+      label: [`e${String(at)}`],
+    })),
+  }
+}
+
+function pointDrawing(direction: 'TD' | 'LR', entries: number, width: number): InkedDrawing {
+  const drawn = drawFlowchart(pointChart(direction, entries), width)
+  if (drawn.kind !== 'drawing') throw new Error(drawn.reason)
+  return drawn
+}
+
+type Point = { row: number; col: number }
+
+function headEnds(rows: readonly string[], head: string, step: Point): string[] {
+  const cells = rows.map((row) => Array.from(row))
+  return cells.flatMap((row, at) =>
+    row.flatMap((cell, col) =>
+      cell === head ? [cells[at + step.row]?.[col + step.col] ?? ' '] : [],
+    ),
+  )
+}
+
+const ENTRY_HEADS = {
+  TD: { head: '▼', step: { row: 1, col: 0 } },
+  LR: { head: '▶', step: { row: 0, col: 1 } },
+} as const
+
+describe('a point with several entries', () => {
+  for (const direction of ['TD', 'LR'] as const) {
+    for (const entries of [3, 4]) {
+      for (const columns of WIDTHS) {
+        test(`each of ${String(entries)} ${direction} entries ends at the point on terminal at ${String(columns)} columns`, () => {
+          const rows = pointDrawing(direction, entries, bodyWidth('terminal', columns)).lines
+          const { head, step } = ENTRY_HEADS[direction]
+          const ends = headEnds(rows, head, step)
+          expect(ends).toHaveLength(entries)
+          expect(ends.filter((cell) => !POINT_CELLS.has(cell))).toEqual([])
+          expect(rows.join('\n').split('◉')).toHaveLength(2)
+          expect(rows.filter((row) => displayWidth(row) > bodyWidth('terminal', columns))).toEqual(
+            [],
+          )
+        })
+      }
+    }
+  }
+
+  test('three entries from above end on a bar that holds the point, both in the colour of the heads', () => {
+    const drawing = pointDrawing('TD', 3, bodyWidth('terminal', 80))
+    expect(drawing.lines).toEqual([
+      '╭───╮  ╭───╮  ╭───╮',
+      '│ A │  │ B │  │ C │',
+      '╰─┬─╯  ╰─┬─╯  ╰─┬─╯',
+      '  └─┐    │    ┌─┘',
+      '    │ e0 │ e1 │ e2',
+      '    ▼    ▼    ▼',
+      '  ━━━━━━━◉━━━━━━━',
+    ])
+    const pointInks = drawing.inked
+      .flat()
+      .filter((run) => /[━◉]/.test(run.text))
+      .map((run) => run.ink)
+    expect([...new Set(pointInks)]).toEqual(['head'])
+  })
 })

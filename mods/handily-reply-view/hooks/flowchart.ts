@@ -99,6 +99,8 @@ const BORDER_ACROSS = '─'
 const BORDER_DOWN = '│'
 const PORT_BELOW = '┬'
 const PORT_ABOVE = '┴'
+const POINT_BAR_ACROSS = '━'
+const POINT_BAR_DOWN = '┃'
 export const ARROW_DOWN = '▼'
 export const ARROW_RIGHT = '▶'
 export const ARROW_LEFT = '◀'
@@ -1701,11 +1703,22 @@ function tracksOf(items: readonly BusItem[], meter: LayoutMeter): Band {
   return { tracks, trackCount: used.length }
 }
 
-function drawBox(canvas: Canvas, shape: Shape, row: number, col: number, ink: Ink): void {
-  if (shape.shape === 'point') {
-    canvas.putLabel(row, col, shape.lines[0] ?? plainLabel(''), 'head')
-    return
+function drawShape(canvas: Canvas, shape: Shape, corner: Point, port: Point, ink: Ink): void {
+  if (shape.shape === 'point') drawPoint(canvas, shape, corner, port)
+  else drawBox(canvas, shape, corner.row, corner.col, ink)
+}
+
+function drawPoint(canvas: Canvas, shape: Shape, corner: Point, port: Point): void {
+  const bar = shape.width > 1 ? POINT_BAR_ACROSS : POINT_BAR_DOWN
+  for (let row = corner.row; row < corner.row + shape.height; row++) {
+    for (let col = corner.col; col < corner.col + shape.width; col++) {
+      if (row !== port.row || col !== port.col) canvas.put(row, col, bar, 'head')
+    }
   }
+  canvas.putLabel(port.row, port.col, shape.lines[0] ?? plainLabel(''), 'head')
+}
+
+function drawBox(canvas: Canvas, shape: Shape, row: number, col: number, ink: Ink): void {
   const [topLeft, topRight, bottomLeft, bottomRight] =
     shape.shape === 'decision' ? SQUARE_CORNERS : ROUNDED_CORNERS
   const across = BORDER_ACROSS.repeat(shape.width - 2)
@@ -1897,9 +1910,11 @@ function drawDown(plan: Plan): Canvas {
   })
   const canvas = new Canvas()
   graph.layers.forEach((layer, at) => {
+    const row = tops[at] ?? 0
     for (const vertex of layer) {
       const shape = plan.shapes[vertex]
-      if (shape != null) drawBox(canvas, shape, tops[at] ?? 0, starts[vertex] ?? 0, vertex)
+      const corner = { row, col: starts[vertex] ?? 0 }
+      if (shape != null) drawShape(canvas, shape, corner, { row, col: ports[vertex] ?? 0 }, vertex)
     }
   })
   graph.layers.forEach((layer, at) => {
@@ -2094,9 +2109,11 @@ function drawAcross(plan: Plan): Canvas {
   })
   const canvas = new Canvas()
   graph.layers.forEach((layer, at) => {
+    const col = lefts[at] ?? 0
     for (const vertex of layer) {
       const shape = plan.shapes[vertex]
-      if (shape != null) drawBox(canvas, shape, starts[vertex] ?? 0, lefts[at] ?? 0, vertex)
+      const corner = { row: starts[vertex] ?? 0, col }
+      if (shape != null) drawShape(canvas, shape, corner, { row: ports[vertex] ?? 0, col }, vertex)
     }
   })
   graph.layers.forEach((layer, at) => {
