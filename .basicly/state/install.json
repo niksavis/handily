@@ -1,5 +1,5 @@
 {
-  "basicly_version": "0.40.0",
+  "basicly_version": "0.42.0",
   "core": {
     "agents/architect/agent.yaml": "sha256:e26f0ae38c9dc4a0eb59f408a9647cd29fd0da7e65a10752621476bf3406acd2",
     "agents/auditor/agent.yaml": "sha256:b68326d319210c5c25785033879e5ac3ab3ed1f7a46e506d94537921250608cc",
@@ -90,9 +90,9 @@
     "kit/comments/GUIDANCE.md": "sha256:d35568ead4181f7de050e9cb992140144a84a8fa74a08f27c67a10f9bf97dc50",
     "kit/comments/INSTRUCTION.md": "sha256:4563dd64bd9906c84dcb3bec1c763484cd3df35936a748c56bc151d23401376f",
     "kit/comments/README.md": "sha256:3d99ece105ddb55f50bcd9baee8f9edbd02fdf0a3cbf514e98bad714b26b4292",
-    "kit/comments/cli.py": "sha256:192239001eb8e7bf0de61313e6bdb96a51f0eba8ead008932c96afc045168566",
+    "kit/comments/cli.py": "sha256:e16f07903c0d361b26dc2c33d8da34e133d35de959ada07f6ba53f188784fc8b",
     "kit/comments/directives.py": "sha256:0d369b6279ec24c2fba532dae786b932713e849a432bc7db006abba7e6924ce3",
-    "kit/comments/jsx.py": "sha256:ba1dfd79f872f8754e65bedaa3f9c910f9579080e84001c4bb31c679dfe933e8",
+    "kit/comments/jsx.py": "sha256:fe6a8359712a5001cef6fa56c79ed44145eb5fd2f2aaa9e58c97b87341ba8cb1",
     "kit/comments/languages.py": "sha256:0b5b53b4feb0faf1a3cbd543f740c4c88717e7760f1151cbdba017da69189abf",
     "kit/comments/lexer.py": "sha256:cfe5913b85961eeff692a795997c94b74d2428c8d1dbba5eef77afee53e13968",
     "kit/comments/python_source.py": "sha256:84c550fca932360fa23ac41dbc5843efc8d7d258a6daecb6fa4fd03079abd8f6",
@@ -140,7 +140,7 @@
     "kit/tracker/migrate.py": "sha256:8362e46826a13d5bd57e659cd9857dc4e13132bc2faf26229681901b95c0b5d0",
     "kit/tracker/mirror.py": "sha256:b1907afcba7494b7fd5cb95230ab487304e0706cf1830b4616ffac989ba2ffd6",
     "kit/tracker/parent_progress.py": "sha256:39dd81be2e829276b52ecb3bbded0a3f9a5819627ec3bb78ed2585d987fc45db",
-    "kit/tracker/pin.py": "sha256:452dc29495c8d2ac91629f16197b31e688c7f8a3dedf451eb6d4ccc85ba267a7",
+    "kit/tracker/pin.py": "sha256:c1e4826e0d04903d9831e0249db36419896fc4c12f0d998ad49d8d7d97f1914e",
     "kit/tracker/process_evidence.py": "sha256:c6812a9584b029e849493308fb2997ddd3dee17bb7324bc91dfefa8661630830",
     "kit/tracker/provenance.py": "sha256:5800d8eda460d3e7179e7e920738ef50e04fad0ee15ada48db49e3243e99fc59",
     "kit/tracker/queries.py": "sha256:eb8e2af3625b0a99db68d5d8fa0f4b9f5e5bcfe1e3c63c025b5409bbf8a363ca",
@@ -191,7 +191,7 @@
     "skills/catalog-authoring/evals.yaml": "sha256:dc5c6560e714fc9e484a05fa8d484c1ad6fb66b081625e13d095661b2f6f4f57",
     "skills/catalog-authoring/references/projection.md": "sha256:1e87be7c0cd07208e28ae8dc06c0e25c90c9995b0f43e328db6a205e82cfee58",
     "skills/catalog-authoring/references/sources.md": "sha256:19fb8dc7f63e5dd4e885440702e80fd63fa2d3003b997a9a3fd2f10bd77dc949",
-    "skills/catalog-authoring/skill.yaml": "sha256:2e95dfec9804d242df0881e864f0180aa25a390bcc8aeac3f3db026bd79f5d11",
+    "skills/catalog-authoring/skill.yaml": "sha256:1cfa83765f714bdd0c0edfdb0f542720216752cbe74a2364f1600fd0784a07bf",
     "skills/cli-tools/evals.yaml": "sha256:b017af0acc2410df2392c0da391e7f565de75b3fbae35905927c8fcf0ed467aa",
     "skills/cli-tools/references/ast-grep.md": "sha256:f85166140112c162ba6d97727d9aa5fed2ff6ebd379ee146da0ba062d5fe90d7",
     "skills/cli-tools/references/bat.md": "sha256:b99a407df62401bae68d90be286c32fe9bee108fe1d39550ed2e58c474a0383c",
@@ -237,7 +237,7 @@
     "skills/harness-client/skill.yaml": "sha256:e5b4882db911875011bcb3672b3ad5663ad8b7cc22745fcc5cfcbc220c743e5b",
     "skills/harness-loop/evals.yaml": "sha256:8de01af3530ad46b76b18598518862489d75b7857ab1046f407ea43465899db1",
     "skills/harness-loop/references/many-lanes.md": "sha256:6eada82683b32940a2a4e50599cb23770e7e9f377ee38b4f881255e69e2202ce",
-    "skills/harness-loop/references/operations.md": "sha256:a96ee6f2c7432d18dbab9d3ae90e0c62c07a2aabc3a2ecf078af59b9130b6ac3",
+    "skills/harness-loop/references/operations.md": "sha256:9908d22b7c60f3eb155405cd09de0bfad22722d9be45f3aa3379955862d0d0d6",
     "skills/harness-loop/references/verification.md": "sha256:52b5fa37128dedcc1d32ea86777c188ada4e236464a773ae96faa90db407dff9",
     "skills/harness-loop/skill.yaml": "sha256:8bf06b59fe0bb8edd4cc624b5e4b25e4e7cdc75bc7360bf6338edc3477797d65",
     "skills/interface-facts/evals.yaml": "sha256:99b1813636fc62fd8184cb2cf32ab614db9890886c6373eba96b4a33c092cd94",
@@ -292,7 +292,7 @@
     "skills/validate-as-consumer/skill.yaml": "sha256:5924628cb0e694530a7c02f39b848b8ea882716522cf0b926235d697a6dbe33a",
     "skills/work-tracker/evals.yaml": "sha256:bea7f46863d86a650d98122be3bc503132ef1e88ef475cfb402834b0245e8e8d",
     "skills/work-tracker/references/maintenance.md": "sha256:138a3b0c26a1e1dd5e79c4e85308608151dfc5dd72c9c8a45979878aab74cd95",
-    "skills/work-tracker/references/read.md": "sha256:446b911139b523ad7364a69ba2abe2ba444313fa758d4a74ea703e8c3c4d19ce",
+    "skills/work-tracker/references/read.md": "sha256:e554a6a9f721e8991120963f5a9d693cf95d47134c6ff214e705326fb8edde4a",
     "skills/work-tracker/references/write.md": "sha256:00fbdd33e58d38eb1a3f0b6119fc826f8fb633eb5d24900e286a74da3b4c431d",
     "skills/work-tracker/skill.yaml": "sha256:d34af0106d1d6af9a26f303bc3aed16a8f9af0049880676c7aff6742b3967e3e",
     "skills/worktree-isolation/evals.yaml": "sha256:ed4b7523b84306b5d0c5c057d50056d147ff9a903d8e69fc6fa581fd511b75ea",
@@ -331,6 +331,6 @@
     "templates/common/baseline.j2": "sha256:9cf48abf7d79710eca8d929127e5e9bcfc3fa70248e892c44c94edc234bf09ef",
     "templates/copilot/copilot_instructions_md.j2": "sha256:1646ed61a35551fcdf17c6335cbdac3a7991a8dd736fa57275bf04dd66c83a89"
   },
-  "installed_at": "2026-11-01T17:22:52.631927+00:00",
+  "installed_at": "2026-11-05T15:05:38.516400+00:00",
   "schema_version": 1
 }
