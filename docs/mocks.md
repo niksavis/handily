@@ -7142,44 +7142,119 @@ do not draw yet, and say so.
 ```text
 ● Reply-view parses a reply into blocks:
 
-  ── mermaid · class ──────────────────────────────  [ copy ] [ copy drawing ]
-  ╭─────────────────────╮ 1   holds  0..n  ╭──────────────────╮
-  │ Reply               │◆─────────────────│ Block            │
-  ├─────────────────────┤                  ├──────────────────┤
-  │ + text: string      │                  │ + rows(): number │
-  │ + blocks(): Block[] │                  ╰──────────────────╯
-  ╰─────────────────────╯                            △
-                                           ┌─────────┴───────────┐
-                                ╭──────────┴─────────╮   ╭───────┴───────╮
-                                │ Table              │   │ Fence         │
-                                ├────────────────────┤   ├───────────────┤
-                                │ + header: string[] │   │ + tag: string │
-                                ╰────────────────────╯   ╰───────────────╯
+  ── mermaid · class ────────────────────────────────  [ copy ] [ copy drawing ]
+  ╭─────────────────────╮
+  │ Reply               │
+  ├─────────────────────┤
+  │ + text: string      │
+  │ + blocks(): Block[] │
+  ╰─────────────────────╯
+             ◆ 1
+             │ holds
+             │ 0..n
+  ╭──────────┴──────────╮
+  │ Block               │◁─┐
+  ├─────────────────────┤  │
+  │ + rows(): number    │  │
+  ╰─────────────────────╯  │
+             △             │
+             │             │
+  ╭──────────┴──────────╮  │
+  │ Table               │  │
+  ├─────────────────────┤  │
+  │ + header: string[]  │  │
+  ╰─────────────────────╯  │
+                           │
+  ╭─────────────────────╮  │
+  │ Fence               ├──┘
+  ├─────────────────────┤
+  │ + tag: string       │
+  ╰─────────────────────╯
 ```
 
 Colours: Reply, Block, Table and Fence take cycle colours 1 to 4 (border and name); members
-plain; `◆` (composition) and `△` (inheritance) `claude`; lines `inactive`; "1", "holds" and
+plain; `◆` (composition), `△` and `◁` (inheritance) `claude`; lines `inactive`; "1", "holds" and
 "0..n" `inactive`.
 
 Notes:
 
-- A class draws its name, a rule, and up to 10 members; `+ - # ~` stay as written.
-- `<|--` draws `△` at the parent, `*--` draws `◆` at the owner, `o--` draws `◇`, `-->` draws `▶`,
-  `..>` and `..|>` draw a dashed `╌` line. Cardinalities and labels draw as words beside the line.
+- The classes stand one under the next, as the entities of an ER diagram (15.3h). A parent or an
+  owner stands above its children and parts, and a child follows its parent when it can. The
+  source of this mock is `Reply "1" *-- "0..n" Block : holds`, `Block <|-- Table` and
+  `Block <|-- Fence`. As for 9.5, the lines are the lines the code draws for this source.
+- A class draws its name, a rule, and up to 10 members; `+ - # ~`, `$` and `*` stay as written.
+  `<<interface>>` draws as `«interface»` above the name.
+- Each relation has its own route, so no two relations share a line. A relation between two
+  classes that follow each other runs down the middle. Its mark stands in the row under the parent
+  or the owner: `△` for `<|--` and `..|>`, `◆` for `*--`, `◇` for `o--`. An arrow head `▼` stands
+  in the row over the class that `-->` or `..>` points at.
+- Any other relation runs on its own line at the right of the stack, as `Block` to `Fence` does.
+  Its mark stands in the column right of the box: `◁` for inheritance, `◆` and `◇` as above, and
+  `◀` for an arrow head. Where two lines cross, the vertical line stays whole.
+- `..|>`, `..>` and `..` draw a dashed `╎` or `╌` line.
+- A cardinality draws as a word beside its own class, such as `◆ 1` under Reply and `0..n` over
+  Block. The label stands between them down the middle, and next to the first class of the source
+  line on a line at the right, such as `├─ 1 shows ─┐`.
+- When the stack is wider than the screen, a long name or member wraps at 24, then 16, then 12
+  columns, and a member that wraps continues 2 columns in. Only then does the width note draw.
 
-#### 15.3g The class diagram at 40 columns: too wide
+#### 15.3g The class diagram at 40 columns: it folds, and `[ more ]` opens it
+
+The stack is 25 columns wide, so it fits a reply of 38 columns with no wrap. With the prose and
+the title lines the reply has more than 30 rows, so it folds after the title lines of the diagram
+(7.2):
 
 ```text
-● Reply-view parses a reply into
-  blocks:
+● Reply-view parses a reply into blocks:
 
-  diagram not drawn: it takes 42         ┊ TD needs Table beside Fence: 42
-  columns, the screen has 38. Widen
-  the window or shorten the labels.
-  ── mermaid ─────────────────  [ copy ]
-  classDiagram
-    class Reply {
+  ── mermaid · class ───────────────────
+               [ copy ] [ copy drawing ]
+  … 27 more li…  [ more ] [ copy reply ]
 ```
+
+After `[ more ]`:
+
+```text
+● ──────────────────────────────────────
+  Reply-view parses a reply into blocks:
+
+  ── mermaid · class ───────────────────
+               [ copy ] [ copy drawing ]
+  ╭─────────────────────╮
+  │ Reply               │
+  ├─────────────────────┤
+  │ + text: string      │
+  │ + blocks(): Block[] │
+  ╰─────────────────────╯
+             ◆ 1
+             │ holds
+             │ 0..n
+  ╭──────────┴──────────╮
+  │ Block               │◁─┐
+  ├─────────────────────┤  │
+  │ + rows(): number    │  │
+  ╰─────────────────────╯  │
+             △             │
+             │             │
+  ╭──────────┴──────────╮  │
+  │ Table               │  │
+  ├─────────────────────┤  │
+  │ + header: string[]  │  │
+  ╰─────────────────────╯  │
+                           │
+  ╭─────────────────────╮  │
+  │ Fence               ├──┘
+  ├─────────────────────┤
+  │ + tag: string       │
+  ╰─────────────────────╯
+  ──────────────────────────────────────
+                 [ less ] [ copy reply ]
+```
+
+Colours: as 15.3f. The rules, the fold count and the title line are dim.
+
+Notes: the count `… 27 more lines` is cut at its end to the 13 columns left of the buttons
+(`truncate-end`, reply-view README "A long reply"), so the buttons stay on its line.
 
 #### 15.3h ER diagram, 80 columns: top to bottom, cardinality as words
 
