@@ -8,11 +8,11 @@ rules between its columns only. Numbers, durations, versions and paths in the pr
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram or ER diagram draws as a diagram, with a `copy` button for its source
-and a `copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
-labelled `you`, so you find it when you scroll. `/replies` switches the view off and on for the
-session. The model still reads the full reply and the prompt as you typed it. Only the screen
-changes.
+state diagram, class diagram, ER diagram, git graph, mind map or timeline draws as a diagram, with
+a `copy` button for its source and a `copy drawing` button for the drawing. Each prompt that you
+type opens under a coloured rule labelled `you`, so you find it when you scroll. `/replies`
+switches the view off and on for the session. The model still reads the full reply and the prompt
+as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -408,8 +408,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram or a gantt diagram draws as a diagram. The diagram has a
-dim title line and two buttons at the right edge. The drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map or a timeline
+draws as a diagram. The diagram has a dim title line and two buttons at the right edge. The
+drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -470,17 +471,106 @@ Other reasons that the note names:
 
 - `journey does not draw yet.`, and the same for each other kind of diagram that this part does
   not name.
-- `subgraph does not draw yet.`, and the same for `direction`.
+- `direction does not draw yet.`, for a `direction` line outside a `subgraph`.
+- The reasons of a `subgraph` that does not draw, in the part on groups in a flowchart.
 - `box does not draw yet.`, and the same for `create` and `destroy` in a sequence diagram.
 - `it takes 59 columns, the screen has 38. Widen the window or shorten the labels.`
 - `52 boxes, at most 40 draw.` The limits of one diagram are 80 source lines, 8000 source
   characters, 40 boxes, 60 edges, 12 participants, 60 messages and notes, and 120 drawn rows.
 - `the block is empty.`
+- `%%{init}%% does not draw yet.` A directive can change the settings of any kind of diagram, such
+  as the name of the main branch. So a block with a directive draws as its source.
 
 A mermaid block with no closing fence draws as a fenced block, with no note. So a block
 that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
+
+## Groups in a flowchart
+
+A `subgraph` in a flowchart draws as a frame around its boxes. The frame has a dotted border
+`┄ ┆` and square corners, so it does not look like a box. The title of the subgraph stands on the
+top edge of the frame. An edge between two groups runs from a box in one frame to a box in the
+other frame, through the borders. This source is a component diagram:
+
+```text
+flowchart LR
+  subgraph Engine
+    H[Hooks]
+    T[Telemetry]
+  end
+  subgraph Mods
+    W[workitems] --> BD[board]
+    W --> Q[quiet-items]
+    R[reply-view]
+    F[filetree]
+  end
+  H --> BD
+  H --> R
+  H --> F
+  T --> BD
+```
+
+It draws at 80 columns and more, under the title line and its buttons:
+
+```text
+  ┌┄ Engine ┄┄┄┄┄┄┐
+  ┆ ╭───────╮     ┆
+  ┆ │ Hooks │────────────┐
+  ┆ ╰───────╯     ┆      │
+  ┆ ╭───────────╮ ┆      │
+  ┆ │ Telemetry │────┐   │
+  ┆ ╰───────────╯ ┆  │   │
+  └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  │   │
+  ┌┄ Mods ┄┄┄┄┄┄┄┄┄┄┄│┄┄┄│┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐
+  ┆ ╭───────────╮    │   │   ╭────────────╮  ┆
+  ┆ │ workitems │────│─┐ ├──▶│ reply-view │  ┆
+  ┆ ╰───────────╯    │ │ │   ╰────────────╯  ┆
+  ┆                  │ │ │   ╭──────────╮    ┆
+  ┆                  │ │ ├──▶│ filetree │    ┆
+  ┆                  │ │ │   ╰──────────╯    ┆
+  ┆                  │ │ │   ╭───────╮       ┆
+  ┆                  │ │ │   │ board │       ┆
+  ┆                  │ │ └──▶│       │       ┆
+  ┆                  └─│────▶│       │       ┆
+  ┆                    ├────▶│       │       ┆
+  ┆                    │     ╰───────╯       ┆
+  ┆                    │     ╭─────────────╮ ┆
+  ┆                    └────▶│ quiet-items │ ┆
+  ┆                          ╰─────────────╯ ┆
+  └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+```
+
+- `subgraph id [Title]`, `subgraph "Title"`, `subgraph Title words` and `subgraph id` give the
+  title. A `subgraph` with no title draws a frame with no title.
+- A box belongs to the first subgraph that names it, as in Mermaid. A line outside every
+  subgraph can name the box before the subgraph does.
+- Two subgraphs with the same id draw as one frame, with the title of the first.
+- A `direction` line inside a subgraph draws in the direction of the flowchart. Mermaid does the
+  same when an edge links the subgraph to a box outside it. A subgraph with no such edge must
+  name the direction of the flowchart.
+- A frame keeps one column of space beside its boxes, and it is only as wide as its boxes and
+  its title need. A box outside the frame stays out of it. When a line crosses the border, the
+  line draws through it.
+- The title moves to the right of a line that enters the frame through the top edge. A frame
+  grows to hold its whole title. When the labels must fit, the title is cut to the width of a
+  label, with `…`.
+- On the terminal, the border is in `inactive` and the title is bold. The boxes keep their
+  colours.
+- When the frames are too wide for the screen, a flowchart `LR` draws top down. When it is still
+  too wide, the diagram draws as its source under the width note. The component diagram above
+  takes 44 columns, so at 40 columns it draws as its source.
+
+These reasons are in the note of a `subgraph` that does not draw:
+
+- `a subgraph inside a subgraph does not draw yet.`
+- `an edge to the subgraph Mods does not draw yet.` An edge must name a box in the subgraph.
+- `an empty subgraph does not draw yet.`
+- `line 2 opens a subgraph with no end.`
+- `direction LR inside a subgraph does not draw yet.`
+- `its loops and its subgraphs cannot keep one order.` A box at the end of a loop must be the
+  last box of its level, and the frames keep one order in every level. When two loops need two
+  frames in opposite orders, the diagram draws as its source.
 
 ## Diagram hints
 
@@ -917,6 +1007,239 @@ These draw as the source under a note that names the reason:
 - a screen too narrow for a label of 4 columns and 10 columns of bars, such as
   `it takes 15 columns, the screen has 14. Widen the window or shorten the labels.`
 
+## A git graph
+
+A `gitGraph` draws under the title line `── mermaid · gitgraph ──`. The commits run down the
+screen, so the newest commit is at the bottom, as in the source:
+
+```text
+● The feature lands in two branches:
+
+  ── mermaid · gitgraph ─────────────────────────────  [ copy ] [ copy drawing ]
+  ╷ main
+  ● 1
+  ● 2
+  ├─╮ nice_feature
+  │ ● 3
+  │ ├─╮ very_nice_feature
+  ● │ │ 4
+  │ │ ● 5
+  ● │ │ 6
+  │ ● │ 7
+  ⊗─╯ │ customID merge nice_feature (tag: customTag)
+  │   ● 8
+  ● 9
+```
+
+At 40 columns, a label that does not fit wraps under its lanes:
+
+```text
+● The feature lands in two branches:
+
+  ── mermaid · gitgraph ────────────────
+               [ copy ] [ copy drawing ]
+  ╷ main
+  ● 1
+  ● 2
+  ├─╮ nice_feature
+  │ ● 3
+  │ ├─╮ very_nice_feature
+  ● │ │ 4
+  │ │ ● 5
+  ● │ │ 6
+  │ ● │ 7
+  ⊗─╯ │ customID merge nice_feature
+  │   │ (tag: customTag)
+  │   ● 8
+  ● 9
+```
+
+- `gitGraph`, `gitGraph:`, `gitGraph LR:` and `gitGraph TB:` draw top down. `gitGraph BT:` draws
+  as its source.
+- Each branch is a lane `│`, 2 columns from the next lane. The lanes take the order of Mermaid.
+  `main` counts as 0, a branch with `order:` counts as its number, and the branch at place n of
+  the source with no `order:` counts as the number `0.n`. Branches with the same number keep the
+  order of the source. So `order: 0` comes right after `main`.
+- A branch starts on a row with its name, such as `├─╮ develop`, right under the commit that it
+  starts from. A branch with no commit to start from starts with `╷`.
+- A commit draws `●`. `type: REVERSE` draws `⊗`, `type: HIGHLIGHT` draws `▮`, and a merge draws
+  `◉`. The id and the message of a commit stand after the lanes, and its tags follow in bold, such
+  as `(tag: v1.0.0)`. A commit with no id shows no id. The view does not make up the random id
+  that Mermaid shows.
+- A merge draws a join from the lane of the merged branch, such as `◉─╯`, and the words
+  `merge develop` in italic. A merged branch with no commits of its own has a lane from the
+  commit that it starts from, so the join never reads as a merge of a newer commit. A join
+  that passes a lane draws the lane through, as `├─│─╮`.
+- `cherry-pick id: "A"` draws a commit with the words `cherry-pick of A` in italic. As in Mermaid,
+  no line joins it to commit `A`.
+- On the terminal, each lane and its commits take the colours `suggestion`, `planMode` and
+  `merged` in turn, in the order of the lanes. A branch name is bold in the colour of its lane.
+  The join of a new branch takes the colour of the new branch. The join of a merge takes the
+  colour of the merged branch. Ids, messages and tags are plain.
+- `title` draws its text in bold above the lanes. `accTitle` and `accDescr` draw nothing, as in
+  Mermaid.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- A label that does not fit wraps under its lanes. When the lanes and 10 columns of a label do not
+  fit, the graph draws as its source with the note `it takes 36 columns, the screen has 28.`
+  The note ends with the remedy.
+- A git graph that Mermaid refuses draws as its source. The note names the line and the reason,
+  such as `line 3: the branch dev does not exist.`, `line 4: the branch dev exists already.`,
+  `line 3: a branch cannot merge itself.`, `line 5: both branches have the same head.`,
+  `line 5: the branch main has no commits.`, `line 3: no commit has the id x.`,
+  `line 3: the commit a is on this branch.`, `line 9: the branch dev cannot merge into itself.`,
+  `line 6: the commit a has no parent x.` or
+  `line 9: the merge commit m needs the id of a parent.`
+- A commit id that is used twice draws as its source, with the note
+  `line 4: the commit id a exists already.` Mermaid keeps only the last commit with that id and
+  draws the graph without the first one, so the view does not draw it.
+
+The syntax follows the [gitGraph page](https://mermaid.js.org/syntax/gitgraph.html) of Mermaid
+12.3.0.
+
+## A mind map
+
+A `mindmap` draws as a tree from its root, under the title line `── mermaid · mindmap ──`:
+
+```text
+● The topics of the talk:
+
+  ── mermaid · mindmap ──────────────────────────────  [ copy ] [ copy drawing ]
+   ╭───────╮
+  ( mindmap )
+   ╰┬──────╯
+    ├─ Origins
+    │  ├─ Long history
+    │  └─ Popularisation
+    │     └─ British popular psychology author Tony Buzan
+    ├─ Research
+    │  ├─ On effectiveness
+    │  │  and features
+    │  └─ On Automatic creation
+    │     └─ Uses
+    │        ├─ Creative techniques
+    │        ├─ Strategic planning
+    │        └─ Argument mapping
+    └─ Tools
+       ├─ Pen and paper
+       └─ Mermaid
+```
+
+At 40 columns, a long node wraps under its own text:
+
+```text
+● The topics of the talk:
+
+  ── mermaid · mindmap ─────────────────
+               [ copy ] [ copy drawing ]
+   ╭───────╮
+  ( mindmap )
+   ╰┬──────╯
+    ├─ Origins
+    │  ├─ Long history
+    │  └─ Popularisation
+    │     └─ British popular psychology
+    │        author Tony Buzan
+    ├─ Research
+    │  ├─ On effectiveness
+    │  │  and features
+    │  └─ On Automatic creation
+    │     └─ Uses
+    │        ├─ Creative techniques
+    │        ├─ Strategic planning
+    │        └─ Argument mapping
+    └─ Tools
+       ├─ Pen and paper
+       └─ Mermaid
+```
+
+- The indentation of a line sets its level. A node takes the nearest line above it with less
+  indentation as its parent, as in Mermaid.
+- The root draws in a frame of its shape. `[…]` and `{{…}}` draw square corners. `((…))` draws
+  as a circle `( … )`. `(…)`, `)…(`, `))…((` and a root with no shape draw rounded corners.
+- Every other node draws its text after `├─` or `└─`, with no shape. Each level stands 3 columns
+  to the right of its parent.
+- On the terminal, the root is in `claude`. Each node of the first level is bold, in the colours
+  `suggestion`, `planMode` and `merged` in turn. Each node under it takes its colour. The lines
+  of the tree are in `inactive`.
+- `<br>` in a node breaks the line. A node too wide for the screen wraps. When a level and 10
+  columns of its text do not fit, the mind map draws as its source with the width note.
+- A class line `:::urgent` draws nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: `::icon(…)` (`icons does not draw yet.`), a markdown
+  string (`markdown strings does not draw yet.`), a second root
+  (`line 3 starts a second root.`) and a mind map with no node (`the mindmap has no nodes.`).
+
+The syntax follows the [mindmap page](https://mermaid.js.org/syntax/mindmap.html) of Mermaid
+12.3.0.
+
+## A timeline
+
+A `timeline` draws its periods down an axis, under the title line `── mermaid · timeline ──`:
+
+```text
+● Five industrial ages:
+
+  ── mermaid · timeline ─────────────────────────────  [ copy ] [ copy drawing ]
+  Timeline of Industrial Revolution
+  ┄┄ 17th-20th century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 1.0  • Machinery, Water power, Steam
+  │                 power
+  ● Industry 2.0  • Electricity, Internal combustion engine, Mass production
+  ● Industry 3.0  • Electronics, Computers, Automation
+  ┄┄ 21st century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 4.0  • Internet, Robotics, Internet of Things
+  ● Industry 5.0  • Artificial intelligence, Big data, 3D printing
+```
+
+At 40 columns, the events wrap in their column:
+
+```text
+● Five industrial ages:
+
+  ── mermaid · timeline ────────────────
+               [ copy ] [ copy drawing ]
+  Timeline of Industrial Revolution
+  ┄┄ 17th-20th century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 1.0  • Machinery, Water
+  │                 power, Steam
+  │                 power
+  ● Industry 2.0  • Electricity,
+  │                 Internal combustion
+  │                 engine, Mass
+  │                 production
+  ● Industry 3.0  • Electronics,
+                    Computers,
+                    Automation
+  ┄┄ 21st century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 4.0  • Internet, Robotics,
+  │                 Internet of Things
+  ● Industry 5.0  • Artificial
+                    intelligence, Big
+                    data, 3D printing
+```
+
+- `timeline`, `timeline LR` and `timeline TD` draw top down.
+- `title` draws its text in bold on the first line. A `section` draws as a dotted row with its
+  name, such as `┄┄ 21st century ┄┄`. A section name too wide for the screen is cut with `…`.
+- A period draws `●` and its name in bold. Its events follow, each after `•`. The axis `│` joins a
+  period to the next period of its section.
+- When the widest period takes more than a third of the screen, or leaves fewer than 20 columns
+  for the events, each period stands on its own row and its events stand under it.
+- On the terminal, with sections, each section and its periods take the colours `suggestion`,
+  `planMode` and `merged` in turn. With no section, each period takes the next colour. The events
+  are plain. `•`, `│` and the dotted rows are in `inactive`.
+- `<br>` breaks a line. A `#` after a period starts a comment, as in Mermaid. A colon and a space
+  start each event. So `C#` and `a:b` in an event draw as written. `accTitle` and `accDescr` draw
+  nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: an event before any period or a colon with no space after
+  it (`line 2 does not parse.`), a timeline with no period
+  (`the timeline has no time periods.`) and a timeline of more than 120 rows
+  (`135 rows, at most 120 draw.`).
+
+The syntax follows the [timeline page](https://mermaid.js.org/syntax/timeline.html) of Mermaid
+12.3.0.
+
 ## A prompt that you type
 
 A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
@@ -1132,9 +1455,10 @@ count.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
   stays open or folded when it draws again.
 - Each prompt that you type keeps its time in `$.state` for this session.
-- A `subgraph`, a sequence diagram with `box`, `create` or `destroy`, a state diagram with nested
-  states, a fork, a join, a choice or a note, a class diagram with a namespace or a note, and every
-  other kind of diagram draw as their source.
+- A `subgraph` inside a `subgraph`, an edge to a `subgraph`, a sequence diagram with `box`,
+  `create` or `destroy`, a state diagram with nested states, a fork, a join, a choice or a note,
+  a class diagram with a namespace or a note, and every other kind of diagram draw as their
+  source.
 - A class diagram and an ER diagram always draw one box under the next, whatever their
   `direction`.
 - An actor of a sequence diagram draws as a box.

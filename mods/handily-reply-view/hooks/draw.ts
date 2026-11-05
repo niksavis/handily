@@ -6,6 +6,7 @@ import { drawClasses } from './classes'
 import { drawEntities } from './er'
 import { drawFlowchart } from './flowchart'
 import { drawGantt } from './gantt'
+import { drawGitGraph } from './gitgraph'
 import { highlightedRuns } from './highlight'
 import { textPropsOf, type Ink, type InkedDrawing, type InkRun } from './ink'
 import {
@@ -20,6 +21,7 @@ import {
   type Table,
 } from './markdown'
 import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
+import { drawMindmap } from './mindmap'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
 import {
   holdsLinkDefinition,
@@ -54,6 +56,7 @@ import {
   type TableLook,
   type TableStyle,
 } from './table'
+import { drawTimeline } from './timeline'
 import { cutToWidth, displayWidth, fitted, graphemesOf } from './width'
 
 export const FOLD_AFTER_ROWS = 30
@@ -69,6 +72,7 @@ const TAG_COLUMNS_AT_MOST = 24
 const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const DRAWINGS_KEPT = 32
+const DRAW_FAILED = 'reply-view could not draw it'
 const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> = {
   line: 'diagramLine',
   head: 'diagramHead',
@@ -1212,10 +1216,30 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
       const drawn = drawGantt(diagram, width)
       return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
+    case 'gitgraph': {
+      const drawn = drawGitGraph(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'mindmap': {
+      const drawn = drawMindmap(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'timeline': {
+      const drawn = drawTimeline(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
   }
 }
 
 const drawings = new Map<string, DiagramOutcome>()
+
+export function guardedOutcome(draw: () => DiagramOutcome): DiagramOutcome {
+  try {
+    return draw()
+  } catch {
+    return { kind: 'refused', reason: DRAW_FAILED, line: null, limit: null }
+  }
+}
 
 export function diagramOf(source: string, width: number, surface: RenderSurface): DiagramOutcome {
   const key = JSON.stringify([surface, width, source])
@@ -1225,7 +1249,7 @@ export function diagramOf(source: string, width: number, surface: RenderSurface)
     drawings.set(key, kept)
     return kept
   }
-  const outcome = drawnDiagram(parseMermaid(source), width)
+  const outcome = guardedOutcome(() => drawnDiagram(parseMermaid(source), width))
   drawings.set(key, outcome)
   const oldest = drawings.keys().next()
   if (drawings.size > DRAWINGS_KEPT && oldest.done !== true) drawings.delete(oldest.value)
