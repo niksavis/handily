@@ -54,6 +54,7 @@ describe('the names of the drawn kinds', () => {
       'timeline',
       'user journey',
       'quadrant chart',
+      'kanban board',
     ])
   })
 })
@@ -81,9 +82,7 @@ describe('the diagram hint', () => {
   })
 
   test('the hint allows a subgraph in a flowchart and the parser refuses one inside another', () => {
-    expect(DIAGRAM_HINT).toContain(
-      'A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph.',
-    )
+    expect(DIAGRAM_HINT).toContain('A flowchart is TD or LR and has no subgraph in a subgraph.')
     expect(diagramOf(GROUPED, 78, 'terminal').kind).toBe('drawing')
     expect(refusalReason(NESTED)).toBe('a subgraph inside a subgraph does not draw yet')
   })

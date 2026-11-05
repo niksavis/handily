@@ -9,6 +9,7 @@ import { drawGantt } from './gantt'
 import { drawGitGraph } from './gitgraph'
 import { highlightedRuns } from './highlight'
 import { drawJourney } from './journey'
+import { drawKanban } from './kanban'
 import { textPropsOf, type Ink, type InkedDrawing, type InkRun } from './ink'
 import {
   PLAIN_MARK,
@@ -1251,6 +1252,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'quadrant': {
       const drawn = drawQuadrant(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'kanban': {
+      const drawn = drawKanban(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

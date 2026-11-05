@@ -7,12 +7,12 @@ double rule under its header and a rule between its rows. The `tableStyle` setti
 rules between its columns only. Numbers, durations, versions and paths in the prose and the cells
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
-table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey or quadrant
-chart draws as a diagram, with a `copy` button for its source and a `copy drawing` button for the
+table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram, state
+diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey, quadrant chart or
+kanban draws as a diagram, with a `copy` button for its source and a `copy drawing` button for the
 drawing. Each prompt that you type opens under a coloured rule labelled `you`, so you find it when
-you scroll. `/replies` switches the view off and on for the session. The model still reads the
-full reply and the prompt as you typed it. Only the screen changes.
+you scroll. `/replies` switches the view off and on for the session. The model still reads the full
+reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -411,8 +411,8 @@ title line, as the buttons of a diagram do:
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
 diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
-user journey or a quadrant chart draws as a diagram. The diagram has a dim title line and two
-buttons at the right edge. The drawing replaces the source:
+user journey, a quadrant chart or a kanban draws as a diagram. The diagram has a dim title line
+and two buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -644,14 +644,14 @@ same prompt differ only in a mod that adds the hint as the context of the prompt
 hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The hint text has 540 characters,
+hint of 350 characters that named only two kinds at 154 tokens. The hint text has 514 characters,
 and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
 changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey, quadrantChart. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey, quadrantChart, kanban. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1432,6 +1432,63 @@ the chart:
 
 The syntax follows the [quadrant chart page](https://mermaid.js.org/syntax/quadrantChart.html) of
 Mermaid 12.3.0.
+
+## A kanban
+
+A `kanban` draws its columns side by side, each with its cards, under the title line
+`── mermaid · kanban ──`:
+
+```text
+● The board for this week:
+
+  ── mermaid · kanban ───────────────────────────────  [ copy ] [ copy drawing ]
+  Todo                      In progress               Done
+  ╭──────────────────────╮  ╭──────────────────────╮  ╭──────────────────────╮
+  │ Write the parser     │  │ Pick the glyphs for  │  │ Read the Mermaid     │
+  │ High · H-12          │  │ the cards            │  │ page                 │
+  ╰──────────────────────╯  │ niksa                │  ╰──────────────────────╯
+  ╭──────────────────────╮  ╰──────────────────────╯
+  │ Draw the board       │
+  ╰──────────────────────╯
+```
+
+When a card has less than 16 columns, each column stands under the one before it, as a dotted row
+with its cards under it:
+
+```text
+  ┄┄ Todo ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ╭──────────────────────────╮
+  │ Write the parser         │
+  │ High · H-12              │
+  ╰──────────────────────────╯
+  ╭──────────────────────────╮
+  │ Draw the board           │
+  ╰──────────────────────────╯
+  ┄┄ In progress ┄┄┄┄┄┄┄┄┄┄┄┄┄
+```
+
+- The indentation of the first node sets the level of the columns, as in Mermaid. Each node at
+  that level starts a column. Each node with more indentation is a card of the column above it.
+- A node draws its text from `id[text]`, `[text]` or `id` alone. `(…)`, `((…))`, `{{…}}`, `)…(`,
+  `))…((` and `(-…-)` draw the same card, as Mermaid draws them. A quoted text `["…"]` may hold
+  brackets.
+- The metadata `@{ … }` of a card draws its `priority`, `ticket` and `assigned` under its text,
+  joined by `·`, such as `High · MC-2038 · knsv`. A `label` in the metadata replaces the text.
+- Stacked cards all take the width of the widest card, from 16 columns up to the screen.
+- On the terminal, each column name is bold, in the colours `suggestion`, `planMode` and `merged`
+  in turn. The text of a card is plain. The frames, the metadata and the dotted rows are in
+  `inactive`.
+- `%%` starts a comment. A class line `:::urgent` draws nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a node that Mermaid does not read, such as `a[A (b)]` or
+  `[text` with no end (`line 3 does not parse.`), an icon (`icons does not draw yet.`), a markdown
+  string, metadata on more than one line, a card left of the first column
+  (`line 3 stands left of the first column.`), a kanban with no column
+  (`the kanban has no columns.`), more than 40 cards (`41 boxes, at most 40 draw.`) and a screen
+  narrower than 14 columns.
+
+The syntax follows the [kanban page](https://mermaid.js.org/syntax/kanban.html) of Mermaid
+12.3.0.
 
 ## A prompt that you type
 
