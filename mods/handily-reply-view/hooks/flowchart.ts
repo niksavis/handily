@@ -805,7 +805,13 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   }
 }
 
+function pointShape(node: FlowNode): Shape {
+  const lines = [shownLabel(node.label[0] ?? '')]
+  return { lines, width: widestLabel(lines), height: 1, shape: node.shape }
+}
+
 function shapeOf(node: FlowNode, wrap: number | null, turning: boolean): Shape {
+  if (node.shape === 'point') return pointShape(node)
   const text = node.label
     .map(shownLabel)
     .flatMap((line) => (wrap === null ? [line] : relabelled(line, wrapCell(line.text, wrap))))
@@ -1537,6 +1543,10 @@ function tracksOf(items: readonly BusItem[], meter: LayoutMeter): Band {
 }
 
 function drawBox(canvas: Canvas, shape: Shape, row: number, col: number, ink: Ink): void {
+  if (shape.shape === 'point') {
+    canvas.putLabel(row, col, shape.lines[0] ?? plainLabel(''), 'head')
+    return
+  }
   const [topLeft, topRight, bottomLeft, bottomRight] =
     shape.shape === 'decision' ? SQUARE_CORNERS : ROUNDED_CORNERS
   const across = BORDER_ACROSS.repeat(shape.width - 2)
@@ -1721,7 +1731,7 @@ function drawDown(plan: Plan): Canvas {
       const from = ports[source] ?? 0
       const to = entryAt(plan, ports, segment)
       const startRow = sourceShape == null ? layerTop : layerTop + sourceShape.height
-      if (sourceShape != null && !marked.has(source)) {
+      if (sourceShape != null && sourceShape.shape !== 'point' && !marked.has(source)) {
         canvas.mark(startRow - 1, from, PORT_BELOW)
         marked.add(source)
       }
@@ -1747,7 +1757,7 @@ function drawDown(plan: Plan): Canvas {
         const to = (ports[target] ?? 0) + entry.offset
         if (plan.shapes[target] != null) {
           if (entry.arrow) canvas.put(arrowRow, to, ARROW_DOWN, 'head')
-          else canvas.mark(arrowRow + 1, to, PORT_ABOVE)
+          else if (plan.shapes[target].shape !== 'point') canvas.mark(arrowRow + 1, to, PORT_ABOVE)
         }
         entry.label.forEach((line, index) => {
           canvas.putLabel(linkTop + band.trackCount + index, to + LABEL_INDENT, line, 'label')
@@ -1980,7 +1990,7 @@ function drawAcrossLoops(plan: Plan, canvas: Canvas, lefts: number[], starts: nu
     const exit = columnOf(link.from, true)
     const entry = columnOf(link.to, false)
     const below = bottomOf(link.to)
-    if (!exits.has(link.from)) {
+    if (!exits.has(link.from) && plan.shapes[link.from]?.shape !== 'point') {
       canvas.mark(bottomOf(link.from) - 1, exit, PORT_BELOW)
       exits.add(link.from)
     }

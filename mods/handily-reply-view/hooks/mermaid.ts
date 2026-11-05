@@ -1,3 +1,10 @@
+import { ClassBuilder, type ClassDiagram } from './classes'
+import { EntityBuilder, type EntityDiagram } from './er'
+import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph'
+import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
+import { StateBuilder, type StateDiagram } from './state'
+import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
+
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
 
 export const DIAGRAM_LIMITS: Readonly<Record<LimitName, number>> = {
@@ -29,7 +36,7 @@ export type Stroke = 'solid' | 'dashed'
 
 export type FlowDirection = 'TD' | 'LR'
 
-export type FlowShape = 'box' | 'rounded' | 'decision'
+export type FlowShape = 'box' | 'rounded' | 'decision' | 'point'
 
 export type FlowNode = { id: string; shape: FlowShape; label: string[] }
 
@@ -88,11 +95,19 @@ export type SequenceDiagram = {
   blocks: SequenceBlock[]
 }
 
-export type MermaidDiagram = Flowchart | SequenceDiagram
+export type MermaidDiagram =
+  | Flowchart
+  | SequenceDiagram
+  | StateDiagram
+  | ClassDiagram
+  | EntityDiagram
+  | GitGraph
+  | Mindmap
+  | Timeline
 
-type Statement = { line: number; text: string }
+export type Statement = { line: number; text: string; indent: number }
 
-class DiagramFault extends Error {
+export class DiagramFault extends Error {
   constructor(readonly refusal: Refusal) {
     super(refusal.reason)
   }
@@ -100,10 +115,14 @@ class DiagramFault extends Error {
 
 const LINE_ENDING = /\r\n?/g
 const COMMENT = /^%%/
+const DIRECTIVE = /^\s*%%\{\s*([A-Za-z]+)/
 const TRAILING_SEMICOLON = /;$/
 const LINE_BREAK = /<br\s*\/?>/i
 const FLOW_HEADER = /^(flowchart|graph)(?:\s+(\S+))?$/
 const SEQUENCE_HEADER = 'sequenceDiagram'
+const STATE_HEADER = /^stateDiagram(?:-v2)?$/
+const CLASS_HEADER = /^classDiagram(?:-v2)?$/
+const ENTITY_HEADER = 'erDiagram'
 const DIAGRAM_KIND = /^([A-Za-z][\w-]*)(?:\s[^-[\](){}|<>&]*)?$/
 const DRAWN_DIRECTIONS: Readonly<Record<string, FlowDirection>> = { TD: 'TD', TB: 'TD', LR: 'LR' }
 const REFUSED_DIRECTIONS: ReadonlySet<string> = new Set(['RL', 'BT'])
@@ -206,15 +225,15 @@ const MESSAGE_ARROWS: Readonly<Record<string, ArrowSyntax>> = {
   '--)': { stroke: 'dashed', head: 'open' },
 }
 
-function lineFault(line: number, reason: string): DiagramFault {
+export function lineFault(line: number, reason: string): DiagramFault {
   return new DiagramFault({ kind: 'refused', reason, line, limit: null })
 }
 
-function doesNotParse(line: number): DiagramFault {
+export function doesNotParse(line: number): DiagramFault {
   return lineFault(line, `line ${String(line)} does not parse`)
 }
 
-function notDrawnYet(line: number, name: string): DiagramFault {
+export function notDrawnYet(line: number, name: string): DiagramFault {
   return lineFault(line, `${name} does not draw yet`)
 }
 
@@ -229,11 +248,12 @@ function statementsOf(lines: readonly string[]): Statement[] {
     .map((text, index) => ({
       line: index + 1,
       text: text.trim().replace(TRAILING_SEMICOLON, '').trimEnd(),
+      indent: text.length - text.trimStart().length,
     }))
     .filter(({ text }) => text !== '' && !COMMENT.test(text))
 }
 
-function textLines(text: string): string[] {
+export function textLines(text: string): string[] {
   return text.split(LINE_BREAK).map((line) => line.trim())
 }
 
@@ -258,7 +278,7 @@ function limitRefusal(name: LimitName, count: number): Refusal | null {
   }
 }
 
-function refuseOverLimits(counts: readonly (readonly [LimitName, number])[]): void {
+export function refuseOverLimits(counts: readonly (readonly [LimitName, number])[]): void {
   for (const [name, count] of counts) {
     const refusal = limitRefusal(name, count)
     if (refusal !== null) throw new DiagramFault(refusal)
@@ -710,18 +730,46 @@ function flowDirection(
   throw doesNotParse(header.line)
 }
 
+function isDrawnKind(kind: string): boolean {
+  return (
+    kind === SEQUENCE_HEADER ||
+    kind === ENTITY_HEADER ||
+    STATE_HEADER.test(kind) ||
+    CLASS_HEADER.test(kind)
+  )
+}
+
 function unknownHeader(header: Statement): DiagramFault {
   const kind = DIAGRAM_KIND.exec(header.text)?.[1]
-  if (kind === undefined || kind === SEQUENCE_HEADER) return doesNotParse(header.line)
+  if (kind === undefined || isDrawnKind(kind)) return doesNotParse(header.line)
   return notDrawnYet(header.line, kind)
 }
 
-function builderOf(header: Statement): FlowchartBuilder | SequenceBuilder {
+type Builder =
+  | FlowchartBuilder
+  | SequenceBuilder
+  | StateBuilder
+  | ClassBuilder
+  | EntityBuilder
+  | GitGraphBuilder
+  | MindmapBuilder
+  | TimelineBuilder
+
+function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
   if (flow !== null) {
     return new FlowchartBuilder(flowDirection(header, flow[1] ?? '', flow[2]))
   }
   if (header.text === SEQUENCE_HEADER) return new SequenceBuilder()
+  if (STATE_HEADER.test(header.text)) return new StateBuilder()
+  if (CLASS_HEADER.test(header.text)) return new ClassBuilder()
+  if (header.text === ENTITY_HEADER) return new EntityBuilder()
+  const gitGraph = gitGraphBuilder(header)
+  if (gitGraph !== null) return gitGraph
+  const mindmap = mindmapBuilder(header)
+  if (mindmap !== null) return mindmap
+  const timeline = timelineBuilder(header)
+  if (timeline !== null) return timeline
   throw unknownHeader(header)
 }
 
@@ -740,13 +788,22 @@ function parsed(statements: readonly Statement[]): MermaidDiagram | Refusal {
   }
 }
 
+function directiveRefusal(lines: readonly string[]): Refusal | null {
+  for (const [index, text] of lines.entries()) {
+    const name = DIRECTIVE.exec(text)?.[1]
+    if (name !== undefined) return notDrawnYet(index + 1, `%%{${name}}%%`).refusal
+  }
+  return null
+}
+
 export function parseMermaid(source: string): MermaidDiagram | Refusal {
   const lines = sourceLines(source)
   const statements = statementsOf(lines)
-  if (statements.length === 0) return parsed(statements)
+  if (statements.length === 0) return directiveRefusal(lines) ?? parsed(statements)
   return (
     limitRefusal('lines', lines.length) ??
     limitRefusal('characters', Array.from(lines.join('\n')).length) ??
+    directiveRefusal(lines) ??
     parsed(statements)
   )
 }
