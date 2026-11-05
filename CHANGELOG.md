@@ -6,6 +6,84 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.18.0 - 2026-11-05
+
+### Added
+
+- **State, class and ER diagrams draw in the terminal.** reply-view draws a mermaid
+  `stateDiagram` with the layout of a flowchart, `●` for a start and `◉` for an end. A
+  `classDiagram` draws each class with its name and up to 10 members, one class under the next.
+  Each relation has its own line, with `△`, `◆` or `◇` next to the parent or the owner, an arrow
+  head for an association, and each cardinality as a word beside its own class. An `erDiagram`
+  draws its entities top to bottom, with each cardinality as `1`, `0..1`, `0..n` or `1..n`. Nested
+  states, a fork, a join, a choice and other syntax that does not draw yet show the source under a
+  note that names the reason. The desktop app shows each drawing in a plain code block, as it
+  shows a flowchart (handily-36bsx.7).
+- **A flowchart subgraph draws as a titled frame.** In reply-view, each `subgraph` of a mermaid
+  flowchart draws as a frame with a dotted border around its boxes, with its title on the top
+  edge. An edge between two subgraphs runs from a box in one frame to a box in the other, through
+  the borders. A box belongs to the first subgraph that names it, as in Mermaid. A subgraph inside
+  a subgraph, an edge to a subgraph, an empty subgraph and a frame too wide for the screen draw
+  as the source under a note that names the reason. A flowchart with no subgraph draws as before.
+  (handily-36bsx.10)
+- **Bar, line and pie charts draw in the terminal.** reply-view draws a mermaid `xychart-beta`
+  or `xychart` bar chart upright, with each value above its bar, when it has at most 12 bars that
+  fit, and across with each value at the right edge when it does not. A line chart draws as steps
+  with `●` at each value, and on a screen of 40 columns or less as bars across with a note. A
+  second series draws `▒` for bars or `◇` for a line, and a legend names both series by their
+  shape. A `pie` draws one bar per slice, largest first, with its share and its value. A chart with
+  no values, a value that is not a number, a pie slice below 0 or more than 40 bars shows its
+  source under a note that names the reason. `/replies copy chart` copies the source of the last
+  chart. The desktop app shows each chart in a plain code block (handily-36bsx.6).
+- **Gantt diagrams draw in the terminal.** reply-view draws a mermaid `gantt` as one row per task,
+  with a bar across one date axis that all the tasks share, and each `section` as a bold heading.
+  The fill tells the kind of a task: `█` a task, `▓` an active task, `░` a done task and `◇` a
+  milestone. A crit task draws in the heading colour with a bold label, and a last line names the
+  kinds. The view reads the `dateFormat`, the `axisFormat`, `tickInterval`, durations, `after` and
+  `until`, and fits the drawing to the screen at 80, 40 and 30 columns. `excludes`, a `vert`
+  marker, an unknown task id and a date that does not match the `dateFormat` show the source under
+  a note that names the reason. The desktop app shows the drawing in a plain code block
+  (handily-2dpxv0.4).
+- **A Mermaid git graph draws as lanes.** In reply-view, a `gitGraph` draws top down with one
+  lane for each branch, in its cycle colour. A commit draws `●`, a reverse commit `⊗`, a
+  highlight commit `▮` and a merge `◉`, with its id, message and tags. A merge and a new branch
+  draw as joins between lanes. A cherry-pick names the commit that it copies. A label that does
+  not fit wraps under its lanes. `gitGraph BT:` and a graph that Mermaid refuses draw as their
+  source under a note that names the reason. (handily-2dpxv0.1)
+- **A Mermaid mind map draws as a tree.** In reply-view, a `mindmap` draws its root in a frame
+  of its shape and every other node after `├─` or `└─`. Each node of the first level and the
+  nodes under it take one cycle colour. A long node wraps under its own text. An icon, a
+  markdown string and a second root draw as the source under a note that names the reason.
+  (handily-2dpxv0.2)
+- **A Mermaid timeline draws down an axis.** In reply-view, a `timeline` draws its title, each
+  section as a dotted row, and each period as `●` with its events after `•`. Each section takes
+  one cycle colour. On a narrow screen, the events stand under their period. A timeline that
+  does not parse or has no period draws as its source under a note that names the reason.
+  (handily-2dpxv0.3)
+
+### Changed
+
+- **The diagram hint names every kind of diagram that draws.** In reply-view, the hint that
+  `diagramHints` adds to a typed prompt names `flowchart`, `sequenceDiagram`, `stateDiagram-v2`,
+  `classDiagram`, `erDiagram`, `pie`, `xychart`, `gantt`, `gitGraph`, `mindmap` and `timeline`.
+  Before, it named only
+  `flowchart` and `sequenceDiagram`. The names come from the list that the parser checks, and a
+  test fails when the hint names a kind that does not draw. The hint now says that a flowchart
+  may group boxes in a `subgraph` that does not nest, and no longer forbids `subgraph`. It costs
+  about 230 tokens, measured with `claude -p` on Claude Code 2.1.318. When the fold cuts a tall
+  diagram, the fold row names the kind in plain words, such as `flowchart` or `ER diagram`.
+  (handily-2dpxv0.27)
+
+### Fixed
+
+- **A folded reply never shows the title line of a diagram alone.** In reply-view, when the first
+  30 rows of a long reply end inside a drawn diagram, the preview shows the whole diagram when it
+  then takes 60 rows or fewer. A taller diagram shows its title line and first rows, and the fold
+  row names the kind and the hidden rows, such as `… sequence diagram, 39 more rows`. When fewer
+  than 5 rows of the drawing fit, the preview ends before the diagram. Before, a reply with a
+  state, a class and an ER diagram showed only `── mermaid · class ──` above its fold row.
+  (handily-2dpxv0.26)
+
 ## handily-reply-view 0.17.0 - 2026-11-04
 
 ### Added
