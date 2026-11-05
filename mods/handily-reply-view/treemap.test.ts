@@ -260,6 +260,26 @@ describe('a mermaid treemap diagram', () => {
     ])
   })
 
+  test('a value of 13 digits or more prints as written, and a sum of fractions prints tidy', () => {
+    const source = lines(
+      'treemap-beta',
+      '"Media"',
+      '  "Videos": 1234567890123',
+      '  "Songs": 9999999999999',
+      '"Shares"',
+      '  "A": 0.1',
+      '  "B": 0.2',
+    )
+    expect(drawnLines(source).map(lastWord)).toEqual([
+      '11,234,567,890,122',
+      '9,999,999,999,999',
+      '1,234,567,890,123',
+      '0.3',
+      '0.2',
+      '0.1',
+    ])
+  })
+
   for (const [what, source, line, reason] of [
     ['a header it does not know', lines('treemap-betas', '"A": 1'), 1, 'line 1 does not parse'],
     ['a word after the header', lines('treemap-beta x', '"A": 1'), 1, 'line 1 does not parse'],

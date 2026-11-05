@@ -4,7 +4,12 @@ import { PLAIN_LOOKS, type Ink, type InkedDrawing, type Looks } from './ink'
 import { doesNotParse, lineFault, type Refusal, type Statement } from './mermaid'
 import { displayWidth } from './width'
 
-export type TreemapNode = { name: string; value: number; children: TreemapNode[] | null }
+export type TreemapNode = {
+  name: string
+  value: number
+  written: string
+  children: TreemapNode[] | null
+}
 
 export type Treemap = { kind: 'treemap'; title: string | null; nodes: TreemapNode[] }
 
@@ -21,8 +26,9 @@ const THOUSANDS = /,/g
 const NUMBER = /^(?:\d+\.?\d*|\.\d+)$/
 const SPACES = /[\t ]{2,}/g
 const GROUPS = /\B(?=(\d{3})+(?!\d))/g
-const DIGITS = /^\d+$/
-const SIGNIFICANT_DIGITS = 12
+const LEADING_ZEROS = /^0+/
+const TRAILING_ZEROS = /\.?0+$/
+const POINT = '.'
 const BRANCH = '├─ '
 const LAST_BRANCH = '└─ '
 const THROUGH = '│  '
@@ -62,8 +68,8 @@ export class TreemapBuilder {
     const written = item[3]
     const node: TreemapNode =
       written === undefined
-        ? { name, value: 0, children: [] }
-        : { name, value: valueOf(line, written), children: null }
+        ? { name, value: 0, written: '0', children: [] }
+        : { name, ...valueOf(line, written), children: null }
     while ((this.open.at(-1)?.level ?? -1) >= indent) this.open.pop()
     const parent = this.open.at(-1)
     if (parent === undefined) this.nodes.push(node)
@@ -79,12 +85,25 @@ export class TreemapBuilder {
   }
 }
 
-function valueOf(line: number, written: string): number {
-  const number = written.replace(THOUSANDS, '')
+function valueOf(line: number, text: string): { value: number; written: string } {
+  const number = text.replace(THOUSANDS, '')
   if (!NUMBER.test(number)) {
-    throw lineFault(line, `line ${String(line)}: ${JSON.stringify(written)} is not a number`)
+    throw lineFault(line, `line ${String(line)}: ${JSON.stringify(text)} is not a number`)
   }
-  return Number(number)
+  const [whole = '', fraction = ''] = number.split(POINT)
+  const integer = whole.replace(LEADING_ZEROS, '') || '0'
+  return { value: Number(number), written: fraction === '' ? integer : `${integer}.${fraction}` }
+}
+
+function decimalsOf(written: string): number {
+  const point = written.indexOf(POINT)
+  return point < 0 ? 0 : written.length - point - 1
+}
+
+function sumText(value: number, children: readonly TreemapNode[]): string {
+  const decimals = Math.max(0, ...children.map((child) => decimalsOf(child.written)))
+  const fixed = value.toFixed(decimals)
+  return decimals === 0 ? fixed : fixed.replace(TRAILING_ZEROS, '')
 }
 
 function totalOf(nodes: readonly TreemapNode[]): number {
@@ -94,7 +113,8 @@ function totalOf(nodes: readonly TreemapNode[]): number {
 function totalled(node: TreemapNode): TreemapNode {
   if (node.children === null) return node
   const children = node.children.map(totalled)
-  return { ...node, value: totalOf(children), children }
+  const value = totalOf(children)
+  return { ...node, value, written: sumText(value, children), children }
 }
 
 function treemapRefusal(reason: string): Refusal {
@@ -107,11 +127,18 @@ export function treemapBuilder(header: Statement): TreemapBuilder | null {
   return new TreemapBuilder()
 }
 
-type Row = { prefix: string; label: string; value: number; isSection: boolean; ink: Ink }
+type Row = {
+  prefix: string
+  label: string
+  value: number
+  written: string
+  isSection: boolean
+  ink: Ink
+}
 
-function valueText(value: number): string {
-  const [whole = '', fraction] = String(Number(value.toPrecision(SIGNIFICANT_DIGITS))).split('.')
-  const grouped = DIGITS.test(whole) ? whole.replace(GROUPS, ',') : whole
+function valueText(written: string): string {
+  const [whole = '', fraction] = written.split(POINT)
+  const grouped = whole.replace(GROUPS, ',')
   return fraction === undefined ? grouped : `${grouped}.${fraction}`
 }
 
@@ -138,6 +165,7 @@ function rowsOf(nodes: readonly TreemapNode[]): Row[] {
       prefix: lead + mark,
       label: shown(node.name),
       value: node.value,
+      written: node.written,
       isSection: node.children !== null,
       ink,
     })
@@ -153,7 +181,7 @@ function rowsOf(nodes: readonly TreemapNode[]): Row[] {
 
 export function drawTreemap(treemap: Treemap, width: number): InkedDrawing | Refusal {
   const rows = rowsOf(treemap.nodes)
-  const texts = rows.map((row) => valueText(row.value))
+  const texts = rows.map((row) => valueText(row.written))
   const valueWidth = widest(texts)
   const wanted = Math.max(...rows.map((row) => displayWidth(row.prefix + row.label)))
   const least = Math.max(

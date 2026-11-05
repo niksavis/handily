@@ -1445,7 +1445,8 @@ area of that share.
 
 - A section draws the sum of its items. In each level, the largest item comes first, as the
   layout of Mermaid places it. Items of the same value keep the order of the source.
-- A value draws with commas between the thousands, such as `1,250.5`, as Mermaid prints it.
+- A value draws with the digits as written and commas between the thousands, such as `1,250.5`,
+  as Mermaid prints it. A section rounds its sum to the most decimals of its items.
 - On the terminal, the colours `suggestion`, `planMode` and `merged` go in turn. An item at the
   top level with no section draws its bar in `suggestion`. Each section takes the next colour,
   level by level, and an item draws its bar in the colour of its section, as in Mermaid. A section
