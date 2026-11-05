@@ -408,8 +408,8 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram or an ER diagram draws as a diagram. The diagram has a dim title line
-and two buttons at the right edge. The drawing replaces the source:
+diagram, a class diagram, an ER diagram or a gantt diagram draws as a diagram. The diagram has a
+dim title line and two buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -468,8 +468,8 @@ reason:
 
 Other reasons that the note names:
 
-- `gantt does not draw yet.`, and the same for each other kind of diagram that this part does not
-  name.
+- `journey does not draw yet.`, and the same for each other kind of diagram that this part does
+  not name.
 - `subgraph does not draw yet.`, and the same for `direction`.
 - `box does not draw yet.`, and the same for `create` and `destroy` in a sequence diagram.
 - `it takes 59 columns, the screen has 38. Widen the window or shorten the labels.`
@@ -842,6 +842,80 @@ These draw as the source under a note that starts with `chart not drawn:` and na
 - an x-axis with a number range, such as `x-axis 1 --> 10`, and a point label, such as
   `line [540 "PaLM"]`
 - an x-axis with more or fewer labels than the series has values
+
+## A gantt diagram
+
+A `gantt` block draws each task as one row, with a bar across one date axis that all the tasks
+share. The title line is `── mermaid · gantt ──`. The syntax is the one of the Mermaid page
+[Gantt diagrams](https://mermaid.js.org/syntax/gantt.html), Mermaid 12.3.0. This is the example of
+that page at 80 columns:
+
+```text
+● The plan of the gantt work:
+
+  ── mermaid · gantt ────────────────────────────────  [ copy ] [ copy drawing ]
+  Adding GANTT diagram functionality to mermaid
+  A section
+    Completed task                ░░░░░         ┊                ┊
+    Active task                          ▓▓▓▓▓▓▓▓                ┊
+    Future task                                 █████████████    ┊
+    Future task2                                ┊           █████████████
+  Critical tasks
+    Completed task in the critic… ░░░           ┊                ┊
+    Implement parser and jison        ░░░░░░    ┊                ┊
+    Create tests for parser                ▓▓▓▓▓▓▓▓              ┊
+    Future task in critical line                ┊ ██████████████ ┊
+    Create tests for renderer                   ┊              █████
+    Add to mermaid                              ┊                ┊ █████████████
+    Functionality added                         ┊                ┊             ◇
+  Documentation
+    Describe gantt syntax             ▓▓▓▓▓▓▓▓▓ ┊                ┊
+    Add gantt diagram to demo pa…             ███                ┊
+    Add another diagram to demo…              █████              ┊
+  Last section
+    Describe gantt syntax                       ┊ █████████      ┊
+    Add gantt diagram to demo pa…               ┊         ███    ┊
+    Add another diagram to demo…                ┊           ██████
+                                  ──────────────┴────────────────┴──────────────
+                                                01-12            01-19
+  █ task   ▓ active   ░ done   ◇ milestone   █ crit
+```
+
+- Each `section` is a bold heading in its cycle colour. Its tasks indent by 2 and their bars take
+  the same colour.
+- The fill tells the kind of a task, also with no colour: `█` a task, `▓` an `active` task, `░` a
+  `done` task in `inactive`, and `◇` a `milestone` in the middle of its time. A `crit` task draws
+  in `claude` with a bold label. The last line names the kinds that the diagram holds.
+- `┊` marks each date of the axis in the rows of the tasks. The view picks the smallest step of
+  the axis that keeps its dates apart, or the step of `tickInterval` when its dates fit. `weekday`
+  sets the first day of a week step.
+- A task starts at a date in the `dateFormat`, after the tasks of `after a1 b2` (the latest end),
+  or at the end of the task before it. It ends at a date, after a duration such as `3d`, `20h` or
+  `1M`, or at `until a1` (the earliest start). `inclusiveEndDates` adds a day to an end date.
+- `dateFormat` reads `YYYY`, `M`, `MM`, `MMM`, `MMMM`, `D`, `DD`, `H`, `HH`, `h`, `hh`, `a`, `A`,
+  `m`, `mm`, `s`, `ss`, `S`, `SS`, `SSS`, `X` and `x`. The default is `YYYY-MM-DD`. A format with
+  no date, such as `HH:mm`, reads its times on one day.
+- `axisFormat` reads the `%` codes of the Mermaid page, except `%U`, `%W` and `%Z`. With no
+  `axisFormat`, the axis shows `%m-%d` in one year and `%Y-%m-%d` across years, and the time for
+  steps shorter than a day. Mermaid shows `%Y-%m-%d`. The shorter dates fit more steps on a narrow
+  screen.
+- The view reads every date and time in UTC.
+- `click`, `todayMarker`, `topAxis`, `weekend`, `includes`, `accTitle`, `accDescr` and a `%%`
+  comment draw nothing.
+- `copy` copies the mermaid source and `copy drawing` copies the drawn lines. On the desktop app,
+  the diagram draws in a code block with no colour.
+
+These draw as the source under a note that names the reason:
+
+- `excludes`, a `vert` marker, and a part of a month or a year, such as `1.5M`
+- an id that no task has, such as `line 3: no task has the id zz.`, and `after` or `until`
+  references that loop
+- a date that does not match the `dateFormat`, an end that is not a date or a duration, a first
+  task with no start, and a task that ends before it starts
+- a `dateFormat` token such as `YY`, `Q` or `Do`, and an `axisFormat` code such as `%U`
+- no task, or more than 60 tasks
+- a screen too narrow for a label of 4 columns and 10 columns of bars, such as
+  `it takes 15 columns, the screen has 14. Widen the window or shorten the labels.`
 
 ## A prompt that you type
 

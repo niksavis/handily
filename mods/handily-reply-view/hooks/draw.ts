@@ -5,6 +5,7 @@ import { chartName, drawChart, isChartSource } from './charts'
 import { drawClasses } from './classes'
 import { drawEntities } from './er'
 import { drawFlowchart } from './flowchart'
+import { drawGantt } from './gantt'
 import { highlightedRuns } from './highlight'
 import { textPropsOf, type Ink, type InkedDrawing, type InkRun } from './ink'
 import {
@@ -1206,6 +1207,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     case 'chart': {
       const drawn = drawChart(diagram, width)
       return drawn.kind === 'drawing' ? { ...drawn, name: chartName(diagram) } : drawn
+    }
+    case 'gantt': {
+      const drawn = drawGantt(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
   }
 }

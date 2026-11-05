@@ -2232,7 +2232,7 @@ describe('mermaid flowcharts', () => {
     [linesOf('flowchart TD', '  A --> B', '  B@{ icon: "fa:user" }'), 3, 'icons'],
     [linesOf('flowchart TD', '  A["`**bold**`"]'), 2, 'markdown strings'],
     [linesOf('flowchart TD', '  A -->|"`md`"| B'), 2, 'markdown strings'],
-    [linesOf('gantt', '  title A plan'), 1, 'gantt'],
+    [linesOf('journey', '  title A plan'), 1, 'journey'],
     [linesOf('quadrantChart', '  title Pets'), 1, 'quadrantChart'],
     [linesOf('requirementDiagram', '  element test_entity {', '  }'), 1, 'requirementDiagram'],
   ] as const) {
@@ -4016,7 +4016,7 @@ describe('diagram blocks', () => {
               '~diagram not drawn: line 3 does not parse.~',
               ...todaysFence(MOCK_9_8_SOURCE, width),
               '',
-              '~diagram not drawn: gantt does not draw yet.~',
+              '~diagram not drawn: the gantt diagram has no tasks.~',
               ...todaysFence(GANTT_SOURCE, width),
               '',
               '~diagram not drawn: the block is empty.~',

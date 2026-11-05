@@ -1,6 +1,7 @@
 import { chartBuilderOf, isChartKind, type Chart, type ChartBuilder } from './charts'
 import { ClassBuilder, type ClassDiagram } from './classes'
 import { EntityBuilder, type EntityDiagram } from './er'
+import { GanttBuilder, type GanttDiagram } from './gantt'
 import { StateBuilder, type StateDiagram } from './state'
 
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
@@ -91,7 +92,7 @@ export type SequenceDiagram = {
 }
 
 export type MermaidDiagram =
-  Flowchart | SequenceDiagram | StateDiagram | ClassDiagram | EntityDiagram | Chart
+  Flowchart | SequenceDiagram | StateDiagram | ClassDiagram | EntityDiagram | Chart | GanttDiagram
 
 export type Statement = { line: number; text: string }
 
@@ -110,6 +111,7 @@ const SEQUENCE_HEADER = 'sequenceDiagram'
 const STATE_HEADER = /^stateDiagram(?:-v2)?$/
 const CLASS_HEADER = /^classDiagram(?:-v2)?$/
 const ENTITY_HEADER = 'erDiagram'
+const GANTT_HEADER = 'gantt'
 const DIAGRAM_KIND = /^([A-Za-z][\w-]*)(?:\s[^-[\](){}|<>&]*)?$/
 const DRAWN_DIRECTIONS: Readonly<Record<string, FlowDirection>> = { TD: 'TD', TB: 'TD', LR: 'LR' }
 const REFUSED_DIRECTIONS: ReadonlySet<string> = new Set(['RL', 'BT'])
@@ -563,6 +565,7 @@ function isDrawnKind(kind: string): boolean {
   return (
     kind === SEQUENCE_HEADER ||
     kind === ENTITY_HEADER ||
+    kind === GANTT_HEADER ||
     STATE_HEADER.test(kind) ||
     CLASS_HEADER.test(kind) ||
     isChartKind(kind)
@@ -576,7 +579,13 @@ function unknownHeader(header: Statement): DiagramFault {
 }
 
 type Builder =
-  FlowchartBuilder | SequenceBuilder | StateBuilder | ClassBuilder | EntityBuilder | ChartBuilder
+  | FlowchartBuilder
+  | SequenceBuilder
+  | StateBuilder
+  | ClassBuilder
+  | EntityBuilder
+  | ChartBuilder
+  | GanttBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -587,6 +596,7 @@ function builderOf(header: Statement): Builder {
   if (STATE_HEADER.test(header.text)) return new StateBuilder()
   if (CLASS_HEADER.test(header.text)) return new ClassBuilder()
   if (header.text === ENTITY_HEADER) return new EntityBuilder()
+  if (header.text === GANTT_HEADER) return new GanttBuilder()
   const chart = chartBuilderOf(header.text)
   if (chart !== null) return chart
   throw unknownHeader(header)
