@@ -262,6 +262,15 @@ describe('a mermaid architecture diagram', () => {
     ])
   })
 
+  test('a service may name a group that the source declares later, as Mermaid adds every group first', () => {
+    const parsed = parseMermaid(
+      lines('architecture-beta', '  service s(server)[S] in g', '  group g(cloud)[G]'),
+    )
+    expect(parsed.kind === 'architecture' ? parsed.nodes : parsed).toEqual([
+      { id: 's', isJunction: false, title: 'S', parent: 'g' },
+    ])
+  })
+
   for (const [source, line, reason] of [
     [lines('architecture', '  service a[A]'), 1, 'line 1 does not parse'],
     [lines('architecture-beta LR', '  service a[A]'), 1, 'line 1 does not parse'],
