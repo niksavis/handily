@@ -1919,7 +1919,7 @@ describe('diagram hints', () => {
     )
 
     hintsTest(
-      `the hint is the text that the README measured at 229 tokens on 2026-11-05, and /replies hints names that count on ${surface}`,
+      `the hint is the text that the README measured at 233 tokens on 2026-11-05, and /replies hints names that count on ${surface}`,
       undefined,
       surface,
       async (read, $) => {
