@@ -424,6 +424,21 @@ describe('subgraph frames', () => {
     ])
   })
 
+  test('when the labels wrap, a frame title is cut only where the top edge of its own frame ends', () => {
+    const source = lines(
+      'flowchart TD',
+      '  subgraph pay [Payment services of the shop]',
+      '    A[Card payment service] --> B[Refund service handler]',
+      '    A --> C[Invoice service writer]',
+      '  end',
+    )
+    expect(drawnLines(source, 38).slice(0, 3)).toEqual([
+      '┌┄ Payment services of t… ┄┐',
+      '┆                          ┆',
+      '┆    ╭──────────────╮      ┆',
+    ])
+  })
+
   test('a frame of one narrow box left to right widens to hold its whole title', () => {
     const source = lines(
       'flowchart LR',

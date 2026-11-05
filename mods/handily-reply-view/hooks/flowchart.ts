@@ -158,6 +158,7 @@ type Plan = {
   entries: Entry[][]
   entryOf: Map<Segment, Entry>
   titles: Label[]
+  writtenTitles: Label[]
   cut: number | null
   edgeWrap: number | null
   compact: boolean
@@ -170,7 +171,14 @@ type Extent = { lo: number; hi: number }
 
 type Unit = Extent & { cluster: Cluster | null }
 
-type Frame = { top: number; left: number; bottom: number; right: number; title: Label }
+type Frame = {
+  top: number
+  left: number
+  bottom: number
+  right: number
+  title: Label
+  written: Label
+}
 
 type Band = { tracks: Map<number, number>; trackCount: number }
 
@@ -998,12 +1006,14 @@ function planOf(
     return own.length > 1 ? grown(shape, attempt.direction, span) : shape
   })
   const titles = graph.clusters.map((cluster) => titleOf(cluster.label, attempt.wrap))
+  const writtenTitles = graph.clusters.map((cluster) => titleOf(cluster.label, null))
   return {
     graph,
     shapes,
     entries,
     entryOf,
     titles,
+    writtenTitles,
     cut: attempt.cut,
     edgeWrap: attempt.edgeWrap,
     compact: attempt.compact,
@@ -1737,19 +1747,33 @@ function frameRoom(opens: boolean, room: number): number {
   return opens ? room : 0
 }
 
-function titleSlot(canvas: Canvas, frame: Frame, chunk: string): number {
+function freeSlot(canvas: Canvas, frame: Frame, chunk: string): number | null {
   const last = frame.right - 1 - displayWidth(chunk)
   for (let col = frame.left + FRAME_TITLE_INDENT; col <= last; col++) {
     if (canvas.fits(frame.top, col - 1, ` ${chunk} `)) return col
   }
-  throw new DrawingFault(LINES_OVERLAP)
+  return null
+}
+
+function placedTitle(canvas: Canvas, frame: Frame): { title: Label; from: number } {
+  const least = displayWidth(frame.title.text)
+  for (let columns = displayWidth(frame.written.text); columns > least; columns--) {
+    const title = fittedLabel(frame.written, columns)
+    const from = freeSlot(canvas, frame, ` ${title.text} `)
+    if (from !== null) return { title, from }
+  }
+  const from = freeSlot(canvas, frame, ` ${frame.title.text} `)
+  if (from === null) throw new DrawingFault(LINES_OVERLAP)
+  return { title: frame.title, from }
 }
 
 function drawFrame(canvas: Canvas, frame: Frame): void {
-  const { top, left, bottom, right, title } = frame
+  const { top, left, bottom, right } = frame
   const [topLeft, topRight, bottomLeft, bottomRight] = SQUARE_CORNERS
-  const chunk = title.text === '' ? '' : ` ${title.text} `
-  const from = chunk === '' ? left : titleSlot(canvas, frame, chunk)
+  const placed = frame.title.text === '' ? null : placedTitle(canvas, frame)
+  const title = placed?.title ?? frame.title
+  const chunk = placed === null ? '' : ` ${title.text} `
+  const from = placed?.from ?? left
   const to = from + displayWidth(chunk)
   if (chunk !== '') {
     canvas.put(top, from, ' ', 'line')
@@ -1857,6 +1881,7 @@ function drawDown(plan: Plan): Canvas {
       bottom: (tops[cluster.last] ?? 0) + (depths[cluster.last] ?? 1),
       right: hi,
       title: plan.titles[group] ?? plainLabel(''),
+      written: plan.writtenTitles[group] ?? plainLabel(''),
     })
   })
   drawDownLoops(plan, canvas, tops, starts)
@@ -2047,6 +2072,7 @@ function drawAcross(plan: Plan): Canvas {
       bottom: hi,
       right: (lefts[cluster.last] ?? 0) + (widths[cluster.last] ?? 1) + ACROSS_FRAME_ROOM - 1,
       title: plan.titles[group] ?? plainLabel(''),
+      written: plan.writtenTitles[group] ?? plainLabel(''),
     })
   })
   drawAcrossLoops(plan, canvas, lefts, starts)

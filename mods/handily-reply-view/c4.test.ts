@@ -349,6 +349,17 @@ describe('a mermaid C4 diagram', () => {
     },
   )
 
+  test('the Context example at 80 columns names each boundary in full on the top edge of its frame', () => {
+    const frames = drawnLines(C4_DOCS_EXAMPLES.C4Context ?? '').filter((row) => row.includes('┌┄'))
+    expect(frames.filter((row) => row.includes('BankBoundar…'))).toEqual([])
+    expect(frames.map((row) => /BankBoundary\d? \[[A-Za-z]+\]/.exec(row)?.[0])).toEqual([
+      'BankBoundary0 [ENTERPRISE]',
+      'BankBoundary [ENTERPRISE]',
+      'BankBoundary2 [SYSTEM]',
+      'BankBoundary3 [boundary]',
+    ])
+  })
+
   test('a label wraps at word boundaries, and only a word longer than the box is cut with …', () => {
     expect(
       wordWrapped(plainLabel('Provides functionality to customers via their browser'), 12).map(

@@ -609,8 +609,9 @@ It draws at 80 columns and more, under the title line and its buttons:
   its title need. A box outside the frame stays out of it. When a line crosses the border, the
   line draws through it.
 - The title moves to the right of a line that enters the frame through the top edge. A frame
-  grows to hold its whole title. When the labels must fit, the title is cut to the width of a
-  label, with `…`.
+  grows to hold its whole title. When the labels must fit, the frame does not grow for its
+  title. The title then takes the room on the top edge of its own frame, and only the part past
+  that room is cut with `…`.
 - On the terminal, the border is in `inactive` and the title is bold. The boxes keep their
   colours.
 - When the frames are too wide for the screen, a flowchart `LR` draws top down. When it is still
@@ -1469,8 +1470,9 @@ draws as:
   columns instead of being cut.
 - So the five examples of the Mermaid page draw at 80 columns. A diagram that is still too wide
   for the screen draws as the source under the width note.
-- A frame title is cut to the width of the wrapped labels, as in a flowchart. The examples of
-  the Mermaid page have long boundary names, so their frames show titles such as `BankBoundar…`.
+- A frame title takes the room on the top edge of its own frame, as in a flowchart. So the
+  Context example of the Mermaid page shows `BankBoundary0 [ENTERPRISE]` in full, and cuts only
+  the outer names of a nested boundary with `…`.
 - These draw as the source under a note that names the reason: a relation to a boundary
   (`a relation to the boundary b does not draw yet.`), a relation to an alias that the diagram does
   not declare (`line 3: no element has the alias ghost.`), a relation from an element to itself, a
