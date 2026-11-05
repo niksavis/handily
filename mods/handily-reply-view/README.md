@@ -1338,7 +1338,8 @@ At 30 columns, the actors stand under their task:
   name, as in a timeline.
 - A task `Make tea: 5: Me, Cat` draws its score as a bar of 5 cells and as a number, then its
   name, then its actors. The bars stand in one column, so the rise and fall of the scores read
-  down the column. A score with a fraction, such as `3.5`, draws a part of a cell.
+  down the column. A score with a fraction, such as `3.5`, draws a part of a cell. A task whose
+  name is only `<br>` draws its score with an empty name.
 - When the widest task name takes more than half of the room after the bars, or leaves fewer
   than 12 columns for the actors, the actors stand under their task.
 - On the terminal, each section, its bars and its scores take the colours `suggestion`,
@@ -1350,8 +1351,11 @@ At 30 columns, the actors stand under their task:
 - On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
 - These draw as the source, with a note: a task with no score or a section with a `:`
   (`line 2 does not parse.`), a score that is not a number (`line 2: "high" is not a number.`), a
-  score outside 1 to 5 (`line 2: the score 7 is not from 1 to 5.`), a journey with no task
-  (`the journey has no tasks.`) and a screen narrower than the bars and 10 columns of the names.
+  score outside 1 to 5, also below 0 (`line 2: the score -1 is not from 1 to 5.`), a journey with
+  no task (`the journey has no tasks.`) and a screen narrower than the bars and 10 columns of the
+  names.
+- Mermaid takes any number as a score and draws its face off the scale. The bar has no room
+  outside 1 to 5, so such a score draws as the source.
 
 The syntax follows the [user journey page](https://mermaid.js.org/syntax/userJourney.html) of
 Mermaid 12.3.0.

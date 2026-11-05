@@ -22,7 +22,7 @@ const COMMENT = /\s*(?:#|%%).*$/
 const TASK = /^([^:;]+):([^;]+)$/
 const DATA_MARK = ':'
 const ACTOR_MARK = ','
-const SCORE = /^(?:\d+(?:\.\d+)?|\.\d+)$/
+const SCORE = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/
 const LEAST_SCORE = 1
 const MOST_SCORE = 5
 
@@ -132,7 +132,8 @@ function taskLines(layout: Layout, task: JourneyTask, ink: Ink): InkRun[][] {
   const blank = part(' '.repeat(layout.lead), 'plain')
   const columns = layout.nameColumns
   const nameRoom = columns ?? layout.width - layout.lead
-  const names = labelsOf(task.label).flatMap((label) => wrappedLabel(label, nameRoom))
+  const wrapped = labelsOf(task.label).flatMap((label) => wrappedLabel(label, nameRoom))
+  const names = wrapped.length === 0 ? [plainLabel('')] : wrapped
   const rows: Part[][] = names.map((name) => [{ label: name, ink: 'plain' }])
   if (columns === null) {
     const actors = actorLabels(task, layout.width - layout.lead)

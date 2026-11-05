@@ -202,6 +202,13 @@ describe('a mermaid user journey', () => {
     ])
   })
 
+  test('a task whose name is only a line break draws its score with an empty name', () => {
+    expect(drawnLines(lines('journey', '  <br>: 3', '  Next: 4'))).toEqual([
+      '███░░ 3',
+      '████░ 4  Next',
+    ])
+  })
+
   test('keywords in any case, comments, accessibility lines, a third colon and empty actors draw as Mermaid reads them', () => {
     const source = lines(
       'journey',
@@ -225,6 +232,7 @@ describe('a mermaid user journey', () => {
     [lines('journey', '  section Go: home'), 2, 'line 2 does not parse'],
     [lines('journey', '  Make tea; now: 5'), 2, 'line 2 does not parse'],
     [lines('journey', '  Make tea: 0: Me'), 2, 'line 2: the score 0 is not from 1 to 5'],
+    [lines('journey', '  T: -1: Me'), 2, 'line 2: the score -1 is not from 1 to 5'],
     [lines('journey', '  Make tea: : Me'), 2, 'line 2: "" is not a number'],
     [lines('journey', '  Make tea: 0x5: Me'), 2, 'line 2: "0x5" is not a number'],
     [lines('journey X'), 1, 'line 1 does not parse'],
