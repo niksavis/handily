@@ -226,13 +226,11 @@ function headerLines(column: KanbanColumn, ink: Ink, width: number): Part[][] {
     .map((label): Part[] => [{ label, ink }])
 }
 
-function laneOf(column: KanbanColumn, ink: Ink, width: number): Lane {
+function laneOf(column: KanbanColumn, header: Part[][], rows: number, width: number): Lane {
+  const blank = Array.from({ length: rows - header.length }, (): Part[] => [])
   return {
     width,
-    lines: [
-      ...headerLines(column, ink, width),
-      ...column.cards.flatMap((card) => cardLines(card, width)),
-    ],
+    lines: [...header, ...blank, ...column.cards.flatMap((card) => cardLines(card, width))],
   }
 }
 
@@ -240,7 +238,11 @@ function boardLines(kanban: Kanban, width: number): InkRun[][] | null {
   const count = kanban.columns.length
   const card = Math.floor((width - COLUMN_GAP * (count - 1)) / count)
   if (card < LEAST_BOARD_CARD) return null
-  const lanes = kanban.columns.map((column, ink) => laneOf(column, ink, card))
+  const headers = kanban.columns.map((column, ink) => headerLines(column, ink, card))
+  const headerRows = Math.max(...headers.map((header) => header.length))
+  const lanes = kanban.columns.map((column, at) =>
+    laneOf(column, headers[at] ?? [], headerRows, card),
+  )
   const rows = Math.max(...lanes.map((lane) => lane.lines.length))
   const gap = part(' '.repeat(COLUMN_GAP), 'plain')
   return Array.from({ length: rows }, (_, row) =>

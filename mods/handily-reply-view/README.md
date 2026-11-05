@@ -1484,6 +1484,8 @@ with its cards under it:
   brackets.
 - The metadata `@{ … }` of a card draws its `priority`, `ticket` and `assigned` under its text,
   joined by `·`, such as `High · MC-2038 · knsv`. A `label` in the metadata replaces the text.
+- On a board, a column name that wraps takes more rows, and the other column names get the same
+  rows. So the first cards of all columns start on one row.
 - Stacked cards all take the width of the widest card, from 16 columns up to the screen.
 - On the terminal, each column name is bold, in the colours `suggestion`, `planMode` and `merged`
   in turn. The text of a card is plain. The frames, the metadata and the dotted rows are in

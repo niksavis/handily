@@ -196,6 +196,23 @@ describe('a mermaid kanban', () => {
     expect(drawnLines(BOARD, 28)).toEqual(STACKED_ROWS)
   })
 
+  test('column names that wrap to different heights keep the cards of the board in step', () => {
+    const source = lines(
+      'kanban',
+      '  [Waiting for the customer to reply]',
+      '    a[Ask]',
+      '  Done',
+      '    b[Ship]',
+    )
+    expect(drawnLines(source, 38)).toEqual([
+      'Waiting for the     Done',
+      'customer to reply',
+      '╭────────────────╮  ╭────────────────╮',
+      '│ Ask            │  │ Ship           │',
+      '╰────────────────╯  ╰────────────────╯',
+    ])
+  })
+
   test('every node shape on a board of two columns, a quoted label, a label in the metadata, comments and classes draw as Mermaid reads them', () => {
     const source = lines(
       'kanban',
