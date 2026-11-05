@@ -629,6 +629,112 @@ describe('charts that do not draw', () => {
   })
 })
 
+function ticksOf(rows: readonly string[]): string[] {
+  return rows.filter((row) => /[┤└]/.test(row)).map((row) => row.split(/[┤└]/)[0]?.trim() ?? '')
+}
+
+function plottedNumbers(rows: readonly string[]): string[] {
+  const base = rows.findIndex((row) => row.includes('└'))
+  const axis = rows[base]?.indexOf('└') ?? 0
+  return rows.slice(0, base).flatMap((row) => row.slice(axis + 1).match(/\d[\d.]*/g) ?? [])
+}
+
+describe('y-axis ranges', () => {
+  for (const [form, title, low, high] of [
+    ['4000 --> 11000', '', 4000, 11000],
+    ['40 --> 100', '', 40, 100],
+    ['-5 --> 5', '', -5, 5],
+    ['0.5 --> 2', '', 0.5, 2],
+    ['Rev 4000 --> 11000', 'Rev', 4000, 11000],
+    ['"Rev" 4000 --> 11000', 'Rev', 4000, 11000],
+    ['"Revenue (in $)" 4000 --> 11000', 'Revenue (in $)', 4000, 11000],
+  ] as const) {
+    test(`y-axis ${form} reads the title ${JSON.stringify(title)} and the range ${String(low)} to ${String(high)}`, () => {
+      expect(parseMermaid(lines('xychart-beta', `  y-axis ${form}`, '  bar [1]'))).toMatchObject({
+        kind: 'chart',
+        axisTitles: ['', title],
+        range: { low, high },
+      })
+    })
+  }
+
+  test('a y-axis title that is a number does not parse, as in Mermaid', () => {
+    expect(parseMermaid(lines('xychart-beta', '  y-axis 1 2 --> 3', '  bar [2]'))).toEqual({
+      kind: 'refused',
+      reason: 'line 2 does not parse',
+      line: 2,
+      limit: null,
+    })
+  })
+
+  viewTest('a y-axis range with no title draws its scale from the low value', async (_world, $) => {
+    const source = lines(
+      'xychart-beta',
+      '  x-axis [jan, feb, mar]',
+      '  y-axis 4000 --> 11000',
+      '  bar [5000, 7500, 11000]',
+    )
+    const ui = await mountChart($, source, 'terminal')
+    const rows = await textRows(ui, 'terminal')
+    expect(ticksOf(rows)).toEqual(['11000', '9600', '8200', '6800', '5400', '4000'])
+    expect(rows.some((row) => row.startsWith('y-axis'))).toBe(false)
+    await ui.unmount()
+  })
+})
+
+describe('small values', () => {
+  for (const [values, ticks] of [
+    [
+      ['0.001', '0.002', '0.003'],
+      ['0.005', '0.004', '0.003', '0.002', '0.001', '0'],
+    ],
+    [
+      ['0.012', '0.018', '0.025'],
+      ['0.025', '0.02', '0.015', '0.01', '0.005', '0'],
+    ],
+  ] as const) {
+    viewTest(
+      `bar [${values.join(', ')}] draws distinct ticks and the values as written`,
+      async (_world, $) => {
+        const source = lines('xychart-beta', '  x-axis [a, b, c]', `  bar [${values.join(', ')}]`)
+        const ui = await mountChart($, source, 'terminal')
+        const rows = await textRows(ui, 'terminal')
+        expect(ticksOf(rows)).toEqual([...ticks])
+        expect(plottedNumbers(rows)).toEqual([...values].reverse())
+        await ui.unmount()
+      },
+    )
+  }
+
+  viewTest(
+    'a horizontal bar chart of small values shows each value and the scale as written',
+    async (_world, $) => {
+      const source = lines(
+        'xychart-beta horizontal',
+        '  x-axis [a, b, c]',
+        '  bar [0.001, 0.002, 0.003]',
+      )
+      const ui = await mountChart($, source, 'terminal', 40)
+      const rows = await textRows(ui, 'terminal')
+      expect(rows.map((row) => row.split(/\s+/).at(-1))).toEqual([
+        '0.001',
+        '0.002',
+        '0.003',
+        '0.003',
+      ])
+      expect(rows.at(-1)?.trim().split(/\s+/)).toEqual(['0', '0.003'])
+      await ui.unmount()
+    },
+  )
+
+  viewTest('a pie of slices below 0.01 shows each value as written', async (_world, $) => {
+    const ui = await mountChart($, lines('pie', '  "a" : 0.004', '  "b" : 0.006'), 'terminal')
+    const rows = await textRows(ui, 'terminal')
+    expect(rows.map((row) => row.split(' · ').at(-1)?.trim())).toEqual(['0.006', '0.004'])
+    await ui.unmount()
+  })
+})
+
 describe('/replies copy chart', () => {
   copyTest(
     'copies the source of the last chart of the last reply, drawn or not',

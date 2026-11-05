@@ -53,6 +53,9 @@ const TICKS = PLOT_ROWS / TICK_ROWS
 const SLOT_GAP = 2
 const MIN_BAR = 6
 const MIN_LABEL = 3
+const LEAST_DECIMALS = 2
+const MOST_DECIMALS = 100
+const SIGNIFICANT_DIGITS = 2
 const LEGEND_GAP = '   '
 const XY_HEADER = /^xychart(?:-beta)?(?:\s+(vertical|horizontal))?$/i
 const XY_KIND = /^xychart(?:-beta)?$/i
@@ -71,7 +74,7 @@ const NUMBER_TEXT = String.raw`[+-]?(?:\d+(?:\.\d+)?|\.\d+)`
 const NUMBER = new RegExp(`^${NUMBER_TEXT}$`)
 const LABELLED_POINT = new RegExp(`^${NUMBER_TEXT}\\s+"[^"]*"$`)
 const AXIS_RANGE = new RegExp(
-  `^(?:("[^"]*")|([^\\s"[\\]]+))?\\s*(${NUMBER_TEXT})\\s*-->\\s*(${NUMBER_TEXT})$`,
+  `^(?:("[^"]*")\\s*|(?!${NUMBER_TEXT}\\s)([^\\s"[\\]]+)\\s+)?(${NUMBER_TEXT})\\s*-->\\s*(${NUMBER_TEXT})$`,
 )
 const SLICE = /^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*:\s*(\S+)$/
 const PIE_NUMBER = /^-?(?:\d+\.\d+|\d+)$/
@@ -146,9 +149,22 @@ export function cutLabel(text: string, width: number): string {
   return `${cutToWidth(text, Math.max(width - 1, 0)).trimEnd()}…`
 }
 
-function numberText(value: number): string {
-  const rounded = Number(value.toFixed(2))
+function decimalsFor(magnitude: number): number {
+  const size = Math.abs(magnitude)
+  if (size === 0 || !Number.isFinite(size)) return LEAST_DECIMALS
+  return Math.min(
+    Math.max(LEAST_DECIMALS, SIGNIFICANT_DIGITS - 1 - Math.floor(Math.log10(size))),
+    MOST_DECIMALS,
+  )
+}
+
+function roundedText(value: number, magnitude: number): string {
+  const rounded = Number(value.toFixed(decimalsFor(magnitude)))
   return String(rounded === 0 ? 0 : rounded)
+}
+
+function numberText(value: number): string {
+  return roundedText(value, value)
 }
 
 function signedText(value: number): string {
@@ -454,7 +470,7 @@ function verticalScale(chart: XyChart): Scale {
 
 function tickTexts(scale: Scale): string[] {
   return Array.from({ length: TICKS + 1 }, (_, at) =>
-    numberText(cleanNumber(scale.low + scale.step * at)),
+    roundedText(cleanNumber(scale.low + scale.step * at), scale.step),
   )
 }
 
