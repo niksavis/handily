@@ -1,3 +1,5 @@
+import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph'
+
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
 
 export const DIAGRAM_LIMITS: Readonly<Record<LimitName, number>> = {
@@ -85,9 +87,9 @@ export type SequenceDiagram = {
   blocks: SequenceBlock[]
 }
 
-export type MermaidDiagram = Flowchart | SequenceDiagram
+export type MermaidDiagram = Flowchart | SequenceDiagram | GitGraph
 
-type Statement = { line: number; text: string }
+export type Statement = { line: number; text: string; indent: number }
 
 class DiagramFault extends Error {
   constructor(readonly refusal: Refusal) {
@@ -191,15 +193,15 @@ const MESSAGE_ARROWS: Readonly<Record<string, ArrowSyntax>> = {
   '--)': { stroke: 'dashed', head: 'open' },
 }
 
-function lineFault(line: number, reason: string): DiagramFault {
+export function lineFault(line: number, reason: string): DiagramFault {
   return new DiagramFault({ kind: 'refused', reason, line, limit: null })
 }
 
-function doesNotParse(line: number): DiagramFault {
+export function doesNotParse(line: number): DiagramFault {
   return lineFault(line, `line ${String(line)} does not parse`)
 }
 
-function notDrawnYet(line: number, name: string): DiagramFault {
+export function notDrawnYet(line: number, name: string): DiagramFault {
   return lineFault(line, `${name} does not draw yet`)
 }
 
@@ -214,11 +216,12 @@ function statementsOf(lines: readonly string[]): Statement[] {
     .map((text, index) => ({
       line: index + 1,
       text: text.trim().replace(TRAILING_SEMICOLON, '').trimEnd(),
+      indent: text.length - text.trimStart().length,
     }))
     .filter(({ text }) => text !== '' && !COMMENT.test(text))
 }
 
-function textLines(text: string): string[] {
+export function textLines(text: string): string[] {
   return text.split(LINE_BREAK).map((line) => line.trim())
 }
 
@@ -556,12 +559,14 @@ function unknownHeader(header: Statement): DiagramFault {
   return notDrawnYet(header.line, kind)
 }
 
-function builderOf(header: Statement): FlowchartBuilder | SequenceBuilder {
+function builderOf(header: Statement): FlowchartBuilder | SequenceBuilder | GitGraphBuilder {
   const flow = FLOW_HEADER.exec(header.text)
   if (flow !== null) {
     return new FlowchartBuilder(flowDirection(header, flow[1] ?? '', flow[2]))
   }
   if (header.text === SEQUENCE_HEADER) return new SequenceBuilder()
+  const gitGraph = gitGraphBuilder(header)
+  if (gitGraph !== null) return gitGraph
   throw unknownHeader(header)
 }
 

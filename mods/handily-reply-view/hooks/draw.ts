@@ -2,6 +2,7 @@ import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
 import { drawFlowchart } from './flowchart'
+import { drawGitGraph } from './gitgraph'
 import { highlightedRuns } from './highlight'
 import { textPropsOf, type Ink, type InkedDrawing, type InkRun } from './ink'
 import {
@@ -1185,6 +1186,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'sequence': {
       const drawn = drawSequence(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'gitgraph': {
+      const drawn = drawGitGraph(diagram, width)
       return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
   }

@@ -556,6 +556,88 @@ A `sequenceDiagram` draws under the title line `── mermaid · sequence ─�
 - When the drawing is too wide, the labels of the messages and the notes wrap, each in at most 3
   lines. The name of a participant does not wrap.
 
+## A git graph
+
+A `gitGraph` draws under the title line `── mermaid · gitgraph ──`. The commits run down the
+screen, so the newest commit is at the bottom, as in the source:
+
+```text
+● The feature lands in two branches:
+
+  ── mermaid · gitgraph ─────────────────────────────  [ copy ] [ copy drawing ]
+  ╷ main
+  ● 1
+  ● 2
+  ├─╮ nice_feature
+  │ ● 3
+  ● │ 4
+  │ ├─╮ very_nice_feature
+  │ │ ● 5
+  ● │ │ 6
+  │ ● │ 7
+  ⊗─╯ │ customID merge nice_feature (tag: customTag)
+  │   ● 8
+  ● 9
+```
+
+At 40 columns, a label that does not fit wraps under its lanes:
+
+```text
+● The feature lands in two branches:
+
+  ── mermaid · gitgraph ────────────────
+               [ copy ] [ copy drawing ]
+  ╷ main
+  ● 1
+  ● 2
+  ├─╮ nice_feature
+  │ ● 3
+  ● │ 4
+  │ ├─╮ very_nice_feature
+  │ │ ● 5
+  ● │ │ 6
+  │ ● │ 7
+  ⊗─╯ │ customID merge nice_feature
+  │   │ (tag: customTag)
+  │   ● 8
+  ● 9
+```
+
+- `gitGraph`, `gitGraph:`, `gitGraph LR:` and `gitGraph TB:` draw top down. `gitGraph BT:` draws
+  as its source.
+- Each branch is a lane `│`, 2 columns from the next lane. The `main` lane is at the left. The
+  branches with no `order:` come next, in the order of the source, and then the branches with
+  `order:`, by their number.
+- A branch starts on a row with its name, such as `├─╮ develop`, from the head of the branch that
+  was checked out. A branch with no commit to start from starts with `╷`.
+- A commit draws `●`. `type: REVERSE` draws `⊗`, `type: HIGHLIGHT` draws `▮`, and a merge draws
+  `◉`. The id and the message of a commit stand after the lanes, and its tags follow in bold, such
+  as `(tag: v1.0.0)`. A commit with no id shows no id. The view does not make up the random id
+  that Mermaid shows.
+- A merge draws a join from the head of the merged branch, such as `◉─╯`, and the words
+  `merge develop` in italic. A join that passes a lane draws the lane through, as `├─│─╮`.
+- `cherry-pick id: "A"` draws a commit with the words `cherry-pick of A` in italic. As in Mermaid,
+  no line joins it to commit `A`.
+- On the terminal, each lane and its commits take the colours `suggestion`, `planMode` and
+  `merged` in turn, in the order of the lanes. A branch name is bold in the colour of its lane.
+  The join of a new branch takes the colour of the new branch. The join of a merge takes the
+  colour of the merged branch. Ids, messages and tags are plain.
+- `title` draws its text in bold above the lanes. `accTitle` and `accDescr` draw nothing, as in
+  Mermaid.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- A label that does not fit wraps under its lanes. When the lanes and 10 columns of a label do not
+  fit, the graph draws as its source with the note `it takes 36 columns, the screen has 28.`
+  The note ends with the remedy.
+- A git graph that Mermaid refuses draws as its source. The note names the line and the reason,
+  such as `line 3: the branch dev does not exist.`, `line 4: the branch dev exists already.`,
+  `line 3: a branch cannot merge itself.`, `line 5: both branches have the same head.`,
+  `line 5: the branch main has no commits.`, `line 3: no commit has the id x.`,
+  `line 3: the commit a is on this branch.` or
+  `line 9: the merge commit m needs the id of a parent.`
+
+The syntax follows the [gitGraph page](https://mermaid.js.org/syntax/gitgraph.html) of Mermaid
+12.3.0.
+
 ## A prompt that you type
 
 A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
