@@ -1,4 +1,4 @@
-import { drawFlowchart } from './flowchart'
+import { drawFlowchart, type LayoutMeter } from './flowchart'
 import type { InkedDrawing } from './ink'
 import {
   AccessibilityLines,
@@ -14,7 +14,7 @@ import {
   type Statement,
 } from './mermaid'
 import { titledDrawing } from './outline'
-import { wrapCell } from './table'
+import { wrapWords } from './table'
 
 export const C4_VARIANTS = [
   'C4Context',
@@ -174,8 +174,7 @@ const INSIDE = ' in '
 const BOTH_WAYS = '⇄'
 const BOLDABLE = /^[^\s*](?:.*[^\s*])?$/
 const BOLD_MARK = '**'
-const WIDEST_WRAP = 32
-const NARROWER_WRAPS: readonly number[] = [24, 16]
+const DESCRIPTION_WRAP = 32
 
 function fault(reason: string): DiagramFault {
   return new DiagramFault({ kind: 'refused', reason, line: null, limit: null })
@@ -413,7 +412,7 @@ function nodeOf(element: C4Element, wrap: number): FlowNode {
   const names = textLines(element.label).filter((line) => line !== '')
   const description = textLines(element.descr)
     .filter((line) => line !== '')
-    .flatMap((line) => wrapCell(line, wrap))
+    .flatMap((line) => wrapWords(line, wrap))
   return {
     id: element.alias,
     shape: 'rounded',
@@ -465,7 +464,12 @@ function groupsOf(diagram: C4Diagram): FlowGroup[] {
   })
 }
 
-function drawnAt(diagram: C4Diagram, wrap: number, width: number): InkedDrawing | Refusal {
+function drawnAt(
+  diagram: C4Diagram,
+  wrap: number,
+  width: number,
+  meter: LayoutMeter,
+): InkedDrawing | Refusal {
   const isNumbered = diagram.variant === 'C4Dynamic'
   const groups = groupsOf(diagram)
   return drawFlowchart(
@@ -477,16 +481,15 @@ function drawnAt(diagram: C4Diagram, wrap: number, width: number): InkedDrawing 
       ...(groups.length === 0 ? {} : { groups }),
     },
     width,
-    { steps: 0 },
+    meter,
     'wrapped',
   )
 }
 
-export function drawC4(diagram: C4Diagram, width: number): InkedDrawing | Refusal {
-  let drawn = drawnAt(diagram, WIDEST_WRAP, width)
-  for (const wrap of NARROWER_WRAPS) {
-    if (drawn.kind === 'drawing') break
-    drawn = drawnAt(diagram, wrap, width)
-  }
-  return titledDrawing(diagram.title, drawn, width)
+export function drawC4(
+  diagram: C4Diagram,
+  width: number,
+  meter: LayoutMeter = { steps: 0 },
+): InkedDrawing | Refusal {
+  return titledDrawing(diagram.title, drawnAt(diagram, DESCRIPTION_WRAP, width, meter), width)
 }

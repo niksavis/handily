@@ -432,8 +432,11 @@ dim title line and two buttons at the right edge. The drawing replaces the sourc
   `✓ Copied the flowchart drawing`.
 - The view draws `flowchart` and `graph` with the directions `TD`, `TB` and `LR`. A flowchart `LR`
   that is too wide for the screen draws top down.
-- When the labels of the boxes must fit, they wrap at 16 columns, then at 12 columns, between
-  words. Only a word longer than the box can hold is cut with `…`.
+- When the labels of the boxes must fit, they wrap at spaces at 16 columns, then at 12 columns. A
+  longer word stays whole, and its box widens. Only when the drawing still does not fit, a long
+  word breaks inside, at the room that its level leaves for each box. A box alone in its level
+  keeps the word whole. A label never loses a character, and text with no spaces, such as Chinese,
+  breaks between characters.
 - When the title line and the buttons do not fit on one line, the buttons stand on a line of
   their own under the title line.
   When the two buttons do not fit on one line, each button stands on its own line.
@@ -1438,9 +1441,9 @@ draws as:
   technology after a colon, such as `[Container: TypeScript]`. Mermaid draws a database as a
   cylinder, a queue as a pipe and an external element in grey. The terminal says it in words:
   `[Database Container: Postgres]`, `[Queue Component]` and `[External Software System]`.
-- A description wraps at 32 columns, or at 24 or 16 columns when the drawing does not fit. The
-  layout of a flowchart can wrap the names and the kinds further on a narrow screen, between
-  words. Only a word longer than the box can hold is cut with `…`.
+- A description wraps at spaces at 32 columns, and a longer word stays whole. The layout of a
+  flowchart can wrap the names, the kinds and the descriptions further on a narrow screen, by the
+  rules of a flowchart label, so no character is lost.
 - A boundary draws as a frame with its name and its type, such as `Shop [CONTAINER]`. `Boundary`
   has the type `system` and `Deployment_Node` the type `node`, unless the source names another
   type, as in Mermaid. The frames do not nest. A boundary inside a boundary draws as its own frame,
@@ -1467,7 +1470,8 @@ draws as:
   fits. The elements of one boundary stay together. An element with no relation moves to the level
   of its boundary, and a boundary with no relation stands under the rest. The levels of the
   relations keep their order. When that is still too wide, the label of a relation wraps at 8
-  columns instead of being cut.
+  columns instead of being cut. Every layout that keeps the words whole comes before one that
+  breaks a word.
 - So the five examples of the Mermaid page draw at 80 columns. A diagram that is still too wide
   for the screen draws as the source under the width note.
 - A frame title takes the room on the top edge of its own frame, as in a flowchart. So the

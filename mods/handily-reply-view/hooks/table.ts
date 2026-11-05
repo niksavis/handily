@@ -228,12 +228,16 @@ function piecesOf(word: string, width: number): string[] {
   return [...pieces, rest]
 }
 
-export function wrapCell(text: string, width: number): string[] {
+function wrappedWith(
+  text: string,
+  width: number,
+  piecesOfWord: (word: string) => string[],
+): string[] {
   if (displayWidth(text) <= width) return [text]
   const lines: string[] = []
   let line = ''
   for (const word of text.split(' ').filter((part) => part !== '')) {
-    for (const piece of piecesOf(word, width)) {
+    for (const piece of piecesOfWord(word)) {
       const joined = line === '' ? piece : `${line} ${piece}`
       if (line === '' || displayWidth(joined) <= width) {
         line = joined
@@ -244,6 +248,16 @@ export function wrapCell(text: string, width: number): string[] {
     }
   }
   return [...lines, line]
+}
+
+export function wrapCell(text: string, width: number): string[] {
+  return wrapWords(text, width, width)
+}
+
+export function wrapWords(text: string, width: number, longest = Infinity): string[] {
+  return wrappedWith(text, width, (word) =>
+    displayWidth(word) > longest ? piecesOf(word, longest) : [word],
+  )
 }
 
 function aligned(text: string, width: number, alignment: Alignment): string {

@@ -20,7 +20,7 @@ import {
 } from './fixtures/diagram-view'
 import { C4_DOCS_EXAMPLES } from './fixtures/c4-examples'
 import { diagramOf } from './hooks/draw'
-import { wordWrapped } from './hooks/flowchart'
+import { wrappedLabel } from './hooks/flowchart'
 import { plainLabel } from './hooks/ink'
 import { parseMermaid } from './hooks/mermaid'
 
@@ -360,12 +360,46 @@ describe('a mermaid C4 diagram', () => {
     ])
   })
 
-  test('a label wraps at word boundaries, and only a word longer than the box is cut with …', () => {
-    expect(
-      wordWrapped(plainLabel('Provides functionality to customers via their browser'), 12).map(
-        (line) => line.text,
-      ),
-    ).toEqual(['Provides', 'functionali…', 'to customers', 'via their', 'browser'])
+  test('a label wraps at spaces and keeps a long word whole, and only the last resort breaks it inside, keeping every character', () => {
+    const label = plainLabel('Provides functionality to customers')
+    expect(wrappedLabel(label, 12).map((line) => line.text)).toEqual([
+      'Provides',
+      'functionality',
+      'to customers',
+    ])
+    expect(wrappedLabel(label, 12, 12).map((line) => line.text)).toEqual([
+      'Provides',
+      'functionalit',
+      'y to',
+      'customers',
+    ])
+  })
+
+  test('the Context and Component examples at 80 columns keep each word of their descriptions whole', () => {
+    expect(drawnLines(C4_DOCS_EXAMPLES.C4Context ?? '').join('\n')).toContain('transactions,')
+    expect(drawnLines(C4_DOCS_EXAMPLES.C4Component ?? '').join('\n')).toContain('functionality')
+  })
+
+  test('a description wraps only at spaces, so a long hyphenated word stays whole at 80 columns', () => {
+    const source = lines(
+      'C4Container',
+      '  Container(gate, "Gateway", "Go", "Checks authentication-and-authorization-requests for every call")',
+      '  ContainerDb(db, "Users", "Postgres")',
+      '  Rel(gate, db, "Reads")',
+    )
+    expect(drawnLines(source)).toContain('│ authentication-and-authorization-requests │')
+    expect(drawnLines(source, 28).join('').replace(/[│ ]/g, '')).toContain(
+      'authentication-and-authorization-requests',
+    )
+  })
+
+  test('the Context example refuses at 38 columns in under 500 ms', () => {
+    const source = C4_DOCS_EXAMPLES.C4Context ?? ''
+    const start = performance.now()
+    const outcome = diagramOf(source, 38, 'terminal')
+    const took = performance.now() - start
+    expect(outcome.kind).toBe('refused')
+    expect(took).toBeLessThan(500)
   })
 
   test('no word of the Component example breaks across two lines at 80 columns', () => {

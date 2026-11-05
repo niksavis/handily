@@ -1310,9 +1310,10 @@ Diagrams:
   order. One dim note above the source names the reason.
 - A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
   tall diagram.
-- A flowchart `LR` that is too wide draws as `TD`. A box label that is too wide wraps at 16
-  columns, then at 12 columns, between words, and only a longer word is cut with `…`. An edge
-  label is cut to 12 columns.
+- A flowchart `LR` that is too wide draws as `TD`. A box label that is too wide wraps at spaces at
+  16 columns, then at 12 columns, and a longer word stays whole. Only when that does not fit, a
+  word breaks inside at the room of its level, keeping every character. An edge label is cut to
+  12 columns.
 - A C4 diagram that is too wide moves the elements of a wide level onto more rows, keeping each
   boundary together, and then wraps its edge labels at 8 columns (handily-2dpxv0.8). A flowchart
   keeps one row per level.
