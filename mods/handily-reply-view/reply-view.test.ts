@@ -3293,7 +3293,15 @@ const MOCK_9_7_ALT_DRAWING = [
   '┄┄ end ┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄',
 ]
 
-const MOCK_9_7_TOO_WIDE_COLUMNS = 50
+const MOCK_9_7_ROOMY_COLUMNS = 50
+const MOCK_9_7_NARROWEST_COLUMNS = 36
+
+const MOCK_9_9_WIDE_SOURCE = linesOf(
+  'sequenceDiagram',
+  '  You->>Claude: prompt',
+  '  Claude->>reply-view: reply text',
+  '  reply-view->>the-terminal-renderer: drawn lines',
+)
 const SEQUENCE_STEP_BUDGET = 4000
 
 function drawnSequence(source: string, width: number): string[] {
@@ -3324,7 +3332,7 @@ describe('sequence drawings', () => {
     expect(drawnSequence(MOCK_9_7_ALT_SOURCE, REPLY_COLUMNS)).toEqual(MOCK_9_7_ALT_DRAWING)
   })
 
-  test('labels wrap to fit the width in at most 3 lines, and a drawing still too wide names its width', () => {
+  test('labels wrap to fit the width in at most 3 lines, the gaps narrow below the roomy width, and a drawing still too wide names its width', () => {
     expect(drawnSequence(MOCK_9_7_SOURCE, 53).slice(9, 15)).toEqual([
       '   │                │                   │──┐ cache by',
       '   │                │                   │◀─┘ width',
@@ -3333,7 +3341,7 @@ describe('sequence drawings', () => {
       '   │                │            │ per width   │',
       '   │                │            └──────┬──────┘',
     ])
-    expect(drawnSequence(MOCK_9_7_SOURCE, MOCK_9_7_TOO_WIDE_COLUMNS)).toEqual([
+    expect(drawnSequence(MOCK_9_7_SOURCE, MOCK_9_7_ROOMY_COLUMNS)).toEqual([
       '╭─────╮        ╭────────╮        ╭────────────╮',
       '│ You │        │ Claude │        │ reply-view │',
       '╰──┬──╯        ╰────┬───╯        ╰──────┬─────╯',
@@ -3357,9 +3365,16 @@ describe('sequence drawings', () => {
       '│ You │        │ Claude │        │ reply-view │',
       '╰─────╯        ╰────────╯        ╰────────────╯',
     ])
-    expect(drawSequence(sequenceOf(MOCK_9_7_SOURCE), MOCK_9_7_TOO_WIDE_COLUMNS - 1)).toEqual(
+    expect(drawnSequence(MOCK_9_7_SOURCE, MOCK_9_7_NARROWEST_COLUMNS).slice(0, 5)).toEqual([
+      '╭─────╮ ╭────────╮ ╭────────────╮',
+      '│ You │ │ Claude │ │ reply-view │',
+      '╰──┬──╯ ╰────┬───╯ ╰──────┬─────╯',
+      '   │ prompt  │            │',
+      '   │────────▶│            │',
+    ])
+    expect(drawSequence(sequenceOf(MOCK_9_7_SOURCE), MOCK_9_7_NARROWEST_COLUMNS - 1)).toEqual(
       notDrawn(
-        `it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 49. Widen the window or shorten the labels`,
+        `it takes ${String(MOCK_9_7_NARROWEST_COLUMNS)} columns, the screen has 35. Widen the window or shorten the labels`,
       ),
     )
   })
@@ -3615,7 +3630,7 @@ describe('sequence drawings', () => {
     [
       12,
       REPLY_COLUMNS,
-      'it takes 387 columns, the screen has 78. Widen the window or shorten the labels',
+      'it takes 355 columns, the screen has 78. Widen the window or shorten the labels',
     ],
     [2, 60, '246 rows, at most 120 draw'],
   ] as const) {
@@ -4162,16 +4177,16 @@ describe('diagram blocks', () => {
     async (_world, $) => {
       const ui = await mountReply(
         $,
-        reply(mermaidReply('The reply takes three steps:', MOCK_9_7_SOURCE)),
+        reply(mermaidReply('The reply takes three steps:', MOCK_9_9_WIDE_SOURCE)),
         'terminal',
         40,
       )
       expect(await sketchOf(ui, 40)).toEqual([
         '● The reply takes three steps:',
         '',
-        `  ~diagram not drawn: it takes ${String(MOCK_9_7_TOO_WIDE_COLUMNS)} columns, the screen has 38. Widen the window or shorten the labels.~`,
+        '  ~diagram not drawn: it takes 59 columns, the screen has 38. Widen the window or shorten the labels.~',
         '  ~── mermaid ─────────────────~  [ copy ]',
-        ...MOCK_9_7_SOURCE.split('\n').map((line) => `  ${line}`),
+        ...MOCK_9_9_WIDE_SOURCE.split('\n').map((line) => `  ${line}`),
       ])
       expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
       await ui.unmount()

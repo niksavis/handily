@@ -469,3 +469,112 @@ describe('a point with several entries', () => {
     expect([...new Set(pointInks)]).toEqual(['head'])
   })
 })
+
+const ORDERS = lines(
+  'sequenceDiagram',
+  '    Browser->>API: POST /orders',
+  '    API->>DB: insert order',
+  '    DB-->>API: id 42',
+  '    API-->>Browser: 201 Created',
+)
+
+const CHECKED_ORDERS = lines(
+  'sequenceDiagram',
+  '    Browser->>API: POST /orders',
+  '    API->>Auth: check token',
+  '    Auth-->>API: ok',
+  '    API->>DB: insert order',
+  '    DB-->>API: id 42',
+  '    API-->>Browser: 201 Created',
+)
+
+const ORDER_WORDS = [
+  'Browser',
+  'API',
+  'DB',
+  'POST',
+  '/orders',
+  'insert',
+  'order',
+  'id',
+  '42',
+  '201',
+  'Created',
+]
+
+const CHECKED_WORDS = [...ORDER_WORDS, 'Auth', 'check', 'token', 'ok']
+
+function missingWords(rows: readonly string[], words: readonly string[]): string[] {
+  const tokens = new Set(rows.flatMap((row) => row.split(/\s+/)))
+  return words.filter((word) => !tokens.has(word))
+}
+
+describe('a narrow sequence diagram', () => {
+  for (const surface of SURFACES) {
+    for (const [name, source, words, columns] of [
+      ['three participants', ORDERS, ORDER_WORDS, 30],
+      ['four participants', CHECKED_ORDERS, CHECKED_WORDS, 40],
+    ] as const) {
+      viewTest(
+        `a sequence diagram of ${name} draws at ${String(columns)} columns on ${surface} with whole words and every line within the body`,
+        async (_world, $) => {
+          const ui = await mountDiagram($, source, surface, columns)
+          expect(await ui.find({ type: 'Text', text: /^diagram not drawn:/ })).toBeUndefined()
+          const rows = (await drawnRows(ui, surface)).map(rowText)
+          expect(rows.length).toBeGreaterThan(0)
+          expect(rows.filter((row) => displayWidth(row) > bodyWidth(surface, columns))).toEqual([])
+          expect(missingWords(rows, words)).toEqual([])
+          await ui.unmount()
+        },
+      )
+    }
+  }
+
+  test('the orders at 80 columns draw as before, with the roomy gaps and whole labels', () => {
+    expect(sequenceLines(ORDERS).map((row) => row.trimEnd())).toEqual([
+      '╭─────────╮        ╭─────╮          ╭────╮',
+      '│ Browser │        │ API │          │ DB │',
+      '╰────┬────╯        ╰──┬──╯          ╰──┬─╯',
+      '     │ POST /orders   │                │',
+      '     │───────────────▶│                │',
+      '     │                │ insert order   │',
+      '     │                │───────────────▶│',
+      '     │                │     id 42      │',
+      '     │                │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│',
+      '     │  201 Created   │                │',
+      '     │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│                │',
+    ])
+  })
+
+  test('the orders at 30 columns on terminal wrap each label at its spaces between closer boxes', () => {
+    const drawn = drawSequence(sequenceOf(ORDERS), bodyWidth('terminal', 30))
+    expect(drawn.kind === 'drawing' ? drawn.lines.map((row) => row.trimEnd()) : drawn).toEqual([
+      '╭─────────╮  ╭─────╮  ╭────╮',
+      '│ Browser │  │ API │  │ DB │',
+      '╰────┬────╯  ╰──┬──╯  ╰──┬─╯',
+      '     │ POST     │        │',
+      '     │ /orders  │        │',
+      '     │─────────▶│        │',
+      '     │          │ insert │',
+      '     │          │ order  │',
+      '     │          │───────▶│',
+      '     │          │ id 42  │',
+      '     │          │◀╌╌╌╌╌╌╌│',
+      '     │ 201      │        │',
+      '     │ Created  │        │',
+      '     │◀╌╌╌╌╌╌╌╌╌│        │',
+      '╭────┴────╮  ╭──┴──╮  ╭──┴─╮',
+      '│ Browser │  │ API │  │ DB │',
+      '╰─────────╯  ╰─────╯  ╰────╯',
+    ])
+  })
+
+  test('the orders too narrow even with every label at its longest word name their narrowest width', () => {
+    expect(drawSequence(sequenceOf(ORDERS), 20)).toEqual({
+      kind: 'refused',
+      reason: `it takes 27 columns, the screen has 20. ${REMEDY.slice(0, -1)}`,
+      line: null,
+      limit: null,
+    })
+  })
+})

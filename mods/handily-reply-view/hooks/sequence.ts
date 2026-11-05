@@ -36,7 +36,7 @@ import type {
   SequenceEvent,
   Stroke,
 } from './mermaid'
-import { wrapCell } from './table'
+import { wrapWords } from './table'
 import { displayWidth, graphemesOf } from './width'
 
 export type SequenceDrawing = InkedDrawing
@@ -44,8 +44,12 @@ export type SequenceDrawing = InkedDrawing
 type Side = 'right' | 'left'
 
 const BOX_GAP = 8
+const LEAST_BOX_GAP = 1
 const BOX_PADDING = 4
 const LABEL_ROOM = 5
+const TIGHT_LABEL_ROOM = 3
+const LABEL_INDENT = 2
+const LEAST_WRAP = 1
 const CLEARANCE = 2
 const SPAN_NOTE_MARGIN = 2
 const SIDE_NOTE_GAP = 2
@@ -85,6 +89,10 @@ type Step =
   { kind: 'event'; at: number; event: SequenceEvent } | { kind: 'row'; depth: number; text: Label }
 
 type Reach = { low: number; high: number; left: number; right: number }
+
+type Spacing = { boxGap: number; labelRoom: number }
+
+const ROOMY: Spacing = { boxGap: BOX_GAP, labelRoom: LABEL_ROOM }
 
 type Layout = {
   lifelines: number[]
@@ -222,7 +230,7 @@ class Labels {
     if (known !== undefined) return known
     tick(this.meter)
     const lines = (this.texts[index] ?? []).flatMap((line) =>
-      relabelled(line, wrapCell(line.text, width)),
+      relabelled(line, wrapWords(line.text, width)),
     )
     wraps?.set(width, lines)
     return lines
@@ -346,12 +354,15 @@ function stepHeight(step: Step, label: Label[], places: number[]): number {
   return label.length + 1
 }
 
-function layoutOf(parts: Parts, wrap: number | null): Layout {
+function layoutOf(parts: Parts, wrap: number | null, spacing: Spacing): Layout {
   const { diagram, places, boxes, steps, meter } = parts
   const labels = diagram.events.map((_, at) => parts.labels.at(at, wrap))
   const need = boxes
     .slice(1)
-    .map((box, at) => BOX_GAP + Math.ceil((boxes[at]?.width ?? 0) / 2) + Math.floor(box.width / 2))
+    .map(
+      (box, at) =>
+        spacing.boxGap + Math.ceil((boxes[at]?.width ?? 0) / 2) + Math.floor(box.width / 2),
+    )
   const atLeast = (gap: number, columns: number) => {
     if (gap >= 0 && gap < need.length) need[gap] = Math.max(need[gap] ?? 0, columns)
   }
@@ -362,7 +373,7 @@ function layoutOf(parts: Parts, wrap: number | null): Layout {
     const place = places[at] ?? []
     const reach = reachOf(event, place, label)
     if (reach === null) {
-      atLeast(Math.min(...place), widestLabel(label) + LABEL_ROOM)
+      atLeast(Math.min(...place), widestLabel(label) + spacing.labelRoom)
       return
     }
     reaches.push(reach)
@@ -474,7 +485,8 @@ function drawMessage(
   const high = Math.max(from, to)
   const start = layout.lifelines[low] ?? 0
   const end = layout.lifelines[high] ?? 0
-  const column = Math.floor((start + (layout.lifelines[low + 1] ?? end) - widestLabel(label)) / 2)
+  const centred = Math.floor((start + (layout.lifelines[low + 1] ?? end) - widestLabel(label)) / 2)
+  const column = Math.max(centred, start + LABEL_INDENT)
   label.forEach((line, index) => {
     grid.putLabel(top + index, column, line, 'plain')
   })
@@ -556,16 +568,18 @@ function partsOf(diagram: SequenceDiagram, width: number, meter: LayoutMeter): P
   }
 }
 
-function fittedLayout(parts: Parts, width: number): Layout | number {
-  const plain = layoutOf(parts, null)
-  if (columnsOf(plain) <= width) return plain
+function tight(boxGap: number): Spacing {
+  return { boxGap, labelRoom: TIGHT_LABEL_ROOM }
+}
+
+function wrappedLayout(parts: Parts, width: number, spacing: Spacing): Layout | number {
   let fitting: Layout | null = null
   let fits = 0
   let wide = parts.labels.widest + 1
-  let narrowest = columnsOf(plain)
+  let narrowest = Infinity
   while (wide - fits > 1) {
     const middle = Math.floor((fits + wide) / 2)
-    const layout = layoutOf(parts, middle)
+    const layout = layoutOf(parts, middle, spacing)
     narrowest = Math.min(narrowest, columnsOf(layout))
     if (columnsOf(layout) <= width) {
       fitting = layout
@@ -573,6 +587,29 @@ function fittedLayout(parts: Parts, width: number): Layout | number {
     } else wide = middle
   }
   return fitting ?? narrowest
+}
+
+function widestBoxGap(parts: Parts, width: number): number {
+  let fits = LEAST_BOX_GAP
+  let wide = BOX_GAP + 1
+  while (wide - fits > 1) {
+    const middle = Math.floor((fits + wide) / 2)
+    if (columnsOf(layoutOf(parts, LEAST_WRAP, tight(middle))) <= width) fits = middle
+    else wide = middle
+  }
+  return fits
+}
+
+function fittedLayout(parts: Parts, width: number): Layout | number {
+  const plain = layoutOf(parts, null, ROOMY)
+  if (columnsOf(plain) <= width) return plain
+  const roomy = wrappedLayout(parts, width, ROOMY)
+  if (typeof roomy !== 'number') return roomy
+  const tightest = layoutOf(parts, LEAST_WRAP, tight(LEAST_BOX_GAP))
+  if (columnsOf(tightest) > width) return Math.min(roomy, columnsOf(plain), columnsOf(tightest))
+  const spacing = tight(widestBoxGap(parts, width))
+  const wrapped = wrappedLayout(parts, width, spacing)
+  return typeof wrapped === 'number' ? layoutOf(parts, LEAST_WRAP, spacing) : wrapped
 }
 
 export function drawSequence(

@@ -744,9 +744,9 @@ A `sequenceDiagram` draws under the title line `── mermaid · sequence ─�
 
 - Each participant and actor gets a box and a lifeline `│`, in the order of its first mention.
   When the lifelines are longer than 10 rows, the boxes draw again under the last row, in the same
-  colours. These 3 rows count in the limit of 120 drawn rows. The boxes keep at least 8 columns
-  between them. The columns between two lifelines hold the
-  widest label between them plus 4.
+  colours. These 3 rows count in the limit of 120 drawn rows. When the screen has room, the boxes
+  keep at least 8 columns between them, and the columns between two lifelines hold the widest
+  label between them plus 4.
 - A message takes one row for its label and one row for its arrow. The label stands between the
   two lifelines at the left end of the arrow. `->>` draws a solid arrow `─▶`, and `-->>` draws a
   dashed arrow `╌▶`. `-x` ends in `×`, `-)` ends in `▷`, and `->` has no head. An arrow that
@@ -760,8 +760,34 @@ A `sequenceDiagram` draws under the title line `── mermaid · sequence ─�
   across the lifelines, such as `┄┄ alt: hit ┄┄`, and `end` draws as `┄┄ end ┄┄`. A block inside
   a block draws its rows 2 columns in from each side. A block label too wide for the screen is
   cut with `…`.
-- When the drawing is too wide, the labels of the messages and the notes wrap, each in at most 3
-  lines. The name of a participant does not wrap.
+- When the drawing is too wide, the labels of the messages and the notes wrap at spaces, each in
+  at most 3 lines. A word never breaks, and the name of a participant does not wrap.
+- When the drawing is still too wide, the boxes move closer, down to 1 column between them. Then
+  the columns between two lifelines hold the widest label between them plus 2. At 30 columns on
+  the terminal, the orders of a shop draw so:
+
+  ```text
+  ╭─────────╮  ╭─────╮  ╭────╮
+  │ Browser │  │ API │  │ DB │
+  ╰────┬────╯  ╰──┬──╯  ╰──┬─╯
+       │ POST     │        │
+       │ /orders  │        │
+       │─────────▶│        │
+       │          │ insert │
+       │          │ order  │
+       │          │───────▶│
+       │          │ id 42  │
+       │          │◀╌╌╌╌╌╌╌│
+       │ 201      │        │
+       │ Created  │        │
+       │◀╌╌╌╌╌╌╌╌╌│        │
+  ╭────┴────╮  ╭──┴──╮  ╭──┴─╮
+  │ Browser │  │ API │  │ DB │
+  ╰─────────╯  ╰─────╯  ╰────╯
+  ```
+
+- A diagram that does not fit with the closest boxes and the narrowest labels draws as its source
+  under the width note.
 
 ## A state diagram
 
