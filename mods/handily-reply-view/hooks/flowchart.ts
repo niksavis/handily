@@ -51,8 +51,8 @@ const FRAME_INSETS: Readonly<Record<FlowDirection, number>> = { TD: 2, LR: 1 }
 const FRAME_GAPS: Readonly<Record<FlowDirection, number>> = { TD: 1, LR: 0 }
 const FRAME_ACROSS = '┄'
 const FRAME_DOWN = '┆'
-const DECISION_MARK = '◇ '
-const DECISION_INDENT = '  '
+export const DECISION_MARK = '◇ '
+export const DECISION_INDENT = '  '
 const CONTROL = /\p{Cc}/gu
 const BIDI_CONTROL = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g
 
@@ -88,17 +88,17 @@ const DASHED_HORIZONTAL = '╌'
 
 type Corners = readonly [string, string, string, string]
 
-const SQUARE_CORNERS: Corners = ['┌', '┐', '└', '┘']
+export const SQUARE_CORNERS: Corners = ['┌', '┐', '└', '┘']
 export const ROUNDED_CORNERS: Corners = ['╭', '╮', '╰', '╯']
 const TOO_WIDE_REMEDY = 'Widen the window or shorten the labels'
 const BORDER_ACROSS = '─'
 const BORDER_DOWN = '│'
 const PORT_BELOW = '┬'
 const PORT_ABOVE = '┴'
-const ARROW_DOWN = '▼'
-const ARROW_RIGHT = '▶'
-const ARROW_LEFT = '◀'
-const ARROW_UP = '▲'
+export const ARROW_DOWN = '▼'
+export const ARROW_RIGHT = '▶'
+export const ARROW_LEFT = '◀'
+export const ARROW_UP = '▲'
 
 type Attempt = {
   direction: FlowDirection
@@ -185,10 +185,12 @@ function refusal(reason: string): Refusal {
   return { kind: 'refused', reason, line: null, limit: null }
 }
 
+export function widthClause(columns: number, width: number): string {
+  return `it takes ${String(columns)} columns, the screen has ${String(width)}`
+}
+
 export function tooWide(columns: number, width: number): Refusal {
-  return refusal(
-    `it takes ${String(columns)} columns, the screen has ${String(width)}. ${TOO_WIDE_REMEDY}`,
-  )
+  return refusal(`${widthClause(columns, width)}. ${TOO_WIDE_REMEDY}`)
 }
 
 export function tick(meter: LayoutMeter, steps = 1): void {

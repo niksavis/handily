@@ -9,11 +9,11 @@ of a reply draw in their own colours, and inline code draws in the code colour o
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram, state
 diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey, quadrant chart,
-kanban, packet diagram, sankey diagram, radar diagram or treemap draws as a diagram, with a `copy`
-button for its source and a `copy drawing` button for the drawing. Each prompt that you type opens
-under a coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view
-off and on for the session. The model still reads the full reply and the prompt as you typed it.
-Only the screen changes.
+kanban, packet diagram, sankey diagram, radar diagram, treemap or block diagram draws as a
+diagram, with a `copy` button for its source and a `copy drawing` button for the drawing. Each
+prompt that you type opens under a coloured rule labelled `you`, so you find it when you scroll.
+`/replies` switches the view off and on for the session. The model still reads the full reply and
+the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -408,13 +408,54 @@ title line, as the buttons of a diagram do:
   2. Ask the person
 ```
 
+### A drawing wider than the reply
+
+A code block that holds a drawing keeps each line on one row when its widest line is wider than
+the reply. The row is cut at the right edge with `…`, and one dim note above the block names the
+width:
+
+```text
+● Here it is:
+
+  drawing cut: it takes 87 columns, the screen has 78. Widen the window to see
+  this drawing.
+  ── text ────────────────────────────────────────────────────────────  [ copy ]
+  ┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────…
+  │ Claude Code  │────▶│ handily-reply-   │────▶│ handily-board    │────▶│ git …
+  │ the engine   │     │ view draws       │     │ shows the tasks  │     │ enfo…
+  └──────────────┘     └──────────────────┘     └──────────────────┘     └─────…
+```
+
+- A block is cut as a drawing only when all of these are true:
+  1. It has no tag, or the tag `text`, `txt`, `plaintext`, `ascii` or `none`. A block with the tag
+     of a language, such as `python`, `sh` or `diff`, always wraps.
+  2. At least 2 of its lines are drawing lines.
+  3. Each line wider than the reply is a drawing line, or stands between two drawing lines.
+- A drawing line holds one of these:
+  - a box-drawing character, such as `┌`, `│` or `├──`;
+  - a rule between two `+`, such as `+---+` or `+-+`;
+  - a tree branch at the start of the line, such as `|--` or `` `-- ``, and then a space;
+  - an arrow of 2 or more dashes with a head, such as `-->` or `<---`;
+  - a `|` at the start and a `|` at the end.
+- A tree drawn with `/` and `\` only is not found, and wraps.
+- The view cuts a row and does not wrap it. A wrapped row starts again at the left edge, so the
+  boxes, the tree and the table lose their columns. Then the person cannot see where a line
+  ends, or whether the drawing is broken.
+- The view cuts a row and does not scroll it. A row of a reply cannot scroll sideways, because
+  a box has only the overflow `visible` and `hidden`.
+- A code block with no drawing, such as a long shell command, wraps as before and has no note. A
+  wrapped command shows each character, and a cut command hides its end.
+- A drawing that fits the reply draws as before, with no note.
+- `copy` copies the block as written, with the whole lines.
+- On the desktop app, the same rule applies, with the width of the reply there.
+
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
 diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
-user journey, a quadrant chart, a kanban, a packet diagram, a sankey diagram, a radar diagram or
-a treemap draws as a diagram. The diagram has a dim title line and two buttons at the right edge.
-The drawing replaces the source:
+user journey, a quadrant chart, a kanban, a packet diagram, a sankey diagram, a radar diagram, a
+treemap or a block diagram draws as a diagram. The diagram has a dim title line and two buttons at
+the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -636,25 +677,27 @@ structure reads better as a diagram. You do not see the hint. Claude reads it af
 `/replies hints` turns the hints on or off for this session, and keeps the choice in the `hints`
 key of `$.state`.
 
-The hint names each kind of diagram that the view draws, by the keyword that starts its block.
-The names come from the list `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts`. A test fails when the
-hint names a kind that does not draw, or leaves out a kind that draws.
+The hint names each Mermaid kind that the view does not draw, by the keyword that starts its
+block, and says that every other kind draws. The list is `MERMAID_KINDS` less
+`DRAWN_DIAGRAM_KINDS`, both in `hooks/mermaid.ts`, so the hint gets shorter as more kinds draw.
+While no C4 kind draws, the hint names the C4 family once as `C4`. A test fails when the hint
+names a kind that draws, or leaves out a kind that does not draw.
 
 The hint costs about 230 tokens for each prompt that you type. This count was measured on
-2026-11-05 with Claude Code 2.1.318 and the model `claude-opus-5-5`. Two `claude -p` runs of the
-same prompt differ only in a mod that adds the hint as the context of the prompt. The run with the
-hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
-costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
-`cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The count of 229 tokens is for the
-hint of 516 characters. The hint text now has 534 characters, and its count is not measured yet.
-A test fails when the hint grows past 540 characters, which keeps it under 250 tokens. When the
-hint text changes, measure again and record the new count and its date here.
+2026-11-05 with Claude Code 2.1.318 and the model `claude-opus-5-5`, for the hint of 517
+characters. Two `claude -p` runs of the same prompt differ only in a mod that adds the hint as the
+context of the prompt. The run without the hint used 22445 input tokens three times. The run with
+the hint used 22678 input tokens twice and 22988 once, so the hint costs 233 tokens. Input tokens
+are the sum of `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens` in the
+`usage` of `--output-format json`. The same method measured the hint of 516 characters that
+listed the drawn kinds at 229 tokens. A test fails when the hint grows past 540 characters, which
+keeps it under 250 tokens. When the hint text changes, measure again and record the new count and
+its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey, quadrantChart, kanban, packet, sankey, radar-beta, treemap-beta. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. Each Mermaid kind draws except requirementDiagram, C4, zenuml, architecture-beta, cynefin-beta, eventmodeling, ishikawa-beta, swimlane-beta, treeView-beta, usecase-beta, venn-beta, wardley-beta. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1732,6 +1775,68 @@ area of that share.
 
 The syntax follows the [treemap page](https://mermaid.js.org/syntax/treemap.html) of Mermaid
 12.3.0.
+
+## A block diagram
+
+A `block` or `block-beta` draws its blocks in a grid of `columns`, under the title line
+`── mermaid · block ──`:
+
+```text
+● The system:
+
+  ── mermaid · block ────────────────────────────────  [ copy ] [ copy drawing ]
+  ╭──────────╮                ╭──────────╮
+  │ Frontend │  ───────────▶  │ Backend  │
+  ╰──────────╯                ╰──────────╯
+
+                                   ▼
+
+  ╭──────────╮                ╭──────────╮
+  │   Disk   │  ◀───────────  │ Database │
+  ╰──────────╯                ╰──────────╯
+```
+
+The source of that drawing is the architecture example of the Mermaid page:
+
+```text
+block-beta
+  columns 3
+  Frontend blockArrowId6<[" "]>(right) Backend
+  space:2 down<[" "]>(down)
+  Disk left<[" "]>(left) Database[("Database")]
+```
+
+- `columns 3` puts 3 columns in a row, and the next block starts a new row. With no `columns`,
+  all blocks of a group stand in one row. All columns of a group have one width, from the widest
+  block. `a:2` spans 2 columns, and `space` or `space:2` leaves 1 or 2 columns
+  empty.
+- `block:ID` or `block` up to `end` draws a group as a frame with a dotted border around its
+  blocks. A group has its own `columns`, and `block:ID:2` spans 2 columns. A group with no block
+  draws as the source (`group G has no blocks.`).
+- Every box has rounded corners, as in a flowchart. A rhombus `{…}` keeps square corners and the
+  mark `◇`. A block arrow such as `<["Yes"]>(right)` draws as an arrow across its cell, with its
+  label on the row next to it. `right`, `left`, `x`, `up`, `down` and `y` draw.
+- A link `A --> B` draws as a straight line between the two blocks, with its head at `B`. `---`
+  draws no head, and `-.->` draws a dashed line. `A-- "X" -->B` and `A -->|X| B` draw `X` on the
+  line. When `A` and `B` stand side by side, the gap between them grows to hold the label. A
+  label beside a vertical line stays inside the frame of its group.
+- `space` and `block` are keywords, and a link to `space` does not parse, as in Mermaid.
+- A block takes its place at its first mention, also when the first mention is in a link.
+- When the grid is wider than the screen, the columns get narrower, and a label wraps at its
+  spaces. Then the gaps get narrower. A word never splits.
+- `style`, `classDef` and `class` draw nothing. On the terminal, the boxes take the colours
+  `suggestion`, `planMode` and `merged` in turn. The arrow heads are in `claude`, and the lines
+  and the frames are in `inactive`.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a link that needs a bend
+  (`the link from A to B needs a bend.`), a link that crosses a block or another link
+  (`the link from A to C crosses B.`), a link label that does not fit, a block arrow with two
+  directions, also from a block arrow named twice, a span wider than its row
+  (`block a spans 4 columns, its row has 3.`), a group with no `end`, a diagram with no block
+  (`the block diagram has no blocks.`) and a screen that is too narrow
+  (`it takes 38 columns, the screen has 28. Widen the window or shorten the labels.`).
+
+The syntax follows the [block page](https://mermaid.js.org/syntax/block.html) of Mermaid 12.3.0.
 
 ## A prompt that you type
 

@@ -59,23 +59,34 @@ describe('the names of the drawn kinds', () => {
       'sankey diagram',
       'radar diagram',
       'treemap',
+      'block diagram',
     ])
   })
 })
 
 describe('the diagram hint', () => {
-  test('the hint names the kinds of the drawn list in its order and no other Mermaid kind', () => {
+  test('the hint names each Mermaid kind outside the drawn list, in the Mermaid order, and no drawn kind', () => {
     expect(DIAGRAM_HINT).toBe(diagramHint(DRAWN_DIAGRAM_KINDS))
-    expect(DIAGRAM_HINT).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}.`)
-    expect(hintKinds(DIAGRAM_HINT)).toEqual(DRAWN_DIAGRAM_KINDS)
+    expect(DIAGRAM_HINT).toMatch(/Each Mermaid kind draws( except [^.]+)?\./)
+    expect([...hintKinds(DIAGRAM_HINT)].sort()).toEqual([...DRAWN_DIAGRAM_KINDS].sort())
   })
 
-  test('a kind added to the drawn list joins the hint text', () => {
+  test('a kind added to the drawn list leaves the list of kinds that do not draw', () => {
     const grown = diagramHint([...DRAWN_DIAGRAM_KINDS, 'zenuml'])
     expect(grown).not.toBe(DIAGRAM_HINT)
     expect(hintKinds(DIAGRAM_HINT)).not.toContain('zenuml')
-    expect(hintKinds(grown)).toEqual([...DRAWN_DIAGRAM_KINDS, 'zenuml'])
-    expect(grown).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}, zenuml.`)
+    expect(hintKinds(grown)).toContain('zenuml')
+    expect(grown).not.toMatch(/except [^.]*zenuml/)
+  })
+
+  test('the hint names the C4 family once as C4 while none of its kinds draws', () => {
+    const withoutC4 = DRAWN_DIAGRAM_KINDS.filter((kind) => !kind.startsWith('C4'))
+    expect(diagramHint(withoutC4)).toMatch(/except [^.]*\bC4\b/)
+    expect(diagramHint(withoutC4)).not.toContain('C4Context')
+  })
+
+  test('the hint says that each Mermaid kind draws when no kind is left out', () => {
+    expect(diagramHint(MERMAID_KINDS)).toContain('Each Mermaid kind draws.')
   })
 
   test('each statement that the hint forbids is refused by the parser by its name', () => {

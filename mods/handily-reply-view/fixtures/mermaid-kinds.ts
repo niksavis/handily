@@ -1,44 +1,9 @@
 import { diagramOf } from '../hooks/draw'
+import { MERMAID_KINDS } from '../hooks/mermaid'
+
+export { MERMAID_KINDS }
 
 const SAMPLE_WIDTH = 78
-
-export const MERMAID_KINDS: readonly string[] = [
-  'flowchart',
-  'sequenceDiagram',
-  'classDiagram',
-  'stateDiagram-v2',
-  'erDiagram',
-  'journey',
-  'gantt',
-  'pie',
-  'quadrantChart',
-  'requirementDiagram',
-  'gitGraph',
-  'C4Context',
-  'C4Container',
-  'C4Component',
-  'C4Dynamic',
-  'C4Deployment',
-  'mindmap',
-  'timeline',
-  'zenuml',
-  'sankey',
-  'xychart',
-  'block',
-  'packet',
-  'kanban',
-  'architecture-beta',
-  'radar-beta',
-  'treemap-beta',
-  'cynefin-beta',
-  'eventmodeling',
-  'ishikawa-beta',
-  'swimlane-beta',
-  'treeView-beta',
-  'usecase-beta',
-  'venn-beta',
-  'wardley-beta',
-]
 
 export const KIND_SAMPLES: Readonly<Record<string, string>> = {
   flowchart: 'flowchart TD\n  A --> B',
@@ -59,6 +24,7 @@ export const KIND_SAMPLES: Readonly<Record<string, string>> = {
   sankey: 'sankey\n  Solar,Grid,60\n  Grid,Homes,40',
   'radar-beta': 'radar-beta\n  axis a, b, c\n  curve x{1, 2, 3}',
   'treemap-beta': 'treemap-beta\n  "Parts"\n    "Left": 3\n    "Right": 1',
+  block: 'block\n  columns 3\n  a b c',
 }
 
 export function drawsSample(kind: string): boolean {
@@ -66,8 +32,13 @@ export function drawsSample(kind: string): boolean {
   return sample !== undefined && diagramOf(sample, SAMPLE_WIDTH, 'terminal').kind === 'drawing'
 }
 
-const HINT_KINDS = /These kinds draw: ([^.]+)\./
+const HINT_EXCEPTED = /Each Mermaid kind draws except ([^.]+)\./
 
 export function hintKinds(hint: string): string[] {
-  return HINT_KINDS.exec(hint)?.[1]?.split(', ') ?? []
+  const excepted = HINT_EXCEPTED.exec(hint)?.[1]
+    ?.split(', ')
+    .flatMap((kind) =>
+      kind === 'C4' ? MERMAID_KINDS.filter((known) => known.startsWith('C4')) : [kind],
+    )
+  return excepted === undefined ? [] : MERMAID_KINDS.filter((kind) => !excepted.includes(kind))
 }

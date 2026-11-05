@@ -1,3 +1,4 @@
+import { blockBuilder, type BlockBuilder, type BlockDiagram } from './block'
 import { chartBuilderOf, isChartKind, type Chart, type ChartBuilder } from './charts'
 import { ClassBuilder, type ClassDiagram } from './classes'
 import { EntityBuilder, type EntityDiagram } from './er'
@@ -25,6 +26,44 @@ export const DIAGRAM_LIMITS: Readonly<Record<LimitName, number>> = {
   events: 60,
 }
 
+export const MERMAID_KINDS: readonly string[] = [
+  'flowchart',
+  'sequenceDiagram',
+  'classDiagram',
+  'stateDiagram-v2',
+  'erDiagram',
+  'journey',
+  'gantt',
+  'pie',
+  'quadrantChart',
+  'requirementDiagram',
+  'gitGraph',
+  'C4Context',
+  'C4Container',
+  'C4Component',
+  'C4Dynamic',
+  'C4Deployment',
+  'mindmap',
+  'timeline',
+  'zenuml',
+  'sankey',
+  'xychart',
+  'block',
+  'packet',
+  'kanban',
+  'architecture-beta',
+  'radar-beta',
+  'treemap-beta',
+  'cynefin-beta',
+  'eventmodeling',
+  'ishikawa-beta',
+  'swimlane-beta',
+  'treeView-beta',
+  'usecase-beta',
+  'venn-beta',
+  'wardley-beta',
+]
+
 export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'flowchart',
   'sequenceDiagram',
@@ -44,6 +83,7 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'sankey',
   'radar-beta',
   'treemap-beta',
+  'block',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -63,6 +103,7 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   sankey: 'sankey diagram',
   radar: 'radar diagram',
   treemap: 'treemap',
+  block: 'block diagram',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -162,6 +203,7 @@ export type MermaidDiagram =
   | Sankey
   | Radar
   | Treemap
+  | BlockDiagram
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -261,7 +303,7 @@ const SHAPE_PATTERNS: readonly ShapePattern[] = SHAPE_SYNTAX.map(({ opening, clo
   shape,
 }))
 
-type LinkSyntax = { stroke: Stroke; arrow: boolean }
+export type LinkSyntax = { stroke: Stroke; arrow: boolean }
 
 const LINKS: Readonly<Record<string, LinkSyntax>> = {
   '-->': { stroke: 'solid', arrow: true },
@@ -344,7 +386,7 @@ export function refuseOverLimits(counts: readonly (readonly [LimitName, number])
   }
 }
 
-class Cursor {
+export class Cursor {
   private at = 0
 
   constructor(
@@ -515,7 +557,8 @@ class FlowchartBuilder {
     let linked = false
     while (!cursor.done) {
       linked = true
-      const link = this.link(cursor)
+      const link = takeLink(cursor)
+      if (link === null) throw doesNotParse(cursor.line)
       const targets = this.group(cursor)
       this.edgeCount += sources.length * targets.length
       if (this.edgeCount <= DIAGRAM_LIMITS.edges) {
@@ -570,56 +613,63 @@ class FlowchartBuilder {
   }
 
   private node(cursor: Cursor): string {
-    const id = cursor.take(NODE_ID)?.[0]
-    if (id === undefined || id === RESERVED_NODE_ID) throw doesNotParse(cursor.line)
+    const id = takeNodeId(cursor)
     const properties = cursor.take(NODE_PROPERTIES)?.[0]
     if (properties !== undefined) {
       throw IMAGE_PROPERTY.test(properties)
         ? notDrawnYet(cursor.line, 'icons')
         : doesNotParse(cursor.line)
     }
-    const shaped = this.shape(cursor)
+    const shaped = takeShape(cursor)
     if (shaped !== null) this.nodes.set(id, { id, ...shaped })
     else if (!this.nodes.has(id)) this.nodes.set(id, { id, shape: 'box', label: [id] })
     cursor.take(NODE_CLASS)
     return id
   }
+}
 
-  private shape(cursor: Cursor): { shape: FlowShape; label: string[] } | null {
-    for (const { pattern, shape } of SHAPE_PATTERNS) {
-      const found = cursor.take(pattern)
-      if (found !== null) {
-        return { shape, label: labelLines(found[1] ?? found[2] ?? '', cursor.line) }
-      }
+export function takeNodeId(cursor: Cursor): string {
+  const id = cursor.take(NODE_ID)?.[0]
+  if (id === undefined || id === RESERVED_NODE_ID) throw doesNotParse(cursor.line)
+  return id
+}
+
+export function takeShape(cursor: Cursor): { shape: FlowShape; label: string[] } | null {
+  for (const { pattern, shape } of SHAPE_PATTERNS) {
+    const found = cursor.take(pattern)
+    if (found !== null) {
+      return { shape, label: labelLines(found[1] ?? found[2] ?? '', cursor.line) }
     }
-    return null
   }
+  return null
+}
 
-  private link(cursor: Cursor): LinkSyntax & { label: string[] } {
-    if (cursor.take(TEXT_LINK_OPENING) !== null) {
-      return { stroke: 'solid', arrow: true, label: this.edgeLabel(cursor, TEXT_LINK_CLOSING) }
-    }
-    const syntax = LINKS[cursor.take(PLAIN_LINK)?.[1] ?? '']
-    if (syntax === undefined) throw doesNotParse(cursor.line)
-    if (!cursor.skip(PIPE)) return { ...syntax, label: [] }
-    return { ...syntax, label: this.edgeLabel(cursor, PIPE) }
-  }
+function quotedEdgeLabel(cursor: Cursor, closing: string): string | undefined {
+  const quoted = cursor.take(QUOTED_TEXT)?.[0]
+  if (quoted === undefined) return undefined
+  cursor.take(SPACES)
+  if (!cursor.skip(closing)) throw doesNotParse(cursor.line)
+  return quoted
+}
 
-  private edgeLabel(cursor: Cursor, closing: string): string[] {
-    cursor.take(SPACES)
-    const text = this.quotedEdgeLabel(cursor, closing) ?? cursor.takeThrough(closing)?.trim()
-    if (text === undefined || !EDGE_LABEL.test(text)) throw doesNotParse(cursor.line)
-    cursor.take(SPACES)
-    return labelLines(text, cursor.line)
-  }
+function edgeLabel(cursor: Cursor, closing: string): string[] {
+  cursor.take(SPACES)
+  const text = quotedEdgeLabel(cursor, closing) ?? cursor.takeThrough(closing)?.trim()
+  if (text === undefined || !EDGE_LABEL.test(text)) throw doesNotParse(cursor.line)
+  cursor.take(SPACES)
+  return labelLines(text, cursor.line)
+}
 
-  private quotedEdgeLabel(cursor: Cursor, closing: string): string | undefined {
-    const quoted = cursor.take(QUOTED_TEXT)?.[0]
-    if (quoted === undefined) return undefined
-    cursor.take(SPACES)
-    if (!cursor.skip(closing)) throw doesNotParse(cursor.line)
-    return quoted
+export function takeLink(cursor: Cursor): (LinkSyntax & { label: string[] }) | null {
+  if (cursor.take(TEXT_LINK_OPENING) !== null) {
+    return { stroke: 'solid', arrow: true, label: edgeLabel(cursor, TEXT_LINK_CLOSING) }
   }
+  const found = cursor.take(PLAIN_LINK)
+  if (found === null) return null
+  const syntax = LINKS[found[1] ?? '']
+  if (syntax === undefined) throw doesNotParse(cursor.line)
+  if (!cursor.skip(PIPE)) return { ...syntax, label: [] }
+  return { ...syntax, label: edgeLabel(cursor, PIPE) }
 }
 
 type OpenBlock = { block: SequenceBlock; line: number }
@@ -824,6 +874,7 @@ type Builder =
   | SankeyBuilder
   | RadarBuilder
   | TreemapBuilder
+  | BlockBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -857,6 +908,8 @@ function builderOf(header: Statement): Builder {
   if (radar !== null) return radar
   const treemap = treemapBuilder(header)
   if (treemap !== null) return treemap
+  const block = blockBuilder(header)
+  if (block !== null) return block
   throw unknownHeader(header)
 }
 

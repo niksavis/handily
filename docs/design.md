@@ -1273,10 +1273,18 @@ Tables:
 Code:
 
 - The engine `Code` element highlights the code. reply-view has no highlighter of its own.
+- A code block that holds a drawing and is wider than the reply keeps each line on one row. The
+  `Code` element cuts the row at the edge with `…` (`wrap: 'truncate-end'`), and one dim note
+  names the width: `drawing cut: it takes 87 columns, the screen has 78. Widen the window to see
+  this drawing.` Only a block with no tag or a plain-text tag is cut. It needs at least 2
+  drawing lines, and each line wider than the reply is a drawing line or stands between two. A
+  box-drawing character, a rule such as `+---+`, a tree branch or an arrow such as `-->` marks a
+  drawing line. Any other code block wraps as before, because a cut hides the end of a command
+  (handily-2dpxv0.25).
 
 Diagrams:
 
-- reply-view has its own text renderer for eighteen kinds of mermaid diagram:
+- reply-view has its own text renderer for nineteen kinds of mermaid diagram:
 
   | Header keyword | Kind | Record |
   | --- | --- | --- |
@@ -1298,6 +1306,7 @@ Diagrams:
   | `sankey` or `sankey-beta` | sankey diagram | handily-2dpxv0.12 |
   | `radar-beta` | radar diagram | handily-2dpxv0.17 |
   | `treemap-beta` or `treemap` | treemap | handily-2dpxv0.19 |
+  | `block` or `block-beta` | block diagram | handily-2dpxv0.10 |
 
 - `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts` lists the header keywords, and `DIAGRAM_NAMES`
   gives each kind its plain name. A chart takes its name from its plot, such as `bar chart`.
@@ -1312,6 +1321,11 @@ Diagrams:
   order. One dim note above the source names the reason.
 - A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
   tall diagram.
+- A block diagram draws its blocks in a grid of `columns`, with one width for all columns of a
+  group. A group draws as a dotted frame. A link draws only as a straight line between two blocks.
+  The gap between two blocks side by side grows to hold the label of their link.
+  A link that needs a bend or crosses a block draws the diagram as its source, with a note
+  (handily-2dpxv0.10).
 - A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16
   columns, then to 12 columns.
 - A drawn diagram has two buttons: `[ copy ]` and `[ copy drawing ]`.
@@ -1340,9 +1354,10 @@ Settings and commands:
 | `/replies hints` | The command of the diagram hints | handily-5zzxk.8 |
 | `/replies copy diagram`, `/replies copy table`, `/replies copy code` | Copies a block of the last reply from the keyboard | handily-5zzxk.9 |
 
-- The hint text has 534 characters, and its count is not measured yet. The hint of 516
-  characters cost 229 tokens, measured with `claude -p` on 2026-11-05 with Claude Code 2.1.318
-  (reply-view README). prismantis states about 630 prompt tokens for its diagram hints (its
+- The hint names the Mermaid kinds that do not draw, from `MERMAID_KINDS` less
+  `DRAWN_DIAGRAM_KINDS`, and names the C4 family once while none of it draws. It has 517
+  characters and costs 233 tokens, measured with `claude -p` on 2026-11-05 with Claude Code
+  2.1.318 (reply-view README). prismantis states about 630 prompt tokens for its diagram hints (its
   README).
 - A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.
 
