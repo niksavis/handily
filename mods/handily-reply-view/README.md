@@ -7,11 +7,12 @@ double rule under its header and a rule between its rows. The `tableStyle` setti
 rules between its columns only. Numbers, durations, versions and paths in the prose and the cells
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
-table and each fenced code block gets a `copy` button. A mermaid flowchart or sequence diagram
-draws as a diagram, with a `copy` button for its source and a `copy drawing` button for the
-drawing. Each prompt that you type opens under a coloured rule labelled `you`, so you find it when
-you scroll. `/replies` switches the view off and on for the session. The model still reads the
-full reply and the prompt as you typed it. Only the screen changes.
+table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
+state diagram, class diagram or ER diagram draws as a diagram, with a `copy` button for its source
+and a `copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
+labelled `you`, so you find it when you scroll. `/replies` switches the view off and on for the
+session. The model still reads the full reply and the prompt as you typed it. Only the screen
+changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -406,9 +407,9 @@ title line, as the buttons of a diagram do:
 
 ## A diagram
 
-A fenced block with the tag `mermaid` that holds a flowchart or a sequence diagram draws as a
-diagram. The diagram has a dim title line and two buttons at the right edge. The drawing replaces
-the source:
+A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
+diagram, a class diagram or an ER diagram draws as a diagram. The diagram has a dim title line
+and two buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -467,7 +468,8 @@ reason:
 
 Other reasons that the note names:
 
-- `classDiagram does not draw yet.`, and the same for each other kind of diagram.
+- `gantt does not draw yet.`, and the same for each other kind of diagram that this part does not
+  name.
 - `subgraph does not draw yet.`, and the same for `direction`.
 - `box does not draw yet.`, and the same for `create` and `destroy` in a sequence diagram.
 - `it takes 59 columns, the screen has 38. Widen the window or shorten the labels.`
@@ -555,6 +557,210 @@ A `sequenceDiagram` draws under the title line `── mermaid · sequence ─�
   cut with `…`.
 - When the drawing is too wide, the labels of the messages and the notes wrap, each in at most 3
   lines. The name of a participant does not wrap.
+
+## A state diagram
+
+A `stateDiagram` or `stateDiagram-v2` draws with the layout of a flowchart, under the title line
+`── mermaid · state ──`. A state is a rounded box. `[*]` draws as `●` where a transition leaves it
+and as `◉` where a transition ends at it. Each state that ends at `[*]` gets its own `◉`:
+
+```text
+● The car moves through three states:
+
+  ── mermaid · state ────────────────────────────────  [ copy ] [ copy drawing ]
+      ●
+      ▼
+  ╭───────╮
+  │ Still │◀─────────┐
+  ╰───┬───╯          │
+  ┌───┴───┐          │
+  ▼       ▼          │
+  ◉  ╭────────╮      │
+     │ Moving │──────┘
+     ╰────┬───╯
+          ▼
+      ╭───────╮
+      │ Crash │
+      ╰───┬───╯
+          ▼
+          ◉
+```
+
+- `direction LR` draws the states across, as a flowchart `LR` does. A diagram too wide for the
+  screen draws top down. When it is also too wide top down, it draws as its source under the note
+  `it takes 52 columns, the screen has 38. Widen the window or shorten the labels.`
+- A transition draws its label as a flowchart edge does, such as `Queued --> Running : claimed`.
+- A state shows the text after its colon, such as `Done : All checks passed`, or the text of
+  `state "Waits for you" as Waiting`. Without a text it shows its id.
+- The states take the colours of the boxes in turn, in the order of their first mention. `●`, `◉`
+  and the arrow heads are in `claude`. The lines and the labels are in `inactive`.
+- `classDef`, `class`, `style`, `:::name`, `accTitle`, `accDescr` and a `%%` comment at the end of
+  a line draw nothing.
+- These draw as the source under a note that names the reason: a state with nested states, such
+  as `state First {`, a `<<fork>>`, a `<<join>>`, a `<<choice>>`, a note, the `--` of concurrent
+  regions, `direction RL` and `direction BT`, and a transition from a state to itself.
+
+## A class diagram
+
+A `classDiagram` draws under the title line `── mermaid · class ──`. Each class is a rounded box
+with its name, a rule and its members. The classes stand one under the next, as the entities of an
+ER diagram do, and each relation has its own route, so no two relations share a line:
+
+```text
+● Reply-view parses a reply into blocks:
+
+  ── mermaid · class ────────────────────────────────  [ copy ] [ copy drawing ]
+  ╭─────────────────────╮
+  │ Reply               │
+  ├─────────────────────┤
+  │ + text: string      │
+  │ + blocks(): Block[] │
+  ╰─────────────────────╯
+             ◆ 1
+             │ holds
+             │ 0..n
+  ╭──────────┴──────────╮
+  │ Block               │◁─┐
+  ├─────────────────────┤  │
+  │ + rows(): number    │  │
+  ╰─────────────────────╯  │
+             △             │
+             │             │
+  ╭──────────┴──────────╮  │
+  │ Table               │  │
+  ├─────────────────────┤  │
+  │ + header: string[]  │  │
+  ╰─────────────────────╯  │
+                           │
+  ╭─────────────────────╮  │
+  │ Fence               ├──┘
+  ├─────────────────────┤
+  │ + tag: string       │
+  ╰─────────────────────╯
+```
+
+- A parent or an owner stands above its children and parts. Each child follows its parent when it
+  can, so the relation runs down the middle. Any other relation runs on its own line at the right
+  of the stack. Where two lines cross, the vertical line stays whole.
+- The mark of a relation stands next to the box of its parent or owner: in the row under the box
+  for a relation down the middle, and in the column right of the box for a relation on the right.
+  An arrow head stands next to the box that the arrow points at.
+
+| Source             | Down the middle                  | On the right                     |
+| ------------------ | -------------------------------- | -------------------------------- |
+| `A <\|-- B`        | `△` under the parent `A`         | `◁` beside the parent `A`        |
+| `A ..\|> B`        | `△` under `B`, a dashed line     | `◁` beside `B`, a dashed line    |
+| `A *-- B`          | `◆` under the owner `A`          | `◆` beside the owner `A`         |
+| `A o-- B`          | `◇` under the owner `A`          | `◇` beside the owner `A`         |
+| `A --> B`          | `▼` above `B`                    | `◀` beside `B`                   |
+| `A ..> B`          | `▼` above `B`, a dashed line     | `◀` beside `B`, a dashed line    |
+| `A -- B`, `A .. B` | a solid or a dashed line, no end | a solid or a dashed line, no end |
+
+- A cardinality draws as a word beside the end of its own class, such as `◆ 1` under `Reply` and
+  `0..n` over `Block`. The label stands between them on a line down the middle, and next to the
+  first class of the source line on a line at the right, such as `1 shows`.
+- A class shows its members as you wrote them, with `+ - # ~`, `$` and `*`. When the stack is too
+  wide, a long name or member wraps, and a member that wraps continues 2 columns in. A class with
+  more than 10 members draws as the source under the note
+  `class Reply has 14 members, at most 10 draw.`
+- An annotation such as `<<interface>>` draws as `«interface»` above the name. A class label such
+  as `class Animal["Animal with a label"]` replaces the name, and a name in backticks draws without
+  them.
+- The classes take the colours of the boxes in turn. The members are plain. The marks and the
+  arrow heads are in `claude`. The lines and the words are in `inactive`.
+- `direction`, `classDef`, `cssClass`, `style`, `:::name`, `click`, `link` and `callback` draw
+  nothing.
+- These draw as the source under a note that names the reason: a `namespace`, a `note`, a
+  lollipop interface such as `A ()-- B`, and a two-way relation such as `A <|--|> B`.
+
+## An ER diagram
+
+An `erDiagram` draws its entities top to bottom, one under the next, in the order of their first
+mention. All the entities have the width of the widest one. The title line is
+`── mermaid · er ──`:
+
+```text
+● The session log keeps three tables:
+
+  ── mermaid · er ───────────────────────────────────  [ copy ] [ copy drawing ]
+  ╭────────────────────╮
+  │ SESSION            │
+  ├────────────────────┤
+  │ PK id       string │
+  │    started  date   │
+  ╰──────────┬─────────╯
+             │ 1
+             │ has
+             │ 0..n
+  ╭──────────┴─────────╮
+  │ PROMPT             │
+  ├────────────────────┤
+  │ PK id       string │
+  │ FK session  string │
+  │    text     string │
+  ╰──────────┬─────────╯
+             │ 1
+             │ runs
+             │ 1..n
+  ╭──────────┴─────────╮
+  │ TOOL_CALL          │
+  ├────────────────────┤
+  │ PK id       string │
+  │ FK prompt   string │
+  │    name     string │
+  ╰────────────────────╯
+```
+
+A cardinality draws as a word, not as a crow's foot:
+
+| Source                                                      | Word   |
+| ----------------------------------------------------------- | ------ |
+| `\|\|`, `1`, `only one`                                     | `1`    |
+| `\|o`, `o\|`, `zero or one`, `one or zero`                  | `0..1` |
+| `}o`, `o{`, `zero or more`, `zero or many`, `many(0)`, `0+` | `0..n` |
+| `}\|`, `\|{`, `one or more`, `one or many`, `many(1)`, `1+` | `1..n` |
+
+- A relationship from an entity to the entity under it draws down the middle. The cardinality of
+  the upper entity, the label and the cardinality of the lower entity follow, one on each line.
+- Any other relationship draws beside the stack, on the right. Each cardinality stands next to its
+  entity, and the label stands next to the first entity of the source line:
+
+```text
+  ╭──────────────────╮
+  │ CUSTOMER         ├╌ 1..n uses ╌╌╌╌╌╌┐
+  ╰─────────┬────────╯                  ╎
+            │ 1                         ╎
+            │ places                    ╎
+            │ 0..n                      ╎
+  ╭─────────┴────────╮                  ╎
+  │ ORDER            │                  ╎
+  ╰─────────┬────────╯                  ╎
+            │ 1                         ╎
+            │ contains                  ╎
+            │ 1..n                      ╎
+  ╭─────────┴────────╮                  ╎
+  │ LINE-ITEM        ├─ 0..n ─────────┐ ╎
+  ╰──────────────────╯                │ ╎
+                                      │ ╎
+  ╭──────────────────╮                │ ╎
+  │ DELIVERY-ADDRESS ├╌ 1..n ╌╌╌╌╌╌╌╌╌│╌┘
+  ╰──────────────────╯                │
+                                      │
+  ╭──────────────────╮                │
+  │ PRODUCT          ├─ 1 appears in ─┘
+  ╰──────────────────╯
+```
+
+- `--` and `to` draw a solid line. `..` and `optionally to` draw a dashed line.
+- An attribute shows its keys, its name, its type and its comment, in columns. An alias such as
+  `p[Person]` replaces the name. An entity with more than 12 attributes draws as the source under
+  the note `entity A has 13 attributes, at most 12 draw.`
+- The entities take the colours of the boxes in turn. The keys `PK`, `FK` and `UK` are bold. The
+  types, the comments, the lines and the words are in `inactive`.
+- `direction`, `classDef`, `class`, `style` and `:::name` draw nothing.
+- These draw as the source under a note that names the reason: a `subgraph`, a relationship from
+  an entity to itself, and a cardinality that does not parse, such as
+  `line 3: the cardinality }|..|x does not parse.`
 
 ## A prompt that you type
 
@@ -698,7 +904,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | Setting        | Default  | Use                                                                                                 |
 | -------------- | -------- | --------------------------------------------------------------------------------------------------- |
 | `mode`         | `on`     | The mode when a session starts: `on` or `off`                                                       |
-| `diagrams`     | `on`     | `on` draws a mermaid flowchart or sequence diagram as a diagram. `off` draws it as its source       |
+| `diagrams`     | `on`     | `on` draws a mermaid diagram of a kind in [A diagram](#a-diagram). `off` draws it as its source     |
 | `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type           |
 | `tableStyle`   | `box`    | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns               |
 | `highlight`    | `on`     | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain      |
@@ -769,6 +975,9 @@ count.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
   stays open or folded when it draws again.
 - Each prompt that you type keeps its time in `$.state` for this session.
-- A `subgraph`, a sequence diagram with `box`, `create` or `destroy`, and every other kind of
-  diagram draw as their source.
+- A `subgraph`, a sequence diagram with `box`, `create` or `destroy`, a state diagram with nested
+  states, a fork, a join, a choice or a note, a class diagram with a namespace or a note, and every
+  other kind of diagram draw as their source.
+- A class diagram and an ER diagram always draw one box under the next, whatever their
+  `direction`.
 - An actor of a sequence diagram draws as a box.

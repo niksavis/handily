@@ -114,7 +114,7 @@ function refusal(reason: string): Refusal {
   return { kind: 'refused', reason, line: null, limit: null }
 }
 
-class Grid {
+export class Grid {
   private readonly rows = new Map<number, Map<number, InkedCell>>()
 
   put(row: number, col: number, text: string, ink: Ink, looks: Looks = PLAIN_LOOKS): void {

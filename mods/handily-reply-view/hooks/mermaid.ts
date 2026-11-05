@@ -1,3 +1,7 @@
+import { ClassBuilder, type ClassDiagram } from './classes'
+import { EntityBuilder, type EntityDiagram } from './er'
+import { StateBuilder, type StateDiagram } from './state'
+
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
 
 export const DIAGRAM_LIMITS: Readonly<Record<LimitName, number>> = {
@@ -29,7 +33,7 @@ export type Stroke = 'solid' | 'dashed'
 
 export type FlowDirection = 'TD' | 'LR'
 
-export type FlowShape = 'box' | 'rounded' | 'decision'
+export type FlowShape = 'box' | 'rounded' | 'decision' | 'point'
 
 export type FlowNode = { id: string; shape: FlowShape; label: string[] }
 
@@ -85,11 +89,12 @@ export type SequenceDiagram = {
   blocks: SequenceBlock[]
 }
 
-export type MermaidDiagram = Flowchart | SequenceDiagram
+export type MermaidDiagram =
+  Flowchart | SequenceDiagram | StateDiagram | ClassDiagram | EntityDiagram
 
-type Statement = { line: number; text: string }
+export type Statement = { line: number; text: string }
 
-class DiagramFault extends Error {
+export class DiagramFault extends Error {
   constructor(readonly refusal: Refusal) {
     super(refusal.reason)
   }
@@ -101,6 +106,9 @@ const TRAILING_SEMICOLON = /;$/
 const LINE_BREAK = /<br\s*\/?>/i
 const FLOW_HEADER = /^(flowchart|graph)(?:\s+(\S+))?$/
 const SEQUENCE_HEADER = 'sequenceDiagram'
+const STATE_HEADER = /^stateDiagram(?:-v2)?$/
+const CLASS_HEADER = /^classDiagram(?:-v2)?$/
+const ENTITY_HEADER = 'erDiagram'
 const DIAGRAM_KIND = /^([A-Za-z][\w-]*)(?:\s[^-[\](){}|<>&]*)?$/
 const DRAWN_DIRECTIONS: Readonly<Record<string, FlowDirection>> = { TD: 'TD', TB: 'TD', LR: 'LR' }
 const REFUSED_DIRECTIONS: ReadonlySet<string> = new Set(['RL', 'BT'])
@@ -191,15 +199,15 @@ const MESSAGE_ARROWS: Readonly<Record<string, ArrowSyntax>> = {
   '--)': { stroke: 'dashed', head: 'open' },
 }
 
-function lineFault(line: number, reason: string): DiagramFault {
+export function lineFault(line: number, reason: string): DiagramFault {
   return new DiagramFault({ kind: 'refused', reason, line, limit: null })
 }
 
-function doesNotParse(line: number): DiagramFault {
+export function doesNotParse(line: number): DiagramFault {
   return lineFault(line, `line ${String(line)} does not parse`)
 }
 
-function notDrawnYet(line: number, name: string): DiagramFault {
+export function notDrawnYet(line: number, name: string): DiagramFault {
   return lineFault(line, `${name} does not draw yet`)
 }
 
@@ -218,7 +226,7 @@ function statementsOf(lines: readonly string[]): Statement[] {
     .filter(({ text }) => text !== '' && !COMMENT.test(text))
 }
 
-function textLines(text: string): string[] {
+export function textLines(text: string): string[] {
   return text.split(LINE_BREAK).map((line) => line.trim())
 }
 
@@ -243,7 +251,7 @@ function limitRefusal(name: LimitName, count: number): Refusal | null {
   }
 }
 
-function refuseOverLimits(counts: readonly (readonly [LimitName, number])[]): void {
+export function refuseOverLimits(counts: readonly (readonly [LimitName, number])[]): void {
   for (const [name, count] of counts) {
     const refusal = limitRefusal(name, count)
     if (refusal !== null) throw new DiagramFault(refusal)
@@ -550,18 +558,32 @@ function flowDirection(
   throw doesNotParse(header.line)
 }
 
+function isDrawnKind(kind: string): boolean {
+  return (
+    kind === SEQUENCE_HEADER ||
+    kind === ENTITY_HEADER ||
+    STATE_HEADER.test(kind) ||
+    CLASS_HEADER.test(kind)
+  )
+}
+
 function unknownHeader(header: Statement): DiagramFault {
   const kind = DIAGRAM_KIND.exec(header.text)?.[1]
-  if (kind === undefined || kind === SEQUENCE_HEADER) return doesNotParse(header.line)
+  if (kind === undefined || isDrawnKind(kind)) return doesNotParse(header.line)
   return notDrawnYet(header.line, kind)
 }
 
-function builderOf(header: Statement): FlowchartBuilder | SequenceBuilder {
+type Builder = FlowchartBuilder | SequenceBuilder | StateBuilder | ClassBuilder | EntityBuilder
+
+function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
   if (flow !== null) {
     return new FlowchartBuilder(flowDirection(header, flow[1] ?? '', flow[2]))
   }
   if (header.text === SEQUENCE_HEADER) return new SequenceBuilder()
+  if (STATE_HEADER.test(header.text)) return new StateBuilder()
+  if (CLASS_HEADER.test(header.text)) return new ClassBuilder()
+  if (header.text === ENTITY_HEADER) return new EntityBuilder()
   throw unknownHeader(header)
 }
 
