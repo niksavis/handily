@@ -1276,8 +1276,10 @@ Code:
 - A code block that holds a drawing and is wider than the reply keeps each line on one row. The
   `Code` element cuts the row at the edge with `…` (`wrap: 'truncate-end'`), and one dim note
   names the width: `drawing cut: it takes 87 columns, the screen has 78. Widen the window to see
-  this drawing.` A box-drawing character or an ASCII rule such as `+---+` marks a drawing. A
-  code block with no drawing wraps as before, because a cut hides the end of a command
+  this drawing.` Only a block with no tag or a plain-text tag is cut. It needs at least 2
+  drawing lines, and each line wider than the reply is a drawing line or stands between two. A
+  box-drawing character, a rule such as `+---+`, a tree branch or an arrow such as `-->` marks a
+  drawing line. Any other code block wraps as before, because a cut hides the end of a command
   (handily-2dpxv0.25).
 
 Diagrams:

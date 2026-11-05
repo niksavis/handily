@@ -1,6 +1,7 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { drawBlock } from './block'
+import { isCutDrawing } from './drawing'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
 import { chartName, drawChart, isChartSource } from './charts'
 import { drawClasses } from './classes'
@@ -80,7 +81,6 @@ const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const DRAWINGS_KEPT = 32
 const DRAW_FAILED = 'reply-view could not draw it'
-const DRAWING_LINE = /[\u2500-\u259F]|[+`\\|][-=]{2,}|[-=]{2,}\+/
 const CUT_REMEDY = 'Widen the window to see this drawing'
 const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> = {
   line: 'diagramLine',
@@ -1165,13 +1165,6 @@ function fenceTitle(context: Context, fence: Fence, copy: BlockCopy, key: string
   )
 }
 
-function isDrawingCut(lines: readonly string[], width: number): boolean {
-  return (
-    lines.some((line) => displayWidth(line) > width) &&
-    lines.some((line) => DRAWING_LINE.test(line))
-  )
-}
-
 function cutNote(lines: readonly string[], width: number): string {
   const widest = Math.max(...lines.map(displayWidth))
   return `drawing cut: ${widthClause(widest, width)}. ${CUT_REMEDY}.`
@@ -1185,7 +1178,7 @@ function fencePiece(
 ): Piece {
   const { Box, Code } = context.elements
   const lines = fence.content === '' ? [] : shownText(fence.content).split('\n')
-  const isCut = isDrawingCut(lines, context.width)
+  const isCut = isCutDrawing(fence.tag, lines, context.width)
   const rows = lines.map((line) => (isCut ? 1 : rowsOf(line, context.width)))
   const language = LANGUAGE_TAG.test(fence.tag) ? fence.tag : undefined
   const wrap = isCut ? { wrap: 'truncate-end' as const } : {}

@@ -426,8 +426,18 @@ width:
   └──────────────┘     └──────────────────┘     └──────────────────┘     └─────…
 ```
 
-- A block holds a drawing when a line holds a box-drawing character, such as `┌`, `│` or `├──`,
-  or an ASCII rule, such as `+---+`, `|--` or `` `-- ``.
+- A block is cut as a drawing only when all of these are true:
+  1. It has no tag, or the tag `text`, `txt`, `plaintext`, `ascii` or `none`. A block with the tag
+     of a language, such as `python`, `sh` or `diff`, always wraps.
+  2. At least 2 of its lines are drawing lines.
+  3. Each line wider than the reply is a drawing line, or stands between two drawing lines.
+- A drawing line holds one of these:
+  - a box-drawing character, such as `┌`, `│` or `├──`;
+  - a rule between two `+`, such as `+---+` or `+-+`;
+  - a tree branch at the start of the line, such as `|--` or `` `-- ``, and then a space;
+  - an arrow of 2 or more dashes with a head, such as `-->` or `<---`;
+  - a `|` at the start and a `|` at the end.
+- A tree drawn with `/` and `\` only is not found, and wraps.
 - The view cuts a row and does not wrap it. A wrapped row starts again at the left edge, so the
   boxes, the tree and the table lose their columns. Then the person cannot see where a line
   ends, or whether the drawing is broken.

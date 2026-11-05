@@ -150,3 +150,91 @@ describe('a drawing in a code block that is wider than the body', () => {
     await ui.unmount()
   })
 })
+
+const LONG_CODE = 'return compose(parse(source), validate(schema), render(template, options))'
+const LONG_URL =
+  '  Downloading https://files.pythonhosted.org/packages/ab/cd/requests-2.32.3-py3-none-any.whl (64 kB)'
+
+const ORDINARY_CODE: readonly Sample[] = [
+  {
+    name: 'a diff that adds a rule and a comment',
+    tag: 'diff',
+    content: lines('+---', '+-- comment', `+${LONG_CODE}`),
+  },
+  {
+    name: 'a diff with no tag that adds a rule and a comment',
+    tag: '',
+    content: lines('+---', '+-- comment', `+${LONG_CODE}`),
+  },
+  {
+    name: 'a python block with a ruled comment',
+    tag: 'python',
+    content: lines('# ─── helpers ───', 'def run(source):', `    ${LONG_CODE}`),
+  },
+  {
+    name: 'a python block with no tag and one ruled comment',
+    tag: '',
+    content: lines('# ─── helpers ───', 'def run(source):', `    ${LONG_CODE}`),
+  },
+  {
+    name: 'a text block that names a flag in backticks',
+    tag: 'text',
+    content: lines(
+      '`--force` overwrites the branch on the remote, so use it only on a branch of your own',
+      '`--force-with-lease` refuses when the remote moved',
+    ),
+  },
+  {
+    name: 'a pip log with progress bars',
+    tag: '',
+    content: lines(
+      'Collecting requests',
+      LONG_URL,
+      '     ━━━━━━━━━━━━━━━━━━━━━━ 64.9/64.9 kB 2.1 MB/s',
+      'Collecting idna',
+      LONG_URL,
+      '     ━━━━━━━━━━━━━━━━━━━━━━ 70.4/70.4 kB 3.0 MB/s',
+    ),
+  },
+  {
+    name: 'a box drawing in a python block',
+    tag: 'python',
+    content: BOX,
+  },
+]
+
+const ARROWS = lines(
+  'client ---> gateway ---> service ---> database ---> cache',
+  'worker <--- scheduler',
+)
+
+const CORNERS = lines(
+  `+-+${' '.repeat(40)}+-+`,
+  `| |${' '.repeat(40)}| |`,
+  `+-+${' '.repeat(40)}+-+`,
+)
+
+describe('the rule that tells a drawing from ordinary code', () => {
+  for (const sample of ORDINARY_CODE) {
+    viewTest(`${sample.name} wraps at 40 columns with no note`, async (_world, $) => {
+      const ui = await mountCode($, fenced(sample), 'terminal', 40)
+      expect((await ui.find({ type: 'Code' }))?.props.wrap).toBeUndefined()
+      expect(await ui.find({ type: 'Text', text: /^drawing cut:/ })).toBeUndefined()
+      await ui.unmount()
+    })
+  }
+
+  for (const [name, content] of [
+    ['arrows of dashes with a head', ARROWS],
+    ['boxes with plus corners', CORNERS],
+  ] as const) {
+    viewTest(`a drawing of ${name} is cut at 40 columns under the note`, async (_world, $) => {
+      const ui = await mountCode($, fenced({ name, tag: '', content }), 'terminal', 40)
+      expect((await ui.find({ type: 'Code' }))?.props.wrap).toBe('truncate-end')
+      expect((await ui.find({ type: 'Text', text: /^drawing cut:/ }))?.text).toBe(
+        cutNote(widest(content), 38),
+      )
+      await ui.unmount()
+    })
+  }
+})
