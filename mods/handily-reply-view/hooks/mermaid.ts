@@ -18,6 +18,32 @@ export const DIAGRAM_LIMITS: Readonly<Record<LimitName, number>> = {
   events: 60,
 }
 
+export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
+  'flowchart',
+  'sequenceDiagram',
+  'stateDiagram-v2',
+  'classDiagram',
+  'erDiagram',
+  'pie',
+  'xychart',
+  'gantt',
+  'gitGraph',
+  'mindmap',
+  'timeline',
+]
+
+export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
+  flowchart: 'flowchart',
+  sequence: 'sequence diagram',
+  state: 'state diagram',
+  class: 'class diagram',
+  er: 'ER diagram',
+  gantt: 'gantt chart',
+  gitgraph: 'git graph',
+  mindmap: 'mind map',
+  timeline: 'timeline',
+}
+
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
   lines: 'lines',
   characters: 'characters',

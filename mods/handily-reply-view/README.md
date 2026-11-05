@@ -73,6 +73,8 @@ buttons at the right edge:
   rows. When the 30 rows end inside a line, that line is cut at a word and ends with `…`.
 - On the terminal, a reply of 30 lines or fewer draws whole, with no fold row. On the desktop
   app, such a reply draws as Claude Code draws it, unless it holds a table or a fenced block.
+- The fold never shows the title line of a diagram alone.
+  [A folded diagram](#a-folded-diagram) gives the rule.
 - While a reply streams, Claude Code draws it itself, and the view draws the reply only when it
   is complete, so the look of the reply changes once at the end.
 
@@ -448,9 +450,8 @@ drawing replaces the source:
   source with its marks.
 - On the desktop app, the drawing draws in a code block with no colour, so its lines keep their
   columns.
-- A diagram draws whole or as its source. It never draws in part.
-- When a long reply folds inside a diagram, the folded reply shows only the title line of the
-  diagram and its buttons. `more` shows the drawing.
+- A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
+  tall diagram.
 - The view keeps the last 32 drawings for this session, one for each source, width and surface.
   So a reply that draws again at the same width does not lay out its diagram again.
 
@@ -485,6 +486,59 @@ A mermaid block with no closing fence draws as a fenced block, with no note. So 
 that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
+
+### A folded diagram
+
+When the first 30 rows of a long reply end inside a drawn diagram, the fold follows these rules
+in order:
+
+1. When the preview with the whole diagram takes 60 rows or fewer, the preview shows the whole
+   diagram and ends after it. When nothing follows the diagram, the reply draws whole, with no
+   fold row.
+2. When at least 5 rows of the drawing fit above row 30, the preview shows the title line and the
+   first rows of the drawing. The fold row names the kind of diagram and its hidden rows. When
+   more of the reply follows the diagram, the fold row also counts those lines.
+3. Else the preview ends before the title line of the diagram.
+
+A sequence diagram of 30 messages takes 66 rows. Under one line of prose it folds like this at 80
+columns:
+
+```text
+● Here are the pings:
+
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ╭───╮        ╭───╮
+  │ A │        │ B │
+  ╰─┬─╯        ╰─┬─╯
+    │  ping 0    │
+    │───────────▶│
+    │  pong 1    │
+    │◀───────────│
+    │  ping 2    │
+    │───────────▶│
+    │  pong 3    │
+    │◀───────────│
+    │  ping 4    │
+    │───────────▶│
+    │  pong 5    │
+    │◀───────────│
+    │  ping 6    │
+    │───────────▶│
+    │  pong 7    │
+    │◀───────────│
+    │  ping 8    │
+    │───────────▶│
+    │  pong 9    │
+    │◀───────────│
+    │  ping 10   │
+    │───────────▶│
+    │  pong 11   │
+    │◀───────────│
+  … sequence diagram, 39 more rows                     [ more ] [ copy reply ]
+```
+
+`copy drawing` copies the whole drawing, also when the preview shows a part of it. The fold of
+prose, tables and fenced blocks does not change.
 
 ## Groups in a flowchart
 
@@ -575,22 +629,29 @@ These reasons are in the note of a `subgraph` that does not draw:
 ## Diagram hints
 
 The `diagramHints` setting is `off` by default. When it is `on`, each prompt that you type
-carries one hint for Claude. The hint asks for a mermaid diagram when a flow or an exchange reads
-better as a diagram. You do not see the hint. Claude reads it after your prompt. `/replies hints`
-turns the hints on or off for this session, and keeps the choice in the `hints` key of
-`$.state`.
+carries one hint for Claude. The hint asks for a mermaid diagram when a flow, an exchange or a
+structure reads better as a diagram. You do not see the hint. Claude reads it after your prompt.
+`/replies hints` turns the hints on or off for this session, and keeps the choice in the `hints`
+key of `$.state`.
 
-The hint costs about 140 tokens for each prompt that you type. This count was measured on
-2026-10-29 with Claude Code 2.1.312 and the model `claude-opus-5-5`. Two `claude -p` runs of the
+The hint names each kind of diagram that the view draws, by the keyword that starts its block.
+The names come from the list `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts`. A test fails when the
+hint names a kind that does not draw, or leaves out a kind that draws.
+
+The hint costs about 230 tokens for each prompt that you type. This count was measured on
+2026-11-05 with Claude Code 2.1.318 and the model `claude-opus-5-5`. Two `claude -p` runs of the
 same prompt differ only in a mod that adds the hint as the context of the prompt. The run with the
-hint used 22027 input tokens and the run without it used 21887, three times each. The hint text
-has 350 characters, and a test fails when it grows past 400. When the hint text changes, measure
-again and record the new count and its date here.
+hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
+costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
+`cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
+hint of 350 characters that named only two kinds at 154 tokens. The hint text has 516 characters,
+and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
+changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1386,7 +1447,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | -------------- | -------- | --------------------------------------------------------------------------------------------------- |
 | `mode`         | `on`     | The mode when a session starts: `on` or `off`                                                       |
 | `diagrams`     | `on`     | `on` draws a mermaid diagram of a kind in [A diagram](#a-diagram). `off` draws it as its source     |
-| `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type           |
+| `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 230 tokens, to each prompt that you type           |
 | `tableStyle`   | `box`    | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns               |
 | `highlight`    | `on`     | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain      |
 | `headingStyle` | `banner` | `banner` draws a box around H1 and a rule under H2. `bold`, `underline` and `uppercase` draw no box |

@@ -20,7 +20,7 @@ import {
   type Run,
   type Table,
 } from './markdown'
-import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
+import { DIAGRAM_NAMES, parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { drawMindmap } from './mindmap'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
 import {
@@ -60,6 +60,8 @@ import { drawTimeline } from './timeline'
 import { cutToWidth, displayWidth, fitted, graphemesOf } from './width'
 
 export const FOLD_AFTER_ROWS = 30
+const PREVIEW_ROWS_AT_MOST = 60
+const DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST = 5
 export const DEFAULT_COLUMNS = 80
 const BULLET_COLUMNS = 2
 const FIELD_INDENT = 2
@@ -102,7 +104,7 @@ const ALERT_ROLES: Readonly<Record<AlertKind, ReplyRole>> = {
   caution: 'alertCaution',
 }
 
-export type DiagramDrawing = InkedDrawing & { name: string }
+export type DiagramDrawing = InkedDrawing & { name: string; plain: string }
 
 export type DiagramOutcome = DiagramDrawing | Refusal
 
@@ -139,7 +141,16 @@ export type ReplyLayout = {
 
 type Drawing = { element: RenderElement; rows: number }
 
-type Piece = { rows: number; whole: () => RenderElement; cut: (rows: number) => Drawing | null }
+type Piece = {
+  rows: number
+  diagram?: string
+  whole: () => RenderElement
+  cut: (rows: number) => Drawing | null
+}
+
+type CutDiagram = { name: string; rows: number }
+
+type Preview = { shown: Drawing[]; cutDiagram: CutDiagram | null }
 
 type Context = {
   elements: ReplyElements
@@ -1184,49 +1195,53 @@ function fencePiece(
   }
 }
 
+function named(drawn: InkedDrawing | Refusal, name: string, plain: string): DiagramOutcome {
+  return drawn.kind === 'drawing' ? { ...drawn, name, plain } : drawn
+}
+
 function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): DiagramOutcome {
   switch (diagram.kind) {
     case 'refused':
       return diagram
     case 'flowchart': {
       const drawn = drawFlowchart(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'sequence': {
       const drawn = drawSequence(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'state': {
       const drawn = drawState(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'class': {
       const drawn = drawClasses(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'er': {
       const drawn = drawEntities(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'chart': {
       const drawn = drawChart(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: chartName(diagram) } : drawn
+      return named(drawn, chartName(diagram), chartName(diagram))
     }
     case 'gantt': {
       const drawn = drawGantt(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'gitgraph': {
       const drawn = drawGitGraph(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'mindmap': {
       const drawn = drawMindmap(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
     case 'timeline': {
       const drawn = drawTimeline(diagram, width)
-      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }
 }
@@ -1344,9 +1359,18 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
   return {
     rows: title.rows + drawing.lines.length,
+    diagram: drawing.plain,
     whole: () => column([title.element, drawingBody(context, drawing, key)]),
-    cut: (budget) =>
-      budget < title.rows ? null : { element: column([title.element]), rows: title.rows },
+    cut: (budget) => {
+      const count = budget - title.rows
+      if (count < DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST) return null
+      const first = {
+        ...drawing,
+        lines: drawing.lines.slice(0, count),
+        inked: drawing.inked.slice(0, count),
+      }
+      return { element: column([title.element, drawingBody(context, first, key)]), rows: budget }
+    },
   }
 }
 
@@ -1423,21 +1447,38 @@ export function replyWidth(columns: number, hasBullet: boolean): number {
   return columns - (hasBullet ? BULLET_COLUMNS : 0)
 }
 
-function foldedPieces(pieces: readonly Piece[]): Drawing[] {
+function foldedPreview(pieces: readonly Piece[]): Preview {
   const shown: Drawing[] = []
-  let left = FOLD_AFTER_ROWS
+  let used = 0
   for (const piece of pieces) {
     const gap = shown.length > 0 ? 1 : 0
-    if (piece.rows + gap <= left) {
+    const end = used + gap + piece.rows
+    if (end <= FOLD_AFTER_ROWS) {
       shown.push({ element: piece.whole(), rows: piece.rows + gap })
-      left -= piece.rows + gap
+      used = end
       continue
     }
-    const cut = left - gap > 0 ? piece.cut(left - gap) : null
-    if (cut !== null) shown.push({ element: cut.element, rows: cut.rows + gap })
-    break
+    const budget = FOLD_AFTER_ROWS - used - gap
+    if (budget <= 0) break
+    if (piece.diagram !== undefined && end <= PREVIEW_ROWS_AT_MOST) {
+      shown.push({ element: piece.whole(), rows: piece.rows + gap })
+      break
+    }
+    const cut = piece.cut(budget)
+    if (cut === null) break
+    shown.push({ element: cut.element, rows: cut.rows + gap })
+    const cutDiagram =
+      piece.diagram === undefined ? null : { name: piece.diagram, rows: piece.rows - cut.rows }
+    return { shown, cutDiagram }
   }
-  return shown
+  return { shown, cutDiagram: null }
+}
+
+function hiddenText(hidden: number, cutDiagram: CutDiagram | null): string {
+  if (cutDiagram === null) return `… ${plural(hidden, 'more line')}`
+  const rest = `… ${cutDiagram.name}, ${plural(cutDiagram.rows, 'more row')}`
+  const after = hidden - cutDiagram.rows
+  return after > 0 ? `${rest}, then ${plural(after, 'more line')}` : rest
 }
 
 function foldActions(fold: ReplyViewFold, text: string): ButtonAction[] {
@@ -1451,7 +1492,7 @@ function foldActions(fold: ReplyViewFold, text: string): ButtonAction[] {
   ]
 }
 
-function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: number) {
+function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: string) {
   const { Box, Text } = context.elements
   const count =
     fold === 'folded'
@@ -1460,7 +1501,7 @@ function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: nu
           children: Text({
             dimColor: true,
             wrap: 'truncate-end',
-            children: `… ${plural(hidden, 'more line')}`,
+            children: hidden,
           }),
         })
       : null
@@ -1541,15 +1582,17 @@ export function replyTree(
   }
   const pieces = blocks.map((block, index) => pieceOf(context, block, index))
   const total = sum(pieces.map((piece) => piece.rows)) + Math.max(pieces.length - 1, 0)
-  const isLong = total > FOLD_AFTER_ROWS
+  const preview = total > FOLD_AFTER_ROWS ? foldedPreview(pieces) : null
+  const previewRows = sum(preview?.shown.map((drawing) => drawing.rows) ?? [])
+  const isLong = preview !== null && previewRows < total
   const isEngineReply = layout.surface !== PROSE_SURFACE && blocks.every(isProse)
   if (blocks.length === 0 || (!isLong && isEngineReply)) return null
   const { Box } = elements
   const shown =
     isLong && fold === 'folded'
-      ? foldedPieces(pieces)
+      ? preview.shown
       : pieces.map((piece) => ({ element: piece.whole(), rows: piece.rows }))
-  const hidden = total - sum(shown.map((drawing) => drawing.rows))
+  const hidden = hiddenText(total - previewRows, preview?.cutDiagram ?? null)
   const isOpened = isLong && fold === 'open'
   const divider = (key: string) => (isOpened ? ruleRow(context, RULE.repeat(width), key) : null)
   const body = Box({

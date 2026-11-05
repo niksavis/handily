@@ -1276,8 +1276,26 @@ Code:
 
 Diagrams:
 
-- reply-view has its own text renderer for mermaid `flowchart` with `TD`, `TB` or `LR`, and for
-  `sequenceDiagram`.
+- reply-view has its own text renderer for eleven kinds of mermaid diagram:
+
+  | Header keyword | Kind | Record |
+  | --- | --- | --- |
+  | `flowchart` or `graph`, with `TD`, `TB` or `LR` | flowchart | handily-5zzxk.5 |
+  | `sequenceDiagram` | sequence diagram | handily-5zzxk.7 |
+  | `stateDiagram-v2` or `stateDiagram` | state diagram | handily-36bsx.7 |
+  | `classDiagram` | class diagram | handily-36bsx.7 |
+  | `erDiagram` | ER diagram | handily-36bsx.7 |
+  | `pie` | pie chart | handily-36bsx.6 |
+  | `xychart` or `xychart-beta` | bar or line chart | handily-36bsx.6 |
+  | `gantt` | gantt chart | handily-2dpxv0.4 |
+  | `gitGraph` | git graph | handily-2dpxv0.1 |
+  | `mindmap` | mind map | handily-2dpxv0.2 |
+  | `timeline` | timeline | handily-2dpxv0.3 |
+
+- `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts` lists the header keywords, and `DIAGRAM_NAMES`
+  gives each kind its plain name. A chart takes its name from its plot, such as `bar chart`.
+  Tests check the list against the parser, the diagram hint
+  names the kinds from the list, and the fold row takes the plain name (handily-2dpxv0.27).
 - A flowchart `subgraph` draws as a frame with a dotted border around its boxes, with its title
   on the top edge. A box belongs to the first subgraph that names it, as in Mermaid. The frames
   keep one order in every level, and each frame is only as wide as its boxes and its title need.
@@ -1285,11 +1303,15 @@ Diagrams:
   `subgraph`, a `direction` line outside a `subgraph`, `box`, `create` and `destroy`. A flowchart
   draws as its source when a loop needs its box last in a level where the frames keep another
   order. One dim note above the source names the reason.
-- A diagram draws whole or as its source. It never draws in part.
+- A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
+  tall diagram.
 - A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16
   columns, then to 12 columns.
 - A drawn diagram has two buttons: `[ copy ]` and `[ copy drawing ]`.
-- When the fold of a reply ends inside a diagram, only the title line of the diagram shows.
+- When the fold of a reply ends inside a diagram, the preview shows the whole diagram when it
+  then takes 60 rows or fewer. Else it shows the title line and the first rows when at least 5
+  rows of the drawing fit, and the fold row names the kind and the hidden rows. Else the preview
+  ends before the diagram. The preview never shows the title line alone (handily-2dpxv0.26).
 
 Limits of one diagram. Over a limit, the diagram draws as its source, and the note names the limit:
 
@@ -1311,9 +1333,9 @@ Settings and commands:
 | `/replies hints` | The command of the diagram hints | handily-5zzxk.8 |
 | `/replies copy diagram`, `/replies copy table`, `/replies copy code` | Copies a block of the last reply from the keyboard | handily-5zzxk.9 |
 
-- The hint text is about 365 characters (estimate of the designer, 2026-10-27). prismantis states
-  about 630 prompt tokens for its diagram hints (its README). The cost of the handily hint is
-  measured before the release.
+- The hint text has 523 characters. It costs 229 tokens, measured with `claude -p` on
+  2026-11-05 with Claude Code 2.1.318 (reply-view README). prismantis states about 630 prompt
+  tokens for its diagram hints (its README).
 - A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.
 
 ### 4.11 handily-filetree (handily-02b2v)

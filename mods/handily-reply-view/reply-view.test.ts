@@ -26,6 +26,7 @@ import {
   type Rail,
 } from './hooks/rail'
 import { drawRail, type RailElements } from './hooks/rail-pane'
+import { drawsSample, hintKinds, MERMAID_KINDS } from './fixtures/mermaid-kinds'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -1789,10 +1790,10 @@ describe('/replies', () => {
 })
 
 const MEASURED_HINT =
-  'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
-const HINT_CHARACTERS_AT_MOST = 400
+  'The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
+const HINT_CHARACTERS_AT_MOST = 540
 const HINTS_ON =
-  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
+  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 230 tokens.'
 const HINTS_OFF = 'diagram hints off for this session. A prompt that you type carries no hint.'
 
 type Submitted = { text: string; wait: boolean; origin: PromptOrigin; context?: readonly string[] }
@@ -1881,7 +1882,22 @@ describe('diagram hints', () => {
     )
 
     hintsTest(
-      `the hint that a typed prompt carries is at most 400 characters on ${surface}`,
+      `the hint that a typed prompt carries names each Mermaid kind that draws and no kind that does not draw on ${surface}`,
+      'on',
+      surface,
+      async (read, $) => {
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        const hint = read[0]?.context?.at(-1) ?? ''
+        const named = hintKinds(hint)
+        expect(named.filter((kind) => !drawsSample(kind))).toEqual([])
+        expect(MERMAID_KINDS.filter(drawsSample).filter((kind) => !named.includes(kind))).toEqual(
+          [],
+        )
+      },
+    )
+
+    hintsTest(
+      `the hint that a typed prompt carries is at most 540 characters, under the budget of 250 tokens, on ${surface}`,
       'on',
       surface,
       async (read, $) => {
@@ -1893,7 +1909,7 @@ describe('diagram hints', () => {
     )
 
     hintsTest(
-      `the hint is the text that the README measured at 140 tokens on 2026-10-29, and /replies hints names that count on ${surface}`,
+      `the hint is the text that the README measured at 229 tokens on 2026-11-05, and /replies hints names that count on ${surface}`,
       undefined,
       surface,
       async (read, $) => {
@@ -4065,6 +4081,180 @@ function laidOut(text: string): void {
   )
 }
 
+const FOLD_STATES = linesOf(
+  'stateDiagram-v2',
+  '  [*] --> Still',
+  '  Still --> [*]',
+  '  Still --> Moving',
+  '  Moving --> Still',
+  '  Moving --> Crash',
+  '  Crash --> [*]',
+)
+const FOLD_CLASSES = linesOf(
+  'classDiagram',
+  '  class Reply {',
+  '    + text: string',
+  '    + blocks(): Block[]',
+  '  }',
+  '  class Block {',
+  '    + rows(): number',
+  '  }',
+  '  class Table {',
+  '    + header: string[]',
+  '  }',
+  '  class Fence {',
+  '    + tag: string',
+  '  }',
+  '  Reply "1" *-- "0..n" Block : holds',
+  '  Block <|-- Table',
+  '  Block <|-- Fence',
+)
+const FOLD_ORDERS = linesOf(
+  'erDiagram',
+  '  CUSTOMER ||--o{ ORDER : places',
+  '  ORDER ||--|{ LINE-ITEM : contains',
+  '  CUSTOMER }|..|{ DELIVERY-ADDRESS : uses',
+  '  PRODUCT ||--o{ LINE-ITEM : "appears in"',
+)
+const PINGS = linesOf(
+  'sequenceDiagram',
+  ...Array.from({ length: 30 }, (_, index) =>
+    index % 2 === 0 ? `  A->>B: ping ${String(index)}` : `  B->>A: pong ${String(index)}`,
+  ),
+)
+const CHAIN = linesOf(
+  'flowchart TD',
+  ...Array.from({ length: 14 }, (_, index) => `  N${String(index)} --> N${String(index + 1)}`),
+)
+const FOLD_COLUMNS = 78
+const DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST = 5
+
+function diagramLines(source: string, surface: Surface): string[] {
+  const outcome = diagramOf(source, replyWidth(surface, FOLD_COLUMNS), surface)
+  if (outcome.kind !== 'drawing') throw new Error(`not drawn: ${outcome.reason}`)
+  return outcome.lines.map((line) => line.trimEnd())
+}
+
+function leadLines(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `Line ${String(index + 1)}`)
+}
+
+describe('a folded reply around its diagrams', () => {
+  for (const surface of SURFACES) {
+    const width = replyWidth(surface, FOLD_COLUMNS)
+
+    viewTest(
+      `a reply with a state, a class and an ER diagram folds after the whole class diagram on ${surface}`,
+      async (_world, $) => {
+        const states = diagramLines(FOLD_STATES, surface)
+        const classes = diagramLines(FOLD_CLASSES, surface)
+        const orders = diagramLines(FOLD_ORDERS, surface)
+        const text = mermaidReply('Three diagrams:', FOLD_STATES, FOLD_CLASSES, FOLD_ORDERS)
+        const ui = await mountReply($, reply(text), surface, FOLD_COLUMNS)
+        const folded = await uncolouredSketchOf(ui, FOLD_COLUMNS)
+        expect(folded.slice(0, -1)).toEqual(
+          onSurface(surface, [
+            'Three diagrams:',
+            '',
+            ...diagramTitleLines(width, 'state'),
+            ...states,
+            '',
+            ...diagramTitleLines(width, 'class'),
+            ...classes,
+          ]),
+        )
+        expect(folded.at(-1)).toContain(`~… ${String(2 + orders.length)} more lines~`)
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `a diagram taller than the preview shows its first rows and the fold row names its kind and its remaining rows on ${surface}`,
+      async (world, $) => {
+        const pings = diagramLines(PINGS, surface)
+        const shownRows = 30 - 3
+        const text = mermaidReply('Here are the pings:', PINGS)
+        const ui = await mountReply($, reply(text), surface, FOLD_COLUMNS)
+        const folded = await uncolouredSketchOf(ui, FOLD_COLUMNS)
+        expect(folded.slice(0, -1)).toEqual(
+          onSurface(surface, [
+            'Here are the pings:',
+            '',
+            ...diagramTitleLines(width, 'sequence'),
+            ...pings.slice(0, shownRows),
+          ]),
+        )
+        expect(folded.at(-1)).toContain(
+          `~… sequence diagram, ${String(pings.length - shownRows)} more rows~`,
+        )
+        await ui.press({ key: 'block-1-drawing' })
+        expect(world.copies).toEqual([pings.join('\n')])
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `a cut diagram with prose after it names its remaining rows, then the lines after it on ${surface}`,
+      async (_world, $) => {
+        const pings = diagramLines(PINGS, surface)
+        const text = `${mermaidReply('Here are the pings:', PINGS)}\n\nAfter 1\nAfter 2`
+        const ui = await mountReply($, reply(text), surface, FOLD_COLUMNS)
+        expect((await uncolouredSketchOf(ui, FOLD_COLUMNS)).at(-1)).toContain(
+          `~… sequence diagram, ${String(pings.length - 27)} more rows, then 3 more lines~`,
+        )
+        await ui.unmount()
+      },
+    )
+  }
+
+  viewTest('a tall flowchart names itself flowchart in the fold row', async (_world, $) => {
+    const chain = diagramLines(CHAIN, 'terminal')
+    const ui = await mountReply(
+      $,
+      reply(mermaidReply('Here is the chain:', CHAIN)),
+      'terminal',
+      FOLD_COLUMNS,
+    )
+    expect((await uncolouredSketchOf(ui, FOLD_COLUMNS)).at(-1)).toContain(
+      `~… flowchart, ${String(chain.length - 27)} more rows~`,
+    )
+    await ui.unmount()
+  })
+
+  for (const [leadCount, shownRows] of [
+    [30 - 2 - DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST, DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST],
+    [30 - 1 - DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST, 0],
+    [28, 0],
+  ] as const) {
+    viewTest(
+      `after ${String(leadCount)} lines a diagram too tall to show whole shows ${String(shownRows)} of its rows and never its title alone`,
+      async (_world, $) => {
+        const pings = diagramLines(PINGS, 'terminal')
+        const lead = leadLines(leadCount)
+        const ui = await mountReply(
+          $,
+          reply(mermaidReply(lead.join('\n'), PINGS)),
+          'terminal',
+          FOLD_COLUMNS,
+        )
+        const folded = await uncolouredSketchOf(ui, FOLD_COLUMNS)
+        const width = replyWidth('terminal', FOLD_COLUMNS)
+        const diagram =
+          shownRows === 0
+            ? []
+            : ['', ...diagramTitleLines(width, 'sequence'), ...pings.slice(0, shownRows)]
+        expect(folded.slice(0, -1)).toEqual(onSurface('terminal', [...lead, ...diagram]))
+        expect(folded.at(-1)).toContain(
+          shownRows === 0
+            ? `~… ${String(2 + pings.length)} more lines~`
+            : `~… sequence diagram, ${String(pings.length - shownRows)} more rows~`,
+        )
+        await ui.unmount()
+      },
+    )
+  }
+})
+
 describe('diagram blocks', () => {
   for (const surface of SURFACES) {
     for (const columns of DIAGRAM_COLUMNS) {
@@ -4139,7 +4329,7 @@ describe('diagram blocks', () => {
       )
 
       viewTest(
-        `when the fold ends inside a diagram only its title line shows on ${surface} at ${String(columns)} columns`,
+        `when the fold ends inside a diagram the reply draws whole with no fold row on ${surface} at ${String(columns)} columns`,
         async (_world, $) => {
           const width = replyWidth(surface, columns)
           const drawing = drawnLines(MOCK_9_5_SOURCE, width)
@@ -4150,20 +4340,43 @@ describe('diagram blocks', () => {
             surface,
             columns,
           )
-          const folded = await sketchOf(ui, columns)
-          const shownLead =
-            surface === 'terminal' ? lead.map((line) => line.replace(/(\d+)$/, '=$1=')) : lead
-          expect(folded.slice(0, -1)).toEqual(
-            onSurface(surface, [...shownLead, '', ...diagramTitleLines(width)]),
+          expect(await uncolouredSketchOf(ui, columns)).toEqual(
+            onSurface(surface, [
+              ...lead,
+              '',
+              ...diagramTitleLines(width),
+              ...drawing.map((line) => line.trimEnd()),
+            ]),
           )
-          expect(folded.at(-1)).toContain(`~… ${String(drawing.length)} more lines~`)
-          expect(await ui.find({ type: 'Code' })).toBeUndefined()
+          expect(await ui.find({ key: 'fold' })).toBeUndefined()
+          await ui.unmount()
+        },
+      )
+
+      viewTest(
+        `when the fold ends inside a diagram the preview ends after the whole diagram and counts the lines after it on ${surface} at ${String(columns)} columns`,
+        async (world, $) => {
+          const width = replyWidth(surface, columns)
+          const drawing = drawnLines(MOCK_9_5_SOURCE, width)
+          const lead = Array.from({ length: 26 }, (_, index) => `Line ${String(index + 1)}`)
+          const text = `${mermaidReply(lead.join('\n'), MOCK_9_5_SOURCE)}\n\nAfter 1\nAfter 2`
+          const ui = await mountReply($, reply(text), surface, columns)
+          const folded = await uncolouredSketchOf(ui, columns)
+          expect(folded.slice(0, -1)).toEqual(
+            onSurface(surface, [
+              ...lead,
+              '',
+              ...diagramTitleLines(width),
+              ...drawing.map((line) => line.trimEnd()),
+            ]),
+          )
+          expect(folded.at(-1)).toContain('~… 3 more lines~')
+          await ui.press({ key: 'block-1-drawing' })
+          await ui.press({ key: 'copy-reply' })
+          expect(world.copies).toEqual([drawing.join('\n'), text])
           await ui.press({ key: 'fold' })
-          const indent = surface === 'terminal' ? '  ' : ''
-          expect((await uncolouredSketchOf(ui, columns)).slice(-3 - drawing.length, -2)).toEqual(
-            [...diagramTitleLines(width).slice(-1), ...drawing].map((line) =>
-              `${indent}${line}`.trimEnd(),
-            ),
+          expect((await uncolouredSketchOf(ui, columns)).slice(-4, -2)).toEqual(
+            onSurface(surface, ['', 'After 1', 'After 2']).slice(-2),
           )
           await ui.unmount()
         },
@@ -4419,21 +4632,22 @@ describe('diagram blocks', () => {
     const lead = Array.from({ length: 26 }, (_, index) => `Line ${String(index + 1)}`)
     const ui = await mountReply(
       $,
-      reply(mermaidReply(lead.join('\n'), TINY_SOURCE)),
+      reply(`${mermaidReply(lead.join('\n'), TINY_SOURCE)}\n\nAfter`),
       'terminal',
       20,
     )
     const drawing = drawnLines(TINY_SOURCE, 18)
-    const folded = await sketchOf(ui, 20)
-    expect(folded.slice(-6)).toEqual([
+    const folded = await uncolouredSketchOf(ui, 20)
+    expect(folded.slice(-6 - drawing.length)).toEqual([
       '  ~── mermaid · flow…~',
       `  ${' '.repeat(10)}[ copy ]`,
       `  ${' '.repeat(2)}[ copy drawing ]`,
-      `  ~… ${String(drawing.length)} more lines~`,
+      ...drawing.map((line) => `  ${line}`.trimEnd()),
+      '  ~… 2 more lines~',
       `  ${' '.repeat(10)}[ more ]`,
       `  ${' '.repeat(4)}[ copy reply ]`,
     ])
-    expect(folded).toHaveLength(26 + 1 + 3 + 3)
+    expect(folded).toHaveLength(26 + 1 + 3 + drawing.length + 3)
     await ui.unmount()
   })
 
