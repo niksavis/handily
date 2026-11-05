@@ -726,6 +726,7 @@ console.log(
 task(mods)
 if (failures.length > 0) {
   console.error(`${taskName}: ${failures.length} failure(s)`)
-  process.exit(1)
+  process.exitCode = 1
+} else {
+  console.log(`${taskName}: passed`)
 }
-console.log(`${taskName}: passed`)

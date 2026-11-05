@@ -377,6 +377,21 @@ test('test fails and names the mod, the test, its time and its limit when a test
   assert.match(overShareResult.stdout, /^\(pass\) .+ > a default draw \[1667\.67ms\]$/m)
 })
 
+const longFailingOutput = testOutput([
+  ...Array.from(
+    { length: 3000 },
+    (_, at) => `(pass) ${criterionTitle} > a draw with 1 agents and row ${String(at)} [1.00ms]`,
+  ),
+  `(pass) ${criterionTitle} > a default draw [1667.67ms]`,
+])
+const longFailingResult = runTimedTests(longFailingOutput)
+
+test('test prints the whole output of a failing mod on a pipe, up to its last line', () => {
+  assert.equal(longFailingResult.status, 1, longFailingResult.stderr)
+  assert.ok(longFailingOutput.length > 4 * 65_536)
+  assert.match(longFailingResult.stdout, /^Ran 3001 tests across 1 file\. \[3\.21s\]$/m)
+})
+
 const underShareResult = runTimedTests(
   testOutput([
     `(pass) ${criterionTitle} > a draw with 1 agents [12.50ms]`,
