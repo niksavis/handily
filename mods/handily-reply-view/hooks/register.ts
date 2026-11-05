@@ -102,13 +102,14 @@ const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 140 tokens.'
 const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
-  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
 const NO_REPLY_TEXT = 'No reply to copy yet. /replies copy reads the last reply of this session.'
 const DIAGRAM_HINT =
   'The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.'
 
 const BLOCK_NAMES: Readonly<Record<BlockKind, string>> = {
   diagram: 'diagram',
+  chart: 'chart',
   table: 'table',
   code: 'code block',
 }

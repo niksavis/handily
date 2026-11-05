@@ -1,6 +1,7 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
+import { chartName, drawChart, isChartSource } from './charts'
 import { drawClasses } from './classes'
 import { drawEntities } from './er'
 import { drawFlowchart } from './flowchart'
@@ -102,7 +103,7 @@ export type DiagramOutcome = DiagramDrawing | Refusal
 
 export type BlockCopy = { text: string; what: string }
 
-export type BlockKind = 'diagram' | 'table' | 'code'
+export type BlockKind = 'diagram' | 'chart' | 'table' | 'code'
 
 export type KindCopy = { kind: BlockKind; copy: BlockCopy }
 
@@ -1202,6 +1203,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
       const drawn = drawEntities(diagram, width)
       return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
+    case 'chart': {
+      const drawn = drawChart(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: chartName(diagram) } : drawn
+    }
   }
 }
 
@@ -1318,7 +1323,7 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
 
 function notDrawnPiece(context: Context, fence: Fence, refusal: Refusal, key: string): Piece {
   const { Box, Text } = context.elements
-  const note = `diagram not drawn: ${refusal.reason}.`
+  const note = `${isChartSource(fence.content) ? 'chart' : 'diagram'} not drawn: ${refusal.reason}.`
   const noteRows = rowsOf(note, context.width)
   const fenced = fencePiece(context, fence, key, mermaidCopy(fence, refusal))
   const noted = (element: RenderElement) =>
@@ -1370,7 +1375,7 @@ export function blockCopyOf(block: Block, layout: CopyLayout): KindCopy | null {
     case 'fence':
       return drawsAsDiagram(layout.drawsDiagrams, block)
         ? {
-            kind: 'diagram',
+            kind: isChartSource(block.content) ? 'chart' : 'diagram',
             copy: mermaidCopy(block, diagramOf(block.content, layout.width, layout.surface)),
           }
         : { kind: 'code', copy: codeCopy(block) }

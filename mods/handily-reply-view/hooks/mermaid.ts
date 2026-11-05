@@ -1,3 +1,4 @@
+import { chartBuilderOf, isChartKind, type Chart, type ChartBuilder } from './charts'
 import { ClassBuilder, type ClassDiagram } from './classes'
 import { EntityBuilder, type EntityDiagram } from './er'
 import { StateBuilder, type StateDiagram } from './state'
@@ -90,7 +91,7 @@ export type SequenceDiagram = {
 }
 
 export type MermaidDiagram =
-  Flowchart | SequenceDiagram | StateDiagram | ClassDiagram | EntityDiagram
+  Flowchart | SequenceDiagram | StateDiagram | ClassDiagram | EntityDiagram | Chart
 
 export type Statement = { line: number; text: string }
 
@@ -563,7 +564,8 @@ function isDrawnKind(kind: string): boolean {
     kind === SEQUENCE_HEADER ||
     kind === ENTITY_HEADER ||
     STATE_HEADER.test(kind) ||
-    CLASS_HEADER.test(kind)
+    CLASS_HEADER.test(kind) ||
+    isChartKind(kind)
   )
 }
 
@@ -573,7 +575,8 @@ function unknownHeader(header: Statement): DiagramFault {
   return notDrawnYet(header.line, kind)
 }
 
-type Builder = FlowchartBuilder | SequenceBuilder | StateBuilder | ClassBuilder | EntityBuilder
+type Builder =
+  FlowchartBuilder | SequenceBuilder | StateBuilder | ClassBuilder | EntityBuilder | ChartBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -584,6 +587,8 @@ function builderOf(header: Statement): Builder {
   if (STATE_HEADER.test(header.text)) return new StateBuilder()
   if (CLASS_HEADER.test(header.text)) return new ClassBuilder()
   if (header.text === ENTITY_HEADER) return new EntityBuilder()
+  const chart = chartBuilderOf(header.text)
+  if (chart !== null) return chart
   throw unknownHeader(header)
 }
 

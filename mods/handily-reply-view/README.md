@@ -762,6 +762,87 @@ A cardinality draws as a word, not as a crow's foot:
   an entity to itself, and a cardinality that does not parse, such as
   `line 3: the cardinality }|..|x does not parse.`
 
+## A chart
+
+A fenced `mermaid` block that holds an `xychart-beta` or `xychart` bar chart or line chart, or a
+`pie`, draws as a chart. The title line names the kind, such as `── mermaid · bar chart ──`. The
+syntax is the one of the Mermaid pages
+[XY Chart](https://mermaid.js.org/syntax/xyChart.html) and
+[Pie chart](https://mermaid.js.org/syntax/pie.html), Mermaid 12.3.0.
+
+A bar chart with at most 12 bars draws upright when each label is 8 columns or less and the chart
+fits the screen. Each value stands above its bar:
+
+```text
+● p95 jumped at 14:00 and stayed high:
+
+  ── mermaid · bar chart ────────────────────────────  [ copy ] [ copy drawing ]
+  Ingest p95 by hour (ms)
+
+  2500 ┤                      2029   2032
+       │                      ▁▁▁▁▁  ▁▁▁▁▁  2007
+  2000 ┤                      █████  █████  █████
+       │                      █████  █████  █████
+  1500 ┤                      █████  █████  █████
+       │                      █████  █████  █████
+  1000 ┤                      █████  █████  █████
+       │                      █████  █████  █████
+   500 ┤  45     47     46    █████  █████  █████
+       │ ▁▁▁▁▁  ▂▂▂▂▂  ▁▁▁▁▁  █████  █████  █████
+     0 └─────────────────────────────────────────
+         11:00  12:00  13:00  14:00  15:00  16:00
+```
+
+Any other bar chart draws across, with each value at the right edge. This is the same chart at 40
+columns:
+
+```text
+  Ingest p95 by hour (ms)
+  11:00 ▌                             45
+  12:00 ▌                             47
+  13:00 ▌                             46
+  14:00 █████████████████████▉      2029
+  15:00 ██████████████████████      2032
+  16:00 █████████████████████▋      2007
+        0                      2500
+```
+
+- The top of a bar uses the eighth blocks `▁` to `█`, and the end of a bar across uses `▏` to
+  `█`. So 2029 and 2032 differ.
+- The scale starts at 0 and ends at a round number above the largest value. A y-axis range such
+  as `y-axis "Latency" 0 --> 3000` sets the scale when it holds every value.
+- A bar chart with a value below 0 draws across, around a line `┃` at 0. Each value shows its sign,
+  such as `+120` and `-84`.
+- A line chart draws steps: `─` along, `╯` or `╮` at a change, `│` up or down, and `●` at each
+  value. A row under the labels prints each value. On a screen of 40 columns or less, and when the
+  steps do not fit, a line chart draws as bars across with a note under it, such as
+  `line chart drawn as bars: the screen has 38 columns.`
+- A chart with two series draws the second series as `▒` for bars or `◇` for a line. A legend at
+  the right of the title names both series by their shape, such as `█ p95   ▒ p99`. A series with
+  no name shows as `series 1` or `series 2`.
+- A pie draws one bar per slice, largest first, with its share and its value, such as
+  `53% · 212`. On a narrow screen the value goes first. Then the labels cut with `…`.
+- On the terminal, the bars take `suggestion` and then `planMode`. The tallest bar of a chart with
+  one series is in `claude`. The values and the scale numbers are in `planMode`, and the axis is in
+  `inactive`. The title is bold. The slices of a pie take the colours of the boxes in turn, in size
+  order.
+- The titles of the x-axis and the y-axis follow the chart in one dim line.
+- `copy` copies the mermaid source and `copy drawing` copies the drawn lines.
+  `/replies copy chart` copies the source of the last chart of the last reply.
+- On the desktop app, the chart draws in a code block with no colour, as a diagram does.
+- The `diagrams` setting `off` draws a chart as its source, as it draws a diagram.
+
+These draw as the source under a note that starts with `chart not drawn:` and names the reason:
+
+- a chart with no values, such as `bar []`
+- a value that is not a number, such as `line 4: "n/a" is not a number.`
+- a pie slice below 0, or slices that add up to 0
+- more than 40 bars, points or slices, such as `41 bars, at most 40 draw.`
+- more than 2 series, or bar and line series in one chart
+- an x-axis with a number range, such as `x-axis 1 --> 10`, and a point label, such as
+  `line [540 "PaLM"]`
+- an x-axis with more or fewer labels than the series has values
+
 ## A prompt that you type
 
 A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
@@ -915,6 +996,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | `/replies`               | Turns the reply view off or on for this session, and replies with the new mode     |
 | `/replies hints`         | Turns the diagram hints off or on for this session, and replies with the new state |
 | `/replies copy diagram`  | Copies the source of the last diagram of the last reply                            |
+| `/replies copy chart`    | Copies the source of the last chart of the last reply                              |
 | `/replies copy table`    | Copies the last table of the last reply as markdown                                |
 | `/replies copy code`     | Copies the content of the last code block of the last reply                        |
 | `/replies copy reply`    | Copies the whole last reply as markdown                                            |
@@ -938,7 +1020,8 @@ reads the last reply of the main session. It copies the same text as the `copy` 
 block, and its toast names it as that button does, such as `✓ Copied the sequence source`. The
 command lays the reply out at the width of the terminal where it runs, as the reply draws there.
 
-- A mermaid block counts as a diagram and not as a code block.
+- A mermaid block counts as a diagram and not as a code block. A block that holds a `pie`, an
+  `xychart` or an `xychart-beta` counts as a chart and not as a diagram.
 - A diagram that does not draw copies as its button does: `✓ Copied the mermaid block`.
 - With the `diagrams` setting `off`, a mermaid block draws as a code block, so
   `/replies copy code` copies it and `/replies copy diagram` does not.
