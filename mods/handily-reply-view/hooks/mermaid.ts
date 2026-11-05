@@ -1,6 +1,9 @@
 import { ClassBuilder, type ClassDiagram } from './classes'
 import { EntityBuilder, type EntityDiagram } from './er'
+import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph'
+import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
 import { StateBuilder, type StateDiagram } from './state'
+import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
 
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
 
@@ -90,9 +93,16 @@ export type SequenceDiagram = {
 }
 
 export type MermaidDiagram =
-  Flowchart | SequenceDiagram | StateDiagram | ClassDiagram | EntityDiagram
+  | Flowchart
+  | SequenceDiagram
+  | StateDiagram
+  | ClassDiagram
+  | EntityDiagram
+  | GitGraph
+  | Mindmap
+  | Timeline
 
-export type Statement = { line: number; text: string }
+export type Statement = { line: number; text: string; indent: number }
 
 export class DiagramFault extends Error {
   constructor(readonly refusal: Refusal) {
@@ -102,6 +112,7 @@ export class DiagramFault extends Error {
 
 const LINE_ENDING = /\r\n?/g
 const COMMENT = /^%%/
+const DIRECTIVE = /^\s*%%\{\s*([A-Za-z]+)/
 const TRAILING_SEMICOLON = /;$/
 const LINE_BREAK = /<br\s*\/?>/i
 const FLOW_HEADER = /^(flowchart|graph)(?:\s+(\S+))?$/
@@ -222,6 +233,7 @@ function statementsOf(lines: readonly string[]): Statement[] {
     .map((text, index) => ({
       line: index + 1,
       text: text.trim().replace(TRAILING_SEMICOLON, '').trimEnd(),
+      indent: text.length - text.trimStart().length,
     }))
     .filter(({ text }) => text !== '' && !COMMENT.test(text))
 }
@@ -573,7 +585,15 @@ function unknownHeader(header: Statement): DiagramFault {
   return notDrawnYet(header.line, kind)
 }
 
-type Builder = FlowchartBuilder | SequenceBuilder | StateBuilder | ClassBuilder | EntityBuilder
+type Builder =
+  | FlowchartBuilder
+  | SequenceBuilder
+  | StateBuilder
+  | ClassBuilder
+  | EntityBuilder
+  | GitGraphBuilder
+  | MindmapBuilder
+  | TimelineBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -584,6 +604,12 @@ function builderOf(header: Statement): Builder {
   if (STATE_HEADER.test(header.text)) return new StateBuilder()
   if (CLASS_HEADER.test(header.text)) return new ClassBuilder()
   if (header.text === ENTITY_HEADER) return new EntityBuilder()
+  const gitGraph = gitGraphBuilder(header)
+  if (gitGraph !== null) return gitGraph
+  const mindmap = mindmapBuilder(header)
+  if (mindmap !== null) return mindmap
+  const timeline = timelineBuilder(header)
+  if (timeline !== null) return timeline
   throw unknownHeader(header)
 }
 
@@ -602,13 +628,22 @@ function parsed(statements: readonly Statement[]): MermaidDiagram | Refusal {
   }
 }
 
+function directiveRefusal(lines: readonly string[]): Refusal | null {
+  for (const [index, text] of lines.entries()) {
+    const name = DIRECTIVE.exec(text)?.[1]
+    if (name !== undefined) return notDrawnYet(index + 1, `%%{${name}}%%`).refusal
+  }
+  return null
+}
+
 export function parseMermaid(source: string): MermaidDiagram | Refusal {
   const lines = sourceLines(source)
   const statements = statementsOf(lines)
-  if (statements.length === 0) return parsed(statements)
+  if (statements.length === 0) return directiveRefusal(lines) ?? parsed(statements)
   return (
     limitRefusal('lines', lines.length) ??
     limitRefusal('characters', Array.from(lines.join('\n')).length) ??
+    directiveRefusal(lines) ??
     parsed(statements)
   )
 }
