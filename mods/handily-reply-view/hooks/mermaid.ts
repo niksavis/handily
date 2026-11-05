@@ -42,11 +42,14 @@ export type FlowNode = { id: string; shape: FlowShape; label: string[] }
 
 export type FlowEdge = { from: string; to: string; stroke: Stroke; arrow: boolean; label: string[] }
 
+export type FlowGroup = { id: string; label: string[]; nodes: string[] }
+
 export type Flowchart = {
   kind: 'flowchart'
   direction: FlowDirection
   nodes: FlowNode[]
   edges: FlowEdge[]
+  groups?: FlowGroup[]
 }
 
 export type Participant = { id: string; kind: 'participant' | 'actor'; label: string[] }
@@ -124,7 +127,19 @@ const DIAGRAM_KIND = /^([A-Za-z][\w-]*)(?:\s[^-[\](){}|<>&]*)?$/
 const DRAWN_DIRECTIONS: Readonly<Record<string, FlowDirection>> = { TD: 'TD', TB: 'TD', LR: 'LR' }
 const REFUSED_DIRECTIONS: ReadonlySet<string> = new Set(['RL', 'BT'])
 const IGNORED_FLOW_STATEMENT = /^(?:classDef|class|style|linkStyle|click)\s+(?=[^\s=&-])/
-const REFUSED_FLOW_STATEMENT = /^(subgraph|direction)(?:\s|$)/
+const SUBGRAPH_OPENING = /^subgraph(?:\s+(.*))?$/
+const SUBGRAPH_TITLED = /^([^\s[\]"]+)\s*\[(.*)\]$/
+const SUBGRAPH_END = 'end'
+const SUBGRAPH_ID_PREFIX = 'subGraph'
+const WHITESPACE = /\s/
+const DIRECTION_STATEMENT = /^direction(?:\s+(.*))?$/
+const GROUP_DIRECTIONS: Readonly<Record<string, FlowDirection | null>> = {
+  TB: 'TD',
+  TD: 'TD',
+  LR: 'LR',
+  RL: null,
+  BT: null,
+}
 const REFUSED_SEQUENCE_STATEMENT = /^(box|create|destroy)(?:\s|$)/
 const NODE_ID = /[\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*/uy
 const RESERVED_NODE_ID = 'end'
@@ -304,9 +319,129 @@ class Cursor {
   }
 }
 
+type SubgraphDirection = { written: string; line: number }
+
+type Subgraph = {
+  id: string
+  label: string[]
+  line: number
+  mentioned: string[]
+  direction: SubgraphDirection | null
+}
+
+class Subgraphs {
+  private readonly closed: Subgraph[] = []
+  private open: Subgraph | null = null
+  private readonly edgeLines = new Map<string, number>()
+  private readonly mentionLines = new Map<string, number>()
+
+  begin(line: number, written: string | undefined): void {
+    if (this.open !== null) {
+      throw lineFault(line, 'a subgraph inside a subgraph does not draw yet')
+    }
+    const title = written?.trim() ?? ''
+    const automatic = `${SUBGRAPH_ID_PREFIX}${String(this.closed.length)}`
+    const titled = SUBGRAPH_TITLED.exec(title)
+    if (titled !== null) {
+      const id = titled[1] ?? automatic
+      this.open = this.opened(id, labelLines((titled[2] ?? '').trim(), line), line)
+      return
+    }
+    const label = title === '' ? [] : labelLines(title, line)
+    const named = label.join(' ')
+    const id = named === '' || WHITESPACE.test(named) ? automatic : named
+    this.open = this.opened(id, label, line)
+  }
+
+  close(line: number): void {
+    if (this.open === null) throw doesNotParse(line)
+    this.closed.push(this.open)
+    this.open = null
+  }
+
+  direct(line: number, written: string | undefined): void {
+    if (this.open === null) throw notDrawnYet(line, 'direction')
+    const named = written?.trim() ?? ''
+    if (!Object.hasOwn(GROUP_DIRECTIONS, named)) throw doesNotParse(line)
+    this.open.direction ??= { written: named, line }
+  }
+
+  mention(ids: readonly string[], line: number, linked: boolean): void {
+    for (const id of ids) {
+      if (!this.mentionLines.has(id)) this.mentionLines.set(id, line)
+      if (linked && !this.edgeLines.has(id)) this.edgeLines.set(id, line)
+    }
+    this.open?.mentioned.push(...ids)
+  }
+
+  resolved(direction: FlowDirection, edges: readonly FlowEdge[]): FlowGroup[] {
+    if (this.open !== null) {
+      const line = this.open.line
+      throw lineFault(line, `line ${String(line)} opens a subgraph with no end`)
+    }
+    this.refuseGroupLinks()
+    const owner = new Map<string, FlowGroup>()
+    const groups = new Map<string, FlowGroup>()
+    for (const subgraph of this.closed) {
+      const group = groups.get(subgraph.id) ?? { id: subgraph.id, label: subgraph.label, nodes: [] }
+      groups.set(subgraph.id, group)
+      for (const id of subgraph.mentioned) {
+        if (this.isGroup(id)) {
+          if (id === subgraph.id) continue
+          const line = this.mentionLines.get(id) ?? subgraph.line
+          throw lineFault(line, 'a subgraph inside a subgraph does not draw yet')
+        }
+        if (owner.has(id)) continue
+        owner.set(id, group)
+        group.nodes.push(id)
+      }
+    }
+    for (const subgraph of this.closed) {
+      const group = groups.get(subgraph.id)
+      if (group === undefined || group.nodes.length === 0) {
+        throw lineFault(subgraph.line, 'an empty subgraph does not draw yet')
+      }
+      this.refuseOwnDirection(subgraph, group, direction, edges)
+    }
+    return [...groups.values()]
+  }
+
+  isGroup(id: string): boolean {
+    return this.closed.some((subgraph) => subgraph.id === id)
+  }
+
+  private opened(id: string, label: string[], line: number): Subgraph {
+    return { id, label, line, mentioned: [], direction: null }
+  }
+
+  private refuseGroupLinks(): void {
+    const linked = this.closed
+      .map((subgraph) => ({ id: subgraph.id, line: this.edgeLines.get(subgraph.id) }))
+      .filter((found): found is { id: string; line: number } => found.line !== undefined)
+      .sort((one, other) => one.line - other.line)[0]
+    if (linked !== undefined) {
+      throw lineFault(linked.line, `an edge to the subgraph ${linked.id} does not draw yet`)
+    }
+  }
+
+  private refuseOwnDirection(
+    subgraph: Subgraph,
+    group: FlowGroup,
+    direction: FlowDirection,
+    edges: readonly FlowEdge[],
+  ): void {
+    const own = subgraph.direction
+    if (own === null || GROUP_DIRECTIONS[own.written] === direction) return
+    const members = new Set(group.nodes)
+    if (edges.some((edge) => members.has(edge.from) !== members.has(edge.to))) return
+    throw notDrawnYet(own.line, `direction ${own.written} inside a subgraph`)
+  }
+}
+
 class FlowchartBuilder {
   private readonly nodes = new Map<string, FlowNode>()
   private readonly edges: FlowEdge[] = []
+  private readonly subgraphs = new Subgraphs()
   private edgeCount = 0
 
   constructor(private readonly direction: FlowDirection) {}
@@ -314,11 +449,13 @@ class FlowchartBuilder {
   add(statement: Statement): void {
     const { line, text } = statement
     if (IGNORED_FLOW_STATEMENT.test(text)) return
-    const refused = REFUSED_FLOW_STATEMENT.exec(text)?.[1]
-    if (refused !== undefined) throw notDrawnYet(line, refused)
+    if (this.structure(statement)) return
     const cursor = new Cursor(text, line)
     let sources = this.group(cursor)
+    const mentioned = [...sources]
+    let linked = false
     while (!cursor.done) {
+      linked = true
       const link = this.link(cursor)
       const targets = this.group(cursor)
       this.edgeCount += sources.length * targets.length
@@ -327,11 +464,17 @@ class FlowchartBuilder {
           for (const to of targets) this.edges.push({ from, to, ...link, label: [...link.label] })
         }
       }
+      mentioned.push(...targets)
       sources = targets
     }
+    this.subgraphs.mention(mentioned, line, linked)
   }
 
   build(): Flowchart {
+    const groups = this.subgraphs.resolved(this.direction, this.edges)
+    for (const id of [...this.nodes.keys()]) {
+      if (this.subgraphs.isGroup(id)) this.nodes.delete(id)
+    }
     refuseOverLimits([
       ['boxes', this.nodes.size],
       ['edges', this.edgeCount],
@@ -341,7 +484,24 @@ class FlowchartBuilder {
       direction: this.direction,
       nodes: [...this.nodes.values()],
       edges: this.edges,
+      ...(groups.length === 0 ? {} : { groups }),
     }
+  }
+
+  private structure({ line, text }: Statement): boolean {
+    const opening = SUBGRAPH_OPENING.exec(text)
+    if (opening !== null) {
+      this.subgraphs.begin(line, opening[1])
+      return true
+    }
+    if (text === SUBGRAPH_END) {
+      this.subgraphs.close(line)
+      return true
+    }
+    const direction = DIRECTION_STATEMENT.exec(text)
+    if (direction === null) return false
+    this.subgraphs.direct(line, direction[1])
+    return true
   }
 
   private group(cursor: Cursor): string[] {
