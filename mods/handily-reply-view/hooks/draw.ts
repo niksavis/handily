@@ -1,6 +1,8 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
+import { drawClasses } from './classes'
+import { drawEntities } from './er'
 import { drawFlowchart } from './flowchart'
 import { highlightedRuns } from './highlight'
 import { textPropsOf, type Ink, type InkedDrawing, type InkRun } from './ink'
@@ -26,6 +28,7 @@ import {
 } from './prose'
 import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole } from './roles'
 import { drawSequence } from './sequence'
+import { drawState } from './state'
 import {
   columnWidths,
   CUT_MARK,
@@ -1185,6 +1188,18 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'sequence': {
       const drawn = drawSequence(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'state': {
+      const drawn = drawState(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'class': {
+      const drawn = drawClasses(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'er': {
+      const drawn = drawEntities(diagram, width)
       return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
   }

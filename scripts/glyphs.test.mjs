@@ -50,6 +50,11 @@ const LITERAL_EXCEPTIONS = [
     glyph: '▶',
     why: 'the arrow head of a sequence message',
   },
+  {
+    file: 'mods/handily-reply-view/hooks/classes.ts',
+    glyph: '◆',
+    why: 'the composition arrowhead of a class diagram relation, as the mermaid syntax names it',
+  },
 ]
 const MARK_ROLES = Object.keys(APPROVED)
 const SETS = ['plain', 'nerd']
