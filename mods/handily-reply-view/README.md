@@ -544,8 +544,9 @@ It draws at 80 columns and more, under the title line and its buttons:
 - A `direction` line inside a subgraph draws in the direction of the flowchart. Mermaid does the
   same when an edge links the subgraph to a box outside it. A subgraph with no such edge must
   name the direction of the flowchart.
-- A frame keeps one column of space beside its boxes. A box outside the frame stays out of it.
-  When a line crosses the border, the line draws through it.
+- A frame keeps one column of space beside its boxes, and it is only as wide as its boxes and
+  its title need. A box outside the frame stays out of it. When a line crosses the border, the
+  line draws through it.
 - The title moves to the right of a line that enters the frame through the top edge. A frame
   grows to hold its whole title. When the labels must fit, the title is cut to the width of a
   label, with `…`.
@@ -562,6 +563,9 @@ These reasons are in the note of a `subgraph` that does not draw:
 - `an empty subgraph does not draw yet.`
 - `line 2 opens a subgraph with no end.`
 - `direction LR inside a subgraph does not draw yet.`
+- `its loops and its subgraphs cannot keep one order.` A box at the end of a loop must be the
+  last box of its level, and the frames keep one order in every level. When two loops need two
+  frames in opposite orders, the diagram draws as its source.
 
 ## Diagram hints
 

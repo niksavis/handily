@@ -3306,6 +3306,61 @@ describe('flowchart drawings', () => {
     ).toEqual([])
   })
 
+  test('a loop into a subgraph draws when the subgraphs keep one order with its box last, and draws only its links', () => {
+    const source = linesOf(
+      'flowchart TD',
+      '  subgraph G0',
+      '    N1',
+      '    N6',
+      '  end',
+      '  subgraph G1',
+      '    N2',
+      '    N4',
+      '  end',
+      '  N1 --> N7',
+      '  N7 --> N1',
+      '  N4 --> N1',
+      '  N6 --> N2',
+    )
+    const lines = drawnLines(source, REPLY_COLUMNS)
+    expect(lines).toEqual([
+      '┌┄ G1 ┄┄┄┐ ┌┄ G0 ┄┄┄┐',
+      '┆        ┆ ┆        ┆',
+      '┆ ╭────╮ ┆ ┆ ╭────╮ ┆',
+      '┆ │ N4 │ ┆ ┆ │ N6 │ ┆',
+      '┆ ╰──┬─╯ ┆ ┆ ╰──┬─╯ ┆',
+      '┆    └──────────│┐  ┆',
+      '┆     ┌─────────┘│  ┆',
+      '┆     ▼  ┆ ┆     ▼  ┆',
+      '┆ ╭────╮ ┆ ┆ ╭────╮ ┆',
+      '┆ │ N2 │ ┆ ┆ │ N1 │◀───────┐',
+      '┆ ╰────╯ ┆ ┆ ╰──┬─╯ ┆      │',
+      '└┄┄┄┄┄┄┄┄┘ └┄┄┄┄│┄┄┄┘      │',
+      '                ▼          │',
+      '             ╭────╮        │',
+      '             │ N7 │────────┘',
+      '             ╰────╯',
+    ])
+    expect(drawnLinks(lines)).toEqual(chartLinks(flowchartOf(source)))
+  })
+
+  test('500 generated charts with subgraphs refuse only for their width or the order of their loops when they draw with no subgraph', () => {
+    const refused = groupedCharts(20261105, 500).flatMap((source) => {
+      const chart = flowchartOf(source)
+      const plain = { ...chart, groups: [] }
+      if (drawFlowchart(plain, REPLY_COLUMNS).kind !== 'drawing') return []
+      const result = drawFlowchart(chart, REPLY_COLUMNS)
+      return result.kind === 'drawing' ? [] : [result.reason]
+    })
+    expect(
+      refused.filter(
+        (reason) =>
+          !reason.startsWith('it takes ') &&
+          reason !== 'its loops and its subgraphs cannot keep one order',
+      ),
+    ).toEqual([])
+  })
+
   test('the label of a loop is cut to 12 columns when the labels must fit', () => {
     const source = MOCK_9_6_LOOP_SOURCE.replace('|fail|', '|fail after the third retry|')
     expect(drawnLines(source, REPLY_COLUMNS)[5]).toBe(
