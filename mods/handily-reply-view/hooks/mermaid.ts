@@ -1,4 +1,5 @@
 import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph'
+import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
 
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
 
@@ -87,7 +88,7 @@ export type SequenceDiagram = {
   blocks: SequenceBlock[]
 }
 
-export type MermaidDiagram = Flowchart | SequenceDiagram | GitGraph
+export type MermaidDiagram = Flowchart | SequenceDiagram | GitGraph | Mindmap
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -559,7 +560,9 @@ function unknownHeader(header: Statement): DiagramFault {
   return notDrawnYet(header.line, kind)
 }
 
-function builderOf(header: Statement): FlowchartBuilder | SequenceBuilder | GitGraphBuilder {
+function builderOf(
+  header: Statement,
+): FlowchartBuilder | SequenceBuilder | GitGraphBuilder | MindmapBuilder {
   const flow = FLOW_HEADER.exec(header.text)
   if (flow !== null) {
     return new FlowchartBuilder(flowDirection(header, flow[1] ?? '', flow[2]))
@@ -567,6 +570,8 @@ function builderOf(header: Statement): FlowchartBuilder | SequenceBuilder | GitG
   if (header.text === SEQUENCE_HEADER) return new SequenceBuilder()
   const gitGraph = gitGraphBuilder(header)
   if (gitGraph !== null) return gitGraph
+  const mindmap = mindmapBuilder(header)
+  if (mindmap !== null) return mindmap
   throw unknownHeader(header)
 }
 

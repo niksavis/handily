@@ -17,6 +17,7 @@ import {
   type Table,
 } from './markdown'
 import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
+import { drawMindmap } from './mindmap'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
 import {
   holdsLinkDefinition,
@@ -1190,6 +1191,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'gitgraph': {
       const drawn = drawGitGraph(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'mindmap': {
+      const drawn = drawMindmap(diagram, width)
       return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
   }

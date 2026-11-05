@@ -638,6 +638,82 @@ At 40 columns, a label that does not fit wraps under its lanes:
 The syntax follows the [gitGraph page](https://mermaid.js.org/syntax/gitgraph.html) of Mermaid
 12.3.0.
 
+## A mind map
+
+A `mindmap` draws as a tree from its root, under the title line `── mermaid · mindmap ──`:
+
+```text
+● The topics of the talk:
+
+  ── mermaid · mindmap ──────────────────────────────  [ copy ] [ copy drawing ]
+   ╭───────╮
+  ( mindmap )
+   ╰┬──────╯
+    ├─ Origins
+    │  ├─ Long history
+    │  └─ Popularisation
+    │     └─ British popular psychology author Tony Buzan
+    ├─ Research
+    │  ├─ On effectiveness
+    │  │  and features
+    │  └─ On Automatic creation
+    │     └─ Uses
+    │        ├─ Creative techniques
+    │        ├─ Strategic planning
+    │        └─ Argument mapping
+    └─ Tools
+       ├─ Pen and paper
+       └─ Mermaid
+```
+
+At 40 columns, a long node wraps under its own text:
+
+```text
+● The topics of the talk:
+
+  ── mermaid · mindmap ─────────────────
+               [ copy ] [ copy drawing ]
+   ╭───────╮
+  ( mindmap )
+   ╰┬──────╯
+    ├─ Origins
+    │  ├─ Long history
+    │  └─ Popularisation
+    │     └─ British popular psychology
+    │        author Tony Buzan
+    ├─ Research
+    │  ├─ On effectiveness
+    │  │  and features
+    │  └─ On Automatic creation
+    │     └─ Uses
+    │        ├─ Creative techniques
+    │        ├─ Strategic planning
+    │        └─ Argument mapping
+    └─ Tools
+       ├─ Pen and paper
+       └─ Mermaid
+```
+
+- The indentation of a line sets its level. A node takes the nearest line above it with less
+  indentation as its parent, as in Mermaid.
+- The root draws in a frame of its shape. `[…]` and `{{…}}` draw square corners. `((…))` draws
+  as a circle `( … )`. `(…)`, `)…(`, `))…((` and a root with no shape draw rounded corners.
+- Every other node draws its text after `├─` or `└─`, with no shape. Each level stands 3 columns
+  to the right of its parent.
+- On the terminal, the root is in `claude`. Each node of the first level is bold, in the colours
+  `suggestion`, `planMode` and `merged` in turn. Each node under it takes its colour. The lines
+  of the tree are in `inactive`.
+- `<br>` in a node breaks the line. A node too wide for the screen wraps. When a level and 10
+  columns of its text do not fit, the mind map draws as its source with the width note.
+- A class line `:::urgent` draws nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: `::icon(…)` (`icons does not draw yet.`), a markdown
+  string (`markdown strings does not draw yet.`), a second root
+  (`line 3 starts a second root.`) and a mind map with no node (`the mindmap has no nodes.`).
+
+The syntax follows the [mindmap page](https://mermaid.js.org/syntax/mindmap.html) of Mermaid
+12.3.0.
+
 ## A prompt that you type
 
 A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
