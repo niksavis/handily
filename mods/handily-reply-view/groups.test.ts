@@ -1,8 +1,9 @@
 import type { On } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 import { drawFlowchart } from './hooks/flowchart'
-import { parseMermaid, type FlowGroup, type Flowchart, type Refusal } from './hooks/mermaid'
-import { displayWidth, graphemesOf } from './hooks/width'
+import { parseMermaid, type FlowGroup, type Refusal } from './hooks/mermaid'
+import { displayWidth } from './hooks/width'
+import { withoutGroups } from './fixtures/component-charts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const WIDTHS = [80, 40, 30] as const
@@ -131,93 +132,6 @@ const CROSSED_LOOP = lines(
   '  F --> D & E',
   '  E --> A',
 )
-
-const NATURAL_COLUMNS = 400
-const FRAME_BORDERS = 4
-const WIDTH_FACTOR = 1.75
-
-type DrawnFrame = { top: number; left: number; bottom: number; right: number }
-
-type DrawnBox = { name: string; top: number; left: number; right: number }
-
-function componentCharts(seed: number, count: number): string[] {
-  let state = seed
-  const next = (below: number) => {
-    state = (state * 1103515245 + 12345) % 2147483648
-    return Math.floor((state / 2147483648) * below)
-  }
-  return Array.from({ length: count }, () => {
-    const direction = next(2) === 0 ? 'TD' : 'LR'
-    const groups = 2 + next(6)
-    const declared: string[] = []
-    const edges: string[] = []
-    let box = 0
-    for (let group = 0; group < groups; group++) {
-      const size = 1 + next(4)
-      const first = box + 1
-      declared.push(`  subgraph G${String(group)}`)
-      for (let member = 0; member < size; member++) {
-        box += 1
-        declared.push(`    N${String(box)}`)
-        if (member > 0) edges.push(`  N${String(first + next(member))} --> N${String(box)}`)
-      }
-      declared.push('  end')
-    }
-    for (let edge = 0; edge < groups; edge++) {
-      const from = 1 + next(box)
-      const to = 1 + next(box)
-      if (from < to) edges.push(`  N${String(from)} --> N${String(to)}`)
-    }
-    return lines(`flowchart ${direction}`, ...declared, ...edges)
-  })
-}
-
-function withoutGroups(chart: Flowchart): Flowchart {
-  return { kind: 'flowchart', direction: chart.direction, nodes: chart.nodes, edges: chart.edges }
-}
-
-function widthOf(drawing: readonly string[]): number {
-  return Math.max(...drawing.map(displayWidth))
-}
-
-function drawnFrames(drawing: readonly string[]): DrawnFrame[] {
-  const grid = drawing.map((line) => [...graphemesOf(line)])
-  const at = (row: number, col: number) => grid[row]?.[col] ?? ' '
-  return grid.flatMap((cells, top) =>
-    cells.flatMap((cell, left) => {
-      if (cell !== '┌' || !'┄ '.includes(at(top, left + 1))) return []
-      let bottom = top + 1
-      while (bottom < grid.length && at(bottom, left) !== '└') bottom += 1
-      let right = left + 1
-      while (right < (grid[bottom]?.length ?? 0) && at(bottom, right) !== '┘') right += 1
-      return at(bottom, right) === '┘' ? [{ top, left, bottom, right }] : []
-    }),
-  )
-}
-
-function drawnBoxes(drawing: readonly string[]): DrawnBox[] {
-  return drawing.flatMap((line, top) => {
-    const cells = [...graphemesOf(line)]
-    return cells.flatMap((cell, left) => {
-      if (cell !== '╭') return []
-      let right = left + 1
-      while ('─┬┴'.includes(cells[right] ?? ' ')) right += 1
-      const name = [...graphemesOf(drawing[top + 1] ?? '')]
-        .slice(left + 1, right)
-        .join('')
-        .trim()
-      return [{ name, top, left, right }]
-    })
-  })
-}
-
-function frameTitle(drawing: readonly string[], frame: DrawnFrame): string {
-  return [...graphemesOf(drawing[frame.top] ?? '')]
-    .slice(frame.left, frame.right + 1)
-    .join('')
-    .replace(/[┌┐┄│╎]/g, '')
-    .trim()
-}
 
 function isNode(value: unknown): value is Node {
   return typeof value === 'object' && value !== null
@@ -560,44 +474,5 @@ describe('subgraph frames', () => {
       limit: null,
     })
     expect(drawFlowchart(withoutGroups(chart), 28).kind).toBe('drawing')
-  })
-
-  test('200 generated component diagrams draw at most 1.75 times as wide as with no subgraphs, plus 4 columns for each frame', () => {
-    const widths = componentCharts(20261105, 200).flatMap((source) => {
-      const chart = parseMermaid(source)
-      if (chart.kind !== 'flowchart') return []
-      const framed = drawFlowchart(chart, NATURAL_COLUMNS)
-      const bare = drawFlowchart(withoutGroups(chart), NATURAL_COLUMNS)
-      if (bare.kind !== 'drawing') return []
-      const bound = WIDTH_FACTOR * widthOf(bare.lines) + FRAME_BORDERS * (chart.groups ?? []).length
-      const drawn = framed.kind === 'drawing' ? widthOf(framed.lines) : Infinity
-      return [{ source, drawn, bound }]
-    })
-    expect(widths.length).toBeGreaterThan(190)
-    expect(widths.filter(({ drawn, bound }) => drawn > bound)).toEqual([])
-  })
-
-  test('each frame of 300 generated component diagrams top down is no wider than its boxes in one row, its title and its borders', () => {
-    const frames = componentCharts(20261105, 300).flatMap((source) => {
-      const chart = parseMermaid(source)
-      if (chart.kind !== 'flowchart' || chart.direction !== 'TD') return []
-      const drawn = drawFlowchart(chart, NATURAL_COLUMNS)
-      if (drawn.kind !== 'drawing') return [{ source, width: Infinity, bound: 0 }]
-      const boxes = drawnBoxes(drawn.lines)
-      return drawnFrames(drawn.lines).map((frame) => {
-        const inside = boxes.filter(
-          (box) =>
-            box.left > frame.left &&
-            box.right < frame.right &&
-            box.top > frame.top &&
-            box.top < frame.bottom,
-        )
-        const row = inside.reduce((total, box) => total + box.right - box.left + 1 + 2, -2)
-        const title = displayWidth(frameTitle(drawn.lines, frame)) + 2
-        return { source, width: frame.right - frame.left + 1, bound: row + title + FRAME_BORDERS }
-      })
-    })
-    expect(frames.length).toBeGreaterThan(300)
-    expect(frames.filter(({ width, bound }) => width > bound)).toEqual([])
   })
 })

@@ -53,6 +53,7 @@ describe('the names of the drawn kinds', () => {
       'mind map',
       'timeline',
       'sankey diagram',
+      'radar diagram',
     ])
   })
 })

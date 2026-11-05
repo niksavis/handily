@@ -30,6 +30,7 @@ import {
   type ProsePart,
   type QuoteLine,
 } from './prose'
+import { drawRadar } from './radar'
 import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole } from './roles'
 import { drawSankey } from './sankey'
 import { drawSequence } from './sequence'
@@ -1246,6 +1247,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'sankey': {
       const drawn = drawSankey(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'radar': {
+      const drawn = drawRadar(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

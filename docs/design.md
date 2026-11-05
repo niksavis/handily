@@ -1276,7 +1276,7 @@ Code:
 
 Diagrams:
 
-- reply-view has its own text renderer for twelve kinds of mermaid diagram:
+- reply-view has its own text renderer for thirteen kinds of mermaid diagram:
 
   | Header keyword | Kind | Record |
   | --- | --- | --- |
@@ -1292,6 +1292,7 @@ Diagrams:
   | `mindmap` | mind map | handily-2dpxv0.2 |
   | `timeline` | timeline | handily-2dpxv0.3 |
   | `sankey` or `sankey-beta` | sankey diagram | handily-2dpxv0.12 |
+  | `radar-beta` | radar diagram | handily-2dpxv0.17 |
 
 - `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts` lists the header keywords, and `DIAGRAM_NAMES`
   gives each kind its plain name. A chart takes its name from its plot, such as `bar chart`.
@@ -1334,7 +1335,7 @@ Settings and commands:
 | `/replies hints` | The command of the diagram hints | handily-5zzxk.8 |
 | `/replies copy diagram`, `/replies copy table`, `/replies copy code` | Copies a block of the last reply from the keyboard | handily-5zzxk.9 |
 
-- The hint text has 502 characters, and its count is not measured yet. The hint of 516
+- The hint text has 514 characters, and its count is not measured yet. The hint of 516
   characters cost 229 tokens, measured with `claude -p` on 2026-11-05 with Claude Code 2.1.318
   (reply-view README). prismantis states about 630 prompt tokens for its diagram hints (its
   README).

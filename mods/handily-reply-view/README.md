@@ -8,9 +8,9 @@ rules between its columns only. Numbers, durations, versions and paths in the pr
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram, ER diagram, git graph, mind map, timeline or sankey diagram
-draws as a diagram, with a `copy` button for its source and a `copy drawing` button for the
-drawing. Each prompt that you
+state diagram, class diagram, ER diagram, git graph, mind map, timeline, sankey diagram or
+radar diagram draws as a diagram, with a `copy` button for its source and a `copy drawing`
+button for the drawing. Each prompt that you
 type opens under a coloured rule labelled `you`, so you find it when you scroll. `/replies`
 switches the view off and on for the session. The model still reads the full reply and the prompt
 as you typed it. Only the screen changes.
@@ -411,9 +411,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline or
-a sankey diagram draws as a diagram. The diagram has a dim title line and two buttons at the
-right edge. The drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
+sankey diagram or a radar diagram draws as a diagram. The diagram has a dim title line and two
+buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -646,14 +646,14 @@ hint used 22674 input tokens and the run without it used 22445, three times each
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
 hint of 350 characters that named only two kinds at 154 tokens. The count of 229 tokens is for the
-hint of 516 characters. The hint text now has 502 characters, and its count is not measured yet.
+hint of 516 characters. The hint text now has 514 characters, and its count is not measured yet.
 A test fails when the hint grows past 540 characters, which keeps it under 250 tokens. When the
 hint text changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, sankey. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, sankey, radar-beta. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1355,6 +1355,68 @@ total of every node and the value of every link, as the labels of Mermaid do.
   (`210 rows, at most 120 draw.`).
 
 The syntax follows the [sankey page](https://mermaid.js.org/syntax/sankey.html) of Mermaid 12.3.0.
+
+## A radar diagram
+
+A `radar-beta` block draws one bar for each axis and curve. All bars share the scale from `min`
+to `max`:
+
+```text
+● The four restaurants by three measures:
+
+  ── mermaid · radar ────────────────────────────────  [ copy ] [ copy drawing ]
+  Restaurant Comparison
+  Food Quality  Restaurant A ███████████████████████████████████████▎          4
+                Restaurant B █████████████████████████████▍                    3
+  Service       Restaurant A █████████████████████████████▍                    3
+                Restaurant B ███████████████████████████████████████▎          4
+  Price         Restaurant A ███████████████████▋                              2
+                Restaurant B █████████████████████████████▍                    3
+                             0                                               5
+```
+
+At 30 columns, each axis stands on its own row, with its curves under it:
+
+```text
+Restaurant Comparison
+Food Quality
+  Restaurant A ████████▊   4
+  Restaurant B ██████▋     3
+Service
+  Restaurant A ██████▋     3
+  Restaurant B ████████▊   4
+Price
+  Restaurant A ████▍       2
+  Restaurant B ██████▋     3
+               0         5
+```
+
+A terminal cannot draw a circle with a curve around it. In Mermaid, the distance from the
+centre on each axis shows the value. A bar from the same start shows the same distance, and bars
+side by side compare the curves on one axis. So the drawing keeps what a reader takes from the
+radar: the value of each curve on each axis against one scale.
+
+- The scale runs from `min`, 0 when the block has none, to `max`, the largest value when the
+  block has none. A value outside the scale draws its bar at the edge and keeps its number, as
+  Mermaid clips it. The row under the bars names both ends of the scale.
+- With one curve, a legend under the title names it, unless `showLegend false`. With more curves,
+  each row names its curve, so a copy with no colour still reads.
+- When a name of an axis or a curve would need a cut beside the other, each axis stands on its
+  own row with its curves under it.
+- On the terminal, each curve and its bars take the next colour of `suggestion`, `planMode` and
+  `merged`. The axes and the title are bold, and the values and the scale are in `planMode`.
+- `axis` and `curve` take a list with commas. A label stands in `["…"]` after its name. A curve
+  gives its values in the order of the axes, or by axis, such as `{ math: 80, art: 60 }`. A curve
+  may go over several lines. `title`, `accTitle`, `accDescr`, `%%` comments, `graticule` and
+  `ticks` draw no line of their own. `graticule` and `ticks` change only the look of the circle.
+- These draw as the source, with a note: a curve with more or fewer values than axes
+  (`the curve x has 2 values for 3 axes.`), a curve with no value for an axis, a value below 0
+  (`line 3 does not parse.`), a keyword such as `max` as a name, a block with no axis or no
+  curve, a `max` that is not above the `min`, and a diagram of more than 120 rows. Mermaid
+  refuses a value below 0 and a keyword as a name. It leaves out a curve with the wrong count of
+  values, which the view does not do in silence.
+
+The syntax follows the [radar page](https://mermaid.js.org/syntax/radar.html) of Mermaid 12.3.0.
 
 ## A prompt that you type
 
