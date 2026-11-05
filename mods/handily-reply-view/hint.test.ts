@@ -60,6 +60,13 @@ describe('the names of the drawn kinds', () => {
       'radar diagram',
       'treemap',
       'block diagram',
+      'requirement diagram',
+      'C4 diagram',
+      'C4 diagram',
+      'C4 diagram',
+      'C4 diagram',
+      'C4 diagram',
+      'architecture diagram',
     ])
   })
 })

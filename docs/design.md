@@ -1284,7 +1284,7 @@ Code:
 
 Diagrams:
 
-- reply-view has its own text renderer for nineteen kinds of mermaid diagram:
+- reply-view has its own text renderer for twenty-two kinds of mermaid diagram:
 
   | Header keyword | Kind | Record |
   | --- | --- | --- |
@@ -1307,11 +1307,16 @@ Diagrams:
   | `radar-beta` | radar diagram | handily-2dpxv0.17 |
   | `treemap-beta` or `treemap` | treemap | handily-2dpxv0.19 |
   | `block` or `block-beta` | block diagram | handily-2dpxv0.10 |
+  | `requirementDiagram` | requirement diagram | handily-2dpxv0.7 |
+  | `C4Context`, `C4Container`, `C4Component`, `C4Dynamic` or `C4Deployment` | C4 diagram | handily-2dpxv0.8 |
+  | `architecture-beta` | architecture diagram | handily-2dpxv0.9 |
 
 - `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts` lists the header keywords, and `DIAGRAM_NAMES`
   gives each kind its plain name. A chart takes its name from its plot, such as `bar chart`.
   Tests check the list against the parser, the diagram hint
   names the kinds from the list, and the fold row takes the plain name (handily-2dpxv0.27).
+  The hint names the five C4 kinds once, as `C4Context and the other C4 kinds`, to stay under
+  its limit of 540 characters (handily-2dpxv0.8).
 - A flowchart `subgraph` draws as a frame with a dotted border around its boxes, with its title
   on the top edge. A box belongs to the first subgraph that names it, as in Mermaid. The frames
   keep one order in every level, and each frame is only as wide as its boxes and its title need.
@@ -1326,8 +1331,13 @@ Diagrams:
   The gap between two blocks side by side grows to hold the label of their link.
   A link that needs a bend or crosses a block draws the diagram as its source, with a note
   (handily-2dpxv0.10).
-- A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16
-  columns, then to 12 columns.
+- A flowchart `LR` that is too wide draws as `TD`. A box label that is too wide wraps at spaces at
+  16 columns, then at 12 columns, and a longer word stays whole. Only when that does not fit, a
+  word breaks inside at the room of its level, keeping every character. An edge label is cut to
+  12 columns.
+- A C4 diagram that is too wide moves the elements of a wide level onto more rows, keeping each
+  boundary together, and then wraps its edge labels at 8 columns (handily-2dpxv0.8). A flowchart
+  keeps one row per level.
 - A drawn diagram has two buttons: `[ copy ]` and `[ copy drawing ]`.
 - When the fold of a reply ends inside a diagram, the preview shows the whole diagram when it
   then takes 60 rows or fewer. Else it shows the title line and the first rows when at least 5
@@ -1355,8 +1365,8 @@ Settings and commands:
 | `/replies copy diagram`, `/replies copy table`, `/replies copy code` | Copies a block of the last reply from the keyboard | handily-5zzxk.9 |
 
 - The hint names the Mermaid kinds that do not draw, from `MERMAID_KINDS` less
-  `DRAWN_DIAGRAM_KINDS`, and names the C4 family once while none of it draws. It has 517
-  characters and costs 233 tokens, measured with `claude -p` on 2026-11-05 with Claude Code
+  `DRAWN_DIAGRAM_KINDS`, and names the C4 family once while none of it draws. It has 474
+  characters and costs 215 tokens, measured with `claude -p` on 2026-11-05 with Claude Code
   2.1.318 (reply-view README). prismantis states about 630 prompt tokens for its diagram hints (its
   README).
 - A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.

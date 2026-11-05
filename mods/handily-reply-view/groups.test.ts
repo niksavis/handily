@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
+import { diagramOf } from './hooks/draw'
 import { drawFlowchart } from './hooks/flowchart'
 import { parseMermaid, type FlowGroup, type Refusal } from './hooks/mermaid'
 import { displayWidth } from './hooks/width'
@@ -421,6 +422,62 @@ describe('subgraph frames', () => {
       '┆ │ Done │                ┆',
       '┆ ╰──────╯                ┆',
       '└┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘',
+    ])
+  })
+
+  test('a box label longer than the wrap widens its box into free room and keeps every character', () => {
+    const latin = drawnLines(
+      lines(
+        'flowchart TD',
+        '  A[OrderService.processPayment] --> B[PaymentGatewayAdapter]',
+        '  A --> C[LedgerWriterService]',
+      ),
+      38,
+    )
+    expect(latin).toContain('   │ OrderService.processPayment │')
+    expect(latin).toContain('│ PaymentGateway │ │ LedgerWriterSe │')
+    expect(latin).toContain('│ Adapter        │ │ rvice          │')
+    const cjk = drawnLines(
+      lines(
+        'flowchart TD',
+        '  A[用户提交订单并完成支付流程] --> B[订单完成并通知用户]',
+        '  A --> C[支付失败并重试]',
+      ),
+      38,
+    )
+    expect(cjk).toContain('   │ 用户提交订单并完成支付流程 │')
+    expect(cjk).toContain('│ 订单完成并通知 │ │ 支付失败并重试 │')
+    expect(cjk).toContain('│ 用户           │ ╰────────────────╯')
+    expect([...latin, ...cjk].filter((row) => row.includes('…'))).toEqual([])
+  })
+
+  test('a state name too long for the box breaks inside the word with no character lost', () => {
+    const drawn = diagramOf(
+      lines(
+        'stateDiagram-v2',
+        '  [*] --> AwaitingPaymentConfirmation',
+        '  AwaitingPaymentConfirmation --> Paid',
+      ),
+      28,
+      'terminal',
+    )
+    const text = drawn.kind === 'drawing' ? drawn.lines.join('') : drawn.reason
+    expect(text).not.toContain('…')
+    expect(text.replace(/[│ ]/g, '')).toContain('AwaitingPaymentConfirmation')
+  })
+
+  test('when the labels wrap, a frame title is cut only where the top edge of its own frame ends', () => {
+    const source = lines(
+      'flowchart TD',
+      '  subgraph pay [Payment services of the shop]',
+      '    A[Card payment service] --> B[Refund service handler]',
+      '    A --> C[Invoice service writer]',
+      '  end',
+    )
+    expect(drawnLines(source, 38).slice(0, 3)).toEqual([
+      '┌┄ Payment services of t… ┄┐',
+      '┆                          ┆',
+      '┆    ╭──────────────╮      ┆',
     ])
   })
 

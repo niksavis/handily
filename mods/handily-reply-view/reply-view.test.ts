@@ -1800,10 +1800,10 @@ describe('/replies', () => {
 })
 
 const MEASURED_HINT =
-  'The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. Each Mermaid kind draws except requirementDiagram, C4, zenuml, architecture-beta, cynefin-beta, eventmodeling, ishikawa-beta, swimlane-beta, treeView-beta, usecase-beta, venn-beta, wardley-beta. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
+  'The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. Each Mermaid kind draws except zenuml, cynefin-beta, eventmodeling, ishikawa-beta, swimlane-beta, treeView-beta, usecase-beta, venn-beta, wardley-beta. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
 const HINT_CHARACTERS_AT_MOST = 540
 const HINTS_ON =
-  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 230 tokens.'
+  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 215 tokens.'
 const HINTS_OFF = 'diagram hints off for this session. A prompt that you type carries no hint.'
 
 type Submitted = { text: string; wait: boolean; origin: PromptOrigin; context?: readonly string[] }
@@ -1919,7 +1919,7 @@ describe('diagram hints', () => {
     )
 
     hintsTest(
-      `the hint is the text that the README measured at 233 tokens on 2026-11-05, and /replies hints names that count on ${surface}`,
+      `the hint is the text that the README measured at 215 tokens on 2026-11-05, and /replies hints names that count on ${surface}`,
       undefined,
       surface,
       async (read, $) => {
@@ -2252,7 +2252,7 @@ describe('mermaid flowcharts', () => {
     [linesOf('flowchart TD', '  A -->|"`md`"| B'), 2, 'markdown strings'],
     [linesOf('zenuml', '  title A plan'), 1, 'zenuml'],
     [linesOf('ishikawa-beta', '  title Pets'), 1, 'ishikawa-beta'],
-    [linesOf('requirementDiagram', '  element test_entity {', '  }'), 1, 'requirementDiagram'],
+    [linesOf('venn-beta', '  title Sets'), 1, 'venn-beta'],
   ] as const) {
     test(`${reason} is refused by name on line ${String(line)}`, () => {
       expect(parseMermaid(source)).toEqual(refusedLine(line, `${reason} does not draw yet`))

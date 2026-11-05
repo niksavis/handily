@@ -17,7 +17,7 @@ import {
   type Looks,
 } from './ink'
 import type { FlowDirection, FlowNode, FlowShape, Flowchart, Refusal, Stroke } from './mermaid'
-import { wrapCell } from './table'
+import { wrapWords } from './table'
 import { displayWidth, graphemesOf } from './width'
 
 export type FlowDrawing = InkedDrawing
@@ -27,6 +27,7 @@ export type LayoutMeter = { steps: number }
 export const MOST_ROWS = 120
 const MOST_LOOPS = 3
 const EDGE_LABEL_COLUMNS = 12
+const EDGE_WRAP_COLUMNS = 8
 const ORDER_PASSES = 4
 const DOWN_BOX_GAP = 2
 const ACROSS_BOX_GAP = 0
@@ -47,6 +48,9 @@ const DOWN_FRAME_TOP_ROWS = 2
 const DOWN_FRAME_ROOM = 1
 const ACROSS_FRAME_ROOM = 2
 const FRAME_TITLE_INDENT = 2
+const TITLE_PADDING = 4
+const LABELS_KEPT = 4096
+const NARROW_TEXT = /^[\x20-\x7e\u2500-\u257f]*$/
 const FRAME_INSETS: Readonly<Record<FlowDirection, number>> = { TD: 2, LR: 1 }
 const FRAME_GAPS: Readonly<Record<FlowDirection, number>> = { TD: 1, LR: 0 }
 const FRAME_ACROSS = '┄'
@@ -104,15 +108,33 @@ type Attempt = {
   direction: FlowDirection
   wrap: number | null
   cut: number | null
+  edgeWrap: number | null
+  breaksWords: boolean
   compact: boolean
+  perRow: number
 }
 
-const PLAIN_LABELS = { wrap: null, cut: null } as const
+type LabelRule = Pick<Attempt, 'wrap' | 'cut' | 'edgeWrap' | 'breaksWords'>
 
-const FITTED_LABELS: readonly Pick<Attempt, 'wrap' | 'cut'>[] = [
-  { wrap: 16, cut: EDGE_LABEL_COLUMNS },
-  { wrap: 12, cut: EDGE_LABEL_COLUMNS },
+const PLAIN_LABELS: LabelRule = { wrap: null, cut: null, edgeWrap: null, breaksWords: false }
+
+const FITTED_LABELS: readonly LabelRule[] = [
+  { wrap: 16, cut: EDGE_LABEL_COLUMNS, edgeWrap: null, breaksWords: false },
+  { wrap: 12, cut: EDGE_LABEL_COLUMNS, edgeWrap: null, breaksWords: false },
 ]
+
+const WRAPPED_EDGE_LABELS: LabelRule = {
+  wrap: 12,
+  cut: null,
+  edgeWrap: EDGE_WRAP_COLUMNS,
+  breaksWords: false,
+}
+
+function brokenLabels(rules: readonly LabelRule[], longest: number): LabelRule[] {
+  return rules
+    .filter((rule) => rule.wrap !== null && longest > rule.wrap)
+    .map((rule) => ({ ...rule, breaksWords: true }))
+}
 
 type Link = {
   from: number
@@ -151,7 +173,10 @@ type Plan = {
   entries: Entry[][]
   entryOf: Map<Segment, Entry>
   titles: Label[]
+  writtenTitles: Label[]
   cut: number | null
+  edgeWrap: number | null
+  breaksWords: boolean
   compact: boolean
   meter: LayoutMeter
 }
@@ -162,7 +187,14 @@ type Extent = { lo: number; hi: number }
 
 type Unit = Extent & { cluster: Cluster | null }
 
-type Frame = { top: number; left: number; bottom: number; right: number; title: Label }
+type Frame = {
+  top: number
+  left: number
+  bottom: number
+  right: number
+  title: Label
+  written: Label
+}
 
 type Band = { tracks: Map<number, number>; trackCount: number }
 
@@ -205,8 +237,19 @@ export function widest(lines: readonly string[]): number {
   return Math.max(0, ...lines.map(displayWidth))
 }
 
+function remembered<T>(cache: Map<string, T>, key: string, make: () => T): T {
+  const known = cache.get(key)
+  if (known !== undefined) return known
+  if (cache.size >= LABELS_KEPT) cache.clear()
+  const made = make()
+  cache.set(key, made)
+  return made
+}
+
+const shownLabels = new Map<string, Label>()
+
 export function shownLabel(line: string): Label {
-  return markedLabel(shown(line))
+  return remembered(shownLabels, line, () => markedLabel(shown(line)))
 }
 
 function pairKey(from: number, to: number): string {
@@ -255,10 +298,19 @@ class Networks {
   }
 }
 
+function columnsOfText(text: string): number {
+  return NARROW_TEXT.test(text) ? text.length : displayWidth(text)
+}
+
 class Canvas {
   private readonly rows = new Map<number, Map<number, Cell>>()
 
   put(row: number, col: number, text: string, ink: Ink, looks: Looks = PLAIN_LOOKS): void {
+    if (NARROW_TEXT.test(text)) {
+      for (let at = 0; at < text.length; at++)
+        this.claim(row, col + at, text.charAt(at), ink, looks)
+      return
+    }
     let at = col
     let pending = ''
     let last: Cell | null = null
@@ -280,12 +332,16 @@ class Canvas {
     let at = col
     for (const run of label.runs) {
       this.put(row, at, run.text, ink, run.looks)
-      at += displayWidth(run.text)
+      at += columnsOfText(run.text)
     }
   }
 
+  isFree(row: number, col: number): boolean {
+    return this.rows.get(row)?.has(col) !== true
+  }
+
   fits(row: number, col: number, text: string): boolean {
-    const columns = displayWidth(text)
+    const columns = columnsOfText(text)
     for (let at = col; at < col + columns; at++) {
       if (this.rows.get(row)?.has(at) === true) return false
     }
@@ -733,7 +789,57 @@ function membershipsOf(chart: Flowchart): number[] {
   return groupOf
 }
 
-function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
+function layersByIndex(layerOf: readonly number[]): number[][] {
+  const layers: number[][] = []
+  layerOf.forEach((layer, vertex) => {
+    while (layers.length <= layer) layers.push([])
+    layers[layer]?.push(vertex)
+  })
+  return layers
+}
+
+function widestLayer(layerOf: readonly number[]): number {
+  return Math.max(0, ...layersByIndex(layerOf).map((layer) => layer.length))
+}
+
+function settleUnlinked(
+  layerOf: number[],
+  groupOf: readonly number[],
+  linked: ReadonlySet<number>,
+): void {
+  const homes = new Map<number, number>()
+  let next = 0
+  layerOf.forEach((layer, vertex) => {
+    if (!linked.has(vertex)) return
+    next = Math.max(next, layer + 1)
+    const group = groupOf[vertex] ?? NO_GROUP
+    if (group !== NO_GROUP) homes.set(group, Math.min(homes.get(group) ?? layer, layer))
+  })
+  layerOf.forEach((_, vertex) => {
+    if (linked.has(vertex)) return
+    const group = groupOf[vertex] ?? NO_GROUP
+    const home = homes.get(group) ?? next++
+    homes.set(group, home)
+    layerOf[vertex] = home
+  })
+}
+
+function wrapLayers(layerOf: number[], groupOf: readonly number[], perRow: number): void {
+  const rank = (vertex: number) => {
+    const group = groupOf[vertex] ?? NO_GROUP
+    return group === NO_GROUP ? Number.MAX_SAFE_INTEGER : group
+  }
+  let row = 0
+  for (const layer of layersByIndex(layerOf)) {
+    const ordered = [...layer].sort((one, other) => rank(one) - rank(other) || one - other)
+    ordered.forEach((vertex, at) => {
+      layerOf[vertex] = row + Math.floor(at / perRow)
+    })
+    row += Math.max(1, Math.ceil(ordered.length / perRow))
+  }
+}
+
+function graphOf(chart: Flowchart, meter: LayoutMeter, perRow = Infinity): Graph {
   if (chart.nodes.length === 0) throw new DrawingFault('the flowchart has no boxes')
   const count = chart.nodes.length
   const groupOf = membershipsOf(chart)
@@ -744,6 +850,10 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   }
   const forward = links.filter((link) => !loopSet.has(link))
   const layerOf = layersOf(count, forward, meter)
+  if (Number.isFinite(perRow)) {
+    settleUnlinked(layerOf, groupOf, new Set(links.flatMap((link) => [link.from, link.to])))
+    wrapLayers(layerOf, groupOf, perRow)
+  }
   const outgoing: Segment[][] = Array.from({ length: count }, () => [])
   const incoming: Segment[][] = Array.from({ length: count }, () => [])
   const addVertex = (layer: number, group: number) => {
@@ -767,11 +877,7 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
       from = to
     }
   }
-  const layers: number[][] = []
-  layerOf.forEach((layer, vertex) => {
-    while (layers.length <= layer) layers.push([])
-    layers[layer]?.push(vertex)
-  })
+  const layers = layersByIndex(layerOf)
   orderLayers(
     layers,
     (vertex, upward) =>
@@ -812,11 +918,11 @@ function pointShape(node: FlowNode): Shape {
   return { lines, width: widestLabel(lines), height: 1, shape: node.shape }
 }
 
-function shapeOf(node: FlowNode, wrap: number | null, turning: boolean): Shape {
+function shapeOf(node: FlowNode, wrap: number | null, wordRoom: number, turning: boolean): Shape {
   if (node.shape === 'point') return pointShape(node)
   const text = node.label
     .map(shownLabel)
-    .flatMap((line) => (wrap === null ? [line] : relabelled(line, wrapCell(line.text, wrap))))
+    .flatMap((line) => (wrap === null ? [line] : wrappedLabel(line, wrap, wordRoom)))
   const lines = text.length === 0 ? [plainLabel('')] : text
   if (turning && lines.length < 2) lines.push(plainLabel(''))
   const marked =
@@ -831,11 +937,31 @@ function shapeOf(node: FlowNode, wrap: number | null, turning: boolean): Shape {
   }
 }
 
-function edgeLabel(label: readonly string[], cut: number | null): Label[] {
+function edgeLabel(
+  label: readonly string[],
+  rule: Pick<LabelRule, 'cut' | 'edgeWrap' | 'breaksWords'>,
+): Label[] {
+  const { cut, edgeWrap, breaksWords } = rule
   return label
     .map(shownLabel)
     .filter((line) => line.text.trim() !== '')
-    .map((line) => (cut === null ? line : fittedLabel(line, cut)))
+    .flatMap((line) => {
+      if (edgeWrap !== null) return wrappedLabel(line, edgeWrap, breaksWords ? edgeWrap : Infinity)
+      return [cut === null ? line : fittedLabel(line, cut)]
+    })
+}
+
+export function wrappedLabel(label: Label, width: number, longestWord = Infinity): Label[] {
+  return relabelled(label, wrapWords(label.text, width, Math.max(width, longestWord)))
+}
+
+export function longestWord(nodes: readonly FlowNode[]): number {
+  return Math.max(
+    0,
+    ...nodes.flatMap((node) =>
+      node.label.flatMap((line) => shownLabel(line).text.split(' ').map(displayWidth)),
+    ),
+  )
 }
 
 export function widestLabel(labels: readonly Label[] | undefined): number {
@@ -880,7 +1006,7 @@ function entriesOf(
   )
   const entries = new Map<Segment, Entry>()
   for (const segment of segments) {
-    const label = segment.first ? edgeLabel(segment.link.label, attempt.cut) : []
+    const label = segment.first ? edgeLabel(segment.link.label, attempt) : []
     const arrow = segment.link.arrow
     const sharing =
       label.length === 0 && !split.has(vertex)
@@ -894,11 +1020,36 @@ function entriesOf(
   return entries
 }
 
+type ShapeCache = Map<string, Shape>
+
+function wordRoomOf(attempt: Attempt, width: number, levelSize: number): number {
+  if (!attempt.breaksWords || attempt.wrap === null) return Infinity
+  return Math.max(attempt.wrap, Math.floor(width / Math.max(levelSize, 1)) - BOX_PADDING - 1)
+}
+
+function cachedShape(
+  cache: ShapeCache,
+  node: FlowNode,
+  vertex: number,
+  wrap: number | null,
+  wordRoom: number,
+  turning: boolean,
+): Shape {
+  const key = `${String(vertex)} ${String(wrap)} ${String(wordRoom)} ${String(turning)}`
+  const known = cache.get(key)
+  if (known !== undefined) return known
+  const made = shapeOf(node, wrap, wordRoom, turning)
+  cache.set(key, made)
+  return made
+}
+
 function planOf(
   graph: Graph,
   attempt: Attempt,
   split: ReadonlySet<number>,
   meter: LayoutMeter,
+  cache: ShapeCache,
+  width: number,
 ): Plan {
   const rank = new Map(graph.layers.flatMap((layer) => layer.map((vertex, at) => [vertex, at])))
   const entryOf = new Map<Segment, Entry>()
@@ -911,19 +1062,25 @@ function planOf(
   const shapes = graph.layerOf.map((_, vertex) => {
     const node = graph.nodes[vertex]
     if (node === undefined) return null
-    const shape = shapeOf(node, attempt.wrap, graph.turns.has(vertex))
+    const levelSize = graph.layers[graph.layerOf[vertex] ?? 0]?.length ?? 1
+    const wordRoom = wordRoomOf(attempt, width, levelSize)
+    const shape = cachedShape(cache, node, vertex, attempt.wrap, wordRoom, graph.turns.has(vertex))
     const own = entries[vertex] ?? []
     const span = spreadEntries(own, attempt.direction)
     return own.length > 1 ? grown(shape, attempt.direction, span) : shape
   })
   const titles = graph.clusters.map((cluster) => titleOf(cluster.label, attempt.wrap))
+  const writtenTitles = graph.clusters.map((cluster) => titleOf(cluster.label, null))
   return {
     graph,
     shapes,
     entries,
     entryOf,
     titles,
+    writtenTitles,
     cut: attempt.cut,
+    edgeWrap: attempt.edgeWrap,
+    breaksWords: attempt.breaksWords,
     compact: attempt.compact,
     meter,
   }
@@ -1655,19 +1812,46 @@ function frameRoom(opens: boolean, room: number): number {
   return opens ? room : 0
 }
 
-function titleSlot(canvas: Canvas, frame: Frame, chunk: string): number {
+function freeSlot(canvas: Canvas, frame: Frame, chunk: string): number | null {
   const last = frame.right - 1 - displayWidth(chunk)
   for (let col = frame.left + FRAME_TITLE_INDENT; col <= last; col++) {
     if (canvas.fits(frame.top, col - 1, ` ${chunk} `)) return col
   }
-  throw new DrawingFault(LINES_OVERLAP)
+  return null
+}
+
+function titleRooms(canvas: Canvas, frame: Frame): number[] {
+  const first = frame.left + FRAME_TITLE_INDENT - 1
+  const rooms: number[] = []
+  let run = 0
+  for (let col = frame.right - 1; col >= first; col--) {
+    run = canvas.isFree(frame.top, col) ? run + 1 : 0
+    rooms[col - first] = run - TITLE_PADDING
+  }
+  return rooms
+}
+
+function placedTitle(canvas: Canvas, frame: Frame): { title: Label; from: number } {
+  const least = displayWidth(frame.title.text)
+  const rooms = titleRooms(canvas, frame)
+  const columns = Math.min(displayWidth(frame.written.text), Math.max(0, ...rooms))
+  const at = rooms.findIndex((room) => room >= columns)
+  if (columns > least && at >= 0) {
+    const from = frame.left + FRAME_TITLE_INDENT + at
+    return { title: fittedLabel(frame.written, columns), from }
+  }
+  const from = freeSlot(canvas, frame, ` ${frame.title.text} `)
+  if (from === null) throw new DrawingFault(LINES_OVERLAP)
+  return { title: frame.title, from }
 }
 
 function drawFrame(canvas: Canvas, frame: Frame): void {
-  const { top, left, bottom, right, title } = frame
+  const { top, left, bottom, right } = frame
   const [topLeft, topRight, bottomLeft, bottomRight] = SQUARE_CORNERS
-  const chunk = title.text === '' ? '' : ` ${title.text} `
-  const from = chunk === '' ? left : titleSlot(canvas, frame, chunk)
+  const placed = frame.title.text === '' ? null : placedTitle(canvas, frame)
+  const title = placed?.title ?? frame.title
+  const chunk = placed === null ? '' : ` ${title.text} `
+  const from = placed?.from ?? left
   const to = from + displayWidth(chunk)
   if (chunk !== '') {
     canvas.put(top, from, ' ', 'line')
@@ -1775,6 +1959,7 @@ function drawDown(plan: Plan): Canvas {
       bottom: (tops[cluster.last] ?? 0) + (depths[cluster.last] ?? 1),
       right: hi,
       title: plan.titles[group] ?? plainLabel(''),
+      written: plan.writtenTitles[group] ?? plainLabel(''),
     })
   })
   drawDownLoops(plan, canvas, tops, starts)
@@ -1811,7 +1996,7 @@ function drawDownLoops(plan: Plan, canvas: Canvas, tops: number[], starts: numbe
     }
   })
   for (const link of loops) {
-    const label = edgeLabel(link.label, plan.cut)
+    const label = edgeLabel(link.label, plan)
     if (label.length > 0) placeText(canvas, rowOf(link.from, true), outermost + LABEL_INDENT, label)
   }
 }
@@ -1965,6 +2150,7 @@ function drawAcross(plan: Plan): Canvas {
       bottom: hi,
       right: (lefts[cluster.last] ?? 0) + (widths[cluster.last] ?? 1) + ACROSS_FRAME_ROOM - 1,
       title: plan.titles[group] ?? plainLabel(''),
+      written: plan.writtenTitles[group] ?? plainLabel(''),
     })
   })
   drawAcrossLoops(plan, canvas, lefts, starts)
@@ -2009,35 +2195,82 @@ function drawAcrossLoops(plan: Plan, canvas: Canvas, lefts: number[], starts: nu
     }
   })
   for (const link of loops) {
-    const label = edgeLabel(link.label, plan.cut)
+    const label = edgeLabel(link.label, plan)
     if (label.length > 0) placeText(canvas, outermost + 1, columnOf(link.from, true), label)
   }
 }
 
-function attemptsOf(direction: FlowDirection, framed: boolean): Attempt[] {
-  const plain: Pick<Attempt, 'direction' | 'wrap' | 'cut'>[] =
+export type LevelRows = 'kept' | 'wrapped'
+
+function attemptsOf(
+  direction: FlowDirection,
+  framed: boolean,
+  widest: number,
+  levelRows: LevelRows,
+  longest: number,
+): Attempt[] {
+  type Labelled = Pick<Attempt, 'direction'> & LabelRule
+  const plain: Labelled[] =
     direction === 'LR'
       ? [
           { direction: 'LR', ...PLAIN_LABELS },
           { direction: 'TD', ...PLAIN_LABELS },
         ]
       : [{ direction: 'TD', ...PLAIN_LABELS }]
-  const labelled = [
-    ...plain,
-    ...FITTED_LABELS.map((labels) => ({ direction: 'TD' as const, ...labels })),
-  ]
+  const down = (rules: readonly LabelRule[]): Labelled[] =>
+    rules.map((labels) => ({ direction: 'TD', ...labels }))
   const packings = framed ? [true, false] : [false]
-  return labelled.flatMap((attempt) => packings.map((compact) => ({ ...attempt, compact })))
+  const packed = (labelled: readonly Labelled[], perRow: number): Attempt[] =>
+    labelled.flatMap((attempt) =>
+      (Number.isFinite(perRow) ? packings.slice(0, 1) : packings).map((compact) => ({
+        ...attempt,
+        compact,
+        perRow,
+      })),
+    )
+  const caps = rowCapsOf(widest)
+  const everyRow = (labelled: readonly Labelled[]): Attempt[] => [
+    ...packed(labelled, Infinity),
+    ...caps.flatMap((perRow) => packed(labelled, perRow)),
+  ]
+  if (levelRows === 'kept') {
+    return packed(
+      [...plain, ...down(FITTED_LABELS), ...down(brokenLabels(FITTED_LABELS, longest))],
+      Infinity,
+    )
+  }
+  const whole = [...FITTED_LABELS, WRAPPED_EDGE_LABELS]
+  return [
+    ...packed(plain, Infinity),
+    ...caps.flatMap((perRow) => packed(down([PLAIN_LABELS]), perRow)),
+    ...everyRow(down(whole)),
+    ...everyRow(down(brokenLabels(whole, longest))),
+  ]
+}
+
+function rowCapsOf(widest: number): number[] {
+  const caps: number[] = []
+  for (let rows = 2; rows <= widest; rows++) {
+    const perRow = Math.ceil(widest / rows)
+    if (caps.at(-1) !== perRow) caps.push(perRow)
+  }
+  return caps
 }
 
 function fitsScreen(canvas: Canvas, width: number): boolean {
   return canvas.width <= width && canvas.height <= MOST_ROWS
 }
 
-function drawAttempt(graph: Graph, attempt: Attempt, width: number, meter: LayoutMeter): Canvas {
+function drawAttempt(
+  graph: Graph,
+  attempt: Attempt,
+  width: number,
+  meter: LayoutMeter,
+  cache: ShapeCache,
+): Canvas {
   let split = new Set<number>()
   for (;;) {
-    const plan = planOf(graph, attempt, split, meter)
+    const plan = planOf(graph, attempt, split, meter, cache, width)
     const canvas = attempt.direction === 'TD' ? drawDown(plan) : drawAcross(plan)
     if (!fitsScreen(canvas, width)) return canvas
     const wrong = canvas.falseLinks(graph.real, meter)
@@ -2052,6 +2285,7 @@ export function drawFlowchart(
   chart: Flowchart,
   width: number,
   meter: LayoutMeter = { steps: 0 },
+  levelRows: LevelRows = 'kept',
 ): FlowDrawing | Refusal {
   let graph: Graph
   try {
@@ -2060,13 +2294,29 @@ export function drawFlowchart(
     if (error instanceof DrawingFault) return refusal(error.reason)
     throw error
   }
+  const graphs = new Map<number, Graph>([[Infinity, graph]])
+  const shapes: ShapeCache = new Map()
+  const graphWith = (perRow: number): Graph => {
+    const known = graphs.get(perRow)
+    if (known !== undefined) return known
+    const made = graphOf(chart, meter, perRow)
+    graphs.set(perRow, made)
+    return made
+  }
+  const widest = widestLayer(graph.layerOf.slice(0, chart.nodes.length))
   let narrowest = Infinity
   let shortest = Infinity
   let fault: string | null = null
-  for (const attempt of attemptsOf(chart.direction, graph.clusters.length > 0)) {
+  for (const attempt of attemptsOf(
+    chart.direction,
+    graph.clusters.length > 0,
+    widest,
+    levelRows,
+    longestWord(chart.nodes),
+  )) {
     let canvas: Canvas
     try {
-      canvas = drawAttempt(graph, attempt, width, meter)
+      canvas = drawAttempt(graphWith(attempt.perRow), attempt, width, meter, shapes)
     } catch (error) {
       if (!(error instanceof DrawingFault)) throw error
       fault ??= error.reason

@@ -1,4 +1,10 @@
 import { blockBuilder, type BlockBuilder, type BlockDiagram } from './block'
+import {
+  architectureBuilder,
+  type ArchitectureBuilder,
+  type ArchitectureDiagram,
+} from './architecture'
+import { c4Builder, type C4Builder, type C4Diagram } from './c4'
 import { chartBuilderOf, isChartKind, type Chart, type ChartBuilder } from './charts'
 import { ClassBuilder, type ClassDiagram } from './classes'
 import { EntityBuilder, type EntityDiagram } from './er'
@@ -11,6 +17,7 @@ import { packetBuilder, type Packet, type PacketBuilder } from './packet'
 import { quadrantBuilder, type QuadrantBuilder, type QuadrantChart } from './quadrant'
 import { radarBuilder, type Radar, type RadarBuilder } from './radar'
 import { sankeyBuilder, type Sankey, type SankeyBuilder } from './sankey'
+import { requirementBuilder, type RequirementBuilder, type RequirementDiagram } from './requirement'
 import { StateBuilder, type StateDiagram } from './state'
 import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
 import { treemapBuilder, type Treemap, type TreemapBuilder } from './treemap'
@@ -84,6 +91,13 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'radar-beta',
   'treemap-beta',
   'block',
+  'requirementDiagram',
+  'C4Context',
+  'C4Container',
+  'C4Component',
+  'C4Dynamic',
+  'C4Deployment',
+  'architecture-beta',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -104,6 +118,9 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   radar: 'radar diagram',
   treemap: 'treemap',
   block: 'block diagram',
+  requirement: 'requirement diagram',
+  c4: 'C4 diagram',
+  architecture: 'architecture diagram',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -204,8 +221,30 @@ export type MermaidDiagram =
   | Radar
   | Treemap
   | BlockDiagram
+  | RequirementDiagram
+  | C4Diagram
+  | ArchitectureDiagram
 
 export type Statement = { line: number; text: string; indent: number }
+
+const ACCESSIBILITY_LINE = /^acc(?:Title|Descr)\s*:/i
+const ACCESSIBILITY_BLOCK = /^accDescr\s*\{/i
+const BLOCK_CLOSING = '}'
+
+export class AccessibilityLines {
+  private isInBlock = false
+
+  skips(text: string): boolean {
+    if (this.isInBlock) {
+      this.isInBlock = !text.includes(BLOCK_CLOSING)
+      return true
+    }
+    if (ACCESSIBILITY_LINE.test(text)) return true
+    if (!ACCESSIBILITY_BLOCK.test(text)) return false
+    this.isInBlock = !text.includes(BLOCK_CLOSING)
+    return true
+  }
+}
 
 export class DiagramFault extends Error {
   constructor(readonly refusal: Refusal) {
@@ -875,6 +914,9 @@ type Builder =
   | RadarBuilder
   | TreemapBuilder
   | BlockBuilder
+  | RequirementBuilder
+  | C4Builder
+  | ArchitectureBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -910,6 +952,12 @@ function builderOf(header: Statement): Builder {
   if (treemap !== null) return treemap
   const block = blockBuilder(header)
   if (block !== null) return block
+  const requirement = requirementBuilder(header)
+  if (requirement !== null) return requirement
+  const c4 = c4Builder(header)
+  if (c4 !== null) return c4
+  const architecture = architectureBuilder(header)
+  if (architecture !== null) return architecture
   throw unknownHeader(header)
 }
 

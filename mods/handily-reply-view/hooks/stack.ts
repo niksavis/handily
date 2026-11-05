@@ -6,7 +6,7 @@ import { displayWidth } from './width'
 
 export type Piece = { text: string; ink: Ink; looks: Looks }
 
-export type StackMark = 'triangle' | 'diamond' | 'hollowDiamond' | 'arrow'
+export type StackMark = 'triangle' | 'diamond' | 'hollowDiamond' | 'arrow' | 'circledPlus'
 
 export type StackEnd = { mark: StackMark | null; text: Label | null }
 
@@ -23,6 +23,8 @@ export type StackBox = { title: Label[]; body: Piece[][] }
 
 export type Stack = { boxes: StackBox[]; links: StackLink[] }
 
+export type StackTie = { from: number; to: number; rank: number }
+
 type Facing = 'up' | 'down' | 'left'
 
 const MARK_GLYPHS: Readonly<Record<StackMark, Readonly<Record<Facing, string>>>> = {
@@ -30,6 +32,7 @@ const MARK_GLYPHS: Readonly<Record<StackMark, Readonly<Record<Facing, string>>>>
   diamond: { up: '◆', down: '◆', left: '◆' },
   hollowDiamond: { up: '◇', down: '◇', left: '◇' },
   arrow: { up: '▲', down: '▼', left: '◀' },
+  circledPlus: { up: '⊕', down: '⊕', left: '⊕' },
 }
 
 const STROKES: Readonly<Record<Stroke, { across: string; down: string }>> = {
@@ -68,6 +71,26 @@ type Layout = {
   columns: number
   centers: Map<number, StackLink>
   sides: Side[]
+}
+
+export function stackOrder(count: number, ties: readonly StackTie[]): number[] {
+  const children = Array.from({ length: count }, (): number[] => [])
+  const owned = new Set<number>()
+  for (const tie of [...ties].sort((one, other) => one.rank - other.rank)) {
+    children[tie.from]?.push(tie.to)
+    owned.add(tie.to)
+  }
+  const order: number[] = []
+  const seen = new Set<number>()
+  const visit = (at: number): void => {
+    if (seen.has(at)) return
+    seen.add(at)
+    order.push(at)
+    for (const child of children[at] ?? []) visit(child)
+  }
+  for (let at = 0; at < count; at++) if (!owned.has(at)) visit(at)
+  for (let at = 0; at < count; at++) visit(at)
+  return order
 }
 
 function glyphOf(mark: StackMark, facing: Facing): string {

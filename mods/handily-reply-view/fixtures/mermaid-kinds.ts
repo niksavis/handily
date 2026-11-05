@@ -25,6 +25,15 @@ export const KIND_SAMPLES: Readonly<Record<string, string>> = {
   'radar-beta': 'radar-beta\n  axis a, b, c\n  curve x{1, 2, 3}',
   'treemap-beta': 'treemap-beta\n  "Parts"\n    "Left": 3\n    "Right": 1',
   block: 'block\n  columns 3\n  a b c',
+  requirementDiagram: 'requirementDiagram\n  requirement login {\n    id: 1\n  }',
+  C4Context: 'C4Context\n  Person(user, "User")\n  System(app, "App")\n  Rel(user, app, "Uses")',
+  C4Container: 'C4Container\n  Container(web, "Web", "TypeScript")',
+  C4Component: 'C4Component\n  Component(api, "API", "Go", "Serves the data")',
+  C4Dynamic:
+    'C4Dynamic\n  Person(user, "User")\n  Container(web, "Web")\n  RelIndex(1, user, web, "Opens")',
+  C4Deployment: 'C4Deployment\n  Deployment_Node(box, "Server") {\n    Container(web, "Web")\n  }',
+  'architecture-beta':
+    'architecture-beta\n  service db(database)[Database]\n  service api(server)[API]\n  db:L -- R:api',
 }
 
 export function drawsSample(kind: string): boolean {

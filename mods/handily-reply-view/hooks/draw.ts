@@ -3,6 +3,8 @@ import type { ReplyViewFold } from '../types'
 import { drawBlock } from './block'
 import { isCutDrawing } from './drawing'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
+import { drawArchitecture } from './architecture'
+import { drawC4 } from './c4'
 import { chartName, drawChart, isChartSource } from './charts'
 import { drawClasses } from './classes'
 import { drawEntities } from './er'
@@ -27,6 +29,7 @@ import {
 import { DIAGRAM_NAMES, parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { drawMindmap } from './mindmap'
 import { drawPacket } from './packet'
+import { drawRequirements } from './requirement'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
 import { drawQuadrant } from './quadrant'
 import {
@@ -1313,6 +1316,18 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'block': {
       const drawn = drawBlock(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'requirement': {
+      const drawn = drawRequirements(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'c4': {
+      const drawn = drawC4(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'architecture': {
+      const drawn = drawArchitecture(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

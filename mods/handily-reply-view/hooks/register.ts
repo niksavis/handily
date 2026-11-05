@@ -100,7 +100,7 @@ const ON_TEXT =
   'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, durations, versions and paths in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
 const HINTS_ON_TEXT =
-  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 230 tokens.'
+  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 215 tokens.'
 const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
   '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
