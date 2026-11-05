@@ -2232,9 +2232,9 @@ describe('mermaid flowcharts', () => {
     [linesOf('flowchart TD', '  A --> B', '  B@{ icon: "fa:user" }'), 3, 'icons'],
     [linesOf('flowchart TD', '  A["`**bold**`"]'), 2, 'markdown strings'],
     [linesOf('flowchart TD', '  A -->|"`md`"| B'), 2, 'markdown strings'],
-    [linesOf('classDiagram', '  A <|-- B'), 1, 'classDiagram'],
+    [linesOf('gantt', '  title A plan'), 1, 'gantt'],
     [linesOf('pie title Pets', '  "Dogs" : 3'), 1, 'pie'],
-    [linesOf('stateDiagram-v2', '  [*] --> A'), 1, 'stateDiagram-v2'],
+    [linesOf('requirementDiagram', '  element test_entity {', '  }'), 1, 'requirementDiagram'],
   ] as const) {
     test(`${reason} is refused by name on line ${String(line)}`, () => {
       expect(parseMermaid(source)).toEqual(refusedLine(line, `${reason} does not draw yet`))
@@ -3905,7 +3905,7 @@ const SEQUENCE_SOURCE = linesOf(
   '  Claude-->>You: reply',
 )
 
-const CLASS_SOURCE = linesOf('classDiagram', '  Animal <|-- Duck', '  Animal <|-- Fish')
+const GANTT_SOURCE = linesOf('gantt', '  title A plan', '  section One')
 
 const WIDE_SOURCE = linesOf(
   'flowchart TD',
@@ -4005,7 +4005,7 @@ describe('diagram blocks', () => {
           const width = replyWidth(surface, columns)
           const ui = await mountReply(
             $,
-            reply(mermaidReply('Here is the flow:', MOCK_9_8_SOURCE, CLASS_SOURCE, '')),
+            reply(mermaidReply('Here is the flow:', MOCK_9_8_SOURCE, GANTT_SOURCE, '')),
             surface,
             columns,
           )
@@ -4016,8 +4016,8 @@ describe('diagram blocks', () => {
               '~diagram not drawn: line 3 does not parse.~',
               ...todaysFence(MOCK_9_8_SOURCE, width),
               '',
-              '~diagram not drawn: classDiagram does not draw yet.~',
-              ...todaysFence(CLASS_SOURCE, width),
+              '~diagram not drawn: gantt does not draw yet.~',
+              ...todaysFence(GANTT_SOURCE, width),
               '',
               '~diagram not drawn: the block is empty.~',
               ...todaysFence('', width),
@@ -4025,7 +4025,7 @@ describe('diagram blocks', () => {
           )
           expect(await ui.find({ key: 'block-2-drawing' })).toBeUndefined()
           await ui.press({ key: 'block-2-copy' })
-          expect(world.copies).toEqual([CLASS_SOURCE])
+          expect(world.copies).toEqual([GANTT_SOURCE])
           expect(world.toasts).toEqual([
             { lines: ['✓ Copied the mermaid block', '3 lines'], timeoutMs: 6000 },
           ])

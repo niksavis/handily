@@ -471,6 +471,9 @@ describe('git graph review findings (handily-2dpxv0.1)', () => {
     ['sequenceDiagram', lines('sequenceDiagram', '  A->>B: hi')],
     ['mindmap', lines('mindmap', '  root')],
     ['timeline', lines('timeline', '  2002 : a')],
+    ['stateDiagram-v2', lines('stateDiagram-v2', '  [*] --> A')],
+    ['classDiagram', lines('classDiagram', '  A <|-- B')],
+    ['erDiagram', lines('erDiagram', '  A ||--o{ B : has')],
   ] as const) {
     test(`a ${kind} with an init directive is refused by name, so no setting is lost`, () => {
       expect(parseMermaid(lines(INIT, body))).toEqual(
