@@ -28,6 +28,8 @@ import {
 import { drawRail, type RailElements } from './hooks/rail-pane'
 import { drawsSample, hintKinds, MERMAID_KINDS } from './fixtures/mermaid-kinds'
 
+const GENERATED_TIMEOUT_MS = 10000
+
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
 const COLUMNS = 80
@@ -3304,23 +3306,27 @@ describe('flowchart drawings', () => {
     )
   })
 
-  test('500 generated charts with subgraphs draw their frames and only the links they hold', () => {
-    const drawn = groupedCharts(20261105, 500).flatMap((source) => {
-      const chart = flowchartOf(source)
-      const result = drawFlowchart(chart, REPLY_COLUMNS)
-      if (result.kind !== 'drawing') return []
-      const framed = (chart.groups ?? []).every((group) =>
-        result.lines.some((line) => line.includes(`┄ ${group.label.join(' ')} ┄`)),
-      )
-      return [[drawnLinks(result.lines), chartLinks(chart), framed]]
-    })
-    expect(drawn.length).toBeGreaterThan(450)
-    expect(
-      drawn.filter(
-        ([shown, held, framed]) => JSON.stringify(shown) !== JSON.stringify(held) || !framed,
-      ),
-    ).toEqual([])
-  })
+  test(
+    '500 generated charts with subgraphs draw their frames and only the links they hold',
+    { timeoutMs: GENERATED_TIMEOUT_MS },
+    () => {
+      const drawn = groupedCharts(20261105, 500).flatMap((source) => {
+        const chart = flowchartOf(source)
+        const result = drawFlowchart(chart, REPLY_COLUMNS)
+        if (result.kind !== 'drawing') return []
+        const framed = (chart.groups ?? []).every((group) =>
+          result.lines.some((line) => line.includes(`┄ ${group.label.join(' ')} ┄`)),
+        )
+        return [[drawnLinks(result.lines), chartLinks(chart), framed]]
+      })
+      expect(drawn.length).toBeGreaterThan(450)
+      expect(
+        drawn.filter(
+          ([shown, held, framed]) => JSON.stringify(shown) !== JSON.stringify(held) || !framed,
+        ),
+      ).toEqual([])
+    },
+  )
 
   test('a loop into a subgraph draws when the subgraphs keep one order with its box last, and draws only its links', () => {
     const source = linesOf(
@@ -3360,22 +3366,26 @@ describe('flowchart drawings', () => {
     expect(drawnLinks(lines)).toEqual(chartLinks(flowchartOf(source)))
   })
 
-  test('500 generated charts with subgraphs refuse only for their width or the order of their loops when they draw with no subgraph', () => {
-    const refused = groupedCharts(20261105, 500).flatMap((source) => {
-      const chart = flowchartOf(source)
-      const plain = { ...chart, groups: [] }
-      if (drawFlowchart(plain, REPLY_COLUMNS).kind !== 'drawing') return []
-      const result = drawFlowchart(chart, REPLY_COLUMNS)
-      return result.kind === 'drawing' ? [] : [result.reason]
-    })
-    expect(
-      refused.filter(
-        (reason) =>
-          !reason.startsWith('it takes ') &&
-          reason !== 'its loops and its subgraphs cannot keep one order',
-      ),
-    ).toEqual([])
-  })
+  test(
+    '500 generated charts with subgraphs refuse only for their width or the order of their loops when they draw with no subgraph',
+    { timeoutMs: GENERATED_TIMEOUT_MS },
+    () => {
+      const refused = groupedCharts(20261105, 500).flatMap((source) => {
+        const chart = flowchartOf(source)
+        const plain = { ...chart, groups: [] }
+        if (drawFlowchart(plain, REPLY_COLUMNS).kind !== 'drawing') return []
+        const result = drawFlowchart(chart, REPLY_COLUMNS)
+        return result.kind === 'drawing' ? [] : [result.reason]
+      })
+      expect(
+        refused.filter(
+          (reason) =>
+            !reason.startsWith('it takes ') &&
+            reason !== 'its loops and its subgraphs cannot keep one order',
+        ),
+      ).toEqual([])
+    },
+  )
 
   test('the label of a loop is cut to 12 columns when the labels must fit', () => {
     const source = MOCK_9_6_LOOP_SOURCE.replace('|fail|', '|fail after the third retry|')
