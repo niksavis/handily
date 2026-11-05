@@ -24,6 +24,7 @@ import {
 import { DIAGRAM_NAMES, parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { drawMindmap } from './mindmap'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
+import { drawQuadrant } from './quadrant'
 import {
   holdsLinkDefinition,
   prosePartsOf,
@@ -1246,6 +1247,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'journey': {
       const drawn = drawJourney(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'quadrant': {
+      const drawn = drawQuadrant(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

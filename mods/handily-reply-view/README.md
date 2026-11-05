@@ -8,11 +8,11 @@ rules between its columns only. Numbers, durations, versions and paths in the pr
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram, ER diagram, git graph, mind map, timeline or user journey draws as
-a diagram, with a `copy` button for its source and a `copy drawing` button for the drawing. Each
-prompt that you type opens under a coloured rule labelled `you`, so you find it when you scroll.
-`/replies` switches the view off and on for the session. The model still reads the full reply and
-the prompt as you typed it. Only the screen changes.
+state diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey or quadrant
+chart draws as a diagram, with a `copy` button for its source and a `copy drawing` button for the
+drawing. Each prompt that you type opens under a coloured rule labelled `you`, so you find it when
+you scroll. `/replies` switches the view off and on for the session. The model still reads the
+full reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -410,9 +410,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline or a
-user journey draws as a diagram. The diagram has a dim title line and two buttons at the right
-edge. The drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
+user journey or a quadrant chart draws as a diagram. The diagram has a dim title line and two
+buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -644,14 +644,14 @@ same prompt differ only in a mod that adds the hint as the context of the prompt
 hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The hint text has 525 characters,
+hint of 350 characters that named only two kinds at 154 tokens. The hint text has 540 characters,
 and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
 changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey, quadrantChart. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1353,6 +1353,84 @@ At 30 columns, the actors stand under their task:
   (`the journey has no tasks.`) and a screen narrower than the bars and 10 columns of the names.
 
 The syntax follows the [user journey page](https://mermaid.js.org/syntax/userJourney.html) of
+Mermaid 12.3.0.
+
+## A quadrant chart
+
+A `quadrantChart` draws its four quadrants in a frame, under the title line
+`── mermaid · quadrant ──`:
+
+```text
+● Where the campaigns stand:
+
+  ── mermaid · quadrant ─────────────────────────────  [ copy ] [ copy drawing ]
+  Reach and engagement of campaigns
+  ▲ High Engagement
+  ┌────────── Need to promote ──────────┬───────── We should expand ──────────┐
+  │                                     │                                     │
+  │                                     │                                     │
+  │              Campaign F ●           │                                     │
+  │                                     │     ● Campaign C                    │
+  │                      ● Campaign A   │                                     │
+  │                                     │                                     │
+  ├──────────── Re-evaluate ────────────┼────────── May be improved ──────────┤
+  │                                     │                                     │
+  │                  Campaign E ●       │                    ● Campaign D     │
+  │                                     │                                     │
+  │                      Campaign B ●   │                                     │
+  │                                     │                                     │
+  │                                     │                                     │
+  └─────────────────────────────────────┴─────────────────────────────────────┘
+  ▼ Low Engagement
+  ◀ Low Reach                                                      High Reach ▶
+```
+
+At 40 columns, a point whose name does not fit beside it draws a key, and the name stands under
+the chart:
+
+```text
+  ┌ Need to promote ┬ We should expa… ┐
+  │                 │                 │
+  │                 │                 │
+  │           3     │                 │
+  │                 │  ● Campaign C   │
+  │          1      │                 │
+  ...
+  ◀ Low Reach              High Reach ▶
+  1 Campaign A
+  2 Campaign D
+  3 Campaign F
+```
+
+- Each quadrant has 6 rows and half of the width. A point `Campaign A: [0.3, 0.6]` draws `●` in
+  the cell of its place. A point at `0.5` draws in the right or the upper quadrant.
+- The name of a point stands to the right of `●`, or to the left when the right has no room. The
+  name keeps one free cell to a border and to the next name. When neither side has room, the
+  point draws a key `1` to `9` or `A` to `Z` in place of `●`, and the key and the name stand
+  under the chart. Two points in one cell share one `●` or one key, and their names join with a
+  comma.
+- With points, the name of each quadrant stands on the top edge of the quadrant, as in Mermaid. A
+  name too wide for the edge is cut with `…`. With no point, each name stands in the middle of its
+  quadrant.
+- The top text of the `y-axis` stands above the frame after `▲`, and the bottom text under the
+  frame after `▼`. The left text of the `x-axis` stands under the frame after `◀`, and the right
+  text at the right edge before `▶`.
+- An `x-axis` that ends with `-->` and no right text draws its text with `→`, as Mermaid adds `⟶`.
+  A `y-axis` that ends with `-->` and no top text draws its text above the frame after `▲`.
+- On the terminal, each quadrant name and the `●` of each point in the quadrant take one colour:
+  `quadrant-2` `suggestion`, `quadrant-1` `planMode`, `quadrant-3` `merged`. `quadrant-4` takes
+  `suggestion` again in the `theme` palette, so no two quadrants side by side share a colour. The
+  names of the points are plain. The frame and the axes are in `inactive`.
+- A style after a point, such as `radius: 12, color: #ff3300`, a class `:::name`, `classDef`,
+  `accTitle` and `accDescr` draw nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a point outside 0 to 1
+  (`line 2: 1.5 is not from 0 to 1.`), a point that Mermaid does not read, such as `1.0`, `.5` or
+  a name with `(` or `:` outside quotes (`line 2 does not parse.`), a style that Mermaid does not
+  know, a markdown string (`markdown strings does not draw yet.`), more than 35 points
+  (`36 points, at most 35 draw.`) and a screen narrower than 19 columns.
+
+The syntax follows the [quadrant chart page](https://mermaid.js.org/syntax/quadrantChart.html) of
 Mermaid 12.3.0.
 
 ## A prompt that you type
