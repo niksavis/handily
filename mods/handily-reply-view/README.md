@@ -9,8 +9,8 @@ of a reply draw in their own colours, and inline code draws in the code colour o
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram, state
 diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey, quadrant chart,
-kanban or packet diagram draws as a diagram, with a `copy` button for its source and a
-`copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
+kanban, packet diagram or block diagram draws as a diagram, with a `copy` button for its source
+and a `copy drawing` button for the drawing. Each prompt that you type opens under a coloured rule
 labelled `you`, so you find it when you scroll. `/replies` switches the view off and on for the
 session. The model still reads the full reply and the prompt as you typed it. Only the screen
 changes.
@@ -443,7 +443,8 @@ width:
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
 diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
-user journey, a quadrant chart, a kanban or a packet diagram draws as a diagram. The diagram has a
+user journey, a quadrant chart, a kanban, a packet diagram or a block diagram draws as a diagram.
+The diagram has a
 dim title line and two buttons at the right edge. The drawing replaces the source:
 
 ```text
@@ -676,14 +677,15 @@ same prompt differ only in a mod that adds the hint as the context of the prompt
 hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The hint text has 522 characters,
-and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
-changes, measure again and record the new count and its date here.
+hint of 350 characters that named only two kinds at 154 tokens. The kind `block` joined the hint
+after this measurement, and its count is not measured again yet. The hint text has 529
+characters, and a test fails when it grows past 540, which keeps it under 250 tokens. When the
+hint text changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey, quadrantChart, kanban, packet. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey, quadrantChart, kanban, packet, block. A flowchart is TD or LR and has no subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1603,6 +1605,63 @@ At 40 columns, a row holds 16 bits, and a note under the drawing says so:
   narrower than 17 columns.
 
 The syntax follows the [packet page](https://mermaid.js.org/syntax/packet.html) of Mermaid 12.3.0.
+
+## A block diagram
+
+A `block` or `block-beta` draws its blocks in a grid of `columns`, under the title line
+`── mermaid · block ──`:
+
+```text
+● The system:
+
+  ── mermaid · block ────────────────────────────────  [ copy ] [ copy drawing ]
+  ╭──────────╮                ╭──────────╮
+  │ Frontend │  ───────────▶  │ Backend  │
+  ╰──────────╯                ╰──────────╯
+
+                                   ▼
+
+  ╭──────────╮                ╭──────────╮
+  │   Disk   │  ◀───────────  │ Database │
+  ╰──────────╯                ╰──────────╯
+```
+
+The source of that drawing is the architecture example of the Mermaid page:
+
+```text
+block-beta
+  columns 3
+  Frontend blockArrowId6<[" "]>(right) Backend
+  space:2 down<[" "]>(down)
+  Disk left<[" "]>(left) Database[("Database")]
+```
+
+- `columns 3` puts 3 columns in a row, and the next block starts a new row. With no `columns`,
+  all blocks of a group stand in one row. All columns of a group have one width, from the widest
+  block. `a:2` spans 2 columns, and `space` or `space:2` leaves 1 or 2 columns
+  empty.
+- `block:ID` or `block` up to `end` draws a group as a frame with a dotted border around its
+  blocks. A group has its own `columns`, and `block:ID:2` spans 2 columns.
+- Every box has rounded corners, as in a flowchart. A rhombus `{…}` keeps square corners and the
+  mark `◇`. A block arrow such as `<["Yes"]>(right)` draws as an arrow across its cell, with its
+  label on the row next to it. `right`, `left`, `x`, `up`, `down` and `y` draw.
+- A link `A --> B` draws as a straight line between the two blocks, with its head at `B`. `---`
+  draws no head, and `-.->` draws a dashed line. `A-- "X" -->B` draws `X` on the line.
+- A block takes its place at its first mention, also when the first mention is in a link.
+- When the grid is wider than the screen, the columns get narrower, and a label wraps at its
+  spaces. Then the gaps get narrower. A word never splits.
+- `style`, `classDef` and `class` draw nothing. On the terminal, the boxes take the colours
+  `suggestion`, `planMode` and `merged` in turn. The arrow heads are in `claude`, and the lines
+  and the frames are in `inactive`.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a link that needs a bend
+  (`the link from A to B needs a bend.`), a link that crosses a block or another link
+  (`the link from A to C crosses B.`), a link label that does not fit, a block arrow with two
+  directions, a span wider than its row (`block a spans 4 columns, its row has 3.`), a group with
+  no `end`, a diagram with no block and a screen that is too narrow
+  (`it takes 38 columns, the screen has 28. Widen the window or shorten the labels.`).
+
+The syntax follows the [block page](https://mermaid.js.org/syntax/block.html) of Mermaid 12.3.0.
 
 ## A prompt that you type
 

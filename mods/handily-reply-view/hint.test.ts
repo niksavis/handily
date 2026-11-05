@@ -56,6 +56,7 @@ describe('the names of the drawn kinds', () => {
       'quadrant chart',
       'kanban board',
       'packet diagram',
+      'block diagram',
     ])
   })
 })

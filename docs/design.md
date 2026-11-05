@@ -1282,7 +1282,7 @@ Code:
 
 Diagrams:
 
-- reply-view has its own text renderer for fifteen kinds of mermaid diagram:
+- reply-view has its own text renderer for sixteen kinds of mermaid diagram:
 
   | Header keyword | Kind | Record |
   | --- | --- | --- |
@@ -1301,6 +1301,7 @@ Diagrams:
   | `quadrantChart` | quadrant chart | handily-2dpxv0.6 |
   | `kanban` | kanban board | handily-2dpxv0.11 |
   | `packet` or `packet-beta` | packet diagram | handily-2dpxv0.13 |
+  | `block` or `block-beta` | block diagram | handily-2dpxv0.10 |
 
 - `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts` lists the header keywords, and `DIAGRAM_NAMES`
   gives each kind its plain name. A chart takes its name from its plot, such as `bar chart`.
@@ -1315,6 +1316,10 @@ Diagrams:
   order. One dim note above the source names the reason.
 - A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
   tall diagram.
+- A block diagram draws its blocks in a grid of `columns`, with one width for all columns of a
+  group. A group draws as a dotted frame. A link draws only as a straight line between two blocks.
+  A link that needs a bend or crosses a block draws the diagram as its source, with a note
+  (handily-2dpxv0.10).
 - A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16
   columns, then to 12 columns.
 - A drawn diagram has two buttons: `[ copy ]` and `[ copy drawing ]`.
@@ -1343,9 +1348,9 @@ Settings and commands:
 | `/replies hints` | The command of the diagram hints | handily-5zzxk.8 |
 | `/replies copy diagram`, `/replies copy table`, `/replies copy code` | Copies a block of the last reply from the keyboard | handily-5zzxk.9 |
 
-- The hint text has 522 characters. It costs 229 tokens, measured with `claude -p` on
-  2026-11-05 with Claude Code 2.1.318 (reply-view README). prismantis states about 630 prompt
-  tokens for its diagram hints (its README).
+- The hint text has 529 characters. It costs 229 tokens, measured with `claude -p` on
+  2026-11-05 with Claude Code 2.1.318 (reply-view README), before `block` joined it.
+  prismantis states about 630 prompt tokens for its diagram hints (its README).
 - A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.
 
 ### 4.11 handily-filetree (handily-02b2v)
