@@ -410,9 +410,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline or
-a requirement diagram draws as a diagram. The diagram has a dim title line and two buttons at the
-right edge. The drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
+requirement diagram or a C4 diagram draws as a diagram. The diagram has a dim title line and two
+buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -645,7 +645,7 @@ hint used 22674 input tokens and the run without it used 22445, three times each
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
 hint of 350 characters that named only two kinds at 154 tokens. The count of 229 tokens is for
-the hint text of 516 characters. The hint text now has 536 characters and names more kinds, and
+the hint text of 516 characters. The hint text now has 518 characters and names more kinds, and
 it is not measured yet. A test fails when the hint text grows past 540 characters, which keeps it
 under 250 tokens. When the hint text changes, measure again and record the new count and its date
 here.
@@ -653,7 +653,7 @@ here.
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, requirementDiagram. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a fenced mermaid block as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, requirementDiagram, C4Context and the other C4 kinds. A flowchart is TD or LR and may use a subgraph that does not nest. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1375,6 +1375,100 @@ does. The title line is `── mermaid · requirement ──`:
 
 The syntax follows the
 [requirement diagram page](https://mermaid.js.org/syntax/requirementDiagram.html) of Mermaid
+12.3.0.
+
+## A C4 diagram
+
+A `C4Context`, `C4Container`, `C4Component`, `C4Dynamic` or `C4Deployment` block draws with the
+layout of a flowchart, top down. Each boundary draws as a dotted frame. The title line is
+`── mermaid · c4 ──`. This source:
+
+```text
+  C4Container
+    title Checkout
+    Person(shopper, "Shopper", "Buys online")
+    Container_Boundary(shop, "Shop") {
+      Container(web, "Web App", "TypeScript", "Takes the orders")
+      ContainerDb(orders, "Orders", "Postgres")
+    }
+    System_Ext(cards, "Card Provider")
+    Rel(shopper, web, "Orders", "HTTPS")
+    Rel(web, orders, "Stores")
+    BiRel(web, cards, "Pays")
+```
+
+draws as:
+
+```text
+● The checkout talks to the card provider:
+
+  ── mermaid · c4 ───────────────────────────────────  [ copy ] [ copy drawing ]
+  Checkout
+                               ╭─────────────╮
+                               │ Shopper     │
+                               │ [Person]    │
+                               │ Buys online │
+                               ╰──────┬──────╯
+                        ┌─────────────┘
+                        │ Orders
+                        │ [HTTPS]
+  ┌┄ Shop [CONTAINER] ┄┄│┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐
+  ┆                     ▼              ┆
+  ┆        ╭─────────────────────────╮ ┆
+  ┆        │ Web App                 │ ┆
+  ┆        │ [Container: TypeScript] │ ┆
+  ┆        │ Takes the orders        │ ┆
+  ┆        ╰────────────┬────────────╯ ┆
+  ┆                  ┌──┴───────────────────────────────┐
+  ┆                  │ Stores          ┆                │ ⇄ Pays
+  ┆                  ▼                 ┆                │
+  ┆ ╭────────────────────────────────╮ ┆ ╭──────────────┴─────────────╮
+  ┆ │ Orders                         │ ┆ │ Card Provider              │
+  ┆ │ [Database Container: Postgres] │ ┆ │ [External Software System] │
+  ┆ ╰────────────────────────────────╯ ┆ ╰────────────────────────────╯
+  └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+```
+
+- `title` draws its text in bold on the first line.
+- An element draws as a rounded box with its name in bold, its kind in brackets and its
+  description. The kind is `Person`, `Software System`, `Container` or `Component`, with the
+  technology after a colon, such as `[Container: TypeScript]`. Mermaid draws a database as a
+  cylinder, a queue as a pipe and an external element in grey. The terminal says it in words:
+  `[Database Container: Postgres]`, `[Queue Component]` and `[External Software System]`.
+- A description wraps at 32, 24 or 16 columns, whichever gives the shortest drawing. The layout of
+  a flowchart can wrap the names and the kinds further on a narrow screen.
+- A boundary draws as a frame with its name and its type, such as `Shop [CONTAINER]`. `Boundary`
+  has the type `system` and `Deployment_Node` the type `node`, unless the source names another
+  type, as in Mermaid. The frames do not nest. A boundary inside a boundary draws as its own frame,
+  named from the inside out, such as `App Server [node] in Data Centre`. A boundary that holds only
+  other boundaries has no frame of its own. The description of a boundary does not show.
+- A relation draws as an arrow with its label and its technology in brackets, such as `[HTTPS]`.
+  `Rel_U`, `Rel_D`, `Rel_L`, `Rel_R` and the long forms draw as `Rel`, because the layout places
+  the boxes itself. `Rel_Back` points at its first element. `BiRel` draws a line with no arrow head
+  and `⇄` before its label. In a `C4Dynamic`, each label starts with its number in the order of
+  the source, such as `1: Opens`. `RelIndex` ignores its index, as Mermaid does.
+- A second relation between the same two elements replaces the first, and a second element with
+  the same alias changes the first, as in Mermaid. The description of a relation does not show.
+  Mermaid does not draw it either.
+- A value in quotes keeps its text. A value with no quotes ends at the next comma, so the last
+  value of a call needs quotes, as in Mermaid. `$descr="…"` and `$techn="…"` set a value by its
+  name.
+- On the terminal, the elements take the colours `suggestion`, `planMode` and `merged` in turn.
+  The arrow heads are in `claude`. The lines, the frame borders and the relation words are in
+  `inactive`. The frame titles are bold.
+- `UpdateElementStyle`, `UpdateRelStyle`, `UpdateLayoutConfig`, `$sprite`, `$tags`, `$link`,
+  `accTitle`, `accDescr` and `accDescription` draw nothing.
+- Many elements with no relation between them stand side by side, so a large context diagram can
+  need a wide window. A diagram too wide for the screen draws as the source under the width note.
+- These draw as the source under a note that names the reason: a relation to a boundary
+  (`a relation to the boundary b does not draw yet.`), a relation to an alias that the diagram does
+  not declare (`line 3: no element has the alias ghost.`), a relation from an element to itself, a
+  boundary with no elements, a boundary with no end and one alias for a boundary and an element.
+  Mermaid refuses these, and they draw as the source with `line 2 does not parse.`: a `direction`
+  line, a space before `(`, text after `)`, an unquoted last value, a `title` with `#`, and a call
+  that Mermaid does not know, such as `UpdateBoundaryStyle` or `Lay_D`.
+
+The syntax follows the [C4 diagram page](https://mermaid.js.org/syntax/c4.html) of Mermaid
 12.3.0.
 
 ## A prompt that you type

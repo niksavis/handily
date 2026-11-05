@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { DIAGRAM_HINT, diagramHint, UNDRAWN_STATEMENTS } from './hooks/hint'
+import { DIAGRAM_HINT, diagramHint, hintedKinds, UNDRAWN_STATEMENTS } from './hooks/hint'
 import { DRAWN_DIAGRAM_KINDS, parseMermaid } from './hooks/mermaid'
 import { diagramOf } from './hooks/draw'
 import { drawsSample, hintKinds, KIND_SAMPLES, MERMAID_KINDS } from './fixtures/mermaid-kinds'
@@ -53,6 +53,11 @@ describe('the names of the drawn kinds', () => {
       'mind map',
       'timeline',
       'requirement diagram',
+      'C4 diagram',
+      'C4 diagram',
+      'C4 diagram',
+      'C4 diagram',
+      'C4 diagram',
     ])
   })
 })
@@ -60,8 +65,28 @@ describe('the names of the drawn kinds', () => {
 describe('the diagram hint', () => {
   test('the hint names the kinds of the drawn list in its order and no other Mermaid kind', () => {
     expect(DIAGRAM_HINT).toBe(diagramHint(DRAWN_DIAGRAM_KINDS))
-    expect(DIAGRAM_HINT).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}.`)
+    expect(DIAGRAM_HINT).toContain(
+      `These kinds draw: ${hintedKinds(DRAWN_DIAGRAM_KINDS).join(', ')}.`,
+    )
     expect(hintKinds(DIAGRAM_HINT)).toEqual(DRAWN_DIAGRAM_KINDS)
+  })
+
+  test('the hint names the C4 family once by its first kind, and a lone C4 kind by its name', () => {
+    expect(DIAGRAM_HINT).toContain('C4Context and the other C4 kinds')
+    expect(
+      ['C4Container', 'C4Component', 'C4Dynamic', 'C4Deployment'].filter((kind) =>
+        DIAGRAM_HINT.includes(kind),
+      ),
+    ).toEqual([])
+    expect(hintedKinds(['flowchart', 'C4Dynamic', 'pie'])).toEqual([
+      'flowchart',
+      'C4Dynamic',
+      'pie',
+    ])
+    expect(hintedKinds(['C4Context', 'pie', 'C4Dynamic'])).toEqual([
+      'C4Context and the other C4 kinds',
+      'pie',
+    ])
   })
 
   test('a kind added to the drawn list joins the hint text', () => {
@@ -69,7 +94,9 @@ describe('the diagram hint', () => {
     expect(grown).not.toBe(DIAGRAM_HINT)
     expect(hintKinds(DIAGRAM_HINT)).not.toContain('journey')
     expect(hintKinds(grown)).toEqual([...DRAWN_DIAGRAM_KINDS, 'journey'])
-    expect(grown).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}, journey.`)
+    expect(grown).toContain(
+      `These kinds draw: ${hintedKinds(DRAWN_DIAGRAM_KINDS).join(', ')}, journey.`,
+    )
   })
 
   test('each statement that the hint forbids is refused by the parser by its name', () => {
@@ -81,7 +108,7 @@ describe('the diagram hint', () => {
 
   test('the hint allows a subgraph in a flowchart and the parser refuses one inside another', () => {
     expect(DIAGRAM_HINT).toContain(
-      'A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph.',
+      'A flowchart is TD or LR and may use a subgraph that does not nest.',
     )
     expect(diagramOf(GROUPED, 78, 'terminal').kind).toBe('drawing')
     expect(refusalReason(NESTED)).toBe('a subgraph inside a subgraph does not draw yet')

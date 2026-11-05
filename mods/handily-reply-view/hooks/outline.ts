@@ -58,3 +58,12 @@ export function drawnOutline(lines: InkRun[][]): InkedDrawing | Refusal {
     limit: null,
   }
 }
+
+export function titledDrawing(
+  title: string | null,
+  drawn: InkedDrawing | Refusal,
+  width: number,
+): InkedDrawing | Refusal {
+  if (drawn.kind !== 'drawing') return drawn
+  return drawnOutline([...titleLines(title, width), ...drawn.inked])
+}
