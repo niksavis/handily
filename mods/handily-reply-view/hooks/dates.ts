@@ -136,9 +136,8 @@ const FIXED_UNITS: Readonly<Partial<Record<DurationUnit, number>>> = {
   s: SECOND,
   m: MINUTE,
   h: HOUR,
-  d: DAY,
-  w: WEEK,
 }
+const CALENDAR_DAYS: Readonly<Partial<Record<DurationUnit, number>>> = { d: 1, w: 7 }
 const CALENDAR_MONTHS: Readonly<Partial<Record<DurationUnit, number>>> = { M: 1, y: 12 }
 const AXIS_TOKEN = /%([-_0]?)([\s\S])|[^%]+/g
 const AXIS_SHORTHANDS: Readonly<Record<string, string>> = {
@@ -302,11 +301,12 @@ export function durationOf(text: string): Duration | null {
   return { amount: Number(found[1]), unit: found[2] as DurationUnit }
 }
 
-export function added(time: number, duration: Duration): number | null {
+export function added(time: number, duration: Duration): number {
+  const days = CALENDAR_DAYS[duration.unit]
+  if (days !== undefined) return time + Math.round(days * duration.amount) * DAY
   const fixed = FIXED_UNITS[duration.unit]
-  if (fixed !== undefined) return time + Math.round(duration.amount * fixed)
-  const months = (CALENDAR_MONTHS[duration.unit] ?? 0) * duration.amount
-  if (!Number.isInteger(months)) return null
+  if (fixed !== undefined) return Math.trunc(time + duration.amount * fixed)
+  const months = (CALENDAR_MONTHS[duration.unit] ?? 0) * Math.trunc(duration.amount)
   const date = new Date(time)
   const target = date.getUTCMonth() + months
   const year = date.getUTCFullYear() + Math.floor(target / 12)

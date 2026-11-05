@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
+import { added, durationOf } from './hooks/dates'
 import { parseMermaid } from './hooks/mermaid'
 import { displayWidth } from './hooks/width'
 
@@ -403,6 +404,58 @@ describe('gantt diagrams', () => {
       { label: 'plum', start: '2018-02-01 00:00', end: '2018-02-03 00:00' },
     ])
   })
+  test('a part of a duration resolves as Mermaid 12.3.0 adds it with dayjs', () => {
+    const ends = [
+      ['0.5d', '2024-02-01 00:00'],
+      ['1.5d', '2024-02-02 00:00'],
+      ['2.5d', '2024-02-03 00:00'],
+      ['0.5w', '2024-02-04 00:00'],
+      ['1.5w', '2024-02-11 00:00'],
+      ['0.5M', '2024-01-31 00:00'],
+      ['1.5M', '2024-02-29 00:00'],
+      ['0.5y', '2024-01-31 00:00'],
+      ['1.5y', '2025-01-31 00:00'],
+      ['1.5h', '2024-01-31 01:30'],
+      ['0.1h', '2024-01-31 00:06'],
+    ] as const
+    const source = lines(
+      'gantt',
+      ...ends.map(([duration], at) => `  t${String(at)} : 2024-01-31, ${duration}`),
+    )
+    expect(tasksOf(source).map((task) => [task.label, task.end])).toEqual(
+      ends.map(([, end], at) => [`t${String(at)}`, end]),
+    )
+  })
+
+  test('a part of a second or a millisecond drops the rest of the millisecond, as dayjs does', () => {
+    const start = Date.parse('2024-01-31T00:00:00.000Z')
+    const ends = [
+      ['0.25m', '2024-01-31T00:00:15.000Z'],
+      ['2.0015s', '2024-01-31T00:00:02.001Z'],
+      ['0.0015s', '2024-01-31T00:00:00.001Z'],
+      ['2.5ms', '2024-01-31T00:00:00.002Z'],
+    ] as const
+    expect(
+      ends.map(([text]) => {
+        const duration = durationOf(text)
+        return duration === null ? null : new Date(added(start, duration)).toISOString()
+      }),
+    ).toEqual(ends.map(([, end]) => end))
+  })
+
+  viewTest(
+    'a gantt whose labels are all under 4 columns draws at 80 columns',
+    async (_world, $) => {
+      const ui = await mountGantt($, lines('gantt', '  A: 2024-01-01, 3d', '  B: 2d'), 'terminal')
+      const rows = await textRows(ui, 'terminal')
+      expect(await noteOf(ui)).toBeUndefined()
+      expect(rows.filter((row) => /^[AB] /.test(row)).map((row) => row.slice(0, 2))).toEqual([
+        'A ',
+        'B ',
+      ])
+      await ui.unmount()
+    },
+  )
 })
 
 describe('gantt diagrams that do not draw', () => {

@@ -982,6 +982,9 @@ that page at 80 columns:
 - A task starts at a date in the `dateFormat`, after the tasks of `after a1 b2` (the latest end),
   or at the end of the task before it. It ends at a date, after a duration such as `3d`, `20h` or
   `1M`, or at `until a1` (the earliest start). `inclusiveEndDates` adds a day to an end date.
+- A part of a duration counts as Mermaid 12.3.0 counts it. A duration in days or weeks rounds to
+  whole days, so `0.5d` is 1 day and `0.5w` is 4 days. A duration in months or years drops the
+  part, so `1.5M` is 1 month and `0.5y` adds no time. A part of a millisecond drops.
 - `dateFormat` reads `YYYY`, `M`, `MM`, `MMM`, `MMMM`, `D`, `DD`, `H`, `HH`, `h`, `hh`, `a`, `A`,
   `m`, `mm`, `s`, `ss`, `S`, `SS`, `SSS`, `X` and `x`. The default is `YYYY-MM-DD`. A format with
   no date, such as `HH:mm`, reads its times on one day.
@@ -997,7 +1000,7 @@ that page at 80 columns:
 
 These draw as the source under a note that names the reason:
 
-- `excludes`, a `vert` marker, and a part of a month or a year, such as `1.5M`
+- `excludes` and a `vert` marker
 - an id that no task has, such as `line 3: no task has the id zz.`, and `after` or `until`
   references that loop
 - a date that does not match the `dateFormat`, an end that is not a date or a duration, a first

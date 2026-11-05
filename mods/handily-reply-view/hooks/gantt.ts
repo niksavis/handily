@@ -326,9 +326,7 @@ class Resolver {
         `${linePrefix(task.line)}: ${JSON.stringify(task.end)} is not a date or a duration`,
       )
     }
-    const end = added(start, duration)
-    if (end === null) throw notDrawnYet(task.line, `the duration ${task.end}`)
-    return end
+    return added(start, duration)
   }
 }
 
@@ -436,8 +434,7 @@ function labelWidthOf(diagram: GanttDiagram, width: number): number | null {
     Math.max(MIN_LABEL * 2, Math.floor(width * WIDE_LABELS)),
     width - 1 - MIN_CHART,
   )
-  const labelWidth = Math.min(widest, most)
-  return labelWidth < MIN_LABEL ? null : labelWidth
+  return most < MIN_LABEL ? null : Math.min(widest, most)
 }
 
 function putTask(
