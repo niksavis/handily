@@ -1,6 +1,7 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { ReplyViewFold } from '../types'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
+import { drawArchitecture } from './architecture'
 import { drawC4 } from './c4'
 import { chartName, drawChart, isChartSource } from './charts'
 import { drawClasses } from './classes'
@@ -1251,6 +1252,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'c4': {
       const drawn = drawC4(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'architecture': {
+      const drawn = drawArchitecture(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

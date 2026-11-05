@@ -1790,7 +1790,7 @@ describe('/replies', () => {
 })
 
 const MEASURED_HINT =
-  'The terminal draws a fenced mermaid block as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, requirementDiagram, C4Context and the other C4 kinds. A flowchart is TD or LR and may use a subgraph that does not nest. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
+  'The terminal draws a fenced mermaid block as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, requirementDiagram, C4Context and the other C4 kinds, architecture-beta. A flowchart is TD or LR and may use a subgraph that does not nest. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
 const HINT_CHARACTERS_AT_MOST = 540
 const HINTS_ON =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 230 tokens.'

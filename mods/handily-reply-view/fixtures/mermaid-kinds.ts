@@ -60,6 +60,8 @@ export const KIND_SAMPLES: Readonly<Record<string, string>> = {
   C4Dynamic:
     'C4Dynamic\n  Person(user, "User")\n  Container(web, "Web")\n  RelIndex(1, user, web, "Opens")',
   C4Deployment: 'C4Deployment\n  Deployment_Node(box, "Server") {\n    Container(web, "Web")\n  }',
+  'architecture-beta':
+    'architecture-beta\n  service db(database)[Database]\n  service api(server)[API]\n  db:L -- R:api',
 }
 
 export function drawsSample(kind: string): boolean {

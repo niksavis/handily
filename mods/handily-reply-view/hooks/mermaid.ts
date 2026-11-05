@@ -1,3 +1,8 @@
+import {
+  architectureBuilder,
+  type ArchitectureBuilder,
+  type ArchitectureDiagram,
+} from './architecture'
 import { c4Builder, type C4Builder, type C4Diagram } from './c4'
 import { chartBuilderOf, isChartKind, type Chart, type ChartBuilder } from './charts'
 import { ClassBuilder, type ClassDiagram } from './classes'
@@ -38,6 +43,7 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'C4Component',
   'C4Dynamic',
   'C4Deployment',
+  'architecture-beta',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -52,6 +58,7 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   timeline: 'timeline',
   requirement: 'requirement diagram',
   c4: 'C4 diagram',
+  architecture: 'architecture diagram',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -146,6 +153,7 @@ export type MermaidDiagram =
   | Timeline
   | RequirementDiagram
   | C4Diagram
+  | ArchitectureDiagram
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -822,6 +830,7 @@ type Builder =
   | TimelineBuilder
   | RequirementBuilder
   | C4Builder
+  | ArchitectureBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -845,6 +854,8 @@ function builderOf(header: Statement): Builder {
   if (requirement !== null) return requirement
   const c4 = c4Builder(header)
   if (c4 !== null) return c4
+  const architecture = architectureBuilder(header)
+  if (architecture !== null) return architecture
   throw unknownHeader(header)
 }
 

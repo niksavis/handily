@@ -58,6 +58,7 @@ describe('the names of the drawn kinds', () => {
       'C4 diagram',
       'C4 diagram',
       'C4 diagram',
+      'architecture diagram',
     ])
   })
 })

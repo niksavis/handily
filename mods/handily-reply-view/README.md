@@ -411,8 +411,8 @@ title line, as the buttons of a diagram do:
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
 diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
-requirement diagram or a C4 diagram draws as a diagram. The diagram has a dim title line and two
-buttons at the right edge. The drawing replaces the source:
+requirement diagram, a C4 diagram or an architecture diagram draws as a diagram. The diagram has a
+dim title line and two buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -645,7 +645,7 @@ hint used 22674 input tokens and the run without it used 22445, three times each
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
 hint of 350 characters that named only two kinds at 154 tokens. The count of 229 tokens is for
-the hint text of 516 characters. The hint text now has 518 characters and names more kinds, and
+the hint text of 516 characters. The hint text now has 537 characters and names more kinds, and
 it is not measured yet. A test fails when the hint text grows past 540 characters, which keeps it
 under 250 tokens. When the hint text changes, measure again and record the new count and its date
 here.
@@ -653,7 +653,7 @@ here.
 The hint text:
 
 ```text
-The terminal draws a fenced mermaid block as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, requirementDiagram, C4Context and the other C4 kinds. A flowchart is TD or LR and may use a subgraph that does not nest. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a fenced mermaid block as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, requirementDiagram, C4Context and the other C4 kinds, architecture-beta. A flowchart is TD or LR and may use a subgraph that does not nest. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1470,6 +1470,91 @@ draws as:
 
 The syntax follows the [C4 diagram page](https://mermaid.js.org/syntax/c4.html) of Mermaid
 12.3.0.
+
+## An architecture diagram
+
+An `architecture-beta` block draws with the layout of a flowchart. Each group draws as a dotted
+frame. The title line is `── mermaid · architecture ──`. This source:
+
+```text
+  architecture-beta
+    title Shop
+    group cloud(cloud)[Cloud]
+    group data(database)[Data] in cloud
+    service cdn(internet)[CDN]
+    service web(internet)[Web] in cloud
+    service api(server)[API] in cloud
+    service db(database)[Orders] in data
+    cdn:B --> T:web
+    web:B -[calls]-> T:api
+    api{group}:B <--> T:db{group}
+```
+
+draws as:
+
+```text
+● The shop runs in one cloud:
+
+  ── mermaid · architecture ─────────────────────────  [ copy ] [ copy drawing ]
+  Shop
+      ╭─────╮
+      │ CDN │
+      ╰──┬──╯
+    ┌┄┄┄┄│┄ Cloud ┄┐
+    ┆    ▼         ┆
+    ┆ ╭─────╮      ┆
+    ┆ │ Web │      ┆
+    ┆ ╰──┬──╯      ┆
+    ┆    │ calls   ┆
+    ┆    ▼         ┆
+    ┆ ╭─────╮      ┆
+    ┆ │ API │      ┆
+    ┆ ╰──┬──╯      ┆
+    └┄┄┄┄│┄┄┄┄┄┄┄┄┄┘
+         │ ⇄
+  ┌┄┄┄┄┄┄│┄ Data in Cloud ┄┐
+  ┆      │                 ┆
+  ┆ ╭────┴───╮             ┆
+  ┆ │ Orders │             ┆
+  ┆ ╰────────╯             ┆
+  └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+```
+
+When most edges join a left side to a right side, the diagram draws left to right, and top down
+when it does not fit:
+
+```text
+  ╭───────╮   ╭─────────╮ jobs ╭───────────╮
+  │ Users │──▶│ Gateway │─────▶│ Job queue │
+  ╰───────╯   ╰─────────╯      ╰───────────╯
+```
+
+- A service draws as a rounded box with its title. A service with no title shows its id.
+- The terminal cannot draw an icon, so the icon of a service or a group does not show. Neither
+  does the text of a text icon, such as `service a "icon"[A]`.
+- A group draws as a frame with its title, or its id when it has no title. The frames do not nest.
+  A group inside a group draws as its own frame, named from the inside out, such as
+  `Data in Cloud`. A group that holds only other groups has no frame of its own.
+- A junction draws as a small box with `●`, so each edge that meets it stays whole.
+- `-->` draws an arrow head at the right service, and `<--` at the left service. `--` draws a line
+  with no arrow head. `<-->` draws a line with no arrow head and `⇄` before its title. An edge
+  title, such as `-[calls]->`, stands beside the line.
+- The sides `L`, `R`, `T` and `B` choose the direction of the diagram, and which service of a line
+  with no arrow head comes first. The layout places the boxes itself, so `align row` and
+  `align column` draw nothing. `{group}` draws the edge to the service inside the frame.
+- `title` draws its text in bold on the first line. `accTitle` and `accDescr` draw nothing.
+- On the terminal, the services take the colours `suggestion`, `planMode` and `merged` in turn.
+  The arrow heads are in `claude`. The lines, the frame borders and the edge titles are in
+  `inactive`. The frame titles are bold.
+- A diagram too wide for the screen draws as the source under the width note.
+- These draw as the source under a note that names the reason, as Mermaid refuses them: an edge
+  to a group (`line 5: an edge cannot end at the group api.`), an id that the diagram does not
+  declare, a group or a service in a group that the diagram does not declare, a group declared
+  after a group inside it, an id used twice, an edge from a service to itself, `{group}` on an
+  edge inside one group, and an `align` line with one member or a member twice.
+
+The syntax follows the [architecture page](https://mermaid.js.org/syntax/architecture.html) of
+Mermaid 12.3.0.
 
 ## A prompt that you type
 
