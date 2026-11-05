@@ -4,6 +4,7 @@ import { EntityBuilder, type EntityDiagram } from './er'
 import { GanttBuilder, type GanttDiagram } from './gantt'
 import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph'
 import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
+import { sankeyBuilder, type Sankey, type SankeyBuilder } from './sankey'
 import { StateBuilder, type StateDiagram } from './state'
 import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
 
@@ -30,6 +31,7 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'gitGraph',
   'mindmap',
   'timeline',
+  'sankey',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -42,6 +44,7 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   gitgraph: 'git graph',
   mindmap: 'mind map',
   timeline: 'timeline',
+  sankey: 'sankey diagram',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -134,6 +137,7 @@ export type MermaidDiagram =
   | GitGraph
   | Mindmap
   | Timeline
+  | Sankey
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -789,6 +793,7 @@ type Builder =
   | GitGraphBuilder
   | MindmapBuilder
   | TimelineBuilder
+  | SankeyBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -808,6 +813,8 @@ function builderOf(header: Statement): Builder {
   if (mindmap !== null) return mindmap
   const timeline = timelineBuilder(header)
   if (timeline !== null) return timeline
+  const sankey = sankeyBuilder(header)
+  if (sankey !== null) return sankey
   throw unknownHeader(header)
 }
 

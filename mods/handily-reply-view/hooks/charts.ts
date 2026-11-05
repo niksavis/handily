@@ -101,6 +101,7 @@ const VALUE_INK: Ink = 1
 const AXIS_INK: Ink = 'line'
 const TALLEST_INK: Ink = 'head'
 const BOLD: Looks = { ...PLAIN_LOOKS, isBold: true }
+const UNIT_SCALE: Scale = { low: 0, high: 1, step: 0 }
 
 export class ChartGrid {
   readonly grid = new Grid()
@@ -689,6 +690,40 @@ function rightBar(eighths: number, glyph: string): string {
   return FULL.repeat(Math.floor(eighths / 8)) + (RIGHT_EIGHTHS[eighths % 8] ?? '')
 }
 
+export function shareBar(share: number, cells: number): string {
+  return rightBar(eighthsOf(share, UNIT_SCALE, cells), FULL)
+}
+
+export type BarColumn = { wanted: number; least: number }
+
+export type BarColumns = { kind: 'columns'; widths: number[]; bar: number }
+
+export function barColumns(
+  columns: readonly BarColumn[],
+  fixed: number,
+  width: number,
+): BarColumns | Refusal {
+  const cap = Math.floor(width / (columns.length + 1))
+  const widths = columns.map(({ wanted, least }) => Math.min(wanted, Math.max(cap, least)))
+  let bar = width - fixed - widths.reduce((sum, column) => sum + column, 0)
+  while (bar < MIN_BAR) {
+    const spare = widths.map((column, at) => column - (columns[at]?.least ?? column))
+    const most = Math.max(0, ...spare)
+    if (most === 0) {
+      const least = columns.reduce((sum, column) => sum + column.least, 0)
+      return tooWide(fixed + least + MIN_BAR, width)
+    }
+    const at = spare.indexOf(most)
+    widths[at] = (widths[at] ?? most) - 1
+    bar += 1
+  }
+  return { kind: 'columns', widths, bar }
+}
+
+export function leastLabel(wanted: number): number {
+  return Math.min(wanted, MIN_LABEL)
+}
+
 function rowsOf(chart: XyChart, texts: (value: number) => string): Row[] {
   return chart.categories.flatMap((label, category) =>
     chart.series.map((series, at) => {
@@ -839,15 +874,9 @@ function drawPie(chart: PieChart, width: number): InkedDrawing | Refusal {
   if (area === null) return tooWide(MIN_LABEL + MIN_BAR + 2 + shareWidth, width)
   const sheet = new ChartGrid()
   let row = putHead(sheet, chart.title, [], width)
-  const scale: Scale = { low: 0, high: 1, step: 0 }
   slices.forEach((slice, at) => {
     sheet.put(row, 0, cutLabel(slice.label, area.labelWidth), 'plain')
-    sheet.put(
-      row,
-      area.labelWidth + 1,
-      rightBar(eighthsOf(slice.value / total, scale, area.barWidth), FULL),
-      at,
-    )
+    sheet.put(row, area.labelWidth + 1, shareBar(slice.value / total, area.barWidth), at)
     const share = (shares[at] ?? '').padStart(shareWidth)
     const text =
       full === null ? share : `${share}${SHARE_GAP}${(values[at] ?? '').padStart(valueWidth)}`
@@ -857,7 +886,7 @@ function drawPie(chart: PieChart, width: number): InkedDrawing | Refusal {
   return sheet.drawing(width)
 }
 
-function fits(drawing: InkedDrawing, width: number): InkedDrawing | Refusal {
+export function fits(drawing: InkedDrawing, width: number): InkedDrawing | Refusal {
   const widest = widestOf(drawing.lines)
   return widest > width ? tooWide(widest, width) : drawing
 }

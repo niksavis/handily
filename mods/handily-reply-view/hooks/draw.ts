@@ -31,6 +31,7 @@ import {
   type QuoteLine,
 } from './prose'
 import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole } from './roles'
+import { drawSankey } from './sankey'
 import { drawSequence } from './sequence'
 import { drawState } from './state'
 import {
@@ -1241,6 +1242,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'timeline': {
       const drawn = drawTimeline(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'sankey': {
+      const drawn = drawSankey(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

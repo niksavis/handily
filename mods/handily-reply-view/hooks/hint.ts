@@ -12,7 +12,7 @@ export function diagramHint(kinds: readonly string[]): string {
   const participants = String(DIAGRAM_LIMITS.participants)
   return [
     'The terminal draws a mermaid block in a reply as a diagram.',
-    'When a diagram reads better than text, add one fenced mermaid block.',
+    'Add one when a diagram reads better than text.',
     `These kinds draw: ${kinds.join(', ')}.`,
     'A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph.',
     'Keep each label short.',

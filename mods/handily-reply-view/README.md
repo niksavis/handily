@@ -8,8 +8,9 @@ rules between its columns only. Numbers, durations, versions and paths in the pr
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram, ER diagram, git graph, mind map or timeline draws as a diagram, with
-a `copy` button for its source and a `copy drawing` button for the drawing. Each prompt that you
+state diagram, class diagram, ER diagram, git graph, mind map, timeline or sankey diagram
+draws as a diagram, with a `copy` button for its source and a `copy drawing` button for the
+drawing. Each prompt that you
 type opens under a coloured rule labelled `you`, so you find it when you scroll. `/replies`
 switches the view off and on for the session. The model still reads the full reply and the prompt
 as you typed it. Only the screen changes.
@@ -410,9 +411,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map or a timeline
-draws as a diagram. The diagram has a dim title line and two buttons at the right edge. The
-drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline or
+a sankey diagram draws as a diagram. The diagram has a dim title line and two buttons at the
+right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -644,14 +645,15 @@ same prompt differ only in a mod that adds the hint as the context of the prompt
 hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The hint text has 516 characters,
-and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
-changes, measure again and record the new count and its date here.
+hint of 350 characters that named only two kinds at 154 tokens. The count of 229 tokens is for the
+hint of 516 characters. The hint text now has 502 characters, and its count is not measured yet.
+A test fails when the hint grows past 540 characters, which keeps it under 250 tokens. When the
+hint text changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, sankey. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1303,6 +1305,56 @@ At 40 columns, the events wrap in their column:
 
 The syntax follows the [timeline page](https://mermaid.js.org/syntax/timeline.html) of Mermaid
 12.3.0.
+
+## A sankey diagram
+
+A `sankey` or `sankey-beta` block draws one row for each node, with its total. Under each node
+with links out, one row for each link draws a bar to scale and its value:
+
+```text
+● Where the power goes:
+
+  ── mermaid · sankey ───────────────────────────────  [ copy ] [ copy drawing ]
+  Solar                                                                       60
+  └─ Grid            ████████████████████████████████████████████████         60
+  Wind                                                                        40
+  └─ Grid            ████████████████████████████████                         40
+  Grid                                                                       100
+  ├─ Homes           ████████████████████████████████████████████████████████ 70
+  ├─ Industry, heavy ████████████████████                                     25
+  └─ Losses          ████                                                      5
+  Homes                                                                       70
+  Industry, heavy                                                             25
+  Losses                                                                       5
+```
+
+A terminal cannot draw the curved bands of a sankey diagram. A band that crosses other bands
+cannot be followed in text. So each link draws as a row under its source node, and its bar has
+the length of its value. The longest bar is the largest link. The rows name every node, the
+total of every node and the value of every link, as the labels of Mermaid do.
+
+- The nodes stand in the order of the flow. A node with no link in comes first. A node with no
+  link out comes last, as `justify` places it in Mermaid. Nodes of one step keep the order of
+  the source.
+- The total of a node is the larger of the sum of its links in and the sum of its links out, as
+  in Mermaid. A value draws rounded to 2 decimals, as Mermaid prints it.
+- On the terminal, each node takes the next colour of `suggestion`, `planMode` and `merged`. A
+  link draws its target name and its bar in the colour of the target, so the colour leads to the
+  row of that node. The values are in `planMode`, and `├─` and `└─` are in `inactive`.
+- On a narrow screen, a long target name is cut with `…`. The node rows keep the full name when
+  it fits.
+- Each line holds a source, a target and a value, split by commas, as in Mermaid. A name with a
+  comma stands in double quotes, and `""` inside the quotes is one quote. Blank lines and `%%`
+  comments draw nothing.
+- These draw as the source, with a note: a link that closes a cycle (`line 3 closes a cycle.`), a
+  line with more or fewer than 3 fields, a space before or after a quote, a letter outside ASCII
+  (`line 2 does not parse.`) and a block with no link. Mermaid refuses each of these too.
+- A value that is not a number (`line 2: "many" is not a number.`) and a value below 0 also draw
+  as the source. Mermaid reads the value with `parseFloat` and does not check it, so the view
+  does not guess a band. A diagram of more than 120 rows draws as the source
+  (`210 rows, at most 120 draw.`).
+
+The syntax follows the [sankey page](https://mermaid.js.org/syntax/sankey.html) of Mermaid 12.3.0.
 
 ## A prompt that you type
 

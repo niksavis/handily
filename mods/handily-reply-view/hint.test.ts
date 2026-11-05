@@ -52,6 +52,7 @@ describe('the names of the drawn kinds', () => {
       'git graph',
       'mind map',
       'timeline',
+      'sankey diagram',
     ])
   })
 })
