@@ -8,6 +8,7 @@ import { drawFlowchart } from './flowchart'
 import { drawGantt } from './gantt'
 import { drawGitGraph } from './gitgraph'
 import { highlightedRuns } from './highlight'
+import { drawJourney } from './journey'
 import { textPropsOf, type Ink, type InkedDrawing, type InkRun } from './ink'
 import {
   PLAIN_MARK,
@@ -1241,6 +1242,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'timeline': {
       const drawn = drawTimeline(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'journey': {
+      const drawn = drawJourney(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

@@ -1790,7 +1790,7 @@ describe('/replies', () => {
 })
 
 const MEASURED_HINT =
-  'The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
+  'The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
 const HINT_CHARACTERS_AT_MOST = 540
 const HINTS_ON =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 230 tokens.'
@@ -2260,8 +2260,8 @@ describe('mermaid flowcharts', () => {
     [linesOf('flowchart TD', '  A --> B', '  B@{ icon: "fa:user" }'), 3, 'icons'],
     [linesOf('flowchart TD', '  A["`**bold**`"]'), 2, 'markdown strings'],
     [linesOf('flowchart TD', '  A -->|"`md`"| B'), 2, 'markdown strings'],
-    [linesOf('journey', '  title A plan'), 1, 'journey'],
-    [linesOf('quadrantChart', '  title Pets'), 1, 'quadrantChart'],
+    [linesOf('zenuml', '  title A plan'), 1, 'zenuml'],
+    [linesOf('ishikawa-beta', '  title Pets'), 1, 'ishikawa-beta'],
     [linesOf('requirementDiagram', '  element test_entity {', '  }'), 1, 'requirementDiagram'],
   ] as const) {
     test(`${reason} is refused by name on line ${String(line)}`, () => {

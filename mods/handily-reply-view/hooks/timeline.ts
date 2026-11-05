@@ -187,7 +187,12 @@ function lineWidth(line: readonly InkRun[]): number {
   return displayWidth(line.map((run) => run.text).join(''))
 }
 
-function sectionLine(label: readonly string[], ink: Ink, width: number, rule: number): InkRun[] {
+export function sectionLine(
+  label: readonly string[],
+  ink: Ink,
+  width: number,
+  rule: number,
+): InkRun[] {
   const name = withLooks(shownLabel(label.join(' ').trim()), { isBold: true })
   const room = width - displayWidth(RULE_HEAD) - 1 - RULE_TAIL_AT_LEAST
   const cut = fittedLabel(name, Math.max(room, 1))

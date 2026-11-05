@@ -52,6 +52,7 @@ describe('the names of the drawn kinds', () => {
       'git graph',
       'mind map',
       'timeline',
+      'user journey',
     ])
   })
 })
@@ -64,11 +65,11 @@ describe('the diagram hint', () => {
   })
 
   test('a kind added to the drawn list joins the hint text', () => {
-    const grown = diagramHint([...DRAWN_DIAGRAM_KINDS, 'journey'])
+    const grown = diagramHint([...DRAWN_DIAGRAM_KINDS, 'zenuml'])
     expect(grown).not.toBe(DIAGRAM_HINT)
-    expect(hintKinds(DIAGRAM_HINT)).not.toContain('journey')
-    expect(hintKinds(grown)).toEqual([...DRAWN_DIAGRAM_KINDS, 'journey'])
-    expect(grown).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}, journey.`)
+    expect(hintKinds(DIAGRAM_HINT)).not.toContain('zenuml')
+    expect(hintKinds(grown)).toEqual([...DRAWN_DIAGRAM_KINDS, 'zenuml'])
+    expect(grown).toContain(`These kinds draw: ${DRAWN_DIAGRAM_KINDS.join(', ')}, zenuml.`)
   })
 
   test('each statement that the hint forbids is refused by the parser by its name', () => {

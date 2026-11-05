@@ -684,7 +684,7 @@ function areaOf(
   return { labelWidth: cut, textWidth, barWidth: MIN_BAR }
 }
 
-function rightBar(eighths: number, glyph: string): string {
+export function rightBar(eighths: number, glyph: string): string {
   if (glyph !== FULL) return glyph.repeat(Math.round(eighths / 8))
   return FULL.repeat(Math.floor(eighths / 8)) + (RIGHT_EIGHTHS[eighths % 8] ?? '')
 }

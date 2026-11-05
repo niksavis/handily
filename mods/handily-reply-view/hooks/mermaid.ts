@@ -3,6 +3,7 @@ import { ClassBuilder, type ClassDiagram } from './classes'
 import { EntityBuilder, type EntityDiagram } from './er'
 import { GanttBuilder, type GanttDiagram } from './gantt'
 import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph'
+import { journeyBuilder, type Journey, type JourneyBuilder } from './journey'
 import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
 import { StateBuilder, type StateDiagram } from './state'
 import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
@@ -30,6 +31,7 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'gitGraph',
   'mindmap',
   'timeline',
+  'journey',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -42,6 +44,7 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   gitgraph: 'git graph',
   mindmap: 'mind map',
   timeline: 'timeline',
+  journey: 'user journey',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -134,6 +137,7 @@ export type MermaidDiagram =
   | GitGraph
   | Mindmap
   | Timeline
+  | Journey
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -789,6 +793,7 @@ type Builder =
   | GitGraphBuilder
   | MindmapBuilder
   | TimelineBuilder
+  | JourneyBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -808,6 +813,8 @@ function builderOf(header: Statement): Builder {
   if (mindmap !== null) return mindmap
   const timeline = timelineBuilder(header)
   if (timeline !== null) return timeline
+  const journey = journeyBuilder(header)
+  if (journey !== null) return journey
   throw unknownHeader(header)
 }
 

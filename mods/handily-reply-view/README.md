@@ -8,11 +8,11 @@ rules between its columns only. Numbers, durations, versions and paths in the pr
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram, ER diagram, git graph, mind map or timeline draws as a diagram, with
-a `copy` button for its source and a `copy drawing` button for the drawing. Each prompt that you
-type opens under a coloured rule labelled `you`, so you find it when you scroll. `/replies`
-switches the view off and on for the session. The model still reads the full reply and the prompt
-as you typed it. Only the screen changes.
+state diagram, class diagram, ER diagram, git graph, mind map, timeline or user journey draws as
+a diagram, with a `copy` button for its source and a `copy drawing` button for the drawing. Each
+prompt that you type opens under a coloured rule labelled `you`, so you find it when you scroll.
+`/replies` switches the view off and on for the session. The model still reads the full reply and
+the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -410,9 +410,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map or a timeline
-draws as a diagram. The diagram has a dim title line and two buttons at the right edge. The
-drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline or a
+user journey draws as a diagram. The diagram has a dim title line and two buttons at the right
+edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -470,7 +470,7 @@ reason:
 
 Other reasons that the note names:
 
-- `journey does not draw yet.`, and the same for each other kind of diagram that this part does
+- `zenuml does not draw yet.`, and the same for each other kind of diagram that this part does
   not name.
 - `direction does not draw yet.`, for a `direction` line outside a `subgraph`.
 - The reasons of a `subgraph` that does not draw, in the part on groups in a flowchart.
@@ -644,14 +644,14 @@ same prompt differ only in a mod that adds the hint as the context of the prompt
 hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The hint text has 516 characters,
+hint of 350 characters that named only two kinds at 154 tokens. The hint text has 525 characters,
 and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
 changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, journey. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1303,6 +1303,57 @@ At 40 columns, the events wrap in their column:
 
 The syntax follows the [timeline page](https://mermaid.js.org/syntax/timeline.html) of Mermaid
 12.3.0.
+
+## A user journey
+
+A `journey` draws a score bar for each task, under the title line `── mermaid · journey ──`:
+
+```text
+● A day at work:
+
+  ── mermaid · journey ──────────────────────────────  [ copy ] [ copy drawing ]
+  My working day
+  ┄┄ Go to work ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  █████ 5  Make tea       Me
+  ███░░ 3  Go upstairs    Me
+  █░░░░ 1  Do work        Me, Cat
+  ┄┄ Go home ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  █████ 5  Go downstairs  Me
+  █████ 5  Sit down       Me
+```
+
+At 30 columns, the actors stand under their task:
+
+```text
+  My working day
+  ┄┄ Go to work ┄┄┄┄┄┄┄┄
+  █████ 5  Make tea
+           Me
+  ███░░ 3  Go upstairs
+           Me
+```
+
+- `title` draws its text in bold on the first line. A `section` draws as a dotted row with its
+  name, as in a timeline.
+- A task `Make tea: 5: Me, Cat` draws its score as a bar of 5 cells and as a number, then its
+  name, then its actors. The bars stand in one column, so the rise and fall of the scores read
+  down the column. A score with a fraction, such as `3.5`, draws a part of a cell.
+- When the widest task name takes more than half of the room after the bars, or leaves fewer
+  than 12 columns for the actors, the actors stand under their task.
+- On the terminal, each section, its bars and its scores take the colours `suggestion`,
+  `planMode` and `merged` in turn. The task names are plain. The empty cells `░`, the actors and
+  the dotted rows are in `inactive`.
+- `#` and `%%` start a comment, as in Mermaid. The keywords `title` and `section` may be in any
+  case. `accTitle` and `accDescr` draw nothing. Mermaid reads only the score and the actors of a
+  task, so a third `:` and the text after it draw nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: a task with no score or a section with a `:`
+  (`line 2 does not parse.`), a score that is not a number (`line 2: "high" is not a number.`), a
+  score outside 1 to 5 (`line 2: the score 7 is not from 1 to 5.`), a journey with no task
+  (`the journey has no tasks.`) and a screen narrower than the bars and 10 columns of the names.
+
+The syntax follows the [user journey page](https://mermaid.js.org/syntax/userJourney.html) of
+Mermaid 12.3.0.
 
 ## A prompt that you type
 

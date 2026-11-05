@@ -52,6 +52,7 @@ export const KIND_SAMPLES: Readonly<Record<string, string>> = {
   gitGraph: 'gitGraph\n  commit\n  commit',
   mindmap: 'mindmap\n  root\n    leaf',
   timeline: 'timeline\n  2002 : LinkedIn\n  2004 : Facebook',
+  journey: 'journey\n  section Work\n    Make tea: 5: Me',
 }
 
 export function drawsSample(kind: string): boolean {
