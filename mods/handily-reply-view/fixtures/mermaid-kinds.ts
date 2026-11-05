@@ -54,6 +54,7 @@ export const KIND_SAMPLES: Readonly<Record<string, string>> = {
   timeline: 'timeline\n  2002 : LinkedIn\n  2004 : Facebook',
   sankey: 'sankey\n  Solar,Grid,60\n  Grid,Homes,40',
   'radar-beta': 'radar-beta\n  axis a, b, c\n  curve x{1, 2, 3}',
+  'treemap-beta': 'treemap-beta\n  "Parts"\n    "Left": 3\n    "Right": 1',
 }
 
 export function drawsSample(kind: string): boolean {

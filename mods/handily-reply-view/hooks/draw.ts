@@ -59,6 +59,7 @@ import {
   type TableStyle,
 } from './table'
 import { drawTimeline } from './timeline'
+import { drawTreemap } from './treemap'
 import { cutToWidth, displayWidth, fitted, graphemesOf } from './width'
 
 export const FOLD_AFTER_ROWS = 30
@@ -1251,6 +1252,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'radar': {
       const drawn = drawRadar(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'treemap': {
+      const drawn = drawTreemap(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

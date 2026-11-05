@@ -8,6 +8,7 @@ import { radarBuilder, type Radar, type RadarBuilder } from './radar'
 import { sankeyBuilder, type Sankey, type SankeyBuilder } from './sankey'
 import { StateBuilder, type StateDiagram } from './state'
 import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
+import { treemapBuilder, type Treemap, type TreemapBuilder } from './treemap'
 
 export type LimitName = 'lines' | 'characters' | 'boxes' | 'edges' | 'participants' | 'events'
 
@@ -34,6 +35,7 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'timeline',
   'sankey',
   'radar-beta',
+  'treemap-beta',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -48,6 +50,7 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   timeline: 'timeline',
   sankey: 'sankey diagram',
   radar: 'radar diagram',
+  treemap: 'treemap',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -142,6 +145,7 @@ export type MermaidDiagram =
   | Timeline
   | Sankey
   | Radar
+  | Treemap
 
 export type Statement = { line: number; text: string; indent: number }
 
@@ -799,6 +803,7 @@ type Builder =
   | TimelineBuilder
   | SankeyBuilder
   | RadarBuilder
+  | TreemapBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -822,6 +827,8 @@ function builderOf(header: Statement): Builder {
   if (sankey !== null) return sankey
   const radar = radarBuilder(header)
   if (radar !== null) return radar
+  const treemap = treemapBuilder(header)
+  if (treemap !== null) return treemap
   throw unknownHeader(header)
 }
 

@@ -8,8 +8,8 @@ rules between its columns only. Numbers, durations, versions and paths in the pr
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
 table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram,
-state diagram, class diagram, ER diagram, git graph, mind map, timeline, sankey diagram or
-radar diagram draws as a diagram, with a `copy` button for its source and a `copy drawing`
+state diagram, class diagram, ER diagram, git graph, mind map, timeline, sankey diagram, radar
+diagram or treemap draws as a diagram, with a `copy` button for its source and a `copy drawing`
 button for the drawing. Each prompt that you
 type opens under a coloured rule labelled `you`, so you find it when you scroll. `/replies`
 switches the view off and on for the session. The model still reads the full reply and the prompt
@@ -412,8 +412,8 @@ title line, as the buttons of a diagram do:
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
 diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
-sankey diagram or a radar diagram draws as a diagram. The diagram has a dim title line and two
-buttons at the right edge. The drawing replaces the source:
+sankey diagram, a radar diagram or a treemap draws as a diagram. The diagram has a dim title line
+and two buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -646,14 +646,14 @@ hint used 22674 input tokens and the run without it used 22445, three times each
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
 hint of 350 characters that named only two kinds at 154 tokens. The count of 229 tokens is for the
-hint of 516 characters. The hint text now has 514 characters, and its count is not measured yet.
+hint of 516 characters. The hint text now has 528 characters, and its count is not measured yet.
 A test fails when the hint grows past 540 characters, which keeps it under 250 tokens. When the
 hint text changes, measure again and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, sankey, radar-beta. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. Add one when a diagram reads better than text. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, sankey, radar-beta, treemap-beta. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1417,6 +1417,51 @@ radar: the value of each curve on each axis against one scale.
   values, which the view does not do in silence.
 
 The syntax follows the [radar page](https://mermaid.js.org/syntax/radar.html) of Mermaid 12.3.0.
+
+## A treemap
+
+A `treemap-beta` or `treemap` block draws its items as a tree. Each item has a bar for its share
+of the whole and its value:
+
+```text
+● Sales by group:
+
+  ── mermaid · treemap ──────────────────────────────  [ copy ] [ copy drawing ]
+  Sales
+  Products          ████████████████████████████████████████████████████████ 180
+  ├─ Electronics    ███████████████████████████████▏                         100
+  │  ├─ Phones      ███████████████▌                                          50
+  │  ├─ Computers   █████████▍                                                30
+  │  └─ Accessories ██████▎                                                   20
+  └─ Clothing       ████████████████████████▉                                 80
+     ├─ Men's       ████████████▌                                             40
+     └─ Women's     ████████████▌                                             40
+```
+
+A treemap of nested boxes in text has no room for the names of small items, and two boxes of
+near sizes look the same. The tree keeps every name, and a bar in one column compares any two
+items. A bar has the length of the share of the item in the whole, as a box of Mermaid has the
+area of that share.
+
+- A section draws the sum of its items. In each level, the largest item comes first, as the
+  layout of Mermaid places it. Items of the same value keep the order of the source.
+- A value draws with commas between the thousands, such as `1,250.5`, as Mermaid prints it.
+- On the terminal, the colours `suggestion`, `planMode` and `merged` go in turn. An item at the
+  top level with no section draws its bar in `suggestion`. Each section takes the next colour,
+  level by level, and an item draws its bar in the colour of its section, as in Mermaid. A section
+  name is bold. The values are in `planMode`, and the tree lines are in `inactive`.
+- On a narrow screen, a long name is cut with `…`.
+- An item is a name in double or single quotes. A leaf has a value after `:` or `,`. The indent
+  sets the level. An item indented under a leaf joins the section of that leaf, as in Mermaid.
+  `classDef`, `:::class`, `title`, `accTitle`, `accDescr` and `%%` comments draw no line of their
+  own, and the title draws in bold on the first line.
+- These draw as the source, with a note: a value with `_` or two points
+  (`line 2: "1_000" is not a number.`), a name with no quotes or a value below 0
+  (`line 2 does not parse.`), a block with no item, a treemap whose values add up to 0, a tree
+  too deep for the screen, and a block of more than 80 lines (`81 lines, at most 80 draw.`).
+
+The syntax follows the [treemap page](https://mermaid.js.org/syntax/treemap.html) of Mermaid
+12.3.0.
 
 ## A prompt that you type
 
