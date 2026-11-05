@@ -14,9 +14,14 @@ import {
   tooWideRows,
   viewTest,
   WIDTHS,
+  type Mounted,
   type Span,
+  type Surface,
 } from './fixtures/diagram-view'
+import { C4_DOCS_EXAMPLES } from './fixtures/c4-examples'
 import { diagramOf } from './hooks/draw'
+import { wordWrapped } from './hooks/flowchart'
+import { plainLabel } from './hooks/ink'
 import { parseMermaid } from './hooks/mermaid'
 
 const HEAD = 'claude'
@@ -159,6 +164,21 @@ const NESTED_ROWS = [
   '└┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘',
 ]
 
+const STEREOTYPE_WORDS = ['Person', 'Software', 'System', 'External', 'Database', 'Queue']
+
+const TITLES: Readonly<Record<string, string>> = {
+  C4Context: 'System Context diagram for Internet Banking System',
+  C4Container: 'Container diagram for Internet Banking System',
+  C4Component: 'Component diagram for Internet Banking System',
+  C4Dynamic: 'Dynamic diagram for Internet Banking System',
+  C4Deployment: 'Deployment Diagram for Internet Banking System',
+}
+
+async function openedRows(ui: Mounted, surface: Surface): Promise<Span[][]> {
+  if ((await ui.find({ key: 'fold' })) !== undefined) await ui.press({ key: 'fold' })
+  return drawnRows(ui, surface)
+}
+
 function refusedBy(reason: string, line: number | null = null) {
   return { kind: 'refused', reason, line, limit: null }
 }
@@ -223,16 +243,46 @@ describe('a mermaid C4 diagram', () => {
     )
 
     viewTest(
-      `a C4 diagram too wide for 40 columns shows its source under the width note on ${surface}`,
-      async (world, $) => {
+      `two elements side by side move onto their own rows at 40 columns, and every line fits, on ${surface}`,
+      async (_world, $) => {
         const ui = await mountDiagram($, PAYING, surface, 40)
-        expect(await noteOf(ui)).toBe(tooWideNote(42, bodyWidth(surface, 40)))
+        const rows = (await openedRows(ui, surface)).map(rowText)
+        expect(tooWideRows(rows, surface, 40)).toEqual([])
+        const orders = rows.findIndex((row) => row.includes('│ Orders '))
+        const cards = rows.findIndex((row) => row.includes('│ Card '))
+        expect(orders).toBeGreaterThan(0)
+        expect(cards).toBeGreaterThan(orders)
+        expect(rows.filter((row) => row.includes('⇄ Pays'))).toHaveLength(1)
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `a C4 diagram too wide for 30 columns shows its source under the width note on ${surface}`,
+      async (world, $) => {
+        const ui = await mountDiagram($, PAYING, surface, 30)
+        expect(await noteOf(ui)).toBe(tooWideNote(36, bodyWidth(surface, 30)))
         expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
         await ui.press({ key: 'block-1-copy' })
         expect(world.copies).toEqual([PAYING])
         await ui.unmount()
       },
     )
+
+    for (const [name, source] of Object.entries(C4_DOCS_EXAMPLES)) {
+      viewTest(
+        `the ${name} example of the Mermaid page draws at 80 columns and every line fits on ${surface}`,
+        async (_world, $) => {
+          const ui = await mountDiagram($, source, surface, 80)
+          expect(await noteOf(ui)).toBeUndefined()
+          const rows = (await openedRows(ui, surface)).map(rowText)
+          expect(rows.length).toBeGreaterThan(10)
+          expect(tooWideRows(rows, surface, 80)).toEqual([])
+          expect(rows[0]).toStartWith(TITLES[name] ?? '')
+          await ui.unmount()
+        },
+      )
+    }
 
     for (const [what, source, note] of [
       [
@@ -298,6 +348,27 @@ describe('a mermaid C4 diagram', () => {
       await ui.unmount()
     },
   )
+
+  test('a label wraps at word boundaries, and only a word longer than the box is cut with …', () => {
+    expect(
+      wordWrapped(plainLabel('Provides functionality to customers via their browser'), 12).map(
+        (line) => line.text,
+      ),
+    ).toEqual(['Provides', 'functionali…', 'to customers', 'via their', 'browser'])
+  })
+
+  test('no word of the Component example breaks across two lines at 80 columns', () => {
+    const drawn = drawnLines(C4_DOCS_EXAMPLES.C4Component ?? '')
+    const words = new Set([
+      ...(C4_DOCS_EXAMPLES.C4Component ?? '').split(/[^\p{L}\p{N}]+/u),
+      ...STEREOTYPE_WORDS,
+    ])
+    const pieces = drawn
+      .join(' ')
+      .split(/[^\p{L}\p{N}…]+/u)
+      .filter((piece) => piece !== '' && !piece.endsWith('…'))
+    expect(pieces.filter((piece) => !words.has(piece))).toEqual([])
+  })
 
   test('C4Dynamic numbers its relations in order, RelIndex drops its index, and Rel_Back points at its first element', () => {
     expect(drawnLines(DYNAMIC)).toEqual(DYNAMIC_ROWS)

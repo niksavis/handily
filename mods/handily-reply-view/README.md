@@ -432,6 +432,8 @@ dim title line and two buttons at the right edge. The drawing replaces the sourc
   `✓ Copied the flowchart drawing`.
 - The view draws `flowchart` and `graph` with the directions `TD`, `TB` and `LR`. A flowchart `LR`
   that is too wide for the screen draws top down.
+- When the labels of the boxes must fit, they wrap at 16 columns, then at 12 columns, between
+  words. Only a word longer than the box can hold is cut with `…`.
 - When the title line and the buttons do not fit on one line, the buttons stand on a line of
   their own under the title line.
   When the two buttons do not fit on one line, each button stands on its own line.
@@ -1435,8 +1437,9 @@ draws as:
   technology after a colon, such as `[Container: TypeScript]`. Mermaid draws a database as a
   cylinder, a queue as a pipe and an external element in grey. The terminal says it in words:
   `[Database Container: Postgres]`, `[Queue Component]` and `[External Software System]`.
-- A description wraps at 32, 24 or 16 columns, whichever gives the shortest drawing. The layout of
-  a flowchart can wrap the names and the kinds further on a narrow screen.
+- A description wraps at 32 columns, or at 24 or 16 columns when the drawing does not fit. The
+  layout of a flowchart can wrap the names and the kinds further on a narrow screen, between
+  words. Only a word longer than the box can hold is cut with `…`.
 - A boundary draws as a frame with its name and its type, such as `Shop [CONTAINER]`. `Boundary`
   has the type `system` and `Deployment_Node` the type `node`, unless the source names another
   type, as in Mermaid. The frames do not nest. A boundary inside a boundary draws as its own frame,
@@ -1458,8 +1461,16 @@ draws as:
   `inactive`. The frame titles are bold.
 - `UpdateElementStyle`, `UpdateRelStyle`, `UpdateLayoutConfig`, `$sprite`, `$tags`, `$link`,
   `accTitle`, `accDescr` and `accDescription` draw nothing.
-- Many elements with no relation between them stand side by side, so a large context diagram can
-  need a wide window. A diagram too wide for the screen draws as the source under the width note.
+- When the elements of one level stand side by side and do not fit the screen, they move onto
+  more rows. The view tries 2 rows for the widest level, then 3, and so on, until the drawing
+  fits. The elements of one boundary stay together. An element with no relation moves to the level
+  of its boundary, and a boundary with no relation stands under the rest. The levels of the
+  relations keep their order. When that is still too wide, the label of a relation wraps at 8
+  columns instead of being cut.
+- So the five examples of the Mermaid page draw at 80 columns. A diagram that is still too wide
+  for the screen draws as the source under the width note.
+- A frame title is cut to the width of the wrapped labels, as in a flowchart. The examples of
+  the Mermaid page have long boundary names, so their frames show titles such as `BankBoundar…`.
 - These draw as the source under a note that names the reason: a relation to a boundary
   (`a relation to the boundary b does not draw yet.`), a relation to an alias that the diagram does
   not declare (`line 3: no element has the alias ghost.`), a relation from an element to itself, a

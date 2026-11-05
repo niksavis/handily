@@ -477,21 +477,16 @@ function drawnAt(diagram: C4Diagram, wrap: number, width: number): InkedDrawing 
       ...(groups.length === 0 ? {} : { groups }),
     },
     width,
+    { steps: 0 },
+    'wrapped',
   )
-}
-
-function shorter(
-  one: InkedDrawing | Refusal,
-  other: InkedDrawing | Refusal,
-): InkedDrawing | Refusal {
-  if (other.kind !== 'drawing') return one.kind === 'drawing' ? one : other
-  return one.kind === 'drawing' && one.lines.length <= other.lines.length ? one : other
 }
 
 export function drawC4(diagram: C4Diagram, width: number): InkedDrawing | Refusal {
-  const drawn = NARROWER_WRAPS.reduce(
-    (best, wrap) => shorter(best, drawnAt(diagram, wrap, width)),
-    drawnAt(diagram, WIDEST_WRAP, width),
-  )
+  let drawn = drawnAt(diagram, WIDEST_WRAP, width)
+  for (const wrap of NARROWER_WRAPS) {
+    if (drawn.kind === 'drawing') break
+    drawn = drawnAt(diagram, wrap, width)
+  }
   return titledDrawing(diagram.title, drawn, width)
 }
