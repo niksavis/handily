@@ -4,6 +4,7 @@ import { EntityBuilder, type EntityDiagram } from './er'
 import { GanttBuilder, type GanttDiagram } from './gantt'
 import { gitGraphBuilder, type GitGraph, type GitGraphBuilder } from './gitgraph'
 import { mindmapBuilder, type Mindmap, type MindmapBuilder } from './mindmap'
+import { requirementBuilder, type RequirementBuilder, type RequirementDiagram } from './requirement'
 import { StateBuilder, type StateDiagram } from './state'
 import { timelineBuilder, type Timeline, type TimelineBuilder } from './timeline'
 
@@ -30,6 +31,7 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'gitGraph',
   'mindmap',
   'timeline',
+  'requirementDiagram',
 ]
 
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
@@ -42,6 +44,7 @@ export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'cha
   gitgraph: 'git graph',
   mindmap: 'mind map',
   timeline: 'timeline',
+  requirement: 'requirement diagram',
 }
 
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
@@ -134,8 +137,28 @@ export type MermaidDiagram =
   | GitGraph
   | Mindmap
   | Timeline
+  | RequirementDiagram
 
 export type Statement = { line: number; text: string; indent: number }
+
+const ACCESSIBILITY_LINE = /^acc(?:Title|Descr)\s*:/i
+const ACCESSIBILITY_BLOCK = /^accDescr\s*\{/i
+const BLOCK_CLOSING = '}'
+
+export class AccessibilityLines {
+  private isInBlock = false
+
+  skips(text: string): boolean {
+    if (this.isInBlock) {
+      this.isInBlock = !text.includes(BLOCK_CLOSING)
+      return true
+    }
+    if (ACCESSIBILITY_LINE.test(text)) return true
+    if (!ACCESSIBILITY_BLOCK.test(text)) return false
+    this.isInBlock = !text.includes(BLOCK_CLOSING)
+    return true
+  }
+}
 
 export class DiagramFault extends Error {
   constructor(readonly refusal: Refusal) {
@@ -789,6 +812,7 @@ type Builder =
   | GitGraphBuilder
   | MindmapBuilder
   | TimelineBuilder
+  | RequirementBuilder
 
 function builderOf(header: Statement): Builder {
   const flow = FLOW_HEADER.exec(header.text)
@@ -808,6 +832,8 @@ function builderOf(header: Statement): Builder {
   if (mindmap !== null) return mindmap
   const timeline = timelineBuilder(header)
   if (timeline !== null) return timeline
+  const requirement = requirementBuilder(header)
+  if (requirement !== null) return requirement
   throw unknownHeader(header)
 }
 

@@ -410,9 +410,9 @@ title line, as the buttons of a diagram do:
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
-diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map or a timeline
-draws as a diagram. The diagram has a dim title line and two buttons at the right edge. The
-drawing replaces the source:
+diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline or
+a requirement diagram draws as a diagram. The diagram has a dim title line and two buttons at the
+right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
@@ -644,14 +644,16 @@ same prompt differ only in a mod that adds the hint as the context of the prompt
 hint used 22674 input tokens and the run without it used 22445, three times each, so the hint
 costs 229 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
 `cache_read_input_tokens` in the `usage` of `--output-format json`. The same method measured the
-hint of 350 characters that named only two kinds at 154 tokens. The hint text has 516 characters,
-and a test fails when it grows past 540, which keeps it under 250 tokens. When the hint text
-changes, measure again and record the new count and its date here.
+hint of 350 characters that named only two kinds at 154 tokens. The count of 229 tokens is for
+the hint text of 516 characters. The hint text now has 536 characters and names more kinds, and
+it is not measured yet. A test fails when the hint text grows past 540 characters, which keeps it
+under 250 tokens. When the hint text changes, measure again and record the new count and its date
+here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a diagram reads better than text, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, pie, xychart, gantt, gitGraph, mindmap, timeline, requirementDiagram. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1302,6 +1304,77 @@ At 40 columns, the events wrap in their column:
   (`135 rows, at most 120 draw.`).
 
 The syntax follows the [timeline page](https://mermaid.js.org/syntax/timeline.html) of Mermaid
+12.3.0.
+
+## A requirement diagram
+
+A `requirementDiagram` draws its requirements and elements one under the next, as a class diagram
+does. The title line is `── mermaid · requirement ──`:
+
+```text
+● The checkout has two requirements:
+
+  ── mermaid · requirement ──────────────────────────  [ copy ] [ copy drawing ]
+  ╭─────────────────────────────────────╮
+  │ «Element»                           │
+  │ gateway                             │
+  ├─────────────────────────────────────┤
+  │ Type: payment service               │
+  ╰──────────────────┬──────────────────╯
+                     ╎
+                     ╎ «satisfies»
+                     ▼
+  ╭─────────────────────────────────────╮
+  │ «Requirement»                       │
+  │ checkout                            │
+  ├─────────────────────────────────────┤
+  │ ID: 1                               │
+  │ Text: Orders are payable online.    │
+  │ Risk: High                          │
+  │ Verification: Test                  │
+  ╰─────────────────────────────────────╯
+                     ⊕
+                     │ «contains»
+                     │
+  ╭──────────────────┴──────────────────╮
+  │ «Functional Requirement»            │
+  │ card                                │
+  ├─────────────────────────────────────┤
+  │ ID: 1.1                             │
+  │ Text: Card payments are authorised. │
+  │ Risk: Medium                        │
+  │ Verification: Inspection            │
+  ╰─────────────────────────────────────╯
+```
+
+- A box shows its type in `«»`, its name in bold, a rule and its fields, as Mermaid shows them. A
+  requirement shows `ID`, `Text`, `Risk` and `Verification`. An element shows `Type` and
+  `Doc Ref`. A field that the source does not set does not show.
+- A relation draws its type in `«»`, such as `«satisfies»`. `contains` draws a solid line with `⊕`
+  next to the box that contains. Each other type draws a dashed line with an arrow head next to
+  its target, as in Mermaid. `a <- copies - b` reads from `b` to `a`.
+- A box stands above the boxes that its relations point at. A relation to the next box runs down
+  the middle. Any other relation runs on its own line at the right of the stack.
+- When the stack is too wide, the field values wrap in their column. When less than 10 columns are
+  left for a value, the value stands under its field name.
+- On the terminal, the boxes take the colours `suggestion`, `planMode` and `merged` in turn. The
+  field names, the lines and the relation types are in `inactive`. `⊕` and the arrow heads are in
+  `claude`. The values are plain.
+- The keywords read in any case, as in Mermaid. A value in quotes keeps its text. A value with no
+  quotes cannot hold `:`, `,`, `-`, `<`, `>`, `=` or `{`, and cannot start with a keyword such as
+  `test`. Mermaid refuses these, so they draw as the source with a note. When a box sets a field
+  twice, or a name has two definitions, the first wins, as in Mermaid.
+- `direction`, `style`, `classDef`, `class`, `:::name`, `accTitle`, `accDescr` and a comment draw
+  nothing. The boxes always stand top down.
+- These draw as the source under a note that names the reason: a relation to a name that the
+  diagram does not define (`line 4: no requirement or element has the name ghost.`), a relation
+  from a box to itself, one name for a requirement and an element, a box with no closing brace and
+  a `title` line, which Mermaid also refuses.
+- A relation on the right needs room for its type beside the stack. At 30 columns such a diagram
+  draws as the source under the width note.
+
+The syntax follows the
+[requirement diagram page](https://mermaid.js.org/syntax/requirementDiagram.html) of Mermaid
 12.3.0.
 
 ## A prompt that you type

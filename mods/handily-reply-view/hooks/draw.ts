@@ -22,6 +22,7 @@ import {
 } from './markdown'
 import { DIAGRAM_NAMES, parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { drawMindmap } from './mindmap'
+import { drawRequirements } from './requirement'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
 import {
   holdsLinkDefinition,
@@ -1241,6 +1242,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'timeline': {
       const drawn = drawTimeline(diagram, width)
+      return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
+    }
+    case 'requirement': {
+      const drawn = drawRequirements(diagram, width)
       return named(drawn, diagram.kind, DIAGRAM_NAMES[diagram.kind])
     }
   }

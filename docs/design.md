@@ -1276,7 +1276,7 @@ Code:
 
 Diagrams:
 
-- reply-view has its own text renderer for eleven kinds of mermaid diagram:
+- reply-view has its own text renderer for twelve kinds of mermaid diagram:
 
   | Header keyword | Kind | Record |
   | --- | --- | --- |
@@ -1291,6 +1291,7 @@ Diagrams:
   | `gitGraph` | git graph | handily-2dpxv0.1 |
   | `mindmap` | mind map | handily-2dpxv0.2 |
   | `timeline` | timeline | handily-2dpxv0.3 |
+  | `requirementDiagram` | requirement diagram | handily-2dpxv0.7 |
 
 - `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts` lists the header keywords, and `DIAGRAM_NAMES`
   gives each kind its plain name. A chart takes its name from its plot, such as `bar chart`.
@@ -1333,9 +1334,9 @@ Settings and commands:
 | `/replies hints` | The command of the diagram hints | handily-5zzxk.8 |
 | `/replies copy diagram`, `/replies copy table`, `/replies copy code` | Copies a block of the last reply from the keyboard | handily-5zzxk.9 |
 
-- The hint text has 523 characters. It costs 229 tokens, measured with `claude -p` on
-  2026-11-05 with Claude Code 2.1.318 (reply-view README). prismantis states about 630 prompt
-  tokens for its diagram hints (its README).
+- The hint text has 536 characters. The text of 516 characters cost 229 tokens, measured with
+  `claude -p` on 2026-11-05 with Claude Code 2.1.318 (reply-view README). The longer text is not
+  measured yet. prismantis states about 630 prompt tokens for its diagram hints (its README).
 - A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.
 
 ### 4.11 handily-filetree (handily-02b2v)

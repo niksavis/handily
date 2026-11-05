@@ -11,7 +11,14 @@ import {
   type Statement,
   type Stroke,
 } from './mermaid'
-import { drawStack, type Piece, type Stack, type StackBox, type StackMark } from './stack'
+import {
+  drawStack,
+  stackOrder,
+  type Piece,
+  type Stack,
+  type StackBox,
+  type StackMark,
+} from './stack'
 import { wrapCell } from './table'
 
 export const MOST_MEMBERS = 10
@@ -234,30 +241,14 @@ function boxOf(box: ClassBox, wrap: number | null): StackBox {
 
 function orderOf(diagram: ClassDiagram): number[] {
   const index = new Map(diagram.classes.map((box, at) => [box.id, at]))
-  const children = diagram.classes.map((): number[] => [])
-  const rank = (relation: Relation) => (MARKS[relation.kind] === undefined ? 1 : 0)
-  const owned = new Set<number>()
-  for (const relation of [...diagram.relations].sort((one, other) => rank(one) - rank(other))) {
-    const from = index.get(relation.from) ?? 0
-    const to = index.get(relation.to) ?? 0
-    children[from]?.push(to)
-    owned.add(to)
-  }
-  const order: number[] = []
-  const seen = new Set<number>()
-  const visit = (at: number): void => {
-    if (seen.has(at)) return
-    seen.add(at)
-    order.push(at)
-    for (const child of children[at] ?? []) visit(child)
-  }
-  diagram.classes.forEach((_, at) => {
-    if (!owned.has(at)) visit(at)
-  })
-  diagram.classes.forEach((_, at) => {
-    visit(at)
-  })
-  return order
+  return stackOrder(
+    diagram.classes.length,
+    diagram.relations.map((relation) => ({
+      from: index.get(relation.from) ?? 0,
+      to: index.get(relation.to) ?? 0,
+      rank: MARKS[relation.kind] === undefined ? 1 : 0,
+    })),
+  )
 }
 
 function cardinality(text: string): Label | null {
