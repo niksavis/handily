@@ -72,6 +72,8 @@ const COMMIT_TYPES: Readonly<Record<string, CommitType>> = {
   HIGHLIGHT: 'highlight',
 }
 const NAME_COLUMNS = 24
+const MAIN_ORDER = 0
+const UNDER_PARENT = 0.5
 
 function tokensOf({ line, text }: Statement): Token[] {
   const tokens: Token[] = []
@@ -97,6 +99,7 @@ export class GitGraphBuilder {
   private readonly heads: (number | null)[] = [null]
   private readonly commits: GitCommit[] = []
   private readonly steps: GitStep[] = [{ kind: 'branch', branch: 0, from: null }]
+  private readonly ids = new Set<string>()
   private current = 0
   private title: string | null = null
 
@@ -144,7 +147,16 @@ export class GitGraphBuilder {
 
   private commit(line: number, tokens: Token[]): void {
     const { id, message, tags, type } = this.attributes(line, tokens, ['id', 'msg', 'tag', 'type'])
+    this.claimId(line, id)
     this.addCommit({ kind: 'commit', id, message, tags, type, merged: null, picked: null })
+  }
+
+  private claimId(line: number, id: string | null): void {
+    if (id === null) return
+    if (this.ids.has(id)) {
+      throw lineFault(line, `line ${String(line)}: the commit id ${named(id)} exists already`)
+    }
+    this.ids.add(id)
   }
 
   private branch(line: number, tokens: Token[]): void {
@@ -172,6 +184,13 @@ export class GitGraphBuilder {
     const [name, ...rest] = tokens
     const branch = this.existing(line, this.branchName(line, name))
     const { id, tags, type } = this.attributes(line, rest, ['id', 'tag', 'type'])
+    const headBranch = this.commits[this.heads[this.current] ?? -1]?.branch
+    if (headBranch === branch && this.heads[branch] !== null) {
+      throw lineFault(
+        line,
+        `line ${String(line)}: the branch ${named(this.branches[branch]?.name ?? '')} cannot merge into itself`,
+      )
+    }
     if (branch === this.current) {
       throw lineFault(line, `line ${String(line)}: a branch cannot merge itself`)
     }
@@ -180,6 +199,7 @@ export class GitGraphBuilder {
     if (head === other) {
       throw lineFault(line, `line ${String(line)}: both branches have the same head`)
     }
+    this.claimId(line, id)
     this.addCommit(
       { kind: 'merge', id, message: null, tags, type, merged: branch, picked: null },
       other,
@@ -189,21 +209,27 @@ export class GitGraphBuilder {
   private cherryPick(line: number, tokens: Token[]): void {
     const { id, tags, parent } = this.attributes(line, tokens, ['id', 'tag', 'parent'])
     if (id === null) throw doesNotParse(line)
-    const picked = this.commits.find((commit) => commit.id === id)
+    const picked = this.commits.findLast((commit) => commit.id === id)
     if (picked === undefined) {
       throw lineFault(line, `line ${String(line)}: no commit has the id ${named(id)}`)
     }
-    if (picked.branch === this.current) {
-      throw lineFault(line, `line ${String(line)}: the commit ${named(id)} is on this branch`)
-    }
-    this.headOf(line, this.current)
     const parents = picked.parents.map((at) => this.commits[at]?.id)
-    if (picked.kind === 'merge' && (parent === null || !parents.includes(parent))) {
+    if (parent !== null && !parents.includes(parent)) {
+      throw lineFault(
+        line,
+        `line ${String(line)}: the commit ${named(id)} has no parent ${named(parent)}`,
+      )
+    }
+    if (picked.kind === 'merge' && parent === null) {
       throw lineFault(
         line,
         `line ${String(line)}: the merge commit ${named(id)} needs the id of a parent`,
       )
     }
+    if (picked.branch === this.current) {
+      throw lineFault(line, `line ${String(line)}: the commit ${named(id)} is on this branch`)
+    }
+    this.headOf(line, this.current)
     this.addCommit({
       kind: 'cherry-pick',
       id: null,
@@ -358,19 +384,14 @@ type Row = {
 
 type Spans = { start: number[]; end: number[] }
 
+function laneRank(branch: GitBranch, index: number): number {
+  if (index === 0) return MAIN_ORDER
+  return branch.order ?? Number.parseFloat(`0.${String(index)}`)
+}
+
 function laneOrder(branches: readonly GitBranch[]): number[] {
-  const rank = (branch: GitBranch, index: number): [number, number, number] => {
-    if (index === 0) return [0, 0, index]
-    return branch.order === null ? [1, 0, index] : [2, branch.order, index]
-  }
-  const ranked = branches.map((branch, index) => ({ index, rank: rank(branch, index) }))
-  ranked.sort((one, other) => {
-    for (let at = 0; at < one.rank.length; at++) {
-      const order = (one.rank[at] ?? 0) - (other.rank[at] ?? 0)
-      if (order !== 0) return order
-    }
-    return 0
-  })
+  const ranked = branches.map((branch, index) => ({ index, rank: laneRank(branch, index) }))
+  ranked.sort((one, other) => one.rank - other.rank)
   const lanes = Array.from(branches, () => 0)
   ranked.forEach(({ index }, lane) => {
     lanes[index] = lane
@@ -405,9 +426,24 @@ function commitGlyph(commit: GitCommit): string {
   return commit.kind === 'merge' ? MERGE_GLYPH : COMMIT_GLYPHS.normal
 }
 
+function stepsInRowOrder(graph: GitGraph): GitStep[] {
+  const commitStep = new Map<number, number>()
+  graph.steps.forEach((step, at) => {
+    if (step.kind === 'commit') commitStep.set(step.commit, at)
+  })
+  const placeOf = (step: GitStep, at: number) =>
+    step.kind === 'branch' && step.from !== null
+      ? (commitStep.get(step.from) ?? at) + UNDER_PARENT
+      : at
+  return graph.steps
+    .map((step, at) => ({ step, place: placeOf(step, at) }))
+    .sort((one, other) => one.place - other.place)
+    .map(({ step }) => step)
+}
+
 function rowsOf(graph: GitGraph, lanes: readonly number[]): Row[] {
   const laneOfCommit = (at: number) => lanes[graph.commits[at]?.branch ?? 0] ?? 0
-  return graph.steps.flatMap((step): Row[] => {
+  return stepsInRowOrder(graph).flatMap((step): Row[] => {
     if (step.kind === 'branch') {
       const lane = lanes[step.branch] ?? 0
       const name = shown(graph.branches[step.branch]?.name ?? '')
@@ -425,8 +461,7 @@ function rowsOf(graph: GitGraph, lanes: readonly number[]): Row[] {
     const commit = graph.commits[step.commit]
     if (commit === undefined) return []
     const lane = laneOfCommit(step.commit)
-    const merged = commit.kind === 'merge' ? commit.parents[1] : undefined
-    const from = merged === undefined ? lane : laneOfCommit(merged)
+    const from = commit.merged === null ? lane : (lanes[commit.merged] ?? lane)
     return [
       {
         lane,

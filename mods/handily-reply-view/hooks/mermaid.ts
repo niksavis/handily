@@ -101,6 +101,7 @@ class DiagramFault extends Error {
 
 const LINE_ENDING = /\r\n?/g
 const COMMENT = /^%%/
+const DIRECTIVE = /^\s*%%\{\s*([A-Za-z]+)/
 const TRAILING_SEMICOLON = /;$/
 const LINE_BREAK = /<br\s*\/?>/i
 const FLOW_HEADER = /^(flowchart|graph)(?:\s+(\S+))?$/
@@ -593,13 +594,22 @@ function parsed(statements: readonly Statement[]): MermaidDiagram | Refusal {
   }
 }
 
+function directiveRefusal(lines: readonly string[]): Refusal | null {
+  for (const [index, text] of lines.entries()) {
+    const name = DIRECTIVE.exec(text)?.[1]
+    if (name !== undefined) return notDrawnYet(index + 1, `%%{${name}}%%`).refusal
+  }
+  return null
+}
+
 export function parseMermaid(source: string): MermaidDiagram | Refusal {
   const lines = sourceLines(source)
   const statements = statementsOf(lines)
-  if (statements.length === 0) return parsed(statements)
+  if (statements.length === 0) return directiveRefusal(lines) ?? parsed(statements)
   return (
     limitRefusal('lines', lines.length) ??
     limitRefusal('characters', Array.from(lines.join('\n')).length) ??
+    directiveRefusal(lines) ??
     parsed(statements)
   )
 }

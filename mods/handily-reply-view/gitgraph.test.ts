@@ -84,8 +84,8 @@ const MERGE_ROWS = [
   '● 2',
   '├─╮ nice_feature',
   '│ ● 3',
-  '● │ 4',
   '│ ├─╮ very_nice_feature',
+  '● │ │ 4',
   '│ │ ● 5',
   '● │ │ 6',
   '│ ● │ 7',
@@ -96,7 +96,8 @@ const MERGE_ROWS = [
 
 const MANY_BRANCHES = lines(
   'gitGraph',
-  ...'abcdefghijkl'.split('').map((name) => `  branch ${name}`),
+  ...'abcdefghijk'.split('').map((name) => `  branch ${name}`),
+  '  branch l order: 99',
   '  commit id: "a long commit label"',
 )
 
@@ -279,7 +280,12 @@ describe('a mermaid git graph', () => {
       4,
       'line 4: the branch dev exists already',
     ],
-    [lines('gitGraph', '  commit', '  merge main'), 3, 'line 3: a branch cannot merge itself'],
+    [lines('gitGraph', '  merge main'), 2, 'line 2: a branch cannot merge itself'],
+    [
+      lines('gitGraph', '  commit', '  merge main'),
+      3,
+      'line 3: the branch main cannot merge into itself',
+    ],
     [
       lines('gitGraph', '  commit', '  branch dev', '  checkout main', '  merge dev'),
       5,
@@ -320,5 +326,171 @@ describe('a mermaid git graph', () => {
     test(`a git graph refuses line ${String(line)} with the reason ${reason}`, () => {
       expect(parseMermaid(source)).toEqual(refusedLine(line, reason))
     })
+  }
+})
+
+describe('git graph review findings (handily-2dpxv0.1)', () => {
+  test('a branch made from an older commit starts its lane right under that commit', () => {
+    const source = lines(
+      'gitGraph',
+      '  commit id:"A"',
+      '  branch dev',
+      '  checkout main',
+      '  commit id:"B"',
+      '  checkout dev',
+      '  branch feat',
+      '  commit id:"F"',
+    )
+    expect(drawnLines(source)).toEqual([
+      '╷ main',
+      '● A',
+      '├── dev',
+      '├───╮ feat',
+      '●   │ B',
+      '    ● F',
+    ])
+  })
+
+  test('a merge of a branch with no commits joins from the lane of that branch, not from a newer commit', () => {
+    const source = lines(
+      'gitGraph',
+      '  commit id:"A"',
+      '  branch dev',
+      '  commit id:"B"',
+      '  branch feat',
+      '  checkout dev',
+      '  commit id:"C"',
+      '  checkout main',
+      '  merge feat id:"M"',
+    )
+    expect(drawnLines(source)).toEqual([
+      '╷ main',
+      '● A',
+      '├─╮ dev',
+      '│ ● B',
+      '│ ├─╮ feat',
+      '│ ● │ C',
+      '◉───╯ M merge feat',
+    ])
+  })
+
+  test('a branch with order 0 sorts after main and before the branches with no order, as Mermaid sorts them', () => {
+    const source = lines('gitGraph', '  commit', '  branch b0 order: 0', '  branch b1')
+    expect(drawnLines(source)).toEqual(['╷ main', '●', '├── b0', '╰──── b1'])
+  })
+
+  test('branches with no order sort by the number 0 and their index, as Mermaid sorts them', () => {
+    const names = Array.from({ length: 11 }, (_, at) => `b${String(at + 1)}`)
+    const drawn = drawnLines(lines('gitGraph', ...names.map((name) => `  branch ${name}`)))
+    const lanes = Object.fromEntries(
+      drawn.slice(1).map((row) => [row.slice(row.indexOf('╷') + 2), row.indexOf('╷') / 2]),
+    )
+    expect(['b1', 'b10', 'b11', 'b2', 'b9'].map((name) => lanes[name])).toEqual([1, 2, 3, 4, 11])
+  })
+
+  test('a cherry-pick with a parent that is an immediate parent of a plain commit draws', () => {
+    const source = lines(
+      'gitGraph',
+      '  commit id:"p"',
+      '  commit id:"a"',
+      '  branch dev',
+      '  commit',
+      '  cherry-pick id:"a" parent:"p"',
+    )
+    expect(drawnLines(source).at(-1)).toBe('  ● cherry-pick of a')
+  })
+
+  for (const [what, source, line, reason] of [
+    [
+      'a merge into the branch that the head came from',
+      lines(
+        'gitGraph',
+        '  commit',
+        '  branch dev',
+        '  commit id:"X"',
+        '  branch feat',
+        '  checkout dev',
+        '  commit id:"Y"',
+        '  checkout feat',
+        '  merge dev',
+      ),
+      9,
+      'line 9: the branch dev cannot merge into itself',
+    ],
+    [
+      'a merge id that exists already',
+      lines(
+        'gitGraph',
+        '  commit id:"a"',
+        '  branch dev',
+        '  commit',
+        '  checkout main',
+        '  merge dev id:"a"',
+      ),
+      6,
+      'line 6: the commit id a exists already',
+    ],
+    [
+      'a commit id that exists already, which a cherry-pick of the last one would hide',
+      lines(
+        'gitGraph',
+        '  commit id:"a"',
+        '  branch dev',
+        '  commit id:"a"',
+        '  checkout main',
+        '  commit',
+        '  cherry-pick id:"a"',
+      ),
+      4,
+      'line 4: the commit id a exists already',
+    ],
+    [
+      'a parent that is not an immediate parent of a plain commit',
+      lines(
+        'gitGraph',
+        '  commit id:"p"',
+        '  commit id:"a"',
+        '  branch dev',
+        '  commit',
+        '  cherry-pick id:"a" parent:"x"',
+      ),
+      6,
+      'line 6: the commit a has no parent x',
+    ],
+  ] as const) {
+    test(`a git graph refuses ${what}`, () => {
+      expect(parseMermaid(source)).toEqual(refusedLine(line, reason))
+    })
+  }
+
+  const INIT = '%%{init: {"gitGraph": {"mainBranchName": "trunk"}}}%%'
+
+  for (const [kind, body] of [
+    ['gitGraph', lines('gitGraph', '  commit')],
+    ['flowchart', lines('flowchart TD', '  A --> B')],
+    ['sequenceDiagram', lines('sequenceDiagram', '  A->>B: hi')],
+    ['mindmap', lines('mindmap', '  root')],
+    ['timeline', lines('timeline', '  2002 : a')],
+  ] as const) {
+    test(`a ${kind} with an init directive is refused by name, so no setting is lost`, () => {
+      expect(parseMermaid(lines(INIT, body))).toEqual(
+        refusedLine(1, '%%{init}%% does not draw yet'),
+      )
+    })
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `a git graph with an init directive shows its source under a note that names it on ${surface}`,
+      async (world, $) => {
+        const source = lines(INIT, 'gitGraph', '  commit')
+        const ui = await mountDiagram($, source, surface)
+        expect(await noteOf(ui)).toBe('diagram not drawn: %%{init}%% does not draw yet.')
+        expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
+        await ui.press({ key: 'block-1-copy' })
+        expect(world.copies).toEqual([source])
+        await ui.unmount()
+      },
+    )
   }
 })

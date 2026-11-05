@@ -67,6 +67,7 @@ const TAG_COLUMNS_AT_MOST = 24
 const RULE_COLUMNS_AT_LEAST = 2
 const MERMAID_TAG = 'mermaid'
 const DRAWINGS_KEPT = 32
+const DRAW_FAILED = 'reply-view could not draw it'
 const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> = {
   line: 'diagramLine',
   head: 'diagramHead',
@@ -1207,6 +1208,14 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
 
 const drawings = new Map<string, DiagramOutcome>()
 
+export function guardedOutcome(draw: () => DiagramOutcome): DiagramOutcome {
+  try {
+    return draw()
+  } catch {
+    return { kind: 'refused', reason: DRAW_FAILED, line: null, limit: null }
+  }
+}
+
 export function diagramOf(source: string, width: number, surface: RenderSurface): DiagramOutcome {
   const key = JSON.stringify([surface, width, source])
   const kept = drawings.get(key)
@@ -1215,7 +1224,7 @@ export function diagramOf(source: string, width: number, surface: RenderSurface)
     drawings.set(key, kept)
     return kept
   }
-  const outcome = drawnDiagram(parseMermaid(source), width)
+  const outcome = guardedOutcome(() => drawnDiagram(parseMermaid(source), width))
   drawings.set(key, outcome)
   const oldest = drawings.keys().next()
   if (drawings.size > DRAWINGS_KEPT && oldest.done !== true) drawings.delete(oldest.value)

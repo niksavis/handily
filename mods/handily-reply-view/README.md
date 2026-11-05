@@ -474,6 +474,8 @@ Other reasons that the note names:
 - `52 boxes, at most 40 draw.` The limits of one diagram are 80 source lines, 8000 source
   characters, 40 boxes, 60 edges, 12 participants, 60 messages and notes, and 120 drawn rows.
 - `the block is empty.`
+- `%%{init}%% does not draw yet.` A directive can change the settings of any kind of diagram, such
+  as the name of the main branch. So a block with a directive draws as its source.
 
 A mermaid block with no closing fence draws as a fenced block, with no note. So a block
 that Claude has not finished never draws in part.
@@ -570,8 +572,8 @@ screen, so the newest commit is at the bottom, as in the source:
   ● 2
   ├─╮ nice_feature
   │ ● 3
-  ● │ 4
   │ ├─╮ very_nice_feature
+  ● │ │ 4
   │ │ ● 5
   ● │ │ 6
   │ ● │ 7
@@ -592,8 +594,8 @@ At 40 columns, a label that does not fit wraps under its lanes:
   ● 2
   ├─╮ nice_feature
   │ ● 3
-  ● │ 4
   │ ├─╮ very_nice_feature
+  ● │ │ 4
   │ │ ● 5
   ● │ │ 6
   │ ● │ 7
@@ -605,17 +607,20 @@ At 40 columns, a label that does not fit wraps under its lanes:
 
 - `gitGraph`, `gitGraph:`, `gitGraph LR:` and `gitGraph TB:` draw top down. `gitGraph BT:` draws
   as its source.
-- Each branch is a lane `│`, 2 columns from the next lane. The `main` lane is at the left. The
-  branches with no `order:` come next, in the order of the source, and then the branches with
-  `order:`, by their number.
-- A branch starts on a row with its name, such as `├─╮ develop`, from the head of the branch that
-  was checked out. A branch with no commit to start from starts with `╷`.
+- Each branch is a lane `│`, 2 columns from the next lane. The lanes take the order of Mermaid.
+  `main` counts as 0, a branch with `order:` counts as its number, and the branch at place n of
+  the source with no `order:` counts as the number `0.n`. Branches with the same number keep the
+  order of the source. So `order: 0` comes right after `main`.
+- A branch starts on a row with its name, such as `├─╮ develop`, right under the commit that it
+  starts from. A branch with no commit to start from starts with `╷`.
 - A commit draws `●`. `type: REVERSE` draws `⊗`, `type: HIGHLIGHT` draws `▮`, and a merge draws
   `◉`. The id and the message of a commit stand after the lanes, and its tags follow in bold, such
   as `(tag: v1.0.0)`. A commit with no id shows no id. The view does not make up the random id
   that Mermaid shows.
-- A merge draws a join from the head of the merged branch, such as `◉─╯`, and the words
-  `merge develop` in italic. A join that passes a lane draws the lane through, as `├─│─╮`.
+- A merge draws a join from the lane of the merged branch, such as `◉─╯`, and the words
+  `merge develop` in italic. A merged branch with no commits of its own has a lane from the
+  commit that it starts from, so the join never reads as a merge of a newer commit. A join
+  that passes a lane draws the lane through, as `├─│─╮`.
 - `cherry-pick id: "A"` draws a commit with the words `cherry-pick of A` in italic. As in Mermaid,
   no line joins it to commit `A`.
 - On the terminal, each lane and its commits take the colours `suggestion`, `planMode` and
@@ -632,8 +637,12 @@ At 40 columns, a label that does not fit wraps under its lanes:
   such as `line 3: the branch dev does not exist.`, `line 4: the branch dev exists already.`,
   `line 3: a branch cannot merge itself.`, `line 5: both branches have the same head.`,
   `line 5: the branch main has no commits.`, `line 3: no commit has the id x.`,
-  `line 3: the commit a is on this branch.` or
+  `line 3: the commit a is on this branch.`, `line 9: the branch dev cannot merge into itself.`,
+  `line 6: the commit a has no parent x.` or
   `line 9: the merge commit m needs the id of a parent.`
+- A commit id that is used twice draws as its source, with the note
+  `line 4: the commit id a exists already.` Mermaid keeps only the last commit with that id and
+  draws the graph without the first one, so the view does not draw it.
 
 The syntax follows the [gitGraph page](https://mermaid.js.org/syntax/gitgraph.html) of Mermaid
 12.3.0.

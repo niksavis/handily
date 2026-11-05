@@ -15,7 +15,7 @@ import {
   viewTest,
   WIDTHS,
 } from './fixtures/diagram-view'
-import { diagramOf } from './hooks/draw'
+import { diagramOf, guardedOutcome } from './hooks/draw'
 import { parseMermaid } from './hooks/mermaid'
 
 const MINDMAP = lines(
@@ -294,4 +294,42 @@ describe('a mermaid mindmap', () => {
       expect(parseMermaid(source)).toEqual(refusedLine(line, reason))
     })
   }
+})
+
+describe('mindmap review findings (handily-2dpxv0.1)', () => {
+  for (const surface of SURFACES) {
+    viewTest(
+      `a circle root with no text draws an empty circle and the reply keeps its drawing on ${surface}`,
+      async (_world, $) => {
+        const ui = await mountDiagram($, lines('mindmap', '  root((<br>))'), surface)
+        const rows = (await drawnRows(ui, surface)).map(rowText)
+        expect(rows).toEqual([' ╭─╮', '(   )', ' ╰─╯'])
+        await ui.unmount()
+      },
+    )
+  }
+
+  test('a node whose text is only a line break draws as an empty node and keeps its children under it', () => {
+    const source = lines('mindmap', '  Root', '    <br>', '      child', '    b')
+    expect(drawnLines(source)).toEqual([
+      '╭──────╮',
+      '│ Root │',
+      '╰─┬────╯',
+      '  ├─',
+      '  │  └─ child',
+      '  └─ b',
+    ])
+  })
+
+  test('a drawer that throws gives a refusal with a plain reason, never an error out of the view', () => {
+    const outcome = guardedOutcome(() => {
+      throw new RangeError('Invalid count value: -1')
+    })
+    expect(outcome).toEqual({
+      kind: 'refused',
+      reason: 'reply-view could not draw it',
+      line: null,
+      limit: null,
+    })
+  })
 })

@@ -1,5 +1,5 @@
 import { shownLabel, tooWide, widestLabel } from './flowchart'
-import type { Ink, InkedDrawing, InkRun, Label } from './ink'
+import { plainLabel, type Ink, type InkedDrawing, type InkRun, type Label } from './ink'
 import {
   doesNotParse,
   lineFault,
@@ -123,7 +123,8 @@ const LINE_INK: Ink = 'line'
 type Tree = { width: number; lines: InkRun[][]; needed: number }
 
 function labelOf(lines: readonly string[]): Label[] {
-  return lines.map(shownLabel).filter((line) => line.text.trim() !== '')
+  const shown = lines.map(shownLabel).filter((line) => line.text.trim() !== '')
+  return shown.length === 0 ? [plainLabel('')] : shown
 }
 
 function wrappedLines(labels: readonly Label[], width: number): Label[] {
@@ -141,7 +142,7 @@ function rootLines(tree: Tree, root: MindmapNode): void {
     Math.min(widestLabel(labels), LEAST_LABEL_COLUMNS) + ROOT_PADDING,
   )
   const lines = wrappedLines(labels, tree.width - ROOT_PADDING)
-  const inner = widestLabel(lines)
+  const inner = Math.max(widestLabel(lines), 1)
   const frame = FRAMES[root.shape]
   const across = inner + 2 - 2 * frame.inset
   const [left = '', right = ''] = Array.from(frame.sides)
