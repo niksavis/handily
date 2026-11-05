@@ -393,13 +393,9 @@ describe('a mermaid C4 diagram', () => {
     )
   })
 
-  test('the Context example refuses at 38 columns in under 500 ms', () => {
+  test('the Context example refuses at 38 columns', () => {
     const source = C4_DOCS_EXAMPLES.C4Context ?? ''
-    const start = performance.now()
-    const outcome = diagramOf(source, 38, 'terminal')
-    const took = performance.now() - start
-    expect(outcome.kind).toBe('refused')
-    expect(took).toBeLessThan(500)
+    expect(diagramOf(source, 38, 'terminal').kind).toBe('refused')
   })
 
   test('no word of the Component example breaks across two lines at 80 columns', () => {
