@@ -487,6 +487,12 @@ replaces the source:
   When the two buttons do not fit on one line, each button stands on its own line.
 - Every box has rounded corners `╭╮╰╯`. A decision `{…}` keeps square corners and the mark `◇`,
   and a note of a sequence diagram keeps square corners. So the shapes differ also with no colour.
+- An edge from a box to itself, such as `A -->|retry| A`, draws as a loop of 2 rows on the right
+  side of the box, with its label to the right of the loop. The box grows to hold the loop. A
+  label of 3 lines makes the loop 3 rows high, and a second edge from the box to itself adds its
+  label to the same loop. In a flowchart `LR`, the loop stands above the box and enters it with
+  `▼`. The loop and its label never cross another box or line. A loop on a box does not count in
+  the limit of 3 loops back.
 - On the terminal, the boxes take the colours `suggestion`, `planMode` and `merged` in turn, in
   the order of their first mention in the source. A box keeps its colour when the flowchart turns
   top down. The arrow heads of a flowchart are in `claude`. The line and the head of a message in
@@ -821,6 +827,8 @@ and as `◉` where a transition ends at it. Each state that ends at `[*]` gets i
   screen draws top down. When it is also too wide top down, it draws as its source under the note
   `it takes 52 columns, the screen has 38. Widen the window or shorten the labels.`
 - A transition draws its label as a flowchart edge does, such as `Queued --> Running : claimed`.
+- A transition from a state to itself draws as a loop on the box of the state, as an edge from a
+  box to itself does in a flowchart. The part after this list shows an example.
 - A state shows the text after its colon, such as `Done : All checks passed`, or the text of
   `state "Waits for you" as Waiting`. Without a text it shows its id.
 - The states take the colours of the boxes in turn, in the order of their first mention. `●`, `◉`
@@ -829,7 +837,38 @@ and as `◉` where a transition ends at it. Each state that ends at `[*]` gets i
   a line draw nothing.
 - These draw as the source under a note that names the reason: a state with nested states, such
   as `state First {`, a `<<fork>>`, a `<<join>>`, a `<<choice>>`, a note, the `--` of concurrent
-  regions, `direction RL` and `direction BT`, and a transition from a state to itself.
+  regions, `direction RL` and `direction BT`.
+
+This state diagram of a work item has the transition `in_progress --> in_progress: comment, tick
+criteria`. The loop leaves the right side of the box and comes back into it with `◀`, and its
+label stands to the right of the loop. The drawing at 80 columns:
+
+```text
+      ●
+      │ br create
+      ▼
+  ╭──────╮
+  │ open │◀─────────────────────────┐
+  ╰───┬──╯                          │
+      │ claim                       │
+      ▼                             │
+╭─────────────╮                     │
+│ in_progress │─────────────────────┘ blocked, waits on external
+│             │──┐ comment, tick criteria
+│             │◀─┘
+╰─────┬───────╯
+      │ all criteria validated
+      ▼
+ ╭────────╮
+ │ closed │
+ ╰────┬───╯
+      ▼
+      ◉
+```
+
+At 40 columns on the desktop app, the labels are cut to 12 columns, such as `comment, ti…`. On the
+terminal at 40 columns, the body has 38 columns, so the diagram draws as its source under the note
+`it takes 40 columns, the screen has 38. Widen the window or shorten the labels.`
 
 ## A class diagram
 
