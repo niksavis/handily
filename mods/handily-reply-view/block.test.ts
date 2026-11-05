@@ -307,6 +307,13 @@ describe('a mermaid block diagram', () => {
     [lines('block', '  columns three'), 2, 'line 2 does not parse'],
     [lines('block', '  a b', '  block:a', '  end'), 3, 'line 3 does not parse'],
     [lines('block', '  x<["L"]>(sideways)'), 2, 'line 2 does not parse'],
+    [lines('block', '  A', '  A --> space'), 3, 'line 3 does not parse'],
+    [lines('block', '  A block'), 2, 'line 2 does not parse'],
+    [
+      lines('block', '  go<["Go"]>(right)', '  go<["Back"]>(left)'),
+      3,
+      'a block arrow with two directions does not draw yet',
+    ],
   ] as const) {
     test(`a block diagram refuses line ${String(line)} with the reason ${reason}`, () => {
       expect(parseMermaid(source)).toEqual(refused(line, reason))
@@ -317,8 +324,24 @@ describe('a mermaid block diagram', () => {
     [lines('block', '  columns 3'), 'the block diagram has no blocks'],
     [lines('block', '  columns 3', '  a:4'), 'block a spans 4 columns, its row has 3'],
     [
-      lines('block', '  A B', '  A-- "a long label" -->B'),
+      lines(
+        'block',
+        '  block:G',
+        '    columns 1',
+        '    A',
+        '    space',
+        '    B',
+        '  end',
+        '  A -- "yes" --> B',
+      ),
       'the label of the link from A to B does not fit',
+    ],
+    [lines('block', '  a', '  block', '  end'), 'a group has no blocks'],
+    [lines('block', '  a', '  block:G', '    columns 2', '  end'), 'group G has no blocks'],
+    [lines('block', '  space'), 'the block diagram has no blocks'],
+    [
+      lines('block', '  space:3', '  block', '    space', '  end'),
+      'the block diagram has no blocks',
     ],
     [
       lines(
@@ -356,5 +379,60 @@ describe('a mermaid block diagram', () => {
     expect(drawnLines(lines('block', '  id1("Start")-->id2("Stop")'))).toEqual(
       drawnLines(lines('block', '  id1("Start") id2("Stop")', '  id1 --> id2')),
     )
+  })
+
+  test('a labelled link between two blocks side by side widens their gap to hold the label', () => {
+    expect(drawnLines(lines('block', '  A B', '  A -- "calls" --> B'))).toEqual([
+      '╭───╮           ╭───╮',
+      '│ A │── calls ─▶│ B │',
+      '╰───╯           ╰───╯',
+    ])
+    expect(drawnLines(lines('block', '  Client Server', '  Client -->|HTTP| Server'))).toEqual([
+      '╭────────╮          ╭────────╮',
+      '│ Client │── HTTP ─▶│ Server │',
+      '╰────────╯          ╰────────╯',
+    ])
+  })
+
+  test('a labelled link that widens the grid past the screen shows the width note', () => {
+    const source = lines('block', '  A B', '  A -- "a label that is long" --> B')
+    expect(diagramOf(source, 28, 'terminal')).toEqual(
+      noted('it takes 36 columns, the screen has 28. Widen the window or shorten the labels'),
+    )
+    expect(drawnLines(source, 36)[1]).toBe('│ A │── a label that is long ─▶│ B │')
+  })
+
+  test('a vertical link label inside a group stays inside the frame', () => {
+    const rows = drawnLines(
+      lines(
+        'block',
+        '  block:G',
+        '    columns 1',
+        '    A',
+        '    space',
+        '    B["a wide block"]',
+        '  end',
+        '  A -- "yes" --> B',
+      ),
+    )
+    expect(rows.some((row) => row.includes('│ yes'))).toBe(true)
+    const inside = rows.slice(1, -1)
+    expect(inside.filter((row) => !row.startsWith('┆') || !row.endsWith('┆'))).toEqual([])
+  })
+
+  test('a link label that leaves a group stands beside the line under the frame', () => {
+    expect(
+      drawnLines(
+        lines(
+          'block',
+          '  columns 1',
+          '  block:G',
+          '    C["a wide block here"]',
+          '  end',
+          '  D',
+          '  C -- "out" --> D',
+        ),
+      ).slice(3, 6),
+    ).toEqual(['┆ ╰─────────┬─────────╯ ┆', '└┄┄┄┄┄┄┄┄┄┄┄│┄┄┄┄┄┄┄┄┄┄┄┘', '            ▼ out'])
   })
 })

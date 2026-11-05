@@ -90,13 +90,18 @@ const GAP = /\s+/y
 const NO_BREAK_SPACE = /&nbsp;/g
 const ARROW_DIRECTIONS: readonly BlockArrowDirection[] = ['right', 'left', 'up', 'down', 'x', 'y']
 const EMPTY_DIAGRAM = 'the block diagram has no blocks'
+const KEYWORDS: ReadonlySet<string> = new Set(['space', 'block'])
 
 function isNamed(item: BlockItem): item is Named {
   return item.kind !== 'space'
 }
 
+function twoDirections(line: number): DiagramFault {
+  return notDrawnYet(line, 'a block arrow with two directions')
+}
+
 function directionOf(line: number, found: RegExpExecArray): BlockArrowDirection {
-  if (found[4] !== undefined) throw notDrawnYet(line, 'a block arrow with two directions')
+  if (found[4] !== undefined) throw twoDirections(line)
   const direction = ARROW_DIRECTIONS.find((known) => known === found[3])
   if (direction === undefined) throw doesNotParse(line)
   return direction
@@ -120,6 +125,24 @@ function refuseWideSpans(group: BlockGroup): void {
     if (columns !== null && item.span > columns) throw spanFault(item, columns)
     if (item.kind === 'group') refuseWideSpans(item)
   }
+}
+
+function emptyGroupFault(group: BlockGroup): DiagramFault | null {
+  for (const item of group.children) {
+    if (item.kind !== 'group') continue
+    if (!item.children.some(isNamed)) {
+      const name = item.id.startsWith(AUTOMATIC_GROUP) ? 'a group' : `group ${item.id}`
+      return new DiagramFault({
+        kind: 'refused',
+        reason: `${name} has no blocks`,
+        line: null,
+        limit: null,
+      })
+    }
+    const inner = emptyGroupFault(item)
+    if (inner !== null) return inner
+  }
+  return null
 }
 
 function countBoxes(group: BlockGroup): number {
@@ -164,9 +187,11 @@ export class BlockBuilder {
     if (unclosed !== undefined) {
       throw lineFault(unclosed.line, `line ${String(unclosed.line)} opens a block with no end`)
     }
-    if (this.root.children.length === 0) {
+    if (countBoxes(this.root) === 0) {
       return { kind: 'refused', reason: EMPTY_DIAGRAM, line: null, limit: null }
     }
+    const empty = emptyGroupFault(this.root)
+    if (empty !== null) throw empty
     refuseWideSpans(this.root)
     refuseOverLimits([
       ['boxes', countBoxes(this.root)],
@@ -226,6 +251,7 @@ export class BlockBuilder {
 
   private mention(cursor: Cursor): string {
     const id = takeNodeId(cursor)
+    if (KEYWORDS.has(id)) throw doesNotParse(cursor.line)
     const item = this.itemOf(cursor, id)
     const span = cursor.take(SPAN)?.[1]
     if (span !== undefined) {
@@ -239,14 +265,13 @@ export class BlockBuilder {
     const known = this.named.get(id)
     const arrow = cursor.take(BLOCK_ARROW)
     if (arrow !== null) {
-      if (known !== undefined) throw doesNotParse(cursor.line)
-      return this.placed({
-        kind: 'arrow',
-        id,
-        direction: directionOf(cursor.line, arrow),
-        label: textLines(arrow[1] ?? arrow[2] ?? ''),
-        span: 1,
-      })
+      const direction = directionOf(cursor.line, arrow)
+      const label = textLines(arrow[1] ?? arrow[2] ?? '')
+      if (known === undefined) return this.placed({ kind: 'arrow', id, direction, label, span: 1 })
+      if (known.kind !== 'arrow') throw doesNotParse(cursor.line)
+      if (known.direction !== direction) throw twoDirections(cursor.line)
+      known.label = label
+      return known
     }
     const shaped = takeShape(cursor)
     if (known === undefined) {
@@ -288,6 +313,7 @@ const FRAME_INSET = 2
 const LEAST_ARROW = 3
 const SPACE_ROWS = 1
 const LABEL_ROOM = 4
+const LABEL_GAP_ROOM = 6
 const FRAME_ACROSS = '┄'
 const FRAME_DOWN = '┆'
 const BORDER_ACROSS = '─'
@@ -356,11 +382,42 @@ function slotsOf(group: BlockGroup): Slot[] {
   return slots
 }
 
-function spanWidth(span: number, column: number, gap: number): number {
-  return span * column + gap * (span - 1)
+function gapsBetween(gaps: readonly number[], from: number, to: number): number {
+  return gaps.slice(from, to).reduce((sum, gap) => sum + gap, 0)
 }
 
-function naturalWidth(item: BlockItem): number {
+function spanWidth(slot: Slot, column: number, gaps: readonly number[]): number {
+  const { col } = slot
+  const { span } = slot.item
+  return span * column + gapsBetween(gaps, col, col + span - 1)
+}
+
+function linkLabelWidth(link: BlockLink): number {
+  return displayWidth(
+    labelsOf(link.label)
+      .map((label) => label.text)
+      .join(' '),
+  )
+}
+
+function gapsOf(group: BlockGroup, gap: number, links: readonly BlockLink[]): number[] {
+  const gaps = Array.from({ length: columnsOf(group) - 1 }, () => gap)
+  const slots = slotsOf(group)
+  const slotOf = (id: string) => slots.find((slot) => isNamed(slot.item) && slot.item.id === id)
+  for (const link of links) {
+    const label = linkLabelWidth(link)
+    const one = slotOf(link.from)
+    const other = slotOf(link.to)
+    if (label === 0 || one === undefined || other === undefined || one.row !== other.row) continue
+    const [left, right] = one.col < other.col ? [one, other] : [other, one]
+    if (left.col + left.item.span !== right.col) continue
+    const at = right.col - 1
+    gaps[at] = Math.max(gaps[at] ?? gap, label + LABEL_GAP_ROOM)
+  }
+  return gaps
+}
+
+function naturalWidth(item: BlockItem, links: readonly BlockLink[]): number {
   switch (item.kind) {
     case 'node':
       return widestLabel(labelsOf(item.label)) + BOX_PADDING + markWidth(item)
@@ -369,19 +426,23 @@ function naturalWidth(item: BlockItem): number {
     case 'space':
       return 1
     case 'group':
-      return FRAME_ROOM + gridWidth(item)
+      return FRAME_ROOM + gridWidth(item, links)
   }
 }
 
-function gridWidth(group: BlockGroup): number {
-  const columns = columnsOf(group)
+function gridWidth(group: BlockGroup, links: readonly BlockLink[]): number {
+  const gaps = gapsOf(group, COLUMN_GAP, links)
   const column = Math.max(
     1,
-    ...group.children.map((item) =>
-      Math.ceil((naturalWidth(item) - COLUMN_GAP * (item.span - 1)) / item.span),
+    ...slotsOf(group).map((slot) =>
+      Math.ceil(
+        (naturalWidth(slot.item, links) -
+          gapsBetween(gaps, slot.col, slot.col + slot.item.span - 1)) /
+          slot.item.span,
+      ),
     ),
   )
-  return spanWidth(columns, column, COLUMN_GAP)
+  return columnsOf(group) * column + gapsBetween(gaps, 0, gaps.length)
 }
 
 function leastWidth(item: BlockItem): number {
@@ -430,20 +491,24 @@ class Placer {
   readonly placed: Placed[] = []
   private boxes = 0
 
-  constructor(private readonly gap: number) {}
+  constructor(
+    private readonly gap: number,
+    private readonly links: readonly BlockLink[],
+  ) {}
 
   grid(group: BlockGroup, left: number, top: number, width: number, parents: string[]): number {
-    const column = this.columnWidth(group, width)
+    const gaps = gapsOf(group, this.gap, this.links)
+    const column = this.columnWidth(group, width, gaps)
     let y = top
     for (const row of rowsOf(slotsOf(group))) {
-      const height = this.rowHeight(row, column)
+      const height = this.rowHeight(row, column, gaps)
       for (const slot of row) {
-        const x = left + slot.col * (column + this.gap)
+        const x = left + slot.col * column + gapsBetween(gaps, 0, slot.col)
         const rect = {
           top: y,
           left: x,
           bottom: y + height - 1,
-          right: x + spanWidth(slot.item.span, column, this.gap) - 1,
+          right: x + spanWidth(slot, column, gaps) - 1,
         }
         this.place(slot.item, rect, parents)
       }
@@ -452,22 +517,21 @@ class Placer {
     return y - ROW_GAP - top
   }
 
-  private columnWidth(group: BlockGroup, width: number): number {
+  private columnWidth(group: BlockGroup, width: number, gaps: readonly number[]): number {
     const columns = columnsOf(group)
-    const column = Math.floor((width - this.gap * (columns - 1)) / columns)
+    const column = Math.floor((width - gapsBetween(gaps, 0, gaps.length)) / columns)
     if (column < 1) throw new BlockFault('narrow')
     return column
   }
 
-  private rowHeight(row: readonly Slot[], column: number): number {
-    return Math.max(
-      ...row.map((slot) => this.heightOf(slot.item, spanWidth(slot.item.span, column, this.gap))),
-    )
+  private rowHeight(row: readonly Slot[], column: number, gaps: readonly number[]): number {
+    return Math.max(...row.map((slot) => this.heightOf(slot.item, spanWidth(slot, column, gaps))))
   }
 
   private gridHeight(group: BlockGroup, width: number): number {
-    const column = this.columnWidth(group, width)
-    const heights = rowsOf(slotsOf(group)).map((row) => this.rowHeight(row, column))
+    const gaps = gapsOf(group, this.gap, this.links)
+    const column = this.columnWidth(group, width, gaps)
+    const heights = rowsOf(slotsOf(group)).map((row) => this.rowHeight(row, column, gaps))
     return heights.reduce((sum, height) => sum + height, 0) + ROW_GAP * (heights.length - 1)
   }
 
@@ -509,7 +573,7 @@ class Placer {
 
 function layoutOf(diagram: BlockDiagram, width: number, gap: number): Layout | null {
   try {
-    const placer = new Placer(gap)
+    const placer = new Placer(gap, diagram.links)
     const height = placer.grid(diagram.root, 0, 0, width, [])
     return { placed: placer.placed, height }
   } catch (error) {
@@ -761,31 +825,54 @@ class LinkSheet {
     this.used.add(`${String(row)}:${String(col)}`)
   }
 
+  private isFrame(row: number, col: number): boolean {
+    return this.placed.some(
+      ({ item, rect }) =>
+        item.kind === 'group' &&
+        inside(rect, row, col) &&
+        (row === rect.top || row === rect.bottom || col === rect.left || col === rect.right),
+    )
+  }
+
+  private isOpen(row: number, cols: readonly number[], from: Placed, to: Placed): boolean {
+    return cols.every(
+      (col) =>
+        col >= 0 &&
+        col < this.room &&
+        !this.isUsed(row, col) &&
+        !this.isFrame(row, col) &&
+        this.blocker(row, col, from, to) === undefined,
+    )
+  }
+
   private label(course: Course, labels: readonly Label[], from: Placed, to: Placed, name: string) {
     const text = labels.map((label) => label.text).join(' ')
     if (text === '') return
     const label = shownLabel(text)
     const columns = displayWidth(label.text)
     const room = course.cells.length
+    const misfit = new BlockFault(`the label of ${name} does not fit`)
     if (course.isAcross) {
-      if (room < columns + LABEL_ROOM) throw new BlockFault(`the label of ${name} does not fit`)
+      if (room < columns + LABEL_ROOM) throw misfit
       const cells = course.cells.map((cell) => cell.col).sort((one, other) => one - other)
       const start = (cells[0] ?? 0) + centered(columns, room)
       const row = course.cells[0]?.row ?? 0
+      if (range(start - 1, start + columns).some((col) => this.isFrame(row, col))) throw misfit
       this.grid.put(row, start - 1, ' ', LINE_INK)
       this.grid.putLabel(row, start, label, LABEL_INK)
       this.grid.put(row, start + columns, ' ', LINE_INK)
       return
     }
     const rows = course.cells.map((cell) => cell.row).sort((one, other) => one - other)
-    const row = rows[middle(0, rows.length - 1)] ?? 0
+    const middleRow = rows[middle(0, rows.length - 1)] ?? 0
     const col = (course.cells[0]?.col ?? 0) + 2
-    for (const at of range(col - 1, col + columns - 1)) {
-      const isTaken =
-        at >= this.room || this.isUsed(row, at) || this.blocker(row, at, from, to) !== undefined
-      if (isTaken) throw new BlockFault(`the label of ${name} does not fit`)
-      this.used.add(`${String(row)}:${String(at)}`)
-    }
+    const cols = range(col - 1, col + columns - 1)
+    const nearest = [...rows].sort(
+      (one, other) => Math.abs(one - middleRow) - Math.abs(other - middleRow) || one - other,
+    )
+    const row = nearest.find((candidate) => this.isOpen(candidate, cols, from, to))
+    if (row === undefined) throw misfit
+    for (const at of cols) this.used.add(`${String(row)}:${String(at)}`)
     this.widest = Math.max(this.widest, col + columns)
     this.grid.putLabel(row, col, label, LABEL_INK)
   }
@@ -817,7 +904,7 @@ function drawnAt(
 }
 
 function drawnWithin(diagram: BlockDiagram, width: number): InkedDrawing | Refusal | null {
-  const natural = gridWidth(diagram.root)
+  const natural = gridWidth(diagram.root, diagram.links)
   const spaced = drawnAt(diagram, Math.min(natural, width), COLUMN_GAP, width)
   if (spaced?.kind === 'drawing' || width >= natural) return spaced
   const compact = drawnAt(diagram, width, COMPACT_COLUMN_GAP, width)
@@ -825,7 +912,7 @@ function drawnWithin(diagram: BlockDiagram, width: number): InkedDrawing | Refus
 }
 
 export function drawBlock(diagram: BlockDiagram, width: number): InkedDrawing | Refusal {
-  const natural = gridWidth(diagram.root)
+  const natural = gridWidth(diagram.root, diagram.links)
   const outcome = drawnWithin(diagram, width)
   if (outcome !== null && (outcome.kind === 'drawing' || width >= natural)) return outcome
   for (let wider = width + 1; wider <= natural; wider++) {

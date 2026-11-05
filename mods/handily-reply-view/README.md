@@ -1651,12 +1651,16 @@ block-beta
   block. `a:2` spans 2 columns, and `space` or `space:2` leaves 1 or 2 columns
   empty.
 - `block:ID` or `block` up to `end` draws a group as a frame with a dotted border around its
-  blocks. A group has its own `columns`, and `block:ID:2` spans 2 columns.
+  blocks. A group has its own `columns`, and `block:ID:2` spans 2 columns. A group with no block
+  draws as the source (`group G has no blocks.`).
 - Every box has rounded corners, as in a flowchart. A rhombus `{…}` keeps square corners and the
   mark `◇`. A block arrow such as `<["Yes"]>(right)` draws as an arrow across its cell, with its
   label on the row next to it. `right`, `left`, `x`, `up`, `down` and `y` draw.
 - A link `A --> B` draws as a straight line between the two blocks, with its head at `B`. `---`
-  draws no head, and `-.->` draws a dashed line. `A-- "X" -->B` draws `X` on the line.
+  draws no head, and `-.->` draws a dashed line. `A-- "X" -->B` and `A -->|X| B` draw `X` on the
+  line. When `A` and `B` stand side by side, the gap between them grows to hold the label. A
+  label beside a vertical line stays inside the frame of its group.
+- `space` and `block` are keywords, and a link to `space` does not parse, as in Mermaid.
 - A block takes its place at its first mention, also when the first mention is in a link.
 - When the grid is wider than the screen, the columns get narrower, and a label wraps at its
   spaces. Then the gaps get narrower. A word never splits.
@@ -1667,8 +1671,9 @@ block-beta
 - These draw as the source, with a note: a link that needs a bend
   (`the link from A to B needs a bend.`), a link that crosses a block or another link
   (`the link from A to C crosses B.`), a link label that does not fit, a block arrow with two
-  directions, a span wider than its row (`block a spans 4 columns, its row has 3.`), a group with
-  no `end`, a diagram with no block and a screen that is too narrow
+  directions, also from a block arrow named twice, a span wider than its row
+  (`block a spans 4 columns, its row has 3.`), a group with no `end`, a diagram with no block
+  (`the block diagram has no blocks.`) and a screen that is too narrow
   (`it takes 38 columns, the screen has 28. Widen the window or shorten the labels.`).
 
 The syntax follows the [block page](https://mermaid.js.org/syntax/block.html) of Mermaid 12.3.0.

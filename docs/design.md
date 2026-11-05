@@ -1320,6 +1320,7 @@ Diagrams:
   tall diagram.
 - A block diagram draws its blocks in a grid of `columns`, with one width for all columns of a
   group. A group draws as a dotted frame. A link draws only as a straight line between two blocks.
+  The gap between two blocks side by side grows to hold the label of their link.
   A link that needs a bend or crosses a block draws the diagram as its source, with a note
   (handily-2dpxv0.10).
 - A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16
