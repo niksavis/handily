@@ -42,6 +42,7 @@ const TITLE = /^title(?:[\t ](.*?))?(?:%%.*)?$/
 const ACCESSIBILITY = /^acc(?:Title[\t ]*:|Descr[\t ]*:)/
 const DESCRIPTION_BLOCK = /^accDescr\s*\{/
 const DESCRIPTION_END = '}'
+const CURVE = /^curve(?![-\w])/
 const SPACES = /[\t ]{2,}/g
 const TOKEN =
   /\s*(?:("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\d+\.\d+(?!\.)|0|[1-9]\d*(?!\.))|(\w(?:[-\w]*\w)?)|([[\]{},:]))/y
@@ -112,6 +113,16 @@ class Tokens {
     return this.at >= this.tokens.length
   }
 
+  get isOpen(): boolean {
+    const marks = this.tokens.filter((token) => token.kind === 'mark')
+    const opened = marks.filter((token) => token.text === OPENING).length
+    return opened > marks.filter((token) => token.text === CLOSING).length
+  }
+
+  with(more: readonly Token[]): Tokens {
+    return new Tokens([...this.tokens, ...more], this.line)
+  }
+
   peek(): Token | undefined {
     return this.tokens[this.at]
   }
@@ -153,7 +164,7 @@ export class RadarBuilder {
   private readonly axes: RadarAxis[] = []
   private readonly curves: WrittenCurve[] = []
   private readonly options = new Map<OptionName, string>()
-  private pending: Statement | null = null
+  private pending: Tokens | null = null
   private isInDescription = false
 
   add(statement: Statement): void {
@@ -162,14 +173,19 @@ export class RadarBuilder {
       return
     }
     const pending = this.pending
-    const joined =
-      pending === null ? statement : { ...pending, text: `${pending.text} ${statement.text}` }
-    if (count(joined.text, OPENING) > count(joined.text, CLOSING)) {
-      this.pending = joined
+    if (pending === null && !CURVE.test(statement.text)) {
+      this.statement(statement)
+      return
+    }
+    const tokens = (pending ?? new Tokens([], statement.line)).with(
+      tokensOf(statement.line, statement.text),
+    )
+    if (tokens.isOpen) {
+      this.pending = tokens
       return
     }
     this.pending = null
-    this.statement(joined)
+    this.read(tokens)
   }
 
   build(): Radar | Refusal {
@@ -208,11 +224,14 @@ export class RadarBuilder {
       this.isInDescription = !text.includes(DESCRIPTION_END)
       return
     }
-    const tokens = new Tokens(tokensOf(line, text), line)
-    const read = this.readerOf(tokens)
-    read()
-    while (tokens.skip(',')) read()
-    if (!tokens.done) throw doesNotParse(line)
+    this.read(new Tokens(tokensOf(line, text), line))
+  }
+
+  private read(tokens: Tokens): void {
+    const item = this.readerOf(tokens)
+    item()
+    while (tokens.skip(',')) item()
+    if (!tokens.done) throw doesNotParse(tokens.line)
   }
 
   private readerOf(tokens: Tokens): () => void {
@@ -309,10 +328,6 @@ function valueCount(count: number): string {
 
 function axisCount(count: number): string {
   return `${String(count)} ${count === 1 ? 'axis' : 'axes'}`
-}
-
-function count(text: string, mark: string): number {
-  return text.split(mark).length - 1
 }
 
 function radarRefusal(reason: string): Refusal {

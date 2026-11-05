@@ -240,6 +240,35 @@ describe('a mermaid radar diagram', () => {
     ])
   })
 
+  for (const [what, line] of [
+    ['a title', '  title Scores {draft'],
+    ['an accessibility title', '  accTitle: Scores {draft'],
+    ['a comment after a curve', '  curve y{3, 4} %% {todo'],
+    ['a curve label', '  curve z["x{"]{5, 6}'],
+  ] as const) {
+    test(`a brace in ${what} does not hold the next lines as part of a curve`, () => {
+      const source = lines('radar-beta', '  axis a, b', '  curve x{1, 2}', line, '  max 9')
+      expect(parseMermaid(source).kind).toBe('radar')
+    })
+  }
+
+  test('a curve over several lines reads past a brace in a comment and keeps a brace in its label', () => {
+    const source = lines(
+      'radar-beta',
+      '  title Scores {draft',
+      '  axis a, b',
+      '  curve x["x{"]{ %% {',
+      '    1, 2',
+      '  }',
+      '  curve y{3, 4}',
+    )
+    expect(drawnLines(source, 40).slice(0, 3)).toEqual([
+      'Scores {draft',
+      'a  x{ ████████                         1',
+      '   y  ████████████████████████         3',
+    ])
+  })
+
   test('a title, accessibility lines, a description block and a trailing comment draw nothing of their own', () => {
     const source = lines(
       'radar-beta',
