@@ -51,6 +51,7 @@ import {
   type TableLook,
   type TableStyle,
 } from './table'
+import { drawTimeline } from './timeline'
 import { cutToWidth, displayWidth, fitted, graphemesOf } from './width'
 
 export const FOLD_AFTER_ROWS = 30
@@ -1195,6 +1196,10 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'mindmap': {
       const drawn = drawMindmap(diagram, width)
+      return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
+    }
+    case 'timeline': {
+      const drawn = drawTimeline(diagram, width)
       return drawn.kind === 'drawing' ? { ...drawn, name: diagram.kind } : drawn
     }
   }

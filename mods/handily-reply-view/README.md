@@ -714,6 +714,74 @@ At 40 columns, a long node wraps under its own text:
 The syntax follows the [mindmap page](https://mermaid.js.org/syntax/mindmap.html) of Mermaid
 12.3.0.
 
+## A timeline
+
+A `timeline` draws its periods down an axis, under the title line `── mermaid · timeline ──`:
+
+```text
+● Five industrial ages:
+
+  ── mermaid · timeline ─────────────────────────────  [ copy ] [ copy drawing ]
+  Timeline of Industrial Revolution
+  ┄┄ 17th-20th century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 1.0  • Machinery, Water power, Steam
+  │                 power
+  ● Industry 2.0  • Electricity, Internal combustion engine, Mass production
+  ● Industry 3.0  • Electronics, Computers, Automation
+  ┄┄ 21st century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 4.0  • Internet, Robotics, Internet of Things
+  ● Industry 5.0  • Artificial intelligence, Big data, 3D printing
+```
+
+At 40 columns, the events wrap in their column:
+
+```text
+● Five industrial ages:
+
+  ── mermaid · timeline ────────────────
+               [ copy ] [ copy drawing ]
+  Timeline of Industrial Revolution
+  ┄┄ 17th-20th century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 1.0  • Machinery, Water
+  │                 power, Steam
+  │                 power
+  ● Industry 2.0  • Electricity,
+  │                 Internal combustion
+  │                 engine, Mass
+  │                 production
+  ● Industry 3.0  • Electronics,
+                    Computers,
+                    Automation
+  ┄┄ 21st century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  ● Industry 4.0  • Internet, Robotics,
+  │                 Internet of Things
+  ● Industry 5.0  • Artificial
+                    intelligence, Big
+                    data, 3D printing
+```
+
+- `timeline`, `timeline LR` and `timeline TD` draw top down.
+- `title` draws its text in bold on the first line. A `section` draws as a dotted row with its
+  name, such as `┄┄ 21st century ┄┄`. A section name too wide for the screen is cut with `…`.
+- A period draws `●` and its name in bold. Its events follow, each after `•`. The axis `│` joins a
+  period to the next period of its section.
+- When the widest period takes more than a third of the screen, or leaves fewer than 20 columns
+  for the events, each period stands on its own row and its events stand under it.
+- On the terminal, with sections, each section and its periods take the colours `suggestion`,
+  `planMode` and `merged` in turn. With no section, each period takes the next colour. The events
+  are plain. `•`, `│` and the dotted rows are in `inactive`.
+- `<br>` breaks a line. A `#` after a period starts a comment, as in Mermaid. A colon and a space
+  start each event. So `C#` and `a:b` in an event draw as written. `accTitle` and `accDescr` draw
+  nothing.
+- On the desktop app, the drawing draws in a code block with no colour, as the other diagrams do.
+- These draw as the source, with a note: an event before any period or a colon with no space after
+  it (`line 2 does not parse.`), a timeline with no period
+  (`the timeline has no time periods.`) and a timeline of more than 120 rows
+  (`135 rows, at most 120 draw.`).
+
+The syntax follows the [timeline page](https://mermaid.js.org/syntax/timeline.html) of Mermaid
+12.3.0.
+
 ## A prompt that you type
 
 A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
