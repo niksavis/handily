@@ -14,7 +14,7 @@ export function diagramHint(kinds: readonly string[]): string {
     'The terminal draws a mermaid block in a reply as a diagram.',
     'When a flow, an exchange or a structure reads better as a diagram, add one fenced mermaid block.',
     `These kinds draw: ${kinds.join(', ')}.`,
-    'A flowchart is TD or LR.',
+    'A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph.',
     'Keep each label short.',
     `Use at most ${boxes} boxes and ${participants} participants.`,
     `Do not use ${listedWithOr(UNDRAWN_STATEMENTS)}.`,

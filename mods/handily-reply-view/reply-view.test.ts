@@ -26,7 +26,7 @@ import {
   type Rail,
 } from './hooks/rail'
 import { drawRail, type RailElements } from './hooks/rail-pane'
-import { drawsSample, MERMAID_KINDS, namesKind } from './fixtures/mermaid-kinds'
+import { drawsSample, hintKinds, MERMAID_KINDS } from './fixtures/mermaid-kinds'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -1790,10 +1790,10 @@ describe('/replies', () => {
 })
 
 const MEASURED_HINT =
-  'The terminal draws a mermaid block in a reply as a diagram. When a flow, an exchange or a structure reads better as a diagram, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gitGraph, mindmap, timeline. A flowchart is TD or LR. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
+  'The terminal draws a mermaid block in a reply as a diagram. When a flow, an exchange or a structure reads better as a diagram, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gitGraph, mindmap, timeline. A flowchart is TD or LR and may group boxes in a subgraph, but not a subgraph in a subgraph. Keep each label short. Use at most 40 boxes and 12 participants. Do not use direction, box, create or destroy. The reply must read well without the diagram.'
 const HINT_CHARACTERS_AT_MOST = 540
 const HINTS_ON =
-  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 210 tokens.'
+  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 230 tokens.'
 const HINTS_OFF = 'diagram hints off for this session. A prompt that you type carries no hint.'
 
 type Submitted = { text: string; wait: boolean; origin: PromptOrigin; context?: readonly string[] }
@@ -1888,8 +1888,10 @@ describe('diagram hints', () => {
       async (read, $) => {
         await $.prompt.submit(submitted({ kind: 'composer' }))
         const hint = read[0]?.context?.at(-1) ?? ''
-        expect(MERMAID_KINDS.filter((kind) => namesKind(hint, kind))).toEqual(
-          MERMAID_KINDS.filter(drawsSample),
+        const named = hintKinds(hint)
+        expect(named.filter((kind) => !drawsSample(kind))).toEqual([])
+        expect(MERMAID_KINDS.filter(drawsSample).filter((kind) => !named.includes(kind))).toEqual(
+          [],
         )
       },
     )
@@ -1907,7 +1909,7 @@ describe('diagram hints', () => {
     )
 
     hintsTest(
-      `the hint is the text that the README measured at 208 tokens on 2026-11-05, and /replies hints names that count on ${surface}`,
+      `the hint is the text that the README measured at 229 tokens on 2026-11-05, and /replies hints names that count on ${surface}`,
       undefined,
       surface,
       async (read, $) => {
@@ -4120,6 +4122,10 @@ const PINGS = linesOf(
     index % 2 === 0 ? `  A->>B: ping ${String(index)}` : `  B->>A: pong ${String(index)}`,
   ),
 )
+const CHAIN = linesOf(
+  'flowchart TD',
+  ...Array.from({ length: 14 }, (_, index) => `  N${String(index)} --> N${String(index + 1)}`),
+)
 const FOLD_COLUMNS = 78
 const DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST = 5
 
@@ -4200,6 +4206,20 @@ describe('a folded reply around its diagrams', () => {
       },
     )
   }
+
+  viewTest('a tall flowchart names itself flowchart in the fold row', async (_world, $) => {
+    const chain = diagramLines(CHAIN, 'terminal')
+    const ui = await mountReply(
+      $,
+      reply(mermaidReply('Here is the chain:', CHAIN)),
+      'terminal',
+      FOLD_COLUMNS,
+    )
+    expect((await uncolouredSketchOf(ui, FOLD_COLUMNS)).at(-1)).toContain(
+      `~… flowchart, ${String(chain.length - 27)} more rows~`,
+    )
+    await ui.unmount()
+  })
 
   for (const [leadCount, shownRows] of [
     [30 - 2 - DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST, DIAGRAM_ROWS_IN_PREVIEW_AT_LEAST],

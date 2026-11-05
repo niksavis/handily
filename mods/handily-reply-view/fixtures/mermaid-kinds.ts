@@ -15,17 +15,29 @@ export const MERMAID_KINDS: readonly string[] = [
   'requirementDiagram',
   'gitGraph',
   'C4Context',
+  'C4Container',
+  'C4Component',
+  'C4Dynamic',
+  'C4Deployment',
   'mindmap',
   'timeline',
   'zenuml',
-  'sankey-beta',
-  'xychart-beta',
-  'block-beta',
-  'packet-beta',
+  'sankey',
+  'xychart',
+  'block',
+  'packet',
   'kanban',
   'architecture-beta',
   'radar-beta',
   'treemap-beta',
+  'cynefin-beta',
+  'eventmodeling',
+  'ishikawa-beta',
+  'swimlane-beta',
+  'treeView-beta',
+  'usecase-beta',
+  'venn-beta',
+  'wardley-beta',
 ]
 
 export const KIND_SAMPLES: Readonly<Record<string, string>> = {
@@ -44,7 +56,8 @@ export function drawsSample(kind: string): boolean {
   return sample !== undefined && diagramOf(sample, SAMPLE_WIDTH, 'terminal').kind === 'drawing'
 }
 
-export function namesKind(text: string, kind: string): boolean {
-  const escaped = kind.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
-  return new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`).test(text)
+const HINT_KINDS = /These kinds draw: ([^.]+)\./
+
+export function hintKinds(hint: string): string[] {
+  return HINT_KINDS.exec(hint)?.[1]?.split(', ') ?? []
 }

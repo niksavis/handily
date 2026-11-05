@@ -18,7 +18,7 @@ import {
   type Run,
   type Table,
 } from './markdown'
-import { parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
+import { DIAGRAM_NAMES, parseMermaid, type MermaidDiagram, type Refusal } from './mermaid'
 import { drawMindmap } from './mindmap'
 import { paletteColor, type PaletteRole, type PaletteSetting } from './palette'
 import {
@@ -102,7 +102,7 @@ const ALERT_ROLES: Readonly<Record<AlertKind, ReplyRole>> = {
   caution: 'alertCaution',
 }
 
-export type DiagramDrawing = InkedDrawing & { name: string }
+export type DiagramDrawing = InkedDrawing & { name: MermaidDiagram['kind'] }
 
 export type DiagramOutcome = DiagramDrawing | Refusal
 
@@ -1345,7 +1345,7 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
   return {
     rows: title.rows + drawing.lines.length,
-    diagram: drawing.name,
+    diagram: DIAGRAM_NAMES[drawing.name],
     whole: () => column([title.element, drawingBody(context, drawing, key)]),
     cut: (budget) => {
       const count = budget - title.rows
@@ -1462,7 +1462,7 @@ function foldedPreview(pieces: readonly Piece[]): Preview {
 
 function hiddenText(hidden: number, cutDiagram: CutDiagram | null): string {
   if (cutDiagram === null) return `… ${plural(hidden, 'more line')}`
-  const rest = `… ${cutDiagram.name} diagram, ${plural(cutDiagram.rows, 'more row')}`
+  const rest = `… ${cutDiagram.name}, ${plural(cutDiagram.rows, 'more row')}`
   const after = hidden - cutDiagram.rows
   return after > 0 ? `${rest}, then ${plural(after, 'more line')}` : rest
 }
