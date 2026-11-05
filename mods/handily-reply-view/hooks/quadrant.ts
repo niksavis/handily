@@ -161,6 +161,8 @@ const NAME_INSET = 1
 const MARKER = '●'
 const KEYS = '123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const LABEL_GAP = 1
+const MARK_GAP = 2
+const MARK_COLUMNS = 2
 const LIST_GAP = ', '
 const UP_MARK = '▲ '
 const DOWN_MARK = '▼ '
@@ -181,7 +183,7 @@ const EDGES = {
 
 type Plot = { top: number; quadrant: number; width: number }
 
-type Spot = { row: number; col: number; points: QuadrantPoint[] }
+type Spot = { row: number; col: number; first: number; points: QuadrantPoint[] }
 
 type Span = { row: number; from: number; to: number }
 
@@ -216,49 +218,98 @@ function interiorOf(plot: Plot, col: number): { from: number; to: number } {
     : { from: plot.quadrant + 2, to: 2 * plot.quadrant + 1 }
 }
 
-function spotsOf(chart: QuadrantChart, plot: Plot): Spot[] {
-  const spots = new Map<string, Spot>()
-  for (const point of chart.points) {
+function cellsOf(chart: QuadrantChart, plot: Plot): Spot[] {
+  const cells = new Map<string, Spot>()
+  chart.points.forEach((point, index) => {
     const row = rowOf(plot, point.y)
     const col = colOf(plot, point.x)
     const key = `${String(row)}:${String(col)}`
-    const spot = spots.get(key) ?? { row, col, points: [] }
-    spot.points.push(point)
-    spots.set(key, spot)
+    const cell = cells.get(key) ?? { row, col, first: index, points: [] }
+    cell.points.push(point)
+    cells.set(key, cell)
+  })
+  return [...cells.values()]
+}
+
+function spotsOf(chart: QuadrantChart, plot: Plot): Spot[] {
+  const cells = cellsOf(chart, plot).sort(
+    (one, other) => one.row - other.row || one.col - other.col,
+  )
+  const spots: Spot[] = []
+  for (const cell of cells) {
+    const last = spots.at(-1)
+    const isNear =
+      last !== undefined &&
+      last.row === cell.row &&
+      isLeft(plot, last.col) === isLeft(plot, cell.col) &&
+      cell.col - last.col < MARK_COLUMNS + MARK_GAP
+    if (last === undefined || !isNear) spots.push({ ...cell, points: [...cell.points] })
+    else {
+      last.points.push(...cell.points)
+      last.first = Math.min(last.first, cell.first)
+    }
   }
-  return [...spots.values()]
+  return spots.sort((one, other) => one.first - other.first)
 }
 
 function spotLabel(spot: Spot): string {
   return spot.points.map((point) => point.label).join(LIST_GAP)
 }
 
-class Occupancy {
-  private readonly taken = new Set<string>()
+function markOf(plot: Plot, spot: Spot): Span {
+  const fitsRight = spot.col + 1 <= interiorOf(plot, spot.col).to
+  const from = fitsRight ? spot.col : spot.col - 1
+  return { row: spot.row, from, to: from + MARK_COLUMNS - 1 }
+}
 
-  take(row: number, from: number, to: number): void {
-    for (let col = from; col <= to; col++) this.taken.add(`${String(row)}:${String(col)}`)
+function keyColumn(plot: Plot, spot: Spot): number {
+  const mark = markOf(plot, spot)
+  return mark.from === spot.col ? mark.to : mark.from
+}
+
+class Occupancy {
+  private readonly labels = new Set<string>()
+  private readonly marks = new Map<string, Spot>()
+
+  takeLabel(span: Span): void {
+    for (let col = span.from; col <= span.to; col++) this.labels.add(cellKey(span.row, col))
   }
 
-  isFree(row: number, from: number, to: number): boolean {
-    for (let col = from; col <= to; col++) {
-      if (this.taken.has(`${String(row)}:${String(col)}`)) return false
+  takeMark(span: Span, spot: Spot): void {
+    for (let col = span.from; col <= span.to; col++) this.marks.set(cellKey(span.row, col), spot)
+  }
+
+  isFree(span: Span, own: Spot): boolean {
+    for (let col = span.from - MARK_GAP; col <= span.to + MARK_GAP; col++) {
+      const mark = this.marks.get(cellKey(span.row, col))
+      if (mark !== undefined && mark !== own) return false
+      const isNear = col >= span.from - LABEL_GAP && col <= span.to + LABEL_GAP
+      if (isNear && this.labels.has(cellKey(span.row, col))) return false
     }
     return true
   }
 }
 
+function cellKey(row: number, col: number): string {
+  return `${String(row)}:${String(col)}`
+}
+
 function labelSpan(plot: Plot, taken: Occupancy, spot: Spot, columns: number): Span | null {
   const { from, to } = interiorOf(plot, spot.col)
+  const mark = markOf(plot, spot)
   const right = {
     row: spot.row,
     from: spot.col + 1 + LABEL_GAP,
     to: spot.col + LABEL_GAP + columns,
   }
-  const left = { row: spot.row, from: spot.col - LABEL_GAP - columns, to: spot.col - 1 - LABEL_GAP }
+  const left = {
+    row: spot.row,
+    from: mark.from - LABEL_GAP - columns,
+    to: mark.from - 1 - LABEL_GAP,
+  }
   for (const span of [right, left]) {
     if (span.from <= from || span.to >= to) continue
-    if (taken.isFree(span.row, span.from - LABEL_GAP, span.to + LABEL_GAP)) return span
+    if (taken.isFree(span, spot)) return span
   }
   return null
 }
@@ -339,19 +390,19 @@ function putFrame(sheet: ChartGrid, chart: QuadrantChart, plot: Plot): void {
 function putPoints(sheet: ChartGrid, chart: QuadrantChart, plot: Plot): Spot[] {
   const spots = spotsOf(chart, plot)
   const taken = new Occupancy()
-  for (const spot of spots) taken.take(spot.row, spot.col, spot.col)
+  for (const spot of spots) taken.takeMark(markOf(plot, spot), spot)
   const keyed: Spot[] = []
   for (const spot of spots) {
     const ink = QUADRANT_INKS[quadrantAt(plot, spot.row, spot.col)] ?? 0
     const label = shownLabel(spotLabel(spot))
     const span = labelSpan(plot, taken, spot, displayWidth(label.text))
+    sheet.put(spot.row, spot.col, MARKER, ink)
     if (span === null) {
-      sheet.put(spot.row, spot.col, KEYS[keyed.length] ?? MARKER, ink, BOLD)
+      sheet.put(spot.row, keyColumn(plot, spot), KEYS[keyed.length] ?? MARKER, ink, BOLD)
       keyed.push(spot)
       continue
     }
-    taken.take(span.row, span.from, span.to)
-    sheet.put(spot.row, spot.col, MARKER, ink)
+    taken.takeLabel(span)
     sheet.grid.putLabel(span.row, span.from, label, 'plain')
   }
   return keyed

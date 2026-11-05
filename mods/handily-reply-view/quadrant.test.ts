@@ -244,15 +244,15 @@ describe('a mermaid quadrant chart', () => {
     ])
   })
 
-  test('a point whose name does not fit beside it draws a key and the name under the chart', () => {
+  test('a point whose name does not fit beside it draws a key against its marker and the name under the chart', () => {
     const drawn = drawnLines(CAMPAIGNS, 38)
     expect(drawn.slice(2, 8)).toEqual([
       '┌ Need to promote ┬ We should expa… ┐',
       `│${' '.repeat(17)}│${' '.repeat(17)}│`,
       `│${' '.repeat(17)}│${' '.repeat(17)}│`,
-      `│           3     │${' '.repeat(17)}│`,
+      `│           ●3    │${' '.repeat(17)}│`,
       '│                 │  ● Campaign C   │',
-      `│          1      │${' '.repeat(17)}│`,
+      `│          ●1     │${' '.repeat(17)}│`,
     ])
     expect(drawn.slice(-3)).toEqual(['1 Campaign A', '2 Campaign D', '3 Campaign F'])
   })
@@ -266,10 +266,52 @@ describe('a mermaid quadrant chart', () => {
       '  Point B: [0.51, 0.5] stroke-color: #10f0f0 ,stroke-width: 5px',
       '  classDef hot color: #109060',
     )
-    expect(drawnLines(source, 28).filter((row) => row.includes('●'))).toEqual([])
+    expect(drawnLines(source, 28).filter((row) => row.includes('●'))).toEqual([
+      `│${' '.repeat(12)}│●1${' '.repeat(10)}│`,
+    ])
     expect(drawnLines(source, 28).at(-1)).toBe('1 Point A, Point B')
     expect(drawnLines(source).filter((row) => row.includes('●'))).toEqual([
       `│${' '.repeat(37)}│● Point A, Point B${' '.repeat(19)}│`,
+    ])
+  })
+
+  test('a key stands against its own marker, so a key reads apart from the name of a point', () => {
+    const features = lines(
+      'quadrantChart',
+      '  Feature 1: [0.25, 0.75]',
+      '  Feature 2: [0.40, 0.75]',
+      '  Feature 3: [0.55, 0.30]',
+      '  Feature 4: [0.70, 0.30]',
+      '  Feature 5: [0.85, 0.30]',
+    )
+    const drawn = drawnLines(features)
+    expect(drawn.filter((row) => row.includes('●'))).toEqual([
+      `│        Feature 1 ●          ●1      │${' '.repeat(37)}│`,
+      `│${' '.repeat(37)}│   ●2         ●3         ● Feature 5 │`,
+    ])
+    expect(drawn.slice(-3)).toEqual(['1 Feature 2', '2 Feature 3', '3 Feature 4'])
+    const named = lines('quadrantChart', '  1: [0.05, 0.9]', '  A longer name: [0.3, 0.9]')
+    expect(drawnLines(named, 38).filter((row) => row.includes('●'))).toEqual([
+      `│ ● 1      ●1     │${' '.repeat(17)}│`,
+    ])
+  })
+
+  test('points too close for two marks share one mark with two free cells to the next mark', () => {
+    const close = lines(
+      'quadrantChart',
+      ...Array.from(
+        { length: 11 },
+        (_, at) => `  Item ${String(30 + at)}: [${(0.3 + 0.012 * at).toFixed(3)}, 0.5]`,
+      ),
+    )
+    const drawn = drawnLines(close)
+    expect(drawn.filter((row) => row.includes('●'))).toEqual([
+      `│                      ●1  ●2  ●3     │${' '.repeat(37)}│`,
+    ])
+    expect(drawn.slice(-3)).toEqual([
+      '1 Item 30, Item 31, Item 32, Item 33, Item 34',
+      '2 Item 35, Item 36, Item 37, Item 38',
+      '3 Item 39, Item 40',
     ])
   })
 

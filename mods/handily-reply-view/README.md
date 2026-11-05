@@ -1386,16 +1386,16 @@ A `quadrantChart` draws its four quadrants in a frame, under the title line
   ◀ Low Reach                                                      High Reach ▶
 ```
 
-At 40 columns, a point whose name does not fit beside it draws a key, and the name stands under
-the chart:
+At 40 columns, a point whose name does not fit beside it draws a key against its `●`, and the
+name stands under the chart:
 
 ```text
   ┌ Need to promote ┬ We should expa… ┐
   │                 │                 │
   │                 │                 │
-  │           3     │                 │
+  │           ●3    │                 │
   │                 │  ● Campaign C   │
-  │          1      │                 │
+  │          ●1     │                 │
   ...
   ◀ Low Reach              High Reach ▶
   1 Campaign A
@@ -1405,11 +1405,16 @@ the chart:
 
 - Each quadrant has 6 rows and half of the width. A point `Campaign A: [0.3, 0.6]` draws `●` in
   the cell of its place. A point at `0.5` draws in the right or the upper quadrant.
-- The name of a point stands to the right of `●`, or to the left when the right has no room. The
-  name keeps one free cell to a border and to the next name. When neither side has room, the
-  point draws a key `1` to `9` or `A` to `Z` in place of `●`, and the key and the name stand
-  under the chart. Two points in one cell share one `●` or one key, and their names join with a
-  comma.
+- The name of a point stands one space after `●`, or one space before it when the right has no
+  room. The name keeps one free cell to a border and to the next name.
+- When neither side has room, the point draws a key `1` to `9` or `A` to `Z` against its `●`,
+  with no space, such as `●2`. The key and the name stand under the chart. A key never stands
+  alone, so a key never reads as a part of a name: a name always has a space after its `●`, and
+  a key never has one. The key is bold in the colour of its quadrant. The form alone tells a key
+  from a name, so this holds also on the desktop app, which draws no colour.
+- Every mark keeps two free cells to the next mark and to any name in its row. Points that fall
+  closer together in one row share one mark at the left one, and their names join with a comma.
+  So points 0.012 apart draw as a few marks such as `●1  ●2  ●3`, and not as a row of keys.
 - With points, the name of each quadrant stands on the top edge of the quadrant, as in Mermaid. A
   name too wide for the edge is cut with `…`. With no point, each name stands in the middle of its
   quadrant.
