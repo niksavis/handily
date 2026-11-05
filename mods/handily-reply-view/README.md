@@ -488,22 +488,29 @@ The `diagrams` setting `off` draws every mermaid block as a fenced block, with n
 ## Diagram hints
 
 The `diagramHints` setting is `off` by default. When it is `on`, each prompt that you type
-carries one hint for Claude. The hint asks for a mermaid diagram when a flow or an exchange reads
-better as a diagram. You do not see the hint. Claude reads it after your prompt. `/replies hints`
-turns the hints on or off for this session, and keeps the choice in the `hints` key of
-`$.state`.
+carries one hint for Claude. The hint asks for a mermaid diagram when a flow, an exchange or a
+structure reads better as a diagram. You do not see the hint. Claude reads it after your prompt.
+`/replies hints` turns the hints on or off for this session, and keeps the choice in the `hints`
+key of `$.state`.
 
-The hint costs about 140 tokens for each prompt that you type. This count was measured on
-2026-10-29 with Claude Code 2.1.312 and the model `claude-opus-5-5`. Two `claude -p` runs of the
+The hint names each kind of diagram that the view draws, by the keyword that starts its block.
+The names come from the list `DRAWN_DIAGRAM_KINDS` in `hooks/mermaid.ts`. A test fails when the
+hint names a kind that does not draw, or leaves out a kind that draws.
+
+The hint costs about 210 tokens for each prompt that you type. This count was measured on
+2026-11-05 with Claude Code 2.1.318 and the model `claude-opus-5-5`. Two `claude -p` runs of the
 same prompt differ only in a mod that adds the hint as the context of the prompt. The run with the
-hint used 22027 input tokens and the run without it used 21887, three times each. The hint text
-has 350 characters, and a test fails when it grows past 400. When the hint text changes, measure
-again and record the new count and its date here.
+hint used 22645 input tokens and the run without it used 22437, three times each, so the hint
+costs 208 tokens. Input tokens are the sum of `input_tokens`, `cache_creation_input_tokens` and
+`cache_read_input_tokens` in the `usage` of `--output-format json`. The same runs measured the
+earlier hint of 350 characters at 154 tokens. The hint text has 465 characters, and a test fails
+when it grows past 540, which keeps it under 250 tokens. When the hint text changes, measure again
+and record the new count and its date here.
 
 The hint text:
 
 ```text
-The terminal draws a mermaid block in a reply as a diagram. When a flow or an exchange reads better as a diagram, add one fenced mermaid block: flowchart TD or LR, or sequenceDiagram. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.
+The terminal draws a mermaid block in a reply as a diagram. When a flow, an exchange or a structure reads better as a diagram, add one fenced mermaid block. These kinds draw: flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gitGraph, mindmap, timeline. A flowchart is TD or LR. Keep each label short. Use at most 40 boxes and 12 participants. Do not use subgraph, direction, box, create or destroy. The reply must read well without the diagram.
 ```
 
 No hint goes out in these cases:
@@ -1141,7 +1148,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | -------------- | -------- | --------------------------------------------------------------------------------------------------- |
 | `mode`         | `on`     | The mode when a session starts: `on` or `off`                                                       |
 | `diagrams`     | `on`     | `on` draws a mermaid diagram of a kind in [A diagram](#a-diagram). `off` draws it as its source     |
-| `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 140 tokens, to each prompt that you type           |
+| `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 210 tokens, to each prompt that you type           |
 | `tableStyle`   | `box`    | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns               |
 | `highlight`    | `on`     | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain      |
 | `headingStyle` | `banner` | `banner` draws a box around H1 and a rule under H2. `bold`, `underline` and `uppercase` draw no box |

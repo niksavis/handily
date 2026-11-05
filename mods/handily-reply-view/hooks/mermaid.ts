@@ -16,6 +16,17 @@ export const DIAGRAM_LIMITS: Readonly<Record<LimitName, number>> = {
   events: 60,
 }
 
+export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
+  'flowchart',
+  'sequenceDiagram',
+  'stateDiagram-v2',
+  'classDiagram',
+  'erDiagram',
+  'gitGraph',
+  'mindmap',
+  'timeline',
+]
+
 const LIMIT_NOUNS: Readonly<Record<LimitName, string>> = {
   lines: 'lines',
   characters: 'characters',
