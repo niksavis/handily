@@ -468,7 +468,8 @@ reason:
 Other reasons that the note names:
 
 - `classDiagram does not draw yet.`, and the same for each other kind of diagram.
-- `subgraph does not draw yet.`, and the same for `direction`.
+- `direction does not draw yet.`, for a `direction` line outside a `subgraph`.
+- The reasons of a `subgraph` that does not draw, in the next part.
 - `box does not draw yet.`, and the same for `create` and `destroy` in a sequence diagram.
 - `it takes 59 columns, the screen has 38. Widen the window or shorten the labels.`
 - `52 boxes, at most 40 draw.` The limits of one diagram are 80 source lines, 8000 source
@@ -479,6 +480,88 @@ A mermaid block with no closing fence draws as a fenced block, with no note. So 
 that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
+
+## Groups in a flowchart
+
+A `subgraph` in a flowchart draws as a frame around its boxes. The frame has a dotted border
+`┄ ┆` and square corners, so it does not look like a box. The title of the subgraph stands on the
+top edge of the frame. An edge between two groups runs from a box in one frame to a box in the
+other frame, through the borders. This source is a component diagram:
+
+```text
+flowchart LR
+  subgraph Engine
+    H[Hooks]
+    T[Telemetry]
+  end
+  subgraph Mods
+    W[workitems] --> BD[board]
+    W --> Q[quiet-items]
+    R[reply-view]
+    F[filetree]
+  end
+  H --> BD
+  H --> R
+  H --> F
+  T --> BD
+```
+
+It draws at 80 columns and more, under the title line and its buttons:
+
+```text
+  ┌┄ Engine ┄┄┄┄┄┄┐
+  ┆ ╭───────╮     ┆
+  ┆ │ Hooks │────────────┐
+  ┆ ╰───────╯     ┆      │
+  ┆ ╭───────────╮ ┆      │
+  ┆ │ Telemetry │────┐   │
+  ┆ ╰───────────╯ ┆  │   │
+  └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  │   │
+  ┌┄ Mods ┄┄┄┄┄┄┄┄┄┄┄│┄┄┄│┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐
+  ┆ ╭───────────╮    │   │   ╭────────────╮  ┆
+  ┆ │ workitems │────│─┐ ├──▶│ reply-view │  ┆
+  ┆ ╰───────────╯    │ │ │   ╰────────────╯  ┆
+  ┆                  │ │ │   ╭──────────╮    ┆
+  ┆                  │ │ ├──▶│ filetree │    ┆
+  ┆                  │ │ │   ╰──────────╯    ┆
+  ┆                  │ │ │   ╭───────╮       ┆
+  ┆                  │ │ │   │ board │       ┆
+  ┆                  │ │ └──▶│       │       ┆
+  ┆                  └─│────▶│       │       ┆
+  ┆                    ├────▶│       │       ┆
+  ┆                    │     ╰───────╯       ┆
+  ┆                    │     ╭─────────────╮ ┆
+  ┆                    └────▶│ quiet-items │ ┆
+  ┆                          ╰─────────────╯ ┆
+  └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+```
+
+- `subgraph id [Title]`, `subgraph "Title"`, `subgraph Title words` and `subgraph id` give the
+  title. A `subgraph` with no title draws a frame with no title.
+- A box belongs to the first subgraph that names it, as in Mermaid. A line outside every
+  subgraph can name the box before the subgraph does.
+- Two subgraphs with the same id draw as one frame, with the title of the first.
+- A `direction` line inside a subgraph draws in the direction of the flowchart. Mermaid does the
+  same when an edge links the subgraph to a box outside it. A subgraph with no such edge must
+  name the direction of the flowchart.
+- A frame keeps one column of space beside its boxes. A box outside the frame stays out of it.
+  When a line crosses the border, the line draws through it.
+- The title moves to the right of a line that enters the frame through the top edge. A frame
+  grows to hold its whole title. When the labels must fit, the title is cut to the width of a
+  label, with `…`.
+- On the terminal, the border is in `inactive` and the title is bold. The boxes keep their
+  colours.
+- When the frames are too wide for the screen, a flowchart `LR` draws top down. When it is still
+  too wide, the diagram draws as its source under the width note. The component diagram above
+  takes 44 columns, so at 40 columns it draws as its source.
+
+These reasons are in the note of a `subgraph` that does not draw:
+
+- `a subgraph inside a subgraph does not draw yet.`
+- `an edge to the subgraph Mods does not draw yet.` An edge must name a box in the subgraph.
+- `an empty subgraph does not draw yet.`
+- `line 2 opens a subgraph with no end.`
+- `direction LR inside a subgraph does not draw yet.`
 
 ## Diagram hints
 
@@ -769,6 +852,6 @@ count.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
   stays open or folded when it draws again.
 - Each prompt that you type keeps its time in `$.state` for this session.
-- A `subgraph`, a sequence diagram with `box`, `create` or `destroy`, and every other kind of
-  diagram draw as their source.
+- A `subgraph` inside a `subgraph`, an edge to a `subgraph`, a sequence diagram with `box`,
+  `create` or `destroy`, and every other kind of diagram draw as their source.
 - An actor of a sequence diagram draws as a box.

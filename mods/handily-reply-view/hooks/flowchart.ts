@@ -42,6 +42,15 @@ const SLIDING_WIDTH = 8
 const ENTRY_SPACING = 2
 const DOWN_ENTRY_ROOM = 5
 const ACROSS_ENTRY_ROOM = 4
+const NO_GROUP = -1
+const DOWN_FRAME_TOP_ROWS = 2
+const DOWN_FRAME_ROOM = 1
+const ACROSS_FRAME_ROOM = 2
+const FRAME_TITLE_INDENT = 2
+const FRAME_INSETS: Readonly<Record<FlowDirection, number>> = { TD: 2, LR: 1 }
+const FRAME_GAPS: Readonly<Record<FlowDirection, number>> = { TD: 1, LR: 0 }
+const FRAME_ACROSS = '┄'
+const FRAME_DOWN = '┆'
 const DECISION_MARK = '◇ '
 const DECISION_INDENT = '  '
 const CONTROL = /\p{Cc}/gu
@@ -111,9 +120,13 @@ type Link = {
 
 type Segment = { from: number; to: number; link: Link; first: boolean }
 
+type Cluster = { label: string[]; first: number; last: number; rank: number }
+
 type Graph = {
   nodes: readonly FlowNode[]
   layerOf: number[]
+  groupOf: number[]
+  clusters: Cluster[]
   layers: number[][]
   outgoing: Segment[][]
   incoming: Segment[][]
@@ -132,11 +145,18 @@ type Plan = {
   shapes: (Shape | null)[]
   entries: Entry[][]
   entryOf: Map<Segment, Entry>
+  titles: Label[]
   cut: number | null
   meter: LayoutMeter
 }
 
 type Placement = { ports: number[]; starts: number[] }
+
+type Extent = { lo: number; hi: number }
+
+type Unit = Extent & { cluster: Cluster | null }
+
+type Frame = { top: number; left: number; bottom: number; right: number; title: Label }
 
 type Band = { tracks: Map<number, number>; trackCount: number }
 
@@ -144,7 +164,7 @@ type Point = { row: number; col: number }
 
 type Trace = { link: Link; bits: number; solid: boolean }
 
-type Cell = { glyph: string | null; traces: Trace[]; ink: Ink; looks: Looks }
+type Cell = { glyph: string | null; traces: Trace[]; ink: Ink; looks: Looks; border: boolean }
 
 class DrawingFault extends Error {
   constructor(readonly reason: string) {
@@ -263,6 +283,13 @@ class Canvas {
     return true
   }
 
+  border(row: number, col: number, glyph: string): void {
+    const cell = this.rows.get(row)?.get(col)
+    if (cell?.glyph === null) return
+    if (cell !== undefined) throw new DrawingFault(LINES_OVERLAP)
+    this.cellsOf(row).set(col, { glyph, traces: [], ink: 'line', looks: PLAIN_LOOKS, border: true })
+  }
+
   mark(row: number, col: number, glyph: string): void {
     const cell = this.rows.get(row)?.get(col)
     if (cell?.glyph == null) throw new DrawingFault(LINES_OVERLAP)
@@ -355,20 +382,20 @@ class Canvas {
   }
 
   private claim(row: number, col: number, glyph: string, ink: Ink, looks: Looks): Cell {
-    if (this.rows.get(row)?.has(col) === true) throw new DrawingFault(LINES_OVERLAP)
-    const cell: Cell = { glyph, traces: [], ink, looks }
+    const known = this.rows.get(row)?.get(col)
+    if (known !== undefined && !known.border) throw new DrawingFault(LINES_OVERLAP)
+    const cell: Cell = { glyph, traces: [], ink, looks, border: false }
     this.cellsOf(row).set(col, cell)
     return cell
   }
 
   private line(point: Point, trace: Trace): void {
     const cells = this.cellsOf(point.row)
-    const cell = cells.get(point.col) ?? {
-      glyph: null,
-      traces: [],
-      ink: 'line',
-      looks: PLAIN_LOOKS,
-    }
+    const known = cells.get(point.col)
+    const cell: Cell =
+      known === undefined || known.border
+        ? { glyph: null, traces: [], ink: 'line', looks: PLAIN_LOOKS, border: false }
+        : known
     if (cell.glyph !== null) throw new DrawingFault(LINES_OVERLAP)
     cell.traces.push(trace)
     cells.set(point.col, cell)
@@ -558,9 +585,126 @@ function keepLoopsOutside(layers: number[][], loops: readonly Link[]): void {
   })
 }
 
+type Run = { sum: number; group: number; vertices: number[] }
+
+function keyOf(run: Run): number {
+  return run.sum / run.vertices.length
+}
+
+function clusteredLayer(
+  layer: readonly number[],
+  groupOf: readonly number[],
+  rank: readonly number[],
+  ends: ReadonlySet<number>,
+): number[] {
+  const runs: Run[] = []
+  const blocks = new Map<number, Run>()
+  layer.forEach((vertex, at) => {
+    const group = groupOf[vertex] ?? NO_GROUP
+    const known = blocks.get(group)
+    if (known !== undefined) {
+      known.sum += at
+      known.vertices.push(vertex)
+      return
+    }
+    const run = { sum: at, group, vertices: [vertex] }
+    runs.push(run)
+    if (group !== NO_GROUP) blocks.set(group, run)
+  })
+  runs.sort((one, other) => keyOf(one) - keyOf(other))
+  const slots = runs.flatMap((run, at) => (run.group === NO_GROUP ? [] : [at]))
+  const ranked = slots
+    .flatMap((slot) => runs[slot] ?? [])
+    .sort((one, other) => (rank[one.group] ?? 0) - (rank[other.group] ?? 0))
+  slots.forEach((slot, at) => {
+    const run = ranked[at]
+    if (run !== undefined) runs[slot] = run
+  })
+  const looped = runs.findIndex((run) => run.vertices.some((vertex) => ends.has(vertex)))
+  const [last] = looped < 0 ? [] : runs.splice(looped, 1)
+  if (last !== undefined) {
+    last.vertices.sort((one, other) => Number(ends.has(one)) - Number(ends.has(other)))
+    runs.push(last)
+  }
+  return runs.flatMap((run) => run.vertices)
+}
+
+function clusterRanks(
+  layers: readonly number[][],
+  groupOf: readonly number[],
+  count: number,
+  ends: ReadonlySet<number>,
+  meter: LayoutMeter,
+): number[] {
+  const sums = new Array<number>(count).fill(0)
+  const sizes = new Array<number>(count).fill(0)
+  const late = new Array<boolean>(count).fill(false)
+  for (const layer of layers) {
+    layer.forEach((vertex, at) => {
+      tick(meter)
+      const group = groupOf[vertex] ?? NO_GROUP
+      if (group === NO_GROUP) return
+      sums[group] = (sums[group] ?? 0) + (at + 1) / (layer.length + 1)
+      sizes[group] = (sizes[group] ?? 0) + 1
+      if (ends.has(vertex)) late[group] = true
+    })
+  }
+  const place = (group: number) => (sums[group] ?? 0) / Math.max(1, sizes[group] ?? 0)
+  const order = sums
+    .map((_, group) => group)
+    .sort(
+      (one, other) =>
+        Number(late[one]) - Number(late[other]) || place(one) - place(other) || one - other,
+    )
+  const rank = new Array<number>(count).fill(0)
+  order.forEach((group, at) => (rank[group] = at))
+  return rank
+}
+
+function clustersOf(
+  chart: Flowchart,
+  layers: number[][],
+  layerOf: readonly number[],
+  groupOf: readonly number[],
+  loops: readonly Link[],
+  meter: LayoutMeter,
+): Cluster[] {
+  const groups = chart.groups ?? []
+  if (groups.length === 0) return []
+  const ends = new Set(loops.flatMap((link) => [link.from, link.to]))
+  const rank = clusterRanks(layers, groupOf, groups.length, ends, meter)
+  layers.forEach((layer, at) => {
+    tick(meter, layer.length)
+    layers[at] = clusteredLayer(layer, groupOf, rank, ends)
+  })
+  return groups.map((group, at) => {
+    const spanned = layerOf.filter((_, vertex) => groupOf[vertex] === at)
+    return {
+      label: group.label,
+      first: Math.min(...spanned),
+      last: Math.max(...spanned),
+      rank: rank[at] ?? at,
+    }
+  })
+}
+
+function membershipsOf(chart: Flowchart): number[] {
+  const index = new Map(chart.nodes.map((node, at) => [node.id, at]))
+  const groupOf = chart.nodes.map(() => NO_GROUP)
+  ;(chart.groups ?? []).forEach((group, at) => {
+    for (const id of group.nodes) {
+      const node = index.get(id)
+      if (node === undefined) throw new DrawingFault('a subgraph names no box')
+      groupOf[node] = at
+    }
+  })
+  return groupOf
+}
+
 function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   if (chart.nodes.length === 0) throw new DrawingFault('the flowchart has no boxes')
   const count = chart.nodes.length
+  const groupOf = membershipsOf(chart)
   const links = linksOf(chart, meter)
   const loopSet = loopsOf(count, links, meter)
   if (loopSet.size > MOST_LOOPS) {
@@ -570,8 +714,9 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   const layerOf = layersOf(count, forward, meter)
   const outgoing: Segment[][] = Array.from({ length: count }, () => [])
   const incoming: Segment[][] = Array.from({ length: count }, () => [])
-  const addVertex = (layer: number) => {
+  const addVertex = (layer: number, group: number) => {
     layerOf.push(layer)
+    groupOf.push(group)
     outgoing.push([])
     incoming.push([])
     return layerOf.length - 1
@@ -579,9 +724,11 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   for (const link of forward) {
     let from = link.from
     const last = layerOf[link.to] ?? 0
+    const shared =
+      groupOf[link.from] === groupOf[link.to] ? (groupOf[link.from] ?? NO_GROUP) : NO_GROUP
     for (let layer = (layerOf[from] ?? 0) + 1; layer <= last; layer++) {
       tick(meter)
-      const to = layer === last ? link.to : addVertex(layer)
+      const to = layer === last ? link.to : addVertex(layer, shared)
       const segment: Segment = { from, to, link, first: from === link.from }
       outgoing[from]?.push(segment)
       incoming[to]?.push(segment)
@@ -603,6 +750,7 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
   )
   const loops = [...loopSet]
   keepLoopsOutside(layers, loops)
+  const clusters = clustersOf(chart, layers, layerOf, groupOf, loops, meter)
   const leaving = new Set(loops.map((link) => link.from))
   const turns = new Set(loops.map((link) => link.to).filter((vertex) => leaving.has(vertex)))
   const real = new Set(links.map((link) => pairKey(link.from, link.to)))
@@ -612,7 +760,19 @@ function graphOf(chart: Flowchart, meter: LayoutMeter): Graph {
       return [node, targets.sort((one, other) => one - other).join(' ')]
     }),
   )
-  return { nodes: chart.nodes, layerOf, layers, outgoing, incoming, loops, turns, real, reach }
+  return {
+    nodes: chart.nodes,
+    layerOf,
+    groupOf,
+    clusters,
+    layers,
+    outgoing,
+    incoming,
+    loops,
+    turns,
+    real,
+    reach,
+  }
 }
 
 function shapeOf(node: FlowNode, wrap: number | null, turning: boolean): Shape {
@@ -718,7 +878,21 @@ function planOf(
     const span = spreadEntries(own, attempt.direction)
     return own.length > 1 ? grown(shape, attempt.direction, span) : shape
   })
-  return { graph, shapes, entries, entryOf, cut: attempt.cut, meter }
+  const titles = graph.clusters.map((cluster) => titleOf(cluster.label, attempt.wrap))
+  return { graph, shapes, entries, entryOf, titles, cut: attempt.cut, meter }
+}
+
+function titleOf(label: readonly string[], wrap: number | null): Label {
+  const written = shownLabel(label.join(' ').trim())
+  const title = wrap === null ? written : fittedLabel(written, wrap)
+  return {
+    ...title,
+    runs: title.runs.map((run) => ({ ...run, looks: { ...run.looks, isBold: true } })),
+  }
+}
+
+function titleColumns(title: Label): number {
+  return title.text === '' ? 0 : displayWidth(title.text) + 2
 }
 
 function entryAt(plan: Plan, ports: readonly number[], segment: Segment): number {
@@ -798,7 +972,11 @@ function placementOf(plan: Plan, direction: FlowDirection): Placement {
   const ports = graph.layerOf.map(() => 0)
   graph.layers.forEach((layer, at) => {
     const gaps = layer.slice(1).map((vertex, index) => {
-      return separation(plan, layer[index] ?? vertex, vertex, direction)
+      const above = layer[index] ?? vertex
+      return Math.max(
+        separation(plan, above, vertex, direction),
+        frameSeparation(plan, above, vertex, direction),
+      )
     })
     const packed = [0]
     gaps.forEach((gap) => packed.push((packed.at(-1) ?? 0) + gap))
@@ -808,18 +986,282 @@ function placementOf(plan: Plan, direction: FlowDirection): Placement {
       if (at === 0 || parents.length === 0) return packed[index] ?? 0
       return direction === 'TD' ? median(parents) : Math.floor(median(parents))
     })
-    const placed =
+    const settledPorts =
       direction === 'TD' ? settled(desired, gaps, meter) : stacked(desired, gaps, meter)
+    const placed =
+      graph.clusters.length === 0
+        ? settledPorts
+        : raised(settledPorts, floorsOf(plan, direction, ports, at), gaps)
     layer.forEach((vertex, index) => (ports[vertex] = placed[index] ?? 0))
+    if (graph.clusters.length > 0) separateFrames(plan, direction, ports, at)
   })
   const naturals = ports.map((port, vertex) => port - crossOffset(plan, vertex, direction))
   const slide = (vertex: number) =>
     direction === 'TD' && (plan.shapes[vertex]?.width ?? 0) >= SLIDING_WIDTH ? 1 : 0
-  const shift = -Math.min(...naturals.map((start, vertex) => start + slide(vertex)))
+  const frameStarts = graph.clusters.map(
+    (_, group) => frameExtent(plan, direction, group, ports, (vertex) => naturals[vertex] ?? 0).lo,
+  )
+  const shift = -Math.min(...naturals.map((start, vertex) => start + slide(vertex)), ...frameStarts)
   return {
     ports: ports.map((port) => port + shift),
     starts: naturals.map((start) => Math.max(start + shift, 0)),
   }
+}
+
+function vertexExtent(
+  plan: Plan,
+  direction: FlowDirection,
+  vertex: number,
+  port: number,
+  start: number,
+): Extent {
+  let lo = start
+  let hi = start + crossSize(plan, vertex, direction) - 1
+  for (const entry of plan.entries[vertex] ?? []) {
+    if (entry.label.length === 0) continue
+    const at = port + entry.offset
+    if (direction === 'TD') hi = Math.max(hi, at + LABEL_INDENT + widestLabel(entry.label) - 1)
+    else lo = Math.min(lo, at - entry.label.length)
+  }
+  return { lo, hi }
+}
+
+function membersOf(graph: Graph, group: number, through: number): number[] {
+  return graph.layerOf.flatMap((layer, vertex) =>
+    graph.groupOf[vertex] === group && layer <= through ? [vertex] : [],
+  )
+}
+
+function titleEnd(
+  plan: Plan,
+  group: number,
+  members: readonly number[],
+  ports: readonly number[],
+  lo: number,
+): number {
+  const columns = titleColumns(plan.titles[group] ?? plainLabel(''))
+  const first = plan.graph.clusters[group]?.first
+  const crossings = members
+    .filter((vertex) => plan.graph.layerOf[vertex] === first)
+    .flatMap((vertex) =>
+      entriesIn(plan, vertex).map((entry) => (ports[vertex] ?? 0) + entry.offset),
+    )
+    .sort((one, other) => one - other)
+  let slot = lo + FRAME_TITLE_INDENT
+  for (const col of crossings) {
+    if (col > slot + columns) break
+    if (col >= slot - 1) slot = col + FRAME_TITLE_INDENT
+  }
+  return slot + columns + 1
+}
+
+function frameExtent(
+  plan: Plan,
+  direction: FlowDirection,
+  group: number,
+  ports: readonly number[],
+  startOf: (vertex: number) => number,
+  through = plan.graph.layers.length,
+): Extent {
+  const members = membersOf(plan.graph, group, through)
+  const extents = members.map((vertex) =>
+    vertexExtent(plan, direction, vertex, ports[vertex] ?? 0, startOf(vertex)),
+  )
+  const inset = FRAME_INSETS[direction]
+  const lo = Math.min(...extents.map((extent) => extent.lo)) - inset
+  const hi = Math.max(...extents.map((extent) => extent.hi)) + inset
+  if (direction === 'LR') return { lo, hi }
+  return { lo, hi: Math.max(hi, titleEnd(plan, group, members, ports, lo)) }
+}
+
+function spannedRow(
+  units: readonly Unit[],
+  row: readonly number[],
+  layer: number,
+  byRank: readonly number[],
+): number[] {
+  const sequence = row.filter((unit, at) => unit !== row[at - 1])
+  const centre = (unit: number) => ((units[unit]?.lo ?? 0) + (units[unit]?.hi ?? 0)) / 2
+  for (const frame of byRank) {
+    const cluster = units[frame]?.cluster
+    if (cluster == null || cluster.first > layer || cluster.last < layer) continue
+    if (sequence.includes(frame)) continue
+    let low = -1
+    let high = sequence.length
+    sequence.forEach((unit, at) => {
+      const rank = units[unit]?.cluster?.rank
+      if (rank === undefined) return
+      if (rank < cluster.rank) low = at
+      else if (high === sequence.length) high = at
+    })
+    let at = low + 1
+    while (at < high && centre(sequence[at] ?? frame) < centre(frame)) at += 1
+    sequence.splice(at, 0, frame)
+  }
+  return sequence
+}
+
+function shiftsApart(
+  units: readonly Unit[],
+  rows: readonly (readonly number[])[],
+  gap: number,
+  meter: LayoutMeter,
+): number[] {
+  const after = units.map(() => [] as { unit: number; need: number }[])
+  const waiting = units.map(() => 0)
+  for (const row of rows) {
+    row.slice(1).forEach((unit, at) => {
+      const before = row[at] ?? unit
+      const one = units[before]
+      const other = units[unit]
+      if (one === undefined || other === undefined) return
+      const framed = one.cluster !== null || other.cluster !== null
+      after[before]?.push({ unit, need: framed ? one.hi + 1 + gap - other.lo : 0 })
+      waiting[unit] = (waiting[unit] ?? 0) + 1
+    })
+  }
+  const shifts = units.map(() => 0)
+  const ready = units.flatMap((_, unit) => (waiting[unit] === 0 ? [unit] : []))
+  for (let at = 0; at < ready.length; at++) {
+    const unit = ready[at] ?? 0
+    for (const next of after[unit] ?? []) {
+      tick(meter)
+      shifts[next.unit] = Math.max(shifts[next.unit] ?? 0, (shifts[unit] ?? 0) + next.need)
+      waiting[next.unit] = (waiting[next.unit] ?? 0) - 1
+      if (waiting[next.unit] === 0) ready.push(next.unit)
+    }
+  }
+  if (ready.length < units.length) throw new DrawingFault(LINES_OVERLAP)
+  return shifts
+}
+
+function relativeExtent(plan: Plan, direction: FlowDirection, vertex: number): Extent {
+  return vertexExtent(plan, direction, vertex, 0, -crossOffset(plan, vertex, direction))
+}
+
+function insetOf(graph: Graph, vertex: number, direction: FlowDirection): number {
+  return (graph.groupOf[vertex] ?? NO_GROUP) === NO_GROUP ? 0 : FRAME_INSETS[direction]
+}
+
+function frameSeparation(
+  plan: Plan,
+  above: number,
+  below: number,
+  direction: FlowDirection,
+): number {
+  const { graph } = plan
+  if (graph.groupOf[above] === graph.groupOf[below]) return -Infinity
+  const insets = insetOf(graph, above, direction) + insetOf(graph, below, direction)
+  const one = relativeExtent(plan, direction, above)
+  const other = relativeExtent(plan, direction, below)
+  return one.hi + 1 + FRAME_GAPS[direction] + insets - other.lo
+}
+
+function raised(placed: readonly number[], floors: readonly number[], gaps: readonly number[]) {
+  const ports: number[] = []
+  placed.forEach((port, at) => {
+    const previous = ports[at - 1]
+    const after = previous === undefined ? -Infinity : previous + (gaps[at - 1] ?? 0)
+    ports.push(Math.max(port, floors[at] ?? -Infinity, after))
+  })
+  return ports
+}
+
+function floorsOf(
+  plan: Plan,
+  direction: FlowDirection,
+  ports: readonly number[],
+  at: number,
+): number[] {
+  const { graph } = plan
+  const layer = graph.layers[at] ?? []
+  if (at === 0) return layer.map(() => -Infinity)
+  const old = framedUnits(plan, direction, ports, at - 1)
+  const gap = FRAME_GAPS[direction]
+  const clear = (unit: number | undefined) =>
+    unit === undefined ? -Infinity : (old.units[unit]?.hi ?? -Infinity) + 1 + gap
+  const frameFloor = (group: number) => {
+    const unit = old.unitOfCluster.get(group)
+    if (unit === undefined) return -Infinity
+    return Math.max(
+      ...old.rows.map((row) => {
+        const index = row.indexOf(unit)
+        return index < 1 ? -Infinity : clear(row[index - 1])
+      }),
+    )
+  }
+  return layer.map((vertex, index) => {
+    tick(plan.meter, old.rows.length + 1)
+    const group = graph.groupOf[vertex] ?? NO_GROUP
+    const lo = relativeExtent(plan, direction, vertex).lo
+    const inset = insetOf(graph, vertex, direction)
+    const previous = graph.groupOf[layer[index - 1] ?? vertex] ?? NO_GROUP
+    const beside = previous === group ? -Infinity : clear(old.unitOfCluster.get(previous))
+    const within = group === NO_GROUP ? -Infinity : frameFloor(group)
+    return Math.max(beside, within) + inset - lo
+  })
+}
+
+type FramedUnits = {
+  units: Unit[]
+  unitOf: Map<number, number>
+  unitOfCluster: Map<number, number>
+  rows: number[][]
+}
+
+function framedUnits(
+  plan: Plan,
+  direction: FlowDirection,
+  ports: readonly number[],
+  through: number,
+): FramedUnits {
+  const { graph, meter } = plan
+  const startOf = (vertex: number) => (ports[vertex] ?? 0) - crossOffset(plan, vertex, direction)
+  const unitOfCluster = new Map<number, number>()
+  const units: Unit[] = []
+  graph.clusters.forEach((cluster, group) => {
+    if (cluster.first > through) return
+    unitOfCluster.set(group, units.length)
+    units.push({ ...frameExtent(plan, direction, group, ports, startOf, through), cluster })
+  })
+  const unitOf = new Map<number, number>()
+  graph.layerOf.forEach((layer, vertex) => {
+    if (layer > through) return
+    const framed = unitOfCluster.get(graph.groupOf[vertex] ?? NO_GROUP)
+    if (framed !== undefined) {
+      unitOf.set(vertex, framed)
+      return
+    }
+    const port = ports[vertex] ?? 0
+    units.push({ ...vertexExtent(plan, direction, vertex, port, startOf(vertex)), cluster: null })
+    unitOf.set(vertex, units.length - 1)
+  })
+  const byRank = [...unitOfCluster.values()].sort(
+    (one, other) => (units[one]?.cluster?.rank ?? 0) - (units[other]?.cluster?.rank ?? 0),
+  )
+  const rows = graph.layers.slice(0, through + 1).map((layer, at) => {
+    tick(meter, layer.length + byRank.length)
+    return spannedRow(
+      units,
+      layer.map((vertex) => unitOf.get(vertex) ?? 0),
+      at,
+      byRank,
+    )
+  })
+  return { units, unitOf, unitOfCluster, rows }
+}
+
+function separateFrames(
+  plan: Plan,
+  direction: FlowDirection,
+  ports: number[],
+  through: number,
+): void {
+  const { units, unitOf, rows } = framedUnits(plan, direction, ports, through)
+  const shifts = shiftsApart(units, rows, FRAME_GAPS[direction], plan.meter)
+  unitOf.forEach((unit, vertex) => {
+    ports[vertex] = (ports[vertex] ?? 0) + (shifts[unit] ?? 0)
+  })
 }
 
 type BusItem = {
@@ -953,22 +1395,71 @@ function sortedLoops(loops: readonly Link[], spanOf: (link: Link) => number): Li
   return [...loops].sort((one, other) => spanOf(one) - spanOf(other) || one.order - other.order)
 }
 
+function opensFrame(graph: Graph, layer: number): boolean {
+  return graph.clusters.some((cluster) => cluster.first === layer)
+}
+
+function closesFrame(graph: Graph, layer: number): boolean {
+  return graph.clusters.some((cluster) => cluster.last === layer)
+}
+
+function frameRoom(opens: boolean, room: number): number {
+  return opens ? room : 0
+}
+
+function titleSlot(canvas: Canvas, frame: Frame, chunk: string): number {
+  const last = frame.right - 1 - displayWidth(chunk)
+  for (let col = frame.left + FRAME_TITLE_INDENT; col <= last; col++) {
+    if (canvas.fits(frame.top, col - 1, ` ${chunk} `)) return col
+  }
+  throw new DrawingFault(LINES_OVERLAP)
+}
+
+function drawFrame(canvas: Canvas, frame: Frame): void {
+  const { top, left, bottom, right, title } = frame
+  const [topLeft, topRight, bottomLeft, bottomRight] = SQUARE_CORNERS
+  const chunk = title.text === '' ? '' : ` ${title.text} `
+  const from = chunk === '' ? left : titleSlot(canvas, frame, chunk)
+  const to = from + displayWidth(chunk)
+  if (chunk !== '') {
+    canvas.put(top, from, ' ', 'line')
+    canvas.putLabel(top, from + 1, title, 'plain')
+    canvas.put(top, to - 1, ' ', 'line')
+  }
+  for (let col = left + 1; col < right; col++) {
+    if (col < from || col >= to) canvas.border(top, col, FRAME_ACROSS)
+    canvas.border(bottom, col, FRAME_ACROSS)
+  }
+  for (let row = top + 1; row < bottom; row++) {
+    canvas.border(row, left, FRAME_DOWN)
+    canvas.border(row, right, FRAME_DOWN)
+  }
+  canvas.border(top, left, topLeft)
+  canvas.border(top, right, topRight)
+  canvas.border(bottom, left, bottomLeft)
+  canvas.border(bottom, right, bottomRight)
+}
+
 function drawDown(plan: Plan): Canvas {
   const { graph, meter } = plan
   const { ports, starts } = placementOf(plan, 'TD')
   const tops: number[] = []
+  const depths: number[] = []
   const bands: Band[] = []
   const labelRows: number[] = []
-  let top = 0
+  const below = (at: number) => frameRoom(closesFrame(graph, at), DOWN_FRAME_ROOM)
+  const above = (at: number) => frameRoom(opensFrame(graph, at), DOWN_FRAME_ROOM)
+  let top = frameRoom(opensFrame(graph, 0), DOWN_FRAME_TOP_ROWS)
   graph.layers.forEach((layer, at) => {
     tops.push(top)
     const depth = Math.max(1, ...layer.map((vertex) => plan.shapes[vertex]?.height ?? 1))
     const band = bandOf(plan, sourcesOf(graph, layer), ports)
     const next = graph.layers[at + 1] ?? []
     const rows = Math.max(0, ...next.flatMap((vertex) => entriesIn(plan, vertex).map(labelRowsOf)))
+    depths.push(depth)
     bands.push(band)
     labelRows.push(rows)
-    top += depth + band.trackCount + rows + 1
+    top += depth + below(at) + band.trackCount + rows + above(at + 1) + 1
   })
   const canvas = new Canvas()
   graph.layers.forEach((layer, at) => {
@@ -980,8 +1471,8 @@ function drawDown(plan: Plan): Canvas {
   graph.layers.forEach((layer, at) => {
     const layerTop = tops[at] ?? 0
     const band = bands[at] ?? { tracks: new Map<number, number>(), trackCount: 0 }
-    const linkTop = layerTop + Math.max(1, ...layer.map((v) => plan.shapes[v]?.height ?? 1))
-    const arrowRow = linkTop + band.trackCount + (labelRows[at] ?? 0)
+    const linkTop = layerTop + (depths[at] ?? 1) + below(at)
+    const arrowRow = linkTop + band.trackCount + (labelRows[at] ?? 0) + above(at + 1)
     const marked = new Set<number>()
     for (const segment of sourcesOf(graph, layer)) {
       tick(meter)
@@ -1025,6 +1516,16 @@ function drawDown(plan: Plan): Canvas {
         })
       }
     }
+  })
+  graph.clusters.forEach((cluster, group) => {
+    const { lo, hi } = frameExtent(plan, 'TD', group, ports, (vertex) => starts[vertex] ?? 0)
+    drawFrame(canvas, {
+      top: (tops[cluster.first] ?? 0) - DOWN_FRAME_TOP_ROWS,
+      left: lo,
+      bottom: (tops[cluster.last] ?? 0) + (depths[cluster.last] ?? 1),
+      right: hi,
+      title: plan.titles[group] ?? plainLabel(''),
+    })
   })
   drawDownLoops(plan, canvas, tops, starts)
   return canvas
@@ -1138,14 +1639,21 @@ function drawAcross(plan: Plan): Canvas {
   const lefts: number[] = []
   const widths: number[] = []
   const bands: AcrossBand[] = []
-  let left = 0
+  const after = (at: number) => frameRoom(closesFrame(graph, at), ACROSS_FRAME_ROOM)
+  const before = (at: number) => frameRoom(opensFrame(graph, at), ACROSS_FRAME_ROOM)
+  const titled = (at: number) =>
+    graph.clusters.flatMap((cluster, group) =>
+      cluster.first === at ? [titleColumns(plan.titles[group] ?? plainLabel(''))] : [],
+    )
+  let left = before(0)
   graph.layers.forEach((layer, at) => {
     lefts.push(left)
-    const width = Math.max(1, ...layer.map((vertex) => plan.shapes[vertex]?.width ?? 1))
+    const boxes = layer.map((vertex) => plan.shapes[vertex]?.width ?? 1)
+    const width = Math.max(1, ...boxes, ...titled(at))
     widths.push(width)
     const band = acrossBandOf(plan, layer, graph.layers[at + 1] ?? [], ports)
     bands.push(band)
-    left += width + band.width
+    left += width + after(at) + band.width + before(at + 1)
   })
   const canvas = new Canvas()
   graph.layers.forEach((layer, at) => {
@@ -1158,8 +1666,8 @@ function drawAcross(plan: Plan): Canvas {
     const band = bands[at]
     if (band === undefined || at === graph.layers.length - 1) return
     const layerLeft = lefts[at] ?? 0
-    const linkLeft = layerLeft + (widths[at] ?? 1)
-    const arrowCol = linkLeft + band.width - 1
+    const linkLeft = layerLeft + (widths[at] ?? 1) + after(at)
+    const arrowCol = linkLeft + band.width + before(at + 1) - 1
     for (const segment of sourcesOf(graph, layer)) {
       tick(meter)
       const sourceShape = plan.shapes[segment.from]
@@ -1196,6 +1704,16 @@ function drawAcross(plan: Plan): Canvas {
         })
       }
     }
+  })
+  graph.clusters.forEach((cluster, group) => {
+    const { lo, hi } = frameExtent(plan, 'LR', group, ports, (vertex) => starts[vertex] ?? 0)
+    drawFrame(canvas, {
+      top: lo,
+      left: (lefts[cluster.first] ?? 0) - ACROSS_FRAME_ROOM,
+      bottom: hi,
+      right: (lefts[cluster.last] ?? 0) + (widths[cluster.last] ?? 1) + ACROSS_FRAME_ROOM - 1,
+      title: plan.titles[group] ?? plainLabel(''),
+    })
   })
   drawAcrossLoops(plan, canvas, lefts, starts)
   return canvas

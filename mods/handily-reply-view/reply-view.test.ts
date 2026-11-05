@@ -2224,7 +2224,19 @@ describe('mermaid flowcharts', () => {
   }
 
   for (const [source, line, reason] of [
-    [linesOf('flowchart TD', '  A --> B', '  subgraph one', '  C', '  end'), 3, 'subgraph'],
+    [
+      linesOf(
+        'flowchart TD',
+        '  A --> B',
+        '  subgraph one',
+        '  subgraph two',
+        '  C',
+        '  end',
+        '  end',
+      ),
+      4,
+      'a subgraph inside a subgraph',
+    ],
     [linesOf('flowchart TD', '  direction LR'), 2, 'direction'],
     [linesOf('flowchart RL', '  A --> B'), 1, 'flowchart RL'],
     [linesOf('graph BT', '  A --> B'), 1, 'graph BT'],
@@ -2839,6 +2851,26 @@ function generatedCharts(seed: number, count: number): string[] {
   })
 }
 
+function groupedCharts(seed: number, count: number): string[] {
+  let state = seed
+  const next = (below: number) => {
+    state = (state * 1103515245 + 12345) % 2147483648
+    return Math.floor((state / 2147483648) * below)
+  }
+  return generatedCharts(seed, count).map((source) => {
+    const [header = '', declared = '', ...edges] = source.split('\n')
+    const names = declared.trim().split(' & ')
+    const groups = 1 + next(2)
+    const owner = names.map((_, at) => (at < groups ? at : next(groups + 1) - 1))
+    const blocks = Array.from({ length: groups }, (_, group) => [
+      `  subgraph G${String(group)} [Group ${String(group)}]`,
+      ...names.filter((_, at) => owner[at] === group).map((name) => `    ${name}`),
+      '  end',
+    ])
+    return linesOf(header, declared, ...blocks.flat(), ...edges)
+  })
+}
+
 function chain(count: number, direction = 'TD'): string[] {
   return [
     `flowchart ${direction}`,
@@ -3254,6 +3286,24 @@ describe('flowchart drawings', () => {
     expect(drawn.filter(([shown, held]) => JSON.stringify(shown) !== JSON.stringify(held))).toEqual(
       [],
     )
+  })
+
+  test('500 generated charts with subgraphs draw their frames and only the links they hold', () => {
+    const drawn = groupedCharts(20261105, 500).flatMap((source) => {
+      const chart = flowchartOf(source)
+      const result = drawFlowchart(chart, REPLY_COLUMNS)
+      if (result.kind !== 'drawing') return []
+      const framed = (chart.groups ?? []).every((group) =>
+        result.lines.some((line) => line.includes(`┄ ${group.label.join(' ')} ┄`)),
+      )
+      return [[drawnLinks(result.lines), chartLinks(chart), framed]]
+    })
+    expect(drawn.length).toBeGreaterThan(450)
+    expect(
+      drawn.filter(
+        ([shown, held, framed]) => JSON.stringify(shown) !== JSON.stringify(held) || !framed,
+      ),
+    ).toEqual([])
   })
 
   test('the label of a loop is cut to 12 columns when the labels must fit', () => {
