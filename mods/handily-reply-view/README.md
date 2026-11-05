@@ -73,6 +73,8 @@ buttons at the right edge:
   rows. When the 30 rows end inside a line, that line is cut at a word and ends with `…`.
 - On the terminal, a reply of 30 lines or fewer draws whole, with no fold row. On the desktop
   app, such a reply draws as Claude Code draws it, unless it holds a table or a fenced block.
+- The fold never shows the title line of a diagram alone.
+  [A folded diagram](#a-folded-diagram) gives the rule.
 - While a reply streams, Claude Code draws it itself, and the view draws the reply only when it
   is complete, so the look of the reply changes once at the end.
 
@@ -448,9 +450,8 @@ source:
   source with its marks.
 - On the desktop app, the drawing draws in a code block with no colour, so its lines keep their
   columns.
-- A diagram draws whole or as its source. It never draws in part.
-- When a long reply folds inside a diagram, the folded reply shows only the title line of the
-  diagram and its buttons. `more` shows the drawing.
+- A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
+  tall diagram.
 - The view keeps the last 32 drawings for this session, one for each source, width and surface.
   So a reply that draws again at the same width does not lay out its diagram again.
 
@@ -484,6 +485,59 @@ A mermaid block with no closing fence draws as a fenced block, with no note. So 
 that Claude has not finished never draws in part.
 
 The `diagrams` setting `off` draws every mermaid block as a fenced block, with no note.
+
+### A folded diagram
+
+When the first 30 rows of a long reply end inside a drawn diagram, the fold follows these rules
+in order:
+
+1. When the preview with the whole diagram takes 60 rows or fewer, the preview shows the whole
+   diagram and ends after it. When nothing follows the diagram, the reply draws whole, with no
+   fold row.
+2. When at least 5 rows of the drawing fit above row 30, the preview shows the title line and the
+   first rows of the drawing. The fold row names the kind of diagram and its hidden rows. When
+   more of the reply follows the diagram, the fold row also counts those lines.
+3. Else the preview ends before the title line of the diagram.
+
+A sequence diagram of 30 messages takes 66 rows. Under one line of prose it folds like this at 80
+columns:
+
+```text
+● Here are the pings:
+
+  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ╭───╮        ╭───╮
+  │ A │        │ B │
+  ╰─┬─╯        ╰─┬─╯
+    │  ping 0    │
+    │───────────▶│
+    │  pong 1    │
+    │◀───────────│
+    │  ping 2    │
+    │───────────▶│
+    │  pong 3    │
+    │◀───────────│
+    │  ping 4    │
+    │───────────▶│
+    │  pong 5    │
+    │◀───────────│
+    │  ping 6    │
+    │───────────▶│
+    │  pong 7    │
+    │◀───────────│
+    │  ping 8    │
+    │───────────▶│
+    │  pong 9    │
+    │◀───────────│
+    │  ping 10   │
+    │───────────▶│
+    │  pong 11   │
+    │◀───────────│
+  … sequence diagram, 39 more rows                     [ more ] [ copy reply ]
+```
+
+`copy drawing` copies the whole drawing, also when the preview shows a part of it. The fold of
+prose, tables and fenced blocks does not change.
 
 ## Diagram hints
 

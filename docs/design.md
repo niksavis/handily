@@ -1280,11 +1280,15 @@ Diagrams:
   `sequenceDiagram`.
 - Another diagram kind draws as its source. So do `subgraph`, `direction`, `box`, `create` and
   `destroy`. One dim note above the source names the reason.
-- A diagram draws whole or as its source. It never draws in part.
+- A diagram draws whole or as its source. Only the preview of a folded reply shows a part of a
+  tall diagram.
 - A flowchart `LR` that is too wide draws as `TD`. A label that is too wide is cut to 16
   columns, then to 12 columns.
 - A drawn diagram has two buttons: `[ copy ]` and `[ copy drawing ]`.
-- When the fold of a reply ends inside a diagram, only the title line of the diagram shows.
+- When the fold of a reply ends inside a diagram, the preview shows the whole diagram when it
+  then takes 60 rows or fewer. Else it shows the title line and the first rows when at least 5
+  rows of the drawing fit, and the fold row names the kind and the hidden rows. Else the preview
+  ends before the diagram. The preview never shows the title line alone (handily-2dpxv0.26).
 
 Limits of one diagram. Over a limit, the diagram draws as its source, and the note names the limit:
 
