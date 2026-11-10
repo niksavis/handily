@@ -95,6 +95,31 @@ Test output can hold secrets. The mod shows it only in this session and sends it
 | `always`             | As `failures`, and also `✓ tests: 4 of 4 passed` and `▶ tests: npm test runs` |
 | `off`                | The mod sets no status line                                                   |
 
+From one minute after the last run, the line shows the age of the run. The age comes after a
+count, such as `2 failed`. A run with no count, such as an interrupted run, shows the age first.
+
+Each Edit, Write and NotebookEdit call of the main loop or of an agent counts as an edit when it
+ends after the start of the last result. A refused call and a call that failed do not count. A
+result is a run with a count, a run that could not run the tests or a run that found no tests.
+A new result sets the count to the edits since its start. A run that was interrupted, that went
+to the background or that could not be read keeps the count.
+
+The test fixture, 2 days after a run with 2 failures and with 2 edits after the run:
+
+```text
+■ tests: 2 failed · 2d ago · 3 of 5 passed · 2 edits since
+```
+
+- The age has the form of the runs list: `1m ago` to `59m ago`, then `1h ago` to `23h ago`, then
+  whole days, such as `2d ago`.
+- The mod sets the line again only when its age text changes: once a minute in the first hour,
+  then once an hour, then once a day. It uses one `$.clock.after` timer and no repeating timer.
+- An old line stays. Only a new run or the `failures` rule hides it.
+- The mod does not know the width of the terminal, so it sets the whole line and does not cut
+  it. The count and the age are in the first 39 columns for every outcome. So a cut at the right
+  end at 40 columns keeps them. The tests cut the line with `…`, for example
+  `■ tests: 2 failed · 2d ago · 3 of 5 pas…` and `■ tests: 2d ago · npm run test:integrat…`.
+
 ## Toasts
 
 With the setting `toasts` on, and only while the `tests` tab is not shown:
