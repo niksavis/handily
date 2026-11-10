@@ -1,0 +1,8 @@
+{
+  "name": "handily-desktop-probe",
+  "version": "0.1.0",
+  "description": "A probe that measures what the Claude desktop app draws and runs. /probe opens one pane of readings. Not released.",
+  "author": {
+    "name": "niksavis"
+  }
+}
