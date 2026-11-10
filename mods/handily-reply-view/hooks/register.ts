@@ -28,8 +28,9 @@ import {
   showsTurnDuration,
   turnLine,
 } from './footer'
-import { blocksOf } from './markdown'
+import { blocksOf, type Block } from './markdown'
 import { framedPrompt } from './prompt'
+import { codeFoldKeysOf } from './syntax'
 import {
   addPrompt,
   clearRail,
@@ -208,11 +209,12 @@ function replyActions($: EngineInterface, id: string): ReplyActions {
     copy: (text, what, surface) => {
       void copyText($, text, what, surface)
     },
-    fold: (next) => {
+    fold: (next, block) => {
+      const what = block === undefined ? 'the reply' : 'the code block'
       void $.state
-        .set({ plugin: 'handily-reply-view', key: 'folds', id }, next)
+        .set({ plugin: 'handily-reply-view', key: 'folds', id: foldId(id, block) }, next)
         .catch((error: unknown) => {
-          logFailure($, `the reply did not ${next === 'folded' ? 'fold' : 'open'}`, error)
+          logFailure($, `${what} did not ${next === 'folded' ? 'fold' : 'open'}`, error)
         })
     },
   }
@@ -309,9 +311,26 @@ async function recheckWork($: EngineInterface): Promise<void> {
   }
 }
 
+function foldId(id: string, block: string | undefined): string {
+  return block === undefined ? id : `${id}#${block}`
+}
+
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {
   const { value = 'folded' } = await $.state.get({ plugin: 'handily-reply-view', key: 'folds', id })
   return value
+}
+
+async function codeFoldsOf(
+  $: EngineInterface,
+  id: string,
+  blocks: readonly Block[],
+): Promise<ReadonlyMap<string, ReplyViewFold>> {
+  const folds = await Promise.all(
+    codeFoldKeysOf(blocks).map(
+      async (block) => [block, await foldOf($, foldId(id, block))] as const,
+    ),
+  )
+  return new Map(folds)
 }
 
 export const register: Register = (on, options) => {
@@ -555,10 +574,11 @@ export const register: Register = (on, options) => {
     try {
       const { value: mode = defaultMode } = await $.state.get(MODE)
       if (mode === 'on') {
+        const blocks = blocksOf(e.props.text)
         drawn = replyTree(
           $.ui.resolve(e),
           e.props.text,
-          blocksOf(e.props.text),
+          blocks,
           {
             columns: e.viewport?.columns ?? DEFAULT_COLUMNS,
             hasBullet: hasBulletOn(e.surface),
@@ -570,6 +590,7 @@ export const register: Register = (on, options) => {
             doneGlyph: (await paneGlyphs($, e.surface)).done,
             highlight,
             palette: await shownPalette($, e.surface),
+            codeFolds: await codeFoldsOf($, e.requestId, blocks),
           },
           await foldOf($, e.requestId),
           replyActions($, e.requestId),
