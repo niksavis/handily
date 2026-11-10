@@ -40,10 +40,25 @@ import {
   type QuoteLine,
 } from './prose'
 import { drawRadar } from './radar'
-import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole } from './roles'
+import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole, type RoleLook } from './roles'
 import { drawSankey } from './sankey'
 import { drawSequence } from './sequence'
 import { drawState } from './state'
+import {
+  codeDrawingOf,
+  codeFoldKey,
+  FOLDED_LINES,
+  foldsCode,
+  grouped,
+  GUTTER_LOOK,
+  gutterColumns,
+  gutterNumber,
+  SHELL_LOOKS,
+  SHELL_NODES_AT_MOST,
+  type CodeDrawing,
+  type CodeLook,
+  type ShellToken,
+} from './syntax'
 import {
   columnWidths,
   CUT_MARK,
@@ -94,6 +109,8 @@ const INK_ROLES: Readonly<Record<Exclude<Ink, number | 'plain'>, PaletteRole>> =
   label: 'diagramLine',
 }
 const PROSE_SURFACE: RenderSurface = 'terminal'
+const COLOUR_SURFACE: RenderSurface = 'terminal'
+const GUTTER_COLUMNS_AT_LEAST = 40
 const BOX_SURFACE: RenderSurface = 'terminal'
 const MARGIN_SURFACE: RenderSurface = 'terminal'
 const MOCHA = 'catppuccin-mocha'
@@ -136,7 +153,7 @@ export type ReplyElements = Pick<
 
 export type ReplyActions = {
   copy: (text: string, what: string, surface: RenderSurface) => void
-  fold: (next: ReplyViewFold) => void
+  fold: (next: ReplyViewFold, block?: string) => void
 }
 
 export type ReplyLayout = {
@@ -150,6 +167,7 @@ export type ReplyLayout = {
   doneGlyph: string
   highlight: boolean
   palette: PaletteSetting
+  codeFolds?: ReadonlyMap<string, ReplyViewFold>
 }
 
 type Drawing = { element: RenderElement; rows: number }
@@ -157,6 +175,7 @@ type Drawing = { element: RenderElement; rows: number }
 type Piece = {
   rows: number
   diagram?: string
+  isOpened?: boolean
   whole: () => RenderElement
   cut: (rows: number) => Drawing | null
 }
@@ -177,6 +196,8 @@ type Context = {
   highlight: boolean
   palette: PaletteSetting
   drawsProse: boolean
+  codeFolds: ReadonlyMap<string, ReplyViewFold>
+  shellBudget: { nodesLeft: number }
   actions: ReplyActions
 }
 
@@ -236,9 +257,12 @@ function tokenColor(context: Context, mark: Mark): Color | undefined {
   return paint(context, mark.token)
 }
 
-function roleColor(context: Context, role: ReplyRole): Color | undefined {
-  const look = ROLE_LOOKS[role]
+function lookColor(context: Context, look: RoleLook): Color | undefined {
   return context.palette === MOCHA ? (look.mocha ?? look.key) : look.key
+}
+
+function roleColor(context: Context, role: ReplyRole): Color | undefined {
+  return lookColor(context, ROLE_LOOKS[role])
 }
 
 type SpanLook = {
@@ -700,7 +724,7 @@ type Buttons = { element: RenderElement; columns: number }
 
 type CopyAction = { key: string; label: string; text: string; what: string }
 
-type FoldAction = { key: string; label: string; next: ReplyViewFold }
+type FoldAction = { key: string; label: string; next: ReplyViewFold; block?: string }
 
 type ButtonAction = CopyAction | FoldAction
 
@@ -711,7 +735,7 @@ function actionButton(context: Context, action: ButtonAction, label: string): Re
       label,
       dimColor: true,
       onPress: () => {
-        context.actions.fold(action.next)
+        context.actions.fold(action.next, action.block)
       },
     })
   }
@@ -1162,10 +1186,18 @@ function ruleWithButtons(
   })
 }
 
-function fenceTitle(context: Context, fence: Fence, copy: BlockCopy, key: string): Drawing {
+function fenceTitle(
+  context: Context,
+  fence: Fence,
+  copy: BlockCopy,
+  key: string,
+  count: number | null,
+): Drawing {
+  const tag = fenceTag(fence)
+  const lines = count === null ? '' : `${grouped(count)} lines`
   return titleWithButtons(
     context,
-    fenceTag(fence),
+    [tag, lines].filter((part) => part !== '').join(' · '),
     [{ key: `${key}-copy`, label: 'copy', ...copy }],
     key,
   )
@@ -1176,41 +1208,177 @@ function cutNote(lines: readonly string[], width: number): string {
   return `drawing cut: ${widthClause(widest, width)}. ${CUT_REMEDY}.`
 }
 
+function codeSpan(context: Context, text: string, look: CodeLook): CellChild {
+  return styledSpan(context, text, PLAIN_MARK, {
+    color: lookColor(context, look),
+    isBold: look.isBold === true,
+    isDim: look.isDim === true,
+    isItalic: look.isItalic === true,
+  })
+}
+
+function shellSpan(context: Context, token: ShellToken): CellChild {
+  return !context.highlight || token.kind === 'plain'
+    ? token.text
+    : codeSpan(context, token.text, SHELL_LOOKS[token.kind])
+}
+
+type CodeLines = {
+  drawing: CodeDrawing
+  lineCount: number
+  gutter: number
+  wrap: { wrap?: 'truncate-end' }
+}
+
+function shellBody(context: Context, lines: readonly ShellToken[][], look: CodeLines, key: string) {
+  const { Box, Text } = context.elements
+  return Box({
+    key: `${key}-lines`,
+    flexDirection: 'column',
+    children: lines.map((tokens, index) => {
+      const lineKey = `${key}-line-${String(index + 1)}`
+      const text = Text({
+        children: tokens.length === 0 ? ' ' : tokens.map((token) => shellSpan(context, token)),
+      })
+      if (look.gutter === 0) return Box({ key: lineKey, children: text })
+      const number = gutterNumber(index + 1, look.lineCount)
+      return Box({
+        key: lineKey,
+        flexDirection: 'row',
+        children: [
+          Box({
+            width: look.gutter,
+            flexShrink: 0,
+            children: codeSpan(context, number, GUTTER_LOOK),
+          }),
+          Box({ flexShrink: 1, flexGrow: 1, children: text }),
+        ],
+      })
+    }),
+  })
+}
+
+function codeBody(
+  context: Context,
+  fence: Fence,
+  lines: readonly string[],
+  look: CodeLines,
+  key: string,
+): RenderElement | null {
+  if (lines.length === 0) return null
+  const { drawing } = look
+  if (drawing.kind === 'shell') {
+    return shellBody(context, drawing.lines.slice(0, lines.length), look, key)
+  }
+  const language =
+    drawing.kind === 'engine' && LANGUAGE_TAG.test(fence.tag) ? { language: fence.tag } : {}
+  const gutter = look.gutter === 0 ? {} : { startLine: 1 }
+  return context.elements.Code({ source: lines.join('\n'), ...language, ...gutter, ...look.wrap })
+}
+
+function codeFoldRow(
+  context: Context,
+  fold: ReplyViewFold,
+  hidden: number,
+  block: string,
+  key: string,
+): RenderElement {
+  const { Box, Text } = context.elements
+  const button = buttonsTogether(context, [
+    {
+      key: `${key}-fold`,
+      label: fold === 'folded' ? 'more' : 'less',
+      next: fold === 'folded' ? 'open' : 'folded',
+      block,
+    },
+  ])
+  const count =
+    fold === 'folded'
+      ? Box({
+          flexShrink: 1,
+          children: Text({
+            dimColor: true,
+            wrap: 'truncate-end',
+            children: `… ${plural(hidden, 'more line')}`,
+          }),
+        })
+      : null
+  return Box({
+    key: `${key}-fold-row`,
+    flexDirection: 'row',
+    children: [count, Box({ flexGrow: 1, minWidth: BUTTONS_GAP }), button.element],
+  })
+}
+
 function fencePiece(
   context: Context,
   fence: Fence,
   key: string,
   copy: BlockCopy = codeCopy(fence),
 ): Piece {
-  const { Box, Code } = context.elements
+  const { Box, Text } = context.elements
   const lines = fence.content === '' ? [] : shownText(fence.content).split('\n')
   const isCut = isCutDrawing(fence.tag, lines, context.width)
-  const rows = lines.map((line) => (isCut ? 1 : rowsOf(line, context.width)))
-  const language = LANGUAGE_TAG.test(fence.tag) ? fence.tag : undefined
-  const wrap = isCut ? { wrap: 'truncate-end' as const } : {}
-  const title = fenceTitle(context, fence, copy, key)
-  const draw = (shown: readonly string[]) =>
+  const drawing = codeDrawingOf(
+    fence.tag,
+    lines,
+    context.surface === COLOUR_SURFACE,
+    context.shellBudget.nodesLeft,
+  )
+  if (drawing.kind === 'shell') context.shellBudget.nodesLeft -= drawing.nodes
+  const folds = foldsCode(lines.length)
+  const block = codeFoldKey(fence.tag, fence.content)
+  const fold = folds ? (context.codeFolds.get(block) ?? 'folded') : 'open'
+  const shown = fold === 'folded' ? lines.slice(0, FOLDED_LINES) : lines
+  const gutter =
+    folds && context.columns >= GUTTER_COLUMNS_AT_LEAST ? gutterColumns(lines.length) : 0
+  const look: CodeLines = {
+    drawing,
+    lineCount: lines.length,
+    gutter,
+    wrap: isCut ? { wrap: 'truncate-end' } : {},
+  }
+  const drawnLines =
+    drawing.kind === 'shell'
+      ? drawing.lines
+          .slice(0, shown.length)
+          .map((tokens) => tokens.map((token) => token.text).join(''))
+      : shown
+  const rows = drawnLines.map((line) => (isCut ? 1 : rowsOf(line, context.width - gutter)))
+  const title = fenceTitle(context, fence, copy, key, folds ? lines.length : null)
+  const note =
+    drawing.kind === 'plain'
+      ? Box({ key: `${key}-plain`, children: Text({ dimColor: true, children: drawing.note }) })
+      : null
+  const head = title.rows + (drawing.kind === 'plain' ? rowsOf(drawing.note, context.width) : 0)
+  const foot = folds ? codeFoldRow(context, fold, lines.length - shown.length, block, key) : null
+  const footRows = foot === null ? 0 : 1
+  const draw = (count: number, hasFoot: boolean) =>
     Box({
       key,
       flexDirection: 'column',
       children: [
         title.element,
-        shown.length === 0 ? null : Code({ source: shown.join('\n'), language, ...wrap }),
+        note,
+        codeBody(context, fence, shown.slice(0, count), look, key),
+        hasFoot ? foot : null,
       ],
     })
   const piece: Piece = {
-    rows: title.rows + sum(rows),
-    whole: () => draw(lines),
+    rows: head + sum(rows) + footRows,
+    isOpened: folds && fold === 'open',
+    whole: () => draw(shown.length, true),
     cut: (budget) => {
-      if (budget < title.rows) return null
-      let used = title.rows
+      if (budget < head) return null
+      let used = head
       let count = 0
       for (const height of rows) {
         if (used + height > budget) break
         used += height
         count += 1
       }
-      return { element: draw(lines.slice(0, count)), rows: used }
+      const hasFoot = count === shown.length && used + footRows <= budget
+      return { element: draw(count, hasFoot), rows: used + (hasFoot ? footRows : 0) }
     },
   }
   return isCut ? notedPiece(context, cutNote(lines, context.width), piece, `${key}-cut`) : piece
@@ -1235,6 +1403,7 @@ function notedPiece(context: Context, note: string, piece: Piece, key: string): 
       const cut = piece.cut(budget - noteRows)
       return cut === null ? null : { element: noted(cut.element), rows: noteRows + cut.rows }
     },
+    ...(piece.isOpened === undefined ? {} : { isOpened: piece.isOpened }),
   }
 }
 
@@ -1533,7 +1702,7 @@ function foldedPreview(pieces: readonly Piece[]): Preview {
     }
     const budget = FOLD_AFTER_ROWS - used - gap
     if (budget <= 0) break
-    if (piece.diagram !== undefined && end <= PREVIEW_ROWS_AT_MOST) {
+    if (piece.isOpened === true || (piece.diagram !== undefined && end <= PREVIEW_ROWS_AT_MOST)) {
       shown.push({ element: piece.whole(), rows: piece.rows + gap })
       break
     }
@@ -1650,6 +1819,8 @@ export function replyTree(
     doneGlyph: layout.doneGlyph,
     highlight: layout.highlight,
     palette: layout.palette,
+    codeFolds: layout.codeFolds ?? new Map(),
+    shellBudget: { nodesLeft: SHELL_NODES_AT_MOST },
     drawsProse: layout.surface === PROSE_SURFACE && !blocks.some(isDefiningProse),
     actions,
   }

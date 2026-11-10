@@ -113,7 +113,8 @@ describe('a drawing in a code block that is wider than the body', () => {
         'terminal',
         80,
       )
-      expect((await ui.find({ type: 'Code' }))?.props.wrap).toBeUndefined()
+      expect((await ui.find({ key: 'block-1-line-1' }))?.text).toBe(COMMAND)
+      expect((await ui.find({ type: 'Text', text: COMMAND }))?.props.wrap).toBeUndefined()
       expect(await ui.find({ type: 'Text', text: /^drawing cut:/ })).toBeUndefined()
       await ui.press({ key: 'block-1-copy' })
       expect(world.copies).toEqual([COMMAND])
@@ -125,7 +126,7 @@ describe('a drawing in a code block that is wider than the body', () => {
     'a reply with a wide drawing counts one row for each line, so it does not fold',
     async (_world, $) => {
       const row = `│${' '.repeat(98)}│`
-      const tall = [`┌${'─'.repeat(98)}┐`, ...Array<string>(23).fill(row), `└${'─'.repeat(98)}┘`]
+      const tall = [`┌${'─'.repeat(98)}┐`, ...Array<string>(18).fill(row), `└${'─'.repeat(98)}┘`]
       const content = tall.join('\n')
       const ui = await mountCode($, fenced({ name: '', tag: '', content }), 'terminal', 80)
       expect(await ui.find({ type: 'Text', text: /more line/ })).toBeUndefined()
@@ -136,17 +137,27 @@ describe('a drawing in a code block that is wider than the body', () => {
 
   viewTest('the preview of a long reply keeps the note above a cut drawing', async (_world, $) => {
     const row = `│${' '.repeat(98)}│`
-    const tall = [`┌${'─'.repeat(98)}┐`, ...Array<string>(38).fill(row), `└${'─'.repeat(98)}┘`]
-    const ui = await mountCode(
-      $,
-      fenced({ name: '', tag: '', content: tall.join('\n') }),
-      'terminal',
-      80,
-    )
+    const tall = [`┌${'─'.repeat(98)}┐`, ...Array<string>(18).fill(row), `└${'─'.repeat(98)}┘`]
+    const before = Array<string>(20).fill('x').join('\n')
+    const text = [
+      'Here it is:',
+      '',
+      '```text',
+      before,
+      '```',
+      '',
+      '```',
+      tall.join('\n'),
+      '```',
+    ].join('\n')
+    const ui = await mountCode($, text, 'terminal', 80)
     expect((await ui.find({ type: 'Text', text: /^drawing cut:/ }))?.text).toBe(cutNote(100, 78))
-    const shown = (await ui.find({ type: 'Code' }))?.props.source
-    expect(typeof shown === 'string' ? shown.split('\n').length : 0).toBe(30 - 2 - 2 - 1)
-    expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 15 more lines')
+    const codes = await ui.findAll({ type: 'Code' })
+    expect(codes.map((code) => String(code.props.source).split('\n').length)).toEqual([
+      20,
+      30 - 1 - 1 - 21 - 1 - 2 - 1,
+    ])
+    expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 17 more lines')
     await ui.unmount()
   })
 })

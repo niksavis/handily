@@ -125,7 +125,7 @@ describe('a mermaid timeline', () => {
           const ui = await mountDiagram($, source, surface)
           expect(await noteOf(ui)).toBe(`diagram not drawn: ${note}.`)
           const shown = await shownSource(ui)
-          const lines = source.split('\n').slice(0, 20)
+          const lines = source.split('\n').slice(0, 15)
           expect(lines.filter((line) => !shown.includes(line.trim()))).toEqual([])
           expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
           await ui.press({ key: 'block-1-copy' })

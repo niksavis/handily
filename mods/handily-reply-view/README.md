@@ -7,12 +7,13 @@ double rule under its header and a rule between its rows. The `tableStyle` setti
 rules between its columns only. Numbers, durations, versions and paths in the prose and the cells
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
-table and each fenced code block gets a `copy` button. A mermaid flowchart, sequence diagram, state
-diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey, quadrant chart,
-kanban, packet diagram, sankey diagram, radar diagram, treemap, block diagram, requirement
-diagram, C4 diagram or architecture diagram draws as a diagram, with a `copy` button for its
-source and a `copy drawing` button for the drawing. Each prompt that you type opens under a
-coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view off and
+table and each fenced code block gets a `copy` button. A shell block draws in its own colours, and
+a code block of more than 20 lines folds to its first 15 lines. A mermaid flowchart, sequence
+diagram, state diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey,
+quadrant chart, kanban, packet diagram, sankey diagram, radar diagram, treemap, block diagram,
+requirement diagram, C4 diagram or architecture diagram draws as a diagram, with a `copy` button
+for its source and a `copy drawing` button for the drawing. Each prompt that you type opens under
+a coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view off and
 on for the session. The model still reads the full reply and the prompt as you typed it. Only the
 screen changes.
 
@@ -396,6 +397,94 @@ content draws with the highlighting of Claude Code for that language:
 
 `copy` copies the content of the block only, without the fences. A block without a tag draws a
 rule with no title.
+
+### Shell colours
+
+On the terminal, the view colours a block with the tag `sh`, `bash`, `zsh`, `shell` or `console`
+itself, like a prompt. A block with another tag, such as `ts`, `python`, `rust` or `fish`, goes to
+the code element of Claude Code with its language, as before:
+
+```text
+  ── sh ────────────────────────────────────────────────────────────  [ copy ]
+  # Check that the tag exists, then restore the pool size
+  git fetch --tags && git show v2.3.0:config/prod.yaml | grep pool_size
+  sed -i 's/pool_size: 4/pool_size: 32/' config/prod.yaml
+  NODE_ENV=production npm run deploy -- --service "ingest" > deploy.log
+  echo "deployed $(git rev-parse --short HEAD)" ; exit $?
+```
+
+| Part                                                      | Theme key           | catppuccin-mocha |
+| --------------------------------------------------------- | ------------------- | ---------------- |
+| The command word, such as `git`, `grep` or `echo`         | `suggestion` + bold | `#89b4fa`        |
+| A keyword at the place of a command, such as `do`, `done` | `merged`            | `#cba6f7`        |
+| A flag, such as `--tags` or `-i`                          | `permission`        | `#89dceb`        |
+| A string in `'` or `"`                                    | `planMode`          | `#a6e3a1`        |
+| A variable, `$(…)` or a backtick command                  | `merged`            | `#cba6f7`        |
+| An operator, such as `&&`, `\|`, `;` or `>`               | `inactive`          | `#9399b2`        |
+| A comment, also after code on the same line               | dim + italic        | `#9399b2`        |
+
+- The word after `|`, `&&`, `||`, `;`, `&` or `(` is a command again, also with no space
+  around the operator, as in `a|b`. So is the first word of each line.
+- `NODE_ENV=production` before a command stays plain, and the word after it is the command.
+- A word such as `done` after a command is an argument, and stays plain.
+- The file after a redirect, such as `deploy.log` after `>`, is not a command.
+- A line that ends in `\` continues the command on the next line. A quote that stays open
+  at the end of a line goes on to the next line.
+- The body of a here-doc, such as the lines after `cat <<EOF` up to `EOF`, draws plain.
+- `#` starts a comment only at the start of a word, so `a#b` is not a comment.
+- A tab draws as 4 spaces. `copy` keeps the tab.
+- The `highlight` setting `off` draws the block with no token colours.
+- No `$` prompt mark is added, so a mouse selection pastes as a command.
+
+### A long block folds
+
+A block of more than 20 lines shows its first 15 lines with line numbers, a dim count of the
+hidden lines and a `more` button. The title line counts the lines:
+
+```text
+  ── ts · 45 lines ─────────────────────────────────────────────────  [ copy ]
+   1  export function rollupHourly(
+   2    readings: Reading[],
+  …
+  15      continue
+  … 30 more lines                                                     [ more ]
+```
+
+- `more` shows the whole block, with `less` under it. `copy` copies the whole block, without
+  the line numbers.
+- Under 40 columns the block shows no line numbers.
+- A folded block counts as its title, 15 lines and the count line in the fold of a long reply.
+  So a reply of one block of 45 lines does not fold. An opened block draws whole in the fold
+  of the reply.
+- The view keeps the state of each block for the reply, by the content of the block. A block
+  keeps its state when the reply draws again with the block at another place.
+- The rows draw only for the lines that show.
+
+### A block too long to colour
+
+A block of more than 2,000 lines or more than 100,000 characters draws with no colour, under one
+dim note. It folds as each long block does:
+
+```text
+  ── json · 3,120 lines ────────────────────────────────────────────  [ copy ]
+  too long to colour: over 2,000 lines, so it draws plain.
+   1  {
+   2    "readings": [
+```
+
+- A shell block with a word of more than 1,000 characters draws with no colour, under the note
+  `too long to colour: a word over 1,000 characters, so it draws plain.`
+- The shell blocks of one reply share a budget of 10,000 drawn parts. A shell block that the
+  budget does not cover draws with no colour, under the note
+  `too long to colour: over 10,000 drawn parts, so it draws plain.`
+- The view draws a reply of at most 60,000 characters, so a longer reply, and with it a block of
+  100,000 characters, draws as Claude Code draws it.
+
+### A code block on the desktop app
+
+On the desktop app every block goes to the code element of Claude Code with its language,
+also a shell block. A long block folds there too, and the line numbers are those of the code
+element.
 
 When the title line and its `copy` button do not fit the reply, the button stands under the
 title line, as the buttons of a diagram do:
