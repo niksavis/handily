@@ -9,10 +9,26 @@ const CLAUDE_REFUSAL = 'spawn claude ENOENT'
 const COLOURS = ['#d97757', '#2e86de', '#27ae60']
 const FRAME = ['┌──────────┐', '│  joined  │', '└──────────┘']
 
-type World = { runs: string[][]; toasts: string[]; opens: string[]; commands: string[] }
+const OPEN_REFUSAL = 'no surface takes a pane'
+
+type World = {
+  runs: string[][]
+  toasts: string[]
+  opens: string[]
+  commands: string[]
+  logs: { text: string; to: string }[]
+  refusesOpen: boolean
+}
 
 function world(on: On, surfaces: readonly RenderSurface[]): World {
-  const seen: World = { runs: [], toasts: [], opens: [], commands: [] }
+  const seen: World = {
+    runs: [],
+    toasts: [],
+    opens: [],
+    commands: [],
+    logs: [],
+    refusesOpen: false,
+  }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('command.register', (_$, e) => {
     seen.commands.push(e.name)
@@ -40,9 +56,13 @@ function world(on: On, surfaces: readonly RenderSurface[]): World {
   })
   on('ui.open', (_$, e) => {
     seen.opens.push(e.id)
+    if (seen.refusesOpen) return { deny: OPEN_REFUSAL }
     return { value: { isPlaced: true as const } }
   })
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', (_$, e) => {
+    seen.logs.push({ text: e.text, to: e.to })
+    return { value: undefined }
+  })
   return seen
 }
 
@@ -135,6 +155,15 @@ describe('the desktop probe', () => {
       await ui.unmount()
     })
   }
+
+  test('a failed pane open is logged to the transcript, where the reply sends the person', async ($, on) => {
+    const seen = world(on, ['terminal'])
+    seen.refusesOpen = true
+    expect(await probe($)).toBe('desktop probe: /probe failed; see the transcript log.')
+    expect(seen.logs.map((log) => log.to)).toEqual(['transcript'])
+    expect(seen.logs[0]?.text).toMatch(/^handily-desktop-probe: \/probe failed \(/)
+    expect(seen.logs[0]?.text).toContain(OPEN_REFUSAL)
+  })
 
   test('a pane drawn before /probe says to run /probe in rows a to d', async ($, on) => {
     world(on, ['terminal'])

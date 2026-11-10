@@ -169,7 +169,6 @@ export const register: Register = (on) => {
   }).catch(($, _e, next) => {
     $.ui.log(
       `handily-desktop-probe: /probe failed (${next.error.kind}): ${next.error.message ?? 'no message'}`,
-      { to: 'debug' },
     )
     return { text: 'desktop probe: /probe failed; see the transcript log.' }
   })
