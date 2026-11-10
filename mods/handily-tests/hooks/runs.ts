@@ -172,9 +172,33 @@ export function toastSettingOf(value: unknown): ToastSetting {
   )
 }
 
+export type StatusView = {
+  last: TestsRun | undefined
+  running: Running | undefined
+  now: number
+  edits: number
+}
+
+export function editsText(count: number): string {
+  return `${String(count)} ${count === 1 ? 'edit' : 'edits'} since`
+}
+
+function agedText(run: TestsRun, now: number): string {
+  const age = now - run.endedAt
+  return age < MINUTE ? '' : ` · ${ageText(age)} ago`
+}
+
+export function nextAgeChangeIn(ms: number): number {
+  const age = Math.max(ms, 0)
+  if (age < MINUTE) return MINUTE - age
+  if (age < HOUR) return MINUTE - (age % MINUTE)
+  if (age < DAY) return HOUR - (age % HOUR)
+  return DAY - (age % DAY)
+}
+
 export function statusText(
   setting: StatusSetting,
-  view: { last: TestsRun | undefined; running: Running | undefined },
+  view: StatusView,
   marks: GlyphSet,
 ): string | undefined {
   if (setting === 'off') return undefined
@@ -185,7 +209,8 @@ export function statusText(
   if (last === undefined) return undefined
   if (setting === 'failures' && !isFailing(last.outcome)) return undefined
   const headline = headlineOf(last)
-  return `${marks[headline.role]} tests: ${headline.text}${headline.tail}`
+  const edits = view.edits > 0 ? ` · ${editsText(view.edits)}` : ''
+  return `${marks[headline.role]} tests: ${headline.text}${agedText(last, view.now)}${headline.tail}${edits}`
 }
 
 function quotedName(name: string): string {

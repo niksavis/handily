@@ -3,6 +3,7 @@ import type {
   EngineInterface,
   Register,
   RenderSurface,
+  Timer,
   ToolCallInput,
   ToolCallResult,
 } from 'claude-code'
@@ -27,6 +28,7 @@ import {
   keptRuns,
   lastVerdict,
   listText,
+  nextAgeChangeIn,
   runToastParts,
   statusSettingOf,
   statusText,
@@ -57,11 +59,15 @@ type Keep = {
   running: Map<string, Running>
   look: Look
   shownStatus: string | undefined
+  edits: number
+  ageTimer: Timer | undefined
 }
 
 type BashCall = Extract<ToolCallInput, { tool: 'Bash' }>
 
 type CallSite = { e: BashCall; startedAt: number }
+
+const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'NotebookEdit'])
 
 function newLook(runId: string | undefined): Look {
   return { runId, opened: 0, isAllFailures: false, isAllRuns: false }
@@ -83,11 +89,29 @@ function latestRunning(keep: Keep): Running | undefined {
   return [...keep.running.values()].at(-1)
 }
 
+function stopAgeTimer(keep: Keep): void {
+  keep.ageTimer?.cancel()
+  keep.ageTimer = undefined
+}
+
+function refreshStatusLater($: EngineInterface, keep: Keep, waitMs: number): void {
+  stopAgeTimer(keep)
+  keep.ageTimer = $.clock.after(waitMs, () => {
+    keep.ageTimer = undefined
+    refreshStatus($, keep).catch((error: unknown) => {
+      log($, `handily-tests: the status line was not refreshed: ${String(error)}`)
+    })
+  })
+}
+
 async function refreshStatus($: EngineInterface, keep: Keep): Promise<void> {
   if (keep.status === 'off') return
   const [last] = await runsOf($)
-  const view = { last, running: latestRunning(keep) }
+  const now = await $.clock.now()
+  const view = { last, running: latestRunning(keep), now, edits: keep.edits }
   const text = statusText(keep.status, view, await settingGlyphs($))
+  if (text === undefined || last === undefined) stopAgeTimer(keep)
+  else refreshStatusLater($, keep, nextAgeChangeIn(now - last.endedAt))
   if (text === keep.shownStatus) return
   keep.shownStatus = text
   $.ui.status(text)
@@ -138,6 +162,7 @@ async function recordRun(
     return keptRuns(run, runs)
   })
   keep.look = newLook(run.id)
+  keep.edits = 0
   const parts = keep.toasts === 'on' ? runToastParts(run, before) : undefined
   if (parts !== undefined && !(await isTabShown($))) showGlyphToast($, parts)
 }
@@ -236,6 +261,16 @@ async function endCall(
   if (site.isWatched || isRecorded) await afterChange($, keep)
 }
 
+async function noteEdit($: EngineInterface, keep: Keep, answer: ToolCallResult): Promise<void> {
+  if (answer.deny !== undefined || answer.isError === true) return
+  keep.edits += 1
+  try {
+    await refreshStatus($, keep)
+  } catch (error) {
+    log($, `handily-tests: the status line was not refreshed: ${String(error)}`)
+  }
+}
+
 export const register: Register = (on, options) => {
   const keep: Keep = {
     status: statusSettingOf(options.statusLine),
@@ -243,6 +278,8 @@ export const register: Register = (on, options) => {
     running: new Map(),
     look: newLook(undefined),
     shownStatus: undefined,
+    edits: 0,
+    ageTimer: undefined,
   }
 
   on('session.start', async ($, e, next) => {
@@ -268,10 +305,17 @@ export const register: Register = (on, options) => {
   on('session.end', async (_$, e, next) => {
     keep.running.clear()
     keep.look = newLook(undefined)
+    keep.edits = 0
+    stopAgeTimer(keep)
     return next(e)
   })
 
   on('tool.call', async ($, e, next) => {
+    if (EDIT_TOOLS.has(e.tool)) {
+      const edited = await next(e)
+      await noteEdit($, keep, edited)
+      return edited
+    }
     if (e.tool !== 'Bash') return next(e)
     const startedAt = await $.clock.now()
     const isWatched = isTestCommand(e.command) && e.run_in_background !== true
@@ -303,6 +347,7 @@ export const register: Register = (on, options) => {
         const count = (await runsOf($)).length
         await $.state.set(RUNS, [])
         keep.look = newLook(undefined)
+        keep.edits = 0
         await afterChange($, keep)
         return { text: clearReply(count) }
       }
