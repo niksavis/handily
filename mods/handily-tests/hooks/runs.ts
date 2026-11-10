@@ -1,7 +1,7 @@
 import type { TestsFailure, TestsOutcome, TestsRun, TestsRuns } from '../types'
 import type { GlyphSet } from './glyphs'
 import { marked, type ToastParts } from './toast'
-import { fitted } from './width'
+import { displayWidth, fitted } from './width'
 
 export const RUNS_KEPT = 20
 
@@ -183,11 +183,35 @@ export function editsText(count: number): string {
   return `${String(count)} ${count === 1 ? 'edit' : 'edits'} since`
 }
 
-function agedHeadline(run: TestsRun, headline: Headline, now: number): string {
-  const age = now - run.endedAt
-  if (age < MINUTE) return headline.text
-  const ago = `${ageText(age)} ago`
-  return run.outcome.kind === 'tests' ? `${headline.text} · ${ago}` : `${ago} · ${headline.text}`
+export const STATUS_HEAD_COLUMNS = 19
+
+type StatusHead = { count: string; tail: string } | { words: string }
+
+function statusHeadOf(run: TestsRun): StatusHead {
+  const { outcome } = run
+  if (outcome.kind !== 'tests') return { words: headlineOf(run).text }
+  const { failed, passed, total, isCut } = outcome
+  if (failed > 0) {
+    const tail = isCut ? 'output cut' : `${String(passed)} of ${String(total)} passed`
+    return { count: `${String(failed)} failed`, tail: ` · ${tail}` }
+  }
+  if (isCut) return { words: 'output cut' }
+  const notRun = total - passed
+  return {
+    count: `${String(passed)} passed`,
+    tail: notRun > 0 ? ` · ${String(notRun)} not run` : '',
+  }
+}
+
+function countWithAge(count: string, age: number): string {
+  const short = `${count} · ${ageText(age)}`
+  const long = `${short} ago`
+  return displayWidth(long) <= STATUS_HEAD_COLUMNS ? long : short
+}
+
+function agedHead(head: StatusHead, age: number): string {
+  if ('words' in head) return age < MINUTE ? head.words : `${ageText(age)} ago · ${head.words}`
+  return `${age < MINUTE ? head.count : countWithAge(head.count, age)}${head.tail}`
 }
 
 export function nextAgeChangeIn(ms: number): number {
@@ -198,21 +222,14 @@ export function nextAgeChangeIn(ms: number): number {
   return DAY - (age % DAY)
 }
 
-export function statusText(
-  setting: StatusSetting,
-  view: StatusView,
-  marks: GlyphSet,
-): string | undefined {
+export function statusText(setting: StatusSetting, view: StatusView): string | undefined {
   if (setting === 'off') return undefined
   const { last, running } = view
-  if (setting === 'always' && running !== undefined) {
-    return `${marks.doing} tests: ${shownCommand(running.command)} runs`
-  }
+  if (setting === 'always' && running !== undefined) return `${shownCommand(running.command)} runs`
   if (last === undefined) return undefined
   if (setting === 'failures' && !isFailing(last.outcome)) return undefined
-  const headline = headlineOf(last)
   const edits = view.edits > 0 ? ` · ${editsText(view.edits)}` : ''
-  return `${marks[headline.role]} tests: ${agedHeadline(last, headline, view.now)}${headline.tail}${edits}`
+  return `${agedHead(statusHeadOf(last), view.now - last.endedAt)}${edits}`
 }
 
 function quotedName(name: string): string {

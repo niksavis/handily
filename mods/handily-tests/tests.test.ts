@@ -12,7 +12,6 @@ import {
   VITEST_TWO_FAILED,
 } from './fixtures/vitest'
 import type { TestsOutcome } from './types'
-import { GLYPH_SETS } from './hooks/glyphs'
 import { statusText } from './hooks/runs'
 import { displayWidth, fitted } from './hooks/width'
 
@@ -28,6 +27,7 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const EDIT_TOOLS: readonly string[] = ['Edit', 'Write', 'NotebookEdit']
+const ENGINE_PREFIX = '  \u{26A0} handily-tests:  '
 
 type BashAnswer =
   | {
@@ -548,15 +548,15 @@ describe('output with no known runner format changes nothing', () => {
 })
 
 describe('the status line', () => {
-  test('reads tests: 1 failed · 3 of 4 passed after a failed run, and clears on a pass', async ($, on) => {
+  test('reads 1 failed · 3 of 4 passed after a failed run, and clears on a pass', async ($, on) => {
     const seen = world(on)
     answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
     answer(seen, 'npm run test', { kind: 'ok', stdout: VITEST_PASSED })
     await start($)
     await bash($, 'npm test')
-    expect(seen.statuses).toEqual(['■ tests: 1 failed · 3 of 4 passed'])
+    expect(seen.statuses).toEqual(['1 failed · 3 of 4 passed'])
     await bash($, 'npm run test')
-    expect(seen.statuses).toEqual(['■ tests: 1 failed · 3 of 4 passed', undefined])
+    expect(seen.statuses).toEqual(['1 failed · 3 of 4 passed', undefined])
   })
 
   test(
@@ -568,14 +568,14 @@ describe('the status line', () => {
       await start($)
       const call = bash($, 'npm run test')
       await seen.clock.settle()
-      expect(seen.statuses).toEqual(['▶ tests: npm run test runs'])
+      expect(seen.statuses).toEqual(['npm run test runs'])
       await seen.clock.advance(1200)
       await call
-      expect(seen.statuses).toEqual(['▶ tests: npm run test runs', '✓ tests: 4 of 4 passed'])
+      expect(seen.statuses).toEqual(['npm run test runs', '4 passed'])
     },
   )
 
-  test('draws the mark of the glyph setting', async ($, on) => {
+  test('the tab draws the mark of the glyph setting, and the status line draws no mark', async ($, on) => {
     const seen = world(on)
     seen.config = [
       {
@@ -587,7 +587,8 @@ describe('the status line', () => {
     answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
     await start($)
     await bash($, 'npm test')
-    expect(seen.statuses).toEqual([`${NERD_BLOCKED} tests: 1 failed · 3 of 4 passed`])
+    expect(seen.statuses).toEqual(['1 failed · 3 of 4 passed'])
+    expect(seen.statuses.join('')).not.toContain(NERD_BLOCKED)
     const desktop = await mountTests($, 'desktop')
     expect((await screen(desktop))[0]).toBe('Tests  ■ 1 failed · 3 of 4 passed')
   })
@@ -619,11 +620,11 @@ describe('the status line shows the age of the last run and the edits since', ()
     await start($)
     await bash($, 'npm test')
     await seen.clock.advance(MINUTE - 1)
-    expect(seen.statuses).toEqual(['■ tests: 1 failed · 3 of 4 passed'])
+    expect(seen.statuses).toEqual(['1 failed · 3 of 4 passed'])
     await seen.clock.advance(1)
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 1m ago · 3 of 4 passed')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 1m ago · 3 of 4 passed')
     await seen.clock.advance(2 * HOUR - MINUTE)
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 2h ago · 3 of 4 passed')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 2h ago · 3 of 4 passed')
     expect(seen.statuses).toHaveLength(62)
   })
 
@@ -636,7 +637,7 @@ describe('the status line shows the age of the last run and the edits since', ()
       await start($)
       await bash($, 'npm test')
       await seen.clock.advance(2 * HOUR)
-      expect(seen.statuses.at(-1)).toBe('✓ tests: 4 of 4 passed · 2h ago')
+      expect(seen.statuses.at(-1)).toBe('4 passed · 2h ago')
     },
   )
 
@@ -647,17 +648,17 @@ describe('the status line shows the age of the last run and the edits since', ()
     await start($)
     await editFile($, 'Edit')
     await bash($, 'npm test')
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed')
     await editFile($, 'Edit')
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 1 edit since')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed · 1 edit since')
     await editFile($, 'Write', 'agent-1')
     await editFile($, 'NotebookEdit')
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 3 edits since')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed · 3 edits since')
     seen.isEditRefused = true
     await editFile($, 'Edit')
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 3 edits since')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed · 3 edits since')
     await bash($, 'npm run test')
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed')
   })
 
   test('an old line shows until a new run, and a cut at 40 columns keeps the count and the age', async ($, on) => {
@@ -670,8 +671,10 @@ describe('the status line shows the age of the last run and the edits since', ()
     await editFile($, 'Write', 'agent-1')
     await seen.clock.advance(2 * DAY)
     const line = seen.statuses.at(-1)
-    expect(seenAt(line, 80)).toBe('■ tests: 2 failed · 2d ago · 3 of 5 passed · 2 edits since')
-    expect(seenAt(line, 40)).toBe('■ tests: 2 failed · 2d ago · 3 of 5 pas…')
+    expect(line).toBe('2 failed · 2d ago · 3 of 5 passed · 2 edits since')
+    expect(seenAt(`${ENGINE_PREFIX}${line ?? ''}`, 40)).toBe(
+      '  \u{26A0} handily-tests:  2 failed · 2d ago ·…',
+    )
     await bash($, 'npm run test')
     expect(seen.statuses.at(-1)).toBeUndefined()
   })
@@ -679,58 +682,125 @@ describe('the status line shows the age of the last run and the edits since', ()
 
 const LONG_COMMAND = 'npm run test:integration -- --runInBand'
 
-const OUTCOMES_AT_40: readonly { outcome: TestsOutcome; seen: string }[] = [
+function testsOutcome(passed: number, failed: number, total: number, isCut = false): TestsOutcome {
+  return {
+    kind: 'tests',
+    runner: 'vitest',
+    passed,
+    failed,
+    total,
+    failures: [],
+    cutFailures: 0,
+    isCut,
+  }
+}
+
+type StatusCase = { outcome: TestsOutcome; count: string | undefined; text: string }
+
+const STATUS_CASES: readonly StatusCase[] = [
   {
-    outcome: {
-      kind: 'tests',
-      runner: 'vitest',
-      passed: 86,
-      failed: 14,
-      total: 100,
-      failures: [],
-      cutFailures: 0,
-      isCut: false,
-    },
-    seen: '■ tests: 14 failed · 2d ago · 86 of 100…',
+    outcome: testsOutcome(86, 14, 100),
+    count: '14 failed',
+    text: '14 failed · 23h ago · 86 of 100 passed · 12 edits since',
+  },
+  {
+    outcome: testsOutcome(1, 999, 1000),
+    count: '999 failed',
+    text: '999 failed · 23h · 1 of 1000 passed · 12 edits since',
+  },
+  {
+    outcome: testsOutcome(120, 0, 120),
+    count: '120 passed',
+    text: '120 passed · 23h · 12 edits since',
+  },
+  {
+    outcome: testsOutcome(3, 0, 4),
+    count: '3 passed',
+    text: '3 passed · 23h ago · 1 not run · 12 edits since',
+  },
+  {
+    outcome: testsOutcome(0, 2, 2, true),
+    count: '2 failed',
+    text: '2 failed · 23h ago · output cut · 12 edits since',
+  },
+  {
+    outcome: testsOutcome(0, 0, 0, true),
+    count: undefined,
+    text: '23h ago · output cut · 12 edits since',
   },
   {
     outcome: { kind: 'broken', runner: 'vitest', reason: 'no' },
-    seen: '■ tests: 2d ago · vitest could not run …',
+    count: undefined,
+    text: '23h ago · vitest could not run the tests · 12 edits since',
   },
   {
     outcome: { kind: 'empty', runner: 'vitest', reason: 'no' },
-    seen: '■ tests: 2d ago · vitest found no tests…',
+    count: undefined,
+    text: '23h ago · vitest found no tests · 12 edits since',
   },
   {
     outcome: { kind: 'interrupted', runner: null },
-    seen: '■ tests: 2d ago · npm run test:integrat…',
+    count: undefined,
+    text: '23h ago · npm run test:integratio… was interrupted · 12 edits since',
   },
   {
     outcome: { kind: 'background', runner: null },
-    seen: '▶ tests: 2d ago · npm run test:integrat…',
+    count: undefined,
+    text: '23h ago · npm run test:integratio… runs in the background · 12 edits since',
   },
   {
     outcome: { kind: 'unreadable', runner: 'vitest' },
-    seen: '■ tests: 2d ago · the run could not be …',
+    count: undefined,
+    text: '23h ago · the run could not be read · 12 edits since',
   },
 ]
 
-describe('a cut of the status line at 40 columns keeps the age for every outcome', () => {
-  for (const { outcome, seen } of OUTCOMES_AT_40) {
-    test(`the ${outcome.kind} outcome of a run 2 days ago with 12 edits since`, () => {
-      const last = {
-        id: 'run-1',
-        command: LONG_COMMAND,
-        agent: null,
-        endedAt: START,
-        tookMs: 0,
-        outcome,
+function firstColumns(text: string, columns: number): string {
+  let kept = ''
+  for (const character of text) {
+    if (displayWidth(kept + character) > columns) break
+    kept += character
+  }
+  return kept
+}
+
+function statusAfter(outcome: TestsOutcome, ageMs: number): string | undefined {
+  const last = {
+    id: 'run-1',
+    command: LONG_COMMAND,
+    agent: null,
+    endedAt: START,
+    tookMs: 0,
+    outcome,
+  }
+  return statusText('always', { last, running: undefined, now: START + ageMs, edits: 12 })
+}
+
+describe('the first 19 columns of the status line hold the count and the age for every outcome', () => {
+  for (const { outcome, count, text } of STATUS_CASES) {
+    test(`${text} keeps its count and its age at 59m and at 23h`, () => {
+      expect(statusAfter(outcome, 23 * HOUR + 1)).toBe(text)
+      for (const [ageMs, age] of [
+        [59 * MINUTE + 1, '59m'],
+        [23 * HOUR + 1, '23h'],
+      ] as const) {
+        const head = firstColumns(statusAfter(outcome, ageMs) ?? '', 19)
+        expect(head).toContain(age)
+        if (count !== undefined) expect(head.startsWith(count), head).toBe(true)
       }
-      const view = { last, running: undefined, now: START + 2 * DAY, edits: 12 }
-      const line = statusText('always', view, GLYPH_SETS.plain)
-      expect(seenAt(line, 40)).toBe(seen)
     })
   }
+
+  test('the row the engine draws at 40 columns shows the count and the age', () => {
+    const rows = [
+      testsOutcome(1, 1, 2),
+      { kind: 'broken', runner: 'vitest', reason: 'no' } as const,
+    ].map((outcome) => seenAt(`${ENGINE_PREFIX}${statusAfter(outcome, 59 * MINUTE + 1) ?? ''}`, 40))
+    expect(rows).toEqual([
+      '  \u{26A0} handily-tests:  1 failed · 59m ago …',
+      '  \u{26A0} handily-tests:  59m ago · vitest co…',
+    ])
+  })
 })
 
 describe('the edits since count from the start of the last result', () => {
@@ -743,7 +813,7 @@ describe('the edits since count from the start of the last result', () => {
     await editFile($, 'Edit')
     await seen.clock.advance(20_000)
     await call
-    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 1 edit since')
+    expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed · 1 edit since')
   })
 
   test(
@@ -759,13 +829,11 @@ describe('the edits since count from the start of the last result', () => {
       await bash($, 'npm test')
       await editFile($, 'Edit')
       await bash($, 'pytest -x')
-      expect(seen.statuses.at(-1)).toBe('■ tests: pytest -x was interrupted · 1 edit since')
+      expect(seen.statuses.at(-1)).toBe('pytest -x was interrupted · 1 edit since')
       await bash($, 'npm run test')
-      expect(seen.statuses.at(-1)).toBe(
-        '▶ tests: npm run test runs in the background · 1 edit since',
-      )
+      expect(seen.statuses.at(-1)).toBe('npm run test runs in the background · 1 edit since')
       await bash($, 'pytest')
-      expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+      expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed')
     },
   )
 })
@@ -1017,7 +1085,7 @@ describe('review repairs', () => {
           "    Error: Cannot find module './b' impo…",
         ])
         expect(seen.toasts.join('\n')).not.toContain('pass again')
-        expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+        expect(seen.statuses.at(-1)).toBe('1 failed · 3 of 4 passed')
       },
     )
 
