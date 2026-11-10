@@ -825,8 +825,10 @@ and as `◉` where a transition ends at it. Each state that ends at `[*]` gets i
 
 - `direction LR` draws the states across, as a flowchart `LR` does. A diagram too wide for the
   screen draws top down. When it is also too wide top down, it draws as its source under the note
-  `it takes 52 columns, the screen has 38. Widen the window or shorten the labels.`
+  `it takes 44 columns, the screen has 38. Widen the window or shorten the labels.`
 - A transition draws its label as a flowchart edge does, such as `Queued --> Running : claimed`.
+  When the labels do not fit on one line, they wrap at spaces into lines of 8 columns, as the
+  labels of a C4 relation do.
 - A transition from a state to itself draws as a loop on the box of the state, as an edge from a
   box to itself does in a flowchart. The part after this list shows an example.
 - A state shows the text after its colon, such as `Done : All checks passed`, or the text of
@@ -867,8 +869,39 @@ label stands to the right of the loop. The drawing at 80 columns:
 ```
 
 At 40 columns on the desktop app, the labels are cut to 12 columns, such as `comment, ti…`. On the
-terminal at 40 columns, the body has 38 columns, so the diagram draws as its source under the note
-`it takes 40 columns, the screen has 38. Widen the window or shorten the labels.`
+terminal at 40 columns, the body has 38 columns. A cut label does not fit there, so the labels
+wrap at spaces into lines of 8 columns. A label that does not fit beside its line moves down to
+the first free rows:
+
+```text
+      ●
+      │ br
+      │ create
+      ▼
+  ╭──────╮
+  │ open │◀────────────┐
+  ╰───┬──╯             │
+      │ claim          │
+      ▼                │
+╭─────────────╮        │
+│ in_progress │────────┘
+│             │──┐ comment,
+│             │  │ tick
+│             │◀─┘ criteria
+╰─────┬───────╯          blocked,
+      │ all              waits on
+      │ criteria         external
+      │ validated
+      ▼
+ ╭────────╮
+ │ closed │
+ ╰────┬───╯
+      ▼
+      ◉
+```
+
+At 30 columns it draws as its source under the note
+`it takes 33 columns, the screen has 28. Widen the window or shorten the labels.`
 
 ## A class diagram
 

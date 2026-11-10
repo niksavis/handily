@@ -138,6 +138,33 @@ const WORK_STATES_CUT = [
   '      ◉',
 ]
 
+const WORK_STATES_WRAPPED = [
+  '      ●',
+  '      │ br',
+  '      │ create',
+  '      ▼',
+  '  ╭──────╮',
+  '  │ open │◀────────────┐',
+  '  ╰───┬──╯             │',
+  '      │ claim          │',
+  '      ▼                │',
+  '╭─────────────╮        │',
+  '│ in_progress │────────┘',
+  '│             │──┐ comment,',
+  '│             │  │ tick',
+  '│             │◀─┘ criteria',
+  '╰─────┬───────╯          blocked,',
+  '      │ all              waits on',
+  '      │ criteria         external',
+  '      │ validated',
+  '      ▼',
+  ' ╭────────╮',
+  ' │ closed │',
+  ' ╰────┬───╯',
+  '      ▼',
+  '      ◉',
+]
+
 const CLASSES = lines(
   'classDiagram',
   '  class Reply {',
@@ -514,7 +541,7 @@ describe('state diagrams', () => {
         `a state diagram that does not fit across or down shows its source under the width note on ${surface} at ${String(columns)} columns`,
         async (world, $) => {
           const ui = await mountDiagram($, TASK_STATES, surface, columns)
-          expect(await noteOf(ui)).toBe(widthNote(columns, surface, 52))
+          expect(await noteOf(ui)).toBe(widthNote(columns, surface, 44))
           expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
           await ui.press({ key: 'block-1-copy' })
           expect(world.copies).toEqual([TASK_STATES])
@@ -542,7 +569,7 @@ describe('state diagrams', () => {
       `a state diagram with a loop on a state that does not fit shows its source under the width note on ${surface} at 30 columns`,
       async (world, $) => {
         const ui = await mountDiagram($, WORK_STATES, surface, 30)
-        expect(await noteOf(ui)).toBe(widthNote(30, surface, 40))
+        expect(await noteOf(ui)).toBe(widthNote(30, surface, 33))
         expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
         await ui.press({ key: 'block-1-copy' })
         expect(world.copies).toEqual([WORK_STATES])
@@ -563,13 +590,16 @@ describe('state diagrams', () => {
   )
 
   viewTest(
-    'a state diagram with a loop on a state that takes 40 columns shows its source under the width note on terminal at 40 columns',
+    'a state diagram with a loop on a state draws with its edge labels wrapped within the 38 column body on terminal at 40 columns',
     async (world, $) => {
       const ui = await mountDiagram($, WORK_STATES, 'terminal', 40)
-      expect(await noteOf(ui)).toBe(widthNote(40, 'terminal', 40))
-      expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
-      await ui.press({ key: 'block-1-copy' })
-      expect(world.copies).toEqual([WORK_STATES])
+      expect(await noteOf(ui)).toBeUndefined()
+      const rows = (await drawnRows(ui, 'terminal')).map(rowText)
+      expect(rows).toEqual(WORK_STATES_WRAPPED)
+      expect(tooWide(rows, 'terminal', 40)).toEqual([])
+      expect(rows.join(' ')).not.toContain('…')
+      await ui.press({ key: 'block-1-drawing' })
+      expect(world.copies).toEqual([rows.join('\n')])
       await ui.unmount()
     },
   )

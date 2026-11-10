@@ -213,5 +213,6 @@ export function drawState(
     },
     width,
     meter,
+    'wrapped',
   )
 }
