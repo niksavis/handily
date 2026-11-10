@@ -6,6 +6,30 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.21.0 - 2026-11-10
+
+### Added
+
+- **reply-view: shell blocks draw in their own colours, and a long code block folds.** On the
+  terminal, a block tagged `sh`, `bash`, `zsh`, `shell` or `console` colours the command word,
+  flags, strings, variables, operators and comments, also a comment after code on the same line.
+  The word after `|`, `&&`, `||` or `;` is a command again, also in `a|b`. A block with another
+  tag still goes to the code element of Claude Code with its language. A block of more than 20
+  lines shows its first 15 lines with line numbers, a count of the hidden lines and `[ more ]`,
+  and `[ copy ]` still copies the whole block. A block of more than 2,000 lines or 100,000
+  characters draws with no colour under one note. On the desktop app every block goes to the code
+  element of Claude Code. (handily-36bsx.4)
+
+### Fixed
+
+- **reply-view: the work item state diagram draws on a 40 column terminal.** The state diagram of
+  open, in_progress and closed with a loop on in_progress drew as its source under the width note
+  on a 40 column terminal, because its edge labels were cut to 12 columns and never wrapped. Now,
+  when a state diagram does not fit with cut labels either, its edge labels wrap at spaces into
+  lines of 8 columns, as a C4 diagram does, and every line stays within the 38 column body. The
+  label of a loop back ends on the row of its line, so it stands beside its own line. A drawing
+  that fits with cut labels does not change. (handily-edguj9)
+
 ## handily-tests 0.2.0 - 2026-11-10
 
 ### Added
