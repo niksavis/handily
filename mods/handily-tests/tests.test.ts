@@ -11,7 +11,10 @@ import {
   VITEST_SUITE_FAILED,
   VITEST_TWO_FAILED,
 } from './fixtures/vitest'
-import { displayWidth } from './hooks/width'
+import type { TestsOutcome } from './types'
+import { GLYPH_SETS } from './hooks/glyphs'
+import { statusText } from './hooks/runs'
+import { displayWidth, fitted } from './hooks/width'
 
 const ROOT = '/work/app'
 const PLUGIN = 'handily-tests'
@@ -21,6 +24,10 @@ const START = 1_000_000
 const RULE_41 = '─'.repeat(41)
 const NERD_BLOCKED = '\u{EA87}'
 const INTERRUPT_MARK = '[Request interrupted by user for tool use]'
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+const EDIT_TOOLS: readonly string[] = ['Edit', 'Write', 'NotebookEdit']
 
 type BashAnswer =
   | {
@@ -46,6 +53,7 @@ type World = {
   copyRefusal: 'no-clipboard' | undefined
   commands: string[]
   config: ConfigRow[]
+  isEditRefused: boolean
 }
 
 function world(on: On): World {
@@ -63,6 +71,7 @@ function world(on: On): World {
     copyRefusal: undefined,
     commands: [],
     config: [],
+    isEditRefused: false,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: ROOT }))
@@ -123,6 +132,9 @@ function world(on: On): World {
     ],
   }))
   on('tool.call', async (_$, e): Promise<ToolCallResult> => {
+    if (EDIT_TOOLS.includes(e.tool)) {
+      return seen.isEditRefused ? { deny: 'The person refused the edit.' } : { result: '' }
+    }
     if (e.tool !== 'Bash') return { deny: `the test answers only Bash, not ${e.tool}` }
     const found = seen.answers.get(e.command)
     if (found === undefined) return { deny: `the test has no answer for ${e.command}` }
@@ -160,6 +172,31 @@ async function start($: Engine): Promise<void> {
 
 async function bash($: Engine, command: string, extra: { agentId?: string } = {}): Promise<void> {
   await $.tool.call({ tool: 'Bash', command, ...extra })
+}
+
+async function editFile($: Engine, tool: 'Edit' | 'Write' | 'NotebookEdit', agentId?: string) {
+  const by = agentId === undefined ? {} : { agentId }
+  switch (tool) {
+    case 'Edit':
+      await $.tool.call({
+        tool,
+        file_path: `${ROOT}/src/math.ts`,
+        old_string: 'a',
+        new_string: 'b',
+        ...by,
+      })
+      return
+    case 'Write':
+      await $.tool.call({ tool, file_path: `${ROOT}/src/sum.ts`, content: 'x', ...by })
+      return
+    case 'NotebookEdit':
+      await $.tool.call({ tool, notebook_path: `${ROOT}/app.ipynb`, new_source: 'x', ...by })
+      return
+  }
+}
+
+function seenAt(text: string | undefined, columns: number): string | undefined {
+  return text === undefined ? undefined : fitted(text, columns)
 }
 
 async function tests($: Engine, args: string): Promise<string> {
@@ -573,6 +610,164 @@ describe('the status line', () => {
       },
     )
   }
+})
+
+describe('the status line shows the age of the last run and the edits since', () => {
+  test('from a minute after the run, the line shows its age after the count', async ($, on) => {
+    const seen = world(on)
+    answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
+    await start($)
+    await bash($, 'npm test')
+    await seen.clock.advance(MINUTE - 1)
+    expect(seen.statuses).toEqual(['■ tests: 1 failed · 3 of 4 passed'])
+    await seen.clock.advance(1)
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 1m ago · 3 of 4 passed')
+    await seen.clock.advance(2 * HOUR - MINUTE)
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 2h ago · 3 of 4 passed')
+    expect(seen.statuses).toHaveLength(62)
+  })
+
+  test(
+    'with always, a pass shows its age after the count',
+    { options: { statusLine: 'always' } },
+    async ($, on) => {
+      const seen = world(on)
+      answer(seen, 'npm test', { kind: 'ok', stdout: VITEST_PASSED })
+      await start($)
+      await bash($, 'npm test')
+      await seen.clock.advance(2 * HOUR)
+      expect(seen.statuses.at(-1)).toBe('✓ tests: 4 of 4 passed · 2h ago')
+    },
+  )
+
+  test('Edit, Write and NotebookEdit calls of the main loop and of agents after the run count as edits since', async ($, on) => {
+    const seen = world(on)
+    answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
+    answer(seen, 'npm run test', failing(VITEST_ONE_FAILED))
+    await start($)
+    await editFile($, 'Edit')
+    await bash($, 'npm test')
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+    await editFile($, 'Edit')
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 1 edit since')
+    await editFile($, 'Write', 'agent-1')
+    await editFile($, 'NotebookEdit')
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 3 edits since')
+    seen.isEditRefused = true
+    await editFile($, 'Edit')
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 3 edits since')
+    await bash($, 'npm run test')
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+  })
+
+  test('an old line shows until a new run, and a cut at 40 columns keeps the count and the age', async ($, on) => {
+    const seen = world(on)
+    answer(seen, 'npm test', failing(VITEST_TWO_FAILED))
+    answer(seen, 'npm run test', { kind: 'ok', stdout: VITEST_PASSED })
+    await start($)
+    await bash($, 'npm test')
+    await editFile($, 'Edit')
+    await editFile($, 'Write', 'agent-1')
+    await seen.clock.advance(2 * DAY)
+    const line = seen.statuses.at(-1)
+    expect(seenAt(line, 80)).toBe('■ tests: 2 failed · 2d ago · 3 of 5 passed · 2 edits since')
+    expect(seenAt(line, 40)).toBe('■ tests: 2 failed · 2d ago · 3 of 5 pas…')
+    await bash($, 'npm run test')
+    expect(seen.statuses.at(-1)).toBeUndefined()
+  })
+})
+
+const LONG_COMMAND = 'npm run test:integration -- --runInBand'
+
+const OUTCOMES_AT_40: readonly { outcome: TestsOutcome; seen: string }[] = [
+  {
+    outcome: {
+      kind: 'tests',
+      runner: 'vitest',
+      passed: 86,
+      failed: 14,
+      total: 100,
+      failures: [],
+      cutFailures: 0,
+      isCut: false,
+    },
+    seen: '■ tests: 14 failed · 2d ago · 86 of 100…',
+  },
+  {
+    outcome: { kind: 'broken', runner: 'vitest', reason: 'no' },
+    seen: '■ tests: 2d ago · vitest could not run …',
+  },
+  {
+    outcome: { kind: 'empty', runner: 'vitest', reason: 'no' },
+    seen: '■ tests: 2d ago · vitest found no tests…',
+  },
+  {
+    outcome: { kind: 'interrupted', runner: null },
+    seen: '■ tests: 2d ago · npm run test:integrat…',
+  },
+  {
+    outcome: { kind: 'background', runner: null },
+    seen: '▶ tests: 2d ago · npm run test:integrat…',
+  },
+  {
+    outcome: { kind: 'unreadable', runner: 'vitest' },
+    seen: '■ tests: 2d ago · the run could not be …',
+  },
+]
+
+describe('a cut of the status line at 40 columns keeps the age for every outcome', () => {
+  for (const { outcome, seen } of OUTCOMES_AT_40) {
+    test(`the ${outcome.kind} outcome of a run 2 days ago with 12 edits since`, () => {
+      const last = {
+        id: 'run-1',
+        command: LONG_COMMAND,
+        agent: null,
+        endedAt: START,
+        tookMs: 0,
+        outcome,
+      }
+      const view = { last, running: undefined, now: START + 2 * DAY, edits: 12 }
+      const line = statusText('always', view, GLYPH_SETS.plain)
+      expect(seenAt(line, 40)).toBe(seen)
+    })
+  }
+})
+
+describe('the edits since count from the start of the last result', () => {
+  test('an edit that ends while the run goes counts as an edit since', async ($, on) => {
+    const seen = world(on)
+    answer(seen, 'npm test', failing(VITEST_ONE_FAILED), 30_000)
+    await start($)
+    const call = bash($, 'npm test')
+    await seen.clock.advance(10_000)
+    await editFile($, 'Edit')
+    await seen.clock.advance(20_000)
+    await call
+    expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed · 1 edit since')
+  })
+
+  test(
+    'an interrupted run and a run in the background keep the edits since the last result',
+    { options: { statusLine: 'always' } },
+    async ($, on) => {
+      const seen = world(on)
+      answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
+      answer(seen, 'pytest -x', { kind: 'error', text: `Exit code 130\n${INTERRUPT_MARK}` })
+      answer(seen, 'npm run test', { kind: 'ok', stdout: '', backgroundTaskId: 'b1' })
+      answer(seen, 'pytest', failing(PYTEST_ONE_FAILED))
+      await start($)
+      await bash($, 'npm test')
+      await editFile($, 'Edit')
+      await bash($, 'pytest -x')
+      expect(seen.statuses.at(-1)).toBe('■ tests: pytest -x was interrupted · 1 edit since')
+      await bash($, 'npm run test')
+      expect(seen.statuses.at(-1)).toBe(
+        '▶ tests: npm run test runs in the background · 1 edit since',
+      )
+      await bash($, 'pytest')
+      expect(seen.statuses.at(-1)).toBe('■ tests: 1 failed · 3 of 4 passed')
+    },
+  )
 })
 
 describe('a run it cannot read whole never shows a pass', () => {

@@ -172,9 +172,35 @@ export function toastSettingOf(value: unknown): ToastSetting {
   )
 }
 
+export type StatusView = {
+  last: TestsRun | undefined
+  running: Running | undefined
+  now: number
+  edits: number
+}
+
+export function editsText(count: number): string {
+  return `${String(count)} ${count === 1 ? 'edit' : 'edits'} since`
+}
+
+function agedHeadline(run: TestsRun, headline: Headline, now: number): string {
+  const age = now - run.endedAt
+  if (age < MINUTE) return headline.text
+  const ago = `${ageText(age)} ago`
+  return run.outcome.kind === 'tests' ? `${headline.text} · ${ago}` : `${ago} · ${headline.text}`
+}
+
+export function nextAgeChangeIn(ms: number): number {
+  const age = Math.max(ms, 0)
+  if (age < MINUTE) return MINUTE - age
+  if (age < HOUR) return MINUTE - (age % MINUTE)
+  if (age < DAY) return HOUR - (age % HOUR)
+  return DAY - (age % DAY)
+}
+
 export function statusText(
   setting: StatusSetting,
-  view: { last: TestsRun | undefined; running: Running | undefined },
+  view: StatusView,
   marks: GlyphSet,
 ): string | undefined {
   if (setting === 'off') return undefined
@@ -185,7 +211,8 @@ export function statusText(
   if (last === undefined) return undefined
   if (setting === 'failures' && !isFailing(last.outcome)) return undefined
   const headline = headlineOf(last)
-  return `${marks[headline.role]} tests: ${headline.text}${headline.tail}`
+  const edits = view.edits > 0 ? ` · ${editsText(view.edits)}` : ''
+  return `${marks[headline.role]} tests: ${agedHeadline(last, headline, view.now)}${headline.tail}${edits}`
 }
 
 function quotedName(name: string): string {
@@ -220,8 +247,12 @@ export function runToastParts(run: TestsRun, before: TestsRun | undefined): Toas
   return wasFailing ? passToastParts(run) : undefined
 }
 
+export function isVerdict(outcome: TestsOutcome): boolean {
+  return outcome.kind === 'tests' || isFailing(outcome)
+}
+
 export function lastVerdict(runs: TestsRuns): TestsRun | undefined {
-  return runs.find((run) => run.outcome.kind === 'tests' || isFailing(run.outcome))
+  return runs.find((run) => isVerdict(run.outcome))
 }
 
 export function listText(run: TestsRun | undefined, now: number, marks: GlyphSet): string {

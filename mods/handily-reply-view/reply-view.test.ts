@@ -576,8 +576,8 @@ describe('long reply', () => {
       const drawn = await sketchOf(ui)
       expect(drawn.slice(-5)).toEqual([
         `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
-        '  npm ci',
-        '  npm test',
+        '  ^*npm*^ ci',
+        '  ^*npm*^ test',
         `  ${DIVIDER}`,
         edges('', '[ less ] [ copy reply ]'),
       ])
@@ -1090,7 +1090,7 @@ describe('tables', () => {
       '      c | d',
       '',
       `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
-      '  ls',
+      '  ^*ls*^',
     ])
     await ui.unmount()
   })
@@ -1113,7 +1113,7 @@ describe('tables', () => {
         `  ${ruled('example │ ok')}`,
         '',
         `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
-        '  echo a | cat',
+        '  ^*echo*^ a °|° ^*cat*^',
       ])
       await ui.press({ key: 'block-1-copy' })
       expect(world.copies).toEqual(['echo a | cat'])
@@ -1486,8 +1486,8 @@ describe('fenced blocks', () => {
     const ui = await mountReply($, reply('```sh\nnpm ci\nnpm test'))
     expect(await sketchOf(ui)).toEqual([
       `● ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
-      '  npm ci',
-      '  npm test',
+      '  ^*npm*^ ci',
+      '  ^*npm*^ test',
     ])
     await ui.press({ key: 'block-0-copy' })
     expect(world.copies).toEqual(['npm ci\nnpm test'])

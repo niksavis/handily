@@ -1,6 +1,6 @@
 {
   "name": "handily-tests",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A tests tab that lists each failed test by name with its file, line and assertion diff, read from the vitest, jest, node --test or pytest output of a Bash call. /tests opens it.",
   "author": {
     "name": "niksavis"
