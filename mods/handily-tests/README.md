@@ -89,14 +89,22 @@ Test output can hold secrets. The mod shows it only in this session and sends it
 
 ## Status line
 
-| Setting `statusLine` | The line                                                                      |
-| -------------------- | ----------------------------------------------------------------------------- |
-| `failures` (default) | `■ tests: 1 failed · 3 of 4 passed` while the last run failed, else none      |
-| `always`             | As `failures`, and also `✓ tests: 4 of 4 passed` and `▶ tests: npm test runs` |
-| `off`                | The mod sets no status line                                                   |
+| Setting `statusLine` | The line                                                        |
+| -------------------- | --------------------------------------------------------------- |
+| `failures` (default) | `1 failed · 3 of 4 passed` while the last run failed, else none |
+| `always`             | As `failures`, and also `4 passed` and `npm test runs`          |
+| `off`                | The mod sets no status line                                     |
 
-From one minute after the last run, the line shows the age of the run. The age comes after a
+Claude Code draws its own prefix before the text of the mod. On Claude Code 2.1.322 a live
+check in tmux measured the prefix at 20 columns: an indent of 2 columns, the mark `⚠`, the name
+`handily-tests:` and 2 spaces. The prefix names the mod, so the text has no mark and no
+`tests:`. Claude Code cuts the row with `…` at the width of the
+terminal. On a terminal 40 columns wide, the text of the mod has 19 columns.
+
+From one minute after the last run, the text shows the age of the run. The age comes after a
 count, such as `2 failed`. A run with no count, such as an interrupted run, shows the age first.
+The count and the age are in the first 19 columns for every outcome. When a count and the age
+with `ago` do not fit in 19 columns, the age drops `ago`, as in `999 failed · 23h`.
 
 Each Edit, Write and NotebookEdit call of the main loop or of an agent counts as an edit when it
 ends after the start of the last result. A refused call and a call that failed do not count. A
@@ -104,21 +112,21 @@ result is a run with a count, a run that could not run the tests or a run that f
 A new result sets the count to the edits since its start. A run that was interrupted, that went
 to the background or that could not be read keeps the count.
 
-The test fixture, 2 days after a run with 2 failures and with 2 edits after the run:
+The test fixture, 2 days after a run with 2 failures and with 2 edits after the run, and the row
+of the tests at 40 columns:
 
 ```text
-■ tests: 2 failed · 2d ago · 3 of 5 passed · 2 edits since
+2 failed · 2d ago · 3 of 5 passed · 2 edits since
+  ⚠ handily-tests:  2 failed · 2d ago ·…
 ```
 
 - The age has the form of the runs list: `1m ago` to `59m ago`, then `1h ago` to `23h ago`, then
   whole days, such as `2d ago`.
+- A pass shows the count of passed tests, such as `4 passed`. When some tests did not run, the
+  text adds the count, such as `3 passed · 1 not run`.
 - The mod sets the line again only when its age text changes: once a minute in the first hour,
   then once an hour, then once a day. It uses one `$.clock.after` timer and no repeating timer.
 - An old line stays. Only a new run or the `failures` rule hides it.
-- The mod does not know the width of the terminal, so it sets the whole line and does not cut
-  it. The count and the age are in the first 39 columns for every outcome. So a cut at the right
-  end at 40 columns keeps them. The tests cut the line with `…`, for example
-  `■ tests: 2 failed · 2d ago · 3 of 5 pas…` and `■ tests: 2d ago · npm run test:integrat…`.
 
 ## Toasts
 

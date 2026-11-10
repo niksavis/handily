@@ -112,7 +112,7 @@ async function refreshStatus($: EngineInterface, keep: Keep): Promise<void> {
   const now = await $.clock.now()
   const edits = keep.editsSeen - keep.editsBase
   const view = { last, running: latestRunning(keep), now, edits }
-  const text = statusText(keep.status, view, await settingGlyphs($))
+  const text = statusText(keep.status, view)
   if (text === undefined || last === undefined) stopAgeTimer(keep)
   else refreshStatusLater($, keep, nextAgeChangeIn(now - last.endedAt))
   if (text === keep.shownStatus) return
