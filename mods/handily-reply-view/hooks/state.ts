@@ -213,6 +213,6 @@ export function drawState(
     },
     width,
     meter,
-    'wrapped',
+    'kept-then-wrapped-labels',
   )
 }

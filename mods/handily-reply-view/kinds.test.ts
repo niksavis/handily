@@ -147,15 +147,15 @@ const WORK_STATES_WRAPPED = [
   '  │ open │◀────────────┐',
   '  ╰───┬──╯             │',
   '      │ claim          │',
-  '      ▼                │',
-  '╭─────────────╮        │',
-  '│ in_progress │────────┘',
+  '      ▼                │ blocked,',
+  '╭─────────────╮        │ waits on',
+  '│ in_progress │────────┘ external',
   '│             │──┐ comment,',
   '│             │  │ tick',
   '│             │◀─┘ criteria',
-  '╰─────┬───────╯          blocked,',
-  '      │ all              waits on',
-  '      │ criteria         external',
+  '╰─────┬───────╯',
+  '      │ all',
+  '      │ criteria',
   '      │ validated',
   '      ▼',
   ' ╭────────╮',
@@ -541,7 +541,7 @@ describe('state diagrams', () => {
         `a state diagram that does not fit across or down shows its source under the width note on ${surface} at ${String(columns)} columns`,
         async (world, $) => {
           const ui = await mountDiagram($, TASK_STATES, surface, columns)
-          expect(await noteOf(ui)).toBe(widthNote(columns, surface, 44))
+          expect(await noteOf(ui)).toBe(widthNote(columns, surface, 52))
           expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
           await ui.press({ key: 'block-1-copy' })
           expect(world.copies).toEqual([TASK_STATES])
@@ -646,6 +646,36 @@ describe('state diagrams', () => {
       expect(stateLines(source, 78)).toEqual(drawn)
     })
   }
+
+  test('a state diagram that drew with cut labels at 80 columns keeps the same rows', () => {
+    const source = lines(
+      'stateDiagram-v2',
+      '  [*]-->S0',
+      '  S0-->S2: external approved ok',
+      '  S1_long_name-->S1_long_name: by',
+      '  S2-->S0: x approved retry reviewer',
+      '  S0-->S2: ok ok',
+      '  S0-->S1_long_name: x',
+      '  S2-->[*]',
+    )
+    expect(stateLines(source, 78)).toEqual([
+      '                ●',
+      '                ▼',
+      '             ╭────╮',
+      '             │ S0 │◀──────────────────────────┐',
+      '             ╰──┬─╯                           │',
+      '       ┌────────┴─────────┐                   │',
+      '       │ x                │ external ap…      │',
+      '       │                  │ ok ok             │',
+      '       ▼                  ▼                   │',
+      '╭──────────────╮       ╭────╮                 │',
+      '│ S1_long_name │──┐ by │ S2 │─────────────────┘ x approved …',
+      '│              │◀─┘    ╰──┬─╯',
+      '╰──────────────╯          │',
+      '                          ▼',
+      '                          ◉',
+    ])
+  })
 
   test('a transition from a state to itself parses as a transition', () => {
     expect(parseMermaid(lines('stateDiagram-v2', '  A --> A : wait'))).toEqual({

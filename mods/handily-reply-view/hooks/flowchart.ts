@@ -2143,7 +2143,10 @@ function drawDownLoops(
   })
   for (const link of loops) {
     const label = edgeLabel(link.label, plan)
-    if (label.length > 0) placeText(canvas, rowOf(link.from, true), outermost + LABEL_INDENT, label)
+    if (label.length === 0) continue
+    const sourceRow = rowOf(link.from, true)
+    const top = Math.max(rowOf(link.to, false) + 1, sourceRow - label.length + 1)
+    placeText(canvas, top, outermost + LABEL_INDENT, label)
   }
 }
 
@@ -2376,7 +2379,7 @@ function drawAcrossLoops(plan: Plan, canvas: Canvas, lefts: number[], starts: nu
   }
 }
 
-export type LevelRows = 'kept' | 'wrapped'
+export type LevelRows = 'kept' | 'kept-then-wrapped-labels' | 'wrapped'
 
 function attemptsOf(
   direction: FlowDirection,
@@ -2409,11 +2412,17 @@ function attemptsOf(
     ...packed(labelled, Infinity),
     ...caps.flatMap((perRow) => packed(labelled, perRow)),
   ]
-  if (levelRows === 'kept') {
-    return packed(
-      [...plain, ...down(FITTED_LABELS), ...down(brokenLabels(FITTED_LABELS, longest))],
-      Infinity,
-    )
+  const kept = packed(
+    [...plain, ...down(FITTED_LABELS), ...down(brokenLabels(FITTED_LABELS, longest))],
+    Infinity,
+  )
+  if (levelRows === 'kept') return kept
+  if (levelRows === 'kept-then-wrapped-labels') {
+    const wrapped = [WRAPPED_EDGE_LABELS]
+    return [
+      ...kept,
+      ...packed([...down(wrapped), ...down(brokenLabels(wrapped, longest))], Infinity),
+    ]
   }
   const whole = [...FITTED_LABELS, WRAPPED_EDGE_LABELS]
   return [
