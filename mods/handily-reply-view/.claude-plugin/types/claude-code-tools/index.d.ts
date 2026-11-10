@@ -12,8 +12,8 @@ declare module 'claude-code' {
       subagent_type?: string
       /** Optional model override for this agent. Takes precedence over the agent definition's model frontmatter and the configured default subagent model. If omitted, uses the agent definition's model, else the default (inherits from the parent unless a default subagent model is configured). Ignored for subagent_type: "fork" — forks always inherit the parent model. */
       model?: "sonnet" | "opus" | "haiku" | "fable"
-      /** Reasoning effort for this agent. "lower" or "higher" is one step from the effort the agent would otherwise run at (normally yours), on whatever model it would otherwise use. Pass "lower" when the brief is mechanical and checkable against itself — bounded search, grep-and-report, a pattern you spelled out. Pass "higher" when one well-specified piece needs more reasoning than the work around it. Omit when neither clearly applies. Name a level (low, medium, high, xhigh, max) ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly ask for that level. "lower" and "higher" are ignored for subagent_type: "fork", isolation: "remote", and teammates. */
-      effort?: "lower" | "higher" | "low" | "medium" | "high" | "xhigh" | "max"
+      /** Reasoning effort for this agent. Set this ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly ask that this agent or delegated work run at a specific effort level, never on your own judgment; otherwise omit it and the agent runs at its usual effort. Ignored for subagent_type: "fork": a fork runs at your own effort. */
+      effort?: "low" | "medium" | "high" | "xhigh" | "max"
       /** Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running. */
       name?: string
       /** Deprecated; ignored. The session has a single implicit team. */
@@ -34,13 +34,21 @@ declare module 'claude-code' {
     Artifact: {
       /** One of 'publish', 'list', 'read', 'delete', 'open', 'pin', 'unpin', 'quickstart'. Omitting it means 'publish'. **Calls** in the description says what each one does and takes, except as noted here. */
       action?: "publish" | "list" | "read" | "delete" | "open" | "pin" | "unpin" | "quickstart"
-      /** publish: the local page Claude publishes (.html, or .md only when a skill says so). For an Artifact created from an Artifact type, it is one of that Artifact's data files. A short, distinctive basename also serves as the title when nothing else gives one. */
+      /** publish: the local page Claude publishes (.html, or .md only when a skill says so). For an Artifact created from an Artifact type, it is one of that Artifact's data files. With `asset: true`, it is the local file Claude uploads. A short, distinctive basename also serves as the title when nothing else gives one. */
       file_path?: string
+      /** publish with `url`: true uploads `file_path` (or each of `file_paths`) to that artifact's asset store instead of publishing it as the page — or, with `from_url` and `asset_ids` in place of `file_path`, copies those assets of another artifact into it server side (see **Calls**). */
+      asset?: boolean
+      /** publish with `asset: true` only: several local image, video, PDF, font, stylesheet or script files in place of `file_path`, up to 25 in one call, all into the artifact that `url` names; one approval covers the call, and the result lists each file's id and url, or why it was not uploaded. A CSV, Markdown, JSON or plain-text file, a symbolic or hard link, and a file outside the working directory each go in a call of their own with `file_path`. */
+      file_paths?: string[]
+      /** publish with `asset: true`, in place of `file_path`: the SOURCE artifact's claude.ai URL — one the person can open. */
+      from_url?: string
+      /** publish with `asset: true` and `from_url` only: 1–10 distinct asset ids from the source artifact (from a `scope: "assets"` listing of it, or an upload result). */
+      asset_ids?: string[]
       /** Deprecated; Claude omits it and uses `icon`. */
       favicon?: string
       /** One short generic word for the artifact's browser-tab icon, such as chart, calendar, recipe, code or map: a plain signifier, never a product or brand name. Claude includes it on every page's first publish and omits it on a redeploy so the artifact keeps its icon, passing a new one only when the person asks. Ignored on an Artifact created from an Artifact type. */
       icon?: string
-      /** Supporting files to publish alongside the page, as a map {"published/path": "source/path" | {from, contentType} | null}. The key is what the HTML references. The source is a path on disk, or {from, contentType} when the type cannot be inferred from the published extension. null removes that path on an update, and files left out are kept. A plain list publishes each file at its own spelling. Sources must be under the working directory or Claude's scratchpad directory. `preflight.js` at the artifact root is reserved: it runs against open pages when Claude publishes updates, and it must be a JavaScript module of at most 8 KiB whose default export is a function, or the publish is refused. */
+      /** Supporting files to publish alongside the page, as a map {"published/path": "source/path" | {from, contentType} | {artifact, path, ver?} | null}. The key is what the HTML references. The source is a path on disk, or {from, contentType} when the type cannot be inferred from the published extension. An {artifact, path} source copies that Artifact's published file on the server: an Artifact the person can open, with its type carried over, never an HTML or XML document, and at most 4 source Artifact versions per publish. null removes that path on an update, and files left out are kept. A plain list publishes each file at its own spelling. Sources must be under the working directory or Claude's scratchpad directory. `preflight.js` at the artifact root is reserved: it runs against open pages when Claude publishes updates, and it must be a JavaScript module of at most 8 KiB whose default export is a function, or the publish is refused. */
       files?: Array<{
         /** Path relative to the working directory (or to `root`, which may be a folder in your scratchpad directory); the file is served at this same path next to the page. */
         path: string
@@ -55,8 +63,8 @@ declare module 'claude-code' {
       limit?: number
       /** list only: the `next_page_token` a listing of the same scope gave, to list the artifacts after it. */
       page_token?: string
-      /** list: which listing to return. 'mine' is the default. The others are 'shared', 'all', 'types' and 'files' (with `url`). See **Calls**. */
-      scope?: "mine" | "shared" | "all" | "types" | "files"
+      /** list: which listing to return. 'mine' is the default. The others are 'shared', 'all', 'types', 'files' (with `url`) and 'assets' (with `url`, continued with `after`). See **Calls**. */
+      scope?: "mine" | "shared" | "all" | "types" | "files" | "assets"
       /** list with scope 'types' only: limits the listing to the types whose title or description match this text best, ignoring case; a type that matches less well is left out, so a narrowed listing is not the whole catalog. Claude omits it when choosing a type for a request, unless a listing made without it says more types exist than it shows. */
       type_query?: string
       /** list only: the name of a published Artifact type, as a 'types' listing shows it (case does not matter). The listing then shows the Artifacts made from that type instead of the person's gallery. Claude passes this or `type_url`, not both. */
@@ -83,12 +91,14 @@ declare module 'claude-code' {
       prompt?: string
       /** publish: a last-resort overwrite that **discards** the newer published version. On a conflict, Claude merges its changes onto the newer content that the rejection hands it and publishes again. Claude passes true only when the person explicitly said to discard that specific version, and the server may still refuse it over a version saved from inside the page. */
       force?: boolean
-      /** read with `path`: the directory to save into. The default is this artifact's folder in Claude's scratchpad directory, where saving needs no approval. A published file lands at <out_dir>/<published path>, and saving it outside that default folder asks the person first. */
+      /** read with `path`: the directory to save into. The default is this artifact's folder in Claude's scratchpad directory, where saving needs no approval. A published file lands at <out_dir>/<published path>, and saving it outside that default folder asks the person first. An asset's file is named by its id plus its type's extension; saving it outside the default folder is an ordinary file save the person may be asked to approve. */
       out_dir?: string
-      /** read: the file's published path inside the artifact, exactly as a 'files' listing printed it ("index.html" is the page itself). The file is saved locally, the result says where, and a small text file's contents are included. */
+      /** read: the file's published path inside the artifact, exactly as a 'files' listing printed it ("index.html" is the page itself). The file is saved locally, the result says where, and a small text file's contents are included. It can instead be an uploaded asset's id (32 hex characters, from an 'assets' listing or an upload result), and that asset is saved to a local file. delete: the id of the one asset to remove. */
       path?: string
       /** read: several published paths in place of `path`, up to 256 in one call. Each file is saved as a single `path` would be, and the result lists where each one landed, or why it could not be read, with small text files' contents included while they fit. */
       paths?: string[]
+      /** list with scope 'assets' only: the `next` value from a previous listing, passed to continue it. */
+      after?: string
       /** read only: true returns the rendered page in cases where a read otherwise returns something else. A typed Artifact's read leaves out the type's own page. */
       page?: boolean
       /** publish: the runtime capabilities this page declares, as {name: config}. Claude loads the `artifact-capabilities` skill before passing it. On a redeploy Claude omits the field to keep what the page has, and {} clears it. */
@@ -450,8 +460,15 @@ declare module 'claude-code' {
         description: string
         /** memory file paths where this procedure was observed */
         evidence?: string[]
-        /** The complete SKILL.md exactly as it should be saved: frontmatter plus the full body. When the user saves, the body below the frontmatter becomes the skill's entire instructions and the name and description come from the fields above; other frontmatter keys are not kept. For an improvement this replaces the existing skill's SKILL.md entirely, so read that skill's current SKILL.md first and include everything worth keeping, not only the changes. */
-        skillMd: string
+        /** For an improvement, in place of skillMd: your changes to the skill's SKILL.md, applied in order. They apply to that file as it is now, not to an earlier proposal of yours. The card shows the whole updated file. The name and description come from the fields above, not from the frontmatter. */
+        edits?: Array<{
+          /** Text to replace. It must occur exactly once in that SKILL.md */
+          old_string: string
+          /** Text to put in its place */
+          new_string: string
+        }>
+        /** For a new skill or a full rewrite. The complete SKILL.md exactly as it should be saved: frontmatter plus the full body. When the user saves, the body below the frontmatter becomes the skill's entire instructions and the name and description come from the fields above; other frontmatter keys are not kept. For an improvement this replaces the existing skill's SKILL.md entirely, so read that skill's current SKILL.md first and include everything worth keeping, not only the changes. */
+        skillMd?: string
       }>
     }
     ProposeGoal: {
@@ -560,8 +577,8 @@ declare module 'claude-code' {
     }
     ReadNotifications: {}
     ReadWidgetContext: {
-      /** A view id as a reminder named it, to read only that view; omit it to read every held view. */
-      view?: string
+      /** A widget_id as a reminder or an earlier answer named it, to read only that view; omit it to read every held view. */
+      widget_id?: string
     }
     RemoteTrigger: {
       action: "list" | "get" | "create" | "update" | "run" | "create_webhook_trigger" | "list_runs" | "get_run_log"
@@ -569,7 +586,7 @@ declare module 'claude-code' {
       trigger_id?: string
       /** Required for get_run_log: a run session id (cse_… or session_…, from list_runs) */
       session_id?: string
-      /** next_cursor from a previous list_runs or get_run_log page */
+      /** The next_cursor from the previous page of the same listing (list_runs with the same trigger_id, or get_run_log with the same session_id), passed back unchanged. Not an offset, a count or an event number. */
       cursor?: string
       /** Required for create and update; optional for run */
       body?: {}
@@ -936,7 +953,7 @@ declare module 'claude-code' {
       worktreeBranch?: string
       /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
       canContinueAgent?: boolean
-      /** @internal The subagent's TaskCreate and TaskUpdate calls that landed, in order: each call's tool, input and result text. The subagent writes the session's task list, and no other row of the main transcript shows these calls (not a stable consumer field) */
+      /** @internal The subagent's TaskCreate and TaskUpdate calls that succeeded, in order: each call's tool, its input as the model wrote it, and its result text. The subagent writes the session's task list, and no other row of the main transcript shows these calls. A missing member does not mean that no call ran. A host may read it, so a later build only adds keys to a call: see "For another program that reads a sub-agent's task calls" in docs/task-list-across-compaction.md */
       taskCalls?: Array<{
         name: "TaskCreate" | "TaskUpdate"
         input: unknown
@@ -1135,6 +1152,11 @@ declare module 'claude-code' {
       editsApplied?: number
       editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
       seededThread?: string
+      copied?: {
+        path: string
+        from_url: string
+        from_path: string
+      }[]
       files_written?: {
         path: string
         sha256: string
@@ -2004,6 +2026,11 @@ declare module 'claude-code' {
       editsApplied?: number
       editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
       seededThread?: string
+      copied?: {
+        path: string
+        from_url: string
+        from_path: string
+      }[]
       files_written?: {
         path: string
         sha256: string
@@ -2873,6 +2900,11 @@ declare module 'claude-code' {
       editsApplied?: number
       editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
       seededThread?: string
+      copied?: {
+        path: string
+        from_url: string
+        from_path: string
+      }[]
       files_written?: {
         path: string
         sha256: string
@@ -3742,6 +3774,11 @@ declare module 'claude-code' {
       editsApplied?: number
       editsNotWritten?: "write_failed" | "not_writable" | "changed_during_publish" | "hard_linked"
       seededThread?: string
+      copied?: {
+        path: string
+        from_url: string
+        from_path: string
+      }[]
       files_written?: {
         path: string
         sha256: string
@@ -4553,6 +4590,8 @@ declare module 'claude-code' {
       backgroundEndsWithFinalResponse?: true
       /** True when the subagent that owns this backgrounded command parks for its end and is woken by it */
       backgroundWakesOwner?: true
+      /** @internal Milliseconds, a whole number of minutes, from this result within which the end of this backgrounded command normally opens a turn even after the reply; absent where no such turn is promised */
+      backgroundCalledBackWithinMs?: number
       /** Flag to indicate if sandbox mode was overridden */
       dangerouslyDisableSandbox?: boolean
       /** Semantic interpretation for non-error exit codes with special meaning */
@@ -4635,6 +4674,7 @@ declare module 'claude-code' {
     }
     CronDelete: {
       id: string
+      endedLoopWakeup?: true
     }
     CronList: {
       jobs: Array<{
@@ -4825,10 +4865,17 @@ declare module 'claude-code' {
       lastUpdatedAt: string
       status: "completed"
       result: {
-        content: {
+        content: Array<{
           type: "text"
           text: string
-        }[]
+        } | {
+          type: "image"
+          source: {
+            type: "base64"
+            media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+            data: string
+          }
+        }>
         isError: boolean
       }
     } | {
@@ -5057,7 +5104,7 @@ declare module 'claude-code' {
       method: "project_read"
       notice?: string
       path: string
-      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain and tengu_lucky_nebula are on, on a project_read that saved the whole text to a file and on a project_write by local_path in a checked call. */
       version?: string
       file_kind?: string
       content?: string
@@ -5080,7 +5127,7 @@ declare module 'claude-code' {
       notice?: string
       path: string
       doc_uuid: string
-      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain and tengu_lucky_nebula are on, on a project_read that saved the whole text to a file and on a project_write by local_path in a checked call. */
       version?: string
       replaced: boolean
       present_to_user?: boolean
@@ -5417,6 +5464,10 @@ declare module 'claude-code' {
           height: number
           original_width: number
           original_height: number
+        }
+        thumbnail?: {
+          width: number
+          height: number
         }
         project_path?: string
         partial_error?: string

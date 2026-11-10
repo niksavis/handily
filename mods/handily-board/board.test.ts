@@ -1064,6 +1064,7 @@ describe('the this session tab', () => {
 })
 
 const MACHINE = 'sessions'
+const OWN_SESSION_ID = '00000000-0000-4000-8000-00000000000a'
 const SESSION_OPEN = { id: PANE, title: 'this session' }
 const MACHINE_OPEN = { id: MACHINE, title: 'this machine' }
 const WAITS_TOAST = ['◆ Board waits for a wider terminal', 'run /board to open it here']
@@ -3267,6 +3268,21 @@ const withToolIds = { plugins: [fakeWorkitems, seeToolIds] }
 
 function engineRows(on: On): void {
   on('ui.render', () => ENGINE_ROW)
+}
+
+function ownSession(on: On): void {
+  const store = new Map<string, unknown>()
+  on('session.id', () => ({ value: OWN_SESSION_ID }))
+  on('store.get', (_$, e) => ({ value: store.get(e.key) }))
+  on('store.keys', () => ({ value: [...store.keys()] }))
+  on('store.delete', (_$, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  on('store.set', (_$, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
 }
 
 type Called = { id: string; tool: string; input: Record<string, unknown>; answer: unknown }
@@ -9576,6 +9592,7 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
 function bandProps(bodyColumns = 75, hasSurvey = false): RenderPropsOf['AbovePrompt'] {
   return {
     hasSurvey,
+    isCollapsed: false,
     isWorking: false,
     maxRows: 10,
     bodyColumns,
@@ -10014,6 +10031,7 @@ describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)
       async ($, on) => {
         const seen = world(on)
         engineRows(on)
+        ownSession(on)
         await start($)
         await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
         expect(await board($, '')).toBe('Board opened: this session.')
