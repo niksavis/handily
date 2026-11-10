@@ -183,9 +183,11 @@ export function editsText(count: number): string {
   return `${String(count)} ${count === 1 ? 'edit' : 'edits'} since`
 }
 
-function agedText(run: TestsRun, now: number): string {
+function agedHeadline(run: TestsRun, headline: Headline, now: number): string {
   const age = now - run.endedAt
-  return age < MINUTE ? '' : ` · ${ageText(age)} ago`
+  if (age < MINUTE) return headline.text
+  const ago = `${ageText(age)} ago`
+  return run.outcome.kind === 'tests' ? `${headline.text} · ${ago}` : `${ago} · ${headline.text}`
 }
 
 export function nextAgeChangeIn(ms: number): number {
@@ -210,7 +212,7 @@ export function statusText(
   if (setting === 'failures' && !isFailing(last.outcome)) return undefined
   const headline = headlineOf(last)
   const edits = view.edits > 0 ? ` · ${editsText(view.edits)}` : ''
-  return `${marks[headline.role]} tests: ${headline.text}${agedText(last, view.now)}${headline.tail}${edits}`
+  return `${marks[headline.role]} tests: ${agedHeadline(last, headline, view.now)}${headline.tail}${edits}`
 }
 
 function quotedName(name: string): string {
@@ -245,8 +247,12 @@ export function runToastParts(run: TestsRun, before: TestsRun | undefined): Toas
   return wasFailing ? passToastParts(run) : undefined
 }
 
+export function isVerdict(outcome: TestsOutcome): boolean {
+  return outcome.kind === 'tests' || isFailing(outcome)
+}
+
 export function lastVerdict(runs: TestsRuns): TestsRun | undefined {
-  return runs.find((run) => run.outcome.kind === 'tests' || isFailing(run.outcome))
+  return runs.find((run) => isVerdict(run.outcome))
 }
 
 export function listText(run: TestsRun | undefined, now: number, marks: GlyphSet): string {

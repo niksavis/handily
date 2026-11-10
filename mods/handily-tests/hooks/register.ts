@@ -25,6 +25,7 @@ import {
   type StatusSetting,
   type ToastSetting,
   failureText,
+  isVerdict,
   keptRuns,
   lastVerdict,
   listText,
@@ -59,13 +60,14 @@ type Keep = {
   running: Map<string, Running>
   look: Look
   shownStatus: string | undefined
-  edits: number
+  editsSeen: number
+  editsBase: number
   ageTimer: Timer | undefined
 }
 
 type BashCall = Extract<ToolCallInput, { tool: 'Bash' }>
 
-type CallSite = { e: BashCall; startedAt: number }
+type CallSite = { e: BashCall; startedAt: number; editsAtStart: number }
 
 const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'NotebookEdit'])
 
@@ -108,7 +110,8 @@ async function refreshStatus($: EngineInterface, keep: Keep): Promise<void> {
   if (keep.status === 'off') return
   const [last] = await runsOf($)
   const now = await $.clock.now()
-  const view = { last, running: latestRunning(keep), now, edits: keep.edits }
+  const edits = keep.editsSeen - keep.editsBase
+  const view = { last, running: latestRunning(keep), now, edits }
   const text = statusText(keep.status, view, await settingGlyphs($))
   if (text === undefined || last === undefined) stopAgeTimer(keep)
   else refreshStatusLater($, keep, nextAgeChangeIn(now - last.endedAt))
@@ -162,7 +165,7 @@ async function recordRun(
     return keptRuns(run, runs)
   })
   keep.look = newLook(run.id)
-  keep.edits = 0
+  if (isVerdict(outcome)) keep.editsBase = site.editsAtStart
   const parts = keep.toasts === 'on' ? runToastParts(run, before) : undefined
   if (parts !== undefined && !(await isTabShown($))) showGlyphToast($, parts)
 }
@@ -263,7 +266,7 @@ async function endCall(
 
 async function noteEdit($: EngineInterface, keep: Keep, answer: ToolCallResult): Promise<void> {
   if (answer.deny !== undefined || answer.isError === true) return
-  keep.edits += 1
+  keep.editsSeen += 1
   try {
     await refreshStatus($, keep)
   } catch (error) {
@@ -278,7 +281,8 @@ export const register: Register = (on, options) => {
     running: new Map(),
     look: newLook(undefined),
     shownStatus: undefined,
-    edits: 0,
+    editsSeen: 0,
+    editsBase: 0,
     ageTimer: undefined,
   }
 
@@ -305,7 +309,8 @@ export const register: Register = (on, options) => {
   on('session.end', async (_$, e, next) => {
     keep.running.clear()
     keep.look = newLook(undefined)
-    keep.edits = 0
+    keep.editsSeen = 0
+    keep.editsBase = 0
     stopAgeTimer(keep)
     return next(e)
   })
@@ -317,6 +322,7 @@ export const register: Register = (on, options) => {
       return edited
     }
     if (e.tool !== 'Bash') return next(e)
+    const editsAtStart = keep.editsSeen
     const startedAt = await $.clock.now()
     const isWatched = isTestCommand(e.command) && e.run_in_background !== true
     if (isWatched) {
@@ -328,7 +334,7 @@ export const register: Register = (on, options) => {
       answer = await next(e)
       return answer
     } finally {
-      await endCall($, keep, { e, startedAt, isWatched }, answer)
+      await endCall($, keep, { e, startedAt, editsAtStart, isWatched }, answer)
     }
   })
 
@@ -347,7 +353,7 @@ export const register: Register = (on, options) => {
         const count = (await runsOf($)).length
         await $.state.set(RUNS, [])
         keep.look = newLook(undefined)
-        keep.edits = 0
+        keep.editsBase = keep.editsSeen
         await afterChange($, keep)
         return { text: clearReply(count) }
       }
