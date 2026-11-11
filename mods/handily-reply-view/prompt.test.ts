@@ -484,11 +484,76 @@ describe('the prompt styles', () => {
     async ($, on) => {
       await started($, on)
       const text = 'abcdefgh '.repeat(10).trim()
-      const ui = await mountPrompt($, text, { columns: 11 })
-      const lines = await seen(ui, 11)
-      expect(lines.slice(1, 6)).toEqual(Array<string>(5).fill('▌ abcdefgh'))
-      expect(lines.slice(6, -1).join(' ')).toBe('▌ … 5 more ▌ lines ▌ (ctrl+o ▌ shows ▌ all)')
+      const ui = await mountPrompt($, text, { columns: 18 })
+      expect(await seen(ui, 18)).toEqual([
+        '',
+        '▌ abcdefgh',
+        '▌ abcdefgh',
+        '▌ abcdefgh',
+        '▌ abcdefgh',
+        '▌ abcdefgh',
+        '▌ … 5 more lines',
+        '▌ you',
+      ])
       await ui.unmount()
+    },
+  )
+
+  test(
+    'a folded bubble at a terminal of 40 columns keeps 6 rows, and its count drops the ctrl+o words that do not fit',
+    { options: { promptStyle: 'bubble' } },
+    async ($, on) => {
+      await started($, on)
+      await appendPrompts($, 9, 'unused')
+      const text = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'].join(
+        '\n',
+      )
+      const ui = await mountPrompt($, text, { columns: 40 })
+      expect(await seen(ui, 40)).toEqual([
+        '',
+        `${pad(25)}${LABEL_9}`,
+        `${pad(22)}╭${ruleOf(16)}╮`,
+        `${pad(22)}│ one${pad(11)} │`,
+        `${pad(22)}│ two${pad(11)} │`,
+        `${pad(22)}│ three${pad(9)} │`,
+        `${pad(22)}│ four${pad(10)} │`,
+        `${pad(22)}│ five${pad(10)} │`,
+        `${pad(22)}│ … 4 more lines │`,
+        `${pad(22)}╰${ruleOf(16)}╯`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a folded bar at a terminal of 30 columns keeps 6 rows, and a count too wide for one row is cut',
+    { options: { promptStyle: 'bar' } },
+    async ($, on) => {
+      await started($, on)
+      const text = Array.from({ length: 1200 }, (_, index) => `line ${String(index + 1)}`).join(
+        '\n',
+      )
+      const wide = await mountPrompt($, text, { columns: 30 })
+      const rows = await seen(wide, 30)
+      expect(rows.slice(1, -1)).toEqual([
+        '▌ line 1',
+        '▌ line 2',
+        '▌ line 3',
+        '▌ line 4',
+        '▌ line 5',
+        '▌ … 1195 more lines',
+      ])
+      const narrow = await mountPrompt($, text, { columns: 12, requestId: 'prompt-2' })
+      expect((await seen(narrow, 12)).slice(1, -1)).toEqual([
+        '▌ line 1',
+        '▌ line 2',
+        '▌ line 3',
+        '▌ line 4',
+        '▌ line 5',
+        '▌ … 1195 mo…',
+      ])
+      await wide.unmount()
+      await narrow.unmount()
     },
   )
 

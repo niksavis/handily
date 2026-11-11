@@ -2359,7 +2359,8 @@ At a terminal of 40 columns or more a bubble draws. Under 40 columns it draws as
   a time.
 - While a prompt waits in the queue, its label shows `you` without a number or a time.
 - A bar or a bubble shows at most 6 lines. A longer prompt shows its first 5 lines and a dim line
-  such as `… 188 more lines (ctrl+o shows all)`. A long line counts as the lines that it wraps to.
+  such as `… 188 more lines (ctrl+o shows all)`. When that line does not fit, it shows
+  `… 188 more lines`. A long line counts as the lines that it wraps to.
 - In a bar or a bubble, the mod shows a control character or a bidi character of the prompt as its
   code, such as `\u202e`, so pasted text cannot move the frame or change the direction of the
   text. A tab draws as 4 spaces.

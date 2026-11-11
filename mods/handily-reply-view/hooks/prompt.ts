@@ -1,7 +1,7 @@
 import type { Color, RenderElement, RenderNode } from 'claude-code'
 import type { ReplyElements } from './draw'
 import { shownText } from './markdown'
-import { displayWidth } from './width'
+import { displayWidth, fitted } from './width'
 import { wrappedAtWords } from './wrap'
 
 export const PROMPT_STYLES = ['rule', 'bar', 'bubble'] as const
@@ -77,11 +77,13 @@ function wrappedLine(line: string, columns: number): string[] {
 function rowsOf(text: string, columns: number): PromptRows {
   const rows = shownLinesOf(text).flatMap((line) => wrappedLine(line, columns))
   if (rows.length <= ROWS_AT_MOST) return { text: rows, note: [] }
-  const hidden = rows.length - ROWS_FOLDED
-  return {
-    text: rows.slice(0, ROWS_FOLDED),
-    note: wrappedAtWords(`… ${String(hidden)} more lines (ctrl+o shows all)`, columns),
-  }
+  return { text: rows.slice(0, ROWS_FOLDED), note: [foldNote(rows.length - ROWS_FOLDED, columns)] }
+}
+
+function foldNote(hidden: number, columns: number): string {
+  const count = `… ${String(hidden)} more lines`
+  const whole = `${count} (ctrl+o shows all)`
+  return displayWidth(whole) <= columns ? whole : fitted(count, columns)
 }
 
 function lineOf(elements: PromptElements, children: RenderNode[]): RenderElement {
