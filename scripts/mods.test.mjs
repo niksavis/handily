@@ -535,6 +535,60 @@ test('test fails by name when a declared timeoutMs cannot count because a test t
   ])
 })
 
+const keptOnOneTitleSource = `import { test } from 'claude-code/testing'
+for (const n of [500]) {
+  test(\`draws \${String(n)} charts\`, { timeoutMs: 30000 }, async () => {})
+}
+for (const n of [5]) {
+  test(\`draws \${String(n)} big charts\`, async () => {})
+}
+`
+const keptOnOneTitleResult = runTimedTests(
+  testOutput(['(pass) draws 500 charts [9000.00ms]', '(pass) draws 5 big charts [100.00ms]']),
+  { source: keptOnOneTitleSource },
+)
+
+test('test passes when a declared timeoutMs keeps its limit on one title it matches and a lower pattern also matches another', () => {
+  assert.equal(
+    keptOnOneTitleResult.status,
+    0,
+    keptOnOneTitleResult.stdout + keptOnOneTitleResult.stderr,
+  )
+  assert.deepEqual(failLines(keptOnOneTitleResult), [])
+})
+
+const lostOnEveryTitleSource = `import { test } from 'claude-code/testing'
+const named = (title: string): void => {
+  test(title, async () => {})
+}
+for (const n of [500, 600]) {
+  test(\`draws \${String(n)} charts\`, { timeoutMs: 30000 }, async () => {})
+}
+named('a chart')
+`
+const lostOnEveryTitleResult = runTimedTests(
+  testOutput([
+    '(pass) a chart [1.00ms]',
+    '(pass) draws 500 charts [100.00ms]',
+    '(pass) draws 600 charts [100.00ms]',
+  ]),
+  { source: lostOnEveryTitleSource },
+)
+
+test('test fails by name on each title of a declared timeoutMs that a lower pattern overrides on every title it matches', () => {
+  assert.equal(
+    lostOnEveryTitleResult.status,
+    1,
+    lostOnEveryTitleResult.stdout + lostOnEveryTitleResult.stderr,
+  )
+  const lost = (title) =>
+    `FAIL timed: timed.test.ts test "${title}" matches the timeoutMs of 30000 ms at line 6 and also /^.*$/ of the test at line 3 with a limit of 5000 ms, so the gate cannot honour the 30000 ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal`
+  assert.deepEqual(failLines(lostOnEveryTitleResult), [
+    lost('draws 500 charts'),
+    lost('draws 600 charts'),
+  ])
+})
+
 const untimedResult = runTimedTests('\ntimed.test.ts:\n\n 4 pass\n 0 fail\n')
 
 test('test fails by name when claude plugin test prints no test time', () => {

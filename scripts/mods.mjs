@@ -603,34 +603,28 @@ function readDeclaredTestLimits(path) {
     const node = resolve(name)
     if (node === undefined) return undefined
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      return { text: escapeRegExp(node.text), isLiteral: true }
+      return escapeRegExp(node.text)
     }
     if (!ts.isTemplateExpression(node)) return undefined
     const literals = [node.head, ...node.templateSpans.map((span) => span.literal)]
-    return {
-      text: literals.map((literal) => escapeRegExp(literal.text)).join('.*'),
-      isLiteral: false,
-    }
+    return literals.map((literal) => escapeRegExp(literal.text)).join('.*')
   }
-  const titleOf = (call, unreadablePart) => {
+  const titlePattern = (call, unreadablePart) => {
     const parts = [titlePart(call.arguments[0])]
     for (let node = call.parent; node !== undefined; node = node.parent) {
       if (isCallOf(node, 'describe')) parts.unshift(titlePart(node.arguments[0]))
     }
     if (parts.some((part) => part === undefined) && unreadablePart === undefined) return undefined
-    return {
-      pattern: new RegExp(`^${parts.map((part) => part?.text ?? unreadablePart).join(' > ')}$`),
-      isLiteral: parts.every((part) => part?.isLiteral === true),
-    }
+    return new RegExp(`^${parts.map((part) => part ?? unreadablePart).join(' > ')}$`)
   }
   return testCalls.flatMap((call) => {
     const declaredMs = call.arguments.length === 3 ? timeoutOf(call.arguments[1]) : undefined
     const limitMs = declaredMs ?? defaultTestLimitMs
     const isDefaultLimit = limitMs === defaultTestLimitMs
-    const title = titleOf(call, isDefaultLimit ? anyTitlePart : undefined)
-    if (title === undefined) return []
+    const pattern = titlePattern(call, isDefaultLimit ? anyTitlePart : undefined)
+    if (pattern === undefined) return []
     const line = source.getLineAndCharacterOfPosition(call.getStart(source)).line + 1
-    return [{ ...title, limitMs, isDeclared: !isDefaultLimit, line }]
+    return [{ pattern, limitMs, isDeclared: !isDefaultLimit, line }]
   })
 }
 
@@ -639,14 +633,21 @@ function testLimitMs(title, declared) {
   return limits.length === 0 ? defaultTestLimitMs : Math.min(...limits)
 }
 
-function unhonouredLimit(title, declared) {
-  const matches = declared.filter(({ pattern }) => pattern.test(title))
-  if (matches.length === 0) return undefined
-  const literal = matches.filter(({ isLiteral }) => isLiteral)
-  const owners = literal.length > 0 ? literal : matches
-  const lowest = matches.reduce((low, match) => (match.limitMs < low.limitMs ? match : low))
-  const lost = owners.find(({ isDeclared, limitMs }) => isDeclared && limitMs > lowest.limitMs)
-  return lost === undefined ? undefined : { lost, lowest }
+function lostLimits(titles, declared) {
+  return declared.filter(({ pattern, limitMs, isDeclared }) => {
+    if (!isDeclared) return false
+    const matched = titles.filter((title) => pattern.test(title))
+    return matched.length > 0 && matched.every((title) => testLimitMs(title, declared) < limitMs)
+  })
+}
+
+function unhonouredLimit(title, declared, lost) {
+  const lostHere = lost.find(({ pattern }) => pattern.test(title))
+  if (lostHere === undefined) return undefined
+  const lowest = declared
+    .filter(({ pattern }) => pattern.test(title))
+    .reduce((low, match) => (match.limitMs < low.limitMs ? match : low))
+  return { lost: lostHere, lowest }
 }
 
 function note(message) {
@@ -680,12 +681,21 @@ function checkTestTimes(mod, times, slowness) {
   const machine =
     slowness > 1 ? ` on a machine ${slowness.toFixed(2)} times slower than the reference times` : ''
   const declaredByFile = new Map()
+  const lostByFile = new Map()
+  for (const file of new Set(times.map((time) => time.file))) {
+    if (file === undefined) continue
+    const declared = readDeclaredTestLimits(join(mod.dir, file))
+    const titles = times.filter((time) => time.file === file).map((time) => time.title)
+    declaredByFile.set(file, declared)
+    lostByFile.set(file, lostLimits(titles, declared))
+  }
   const unhonoured = new Set()
   for (const { file, title, ms } of times) {
-    if (file !== undefined && !declaredByFile.has(file)) {
-      declaredByFile.set(file, readDeclaredTestLimits(join(mod.dir, file)))
-    }
-    const conflict = unhonouredLimit(title, declaredByFile.get(file) ?? [])
+    const conflict = unhonouredLimit(
+      title,
+      declaredByFile.get(file) ?? [],
+      lostByFile.get(file) ?? [],
+    )
     const conflictKey = `${file ?? ''} > ${title}`
     if (conflict !== undefined && !unhonoured.has(conflictKey)) {
       unhonoured.add(conflictKey)
