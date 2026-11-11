@@ -13,7 +13,8 @@ diagram, state diagram, class diagram, ER diagram, git graph, mind map, timeline
 quadrant chart, kanban, packet diagram, sankey diagram, radar diagram, treemap, block diagram,
 requirement diagram, C4 diagram or architecture diagram draws as a diagram, with a `copy` button
 for its source and a `copy drawing` button for the drawing. Each prompt that you type opens under
-a coloured rule labelled `you`, so you find it when you scroll. `/replies` switches the view off and
+a coloured rule labelled `you`, so you find it when you scroll. The `promptStyle` setting draws it
+with a bar at its left or in a frame at the right instead. `/replies` switches the view off and
 on for the session. The model still reads the full reply and the prompt as you typed it. Only the
 screen changes.
 
@@ -2297,15 +2298,20 @@ Mermaid 12.3.0.
 
 ## A prompt that you type
 
-A prompt that you type keeps the row that Claude Code draws, with its grey background band. The
-mod adds a blank line and a rule above it. The rule spans the width of the transcript, names
-`you` and the time when the prompt entered the session, and has the `suggestion` colour of your
-theme:
+The `promptStyle` setting picks how a prompt that you type draws: `rule` (the default), `bar` or
+`bubble`. In each style the label names `you`, the number of the prompt in the prompts tab and
+the time when the prompt entered the session. The label and the rule, the bar or the frame have
+the `suggestion` colour of your theme.
+
+### rule
+
+A prompt keeps the row that Claude Code draws, with its grey background band. The mod adds a blank
+line and a rule above it. The rule spans the width of the transcript:
 
 ```text
 ● ok
 
-── you · 22:47 ──────────────────────────────────────────────────────────────────
+── you · 9 · 22:47 ─────────────────────────────────────────────────────────────
 ❯ make the human prompts in the terminal distinguishable from your answers, and
   reply with the single word ok
 
@@ -2314,20 +2320,61 @@ theme:
 
 - A mod cannot set the grey band itself, because no theme key names it. So the mod keeps the
   row of Claude Code and frames it.
+- The prompt text, its wrap and its band are those of Claude Code. The mod never changes them.
+
+### bar
+
+The mod draws the prompt text with a bar at its left, and the label under it. The bar costs no row
+above the prompt:
+
+```text
+▌ summarize ingest p95 and errors per hour from logs/hourly.csv in a table
+▌ you · 9 · 10:51
+```
+
+### bubble
+
+The mod draws the prompt text in a frame at the right edge, with the label above it. The frame is
+as wide as the longest line plus 4 columns, and at most 3/4 of the width of the terminal: 60
+columns at 80, and 30 at 40. The text wraps between words in the frame:
+
+```text
+                                                                 you · 9 · 10:51
+                               ╭───────────────────────────────────────────────╮
+                               │ summarize ingest p95 and errors per hour from │
+                               │ logs/hourly.csv in a table                    │
+                               ╰───────────────────────────────────────────────╯
+```
+
+At a terminal of 40 columns or more a bubble draws. Under 40 columns it draws as a bar.
+
+### What every style does
+
+- The number is the number of the prompt in the prompts tab, so the transcript and the tab use
+  one number. A prompt from before a resume is not in the tab, and its label shows no number.
 - The time comes from the moment the session kept the prompt. A prompt that you type while
   Claude works waits in the queue, and its time is the moment the session takes it from the
   queue. The mod keeps the time for this session only. After a resume, a prompt from before the
   resume shows `you` without a time, because the mod knows no time for it. The mod never guesses
   a time.
-- While a prompt waits in the queue, its rule shows `you` without a time.
-- The prompt text, its wrap and its band are those of Claude Code. The mod never changes them.
+- While a prompt waits in the queue, its label shows `you` without a number or a time.
+- A bar or a bubble shows at most 6 lines. A longer prompt shows its first 5 lines and a dim line
+  such as `… 188 more lines (ctrl+o shows all)`. When that line does not fit, it shows
+  `… 188 more lines`. A long line counts as the lines that it wraps to.
+- In a bar or a bubble, the mod shows a control character or a bidi character of the prompt as its
+  code, such as `\u202e`, so pasted text cannot move the frame or change the direction of the
+  text. A tab draws as 4 spaces.
+- A jump from the prompts tab moves the transcript to the row of the prompt, as the mod draws it
+  in the style that you set.
+- `copy prompt` in the prompts tab copies the prompt as you typed it, with no bar or frame
+  character. A mouse selection over a bar or a bubble takes the `▌` or the `│` characters with it.
 - The next row of the transcript draws the blank line under the prompt. A row that draws no
   blank line above itself, such as a tool row, stands directly under the prompt.
 - These rows draw as Claude Code draws them: a task notification, a message from another agent,
   teammate, session or channel, a prompt that a plugin sent, a slash command that you type and
   its output.
 - The ctrl+o view and `--verbose` draw each prompt in full as Claude Code draws it, without the
-  rule, so a copy of that text holds no rule characters.
+  rule, the bar or the frame, so a copy of that text holds no rule characters.
 - The desktop app draws each prompt as it draws it.
 
 ## The prompts tab
@@ -2434,14 +2481,15 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 
 ## Settings and the command
 
-| Setting        | Default  | Use                                                                                                 |
-| -------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `mode`         | `on`     | The mode when a session starts: `on` or `off`                                                       |
-| `diagrams`     | `on`     | `on` draws a mermaid diagram of a kind in [A diagram](#a-diagram). `off` draws it as its source     |
-| `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 215 tokens, to each prompt that you type           |
-| `tableStyle`   | `box`    | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns               |
-| `highlight`    | `on`     | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain      |
-| `headingStyle` | `banner` | `banner` draws a box around H1 and a rule under H2. `bold`, `underline` and `uppercase` draw no box |
+| Setting        | Default  | Use                                                                                                            |
+| -------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `mode`         | `on`     | The mode when a session starts: `on` or `off`                                                                  |
+| `diagrams`     | `on`     | `on` draws a mermaid diagram of a kind in [A diagram](#a-diagram). `off` draws it as its source                |
+| `diagramHints` | `off`    | `on` adds one hint about mermaid diagrams, about 215 tokens, to each prompt that you type                      |
+| `tableStyle`   | `box`    | `box` draws a full box at 40 columns or more. `rules` draws rules between the columns                          |
+| `highlight`    | `on`     | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain                 |
+| `headingStyle` | `banner` | `banner` draws a box around H1 and a rule under H2. `bold`, `underline` and `uppercase` draw no box            |
+| `promptStyle`  | `rule`   | `rule` draws a rule above a prompt that you type. `bar` draws a bar at its left, `bubble` a frame at the right |
 
 | Command                  | Effect                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------- |

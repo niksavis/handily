@@ -42,6 +42,13 @@
       "options": ["banner", "bold", "underline", "uppercase"],
       "default": "banner"
     },
+    "promptStyle": {
+      "type": "string",
+      "title": "Prompt style",
+      "description": "How a prompt that you type draws: under a rule labelled you (rule), with a bar at its left (bar), or in a frame at the right (bubble). Under 40 columns a bubble draws as a bar.",
+      "options": ["rule", "bar", "bubble"],
+      "default": "rule"
+    },
     "highlight": {
       "type": "string",
       "title": "Highlight",
