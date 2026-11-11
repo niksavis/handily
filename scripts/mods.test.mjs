@@ -497,11 +497,95 @@ test('test keeps the 5000 ms limit of a test without timeoutMs whose title a dec
   assert.equal(sharedTitleResult.status, 1, sharedTitleResult.stdout + sharedTitleResult.stderr)
   const refused = (title) =>
     `FAIL timed: timed.test.ts test "${title}" took 4000 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 12000 ms`
+  const unhonoured = (title, declaredLine, pattern, line) =>
+    `FAIL timed: timed.test.ts test "${title}" matches the timeoutMs of 30000 ms at line ${String(declaredLine)} and also ${pattern} of the test at line ${String(line)} with a limit of 5000 ms, so the gate cannot honour the 30000 ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal`
   assert.deepEqual(failLines(sharedTitleResult), [
     refused('D > a draw with many agents'),
     refused('D > a draw with > no agents'),
+    unhonoured('D > the same draw', 11, '/^D > the same draw$/', 12),
     refused('D > the same draw'),
+    unhonoured('E > a draw with 2 agents', 15, '/^E > .*$/', 16),
+    unhonoured('E > a draw with lots of agents', 15, '/^E > .*$/', 16),
     refused('E > a draw with lots of agents'),
+  ])
+})
+
+const helperTitleSource = `import { describe, test } from 'claude-code/testing'
+const GENERATED_TIMEOUT_MS = 10000
+const drawn = (title: string): void => {
+  test(title, async () => {})
+}
+describe('flowchart drawings', () => {
+  drawn('a small chart')
+  test('500 generated charts draw', { timeoutMs: GENERATED_TIMEOUT_MS }, async () => {})
+})
+`
+const helperTitleResult = runTimedTests(
+  testOutput([
+    '(pass) flowchart drawings > a small chart [1.00ms]',
+    '(pass) flowchart drawings > 500 generated charts draw [100.00ms]',
+  ]),
+  { source: helperTitleSource },
+)
+
+test('test fails by name when a declared timeoutMs cannot count because a test title that the gate cannot read also matches', () => {
+  assert.equal(helperTitleResult.status, 1, helperTitleResult.stdout + helperTitleResult.stderr)
+  assert.deepEqual(failLines(helperTitleResult), [
+    'FAIL timed: timed.test.ts test "flowchart drawings > 500 generated charts draw" matches the timeoutMs of 10000 ms at line 8 and also /^.*$/ of the test at line 4 with a limit of 5000 ms, so the gate cannot honour the 10000 ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal',
+  ])
+})
+
+const keptOnOneTitleSource = `import { test } from 'claude-code/testing'
+for (const n of [500]) {
+  test(\`draws \${String(n)} charts\`, { timeoutMs: 30000 }, async () => {})
+}
+for (const n of [5]) {
+  test(\`draws \${String(n)} big charts\`, async () => {})
+}
+`
+const keptOnOneTitleResult = runTimedTests(
+  testOutput(['(pass) draws 500 charts [9000.00ms]', '(pass) draws 5 big charts [100.00ms]']),
+  { source: keptOnOneTitleSource },
+)
+
+test('test passes when a declared timeoutMs keeps its limit on one title it matches and a lower pattern also matches another', () => {
+  assert.equal(
+    keptOnOneTitleResult.status,
+    0,
+    keptOnOneTitleResult.stdout + keptOnOneTitleResult.stderr,
+  )
+  assert.deepEqual(failLines(keptOnOneTitleResult), [])
+})
+
+const lostOnEveryTitleSource = `import { test } from 'claude-code/testing'
+const named = (title: string): void => {
+  test(title, async () => {})
+}
+for (const n of [500, 600]) {
+  test(\`draws \${String(n)} charts\`, { timeoutMs: 30000 }, async () => {})
+}
+named('a chart')
+`
+const lostOnEveryTitleResult = runTimedTests(
+  testOutput([
+    '(pass) a chart [1.00ms]',
+    '(pass) draws 500 charts [100.00ms]',
+    '(pass) draws 600 charts [100.00ms]',
+  ]),
+  { source: lostOnEveryTitleSource },
+)
+
+test('test fails by name on each title of a declared timeoutMs that a lower pattern overrides on every title it matches', () => {
+  assert.equal(
+    lostOnEveryTitleResult.status,
+    1,
+    lostOnEveryTitleResult.stdout + lostOnEveryTitleResult.stderr,
+  )
+  const lost = (title) =>
+    `FAIL timed: timed.test.ts test "${title}" matches the timeoutMs of 30000 ms at line 6 and also /^.*$/ of the test at line 3 with a limit of 5000 ms, so the gate cannot honour the 30000 ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal`
+  assert.deepEqual(failLines(lostOnEveryTitleResult), [
+    lost('draws 500 charts'),
+    lost('draws 600 charts'),
   ])
 })
 

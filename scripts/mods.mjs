@@ -622,13 +622,32 @@ function readDeclaredTestLimits(path) {
     const limitMs = declaredMs ?? defaultTestLimitMs
     const isDefaultLimit = limitMs === defaultTestLimitMs
     const pattern = titlePattern(call, isDefaultLimit ? anyTitlePart : undefined)
-    return pattern === undefined ? [] : [{ pattern, limitMs }]
+    if (pattern === undefined) return []
+    const line = source.getLineAndCharacterOfPosition(call.getStart(source)).line + 1
+    return [{ pattern, limitMs, isDeclared: !isDefaultLimit, line }]
   })
 }
 
 function testLimitMs(title, declared) {
   const limits = declared.filter(({ pattern }) => pattern.test(title)).map(({ limitMs }) => limitMs)
   return limits.length === 0 ? defaultTestLimitMs : Math.min(...limits)
+}
+
+function lostLimits(titles, declared) {
+  return declared.filter(({ pattern, limitMs, isDeclared }) => {
+    if (!isDeclared) return false
+    const matched = titles.filter((title) => pattern.test(title))
+    return matched.length > 0 && matched.every((title) => testLimitMs(title, declared) < limitMs)
+  })
+}
+
+function unhonouredLimit(title, declared, lost) {
+  const lostHere = lost.find(({ pattern }) => pattern.test(title))
+  if (lostHere === undefined) return undefined
+  const lowest = declared
+    .filter(({ pattern }) => pattern.test(title))
+    .reduce((low, match) => (match.limitMs < low.limitMs ? match : low))
+  return { lost: lostHere, lowest }
 }
 
 function note(message) {
@@ -662,9 +681,28 @@ function checkTestTimes(mod, times, slowness) {
   const machine =
     slowness > 1 ? ` on a machine ${slowness.toFixed(2)} times slower than the reference times` : ''
   const declaredByFile = new Map()
+  const lostByFile = new Map()
+  for (const file of new Set(times.map((time) => time.file))) {
+    if (file === undefined) continue
+    const declared = readDeclaredTestLimits(join(mod.dir, file))
+    const titles = times.filter((time) => time.file === file).map((time) => time.title)
+    declaredByFile.set(file, declared)
+    lostByFile.set(file, lostLimits(titles, declared))
+  }
+  const unhonoured = new Set()
   for (const { file, title, ms } of times) {
-    if (file !== undefined && !declaredByFile.has(file)) {
-      declaredByFile.set(file, readDeclaredTestLimits(join(mod.dir, file)))
+    const conflict = unhonouredLimit(
+      title,
+      declaredByFile.get(file) ?? [],
+      lostByFile.get(file) ?? [],
+    )
+    const conflictKey = `${file ?? ''} > ${title}`
+    if (conflict !== undefined && !unhonoured.has(conflictKey)) {
+      unhonoured.add(conflictKey)
+      const { lost, lowest } = conflict
+      fail(
+        `${mod.name}: ${file ?? 'a test file'} test "${title}" matches the timeoutMs of ${lost.limitMs} ms at line ${lost.line} and also ${lowest.pattern} of the test at line ${lowest.line} with a limit of ${lowest.limitMs} ms, so the gate cannot honour the ${lost.limitMs} ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal`,
+      )
     }
     const limitMs = testLimitMs(title, declaredByFile.get(file) ?? [])
     if (ms * testTimeShare.divisor <= limitMs * slowness) continue

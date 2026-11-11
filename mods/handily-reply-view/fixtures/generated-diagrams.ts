@@ -53,10 +53,20 @@ const LINE_STEPS = [
 
 type DrawnBox = { name: string; top: number; left: number; bottom: number; right: number }
 
+const cellColumns = new Map<string, number>()
+
+function columnsOf(grapheme: string): number {
+  const known = cellColumns.get(grapheme)
+  if (known !== undefined) return known
+  const columns = displayWidth(grapheme)
+  cellColumns.set(grapheme, columns)
+  return columns
+}
+
 function cellGrid(lines: readonly string[]): string[][] {
   return lines.map((line) =>
     graphemesOf(line).flatMap((grapheme) =>
-      displayWidth(grapheme) > 1 ? [grapheme, ''] : [grapheme],
+      columnsOf(grapheme) > 1 ? [grapheme, ''] : [grapheme],
     ),
   )
 }
