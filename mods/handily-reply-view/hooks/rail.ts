@@ -45,6 +45,11 @@ export function promptAt(rail: Rail, number: number): RailPrompt | undefined {
   return number >= 1 ? promptsOf(rail)[number - 1] : undefined
 }
 
+export function promptNumberOf(rail: Rail, requestId: string): number | undefined {
+  const index = promptsOf(rail).findIndex((prompt) => prompt.requestId === requestId)
+  return index === -1 ? undefined : index + 1
+}
+
 export function atNumber(rail: Rail): number {
   return rail.at ?? promptsOf(rail).length
 }

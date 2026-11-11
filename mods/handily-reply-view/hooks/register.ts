@@ -1,4 +1,10 @@
-import type { EngineInterface, Register, RenderElement, RenderSurface } from 'claude-code'
+import type {
+  EngineInterface,
+  Register,
+  RenderElement,
+  RenderSurface,
+  RenderViewport,
+} from 'claude-code'
 import type { ReplyViewFold, ReplyViewMode } from '../types'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import {
@@ -29,7 +35,15 @@ import {
   turnLine,
 } from './footer'
 import { blocksOf, type Block } from './markdown'
-import { framedPrompt } from './prompt'
+import {
+  DEFAULT_PROMPT_STYLE,
+  drawnPrompt,
+  framedPrompt,
+  isPromptStyle,
+  PROMPT_STYLES,
+  type PromptLook,
+  type PromptStyle,
+} from './prompt'
 import { codeFoldKeysOf } from './syntax'
 import {
   addPrompt,
@@ -39,6 +53,7 @@ import {
   newRail,
   noteCompaction,
   noteTool,
+  promptNumberOf,
   promptsOf,
   promptTextOf,
   type Rail,
@@ -95,10 +110,21 @@ const CHECKED_SETTINGS: readonly CheckedSetting[] = [
     fallback: `Drawing ${DEFAULT_HEADING_STYLE}.`,
     isOption: isHeadingStyle,
   },
+  {
+    key: 'promptStyle',
+    options: PROMPT_STYLES,
+    fallback: `Drawing ${DEFAULT_PROMPT_STYLE}.`,
+    isOption: isPromptStyle,
+  },
 ]
 
 const ON_TEXT =
-  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, durations, versions and paths in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.'
+  'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, durations, versions and paths in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons.'
+const PROMPT_TEXTS: Readonly<Record<PromptStyle, string>> = {
+  rule: 'Each prompt that you type opens under a rule labelled you.',
+  bar: 'Each prompt that you type draws with a bar at its left and the label you under it.',
+  bubble: 'Each prompt that you type draws in a frame at the right under the label you.',
+}
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
 const HINTS_ON_TEXT =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 215 tokens.'
@@ -170,11 +196,15 @@ async function logRefusedSettings($: EngineInterface): Promise<void> {
   }
 }
 
-async function toggle($: EngineInterface, defaultMode: ReplyViewMode): Promise<string> {
+async function toggle(
+  $: EngineInterface,
+  defaultMode: ReplyViewMode,
+  promptStyle: PromptStyle,
+): Promise<string> {
   const { value: current = defaultMode } = await $.state.get(MODE)
   const mode: ReplyViewMode = current === 'on' ? 'off' : 'on'
   await $.state.set(MODE, mode)
-  return mode === 'on' ? ON_TEXT : OFF_TEXT
+  return mode === 'on' ? `${ON_TEXT} ${PROMPT_TEXTS[promptStyle]}` : OFF_TEXT
 }
 
 async function toggleHints($: EngineInterface, defaultHints: ReplyViewMode): Promise<string> {
@@ -333,6 +363,27 @@ async function codeFoldsOf(
   return new Map(folds)
 }
 
+type PromptSite = { rail: Rail; style: PromptStyle; defaultMode: ReplyViewMode }
+
+async function promptLookOf(
+  $: EngineInterface,
+  e: { requestId: string; viewport?: RenderViewport },
+  site: PromptSite,
+): Promise<PromptLook | undefined> {
+  const { value: mode = site.defaultMode } = await $.state.get(MODE)
+  if (mode === 'off') return undefined
+  const { value: submittedAt } = await $.state.get({
+    plugin: 'handily-reply-view',
+    key: 'submittedAt',
+    id: e.requestId,
+  })
+  return {
+    style: site.style,
+    columns: e.viewport?.columns ?? DEFAULT_COLUMNS,
+    mark: { number: promptNumberOf(site.rail, e.requestId), submittedAt },
+  }
+}
+
 export const register: Register = (on, options) => {
   const defaultMode: ReplyViewMode = options.mode === 'off' ? 'off' : 'on'
   const drawsDiagrams = options.diagrams !== 'off'
@@ -345,6 +396,9 @@ export const register: Register = (on, options) => {
     : DEFAULT_HEADING_STYLE
   const highlight =
     (isHighlight(options.highlight) ? options.highlight : DEFAULT_HIGHLIGHT) === 'on'
+  const promptStyle: PromptStyle = isPromptStyle(options.promptStyle)
+    ? options.promptStyle
+    : DEFAULT_PROMPT_STYLE
   let lastReply: string | undefined
   const railSite: RailSite = { rail: newRail(), version: 0 }
   on('session.start', async ($, e, next) => {
@@ -389,7 +443,7 @@ export const register: Register = (on, options) => {
       }
     }
     const [first, second, ...rest] = words
-    if (first === undefined) return { text: await toggle($, defaultMode) }
+    if (first === undefined) return { text: await toggle($, defaultMode, promptStyle) }
     if (first === HINTS_ARGUMENT && second === undefined) {
       return { text: await toggleHints($, defaultHints) }
     }
@@ -547,25 +601,18 @@ export const register: Register = (on, options) => {
       e.props.task === undefined &&
       !e.props.isExpanded
     if (!isFramed) return next(e)
-    const engineRow = await next(e)
+    let look: PromptLook | undefined
+    let drawn: RenderElement | null = null
     try {
-      const { value: mode = defaultMode } = await $.state.get(MODE)
-      if (mode === 'off') return engineRow
-      const { value: submittedAt } = await $.state.get({
-        plugin: 'handily-reply-view',
-        key: 'submittedAt',
-        id: e.requestId,
-      })
-      return framedPrompt(
-        $.ui.resolve(e),
-        engineRow,
-        e.viewport?.columns ?? DEFAULT_COLUMNS,
-        submittedAt,
-      )
+      look = await promptLookOf($, e, { rail: railSite.rail, style: promptStyle, defaultMode })
+      if (look !== undefined) drawn = drawnPrompt($.ui.resolve(e), e.props.text, look)
     } catch (error) {
-      logFailure($, `the engine draws prompt ${e.requestId} without its rule`, error)
-      return engineRow
+      look = undefined
+      logFailure($, `the engine draws prompt ${e.requestId} as it draws it`, error)
     }
+    if (drawn !== null) return drawn
+    const engineRow = await next(e)
+    return look === undefined ? engineRow : framedPrompt($.ui.resolve(e), engineRow, look)
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {

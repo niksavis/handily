@@ -11,6 +11,7 @@ import {
   type RailPrompt,
 } from './rail'
 import { cutToWidth, displayWidth, fitted, padToWidth } from './width'
+import { wrappedAtWords } from './wrap'
 
 export type RailElements = Pick<ReplyElements, 'Box' | 'Text' | 'Button'>
 
@@ -139,30 +140,8 @@ function promptRow(context: Context, row: Row, rowLayout: RowLayout): RenderElem
   })
 }
 
-function wrappedLine(line: string, columns: number): string[] {
-  const lines: string[] = []
-  let current = ''
-  for (const word of line.split(' ')) {
-    const joined = current === '' ? word : `${current} ${word}`
-    if (displayWidth(joined) <= columns) {
-      current = joined
-      continue
-    }
-    if (current !== '') lines.push(current)
-    let rest = word
-    while (displayWidth(rest) > columns) {
-      const head = cutToWidth(rest, columns)
-      if (head === '') break
-      lines.push(head)
-      rest = rest.slice(head.length)
-    }
-    current = rest
-  }
-  return [...lines, current]
-}
-
 function detailPromptLines(prompt: RailPrompt, columns: number): string[] {
-  const lines = shownLinesOf(prompt.text).flatMap((line) => wrappedLine(line, columns))
+  const lines = shownLinesOf(prompt.text).flatMap((line) => wrappedAtWords(line, columns))
   if (lines.length <= DETAIL_PROMPT_LINES) return lines
   const kept = lines.slice(0, DETAIL_PROMPT_LINES)
   const last = kept.at(-1) ?? ''

@@ -1608,11 +1608,11 @@ const OTHER_ROWS: readonly [string, Partial<RenderPropsOf['UserMessage']>][] = [
 
 describe('typed prompts', () => {
   promptTest(
-    'a typed prompt draws a blank line, an accent rule labelled you and the time, then the engine prompt row',
+    'a typed prompt draws a blank line, an accent rule labelled you, the rail number and the time, then the engine prompt row',
     async (_world, $) => {
       await appendPrompt($, PROMPT, { kind: 'composer' })
       const ui = await mountPrompt($, prompt(PROMPT))
-      expect(await sketchOf(ui)).toEqual(framed('you · 21:37'))
+      expect(await sketchOf(ui)).toEqual(framed('you · 1 · 21:37'))
       await ui.unmount()
     },
   )
@@ -1623,7 +1623,7 @@ describe('typed prompts', () => {
       async (_world, $) => {
         await appendPrompt($, PROMPT, { kind: 'composer' })
         const ui = await mountPrompt($, prompt(PROMPT), 'terminal', columns)
-        expect((await sketchOf(ui, columns))[1]).toBe(promptRule('you · 21:37', columns))
+        expect((await sketchOf(ui, columns))[1]).toBe(promptRule('you · 1 · 21:37', columns))
         await ui.unmount()
       },
     )
@@ -1634,7 +1634,7 @@ describe('typed prompts', () => {
     async (_world, $) => {
       await queuePrompt($, PROMPT, { kind: 'composer' })
       const ui = await mountPrompt($, prompt(PROMPT))
-      expect(await sketchOf(ui)).toEqual(framed('you · 21:37'))
+      expect(await sketchOf(ui)).toEqual(framed('you · 1 · 21:37'))
       await ui.unmount()
     },
   )
