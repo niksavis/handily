@@ -6,6 +6,18 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-simple-view 0.10.1 - 2026-11-11
+
+### Fixed
+
+- **simple-view: a control character in a row label no longer loses the simple row.** Claude
+  Code refuses a drawing whose text holds a control character other than tab and newline, and
+  then draws its own row. A Bash description or command, a program name, a search pattern, a file
+  path, the exit meaning and the first error or stderr line now show such a character as its
+  code, such as `\u001b`. A failed command with coloured error output keeps its simple row. A
+  carriage return, a vertical tab or a form feed inside a command now shows as its code, not as a
+  space. (handily-8kyy8t)
+
 ## handily-board 0.20.1 - 2026-11-11
 
 ### Fixed
