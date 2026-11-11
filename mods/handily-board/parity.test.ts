@@ -1653,6 +1653,29 @@ for (const surface of SURFACES) {
     )
 
     test(
+      `a list read right after a resume by a spawn that still says completed keeps the agent running, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await endedScout($, seen, surface)
+        await $.agent.spawn({
+          tool_use_id: `spawn:${SCOUT}`,
+          prompt: 'look again',
+          description: 'look again',
+          subagentType: 'general-purpose',
+          provider: { plugin: 'engine', tier: 'core' },
+          parentModel: 'opus',
+          background: true,
+          fork: false,
+          name: 'scout',
+          resume: { agentId: SCOUT },
+        })
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
+        expect(await endLines($)).toEqual(['14:00:00 scout ✓ done 4m'])
+      },
+    )
+
+    test(
       `a list read right after a resumed turn start that still says completed keeps the agent running, on ${surface}`,
       withWorkitems,
       async ($, on) => {
