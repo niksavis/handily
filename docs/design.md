@@ -1067,7 +1067,8 @@ Decisions of the person (2026-10-29):
 10. An answer is one line of at most 1000 characters. The control and bidi rules of
     `titleRefusal` refuse it by name.
 
-A word for a stalled time in the band and the header is a later record, handily-y8t3v.
+The band reads `stalled` before a stalled time since handily-crupjy.2. The word on the pane
+task row and in the header is a later record, handily-y8t3v.
 
 Source of an approved plan (handily-9uj3n.7):
 
@@ -1133,16 +1134,17 @@ The band (handily-9uj3n.9):
 - A bare digit typed into an empty prompt presses a band Button that has a `hotkey`. So the band
   button has no hotkey, and a test checks it.
 - The yield rule: the board returns `next(e)` when the setting is off, a survey holds the band,
-  the this session tab is shown or nothing waits. Otherwise it awaits `next(e)`. Only an engine
+  the this session tab is shown or nothing waits and no agent row shows. Otherwise it awaits
+  `next(e)`. Only an engine
   element (`{ type: 'engine' }`) beneath gets the board's line. Any other drawing beneath is
   returned unchanged, so the board never covers another band mod.
 - A call of a plugin on its own `$.ui.open` or `$.ui.close` runs only the hooks beneath it, so
   the board never sees its own opens. The board counts each open and close of its panes in the
   state key `paneChanges`. Only the band reads that key, so a change draws the band again and
   not the pane.
-- The band draws again every 10 seconds while it shows a task in progress, so its time moves
-  and turns to the warning colour at 15 minutes. While it shows no task in progress, it runs no
-  timer (review of 2026-10-29).
+- The band draws again every 10 seconds while it shows a task in progress or an agent row, so its
+  times move and a stalled time reads `stalled 16m` in the warning colour after 15 minutes. While
+  it shows neither, it runs no timer (review of 2026-10-29).
 - The engine raises no event when the person switches tabs: no `ui.*` event names a tab, and
   `isShown` is read only through `$.ui.panes()`. So the band follows what the board can see. A
   render of the this session pane or of the this machine pane after a switch counts a pane
@@ -1179,14 +1181,40 @@ Failure modes:
   The answers of the person are quoted too.
 - A keyboard person cannot press the transcript button. The pane, the band and `/board plan` are
   the keyboard paths, and the README says so.
-- The stalled time differs from a normal time only by its colour. Under `NO_COLOR` or a red and
-  green colour blindness it is lost (handily-y8t3v).
+- On the band, the word `stalled` names a stalled time, so `NO_COLOR` and a red and green colour
+  blindness keep it. On the pane task row and in the header, the time differs only by its colour
+  until handily-y8t3v.
 - On the mobile app there is no band and no Input. An answer goes through `/board answer`, and
   the row says so (8.12k).
 - With `-p` nothing draws. The tools and the notes still work, so Claude can assign a task that
   nobody sees.
 - Undo after the answer was sent is impossible, and the button is gone. A person who answered
   wrongly tells Claude in the prompt.
+
+#### The agent strip in the band (handily-crupjy.2)
+
+The owner approved the mocks and the 8 recommended answers on 2026-11-10. The approved mocks are
+`docs/mocks.md` section 16.
+
+- The band reads the same agent rows as the pane (`agentView`, then the steps and the stalls). A
+  row shows in the strip by its group, in this order: needs you, failed, done (with killed), then
+  running (with asked, on hold, pending, idle and a not listed agent with a call in flight).
+  Inside a group, the order is by spawn time.
+- A failed or a done row shows only while `$.agent.list()` still lists its agent. The answer line
+  that stays until the next prompt and the failed row that stays until the board opens are
+  handily-crupjy.3.
+- The band shows at most 3 agent rows and a fold button for the rest. When `maxRows` is too small,
+  running rows drop first, and a needs-you row never drops.
+- With no open task, no task for the person and no plan offer, the head line reads
+  `Agents  N · no open task` with `[ board ]`.
+- The `open` button of a needs-you or a running row runs `/tasks`, as the pane does. On a failed or
+  a done row, it adds the agent row (and the ended fold for a done row) to `expanded` and opens
+  the this session tab. The fold button opens the this session tab.
+- A change of an agent group or state word draws at once, because the band reads the agents state
+  while it draws. The tool, the ctx, the stall time and the age of a row whose state did not
+  change come from the rows kept at the last 10 second tick. So they change on the tick only.
+- Every text from an agent or a tool target goes through `escaped`: the name, the tool and its
+  target, the answer line and the plan step.
 
 #### Context parts and a trend (handily-u2exd)
 

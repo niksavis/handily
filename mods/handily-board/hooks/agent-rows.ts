@@ -47,7 +47,7 @@ const FOLD_GAP = 2
 const BUTTON_CHROME = 4
 const OPEN_LABEL = 'open'
 const MAIN_LOOP = 'main'
-const WAITS_LEAD = 'waits for: '
+export const WAITS_LEAD = 'waits for: '
 const STOPPED_AT_LIMIT = 'max_tokens'
 const STALL_COLOR: ThemeKey = 'warning'
 const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
@@ -93,7 +93,7 @@ function lookColor(look: AgentLook): ThemeKey {
   return look === 'unlisted' ? UNLISTED_LOOK.color : SIGNALS[LOOK_SIGNALS[look]].color
 }
 
-function lookOf(look: AgentLook, signals: SignalLooks): Look {
+export function agentLook(look: AgentLook, signals: SignalLooks): Look {
   return look === 'unlisted' ? UNLISTED_LOOK : signals[LOOK_SIGNALS[look]]
 }
 
@@ -137,13 +137,15 @@ export function callText(sight: BoardToolSight): string {
   return sight.target === null ? tool : `${tool} ${escaped(sight.target)}`
 }
 
-function failureText(row: AgentRow): string {
-  return row.call === null
-    ? 'failed before its first tool call'
-    : `failed after ${callText(row.call)}`
+export function failedDetail(row: AgentRow): string {
+  return row.call === null ? 'before its first tool call' : `after ${callText(row.call)}`
 }
 
-function waitsText(row: AgentRow): string {
+function failureText(row: AgentRow): string {
+  return `failed ${failedDetail(row)}`
+}
+
+export function waitsText(row: AgentRow): string {
   return row.call === null ? 'permission' : `permission · ${callText(row.call)}`
 }
 
@@ -151,27 +153,35 @@ function stallText(stall: AgentStall): string {
   return `${stall.kind} ${elapsedText(stall.ms)}`
 }
 
-function stateText(row: AgentRow): { text: string; style: TextStyle } {
+export function stateWord(row: AgentRow): { text: string; style: TextStyle } {
   if (row.stall !== null) return { text: stallText(row.stall), style: { color: STALL_COLOR } }
-  if (row.look === 'running' && row.plan !== null) {
+  return { text: STATE_WORDS[row.look], style: { color: lookColor(row.look) } }
+}
+
+function stateText(row: AgentRow): { text: string; style: TextStyle } {
+  if (row.stall === null && row.look === 'running' && row.plan !== null) {
     const done = row.plan.filter((task) => task.status === 'completed').length
     return { text: `plan ${String(done)}/${String(row.plan.length)}`, style: { dimColor: true } }
   }
-  return { text: STATE_WORDS[row.look], style: { color: lookColor(row.look) } }
+  return stateWord(row)
+}
+
+export function toolText(row: AgentRow): string {
+  if (row.call === null) return ''
+  return row.isCallRunning ? `▸ ${callText(row.call)}` : callText(row.call)
 }
 
 function detailText(row: AgentRow, isInline: boolean): string {
   if (row.look === 'failed') return isInline ? failureText(row) : ''
   if (row.look === 'needsYou') return isInline ? `${WAITS_LEAD}${waitsText(row)}` : ''
-  if (row.call === null) return ''
-  return row.isCallRunning ? `▸ ${callText(row.call)}` : callText(row.call)
+  return toolText(row)
 }
 
 function fixedBox(elements: PaneElements, width: number, child: RenderElement): RenderElement {
   return elements.Box({ width, flexShrink: 0, children: [child] })
 }
 
-function contextText(row: AgentRow): string {
+export function contextText(row: AgentRow): string {
   return row.step === null ? NO_CONTEXT : contextPart(row.step).text
 }
 
@@ -223,7 +233,7 @@ function nameButton(
   layout: RowLayout,
 ): RenderElement {
   const { Box, Text, Button } = elements
-  const look = lookOf(row.look, elements.signals)
+  const look = agentLook(row.look, elements.signals)
   const button = Button({
     key: `open:agent:${row.id}`,
     plain: true,
@@ -659,6 +669,11 @@ function foldButton(key: string, label: string, layout: RowLayout): FoldButton {
   }
 }
 
+export function openedKeys(row: AgentRow): string[] {
+  const key = `agent:${row.id}`
+  return row.isEnded ? [key, ENDED_AGENTS] : [key]
+}
+
 export function digitOf(index: number): string | undefined {
   return index < DIGITS_AT_MOST ? String(index + 1) : undefined
 }
@@ -714,7 +729,7 @@ function cardOf(
     id: row.id,
     digit,
     name,
-    mark: lookOf(row.look, elements.signals),
+    mark: agentLook(row.look, elements.signals),
     state: stateText(row),
     wait: cardWait(row),
     task: row.description === null ? '' : escaped(row.description),

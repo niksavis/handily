@@ -123,7 +123,7 @@ import {
   withoutFinalPeriod,
 } from './commands'
 import { lastSegment } from './agents-json'
-import { shownNames, stepText } from './agent-rows'
+import { openedKeys, shownNames, stepText } from './agent-rows'
 import { DEFAULT_PALETTE } from './palette'
 import { drawMachine } from './machine'
 import {
@@ -143,7 +143,7 @@ import {
   withContext,
   withTasks,
 } from './progress'
-import { type PaneWork, drawPane } from './pane'
+import { type PaneWork, agentsOpener, drawPane } from './pane'
 import {
   PLAN_TOOL,
   type PlanAnswer,
@@ -156,7 +156,19 @@ import {
   tasksAfterPlan,
 } from './plan'
 import { drawPlanLine } from './plan-view'
-import { bandSetting, bandView, drawBand, isEngineDrawing, isTimed } from './band'
+import {
+  type StripKeep,
+  bandSetting,
+  bandView,
+  drawBand,
+  forgetStrip,
+  heldRows,
+  isEngineDrawing,
+  isLiveRow,
+  isTimed,
+  newStripKeep,
+  stripRows,
+} from './band'
 import {
   type AssignInput,
   answersText,
@@ -606,6 +618,7 @@ type Redraw = {
   timer: Timer | undefined
   bandTimer: Timer | undefined
   bandSawTab: boolean | undefined
+  strip: StripKeep
   clock: Timer | undefined
   clockTicks: number
   clockSurfaces: Map<RenderSurface, number>
@@ -618,6 +631,7 @@ function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): voi
     return
   }
   redraw.bandTimer ??= $.clock.every(REDRAW_INTERVAL_MS, () => {
+    redraw.strip.isTickDue = true
     $.ui.invalidate('ui.render')
   })
 }
@@ -793,11 +807,19 @@ async function isTreeListed($: EngineInterface): Promise<boolean> {
   }
 }
 
+async function agentsNow(
+  $: EngineInterface,
+  keeps: Pick<SessionKeeps, 'steps' | 'pulses'>,
+  now: number,
+): Promise<AgentRow[]> {
+  const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps.last, keeps.steps.counts)
+  return withStalls(rows, keeps.pulses, now)
+}
+
 async function workOf($: EngineInterface, keeps: SessionKeeps, inView?: string): Promise<PaneWork> {
   const now = await $.clock.now()
   const { value: activity } = await $.state.get(ACTIVITY)
-  const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps.last, keeps.steps.counts)
-  const agents = withStalls(rows, keeps.pulses, now)
+  const agents = await agentsNow($, keeps, now)
   noteListedEnds($, keeps.log, agents)
   const trend = await trendOf($, keeps.trend)
   return {
@@ -1558,6 +1580,7 @@ export const register: Register = (on, options) => {
     timer: undefined,
     bandTimer: undefined,
     bandSawTab: undefined,
+    strip: newStripKeep(),
     clock: undefined,
     clockTicks: 0,
     clockSurfaces: new Map(),
@@ -2004,8 +2027,12 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const yieldBand = () => {
+    const stopBand = () => {
       keepBandTime($, redraw, false)
+      forgetStrip(redraw.strip)
+    }
+    const yieldBand = () => {
+      stopBand()
       return next(e)
     }
     if (band === 'off' || e.props.hasSurvey) return yieldBand()
@@ -2017,14 +2044,17 @@ export const register: Register = (on, options) => {
     const plans = plansOf($)
     const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
     const plan = await offeredPlan(plans)
-    const view = bandView(await readList(host), plan, activity, await $.clock.now())
+    const now = await $.clock.now()
+    const agents = stripRows(await agentsNow($, { steps, pulses }, now))
+    const view = bandView(await readList(host), plan, activity, now, agents.length)
     if (view === undefined) return yieldBand()
     const beneath = await next(e)
     if (!isEngineDrawing(beneath)) {
-      keepBandTime($, redraw, false)
+      stopBand()
       return beneath
     }
-    keepBandTime($, redraw, isTimed(view))
+    keepBandTime($, redraw, isTimed(view, agents.length))
+    const rows = heldRows(redraw.strip, agents, now)
     const { Box, Text, Button } = $.ui.resolve(e)
     const signals = await drawnSignals($, e.surface)
     const ui = uiOf($, notes, breakdown, redraw)
@@ -2032,24 +2062,42 @@ export const register: Register = (on, options) => {
       ui.log(`handily-board: the board did not open from the band: ${String(error)}`)
       ui.showToast(BOARD_NOT_OPENED)
     }
-    return drawBand({ Box, Text, Button, signals }, view, e.props.bodyColumns, {
-      open: () => {
-        showPane(ui, TASKS_PANE).then((opened) => {
-          if (!opened.isPlaced) failed(opened.reason)
-        }, failed)
+    const open = () => {
+      showPane(ui, TASKS_PANE).then((opened) => {
+        if (!opened.isPlaced) failed(opened.reason)
+      }, failed)
+    }
+    const openAgents = agentsOpener(ui)
+    const strip = { rows, maxRows: e.props.maxRows }
+    return drawBand(
+      { Box, Text, Button, signals },
+      view,
+      e.props.bodyColumns,
+      {
+        open,
+        openAgent: (row) => {
+          if (isLiveRow(row)) {
+            openAgents()
+            return
+          }
+          host
+            .editExpanded((keys) => [...new Set([...keys, ...openedKeys(row)])])
+            .then(open, failed)
+        },
+        addPlan: (id) => {
+          addPlanAsTasks(plans, host, id).then(
+            (reply) => {
+              if (reply.toastParts !== undefined) ui.showToast(reply.toastParts)
+            },
+            (error: unknown) => {
+              ui.log(`handily-board: the plan was not added: ${String(error)}`)
+              ui.showToast(CHANGE_FAILED)
+            },
+          )
+        },
       },
-      addPlan: (id) => {
-        addPlanAsTasks(plans, host, id).then(
-          (reply) => {
-            if (reply.toastParts !== undefined) ui.showToast(reply.toastParts)
-          },
-          (error: unknown) => {
-            ui.log(`handily-board: the plan was not added: ${String(error)}`)
-            ui.showToast(CHANGE_FAILED)
-          },
-        )
-      },
-    })
+      strip,
+    )
   })
 
   on('ui.close', async ($, e, next) => {
