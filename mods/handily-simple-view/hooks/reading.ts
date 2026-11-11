@@ -1,4 +1,5 @@
 import { isRecord, shownPath } from './output'
+import { shownText } from './shown'
 
 export const READING_TOOLS: ReadonlySet<string> = new Set(['Read', 'Grep', 'Glob'])
 
@@ -91,7 +92,8 @@ export function streamingTarget(tool: string, input: unknown, root: string): str
   if (named !== undefined && typeof named !== 'string') return null
   if (input.path !== undefined && typeof input.path !== 'string') return null
   if (named === undefined) return []
-  return searchTarget(tool === 'Grep' ? `"${named}"` : named, input, root)
+  const pattern = shownText(named)
+  return searchTarget(tool === 'Grep' ? `"${pattern}"` : pattern, input, root)
 }
 
 export function readingTarget(

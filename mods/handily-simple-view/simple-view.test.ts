@@ -541,6 +541,12 @@ describe('command reading', () => {
     expect(programOf('python3 .basicly/core/kit/tracker/cli.py list')).toBe('python3')
     expect(programOf('cd /tmp')).toBe('cd')
   })
+
+  test('shows a control character in a command label and a program as its code before the cut', () => {
+    expect(commandLabel(`echo ${'\u001b'.repeat(20)}`)).toBe(`echo ${'\\u001b'.repeat(9)}\\…`)
+    expect(commandLabel('printf a\vb\fc\r\n')).toBe('printf a\\u000bb\\u000cc')
+    expect(programOf('cd /x && \u001bls -l')).toBe('\\u001bls')
+  })
 })
 
 const HOOK_MESSAGE_LINES = [
@@ -1617,6 +1623,80 @@ const FILE_REFUSALS_CAPTURED_ON_2_1_312 = [
     path: 'note.txt',
   },
 ] as const
+
+describe('row labels with a control character', () => {
+  const rowLines = async ($: Engine, props: RenderPropsOf['ToolUse']) => {
+    const ui = await mountUse($, props)
+    const lines = sketch(await ui.drawn())
+    await ui.unmount()
+    return lines
+  }
+
+  viewTest('shows an escape character in a Bash description as its code', async (world, $) => {
+    world.answer = () => answered('')
+    const input = { command: 'npm test', description: 'Run \u001b[31mred\u001b[0m tests' }
+    const id = await runBash(world, $, input)
+    expect(await rowLines($, useProps(id, 'Bash', input, world.answer(input)))).toEqual([
+      '+●+ Run \\u001b[31mred\\u001b[0m tests  ~npm~  +exit 0+  ~0 lines~',
+    ])
+  })
+
+  viewTest('shows a carriage return in a Bash command as its code', async (world, $) => {
+    world.answer = () => answered('')
+    const input = { command: 'printf one\rtwo' }
+    const id = await runBash(world, $, input)
+    expect(await rowLines($, useProps(id, 'Bash', input, world.answer(input)))).toEqual([
+      '+●+ printf one\\u000dtwo  ~printf~  +exit 0+  ~0 lines~',
+    ])
+  })
+
+  viewTest('shows a delete character in a Grep pattern as its code', async (_world, $) => {
+    const result = grepOutput({ mode: 'files_with_matches', numFiles: 3, totalFiles: 3 })
+    const input = { pattern: 'a\u007fb', path: `${ROOT}/src` }
+    expect(await rowLines($, useProps('toolu_c3', 'Grep', input, { result }))).toEqual([
+      '+●+ Grep  "a\\u007fb"  in src  ~3 files~',
+    ])
+  })
+
+  viewTest('shows an escape character in a Read file path as its code', async (_world, $) => {
+    const path = `${ROOT}/src/a\u001bb.ts`
+    const result = readOutput(path, 1, 18, 18)
+    expect(
+      await rowLines($, useProps('toolu_c4', 'Read', { file_path: path }, { result })),
+    ).toEqual(['+●+ Read  src/a\\u001bb.ts  ~18 lines~'])
+  })
+
+  viewTest('drops colour codes from the first error line of a failed command', async (world, $) => {
+    world.answer = () => failed('Error: Exit code 1\n\u001b[31mbuild failed\u001b[0m\n')
+    const input = { command: 'make', description: 'Build' }
+    const id = await runBash(world, $, input)
+    expect(
+      await texts($, 'terminal', {
+        component: 'ToolUse',
+        props: useProps(id, 'Bash', input, world.answer(input)),
+      }),
+    ).toEqual(['● Build make exit 1 build failed'])
+  })
+
+  viewTest(
+    'escapes the exit meaning and drops colour codes from the stderr line of a call that did not fail',
+    async (world, $) => {
+      world.answer = () =>
+        answered('', {
+          stderr: '\u001b[33mwarning: old\u001b[0m\n',
+          returnCodeInterpretation: 'No\u007fmatches',
+        })
+      const input = { command: 'tool --old', description: 'Run the tool' }
+      const id = await runBash(world, $, input)
+      expect(
+        await texts($, 'terminal', {
+          component: 'ToolUse',
+          props: useProps(id, 'Bash', input, world.answer(input)),
+        }),
+      ).toEqual(['● Run the tool tool No\\u007fmatches 0 lines 1 stderr line warning: old'])
+    },
+  )
+})
 
 describe('file rows that a hook refused', () => {
   for (const surface of SURFACES) {

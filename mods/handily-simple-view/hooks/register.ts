@@ -48,6 +48,7 @@ import {
   type GenericState,
   type RowLook,
 } from './row'
+import { shownText } from './shown'
 import { keepChangedGlyphSetting, keepGlyphSetting, showGlyphToast } from './toasting'
 
 const COMMAND = 'simple'
@@ -90,7 +91,7 @@ function isPending(call: CallProgress): boolean {
 
 function bashLabel(input: StreamingBashInput): string {
   const description = input.description?.trim() ?? ''
-  return description === '' ? commandLabel(input.command ?? '') : description
+  return description === '' ? commandLabel(input.command ?? '') : shownText(description)
 }
 
 function rangeText(kept: number): string {

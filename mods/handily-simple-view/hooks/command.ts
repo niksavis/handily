@@ -1,8 +1,11 @@
+import { shownText } from './shown'
+
 const LABEL_LENGTH = 60
 const DIRECTORY_CHANGES = new Set(['cd', 'pushd', 'popd'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 const TWO_CHARACTER_SEPARATORS = new Set(['&&', '||'])
 const ONE_CHARACTER_SEPARATORS = new Set([';', '|', '\n'])
+const SPACES_BUT_CONTROL_CHARACTERS = /[^\S\r\v\f]+/g
 
 type Quote = '"' | "'" | '`'
 type Scan = { quote: Quote | null; depth: number; isEscaped: boolean }
@@ -57,7 +60,9 @@ export function segments(command: string): string[] {
     index += 1
   }
   found.push(command.slice(start))
-  return found.map((segment) => segment.replace(/\s+/g, ' ').trim()).filter((s) => s !== '')
+  return found
+    .map((segment) => segment.replace(SPACES_BUT_CONTROL_CHARACTERS, ' ').trim())
+    .filter((s) => s !== '')
 }
 
 function words(segment: string): string[] {
@@ -82,7 +87,7 @@ export function programOf(command: string): string {
     .map((segment) => words(segment)[0])
     .filter((word): word is string => word !== undefined)
     .map((word) => baseName(unquoted(word)))
-  return firstWords.find((word) => !DIRECTORY_CHANGES.has(word)) ?? firstWords[0] ?? ''
+  return shownText(firstWords.find((word) => !DIRECTORY_CHANGES.has(word)) ?? firstWords[0] ?? '')
 }
 
 export function cutLabel(text: string, length = LABEL_LENGTH): string {
@@ -93,7 +98,7 @@ export function cutLabel(text: string, length = LABEL_LENGTH): string {
 
 export function commandLabel(command: string): string {
   const [first = '', ...rest] = segments(command)
-  const label = cutLabel(first)
+  const label = cutLabel(shownText(first))
   if (rest.length === 0 || label.endsWith('…')) return label
   return `${label} …`
 }

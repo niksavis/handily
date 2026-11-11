@@ -2,17 +2,12 @@ import type { RenderElement, RenderSurface } from 'claude-code'
 import type { SimpleViewFold } from '../types'
 import { erroredOutput, isRecord } from './output'
 import type { RowLook } from './row'
-import { displayWidth, graphemesOf, isEmoji } from './width'
+import { shownLine } from './shown'
 
 export const OPEN_LINES = 20
 export const DRAWN_CHARACTERS_AT_MOST = 60_000
-const TAB_STOP = 8
 const RESULT_INDENT = 2
 const RULE = '─'
-// eslint-disable-next-line no-control-regex -- an ANSI colour code starts with the escape character
-const COLOR_CODE = /\u001b\[[0-9;:]*m/g
-const HIDDEN_CHARACTER = /(?!\t)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
-const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 const LEADING_BLANK_LINES = /^(?:[ \t]*\r?\n)+/
 
 export type CallOutput = { text: string; lines: string[]; savedTo: string | null }
@@ -20,42 +15,6 @@ export type CallOutput = { text: string; lines: string[]; savedTo: string | null
 export type FoldActions = {
   fold: (next: SimpleViewFold) => void
   copy?: (surface: RenderSurface) => void
-}
-
-function escapedUnits(text: string): string {
-  return Array.from(
-    { length: text.length },
-    (_, index) => `\\u${text.charCodeAt(index).toString(16).padStart(4, '0')}`,
-  ).join('')
-}
-
-function shownGrapheme(grapheme: string): string {
-  const keepsJoiners = isEmoji(grapheme)
-  return grapheme.replace(HIDDEN_CHARACTER, (found) =>
-    keepsJoiners && EMOJI_JOINER.test(found) ? found : escapedUnits(found),
-  )
-}
-
-function shownWithTabs(line: string): string {
-  let shown = ''
-  let column = 0
-  for (const { grapheme, cells } of graphemesOf(line)) {
-    if (grapheme === '\t') {
-      const tabCells = TAB_STOP - (column % TAB_STOP)
-      shown += ' '.repeat(tabCells)
-      column += tabCells
-      continue
-    }
-    const drawn = shownGrapheme(grapheme)
-    shown += drawn
-    column += drawn === grapheme ? cells : displayWidth(drawn)
-  }
-  return shown
-}
-
-export function shownLine(line: string): string {
-  const overwritten = line.replace(COLOR_CODE, '').split('\r').at(-1) ?? ''
-  return shownWithTabs(overwritten)
 }
 
 function outputOf(copied: string, drawn: string, savedTo: string | null): CallOutput | null {

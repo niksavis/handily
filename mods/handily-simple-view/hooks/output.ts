@@ -1,4 +1,5 @@
 import type { SimpleViewDiffGap } from '../types'
+import { shownLine, shownText } from './shown'
 
 const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
 const HOOK_REFUSAL_PREFIX = /^Error: \w+:\S+ hook error: \[[^\n]*?\]: /
@@ -83,7 +84,7 @@ function firstNonEmptyLine(text: string): string {
   return (
     text
       .split(/\r?\n/)
-      .map((line) => line.trim())
+      .map((line) => shownLine(line).trim())
       .find((line) => line !== '') ?? ''
   )
 }
@@ -123,7 +124,7 @@ export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
   return {
     kind: 'done',
     lines: lineCount(output.stdout),
-    interpretation: typeof interpretation === 'string' ? interpretation : null,
+    interpretation: typeof interpretation === 'string' ? shownText(interpretation) : null,
     stderr: stderrSummary(output.stderr),
     savedTo: typeof savedTo === 'string' ? savedTo : null,
   }
@@ -181,7 +182,7 @@ export function shownPath(path: string, root: string): string {
   if (base !== '' && path.replace(/[\\/]+$/, '') === base) return '.'
   const separator = path.charAt(base.length)
   if (base !== '' && path.startsWith(base) && (separator === '/' || separator === '\\')) {
-    return path.slice(base.length + 1)
+    return shownText(path.slice(base.length + 1))
   }
-  return path
+  return shownText(path)
 }

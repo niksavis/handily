@@ -1,4 +1,4 @@
-import { shownLine } from './fold'
+import { shownLine } from './shown'
 import { FILE_TOOLS, isRecord } from './output'
 import { READING_TOOLS } from './reading'
 
