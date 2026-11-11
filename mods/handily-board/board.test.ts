@@ -10371,6 +10371,40 @@ for (const surface of SURFACES) {
         await ui.unmount()
       },
     )
+
+    test(
+      `a classified ask that settles in 0.6 s changes no row before the tick, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const run = holdCommand(on, CLASSIFIED_COMMAND)
+        const seen = world(on)
+        engineRows(on)
+        const dialog = personDialog(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+        const ui = await mountStrip($, surface, 115)
+        const first = await stripOn(ui, 115)
+        await seen.clock.advance(2_000)
+        const classified = askAs($, EXPLORE, CLASSIFIED_COMMAND)
+        await dialog.opened(1)
+        const asked = await stripOn(ui, 115)
+        await seen.clock.advance(CLASSIFIER_MS)
+        await classifierAllows($, dialog)
+        const settled = await stripOn(ui, 115)
+        await seen.clock.advance(10_000 - 2_000 - CLASSIFIER_MS)
+        const ticked = await stripOn(ui, 115)
+        await ui.unmount()
+        expect([asked, settled]).toEqual([first, first])
+        expect(ticked[1]).toBe(
+          '▶ Explore   running   ▸ Bash npm run e2e                                                           ctx —   open 10s',
+        )
+        run.release()
+        await classified
+      },
+    )
   })
 }
 
