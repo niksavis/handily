@@ -10341,6 +10341,29 @@ for (const surface of SURFACES) {
         ])
       },
     )
+
+    test(
+      `an agent that the engine stops listing before it ends, with no call in flight, shows no row, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await spawnFrom($, STRIP_PLAN)
+        seen.agents.push(runningAgent(STRIP_PLAN, 'Plan'))
+        await seen.clock.advance(30_000)
+        expect(await stripLines($, surface, 75)).toEqual([
+          'Agents  1 · no open task                                          [ board ]',
+          '▶ Plan      running                                                open 30s',
+        ])
+        seen.agents.splice(0, 1)
+        const ui = await mountBand($, surface)
+        expect(await ui.find({ key: 'band' })).toBeUndefined()
+        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        await ui.unmount()
+      },
+    )
   })
 
   describe(KEEP_FAILED_CRITERION, () => {
