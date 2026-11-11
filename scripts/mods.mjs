@@ -603,32 +603,50 @@ function readDeclaredTestLimits(path) {
     const node = resolve(name)
     if (node === undefined) return undefined
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      return escapeRegExp(node.text)
+      return { text: escapeRegExp(node.text), isLiteral: true }
     }
     if (!ts.isTemplateExpression(node)) return undefined
     const literals = [node.head, ...node.templateSpans.map((span) => span.literal)]
-    return literals.map((literal) => escapeRegExp(literal.text)).join('.*')
+    return {
+      text: literals.map((literal) => escapeRegExp(literal.text)).join('.*'),
+      isLiteral: false,
+    }
   }
-  const titlePattern = (call, unreadablePart) => {
+  const titleOf = (call, unreadablePart) => {
     const parts = [titlePart(call.arguments[0])]
     for (let node = call.parent; node !== undefined; node = node.parent) {
       if (isCallOf(node, 'describe')) parts.unshift(titlePart(node.arguments[0]))
     }
     if (parts.some((part) => part === undefined) && unreadablePart === undefined) return undefined
-    return new RegExp(`^${parts.map((part) => part ?? unreadablePart).join(' > ')}$`)
+    return {
+      pattern: new RegExp(`^${parts.map((part) => part?.text ?? unreadablePart).join(' > ')}$`),
+      isLiteral: parts.every((part) => part?.isLiteral === true),
+    }
   }
   return testCalls.flatMap((call) => {
     const declaredMs = call.arguments.length === 3 ? timeoutOf(call.arguments[1]) : undefined
     const limitMs = declaredMs ?? defaultTestLimitMs
     const isDefaultLimit = limitMs === defaultTestLimitMs
-    const pattern = titlePattern(call, isDefaultLimit ? anyTitlePart : undefined)
-    return pattern === undefined ? [] : [{ pattern, limitMs }]
+    const title = titleOf(call, isDefaultLimit ? anyTitlePart : undefined)
+    if (title === undefined) return []
+    const line = source.getLineAndCharacterOfPosition(call.getStart(source)).line + 1
+    return [{ ...title, limitMs, isDeclared: !isDefaultLimit, line }]
   })
 }
 
 function testLimitMs(title, declared) {
   const limits = declared.filter(({ pattern }) => pattern.test(title)).map(({ limitMs }) => limitMs)
   return limits.length === 0 ? defaultTestLimitMs : Math.min(...limits)
+}
+
+function unhonouredLimit(title, declared) {
+  const matches = declared.filter(({ pattern }) => pattern.test(title))
+  if (matches.length === 0) return undefined
+  const literal = matches.filter(({ isLiteral }) => isLiteral)
+  const owners = literal.length > 0 ? literal : matches
+  const lowest = matches.reduce((low, match) => (match.limitMs < low.limitMs ? match : low))
+  const lost = owners.find(({ isDeclared, limitMs }) => isDeclared && limitMs > lowest.limitMs)
+  return lost === undefined ? undefined : { lost, lowest }
 }
 
 function note(message) {
@@ -662,9 +680,19 @@ function checkTestTimes(mod, times, slowness) {
   const machine =
     slowness > 1 ? ` on a machine ${slowness.toFixed(2)} times slower than the reference times` : ''
   const declaredByFile = new Map()
+  const unhonoured = new Set()
   for (const { file, title, ms } of times) {
     if (file !== undefined && !declaredByFile.has(file)) {
       declaredByFile.set(file, readDeclaredTestLimits(join(mod.dir, file)))
+    }
+    const conflict = unhonouredLimit(title, declaredByFile.get(file) ?? [])
+    const conflictKey = `${file ?? ''} > ${title}`
+    if (conflict !== undefined && !unhonoured.has(conflictKey)) {
+      unhonoured.add(conflictKey)
+      const { lost, lowest } = conflict
+      fail(
+        `${mod.name}: ${file ?? 'a test file'} test "${title}" matches the timeoutMs of ${lost.limitMs} ms at line ${lost.line} and also ${lowest.pattern} of the test at line ${lowest.line} with a limit of ${lowest.limitMs} ms, so the gate cannot honour the ${lost.limitMs} ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal`,
+      )
     }
     const limitMs = testLimitMs(title, declaredByFile.get(file) ?? [])
     if (ms * testTimeShare.divisor <= limitMs * slowness) continue
