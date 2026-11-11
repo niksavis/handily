@@ -43,12 +43,14 @@ import {
   type AgentPulses,
   type AgentRow,
   type AgentStep,
+  type SeenEnd,
   NEEDS_YOU_AFTER_MS,
   agentView,
   heard,
   labelledAgents,
   noteAgentList,
   noteAsk,
+  noteEndsSeen,
   noteRunStart,
   noteSettled,
   noteSpawn,
@@ -162,6 +164,7 @@ import {
   bandView,
   drawBand,
   forgetStrip,
+  hasStripFailure,
   heldRows,
   isEngineDrawing,
   isLiveRow,
@@ -897,10 +900,24 @@ function noteEvent(
   $.ui.invalidate('ui.render')
 }
 
-async function notePrompt($: EngineInterface, keep: LogKeep, e: PromptSubmitInput): Promise<void> {
+function isPersonPrompt(e: PromptSubmitInput): boolean {
   const isPrompt = PERSON_ORIGINS.has(e.origin.kind) && e.command === undefined && !e.isMeta
-  if (!isPrompt || e.text.trim() === '') return
+  return isPrompt && e.text.trim() !== ''
+}
+
+async function notePrompt($: EngineInterface, keep: LogKeep, e: PromptSubmitInput): Promise<void> {
+  if (!isPersonPrompt(e)) return
   noteEvent($, keep, await $.clock.now(), { kind: 'prompt', agentId: null, detail: e.text })
+}
+
+async function clearBandEnds($: EngineInterface, seen: SeenEnd): Promise<void> {
+  try {
+    await noteEndsSeen(agentHostOf($), seen)
+  } catch (error) {
+    $.ui.log(`handily-board: the band may keep an ended agent row: ${String(error)}`, {
+      to: 'debug',
+    })
+  }
 }
 
 function callDetail(sight: BoardToolSight): string {
@@ -1800,6 +1817,7 @@ export const register: Register = (on, options) => {
     const enter = async (sent: PromptSubmitInput) => {
       const entered = await next(sent)
       if (entered.drop === undefined) await notePrompt($, log, e)
+      if (entered.drop === undefined && isPersonPrompt(e)) await clearBandEnds($, 'isAnswerSeen')
       return entered
     }
     try {
@@ -1959,6 +1977,7 @@ export const register: Register = (on, options) => {
     const command = parseBoardCommand(e.args)
     switch (command.kind) {
       case 'session':
+        await clearBandEnds($, 'isFailureSeen')
         return { text: await sessionCommand(uiOf($, notes, breakdown, redraw), mode) }
       case 'machine':
         return { text: await openBoard(uiOf($, notes, breakdown, redraw), SESSIONS_PANE) }
@@ -2166,6 +2185,11 @@ export const register: Register = (on, options) => {
     }
     const keeps = { vitals, checks, request, steps, pulses, breakdown, trend, log }
     const work = await workOf($, keeps, e.props.view.agentId)
+    if (hasStripFailure(work.agents)) {
+      $.clock.after(0, () => {
+        void clearBandEnds($, 'isFailureSeen')
+      })
+    }
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown, redraw), work)

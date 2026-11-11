@@ -9955,6 +9955,52 @@ async function stripLines(
   return lines
 }
 
+const KEEP_DONE_CRITERION =
+  'When an agent ends done with an answer, the band shows its masked first answer line until the person sends the next prompt.'
+const KEEP_FAILED_CRITERION =
+  'When an agent ends failed, the band shows its failed row until the person opens the board or runs /board.'
+
+const KEPT_75 = [
+  'Agents  2 · no open task                                          [ board ]',
+  '■ lane-b    failed    after Bash npm run build                     open  4m',
+  '✓ Plan      done      Found 3 callers of drawBand; .npmrc holds t… open 30s',
+] as const
+const KEPT_35 = [
+  'Agents 2 · no open task   [ board ]',
+  '■ lane-b    failed after Bash… open',
+  '✓ Plan      done Found 3 call… open',
+] as const
+const ONE_AGENT_HEAD_75 =
+  'Agents  1 · no open task                                          [ board ]'
+const ONE_AGENT_HEAD_35 = 'Agents 1 · no open task   [ board ]'
+
+async function keepScene($: Engine, on: On, surface: Surface) {
+  const seen = world(on)
+  engineRows(on)
+  await startOn($, surface)
+  await seen.clock.set(START)
+  await spawnFrom($, LANE)
+  seen.agents.push(runningAgent(LANE, 'lane-b'))
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: LANE })
+  await seen.clock.advance(4 * MINUTE)
+  seen.agents.splice(0, 1, { ...runningAgent(LANE, 'lane-b'), status: 'failed' })
+  await agentEnds($, LANE, '', 4 * MINUTE)
+  await spawnFrom($, STRIP_PLAN)
+  seen.agents.push(runningAgent(STRIP_PLAN, 'Plan'))
+  await seen.clock.advance(30_000)
+  seen.agents.splice(1, 1, { ...runningAgent(STRIP_PLAN, 'Plan'), status: 'completed' })
+  await agentEnds($, STRIP_PLAN, STRIP_ANSWER, 30_000)
+  expect([await stripLines($, surface, 75), await stripLines($, surface, 35)]).toEqual([
+    KEPT_75,
+    KEPT_35,
+  ])
+  return { seen }
+}
+
+async function personPrompt($: Engine): Promise<void> {
+  await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
+}
+
 const STRIP_SCREENS: readonly { body: number; lines: readonly string[] }[] = [
   {
     body: 115,
@@ -10200,7 +10246,7 @@ for (const surface of SURFACES) {
     )
 
     test(
-      `no head and no rows show once the engine no longer lists the ended agents and nothing runs, on ${surface}`,
+      `no head and no rows show after the next prompt once only ended done agents are left and the engine no longer lists them, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -10212,15 +10258,141 @@ for (const surface of SURFACES) {
         await seen.clock.advance(30_000)
         seen.agents.splice(0, 1, { ...runningAgent(STRIP_PLAN, 'Plan'), status: 'completed' })
         await agentEnds($, STRIP_PLAN, '', 30_000)
-        expect(await stripLines($, surface, 75)).toEqual([
+        const done = [
           'Agents  1 · no open task                                          [ board ]',
           '✓ Plan      done      no answer                                    open 30s',
-        ])
+        ]
+        expect(await stripLines($, surface, 75)).toEqual(done)
         seen.agents.splice(0, 1)
+        expect(await stripLines($, surface, 75)).toEqual(done)
+        await personPrompt($)
         const ui = await mountBand($, surface)
         expect(await ui.find({ key: 'band' })).toBeUndefined()
         expect(await ui.drawn()).toMatchObject({ type: 'engine' })
         await ui.unmount()
+      },
+    )
+  })
+
+  describe(KEEP_DONE_CRITERION, () => {
+    test(
+      `a done row keeps its masked answer line after the engine no longer lists its agent, at body 75 and 35, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen } = await keepScene($, on, surface)
+        seen.agents.splice(0, seen.agents.length)
+        expect([await stripLines($, surface, 75), await stripLines($, surface, 35)]).toEqual([
+          KEPT_75,
+          KEPT_35,
+        ])
+      },
+    )
+
+    test(
+      `a done row leaves the band at the next prompt while the engine still lists its agent, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        await keepScene($, on, surface)
+        await personPrompt($)
+        expect([await stripLines($, surface, 75), await stripLines($, surface, 35)]).toEqual([
+          [ONE_AGENT_HEAD_75, KEPT_75[1]],
+          [ONE_AGENT_HEAD_35, KEPT_35[1]],
+        ])
+      },
+    )
+
+    test(
+      `a done row of an agent that ended before the last prompt does not show, and an answer that comes after the prompt shows, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen } = await keepScene($, on, surface)
+        await personPrompt($)
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await seen.clock.advance(MINUTE)
+        seen.agents.splice(2, 1, { ...runningAgent(EXPLORE, 'Explore'), status: 'completed' })
+        await agentEnds($, EXPLORE, 'Read 4 files and found no caller', MINUTE)
+        expect(await stripLines($, surface, 75)).toEqual([
+          'Agents  2 · no open task                                          [ board ]',
+          KEPT_75[1],
+          '✓ Explore   done      Read 4 files and found no caller             open  1m',
+        ])
+      },
+    )
+
+    test(
+      `an agent that runs again after the prompt and ends shows its new answer line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen } = await keepScene($, on, surface)
+        await personPrompt($)
+        seen.agents.splice(1, 1, runningAgent(STRIP_PLAN, 'Plan'))
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/hooks/band.ts`, agentId: STRIP_PLAN })
+        expect((await stripLines($, surface, 75)).slice(1)).toEqual([
+          KEPT_75[1],
+          '▶ Plan      running   Read hooks/band.ts                           open 30s',
+        ])
+        seen.agents.splice(1, 1, { ...runningAgent(STRIP_PLAN, 'Plan'), status: 'completed' })
+        await agentEnds($, STRIP_PLAN, 'Found 4 callers', 30_000)
+        seen.agents.splice(0, seen.agents.length)
+        expect((await stripLines($, surface, 75)).slice(1)).toEqual([
+          KEPT_75[1],
+          '✓ Plan      done      Found 4 callers                              open 30s',
+        ])
+      },
+    )
+  })
+
+  describe(KEEP_FAILED_CRITERION, () => {
+    test(
+      `a failed row stays after the next prompt and after the engine no longer lists its agent, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen } = await keepScene($, on, surface)
+        await personPrompt($)
+        seen.agents.splice(0, seen.agents.length)
+        await personPrompt($)
+        expect([await stripLines($, surface, 75), await stripLines($, surface, 35)]).toEqual([
+          [ONE_AGENT_HEAD_75, KEPT_75[1]],
+          [ONE_AGENT_HEAD_35, KEPT_35[1]],
+        ])
+      },
+    )
+
+    test(
+      `a failed row leaves the band once the board opens from the band and the this session tab shows, and the done row stays, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen } = await keepScene($, on, surface)
+        seen.agents.splice(0, seen.agents.length)
+        const band = await mountStrip($, surface, 75)
+        await band.press({ key: 'band-board' })
+        await band.unmount()
+        expect(await board($, 'close')).toBe('Board closed.')
+        expect(await stripLines($, surface, 75)).toEqual(KEPT_75)
+        const again = await mountStrip($, surface, 75)
+        await again.press({ key: 'band-board' })
+        await again.unmount()
+        const pane = await mountTab($, surface, PANE, 'dock', 80)
+        await seen.clock.settle()
+        await pane.unmount()
+        expect(await board($, 'close')).toBe('Board closed.')
+        expect(await stripLines($, surface, 75)).toEqual([ONE_AGENT_HEAD_75, KEPT_75[2]])
+      },
+    )
+
+    test(
+      `a failed row leaves the band when the person runs /board, and the done row stays, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen } = await keepScene($, on, surface)
+        seen.agents.splice(0, seen.agents.length)
+        expect(await board($, '')).toBe('Board opened: this session.')
+        expect(await board($, 'close')).toBe('Board closed.')
+        expect([await stripLines($, surface, 75), await stripLines($, surface, 35)]).toEqual([
+          [ONE_AGENT_HEAD_75, KEPT_75[2]],
+          [ONE_AGENT_HEAD_35, KEPT_35[2]],
+        ])
       },
     )
   })

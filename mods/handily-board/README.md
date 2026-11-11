@@ -1031,7 +1031,9 @@ Agents  6 · no open task                                          [ board ]
 - With no open task, the head line reads `Agents  6 · no open task` and keeps `[ board ]`.
 - `open` on a needs-you or a running row runs `/tasks`. On a failed or a done row, it opens the
   board with that agent row open, so you see its answer and its last calls.
-- A failed or a done row shows while Claude Code still lists its agent.
+- A done row stays after Claude Code stops listing its agent, and leaves at your next prompt.
+  A failed row stays after your next prompt, and leaves when the this session tab shows or you
+  run `/board`.
 - A change of state draws the band at once. A new tool and the times change on the 10 second
   tick only.
 - Each name, tool target, answer and plan step shows control and bidi characters as escapes.

@@ -8110,9 +8110,9 @@ text), README, new `kinds.test.ts`. After .6.
 The owner approved these mocks and the 8 recommended answers of 16.11 on 2026-11-10. The record
 of the mocks is handily-crupjy.1, and the build is handily-crupjy.2. The rules come from
 handily-crupjy.2 and handily-crupjy.3, which the owner approved on 2026-11-04, and from
-handily-y8t3v. Two rules wait for handily-crupjy.3: a done row that stays until the next prompt,
-and a failed row that stays until the board opens. Until then, a done or failed row shows while
-Claude Code still lists its agent.
+handily-y8t3v. handily-crupjy.3 built two rules. A done row stays until the next prompt, also
+after Claude Code stops listing its agent. A failed row stays until the board opens or the person
+runs `/board`.
 
 ### 16.0 Conventions
 

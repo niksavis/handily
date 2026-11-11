@@ -134,6 +134,8 @@ export type BoardAgent = {
   listedStatus: BoardAgentStatus | null
   isListed: boolean
   hasLoopEvents: boolean
+  isAnswerSeen?: boolean
+  isFailureSeen?: boolean
   label?: string
 }
 
