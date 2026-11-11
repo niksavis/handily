@@ -17,6 +17,7 @@ export const UNLISTED_KEPT_AT_MOST = 20
 export const NEEDS_YOU_AFTER_MS = 3_000
 export const SLOW_CALL_MS = 30_000
 export const QUIET_MS = 120_000
+export const RUN_SETTLE_MS = 3_000
 const LAST_CALLS = 3
 
 const ANSWER_CHARS_AT_MOST = 200
@@ -139,6 +140,10 @@ function withAgent(
   return agents.map((agent) => (agent === known ? change(agent) : agent))
 }
 
+function reopened(agent: BoardAgent, now: number): BoardAgent {
+  return { ...agent, seenAt: now, endedAt: null, runStartedAt: now }
+}
+
 function isNeverListed(agent: BoardAgent): boolean {
   return agent.listedStatus === null && (agent.type === null || !agent.hasLoopEvents)
 }
@@ -160,10 +165,8 @@ function pruned(agents: Agents): BoardAgent[] {
 export function withSpawn(agents: Agents, id: string, facts: SpawnFacts, at: number): BoardAgent[] {
   return pruned(
     withAgent(agents, id, at, (agent) => ({
-      ...agent,
+      ...reopened(agent, at),
       startedAt: agent.isSpawnSeen ? agent.startedAt : at,
-      seenAt: at,
-      endedAt: null,
       isSpawnSeen: true,
       description: agent.description ?? facts.description,
       type: agent.type ?? facts.type,
@@ -175,9 +178,7 @@ export function withSpawn(agents: Agents, id: string, facts: SpawnFacts, at: num
 
 export function withRunStart(agents: Agents, agentId: string, now: number): BoardAgent[] {
   return withAgent(agents, agentId, now, (agent) => ({
-    ...agent,
-    seenAt: now,
-    endedAt: null,
+    ...reopened(agent, now),
     hasLoopEvents: true,
   }))
 }
@@ -189,9 +190,7 @@ export function withCallStart(
   now: number,
 ): BoardAgent[] {
   return withAgent(agents, agentId, now, (agent) => ({
-    ...agent,
-    seenAt: now,
-    endedAt: null,
+    ...reopened(agent, now),
     hasLoopEvents: true,
     running: [...agent.running.filter((one) => one.id !== call.id), call],
   }))
@@ -280,8 +279,14 @@ export function withTurnEnd(
   )
 }
 
-function isListedEnd(agent: BoardAgent, status: AgentStatus): boolean {
-  return ENDED_STATUSES.has(status) && agent.listedStatus !== status
+function isSettledRun(agent: BoardAgent, now: number): boolean {
+  const runStartedAt = agent.runStartedAt ?? agent.startedAt
+  return agent.endedAt === null && agent.running.length === 0 && now - runStartedAt >= RUN_SETTLE_MS
+}
+
+function isListedEnd(agent: BoardAgent, status: AgentStatus, now: number): boolean {
+  if (!ENDED_STATUSES.has(status)) return false
+  return agent.listedStatus !== status || isSettledRun(agent, now)
 }
 
 function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgent {
@@ -294,7 +299,7 @@ function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgen
     type: info.type,
     name: info.name ?? agent.name,
     parentId: info.parentId ?? agent.parentId,
-    endedAt: isListedEnd(agent, info.status) ? (agent.endedAt ?? now) : agent.endedAt,
+    endedAt: isListedEnd(agent, info.status, now) ? (agent.endedAt ?? now) : agent.endedAt,
   }
 }
 

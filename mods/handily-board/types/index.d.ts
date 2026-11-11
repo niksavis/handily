@@ -121,6 +121,7 @@ export type BoardAgent = {
   isSpawnSeen: boolean
   seenAt: number
   endedAt: number | null
+  runStartedAt?: number
   tools: number
   running: readonly BoardAgentCall[]
   last: BoardToolSight | null

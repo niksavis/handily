@@ -17,7 +17,7 @@ import {
   type Mounted,
   type Plugin,
 } from 'claude-code/testing'
-import { NEEDS_YOU_AFTER_MS } from './hooks/agents'
+import { NEEDS_YOU_AFTER_MS, RUN_SETTLE_MS } from './hooks/agents'
 import { displayWidth } from './hooks/width'
 
 const ROOT = '/work/app'
@@ -1598,6 +1598,71 @@ for (const surface of SURFACES) {
         expect(await endLines($)).toEqual(['14:00:00 scout ✓ done 4m'])
         await agentTurnEnds($, SCOUT, 'answer')
         expect(await endLines($)).toEqual(['14:01:00 scout ✓ done 4m', '14:00:00 scout ✓ done 4m'])
+      },
+    )
+
+    test(
+      `a resumed agent that ends with no turn end, while the agent list says completed before and after its run, ends with one end line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await endedScout($, seen, surface)
+        await $.turn.start({ text: 'go on', turnId: 'turn-two', agentId: SCOUT })
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
+        await seen.clock.advance(RUN_SETTLE_MS)
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
+          /^(╭─ )?Agents {2}all 1 done/u,
+        )
+        await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual(['14:01:03 scout ✓ done 1m', '14:00:00 scout ✓ done 4m'])
+      },
+    )
+
+    test(
+      `a resumed agent that ends with a turn end only gets one end line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await endedScout($, seen, surface)
+        await $.turn.start({ text: 'go on', turnId: 'turn-two', agentId: SCOUT })
+        await agentTurnEnds($, SCOUT, 'answer')
+        await seen.clock.advance(RUN_SETTLE_MS)
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
+          /^(╭─ )?Agents {2}all 1 done/u,
+        )
+        await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual(['14:01:00 scout ✓ done 4m', '14:00:00 scout ✓ done 4m'])
+      },
+    )
+
+    test(
+      `a resumed agent that the agent list ends before a late turn end keeps one end line, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await endedScout($, seen, surface)
+        await $.turn.start({ text: 'go on', turnId: 'turn-two', agentId: SCOUT })
+        await seen.clock.advance(RUN_SETTLE_MS)
+        await screenOn($, surface, 'dock', 41)
+        const ends = ['14:01:03 scout ✓ done 1m', '14:00:00 scout ✓ done 4m']
+        expect(await endLines($)).toEqual(ends)
+        await agentTurnEnds($, SCOUT, 'answer')
+        await screenOn($, surface, 'dock', 41)
+        expect(await endLines($)).toEqual(ends)
+      },
+    )
+
+    test(
+      `a list read right after a resumed turn start that still says completed keeps the agent running, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await endedScout($, seen, surface)
+        await $.turn.start({ text: 'go on', turnId: 'turn-two', agentId: SCOUT })
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
+        await seen.clock.advance(RUN_SETTLE_MS - SECOND)
+        expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
+        expect(await endLines($)).toEqual(['14:00:00 scout ✓ done 4m'])
       },
     )
 

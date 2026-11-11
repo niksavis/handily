@@ -782,7 +782,6 @@ type LogKeep = {
   current: BoardLog
   denied: Set<string>
   runs: Map<string, AgentRun>
-  listed: Map<string, AgentStatus | null>
 }
 
 type SessionKeeps = {
@@ -875,11 +874,9 @@ function listedEndKind(status: AgentStatus | null): LogKind | undefined {
 function noteListedEnds($: EngineInterface, keep: LogKeep, rows: readonly AgentRow[]): void {
   for (const row of rows) {
     const kind = listedEndKind(row.listedStatus)
-    const before = keep.listed.get(row.id)
-    keep.listed.set(row.id, row.listedStatus)
     const run = keep.runs.get(row.id)
     if (run === undefined) keep.runs.set(row.id, kind === undefined ? 'running' : 'ended')
-    else if (kind !== undefined && run === 'running' && before !== row.listedStatus) {
+    else if (kind !== undefined && run === 'running' && !row.isAging) {
       const at = row.startedAt + row.ageMs
       noteAgentEnd($, keep, at, { kind, agentId: row.id, detail: elapsedText(row.ageMs) })
     }
@@ -1592,7 +1589,7 @@ export const register: Register = (on, options) => {
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
-  const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map(), listed: new Map() }
+  const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
   const notes: RowNotes = new Map()
   const asks: BoardTask[] = []
   const pulses = newPulses()
@@ -1663,8 +1660,8 @@ export const register: Register = (on, options) => {
       await noteVitals($, vitals, (current) => withTurnStart(current, now))
       await noteTrend($, trend, trendTurnStarted)
     } else {
-      noteLogRun(log, e.agentId)
       await noteRunStart(agentHostOf($), e.agentId)
+      noteLogRun(log, e.agentId)
     }
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
       withTasks(startTurn(progress, now), list, now),
@@ -1761,7 +1758,6 @@ export const register: Register = (on, options) => {
       log.current = EMPTY_LOG
       log.denied.clear()
       log.runs.clear()
-      log.listed.clear()
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await $.state.set(PLAN_ID, null)
@@ -1857,13 +1853,15 @@ export const register: Register = (on, options) => {
       return answer
     }
     const callId = e.tool_use_id
-    noteLogRun(log, agentId)
     const from = await $.clock.now()
     heard(pulses, agentId, from)
     pulses.callsFrom.set(callId, from)
     try {
       const answer = await untilSettled($, attention, callId, () =>
-        trackAgentCall(agentHostOf($), agentId, { id: callId, ...sight }, () => next(e)),
+        trackAgentCall(agentHostOf($), agentId, { id: callId, ...sight }, () => {
+          noteLogRun(log, agentId)
+          return next(e)
+        }),
       )
       await noteCallEvent($, log, sight, { callId, agentId, isError: answer.isError === true })
       return answer
