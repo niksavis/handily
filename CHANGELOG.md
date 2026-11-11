@@ -6,6 +6,18 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.20.1 - 2026-11-11
+
+### Fixed
+
+- **board: a resumed agent that ends with no turn end now reads ended.** When a resumed agent
+  run ended and the engine sent no turn end for it, its row stayed running when the agent list
+  showed the same ended status before and after the run. Now a listed ended status ends the row
+  when the run started at least 3 s before and no call of the agent runs. The Log gets one end
+  line, also when a late turn end comes. A live check on Claude Code 2.1.322 found a turn end
+  for every resumed run, so this guards a case that was seen once and not reproduced.
+  (handily-ev56ne)
+
 ## handily-board 0.20.0 - 2026-11-11
 
 ### Added
