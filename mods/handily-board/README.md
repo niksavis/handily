@@ -788,9 +788,9 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   ▶ Explore   quiet 2m  Read src/… open  5m
   ```
 
-  The board starts no timer for these states. It reads them when it draws. A shown tab draws
-  again every 10 seconds, and so does the band while it shows an agent row. The board keeps the
-  times in memory, and each end of the session clears them with the agent rows.
+  The board starts no timer for these states. It reads them when it draws, and a shown tab draws
+  again every 10 seconds. The board keeps the times in memory, and each end of the session clears
+  them with the agent rows.
 
 - `on hold` is the engine status `waiting`: the agent waits for its own background work, an
   Agent call or a plan approval. The status does not say which, so the board does not draw it
@@ -1021,9 +1021,8 @@ Agents  6 · no open task                                          [ board ]
   of a running agent is `running`, `slow 45s` or `quiet 3m`.
 - The detail of a needs-you row is what it waits for. A failed row says after which tool call it
   failed. A done row shows the first line of its answer, with secrets masked, or `no answer`. A
-  running row shows its plan step, or its tool when it has no plan. A slow row shows the slow
-  tool first. From a band body of 100 columns, a running row shows the step and the tool, and
-  every row shows its `ctx`.
+  running row shows its plan step, or its tool when it has no plan. From a band body of 100
+  columns, a running row shows the step and then the tool, and every row shows its `ctx`.
 - Under a band body of 50 columns, the age drops and the state word is not padded. The detail
   cuts first. The mark, the name, the state word and `open` never cut.
 - When more than 3 agents have rows, a fold button names the rest by group, such as

@@ -143,17 +143,13 @@ export function forgetStrip(keep: StripKeep): void {
   keep.isTickDue = false
 }
 
-function isSameState(kept: AgentRow, fresh: AgentRow): boolean {
-  return kept.look === fresh.look || (kept.look === 'running' && fresh.look === 'asked')
-}
-
 export function heldRows(keep: StripKeep, fresh: readonly AgentRow[], now: number): AgentRow[] {
   const isDue = keep.isTickDue || keep.at === undefined || now - keep.at >= STRIP_TICK_MS
   keep.isTickDue = false
   if (isDue) keep.at = now
   const held = fresh.map((row) => {
     const kept = keep.rows.get(row.id)
-    return !isDue && kept !== undefined && isSameState(kept, row) ? kept : row
+    return !isDue && kept !== undefined && kept.look === row.look ? kept : row
   })
   keep.rows = new Map(held.map((row) => [row.id, row]))
   return held

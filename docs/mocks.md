@@ -8431,9 +8431,8 @@ The owner approved the 8 recommended answers of the designer:
 6. **A done agent with an empty answer** shows the dim detail `no answer`.
 7. **The no-task head line** stays, as drawn. It gives `[ board ]` one fixed place.
 8. **Row order towards the prompt.** The head is on top, then the rows in rank order, then the
-   fold next to the prompt. The tmux probe of handily-crupjy.1 on Claude Code 2.1.322 measured a
-   band of one line, with `[-]` on that line. Where the engine draws `[-]` on a band of several
-   lines is not measured yet.
+   fold next to the prompt. The tmux probe of handily-crupjy.1 on Claude Code 2.1.322 showed that
+   the engine draws `[-]` on the band line.
 
 ### 16.12 Failure modes
 
@@ -8453,7 +8452,7 @@ The owner approved the 8 recommended answers of the designer:
 - **Failed rows pile up** if the person never opens the board. 3 failed rows hide every running
   agent, and only the fold counts them.
 - **Height.** A 5-line band in a short terminal pushes the prompt down. The engine caps the slot at
-  half the rows, and a taller tree scrolls (16.11, answer 4).
+  half the rows, and a taller tree scrolls (open question 4).
 - **Two band mods** still yield to each other by the 8.13k rule. If both yield, no strip shows.
 - **The 10 s tick:** a tool and a time can lag by up to 10 s. A change of state does not lag.
 - **No band in two cases:** the mobile app and `-p`. There, `/board list` is the only path.

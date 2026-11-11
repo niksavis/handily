@@ -1213,8 +1213,6 @@ The owner approved the mocks and the 8 recommended answers on 2026-11-10. The ap
 - A change of an agent group or state word draws at once, because the band reads the agents state
   while it draws. The tool, the ctx, the stall time and the age of a row whose state did not
   change come from the rows kept at the last 10 second tick. So they change on the tick only.
-  A move from `running` to `asked` does not count as a change, because a classifier check settles
-  in about 0.6 s. An ask that stays 3 seconds turns to needs you and draws at once.
 - Every text from an agent or a tool target goes through `escaped`: the name, the tool and its
   target, the answer line and the plan step.
 
