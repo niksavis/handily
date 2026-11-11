@@ -975,19 +975,28 @@ No agents yet.
 
 ## The task band
 
-While the `this session` tab is not shown, one line above the prompt shows the current task.
-Captures from the tests, at 80 columns (the band body is 75 columns):
+While the `this session` tab is not shown, the band above the prompt shows the current task, and
+under it up to 3 agent rows. Captures from the tests, at 80 columns (the band body is 75 columns):
 
 ```text
 ▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ]
 ○ 3 Review the mocks with Codex                     next ▰▱▱▱ 1/4 [ board ]
-◆ 3 for you · ▶ 2 Write the tab mocks                20m ▰▰▱▱ 1/4 [ board ]
+◆ 3 for you · ▶ 2 Write the tab mocks        stalled 20m ▰▰▱▱ 1/4 [ board ]
 Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]
 ```
 
+```text
+Agents  6 · no open task                                          [ board ]
+◆ scout     needs you waits for: permission · Bash npm test        open  1m
+■ lane-b    failed    after Bash npm run build                     open  4m
+✓ Plan      done      Found 3 callers of drawBand; .npmrc holds t… open 30s
+[ +3 more agents · 3 running ]
+```
+
 - The current task is the first task in progress, or else the first pending task with the dim
-  word `next`. The time turns to the `warning` colour after 15 minutes, as on the board.
-- While the band shows a task in progress, it draws again every 10 seconds, so the time moves.
+  word `next`. After 15 minutes the time reads `stalled 16m` in the `warning` colour.
+- While the band shows a task in progress or an agent row, it draws again every 10 seconds, so
+  the times move.
 - A switch to the `this machine` tab shows the band at once. Claude Code tells a plugin nothing
   about a switch to the tab of another mod, so the band shows within 10 seconds then.
 - Open tasks for you come first. While an approved plan waits, the band shows the plan offer,
@@ -997,11 +1006,35 @@ Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]
   with a digit typed into an empty prompt.
 - The time and the bar never cut. The title cuts first. Below 50 columns the bar drops, and
   below 30 columns the time drops.
-- The band draws nothing while the `this session` tab is shown, with no open task and no plan,
-  while a survey holds the band, and with the setting `band` at `off`. Claude Code draws the
-  band on the terminal and the desktop app only.
+- The band draws nothing while the `this session` tab is shown, with no open task, no plan and
+  no agent row, while a survey holds the band, and with the setting `band` at `off`. Claude Code
+  draws the band on the terminal and the desktop app only.
 - When another mod beneath the board draws the band, the board shows that drawing unchanged.
   The board draws only over the engine drawing.
+
+### Agent rows
+
+- The rows come in this order: needs you, failed, done, then running. Inside a group, the
+  oldest agent comes first. A killed agent sorts with done. An agent that is asked, on hold,
+  pending or idle sorts with running and keeps its word.
+- Each row has the mark, the name, the state word, a detail, `open` and the age. The state word
+  of a running agent is `running`, `slow 45s` or `quiet 3m`.
+- The detail of a needs-you row is what it waits for. A failed row says after which tool call it
+  failed. A done row shows the first line of its answer, with secrets masked, or `no answer`. A
+  running row shows its plan step, or its tool when it has no plan. From a band body of 100
+  columns, a running row shows the step and then the tool, and every row shows its `ctx`.
+- Under a band body of 50 columns, the age drops and the state word is not padded. The detail
+  cuts first. The mark, the name, the state word and `open` never cut.
+- When more than 3 agents have rows, a fold button names the rest by group, such as
+  `[ +3 more agents · 3 running ]`. It opens the board. When the band has too few rows, the
+  running rows drop first. A needs-you row never drops.
+- With no open task, the head line reads `Agents  6 · no open task` and keeps `[ board ]`.
+- `open` on a needs-you or a running row runs `/tasks`. On a failed or a done row, it opens the
+  board with that agent row open, so you see its answer and its last calls.
+- A failed or a done row shows while Claude Code still lists its agent.
+- A change of state draws the band at once. A new tool and the times change on the 10 second
+  tick only.
+- Each name, tool target, answer and plan step shows control and bidi characters as escapes.
 
 ## The this machine tab
 

@@ -65,6 +65,7 @@ export type AgentRow = {
   shownName: string
   look: AgentLook
   listedStatus: AgentStatus | null
+  isListed: boolean
   isEnded: boolean
   isAging: boolean
   call: BoardToolSight | null
@@ -428,6 +429,7 @@ function rowOf(
     shownName: agent.label ?? escaped(baseLabel(agent)),
     look,
     listedStatus: agent.listedStatus,
+    isListed: agent.isListed,
     isEnded,
     isAging: isAgingNow(agent, status),
     call: sightOf(agent, waiting),

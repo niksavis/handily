@@ -146,7 +146,7 @@ function actor(ui: PaneUi): Act {
   }
 }
 
-function agentsOpener(ui: PaneUi): () => void {
+export function agentsOpener(ui: PaneUi): () => void {
   return () => {
     ui.openAgents().then(
       () => undefined,

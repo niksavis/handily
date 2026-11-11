@@ -9686,13 +9686,13 @@ describe('the task band above the prompt (handily-9uj3n.9)', () => {
         await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'pending' })
         await seen.clock.advance(16 * MINUTE)
         const ui = await mountBand($, surface)
-        expect((await ui.find({ type: 'Text', text: '20m' }))?.props.color).toBe('warning')
+        expect((await ui.find({ type: 'Text', text: 'stalled 20m' }))?.props.color).toBe('warning')
         await ui.unmount()
         for (const title of ['Rotate the key', 'Pick a port', 'Restart the probe']) {
           await $.tool.call({ tool: 'mcp__handily-board__task_assign', kind: 'do', title })
         }
         expect(await bandLine($, surface)).toBe(
-          '◆ 3 for you · ▶ 2 Write the tab mocks                20m ▰▰▱▱ 1/4 [ board ]',
+          '◆ 3 for you · ▶ 2 Write the tab mocks        stalled 20m ▰▰▱▱ 1/4 [ board ]',
         )
       },
     )
@@ -9815,6 +9815,564 @@ describe('the task band above the prompt (handily-9uj3n.9)', () => {
     },
   )
 })
+
+const STRIP_CRITERION =
+  'When subagents run and no board tab is shown, the band shows at most 3 agent rows, needs you first, then failed, then done, then running, each with its state word, its plan step or tool, and an open button, and a fold button names the rest.'
+const STRIP_NO_TASK_CRITERION =
+  'When agents run and no task is open, the band still shows the agent rows.'
+const STRIP_WIDTH_CRITERION =
+  'When the band body is narrower than 100 columns, the ctx column is left out and every row fits the body at 80 and 40 columns.'
+const STRIP_REDRAW_CRITERION =
+  'When an agent changes state, the band draws at once, and tool details and times change only on the 10 s tick.'
+
+const STRIP_PLAN = 'a0000008plan'
+const STRIP_GHOST = 'a0000009ghost'
+const STRIP_TESTER = 'a0000010tester'
+const STRIP_IMPLEMENTER = 'a0000011implementer'
+const STRIP_GATE_TITLES = [
+  'Read the gates',
+  'Fix the lint',
+  'Fix the types',
+  'Run the gates',
+  'Commit the fix',
+]
+const STRIP_ANSWER =
+  'Found 3 callers of drawBand; .npmrc holds token=s3cr3tvalue and the CI file reads it'
+const STRIP_PLAN_TITLES = [
+  'Read the design',
+  'Map the hooks',
+  'Draw the plan',
+  'Test the fold',
+  'Bump the version',
+  'Write the notes',
+  'Ask for review',
+]
+const SESSION_OPEN_FOCUS = { id: PANE, title: 'this session', focus: true }
+const PLAN_USAGE = { fresh: 1_000, written: 3_000, read: 18_000, output: 500 }
+const withStripExpanded = { plugins: [fakeWorkitems, readExpanded] }
+
+async function agentEnds(
+  $: Engine,
+  agentId: string,
+  answer: string,
+  durationMs: number,
+): Promise<void> {
+  await $.turn.complete({
+    turnId: `turn-${agentId}`,
+    reason: 'answer',
+    answer,
+    durationMs,
+    isAborted: false,
+    agentId,
+  })
+}
+
+function tasksRuns(on: On): string[] {
+  const runs: string[] = []
+  on('command.run', { command: 'tasks' }, (_$, e) => {
+    runs.push(e.command)
+    return { text: '' }
+  })
+  return runs
+}
+
+async function stripScene($: Engine, on: On, surface: Surface) {
+  const seen = world(on)
+  engineRows(on)
+  const dialog = personDialog(on)
+  const steps = stepWorld(on)
+  const runs = tasksRuns(on)
+  await startOn($, surface)
+  await seen.clock.set(START)
+  await spawnFrom($, LANE)
+  seen.agents.push(runningAgent(LANE, 'lane-b'))
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: LANE })
+  await seen.clock.advance(4 * MINUTE)
+  seen.agents.splice(0, 1, { ...runningAgent(LANE, 'lane-b'), status: 'failed' })
+  await agentEnds($, LANE, '', 4 * MINUTE)
+  await spawnFrom($, STRIP_PLAN)
+  seen.agents.push(runningAgent(STRIP_PLAN, 'Plan'))
+  await step($, steps, STRIP_PLAN, stepped('turn-p', PLAN_USAGE, 'end_turn'))
+  await seen.clock.advance(30_000)
+  seen.agents.splice(1, 1, { ...runningAgent(STRIP_PLAN, 'Plan'), status: 'completed' })
+  await agentEnds($, STRIP_PLAN, STRIP_ANSWER, 30_000)
+  await spawnFrom($, SCOUT)
+  seen.agents.push(runningAgent(SCOUT, 'scout'))
+  await step($, steps, SCOUT, stepped('turn-s', SCOUT_USAGE, 'tool_use'))
+  await spawnFrom($, EXPLORE, SCOUT)
+  seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+  for (const title of STRIP_PLAN_TITLES) {
+    await $.tool.call({ tool: TOOL_ADD, title, agentId: EXPLORE })
+  }
+  await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed', agentId: EXPLORE })
+  await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed', agentId: EXPLORE })
+  await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'in_progress', agentId: EXPLORE })
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/hooks/band.ts`, agentId: EXPLORE })
+  await step($, steps, EXPLORE, stepped('turn-e', EXPLORE_USAGE, 'tool_use'))
+  for (const [id, name] of LANE_EXTRAS) {
+    await spawnFrom($, id)
+    seen.agents.push(runningAgent(id, name))
+  }
+  await seen.clock.advance(MINUTE - NEEDS_YOU_AFTER_MS)
+  const call = askAs($, SCOUT, 'npm test')
+  await dialog.opened(1)
+  await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+  return { seen, dialog, call, steps, runs }
+}
+
+function stripProps(body: number, maxRows: number): RenderPropsOf['AbovePrompt'] {
+  return { ...bandProps(body), maxRows }
+}
+
+async function mountStrip($: Engine, surface: Surface, body: number, maxRows = 10) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'AbovePrompt',
+    props: stripProps(body, maxRows),
+  })
+}
+
+async function stripOn(ui: { find: Mounted['find'] }, body: number): Promise<string[]> {
+  const band = drawnOf(await ui.find({ key: 'band' }))
+  if (band === null) throw new Error('the band drew nothing')
+  const lines = screenOf(band, body).map((line) => line.trimEnd())
+  for (const line of lines) {
+    expect(displayWidth(line) <= body, `"${line}" is wider than ${String(body)}`).toBe(true)
+  }
+  return lines
+}
+
+async function stripLines(
+  $: Engine,
+  surface: Surface,
+  body: number,
+  maxRows = 10,
+): Promise<string[]> {
+  const ui = await mountStrip($, surface, body, maxRows)
+  const lines = await stripOn(ui, body)
+  await ui.unmount()
+  return lines
+}
+
+const STRIP_SCREENS: readonly { body: number; lines: readonly string[] }[] = [
+  {
+    body: 115,
+    lines: [
+      'Agents  6 · no open task                                                                                  [ board ]',
+      '◆ scout     needs you waits for: permission · Bash npm test                                        ctx 31k open  1m',
+      '■ lane-b    failed    after Bash npm run build                                                     ctx —   open  4m',
+      '✓ Plan      done      Found 3 callers of drawBand; .npmrc holds token=*** and the CI file reads it ctx 22k open 30s',
+      '[ +3 more agents · 3 running ]',
+    ],
+  },
+  {
+    body: 75,
+    lines: [
+      'Agents  6 · no open task                                          [ board ]',
+      '◆ scout     needs you waits for: permission · Bash npm test        open  1m',
+      '■ lane-b    failed    after Bash npm run build                     open  4m',
+      '✓ Plan      done      Found 3 callers of drawBand; .npmrc holds t… open 30s',
+      '[ +3 more agents · 3 running ]',
+    ],
+  },
+  {
+    body: 35,
+    lines: [
+      'Agents 6 · no open task   [ board ]',
+      '◆ scout     needs you Bash np… open',
+      '■ lane-b    failed after Bash… open',
+      '✓ Plan      done Found 3 call… open',
+      '[ +3 more · 3 running ]',
+    ],
+  },
+]
+
+for (const surface of SURFACES) {
+  describe(STRIP_CRITERION, () => {
+    test(
+      `needs you, failed and done rows come first with their word, detail and open, and the fold names the running rest, at body 115, 75 and 35, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { dialog, call } = await stripScene($, on, surface)
+        const screens = []
+        for (const { body } of STRIP_SCREENS) screens.push(await stripLines($, surface, body))
+        expect(screens).toEqual(STRIP_SCREENS.map(({ lines }) => lines))
+        const ui = await mountStrip($, surface, 75)
+        for (const id of [SCOUT, LANE, STRIP_PLAN]) {
+          const open = await ui.find({ key: `band-open:${id}` })
+          expect(open?.text).toBe('open')
+          expect(open?.props.hotkey).toBeUndefined()
+        }
+        const fold = await ui.find({ key: 'band-agents-more' })
+        expect(fold?.props.hotkey).toBeUndefined()
+        const state = drawnOf(await ui.find({ key: `band-agent:${SCOUT}` }))
+        const [mark, name, word] = state === null ? [] : texts(state)
+        expect([mark?.text, mark?.props.color, name?.props.bold, word?.props.color]).toEqual([
+          '◆ ',
+          'warning',
+          true,
+          'warning',
+        ])
+        await ui.unmount()
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `running rows show the stall words, the plan step and the tool from body 100, under a stalled task, and open runs /tasks, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        engineRows(on)
+        const runs = tasksRuns(on)
+        await startOn($, surface)
+        await bandFour($, seen)
+        await seen.clock.set(START + 11 * MINUTE)
+        await spawnFrom($, STRIP_TESTER)
+        seen.agents.push(runningAgent(STRIP_TESTER, 'tester'))
+        await seen.clock.set(START + 13 * MINUTE)
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/app.ts`, agentId: STRIP_TESTER })
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        for (const title of STRIP_GATE_TITLES) {
+          await $.tool.call({ tool: TOOL_ADD, title, agentId: EXPLORE })
+        }
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed', agentId: EXPLORE })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed', agentId: EXPLORE })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 3, status: 'completed', agentId: EXPLORE })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 4, status: 'in_progress', agentId: EXPLORE })
+        await seen.clock.set(START + 16 * MINUTE - 45_000)
+        const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
+        await seen.clock.set(START + 16 * MINUTE - 9_000)
+        await spawnFrom($, STRIP_IMPLEMENTER)
+        seen.agents.push(runningAgent(STRIP_IMPLEMENTER, 'implementer'))
+        for (const title of ['Edit the band', 'Test the band', 'Write the notes']) {
+          await $.tool.call({ tool: TOOL_ADD, title, agentId: STRIP_IMPLEMENTER })
+        }
+        await $.tool.call({
+          tool: TOOL_UPDATE,
+          id: 1,
+          status: 'in_progress',
+          agentId: STRIP_IMPLEMENTER,
+        })
+        await $.tool.call({
+          tool: 'Edit',
+          file_path: `${ROOT}/hooks/band.ts`,
+          old_string: 'a',
+          new_string: 'b',
+          agentId: STRIP_IMPLEMENTER,
+        })
+        await seen.clock.set(START + 16 * MINUTE)
+        expect([
+          await stripLines($, surface, 115),
+          await stripLines($, surface, 75),
+          await stripLines($, surface, 35),
+        ]).toEqual([
+          [
+            '▶ 2 Write the tab mocks                                                              stalled 16m ▰▰▱▱ 1/4 [ board ]',
+            '▶ tester    quiet 3m  Read src/app.ts                                                              ctx —   open  5m',
+            '▶ Explore   slow 45s  ▸ Bash npm run check · step 3/5 Run the gates                                ctx —   open  3m',
+            '▶ impl…nter running   0/3 Edit the band · Edit hooks/band.ts                                       ctx —   open  9s',
+          ],
+          [
+            '▶ 2 Write the tab mocks                      stalled 16m ▰▰▱▱ 1/4 [ board ]',
+            '▶ tester    quiet 3m  Read src/app.ts                              open  5m',
+            '▶ Explore   slow 45s  ▸ Bash npm run check                         open  3m',
+            '▶ impl…nter running   0/3 Edit the band                            open  9s',
+          ],
+          [
+            '▶ 2 Writ… stalled 16m 1/4 [ board ]',
+            '▶ tester    quiet 3m Read src… open',
+            '▶ Explore   slow 45s ▸ Bash n… open',
+            '▶ impl…nter running 0/3 Edit…  open',
+          ],
+        ])
+        const ui = await mountStrip($, surface, 75)
+        await ui.press({ key: `band-open:${EXPLORE}` })
+        await ui.unmount()
+        expect(runs).toEqual(['tasks'])
+        held.release()
+        await call
+      },
+    )
+
+    test(
+      `open on a failed or a done row opens the board with that agent row open, and the fold opens the board, on ${surface}`,
+      withStripExpanded,
+      async ($, on) => {
+        const { seen, dialog, call } = await stripScene($, on, surface)
+        const ui = await mountStrip($, surface, 75)
+        await ui.press({ key: `band-open:${STRIP_PLAN}` })
+        expect(await expandedState($)).toEqual([`agent:${STRIP_PLAN}`, 'group:ended-agents'])
+        expect(seen.opens.filter((open) => open.id === PANE)).toEqual([SESSION_OPEN_FOCUS])
+        await ui.unmount()
+        expect(await board($, 'close')).toBe('Board closed.')
+        const again = await mountStrip($, surface, 75)
+        await again.press({ key: `band-open:${LANE}` })
+        expect(await expandedState($)).toEqual([
+          `agent:${STRIP_PLAN}`,
+          'group:ended-agents',
+          `agent:${LANE}`,
+        ])
+        await again.unmount()
+        const pane = await mountTab($, surface, PANE, 'dock', 80)
+        const shown = unframed(await screen(pane, 80))
+        await pane.unmount()
+        expect(lineWith(shown, 'answer: Found 3 callers of drawBand')).toBeDefined()
+        expect(lineWith(shown, 'answer: none, the run failed')).toBeDefined()
+        expect(await board($, 'close')).toBe('Board closed.')
+        const fold = await mountStrip($, surface, 75)
+        await fold.press({ key: 'band-agents-more' })
+        await fold.unmount()
+        expect(seen.opens.filter((open) => open.id === PANE)).toEqual([
+          SESSION_OPEN_FOCUS,
+          SESSION_OPEN_FOCUS,
+          SESSION_OPEN_FOCUS,
+        ])
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `a short band drops running rows first and never a needs you row, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { dialog, call } = await stripScene($, on, surface)
+        expect([
+          await stripLines($, surface, 75, 3),
+          await stripLines($, surface, 75, 4),
+          await stripLines($, surface, 35, 2),
+        ]).toEqual([
+          [
+            'Agents  6 · no open task                                          [ board ]',
+            '◆ scout     needs you waits for: permission · Bash npm test        open  1m',
+            '[ +5 more agents · 1 failed · 1 done · 3 running ]',
+          ],
+          [
+            'Agents  6 · no open task                                          [ board ]',
+            '◆ scout     needs you waits for: permission · Bash npm test        open  1m',
+            '■ lane-b    failed    after Bash npm run build                     open  4m',
+            '[ +4 more agents · 1 done · 3 running ]',
+          ],
+          [
+            'Agents 6 · no open task   [ board ]',
+            '◆ scout     needs you Bash np… open',
+            '[ +5 more · 1 failed · 1 done ]',
+          ],
+        ])
+        dialog.allow()
+        await call
+      },
+    )
+  })
+
+  describe(STRIP_NO_TASK_CRITERION, () => {
+    test(
+      `with no open task the head reads Agents and the count and keeps the board button, and an open task takes the head over the same rows, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const { seen, dialog, call } = await stripScene($, on, surface)
+        const before = await stripLines($, surface, 75)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+        const after = await stripLines($, surface, 75)
+        const narrow = await stripLines($, surface, 35)
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
+        const ended = await stripLines($, surface, 35)
+        expect([before[0], after[0], narrow[0], ended[0]]).toEqual([
+          'Agents  6 · no open task                                          [ board ]',
+          '▶ 1 Write the tab mocks                                  0s ▰ 0/1 [ board ]',
+          '▶ 1 Write the tab… 0s 0/1 [ board ]',
+          'Agents 6 · no open task   [ board ]',
+        ])
+        expect(after.slice(1)).toEqual(before.slice(1))
+        const ui = await mountStrip($, surface, 75)
+        await ui.press({ key: 'band-board' })
+        await ui.unmount()
+        expect(seen.opens[0]).toEqual(SESSION_OPEN_FOCUS)
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `no head and no rows show once the engine no longer lists the ended agents and nothing runs, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await spawnFrom($, STRIP_PLAN)
+        seen.agents.push(runningAgent(STRIP_PLAN, 'Plan'))
+        await seen.clock.advance(30_000)
+        seen.agents.splice(0, 1, { ...runningAgent(STRIP_PLAN, 'Plan'), status: 'completed' })
+        await agentEnds($, STRIP_PLAN, '', 30_000)
+        expect(await stripLines($, surface, 75)).toEqual([
+          'Agents  1 · no open task                                          [ board ]',
+          '✓ Plan      done      no answer                                    open 30s',
+        ])
+        seen.agents.splice(0, 1)
+        const ui = await mountBand($, surface)
+        expect(await ui.find({ key: 'band' })).toBeUndefined()
+        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        await ui.unmount()
+      },
+    )
+  })
+
+  describe(STRIP_WIDTH_CRITERION, () => {
+    test(
+      `the ctx column shows from body 100 only, and a not listed agent and a ctx of 128k still fit the body, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        engineRows(on)
+        const steps = stepWorld(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await step(
+          $,
+          steps,
+          EXPLORE,
+          stepped('turn-e', { fresh: 2_000, written: 6_000, read: 120_000, output: 900 }, null),
+        )
+        const ghost = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: STRIP_GHOST })
+        await seen.clock.advance(MINUTE)
+        for (const body of [115, 100]) {
+          const lines = await stripLines($, surface, body)
+          expect(lines.slice(1).every((line) => line.includes(' ctx '))).toBe(true)
+        }
+        for (const body of [99, 75, 35]) {
+          const lines = await stripLines($, surface, body)
+          expect(lines.some((line) => line.includes('ctx'))).toBe(false)
+        }
+        expect([
+          await stripLines($, surface, 115),
+          await stripLines($, surface, 75),
+          await stripLines($, surface, 35),
+        ]).toEqual([
+          [
+            'Agents  2 · no open task                                                                                  [ board ]',
+            '▶ Explore   running                                                                               ctx 128k open  1m',
+            '? a0000009  not listed ▸ Bash npm run check                                                        ctx —   open  1m',
+          ],
+          [
+            'Agents  2 · no open task                                          [ board ]',
+            '▶ Explore   running                                                open  1m',
+            '? a0000009  not listed ▸ Bash npm run check                        open  1m',
+          ],
+          [
+            'Agents 2 · no open task   [ board ]',
+            '▶ Explore   running            open',
+            '? a0000009  not listed ▸ Bash… open',
+          ],
+        ])
+        held.release()
+        await ghost
+      },
+    )
+
+    test(
+      `a name, a target, an answer and a plan step from an agent reach the band escaped, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await spawnFrom($, LANE)
+        seen.agents.push({ ...runningAgent(LANE, 'lane\u202Eb'), status: 'running' })
+        await $.tool.call({ tool: 'Bash', command: 'echo \u001B[31mred', agentId: LANE })
+        seen.agents.splice(0, 1, { ...runningAgent(LANE, 'lane\u202Eb'), status: 'failed' })
+        await agentEnds($, LANE, '', MINUTE)
+        await spawnFrom($, STRIP_PLAN)
+        seen.agents.push(runningAgent(STRIP_PLAN, 'Plan'))
+        seen.agents.splice(1, 1, { ...runningAgent(STRIP_PLAN, 'Plan'), status: 'completed' })
+        await agentEnds($, STRIP_PLAN, 'read \u2066gpj.exe\u2069 now', MINUTE)
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await $.tool.call({ tool: TOOL_ADD, title: 'Draw the plan', agentId: EXPLORE })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress', agentId: EXPLORE })
+        await $.tool.call({
+          tool: 'Read',
+          file_path: `${ROOT}/src/a\u200Fb.ts`,
+          agentId: EXPLORE,
+        })
+        const lines = await stripLines($, surface, 115)
+        expect([lines, await stripLines($, surface, 35)]).toEqual([
+          [
+            'Agents  3 · no open task                                                                                  [ board ]',
+            '■ lane…02eb failed    after Bash echo \\u001b[31mred                                                ctx —   open  0s',
+            '✓ Plan      done      read \\u2066gpj.exe\\u2069 now                                                 ctx —   open  0s',
+            '▶ Explore   running   0/1 Draw the plan · Read src/a\\u200fb.ts                                     ctx —   open  0s',
+          ],
+          [
+            'Agents 3 · no open task   [ board ]',
+            '■ lane…02eb failed after Bash… open',
+            '✓ Plan      done read \\u2066g… open',
+            '▶ Explore   running 0/1 Draw…  open',
+          ],
+        ])
+        expect(lines.join(' ')).not.toMatch(/[\p{Cc}\u202A-\u202E\u2066-\u2069\u200F]/u)
+      },
+    )
+  })
+
+  describe(STRIP_REDRAW_CRITERION, () => {
+    test(
+      `a new tool and a later time wait for the 10 s tick, and a change of state draws at once, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+        const ui = await mountStrip($, surface, 115)
+        const first = await stripOn(ui, 115)
+        await seen.clock.advance(5_000)
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/b.ts`, agentId: EXPLORE })
+        await seen.clock.advance(4_000)
+        const held = await stripOn(ui, 115)
+        await seen.clock.advance(1_000)
+        const ticked = await stripOn(ui, 115)
+        await seen.clock.advance(2_000)
+        seen.agents.splice(0, 1, { ...runningAgent(EXPLORE, 'Explore'), status: 'completed' })
+        await agentEnds($, EXPLORE, 'Found the table', 12_000)
+        const ended = await stripOn(ui, 115)
+        expect([first, held, ticked, ended]).toEqual([
+          [
+            'Agents  1 · no open task                                                                                  [ board ]',
+            '▶ Explore   running   Read src/a.ts                                                                ctx —   open  0s',
+          ],
+          [
+            'Agents  1 · no open task                                                                                  [ board ]',
+            '▶ Explore   running   Read src/a.ts                                                                ctx —   open  0s',
+          ],
+          [
+            'Agents  1 · no open task                                                                                  [ board ]',
+            '▶ Explore   running   Read src/b.ts                                                                ctx —   open 10s',
+          ],
+          [
+            'Agents  1 · no open task                                                                                  [ board ]',
+            '✓ Explore   done      Found the table                                                              ctx —   open 12s',
+          ],
+        ])
+        await ui.unmount()
+      },
+    )
+  })
+}
 
 test('the board refuses a band setting it does not know, by name', () => {
   expect(bandSetting({})).toBe('on')
@@ -10002,7 +10560,7 @@ describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)
         const ui = await mountBand($, surface)
         expect((await ui.find({ type: 'Text', text: '4m' }))?.props.dimColor).toBe(true)
         await seen.clock.advance(12 * MINUTE)
-        expect((await ui.find({ type: 'Text', text: '16m' }))?.props.color).toBe('warning')
+        expect((await ui.find({ type: 'Text', text: 'stalled 16m' }))?.props.color).toBe('warning')
         await ui.unmount()
       },
     )
