@@ -639,6 +639,60 @@ describe('the prompt text in a bubble or a bar', () => {
   )
 
   test(
+    'an indent wider than half the bubble stays, cut to half the columns inside the frame',
+    { options: { promptStyle: 'bubble' } },
+    async ($, on) => {
+      await started($, on)
+      const ui = await mountPrompt($, `Fix:\n${pad(20)}value value`, { columns: 40 })
+      expect((await seen(ui, 40)).slice(3, 5)).toEqual([
+        `${pad(12)}│ Fix:${pad(20)} │`,
+        `${pad(12)}│ ${pad(13)}value value │`,
+      ])
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a prompt of more than 60000 characters draws under the rule with the engine row, as a long reply does',
+    { options: { promptStyle: 'bubble' } },
+    async ($, on) => {
+      await started($, on)
+      const ui = await mountPrompt($, 'x'.repeat(60_001))
+      expect(await seen(ui)).toEqual(['', `── you ${ruleOf(80 - 7)}`, '(engine)'])
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a prompt just under 60000 characters in one word still shows 5 rows and the count of the rest',
+    { options: { promptStyle: 'bubble' } },
+    async ($, on) => {
+      await started($, on)
+      const ui = await mountPrompt($, 'x'.repeat(59_000))
+      const lines = await seen(ui)
+      expect(lines.slice(3, 9)).toEqual([
+        ...Array<string>(5).fill(`${pad(20)}│ ${'x'.repeat(56)} │`),
+        `${pad(20)}│ … 1049 more lines (ctrl+o shows all)${pad(20)} │`,
+      ])
+      expect(lines).toHaveLength(10)
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'a long prompt of wide characters counts its hidden rows by their columns',
+    { options: { promptStyle: 'bubble' } },
+    async ($, on) => {
+      await started($, on)
+      const ui = await mountPrompt($, '\u{6F22}'.repeat(2000))
+      const lines = await seen(ui)
+      expect(lines[3]).toBe(`${pad(20)}│ ${'\u{6F22}'.repeat(28)} │`)
+      expect(lines[8]).toBe(`${pad(20)}│ … 67 more lines (ctrl+o shows all)${pad(22)} │`)
+      await ui.unmount()
+    },
+  )
+
+  test(
     'copy prompt in the prompts tab copies the prompt text, never a frame or bar character',
     { options: { promptStyle: 'bubble' } },
     async ($, on) => {

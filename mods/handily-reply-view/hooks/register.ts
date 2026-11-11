@@ -10,6 +10,7 @@ import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import {
   blockCopyOf,
   DEFAULT_COLUMNS,
+  DRAWN_CHARACTERS_AT_MOST,
   plural,
   replyCopy,
   replyTree,
@@ -72,7 +73,6 @@ const HINTS_ARGUMENT = 'hints'
 const COPY_ARGUMENT = 'copy'
 const REPLY_WORD = 'reply'
 const COPY_REPLY_COMMAND = `/replies ${COPY_ARGUMENT} ${REPLY_WORD}`
-const DRAWN_CHARACTERS_AT_MOST = 60_000
 const MARKETPLACE_SUFFIX = /@.*$/
 const HIGHLIGHTS = ['on', 'off'] as const
 
@@ -612,7 +612,13 @@ export const register: Register = (on, options) => {
     }
     if (drawn !== null) return drawn
     const engineRow = await next(e)
-    return look === undefined ? engineRow : framedPrompt($.ui.resolve(e), engineRow, look)
+    if (look === undefined) return engineRow
+    try {
+      return framedPrompt($.ui.resolve(e), engineRow, look)
+    } catch (error) {
+      logFailure($, `the engine draws prompt ${e.requestId} without its rule`, error)
+      return engineRow
+    }
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {

@@ -1,8 +1,8 @@
 import type { Color, RenderElement, RenderNode } from 'claude-code'
-import type { ReplyElements } from './draw'
+import { DRAWN_CHARACTERS_AT_MOST, type ReplyElements } from './draw'
 import { shownText } from './markdown'
 import { displayWidth, fitted } from './width'
-import { wrappedAtWords } from './wrap'
+import { ASCII_CELLS, CELLS, wrappedRows, type Measure, type Wrapped } from './wrap'
 
 export const PROMPT_STYLES = ['rule', 'bar', 'bubble'] as const
 
@@ -34,6 +34,9 @@ const LINE_BREAKS = /\r\n|\r|\n/
 const TAB = '\t'
 const TAB_SPACES = '    '
 const INDENT = /^ +/
+const PRINTABLE_ASCII = /^[ -~]*$/
+const KEPT_DRAWINGS_AT_MOST = 16
+const keptRows = new Map<string, PromptRows>()
 
 export function isPromptStyle(value: unknown): value is PromptStyle {
   return PROMPT_STYLES.some((style) => style === value)
@@ -59,25 +62,46 @@ export function bubbleColumnsAtMost(columns: number): number {
   return Math.floor((columns * BUBBLE_SHARE.taken) / BUBBLE_SHARE.of)
 }
 
-function shownLinesOf(text: string): string[] {
-  return text
-    .trimEnd()
-    .split(LINE_BREAKS)
-    .map((line) => shownText(line.replaceAll(TAB, TAB_SPACES)))
+function shownLineOf(line: string): { text: string; measure: Measure } {
+  const spaced = line.replaceAll(TAB, TAB_SPACES)
+  return PRINTABLE_ASCII.test(spaced)
+    ? { text: spaced, measure: ASCII_CELLS }
+    : { text: shownText(spaced), measure: CELLS }
 }
 
-function wrappedLine(line: string, columns: number): string[] {
-  const indent = INDENT.exec(line)?.[0] ?? ''
-  if (indent === '' || indent.length * 2 > columns) return wrappedAtWords(line, columns)
-  return wrappedAtWords(line.slice(indent.length), columns - indent.length).map(
-    (row) => indent + row,
+function wrappedLine(line: string, columns: number, kept: number): Wrapped {
+  const { text, measure } = shownLineOf(line)
+  const indent = INDENT.exec(text)?.[0] ?? ''
+  const shownIndent = indent.slice(0, Math.floor(columns / 2))
+  const wrapped = wrappedRows(
+    text.slice(indent.length),
+    columns - shownIndent.length,
+    measure,
+    kept,
   )
+  return { rows: wrapped.rows.map((row) => shownIndent + row), count: wrapped.count }
 }
 
 function rowsOf(text: string, columns: number): PromptRows {
-  const rows = shownLinesOf(text).flatMap((line) => wrappedLine(line, columns))
-  if (rows.length <= ROWS_AT_MOST) return { text: rows, note: [] }
-  return { text: rows.slice(0, ROWS_FOLDED), note: [foldNote(rows.length - ROWS_FOLDED, columns)] }
+  const shown: string[] = []
+  let count = 0
+  for (const line of text.trimEnd().split(LINE_BREAKS)) {
+    const wrapped = wrappedLine(line, columns, ROWS_AT_MOST + 1 - shown.length)
+    shown.push(...wrapped.rows)
+    count += wrapped.count
+  }
+  if (count <= ROWS_AT_MOST) return { text: shown, note: [] }
+  return { text: shown.slice(0, ROWS_FOLDED), note: [foldNote(count - ROWS_FOLDED, columns)] }
+}
+
+function keptRowsOf(text: string, columns: number): PromptRows {
+  const key = `${String(columns)}\n${text}`
+  const kept = keptRows.get(key)
+  if (kept !== undefined) return kept
+  const rows = rowsOf(text, columns)
+  if (keptRows.size >= KEPT_DRAWINGS_AT_MOST) keptRows.delete(keptRows.keys().next().value ?? key)
+  keptRows.set(key, rows)
+  return rows
 }
 
 function foldNote(hidden: number, columns: number): string {
@@ -102,7 +126,7 @@ function flushRight(elements: PromptElements, children: RenderNode[]): RenderEle
 
 function barPrompt(elements: PromptElements, text: string, look: PromptLook): RenderElement {
   const { Box, Text } = elements
-  const rows = rowsOf(text, Math.max(look.columns - displayWidth(BAR), 1))
+  const rows = keptRowsOf(text, Math.max(look.columns - displayWidth(BAR), 1))
   const bar = () => Text({ color: PROMPT_COLOR, children: BAR })
   return Box({
     flexDirection: 'column',
@@ -117,7 +141,7 @@ function barPrompt(elements: PromptElements, text: string, look: PromptLook): Re
 
 function bubblePrompt(elements: PromptElements, text: string, look: PromptLook): RenderElement {
   const { Box, Text } = elements
-  const rows = rowsOf(text, bubbleColumnsAtMost(look.columns) - FRAME_SIDES)
+  const rows = keptRowsOf(text, bubbleColumnsAtMost(look.columns) - FRAME_SIDES)
   const inner = Math.max(...[...rows.text, ...rows.note].map(displayWidth))
   const edge = (children: string) => Text({ color: PROMPT_COLOR, children })
   const framed = (row: RenderNode, width: number) =>
@@ -146,7 +170,7 @@ export function drawnPrompt(
   text: string,
   look: PromptLook,
 ): RenderElement | null {
-  if (text.trim() === '') return null
+  if (text.length > DRAWN_CHARACTERS_AT_MOST || text.trim() === '') return null
   const style = shownPromptStyle(look.style, look.columns)
   if (style === 'bubble') return bubblePrompt(elements, text, look)
   if (style === 'bar') return barPrompt(elements, text, look)
