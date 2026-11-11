@@ -81,12 +81,11 @@ export function contentLines(content: string): string[] {
 }
 
 function firstNonEmptyLine(text: string): string {
-  return (
-    text
-      .split(/\r?\n/)
-      .map((line) => shownLine(line).trim())
-      .find((line) => line !== '') ?? ''
-  )
+  for (const line of text.split(/\r?\n/)) {
+    const shown = shownLine(line).trim()
+    if (shown !== '') return shown
+  }
+  return ''
 }
 
 function stderrSummary(stderr: unknown): StderrSummary | null {
