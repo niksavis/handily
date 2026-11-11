@@ -110,9 +110,13 @@ const GROUP_WORDS: Record<StripGroup, string> = {
 
 export function stripGroup(row: AgentRow): StripGroup | undefined {
   if (row.look === 'needsYou') return 'needsYou'
-  if (row.look === 'failed') return row.isListed ? 'failed' : undefined
-  if (row.isEnded) return row.isListed ? 'done' : undefined
+  if (row.look === 'failed') return row.isFailureSeen ? undefined : 'failed'
+  if (row.isEnded) return row.look === 'unlisted' || row.isAnswerSeen ? undefined : 'done'
   return 'running'
+}
+
+export function hasStripFailure(rows: readonly AgentRow[]): boolean {
+  return rows.some((row) => stripGroup(row) === 'failed')
 }
 
 function rankOf(row: AgentRow): number {

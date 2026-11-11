@@ -1200,9 +1200,18 @@ The owner approved the mocks and the 8 recommended answers on 2026-11-10. The ap
   row shows in the strip by its group, in this order: needs you, failed, done (with killed), then
   running (with asked, on hold, pending, idle and a not listed agent with a call in flight).
   Inside a group, the order is by spawn time.
-- A failed or a done row shows only while `$.agent.list()` still lists its agent. The answer line
-  that stays until the next prompt and the failed row that stays until the board opens are
-  handily-crupjy.3.
+- A done row (with killed) stays after `$.agent.list()` stops listing its agent. It leaves the
+  band at the next prompt that the person sends. A done row of an agent that ended before that
+  prompt does not show, also while Claude Code still lists the agent (handily-crupjy.3).
+- A failed row stays after the next prompt and after the list drops its agent. It leaves the band
+  when the this session tab draws, or when the person runs `/board` with no argument
+  (handily-crupjy.3).
+- The marks are `isAnswerSeen` and `isFailureSeen` on each stored agent in `$.state` `agents`. A
+  person prompt marks each ended done or killed agent. The this session tab and `/board` mark
+  each failed agent. A new run or a new turn end of the agent clears both marks, so a resumed
+  agent shows its next end. `/clear` empties `agents`, and with it the marks. `stripGroup` in
+  `hooks/band.ts` is the one rule that reads them.
+- An agent in the `not listed` state with no call in flight still shows no row.
 - The band shows at most 3 agent rows and a fold button for the rest. When `maxRows` is too small,
   running rows drop first, and a needs-you row never drops.
 - With no open task, no task for the person and no plan offer, the head line reads

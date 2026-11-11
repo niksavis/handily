@@ -68,6 +68,8 @@ export type AgentRow = {
   listedStatus: AgentStatus | null
   isListed: boolean
   isEnded: boolean
+  isAnswerSeen: boolean
+  isFailureSeen: boolean
   isAging: boolean
   call: BoardToolSight | null
   callId: string | null
@@ -140,8 +142,13 @@ function withAgent(
   return agents.map((agent) => (agent === known ? change(agent) : agent))
 }
 
+function unseen(agent: BoardAgent): BoardAgent {
+  if (agent.isAnswerSeen !== true && agent.isFailureSeen !== true) return agent
+  return { ...agent, isAnswerSeen: false, isFailureSeen: false }
+}
+
 function reopened(agent: BoardAgent, now: number): BoardAgent {
-  return { ...agent, seenAt: now, endedAt: null, runStartedAt: now }
+  return { ...unseen(agent), seenAt: now, endedAt: null, runStartedAt: now }
 }
 
 function isNeverListed(agent: BoardAgent): boolean {
@@ -269,7 +276,7 @@ export function withTurnEnd(
 ): BoardAgent[] {
   return pruned(
     withAgent(agents, agentId, now, (agent) => ({
-      ...agent,
+      ...unseen(agent),
       seenAt: now,
       endedAt: now,
       hasLoopEvents: true,
@@ -324,6 +331,26 @@ function statusOf(agent: BoardAgent): RowStatus {
   }
   if (agent.running.length > 0 && agent.endedAt === null) return 'running'
   return agent.endedAt === null ? 'unknown' : 'completed'
+}
+
+export type SeenEnd = 'isAnswerSeen' | 'isFailureSeen'
+
+const SEEN_STATUSES: Record<SeenEnd, ReadonlySet<RowStatus>> = {
+  isAnswerSeen: new Set<RowStatus>(['completed', 'killed']),
+  isFailureSeen: new Set<RowStatus>(['failed']),
+}
+
+function isUnseenEnd(agent: BoardAgent, seen: SeenEnd): boolean {
+  return agent[seen] !== true && SEEN_STATUSES[seen].has(statusOf(agent))
+}
+
+export function withEndsSeen(agents: Agents, viewed: Agents, seen: SeenEnd): BoardAgent[] {
+  const ends = viewed.filter((agent) => isUnseenEnd(agent, seen))
+  const unstored = ends.filter((end) => !agents.some((agent) => agent.id === end.id))
+  const ids = new Set(ends.map((agent) => agent.id))
+  return [...agents, ...unstored].map((agent) =>
+    ids.has(agent.id) ? { ...agent, [seen]: true } : agent,
+  )
 }
 
 const STATUS_LOOKS: Record<AgentStatus, AgentLook> = {
@@ -436,6 +463,8 @@ function rowOf(
     listedStatus: agent.listedStatus,
     isListed: agent.isListed,
     isEnded,
+    isAnswerSeen: agent.isAnswerSeen === true,
+    isFailureSeen: agent.isFailureSeen === true,
     isAging: isAgingNow(agent, status),
     call: sightOf(agent, waiting),
     callId: running?.id ?? null,
@@ -584,6 +613,14 @@ export async function noteTurnEnd(host: AgentHost, agentId: string, answer: stri
   const now = await host.now()
   const listed = await host.listed()
   await host.change((agents) => withList(withTurnEnd(agents, agentId, now, answer), listed, now))
+}
+
+export async function noteEndsSeen(host: AgentHost, seen: SeenEnd): Promise<void> {
+  const listed = await host.listed()
+  const now = await host.now()
+  const viewed = withList(await host.stored(), listed, now)
+  if (!viewed.some((agent) => isUnseenEnd(agent, seen))) return
+  await host.change((current) => withEndsSeen(current, withList(current, listed, now), seen))
 }
 
 export async function noteAgentList(host: AgentHost): Promise<void> {
