@@ -10371,6 +10371,35 @@ for (const surface of SURFACES) {
         await ui.unmount()
       },
     )
+
+    test(
+      `a stall word that comes or goes draws at once, before the tick, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const held = holdCommand(on)
+        const seen = world(on)
+        engineRows(on)
+        await startOn($, surface)
+        await seen.clock.set(START)
+        await spawnFrom($, EXPLORE)
+        seen.agents.push(runningAgent(EXPLORE, 'Explore'))
+        await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/a.ts`, agentId: EXPLORE })
+        const ui = await mountStrip($, surface, 75)
+        await seen.clock.advance(5_000)
+        const call = $.tool.call({ tool: 'Bash', command: HELD_COMMAND, agentId: EXPLORE })
+        await seen.clock.advance(31_000)
+        const slow = (await stripLines($, surface, 75))[1]
+        await seen.clock.advance(6_000)
+        held.release()
+        await call
+        const running = (await stripLines($, surface, 75))[1]
+        await ui.unmount()
+        expect([slow?.slice(0, 22), running?.slice(0, 22)]).toEqual([
+          '▶ Explore   slow 31s  ',
+          '▶ Explore   running   ',
+        ])
+      },
+    )
   })
 }
 
