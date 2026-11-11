@@ -2428,7 +2428,7 @@ describe('marks: a Bash call', () => {
   test('a Bash call that never ends stops counting at the end of the turn', async ($, on) => {
     const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
     trackedFile(seen, 'README.md')
-    shellTools(on, seen, new Map([['npm run serve', { ...READ_ONLY, tookMs: 600_000 }]]))
+    shellTools(on, seen, new Map([['npm run serve', { ...READ_ONLY, tookMs: 60_000 }]]))
     on('turn.complete', () => ({ text: '' }))
     on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
     boardKnowsScout(on)
@@ -2450,7 +2450,7 @@ describe('marks: a Bash call', () => {
     expect(seen.runs).toHaveLength(2)
     expect(await treeLines(ui)).toContain('M README.md')
     expect((await headerOf(ui)).at(-1)).toBe(NOW_EMPTY)
-    await seen.clock.advance(600_000)
+    await seen.clock.advance(60_000)
     await call
     await ui.unmount()
   })
