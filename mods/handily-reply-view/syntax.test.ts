@@ -725,6 +725,17 @@ describe('markdown fences in the roles of mocks 15.9 (handily-dnjvgf)', () => {
     expect(heading.map(([text]) => text)).toEqual(['# Heading'])
   })
 
+  test('each code span of a line pairs with its own closer, also on the next line and in the next block', () => {
+    const code = JSON.stringify({ key: 'permission', mocha: '#89dceb' })
+    const spans = [
+      ['`a`', code],
+      ['`b`', code],
+    ]
+    const lines = ['Use `a` and `b` here', 'Use `a` and `b` here']
+    expect(kindsOf('md', lines)).toEqual([spans, spans])
+    expect(kindsOf('md', lines)).toEqual([spans, spans])
+  })
+
   test('the tokens of each markdown line join back to the line, with a tab as 4 spaces', () => {
     const lines = [...MOCK_MD.split('\n'), '\t- tab `code', '[a] [b](c) ![d](e)', '> > - x']
     const drawing = codeDrawingOf('md', lines, true, 10_000)

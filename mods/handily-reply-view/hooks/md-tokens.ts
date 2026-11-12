@@ -32,6 +32,7 @@ const QUOTE_GAP = / ?/y
 const LIST_MARK = /(\s*)([-*+]|\d{1,9}[.)])(?=\s|$)/y
 const SPECIAL = /[`*_[!]/g
 const BACKTICKS = /`+/g
+const BACKTICK_RUN = /`+/y
 const LINK = /!?\[([^[\]]*)\]\([^()]*\)/y
 const WORD_CHARACTER = /[\p{L}\p{N}]/u
 const SPACE = /\s/
@@ -78,8 +79,8 @@ function codeSpanEnd(inline: Inline, length: number): number | null {
 }
 
 function scanBackticks(inline: Inline): void {
-  BACKTICKS.lastIndex = inline.at
-  const length = BACKTICKS.exec(inline.line)?.[0].length ?? 1
+  BACKTICK_RUN.lastIndex = inline.at
+  const length = BACKTICK_RUN.exec(inline.line)?.[0].length ?? 1
   const end = codeSpanEnd(inline, length)
   const stop = end ?? inline.at + length
   push(inline.tokens, inline.line.slice(inline.at, stop), end === null ? inline.plain : 'codeSpan')
