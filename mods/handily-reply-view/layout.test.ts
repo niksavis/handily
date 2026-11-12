@@ -26,7 +26,6 @@ const ALLOWED_CONTROLS = /[\t\n]/gu
 const TABLE_SIDES = '│  │'.length
 const FLOW_SOURCE = 'flowchart LR\n  A[ingest] --> B[store]'
 const REFUSED_SOURCE = 'flowchart RL\n  A --> B'
-const CHART_SOURCE = 'pie title Pets\n  "Dogs" : 3\n  "Cats" : 2'
 const CODE_SOURCE = 'const total = rows.length\nprint(total)'
 const SETTING_LOG =
   'handily-reply-view: userConfig sideBySide is "wide"; set it to on or off in /config. Side by side stays on.'
@@ -217,7 +216,6 @@ describe('blocks that stay stacked', () => {
   for (const [name, block] of [
     ['a code fence', fenced('ts', CODE_SOURCE)],
     ['a refused diagram', fenced('mermaid', REFUSED_SOURCE)],
-    ['a chart', fenced('mermaid', CHART_SOURCE)],
   ] as const) {
     test(`${name} next to a table stacks`, async ($, on) => {
       await started($, on)

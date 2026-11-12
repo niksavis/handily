@@ -36,6 +36,12 @@ export type Chart = XyChart | PieChart
 
 export type LegendItem = { glyph: string; ink: Ink; name: string; looks: Looks }
 
+export type ChartShape = 'pie' | 'upright' | 'across'
+
+export type ShapedChart = InkedDrawing & { shape: ChartShape }
+
+type Shaped = { shape: ChartShape; drawn: InkedDrawing | Refusal }
+
 type Scale = { low: number; high: number; step: number }
 
 type Row = { label: string; value: number; text: string; series: number }
@@ -820,22 +826,36 @@ function signedBars(
   return sheet.drawing(width)
 }
 
-function lineAsBars(chart: XyChart, width: number): InkedDrawing | Refusal {
+function across(drawn: InkedDrawing | Refusal): Shaped {
+  return { shape: 'across', drawn }
+}
+
+function upright(drawn: InkedDrawing): Shaped {
+  return { shape: 'upright', drawn }
+}
+
+function lineAsBars(chart: XyChart, width: number): Shaped {
   if (chart.isHorizontal) {
-    return horizontalBars(chart, width, [
-      'line chart drawn as bars: a horizontal line chart draws as bars.',
-    ])
+    return across(
+      horizontalBars(chart, width, [
+        'line chart drawn as bars: a horizontal line chart draws as bars.',
+      ]),
+    )
   }
   if (width <= LINE_BARS_AT_MOST) {
-    return horizontalBars(chart, width, [
-      `line chart drawn as bars: the screen has ${String(width)} columns.`,
-    ])
+    return across(
+      horizontalBars(chart, width, [
+        `line chart drawn as bars: the screen has ${String(width)} columns.`,
+      ]),
+    )
   }
   const drawn = verticalLines(chart, width)
-  if (typeof drawn !== 'number') return drawn
-  return horizontalBars(chart, width, [
-    `line chart drawn as bars: it takes ${String(drawn)} columns, the screen has ${String(width)}.`,
-  ])
+  if (typeof drawn !== 'number') return upright(drawn)
+  return across(
+    horizontalBars(chart, width, [
+      `line chart drawn as bars: it takes ${String(drawn)} columns, the screen has ${String(width)}.`,
+    ]),
+  )
 }
 
 function drawsUpright(chart: XyChart): boolean {
@@ -847,10 +867,10 @@ function drawsUpright(chart: XyChart): boolean {
   )
 }
 
-function drawXy(chart: XyChart, width: number): InkedDrawing | Refusal {
+function drawXy(chart: XyChart, width: number): Shaped {
   if (chart.plot === 'line') return lineAsBars(chart, width)
-  const upright = drawsUpright(chart) ? verticalBars(chart, width) : null
-  return upright ?? horizontalBars(chart, width, [])
+  const bars = drawsUpright(chart) ? verticalBars(chart, width) : null
+  return bars === null ? across(horizontalBars(chart, width, [])) : upright(bars)
 }
 
 function shareText(value: number, total: number): string {
@@ -891,7 +911,14 @@ export function fits(drawing: InkedDrawing, width: number): InkedDrawing | Refus
   return widest > width ? tooWide(widest, width) : drawing
 }
 
-export function drawChart(chart: Chart, width: number): InkedDrawing | Refusal {
-  const drawn = chart.plot === 'pie' ? drawPie(chart, width) : drawXy(chart, width)
-  return drawn.kind === 'drawing' ? fits(drawn, width) : drawn
+function shapedOf(chart: Chart, width: number): Shaped {
+  return chart.plot === 'pie'
+    ? { shape: 'pie', drawn: drawPie(chart, width) }
+    : drawXy(chart, width)
+}
+
+export function drawChart(chart: Chart, width: number): ShapedChart | Refusal {
+  const { shape, drawn } = shapedOf(chart, width)
+  const shown = drawn.kind === 'drawing' ? fits(drawn, width) : drawn
+  return shown.kind === 'drawing' ? { ...shown, shape } : shown
 }

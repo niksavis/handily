@@ -15,20 +15,26 @@ export type Surface = 'terminal' | 'desktop'
 
 export type Scene = {
   name: string
+  columns: number
   room: number
   options: Record<string, string>
   isFramed: boolean
 }
 
-export const SCENES: readonly Scene[] = [
-  { name: 'without the frame', room: COLUMNS - 2, options: {}, isFramed: false },
-  {
-    name: 'with the frame',
-    room: COLUMNS - 4,
-    options: { replyStyle: 'frame' },
-    isFramed: true,
-  },
-]
+export function scenesAt(columns: number): Scene[] {
+  return [
+    { name: 'without the frame', columns, room: columns - 2, options: {}, isFramed: false },
+    {
+      name: 'with the frame',
+      columns,
+      room: columns - 4,
+      options: { replyStyle: 'frame' },
+      isFramed: true,
+    },
+  ]
+}
+
+export const SCENES: readonly Scene[] = scenesAt(COLUMNS)
 
 export type World = { copies: string[]; debugLogs: string[] }
 
@@ -75,19 +81,29 @@ function reply(text: string): RenderPropsOf['AssistantMessage'] {
   return { text, isFirstOfReply: true }
 }
 
-export async function mountReply($: Engine, text: string, surface: Surface = 'terminal') {
+export async function mountReply(
+  $: Engine,
+  text: string,
+  surface: Surface = 'terminal',
+  columns = COLUMNS,
+) {
   return $.ui.mount({
     plugin: 'handily-reply-view',
     surface,
     component: 'AssistantMessage',
     props: reply(text),
     requestId: 'message-1',
-    viewport: { columns: COLUMNS, rows: 40 },
+    viewport: { columns, rows: 40 },
   })
 }
 
-export async function drawnTree($: Engine, text: string, surface: Surface = 'terminal') {
-  const ui = await mountReply($, text, surface)
+export async function drawnTree(
+  $: Engine,
+  text: string,
+  surface: Surface = 'terminal',
+  columns = COLUMNS,
+) {
+  const ui = await mountReply($, text, surface, columns)
   const tree = await ui.drawn()
   await ui.unmount()
   return tree
@@ -100,7 +116,7 @@ export function bodyOf(lines: readonly string[], scene: Scene): string[] {
 }
 
 export async function bodyLines($: Engine, text: string, scene: Scene): Promise<string[]> {
-  return bodyOf(sketchOf(await drawnTree($, text), COLUMNS), scene)
+  return bodyOf(sketchOf(await drawnTree($, text, 'terminal', scene.columns), scene.columns), scene)
 }
 
 export async function stackedBlock($: Engine, text: string, scene: Scene): Promise<Drawn> {

@@ -5,7 +5,7 @@ import { isCutDrawing } from './drawing'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
 import { drawArchitecture } from './architecture'
 import { drawC4 } from './c4'
-import { chartName, drawChart, isChartSource } from './charts'
+import { chartName, drawChart, isChartSource, type ChartShape } from './charts'
 import { drawClasses } from './classes'
 import { drawEntities } from './er'
 import { drawFlowchart, widthClause } from './flowchart'
@@ -145,7 +145,7 @@ const ALERT_ROLES: Readonly<Record<AlertKind, ReplyRole>> = {
   caution: 'alertCaution',
 }
 
-export type DiagramDrawing = InkedDrawing & { name: string; plain: string }
+export type DiagramDrawing = InkedDrawing & { name: string; plain: string; shape?: ChartShape }
 
 export type DiagramOutcome = DiagramDrawing | Refusal
 
@@ -1469,7 +1469,8 @@ function drawnDiagram(diagram: MermaidDiagram | Refusal, width: number): Diagram
     }
     case 'chart': {
       const drawn = drawChart(diagram, width)
-      return named(drawn, chartName(diagram), chartName(diagram))
+      const name = chartName(diagram)
+      return drawn.kind === 'drawing' ? { ...drawn, name, plain: name } : drawn
     }
     case 'gantt': {
       const drawn = drawGantt(diagram, width)
@@ -1640,13 +1641,32 @@ function titleColumns(context: Context, title: string, actions: readonly ButtonA
   return displayWidth(titleRule(title, 0)) + BUTTONS_GAP + buttonsTogether(context, actions).columns
 }
 
+function chartBeside(
+  context: Context,
+  fence: Fence,
+  drawing: DiagramDrawing,
+  key: string,
+): { beside?: Beside } {
+  const title = `${MERMAID_TAG} · ${drawing.name}`
+  const columns = titleColumns(context, title, diagramActions(fence, drawing, key))
+  if (columns >= context.width) return {}
+  const narrow = diagramOf(fence.content, columns, context.surface)
+  if (narrow.kind !== 'drawing' || narrow.shape !== drawing.shape) return {}
+  return {
+    beside: {
+      columns,
+      at: (narrowed) => diagramPiece({ ...context, width: narrowed }, fence, narrow, key),
+    },
+  }
+}
+
 function diagramBeside(
   context: Context,
   fence: Fence,
   drawing: DiagramDrawing,
   key: string,
 ): { beside?: Beside } {
-  if (isChartSource(fence.content)) return {}
+  if (isChartSource(fence.content)) return chartBeside(context, fence, drawing, key)
   const title = `${MERMAID_TAG} · ${drawing.name}`
   const columns = Math.max(
     titleColumns(context, title, diagramActions(fence, drawing, key)),
