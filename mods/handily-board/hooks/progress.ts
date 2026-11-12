@@ -1,4 +1,5 @@
 import type { BoardList, BoardStatus, BoardTask } from '../types'
+import { openForPerson } from './for-you'
 import { isStatus, ownList } from './tasks'
 import { cutToWidth } from './width'
 
@@ -38,6 +39,7 @@ export type Progress = {
   agents: readonly AgentSummary[]
   agentCount: number
   context: SharedContext | null
+  openForYou: number | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -81,6 +83,7 @@ export function emptyProgress(sessionId: string, cwd: string, now: number): Prog
     agents: [],
     agentCount: 0,
     context: null,
+    openForYou: null,
   }
 }
 
@@ -113,6 +116,11 @@ function readContext(value: unknown): SharedContext | null | undefined {
   return typeof cents === 'number' ? { percent, cents } : undefined
 }
 
+function readOpenForYou(value: unknown): number | null | undefined {
+  if (value === undefined) return null
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
 export function readProgress(value: unknown): Progress | null {
   if (!isRecord(value)) return null
   const { sessionId, cwd, updatedAt, workedMs, taskIds, done, total } = value
@@ -128,7 +136,9 @@ export function readProgress(value: unknown): Progress | null {
   if (agents === null) return null
   const context = readContext(value.context)
   if (context === undefined) return null
-  return { ...(value as Progress), ...agents, context }
+  const openForYou = readOpenForYou(value.openForYou)
+  if (openForYou === undefined) return null
+  return { ...(value as Progress), ...agents, context, openForYou }
 }
 
 export function entryBytes(progress: Progress): number {
@@ -197,10 +207,12 @@ export function listSummary(all: BoardList): ListSummary {
 
 export function withTasks(progress: Progress, all: BoardList, now: number): Progress {
   const { current, done, total, ids } = listSummary(all)
+  const openForYou = openForPerson(all).length
   if (total === 0) {
     return {
       ...progress,
       updatedAt: now,
+      openForYou,
       task: null,
       taskStatus: null,
       done: 0,
@@ -214,6 +226,7 @@ export function withTasks(progress: Progress, all: BoardList, now: number): Prog
   return {
     ...progress,
     updatedAt: now,
+    openForYou,
     task: current ? taskLabel(current) : null,
     taskStatus: current?.status ?? null,
     done,

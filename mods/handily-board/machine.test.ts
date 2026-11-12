@@ -112,6 +112,7 @@ function progressOf(sessionId: string, fields: Partial<Progress>): Progress {
     agents: [],
     agentCount: 0,
     context: null,
+    openForYou: 0,
     ...fields,
   }
 }
@@ -1496,4 +1497,182 @@ describe('With glyphs nerd the this machine tab swaps each signal mark one for o
       })
     }
   }
+})
+
+const FOR_YOU_CARD_CRITERION =
+  'When a session on this machine that runs handily has open tasks for the person, its card on the this machine tab shows waits for: 2 tasks for you with its count, as mock 8.12l, and the Sessions head line counts that session as needs you.'
+const NO_FOR_YOU_CRITERION =
+  'When a session has no open task for the person, its card shows no tasks-for-you line and the session is not counted as needs you for tasks.'
+
+const DOCS_ID = '00000000-0000-4000-8000-00000000000d'
+const FOR_YOU_LINE = /tasks? for you/
+
+function cardFrom(lines: readonly string[], head: string, count: number): string[] {
+  const at = lines.findIndex((line) => line.startsWith(head))
+  if (at < 0) throw new Error(`no card starts with ${head}`)
+  return lines.slice(at, at + count)
+}
+
+async function machineWith(
+  $: Engine,
+  on: On,
+  surface: RenderSurface,
+  ...entries: Progress[]
+): Promise<World> {
+  const seen = world(on, storeWith(...entries), ['terminal', surface])
+  await mockWork($, seen)
+  await showMachine($, seen)
+  await seen.clock.advance(12 * SECOND)
+  return seen
+}
+
+describe(FOR_YOU_CARD_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`another session with 2 open tasks for the person waits for 2 tasks for you and counts as need you, docked on ${surface}`, async ($, on) => {
+      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 2 })
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(lines[0]).toBe('Sessions  4 · 2 need you · 12s ago')
+      expect(cardFrom(lines, '◆ lane-a1', 4)).toEqual([
+        '◆ lane-a1  background  needs you',
+        '  waits for: 2 tasks for you',
+        '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
+        '  app.wt/lane-a1 · lane/a1 · 22m worked',
+      ])
+    })
+
+    test(`another session with 2 open tasks for the person waits for 2 tasks for you under its row, inline on ${surface}`, async ($, on) => {
+      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 2 })
+      const lines = await screenAt($, surface, 'inline', 76)
+      expect(lines[0]).toBe('Sessions  4 · 2 need you · polled 12s ago')
+      expect(cardFrom(lines, '◆ lane-a1', 2)).toEqual([
+        '◆ lane-a1    bg    needs you   app.wt/lane-a1 · lane/a1              3/6 22m',
+        '    waits for: 2 tasks for you',
+      ])
+    })
+
+    test(`1 open task for the person reads 1 task for you, on ${surface}`, async ($, on) => {
+      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 1 })
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(cardFrom(lines, '◆ lane-a1', 2)).toEqual([
+        '◆ lane-a1  background  needs you',
+        '  waits for: 1 task for you',
+      ])
+    })
+
+    test(`this session with 2 open tasks for the person waits for them on its own card and counts as need you, on ${surface}`, async ($, on) => {
+      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
+      await mockWork($, seen)
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old bucket' })
+      await showMachine($, seen)
+      await seen.clock.advance(12 * SECOND)
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(lines[0]).toBe('Sessions  4 · 2 need you · 12s ago')
+      expect(cardFrom(lines, '◆ mocks', 3)).toEqual([
+        '◆ mocks  interactive  this  needs you',
+        '  waits for: 2 tasks for you',
+        '  ▶ Write the tab mocks ▰▱▱▱ 1/4',
+      ])
+    })
+  }
+
+  test('the desktop app draws the tasks for you on the card of this session', async ($, on) => {
+    const seen = world(on, undefined, ['desktop'])
+    await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
+    await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+    await showMachine($, seen)
+    const lines = await screenAt($, 'desktop', 'dock', 41)
+    expect(cardFrom(lines, '◆ 00000000', 2)).toEqual([
+      '◆ 00000000  this  needs you',
+      '  waits for: 1 task for you',
+    ])
+  })
+
+  test('the session key keeps the count of open tasks for the person as the For you list changes', async ($, on) => {
+    const seen = world(on)
+    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+    await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+    await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old bucket' })
+    expect(readProgress(seen.store.get(progressKey(OWN_ID)))).toMatchObject({
+      total: 0,
+      openForYou: 2,
+    })
+    await board($, 'done 1')
+    expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.openForYou).toBe(1)
+  })
+})
+
+describe(NO_FOR_YOU_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a session with 0 open tasks for the person shows no tasks for you line and is not counted, on ${surface}`, async ($, on) => {
+      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 0 })
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(cardFrom(lines, '▶ lane-a1', 2)).toEqual([
+        '▶ lane-a1  background  working',
+        '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
+      ])
+      expect(lines.filter((line) => FOR_YOU_LINE.test(line))).toEqual([])
+    })
+
+    test(`a key from an earlier version with no count shows no tasks for you line and is not counted, on ${surface}`, async ($, on) => {
+      const old = Object.fromEntries(
+        Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'openForYou'),
+      )
+      const seen = world(on, { ...storeWith(API_PROGRESS), [progressKey(LANE_ID)]: old }, [
+        'terminal',
+        surface,
+      ])
+      await mockWork($, seen)
+      await showMachine($, seen)
+      await seen.clock.advance(12 * SECOND)
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(cardFrom(lines, '▶ lane-a1', 2)).toEqual([
+        '▶ lane-a1  background  working',
+        '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
+      ])
+      expect(lines.filter((line) => FOR_YOU_LINE.test(line))).toEqual([])
+    })
+
+    test(`a session with a permission wait and tasks for the person is counted once, on ${surface}`, async ($, on) => {
+      await machineWith($, on, surface, { ...API_PROGRESS, openForYou: 2 }, LANE_PROGRESS)
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(cardFrom(lines, '◆ api-login', 4)).toEqual([
+        '◆ api-login  interactive  needs you',
+        '  waits for: permission',
+        '  waits for: 2 tasks for you',
+        '  ▶ Fix the login redirect ▰▰▱ 2/3',
+      ])
+    })
+
+    test(`an ended session and a stale key show no tasks for you line and are not counted, on ${surface}`, async ($, on) => {
+      const lane = MACHINE_AGENTS.find((entry) => entry.sessionId === LANE_ID)
+      if (!lane) throw new Error('the fixture has no lane session')
+      await machineWith(
+        $,
+        on,
+        surface,
+        API_PROGRESS,
+        { ...LANE_PROGRESS, openForYou: 2, updatedAt: Number(lane.startedAt) - 61 * SECOND },
+        progressOf(DOCS_ID, { cwd: '/work/docs', openForYou: 3 }),
+      )
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(lines).toContain('▶ lane-a1  background  working')
+      expect(lines).toContain('✓ docs-pass  background  done')
+      expect(lines.filter((line) => FOR_YOU_LINE.test(line))).toEqual([])
+    })
+  }
+
+  test('a key from an earlier version with no count reads as no count, and a bad count drops the key', () => {
+    const old = Object.fromEntries(
+      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'openForYou'),
+    )
+    expect(readProgress(old)).toMatchObject({ openForYou: null })
+    expect(readProgress({ ...LANE_PROGRESS, openForYou: '2' })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, openForYou: -1 })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, openForYou: 1.5 })).toBeNull()
+  })
 })

@@ -16,6 +16,7 @@ import {
   type Progress,
   type SharedContext,
 } from './progress'
+import { openForPerson } from './for-you'
 import { paneTaskText } from './tasks'
 import { isHighPercent } from './vitals'
 
@@ -57,6 +58,7 @@ export type SessionCard = {
   attention: Attention
   state: string
   waitsFor: string | null
+  openForYou: number
   task: CardTask
   place: string
   time: CardTime
@@ -103,16 +105,39 @@ const NEEDS_YOU_STATE = 'needs you'
 const UNKNOWN_WAIT = 'an answer'
 const OWN_NAME_LENGTH = 8
 
-export function attentionOf(row: SessionRow): Attention {
+function isRowWaiting(row: SessionRow): boolean {
+  return row.waitingFor !== null || NEEDS_YOU_WORDS.has(row.word)
+}
+
+function needsYou(isWaiting: boolean, openForYou: number): boolean {
+  return isWaiting || openForYou > 0
+}
+
+export function attentionOf(row: SessionRow, openForYou: number): Attention {
   if (row.isEnded) return row.word === 'failed' ? 'failed' : 'ended'
-  if (row.waitingFor !== null || NEEDS_YOU_WORDS.has(row.word)) return 'needsYou'
+  if (needsYou(isRowWaiting(row), openForYou)) return 'needsYou'
   if (WORKING_WORDS.has(row.word)) return 'working'
   return 'idle'
 }
 
 function rowState(row: SessionRow, attention: Attention) {
   if (attention !== 'needsYou') return { state: row.word, waitsFor: null }
-  return { state: NEEDS_YOU_STATE, waitsFor: row.waitingFor ?? UNKNOWN_WAIT }
+  const waitsFor = isRowWaiting(row) ? (row.waitingFor ?? UNKNOWN_WAIT) : null
+  return { state: NEEDS_YOU_STATE, waitsFor }
+}
+
+function unlistedAttention(isWorking: boolean, openForYou: number): Attention {
+  if (needsYou(false, openForYou)) return 'needsYou'
+  return isWorking ? 'working' : 'idle'
+}
+
+function unlistedState(attention: Attention): string {
+  if (attention === 'needsYou') return NEEDS_YOU_STATE
+  return attention === 'working' ? 'busy' : 'idle'
+}
+
+function sharedOpenForYou(progress: Progress | undefined, isShown: boolean): number {
+  return isShown ? (progress?.openForYou ?? 0) : 0
 }
 
 export function agentCounts(agents: readonly AgentInfo[]): AgentCounts | null {
@@ -187,8 +212,9 @@ function otherCard(
   cache: AgentsCache,
   now: number,
 ): SessionCard {
-  const attention = attentionOf(row)
   const isStale = progress !== undefined && isOlderThanStart(progress, row.startedAt)
+  const openForYou = sharedOpenForYou(progress, !row.isEnded && !isStale)
+  const attention = attentionOf(row, openForYou)
   let time: CardTime = { kind: 'elapsed', ms: now - row.startedAt }
   if (row.isEnded) time = { kind: 'ended' }
   else if (progress && !isStale) {
@@ -202,6 +228,7 @@ function otherCard(
     isUnlisted: false,
     attention,
     ...rowState(row, attention),
+    openForYou,
     task: keyTask(progress, isStale),
     place: placeOf(row, cache),
     time,
@@ -223,10 +250,9 @@ export function ownCard(
 ): SessionCard {
   const { own, now, cache } = data
   const isWorking = own.progress?.isWorking ?? false
-  const attention = row ? attentionOf(row) : isWorking ? 'working' : 'idle'
-  const state = row
-    ? rowState(row, attention)
-    : { state: isWorking ? 'busy' : 'idle', waitsFor: null }
+  const openForYou = openForPerson(own.list).length
+  const attention = row ? attentionOf(row, openForYou) : unlistedAttention(isWorking, openForYou)
+  const state = row ? rowState(row, attention) : { state: unlistedState(attention), waitsFor: null }
   return {
     key: own.sessionId,
     name: row?.name ?? own.sessionId.slice(0, OWN_NAME_LENGTH),
@@ -235,6 +261,7 @@ export function ownCard(
     isUnlisted,
     attention,
     ...state,
+    openForYou,
     task: listTask(own.list),
     place: row && cache ? placeOf(row, cache) : lastSegment(own.cwd),
     time: ownTime(own, row, now),

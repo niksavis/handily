@@ -2286,7 +2286,7 @@ A title is cut before a button; a press on the title opens it, as in 8.12g.
 ╰───────────────────────────────────────────╯
 ```
 
-#### 8.12l This machine card (not built here: a later record, handily-nvtbc)
+#### 8.12l This machine card (built in handily-nvtbc)
 
 ```text
 ╭─────────────────────────────────────────✕─╮
@@ -2298,6 +2298,12 @@ A title is cut before a button; a press on the title opens it, as in 8.12g.
 │   api · feat/login · 2h worked            │
 ╰───────────────────────────────────────────╯
 ```
+
+- A session that runs handily writes the count of its open tasks for the person into its store
+  key. The card reads `1 task for you` for one task and draws no line for none.
+- Open tasks for the person make the session need you, so the head line counts it. A session
+  that also waits for permission counts once and shows `waits for: permission` above this line.
+- An ended session, a stale key and a key from an earlier version show no line and no count.
 
 #### 8.12m Commands, replies, the note and the toasts
 

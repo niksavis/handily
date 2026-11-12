@@ -236,6 +236,10 @@ function waitParts(reason: string): Part[] {
   return [{ text: 'waits for: ', dimColor: true }, { text: escaped(reason) }]
 }
 
+function forYouText(count: number): string {
+  return count === 1 ? '1 task for you' : `${String(count)} tasks for you`
+}
+
 function cardHeadParts(card: SessionCard, layout: Layout, signals: SignalLooks): Part[] {
   const look = signals[ATTENTION_SIGNALS[card.attention]]
   const badges: Part[] = [
@@ -414,6 +418,17 @@ function detailLines(
   const lines: RenderElement[] = []
   if (card.waitsFor !== null) {
     lines.push(drawParts(elements, `${key}:waits`, waitParts(card.waitsFor), columns, indent))
+  }
+  if (card.openForYou > 0) {
+    lines.push(
+      drawParts(
+        elements,
+        `${key}:for-you`,
+        waitParts(forYouText(card.openForYou)),
+        columns,
+        indent,
+      ),
+    )
   }
   if (card.isUnlisted) {
     lines.push(

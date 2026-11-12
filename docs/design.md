@@ -673,11 +673,11 @@ stays as the record of the design. The plugin `handily-session-board` is removed
   first task. Always labelled `est.`.
   - No estimate until one task is complete.
   - No estimate for N minutes after a task is added.
-- Optional extra data from sessions that run handily: the current task and task progress,
-  under one `$.store` key per session id. `$.store` merges writes per key across concurrent
-  sessions (probe 6). The mod writes its key on task events, with the current session id. A
-  key is stale when its session is absent from `claude agents`. The board does not read the
-  engine's task files on disk, because their format is internal.
+- Optional extra data from sessions that run handily: the current task, task progress and the
+  count of open tasks for the person, under one `$.store` key per session id. `$.store` merges
+  writes per key across concurrent sessions (probe 6). The mod writes its key on task events,
+  with the current session id. A key is stale when its session is absent from `claude agents`.
+  The board does not read the engine's task files on disk, because their format is internal.
 - `claude` on `PATH` in a desktop session is not measured (probe 8 needs the person). Until it
   is, the desktop board shows this session and its subagents only.
 - This session's own subagents come from `$.agent.list()`.
@@ -1056,7 +1056,9 @@ Decisions of the person (2026-10-29):
    the band lasts only for the session.
 5. The band shows whenever the this session tab is not shown: `isShown` false, and also a tab
    that waits undrawn (`isPlaced` false). The person cannot see the tasks in those states.
-6. The tasks for you on a this machine card (8.12l) are a later record, handily-nvtbc.
+6. The tasks for you on a this machine card (8.12l) are built in a later record, handily-nvtbc.
+   The store key of a session holds `openForYou`, the count of its open tasks for the person. A
+   count over 0 makes the session need you, by the same rule as a permission wait.
 7. The answers that Claude received fold under `[ +N answered ]`. They count against the limit
    of 100 tasks, and `[ clear done ]` and `/board clear` remove them, as done tasks.
 8. The steps of a plan are the items of the first top-level numbered list with at least 2
