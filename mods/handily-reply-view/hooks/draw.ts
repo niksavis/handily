@@ -50,6 +50,7 @@ import { drawRadar } from './radar'
 import { DIAGRAM_CYCLES, ROLE_LOOKS, type ReplyRole, type RoleLook } from './roles'
 import { drawSankey } from './sankey'
 import { drawSequence } from './sequence'
+import { COLUMNS_BETWEEN, DEFAULT_SIDE_BY_SIDE, sharedRows, type SideBySide } from './side'
 import { drawState } from './state'
 import {
   codeDrawingOf,
@@ -122,6 +123,7 @@ const COLOUR_SURFACE: RenderSurface = 'terminal'
 const GUTTER_COLUMNS_AT_LEAST = 40
 const BOX_SURFACE: RenderSurface = 'terminal'
 const MARGIN_SURFACE: RenderSurface = 'terminal'
+const ROW_SURFACE: RenderSurface = 'terminal'
 const MOCHA = 'catppuccin-mocha'
 const BOX_SIDES = '│  │'.length
 const QUOTE_BAR = '▌ '
@@ -178,6 +180,7 @@ export type ReplyLayout = {
   palette: PaletteSetting
   codeFolds?: ReadonlyMap<string, ReplyViewFold>
   replyStyle?: ReplyStyle
+  sideBySide?: SideBySide
 }
 
 type ReplyEdge = 'none' | 'bullet' | 'frame'
@@ -188,9 +191,12 @@ type Piece = {
   rows: number
   diagram?: string
   isOpened?: boolean
+  beside?: Beside
   whole: () => RenderElement
   cut: (rows: number) => Drawing | null
 }
+
+type Beside = { columns: number; at: (width: number) => Piece }
 
 type CutDiagram = { name: string; rows: number }
 
@@ -969,15 +975,19 @@ function columnsPiece(
         textOfSpans(headerSpans[0] ?? []),
         lastRowLine === undefined ? undefined : textOfSpans(lastRowLine),
       )
+  const endWithButtons = (line: string) =>
+    Math.min(context.width, Math.max(width, displayWidth(line) + room))
   const placed = (text: RenderElement, line: string, at: ButtonsPlace) =>
-    place === at
-      ? lineWithButtons(
-          context,
-          text,
-          buttons,
-          Math.min(context.width, Math.max(width, displayWidth(line) + room)),
-        )
-      : text
+    place === at ? lineWithButtons(context, text, buttons, endWithButtons(line)) : text
+  const lineWithPlace = {
+    header: textOfSpans(headerSpans[0] ?? []),
+    'last-row': textOfSpans(lastRowLine ?? []),
+    under: null,
+  }[place]
+  const columns =
+    lineWithPlace === null
+      ? Math.max(width, ...stackedButtons(context, actions).map((line) => line.columns))
+      : endWithButtons(lineWithPlace)
   const heading = [
     ...(top === null ? [] : [tableRule(context, top, 'top')]),
     ...headerSpans.map((spans, index) => {
@@ -1021,6 +1031,10 @@ function columnsPiece(
   const frameRows = heading.length + closing.length
   return {
     rows: frameRows + sum(rowSpans.map((lines) => lines.length)) + rowRules + under.length,
+    beside: {
+      columns,
+      at: (narrowed) => columnsPiece({ ...context, width: narrowed }, table, look, layout, key),
+    },
     whole: () => column([...heading, rowsBox(drawnRows), ...closing, ...under]),
     cut: (budget) => {
       let used = frameRows
@@ -1620,6 +1634,30 @@ function drawingBody(context: Context, drawing: DiagramDrawing, key: string): Re
   })
 }
 
+function titleColumns(context: Context, title: string, actions: readonly ButtonAction[]): number {
+  return displayWidth(titleRule(title, 0)) + BUTTONS_GAP + buttonsTogether(context, actions).columns
+}
+
+function diagramBeside(
+  context: Context,
+  fence: Fence,
+  drawing: DiagramDrawing,
+  key: string,
+): { beside?: Beside } {
+  if (isChartSource(fence.content)) return {}
+  const title = `${MERMAID_TAG} · ${drawing.name}`
+  const columns = Math.max(
+    titleColumns(context, title, diagramActions(fence, drawing, key)),
+    ...drawing.lines.map(displayWidth),
+  )
+  return {
+    beside: {
+      columns,
+      at: (narrowed) => diagramPiece({ ...context, width: narrowed }, fence, drawing, key),
+    },
+  }
+}
+
 function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, key: string): Piece {
   const { Box } = context.elements
   const title = titleWithButtons(
@@ -1632,6 +1670,7 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
   return {
     rows: title.rows + drawing.lines.length,
     diagram: drawing.plain,
+    ...diagramBeside(context, fence, drawing, key),
     whole: () => column([title.element, drawingBody(context, drawing, key)]),
     cut: (budget) => {
       const count = budget - title.rows
@@ -1718,6 +1757,48 @@ export function replyWidth(
   replyStyle: ReplyStyle = DEFAULT_REPLY_STYLE,
 ): number {
   return columns - EDGE_COLUMNS[replyEdge(columns, hasBullet, replyStyle)]
+}
+
+function rowPiece(context: Context, besides: readonly Beside[], key: string): Piece {
+  const { Box } = context.elements
+  const cells = besides.map((beside) => ({
+    columns: beside.columns,
+    piece: beside.at(beside.columns),
+  }))
+  return {
+    rows: Math.max(...cells.map((cell) => cell.piece.rows)),
+    whole: () =>
+      Box({
+        key,
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: COLUMNS_BETWEEN,
+        children: cells.map((cell, index) =>
+          Box({
+            key: `${key}-${String(index)}`,
+            flexDirection: 'column',
+            width: cell.columns,
+            flexShrink: 0,
+            children: cell.piece.whole(),
+          }),
+        ),
+      }),
+    cut: () => null,
+  }
+}
+
+function sharesRows(layout: ReplyLayout): boolean {
+  return layout.surface === ROW_SURFACE && (layout.sideBySide ?? DEFAULT_SIDE_BY_SIDE) === 'on'
+}
+
+function rowsOfPieces(context: Context, pieces: readonly Piece[]): Piece[] {
+  const rows = sharedRows(pieces, (piece) => piece.beside?.columns ?? null, context.width)
+  return rows.map((row, index) => {
+    const [only, ...more] = row
+    if (only !== undefined && more.length === 0) return only
+    const besides = row.flatMap((piece) => (piece.beside === undefined ? [] : [piece.beside]))
+    return rowPiece(context, besides, `row-${String(index)}`)
+  })
 }
 
 function foldedPreview(pieces: readonly Piece[]): Preview {
@@ -1861,7 +1942,8 @@ export function replyTree(
     drawsProse: layout.surface === PROSE_SURFACE && !blocks.some(isDefiningProse),
     actions,
   }
-  const pieces = blocks.map((block, index) => pieceOf(context, block, index))
+  const blockPieces = blocks.map((block, index) => pieceOf(context, block, index))
+  const pieces = sharesRows(layout) ? rowsOfPieces(context, blockPieces) : blockPieces
   const total = sum(pieces.map((piece) => piece.rows)) + Math.max(pieces.length - 1, 0)
   const preview = total > FOLD_AFTER_ROWS ? foldedPreview(pieces) : null
   const previewRows = sum(preview?.shown.map((drawing) => drawing.rows) ?? [])

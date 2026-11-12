@@ -46,6 +46,7 @@ import {
   type PromptLook,
   type PromptStyle,
 } from './prompt'
+import { DEFAULT_SIDE_BY_SIDE, isSideBySide, SIDE_BY_SIDE, type SideBySide } from './side'
 import { codeFoldKeysOf } from './syntax'
 import {
   addPrompt,
@@ -122,6 +123,12 @@ const CHECKED_SETTINGS: readonly CheckedSetting[] = [
     options: REPLY_STYLES,
     fallback: `Reply style stays ${DEFAULT_REPLY_STYLE}.`,
     isOption: isReplyStyle,
+  },
+  {
+    key: 'sideBySide',
+    options: SIDE_BY_SIDE,
+    fallback: `Side by side stays ${DEFAULT_SIDE_BY_SIDE}.`,
+    isOption: isSideBySide,
   },
 ]
 
@@ -410,6 +417,9 @@ export const register: Register = (on, options) => {
   const replyStyle: ReplyStyle = isReplyStyle(options.replyStyle)
     ? options.replyStyle
     : DEFAULT_REPLY_STYLE
+  const sideBySide: SideBySide = isSideBySide(options.sideBySide)
+    ? options.sideBySide
+    : DEFAULT_SIDE_BY_SIDE
   let lastReply: string | undefined
   const railSite: RailSite = { rail: newRail(), version: 0 }
   on('session.start', async ($, e, next) => {
@@ -657,6 +667,7 @@ export const register: Register = (on, options) => {
             palette: await shownPalette($, e.surface),
             codeFolds: await codeFoldsOf($, e.requestId, blocks),
             replyStyle,
+            sideBySide,
           },
           await foldOf($, e.requestId),
           replyActions($, e.requestId),

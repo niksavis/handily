@@ -16,8 +16,9 @@ diagram, with a `copy` button for its source and a `copy drawing` button for the
 prompt that you type opens under a coloured rule labelled `you`, so you find it when you scroll.
 The `promptStyle` setting draws it with a bar at its left or in a frame at the right instead.
 The `replyStyle` setting `frame` draws each reply in a frame labelled `● Claude`. It is off by
-default. `/replies` switches the view off and on for the session. The model still reads the full
-reply and the prompt as you typed it. Only the screen changes.
+default. Tables and diagrams that follow each other share a row when they fit side by side. The
+`sideBySide` setting `off` stacks them. `/replies` switches the view off and on for the session.
+The model still reads the full reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -2455,6 +2456,43 @@ its frame:
   mouse selection over several lines takes the `│` of each side with it.
 - The desktop app draws each reply without a frame.
 
+## Side by side
+
+A table or a drawn diagram that follows another with only blank lines between them shares a row
+with it when both fit. The width of each block includes its button row, and 3 columns stand
+between the blocks. At 120 columns:
+
+```text
+● The hours, then the flow:
+
+  ┌───────┬───────┬──────┐    ── mermaid · flowchart ──  [ copy ] [ copy drawing ]
+  │ Hour  │ p95   │ Errs │    ╭────────╮   ╭───────╮
+  ╞═══════╪═══════╪══════╡    │ ingest │──▶│ store │
+  │ 11:00 │ 45    │ 0    │    ╰────────╯   ╰───────╯
+  ├───────┼───────┼──────┤
+  │ 14:00 │ 2,029 │ 14   │
+  ├───────┼───────┼──────┤
+  │ 15:00 │ 2,032 │ 18   │
+  └───────┴───────┴──────┘
+  [ copy ] [ copy as text ]
+```
+
+At 80 columns the same reply draws the diagram under the table.
+
+- The tops of the blocks align, and the row is as tall as its tallest block.
+- A block that does not fit beside the blocks before it starts a new row. So of three blocks, the
+  third draws under the first two when only two fit.
+- Prose between two blocks, even one word, stacks them.
+- A code block, a diagram that does not draw, a mermaid block with the `diagrams` setting `off`
+  and a chart always stack.
+- Each block keeps its own title line and buttons. Each `copy` button, `copy reply` and
+  `/replies copy` give each block as its own markdown, in reading order, with no space between
+  the columns.
+- A mouse selection across a shared row takes the lines of both blocks.
+- In a folded reply, a shared row counts as its tallest block. A shared row that does not fit
+  whole in the first 30 lines shows when you press `more`.
+- The `sideBySide` setting `off` stacks every block. The desktop app always stacks them.
+
 ## The prompts tab
 
 `/replies prompts` opens a `prompts` tab that lists each prompt that you typed in this session.
@@ -2569,6 +2607,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | `headingStyle` | `banner` | `banner` draws a box around H1 and a rule under H2. `bold`, `underline` and `uppercase` draw no box            |
 | `promptStyle`  | `rule`   | `rule` draws a rule above a prompt that you type. `bar` draws a bar at its left, `bubble` a frame at the right |
 | `replyStyle`   | `off`    | `frame` draws each reply in a frame labelled `● Claude` at 40 columns or more. `off` draws the bullet          |
+| `sideBySide`   | `on`     | `on` draws tables and diagrams that follow each other in one row when they fit. `off` stacks them              |
 
 | Command                  | Effect                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------- |
@@ -2615,6 +2654,12 @@ The last reply has no diagram. /replies copy reply copies the whole reply.
 The mod keeps the last reply in memory for this session only. After a `/clear` or a resume,
 `/replies copy` has no reply until Claude answers again. The answer of a subagent does not
 count.
+
+## Accessibility
+
+A terminal screen reader reads a shared row line by line, across both blocks. If you use a
+screen reader, set the `sideBySide` setting to `off` in `/config`. Then every table, diagram and
+chart draws under the block before it.
 
 ## When the reply stays as Claude Code draws it
 

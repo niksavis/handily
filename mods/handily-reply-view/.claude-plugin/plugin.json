@@ -56,6 +56,13 @@
       "options": ["off", "frame"],
       "default": "off"
     },
+    "sideBySide": {
+      "type": "string",
+      "title": "Side by side",
+      "description": "Whether tables, diagrams and charts that follow each other share a row when they fit (on) or always stack (off).",
+      "options": ["on", "off"],
+      "default": "on"
+    },
     "highlight": {
       "type": "string",
       "title": "Highlight",
