@@ -7136,6 +7136,22 @@ describe(LIMIT_WARN_CRITERION, () => {
   )
 
   test(
+    'a limit whose reset time is past shows no toast and keeps the key of another session',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const claimed = warnedKey(80, OTHER_SESSION_ID, PACE_RESET)
+      const store = sharedStore(on, { [FIVE_HOUR_KEY]: claimed })
+      await paceReadings($, seen, [{ after: 0, fiveHour: 84, reset: PACE_START - HOUR }])
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      await measure($, { percent: 62, usd: 4.8, limits: paceLimits(85, PACE_START - HOUR) })
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([])
+      expect(store.get(FIVE_HOUR_KEY)).toEqual(claimed)
+    },
+  )
+
+  test(
     'a session that finds the key of this cycle claimed by another session shows no toast',
     withWorkitems,
     async ($, on) => {

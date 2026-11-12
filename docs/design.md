@@ -1336,6 +1336,8 @@ The engine source of each new number:
   points or more below the warned level starts a new cycle. The board deletes a stale key when it
   reads it, and at session start it deletes each key with a past cycle or a `v` it cannot read, as
   `deleteExpired` in `hooks/sessions.ts` does for the session keys.
+- **Past resets.** A limit whose reset time is past, or does not parse, shows no toast and
+  reads or deletes no key, so it never deletes the key of a new cycle.
 - **Failures.** A store call that fails logs to the debug log and shows no toast.
 - **Kinds.** The board warns only for a kind of lowercase letters, digits and `_`, at most 40
   characters, because the kind becomes part of a store key.

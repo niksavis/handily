@@ -174,6 +174,12 @@ function keptFor(keep: WarnKeep, limit: SessionRateLimit, now: number): Warned |
   return undefined
 }
 
+function hasPastReset(limit: SessionRateLimit, now: number): boolean {
+  if (limit.resetsAt === undefined) return false
+  const at = Date.parse(limit.resetsAt)
+  return !Number.isFinite(at) || at <= now
+}
+
 async function isClaimWaiting(
   host: WarnHost,
   keep: WarnKeep,
@@ -181,6 +187,7 @@ async function isClaimWaiting(
   readings: LimitReadings,
 ): Promise<boolean> {
   const now = await host.now()
+  if (hasPastReset(limit, now)) return false
   const kept = keptFor(keep, limit, now)
   const stored = await storedFor(host, limit, now)
   const level = levelOf(limit.percentUsed)
