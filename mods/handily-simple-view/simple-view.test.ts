@@ -1844,6 +1844,64 @@ describe('file rows that a hook refused', () => {
   }
 })
 
+describe('file rows when the session root cannot be read', () => {
+  const path = `${ROOT}/src/app.ts`
+  const editAnswer = {
+    result: {
+      filePath: path,
+      oldString: 'y',
+      newString: 'y2\nz',
+      originalFile: 'x\ny\n',
+      structuredPatch: [
+        { oldStart: 4, oldLines: 2, newStart: 4, newLines: 3, lines: [' x', '-y', '+y2', '+z'] },
+      ],
+      userModified: false,
+      replaceAll: false,
+    },
+  } as Answer
+  const readAnswer: Answer = { result: readOutput(path, 1, 3, 3) }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws a done Edit and Read with the full path and keeps their results empty on ${surface}`,
+      async (world, $) => {
+        world.isRootRefused = true
+        const calls: [string, string, Answer, string][] = [
+          ['toolu_k1', 'Edit', editAnswer, `Edit ${path} +2 -1`],
+          ['toolu_k2', 'Read', readAnswer, `Read ${path} 3 lines`],
+        ]
+        for (const [id, tool, answer, row] of calls) {
+          const use = useProps(id, tool, { file_path: path }, answer)
+          expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+            `${MARKER[surface]}${row}`,
+          ])
+          const result = await drawn(
+            $,
+            { component: 'ToolResult', props: resultProps(id, tool, answer) },
+            surface,
+          )
+          expect(result.tree).toMatchObject({ type: 'Box' })
+          expect(result.textCount).toBe(0)
+          expect(world.logs.some((log) => log.startsWith(`simple-view: no path for ${id}`))).toBe(
+            true,
+          )
+        }
+      },
+    )
+  }
+
+  viewTest('draws a running Read with the full path', async (world, $) => {
+    world.isRootRefused = true
+    const ui = await mountUse(
+      $,
+      streamingProps('toolu_k3', 'Read', { file_path: path }, { isRunning: true }),
+    )
+    const lines = sketch(await ui.drawn())
+    await ui.unmount()
+    expect(lines).toEqual([`${MARKER.terminal}Read  ${path}  ~…~`])
+  })
+})
+
 const PAGE_URL = 'https://example.com/guide'
 const FETCH_INPUT = { url: PAGE_URL, prompt: 'Summarise the page' }
 const FETCH_ANSWER: Answer = {
@@ -2725,7 +2783,7 @@ describe('fallback to the engine row', () => {
   })
 
   viewTest('when drawing throws', async (world, $) => {
-    world.isRootRefused = true
+    world.isModeReadRefused = true
     const answer = {
       result: {
         filePath: `${ROOT}/a.ts`,

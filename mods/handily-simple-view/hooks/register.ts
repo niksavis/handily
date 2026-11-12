@@ -349,6 +349,15 @@ async function bashUse(
   return Box({ flexDirection: 'column', children: [row, opened] })
 }
 
+async function rootOf($: EngineInterface, id: string): Promise<string | null> {
+  try {
+    return await $.session.root()
+  } catch (error) {
+    logFailure($, `no path for ${id}`, error)
+    return null
+  }
+}
+
 async function refusedUse(
   $: EngineInterface,
   props: RenderPropsOf['ToolUse'],
@@ -356,13 +365,8 @@ async function refusedUse(
 ): Promise<RenderElement | null> {
   const message = refusalLine(props.output)
   if (message === null) return null
-  let root: string
-  try {
-    root = await $.session.root()
-  } catch (error) {
-    logFailure($, `no path for ${props.tool_use_id}`, error)
-    return refusedRow(look, props.tool, [], message)
-  }
+  const root = await rootOf($, props.tool_use_id)
+  if (root === null) return refusedRow(look, props.tool, [], message)
   const target = FILE_TOOLS.has(props.tool)
     ? filePathTarget(props.input, root)
     : streamingTarget(props.tool, props.input, root)
@@ -378,7 +382,8 @@ async function fileUse(
   if (props.isErrored) return refusedUse($, props, look)
   const edit = fileEdit(props.tool, props.output)
   if (edit === null) return null
-  return fileRow(look, props.tool, shownPath(edit.path, await $.session.root()), edit.totals)
+  const root = (await rootOf($, props.tool_use_id)) ?? ''
+  return fileRow(look, props.tool, shownPath(edit.path, root), edit.totals)
 }
 
 async function readingUse(
@@ -388,12 +393,14 @@ async function readingUse(
 ): Promise<RenderElement | null> {
   if (props.isErrored) return refusedUse($, props, look)
   if (props.isRunning || isPending(props)) {
-    const target = streamingTarget(props.tool, props.input, await $.session.root())
+    const root = (await rootOf($, props.tool_use_id)) ?? ''
+    const target = streamingTarget(props.tool, props.input, root)
     return target === null ? null : readingRow(look, props.tool, target, null)
   }
   const count = readingCount(props.tool, props.output)
   if (count === null) return null
-  const target = readingTarget(props.tool, props.input, props.output, await $.session.root())
+  const root = (await rootOf($, props.tool_use_id)) ?? ''
+  const target = readingTarget(props.tool, props.input, props.output, root)
   if (target === null) return null
   return readingRow(look, props.tool, target, count)
 }
