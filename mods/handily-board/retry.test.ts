@@ -231,7 +231,7 @@ async function retryScene($: Engine, on: On, surface: Surface): Promise<Scene> {
   await spawn($, seen, EXPLORE, 'Explore')
   await seen.clock.advance(1_000)
   await spawn($, seen, LANE, 'lane-b')
-  await seen.clock.set(START + 1_000 + 6 * MINUTE - 10_000)
+  await seen.clock.set(START + 1_000 + 6 * MINUTE - 45_000)
   await failsWithEdits($, seen, NPM_TEST, 3)
   await editAs($, LANE)
   await $.tool.call({ tool: 'Read', file_path: `${ROOT}/src/app.ts`, agentId: EXPLORE })
