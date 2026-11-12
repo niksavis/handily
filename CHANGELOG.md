@@ -6,6 +6,18 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.21.0 - 2026-11-12
+
+### Added
+
+- **board: the band keeps the answer line of a done agent until your next prompt, and a failed
+  row until you open the board.** A done row with its masked first answer line now stays in the
+  band after Claude Code stops listing the agent, and leaves at the next prompt you send. A slash
+  command or a skill does not count as that prompt. A failed row stays after the next prompt and
+  leaves when the `this session` tab shows or you run a bare `/board`. An agent that runs again
+  shows its next end. An agent that Claude Code stops listing before it ends shows no row.
+  (handily-crupjy.3)
+
 ## handily-simple-view 0.10.1 - 2026-11-11
 
 ### Fixed
