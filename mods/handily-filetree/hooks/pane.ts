@@ -95,6 +95,7 @@ type PaneView = {
   actions: PaneActions
   touched: TouchDraw
   opened: string | undefined
+  revealed: string | undefined
   choice: FiletreeView
   lastTurn: LastTurnDraw | undefined
   column: ColumnDraw
@@ -1080,6 +1081,7 @@ function drawFile(
   const { Box, Text, Button } = elements
   const { marks } = draw
   const isOpened = draw.opened === row.path
+  const focus = draw.revealed === row.path ? { autoFocus: true as const } : {}
   return [
     Box({
       key: `file-row:${row.path}`,
@@ -1088,6 +1090,7 @@ function drawFile(
         Button({
           key: `file:${row.path}`,
           plain: true,
+          ...focus,
           onPress: () => {
             draw.actions.openFile(row.path)
           },
@@ -1109,6 +1112,7 @@ type TreeDraw = {
   whyOf: (path: string) => string | undefined
   touched: TouchDraw
   opened: string | undefined
+  revealed: string | undefined
   isRepo: boolean
 }
 
@@ -1313,6 +1317,7 @@ export function drawTree(
     whyOf: whyOf(elements, view),
     touched,
     opened,
+    revealed: view.revealed,
     isRepo: git.isRepo,
   }
   const body =
