@@ -67,15 +67,6 @@ function afterFailure(
   )
 }
 
-function hasExitMeaning(result: unknown): boolean {
-  if (typeof result !== 'object' || result === null) return false
-  return 'returnCodeInterpretation' in result && typeof result.returnCodeInterpretation === 'string'
-}
-
-export function commandOutcome(outcome: BoardCallOutcome, result: unknown): BoardCallOutcome {
-  return outcome === 'ok' && hasExitMeaning(result) ? 'failed' : outcome
-}
-
 export function retriesAfter(
   retries: readonly BoardRetry[],
   call: RetryCall,

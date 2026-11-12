@@ -52,6 +52,7 @@ type World = {
   agents: AgentInfo[]
   clock: MockClock
   failing: Set<string>
+  exitCodes: Map<string, number>
   meanings: Map<string, string>
   refused: Set<string>
   asked: Set<string>
@@ -77,6 +78,7 @@ function world(on: On): World {
     agents: [],
     clock: mock.clock(on, { now: START }),
     failing: new Set(),
+    exitCodes: new Map(),
     meanings: new Map(),
     refused: new Set(),
     asked: new Set(),
@@ -156,7 +158,11 @@ function world(on: On): World {
       await held.gate
     }
     if (state.failing.has(command)) {
-      return { isError: true as const, result: `Error: Exit code 1\n${command}: failed` }
+      const code = state.exitCodes.get(command) ?? 1
+      return {
+        isError: true as const,
+        result: `Error: Exit code ${String(code)}\n${command}: failed`,
+      }
     }
     const meaning = state.meanings.get(command)
     return {
@@ -620,33 +626,73 @@ describe(RETRY_CRITERION, () => {
 })
 
 const PROBE = 'test -f /tmp/handily-retry-probe-missing'
+const PROBE_ASKED = 'Check that a probe file is missing'
+const SEARCH = 'grep -rn handilyRetryNeedle src'
+const SEARCH_ASKED = 'Search the sources for the needle'
+const MISSING = 'grep -q needle /tmp/handily-retry-missing.txt'
+const MISSING_ASKED = 'Search a missing file for the needle'
 
 describe(RETRY_CRITERION, () => {
   test(
-    'a test -f that exits 1 three times with a write between marks retry 3, though the engine files that exit as Condition is false and not as an error',
+    'three test -f and three grep results that Claude Code names Condition is false and No matches found, with a write between, show no retry mark',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
       await startOn($, 'terminal')
       await spawn($, seen, LANE, 'lane-b')
       seen.meanings.set(PROBE, 'Condition is false')
-      await bashAs($, LANE, PROBE, 'Check that a probe file is missing')
-      await writeAs($, LANE)
-      await bashAs($, LANE, PROBE, 'Check that a probe file is missing')
-      await writeAs($, LANE)
-      await bashAs($, LANE, PROBE, 'Check that a probe file is missing')
+      seen.meanings.set(SEARCH, 'No matches found')
+      for (let index = 0; index < 3; index += 1) {
+        if (index > 0) await writeAs($, LANE)
+        await bashAs($, LANE, PROBE, PROBE_ASKED)
+        await bashAs($, LANE, SEARCH, SEARCH_ASKED)
+      }
       const wait = 'python3 -c "import time; time.sleep(30)"'
       const gate = seen.hold(wait)
       const sleeping = bashAs($, LANE, wait, 'Sleep for 30 seconds')
       await gate.arrived
       expect((await bandLines($, 'terminal', 75))[1]).toBe(
-        '▶ lane-b    retry 3   Bash test -f /tmp/handily-retry-probe-missi… open  0s',
+        '▶ lane-b    running   ▸ Bash Sleep for 30 seconds                  open  0s',
+      )
+      const lines = await agentLines($, 'terminal', 'inline', 80)
+      expect(lines[0]).toBe('Agents  1')
+      expect(lines.join('\n')).not.toContain('retry')
+      expect(lines.join('\n')).not.toContain('fails')
+      gate.release()
+      await sleeping
+    },
+  )
+
+  test(
+    'three grep calls that Claude Code returns as Error Exit code 2, with a write between, mark retry 3',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await startOn($, 'terminal')
+      await spawn($, seen, LANE, 'lane-b')
+      seen.failing.add(MISSING)
+      seen.exitCodes.set(MISSING, 2)
+      const first = await bashAs($, LANE, MISSING, MISSING_ASKED)
+      expect([first.isError, first.result]).toEqual([
+        true,
+        `Error: Exit code 2\n${MISSING}: failed`,
+      ])
+      await writeAs($, LANE)
+      await bashAs($, LANE, MISSING, MISSING_ASKED)
+      await writeAs($, LANE)
+      await bashAs($, LANE, MISSING, MISSING_ASKED)
+      const wait = 'python3 -c "import time; time.sleep(30)"'
+      const gate = seen.hold(wait)
+      const sleeping = bashAs($, LANE, wait, 'Sleep for 30 seconds')
+      await gate.arrived
+      expect((await bandLines($, 'terminal', 75))[1]).toBe(
+        '▶ lane-b    retry 3   Bash grep -q needle /tmp/handily-retry-miss… open  0s',
       )
       expect((await agentLines($, 'terminal', 'inline', 80))[0]).toBe('Agents  1 · 1 retry')
       gate.release()
       await sleeping
-      seen.meanings.delete(PROBE)
-      await bashAs($, LANE, PROBE, 'Check that a probe file is missing')
+      seen.failing.delete(MISSING)
+      await bashAs($, LANE, MISSING, MISSING_ASKED)
       expect((await agentLines($, 'terminal', 'inline', 80)).join('\n')).not.toContain('retry')
     },
   )

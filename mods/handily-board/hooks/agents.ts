@@ -11,7 +11,7 @@ import type {
 } from '../types'
 import { NAME_CUT_ABOVE, numberedNames } from './agent-rows'
 import { maskedCredentials } from './credentials'
-import { type AgentRetry, commandOutcome, retriesAfter, retryOf, withRetries } from './retry'
+import { type AgentRetry, retriesAfter, retryOf, withRetries } from './retry'
 import { escaped } from './tasks'
 
 export const UNLISTED_KEPT_AT_MOST = 20
@@ -59,7 +59,7 @@ export type AgentCallLine = BoardToolSight & {
   at: number | null
 }
 
-export type CallAnswer = { isError?: boolean; deny?: string; result?: unknown }
+export type CallAnswer = { isError?: boolean; deny?: string }
 
 export type AgentRow = {
   id: string
@@ -205,12 +205,7 @@ export function withCallStart(
   }))
 }
 
-export type CallEnd = {
-  callId: string
-  outcome: BoardCallOutcome
-  commandOutcome: BoardCallOutcome
-  at: number
-}
+export type CallEnd = { callId: string; outcome: BoardCallOutcome; at: number }
 
 export function withCallEnd(agents: Agents, agentId: string, end: CallEnd): BoardAgent[] {
   const agent = agents.find((one) => one.id === agentId)
@@ -221,7 +216,7 @@ export function withCallEnd(agents: Agents, agentId: string, end: CallEnd): Boar
   const retries = retriesAfter(agent.retries ?? [], {
     tool: call.tool,
     command: call.command,
-    outcome: end.commandOutcome,
+    outcome: end.outcome,
   })
   const finished = withRetries(
     {
@@ -596,13 +591,7 @@ export async function trackAgentCall<R extends CallAnswer>(
     await host.change((agents) => withCallDropped(agents, agentId, call.id))
     throw error
   }
-  const outcome = outcomeOf(result, isRefused())
-  const end = {
-    callId: call.id,
-    outcome,
-    commandOutcome: commandOutcome(outcome, result.result),
-    at: await host.now(),
-  }
+  const end = { callId: call.id, outcome: outcomeOf(result, isRefused()), at: await host.now() }
   await host.change((agents) => withCallEnd(agents, agentId, end))
   return result
 }

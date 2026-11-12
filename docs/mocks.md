@@ -1816,8 +1816,9 @@ same Bash command again and again, with an edit between the failures.
   never the command itself.
 - A failure counts when the agent ran an Edit or a Write since the last failure of that command.
   The first failure always counts. Another command between the failures does not reset the count.
-- A failure is a call that ends in error, or an exit that Claude Code names and does not file as
-  an error, such as `No matches found` of `grep` or `Condition is false` of `test`.
+- A failure is a call that Claude Code returns as an error. An exit that Claude Code names and
+  does not file as an error, such as `No matches found` of `grep` or `Condition is false` of
+  `test`, is normal work and does not count.
 - A call that a check or the person refuses does not count. A call that never returns does not
   count.
 - The mark shows from 3 failures, as `retry 3`, in `warning`. The `▶` mark stays.
