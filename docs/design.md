@@ -57,7 +57,7 @@ Why `commit-link` and `handover` were dropped:
 | 3 | Tracker source per repo | One source per repo. The first detected source is used, or the source named in `.handily.json`. The provider reports the other sources as ignored |
 | 4 | Raw tracker edit | A direct `Write` or `Edit` of a tracker file draws a distinct "raw tracker edit" row |
 | 5 | quiet-items toggle | The toggle is per session, in `$.state`. `userConfig` holds only the default |
-| 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` is secondary |
+| 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` makes the release tag `<name>--v<version>`. The marketplace pins each mod with a `git-subdir` entry at its latest release tag and the commit of that tag, so a fresh install gets each mod at that tag (handily-lh63p0.4). A merge into `main` reaches no user until the mod is released and pinned |
 | 7 | work-status | Dropped |
 | 8 | bd data | Items that come from `.beads/issues.jsonl` for `bd` carry the label "possibly stale" |
 | 9 | basicly read path | `basicly tracker items --json --status open --status in_progress --status blocked` from `PATH` only, in one call, after the person approves it (handily-8mjdz; it was one `basicly tracker list --status <s>` per open status). Without `basicly` on `PATH` the read fails by name. The repo's `cli.py` fallback was dropped by decision E |
@@ -1663,10 +1663,12 @@ Closed:
   INVEST/C3 review before a record is ready. So the provider reads each open status, not
   only "ready" records.
 - **Q8. Mod release process.** Closed by review decision 6. A release rests on the
-  `plugin.json` version. Users update when that version changes. Each mod has one version,
-  and only a changed mod gets a bump. `claude plugin tag mods/<name>` makes a
-  `<name>--v<version>` tag. The tag is secondary. The command needs a clean tree and a
-  marketplace version that matches.
+  `plugin.json` version and its release tag. Users update when that version changes. Each mod
+  has one version, and only a changed mod gets a bump. `claude plugin tag mods/<name>` makes a
+  `<name>--v<version>` tag. The command needs a clean tree. Since handily-lh63p0.4 the
+  marketplace pins each mod with a `git-subdir` entry at its latest release tag and the commit
+  of that tag, so a fresh install gets each mod at that tag. A pinned entry has no `version`
+  field. `docs/maintaining.md` gives the release steps.
 
 Closed by the P0 probes (handily-0m93, Claude Code 2.1.293):
 
