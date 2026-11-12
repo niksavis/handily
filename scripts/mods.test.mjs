@@ -14,6 +14,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { after, test } from 'node:test'
 import { environmentWithoutGit } from './git-env.mjs'
 
@@ -761,4 +762,221 @@ test('marketplace refuses a pin of a name that is not a mod and an unknown argum
   assert.notEqual(unknown.status, 0, unknown.stdout + unknown.stderr)
   assert.match(unknown.stderr, /--pinn/)
   assert.equal(readFileSync(repo.marketplace, 'utf8'), before)
+})
+
+const pinCommand = (name) => `npm run marketplace -- --pin ${name}`
+
+function makeValidateRepo({ boardDependsOnItems = false, tagItems = false } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'handily-mods-pinned-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
+  writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
+  mkdirSync(join(root, '.claude-plugin'))
+  const boardDependencies = boardDependsOnItems ? { dependencies: ['items'] } : {}
+  writeManifest(root, 'board', { ...boardAtTag, ...boardDependencies })
+  writeManifest(root, 'items', { version: '0.1.0', description: 'Items with no release tag.' })
+  pinGit(root, 'init', '--quiet', '--initial-branch=main')
+  pinGit(root, 'add', '--', 'mods')
+  pinGit(root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'release board')
+  pinGit(root, 'tag', '-a', boardTag, '-m', 'board 0.2.0')
+  if (tagItems) pinGit(root, 'tag', '-a', 'items--v0.1.0', '-m', 'items 0.1.0')
+  writeManifest(root, 'board', { ...boardAtTag, description: 'The board on main after its tag.' })
+  pinGit(root, 'add', '--', 'mods')
+  pinGit(root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'work after the tag')
+  return {
+    root,
+    marketplace: join(root, '.claude-plugin', 'marketplace.json'),
+    tagCommit: pinGit(root, 'rev-parse', `${boardTag}^{commit}`),
+    tagObject: pinGit(root, 'rev-parse', `refs/tags/${boardTag}`),
+    head: pinGit(root, 'rev-parse', 'HEAD'),
+  }
+}
+
+function runValidate(repo) {
+  return spawnSync(process.execPath, [join(repo.root, 'scripts', 'mods.mjs'), 'validate'], {
+    cwd: repo.root,
+    encoding: 'utf8',
+    env: { ...environmentWithoutGit, PATH: `${passingClaude}${delimiter}${process.env.PATH}` },
+  })
+}
+
+function editEntry(repo, name, edit) {
+  const marketplace = JSON.parse(readFileSync(repo.marketplace, 'utf8'))
+  marketplace.plugins = marketplace.plugins.flatMap((plugin) => {
+    if (plugin.name !== name) return [plugin]
+    const edited = edit(plugin)
+    return edited === undefined ? [] : [edited]
+  })
+  writeFileSync(repo.marketplace, `${JSON.stringify(marketplace, null, 2)}\n`)
+}
+
+function pinnedRepo(options) {
+  const repo = makeValidateRepo(options)
+  const pins = options?.tagItems ? ['--pin', 'board', '--pin', 'items'] : ['--pin', 'board']
+  const pinned = runMarketplace(repo, ...pins)
+  assert.equal(pinned.status, 0, pinned.stdout + pinned.stderr)
+  return repo
+}
+
+test('validate passes the relative marketplace that the generator writes today', () => {
+  const repo = makeValidateRepo({ boardDependsOnItems: true })
+  assert.equal(runMarketplace(repo).status, 0)
+  assert.deepEqual(
+    listedEntry(readFileSync(repo.marketplace, 'utf8'), 'board').source,
+    './mods/board',
+  )
+  const result = runValidate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [])
+})
+
+test('validate passes a pinned entry at its release tag and notes a mod with no release tag yet', () => {
+  const repo = pinnedRepo()
+  const result = runValidate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [])
+  assert.match(result.stdout, /^NOTE items: no release tag items--v\* exists yet/m)
+  assert.doesNotMatch(result.stdout, /^NOTE board:/m)
+})
+
+test('validate refuses a pinned entry whose release tag does not exist and names the tag', () => {
+  const repo = pinnedRepo()
+  editEntry(repo, 'board', (entry) => ({
+    ...entry,
+    source: { ...entry.source, ref: 'board--v0.9.0' },
+  }))
+  const result = runValidate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [
+    `FAIL board: the release tag board--v0.9.0 does not exist; create it with \`claude plugin tag mods/board\`, then run \`${pinCommand('board')}\``,
+  ])
+})
+
+test('validate refuses a pinned sha that is not the commit of its tag and names both commits', () => {
+  const repo = pinnedRepo()
+  editEntry(repo, 'board', (entry) => ({
+    ...entry,
+    source: { ...entry.source, sha: repo.tagObject },
+  }))
+  const result = runValidate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [
+    `FAIL board: the marketplace pins sha ${repo.tagObject}, which is not ${repo.tagCommit}, the commit of its tag ${boardTag}; run \`${pinCommand('board')}\``,
+  ])
+  editEntry(repo, 'board', (entry) => ({ ...entry, source: { ...entry.source, sha: repo.head } }))
+  assert.match(
+    runValidate(repo).stderr,
+    new RegExp(`pins sha ${repo.head}, which is not ${repo.tagCommit},`),
+  )
+})
+
+test('validate refuses a mod that has a release tag and no marketplace entry and names the mod', () => {
+  const repo = pinnedRepo()
+  editEntry(repo, 'board', () => undefined)
+  const result = runValidate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.ok(
+    failLines(result).includes(
+      `FAIL board: it has the release tag ${boardTag}, and .claude-plugin/marketplace.json does not list it; run \`${pinCommand('board')}\``,
+    ),
+    result.stderr,
+  )
+})
+
+test('validate notes and does not refuse a mod with no release tag and no marketplace entry', () => {
+  const repo = pinnedRepo()
+  editEntry(repo, 'items', () => undefined)
+  const result = runValidate(repo)
+  assert.match(result.stdout, /^NOTE items: no release tag items--v\* exists yet/m)
+  assert.deepEqual(
+    failLines(result).filter((line) => line.startsWith('FAIL items:')),
+    [],
+  )
+})
+
+test('validate refuses a dependency named by the manifest at its tag that the marketplace does not list at a tag', () => {
+  const repo = pinnedRepo({ boardDependsOnItems: true })
+  const result = runValidate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [
+    `FAIL board: plugin.json at ${boardTag} names the dependency items, which .claude-plugin/marketplace.json does not list at a release tag, so an install says that the dependency was not installed; run \`${pinCommand('items')}\``,
+  ])
+  editEntry(repo, 'items', () => undefined)
+  assert.match(
+    runValidate(repo).stderr,
+    /names the dependency items, .+ dependency was not installed/,
+  )
+})
+
+test('validate passes a dependency that the marketplace lists at its own release tag', () => {
+  const repo = pinnedRepo({ boardDependsOnItems: true, tagItems: true })
+  const result = runValidate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [])
+})
+
+test('validate refuses a pinned entry with a version because claude plugin tag refuses a version mismatch', () => {
+  const repo = pinnedRepo()
+  editEntry(repo, 'board', (entry) => ({ ...entry, version: boardAtTag.version }))
+  const result = runValidate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [
+    `FAIL board: a pinned marketplace entry carries no version, because \`claude plugin tag\` refuses a release with Version mismatch when the entry version differs from plugin.json; run \`${pinCommand('board')}\``,
+  ])
+})
+
+test('validate refuses a pinned entry with another url, path, source kind or ref and names the expected value', () => {
+  const cases = [
+    ['url', 'someone/fork', '"url" is "someone/fork"; it must be "niksavis/handily"'],
+    ['path', 'mods/items', '"path" is "mods/items"; it must be "mods/board"'],
+    ['source', 'github', '"source" is "github"; it must be "git-subdir"'],
+    ['ref', 'main', '"ref" is "main"; it must be a release tag board--vVERSION'],
+    ['ref', 'items--v0.1.0', '"ref" is "items--v0.1.0"; it must be a release tag board--vVERSION'],
+  ]
+  for (const [field, value, expected] of cases) {
+    const repo = pinnedRepo()
+    editEntry(repo, 'board', (entry) => ({ ...entry, source: { ...entry.source, [field]: value } }))
+    const result = runValidate(repo)
+    assert.equal(result.status, 1, result.stdout + result.stderr)
+    assert.deepEqual(failLines(result), [
+      `FAIL board: the marketplace source ${expected}; run \`${pinCommand('board')}\``,
+    ])
+  }
+})
+
+test('validate in a shallow clone with no tags says to run git fetch --tags for a pinned entry and passes a relative one', () => {
+  const repo = pinnedRepo()
+  pinGit(repo.root, 'add', '--', '.claude-plugin', 'scripts', '.agents')
+  pinGit(repo.root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'pin board')
+  const parent = mkdtempSync(join(tmpdir(), 'handily-mods-shallow-'))
+  after(() => rmSync(parent, { recursive: true, force: true }))
+  const clone = { root: join(parent, 'clone') }
+  pinGit(
+    parent,
+    'clone',
+    '--quiet',
+    '--depth',
+    '1',
+    '--no-tags',
+    pathToFileURL(repo.root).href,
+    clone.root,
+  )
+  assert.equal(pinGit(clone.root, 'rev-parse', '--is-shallow-repository'), 'true')
+  assert.equal(pinGit(clone.root, 'tag', '--list'), '')
+  const result = runValidate(clone)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [
+    `FAIL board: the release tag ${boardTag} is not in this shallow clone; run \`git fetch --tags\`, then run the command again`,
+  ])
+  clone.marketplace = join(clone.root, '.claude-plugin', 'marketplace.json')
+  editEntry(clone, 'board', () => ({
+    name: 'board',
+    source: './mods/board',
+    version: boardAtTag.version,
+    description: 'The board on main after its tag.',
+  }))
+  const relative = runValidate(clone)
+  assert.equal(relative.status, 0, relative.stdout + relative.stderr)
 })

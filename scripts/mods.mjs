@@ -76,12 +76,17 @@ function readManifest(mod) {
   return readJson(join(mod.dir, '.claude-plugin', 'plugin.json'), mod.name)
 }
 
-function dependenciesOf(mod, mods) {
-  const declared = readManifest(mod)?.dependencies ?? []
+function declaredDependencies(manifest, label) {
+  const declared = manifest?.dependencies ?? []
   if (!Array.isArray(declared) || !declared.every((name) => typeof name === 'string')) {
-    fail(`${mod.name}: plugin.json "dependencies" must be a list of mod names`)
+    fail(`${label}: plugin.json "dependencies" must be a list of mod names`)
     return []
   }
+  return declared
+}
+
+function dependenciesOf(mod, mods) {
+  const declared = declaredDependencies(readManifest(mod), mod.name)
   const byName = new Map(mods.map((candidate) => [candidate.name, candidate]))
   const found = new Map()
   const pending = [...declared]
@@ -288,8 +293,35 @@ function releaseTag(name, version) {
   return `${name}--v${version}`
 }
 
+function isReleaseTagOf(name, tag) {
+  const prefix = releaseTag(name, '')
+  return (
+    typeof tag === 'string' &&
+    tag.startsWith(prefix) &&
+    versionPattern.test(tag.slice(prefix.length))
+  )
+}
+
+function pinCommand(name) {
+  return `${marketplaceCommand} -- --pin ${name}`
+}
+
+const fetchTagsAdvice = 'run `git fetch --tags`, then run the command again'
+
 function runGit(args) {
   return spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+}
+
+function isShallowClone() {
+  const result = runGit(['rev-parse', '--is-shallow-repository'])
+  return result.status === 0 && result.stdout.trim() === 'true'
+}
+
+function missingTagMessage(name, tag) {
+  if (isShallowClone()) {
+    return `the release tag ${tag} is not in this shallow clone; ${fetchTagsAdvice}`
+  }
+  return `the release tag ${tag} does not exist; create it with \`claude plugin tag mods/${name}\`, then run \`${pinCommand(name)}\``
 }
 
 function peeledTagCommit(mod, tag) {
@@ -299,12 +331,19 @@ function peeledTagCommit(mod, tag) {
     return undefined
   }
   if (result.status !== 0) {
-    fail(
-      `${mod.name}: the release tag ${tag} does not exist; create it with \`claude plugin tag mods/${mod.name}\`, then run \`${marketplaceCommand} -- --pin ${mod.name}\``,
-    )
+    fail(`${mod.name}: ${missingTagMessage(mod.name, tag)}`)
     return undefined
   }
   return result.stdout.trim()
+}
+
+function latestReleaseTag(mod) {
+  const result = runGit(['tag', '--list', '--sort=-v:refname', releaseTag(mod.name, '*')])
+  if (result.error || result.status !== 0) {
+    return { problem: result.error?.message ?? firstLine(result.stderr) }
+  }
+  const tags = result.stdout.split('\n').filter((tag) => isReleaseTagOf(mod.name, tag))
+  return { tag: tags[0] }
 }
 
 function taggedManifest(mod, tag, sha) {
@@ -345,15 +384,13 @@ function pinnedEntry(mod) {
   }
   return {
     name: mod.name,
-    source: {
-      source: 'git-subdir',
-      url: marketplaceRepository,
-      path: `mods/${mod.name}`,
-      ref: tag,
-      sha,
-    },
+    source: pinnedSource(mod.name, tag, sha),
     description: tagged.description,
   }
+}
+
+function pinnedSource(name, tag, sha) {
+  return { source: 'git-subdir', url: marketplaceRepository, path: `mods/${name}`, ref: tag, sha }
 }
 
 function isPinnedEntry(entry) {
@@ -441,6 +478,92 @@ function checkCodexMarketplaceIsEmpty() {
   }
 }
 
+const marketplaceLabel = '.claude-plugin/marketplace.json'
+
+function noteUntaggedMod(mod) {
+  note(
+    `${mod.name}: no release tag ${releaseTag(mod.name, '*')} exists yet, so the marketplace cannot pin it; create one with \`claude plugin tag mods/${mod.name}\``,
+  )
+}
+
+function checkUnlistedMod(mod) {
+  const { tag, problem } = latestReleaseTag(mod)
+  if (problem !== undefined) {
+    fail(
+      `${mod.name}: ${marketplaceLabel} does not list it, and git cannot list its release tags (${problem})`,
+    )
+  } else if (tag !== undefined) {
+    fail(
+      `${mod.name}: it has the release tag ${tag}, and ${marketplaceLabel} does not list it; run \`${pinCommand(mod.name)}\``,
+    )
+  } else if (isShallowClone()) {
+    fail(
+      `${mod.name}: ${marketplaceLabel} does not list it, and this shallow clone has no tags to show whether it has a release tag; ${fetchTagsAdvice}`,
+    )
+  } else {
+    noteUntaggedMod(mod)
+  }
+}
+
+function checkRelativeEntry(mod, entry) {
+  if (entry.source !== `./mods/${mod.name}`) {
+    fail(
+      `${mod.name}: marketplace source is ${JSON.stringify(entry.source)}; it must be "./mods/${mod.name}" or a git-subdir source at a release tag, which \`${pinCommand(mod.name)}\` writes`,
+    )
+    return
+  }
+  const { tag, problem } = latestReleaseTag(mod)
+  if (problem === undefined && tag === undefined && !isShallowClone()) noteUntaggedMod(mod)
+}
+
+function pinnedSourceProblem(mod, source) {
+  if (!isReleaseTagOf(mod.name, source.ref)) {
+    return `"ref" is ${JSON.stringify(source.ref)}; it must be a release tag ${releaseTag(mod.name, 'VERSION')}`
+  }
+  const expected = pinnedSource(mod.name, source.ref, source.sha)
+  for (const field of Object.keys(source)) {
+    if (!Object.hasOwn(expected, field)) {
+      return `has the field "${field}", which a pinned source does not have`
+    }
+  }
+  for (const [field, value] of Object.entries(expected)) {
+    if (source[field] !== value) {
+      return `${JSON.stringify(field)} is ${JSON.stringify(source[field])}; it must be ${JSON.stringify(value)}`
+    }
+  }
+  return undefined
+}
+
+function checkPinnedEntry(mod, entry, listed) {
+  const { source } = entry
+  const problem = pinnedSourceProblem(mod, source)
+  if (problem !== undefined) {
+    fail(`${mod.name}: the marketplace source ${problem}; run \`${pinCommand(mod.name)}\``)
+  }
+  if (Object.hasOwn(entry, 'version')) {
+    fail(
+      `${mod.name}: a pinned marketplace entry carries no version, because \`claude plugin tag\` refuses a release with Version mismatch when the entry version differs from plugin.json; run \`${pinCommand(mod.name)}\``,
+    )
+  }
+  if (problem !== undefined) return
+  const sha = peeledTagCommit(mod, source.ref)
+  if (sha === undefined) return
+  if (source.sha !== sha) {
+    fail(
+      `${mod.name}: the marketplace pins sha ${source.sha ?? 'none'}, which is not ${sha}, the commit of its tag ${source.ref}; run \`${pinCommand(mod.name)}\``,
+    )
+    return
+  }
+  const tagged = taggedManifest(mod, source.ref, sha)
+  if (tagged === undefined) return
+  for (const dependency of declaredDependencies(tagged, `${mod.name} at ${source.ref}`)) {
+    if (isPinnedEntry(listed.get(dependency))) continue
+    fail(
+      `${mod.name}: plugin.json at ${source.ref} names the dependency ${dependency}, which ${marketplaceLabel} does not list at a release tag, so an install says that the dependency was not installed; run \`${pinCommand(dependency)}\``,
+    )
+  }
+}
+
 function checkMarketplace(mods) {
   const marketplace = readJson(marketplacePath, 'marketplace')
   if (!marketplace) return
@@ -451,15 +574,13 @@ function checkMarketplace(mods) {
       fail(`${mod.name}: plugin.json name is "${manifest.name}"; it must equal the folder name`)
     }
     const entry = listed.get(mod.name)
-    if (!entry) {
-      fail(`${mod.name}: not listed in .claude-plugin/marketplace.json`)
-    } else if (entry.source !== `./mods/${mod.name}`) {
-      fail(`${mod.name}: marketplace source is "${entry.source}"; it must be "./mods/${mod.name}"`)
-    }
-    listed.delete(mod.name)
+    if (!entry) checkUnlistedMod(mod)
+    else if (isPinnedEntry(entry)) checkPinnedEntry(mod, entry, listed)
+    else checkRelativeEntry(mod, entry)
   }
+  const names = new Set(mods.map((mod) => mod.name))
   for (const name of listed.keys()) {
-    fail(`marketplace lists "${name}", but mods/${name} does not exist`)
+    if (!names.has(name)) fail(`marketplace lists "${name}", but mods/${name} does not exist`)
   }
 }
 
