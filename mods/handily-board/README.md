@@ -226,6 +226,9 @@ You can press every button on both tabs with the keyboard alone. A live check on
   plan in the list. The section is added only when the request offers `task_list`. The
   `task_add` description carries the same instruction, for an organization whose plugin
   bypasses the `prompt.compose` hook of a user plugin.
+- The `task_assign` description asks Claude for a decide task with the options `go` and
+  `not now` before a release, a merge, a cleanup or a delete that waits for you.
+  [Tasks for you](#tasks-for-you) gives the sentence and its cost.
 - A bad input is refused with the reason and the correct form. The list does not change.
 - A title must be one line with no control character and no bidi control character. It has at
   most 200 characters. A run of spaces in a title becomes one space. The list holds at most 100
@@ -404,6 +407,18 @@ For you  ◆ 3 open
 ─────────────────────────────────────────
 ```
 
+- The `task_assign` description holds this sentence: "When a release, a merge, a cleanup or a
+  delete waits for the person, assign a decide task with the options go and not now, and act
+  only after the answer go, while a permission prompt stays as it is." The call does not
+  block, so your answer reaches Claude with your next prompt. A decide task does not replace a
+  permission prompt. Claude Code still asks for each permission as before.
+- The sentence costs 59 input tokens for each model request. This count was measured on
+  2026-11-12 with Claude Code 2.1.322 and the model `claude-opus-5-5`. Two sets of `claude -p`
+  runs of the same prompt differ only in this sentence, in a copy of the mod that
+  `--plugin-dir` loads. The run without the sentence used 27946 input tokens three times. The
+  run with the sentence used 28005 input tokens three times. Input tokens are the sum of
+  `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens` in the `usage` of
+  `--output-format json`.
 - `◆` marks an open task. `✓` marks a task that you did, answered or decided, and `■` with the
   word `rejected` marks a rejected one.
 - `[ reject ]` asks for an optional reason first, so one press cannot reject a task. The

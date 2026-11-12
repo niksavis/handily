@@ -10136,6 +10136,32 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
     },
   )
 
+  test(
+    'task_assign asks for a decide task with go and not now before a release, a merge, a cleanup or a delete, and keeps the permission prompt',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const description = seen.descriptions.get('task_assign') ?? ''
+      for (const action of ['a release', 'a merge', 'a cleanup', 'a delete']) {
+        expect(description).toContain(action)
+      }
+      expect(description).toContain('waits for the person')
+      expect(description).toContain('assign a decide task with the options go and not now')
+      expect(description).toContain('act only after the answer go')
+      expect(description).toContain('a permission prompt stays as it is')
+      expect(description).toContain('do not wait for it in this turn')
+      const decided = await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Release handily-board now?',
+        options: ['go', 'not now'],
+      })
+      expect(decided.deny).toBeUndefined()
+      expect(await modelTool($, {})).toContain('For you (0 of 1 answered)')
+    },
+  )
+
   for (const surface of SURFACES) {
     test(
       `Claude withdraws a task for the person, only the person finishes it, and task_move leaves it in place on ${surface}`,
