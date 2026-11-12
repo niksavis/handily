@@ -337,13 +337,23 @@ function peeledTagCommit(mod, tag) {
   return result.stdout.trim()
 }
 
-function latestReleaseTag(mod) {
+function releaseTagsNewestFirst(mod) {
   const result = runGit(['tag', '--list', '--sort=-v:refname', releaseTag(mod.name, '*')])
   if (result.error || result.status !== 0) {
     return { problem: result.error?.message ?? firstLine(result.stderr) }
   }
-  const tags = result.stdout.split('\n').filter((tag) => isReleaseTagOf(mod.name, tag))
-  return { tag: tags[0] }
+  return { tags: result.stdout.split('\n').filter((tag) => isReleaseTagOf(mod.name, tag)) }
+}
+
+function commitOf(revision) {
+  const result = runGit(['rev-parse', '--verify', '--quiet', `${revision}^{commit}`])
+  return result.status === 0 ? result.stdout.trim() : undefined
+}
+
+function isFirstReleaseAtThisCommit(tags) {
+  if (tags.length !== 1) return false
+  const head = commitOf('HEAD')
+  return head !== undefined && commitOf(`refs/tags/${tags[0]}`) === head
 }
 
 function taggedManifest(mod, tag, sha) {
@@ -478,15 +488,23 @@ function noteUntaggedMod(mod) {
   )
 }
 
+function noteFirstRelease(mod, tag) {
+  note(
+    `${mod.name}: its only release tag ${tag} points at this commit, and ${marketplaceLabel} does not list it yet; after the tag, run \`${pinCommand(mod.name)}\` and commit the file in the pin commit`,
+  )
+}
+
 function checkUnlistedMod(mod) {
-  const { tag, problem } = latestReleaseTag(mod)
+  const { tags, problem } = releaseTagsNewestFirst(mod)
   if (problem !== undefined) {
     fail(
       `${mod.name}: ${marketplaceLabel} does not list it, and git cannot list its release tags (${problem})`,
     )
-  } else if (tag !== undefined) {
+  } else if (isFirstReleaseAtThisCommit(tags)) {
+    noteFirstRelease(mod, tags[0])
+  } else if (tags.length > 0) {
     fail(
-      `${mod.name}: it has the release tag ${tag}, and ${marketplaceLabel} does not list it; run \`${pinCommand(mod.name)}\``,
+      `${mod.name}: it has the release tag ${tags[0]}, and ${marketplaceLabel} does not list it; run \`${pinCommand(mod.name)}\``,
     )
   } else if (isShallowClone()) {
     fail(

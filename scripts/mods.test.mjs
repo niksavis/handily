@@ -1019,3 +1019,56 @@ test('validate in a shallow clone with no tags says to run git fetch --tags for 
   const fetched = runValidate(clone)
   assert.equal(fetched.status, 0, fetched.stdout + fetched.stderr)
 })
+
+function makeReleaseCommitRepo({ earlierTag }) {
+  const root = mkdtempSync(join(tmpdir(), 'handily-mods-first-release-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
+  writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
+  mkdirSync(join(root, '.claude-plugin'))
+  const repo = { root, marketplace: join(root, '.claude-plugin', 'marketplace.json') }
+  writeManifest(root, 'board', earlierTag ? { ...boardAtTag, version: '0.1.0' } : boardAtTag)
+  writeManifest(root, 'items', { version: '0.1.0', description: 'Items with no release tag.' })
+  pinGit(root, 'init', '--quiet', '--initial-branch=main')
+  const unpinned = runMarketplace(repo)
+  assert.equal(unpinned.status, 0, unpinned.stdout + unpinned.stderr)
+  pinGit(root, 'add', '--', 'mods', 'scripts', '.agents', '.claude-plugin')
+  pinGit(root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'add board')
+  if (earlierTag) {
+    pinGit(root, 'tag', '-a', 'board--v0.1.0', '-m', 'board 0.1.0')
+    writeManifest(root, 'board', boardAtTag)
+    pinGit(root, 'add', '--', 'mods')
+    pinGit(root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'release board again')
+  }
+  pinGit(root, 'tag', '-a', boardTag, '-m', 'board 0.2.0')
+  return { ...repo, written: readFileSync(repo.marketplace, 'utf8') }
+}
+
+const firstReleaseNote = `NOTE board: its only release tag ${boardTag} points at this commit, and .claude-plugin/marketplace.json does not list it yet; after the tag, run \`${pinCommand('board')}\` and commit the file in the pin commit`
+
+test('marketplace and validate pass at the commit of the first release tag of a mod with no entry and note the pin command', () => {
+  const repo = makeReleaseCommitRepo({ earlierTag: false })
+  const generated = runMarketplace(repo)
+  assert.equal(generated.status, 0, generated.stdout + generated.stderr)
+  assert.ok(generated.stdout.split('\n').includes(firstReleaseNote), generated.stdout)
+  assert.equal(readFileSync(repo.marketplace, 'utf8'), repo.written)
+  pinGit(repo.root, 'diff', '--exit-code')
+  const result = runValidate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(failLines(result), [])
+  assert.ok(result.stdout.split('\n').includes(firstReleaseNote), result.stdout)
+})
+
+test('validate refuses a mod with no entry whose newest release tag points at this commit when an earlier release tag exists', () => {
+  const repo = makeReleaseCommitRepo({ earlierTag: true })
+  const result = runValidate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.ok(
+    failLines(result).includes(
+      `FAIL board: it has the release tag ${boardTag}, and .claude-plugin/marketplace.json does not list it; run \`${pinCommand('board')}\``,
+    ),
+    result.stderr,
+  )
+})
