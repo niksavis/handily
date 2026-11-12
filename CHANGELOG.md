@@ -6,6 +6,60 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.24.0 - 2026-11-12
+
+### Added
+
+- **handily-board draws one row for a `task_add` call with several titles.** The call showed
+  the generic Claude Code row. Now the row shows the word `Tasks`, the ids, the word `added` and
+  the titles joined with a middle dot, such as
+  `Tasks 3, 4 added  Write the mocks · Ask the person`. Three or more consecutive ids read as a
+  range, such as `Tasks 3-7 added`. A call that names a task to add before shows it, such as
+  `Tasks 6, 7 added before 2`. In a narrow terminal the head is never cut. The titles are cut at
+  the end, and `+N` counts the titles that are not shown. A refused call keeps the generic error
+  row. (handily-lqssg)
+
+### Changed
+
+- **handily-board asks Claude for a decide task before a release, a merge, a cleanup or a
+  delete.** The `task_assign` description has one more sentence. When such an action waits for
+  you, Claude assigns a decide task with the options `go` and `not now`, and acts only after
+  the answer `go`. A permission prompt stays as it is. The sentence costs 59 input tokens for
+  each model request, measured on 2026-11-12 with Claude Code 2.1.322 and the model
+  `claude-opus-5-5`: `claude -p` used 27946 input tokens without the sentence and 28005 with
+  it, three runs each. (handily-aknz1t)
+
+## handily-simple-view 0.11.0 - 2026-11-12
+
+### Added
+
+- **simple-view draws a call that the auto mode classifier denied as one short row.** An `Edit`,
+  `Write`, `Read` or `Bash` call that the classifier denied showed the long engine error block.
+  Now the row shows the tool, the path or the description, the word `denied` and `auto mode`
+  with the reason, such as `auto mode: Self-Modification`, in the error colour. When the
+  classifier gave no explanation, the row shows `auto mode` with no reason. In a narrow terminal
+  the path is cut first and then the reason. A hook refusal keeps the word `refused`. An error
+  text of another shape keeps the row of before. (handily-qtykh)
+
+### Fixed
+
+- **simple-view keeps the row of a file call when the session root cannot be read.** A successful
+  `Edit`, `Write` or `Read` call fell back to the engine row, and its diff or result block stayed
+  hidden. Now the simple-view row draws with the full path of the file, and a running `Read` row
+  does the same. (handily-gv64u)
+
+## handily-filetree 0.14.0 - 2026-11-12
+
+### Added
+
+- **handily-filetree shows a file that your prompt names with an `@`.** When you send a prompt
+  such as `Read @docs/design.md`, the files tab opens the folders of that file and opens its row.
+  The focus starts on that row when the tab takes the keyboard. The work view also shows the
+  file. When a prompt names several files, the tab shows the last one. A name that is not a file
+  of the session folder changes nothing: a path with `..` or an absolute path outside the folder,
+  a link that leads outside it, a missing name and a folder. Only a prompt that you type or send
+  through Remote Control counts. (handily-dxnxc)
+
 ## handily-reply-view 0.25.0 - 2026-11-12
 
 ### Added
