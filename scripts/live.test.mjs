@@ -19,13 +19,17 @@ const statePath = process.env.FAKE_TMUX_STATE
 const steps = JSON.parse(fs.readFileSync(process.env.FAKE_TMUX_SCRIPT, 'utf8'))
 const state = fs.existsSync(statePath)
   ? JSON.parse(fs.readFileSync(statePath, 'utf8'))
-  : { step: 0, reads: 0, workFolder: '' }
-fs.appendFileSync(process.env.FAKE_TMUX_LOG, JSON.stringify({ args, step: state.step }) + '\\n')
+  : { step: 0, reads: 0, lost: 0, workFolder: '' }
+fs.appendFileSync(
+  process.env.FAKE_TMUX_LOG,
+  JSON.stringify({ args, step: state.step, reads: state.reads }) + '\\n',
+)
 const save = () => fs.writeFileSync(statePath, JSON.stringify(state))
 const advance = () => {
   if (state.step < steps.length - 1) {
     state.step += 1
     state.reads = 0
+    state.lost = 0
   }
 }
 if (args.some((arg) => arg.endsWith(';'))) {
@@ -71,7 +75,10 @@ if (command === 'capture-pane') {
 }
 if (command === 'send-keys') {
   const step = steps[state.step]
-  if (step.key !== undefined && rest.at(-1) === step.key) advance()
+  if (step.key !== undefined && rest.at(-1) === step.key) {
+    if (state.lost < (step.lose ?? 0)) state.lost += 1
+    else advance()
+  }
   save()
   process.exit(0)
 }
@@ -294,6 +301,25 @@ describe('npm run live', () => {
     )
   })
 
+  test('sends the first key to the trust prompt only after it shows on 4 reads in a row', (t) => {
+    const check = lane(t, [blank, ownTrust(), trusted, ready(4), ready(), done])
+    const result = check.run()
+    assert.equal(result.status, 0, result.stderr)
+    const [first] = check.calls().filter((call) => check.commandOf(call) === 'send-keys')
+    assert.deepEqual([first.step, first.reads], [1, 4])
+  })
+
+  test('moves the cursor again when the screen does not show the first move', (t) => {
+    const check = lane(t, [blank, { ...ownTrust(), lose: 1 }, trusted, ready(4), ready(), done])
+    const result = check.run()
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(check.sentKeys().slice(0, 3), [
+      ['-t', 'live', 'Down'],
+      ['-t', 'live', 'Down'],
+      ['-t', 'live', 'Enter'],
+    ])
+  })
+
   test('moves the cursor up when the Yes row is above the cursor', (t) => {
     const numbered = (cursorOnYes) => ({
       screen: [
@@ -364,6 +390,42 @@ describe('npm run live', () => {
   test('sends no key to a question at the start and names it', (t) => {
     const question = { screen: 'Choose the text style\n❯ 1. Dark\n  2. Light\nEnter to select' }
     const check = lane(t, [blank, question])
+    const result = check.run()
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /a question/)
+    assert.deepEqual(check.sentKeys(), [])
+    assertOwnServerKilledLast(check)
+  })
+
+  test('sends no key to a permission prompt that names its own folder and the word trust', (t) => {
+    const lookalike = {
+      screen: [
+        'Bash command',
+        '  touch {workFolder}/trust.txt',
+        'Do you want to proceed?',
+        '❯ 1. Yes',
+        '  2. No',
+        'Enter to confirm · Esc to cancel',
+      ].join('\n'),
+    }
+    const check = lane(t, [blank, lookalike])
+    const result = check.run()
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /a permission prompt/)
+    assert.deepEqual(check.sentKeys(), [])
+    assertOwnServerKilledLast(check)
+  })
+
+  test('sends no key to a question that names its own folder and the word trust', (t) => {
+    const lookalike = {
+      screen: [
+        'Do you trust the hooks in {workFolder}?',
+        '❯ 1. Yes',
+        '  2. No',
+        'Enter to confirm · Enter to select',
+      ].join('\n'),
+    }
+    const check = lane(t, [blank, lookalike])
     const result = check.run()
     assert.equal(result.status, 1)
     assert.match(result.stderr, /a question/)

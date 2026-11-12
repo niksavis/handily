@@ -15,6 +15,7 @@ const sessionName = 'live'
 const rows = '50'
 const readyReadsInARow = 4
 const maxTrustMoves = 4
+const trustRedrawReads = 8
 const defaultTimeoutS = 180
 const defaultIntervalMs = 250
 const keptClaudeVariables = new Set(['CLAUDE_CONFIG_DIR'])
@@ -26,7 +27,7 @@ const ownTrustPrompt = 'the folder trust prompt of its own folder'
 
 const screenText = {
   confirm: /Enter to confirm/,
-  trust: /trust/i,
+  trustRow: /Yes, I trust this folder/,
   permission: /Do you want to/,
   question: /Enter to select/,
   autoMode: /auto mode on/,
@@ -134,16 +135,14 @@ function folderForms(folder) {
 }
 
 function promptOnScreen(screen, ownFolders) {
-  if (screenText.confirm.test(screen) && screenText.trust.test(screen)) {
-    const compact = screen.replace(/\s+/g, '')
-    return ownFolders.some((folder) => compact.includes(folder))
-      ? ownTrustPrompt
-      : 'the folder trust prompt of another folder'
-  }
   if (screenText.permission.test(screen)) return 'a permission prompt'
   if (screenText.question.test(screen)) return 'a question'
-  if (screenText.confirm.test(screen)) return 'a confirmation prompt'
-  return undefined
+  if (!screenText.confirm.test(screen)) return undefined
+  if (!screenText.trustRow.test(screen)) return 'a confirmation prompt'
+  const compact = screen.replace(/\s+/g, '')
+  return ownFolders.some((folder) => compact.includes(folder))
+    ? ownTrustPrompt
+    : 'the folder trust prompt of another folder'
 }
 
 function showsInputLine(screen) {
@@ -246,20 +245,27 @@ function stopAtPrompt(prompt) {
 
 function inputLineDecider(session) {
   let readyReads = 0
+  let trustReads = 0
   let trustAnswered = false
   let movedFrom
+  let readsSinceMove = 0
   let moves = 0
   return (screen, prompt) => {
     if (prompt !== ownTrustPrompt) {
       if (prompt !== undefined) throw stopAtPrompt(prompt)
+      trustReads = 0
       readyReads = showsInputLine(screen) ? readyReads + 1 : 0
       return readyReads >= readyReadsInARow
     }
     readyReads = 0
-    if (trustAnswered) return false
+    trustReads += 1
+    if (trustAnswered || trustReads < readyReadsInARow) return false
     const { cursor, yes } = trustRows(screen)
     if (cursor < 0 || yes < 0) throw stopAtPrompt('a folder trust prompt with no Yes row')
-    if (cursor === movedFrom) return false
+    if (cursor === movedFrom && readsSinceMove < trustRedrawReads) {
+      readsSinceMove += 1
+      return false
+    }
     movedFrom = undefined
     if (cursor === yes) {
       send(session, ['Enter'])
@@ -271,6 +277,7 @@ function inputLineDecider(session) {
     }
     moves += 1
     movedFrom = cursor
+    readsSinceMove = 0
     send(session, [yes > cursor ? 'Down' : 'Up'])
     return false
   }
