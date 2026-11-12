@@ -792,17 +792,18 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   again every 10 seconds. The board keeps the times in memory, and each end of the session clears
   them with the agent rows.
 
-- A subagent that fails the same Bash command 3 times, with an Edit or a Write between the
-  failures, reads `retry 3` in `warning`, and the mark stays `▶`. The same command is the whole
-  command with each line trimmed and each run of white space made one space. The first failure
-  always counts. A later failure counts only after an Edit or a Write of that agent. Another
-  command between the failures does not reset the count. A call that a check or you refuse does
-  not count. The mark clears when the command passes or the agent ends. The order of the words is
-  `needs you`, `failed`, `retry 3`, `slow`, `quiet`. The header counts the rows, such as
-  `Agents  2 · 1 retry`. Inline, the detail is the command and the count, such as
-  `▸ Bash npm test · 3 fails`. Docked, a second line under the row says `3 fails: Bash npm test`.
-  The board shows the first line of the command through the credential mask, and keeps only a
-  hash of the whole command.
+- A subagent that fails the same Bash command 3 times, with an Edit or a Write between the failures,
+  reads `retry 3` in `warning`, and the mark stays `▶`. The same command is the whole command with
+  each line trimmed and each run of white space made one space. The first failure always counts. A
+  later failure counts only after an Edit or a Write of that agent. Another command between the
+  failures does not reset the count. A failure is a call that ends in error, or an exit that Claude
+  Code names and does not file as an error, such as `No matches found` of `grep` or `Condition is
+false` of `test`. A call that a check or you refuse does not count. The mark clears when the
+  command passes or the agent ends. The order of the words is `needs you`, `failed`, `retry 3`,
+  `slow`, `quiet`. The header counts the rows, such as `Agents  2 · 1 retry`. Inline, the detail is
+  the command and the count, such as `▸ Bash npm test · 3 fails`. Docked, a second line under the
+  row says `3 fails: Bash npm test`. The board shows the first line of the command through the
+  credential mask, and keeps only a hash of the whole command.
 
 - `on hold` is the engine status `waiting`: the agent waits for its own background work, an
   Agent call or a plan approval. The status does not say which, so the board does not draw it
