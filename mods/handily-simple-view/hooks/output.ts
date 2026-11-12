@@ -4,6 +4,8 @@ import { shownLine, shownText } from './shown'
 const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
 const HOOK_REFUSAL_PREFIX = /^Error: \w+:\S+ hook error: \[[^\n]*?\]: /
 const ERROR_PREFIX = 'Error: '
+const CLASSIFIER_DENIAL =
+  /^Error: Permission for this action was denied by the Claude Code auto mode classifier\. Reason: (?:\[([^\]\r\n]+)\]|The server-side auto mode classifier judged this action dangerous \(it gave no explanation\))\.(?: |$)/
 
 export const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 
@@ -15,6 +17,8 @@ export type ErrorEnd = { kind: 'exit'; code: number } | { kind: 'refused' } | { 
 
 export type ErroredOutput = { end: ErrorEnd; body: string }
 
+export type Denial = { kind: 'denied'; reason: string | null }
+
 export type BashEnd =
   | {
       kind: 'done'
@@ -24,6 +28,7 @@ export type BashEnd =
       savedTo: string | null
     }
   | (ErrorEnd & { line: string })
+  | Denial
 
 export type FileChange = { path: string; verb: 'Updated' | 'Created' | 'Deleted'; totals: Totals }
 
@@ -110,8 +115,18 @@ export function refusalLine(output: unknown): string | null {
   return errored?.end.kind === 'refused' ? firstNonEmptyLine(errored.body) : null
 }
 
+export function classifierDenial(output: unknown): Denial | null {
+  if (typeof output !== 'string') return null
+  const denial = CLASSIFIER_DENIAL.exec(output)
+  if (denial === null) return null
+  const reason = denial[1]
+  return { kind: 'denied', reason: reason === undefined ? null : shownText(reason) }
+}
+
 export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
   if (isErrored) {
+    const denial = classifierDenial(output)
+    if (denial !== null) return denial
     const errored = erroredOutput(output)
     if (errored === null) return null
     return { ...errored.end, line: firstNonEmptyLine(errored.body) }

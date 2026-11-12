@@ -1604,6 +1604,22 @@ describe('Read, Grep and Glob rows', () => {
 
 const PROBE_GUARD_MESSAGE = 'probe-guard: file tools are refused in this folder'
 
+const DENIAL_START =
+  'Permission for this action was denied by the Claude Code auto mode classifier. Reason: '
+const DENIAL_ADVICE =
+  " If you have other tasks that don't depend on this action, continue working on those. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, first try a safer method. Get as much of the rest of the task done as you can, then STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed."
+const BASH_RULE_ADVICE =
+  ' To allow this type of action in the future, the user can add a permission rule for Bash to their settings.'
+const SERVER_SIDE_REASON =
+  'The server-side auto mode classifier judged this action dangerous (it gave no explanation).'
+const EDIT_DENIED_ON_2_1_296 = `${DENIAL_START}[Self-Modification].${DENIAL_ADVICE}`
+const BASH_DENIED_ON_2_1_296 = `${DENIAL_START}[Self-Modification].${DENIAL_ADVICE}${BASH_RULE_ADVICE}`
+const BASH_DENIED_ON_2_1_311 = `${DENIAL_START}${SERVER_SIDE_REASON}${DENIAL_ADVICE}${BASH_RULE_ADVICE}`
+
+function classifierDenied(text: string): Answer {
+  return { isError: true, result: `Error: ${text}`, text }
+}
+
 function hookRefused(tool: string): Answer {
   const text = `PreToolUse:${tool} hook error: [/work/refuse.sh]: ${PROBE_GUARD_MESSAGE}\n`
   return { isError: true, result: `Error: ${text}`, text }
@@ -1822,10 +1838,7 @@ describe('file rows that a hook refused', () => {
             'Write',
             'File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.',
           ],
-          [
-            'Edit',
-            'Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Self-Modification].',
-          ],
+          ['Edit', `${DENIAL_START}The edit changes the guard of the agent.${DENIAL_ADVICE}`],
           ['Read', 'File does not exist. Note: your current working directory is /work/app.'],
         ]
         for (const [tool, text] of errors) {
@@ -1839,6 +1852,246 @@ describe('file rows that a hook refused', () => {
             (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
           ).toEqual(ENGINE_ROW)
         }
+      },
+    )
+  }
+})
+
+describe('calls that the auto mode classifier denied', () => {
+  const DENIED_FILE_CALLS = [
+    {
+      tool: 'Edit',
+      input: {
+        replace_all: false,
+        file_path: `${ROOT}/src/app.ts`,
+        old_string: 'a',
+        new_string: 'b',
+      },
+      path: 'src/app.ts',
+    },
+    {
+      tool: 'Write',
+      input: { file_path: `${ROOT}/docs/new.md`, content: 'x' },
+      path: 'docs/new.md',
+    },
+    { tool: 'Read', input: { file_path: `${ROOT}/note.txt` }, path: 'note.txt' },
+  ] as const
+  const BASH_INPUT = { command: 'rm notes.md', description: 'Remove the notes' }
+  const LONG_PATH = 'src/components/navigation/sidebar.tsx'
+  const EDIT_INPUT = { file_path: `${ROOT}/src/app.ts`, old_string: 'a', new_string: 'b' }
+
+  const rowCells = async (
+    $: Engine,
+    surface: Surface,
+    props: RenderPropsOf['ToolUse'],
+    columns: number,
+  ) => {
+    const ui = await $.ui.mount({
+      plugin: 'handily-simple-view',
+      surface,
+      component: 'ToolUse',
+      props,
+      viewport: { columns, rows: 40 },
+    })
+    const row = (await ui.findAll({ type: 'Box' })).find((box) => box.props.gap === 2)
+    const cells = (row?.children ?? []).filter(isDrawnNode)
+    const buttons = await ui.findAll({ type: 'Button' })
+    await ui.unmount()
+    const least = cells.map((cell) =>
+      cell.props?.flexShrink === 0 ? displayWidth(shown(cell)) : Number(cell.props?.minWidth ?? 0),
+    )
+    const width =
+      MARKER[surface].length + 2 * (cells.length - 1) + least.reduce((sum, cells) => sum + cells, 0)
+    return { shown: cells.map(shown), least, width, buttons }
+  }
+
+  for (const surface of SURFACES) {
+    for (const { tool, input, path } of DENIED_FILE_CALLS) {
+      viewTest(
+        `draws the ${tool} call that the classifier denied with a reason as one row on ${surface}`,
+        async (world, $) => {
+          world.answer = () => classifierDenied(EDIT_DENIED_ON_2_1_296)
+          const id = await runTool(world, $, { tool, ...input })
+          const use = useProps(id, tool, input, classifierDenied(EDIT_DENIED_ON_2_1_296))
+          expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+            `${MARKER[surface]}${tool} ${path} denied auto mode: Self-Modification`,
+          ])
+          const ui = await mountUse($, use, surface)
+          expect((await ui.find({ type: 'Text', text: 'denied' }))?.props.color).toBe('error')
+          const reason = await ui.find({ type: 'Text', text: 'auto mode: Self-Modification' })
+          expect(reason?.props).toMatchObject({ color: 'error', wrap: 'truncate-end' })
+          expect(await ui.findAll({ type: 'Button' })).toEqual([])
+          await ui.unmount()
+          const result = await drawn(
+            $,
+            {
+              component: 'ToolResult',
+              props: resultProps(id, tool, classifierDenied(EDIT_DENIED_ON_2_1_296)),
+            },
+            surface,
+          )
+          expect(result.tree).toMatchObject({ type: 'Box' })
+          expect(result.textCount).toBe(0)
+        },
+      )
+    }
+  }
+
+  viewTest(
+    'draws a denied Edit as the approved row at 80 columns for the full and the short text',
+    async (_world, $) => {
+      for (const text of [EDIT_DENIED_ON_2_1_296, `${DENIAL_START}[Self-Modification].`]) {
+        const ui = await $.ui.mount({
+          plugin: 'handily-simple-view',
+          surface: 'terminal',
+          component: 'ToolUse',
+          props: useProps('toolu_d1', 'Edit', EDIT_INPUT, classifierDenied(text)),
+          viewport: { columns: 80, rows: 40 },
+        })
+        expect(sketch(await ui.drawn())).toEqual([
+          '#●# Edit  src/app.ts  #denied#  #auto mode: Self-Modification#',
+        ])
+        await ui.unmount()
+      }
+    },
+  )
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws a Bash call that the classifier denied with a reason as one row with no more button on ${surface}`,
+      async (world, $) => {
+        world.answer = () => failed(`Error: ${BASH_DENIED_ON_2_1_296}`)
+        const id = await runBash(world, $, BASH_INPUT)
+        const answer = world.answer(BASH_INPUT)
+        const use = useProps(id, 'Bash', BASH_INPUT, answer)
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Remove the notes rm denied auto mode: Self-Modification`,
+        ])
+        const ui = await mountUse($, use, surface)
+        expect((await ui.find({ type: 'Text', text: 'denied' }))?.props.color).toBe('error')
+        const reason = await ui.find({ type: 'Text', text: 'auto mode: Self-Modification' })
+        expect(reason?.props).toMatchObject({ color: 'error', wrap: 'truncate-end' })
+        expect(await ui.findAll({ type: 'Button' })).toEqual([])
+        await ui.unmount()
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: resultProps(id, 'Bash', answer) },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws the server-side sentence as denied and auto mode with no reason on ${surface}`,
+      async (world, $) => {
+        world.answer = () => failed(`Error: ${BASH_DENIED_ON_2_1_311}`)
+        const id = await runBash(world, $, BASH_INPUT)
+        const bash = useProps(id, 'Bash', BASH_INPUT, world.answer(BASH_INPUT))
+        expect(await texts($, surface, { component: 'ToolUse', props: bash })).toEqual([
+          `${MARKER[surface]}Remove the notes rm denied auto mode`,
+        ])
+        const edit = useProps(
+          'toolu_d2',
+          'Edit',
+          EDIT_INPUT,
+          classifierDenied(`${DENIAL_START}${SERVER_SIDE_REASON}${DENIAL_ADVICE}`),
+        )
+        expect(await texts($, surface, { component: 'ToolUse', props: edit })).toEqual([
+          `${MARKER[surface]}Edit src/app.ts denied auto mode`,
+        ])
+        const ui = await mountUse($, edit, surface)
+        expect((await ui.find({ type: 'Text', text: 'auto mode' }))?.props.color).toBe('error')
+        expect(await ui.findAll({ type: 'Button' })).toEqual([])
+        await ui.unmount()
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `keeps the row of today for a classifier text with another reason shape and for a generic tool on ${surface}`,
+      async (world, $) => {
+        const other = `${DENIAL_START}The command deletes the notes.${DENIAL_ADVICE}${BASH_RULE_ADVICE}`
+        world.answer = () => failed(`Error: ${other}`)
+        const id = await runBash(world, $, BASH_INPUT)
+        const bash = useProps(id, 'Bash', BASH_INPUT, world.answer(BASH_INPUT))
+        expect(await texts($, surface, { component: 'ToolUse', props: bash })).toEqual([
+          `${MARKER[surface]}Remove the notes rm error ${other}`,
+        ])
+        const denied = classifierDenied(BASH_DENIED_ON_2_1_296)
+        const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, denied)
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
+        ])
+        const result = resultProps(use.tool_use_id, 'WebFetch', denied)
+        expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
+          ENGINE_ROW,
+        )
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `cuts the path first and then the reason and keeps denied and auto mode at 40 columns on ${surface}`,
+      async (_world, $) => {
+        const input = { ...EDIT_INPUT, file_path: `${ROOT}/${LONG_PATH}` }
+        const props = useProps('toolu_d3', 'Edit', input, classifierDenied(EDIT_DENIED_ON_2_1_296))
+        const wide = await rowCells($, surface, props, 80)
+        expect(wide.shown).toEqual(['Edit', LONG_PATH, 'denied', 'auto mode: Self-Modification'])
+        expect(wide.least).toEqual([4, 0, 6, displayWidth('auto mode: Self-Modification')])
+        const narrow = await rowCells($, surface, props, 40)
+        expect(narrow.shown).toEqual(wide.shown)
+        expect(narrow.least[1]).toBe(0)
+        expect(narrow.least[3]).toBeLessThan(displayWidth('auto mode: Self-Modification'))
+        expect(narrow.least[3]).toBeGreaterThanOrEqual(displayWidth('auto mode: '))
+        expect(narrow.width).toBe(40)
+        expect(narrow.buttons).toEqual([])
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `cuts the description of a denied Bash call first and keeps auto mode whole with no reason at 40 columns on ${surface}`,
+      async (world, $) => {
+        const input = {
+          command: 'rm notes.md',
+          description: 'Remove the notes of the last planning meeting',
+        }
+        world.answer = () => failed(`Error: ${BASH_DENIED_ON_2_1_296}`)
+        const id = await runBash(world, $, input)
+        const bash = await rowCells(
+          $,
+          surface,
+          useProps(id, 'Bash', input, world.answer(input)),
+          40,
+        )
+        expect(bash.shown).toEqual([
+          input.description,
+          'rm',
+          'denied',
+          'auto mode: Self-Modification',
+        ])
+        expect(bash.least[0]).toBe(0)
+        expect(bash.least.slice(1, 3)).toEqual([2, 6])
+        expect(bash.least[3]).toBeGreaterThanOrEqual(displayWidth('auto mode: '))
+        expect(bash.width).toBe(40)
+        expect(bash.buttons).toEqual([])
+        const server = classifierDenied(`${DENIAL_START}${SERVER_SIDE_REASON}${DENIAL_ADVICE}`)
+        const serverInput = { ...EDIT_INPUT, file_path: `${ROOT}/${LONG_PATH}` }
+        const edit = await rowCells(
+          $,
+          surface,
+          useProps('toolu_d4', 'Edit', serverInput, server),
+          40,
+        )
+        expect(edit.shown).toEqual(['Edit', LONG_PATH, 'denied', 'auto mode'])
+        expect(edit.least).toEqual([4, 0, 6, 9])
       },
     )
   }

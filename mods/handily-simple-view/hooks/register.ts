@@ -24,6 +24,7 @@ import {
   FILE_TOOLS,
   bashChanges,
   bashEnd,
+  classifierDenial,
   fileEdit,
   isRecord,
   lineCount,
@@ -40,6 +41,7 @@ import {
 import {
   bashRow,
   changesBlock,
+  deniedRow,
   fileRow,
   genericRow,
   readingRow,
@@ -334,6 +336,7 @@ async function bashUse(
     state,
     elapsedMs: timing?.elapsedMs ?? null,
   }
+  if (state.kind === 'denied') return bashRow(look, view)
   const isRunning = state.kind === 'running'
   const output = isRunning ? null : callOutput(props.output, props.isErrored)
   if (!isRunning && output === null) return bashRow(look, view)
@@ -358,19 +361,28 @@ async function rootOf($: EngineInterface, id: string): Promise<string | null> {
   }
 }
 
-async function refusedUse(
+async function stoppedTarget(
+  $: EngineInterface,
+  props: RenderPropsOf['ToolUse'],
+): Promise<readonly string[]> {
+  const root = await rootOf($, props.tool_use_id)
+  if (root === null) return []
+  const target = FILE_TOOLS.has(props.tool)
+    ? filePathTarget(props.input, root)
+    : streamingTarget(props.tool, props.input, root)
+  return target ?? []
+}
+
+async function stoppedUse(
   $: EngineInterface,
   props: RenderPropsOf['ToolUse'],
   look: RowLook,
 ): Promise<RenderElement | null> {
+  const denial = classifierDenial(props.output)
+  if (denial !== null) return deniedRow(look, props.tool, await stoppedTarget($, props), denial)
   const message = refusalLine(props.output)
   if (message === null) return null
-  const root = await rootOf($, props.tool_use_id)
-  if (root === null) return refusedRow(look, props.tool, [], message)
-  const target = FILE_TOOLS.has(props.tool)
-    ? filePathTarget(props.input, root)
-    : streamingTarget(props.tool, props.input, root)
-  return refusedRow(look, props.tool, target ?? [], message)
+  return refusedRow(look, props.tool, await stoppedTarget($, props), message)
 }
 
 async function fileUse(
@@ -379,7 +391,7 @@ async function fileUse(
   look: RowLook,
 ): Promise<RenderElement | null> {
   if (props.isRunning) return null
-  if (props.isErrored) return refusedUse($, props, look)
+  if (props.isErrored) return stoppedUse($, props, look)
   const edit = fileEdit(props.tool, props.output)
   if (edit === null) return null
   const root = (await rootOf($, props.tool_use_id)) ?? ''
@@ -391,7 +403,7 @@ async function readingUse(
   props: RenderPropsOf['ToolUse'],
   look: RowLook,
 ): Promise<RenderElement | null> {
-  if (props.isErrored) return refusedUse($, props, look)
+  if (props.isErrored) return stoppedUse($, props, look)
   if (props.isRunning || isPending(props)) {
     const root = (await rootOf($, props.tool_use_id)) ?? ''
     const target = streamingTarget(props.tool, props.input, root)
@@ -464,10 +476,10 @@ async function bashResult(
   return changesBlock(look, { files, moreFiles: changes.moreFiles })
 }
 
-function isHookRefusalRow(props: RenderPropsOf['ToolResult']): boolean {
-  const drawsRefusal =
-    drawsGenericRow(props.tool) || FILE_TOOLS.has(props.tool) || READING_TOOLS.has(props.tool)
-  return drawsRefusal && refusalLine(props.output) !== null
+function isStoppedRow(props: RenderPropsOf['ToolResult']): boolean {
+  const isFileRow = FILE_TOOLS.has(props.tool) || READING_TOOLS.has(props.tool)
+  if (isFileRow && classifierDenial(props.output) !== null) return true
+  return (isFileRow || drawsGenericRow(props.tool)) && refusalLine(props.output) !== null
 }
 
 async function resultDrawing(
@@ -476,7 +488,7 @@ async function resultDrawing(
   look: RowLook,
 ): Promise<RenderElement | null> {
   if (props.tool === 'Bash') return bashResult($, props, look)
-  if (props.isErrored) return isHookRefusalRow(props) ? look.elements.Box({}) : null
+  if (props.isErrored) return isStoppedRow(props) ? look.elements.Box({}) : null
   if (READING_TOOLS.has(props.tool)) {
     return readingCount(props.tool, props.output) === null ? null : look.elements.Box({})
   }
