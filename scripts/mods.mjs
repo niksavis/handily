@@ -11,11 +11,13 @@ import {
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
+import { parseArgs } from 'node:util'
 
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
 const marketplaceCommand = 'npm run marketplace'
+const marketplaceRepository = 'niksavis/handily'
 const marketplaceHeader = {
   name: 'niksavis',
   owner: { name: 'niksavis' },
@@ -282,31 +284,140 @@ function layTypesOfInstalledVersion(mods) {
   layTypes(mods, { force: true, installedVersion })
 }
 
-function marketplaceText(mods) {
+function releaseTag(name, version) {
+  return `${name}--v${version}`
+}
+
+function runGit(args) {
+  return spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+}
+
+function peeledTagCommit(mod, tag) {
+  const result = runGit(['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`])
+  if (result.error) {
+    fail(`${mod.name}: cannot run git to read the release tag ${tag} (${result.error.message})`)
+    return undefined
+  }
+  if (result.status !== 0) {
+    fail(
+      `${mod.name}: the release tag ${tag} does not exist; create it with \`claude plugin tag mods/${mod.name}\`, then run \`${marketplaceCommand} -- --pin ${mod.name}\``,
+    )
+    return undefined
+  }
+  return result.stdout.trim()
+}
+
+function taggedManifest(mod, tag, sha) {
+  const path = `mods/${mod.name}/.claude-plugin/plugin.json`
+  const result = runGit(['show', `${sha}:${path}`])
+  if (result.status !== 0) {
+    fail(
+      `${mod.name}: cannot read ${path} at ${tag} (${result.error?.message ?? firstLine(result.stderr)})`,
+    )
+    return undefined
+  }
+  try {
+    return JSON.parse(result.stdout)
+  } catch (error) {
+    fail(`${mod.name}: cannot read ${path} at ${tag} (${error.message})`)
+    return undefined
+  }
+}
+
+function pinnedEntry(mod) {
+  const version = readManifest(mod)?.version
+  if (typeof version !== 'string' || version === '') {
+    fail(`${mod.name}: plugin.json has no version; --pin reads the release tag from it`)
+    return undefined
+  }
+  const tag = releaseTag(mod.name, version)
+  const sha = peeledTagCommit(mod, tag)
+  if (sha === undefined) return undefined
+  const tagged = taggedManifest(mod, tag, sha)
+  if (tagged === undefined) return undefined
+  if (tagged.version !== version) {
+    fail(`${mod.name}: plugin.json at ${tag} has version ${tagged.version}, not ${version}`)
+    return undefined
+  }
+  if (typeof tagged.description !== 'string' || tagged.description === '') {
+    fail(`${mod.name}: plugin.json at ${tag} has no description; the marketplace entry needs it`)
+    return undefined
+  }
+  return {
+    name: mod.name,
+    source: {
+      source: 'git-subdir',
+      url: marketplaceRepository,
+      path: `mods/${mod.name}`,
+      ref: tag,
+      sha,
+    },
+    description: tagged.description,
+  }
+}
+
+function isPinnedEntry(entry) {
+  return typeof entry?.source === 'object' && entry.source !== null
+}
+
+function writtenEntries() {
+  if (!existsSync(marketplacePath)) return new Map()
+  const written = readJson(marketplacePath, 'marketplace')
+  const plugins = Array.isArray(written?.plugins) ? written.plugins : []
+  return new Map(plugins.map((plugin) => [plugin?.name, plugin]))
+}
+
+function relativeEntry(mod) {
+  const manifest = readManifest(mod)
+  if (!manifest) return undefined
+  for (const field of ['version', 'description']) {
+    if (typeof manifest[field] !== 'string' || manifest[field] === '') {
+      fail(`${mod.name}: plugin.json has no ${field}; the marketplace entry needs it`)
+    }
+  }
+  return {
+    name: mod.name,
+    source: `./mods/${mod.name}`,
+    version: manifest.version,
+    description: manifest.description,
+  }
+}
+
+function marketplaceText(mods, pins = new Set()) {
+  const written = writtenEntries()
   const plugins = []
   for (const mod of mods) {
-    const manifest = readManifest(mod)
-    if (!manifest) continue
-    for (const field of ['version', 'description']) {
-      if (typeof manifest[field] !== 'string' || manifest[field] === '') {
-        fail(`${mod.name}: plugin.json has no ${field}; the marketplace entry needs it`)
-      }
-    }
-    plugins.push({
-      name: mod.name,
-      source: `./mods/${mod.name}`,
-      version: manifest.version,
-      description: manifest.description,
-    })
+    const kept = written.get(mod.name)
+    let entry
+    if (pins.has(mod.name)) entry = pinnedEntry(mod)
+    else if (isPinnedEntry(kept)) entry = kept
+    else entry = relativeEntry(mod)
+    if (entry) plugins.push(entry)
   }
   return `${JSON.stringify({ ...marketplaceHeader, plugins }, null, 2)}\n`
 }
 
-function generateMarketplace(mods) {
-  const text = marketplaceText(mods)
+function generateMarketplace(mods, { values }) {
+  const pins = new Set(values.pin ?? [])
+  const names = new Set(mods.map((mod) => mod.name))
+  for (const name of pins) {
+    if (!names.has(name)) fail(`--pin ${name}: mods/${name} is not a mod`)
+  }
   if (failures.length > 0) return
+  const text = marketplaceText(mods, pins)
+  if (failures.length > 0) return
+  if (values['dry-run']) {
+    process.stdout.write(text)
+    return
+  }
+  const label = relative(root, marketplacePath)
+  const current = existsSync(marketplacePath) ? readFileSync(marketplacePath, 'utf8') : undefined
+  if (current === text) {
+    console.log(`${label} is unchanged with ${mods.length} plugin(s)`)
+    return
+  }
   writeFileSync(marketplacePath, text)
-  console.log(`wrote ${relative(root, marketplacePath)} with ${mods.length} plugin(s)`)
+  console.log(`wrote ${label} with ${mods.length} plugin(s)`)
 }
 
 function checkMarketplaceIsGenerated(mods) {
@@ -751,17 +862,33 @@ const tasks = {
   },
 }
 
+const taskArguments = {
+  marketplace: { pin: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } },
+}
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run]`
+
+function readTaskArguments(name, args) {
+  try {
+    return parseArgs({ args, options: taskArguments[name] ?? {}, strict: true })
+  } catch (error) {
+    console.error(`${name}: ${error.message}`)
+    console.error(usage)
+    process.exit(2)
+  }
+}
+
 const taskName = process.argv[2]
 const task = tasks[taskName]
 if (!task) {
-  console.error(`usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>`)
+  console.error(usage)
   process.exit(2)
 }
+const taskOptions = readTaskArguments(taskName, process.argv.slice(3))
 const mods = listMods()
 console.log(
   `${taskName}: ${mods.length} mod(s)${mods.length ? `: ${mods.map((m) => m.name).join(', ')}` : ''}`,
 )
-task(mods)
+task(mods, taskOptions)
 if (failures.length > 0) {
   console.error(`${taskName}: ${failures.length} failure(s)`)
   process.exitCode = 1

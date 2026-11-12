@@ -597,3 +597,168 @@ test('test fails by name when claude plugin test prints no test time', () => {
     'FAIL timed: claude plugin test printed no test time such as "(pass) name [12.34ms]", so the test time gate read no test',
   ])
 })
+
+const pinFixtureDate = '2026-01-01T00:00:00Z'
+const pinFixtureConfig = [
+  ['user.name', 'Fixture Author'],
+  ['user.email', 'author@example.invalid'],
+  ['commit.gpgsign', 'false'],
+  ['tag.gpgsign', 'false'],
+].flatMap(([name, value]) => ['-c', `${name}=${value}`])
+
+function pinGit(root, ...args) {
+  const result = spawnSync(
+    'git',
+    [...pinFixtureConfig, '-c', `core.hooksPath=${join(root, '.no-hooks')}`, ...args],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...environmentWithoutGit, GIT_COMMITTER_DATE: pinFixtureDate },
+    },
+  )
+  assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`)
+  return result.stdout.trim()
+}
+
+function writeManifest(root, name, manifest) {
+  const dir = join(root, 'mods', name, '.claude-plugin')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'plugin.json'), `${JSON.stringify({ name, ...manifest }, null, 2)}\n`)
+}
+
+const boardAtTag = { version: '0.2.0', description: 'The board at its release tag.' }
+const boardTag = 'board--v0.2.0'
+
+function makeRepoWithTaggedMod() {
+  const root = mkdtempSync(join(tmpdir(), 'handily-mods-pin-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  mkdirSync(join(root, '.claude-plugin'))
+  writeManifest(root, 'board', boardAtTag)
+  writeManifest(root, 'items', { version: '0.1.0', description: 'Items with no release tag.' })
+  pinGit(root, 'init', '--quiet', '--initial-branch=main')
+  pinGit(root, 'add', '--', 'mods')
+  pinGit(root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'release board')
+  pinGit(root, 'tag', '-a', boardTag, '-m', 'board 0.2.0')
+  writeManifest(root, 'board', { ...boardAtTag, description: 'The board on main after its tag.' })
+  pinGit(root, 'add', '--', 'mods')
+  pinGit(root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'work after the tag')
+  return {
+    root,
+    marketplace: join(root, '.claude-plugin', 'marketplace.json'),
+    tagCommit: pinGit(root, 'rev-parse', `${boardTag}^{commit}`),
+    tagObject: pinGit(root, 'rev-parse', `refs/tags/${boardTag}`),
+    head: pinGit(root, 'rev-parse', 'HEAD'),
+  }
+}
+
+function runMarketplace(repo, ...args) {
+  return spawnSync(
+    process.execPath,
+    [join(repo.root, 'scripts', 'mods.mjs'), 'marketplace', ...args],
+    {
+      cwd: repo.root,
+      encoding: 'utf8',
+      env: environmentWithoutGit,
+    },
+  )
+}
+
+function listedEntry(text, name) {
+  return JSON.parse(text).plugins.find((plugin) => plugin.name === name)
+}
+
+function pinnedBoard(sha) {
+  return {
+    name: 'board',
+    source: {
+      source: 'git-subdir',
+      url: 'niksavis/handily',
+      path: 'mods/board',
+      ref: boardTag,
+      sha,
+    },
+    description: boardAtTag.description,
+  }
+}
+
+const relativeItems = {
+  name: 'items',
+  source: './mods/items',
+  version: '0.1.0',
+  description: 'Items with no release tag.',
+}
+
+test('marketplace --pin writes a git-subdir source at the release tag with the peeled commit of an annotated tag and no version', () => {
+  const repo = makeRepoWithTaggedMod()
+  const result = runMarketplace(repo, '--pin', 'board')
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.notEqual(repo.tagCommit, repo.tagObject)
+  assert.notEqual(repo.tagCommit, repo.head)
+  const text = readFileSync(repo.marketplace, 'utf8')
+  const board = listedEntry(text, 'board')
+  assert.deepEqual(board, pinnedBoard(repo.tagCommit))
+  assert.equal(Object.hasOwn(board, 'version'), false)
+  assert.deepEqual(listedEntry(text, 'items'), relativeItems)
+})
+
+test('marketplace --pin refuses a mod whose release tag does not exist, names the tag and the claude plugin tag command, and writes nothing', () => {
+  const repo = makeRepoWithTaggedMod()
+  assert.equal(runMarketplace(repo).status, 0)
+  const before = readFileSync(repo.marketplace, 'utf8')
+  const result = runMarketplace(repo, '--pin', 'items')
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.match(result.stderr, /FAIL items: the release tag items--v0\.1\.0 does not exist/)
+  assert.match(result.stderr, /claude plugin tag mods\/items/)
+  assert.equal(readFileSync(repo.marketplace, 'utf8'), before)
+})
+
+test('marketplace keeps a pinned entry as written when the plugin.json version on main moved on', () => {
+  const repo = makeRepoWithTaggedMod()
+  const written = { ...pinnedBoard('0123456789abcdef0123456789abcdef01234567'), extra: 'kept' }
+  writeFileSync(
+    repo.marketplace,
+    `${JSON.stringify({ name: 'niksavis', plugins: [written, relativeItems] }, null, 2)}\n`,
+  )
+  writeManifest(repo.root, 'board', { version: '0.3.0', description: 'An unreleased board.' })
+  const result = runMarketplace(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  const text = readFileSync(repo.marketplace, 'utf8')
+  assert.deepEqual(listedEntry(text, 'board'), written)
+  assert.deepEqual(listedEntry(text, 'items'), relativeItems)
+})
+
+test('marketplace --pin --dry-run prints the pinned file and writes nothing', () => {
+  const repo = makeRepoWithTaggedMod()
+  assert.equal(runMarketplace(repo).status, 0)
+  const before = readFileSync(repo.marketplace, 'utf8')
+  const result = runMarketplace(repo, '--pin', 'board', '--dry-run')
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, new RegExp(`"ref": "${boardTag}",\\n\\s+"sha": "${repo.tagCommit}"`))
+  assert.equal(readFileSync(repo.marketplace, 'utf8'), before)
+  assert.deepEqual(listedEntry(before, 'board').source, './mods/board')
+})
+
+test('a second marketplace --pin of the same tag leaves the file byte for byte unchanged', () => {
+  const repo = makeRepoWithTaggedMod()
+  assert.equal(runMarketplace(repo, '--pin', 'board').status, 0)
+  const first = readFileSync(repo.marketplace, 'utf8')
+  const result = runMarketplace(repo, '--pin', 'board')
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.equal(readFileSync(repo.marketplace, 'utf8'), first)
+  assert.deepEqual(listedEntry(first, 'board'), pinnedBoard(repo.tagCommit))
+})
+
+test('marketplace refuses a pin of a name that is not a mod and an unknown argument, and writes nothing', () => {
+  const repo = makeRepoWithTaggedMod()
+  assert.equal(runMarketplace(repo).status, 0)
+  const before = readFileSync(repo.marketplace, 'utf8')
+  const missing = runMarketplace(repo, '--pin', 'nothing')
+  assert.equal(missing.status, 1, missing.stdout + missing.stderr)
+  assert.match(missing.stderr, /--pin nothing: mods\/nothing is not a mod/)
+  const unknown = runMarketplace(repo, '--pinn', 'board')
+  assert.notEqual(unknown.status, 0, unknown.stdout + unknown.stderr)
+  assert.match(unknown.stderr, /--pinn/)
+  assert.equal(readFileSync(repo.marketplace, 'utf8'), before)
+})
