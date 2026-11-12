@@ -12,12 +12,18 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
 
 const root = join(import.meta.dirname, '..')
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
+const generatorScript = join(root, 'scripts', 'mods.mjs')
+const failurePrefix = 'FAIL '
+const notInstalledText = 'was not installed'
+const usage = 'usage: node scripts/install-gate.mjs [--pinned]'
 const bundleName = 'handily'
 const bundleProbeMod = 'handily-board'
 const runTimeoutMs = 60_000
+const fetchTimeoutMs = 300_000
 const goalStateFailure = 'already_in_goal_state'
 const dependentsFailure = 'required_by_dependents'
 const unsatisfiedDependency = 'dependency-unsatisfied'
@@ -133,6 +139,87 @@ export function isEntryScript(argvPath, moduleUrl) {
   return realpathSync(argvPath) === realpathSync(fileURLToPath(moduleUrl))
 }
 
+export function localSourcePath(plugin) {
+  return typeof plugin.source === 'string' ? plugin.source : plugin.source.path
+}
+
+export function generatedMarketplace({ status, stdout, stderr }) {
+  if (status !== 0) {
+    const named = stderr
+      .split('\n')
+      .filter((line) => line.startsWith(failurePrefix))
+      .map((line) => line.slice(failurePrefix.length))
+    return { failures: named.length > 0 ? named : [`the marketplace generator exited ${status}`] }
+  }
+  const lines = stdout.split('\n')
+  const start = lines.indexOf('{')
+  const end = lines.lastIndexOf('}')
+  if (start === -1 || end < start) {
+    return { failures: ['the marketplace generator printed no marketplace'] }
+  }
+  try {
+    return { marketplace: JSON.parse(lines.slice(start, end + 1).join('\n')), failures: [] }
+  } catch (error) {
+    return {
+      failures: [`the marketplace generator printed no JSON marketplace (${error.message})`],
+    }
+  }
+}
+
+function isPinnedSource(source) {
+  return (
+    typeof source === 'object' &&
+    source !== null &&
+    source.source === 'git-subdir' &&
+    typeof source.ref === 'string' &&
+    typeof source.sha === 'string'
+  )
+}
+
+export function pinnedEntryFailures(names, marketplace) {
+  const entries = new Map(marketplace.plugins.map((plugin) => [plugin.name, plugin]))
+  const found = []
+  for (const name of names) {
+    const entry = entries.get(name)
+    if (!entry) found.push(`${name}: the pinned marketplace has no entry for it`)
+    else if (!isPinnedSource(entry.source)) {
+      found.push(`${name}: the entry is not a git-subdir source with a ref and a sha`)
+    }
+  }
+  return found
+}
+
+export function notInstalledLines(texts) {
+  return texts
+    .flatMap((text) => text.split('\n'))
+    .map((line) => line.trim())
+    .filter((line) => line.includes(notInstalledText))
+}
+
+function pluginId(plugin, marketplace) {
+  return `${plugin.name}@${marketplace.name}`
+}
+
+export function installedShaFailures(installed, marketplace) {
+  const found = []
+  for (const plugin of marketplace.plugins) {
+    const id = pluginId(plugin, marketplace)
+    const records = installed.plugins?.[id] ?? []
+    if (records.length === 0) {
+      found.push(`${id}: installed is false after install; expected true`)
+      continue
+    }
+    for (const record of records) {
+      if (record.gitCommitSha !== plugin.source.sha) {
+        found.push(
+          `${id}: gitCommitSha is ${record.gitCommitSha} after install; expected ${plugin.source.sha}, the sha of its entry`,
+        )
+      }
+    }
+  }
+  return found
+}
+
 const failures = []
 
 function fail(message) {
@@ -148,8 +235,9 @@ function readMarketplace() {
     marketplace: marketplace.name,
     version: plugin.version,
     dependencies:
-      JSON.parse(readFileSync(join(root, plugin.source, '.claude-plugin', 'plugin.json'), 'utf8'))
-        .dependencies ?? [],
+      JSON.parse(
+        readFileSync(join(root, localSourcePath(plugin), '.claude-plugin', 'plugin.json'), 'utf8'),
+      ).dependencies ?? [],
   }))
 }
 
@@ -180,13 +268,13 @@ function checkPersonalConfigUnchanged(before) {
   }
 }
 
-function claude(scratch, args) {
+function claude(scratch, args, timeout = runTimeoutMs) {
   const result = spawnSync('claude', args, {
     cwd: scratch.work,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     env: childEnv(process.env, scratch.config),
-    timeout: runTimeoutMs,
+    timeout,
   })
   if (result.error) {
     throw new Error(`cannot run claude ${args.join(' ')} (${result.error.message})`)
@@ -194,11 +282,16 @@ function claude(scratch, args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
-function claudeResult(scratch, args) {
-  const { status, stdout, stderr } = claude(scratch, [...args, '--json'])
-  const lastLine = stdout.trim().split('\n').at(-1) ?? ''
+function claudeResult(scratch, args, timeout = runTimeoutMs) {
+  const { status, stdout, stderr } = claude(scratch, [...args, '--json'], timeout)
+  const lines = stdout.trim().split('\n')
+  const lastLine = lines.at(-1) ?? ''
   try {
-    return { status, outcome: JSON.parse(lastLine) }
+    return {
+      status,
+      outcome: JSON.parse(lastLine),
+      otherOutput: [...lines.slice(0, -1), stderr].join('\n'),
+    }
   } catch {
     throw new Error(`claude ${args.join(' ')} printed no JSON result: ${stderr || stdout}`)
   }
@@ -304,29 +397,16 @@ const actions = [
   { name: 'enable', enabled: true, goalStateIsOk: true, order: dependenciesFirst },
 ]
 
-function runGate() {
-  const plugins = readMarketplace()
-  const personalConfig = readPersonalConfig()
-  const base = mkdtempSync(join(tmpdir(), 'handily-install-gate-'))
-  const scratch = { config: join(base, 'config'), work: join(base, 'work') }
-  mkdirSync(scratch.config)
-  mkdirSync(scratch.work)
-  try {
-    const added = claudeResult(scratch, ['plugin', 'marketplace', 'add', root])
-    if (!isAccepted({ goalStateIsOk: false }, added)) {
-      throw new Error(
-        `claude plugin marketplace add exited ${added.status}: ${added.outcome.message}`,
-      )
-    }
-    for (const action of actions) runPair(scratch, action, plugins)
-    checkBundleWithDisabledMod(scratch, plugins)
-    scratchGlobalConfigFailures(scratch.config).forEach(fail)
-  } catch (error) {
-    fail(error.message)
-  } finally {
-    rmSync(base, { recursive: true, force: true })
+function addMarketplace(scratch, source) {
+  const added = claudeResult(scratch, ['plugin', 'marketplace', 'add', source])
+  if (!isAccepted({ goalStateIsOk: false }, added)) {
+    throw new Error(
+      `claude plugin marketplace add exited ${added.status}: ${added.outcome.message}`,
+    )
   }
-  checkPersonalConfigUnchanged(personalConfig)
+}
+
+function finish() {
   if (failures.length > 0) {
     console.error(`install-gate: failed (${failures.length} differences)`)
     process.exit(1)
@@ -334,4 +414,121 @@ function runGate() {
   console.log('install-gate: passed')
 }
 
-if (isEntryScript(process.argv[1], import.meta.url)) runGate()
+function inScratchProfile(check) {
+  const personalConfig = readPersonalConfig()
+  const base = mkdtempSync(join(tmpdir(), 'handily-install-gate-'))
+  const scratch = { base, config: join(base, 'config'), work: join(base, 'work') }
+  mkdirSync(scratch.config)
+  mkdirSync(scratch.work)
+  try {
+    check(scratch)
+    scratchGlobalConfigFailures(scratch.config).forEach(fail)
+  } catch (error) {
+    fail(error.message)
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+  checkPersonalConfigUnchanged(personalConfig)
+  finish()
+}
+
+function runGate() {
+  const plugins = readMarketplace()
+  inScratchProfile((scratch) => {
+    addMarketplace(scratch, root)
+    for (const action of actions) runPair(scratch, action, plugins)
+    checkBundleWithDisabledMod(scratch, plugins)
+  })
+}
+
+function runGenerator(args) {
+  const result = spawnSync(
+    process.execPath,
+    [generatorScript, 'marketplace', ...args, '--dry-run'],
+    { cwd: root, encoding: 'utf8', timeout: runTimeoutMs },
+  )
+  if (result.error) {
+    return { failures: [`cannot run the marketplace generator (${result.error.message})`] }
+  }
+  return generatedMarketplace(result)
+}
+
+function pinnedMarketplace() {
+  const listed = runGenerator([])
+  if (listed.failures.length > 0) return listed
+  const names = listed.marketplace.plugins.map((plugin) => plugin.name)
+  const pinned = runGenerator(names.flatMap((name) => ['--pin', name]))
+  if (pinned.failures.length > 0) return pinned
+  return { ...pinned, failures: pinnedEntryFailures(names, pinned.marketplace) }
+}
+
+function writeMarketplace(scratch, marketplace) {
+  const dir = join(scratch.base, 'marketplace')
+  mkdirSync(join(dir, '.claude-plugin'), { recursive: true })
+  writeFileSync(
+    join(dir, '.claude-plugin', 'marketplace.json'),
+    `${JSON.stringify(marketplace, null, 2)}\n`,
+  )
+  return dir
+}
+
+function installPinned(scratch, marketplace) {
+  for (const plugin of marketplace.plugins) {
+    const id = pluginId(plugin, marketplace)
+    const result = claudeResult(scratch, ['plugin', 'install', id], fetchTimeoutMs)
+    if (!isAccepted({ goalStateIsOk: false }, result)) {
+      fail(`${id}: claude plugin install exited ${result.status}: ${result.outcome.message}`)
+    }
+    for (const line of notInstalledLines([result.outcome.message ?? '', result.otherOutput])) {
+      fail(`${id}: ${line}`)
+    }
+  }
+}
+
+function readInstalledPlugins(scratch) {
+  const path = join(scratch.config, 'plugins', 'installed_plugins.json')
+  if (!existsSync(path)) throw new Error('claude wrote no installed_plugins.json after install')
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
+function reportInstalled(installed, marketplace) {
+  for (const plugin of marketplace.plugins) {
+    const id = pluginId(plugin, marketplace)
+    for (const record of installed.plugins?.[id] ?? []) {
+      console.log(`${id} ${record.version} ${record.gitCommitSha} (${plugin.source.ref})`)
+    }
+  }
+}
+
+function runPinnedGate() {
+  const { marketplace, failures: generated } = pinnedMarketplace()
+  if (generated.length > 0) {
+    generated.forEach(fail)
+    finish()
+  }
+  inScratchProfile((scratch) => {
+    addMarketplace(scratch, writeMarketplace(scratch, marketplace))
+    installPinned(scratch, marketplace)
+    const installed = readInstalledPlugins(scratch)
+    installedShaFailures(installed, marketplace).forEach(fail)
+    reportInstalled(installed, marketplace)
+    console.log(
+      `pinned install: ${marketplace.plugins.length} plugin(s) at their release tags in ${scratch.config}`,
+    )
+  })
+}
+
+function readArguments(args) {
+  try {
+    return parseArgs({ args, options: { pinned: { type: 'boolean' } }, strict: true }).values
+  } catch (error) {
+    console.error(`install-gate: ${error.message}`)
+    console.error(usage)
+    process.exit(2)
+  }
+}
+
+if (isEntryScript(process.argv[1], import.meta.url)) {
+  if (readArguments(process.argv.slice(2)).pinned) runPinnedGate()
+  else runGate()
+}

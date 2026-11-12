@@ -14,6 +14,7 @@ import {
   restoredBundleFailures,
   scratchGlobalConfigFailures,
 } from './install-gate.mjs'
+import * as gate from './install-gate.mjs'
 
 const INSTALLED_AT = '2026-10-08T21:35:07.613Z'
 const LATER = '2026-10-08T22:00:00.000Z'
@@ -293,5 +294,210 @@ describe('isEntryScript', () => {
 
   test('is false when node runs without an entry script', () => {
     assert.equal(isEntryScript(undefined, import.meta.url), false)
+  })
+})
+
+const BOARD_SHA = '8bb149378a646b04a26b3f3c9400b5f16ee28ab8'
+const WORKITEMS_SHA = '1d51809d2d210c4c52581df85fe2668898a13a61'
+
+function pinnedPlugin(name, version, sha) {
+  return {
+    name,
+    source: {
+      source: 'git-subdir',
+      url: 'niksavis/handily',
+      path: `mods/${name}`,
+      ref: `${name}--v${version}`,
+      sha,
+    },
+    description: `${name} description`,
+  }
+}
+
+function pinnedMarketplace(...plugins) {
+  return { name: 'niksavis', owner: { name: 'niksavis' }, plugins }
+}
+
+const board = pinnedPlugin('handily-board', '0.23.0', BOARD_SHA)
+const workitems = pinnedPlugin('handily-workitems', '0.8.0', WORKITEMS_SHA)
+
+function installedRecord(name, version, sha) {
+  return {
+    scope: 'user',
+    installPath: join('cache', 'niksavis', name, version),
+    version,
+    installedAt: INSTALLED_AT,
+    lastUpdated: INSTALLED_AT,
+    gitCommitSha: sha,
+  }
+}
+
+function installedPlugins(entries) {
+  return { version: 2, plugins: entries }
+}
+
+function generatorRun(marketplace) {
+  return {
+    status: 0,
+    stdout: `marketplace: 2 mod(s): handily-board, handily-workitems\n${JSON.stringify(marketplace, null, 2)}\nmarketplace: passed\n`,
+    stderr: '',
+  }
+}
+
+describe('localSourcePath', () => {
+  test('a relative source is the folder of the mod', () => {
+    assert.equal(
+      gate.localSourcePath({ name: 'handily-board', source: './mods/handily-board' }),
+      './mods/handily-board',
+    )
+  })
+
+  test('a git-subdir source is the path of its subfolder and does not throw', () => {
+    assert.equal(gate.localSourcePath(board), 'mods/handily-board')
+  })
+})
+
+describe('generatedMarketplace', () => {
+  test('reads the marketplace between the first and the last line of the generator output', () => {
+    const marketplace = pinnedMarketplace(board, workitems)
+    assert.deepEqual(gate.generatedMarketplace(generatorRun(marketplace)), {
+      marketplace,
+      failures: [],
+    })
+  })
+
+  test('a missing release tag names the mod and prints no marketplace', () => {
+    const run = {
+      status: 1,
+      stdout: 'marketplace: 2 mod(s): handily-board, handily-workitems\n',
+      stderr:
+        'FAIL handily-board: the release tag handily-board--v0.24.0 does not exist; create it with `claude plugin tag mods/handily-board`, then run `npm run marketplace -- --pin handily-board`\nmarketplace: 1 failure(s)\n',
+    }
+    assert.deepEqual(gate.generatedMarketplace(run), {
+      failures: [
+        'handily-board: the release tag handily-board--v0.24.0 does not exist; create it with `claude plugin tag mods/handily-board`, then run `npm run marketplace -- --pin handily-board`',
+      ],
+    })
+  })
+
+  test('a failed generator run that names no failure reports its exit code', () => {
+    assert.deepEqual(gate.generatedMarketplace({ status: 2, stdout: '', stderr: 'usage' }), {
+      failures: ['the marketplace generator exited 2'],
+    })
+  })
+
+  test('a generator run that prints no marketplace is a failure', () => {
+    const run = { status: 0, stdout: 'marketplace: passed\n', stderr: '' }
+    assert.deepEqual(gate.generatedMarketplace(run), {
+      failures: ['the marketplace generator printed no marketplace'],
+    })
+  })
+})
+
+describe('pinnedEntryFailures', () => {
+  test('every mod with an entry at its release tag has no failure', () => {
+    const marketplace = pinnedMarketplace(board, workitems)
+    assert.deepEqual(
+      gate.pinnedEntryFailures(['handily-board', 'handily-workitems'], marketplace),
+      [],
+    )
+  })
+
+  test('a mod with no entry is named', () => {
+    assert.deepEqual(
+      gate.pinnedEntryFailures(['handily-board', 'handily-workitems'], pinnedMarketplace(board)),
+      ['handily-workitems: the pinned marketplace has no entry for it'],
+    )
+  })
+
+  test('a mod with a relative source is named', () => {
+    const relative = {
+      name: 'handily-workitems',
+      source: './mods/handily-workitems',
+      version: '0.8.0',
+    }
+    assert.deepEqual(
+      gate.pinnedEntryFailures(
+        ['handily-board', 'handily-workitems'],
+        pinnedMarketplace(board, relative),
+      ),
+      ['handily-workitems: the entry is not a git-subdir source with a ref and a sha'],
+    )
+  })
+
+  test('a git-subdir entry with no sha is named', () => {
+    const unpinned = pinnedPlugin('handily-workitems', '0.8.0', undefined)
+    assert.deepEqual(
+      gate.pinnedEntryFailures(
+        ['handily-board', 'handily-workitems'],
+        pinnedMarketplace(board, unpinned),
+      ),
+      ['handily-workitems: the entry is not a git-subdir source with a ref and a sha'],
+    )
+  })
+})
+
+describe('notInstalledLines', () => {
+  test('finds the dependency warning inside an install message that reports ok', () => {
+    const message =
+      'Successfully installed plugin: handily-board@niksavis (scope: user). Warning: dependency "handily-workitems@niksavis" was not installed (no marketplace you have added lists it). "handily-board" will not load without it\n3 userConfig options not yet set — run /plugin configure handily-board@niksavis in Claude Code, or pass --config KEY=VALUE.'
+    assert.deepEqual(gate.notInstalledLines([message, '']), [
+      'Successfully installed plugin: handily-board@niksavis (scope: user). Warning: dependency "handily-workitems@niksavis" was not installed (no marketplace you have added lists it). "handily-board" will not load without it',
+    ])
+  })
+
+  test('an install message with no dependency warning has no line', () => {
+    const message =
+      'Successfully installed plugin: handily-workitems@niksavis (scope: user)\n3 userConfig options not yet set.'
+    assert.deepEqual(gate.notInstalledLines([message, '']), [])
+  })
+
+  test('finds the warning on the error output', () => {
+    assert.deepEqual(
+      gate.notInstalledLines(['', 'Warning: dependency "x@niksavis" was not installed\n']),
+      ['Warning: dependency "x@niksavis" was not installed'],
+    )
+  })
+})
+
+describe('installedShaFailures', () => {
+  test('each installed gitCommitSha that equals the sha of its entry has no failure', () => {
+    const installed = installedPlugins({
+      'handily-board@niksavis': [installedRecord('handily-board', '0.23.0', BOARD_SHA)],
+      'handily-workitems@niksavis': [installedRecord('handily-workitems', '0.8.0', WORKITEMS_SHA)],
+    })
+    assert.deepEqual(gate.installedShaFailures(installed, pinnedMarketplace(board, workitems)), [])
+  })
+
+  test('a gitCommitSha that differs from the sha of its entry names both', () => {
+    const installed = installedPlugins({
+      'handily-board@niksavis': [installedRecord('handily-board', '0.24.0', WORKITEMS_SHA)],
+    })
+    assert.deepEqual(gate.installedShaFailures(installed, pinnedMarketplace(board)), [
+      `handily-board@niksavis: gitCommitSha is ${WORKITEMS_SHA} after install; expected ${BOARD_SHA}, the sha of its entry`,
+    ])
+  })
+
+  test('a plugin that is missing from installed_plugins.json is named', () => {
+    const installed = installedPlugins({
+      'handily-board@niksavis': [installedRecord('handily-board', '0.23.0', BOARD_SHA)],
+    })
+    assert.deepEqual(gate.installedShaFailures(installed, pinnedMarketplace(board, workitems)), [
+      'handily-workitems@niksavis: installed is false after install; expected true',
+    ])
+  })
+
+  test('a plugin with an empty install list is named', () => {
+    const installed = installedPlugins({ 'handily-board@niksavis': [] })
+    assert.deepEqual(gate.installedShaFailures(installed, pinnedMarketplace(board)), [
+      'handily-board@niksavis: installed is false after install; expected true',
+    ])
+  })
+
+  test('an installed_plugins.json with no plugins names every plugin', () => {
+    assert.deepEqual(gate.installedShaFailures({}, pinnedMarketplace(board, workitems)), [
+      'handily-board@niksavis: installed is false after install; expected true',
+      'handily-workitems@niksavis: installed is false after install; expected true',
+    ])
   })
 })
