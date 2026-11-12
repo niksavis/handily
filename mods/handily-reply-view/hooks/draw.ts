@@ -53,11 +53,11 @@ import {
   GUTTER_LOOK,
   gutterColumns,
   gutterNumber,
-  SHELL_LOOKS,
-  SHELL_NODES_AT_MOST,
+  CODE_NODES_AT_MOST,
+  isOwnDrawing,
   type CodeDrawing,
   type CodeLook,
-  type ShellToken,
+  type CodeToken,
 } from './syntax'
 import {
   columnWidths,
@@ -199,7 +199,7 @@ type Context = {
   palette: PaletteSetting
   drawsProse: boolean
   codeFolds: ReadonlyMap<string, ReplyViewFold>
-  shellBudget: { nodesLeft: number }
+  codeBudget: { nodesLeft: number }
   actions: ReplyActions
 }
 
@@ -1216,13 +1216,14 @@ function codeSpan(context: Context, text: string, look: CodeLook): CellChild {
     isBold: look.isBold === true,
     isDim: look.isDim === true,
     isItalic: look.isItalic === true,
+    isUnderline: look.isUnderline === true,
   })
 }
 
-function shellSpan(context: Context, token: ShellToken): CellChild {
-  return !context.highlight || token.kind === 'plain'
+function tokenSpan(context: Context, token: CodeToken): CellChild {
+  return !context.highlight || token.look === null
     ? token.text
-    : codeSpan(context, token.text, SHELL_LOOKS[token.kind])
+    : codeSpan(context, token.text, token.look)
 }
 
 type CodeLines = {
@@ -1232,7 +1233,7 @@ type CodeLines = {
   wrap: { wrap?: 'truncate-end' }
 }
 
-function shellBody(context: Context, lines: readonly ShellToken[][], look: CodeLines, key: string) {
+function ownBody(context: Context, lines: readonly CodeToken[][], look: CodeLines, key: string) {
   const { Box, Text } = context.elements
   return Box({
     key: `${key}-lines`,
@@ -1240,7 +1241,7 @@ function shellBody(context: Context, lines: readonly ShellToken[][], look: CodeL
     children: lines.map((tokens, index) => {
       const lineKey = `${key}-line-${String(index + 1)}`
       const text = Text({
-        children: tokens.length === 0 ? ' ' : tokens.map((token) => shellSpan(context, token)),
+        children: tokens.length === 0 ? ' ' : tokens.map((token) => tokenSpan(context, token)),
       })
       if (look.gutter === 0) return Box({ key: lineKey, children: text })
       const number = gutterNumber(index + 1, look.lineCount)
@@ -1269,8 +1270,8 @@ function codeBody(
 ): RenderElement | null {
   if (lines.length === 0) return null
   const { drawing } = look
-  if (drawing.kind === 'shell') {
-    return shellBody(context, drawing.lines.slice(0, lines.length), look, key)
+  if (isOwnDrawing(drawing)) {
+    return ownBody(context, drawing.lines.slice(0, lines.length), look, key)
   }
   const language =
     drawing.kind === 'engine' && LANGUAGE_TAG.test(fence.tag) ? { language: fence.tag } : {}
@@ -1325,9 +1326,9 @@ function fencePiece(
     fence.tag,
     lines,
     context.surface === COLOUR_SURFACE,
-    context.shellBudget.nodesLeft,
+    context.codeBudget.nodesLeft,
   )
-  if (drawing.kind === 'shell') context.shellBudget.nodesLeft -= drawing.nodes
+  if (isOwnDrawing(drawing)) context.codeBudget.nodesLeft -= drawing.nodes
   const folds = foldsCode(lines.length)
   const block = codeFoldKey(fence.tag, fence.content)
   const fold = folds ? (context.codeFolds.get(block) ?? 'folded') : 'open'
@@ -1340,12 +1341,11 @@ function fencePiece(
     gutter,
     wrap: isCut ? { wrap: 'truncate-end' } : {},
   }
-  const drawnLines =
-    drawing.kind === 'shell'
-      ? drawing.lines
-          .slice(0, shown.length)
-          .map((tokens) => tokens.map((token) => token.text).join(''))
-      : shown
+  const drawnLines = isOwnDrawing(drawing)
+    ? drawing.lines
+        .slice(0, shown.length)
+        .map((tokens) => tokens.map((token) => token.text).join(''))
+    : shown
   const rows = drawnLines.map((line) => (isCut ? 1 : rowsOf(line, context.width - gutter)))
   const title = fenceTitle(context, fence, copy, key, folds ? lines.length : null)
   const note =
@@ -1822,7 +1822,7 @@ export function replyTree(
     highlight: layout.highlight,
     palette: layout.palette,
     codeFolds: layout.codeFolds ?? new Map(),
-    shellBudget: { nodesLeft: SHELL_NODES_AT_MOST },
+    codeBudget: { nodesLeft: CODE_NODES_AT_MOST },
     drawsProse: layout.surface === PROSE_SURFACE && !blocks.some(isDefiningProse),
     actions,
   }

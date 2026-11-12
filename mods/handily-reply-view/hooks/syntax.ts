@@ -1,17 +1,28 @@
+import { diffLines, type DiffKind } from './diff-tokens'
 import type { Block } from './markdown'
-import type { RoleLook } from './roles'
+import { markdownLines, type MarkdownKind } from './md-tokens'
+import { PALETTE_LOOKS } from './palette'
+import { ROLE_LOOKS, type RoleLook } from './roles'
 
 export type ShellKind =
   'command' | 'keyword' | 'flag' | 'string' | 'variable' | 'operator' | 'comment' | 'plain'
 
 export type ShellToken = { text: string; kind: ShellKind }
 
-export type CodeLook = RoleLook & { isBold?: boolean; isDim?: boolean; isItalic?: boolean }
+export type CodeLook = RoleLook & {
+  isBold?: boolean
+  isDim?: boolean
+  isItalic?: boolean
+  isUnderline?: boolean
+}
 
-export type CodeDrawing =
-  | { kind: 'engine' }
-  | { kind: 'plain'; note: string }
-  | { kind: 'shell'; lines: ShellToken[][]; nodes: number }
+export type CodeToken = { text: string; look: CodeLook | null }
+
+export type OwnLanguage = 'shell' | 'markdown' | 'diff'
+
+export type OwnDrawing = { kind: OwnLanguage; lines: CodeToken[][]; nodes: number }
+
+export type CodeDrawing = { kind: 'engine' } | { kind: 'plain'; note: string } | OwnDrawing
 
 export const SHELL_LOOKS: Readonly<Record<Exclude<ShellKind, 'plain'>, CodeLook>> = {
   command: { key: 'suggestion', mocha: '#89b4fa', isBold: true },
@@ -23,18 +34,40 @@ export const SHELL_LOOKS: Readonly<Record<Exclude<ShellKind, 'plain'>, CodeLook>
   comment: { mocha: '#9399b2', isDim: true, isItalic: true },
 }
 
+export const MARKDOWN_LOOKS: Readonly<Record<Exclude<MarkdownKind, 'plain'>, CodeLook>> = {
+  heading: { ...ROLE_LOOKS.heading, isBold: true },
+  minorHeading: { ...ROLE_LOOKS.minorHeading, isBold: true },
+  strong: { isBold: true },
+  emphasis: { isItalic: true },
+  marker: ROLE_LOOKS.marker,
+  quote: { ...ROLE_LOOKS.quoteText, isItalic: true },
+  codeSpan: { key: PALETTE_LOOKS.inlineCode.key, mocha: PALETTE_LOOKS.inlineCode.mocha },
+  link: { key: PALETTE_LOOKS.link.key, mocha: PALETTE_LOOKS.link.mocha, isUnderline: true },
+}
+
+export const DIFF_LOOKS: Readonly<Record<Exclude<DiffKind, 'plain'>, CodeLook>> = {
+  fileHeader: { isBold: true },
+  hunk: { key: 'inactive', mocha: '#9399b2' },
+  added: { key: 'success' },
+  removed: { key: 'error' },
+}
+
 export const GUTTER_LOOK: CodeLook = { mocha: '#9399b2', isDim: true }
 
 export const FOLDED_LINES = 15
 const FOLD_LINES_ABOVE = 20
 const COLOURED_LINES_AT_MOST = 2000
 const COLOURED_CHARACTERS_AT_MOST = 100_000
-const SHELL_WORD_CHARACTERS_AT_MOST = 1000
-export const SHELL_NODES_AT_MOST = 10_000
+const CODE_WORD_CHARACTERS_AT_MOST = 1000
+export const CODE_NODES_AT_MOST = 10_000
 const NODES_PER_LINE = 5
 const GUTTER_GAP = 2
 const TAB = ' '.repeat(4)
-const SHELL_TAGS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'shell', 'console'])
+const OWN_LANGUAGE_TAGS: Readonly<Record<OwnLanguage, readonly string[]>> = {
+  shell: ['sh', 'bash', 'zsh', 'shell', 'console'],
+  markdown: ['md', 'markdown'],
+  diff: ['diff', 'patch'],
+}
 const OPERATORS = [
   '&>>',
   '<<<',
@@ -105,7 +138,7 @@ const ASSIGNMENT = /^[A-Za-z_]\w*\+?=/
 const VARIABLE_NAME = /[A-Za-z_]\w*|\d|[?@#$!*-]/y
 const SPACE = /\s+/y
 const HEREDOC_END = /-?[ \t]*(['"]?)([\w-]+)\1/y
-const LONG_WORD = new RegExp(String.raw`\S{${String(SHELL_WORD_CHARACTERS_AT_MOST + 1)},}`)
+const LONG_WORD = new RegExp(String.raw`\S{${String(CODE_WORD_CHARACTERS_AT_MOST + 1)},}`)
 const GROUPS = /\B(?=(\d{3})+(?!\d))/g
 const HASH_SEED = 0x811c9dc5
 const HASH_PRIME = 0x01000193
@@ -124,8 +157,14 @@ type Scan = {
   heredocEnd: string | null
 }
 
-export function isShellTag(tag: string): boolean {
-  return SHELL_TAGS.has(tag.trim().toLowerCase())
+function ownLanguageOf(tag: string): OwnLanguage | null {
+  const name = tag.trim().toLowerCase()
+  const languages = Object.keys(OWN_LANGUAGE_TAGS) as OwnLanguage[]
+  return languages.find((language) => OWN_LANGUAGE_TAGS[language].includes(name)) ?? null
+}
+
+export function isOwnDrawing(drawing: CodeDrawing): drawing is OwnDrawing {
+  return drawing.kind !== 'engine' && drawing.kind !== 'plain'
 }
 
 export function foldsCode(lineCount: number): boolean {
@@ -409,14 +448,31 @@ export function shellLines(lines: readonly string[]): ShellToken[][] {
   })
 }
 
-export function shellNodes(lines: readonly ShellToken[][]): number {
+function codeNodes(lines: readonly CodeToken[][]): number {
   return lines.reduce(
     (total, tokens) =>
       total +
       NODES_PER_LINE +
-      tokens.reduce((parts, token) => parts + (token.kind === 'plain' ? 1 : 2), 0),
+      tokens.reduce((parts, token) => parts + (token.look === null ? 1 : 2), 0),
     0,
   )
+}
+
+function looked<K extends string>(
+  lines: readonly { text: string; kind: K }[][],
+  looks: Readonly<Partial<Record<K, CodeLook>>>,
+): CodeToken[][] {
+  return lines.map((tokens) =>
+    tokens.map((token) => ({ text: token.text, look: looks[token.kind] ?? null })),
+  )
+}
+
+function ownTokens(language: OwnLanguage, lines: readonly string[]): CodeToken[][] {
+  if (language === 'shell') return looked(shellLines(lines), SHELL_LOOKS)
+  const shown = lines.map((line) => line.replaceAll('\t', TAB))
+  return language === 'markdown'
+    ? looked(markdownLines(shown), MARKDOWN_LOOKS)
+    : looked(diffLines(shown), DIFF_LOOKS)
 }
 
 function plainNote(reason: string): CodeDrawing {
@@ -435,12 +491,13 @@ export function codeDrawingOf(
   if (lines.join('\n').length > COLOURED_CHARACTERS_AT_MOST) {
     return plainNote(`over ${grouped(COLOURED_CHARACTERS_AT_MOST)} characters`)
   }
-  if (!colours || !isShellTag(tag)) return { kind: 'engine' }
+  const language = ownLanguageOf(tag)
+  if (!colours || language === null) return { kind: 'engine' }
   if (lines.some((line) => LONG_WORD.test(line))) {
-    return plainNote(`a word over ${grouped(SHELL_WORD_CHARACTERS_AT_MOST)} characters`)
+    return plainNote(`a word over ${grouped(CODE_WORD_CHARACTERS_AT_MOST)} characters`)
   }
-  const tokens = shellLines(lines)
-  const nodes = shellNodes(tokens)
-  if (nodes > nodesLeft) return plainNote(`over ${grouped(SHELL_NODES_AT_MOST)} drawn parts`)
-  return { kind: 'shell', lines: tokens, nodes }
+  const tokens = ownTokens(language, lines)
+  const nodes = codeNodes(tokens)
+  if (nodes > nodesLeft) return plainNote(`over ${grouped(CODE_NODES_AT_MOST)} drawn parts`)
+  return { kind: language, lines: tokens, nodes }
 }

@@ -6786,8 +6786,11 @@ Notes:
 ### 15.2 Code blocks
 
 The title line of 9.4 stays: the tag on the left, `[ copy ]` on the right, the code below with no
-frame, so a mouse selection takes only code. New: reply-view colours the code itself for eight
-languages, and folds a long block.
+frame, so a mouse selection takes only code. New: reply-view colours shell, Markdown and diff
+code itself on the terminal, and folds a long block. The engine `Code` element already colours
+TypeScript, JavaScript, Python, JSON and YAML, so these go to it (the owner narrowed the eight
+languages to these three on 2026-11-12, handily-dnjvgf). 15.2a and the Python, JSON, YAML and
+JavaScript notes of 15.2c show the original mock.
 
 #### 15.2a 80 columns: TypeScript
 
@@ -6886,6 +6889,19 @@ Colours:
 - Diff: a `+` line `success`, a `-` line `error`, both with their sign as the first character;
   `@@ … @@` `inactive`; `---` and `+++` bold. These are state keys, kept in every palette.
 - JavaScript (`js`, `javascript`, `mjs`, `cjs`, `jsx`) draws as TypeScript without the type role.
+
+Notes (handily-dnjvgf):
+
+- Tags `md` and `markdown` draw as Markdown. Tags `diff` and `patch` draw as a diff.
+- Markdown: an H1 or H2 line `claude` + bold, an H3 line `merged` + bold, a deeper heading bold.
+  A list mark and the quote mark `>` `inactive`, mocha `#cba6f7`; the quote text italic, mocha
+  `#a6adc8`. `**…**` bold, `*…*` and `_…_` italic. A code span and the lines of a fence inside
+  the block take the inline code colour, `permission`, mocha `#89dceb`. The link text takes the
+  link colour, `suggestion` + underline, mocha `#89b4fa`.
+- Markdown marks stay in the text, so a mouse selection and `[ copy ]` keep the source.
+  `#include`, `**/*.md`, `snake_case` and `2 * 3` stay plain.
+- Diff: `---` and `+++` bold only as a pair of file lines; a `diff --git` line bold. `@@ … @@`
+  `inactive`, mocha `#9399b2`; the text after the second `@@` and a context line plain.
 
 #### 15.2d 80 columns: a block over 20 lines folds
 
@@ -7859,8 +7875,8 @@ No `taskStyle`, `listMarker`, `pieStyle`, `codeFold` or `clock` setting: each ha
 - **Headings** gain a box (H1) and a rule (H2). Headings `bold` in `/config` comes closest to
   today.
 - **Bullets** read `•` `◦` `▪`; numbered lists keep their numbers.
-- **Code** gains its own colours for 8 languages, and a block over 20 lines folds; `[ more ]`
-  opens it. `[ copy ]` stays where it was.
+- **Code** gains its own colours for shell, Markdown and diff, and a block over 20 lines folds;
+  `[ more ]` opens it. `[ copy ]` stays where it was.
 - **Diagrams** gain rounded boxes and, under mocha, 6 colours; a sequence diagram repeats its
   names at the bottom. State, class and ER diagrams draw where they showed their source.
 - **Charts** draw where an `xychart-beta` or `pie` block showed its source.

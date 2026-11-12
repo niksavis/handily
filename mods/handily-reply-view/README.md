@@ -7,16 +7,16 @@ double rule under its header and a rule between its rows. The `tableStyle` setti
 rules between its columns only. Numbers, durations, versions and paths in the prose and the cells
 of a reply draw in their own colours, and inline code draws in the code colour of Claude Code.
 The `highlight` setting `off` draws the numbers, durations, versions and paths as plain text. Each
-table and each fenced code block gets a `copy` button. A shell block draws in its own colours, and
-a code block of more than 20 lines folds to its first 15 lines. A mermaid flowchart, sequence
-diagram, state diagram, class diagram, ER diagram, git graph, mind map, timeline, user journey,
-quadrant chart, kanban, packet diagram, sankey diagram, radar diagram, treemap, block diagram,
-requirement diagram, C4 diagram or architecture diagram draws as a diagram, with a `copy` button
-for its source and a `copy drawing` button for the drawing. Each prompt that you type opens under
-a coloured rule labelled `you`, so you find it when you scroll. The `promptStyle` setting draws it
-with a bar at its left or in a frame at the right instead. `/replies` switches the view off and
-on for the session. The model still reads the full reply and the prompt as you typed it. Only the
-screen changes.
+table and each fenced code block gets a `copy` button. A shell, Markdown or diff block draws in its
+own colours, and a code block of more than 20 lines folds to its first 15 lines. A mermaid
+flowchart, sequence diagram, state diagram, class diagram, ER diagram, git graph, mind map,
+timeline, user journey, quadrant chart, kanban, packet diagram, sankey diagram, radar diagram,
+treemap, block diagram, requirement diagram, C4 diagram or architecture diagram draws as a
+diagram, with a `copy` button for its source and a `copy drawing` button for the drawing. Each
+prompt that you type opens under a coloured rule labelled `you`, so you find it when you scroll.
+The `promptStyle` setting draws it with a bar at its left or in a frame at the right instead.
+`/replies` switches the view off and on for the session. The model still reads the full reply
+and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -402,8 +402,9 @@ rule with no title.
 ### Shell colours
 
 On the terminal, the view colours a block with the tag `sh`, `bash`, `zsh`, `shell` or `console`
-itself, like a prompt. A block with another tag, such as `ts`, `python`, `rust` or `fish`, goes to
-the code element of Claude Code with its language, as before:
+itself, like a prompt. It also colours a Markdown block and a diff block itself, as the next
+section shows. A block with another tag, such as `ts`, `python`, `json`, `rust` or `fish`, goes
+to the code element of Claude Code with its language, as before, and Claude Code colours it:
 
 ```text
   ── sh ────────────────────────────────────────────────────────────  [ copy ]
@@ -436,6 +437,52 @@ the code element of Claude Code with its language, as before:
 - A tab draws as 4 spaces. `copy` keeps the tab.
 - The `highlight` setting `off` draws the block with no token colours.
 - No `$` prompt mark is added, so a mouse selection pastes as a command.
+
+### Markdown and diff colours
+
+The code element of Claude Code draws a Markdown block and a diff block with no colour. On the
+terminal, the view colours a block with the tag `md` or `markdown`, and a block with the tag
+`diff` or `patch`, itself:
+
+```text
+  ── md ────────────────────────────────────────────────────────────  [ copy ]
+  ## Rollback
+  - Restore `pool_size` to **32**; see [the run](https://ci.example.com).
+
+  ── diff ──────────────────────────────────────────────────────────  [ copy ]
+  --- a/config/prod.yaml
+  +++ b/config/prod.yaml
+  @@ -3,3 +3,3 @@ ingest:
+  -  pool_size: 4
+  +  pool_size: 32
+     acquire_timeout_ms: 2000
+```
+
+| Part of a Markdown block                    | Theme key                | catppuccin-mocha |
+| ------------------------------------------- | ------------------------ | ---------------- |
+| A heading line `#` or `##`                  | `claude` + bold          | `#f9e2af`        |
+| A heading line `###`                        | `merged` + bold          | `#cba6f7`        |
+| A heading line `####` or deeper             | bold                     | bold             |
+| A list mark, such as `-` or `1.`, and `>`   | `inactive`               | `#cba6f7`        |
+| The text of a quote                         | italic                   | `#a6adc8`        |
+| `**bold**`                                  | bold                     | bold             |
+| `*italic*` or `_italic_`                    | italic                   | italic           |
+| A code span, and the lines of a fence in it | `permission`             | `#89dceb`        |
+| The text of a link                          | `suggestion` + underline | `#89b4fa`        |
+
+| Part of a diff block                              | Theme key  | catppuccin-mocha |
+| ------------------------------------------------- | ---------- | ---------------- |
+| A `diff --git` line, and a `---` and `+++` pair   | bold       | bold             |
+| `@@ … @@`                                         | `inactive` | `#9399b2`        |
+| A line that starts with `+`                       | `success`  | `success`        |
+| A line that starts with `-`                       | `error`    | `error`          |
+| A context line and the text after the second `@@` | plain      | plain            |
+
+- The marks stay in the text, so `copy` and a mouse selection keep the source.
+- `#include`, `**/*.md`, `snake_case` and `2 * 3` stay plain.
+- A `---` line is a file line only when a `+++` line follows it. Else it is a removed line.
+- A tab draws as 4 spaces. `copy` keeps the tab.
+- The `highlight` setting `off` draws the block with no colours.
 
 ### A long block folds
 
@@ -473,10 +520,10 @@ dim note. It folds as each long block does:
    2    "readings": [
 ```
 
-- A shell block with a word of more than 1,000 characters draws with no colour, under the note
-  `too long to colour: a word over 1,000 characters, so it draws plain.`
-- The shell blocks of one reply share a budget of 10,000 drawn parts. A shell block that the
-  budget does not cover draws with no colour, under the note
+- A shell, Markdown or diff block with a word of more than 1,000 characters draws with no
+  colour, under the note `too long to colour: a word over 1,000 characters, so it draws plain.`
+- The shell, Markdown and diff blocks of one reply share a budget of 10,000 drawn parts. A block
+  that the budget does not cover draws with no colour, under the note
   `too long to colour: over 10,000 drawn parts, so it draws plain.`
 - The view draws a reply of at most 60,000 characters, so a longer reply, and with it a block of
   100,000 characters, draws as Claude Code draws it.
@@ -484,8 +531,8 @@ dim note. It folds as each long block does:
 ### A code block on the desktop app
 
 On the desktop app every block goes to the code element of Claude Code with its language,
-also a shell block. A long block folds there too, and the line numbers are those of the code
-element.
+also a shell, Markdown or diff block. A long block folds there too, and the line numbers are
+those of the code element.
 
 When the title line and its `copy` button do not fit the reply, the button stands under the
 title line, as the buttons of a diagram do:
