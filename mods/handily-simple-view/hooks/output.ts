@@ -6,6 +6,8 @@ const HOOK_REFUSAL_PREFIX = /^Error: \w+:\S+ hook error: \[[^\n]*?\]: /
 const ERROR_PREFIX = 'Error: '
 const CLASSIFIER_DENIAL =
   /^Error: Permission for this action was denied by the Claude Code auto mode classifier\. Reason: (?:\[([^\]\r\n]+)\]|The server-side auto mode classifier judged this action dangerous \(it gave no explanation\))\.(?: |$)/
+const RULE_DENIAL = /^(?:Error: )?Permission to use \S+ with command [\s\S]+ has been denied\.$/
+const PERSON_DENIAL = /^(?:Error: )?The user doesn't want to proceed with this tool use\.(?:\s|$)/
 
 export const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 
@@ -17,7 +19,9 @@ export type ErrorEnd = { kind: 'exit'; code: number } | { kind: 'refused' } | { 
 
 export type ErroredOutput = { end: ErrorEnd; body: string }
 
-export type Denial = { kind: 'denied'; reason: string | null }
+export type Denier = 'classifier' | 'rule' | 'person'
+
+export type Denial = { kind: 'denied'; denier: Denier; reason: string | null }
 
 export type BashEnd =
   | {
@@ -115,17 +119,23 @@ export function refusalLine(output: unknown): string | null {
   return errored?.end.kind === 'refused' ? firstNonEmptyLine(errored.body) : null
 }
 
-export function classifierDenial(output: unknown): Denial | null {
+export function deniedCall(output: unknown): Denial | null {
   if (typeof output !== 'string') return null
+  if (RULE_DENIAL.test(output)) return { kind: 'denied', denier: 'rule', reason: null }
+  if (PERSON_DENIAL.test(output)) return { kind: 'denied', denier: 'person', reason: null }
   const denial = CLASSIFIER_DENIAL.exec(output)
   if (denial === null) return null
   const reason = denial[1]
-  return { kind: 'denied', reason: reason === undefined ? null : shownText(reason) }
+  return {
+    kind: 'denied',
+    denier: 'classifier',
+    reason: reason === undefined ? null : shownText(reason),
+  }
 }
 
 export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
   if (isErrored) {
-    const denial = classifierDenial(output)
+    const denial = deniedCall(output)
     if (denial !== null) return denial
     const errored = erroredOutput(output)
     if (errored === null) return null

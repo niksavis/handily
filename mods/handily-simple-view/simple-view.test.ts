@@ -779,12 +779,12 @@ describe('Bash row', () => {
       async (world, $) => {
         const cases = [
           [
-            'Error: Permission to use Bash with command rm notes.md has been denied.',
-            'Permission to use Bash with command rm notes.md has been denied.',
+            'Error: Permission to use Bash with command rm notes.md was denied.',
+            'Permission to use Bash with command rm notes.md was denied.',
           ],
           [
-            "Error: The user doesn't want to proceed with this tool use. The tool use was rejected.\nSTOP what you are doing.",
-            "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+            "Error: The user doesn't want to proceed with this command.\nSTOP what you are doing.",
+            "The user doesn't want to proceed with this command.",
           ],
         ] as const
         const input = { command: 'rm notes.md', description: 'Remove the notes' }
@@ -1857,53 +1857,54 @@ describe('file rows that a hook refused', () => {
   }
 })
 
-describe('calls that the auto mode classifier denied', () => {
-  const DENIED_FILE_CALLS = [
-    {
-      tool: 'Edit',
-      input: {
-        replace_all: false,
-        file_path: `${ROOT}/src/app.ts`,
-        old_string: 'a',
-        new_string: 'b',
-      },
-      path: 'src/app.ts',
+const DENIED_FILE_CALLS = [
+  {
+    tool: 'Edit',
+    input: {
+      replace_all: false,
+      file_path: `${ROOT}/src/app.ts`,
+      old_string: 'a',
+      new_string: 'b',
     },
-    {
-      tool: 'Write',
-      input: { file_path: `${ROOT}/docs/new.md`, content: 'x' },
-      path: 'docs/new.md',
-    },
-    { tool: 'Read', input: { file_path: `${ROOT}/note.txt` }, path: 'note.txt' },
-  ] as const
-  const BASH_INPUT = { command: 'rm notes.md', description: 'Remove the notes' }
-  const LONG_PATH = 'src/components/navigation/sidebar.tsx'
-  const EDIT_INPUT = { file_path: `${ROOT}/src/app.ts`, old_string: 'a', new_string: 'b' }
+    path: 'src/app.ts',
+  },
+  {
+    tool: 'Write',
+    input: { file_path: `${ROOT}/docs/new.md`, content: 'x' },
+    path: 'docs/new.md',
+  },
+  { tool: 'Read', input: { file_path: `${ROOT}/note.txt` }, path: 'note.txt' },
+] as const
+const LONG_PATH = 'src/components/navigation/sidebar.tsx'
+const EDIT_INPUT = { file_path: `${ROOT}/src/app.ts`, old_string: 'a', new_string: 'b' }
 
-  const rowCells = async (
-    $: Engine,
-    surface: Surface,
-    props: RenderPropsOf['ToolUse'],
-    columns: number,
-  ) => {
-    const ui = await $.ui.mount({
-      plugin: 'handily-simple-view',
-      surface,
-      component: 'ToolUse',
-      props,
-      viewport: { columns, rows: 40 },
-    })
-    const row = (await ui.findAll({ type: 'Box' })).find((box) => box.props.gap === 2)
-    const cells = (row?.children ?? []).filter(isDrawnNode)
-    const buttons = await ui.findAll({ type: 'Button' })
-    await ui.unmount()
-    const least = cells.map((cell) =>
-      cell.props?.flexShrink === 0 ? displayWidth(shown(cell)) : Number(cell.props?.minWidth ?? 0),
-    )
-    const width =
-      MARKER[surface].length + 2 * (cells.length - 1) + least.reduce((sum, cells) => sum + cells, 0)
-    return { shown: cells.map(shown), least, width, buttons }
-  }
+async function rowCells(
+  $: Engine,
+  surface: Surface,
+  props: RenderPropsOf['ToolUse'],
+  columns: number,
+) {
+  const ui = await $.ui.mount({
+    plugin: 'handily-simple-view',
+    surface,
+    component: 'ToolUse',
+    props,
+    viewport: { columns, rows: 40 },
+  })
+  const row = (await ui.findAll({ type: 'Box' })).find((box) => box.props.gap === 2)
+  const cells = (row?.children ?? []).filter(isDrawnNode)
+  const buttons = await ui.findAll({ type: 'Button' })
+  await ui.unmount()
+  const least = cells.map((cell) =>
+    cell.props?.flexShrink === 0 ? displayWidth(shown(cell)) : Number(cell.props?.minWidth ?? 0),
+  )
+  const width =
+    MARKER[surface].length + 2 * (cells.length - 1) + least.reduce((sum, cells) => sum + cells, 0)
+  return { shown: cells.map(shown), least, width, buttons }
+}
+
+describe('calls that the auto mode classifier denied', () => {
+  const BASH_INPUT = { command: 'rm notes.md', description: 'Remove the notes' }
 
   for (const surface of SURFACES) {
     for (const { tool, input, path } of DENIED_FILE_CALLS) {
@@ -2092,6 +2093,213 @@ describe('calls that the auto mode classifier denied', () => {
         )
         expect(edit.shown).toEqual(['Edit', LONG_PATH, 'denied', 'auto mode'])
         expect(edit.least).toEqual([4, 0, 6, 9])
+      },
+    )
+  }
+})
+
+const RULE_DENIED_BASH_ON_2_1_322 =
+  'Permission to use Bash with command touch other.txt has been denied.'
+const PERSON_DENIED_ON_2_1_312 =
+  "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."
+
+function erroredWith(result: string, text: string): Answer {
+  return { isError: true, result, text }
+}
+
+function ruleDenied(text: string = RULE_DENIED_BASH_ON_2_1_322): Answer {
+  return erroredWith(`Error: ${text}`, text)
+}
+
+const PERSON_DENIED = erroredWith(`Error: ${PERSON_DENIED_ON_2_1_312}`, PERSON_DENIED_ON_2_1_312)
+const PERSON_DENIED_PLAIN = erroredWith(PERSON_DENIED_ON_2_1_312, PERSON_DENIED_ON_2_1_312)
+const PERSON_DENIALS: readonly { name: string; answer: Answer }[] = [
+  { name: 'with the error prefix', answer: PERSON_DENIED },
+  { name: 'with no error prefix', answer: PERSON_DENIED_PLAIN },
+]
+
+describe('calls that a permission rule or the person denied', () => {
+  const TOUCH_INPUT = { command: 'touch other.txt', description: 'Create the other file' }
+  const DENIED_CALLS = [
+    ...DENIED_FILE_CALLS,
+    { tool: 'Bash', input: TOUCH_INPUT, path: 'touch other.txt' },
+  ] as const
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws a Bash call that a permission rule denied as Bash and its command with denied by a rule on ${surface}`,
+      async (world, $) => {
+        world.answer = () => ruleDenied()
+        const id = await runBash(world, $, TOUCH_INPUT)
+        const use = useProps(id, 'Bash', TOUCH_INPUT, ruleDenied())
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Bash touch other.txt denied by a rule`,
+        ])
+        const ui = await mountUse($, use, surface)
+        expect((await ui.find({ type: 'Text', text: 'denied' }))?.props.color).toBe('error')
+        expect((await ui.find({ type: 'Text', text: 'by a rule' }))?.props.color).toBe('error')
+        expect(await ui.findAll({ type: 'Button' })).toEqual([])
+        await ui.unmount()
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: resultProps(id, 'Bash', ruleDenied()) },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+      },
+    )
+  }
+
+  viewTest(
+    'draws a Bash call that a permission rule denied as the approved row at 80 columns',
+    async (_world, $) => {
+      const ui = await $.ui.mount({
+        plugin: 'handily-simple-view',
+        surface: 'terminal',
+        component: 'ToolUse',
+        props: useProps('toolu_r1', 'Bash', TOUCH_INPUT, ruleDenied()),
+        viewport: { columns: 80, rows: 40 },
+      })
+      expect(sketch(await ui.drawn())).toEqual(['#●# Bash  touch other.txt  #denied#  #by a rule#'])
+      await ui.unmount()
+    },
+  )
+
+  for (const surface of SURFACES) {
+    for (const { tool, input, path } of DENIED_CALLS) {
+      viewTest(
+        `draws the ${tool} call that the person denied with denied by you on ${surface}`,
+        async (world, $) => {
+          for (const { name, answer } of PERSON_DENIALS) {
+            world.answer = () => answer
+            const id = await runTool(world, $, { tool, ...input })
+            const use = useProps(id, tool, input, answer)
+            expect(await texts($, surface, { component: 'ToolUse', props: use }), name).toEqual([
+              `${MARKER[surface]}${tool} ${path} denied by you`,
+            ])
+            const ui = await mountUse($, use, surface)
+            expect((await ui.find({ type: 'Text', text: 'by you' }))?.props.color).toBe('error')
+            expect(await ui.findAll({ type: 'Button' })).toEqual([])
+            await ui.unmount()
+            const result = await drawn(
+              $,
+              { component: 'ToolResult', props: resultProps(id, tool, answer) },
+              surface,
+            )
+            expect(result.tree, name).toMatchObject({ type: 'Box' })
+            expect(result.textCount, name).toBe(0)
+          }
+        },
+      )
+    }
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws a Grep call that the person denied with its pattern and denied by you on ${surface}`,
+      async (_world, $) => {
+        const input = { pattern: 'TODO', path: `${ROOT}/src` }
+        const use = useProps('toolu_r2', 'Grep', input, PERSON_DENIED)
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Grep "TODO" in src denied by you`,
+        ])
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `matches the rule text by its shape when it names another tool on ${surface}`,
+      async (_world, $) => {
+        const text = RULE_DENIED_BASH_ON_2_1_322.replace('Bash', 'Read')
+        const input = { file_path: `${ROOT}/note.txt` }
+        const use = useProps('toolu_r3', 'Read', input, ruleDenied(text))
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}Read note.txt denied by a rule`,
+        ])
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: resultProps('toolu_r3', 'Read', ruleDenied(text)) },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `keeps the row of today for a text that matches neither shape and for a generic tool on ${surface}`,
+      async (world, $) => {
+        const others = [
+          RULE_DENIED_BASH_ON_2_1_322.replace('has been denied', 'was denied'),
+          RULE_DENIED_BASH_ON_2_1_322.replace(' with command touch other.txt', ''),
+          PERSON_DENIED_ON_2_1_312.replace('this tool use.', 'this tool use'),
+        ]
+        for (const text of others) {
+          const answer = erroredWith(`Error: ${text}`, text)
+          world.answer = () => answer
+          const id = await runBash(world, $, TOUCH_INPUT)
+          const bash = useProps(id, 'Bash', TOUCH_INPUT, answer)
+          expect(await texts($, surface, { component: 'ToolUse', props: bash })).toEqual([
+            `${MARKER[surface]}Create the other file touch error ${text}`,
+          ])
+          const edit = useProps('toolu_r4', 'Edit', EDIT_INPUT, answer)
+          expect((await drawn($, { component: 'ToolUse', props: edit }, surface)).tree).toEqual(
+            ENGINE_ROW,
+          )
+          const result = resultProps('toolu_r4', 'Edit', answer)
+          expect(
+            (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
+          ).toEqual(ENGINE_ROW)
+        }
+        for (const answer of [ruleDenied(), PERSON_DENIED]) {
+          const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, answer)
+          expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+            `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
+          ])
+          const result = resultProps(use.tool_use_id, 'WebFetch', answer)
+          expect(
+            (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
+          ).toEqual(ENGINE_ROW)
+        }
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `cuts the path or the command first and keeps denied by you and by a rule whole at 40 columns on ${surface}`,
+      async (world, $) => {
+        const editInput = { ...EDIT_INPUT, file_path: `${ROOT}/${LONG_PATH}` }
+        const command = 'touch src/components/navigation/sidebar.tsx'
+        const bashInput = { command, description: 'Create the sidebar of the navigation' }
+        world.answer = () => ruleDenied()
+        const id = await runBash(world, $, bashInput)
+        const cases = [
+          { props: useProps('toolu_r5', 'Edit', editInput, ruleDenied()), words: 'by a rule' },
+          { props: useProps(id, 'Bash', bashInput, ruleDenied()), words: 'by a rule' },
+          {
+            props: useProps('toolu_r6', 'Edit', editInput, PERSON_DENIED),
+            words: 'by you',
+          },
+          {
+            props: useProps(id, 'Bash', bashInput, PERSON_DENIED_PLAIN),
+            words: 'by you',
+          },
+        ]
+        for (const { props, words } of cases) {
+          const target = props.tool === 'Bash' ? command : LONG_PATH
+          const wide = await rowCells($, surface, props, 80)
+          expect(wide.shown).toEqual([props.tool, target, 'denied', words])
+          const narrow = await rowCells($, surface, props, 40)
+          expect(narrow.shown).toEqual(wide.shown)
+          expect(narrow.least).toEqual([4, 0, 6, displayWidth(words)])
+          expect(narrow.width).toBeLessThanOrEqual(40)
+          expect(narrow.buttons).toEqual([])
+        }
       },
     )
   }

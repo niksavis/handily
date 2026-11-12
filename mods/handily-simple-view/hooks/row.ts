@@ -1,6 +1,6 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import { elapsedText } from './detail'
-import type { BashEnd, Denial, FileChange, StderrSummary, Totals } from './output'
+import type { BashEnd, Denial, Denier, FileChange, StderrSummary, Totals } from './output'
 import { displayWidth } from './width'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
@@ -25,6 +25,13 @@ const CELL_GAP = 2
 const REFUSED_WORD = 'refused'
 const DENIED_WORD = 'denied'
 const CLASSIFIER_DENIER = 'auto mode'
+const RULE_DENIER = 'by a rule'
+const PERSON_DENIER = 'by you'
+const DENIERS: Readonly<Record<Denier, string>> = {
+  classifier: CLASSIFIER_DENIER,
+  rule: RULE_DENIER,
+  person: PERSON_DENIER,
+}
 const TIME_SHOWN_FROM_MS = 1000
 
 function cell(
@@ -121,14 +128,15 @@ function leastCells(cell: Cell): number {
 
 function deniedCells(look: RowLook, others: readonly Cell[], denial: Denial): Cell[] {
   const word: Cell = { text: DENIED_WORD, style: { color: 'error' } }
-  if (denial.reason === null) return [word, { text: CLASSIFIER_DENIER, style: { color: 'error' } }]
-  const text = `${CLASSIFIER_DENIER}: ${denial.reason}`
+  const denier = DENIERS[denial.denier]
+  if (denial.reason === null) return [word, { text: denier, style: { color: 'error' } }]
+  const text = `${denier}: ${denial.reason}`
   const drawn = [...others.filter((other) => other.text !== ''), word]
   const used =
     (look.hasToolMarker ? MARKER_CELLS : 0) +
     CELL_GAP * drawn.length +
     drawn.reduce((sum, other) => sum + leastCells(other), 0)
-  const floor = displayWidth(`${CLASSIFIER_DENIER}: `)
+  const floor = displayWidth(`${denier}: `)
   return [
     word,
     {

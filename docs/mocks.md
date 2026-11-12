@@ -528,7 +528,6 @@ After:
 ● sleep 4 …  ~sleep~  +exit 0+  ~1 line~  ~4.3s~                                               (live)
 ● List a missing folder  ~ls~  #exit 2#  #ls: cannot access '/nonexistent-folder': No such file or directory#  ~0.4s~  (live)
 ● Print x after a pipe  ~true~  #refused#  #pipe-status-guard: refusing a status read after `tail`: the pipeline's exit status …#
-● Remove the notes  ~rm~  #error#  #Permission to use Bash with command rm notes.md has been denied.#
 ● Append a probe line  ~printf~  +exit 0+  ~0 lines~  ~2.8s~                                    (live)
   Updated README.md (+1 -0)
 ● Run the unit tests  ~npm~  !running!  ~3.0s~
@@ -555,7 +554,8 @@ After:
 - A call that a hook refused before the run shows `refused` and the first line of the hook
   message (handily-fwkt.8.26). The row leaves out the text before the message:
   `Error: PreToolUse:Bash hook error: [<hook command>]:`. Another errored text that starts with
-  `Error:` shows `error` and its first line.
+  `Error:` shows `error` and its first line, unless it is a denial. A denial has the row of
+  "Terminal, denied calls" below.
   The result block is drawn empty, and `[ more ]` opens the full message.
 - An `Edit`, `Write`, `Read`, `Grep` or `Glob` call that a hook refused shows the tool, the path
   or the pattern, `#refused#` and the first line of the hook message (handily-fwkt.8.27). The
@@ -569,6 +569,48 @@ After:
   non-empty stderr line, dim and cut like the error line. The result block does not change.
 - When the engine saved the output to a file, the row says `output saved to a file` in place of
   the line count. `/simple show N` prints `Full output saved to <path>` above the output.
+
+### Terminal, denied calls (handily-qtykh, handily-ee3l12)
+
+The auto mode classifier, a permission rule or you can deny a call before it runs. Each denial
+draws as one short row. The rows at 80 columns, copied from the test renderer:
+
+```text
+● Edit  src/app.ts  #denied#  #auto mode: Self-Modification#
+● Remove the notes  ~rm~  #denied#  #auto mode#
+● Bash  touch other.txt  #denied#  #by a rule#
+● Edit  src/app.ts  #denied#  #by you#
+● Write  docs/new.md  #denied#  #by you#
+● Bash  rm notes.md  #denied#  #by you#
+```
+
+At 40 columns, drawn from the cell widths that the 40-column test checks:
+
+```text
+● Edit  src/components/…  #denied#  #by you#
+● Bash  touch src/co…  #denied#  #by a rule#
+```
+
+- The auto mode classifier (handily-qtykh): the text starts
+  `Permission for this action was denied by the Claude Code auto mode classifier. Reason:`.
+  The row shows `#denied#`, then `#auto mode:#` and the reason from the brackets. The server-side
+  sentence, which gives no explanation, shows `#auto mode#` alone. A `Bash` row keeps its
+  description and its program.
+- A permission rule (handily-ee3l12): the text is
+  `Permission to use Bash with command touch other.txt has been denied.`, captured on Claude
+  Code 2.1.322. The row shows `Bash`, the command, `#denied#` and `#by a rule#`. A text of the
+  same shape with another tool name draws the same row. A deny rule on `Write` removes the
+  `Write` tool, so no `Write` call can be denied by a rule.
+- You (handily-ee3l12): the text starts `The user doesn't want to proceed with this tool use.`,
+  captured on Claude Code 2.1.312. The row shows the tool, the path, the pattern or the command,
+  `#denied#` and `#by you#`. The mod reads this text with and without the `Error:` prefix,
+  because no capture shows which of the two the row gets.
+- The marker is red. The row has no buttons, and the result block is drawn empty.
+- In a narrow terminal, the path, the pattern, the description or the command is cut first,
+  then the reason of the classifier. `#denied#`, `#auto mode#`, `#by a rule#` and `#by you#` are
+  never cut.
+- A text in neither shape keeps the row of today. A generic tool keeps its generic row with
+  `#error#` for each of the three denials.
 
 ### Terminal, fallback cases (the engine row is drawn unchanged, `next(e)`)
 

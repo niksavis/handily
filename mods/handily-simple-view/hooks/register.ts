@@ -24,7 +24,7 @@ import {
   FILE_TOOLS,
   bashChanges,
   bashEnd,
-  classifierDenial,
+  deniedCall,
   fileEdit,
   isRecord,
   lineCount,
@@ -336,7 +336,10 @@ async function bashUse(
     state,
     elapsedMs: timing?.elapsedMs ?? null,
   }
-  if (state.kind === 'denied') return bashRow(look, view)
+  if (state.kind === 'denied') {
+    if (state.denier === 'classifier') return bashRow(look, view)
+    return deniedRow(look, props.tool, [commandLabel(props.input.command)], state)
+  }
   const isRunning = state.kind === 'running'
   const output = isRunning ? null : callOutput(props.output, props.isErrored)
   if (!isRunning && output === null) return bashRow(look, view)
@@ -378,7 +381,7 @@ async function stoppedUse(
   props: RenderPropsOf['ToolUse'],
   look: RowLook,
 ): Promise<RenderElement | null> {
-  const denial = classifierDenial(props.output)
+  const denial = deniedCall(props.output)
   if (denial !== null) return deniedRow(look, props.tool, await stoppedTarget($, props), denial)
   const message = refusalLine(props.output)
   if (message === null) return null
@@ -478,7 +481,7 @@ async function bashResult(
 
 function isStoppedRow(props: RenderPropsOf['ToolResult']): boolean {
   const isFileRow = FILE_TOOLS.has(props.tool) || READING_TOOLS.has(props.tool)
-  if (isFileRow && classifierDenial(props.output) !== null) return true
+  if (isFileRow && deniedCall(props.output) !== null) return true
   return (isFileRow || drawsGenericRow(props.tool)) && refusalLine(props.output) !== null
 }
 
