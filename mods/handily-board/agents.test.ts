@@ -22,6 +22,7 @@ import type { BoardAgent, BoardTask } from './types'
 import { cutName } from './hooks/names'
 import { NEEDS_YOU_AFTER_MS, withAgentPlan } from './hooks/agents'
 import { maskedCredentials } from './hooks/credentials'
+import { progressKey, readProgress } from './hooks/progress'
 
 const ROOT = '/work/app'
 const PANE = 'tasks'
@@ -2399,4 +2400,132 @@ describe(SETTLED_CRITERION, () => {
       expect(await call).toEqual({ result: 'released' })
     },
   )
+})
+
+const PUBLISH_CRITERION =
+  'When an agent permission ask in this session has no decision after 3 seconds, the board writes a wait with the kind permission, the agent name, the tool and the masked target to the store key of this session, and removes it when the decision arrives'
+
+const PERSON_REFUSES: Settling = { decision: 'reject', source: 'user_reject', mode: 'default' }
+
+type KeptStore = Map<string, unknown>
+
+const OWN_SESSION = '00000000-0000-4000-8000-0000000000aa'
+
+function keptStore(on: On): KeptStore {
+  const store: KeptStore = new Map()
+  on('store.get', (_$, e) => ({ value: store.get(e.key) }))
+  on('store.keys', () => ({ value: [...store.keys()] }))
+  on('store.delete', (_$, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  on('store.set', (_$, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  on('session.id', () => ({ value: OWN_SESSION }))
+  return store
+}
+
+function keptWaits(store: KeptStore) {
+  return readProgress(store.get(progressKey(OWN_SESSION)))?.waits
+}
+
+async function scoutAsksOn($: Engine, seen: World, surface: Surface) {
+  await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+  await spawn($, SCOUT, 'general-purpose', 'scout the hooks', { name: 'scout' })
+  seen.agents.push(
+    listed(SCOUT, 'general-purpose', 'running', { name: 'scout', description: 'scout the hooks' }),
+  )
+  await seen.clock.advance(2 * MINUTE)
+  const askedAt = seen.clock.now()
+  return { askedAt, call: $.tool.call(inLoop({ tool: 'Bash', command: 'npm test' }, SCOUT)) }
+}
+
+describe(PUBLISH_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `a subagent ask writes a permission wait at 3 s with the agent name, the tool and the target, and the decision removes it, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const store = keptStore(on)
+        const dialog = personDialog(on, { 'npm test': 'ask' })
+        const { askedAt, call } = await scoutAsksOn($, seen, surface)
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS - 1)
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([])
+        await seen.clock.advance(1)
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([
+          { kind: 'permission', agent: 'scout', tool: 'Bash', target: 'npm test', since: askedAt },
+        ])
+        await settles($, dialog, 'npm test', PERSON_ALLOWS)
+        await call
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([])
+      },
+    )
+
+    test(
+      `a main loop ask writes a wait of Claude with the masked target, and a refusal removes it, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const store = keptStore(on)
+        const command = 'deploy --token abc123secret'
+        const dialog = personDialog(on, { [command]: 'ask' })
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        const askedAt = seen.clock.now()
+        const call = $.tool.call({ tool: 'Bash', command })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([
+          {
+            kind: 'permission',
+            agent: 'Claude',
+            tool: 'Bash',
+            target: 'deploy --token ***',
+            since: askedAt,
+          },
+        ])
+        await settles($, dialog, command, PERSON_REFUSES)
+        await call
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([])
+      },
+    )
+  }
+
+  test('an ask decided before 3 s writes no wait', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    const store = keptStore(on)
+    const dialog = personDialog(on, { 'npm test': 'ask' })
+    const { call } = await scoutAsksOn($, seen, 'terminal')
+    await dialog.opened(1)
+    await seen.clock.advance(NEEDS_YOU_AFTER_MS - 1)
+    await settles($, dialog, 'npm test', PERSON_ALLOWS)
+    await call
+    await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+    await seen.clock.settle()
+    expect(keptWaits(store)).toEqual([])
+  })
+
+  test('an agent turn that ends removes the wait of its ask', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    const store = keptStore(on)
+    const dialog = personDialog(on, { 'npm test': 'ask' })
+    const { call } = await scoutAsksOn($, seen, 'terminal')
+    await dialog.opened(1)
+    await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+    await seen.clock.settle()
+    expect(keptWaits(store)).toHaveLength(1)
+    await scoutTurnEnds($)
+    await seen.clock.settle()
+    expect(keptWaits(store)).toEqual([])
+    dialog.answer('allow')
+    await call
+  })
 })
