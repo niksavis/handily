@@ -940,8 +940,14 @@ Defer to quiet-items:
 - `task_add` takes `titles` for several tasks and `before` for a place (handily-9uj3n.5). It
   adds through `addTasks`, which checks the room for the whole batch first and then calls
   `addTask` for each title, so one bad title or a batch over the limit adds nothing. A batch of
-  more than one task keeps no transcript row, so Claude Code draws its own row: the kept row
-  type names one task, and its file was outside the scope of the record.
+  more than one task draws one transcript row of the kind `addedMany` (handily-lqssg). The row
+  shows `Tasks`, the ids, `added`, `before N` when the call names a place, and the titles joined
+  with a middle dot: `Tasks 3, 4 added  Write the mocks · Ask the person`. The titles are cut at
+  the end, and `+N` counts the titles that are not shown. The head is never cut. Two ids read
+  as `3, 4`, and three or more consecutive ids read as a range, `3-7`, as the orchestrator
+  decided. Ids that are not consecutive are listed and cut with `+N`. The `/board` replies use
+  `idsText` and write two consecutive ids as `1-2`, but the row lists them as `1, 2`. A refused
+  batch draws the error row of Claude Code.
 - `/board edit` gives a task a new title (handily-9uj3n.4). It uses `titleRefusal`, the title
   rule of `addTask`, so an add and an edit refuse the same titles. The task keeps its author: a
   task of Claude stays quoted as data in the list, also after the person gives it a new title.
