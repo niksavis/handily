@@ -164,6 +164,16 @@ export function elapsedText(ms: number): string {
   return `${String(Math.floor(hours / HOURS_PER_DAY))}d`
 }
 
+const STALLED_WORD = 'stalled'
+
+export type RunTime = { text: string; isStalled: boolean }
+
+export function runTime(clock: BoardTaskClock, now: number): RunTime {
+  const text = elapsedText(now - clock.startedAt)
+  const isStalled = now - runStart(clock) > STALLED_AFTER_MS
+  return isStalled ? { text: `${STALLED_WORD} ${text}`, isStalled } : { text, isStalled }
+}
+
 export function callsText(calls: number): string {
   return calls === 1 ? '1 tool' : `${String(calls)} tools`
 }

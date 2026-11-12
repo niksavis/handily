@@ -1012,7 +1012,7 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 
 ```text
 │ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │  done, in progress, pending
-│ ▶ 2 Write the tab mocks        16m [ rm ] │  16m in warning: in progress over 15m
+│ ▶ 2 Write the tab moc… stalled 16m [ rm ] │  stalled 16m in warning: in progress over 15m
 │ Tasks  ▰▰▰▱▱▱▱▱ 3/10 · ▶1 ○6 · 14m        │  10 tasks: 8 cells, each a share
 │ Tasks  ✓ all 4 done · 14m                 │  finish state, in success
 ```
@@ -1022,10 +1022,13 @@ fold button goes away with the last done task. A folded done group shows no `[ c
   task in progress gets at least one cell. `1/4` counts the done tasks of all tasks. `▶1` and
   `○2` count the tasks in progress and pending, in the colour of their mark. A count of 0 is
   left out. A narrow pane cuts the time first.
-- The time of a task in progress turns to `warning` when its current run passes 15 minutes
-  (`STALLED_AFTER_MS`, docs/design.md). A done task that runs again starts a new run, so it
-  is not stalled at once. The row still shows the time since its first start. The mark and the
-  row keep their look.
+- When the current run of a task in progress passes 15 minutes (`STALLED_AFTER_MS`,
+  docs/design.md), the row shows the word `stalled` before the time, such as `stalled 16m`. The
+  word and the time are both in `warning`, as in the band (16.4). So the stall does not rely on
+  colour. A done task that runs again starts a new run, so it is not stalled at once. The row
+  still shows the time since its first start. The mark and the row keep their look.
+- The time never shrinks in a task row. A narrow pane cuts the title first, so `stalled 16m`
+  stays: `▶ 2 Write … stalled 16m [ rm ]` at 30 columns.
 - When every task is done, the header shows `✓ all 4 done` in `success`, and the time from the
   first tool call to the moment that the last task was done, also a task that never ran. That
   time stops when the work ends.

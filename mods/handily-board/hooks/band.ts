@@ -1,6 +1,6 @@
 import type { PluginOptions, RenderElement, TextProps } from 'claude-code'
 import type { BoardActivity, BoardList, BoardPlan, BoardTask } from '../types'
-import { STALLED_AFTER_MS, elapsedText, runStart } from './activity'
+import { elapsedText, runTime } from './activity'
 import {
   WAITS_LEAD,
   agentLook,
@@ -32,7 +32,6 @@ const BOARD_LABEL = 'board'
 const NEXT_WORD = 'next'
 const CUT_MARK = '…'
 const SPACE_BEFORE_CUT = /\s+…$/u
-const STALLED_WORD = 'stalled'
 const AGENTS_WORD = 'Agents'
 const NO_TASK_TEXT = 'no open task'
 const STRIP_ROWS_AT_MOST = 3
@@ -192,11 +191,8 @@ function timePart(task: BoardTask | undefined, view: Extract<BandView, { kind: '
   if (task.status !== 'in_progress') return [{ text: NEXT_WORD, dimColor: true }]
   const clock = view.activity.clocks[String(task.id)]
   if (clock === undefined) return []
-  const isStalled = view.now - runStart(clock) > STALLED_AFTER_MS
-  const text = elapsedText(view.now - clock.startedAt)
-  return [
-    isStalled ? { text: `${STALLED_WORD} ${text}`, color: 'warning' } : { text, dimColor: true },
-  ]
+  const { text, isStalled } = runTime(clock, view.now)
+  return [isStalled ? { text, color: 'warning' } : { text, dimColor: true }]
 }
 
 function barParts(list: BoardList): Part[] {

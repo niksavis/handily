@@ -8628,8 +8628,25 @@ const HEADER_BAR_CRITERION =
 const STALLED_CRITERION =
   'When a task stays in progress longer than the set time, its time shows in the warning colour'
 
+const STALLED_WORD_CRITERION =
+  'When a task in progress has run for more than 15 minutes in its current run, the this session tab shows its time with the word stalled before it'
+
+const RUN_TIME = /^(?:stalled )?\d+m$/u
+
 const FINISH_CRITERION =
   'When every task is done, the header shows the finish state with the total time'
+
+async function runningRowLine(
+  $: Engine,
+  surface: Surface,
+  placement: 'dock' | 'inline',
+  columns: number,
+): Promise<string | undefined> {
+  const ui = await mountTab($, surface, PANE, placement, columns)
+  const lines = fromTasks(await screen(ui, columns))
+  await ui.unmount()
+  return lines.find((line) => line.startsWith('▶ 2 '))
+}
 
 async function headerOf(ui: { find: Mounted['find'] }): Promise<Drawn> {
   const header = drawnOf(await ui.find({ key: 'tasks-header' }))
@@ -8689,7 +8706,7 @@ for (const surface of SURFACES) {
         await mockWork($, seen)
         const timeOf = async (): Promise<Drawn | undefined> => {
           const ui = await mountTab($, surface, PANE, 'dock', 41)
-          const time = texts(await rowOf(ui, 'task:2')).find((text) => /^\d+m$/.test(text.text))
+          const time = texts(await rowOf(ui, 'task:2')).find((text) => RUN_TIME.test(text.text))
           await ui.unmount()
           return time
         }
@@ -8698,7 +8715,7 @@ for (const surface of SURFACES) {
         expect([due?.text, due?.props.color, due?.props.dimColor]).toEqual(['15m', undefined, true])
         await seen.clock.advance(MINUTE)
         const stalled = await timeOf()
-        expect([stalled?.text, stalled?.props.color]).toEqual(['16m', 'warning'])
+        expect([stalled?.text, stalled?.props.color]).toEqual(['stalled 16m', 'warning'])
       },
     )
 
@@ -8714,7 +8731,7 @@ for (const surface of SURFACES) {
         await board($, 'start 2')
         const timeOf = async (): Promise<Drawn | undefined> => {
           const ui = await mountTab($, surface, PANE, 'dock', 41)
-          const time = texts(await rowOf(ui, 'task:2')).find((text) => /^\d+m$/.test(text.text))
+          const time = texts(await rowOf(ui, 'task:2')).find((text) => RUN_TIME.test(text.text))
           await ui.unmount()
           return time
         }
@@ -8729,7 +8746,71 @@ for (const surface of SURFACES) {
         expect([due?.text, due?.props.color]).toEqual(['39m', undefined])
         await seen.clock.advance(MINUTE)
         const stalled = await timeOf()
-        expect([stalled?.text, stalled?.props.color]).toEqual(['40m', 'warning'])
+        expect([stalled?.text, stalled?.props.color]).toEqual(['stalled 40m', 'warning'])
+      },
+    )
+  })
+
+  describe(STALLED_WORD_CRITERION, () => {
+    test(
+      `a task in progress over 15 minutes reads stalled 16m with colour off at body 41, 30 and 80, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await seen.clock.advance(12 * MINUTE)
+        expect([
+          await runningRowLine($, surface, 'dock', 41),
+          await runningRowLine($, surface, 'dock', 30),
+          await runningRowLine($, surface, 'inline', 80),
+        ]).toEqual([
+          bySurface(
+            surface,
+            '▶ 2 Write the tab… stalled 16m [ rm ]',
+            '▶ 2 Write the tab moc… stalled 16m [ rm ]',
+          ),
+          '▶ 2 Write … stalled 16m [ rm ]',
+          '▶ 2 Write the tab mocks          ▸ Edit docs/mocks.md · 9 to… stalled 16m [ rm ]',
+        ])
+      },
+    )
+
+    test(
+      `a task in progress for 15 minutes shows its time with no word, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await seen.clock.advance(11 * MINUTE)
+        expect([
+          await runningRowLine($, surface, 'dock', 41),
+          await runningRowLine($, surface, 'dock', 30),
+        ]).toEqual([
+          bySurface(
+            surface,
+            '▶ 2 Write the tab mocks    15m [ rm ]',
+            '▶ 2 Write the tab mocks        15m [ rm ]',
+          ),
+          '▶ 2 Write the tab … 15m [ rm ]',
+        ])
+      },
+    )
+
+    test(
+      `a done task that runs again is not stalled at once, with colour off, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await startOn($, surface)
+        await mockWork($, seen)
+        await board($, 'done 2')
+        await seen.clock.advance(20 * MINUTE)
+        await board($, 'start 2')
+        expect(await runningRowLine($, surface, 'dock', 30)).toBe('▶ 2 Write the tab … 24m [ rm ]')
+        await seen.clock.advance(16 * MINUTE)
+        expect(await runningRowLine($, surface, 'dock', 30)).toBe('▶ 2 Write … stalled 40m [ rm ]')
       },
     )
   })

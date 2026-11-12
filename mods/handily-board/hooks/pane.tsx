@@ -9,14 +9,7 @@ import type {
   ThemeKey,
 } from 'claude-code'
 import type { BoardActivity, BoardChecks, BoardList, BoardTask, BoardToolSight } from '../types'
-import {
-  PLAN_REQUEST,
-  STALLED_AFTER_MS,
-  callsText,
-  elapsedText,
-  planLag,
-  runStart,
-} from './activity'
+import { PLAN_REQUEST, callsText, elapsedText, planLag, runTime } from './activity'
 import {
   type AgentsShown,
   NO_AGENTS,
@@ -415,9 +408,9 @@ function clockLine(task: BoardTask, work: PaneWork): string {
 function runningAside(task: BoardTask, work: PaneWork): Cell | undefined {
   const clock = work.activity.clocks[String(task.id)]
   if (task.status !== 'in_progress' || clock === undefined) return undefined
-  const isStalled = work.now - runStart(clock) > STALLED_AFTER_MS
+  const { text, isStalled } = runTime(clock, work.now)
   const style: TextStyle = isStalled ? { color: 'warning' } : { dimColor: true }
-  return { text: elapsedText(work.now - clock.startedAt), style }
+  return { text, style }
 }
 
 function taskCells(task: BoardTask, numberWidth: number, signals: SignalLooks): Cell[] {
