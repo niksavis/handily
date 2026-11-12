@@ -239,7 +239,15 @@ import {
   titleRefusal,
   withTrackerNotice,
 } from './tasks'
-import { addedRow, drawCallRow, listRow, movedRow, removedRow, statusRow } from './transcript'
+import {
+  addedManyRow,
+  addedRow,
+  drawCallRow,
+  listRow,
+  movedRow,
+  removedRow,
+  statusRow,
+} from './transcript'
 import { EMPTY_TREND, trendMeasured, trendTurnEnded, trendTurnStarted } from './trend'
 import {
   EMPTY_VITALS,
@@ -1494,7 +1502,10 @@ async function modelAdd(
   const [task] = tasks
   return {
     result: await listResult(host, addedLead(tasks, before)),
-    row: tasks.length === 1 && task ? addedRow(task) : undefined,
+    row:
+      tasks.length === 1 && task
+        ? addedRow(task)
+        : addedManyRow(tasks, before === LIST_END ? null : before),
   }
 }
 

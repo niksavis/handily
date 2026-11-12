@@ -3515,15 +3515,17 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
   )
 
   test(
-    'a task_add of several titles keeps no row, so it draws the engine row and result',
+    'a refused task_add of several titles draws the engine row and its error',
     withToolIds,
     async ($, on) => {
       const seen = world(on)
       engineRows(on)
       await start($)
-      const batch = await called($, seen, { tool: TOOL_ADD, titles: ['One', 'Two'] })
-      expect(await callRow($, 'terminal', useOf(batch))).toEqual(ENGINE_ROW)
-      expect(await resultBlock($, 'terminal', batch)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+      const refused = await called($, seen, { tool: TOOL_ADD, titles: ['One', 'Two\u0007'] })
+      const { deny } = refused.answer as { deny?: string }
+      expect(deny?.startsWith('task_add refused title 2: ')).toBe(true)
+      expect(await callRow($, 'terminal', useOf(refused))).toEqual(ENGINE_ROW)
+      expect(await resultBlock($, 'terminal', refused)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
     },
   )
 
@@ -3616,6 +3618,120 @@ describe('the task tool rows fit the terminal width', () => {
       },
     )
   }
+})
+
+const SEEDED_BATCH_ID = 'toolu_seeded_batch'
+
+function seededBatch(on: On, ids: readonly number[], titles: readonly string[]): Called {
+  const row = { kind: 'addedMany', ids, before: null, titles }
+  on('state.get', { plugin: PLUGIN, key: 'rows' }, (_$, e, next) =>
+    e.id === SEEDED_BATCH_ID ? { value: { value: row, version: 1 } } : next(e),
+  )
+  return { id: SEEDED_BATCH_ID, tool: TOOL_ADD, input: { titles }, answer: { result: 'Added.' } }
+}
+
+describe('a task_add call with several titles is one row', () => {
+  for (const surface of SURFACES) {
+    test(
+      `two titles draw Tasks, both ids, added and the titles joined by a middle dot on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        const batch = await called($, seen, {
+          tool: TOOL_ADD,
+          titles: ['Write the mocks', 'Ask the person'],
+        })
+        const marker = surface === 'terminal' ? '● ' : ''
+        expect(await callRow($, surface, useOf(batch))).toBe(
+          `${marker}Tasks 1, 2 added  Write the mocks · Ask the person`,
+        )
+        expect(await resultBlock($, surface, batch)).toMatchObject({
+          tree: { type: 'Box' },
+          textCount: 0,
+        })
+      },
+    )
+  }
+
+  test('three or more consecutive ids read as a range', withToolIds, async ($, on) => {
+    const seen = world(on)
+    await start($)
+    const three = await called($, seen, { tool: TOOL_ADD, titles: ['One', 'Two', 'Three'] })
+    const five = await called($, seen, {
+      tool: TOOL_ADD,
+      titles: ['Four', 'Five', 'Six', 'Seven', 'Eight'],
+    })
+    expect(await callRow($, 'terminal', useOf(three))).toBe('● Tasks 1-3 added  One · Two · Three')
+    expect(await callRow($, 'terminal', useOf(five))).toBe(
+      '● Tasks 4-8 added  Four · Five · Six · Seven · Eight',
+    )
+  })
+
+  test(
+    'ids that are not consecutive are listed, and cut with +N when they do not fit',
+    withToolIds,
+    async ($, on) => {
+      world(on)
+      const batch = seededBatch(
+        on,
+        [2, 4, 6, 8, 10, 12, 14, 16],
+        ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'],
+      )
+      await start($)
+      expect(await callRow($, 'terminal', useOf(batch))).toBe(
+        '● Tasks 2, 4, 6, 8, 10, 12, 14, 16 added  One · Two · Three · Four · Five  +3',
+      )
+      expect(await callRow($, 'terminal', useOf(batch), 30)).toBe('● Tasks 2, 4, 6, 8 +4 added')
+    },
+  )
+
+  test(
+    'a call that names a task to add before ends its head with before and that id',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await called($, seen, { tool: TOOL_ADD, titles: ['One', 'Two'] })
+      const placed = await called($, seen, {
+        tool: TOOL_ADD,
+        titles: ['Write the mocks', 'Ask the person'],
+        before: 2,
+      })
+      expect(await callRow($, 'terminal', useOf(placed))).toBe(
+        '● Tasks 3, 4 added before 2  Write the mocks · Ask the person',
+      )
+    },
+  )
+
+  test(
+    'at 40 columns the head stays whole, the titles are cut at the end and +N counts the titles not shown',
+    withToolIds,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const five = await called($, seen, {
+        tool: TOOL_ADD,
+        titles: ['Write the mockups for the pane', 'Ask the person', 'Draw', 'Test', 'Ship'],
+      })
+      const placed = await called($, seen, {
+        tool: TOOL_ADD,
+        titles: ['Review everything carefully', 'Merge'],
+        before: 1,
+      })
+      const rows = [
+        String(await callRow($, 'terminal', useOf(five), 40)),
+        String(await callRow($, 'terminal', useOf(placed), 40)),
+      ]
+      expect(rows).toEqual([
+        '● Tasks 1-5 added  Write the mockup…  +4',
+        '● Tasks 6, 7 added before 1  Review…  +1',
+      ])
+      for (const row of rows)
+        expect(displayWidth(row) <= 40, `"${row}" is wider than 40`).toBe(true)
+    },
+  )
 })
 
 const COMMANDS_CRITERION =

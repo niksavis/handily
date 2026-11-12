@@ -57,7 +57,7 @@ Why `commit-link` and `handover` were dropped:
 | 3 | Tracker source per repo | One source per repo. The first detected source is used, or the source named in `.handily.json`. The provider reports the other sources as ignored |
 | 4 | Raw tracker edit | A direct `Write` or `Edit` of a tracker file draws a distinct "raw tracker edit" row |
 | 5 | quiet-items toggle | The toggle is per session, in `$.state`. `userConfig` holds only the default |
-| 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` is secondary |
+| 6 | Mod versions | Each mod has one version. Bump only a mod that changed. Users update when the `plugin.json` version changes. `claude plugin tag mods/<name>` makes the release tag `<name>--v<version>`. The marketplace pins each mod with a `git-subdir` entry at its latest release tag and the commit of that tag, so a fresh install gets each mod at that tag (handily-lh63p0.4). A merge into `main` reaches no user until the mod is released and pinned |
 | 7 | work-status | Dropped |
 | 8 | bd data | Items that come from `.beads/issues.jsonl` for `bd` carry the label "possibly stale" |
 | 9 | basicly read path | `basicly tracker items --json --status open --status in_progress --status blocked` from `PATH` only, in one call, after the person approves it (handily-8mjdz; it was one `basicly tracker list --status <s>` per open status). Without `basicly` on `PATH` the read fails by name. The repo's `cli.py` fallback was dropped by decision E |
@@ -940,8 +940,14 @@ Defer to quiet-items:
 - `task_add` takes `titles` for several tasks and `before` for a place (handily-9uj3n.5). It
   adds through `addTasks`, which checks the room for the whole batch first and then calls
   `addTask` for each title, so one bad title or a batch over the limit adds nothing. A batch of
-  more than one task keeps no transcript row, so Claude Code draws its own row: the kept row
-  type names one task, and its file was outside the scope of the record.
+  more than one task draws one transcript row of the kind `addedMany` (handily-lqssg). The row
+  shows `Tasks`, the ids, `added`, `before N` when the call names a place, and the titles joined
+  with a middle dot: `Tasks 3, 4 added  Write the mocks · Ask the person`. The titles are cut at
+  the end, and `+N` counts the titles that are not shown. The head is never cut. Two ids read
+  as `3, 4`, and three or more consecutive ids read as a range, `3-7`, as the orchestrator
+  decided. Ids that are not consecutive are listed and cut with `+N`. The `/board` replies use
+  `idsText` and write two consecutive ids as `1-2`, but the row lists them as `1, 2`. A refused
+  batch draws the error row of Claude Code.
 - `/board edit` gives a task a new title (handily-9uj3n.4). It uses `titleRefusal`, the title
   rule of `addTask`, so an add and an edit refuse the same titles. The task keeps its author: a
   task of Claude stays quoted as data in the list, also after the person gives it a new title.
@@ -1657,10 +1663,12 @@ Closed:
   INVEST/C3 review before a record is ready. So the provider reads each open status, not
   only "ready" records.
 - **Q8. Mod release process.** Closed by review decision 6. A release rests on the
-  `plugin.json` version. Users update when that version changes. Each mod has one version,
-  and only a changed mod gets a bump. `claude plugin tag mods/<name>` makes a
-  `<name>--v<version>` tag. The tag is secondary. The command needs a clean tree and a
-  marketplace version that matches.
+  `plugin.json` version and its release tag. Users update when that version changes. Each mod
+  has one version, and only a changed mod gets a bump. `claude plugin tag mods/<name>` makes a
+  `<name>--v<version>` tag. The command needs a clean tree. Since handily-lh63p0.4 the
+  marketplace pins each mod with a `git-subdir` entry at its latest release tag and the commit
+  of that tag, so a fresh install gets each mod at that tag. A pinned entry has no `version`
+  field. `docs/maintaining.md` gives the release steps.
 
 Closed by the P0 probes (handily-0m93, Claude Code 2.1.293):
 

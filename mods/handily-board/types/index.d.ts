@@ -154,6 +154,7 @@ export type BoardTrend = {
 
 export type BoardCallRow =
   | { kind: 'added'; id: number; title: string }
+  | { kind: 'addedMany'; ids: readonly number[]; before: number | null; titles: readonly string[] }
   | { kind: 'status'; id: number; status: BoardStatus; title: string }
   | { kind: 'removed'; id: number; title: string }
   | { kind: 'moved'; id: number; before: number; title: string }

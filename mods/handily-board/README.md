@@ -214,8 +214,12 @@ You can press every button on both tabs with the keyboard alone. A live check on
   names the new ids: `Added tasks 2, 3, 4.` With `before`, the new tasks go before that task;
   without it, they go at the end. A batch that would pass the limit of 100 tasks, or that holds
   one bad title, is refused whole, and no task is added. The refusal names the title by its
-  place, such as `title 2`. A call of several titles draws the transcript row of Claude Code,
-  because the kept row names one task.
+  place, such as `title 2`. A call of several titles draws one transcript row: `Tasks`, the
+  ids, `added`, `before N` when the call names a place, and the titles joined with a middle
+  dot, such as `Tasks 3, 4 added  Write the mocks · Ask the person`. In a narrow terminal the
+  titles are cut at the end, and `+N` counts the titles that are not shown. Two ids read as
+  `3, 4`, and three or more consecutive ids read as a range, such as `3-7`. The `/board`
+  replies write two consecutive ids as `1-2`, but the row lists them as `1, 2`.
 - `task_move` changes the order of the list. The task ids do not change. A move that names an
   unknown id, or the same id twice, is refused with the ids that exist and the correct form.
 - A system prompt section (`handily-board:tasks`, scope `session`) tells the model to keep its
