@@ -21,10 +21,16 @@ import { environmentWithoutGit } from './git-env.mjs'
 
 const repoRoot = join(import.meta.dirname, '..')
 
+function copyGateScripts(root) {
+  for (const script of ['mods.mjs', 'scratch.mjs']) {
+    cpSync(join(repoRoot, 'scripts', script), join(root, 'scripts', script))
+  }
+}
+
 function makeRepoWithUntypedMod() {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-test-'))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
   const mod = join(root, 'mods', 'untyped')
   mkdirSync(join(mod, '.claude-plugin'), { recursive: true })
@@ -83,7 +89,7 @@ function makeRepoWithUnlaidContract({ listsDependency, engineVersion = installed
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-contract-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
   const layMod = (name, manifest, laidTypes) => {
     const mod = join(root, 'mods', name)
@@ -263,7 +269,7 @@ function makeGitRepoWithLaidSnapshot() {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-snapshot-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
   writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
   mkdirSync(join(root, '.claude-plugin'))
@@ -330,11 +336,13 @@ function testOutput(lines) {
   return `\ntimed.test.ts:\n${lines.join('\n')}\n\n ${lines.length} pass\n 0 fail\nRan ${lines.length} tests across 1 file. [3.21s]\n`
 }
 
-function makeRepoWithTimedMod(output, source) {
+const otherTestFiles = ['other.test.ts', 'hooks/inner.test.ts']
+
+function makeTimedRepo(source = timedTestSource, { withGit = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-times-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   writeFileSync(
     join(root, 'scripts', 'passing.test.mjs'),
     "import { test } from 'node:test'\ntest('passes', () => {})\n",
@@ -342,41 +350,273 @@ function makeRepoWithTimedMod(output, source) {
   symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
   const mod = join(root, 'mods', 'timed')
   mkdirSync(join(mod, '.claude-plugin'), { recursive: true })
+  mkdirSync(join(mod, 'hooks'))
   writeFileSync(join(mod, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'timed' }))
   writeFileSync(join(mod, 'timed.test.ts'), source)
-  return { root, bin: makeFakeClaude(`process.stdout.write(${JSON.stringify(output)})`) }
+  for (const file of otherTestFiles) {
+    writeFileSync(
+      join(mod, file),
+      "import { test } from 'claude-code/testing'\ntest('another file', async () => {})\n",
+    )
+  }
+  if (withGit) git(root, 'init', '--quiet')
+  return { root, withGit }
 }
 
-function runTimedTests(output, { runnerEnv = {}, source = timedTestSource } = {}) {
-  const repo = makeRepoWithTimedMod(output, source)
-  const env = { ...process.env, PATH: repo.bin }
+function makeTimedClaude(outputs) {
+  return makeFakeClaude(String.raw`const { appendFileSync, existsSync, readdirSync, readFileSync } = require('node:fs')
+const { join, sep } = require('node:path')
+const outputs = ${JSON.stringify(outputs)}
+const callsPath = join(__dirname, 'calls.jsonl')
+const made = existsSync(callsPath) ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean).length : 0
+const dir = process.argv[4]
+const testFiles = readdirSync(dir, { recursive: true })
+  .filter((path) => /\.test\.tsx?$/.test(path))
+  .map((path) => path.split(sep).join('/'))
+  .sort()
+appendFileSync(callsPath, JSON.stringify({ dir, testFiles }) + '\n')
+process.stdout.write(outputs[Math.min(made, outputs.length - 1)])`)
+}
+
+function readCalls(bin) {
+  const path = join(bin, 'calls.jsonl')
+  if (!existsSync(path)) return []
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+}
+
+function runTimedGate(repo, outputs, { runnerEnv = {} } = {}) {
+  const bin = makeTimedClaude(Array.isArray(outputs) ? outputs : [outputs])
+  const path = repo.withGit ? `${bin}${delimiter}${process.env.PATH}` : bin
+  const env = { ...environmentWithoutGit, PATH: path }
   delete env.GITHUB_ACTIONS
-  return spawnSync(process.execPath, [join(repo.root, 'scripts', 'mods.mjs'), 'test'], {
+  const result = spawnSync(process.execPath, [join(repo.root, 'scripts', 'mods.mjs'), 'test'], {
     cwd: repo.root,
     encoding: 'utf8',
     env: { ...env, ...runnerEnv },
   })
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    calls: readCalls(bin),
+  }
+}
+
+function runTimedTests(output, { runnerEnv = {}, source = timedTestSource } = {}) {
+  return runTimedGate(makeTimedRepo(source), output, { runnerEnv })
+}
+
+const loadPattern = /a load average of \d+\.\d{2} on \d+ CPUs/g
+const shownLoad = 'a load average of LOAD on CPUS CPUs'
+
+function prefixedLines(text, prefix) {
+  return text
+    .split('\n')
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => line.replace(loadPattern, shownLoad))
 }
 
 function failLines(result) {
-  return result.stderr.split('\n').filter((line) => line.startsWith('FAIL '))
+  return prefixedLines(result.stderr, 'FAIL ')
 }
 
+const overBoth = (title, limitMs, firstMs, aloneMs, atLeastMs, machine = '') =>
+  `FAIL timed: timed.test.ts test "${title}" took ${String(firstMs)} ms of its ${String(limitMs)} ms limit in the suite run and ${String(aloneMs)} ms when it ran again alone, more than a third both times${machine}, at ${shownLoad}, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least ${String(atLeastMs)} ms`
+const passedAlone = (title, limitMs, firstMs, aloneMs) =>
+  `NOTE timed: timed.test.ts test "${title}" took ${String(firstMs)} ms of its ${String(limitMs)} ms limit in the suite run, more than a third, and ${String(aloneMs)} ms when it ran again alone, at most a third, at ${shownLoad}, so the gate passes it`
+
+function assertRanAgainAlone(result, calls) {
+  assert.equal(result.calls.length, calls, JSON.stringify(result.calls))
+  const [suite, ...again] = result.calls
+  assert.deepEqual(suite.testFiles, ['hooks/inner.test.ts', 'other.test.ts', 'timed.test.ts'])
+  for (const call of again) {
+    assert.notEqual(call.dir, suite.dir)
+    assert.equal(existsSync(call.dir), false, `${call.dir} is left after the gate`)
+    assert.deepEqual(call.testFiles, ['timed.test.ts'])
+  }
+}
+
+const shortDraw = `${criterionTitle} > a short draw`
+const defaultDraw = `${criterionTitle} > a default draw`
 const overShareOutput = testOutput([
   `(pass) ${criterionTitle} > a draw with 1 agents [1667.01ms]`,
   `(pass) ${criterionTitle} > a draw with 30 agents [9999.00ms]`,
-  `(pass) ${criterionTitle} > a short draw [200.01ms]`,
-  `(pass) ${criterionTitle} > a default draw [1667.67ms]`,
+  `(pass) ${shortDraw} [200.01ms]`,
+  `(pass) ${defaultDraw} [1667.67ms]`,
 ])
 const overShareResult = runTimedTests(overShareOutput)
 
-test('test fails and names the mod, the test, its time and its limit when a test takes more than a third of its limit', () => {
+test('test fails and names the mod, the test, both times, the load and its limit when a test takes more than a third of its limit in the suite run and again alone', () => {
   assert.equal(overShareResult.status, 1, overShareResult.stdout + overShareResult.stderr)
   assert.deepEqual(failLines(overShareResult), [
-    `FAIL timed: timed.test.ts test "${criterionTitle} > a short draw" took 200.01 ms of its 600 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 601 ms`,
-    `FAIL timed: timed.test.ts test "${criterionTitle} > a default draw" took 1667.67 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 5004 ms`,
+    overBoth(shortDraw, 600, 200.01, 200.01, 601),
+    overBoth(defaultDraw, 5000, 1667.67, 1667.67, 5004),
   ])
   assert.match(overShareResult.stdout, /^\(pass\) .+ > a default draw \[1667\.67ms\]$/m)
+  assertRanAgainAlone(overShareResult, 2)
+})
+
+const passedAloneResult = runTimedTests([
+  overShareOutput,
+  testOutput([`(pass) ${shortDraw} [200.00ms]`, `(pass) ${defaultDraw} [1666.66ms]`]),
+])
+
+test('test passes a test over a third of its limit in the suite run that takes at most a third when it runs again alone, and notes both times and the load', () => {
+  assert.equal(passedAloneResult.status, 0, passedAloneResult.stdout + passedAloneResult.stderr)
+  assert.deepEqual(failLines(passedAloneResult), [])
+  assert.deepEqual(prefixedLines(passedAloneResult.stdout, 'NOTE timed: '), [
+    passedAlone(shortDraw, 600, 200.01, 200),
+    passedAlone(defaultDraw, 5000, 1667.67, 1666.66),
+  ])
+  assert.match(passedAloneResult.stdout, /^test: passed$/m)
+  assertRanAgainAlone(passedAloneResult, 2)
+})
+
+test('test notes by name that it keeps no count of the runs alone when git does not answer', () => {
+  assert.match(
+    passedAloneResult.stdout,
+    /^NOTE test: git rev-parse --git-common-dir did not answer, so the gate keeps no count of the tests that ran again alone$/m,
+  )
+})
+
+const justOverAloneResult = runTimedTests([
+  overShareOutput,
+  testOutput([`(pass) ${shortDraw} [200.01ms]`, `(pass) ${defaultDraw} [1666.67ms]`]),
+])
+
+test('test keeps the limit of 5000 ms, the declared limit and the share of a third for a test that runs again alone', () => {
+  assert.equal(
+    justOverAloneResult.status,
+    1,
+    justOverAloneResult.stdout + justOverAloneResult.stderr,
+  )
+  assert.deepEqual(failLines(justOverAloneResult), [
+    overBoth(shortDraw, 600, 200.01, 200.01, 601),
+    overBoth(defaultDraw, 5000, 1667.67, 1666.67, 5004),
+  ])
+})
+
+const referenceTimes = [
+  ['a draw with 30 agents of 20 tasks reads the state 5 times', 1856],
+  [
+    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 5 times from the second',
+    1130,
+  ],
+  ['ignores a call that completes after its session ended', 865],
+  ['closes a background call after 30 minutes without a notification', 572],
+  [
+    'the this session tab draws each Button once, under its own key, in the order a person reads the tab, before the Add input',
+    418,
+  ],
+]
+const twiceSlower = ' on a machine 2.00 times slower than the reference times'
+const scaledReferenceResults = referenceTimes.map(([title, ms]) =>
+  runTimedTests([
+    testOutput([
+      `(pass) Reference > ${title} [${(ms * 2).toFixed(2)}ms]`,
+      `(pass) ${shortDraw} [400.01ms]`,
+      `(pass) ${defaultDraw} [3400.00ms]`,
+    ]),
+    testOutput([
+      `(pass) Reference > ${title} [1.00ms]`,
+      `(pass) ${shortDraw} [400.00ms]`,
+      `(pass) ${defaultDraw} [3333.34ms]`,
+    ]),
+  ]),
+)
+
+test('test keeps each of the five reference times when a test runs again alone on a machine twice as slow', () => {
+  for (const result of scaledReferenceResults) {
+    assert.equal(result.status, 1, result.stdout + result.stderr)
+    assert.match(
+      result.stdout,
+      /^test: the reference tests ran 2\.00 times slower than their reference times, so the time share scales by that factor$/m,
+    )
+    assert.deepEqual(failLines(result), [
+      overBoth(defaultDraw, 5000, 3400, 3333.34, 5100, twiceSlower),
+    ])
+  }
+})
+
+const missingAloneResult = runTimedTests([
+  overShareOutput,
+  testOutput([`(pass) ${shortDraw} [200.00ms]`]),
+])
+
+test('test fails by name a test over a third of its limit when its run alone prints no time for it', () => {
+  assert.equal(missingAloneResult.status, 1, missingAloneResult.stdout + missingAloneResult.stderr)
+  assert.deepEqual(failLines(missingAloneResult), [
+    `FAIL timed: timed.test.ts test "${defaultDraw}" took 1667.67 ms of its 5000 ms limit in the suite run, more than a third, and its run again alone printed no time for it, at ${shownLoad}, so the gate cannot pass it; make it faster, or set timeoutMs in its TestOptions to at least 5004 ms`,
+  ])
+})
+
+const overOnceOutputs = (aloneMs) => [
+  testOutput([`(pass) ${defaultDraw} [1667.67ms]`]),
+  testOutput([`(pass) ${defaultDraw} [${aloneMs}ms]`]),
+]
+const quietOutput = testOutput([`(pass) ${defaultDraw} [1000.00ms]`])
+const warnLines = (result) => prefixedLines(result.stdout, 'WARN ')
+const creepWarning = (lastRuns, inAll, aloneMs, percent) =>
+  `WARN timed: timed.test.ts test "${defaultDraw}" ran again alone ${lastRuns}, ${inAll}, and took ${String(aloneMs)} ms alone, ${String(percent)} percent of its 5000 ms limit; a test that runs again alone in 3 of 5 gate runs, or takes more than a quarter of its limit alone, comes near its limit, so make it faster or set timeoutMs in its TestOptions`
+
+const creepRepo = makeTimedRepo(timedTestSource, { withGit: true })
+const creepRuns = [true, false, true, false, false, true, true].map((ranAgain) =>
+  runTimedGate(creepRepo, ranAgain ? overOnceOutputs('1000.00') : quietOutput),
+)
+
+test('test warns by name with the count and the share when a test ran again alone in 3 of its last 5 gate runs', () => {
+  for (const result of creepRuns) assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(creepRuns.map(warnLines), [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [creepWarning('in 3 of its last 5 gate runs', '4 times in all', 1000, 20)],
+  ])
+})
+
+test('test keeps the count of runs alone under the git common directory and adds no file to the work tree', () => {
+  assert.ok(existsSync(join(creepRepo.root, '.git', 'handily-test-reruns.json')))
+  const status = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: creepRepo.root,
+    encoding: 'utf8',
+    env: environmentWithoutGit,
+  })
+  assert.equal(status.status, 0, status.stderr)
+  assert.match(status.stdout, /mods\/timed\/timed\.test\.ts/)
+  assert.doesNotMatch(status.stdout, /rerun/)
+})
+
+const quarterRepo = makeTimedRepo(timedTestSource, { withGit: true })
+const quarterRuns = ['1250.00', '1250.01'].map((aloneMs) =>
+  runTimedGate(quarterRepo, overOnceOutputs(aloneMs)),
+)
+
+test('test warns by name with the count and the share when a test that ran again alone took more than a quarter of its limit alone', () => {
+  for (const result of quarterRuns) assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(quarterRuns.map(warnLines), [
+    [],
+    [creepWarning('in each of its last 2 gate runs', '2 times in all', 1250.01, 25)],
+  ])
+})
+
+const fewRunsRepo = makeTimedRepo(timedTestSource, { withGit: true })
+const fewRuns = [overOnceOutputs('1250.01'), quietOutput, overOnceOutputs('1250.01')].map(
+  (outputs) => runTimedGate(fewRunsRepo, outputs),
+)
+
+test('test words the warning for fewer than 5 gate runs and says once for one run alone', () => {
+  for (const result of fewRuns) assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(fewRuns.map(warnLines), [
+    [creepWarning('in its last gate run', 'once in all', 1250.01, 25)],
+    [],
+    [creepWarning('in 2 of its last 3 gate runs', '2 times in all', 1250.01, 25)],
+  ])
 })
 
 const longFailingOutput = testOutput([
@@ -407,6 +647,7 @@ test('test passes when every test takes at most a third of its default or declar
   assert.equal(underShareResult.status, 0, underShareResult.stdout + underShareResult.stderr)
   assert.deepEqual(failLines(underShareResult), [])
   assert.match(underShareResult.stdout, /^test: passed$/m)
+  assert.equal(underShareResult.calls.length, 1)
 })
 
 const ciRunnerResult = runTimedTests(overShareOutput, {
@@ -422,15 +663,14 @@ test('test on a GitHub Actions runner names a test over a third of its limit in 
   )
 })
 
+test('test on a GitHub Actions runner runs no test again alone', () => {
+  assert.equal(ciRunnerResult.calls.length, 1)
+})
+
 const referenceLines = (factor) =>
-  [
-    ['ignores a call that completes after its session ended', 865],
-    ['closes a background call after 30 minutes without a notification', 572],
-    [
-      'the this session tab draws each Button once, under its own key, in the order a person reads the tab, before the Add input',
-      418,
-    ],
-  ].map(([title, ms]) => `(pass) Reference > ${title} [${(ms * factor).toFixed(2)}ms]`)
+  referenceTimes
+    .slice(2)
+    .map(([title, ms]) => `(pass) Reference > ${title} [${(ms * factor).toFixed(2)}ms]`)
 
 const slowMachineResult = runTimedTests(
   testOutput([
@@ -447,7 +687,14 @@ test('test scales the share by the median ratio of the reference tests on a slow
     /^test: the reference tests ran 4\.00 times slower than their reference times, so the time share scales by that factor$/m,
   )
   assert.deepEqual(failLines(slowMachineResult), [
-    `FAIL timed: timed.test.ts test "${criterionTitle} > a default draw" took 6667 ms of its 5000 ms limit, more than a third on a machine 4.00 times slower than the reference times, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 5001 ms`,
+    overBoth(
+      defaultDraw,
+      5000,
+      6667,
+      6667,
+      5001,
+      ' on a machine 4.00 times slower than the reference times',
+    ),
   ])
 })
 
@@ -459,7 +706,7 @@ test('test keeps the share of a third when the reference tests run at or below t
   assert.equal(fastMachineResult.status, 1, fastMachineResult.stdout + fastMachineResult.stderr)
   assert.doesNotMatch(fastMachineResult.stdout, /times slower than their reference times/)
   assert.deepEqual(failLines(fastMachineResult), [
-    `FAIL timed: timed.test.ts test "${criterionTitle} > a default draw" took 1667.67 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 5004 ms`,
+    overBoth(defaultDraw, 5000, 1667.67, 1667.67, 5004),
   ])
 })
 
@@ -497,8 +744,7 @@ const sharedTitleResult = runTimedTests(
 
 test('test keeps the 5000 ms limit of a test without timeoutMs whose title a declared title also matches', () => {
   assert.equal(sharedTitleResult.status, 1, sharedTitleResult.stdout + sharedTitleResult.stderr)
-  const refused = (title) =>
-    `FAIL timed: timed.test.ts test "${title}" took 4000 ms of its 5000 ms limit, more than a third, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least 12000 ms`
+  const refused = (title) => overBoth(title, 5000, 4000, 4000, 12000)
   const unhonoured = (title, declaredLine, pattern, line) =>
     `FAIL timed: timed.test.ts test "${title}" matches the timeoutMs of 30000 ms at line ${String(declaredLine)} and also ${pattern} of the test at line ${String(line)} with a limit of 5000 ms, so the gate cannot honour the 30000 ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal`
   assert.deepEqual(failLines(sharedTitleResult), [
@@ -635,7 +881,7 @@ function makeRepoWithTaggedMod() {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-pin-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   mkdirSync(join(root, '.claude-plugin'))
   writeManifest(root, 'board', boardAtTag)
   writeManifest(root, 'items', { version: '0.1.0', description: 'Items with no release tag.' })
@@ -801,7 +1047,7 @@ function makeValidateRepo({ boardDependsOnItems = false, tagItems = false } = {}
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-pinned-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
   writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
   mkdirSync(join(root, '.claude-plugin'))
@@ -1024,7 +1270,7 @@ function makeReleaseCommitRepo({ earlierTag }) {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-first-release-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
   writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
   mkdirSync(join(root, '.claude-plugin'))

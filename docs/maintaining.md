@@ -92,6 +92,12 @@ release commit.
    git push origin main
    ```
 
+## Test time gate on a developer machine
+
+The "Test time limit" section of [CONTRIBUTING.md](../CONTRIBUTING.md) gives the rule of the test
+time gate: the run alone of a test over a third, the `NOTE`, the `WARN` and the count file in the
+git common directory.
+
 ## CI
 
 | Workflow | Starts on | What it does |

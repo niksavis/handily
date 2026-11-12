@@ -51,16 +51,45 @@ through `basicly verify --mode full`.
 | Type check | `npm run typecheck` | A type error against the Claude Code mod API |
 | Lint | `npm run lint` | typescript-eslint strict type-checked findings, such as a promise that is not awaited |
 | Format | `npm run format:check` | Code that Prettier would change. `npm run check` does not run it |
-| Test | `npm test` | A failing test, a mod with no `*.test.ts`, or a test that takes more than a third of its time limit |
+| Test | `npm test` | A failing test, a mod with no `*.test.ts`, or a test that takes more than a third of its time limit in the suite run and again when it runs alone |
 
 ### Test time limit
 
 A mod test has a time limit of 5000 ms, unless its `TestOptions` set `timeoutMs`. `npm test`
-refuses a test that takes more than a third of its time limit. The refusal names the mod, the
-test file, the test, its time and its limit. Make the test faster, or set its `timeoutMs`.
+refuses a test that takes more than a third of its time limit in the suite run and also when it
+runs again alone. Make the test faster, or set its `timeoutMs`.
 
-On GitHub Actions, the gate prints the same line as a `NOTE` and does not fail. A CI runner is
-slower, and there the time limit of each test is the gate.
+Load on the machine makes a test slower. The pre-commit hook runs its checks in parallel, and a
+mod runs its test files at the same time. In the measurement of handily-5rspdc on 2026-11-12, 9
+of 10 quiet runs of handily-reply-view had no test over a third. 5 of 10 runs beside the
+handily-board tests had 1 to 3 tests over. So the gate measures a test over a third once more:
+
+1. After every mod ran, the gate runs each test file that has a test over a third once more,
+   alone. `claude plugin test` cannot run one test or one file in place. So the gate copies the
+   mod to a new temporary folder without its other test files, and runs the copy. It removes
+   only a folder that this run created under the temporary folder of the system. It fails by
+   name when it does not remove the copy.
+2. A test that is at most a third alone passes. The gate prints a `NOTE` with both times and
+   the load average of the machine.
+3. A test that is over a third in both runs fails. A test that prints no time alone also fails.
+   The refusal names the mod, the test file, the test, both times, the load average and the
+   limit.
+4. The limits, the share of a third and the reference times are the same for both runs.
+
+The gate counts the runs alone of each test in `handily-test-reruns.json` in the git common
+directory, which `git rev-parse --git-common-dir` prints. All worktrees of a clone share this
+file, and git does not track it. The gate prints a `WARN` that names the test, with its count
+and its share of the limit, when one of these is true:
+
+- The test ran again alone in 3 or more of its last 5 gate runs.
+- The test took more than a quarter of its limit alone.
+
+Such a test comes near its limit. Make it faster, or set its `timeoutMs`. When git does not
+answer, the gate prints a `NOTE`, keeps no count, and still refuses a test by its times.
+
+On GitHub Actions, the gate runs no test again and keeps no count. It prints the line of a test
+over a third as a `NOTE` and does not fail. A CI runner is slower, and there the time limit of
+each test is the gate.
 
 The gate reads `timeoutMs` from the `test` call in the source of the test file. It reads a
 number, or a `const` of a number in the same file, also through an object spread. It finds the
