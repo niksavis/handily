@@ -34,19 +34,20 @@ function gaugeParts(percent: number, cells: number, palette: PaletteSetting): Pa
   ].filter((part) => part.text !== '')
 }
 
-export type Gauge = { label: string; percent: number; cells: number; tail?: string }
+export type Gauge = { label: string; percent: number; cells: number; tail?: string; pace?: string }
 
 export function gaugeForms(gauge: Gauge, palette: PaletteSetting): Part[][] {
-  const { label, percent, cells, tail } = gauge
+  const { label, percent, cells, tail, pace } = gauge
   const percentText = percentParts(percent)
   const full = [{ text: `${label} ` }, ...gaugeParts(percent, cells, palette), { text: ' ' }]
   const short = [{ text: `${label} ` }]
-  if (tail === undefined)
+  const ends = [pace, tail].filter((end) => end !== undefined)
+  if (ends.length === 0)
     return [
       [...full, ...percentText],
       [...short, ...percentText],
     ]
-  const after = { text: ` ${tail}` }
+  const after = { text: ` ${ends.join(' ')}` }
   return [
     [...full, ...percentText, after],
     [...short, ...percentText, after],

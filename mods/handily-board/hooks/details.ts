@@ -4,6 +4,7 @@ import { elapsedText } from './activity'
 import { type ContextView, contextPartsText, drawContextParts } from './breakdown'
 import { drawChecks } from './checks'
 import type { PaneElements, RowLayout } from './pane'
+import { detailPaceTexts } from './pace'
 import { type Part, PART_LEAD, drawFitLine, drawPartLines, fitLineText } from './parts'
 import { escaped } from './tasks'
 import { tokensText } from './tokens'
@@ -84,11 +85,16 @@ function limitsParts(vitals: Vitals, now: number): Part[] {
   ]
 }
 
+function paceParts(vitals: Vitals, now: number): Part[] {
+  return detailPaceTexts(vitals.readings, vitals.limits, now, limitName).map((text) => ({ text }))
+}
+
 function detailGroups(vitals: Vitals, now: number): Group[] {
   return [
     { key: CONTEXT_GROUP, parts: contextParts(vitals), lead: PART_LEAD },
     { key: 'session-near-limit', parts: nearLimitParts(vitals), lead: WORD_LEAD },
     { key: 'session-limits', parts: limitsParts(vitals, now), lead: PART_LEAD },
+    { key: 'session-pace', parts: paceParts(vitals, now), lead: PART_LEAD },
   ].filter((group) => group.parts.length > 0)
 }
 

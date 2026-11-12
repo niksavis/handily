@@ -5,6 +5,7 @@ import { gateAtoms, verdictParts } from './checks'
 import { counted, limitName, resetsInMs } from './details'
 import { SESSION_LOOK, type StyledPart, drawStyledParts, titlePart } from './frame'
 import { CONTEXT_CELLS, LIMIT_CELLS, gaugeForms } from './gauge'
+import { fullText, paceOf } from './pace'
 import type { PaletteSetting } from './palette'
 import type { PaneElements } from './pane'
 import { type Atom, type FlowAtom, type Part, fitAtoms, flowLines, spansWidth } from './parts'
@@ -152,7 +153,13 @@ function moneyAtoms(view: SessionView, hasPlaceholders: boolean): FlowAtom[] {
     ...costAtoms(vitals),
     ...vitals.limits.map((limit) => {
       const tail = view.hasResets ? resetsText(limit, view.now) : undefined
-      const gauge = { label: limitName(limit), percent: limit.percentUsed, cells: LIMIT_CELLS }
+      const pace = fullText(paceOf(vitals.readings, limit, view.now))
+      const gauge = {
+        label: limitName(limit),
+        percent: limit.percentUsed,
+        cells: LIMIT_CELLS,
+        pace,
+      }
       if (tail === undefined) return { forms: gaugeForms(gauge, view.palette) }
       return { forms: gaugeForms({ ...gauge, tail }, view.palette), isWhole: true }
     }),

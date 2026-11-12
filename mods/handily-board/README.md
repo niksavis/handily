@@ -84,6 +84,7 @@ Replies, from the tests:
       trend after 2 turns
       no breakdown on this host
       limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d
+      pace after 15m of readings
       Context 124k of 200k tokens. Limits reset: 5h in 2 hours, 7d in 4 days.
       Checks 2: 1 allowed, 1 asked (the classifier or you), 0 denied.
       file 1 · shell 1 · other 0
@@ -468,6 +469,15 @@ Session  ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $
   as `124k/200k` or `663k/1.0M`, after the percent. A narrow row moves them to the next line.
 - From a body of 56 columns, each limit shows when it resets, such as `5h ▰▱▱▱▱ 31% resets 2h`.
   A narrower body keeps the reset times in the details.
+- When the use of a limit rises over at least 15 minutes of readings and reaches 100 percent
+  before its reset at that pace, the limit shows when it fills, such as
+  `5h ▰▰▰▱▱ 62% full ~1h resets 2h`. Fewer readings, flat or falling use, or a last reading over
+  30 minutes old show no projection. The details show a `pace` line, such as
+  `pace 5h full ~1h · 7d no growth` or `pace after 15m of readings`.
+- At 80 and 95 percent of a limit, one session of this machine shows a toast, such as
+  `◆ 5h limit at 80%` and `full ~50m at this pace · resets in 2h`, once for each level in each
+  cycle of the limit. The sessions share the store key `limit-warned:<kind>`. Known limit: two
+  sessions that read the key back at the same time can both show the toast.
 
 The context and a limit at 80 percent or more, from the tests at 41 columns:
 

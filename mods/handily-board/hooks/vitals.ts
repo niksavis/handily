@@ -1,4 +1,5 @@
 import type { SessionMeasureInput, SessionRateLimit, SessionUsage } from 'claude-code'
+import { type LimitReadings, NO_READINGS, withReadings } from './pace'
 import type { SharedContext } from './progress'
 
 export const CONTEXT_HIGH = 80
@@ -20,6 +21,7 @@ export type Vitals = {
   tokens: number | undefined
   window: number | undefined
   limits: readonly SessionRateLimit[]
+  readings: LimitReadings
   usd: number | undefined
   turnStartUsd: number | undefined
   isTurnRunning: boolean
@@ -39,6 +41,7 @@ export const EMPTY_VITALS: Vitals = {
   tokens: undefined,
   window: undefined,
   limits: [],
+  readings: NO_READINGS,
   usd: undefined,
   turnStartUsd: undefined,
   isTurnRunning: false,
@@ -53,7 +56,7 @@ export type VitalsUsage = Pick<SessionUsage, 'context' | 'cost' | 'rateLimits'>
 
 export type VitalsMeasure = Pick<SessionMeasureInput, 'context' | 'cost' | 'changed' | 'rateLimits'>
 
-export function withUsage(vitals: Vitals, usage: VitalsUsage): Vitals {
+export function withUsage(vitals: Vitals, usage: VitalsUsage, now: number): Vitals {
   if (vitals.isMeasured) return vitals
   const { context } = usage
   return {
@@ -62,6 +65,7 @@ export function withUsage(vitals: Vitals, usage: VitalsUsage): Vitals {
     tokens: context.tokens,
     window: context.window,
     limits: usage.rateLimits,
+    readings: withReadings(vitals.readings, usage.rateLimits, now),
     usd: usage.cost?.usd,
   }
 }
@@ -77,20 +81,16 @@ function turnStartAfter(vitals: Vitals, usd: number | undefined): number | undef
   return isDropped || usd < turnStartUsd ? usd : turnStartUsd
 }
 
-function limitsAfter(
-  vitals: Vitals,
-  measure: VitalsMeasure,
-  changed: ReadonlySet<string>,
-): readonly SessionRateLimit[] {
-  const isCarried = changed.has('rateLimits') || measure.rateLimits.length > 0
-  return isCarried ? measure.rateLimits : vitals.limits
+export function hasCarriedLimits(measure: VitalsMeasure): boolean {
+  return measure.changed.includes('rateLimits') || measure.rateLimits.length > 0
 }
 
-export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
+export function withMeasure(vitals: Vitals, measure: VitalsMeasure, now: number): Vitals {
   const changed = new Set(measure.changed)
   const usd = changed.has('cost') ? measure.cost?.usd : vitals.usd
   const isTurnMeasure = changed.has('cost') || changed.has('context')
   const context = changed.has('context') ? measure.context : vitals
+  const isCarried = hasCarriedLimits(measure)
   return {
     ...vitals,
     isMeasured: true,
@@ -98,7 +98,8 @@ export function withMeasure(vitals: Vitals, measure: VitalsMeasure): Vitals {
     percent: context.percent,
     tokens: context.tokens,
     window: context.window,
-    limits: limitsAfter(vitals, measure, changed),
+    limits: isCarried ? measure.rateLimits : vitals.limits,
+    readings: isCarried ? withReadings(vitals.readings, measure.rateLimits, now) : vitals.readings,
     usd,
     turnStartUsd: turnStartAfter(vitals, usd),
     isTurnMeasured: vitals.isTurnMeasured || isTurnMeasure,
@@ -148,7 +149,7 @@ export function withCompaction(vitals: Vitals): Vitals {
 }
 
 export function withClear(vitals: Vitals): Vitals {
-  return { ...EMPTY_VITALS, hasNoUsage: vitals.hasNoUsage }
+  return { ...EMPTY_VITALS, hasNoUsage: vitals.hasNoUsage, readings: vitals.readings }
 }
 
 export function cents(usd: number): number {

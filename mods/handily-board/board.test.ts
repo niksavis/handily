@@ -36,6 +36,13 @@ import type { TaskHost } from './hooks/commands'
 import { type PlanHost, addPlanAsTasks, newPlan } from './hooks/plan'
 import type { BoardList, BoardPlan } from './types'
 import { bandSetting } from './hooks/band'
+import { EMPTY_CHECKS } from './hooks/checks'
+import { detailsText } from './hooks/details'
+import { DEFAULT_PALETTE } from './hooks/palette'
+import { NO_REQUEST } from './hooks/request'
+import { sessionBlockText } from './hooks/session'
+import { PLAIN_SIGNALS } from './hooks/toasting'
+import { EMPTY_VITALS } from './hooks/vitals'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -5730,6 +5737,7 @@ const DETAIL_SCREENS: readonly {
       '    no breakdown on this host',
       '    limits 5h 31% · 7d 13%',
       '    resets 5h in 2h · 7d in 4d',
+      '    pace after 15m of readings',
       '    checks 5 · 5 allowed',
       '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
@@ -5746,6 +5754,7 @@ const DETAIL_SCREENS: readonly {
       '    no breakdown on this host',
       '    limits 5h 31% · 7d 13%',
       '    resets 5h in 2h · 7d in 4d',
+      '    pace after 15m of readings',
       '    checks 5 · 5 allowed',
       '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
@@ -5761,6 +5770,7 @@ const DETAIL_SCREENS: readonly {
       '    trend after 2 turns',
       '    no breakdown on this host',
       '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
+      '    pace after 15m of readings',
       '    checks 5 · 5 allowed',
       '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
@@ -5962,6 +5972,7 @@ describe('the Session details keep only the facts of the session that runs now',
           '    no breakdown on this host',
           '    limits 5h 31% · 7d 13%',
           '    resets 5h in 2h · 7d in 4d',
+          '    pace after 15m of readings',
         ])
       }
     },
@@ -6001,9 +6012,10 @@ describe('the Session details keep only the facts of the session that runs now',
     await measure($, { percent: 62, usd: 4.18, limits })
     for (const surface of SURFACES) {
       const lines = await sessionDetails($, surface, 'dock', 41)
-      expect(lines.slice(-2)).toEqual([
+      expect(lines.slice(-3)).toEqual([
         '    limits 5h 31% · 7d 13%',
         '    resets 5h now · 7d in 4d',
+        '    pace after 15m of readings',
       ])
     }
   })
@@ -6025,6 +6037,7 @@ describe('the Session details keep only the facts of the session that runs now',
 
           '    limits 5h 31% · 7d 13%',
           '    resets 5h in 2h · 7d in 4d',
+          '    pace after 15m of readings',
         ])
       }
     },
@@ -6751,6 +6764,475 @@ describe(NO_LIMITS_CRITERION, () => {
         expect(await sessionLine($, surface, 'dock', 41)).toBe('no context or cost on this host')
         expect(await receiptLine($, surface)).toBe('last 5s · 0 edits · 0 errors')
       }
+    },
+  )
+})
+
+const PACE_CRITERION =
+  'When the 5 hour or weekly usage rises over at least 15 minutes of readings and reaches 100 percent before its reset at that pace, the Session line shows full with a tilde and the projected time, such as full ~1h, as the mocks recorded on this record on 2026-11-12.'
+const NO_PACE_CRITERION =
+  'When there are fewer than 2 readings, less than 15 minutes of readings, flat or falling use, or a last reading over 30 minutes old, the Session line shows no projection, and when Claude Code reports no limits the details read limits: none reported; no number is invented.'
+const LIMIT_WARN_CRITERION =
+  'When the usage crosses 80 or 95 percent, the sessions of this machine show one toast per level and cycle through one store key per limit kind, with the known limit that two sessions passing the read-back at once can both warn.'
+
+const PACE_START = START
+const PACE_RESET = PACE_START + 2 * HOUR + 30 * MINUTE
+const WEEK_RESET = PACE_START + 4 * DAY + 2 * HOUR
+const CLAIM_WAIT_AT_MOST = 800
+const FIVE_HOUR_KEY = 'limit-warned:five_hour'
+const OTHER_SESSION_ID = '00000000-0000-4000-8000-00000000000b'
+const NO_PACE_LINE =
+  'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% resets 2h · 7d ▱▱▱▱▱ 13% resets 4d'
+
+function paceLimits(fiveHour: number, fiveReset: number | null = PACE_RESET): SessionRateLimit[] {
+  return [
+    {
+      kind: 'five_hour',
+      percentUsed: fiveHour,
+      ...(fiveReset === null ? {} : { resetsAt: new Date(fiveReset).toISOString() }),
+    },
+    { kind: 'seven_day', percentUsed: 12.6, resetsAt: new Date(WEEK_RESET).toISOString() },
+  ]
+}
+
+async function paceReadings(
+  $: Engine,
+  seen: World,
+  readings: readonly { after: number; fiveHour: number; reset?: number | null }[],
+): Promise<void> {
+  await seen.clock.set(PACE_START)
+  await start($)
+  for (const reading of readings) {
+    await seen.clock.advance(reading.after)
+    await measure($, {
+      percent: 62,
+      usd: 4.8,
+      limits: paceLimits(
+        reading.fiveHour,
+        reading.reset === undefined ? PACE_RESET : reading.reset,
+      ),
+    })
+  }
+}
+
+const RISING = [
+  { after: 0, fiveHour: 54 },
+  { after: 8 * MINUTE, fiveHour: 58 },
+  { after: 8 * MINUTE, fiveHour: 62 },
+]
+
+function paceRows(lines: readonly string[]): string[] {
+  const first = lines.findIndex((line) => line.startsWith('    pace'))
+  return first === -1 ? [] : lines.slice(first)
+}
+
+function sharedStore(
+  on: On,
+  entries: Readonly<Record<string, unknown>> = {},
+): Map<string, unknown> {
+  const store = new Map<string, unknown>(Object.entries(entries))
+  on('session.id', () => ({ value: OWN_SESSION_ID }))
+  on('store.get', (_$, e) => ({ value: store.get(e.key) }))
+  on('store.keys', () => ({ value: [...store.keys()] }))
+  on('store.delete', (_$, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  on('store.set', (_$, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  return store
+}
+
+function warnedKey(level: number, by: string, cycle: number | null = PACE_RESET) {
+  return {
+    v: 1,
+    kind: 'five_hour',
+    cycle: cycle === null ? null : new Date(cycle).toISOString(),
+    level,
+    at: PACE_START,
+    by,
+  }
+}
+
+describe(PACE_CRITERION, () => {
+  test(
+    'rising readings over 16 minutes show full ~1h before the resets on the Session line and in the details, as the mock of handily-cver9',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, RISING)
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'inline', 76)).toBe(
+          'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% full ~1h resets 2h · 7d ▱▱▱▱▱ 13% resets 4d',
+        )
+        const lines = await sessionDetails($, surface, 'dock', 41)
+        expect(paceRows(lines)).toEqual(['    pace 5h full ~1h · 7d no growth'])
+      }
+    },
+  )
+
+  test(
+    'at 80 percent or more the limit keeps the word high before the projection, as the mock of handily-cver9',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, [
+        { after: 0, fiveHour: 78 },
+        { after: 15 * MINUTE, fiveHour: 84 },
+      ])
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'inline', 76)).toBe(
+          'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▰▱ 84% high full ~40m resets 2h · 7d ▱▱▱▱▱ 13% resets 4d',
+        )
+      }
+    },
+  )
+
+  test(
+    'below 56 columns the resets drop, a line with no room drops the gauge before the projection, and the projection stays, at 40 and 30 columns',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, RISING)
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'inline', 40)).toBe(
+          'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h 62% full ~1h · 7d ▱▱▱▱▱ 13%',
+        )
+        expect(await sessionLine($, surface, 'dock', 30)).toBe(
+          'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% full ~1h · 7d ▱▱▱▱▱ 13%',
+        )
+      }
+    },
+  )
+
+  test(
+    'a /clear keeps the readings, so the next measure of the limits keeps the projection',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, RISING.slice(0, 2))
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      await seen.clock.advance(8 * MINUTE)
+      await measure($, { percent: 62, usd: 4.8, limits: paceLimits(62) })
+      for (const surface of SURFACES) {
+        const lines = await sessionDetails($, surface, 'dock', 41)
+        expect(paceRows(lines)).toEqual(['    pace 5h full ~1h · 7d no growth'])
+      }
+    },
+  )
+})
+
+describe(NO_PACE_CRITERION, () => {
+  const cases: readonly {
+    name: string
+    readings: readonly { after: number; fiveHour: number; reset?: number }[]
+    later?: number
+    pace: readonly string[]
+    line?: string
+  }[] = [
+    {
+      name: 'one reading',
+      readings: [{ after: 0, fiveHour: 62 }],
+      pace: ['    pace after 15m of readings'],
+    },
+    {
+      name: 'two readings 10 minutes apart',
+      readings: [
+        { after: 0, fiveHour: 54 },
+        { after: 10 * MINUTE, fiveHour: 62 },
+      ],
+      pace: ['    pace after 15m of readings'],
+    },
+    {
+      name: 'flat use over 16 minutes',
+      readings: [
+        { after: 0, fiveHour: 62 },
+        { after: 8 * MINUTE, fiveHour: 62 },
+        { after: 8 * MINUTE, fiveHour: 62 },
+      ],
+      pace: ['    pace 5h no growth · 7d no growth'],
+    },
+    {
+      name: 'falling use',
+      readings: [
+        { after: 0, fiveHour: 66 },
+        { after: 8 * MINUTE, fiveHour: 68 },
+        { after: 8 * MINUTE, fiveHour: 62 },
+      ],
+      pace: ['    pace 5h no pace yet · 7d no growth'],
+    },
+    {
+      name: 'a last reading 31 minutes old',
+      readings: RISING,
+      later: 31 * MINUTE,
+      pace: ['    pace: no reading for 31m'],
+      line: 'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% resets 1h · 7d ▱▱▱▱▱ 13% resets 4d',
+    },
+    {
+      name: 'a pace that fills after the reset',
+      readings: RISING.map((reading) => ({ ...reading, reset: PACE_START + 46 * MINUTE })),
+      pace: ['    pace 5h full after reset', '    7d no growth'],
+      line: 'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% resets 30m · 7d ▱▱▱▱▱ 13% resets 4d',
+    },
+  ]
+  for (const { name, readings, later, pace, line } of cases) {
+    test(
+      `${name} shows no projection on the Session line and says why in the details`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await paceReadings($, seen, readings)
+        if (later !== undefined) await seen.clock.advance(later)
+        for (const surface of SURFACES) {
+          expect(await sessionLine($, surface, 'inline', 76)).toBe(line ?? NO_PACE_LINE)
+          const lines = await sessionDetails($, surface, 'dock', 41)
+          expect(paceRows(lines)).toEqual(pace)
+          expect(lines.join('\n')).not.toContain('full ~')
+        }
+      },
+    )
+  }
+
+  test(
+    'a projected time that passed with no new reading shows no projection and names the age of the last reading',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, [
+        { after: 0, fiveHour: 80 },
+        { after: 15 * MINUTE, fiveHour: 90 },
+      ])
+      await seen.clock.advance(20 * MINUTE)
+      for (const surface of SURFACES) {
+        expect(await sessionLine($, surface, 'inline', 76)).toBe(
+          'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▰▱ 90% high resets 1h · 7d ▱▱▱▱▱ 13% resets 4d',
+        )
+        const lines = await sessionDetails($, surface, 'dock', 41)
+        expect(paceRows(lines)).toEqual(['    pace 5h no reading for 20m', '    7d no growth'])
+      }
+    },
+  )
+
+  test(
+    'with no rate limits the details read limits: none reported and draw no pace line',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await seen.clock.set(PACE_START)
+      await start($)
+      await measure($, { percent: 62, usd: 4.18 })
+      await seen.clock.advance(16 * MINUTE)
+      await measure($, { percent: 64, usd: 4.3 })
+      for (const surface of SURFACES) {
+        const lines = await sessionDetails($, surface, 'dock', 41)
+        expect(lines.at(-1)).toBe('    limits: none reported')
+        expect(paceRows(lines)).toEqual([])
+      }
+    },
+  )
+
+  test('a vitals value with limits and no readings draws no projection', () => {
+    const vitals = {
+      ...EMPTY_VITALS,
+      percent: 62,
+      tokens: 124_000,
+      window: 200_000,
+      usd: 4.8,
+      limits: paceLimits(62),
+    }
+    const view = {
+      vitals,
+      waits: 0,
+      checks: EMPTY_CHECKS,
+      request: NO_REQUEST,
+      now: PACE_START,
+      signals: PLAIN_SIGNALS,
+      palette: DEFAULT_PALETTE,
+      hasResets: true,
+    }
+    expect(sessionBlockText(view)).not.toContain('full ~')
+    expect(detailsText(vitals, PACE_START).split('\n')).toContain('pace after 15m of readings')
+  })
+})
+
+describe(LIMIT_WARN_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `crossing 80 and then 95 percent shows one toast for each level and writes one store key for the limit, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { surfaces: [surface] })
+        const store = sharedStore(on)
+        await paceReadings($, seen, [
+          { after: 0, fiveHour: 78 },
+          { after: MINUTE, fiveHour: 81 },
+          { after: 100, fiveHour: 82 },
+        ])
+        await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+        await measure($, { percent: 62, usd: 4.8, limits: paceLimits(83) })
+        await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+        expect(seen.toasts).toEqual([['◆ 5h limit at 80%', 'no pace yet · resets in 2h']])
+        expect(store.get(FIVE_HOUR_KEY)).toEqual({
+          ...warnedKey(80, OWN_SESSION_ID),
+          at: PACE_START + MINUTE,
+        })
+        expect([...store.keys()].filter((key) => key.startsWith('limit-warned:'))).toEqual([
+          FIVE_HOUR_KEY,
+        ])
+        await measure($, { percent: 62, usd: 4.8, limits: paceLimits(96) })
+        await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+        expect(seen.toasts).toEqual([
+          ['◆ 5h limit at 80%', 'no pace yet · resets in 2h'],
+          ['◆ 5h limit at 95% nearly full', 'no pace yet · resets in 2h'],
+        ])
+        expect(seen.toastMs).toEqual([10000, 10000])
+      },
+    )
+  }
+
+  test(
+    'a toast after 15 minutes of rising readings names the projection and the reset',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      sharedStore(on)
+      await paceReadings($, seen, [
+        { after: 0, fiveHour: 74 },
+        { after: 15 * MINUTE, fiveHour: 80 },
+      ])
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([['◆ 5h limit at 80%', 'full ~50m at this pace · resets in 2h']])
+    },
+  )
+
+  test(
+    'with glyphs nerd the toast draws the nerd mark of waitsForYou on the terminal',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { glyphs: 'nerd' })
+      sharedStore(on)
+      await paceReadings($, seen, [{ after: 0, fiveHour: 81 }])
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([['\u{EAA2} 5h limit at 80%', 'no pace yet · resets in 2h']])
+    },
+  )
+
+  test(
+    'two measures that cross 80 percent at once in one session show one toast',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      sharedStore(on)
+      await paceReadings($, seen, [{ after: 0, fiveHour: 78 }])
+      await Promise.all([
+        measure($, { percent: 62, usd: 4.8, limits: paceLimits(84) }),
+        measure($, { percent: 62, usd: 4.8, limits: paceLimits(85) }),
+      ])
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([['◆ 5h limit at 80%', 'no pace yet · resets in 2h']])
+    },
+  )
+
+  test(
+    'a session that finds the key of this cycle claimed by another session shows no toast',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const claimed = warnedKey(80, OTHER_SESSION_ID)
+      const store = sharedStore(on, { [FIVE_HOUR_KEY]: claimed })
+      await paceReadings($, seen, [{ after: 0, fiveHour: 84 }])
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([])
+      expect(store.get(FIVE_HOUR_KEY)).toEqual(claimed)
+    },
+  )
+
+  test(
+    'a session whose claim another session overwrote before the read-back shows no toast',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const store = sharedStore(on)
+      await paceReadings($, seen, [{ after: 0, fiveHour: 84 }])
+      expect(store.get(FIVE_HOUR_KEY)).toMatchObject({ by: OWN_SESSION_ID, level: 80 })
+      store.set(FIVE_HOUR_KEY, warnedKey(80, OTHER_SESSION_ID))
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([])
+    },
+  )
+
+  test('a new cycle after the reset warns again at 80 percent', withWorkitems, async ($, on) => {
+    const seen = world(on)
+    const store = sharedStore(on)
+    await paceReadings($, seen, [{ after: 0, fiveHour: 81 }])
+    await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+    await seen.clock.set(PACE_RESET + MINUTE)
+    const nextReset = PACE_RESET + 5 * HOUR
+    await measure($, { percent: 62, usd: 4.8, limits: paceLimits(85, nextReset) })
+    await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+    expect(seen.toasts).toEqual([
+      ['◆ 5h limit at 80%', 'no pace yet · resets in 2h'],
+      ['◆ 5h limit at 80%', 'no pace yet · resets in 4h'],
+    ])
+    expect(store.get(FIVE_HOUR_KEY)).toMatchObject({
+      cycle: new Date(nextReset).toISOString(),
+      by: OWN_SESSION_ID,
+    })
+  })
+
+  test(
+    'with no reset time a fall of 20 points starts a new cycle that warns again',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      sharedStore(on)
+      await paceReadings($, seen, [{ after: 0, fiveHour: 85, reset: null }])
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      await measure($, { percent: 62, usd: 4.8, limits: paceLimits(60, null) })
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      await measure($, { percent: 62, usd: 4.8, limits: paceLimits(82, null) })
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([
+        ['◆ 5h limit at 80%', 'no pace yet'],
+        ['◆ 5h limit at 80%', 'no pace yet'],
+      ])
+    },
+  )
+
+  test(
+    'at session start a key of a past cycle and a key it cannot read are deleted, and a key of this cycle stays',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const current = {
+        ...warnedKey(80, OTHER_SESSION_ID),
+        kind: 'seven_day',
+        cycle: new Date(WEEK_RESET).toISOString(),
+      }
+      const store = sharedStore(on, {
+        [FIVE_HOUR_KEY]: warnedKey(95, OTHER_SESSION_ID, PACE_START - HOUR),
+        'limit-warned:spend_limit': { v: 2, kind: 'spend_limit' },
+        'limit-warned:seven_day': current,
+      })
+      await seen.clock.set(PACE_START)
+      await start($)
+      expect(store.has(FIVE_HOUR_KEY)).toBe(false)
+      expect(store.has('limit-warned:spend_limit')).toBe(false)
+      expect(store.get('limit-warned:seven_day')).toEqual(current)
+    },
+  )
+
+  test(
+    'a session whose store fails shows no toast and logs the cause',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, [{ after: 0, fiveHour: 84 }])
+      await seen.clock.advance(CLAIM_WAIT_AT_MOST)
+      expect(seen.toasts).toEqual([])
+      expect(seen.logs.some((line) => line.includes('the limit warning'))).toBe(true)
     },
   )
 })
@@ -8323,6 +8805,7 @@ for (const surface of SURFACES) {
             '    trend after 2 turns',
             '    no breakdown on this host',
             '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
+            '    pace after 15m of readings',
             '    Context 124k of 200k tokens. Limits reset: 5h in 2 hours, 7d in 4 days.',
             '    Checks 2: 1 allowed, 1 asked (the classifier or you), 0 denied.',
             '    file 1 · shell 1 · other 0',

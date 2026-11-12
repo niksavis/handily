@@ -137,6 +137,14 @@ import {
   updateProgress,
 } from './sessions'
 import {
+  type WarnHost,
+  type WarnKeep,
+  newWarnKeep,
+  randomUnit,
+  removeStaleWarnings,
+  warnLimits,
+} from './limit-warn'
+import {
   type AgentSummary,
   agentSummary,
   completeTurn,
@@ -238,6 +246,7 @@ import {
   type Vitals,
   isEditTool,
   sharedContext,
+  hasCarriedLimits,
   withMeasure,
   withClear,
   withCompaction,
@@ -1144,11 +1153,11 @@ async function noteCheck(
 async function noteVitals(
   $: EngineInterface,
   keep: VitalsKeep,
-  change: (vitals: Vitals) => Vitals,
+  change: (vitals: Vitals, now: number) => Vitals,
 ): Promise<void> {
   const now = await $.clock.now()
   const drawn = vitalsText(keep.current, now)
-  keep.current = change(keep.current)
+  keep.current = change(keep.current, now)
   if (vitalsText(keep.current, now) !== drawn) $.ui.invalidate('ui.render')
 }
 
@@ -1193,10 +1202,24 @@ async function shareContext($: EngineInterface, machine: Machine, keep: VitalsKe
   )
 }
 
+function warnHost($: EngineInterface): WarnHost {
+  return {
+    ...sessionsHost($),
+    random: randomUnit,
+    showToast: (parts) => {
+      showGlyphToast($, parts)
+    },
+  }
+}
+
+async function warnFromVitals($: EngineInterface, keep: WarnKeep, vitals: Vitals): Promise<void> {
+  await warnLimits(warnHost($), keep, vitals.limits, vitals.readings)
+}
+
 async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
   try {
     const usage = await $.session.usage()
-    await noteVitals($, keep, (vitals) => withUsage(vitals, usage))
+    await noteVitals($, keep, (vitals, now) => withUsage(vitals, usage, now))
   } catch (error) {
     $.ui.log(`handily-board: no context or cost on this host: ${String(error)}`, { to: 'debug' })
     await noteVitals($, keep, withoutUsage)
@@ -1607,6 +1630,7 @@ export const register: Register = (on, options) => {
   }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
+  const warnings = newWarnKeep()
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const request: RequestKeep = { current: NO_REQUEST }
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
@@ -1640,8 +1664,10 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     const host = sessionsHost($)
     await removeExpiredKeys(host)
+    await removeStaleWarnings(warnHost($))
     await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
     await readUsage($, vitals)
+    await warnFromVitals($, warnings, vitals.current)
     await trendOf($, trend)
     vitals.shared = undefined
     await shareContext($, machine, vitals)
@@ -1658,7 +1684,8 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
-    await noteVitals($, vitals, (current) => withMeasure(current, e))
+    await noteVitals($, vitals, (current, now) => withMeasure(current, e, now))
+    if (hasCarriedLimits(e)) await warnFromVitals($, warnings, vitals.current)
     const { tokens } = e.context
     if (e.changed.includes('context') && tokens !== undefined) {
       await noteTrend($, trend, (current) => trendMeasured(current, tokens))

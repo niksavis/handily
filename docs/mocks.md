@@ -2742,6 +2742,101 @@ and their borders. Each line is as wide as its frame: body 41, 30 or 76.
 - **`NO_COLOR` and screen readers.** `soon` is a word. The bars read as symbols, so the line also
   says `+6k a turn`.
 
+### 8.15 A pace for the usage limits (handily-cver9, approved 2026-11-12)
+
+The orchestrator approved the mocks on 2026-11-12, and the owner confirmed the two open answers.
+The first session that claims the store key shows the toast. The mark is `◆`, with a word for 95
+percent and no colour. `◆` is the plain mark of the `waitsForYou` role, so the toast draws it
+from the glyph set. With glyphs nerd the terminal shows the nerd bell, as the other `◆` toasts
+do. The rules, the engine sources and the known limit are in docs/design.md section 4.9, under
+"A pace for the usage limits".
+
+The person is anyone who works near the 5 hour or the weekly limit. Their goal is to see the limit
+coming before Claude Code stops them. They see it first on the Session line.
+
+The blocks below are not framed. Each block shows the text that the board tests assert. A Session
+line block joins the drawn rows of the line with ` · `, as the tests read them.
+
+The build changed two things in the approved mocks:
+
+- At 40 columns the approved mock showed `5h 62% full ~1h · 7d 13%`. No tested width draws that
+  line. The flow of the Session line drops the gauge of an atom only when the atom shares a row
+  and the gauge does not fit. A limit that starts a new row keeps its gauge. The projection
+  never drops. Below body 56 the resets drop, as before.
+- The details name a state for each limit. The approved mock named `full ~1h` and `no growth`.
+  The build adds `full after reset` and `no pace yet`, and `pace after 15m of readings` when no
+  limit has a pace yet.
+
+#### 8.15a Inline, body 76: the Session line with a projection
+
+```text
+ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% full ~1h resets 2h · 7d ▱▱▱▱▱ 13% resets 4d
+ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▰▱ 84% high full ~40m resets 2h · 7d ▱▱▱▱▱ 13% resets 4d
+```
+
+`84% high` takes the warning colour, as the context percent does from 80 percent.
+
+#### 8.15b Narrow: inline 40 and docked 30
+
+```text
+ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h 62% full ~1h · 7d ▱▱▱▱▱ 13%      inline 40
+ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% full ~1h · 7d ▱▱▱▱▱ 13%  docked 30
+```
+
+#### 8.15c Docked, body 41: the pace line in the details (each replaces its line)
+
+```text
+    pace 5h full ~1h · 7d no growth          the 5h use rises and fills before its reset
+    pace after 15m of readings               fewer than 2 readings, or less than 15 minutes
+    pace 5h no growth · 7d no growth         flat use over 15 minutes or more
+    pace 5h no pace yet · 7d no growth       the 5h use fell, so its readings start again
+    pace: no reading for 31m                 the last reading is over 30 minutes old
+    pace 5h full after reset                 the 5h use rises, and the reset comes first
+    7d no growth
+    limits: none reported                    Claude Code reports no limits; no pace line
+```
+
+The pace line comes after the `resets` line. With no projection, the Session line keeps the text
+of 8.10 and shows no `full`.
+
+#### 8.15d Toasts (the layout of 8.6a, box text 40)
+
+```text
+◆ 5h limit at 80%                                       the 5h use reached 80 percent
+full ~50m at this pace · resets in 2h
+
+◆ 5h limit at 80%                                       less than 15 minutes of readings
+no pace yet · resets in 2h
+
+◆ 5h limit at 95% nearly full                           the 5h use reached 95 percent
+no pace yet · resets in 2h
+
+◆ 5h limit at 80%                                       a limit with no reset time
+no pace yet
+```
+
+The second line names the pace as the details do. `no growth` and `full after reset` show there
+too. A jump from below 80 to 95 percent or more shows only the 95 percent toast. The toast stays
+10 s, the time of a toast with the `◆` mark (8.6a).
+
+#### 8.15e How the numbers are made
+
+- **Readings.** Each `session.measure` that carries the limits, and the `$.session.usage()` call at
+  session start, adds a reading of each limit: the time and the percent. A reading less than 1
+  minute after the reading before the last replaces the last. The board keeps at most 60
+  readings for each limit. A new reset time or a lower percent starts the readings again.
+  `/clear` keeps the readings, because the limits are the same for every session.
+- **Pace.** The rise from the first kept reading to the last, over the time between them. The
+  board projects 100 percent at that pace from the last reading. It shows `full ~1h` only when that
+  time comes before the reset. The time uses the form of 8.0 with `~`.
+- **No projection.** Fewer than 2 readings, less than 15 minutes of readings, flat or falling use,
+  a last reading over 30 minutes old, a limit with no reset time, or a limit at 100 percent. A
+  projected time that passed with no new reading also shows no projection. The details then name
+  the age of the last reading, such as `pace 5h no reading for 20m`.
+- **Toasts.** One toast for each level, 80 and 95 percent, in each cycle of a limit, shared by the
+  sessions of this machine through one store key for each limit kind.
+- **Keys and commands.** None new. `/board stats` prints the pace line with the details.
+
 ### Risks
 
 - Width: the 41-column agent row has no spare column; a dock dragged below 36 drops columns

@@ -976,6 +976,7 @@ The engine event behind each number:
 | `turn +$0.31`, `last +$0.62` | `session.measure`: the growth of `cost.usd` since `turn.start` |
 | `last turn 3m` | `turn.start` and `turn.complete` |
 | `limits 5h 31% · 7d 13%`, `resets 5h in 2h` | `session.measure`: `rateLimits`, each with `kind`, `percentUsed` and `resetsAt` |
+| `full ~1h`, `pace 5h full ~1h` | the readings of `rateLimits` over time, under "A pace for the usage limits" below |
 | `ctx 48k · out 6.1k` on an agent | `turn.step`: `usage` of the last step with that `agentId`. Input tokens of all three kinds, and `output_tokens` |
 | `stopped at max_tokens` | `turn.step`: `stopReason` |
 | `checks 25 · 8 allowed · 16 asked · 1 denied` | `tool.check`: `decision`, with `tool`, `input` and `agentId` |
@@ -1289,6 +1290,70 @@ The named constants:
 | `PARTS_SHOWN` | 7 | The parts show 7 lines before `[ +1 more part ]` |
 | `SOON_TURNS` | 2 | From 2 turns left, the line says `soon` in the warning colour |
 | `BREAKDOWN_DETAIL` | `summary` | The breakdown is a local estimate |
+
+#### A pace for the usage limits (handily-cver9)
+
+The orchestrator approved the design on 2026-11-12, and the owner confirmed the two open answers.
+The approved mock is `docs/mocks.md` section 8.15.
+
+Reference: limit-watch (MIT). The survey of github.com/karanb192/awesome-claude-code-mods found
+it on 2026-10-28. handily only read it. It copies no code and adds no dependency.
+
+Known limit: the engine store has no compare-and-set. Two sessions that pass the read-back at the
+same time both show the toast.
+
+The engine source of each new number:
+
+| Number on the board | Engine source |
+| --- | --- |
+| `full ~1h` on the Session line | `rateLimits` of `session.measure` and of `$.session.usage()`: `percentUsed` and `resetsAt` of each limit, kept as readings with the time of `$.clock` |
+| `pace 5h full ~1h · 7d no growth` | the same readings |
+| `◆ 5h limit at 80%` | `percentUsed` of the limit, and the store key of the limit kind |
+
+- **Readings.** `hooks/pace.ts` keeps the readings of each limit kind in the vitals, at most 60.
+  A reading less than 1 minute after the reading before the last replaces the last. A new reset
+  time or a lower percent starts the readings again. A reset time that moves by 10 minutes or
+  less is the same cycle. `/clear` keeps the readings, because the limits are the same for every
+  session.
+- **Projection.** The rise from the first kept reading to the last, over the time between them,
+  projects 100 percent from the last reading. The Session line shows `full ~1h` only when that
+  time comes before the reset. It shows nothing with fewer than 2 readings, less than 15 minutes
+  of readings, flat or falling use, a last reading over 30 minutes old, no reset time, or a limit
+  at 100 percent. A projected time that passed with no new reading shows no projection, and the
+  details name the age of the last reading. With no limits, the details read
+  `limits: none reported`. No number is invented.
+- **Warnings.** `hooks/limit-warn.ts` warns once for each level, 80 and 95 percent, in each cycle
+  of a limit. A jump past both levels warns only at 95. The store key `limit-warned:<kind>`, such
+  as `limit-warned:five_hour`, holds `{ v: 1, kind, cycle, level, at, by }`. `cycle` is the reset
+  time or null, and `by` is the session id. A session reads the key. When the key holds the same
+  cycle at the same level or higher, it does nothing. Otherwise it writes the key, waits a random
+  200 to 800 ms on `$.clock`, and reads the key back. It shows the toast only if `by` is still its
+  own id. The first session that claims the key shows the toast. The session also keeps the last
+  level that it warned, and it checks one limit kind at a time, so one session never warns twice
+  for one level.
+- **Stale keys.** A key is stale when its cycle is past, its cycle is more than 10 minutes from the
+  reset time of the limit, or the board cannot read its `v`. With no reset time, a fall of 20
+  points or more below the warned level starts a new cycle. The board deletes a stale key when it
+  reads it, and at session start it deletes each key with a past cycle or a `v` it cannot read, as
+  `deleteExpired` in `hooks/sessions.ts` does for the session keys.
+- **Failures.** A store call that fails logs to the debug log and shows no toast.
+- **Kinds.** The board warns only for a kind of lowercase letters, digits and `_`, at most 40
+  characters, because the kind becomes part of a store key.
+
+The named constants, all in `hooks/pace.ts`:
+
+| Name | Value | Effect |
+| --- | --- | --- |
+| `PACE_SPAN_MS` | 900000 (15 minutes) | The readings must span this time before a projection shows |
+| `PACE_STALE_MS` | 1800000 (30 minutes) | A last reading older than this shows no projection |
+| `READING_STEP_MS` | 60000 | A reading closer than this to the reading before the last replaces the last |
+| `READINGS_KEPT` | 60 | The readings kept for each limit kind |
+| `CYCLE_APART_MS` | 600000 (10 minutes) | Two reset times this close are the same cycle |
+| `NEW_CYCLE_FALL` | 20 (points) | With no reset time, a fall this large below the warned level starts a new cycle |
+| `WARN_LEVELS` | 80 and 95 (percent) | The levels that show a toast |
+| `LEVEL_WORDS` | none at 80, `nearly full` at 95 | The word after the percent in the toast |
+| `WARN_MARK` | the `waitsForYou` role (`◆` in the plain set) | The mark at the start of the toast, drawn from the glyph set |
+| `CLAIM_WAIT_MS` | 200 to 800 | The random wait before the read-back |
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
