@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import {
@@ -344,19 +356,6 @@ function generatorRun(marketplace) {
   }
 }
 
-describe('localSourcePath', () => {
-  test('a relative source is the folder of the mod', () => {
-    assert.equal(
-      gate.localSourcePath({ name: 'handily-board', source: './mods/handily-board' }),
-      './mods/handily-board',
-    )
-  })
-
-  test('a git-subdir source is the path of its subfolder and does not throw', () => {
-    assert.equal(gate.localSourcePath(board), 'mods/handily-board')
-  })
-})
-
 describe('generatedMarketplace', () => {
   test('reads the marketplace between the first and the last line of the generator output', () => {
     const marketplace = pinnedMarketplace(board, workitems)
@@ -580,5 +579,144 @@ describe('removeScratchFolder', () => {
       `the scratch folder ${sibling} is not under the temporary root ${root}; the gate did not remove it`,
     )
     assert.equal(existsSync(join(sibling, 'kept.txt')), true)
+  })
+})
+
+const gateBoard = {
+  name: 'handily-board',
+  version: '0.24.0',
+  description: 'The board in the working tree.',
+  dependencies: ['handily-workitems'],
+}
+const gateWorkitems = {
+  name: 'handily-workitems',
+  version: '0.9.0',
+  description: 'The work items in the working tree.',
+}
+
+function writeGateManifest(root, manifest) {
+  const dir = join(root, 'mods', manifest.name, '.claude-plugin')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'plugin.json'), `${JSON.stringify(manifest, null, 2)}\n`)
+}
+
+function makeRepoWithPinnedMarketplace(t) {
+  const root = mkdtempSync(join(tmpdir(), 'install-gate-repo-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  cpSync(join(import.meta.dirname, 'install-gate.mjs'), join(root, 'scripts', 'install-gate.mjs'))
+  mkdirSync(join(root, '.claude-plugin'))
+  const published = `${JSON.stringify(pinnedMarketplace(board, workitems), null, 2)}\n`
+  writeFileSync(join(root, '.claude-plugin', 'marketplace.json'), published)
+  writeGateManifest(root, gateBoard)
+  writeGateManifest(root, gateWorkitems)
+  writeFileSync(join(root, 'mods', 'handily-board', 'board.ts'), 'export const board = 1\n')
+  mkdirSync(join(root, 'mods', 'notes'))
+  return { root, published }
+}
+
+const recordedMarketplaceAdd = `const { existsSync, readFileSync, writeFileSync } = require('node:fs')
+const { join } = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
+  const source = args[3]
+  const read = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : undefined)
+  writeFileSync(
+    process.env.HANDILY_GATE_RECORD,
+    JSON.stringify({
+      source,
+      marketplace: JSON.parse(read(join(source, '.claude-plugin', 'marketplace.json')) ?? 'null'),
+      boardSource: read(join(source, 'mods', 'handily-board', 'board.ts')),
+    }),
+  )
+}
+console.log(JSON.stringify({ outcome: 'error', message: 'the fake claude stops after marketplace add' }))
+process.exit(1)`
+
+function runPlainGate(t, repo) {
+  const folder = mkdtempSync(join(tmpdir(), 'install-gate-run-'))
+  t.after(() => rmSync(folder, { recursive: true, force: true }))
+  const bin = join(folder, 'bin')
+  const temporary = join(folder, 'tmp')
+  const personal = join(folder, 'personal')
+  ;[bin, temporary, personal].forEach((dir) => mkdirSync(dir))
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}\n${recordedMarketplaceAdd}\n`)
+  chmodSync(join(bin, 'claude'), 0o755)
+  const record = join(folder, 'record.json')
+  const result = spawnSync(process.execPath, [join(repo.root, 'scripts', 'install-gate.mjs')], {
+    cwd: repo.root,
+    encoding: 'utf8',
+    env: {
+      PATH: bin,
+      HOME: personal,
+      TMPDIR: temporary,
+      CLAUDE_CONFIG_DIR: personal,
+      HANDILY_GATE_RECORD: record,
+    },
+  })
+  const recorded = existsSync(record) ? JSON.parse(readFileSync(record, 'utf8')) : undefined
+  return { result, recorded, temporary, scratchLeft: readdirSync(temporary) }
+}
+
+describe('the plain gate on a marketplace whose entries are pinned', () => {
+  test('adds a scratch marketplace of the working tree mods with relative sources and the plugin.json versions', (t) => {
+    const repo = makeRepoWithPinnedMarketplace(t)
+    const { result, recorded, temporary, scratchLeft } = runPlainGate(t, repo)
+    const output = result.stdout + result.stderr
+    assert.notEqual(recorded, undefined, output)
+    const scratchPath = relative(temporary, recorded.source)
+    assert.ok(scratchPath !== '' && !scratchPath.startsWith('..'), recorded.source)
+    assert.deepEqual(recorded.marketplace, {
+      name: 'niksavis',
+      owner: { name: 'niksavis' },
+      plugins: [gateBoard, gateWorkitems].map(({ name, version, description }) => ({
+        name,
+        source: `./mods/${name}`,
+        version,
+        description,
+      })),
+    })
+    assert.equal(recorded.boardSource, 'export const board = 1\n')
+    assert.equal(
+      readFileSync(join(repo.root, '.claude-plugin', 'marketplace.json'), 'utf8'),
+      repo.published,
+    )
+    assert.deepEqual(scratchLeft, [])
+    assert.equal(result.status, 1, output)
+    assert.match(result.stderr, /the fake claude stops after marketplace add/)
+  })
+
+  test('refuses a mod whose plugin.json has no version, names it and adds no marketplace', (t) => {
+    const repo = makeRepoWithPinnedMarketplace(t)
+    writeGateManifest(repo.root, { ...gateWorkitems, version: undefined })
+    const { result, recorded } = runPlainGate(t, repo)
+    assert.equal(result.status, 1, result.stdout + result.stderr)
+    assert.equal(recorded, undefined)
+    assert.match(
+      result.stderr,
+      /^FAIL handily-workitems: plugin\.json has no version; the plain gate reads the version of each mod from it$/m,
+    )
+  })
+})
+
+describe('gatePlugins', () => {
+  test('reads the version and the dependencies of each mod from its plugin.json', () => {
+    const mods = [gateBoard, gateWorkitems].map((manifest) => ({ name: manifest.name, manifest }))
+    assert.deepEqual(gate.gatePlugins({ name: 'niksavis' }, mods), [
+      {
+        name: 'handily-board',
+        id: 'handily-board@niksavis',
+        marketplace: 'niksavis',
+        version: '0.24.0',
+        dependencies: ['handily-workitems'],
+      },
+      {
+        name: 'handily-workitems',
+        id: 'handily-workitems@niksavis',
+        marketplace: 'niksavis',
+        version: '0.9.0',
+        dependencies: [],
+      },
+    ])
   })
 })

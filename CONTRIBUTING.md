@@ -47,7 +47,7 @@ through `basicly verify --mode full`.
 
 | Gate | Command | What it refuses |
 | --- | --- | --- |
-| Validate | `npm run validate` | A manifest or marketplace error, a name mismatch between folder, manifest and marketplace, a marketplace file that differs from the `npm run marketplace` output, an entry that does not pin a release tag and the commit of that tag, a released mod with no entry |
+| Validate | `npm run validate` | A manifest or marketplace error, a name mismatch between folder, manifest and marketplace, a marketplace file that differs from the `npm run marketplace` output, an entry that does not pin a release tag and the commit of that tag, a released mod with no entry, except at the commit of its first release tag |
 | Type check | `npm run typecheck` | A type error against the Claude Code mod API |
 | Lint | `npm run lint` | typescript-eslint strict type-checked findings, such as a promise that is not awaited |
 | Format | `npm run format:check` | Code that Prettier would change. `npm run check` does not run it |

@@ -21,6 +21,10 @@ that changed, and do not change the version of another mod.
 A pinned entry has no `version` field. `claude plugin tag` refuses a release with
 `Version mismatch` when the entry has a version that differs from `plugin.json`. A new mod has
 no entry until its first release. `npm run marketplace` leaves it out and prints a note.
+At the commit of its first release tag, `npm run marketplace` and `npm run validate` also leave
+it out and print a note that names the pin command, so the release workflow passes on that tag.
+On a later commit, or when the mod has an earlier release tag, a released mod with no entry
+fails validate by name.
 
 The `handily` mod is the bundle. Its `plugin.json` lists every other mod under `dependencies`,
 and `/handily` reads that list. When you add a mod to the bundle or remove one, change that list
@@ -70,8 +74,9 @@ release commit.
    ```
 
 7. Pin the mod at the new tag, and commit `.claude-plugin/marketplace.json` alone in the pin
-   commit. The command writes the tag and the commit of the tag into the entry of the mod. The
-   subject names the record id of the release.
+   commit. The command writes the tag and the commit of the tag into the entry of the mod. At
+   the first release of a mod, the command adds its entry. The subject names the record id of
+   the release.
 
    ```sh
    npm run marketplace -- --pin <name>

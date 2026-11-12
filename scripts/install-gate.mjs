@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -15,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const root = join(import.meta.dirname, '..')
+const modsFolder = 'mods'
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
 const generatorScript = join(root, 'scripts', 'mods.mjs')
 const failurePrefix = 'FAIL '
@@ -137,10 +139,6 @@ export function childEnv(parentEnv, configDir) {
 export function isEntryScript(argvPath, moduleUrl) {
   if (argvPath === undefined) return false
   return realpathSync(argvPath) === realpathSync(fileURLToPath(moduleUrl))
-}
-
-export function localSourcePath(plugin) {
-  return typeof plugin.source === 'string' ? plugin.source : plugin.source.path
 }
 
 export function generatedMarketplace({ status, stdout, stderr }) {
@@ -269,17 +267,50 @@ function fail(message) {
   console.error(`FAIL ${message}`)
 }
 
-function readMarketplace() {
-  const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf8'))
-  return marketplace.plugins.map((plugin) => ({
-    name: plugin.name,
-    id: `${plugin.name}@${marketplace.name}`,
+function manifestPath(modsDir, name) {
+  return join(modsDir, name, '.claude-plugin', 'plugin.json')
+}
+
+function workingTreeMods() {
+  const modsDir = join(root, modsFolder)
+  return readdirSync(modsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(manifestPath(modsDir, entry.name)))
+    .map((entry) => entry.name)
+    .sort()
+    .map((name) => ({
+      name,
+      manifest: JSON.parse(readFileSync(manifestPath(modsDir, name), 'utf8')),
+    }))
+}
+
+function unversionedModFailures(mods) {
+  return mods
+    .filter(({ manifest }) => typeof manifest.version !== 'string' || manifest.version === '')
+    .map(
+      ({ name }) =>
+        `${name}: plugin.json has no version; the plain gate reads the version of each mod from it`,
+    )
+}
+
+function workingTreeMarketplace(published, mods) {
+  return {
+    ...published,
+    plugins: mods.map(({ name, manifest }) => ({
+      name,
+      source: `./${modsFolder}/${name}`,
+      version: manifest.version,
+      description: manifest.description,
+    })),
+  }
+}
+
+export function gatePlugins(marketplace, mods) {
+  return mods.map(({ name, manifest }) => ({
+    name,
+    id: `${name}@${marketplace.name}`,
     marketplace: marketplace.name,
-    version: plugin.version,
-    dependencies:
-      JSON.parse(
-        readFileSync(join(root, localSourcePath(plugin), '.claude-plugin', 'plugin.json'), 'utf8'),
-      ).dependencies ?? [],
+    version: manifest.version,
+    dependencies: manifest.dependencies ?? [],
   }))
 }
 
@@ -475,10 +506,28 @@ function inScratchProfile(check) {
   finish()
 }
 
+function writeWorkingTreeMarketplace(scratch, marketplace) {
+  const dir = writeMarketplace(scratch, marketplace)
+  for (const { name } of marketplace.plugins) {
+    cpSync(join(root, modsFolder, name), join(dir, modsFolder, name), { recursive: true })
+  }
+  return dir
+}
+
 function runGate() {
-  const plugins = readMarketplace()
+  const mods = workingTreeMods()
+  const unversioned = unversionedModFailures(mods)
+  if (unversioned.length > 0) {
+    unversioned.forEach(fail)
+    finish()
+  }
+  const marketplace = workingTreeMarketplace(
+    JSON.parse(readFileSync(marketplacePath, 'utf8')),
+    mods,
+  )
+  const plugins = gatePlugins(marketplace, mods)
   inScratchProfile((scratch) => {
-    addMarketplace(scratch, root)
+    addMarketplace(scratch, writeWorkingTreeMarketplace(scratch, marketplace))
     for (const action of actions) runPair(scratch, action, plugins)
     checkBundleWithDisabledMod(scratch, plugins)
   })
