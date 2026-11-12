@@ -46,7 +46,7 @@ function stackOf(blocks: readonly Drawn[]): string[] {
 }
 
 function flowBlock(room: number): Drawn {
-  return diagramBlock(FLOW_SOURCE, room)
+  return diagramBlock(FLOW_SOURCE, 'flowchart', room)
 }
 
 function cellWidths(row: DrawnNode): unknown[] {

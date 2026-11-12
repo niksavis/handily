@@ -185,11 +185,11 @@ export function treeOf(text: string, layout: Partial<ReplyLayout>): string {
   )
 }
 
-export function diagramBlock(source: string, room: number): Drawn {
+export function diagramBlock(source: string, kind: string, room: number): Drawn {
   const outcome = diagramOf(source, room, 'terminal')
   if (outcome.kind !== 'drawing') throw new Error(`the diagram did not draw: ${outcome.reason}`)
   const drawing = outcome.lines.map((line) => line.trimEnd())
-  const head = `── mermaid · ${outcome.name} `
+  const head = `── mermaid · ${kind} `
   const titleLeast = displayWidth(`${head}──`) + BUTTONS_GAP + displayWidth(DIAGRAM_BUTTONS)
   const width = Math.max(titleLeast, ...drawing.map(displayWidth))
   const rule = '─'.repeat(width - BUTTONS_GAP - displayWidth(DIAGRAM_BUTTONS) - displayWidth(head))
