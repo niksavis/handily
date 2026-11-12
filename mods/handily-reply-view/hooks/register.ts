@@ -80,6 +80,10 @@ const HIGHLIGHTS = ['on', 'off'] as const
 
 type Highlight = (typeof HIGHLIGHTS)[number]
 
+type NoHintCause = { reason: string; remedy: string }
+
+type HintRule = { defaultMode: ReplyViewMode; drawsDiagrams: boolean }
+
 const DEFAULT_HIGHLIGHT: Highlight = 'on'
 
 type CheckedSetting = {
@@ -140,8 +144,16 @@ const PROMPT_TEXTS: Readonly<Record<PromptStyle, string>> = {
   bubble: 'Each prompt that you type draws in a frame at the right under the label you.',
 }
 const OFF_TEXT = 'off for this session. Replies and prompts draw as Claude Code draws them.'
-const HINTS_ON_TEXT =
-  'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 215 tokens.'
+const HINTS_ON_STATE = 'diagram hints on for this session.'
+const HINTS_ON_TEXT = `${HINTS_ON_STATE} Each prompt that you type carries one hint about mermaid diagrams, about 215 tokens.`
+const VIEW_OFF_CAUSE: NoHintCause = {
+  reason: 'the reply view is off',
+  remedy: '/replies turns the reply view on.',
+}
+const DIAGRAMS_OFF_CAUSE: NoHintCause = {
+  reason: 'the diagrams setting is off',
+  remedy: 'Set the diagrams setting to on in /config.',
+}
 const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
   '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
@@ -221,11 +233,30 @@ async function toggle(
   return mode === 'on' ? `${ON_TEXT} ${PROMPT_TEXTS[promptStyle]}` : OFF_TEXT
 }
 
-async function toggleHints($: EngineInterface, defaultHints: ReplyViewMode): Promise<string> {
+async function noHintCauses($: EngineInterface, rule: HintRule): Promise<NoHintCause[]> {
+  const { value: mode = rule.defaultMode } = await $.state.get(MODE)
+  const causes: NoHintCause[] = []
+  if (mode === 'off') causes.push(VIEW_OFF_CAUSE)
+  if (!rule.drawsDiagrams) causes.push(DIAGRAMS_OFF_CAUSE)
+  return causes
+}
+
+function hintsOnText(causes: readonly NoHintCause[]): string {
+  if (causes.length === 0) return HINTS_ON_TEXT
+  const reasons = causes.map((cause) => cause.reason).join(' and ')
+  const remedies = causes.map((cause) => cause.remedy).join(' ')
+  return `${HINTS_ON_STATE} No hint goes out while ${reasons}. ${remedies}`
+}
+
+async function toggleHints(
+  $: EngineInterface,
+  defaultHints: ReplyViewMode,
+  rule: HintRule,
+): Promise<string> {
   const { value: current = defaultHints } = await $.state.get(HINTS)
   const hints: ReplyViewMode = current === 'on' ? 'off' : 'on'
   await $.state.set(HINTS, hints)
-  return hints === 'on' ? HINTS_ON_TEXT : HINTS_OFF_TEXT
+  return hints === 'on' ? hintsOnText(await noHintCauses($, rule)) : HINTS_OFF_TEXT
 }
 
 async function copyText(
@@ -403,6 +434,7 @@ export const register: Register = (on, options) => {
   const defaultMode: ReplyViewMode = options.mode === 'off' ? 'off' : 'on'
   const drawsDiagrams = options.diagrams !== 'off'
   const defaultHints: ReplyViewMode = options.diagramHints === 'on' ? 'on' : 'off'
+  const hintRule: HintRule = { defaultMode, drawsDiagrams }
   const tableStyle: TableStyle = isTableStyle(options.tableStyle)
     ? options.tableStyle
     : DEFAULT_TABLE_STYLE
@@ -466,7 +498,7 @@ export const register: Register = (on, options) => {
     const [first, second, ...rest] = words
     if (first === undefined) return { text: await toggle($, defaultMode, promptStyle) }
     if (first === HINTS_ARGUMENT && second === undefined) {
-      return { text: await toggleHints($, defaultHints) }
+      return { text: await toggleHints($, defaultHints, hintRule) }
     }
     if (first === COPY_ARGUMENT && second !== undefined && rest.length === 0) {
       return {
@@ -548,10 +580,9 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     const isTypedProse = e.origin.kind === 'composer' && e.command === undefined
-    if (!isTypedProse || !drawsDiagrams) return next(e)
+    if (!isTypedProse) return next(e)
     const { value: hints = defaultHints } = await $.state.get(HINTS)
-    const { value: mode = defaultMode } = await $.state.get(MODE)
-    if (hints === 'off' || mode === 'off') return next(e)
+    if (hints === 'off' || (await noHintCauses($, hintRule)).length > 0) return next(e)
     return next({ ...e, context: [...(e.context ?? []), DIAGRAM_HINT] })
   })
 
