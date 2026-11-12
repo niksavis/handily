@@ -707,6 +707,45 @@ docs/mocks.md  M +1 -0
 - When the 2,000 lines or the 100,000 characters are used, the next files read
   `not shown; the pane is full`.
 
+## A file that a prompt names
+
+When you send a prompt that names a file of the session folder after an `@`, such as
+`@docs/design.md`, the files tab opens the folders of that file and opens its row. When the tab
+takes the keyboard, the focus starts on that row. The test fixture, in the work view, after the
+prompt `Read @docs/design.md and sum it up`:
+
+```text
+▾ docs/
+    design.md
+      [ preview ] [ copy path ]
+      [ @ to prompt ]
+work view: touched and changed files
+```
+
+- The work view shows the file with no mark until a prompt names another file, the tab closes or
+  the session ends. With an agent filter or a task filter, the work view does not show it.
+- When a prompt names several files, the tab shows the last name that passes the checks below.
+- `@"docs/my notes.md"` also works. `[ @ to prompt ]` writes this form for a name with a space.
+  A line range, such as `@docs/design.md#L10-20`, also works.
+- Only your own prompt counts: a prompt that you type, or send through Remote Control. A prompt
+  from another session, from a background task or from a plugin changes nothing. A slash command
+  line changes nothing.
+- The mod does not open the tab. A preview, a diff or the edits of the last turn stay on the
+  screen, and `[ back ]` shows the tree with the file open.
+
+The mod changes nothing for a name that is not a file of the session folder:
+
+| The name                                   | Example                     |
+| ------------------------------------------ | --------------------------- |
+| A path that leaves the folder              | `@../other/notes.md`        |
+| An absolute path outside the folder        | `@/etc/hosts`               |
+| A link in the folder that leads outside it | `@docs/leak.md`             |
+| A name that is not there, or a folder      | `@docs/missing.md`, `@docs` |
+| An `@` inside a word                       | `me@docs/design.md`         |
+
+The mod reads where the path lands, with each link followed. The file must land inside the
+session folder. A prompt with no `@` makes the mod read no file.
+
 ## The edits of the last turn
 
 After a main turn ends, the files tab shows a button under the controls. It counts each Edit,

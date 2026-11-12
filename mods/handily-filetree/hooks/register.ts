@@ -46,6 +46,14 @@ import {
 import { absolutePath, insidePath, resolvedPath, shownPath } from './paths'
 import { reasonOf } from './reason'
 import {
+  type Reveal,
+  ancestorsOf,
+  clearReveal,
+  isPersonPrompt,
+  newReveal,
+  revealedPath,
+} from './reveal'
+import {
   type ListingSite,
   type Listings,
   type Shell,
@@ -501,13 +509,35 @@ async function columnDrawOf(
   }
 }
 
-function workSourceOf(git: GitView, touched: TouchDraw): WorkSource {
+function workSourceOf(git: GitView, touched: TouchDraw, revealed: string | undefined): WorkSource {
   if (touched.task !== undefined) return { changed: [], touched: touched.paths, isFiltered: true }
+  const isFiltered = touched.agent !== undefined
+  const shown = revealed === undefined || isFiltered ? [] : [{ path: revealed, isFolder: false }]
   return {
     changed: git.marks?.changedIn(ROOT_PATH) ?? [],
-    touched: touched.paths,
-    isFiltered: touched.agent !== undefined,
+    touched: [...touched.paths, ...shown],
+    isFiltered,
   }
+}
+
+async function revealMentioned(
+  $: EngineInterface,
+  site: { listings: Listings; reveal: Reveal; looking: Looking },
+  text: string,
+): Promise<void> {
+  const cwd = await $.session.cwd()
+  const path = await revealedPath($, { cwd, text })
+  if (path === undefined) return
+  const folders = ancestorsOf(path)
+  await update($, OPEN, (current = []) => {
+    const added = folders.filter((folder) => !current.includes(folder))
+    for (const folder of added) site.listings.delete(absolutePath(cwd, folder))
+    return [...current, ...added]
+  })
+  await update($, SHUT, (current = []) => current.filter((folder) => !folders.includes(folder)))
+  site.reveal.path = path
+  site.looking.opened = path
+  redraw($)
 }
 
 async function rowsOf(
@@ -537,6 +567,7 @@ export const register: Register = (on) => {
   const edits = newEdits()
   const stepSite = { edits, looking }
   const facts = newFacts()
+  const reveal = newReveal()
   let factsStatus: ShownStatus | undefined
 
   on('session.start', async ($, e, next) => {
@@ -568,6 +599,7 @@ export const register: Register = (on) => {
     resetLooking(looking)
     clearEdits(edits)
     clearFacts(facts)
+    clearReveal(reveal)
     filter.picked = undefined
     filter.task = undefined
     return next(e)
@@ -581,6 +613,7 @@ export const register: Register = (on) => {
       resetLooking(looking)
       closeSteps(edits)
       clearFacts(facts)
+      clearReveal(reveal)
     }
     return closed
   })
@@ -620,7 +653,12 @@ export const register: Register = (on) => {
   on('prompt.submit', async ($, e, next) => {
     await startKeeper($, watch)
     requestStatus($, watch)
-    return next(e)
+    const submitted = await next(e)
+    if (submitted.drop !== undefined || !isPersonPrompt(e)) return submitted
+    await revealMentioned($, { listings, reveal, looking }, e.text).catch((error: unknown) => {
+      $.ui.log(`handily-filetree: the @path reveal failed: ${String(error)}`)
+    })
+    return submitted
   })
 
   on('command.run', { command: 'tree' }, async ($, e) => {
@@ -698,7 +736,8 @@ export const register: Register = (on) => {
     const touched = await touchDrawOf($, site, touches, filter)
     const choice = isInline ? 'work' : ((await $.state.get(VIEW)).value ?? 'work')
     const isWorkTree = choice === 'work' || task !== undefined
-    const tree = isWorkTree ? workTree(workPaths(workSourceOf(git, touched))) : undefined
+    const source = workSourceOf(git, touched, reveal.path)
+    const tree = isWorkTree ? workTree(workPaths(source)) : undefined
     const actions = {
       ...actionsOf($, { cwd, listings, watch, work: tree, facts }),
       ...lookActionsOf($, looking, () => lookSiteOf(watch, cwd)),
@@ -708,6 +747,7 @@ export const register: Register = (on) => {
       actions,
       touched,
       opened: looking.opened,
+      revealed: reveal.path,
       choice,
       lastTurn: lastTurnOf($, stepSite),
       column: await columnDrawOf($, { cwd, facts }),

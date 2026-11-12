@@ -1,4 +1,12 @@
-import type { ConfigRow, ConfigValue, FsEntry, On, RenderPropsOf, RenderSurface } from 'claude-code'
+import type {
+  ConfigRow,
+  ConfigValue,
+  FsEntry,
+  On,
+  PromptOrigin,
+  RenderPropsOf,
+  RenderSurface,
+} from 'claude-code'
 import {
   describe,
   expect,
@@ -30,6 +38,7 @@ type FakeFile = {
   mtimeMs: number
   size?: number
   denial?: string
+  realPath?: string
 }
 
 type GitAnswer =
@@ -84,7 +93,9 @@ function fakeGit(on: On, seen: World): void {
     const found = seen.files.get(e.path)
     if (found === undefined) return { deny: `ENOENT: no such file or directory, stat '${e.path}'` }
     const size = found.size ?? found.text.length
-    return { value: { kind: found.kind, size, mtimeMs: found.mtimeMs, isLink: false } }
+    const real = e.resolve ? { realPath: found.realPath ?? e.path } : {}
+    const isLink = found.realPath !== undefined
+    return { value: { kind: found.kind, size, mtimeMs: found.mtimeMs, isLink, ...real } }
   })
   on('fs.read', (_$, e) => {
     seen.reads.push(e.path)
@@ -6401,4 +6412,186 @@ describe('repair: the ignored parse and the file kinds', () => {
       await ui.unmount()
     })
   }
+})
+
+const REVEAL_CRITERION =
+  'When the person submits a prompt that names a file of the session folder as @docs/design.md, the files tab opens the folders of that file and selects it.'
+const REVEALED_DESIGN = [
+  '▾ docs/',
+  '    design.md',
+  '      [ preview ] [ copy path ]',
+  '      [ @ to prompt ]',
+]
+const ALL_APP_TREE = [
+  '▸ .git/  not listed',
+  '▸ node_modules/  not listed',
+  '▸ docs/',
+  '▸ hooks/',
+  '▸ scripts/',
+  '  .gitignore',
+  '  README.md',
+]
+const REVEALED_ALL_TREE = [
+  '▸ .git/  not listed',
+  '▸ node_modules/  not listed',
+  ...REVEALED_DESIGN,
+  '    guide.md',
+  '    install.md',
+  '    mocks.md',
+  '▸ hooks/',
+  '▸ scripts/',
+  '  .gitignore',
+  '  README.md',
+]
+
+function revealWorld(on: On): World {
+  const seen = world(on, APP)
+  underTool(on)
+  seen.files.set(ROOT, { kind: 'dir', text: '', mtimeMs: 1 })
+  for (const path of ['README.md', 'docs/design.md', 'docs/guide.md', 'docs/install.md'])
+    textFile(seen, path, 'text')
+  return seen
+}
+
+async function submitPrompt(
+  $: Engine,
+  text: string,
+  origin: PromptOrigin = { kind: 'composer' },
+): Promise<void> {
+  await $.prompt.submit({ text, wait: false, origin })
+}
+
+async function focusedRows(ui: { findAll: Mounted['findAll'] }): Promise<string[]> {
+  const buttons = await ui.findAll({ type: 'Button' })
+  return buttons.flatMap((button) => (button.props.autoFocus === true ? [button.key ?? ''] : []))
+}
+
+describe(REVEAL_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a prompt that names @docs/design.md opens docs and selects the file in the whole tree, on the ${surface}`, async ($, on) => {
+      const seen = revealWorld(on)
+      const ui = await openFiles($, seen, surface)
+      expect(await treeLines(ui)).toEqual(ALL_APP_TREE)
+      await submitPrompt($, 'Read @docs/design.md and sum it up')
+      expect(await treeLines(ui)).toEqual(REVEALED_ALL_TREE)
+      expect(await focusedRows(ui)).toEqual(['file:docs/design.md'])
+      await ui.unmount()
+    })
+
+    test(`a prompt that names @docs/design.md shows and selects the file in the work view, on the ${surface}`, async ($, on) => {
+      const seen = revealWorld(on)
+      const ui = await mountWork($, seen, surface)
+      expect((await treeLines(ui)).join('\n')).not.toContain('design.md')
+      await submitPrompt($, 'Read @docs/design.md and sum it up')
+      expect(await treeLines(ui)).toEqual([...REVEALED_DESIGN, WORK_NOTE])
+      expect(await focusedRows(ui)).toEqual(['file:docs/design.md'])
+      await ui.unmount()
+    })
+  }
+
+  test('a second prompt with the same @path keeps the folders open and the file selected', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await openFiles($, seen)
+    await submitPrompt($, 'Read @docs/design.md')
+    await submitPrompt($, 'Read @docs/design.md again')
+    expect(await treeLines(ui)).toEqual(REVEALED_ALL_TREE)
+    await ui.unmount()
+  })
+
+  test('an absolute path inside the session folder reveals the file', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await openFiles($, seen)
+    await submitPrompt($, `Read @${ROOT}/docs/design.md`)
+    expect(await treeLines(ui)).toEqual(REVEALED_ALL_TREE)
+    await ui.unmount()
+  })
+
+  test('of several @paths the last one that is a file of the folder is revealed', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await openFiles($, seen)
+    await submitPrompt($, 'Compare @README.md with @docs/design.md and @docs/missing.md')
+    expect(await treeLines(ui)).toEqual(REVEALED_ALL_TREE)
+    await ui.unmount()
+  })
+
+  test('a quoted @path with a space and an @path with a line range reveal the file', async ($, on) => {
+    const seen = revealWorld(on)
+    seen.folders.set('docs', [file('design.md'), file('my notes.md')])
+    textFile(seen, 'docs/my notes.md', 'text')
+    const ui = await openFiles($, seen)
+    await submitPrompt($, 'Read @"docs/my notes.md" first')
+    const quoted = await treeLines(ui)
+    expect(
+      quoted.slice(quoted.indexOf('    my notes.md'), quoted.indexOf('    my notes.md') + 2),
+    ).toEqual(['    my notes.md', '      [ preview ] [ copy path ]'])
+    await submitPrompt($, 'Read @docs/design.md#L10-20')
+    const ranged = await treeLines(ui)
+    expect(
+      ranged.slice(ranged.indexOf('    design.md'), ranged.indexOf('    design.md') + 2),
+    ).toEqual(['    design.md', '      [ preview ] [ copy path ]'])
+    await ui.unmount()
+  })
+})
+
+describe('the @path reveal: refusals', () => {
+  const refused: readonly [string, string][] = [
+    ['a path that leaves the folder with ..', 'Read @../other/notes.md'],
+    ['an absolute path outside the folder', 'Read @/etc/hosts'],
+    ['a link inside the folder that leads outside it', 'Read @docs/leak.md'],
+    ['a name that is not there', 'Read @docs/missing.md'],
+    ['a folder', 'Read @docs'],
+    ['an @ inside a word', 'Write to me@docs/design.md'],
+  ]
+  for (const [name, text] of refused) {
+    test(`${name} changes nothing, and a file of the folder still reveals after it`, async ($, on) => {
+      const seen = revealWorld(on)
+      seen.files.set('/work/other/notes.md', { kind: 'file', text: 'x', mtimeMs: 1 })
+      seen.files.set('/etc/hosts', { kind: 'file', text: 'x', mtimeMs: 1 })
+      textFile(seen, 'docs/leak.md', 'x', { realPath: '/home/someone/leak.md' })
+      seen.folders.set('docs', [...(APP[1]?.[1] ?? []), file('leak.md')])
+      const ui = await openFiles($, seen)
+      await submitPrompt($, text)
+      expect(await treeLines(ui)).toEqual(ALL_APP_TREE)
+      expect(await focusedRows(ui)).toEqual([])
+      await submitPrompt($, 'Read @docs/design.md')
+      expect((await treeLines(ui)).slice(2, 6)).toEqual(REVEALED_DESIGN)
+      await ui.unmount()
+    })
+  }
+
+  const notThePerson: readonly [string, PromptOrigin][] = [
+    ['another session', { kind: 'peer' }],
+    ['a background task', { kind: 'task-notification' }],
+  ]
+  for (const [name, origin] of notThePerson) {
+    test(`a prompt from ${name} reveals nothing`, async ($, on) => {
+      const seen = revealWorld(on)
+      const ui = await openFiles($, seen)
+      await submitPrompt($, 'Read @docs/design.md', origin)
+      expect(await treeLines(ui)).toEqual(ALL_APP_TREE)
+      await ui.unmount()
+    })
+  }
+
+  test('a slash command line reveals nothing', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await openFiles($, seen)
+    await $.prompt.submit({
+      text: '/review @docs/design.md',
+      wait: false,
+      origin: { kind: 'composer' },
+      command: { name: 'review', args: '@docs/design.md' },
+    })
+    expect(await treeLines(ui)).toEqual(ALL_APP_TREE)
+    await ui.unmount()
+  })
+
+  test('a prompt with no @path reads no file state', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await openFiles($, seen)
+    const before = seen.stats.length
+    await submitPrompt($, 'go on and mail me@example.com')
+    expect(seen.stats.slice(before)).toEqual([])
+    await ui.unmount()
+  })
 })
