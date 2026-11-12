@@ -14,6 +14,7 @@ import { createRequire } from 'node:module'
 import { cpus, loadavg, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
+import { createScratchFolder, removeScratchFolder } from './scratch.mjs'
 
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
@@ -918,7 +919,7 @@ function testFileOf(mod, path) {
 }
 
 function runTestFileAlone(mod, file) {
-  const copyRoot = mkdtempSync(join(tmpdir(), 'handily-rerun-'))
+  const copyRoot = createScratchFolder('handily-rerun-')
   try {
     const copy = join(copyRoot, basename(mod.dir))
     cpSync(mod.dir, copy, {
@@ -934,7 +935,8 @@ function runTestFileAlone(mod, file) {
     )
     return { load, times: result?.status === 0 ? readTestTimes(result.stdout) : [] }
   } finally {
-    rmSync(copyRoot, { recursive: true, force: true })
+    const refusal = removeScratchFolder(copyRoot)
+    if (refusal !== undefined) fail(`${mod.name}: ${refusal}`)
   }
 }
 
@@ -1060,6 +1062,17 @@ function writeRunsAlone(path, store) {
   }
 }
 
+function timesInAll(total) {
+  return total === 1 ? 'once in all' : `${total} times in all`
+}
+
+function lastGateRuns(count, windowRuns) {
+  if (count === windowRuns) {
+    return windowRuns === 1 ? 'in its last gate run' : `in each of its last ${windowRuns} gate runs`
+  }
+  return `in ${count} of its last ${windowRuns} gate runs`
+}
+
 function warnOfCreep(again, entry, windowRuns) {
   const { name, limitMs, aloneMs, slowness } = again
   const count = entry.runs.length
@@ -1071,7 +1084,7 @@ function warnOfCreep(again, entry, windowRuns) {
       ? 'printed no time alone'
       : `took ${aloneMs} ms alone, ${Math.round((aloneMs / limitMs) * 100)} percent of its ${limitMs} ms limit`
   console.log(
-    `WARN ${name} ran again alone in ${count} of the last ${windowRuns} gate runs, ${entry.total} times in all, and ${share}; a test that runs again alone in ${creepRunsAlone} of ${creepWindowRuns} gate runs, or takes more than ${creepTimeShare.name} of its limit alone, comes near its limit, so make it faster or set timeoutMs in its TestOptions`,
+    `WARN ${name} ran again alone ${lastGateRuns(count, windowRuns)}, ${timesInAll(entry.total)}, and ${share}; a test that runs again alone in ${creepRunsAlone} of ${creepWindowRuns} gate runs, or takes more than ${creepTimeShare.name} of its limit alone, comes near its limit, so make it faster or set timeoutMs in its TestOptions`,
   )
 }
 

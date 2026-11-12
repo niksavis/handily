@@ -89,35 +89,9 @@ release commit.
 
 ## Test time gate on a developer machine
 
-The "Test time limit" section of [CONTRIBUTING.md](../CONTRIBUTING.md) gives the rule: `npm test`
-refuses a test that takes more than a third of its time limit. On a developer machine, the gate
-measures such a test again before it refuses it.
-
-Load on the machine makes a test slower. The pre-commit hook runs its checks in parallel, and a
-mod runs its test files at the same time. In the measurement of handily-5rspdc on 2026-11-12, 9
-of 10 quiet runs of handily-reply-view had no test over a third. 5 of 10 runs beside the
-handily-board tests had 1 to 3 tests over.
-
-1. After every mod ran, the gate runs each test file that has a test over a third once more,
-   alone. `claude plugin test` cannot run one test or one file in place. So the gate copies the
-   mod to a temporary folder without its other test files, and runs the copy.
-2. A test that is over a third in the suite run and at most a third alone passes. The gate
-   prints a `NOTE` with both times and the load average of the machine.
-3. A test that is over a third in both runs fails. A test that prints no time alone also fails.
-   The `FAIL` line gives both times, the load average and the limit.
-4. The limits, the share of a third and the reference times are the same for both runs.
-5. On GitHub Actions, the gate runs no test again. It prints a test over a third in a `NOTE`.
-
-The gate counts the runs alone of each test in `handily-test-reruns.json` in the git common
-directory, which `git rev-parse --git-common-dir` prints. All worktrees of a clone share this
-file, and git does not track it. The gate prints a `WARN` that names the test, with its count
-and its share of the limit, when one of these is true:
-
-- The test ran again alone in 3 or more of the last 5 gate runs.
-- The test took more than a quarter of its limit alone.
-
-Such a test comes near its limit. Make it faster, or set its `timeoutMs`. When git does not
-answer, the gate prints a `NOTE`, keeps no count, and still refuses a test by its times.
+The "Test time limit" section of [CONTRIBUTING.md](../CONTRIBUTING.md) gives the rule of the test
+time gate: the run alone of a test over a third, the `NOTE`, the `WARN` and the count file in the
+git common directory.
 
 ## CI
 

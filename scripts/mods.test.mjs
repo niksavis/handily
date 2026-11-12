@@ -21,10 +21,16 @@ import { environmentWithoutGit } from './git-env.mjs'
 
 const repoRoot = join(import.meta.dirname, '..')
 
+function copyGateScripts(root) {
+  for (const script of ['mods.mjs', 'scratch.mjs']) {
+    cpSync(join(repoRoot, 'scripts', script), join(root, 'scripts', script))
+  }
+}
+
 function makeRepoWithUntypedMod() {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-test-'))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
   const mod = join(root, 'mods', 'untyped')
   mkdirSync(join(mod, '.claude-plugin'), { recursive: true })
@@ -83,7 +89,7 @@ function makeRepoWithUnlaidContract({ listsDependency, engineVersion = installed
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-contract-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
   const layMod = (name, manifest, laidTypes) => {
     const mod = join(root, 'mods', name)
@@ -263,7 +269,7 @@ function makeGitRepoWithLaidSnapshot() {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-snapshot-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
   writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
   mkdirSync(join(root, '.claude-plugin'))
@@ -336,7 +342,7 @@ function makeTimedRepo(source = timedTestSource, { withGit = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-times-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   writeFileSync(
     join(root, 'scripts', 'passing.test.mjs'),
     "import { test } from 'node:test'\ntest('passes', () => {})\n",
@@ -428,6 +434,7 @@ function assertRanAgainAlone(result, calls) {
   assert.deepEqual(suite.testFiles, ['hooks/inner.test.ts', 'other.test.ts', 'timed.test.ts'])
   for (const call of again) {
     assert.notEqual(call.dir, suite.dir)
+    assert.equal(existsSync(call.dir), false, `${call.dir} is left after the gate`)
     assert.deepEqual(call.testFiles, ['timed.test.ts'])
   }
 }
@@ -552,8 +559,8 @@ const overOnceOutputs = (aloneMs) => [
 ]
 const quietOutput = testOutput([`(pass) ${defaultDraw} [1000.00ms]`])
 const warnLines = (result) => prefixedLines(result.stdout, 'WARN ')
-const creepWarning = (count, runs, total, aloneMs, percent) =>
-  `WARN timed: timed.test.ts test "${defaultDraw}" ran again alone in ${String(count)} of the last ${String(runs)} gate runs, ${String(total)} times in all, and took ${String(aloneMs)} ms alone, ${String(percent)} percent of its 5000 ms limit; a test that runs again alone in 3 of 5 gate runs, or takes more than a quarter of its limit alone, comes near its limit, so make it faster or set timeoutMs in its TestOptions`
+const creepWarning = (lastRuns, inAll, aloneMs, percent) =>
+  `WARN timed: timed.test.ts test "${defaultDraw}" ran again alone ${lastRuns}, ${inAll}, and took ${String(aloneMs)} ms alone, ${String(percent)} percent of its 5000 ms limit; a test that runs again alone in 3 of 5 gate runs, or takes more than a quarter of its limit alone, comes near its limit, so make it faster or set timeoutMs in its TestOptions`
 
 const creepRepo = makeTimedRepo(timedTestSource, { withGit: true })
 const creepRuns = [true, false, true, false, false, true, true].map((ranAgain) =>
@@ -569,7 +576,7 @@ test('test warns by name with the count and the share when a test ran again alon
     [],
     [],
     [],
-    [creepWarning(3, 5, 4, 1000, 20)],
+    [creepWarning('in 3 of its last 5 gate runs', '4 times in all', 1000, 20)],
   ])
 })
 
@@ -592,7 +599,24 @@ const quarterRuns = ['1250.00', '1250.01'].map((aloneMs) =>
 
 test('test warns by name with the count and the share when a test that ran again alone took more than a quarter of its limit alone', () => {
   for (const result of quarterRuns) assert.equal(result.status, 0, result.stdout + result.stderr)
-  assert.deepEqual(quarterRuns.map(warnLines), [[], [creepWarning(2, 2, 2, 1250.01, 25)]])
+  assert.deepEqual(quarterRuns.map(warnLines), [
+    [],
+    [creepWarning('in each of its last 2 gate runs', '2 times in all', 1250.01, 25)],
+  ])
+})
+
+const fewRunsRepo = makeTimedRepo(timedTestSource, { withGit: true })
+const fewRuns = [overOnceOutputs('1250.01'), quietOutput, overOnceOutputs('1250.01')].map(
+  (outputs) => runTimedGate(fewRunsRepo, outputs),
+)
+
+test('test words the warning for fewer than 5 gate runs and says once for one run alone', () => {
+  for (const result of fewRuns) assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(fewRuns.map(warnLines), [
+    [creepWarning('in its last gate run', 'once in all', 1250.01, 25)],
+    [],
+    [creepWarning('in 2 of its last 3 gate runs', '2 times in all', 1250.01, 25)],
+  ])
 })
 
 const longFailingOutput = testOutput([
@@ -857,7 +881,7 @@ function makeRepoWithTaggedMod() {
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-pin-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   mkdirSync(join(root, '.claude-plugin'))
   writeManifest(root, 'board', boardAtTag)
   writeManifest(root, 'items', { version: '0.1.0', description: 'Items with no release tag.' })
@@ -1023,7 +1047,7 @@ function makeValidateRepo({ boardDependsOnItems = false, tagItems = false } = {}
   const root = mkdtempSync(join(tmpdir(), 'handily-mods-pinned-'))
   after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'scripts'))
-  cpSync(join(repoRoot, 'scripts', 'mods.mjs'), join(root, 'scripts', 'mods.mjs'))
+  copyGateScripts(root)
   mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
   writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), '{ "plugins": [] }\n')
   mkdirSync(join(root, '.claude-plugin'))
