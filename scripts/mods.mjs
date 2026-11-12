@@ -1,17 +1,20 @@
 import { spawnSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { cpus, loadavg, tmpdir } from 'node:os'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
+import { createScratchFolder, removeScratchFolder } from './scratch.mjs'
 
 const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
@@ -726,11 +729,13 @@ function validate(mods) {
   }
 }
 
+const testFilePattern = /\.test\.tsx?$/
+
 function hasTests(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
     const path = join(entry.parentPath, entry.name)
     if (isGeneratedTypesPath(path)) continue
-    if (entry.isFile() && /\.test\.tsx?$/.test(entry.name)) return true
+    if (entry.isFile() && testFilePattern.test(entry.name)) return true
   }
   return false
 }
@@ -753,6 +758,10 @@ const referenceTestTimes = [
   },
 ]
 const testOutputMaxBytes = 64 * 1024 * 1024
+const creepTimeShare = { divisor: 4, name: 'a quarter' }
+const creepWindowRuns = 5
+const creepRunsAlone = 3
+const runsAloneStoreName = 'handily-test-reruns.json'
 const isCiRunner = process.env.GITHUB_ACTIONS === 'true'
 const testFileHeaderPattern = /^(\S.*\.test\.tsx?):$/
 const testTimePattern = /^\((?:pass|fail)\) (.+) \[(\d+(?:\.\d+)?)ms\]$/
@@ -907,14 +916,76 @@ function machineSlowness(timesByMod) {
   return Math.max(1, median)
 }
 
+function isWithinShare(ms, limitMs, slowness, share = testTimeShare) {
+  return ms * share.divisor <= limitMs * slowness
+}
+
+function testName(mod, file, title) {
+  return `${mod.name}: ${file ?? 'a test file'} test "${title}"`
+}
+
+function timeoutAdvice(ms, slowness) {
+  return `make it faster, or set timeoutMs in its TestOptions to at least ${Math.ceil((ms * testTimeShare.divisor) / slowness)} ms`
+}
+
+function machineLoad() {
+  return `a load average of ${loadavg()[0].toFixed(2)} on ${cpus().length} CPUs`
+}
+
+function testFileOf(mod, path) {
+  return relative(mod.dir, path).split(sep).join('/')
+}
+
+function runTestFileAlone(mod, file) {
+  const copyRoot = createScratchFolder('handily-rerun-')
+  try {
+    const copy = join(copyRoot, basename(mod.dir))
+    cpSync(mod.dir, copy, {
+      recursive: true,
+      filter: (path) => !testFilePattern.test(path) || testFileOf(mod, path) === file,
+    })
+    const load = machineLoad()
+    const result = run(
+      `${mod.name}: claude plugin test of ${file} alone`,
+      'claude',
+      ['plugin', 'test', copy],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: testOutputMaxBytes },
+    )
+    return { load, times: result?.status === 0 ? readTestTimes(result.stdout) : [] }
+  } finally {
+    const refusal = removeScratchFolder(copyRoot)
+    if (refusal !== undefined) fail(`${mod.name}: ${refusal}`)
+  }
+}
+
+function judgeRunAlone(over, aloneMs, load) {
+  const { mod, file, title, ms, limitMs, slowness, machine } = over
+  const name = testName(mod, file, title)
+  const firstRun = `took ${ms} ms of its ${limitMs} ms limit in the suite run`
+  const share = testTimeShare.name
+  if (aloneMs === undefined) {
+    fail(
+      `${name} ${firstRun}, more than ${share}${machine}, and its run again alone printed no time for it, at ${load}, so the gate cannot pass it; ${timeoutAdvice(ms, slowness)}`,
+    )
+  } else if (isWithinShare(aloneMs, limitMs, slowness)) {
+    note(
+      `${name} ${firstRun}, more than ${share}${machine}, and ${aloneMs} ms when it ran again alone, at most ${share}, at ${load}, so the gate passes it`,
+    )
+  } else {
+    fail(
+      `${name} ${firstRun} and ${aloneMs} ms when it ran again alone, more than ${share} both times${machine}, at ${load}, so a slower CI runner can time it out; ${timeoutAdvice(Math.max(ms, aloneMs), slowness)}`,
+    )
+  }
+  return { key: `${mod.name} > ${file} > ${title}`, name, limitMs, aloneMs, slowness }
+}
+
 function checkTestTimes(mod, times, slowness) {
   if (times.length === 0) {
     fail(
       `${mod.name}: claude plugin test printed no test time such as "(pass) name [12.34ms]", so the test time gate read no test`,
     )
-    return
+    return []
   }
-  const report = isCiRunner ? note : fail
   const machine =
     slowness > 1 ? ` on a machine ${slowness.toFixed(2)} times slower than the reference times` : ''
   const declaredByFile = new Map()
@@ -927,6 +998,9 @@ function checkTestTimes(mod, times, slowness) {
     lostByFile.set(file, lostLimits(titles, declared))
   }
   const unhonoured = new Set()
+  const occurrences = new Map()
+  const runsAlone = new Map()
+  const ranAgain = []
   for (const { file, title, ms } of times) {
     const conflict = unhonouredLimit(
       title,
@@ -941,12 +1015,122 @@ function checkTestTimes(mod, times, slowness) {
         `${mod.name}: ${file ?? 'a test file'} test "${title}" matches the timeoutMs of ${lost.limitMs} ms at line ${lost.line} and also ${lowest.pattern} of the test at line ${lowest.line} with a limit of ${lowest.limitMs} ms, so the gate cannot honour the ${lost.limitMs} ms; give each test a title that no other test in the file matches, or move the test with timeoutMs to a file where every title is a string literal`,
       )
     }
+    const occurrence = occurrences.get(conflictKey) ?? 0
+    occurrences.set(conflictKey, occurrence + 1)
     const limitMs = testLimitMs(title, declaredByFile.get(file) ?? [])
-    if (ms * testTimeShare.divisor <= limitMs * slowness) continue
-    report(
-      `${mod.name}: ${file ?? 'a test file'} test "${title}" took ${ms} ms of its ${limitMs} ms limit, more than ${testTimeShare.name}${machine}, so a slower CI runner can time it out; make it faster, or set timeoutMs in its TestOptions to at least ${Math.ceil((ms * testTimeShare.divisor) / slowness)} ms`,
+    if (isWithinShare(ms, limitMs, slowness)) continue
+    if (isCiRunner || file === undefined) {
+      const report = isCiRunner ? note : fail
+      report(
+        `${testName(mod, file, title)} took ${ms} ms of its ${limitMs} ms limit, more than ${testTimeShare.name}${machine}, so a slower CI runner can time it out; ${timeoutAdvice(ms, slowness)}`,
+      )
+      continue
+    }
+    if (!runsAlone.has(file)) runsAlone.set(file, runTestFileAlone(mod, file))
+    const alone = runsAlone.get(file)
+    const aloneMs = alone.times.filter((time) => time.title === title)[occurrence]?.ms
+    const over = { mod, file, title, ms, limitMs, slowness, machine }
+    ranAgain.push(judgeRunAlone(over, aloneMs, alone.load))
+  }
+  return ranAgain
+}
+
+function readCommonDir() {
+  const result = runGit(['rev-parse', '--git-common-dir'])
+  if (result.error || result.status !== 0) return undefined
+  return resolve(root, result.stdout.trim())
+}
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+function readRunsAlone(path) {
+  if (!existsSync(path)) return { runs: 0, tests: {} }
+  const store = parseJson(readFileSync(path, 'utf8'))
+  const isStore =
+    Number.isInteger(store?.runs) && typeof store.tests === 'object' && store.tests !== null
+  if (isStore) return store
+  note(
+    `test: ${runsAloneStoreName} in the git common directory holds no count that the gate can read, so the gate counts again from this run`,
+  )
+  return { runs: 0, tests: {} }
+}
+
+function keptEntry(entry, oldestRun) {
+  const runs = Array.isArray(entry?.runs)
+    ? entry.runs.filter((run) => Number.isInteger(run) && run > oldestRun)
+    : []
+  return { total: Number.isInteger(entry?.total) ? entry.total : runs.length, runs }
+}
+
+function writeRunsAlone(path, store) {
+  const written = `${path}.${process.pid}.tmp`
+  try {
+    writeFileSync(written, `${JSON.stringify(store, null, 2)}\n`)
+    renameSync(written, path)
+  } catch (error) {
+    note(
+      `test: cannot write ${runsAloneStoreName} in the git common directory (${error.message}), so the gate keeps no count of this run`,
     )
   }
+}
+
+function timesInAll(total) {
+  return total === 1 ? 'once in all' : `${total} times in all`
+}
+
+function lastGateRuns(count, windowRuns) {
+  if (count === windowRuns) {
+    return windowRuns === 1 ? 'in its last gate run' : `in each of its last ${windowRuns} gate runs`
+  }
+  return `in ${count} of its last ${windowRuns} gate runs`
+}
+
+function warnOfCreep(again, entry, windowRuns) {
+  const { name, limitMs, aloneMs, slowness } = again
+  const count = entry.runs.length
+  const isNearLimit =
+    aloneMs !== undefined && !isWithinShare(aloneMs, limitMs, slowness, creepTimeShare)
+  if (count < creepRunsAlone && !isNearLimit) return
+  const share =
+    aloneMs === undefined
+      ? 'printed no time alone'
+      : `took ${aloneMs} ms alone, ${Math.round((aloneMs / limitMs) * 100)} percent of its ${limitMs} ms limit`
+  console.log(
+    `WARN ${name} ran again alone ${lastGateRuns(count, windowRuns)}, ${timesInAll(entry.total)}, and ${share}; a test that runs again alone in ${creepRunsAlone} of ${creepWindowRuns} gate runs, or takes more than ${creepTimeShare.name} of its limit alone, comes near its limit, so make it faster or set timeoutMs in its TestOptions`,
+  )
+}
+
+function countRunsAlone(ranAgain) {
+  const commonDir = readCommonDir()
+  if (commonDir === undefined) {
+    if (ranAgain.length > 0) {
+      note(
+        'test: git rev-parse --git-common-dir did not answer, so the gate keeps no count of the tests that ran again alone',
+      )
+    }
+    return
+  }
+  const path = join(commonDir, runsAloneStoreName)
+  const store = readRunsAlone(path)
+  const run = store.runs + 1
+  const tests = {}
+  for (const [key, entry] of Object.entries(store.tests)) {
+    tests[key] = keptEntry(entry, run - creepWindowRuns)
+  }
+  for (const { key } of ranAgain) {
+    const entry = tests[key] ?? { total: 0, runs: [] }
+    if (!entry.runs.includes(run))
+      tests[key] = { total: entry.total + 1, runs: [...entry.runs, run] }
+  }
+  writeRunsAlone(path, { runs: run, tests })
+  const windowRuns = Math.min(run, creepWindowRuns)
+  for (const again of ranAgain) warnOfCreep(again, tests[again.key], windowRuns)
 }
 
 function test(mods) {
@@ -969,7 +1153,8 @@ function test(mods) {
       `test: the reference tests ran ${slowness.toFixed(2)} times slower than their reference times, so the time share scales by that factor`,
     )
   }
-  for (const { mod, times } of timesByMod) checkTestTimes(mod, times, slowness)
+  const ranAgain = timesByMod.flatMap(({ mod, times }) => checkTestTimes(mod, times, slowness))
+  if (!isCiRunner) countRunsAlone(ranAgain)
   run('scripts: node --test', process.execPath, ['--test', 'scripts/*.test.mjs'])
 }
 
