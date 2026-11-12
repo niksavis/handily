@@ -6,6 +6,25 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.23.0 - 2026-11-12
+
+### Added
+
+- **The board marks a subagent that fails the same command again and again.** When a subagent
+  fails the same Bash command 3 times, with an Edit or a Write between the failures, its row in the
+  band and in the this session tab shows `retry 3`, and the Agents head counts `1 retry`. A retry
+  row comes first among the running agents in the band. A call that a check or the person refuses
+  does not count. The mark clears when the command passes or the agent ends. The row shows the
+  command through the credential mask, and the board keeps only a hash of the command.
+  (handily-y7yzv)
+- **The board projects when the usage limits fill.** The Session line shows `full ~1h` after a limit
+  when its use rises over at least 15 minutes of readings and reaches 100 percent before its reset.
+  The opened details show a `pace` line for each limit. Fewer readings, flat or falling use, or a
+  last reading over 30 minutes old show no projection. At 80 and 95 percent of a limit, one session
+  of this machine shows one toast for each level and cycle, through the store key
+  `limit-warned:<kind>`. Known limit: the store has no compare-and-set, so two sessions that read
+  the key back at the same time can both show the toast. (handily-cver9)
+
 ## handily-reply-view 0.24.0 - 2026-11-12
 
 ### Added
