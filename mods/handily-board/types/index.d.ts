@@ -83,15 +83,20 @@ export type BoardAgentStatus =
 
 export type BoardCallAsk = { at: number; target: string | null }
 
+export type BoardCommand = { digest: string; shown: string }
+
 export type BoardAgentCall = {
   id: string
   tool: string
   target: string | null
   asked?: BoardCallAsk
   startedAt?: number
+  command?: BoardCommand
 }
 
-export type BoardCallOutcome = 'ok' | 'failed'
+export type BoardCallOutcome = 'ok' | 'failed' | 'denied'
+
+export type BoardRetry = BoardCommand & { fails: number; isEditSince: boolean }
 
 export type BoardAgentCallDone = BoardToolSight & { outcome: BoardCallOutcome; at: number }
 
@@ -126,6 +131,7 @@ export type BoardAgent = {
   running: readonly BoardAgentCall[]
   last: BoardToolSight | null
   calls?: readonly BoardAgentCallDone[]
+  retries?: readonly BoardRetry[]
   answer?: string | null
   description: string | null
   type: string | null

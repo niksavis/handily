@@ -7,6 +7,8 @@ import {
   callText,
   contextText,
   failedDetail,
+  retryCallText,
+  retryShown,
   stateWord,
   toolText,
   waitsText,
@@ -123,10 +125,17 @@ function rankOf(row: AgentRow): number {
   return group === undefined ? STRIP_GROUPS.length : STRIP_GROUPS.indexOf(group)
 }
 
+function retryRankOf(row: AgentRow): number {
+  return retryShown(row) === null ? 1 : 0
+}
+
 export function stripRows(rows: readonly AgentRow[]): AgentRow[] {
   return rows
     .filter((row) => stripGroup(row) !== undefined)
-    .sort((a, b) => rankOf(a) - rankOf(b) || a.startedAt - b.startedAt)
+    .sort(
+      (a, b) =>
+        rankOf(a) - rankOf(b) || retryRankOf(a) - retryRankOf(b) || a.startedAt - b.startedAt,
+    )
 }
 
 export function isLiveRow(row: AgentRow): boolean {
@@ -147,7 +156,11 @@ export function forgetStrip(keep: StripKeep): void {
 }
 
 function isSameState(kept: AgentRow, fresh: AgentRow): boolean {
-  return kept.look === fresh.look && kept.stall?.kind === fresh.stall?.kind
+  return (
+    kept.look === fresh.look &&
+    kept.stall?.kind === fresh.stall?.kind &&
+    kept.retry?.fails === fresh.retry?.fails
+  )
 }
 
 export function heldRows(keep: StripKeep, fresh: readonly AgentRow[], now: number): AgentRow[] {
@@ -372,6 +385,8 @@ function planStep(row: AgentRow): string | undefined {
 }
 
 function runningParts(row: AgentRow, isWhole: boolean): Part[] {
+  const retry = retryShown(row)
+  if (retry !== null) return [{ text: retryCallText(retry), dimColor: true }]
   const step = planStep(row)
   const tool = toolText(row)
   const toolPart: Part[] = tool === '' ? [] : [{ text: tool, dimColor: true }]

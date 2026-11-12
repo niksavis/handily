@@ -18,6 +18,7 @@ import { cutName } from './names'
 import { type PaletteSetting, paletteColor } from './palette'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
+import { type AgentRetry, RETRY_TOOL } from './retry'
 import { SIGNALS, type Signal, type SignalLooks, needsYouText } from './signals'
 import { escaped, paneTaskText, statusLook } from './tasks'
 import { tokensText } from './tokens'
@@ -50,6 +51,10 @@ const MAIN_LOOP = 'main'
 export const WAITS_LEAD = 'waits for: '
 const STOPPED_AT_LIMIT = 'max_tokens'
 const STALL_COLOR: ThemeKey = 'warning'
+const RETRY_COLOR: ThemeKey = 'warning'
+const RUNNING_LEAD = '▸ '
+const PART_LEAD = ' · '
+const LOOKS_BEFORE_RETRY: ReadonlySet<AgentLook> = new Set<AgentLook>(['needsYou', 'failed'])
 const OPENABLE_LOOKS: ReadonlySet<AgentLook> = new Set<AgentLook>(['running', 'asked', 'needsYou'])
 const AGENTS_TITLE = AGENTS_LOOK.title
 const CALL_INDENT = 2
@@ -63,6 +68,7 @@ const RUNNING_CALL_LOOK: TextStyle & { mark: string } = { mark: '▸', dimColor:
 const CALL_SIGNALS: Record<Exclude<AgentCallLine['outcome'], 'running'>, Signal> = {
   ok: 'done',
   failed: 'blocked',
+  denied: 'blocked',
 }
 const NO_CONTEXT = 'ctx —'
 const NO_TOKENS = 'ctx —  out —'
@@ -153,13 +159,63 @@ function stallText(stall: AgentStall): string {
   return `${stall.kind} ${elapsedText(stall.ms)}`
 }
 
+type ShownState =
+  | { kind: 'look'; look: AgentLook }
+  | { kind: 'retry'; retry: AgentRetry }
+  | { kind: 'stall'; stall: AgentStall }
+
+function shownState(row: AgentRow): ShownState {
+  if (row.retry !== null && !LOOKS_BEFORE_RETRY.has(row.look)) {
+    return { kind: 'retry', retry: row.retry }
+  }
+  if (row.stall !== null) return { kind: 'stall', stall: row.stall }
+  return { kind: 'look', look: row.look }
+}
+
+export function retryShown(row: AgentRow): AgentRetry | null {
+  const state = shownState(row)
+  return state.kind === 'retry' ? state.retry : null
+}
+
+function failsText(retry: AgentRetry): string {
+  return `${String(retry.fails)} fails`
+}
+
+function retryCommandText(retry: AgentRetry): string {
+  return callText({ tool: RETRY_TOOL, target: retry.shown })
+}
+
+export function retryCallText(retry: AgentRetry): string {
+  const command = retryCommandText(retry)
+  return retry.isRunning ? `${RUNNING_LEAD}${command}` : command
+}
+
+function retryDetail(retry: AgentRetry): string {
+  return `${retryCallText(retry)}${PART_LEAD}${failsText(retry)}`
+}
+
+function retryLine(retry: AgentRetry): string {
+  return `${failsText(retry)}: ${retryCommandText(retry)}`
+}
+
+function retryCountText(count: number): string {
+  return count === 1 ? '1 retry' : `${String(count)} retries`
+}
+
 export function stateWord(row: AgentRow): { text: string; style: TextStyle } {
-  if (row.stall !== null) return { text: stallText(row.stall), style: { color: STALL_COLOR } }
-  return { text: STATE_WORDS[row.look], style: { color: lookColor(row.look) } }
+  const state = shownState(row)
+  switch (state.kind) {
+    case 'retry':
+      return { text: `retry ${String(state.retry.fails)}`, style: { color: RETRY_COLOR } }
+    case 'stall':
+      return { text: stallText(state.stall), style: { color: STALL_COLOR } }
+    case 'look':
+      return { text: STATE_WORDS[state.look], style: { color: lookColor(state.look) } }
+  }
 }
 
 function stateText(row: AgentRow): { text: string; style: TextStyle } {
-  if (row.stall === null && row.look === 'running' && row.plan !== null) {
+  if (shownState(row).kind === 'look' && row.look === 'running' && row.plan !== null) {
     const done = row.plan.filter((task) => task.status === 'completed').length
     return { text: `plan ${String(done)}/${String(row.plan.length)}`, style: { dimColor: true } }
   }
@@ -168,12 +224,14 @@ function stateText(row: AgentRow): { text: string; style: TextStyle } {
 
 export function toolText(row: AgentRow): string {
   if (row.call === null) return ''
-  return row.isCallRunning ? `▸ ${callText(row.call)}` : callText(row.call)
+  return row.isCallRunning ? `${RUNNING_LEAD}${callText(row.call)}` : callText(row.call)
 }
 
 function detailText(row: AgentRow, isInline: boolean): string {
   if (row.look === 'failed') return isInline ? failureText(row) : ''
   if (row.look === 'needsYou') return isInline ? `${WAITS_LEAD}${waitsText(row)}` : ''
+  const retry = retryShown(row)
+  if (retry !== null) return isInline ? retryDetail(retry) : ''
   return toolText(row)
 }
 
@@ -548,8 +606,15 @@ function drawAgent(
       ? line(elements, failureText(row), { dimColor: true })
       : null
   const waits = row.look === 'needsYou' && hasSecondLine ? waitsLine(elements, row) : null
+  const retry = hasSecondLine ? retryShown(row) : null
+  const retrying = retry === null ? null : line(elements, retryLine(retry), { dimColor: true })
   const isOpen = layout.expanded.has(`agent:${row.id}`)
-  const under = [failure, waits, ...(isOpen ? openedLines(elements, row, names, layout, now) : [])]
+  const under = [
+    failure,
+    waits,
+    retrying,
+    ...(isOpen ? openedLines(elements, row, names, layout, now) : []),
+  ]
   const shown = under.filter((element) => element !== null)
   if (shown.length === 0) return head
   return elements.Box({
@@ -570,11 +635,13 @@ export function headerParts(rows: readonly AgentRow[]): { text: string; color?: 
   const ended = listed.length - active
   const failed = rows.filter((row) => row.look === 'failed').length
   const waiting = rows.filter((row) => row.look === 'needsYou').length
+  const retrying = rows.filter((row) => retryShown(row) !== null).length
   const count = active === 0 && ended > 0 ? `all ${String(ended)} done` : String(active)
   const parts = [
     active === 0 && ended === 0 ? null : { text: count },
     waiting > 0 ? { text: needsYouText(waiting), color: SIGNALS.waitsForYou.color } : null,
     failed > 0 ? { text: `${String(failed)} failed`, color: SIGNALS.blocked.color } : null,
+    retrying > 0 ? { text: retryCountText(retrying), color: RETRY_COLOR } : null,
     unlisted > 0 ? { text: countPart(unlisted, 'not listed') ?? '' } : null,
   ]
   return parts.filter((part) => part !== null)
@@ -708,6 +775,8 @@ function tokenForms(step: AgentStep | null): string[] {
 
 function cardWait(row: AgentRow): string | null {
   if (row.look === 'needsYou') return row.call === null ? 'permission' : callText(row.call)
+  const retry = retryShown(row)
+  if (retry !== null) return retryLine(retry)
   if (row.look !== 'failed') return null
   return row.call === null ? 'before its first call' : callText(row.call)
 }

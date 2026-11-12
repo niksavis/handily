@@ -11,6 +11,7 @@ import type {
 } from '../types'
 import { NAME_CUT_ABOVE, numberedNames } from './agent-rows'
 import { maskedCredentials } from './credentials'
+import { type AgentRetry, retriesAfter, retryOf, withRetries } from './retry'
 import { escaped } from './tasks'
 
 export const UNLISTED_KEPT_AT_MOST = 20
@@ -88,6 +89,7 @@ export type AgentRow = {
   step: AgentStep | null
   steps: number
   stall: AgentStall | null
+  retry: AgentRetry | null
 }
 
 export type SpawnFacts = {
@@ -211,13 +213,21 @@ export function withCallEnd(agents: Agents, agentId: string, end: CallEnd): Boar
   if (!agent || !call) return [...agents]
   const sight = { tool: call.tool, target: call.target }
   const done: BoardAgentCallDone = { ...sight, outcome: end.outcome, at: end.at }
-  const finished: BoardAgent = {
-    ...agent,
-    running: agent.running.filter((one) => one.id !== end.callId),
-    tools: agent.tools + 1,
-    last: call.tool !== HANDBACK_TOOL || agent.last === null ? sight : agent.last,
-    calls: [...(agent.calls ?? []), done].slice(-LAST_CALLS),
-  }
+  const retries = retriesAfter(agent.retries ?? [], {
+    tool: call.tool,
+    command: call.command,
+    outcome: end.outcome,
+  })
+  const finished = withRetries(
+    {
+      ...agent,
+      running: agent.running.filter((one) => one.id !== end.callId),
+      tools: agent.tools + 1,
+      last: call.tool !== HANDBACK_TOOL || agent.last === null ? sight : agent.last,
+      calls: [...(agent.calls ?? []), done].slice(-LAST_CALLS),
+    },
+    retries,
+  )
   return pruned(agents.map((one) => (one === agent ? finished : one)))
 }
 
@@ -276,7 +286,7 @@ export function withTurnEnd(
 ): BoardAgent[] {
   return pruned(
     withAgent(agents, agentId, now, (agent) => ({
-      ...unseen(agent),
+      ...withRetries(unseen(agent), []),
       seenAt: now,
       endedAt: now,
       hasLoopEvents: true,
@@ -297,8 +307,9 @@ function isListedEnd(agent: BoardAgent, status: AgentStatus, now: number): boole
 }
 
 function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgent {
+  const isEnd = isListedEnd(agent, info.status, now)
   return {
-    ...agent,
+    ...(isEnd ? withRetries(agent, []) : agent),
     isListed: true,
     seenAt: now,
     listedStatus: info.status,
@@ -306,7 +317,7 @@ function listedAgent(agent: BoardAgent, info: AgentInfo, now: number): BoardAgen
     type: info.type,
     name: info.name ?? agent.name,
     parentId: info.parentId ?? agent.parentId,
-    endedAt: isListedEnd(agent, info.status, now) ? (agent.endedAt ?? now) : agent.endedAt,
+    endedAt: isEnd ? (agent.endedAt ?? now) : agent.endedAt,
   }
 }
 
@@ -455,6 +466,7 @@ function rowOf(
   const waiting = isEnded || listedLook === 'failed' ? undefined : waitingAsk(agent)
   const look = waiting === undefined ? listedLook : askLook(waiting.asked, now)
   const running = agent.running.at(-1)
+  const hasEnded = isEnded || (status !== 'unknown' && ENDED_STATUSES.has(status))
   const row: AgentRow = {
     id: agent.id,
     label: baseLabel(agent),
@@ -483,6 +495,7 @@ function rowOf(
     step: null,
     steps: 0,
     stall: null,
+    retry: hasEnded ? null : retryOf(agent),
   }
   return { row, rank: look === 'unlisted' && isEnded ? UNLISTED_ENDED_RANK : LOOK_RANKS[look] }
 }
@@ -556,8 +569,9 @@ export function waitingCount(rows: readonly AgentRow[]): number {
   return waitingRows(rows).length
 }
 
-function outcomeOf(answer: CallAnswer): BoardCallOutcome {
-  return answer.isError === true || answer.deny !== undefined ? 'failed' : 'ok'
+function outcomeOf(answer: CallAnswer, isRefused: boolean): BoardCallOutcome {
+  if (isRefused || answer.deny !== undefined) return 'denied'
+  return answer.isError === true ? 'failed' : 'ok'
 }
 
 export async function trackAgentCall<R extends CallAnswer>(
@@ -565,6 +579,7 @@ export async function trackAgentCall<R extends CallAnswer>(
   agentId: string,
   call: BoardAgentCall,
   run: () => Promise<R>,
+  isRefused: () => boolean = () => false,
 ): Promise<R> {
   const now = await host.now()
   const started = { ...call, startedAt: now }
@@ -576,7 +591,7 @@ export async function trackAgentCall<R extends CallAnswer>(
     await host.change((agents) => withCallDropped(agents, agentId, call.id))
     throw error
   }
-  const end = { callId: call.id, outcome: outcomeOf(result), at: await host.now() }
+  const end = { callId: call.id, outcome: outcomeOf(result, isRefused()), at: await host.now() }
   await host.change((agents) => withCallEnd(agents, agentId, end))
   return result
 }

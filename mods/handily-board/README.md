@@ -764,8 +764,8 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   such as `gene…pose`. When two rows show the same name, the later one gets a number, such as
   `Explore 2` or `gene…se 2`.
 - The state is `needs you`, `asked`, `running`, `plan 2/7` while a running agent keeps a task
-  list, `slow 45s`, `quiet 3m`, `on hold`, `pending`, `idle`, `failed`, `done`, `killed` or
-  `not listed`.
+  list, `retry 3`, `slow 45s`, `quiet 3m`, `on hold`, `pending`, `idle`, `failed`, `done`,
+  `killed` or `not listed`.
 
   | Mark | State                                      | Colour    |
   | ---- | ------------------------------------------ | --------- |
@@ -791,6 +791,18 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   The board starts no timer for these states. It reads them when it draws, and a shown tab draws
   again every 10 seconds. The board keeps the times in memory, and each end of the session clears
   them with the agent rows.
+
+- A subagent that fails the same Bash command 3 times, with an Edit or a Write between the
+  failures, reads `retry 3` in `warning`, and the mark stays `▶`. The same command is the whole
+  command with each line trimmed and each run of white space made one space. The first failure
+  always counts. A later failure counts only after an Edit or a Write of that agent. Another
+  command between the failures does not reset the count. A call that a check or you refuse does
+  not count. The mark clears when the command passes or the agent ends. The order of the words is
+  `needs you`, `failed`, `retry 3`, `slow`, `quiet`. The header counts the rows, such as
+  `Agents  2 · 1 retry`. Inline, the detail is the command and the count, such as
+  `▸ Bash npm test · 3 fails`. Docked, a second line under the row says `3 fails: Bash npm test`.
+  The board shows the first line of the command through the credential mask, and keeps only a
+  hash of the whole command.
 
 - `on hold` is the engine status `waiting`: the agent waits for its own background work, an
   Agent call or a plan approval. The status does not say which, so the board does not draw it
@@ -1014,14 +1026,16 @@ Agents  6 · no open task                                          [ board ]
 
 ### Agent rows
 
-- The rows come in this order: needs you, failed, done, then running. Inside a group, the
-  oldest agent comes first. A killed agent sorts with done. An agent that is asked, on hold,
-  pending or idle sorts with running and keeps its word.
+- The rows come in this order: needs you, failed, done, then running. Inside running, a
+  `retry 3` row comes first. Inside a group, the oldest agent comes first. A killed agent sorts
+  with done. An agent that is asked, on hold, pending or idle sorts with running and keeps its
+  word.
 - Each row has the mark, the name, the state word, a detail, `open` and the age. The state word
-  of a running agent is `running`, `slow 45s` or `quiet 3m`.
+  of a running agent is `running`, `retry 3`, `slow 45s` or `quiet 3m`.
 - The detail of a needs-you row is what it waits for. A failed row says after which tool call it
   failed. A done row shows the first line of its answer, with secrets masked, or `no answer`. A
-  running row shows its plan step, or its tool when it has no plan. From a band body of 100
+  running row shows its plan step, or its tool when it has no plan. A retry row shows the
+  command that fails again, such as `▸ Bash npm test`. From a band body of 100
   columns, a running row shows the step and then the tool, and every row shows its `ctx`.
 - Under a band body of 50 columns, the age drops and the state word is not padded. The detail
   cuts first. The mark, the name, the state word and `open` never cut.

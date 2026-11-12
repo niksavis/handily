@@ -188,6 +188,7 @@ import {
   withdrawnLead,
 } from './for-you'
 import { CHANGE_FAILED, refusedParts } from './replies'
+import { commandOf } from './retry'
 import type { ToastParts } from './toast'
 import {
   drawnSignals,
@@ -287,6 +288,7 @@ const REDRAW_INTERVAL_MS = 10_000
 const CLOCK_INTERVAL_MS = 1_000
 const ENGINE_ORIGIN = 'engine'
 const DECISION_EVENT = 'tool_decision'
+const REJECTED_DECISION = 'reject'
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
   'composer',
   'bridge',
@@ -924,10 +926,10 @@ function callDetail(sight: BoardToolSight): string {
   return sight.target === null ? sight.tool : `${sight.tool} ${sight.target}`
 }
 
-function keepDenied(keep: LogKeep, callId: string): void {
-  keep.denied.add(callId)
-  const [oldest] = keep.denied
-  if (keep.denied.size > LOG_KEPT && oldest !== undefined) keep.denied.delete(oldest)
+function keepCallId(ids: Set<string>, callId: string): void {
+  ids.add(callId)
+  const [oldest] = ids
+  if (ids.size > LOG_KEPT && oldest !== undefined) ids.delete(oldest)
 }
 
 type CallEvent = { callId: string; agentId: string | undefined; isError: boolean }
@@ -1046,6 +1048,10 @@ function decidedCallId(e: TelemetryLogInput): string | undefined {
   return typeof callId === 'string' ? callId : undefined
 }
 
+function isRejected(e: TelemetryLogInput): boolean {
+  return e.to === 'collector' && e.attributes.decision === REJECTED_DECISION
+}
+
 async function settleAsk(
   $: EngineInterface,
   attention: AttentionKeep,
@@ -1120,7 +1126,7 @@ async function noteCheck(
   keeps.checks.current = withCheck(keeps.checks.current, check)
   $.ui.invalidate('ui.render')
   if (verdict.decision === 'deny') {
-    keepDenied(keeps.log, e.tool_use_id)
+    keepCallId(keeps.log.denied, e.tool_use_id)
     const detail = callDetail({ tool: e.tool, target })
     noteEvent($, keeps.log, await $.clock.now(), { kind: 'denied', agentId: check.agentId, detail })
   }
@@ -1607,6 +1613,7 @@ export const register: Register = (on, options) => {
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
   const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
+  const refused = new Set<string>()
   const notes: RowNotes = new Map()
   const asks: BoardTask[] = []
   const pulses = newPulses()
@@ -1775,6 +1782,7 @@ export const register: Register = (on, options) => {
       log.current = EMPTY_LOG
       log.denied.clear()
       log.runs.clear()
+      refused.clear()
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
       await $.state.set(PLAN_ID, null)
@@ -1871,15 +1879,23 @@ export const register: Register = (on, options) => {
       return answer
     }
     const callId = e.tool_use_id
+    const command = await commandOf(e.tool, e)
+    const call = { id: callId, ...sight, ...(command === undefined ? {} : { command }) }
     const from = await $.clock.now()
     heard(pulses, agentId, from)
     pulses.callsFrom.set(callId, from)
     try {
       const answer = await untilSettled($, attention, callId, () =>
-        trackAgentCall(agentHostOf($), agentId, { id: callId, ...sight }, () => {
-          noteLogRun(log, agentId)
-          return next(e)
-        }),
+        trackAgentCall(
+          agentHostOf($),
+          agentId,
+          call,
+          () => {
+            noteLogRun(log, agentId)
+            return next(e)
+          },
+          () => refused.delete(callId),
+        ),
       )
       await noteCallEvent($, log, sight, { callId, agentId, isError: answer.isError === true })
       return answer
@@ -1905,6 +1921,7 @@ export const register: Register = (on, options) => {
     const { tool_use_id: callId } = e
     if (callId === undefined || next.origin.plugin !== ENGINE_ORIGIN) return verdict
     if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
+    if (e.agentId !== undefined && verdict.decision === 'deny') keepCallId(refused, callId)
     await noteCheck($, { checks, log }, attention, { ...e, tool_use_id: callId }, verdict)
     return verdict
   }).catch(($, e, next) => {
@@ -1915,6 +1932,7 @@ export const register: Register = (on, options) => {
   on('telemetry.log', { to: 'collector' }, async ($, e, next) => {
     const callId = next.origin.plugin === ENGINE_ORIGIN ? decidedCallId(e) : undefined
     if (callId !== undefined) {
+      if (isRejected(e)) keepCallId(refused, callId)
       try {
         await settleAsk($, attention, callId)
       } catch (error) {

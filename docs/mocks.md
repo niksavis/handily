@@ -1806,6 +1806,43 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
   status line.
 - With the setting `statusLine` at `off`, the board sets no status line.
 
+#### 8.10q A retry loop on an agent row (handily-y7yzv, approved 2026-11-12)
+
+The orchestrator approved these mocks on 2026-11-12. A retry row marks a subagent that fails the
+same Bash command again and again, with an edit between the failures.
+
+- The same command: the whole Bash command, with each line trimmed and each run of white space
+  made one space. The board keeps a hash of it and the first line through the credential mask,
+  never the command itself.
+- A failure counts when the agent ran an Edit or a Write since the last failure of that command.
+  The first failure always counts. Another command between the failures does not reset the count.
+- A call that a check or the person refuses does not count. A call that never returns does not
+  count.
+- The mark shows from 3 failures, as `retry 3`, in `warning`. The `▶` mark stays.
+- The mark clears when the command passes or the agent ends.
+- State word order: needs you, failed, retry N, slow, quiet.
+- The Agents head adds `1 retry` after `failed`, in `warning`.
+
+Inline above the prompt, 80 columns (body 76):
+
+```text
+Agents  2 · 1 retry
+1 ▶ lane-b    retry 3    ▸ Bash npm test · 3 fails                 open  6m
+```
+
+Docked, 40 columns: the fails and the command go on a second line, as for a failed row. The other
+agent row is left out.
+
+```text
+Agents  2 · 1 retry
+1 ▶ lane-b    retry 3          open  6m
+    3 fails: Bash npm test
+```
+
+- `▸` shows while the agent runs that command again.
+- A command that may fail on purpose, such as a `grep` that finds nothing, still marks when the
+  agent edits between the runs. A command that changes between the runs never marks.
+
 ### 8.11 to 8.13: plan tasks, tasks for you and the band (approved 2026-10-29)
 
 Approved by the person on 2026-10-29, with every recommended answer of the designer. The
@@ -8277,6 +8314,21 @@ alone.**
 Looks: `stalled 16m`, `slow 45s` and `quiet 3m` are in `warning`, with the word and the time
 together. `ctx —` means no step has been measured yet.
 
+**4d. 80 columns: a retry row (handily-y7yzv, approved 2026-11-12). It comes first among the
+running rows, and the detail is the command that fails again, as 8.10q says.**
+
+```text
+▶ lane-b    retry 3   ▸ Bash npm test                              open  6m
+```
+
+**4e. 40 columns: the command is cut.**
+
+```text
+▶ lane-b    retry 3 ▸ Bash np… open
+```
+
+Looks: `retry 3` is in `warning`. The `▶` mark stays.
+
 ### 16.5 Overflow: more agents than rows
 
 **5a. 120 columns: 7 agents. Rows go to needs you, then failed. The fold button names the rest.**
@@ -8357,8 +8409,8 @@ This replaces 8.13k.
   - With no open task, it reads `Agents  N · no open task` and `[ board ]`.
   - A tasks-for-you count (`◆ 3 for you`) and the plan offer stay as in 8.13e and 8.13f.
 - **Agent rows.**
-  - At most 3. The order is needs you, then failed, then done, then running. Inside a group, the
-    order is by spawn time.
+  - At most 3. The order is needs you, then failed, then done, then running. Inside running, the
+    retry rows of 16.4d come first. Inside a group, the order is by spawn time.
 - **Body 115 (120 columns), from body 100:**
   - mark and a space: 2
   - name: 9, then a space
@@ -8382,6 +8434,7 @@ This replaces 8.13k.
   - done: the masked first answer line, at most 200 characters before the cut.
   - running: the current plan step `n/m <title>`, or `▸ <tool target>` when there is no plan. From
     body 100, the step and then the tool.
+  - retry: the masked command that fails again, `Bash <command>`, with `▸` while it runs.
 - **What is cut first:**
   1. the detail
   2. the time (under body 50)
@@ -8470,7 +8523,7 @@ The owner approved the 8 recommended answers of the designer:
 - **Control or bidi characters** in an answer or a target go through `escaped`, as in the pane. A
   test must cover the band path too.
 - **Colour blindness and `NO_COLOR`.** Every state has a mark and a word: `needs you`, `failed`,
-  `done`, `running`, `slow`, `quiet`, `stalled`. No meaning relies on colour.
+  `done`, `running`, `retry`, `slow`, `quiet`, `stalled`. No meaning relies on colour.
 - **A screen reader** hears `open` three times. Reading order puts each row's text before its
   button, which gives the context. A labelled button would be clearer, but the engine Button has
   only a visible `label`.
