@@ -2758,6 +2758,9 @@ coming before Claude Code stops them. They see it first on the Session line.
 The blocks below are not framed. Each block shows the text that the board tests assert. A Session
 line block joins the drawn rows of the line with ` · `, as the tests read them.
 
+On 2026-11-12 the orchestrator accepted the toast mark of the `waitsForYou` role and the 40
+column form of the Session line. The blocks below show what the board draws.
+
 The build changed two things in the approved mocks:
 
 - At 40 columns the approved mock showed `5h 62% full ~1h · 7d 13%`. No tested width draws that
