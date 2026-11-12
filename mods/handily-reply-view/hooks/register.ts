@@ -20,6 +20,7 @@ import {
   type CopyLayout,
   type ReplyActions,
 } from './draw'
+import { DEFAULT_REPLY_STYLE, isReplyStyle, REPLY_STYLES, type ReplyStyle } from './frame'
 import { DIAGRAM_HINT } from './hint'
 import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
 import { DEFAULT_HEADING_STYLE, HEADING_STYLES, isHeadingStyle, type HeadingStyle } from './blocks'
@@ -115,6 +116,12 @@ const CHECKED_SETTINGS: readonly CheckedSetting[] = [
     options: PROMPT_STYLES,
     fallback: `Drawing ${DEFAULT_PROMPT_STYLE}.`,
     isOption: isPromptStyle,
+  },
+  {
+    key: 'replyStyle',
+    options: REPLY_STYLES,
+    fallback: `Reply style stays ${DEFAULT_REPLY_STYLE}.`,
+    isOption: isReplyStyle,
   },
 ]
 
@@ -255,6 +262,7 @@ type CopyRequest = {
   word: string
   columns: number
   drawsDiagrams: boolean
+  replyStyle: ReplyStyle
 }
 
 async function copied(
@@ -276,7 +284,7 @@ async function copyFromReply(
   const [surface = 'terminal'] = await $.session.surfaces()
   if (!isBlockKind(word)) return copied($, replyCopy(reply), surface)
   const copy = lastCopyOf(reply, word, {
-    width: replyWidth(request.columns, hasBulletOn(surface)),
+    width: replyWidth(request.columns, hasBulletOn(surface), request.replyStyle),
     surface,
     drawsDiagrams: request.drawsDiagrams,
   })
@@ -399,6 +407,9 @@ export const register: Register = (on, options) => {
   const promptStyle: PromptStyle = isPromptStyle(options.promptStyle)
     ? options.promptStyle
     : DEFAULT_PROMPT_STYLE
+  const replyStyle: ReplyStyle = isReplyStyle(options.replyStyle)
+    ? options.replyStyle
+    : DEFAULT_REPLY_STYLE
   let lastReply: string | undefined
   const railSite: RailSite = { rail: newRail(), version: 0 }
   on('session.start', async ($, e, next) => {
@@ -454,6 +465,7 @@ export const register: Register = (on, options) => {
           word: second,
           columns: e.presentation.columns,
           drawsDiagrams,
+          replyStyle,
         }),
       }
     }
@@ -644,6 +656,7 @@ export const register: Register = (on, options) => {
             highlight,
             palette: await shownPalette($, e.surface),
             codeFolds: await codeFoldsOf($, e.requestId, blocks),
+            replyStyle,
           },
           await foldOf($, e.requestId),
           replyActions($, e.requestId),

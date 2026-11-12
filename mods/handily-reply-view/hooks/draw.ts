@@ -9,6 +9,13 @@ import { chartName, drawChart, isChartSource } from './charts'
 import { drawClasses } from './classes'
 import { drawEntities } from './er'
 import { drawFlowchart, widthClause } from './flowchart'
+import {
+  DEFAULT_REPLY_STYLE,
+  FRAME_COLUMNS,
+  framedReply,
+  shownReplyStyle,
+  type ReplyStyle,
+} from './frame'
 import { drawGantt } from './gantt'
 import { drawGitGraph } from './gitgraph'
 import { highlightedRuns } from './highlight'
@@ -170,7 +177,10 @@ export type ReplyLayout = {
   highlight: boolean
   palette: PaletteSetting
   codeFolds?: ReadonlyMap<string, ReplyViewFold>
+  replyStyle?: ReplyStyle
 }
+
+type ReplyEdge = 'none' | 'bullet' | 'frame'
 
 type Drawing = { element: RenderElement; rows: number }
 
@@ -259,8 +269,12 @@ function tokenColor(context: Context, mark: Mark): Color | undefined {
   return paint(context, mark.token)
 }
 
+function shownLookColor(palette: PaletteSetting, look: RoleLook): Color | undefined {
+  return palette === MOCHA ? (look.mocha ?? look.key) : look.key
+}
+
 function lookColor(context: Context, look: RoleLook): Color | undefined {
-  return context.palette === MOCHA ? (look.mocha ?? look.key) : look.key
+  return shownLookColor(context.palette, look)
 }
 
 function roleColor(context: Context, role: ReplyRole): Color | undefined {
@@ -1687,8 +1701,23 @@ function isDefiningProse(block: Block): boolean {
   return block.kind === 'prose' && holdsLinkDefinition(block.lines)
 }
 
-export function replyWidth(columns: number, hasBullet: boolean): number {
-  return columns - (hasBullet ? BULLET_COLUMNS : 0)
+const EDGE_COLUMNS: Readonly<Record<ReplyEdge, number>> = {
+  none: 0,
+  bullet: BULLET_COLUMNS,
+  frame: FRAME_COLUMNS,
+}
+
+function replyEdge(columns: number, hasBullet: boolean, replyStyle: ReplyStyle): ReplyEdge {
+  if (!hasBullet) return 'none'
+  return shownReplyStyle(replyStyle, columns) === 'frame' ? 'frame' : 'bullet'
+}
+
+export function replyWidth(
+  columns: number,
+  hasBullet: boolean,
+  replyStyle: ReplyStyle = DEFAULT_REPLY_STYLE,
+): number {
+  return columns - EDGE_COLUMNS[replyEdge(columns, hasBullet, replyStyle)]
 }
 
 function foldedPreview(pieces: readonly Piece[]): Preview {
@@ -1785,8 +1814,14 @@ function blocksColumn(
   })
 }
 
-function withBullet(elements: ReplyElements, layout: ReplyLayout, body: RenderElement) {
-  if (!layout.hasBullet) return body
+function withEdge(elements: ReplyElements, layout: ReplyLayout, body: RenderElement) {
+  const replyStyle = layout.replyStyle ?? DEFAULT_REPLY_STYLE
+  const edge = replyEdge(layout.columns, layout.hasBullet, replyStyle)
+  if (edge === 'none') return body
+  if (edge === 'frame') {
+    const color = shownLookColor(layout.palette, ROLE_LOOKS.replyFrame)
+    return framedReply(elements, { color, isFirstOfReply: layout.isFirstOfReply }, body)
+  }
   const { Box, Text } = elements
   return Box({
     flexDirection: 'row',
@@ -1809,7 +1844,7 @@ export function replyTree(
   fold: ReplyViewFold,
   actions: ReplyActions,
 ): RenderElement | null {
-  const width = replyWidth(layout.columns, layout.hasBullet)
+  const width = replyWidth(layout.columns, layout.hasBullet, layout.replyStyle)
   const context: Context = {
     elements,
     width,
@@ -1854,5 +1889,5 @@ export function replyTree(
       isLong ? foldRow(context, fold, text, hidden) : null,
     ],
   })
-  return withBullet(elements, layout, body)
+  return withEdge(elements, layout, body)
 }

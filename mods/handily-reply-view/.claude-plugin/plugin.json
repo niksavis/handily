@@ -49,6 +49,13 @@
       "options": ["rule", "bar", "bubble"],
       "default": "rule"
     },
+    "replyStyle": {
+      "type": "string",
+      "title": "Reply style",
+      "description": "Whether a reply draws in a frame labelled Claude (frame) or with its bullet only (off). The frame takes 4 columns. Under 40 columns no frame draws.",
+      "options": ["off", "frame"],
+      "default": "off"
+    },
     "highlight": {
       "type": "string",
       "title": "Highlight",

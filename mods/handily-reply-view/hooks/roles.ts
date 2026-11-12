@@ -13,6 +13,7 @@ export type ReplyRole =
   | 'alertImportant'
   | 'alertWarning'
   | 'alertCaution'
+  | 'replyFrame'
 
 export type RoleLook = { key?: ThemeKey; mocha?: string }
 
@@ -28,6 +29,7 @@ export const ROLE_LOOKS: Readonly<Record<ReplyRole, RoleLook>> = {
   alertImportant: { key: 'merged', mocha: '#cba6f7' },
   alertWarning: { key: 'warning' },
   alertCaution: { key: 'error' },
+  replyFrame: { key: 'claude', mocha: '#fab387' },
 }
 
 const THEME_CYCLE_ROLES: readonly PaletteRole[] = [

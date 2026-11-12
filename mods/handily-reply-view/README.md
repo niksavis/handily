@@ -15,8 +15,9 @@ treemap, block diagram, requirement diagram, C4 diagram or architecture diagram 
 diagram, with a `copy` button for its source and a `copy drawing` button for the drawing. Each
 prompt that you type opens under a coloured rule labelled `you`, so you find it when you scroll.
 The `promptStyle` setting draws it with a bar at its left or in a frame at the right instead.
-`/replies` switches the view off and on for the session. The model still reads the full reply
-and the prompt as you typed it. Only the screen changes.
+The `replyStyle` setting `frame` draws each reply in a frame labelled `● Claude`. It is off by
+default. `/replies` switches the view off and on for the session. The model still reads the full
+reply and the prompt as you typed it. Only the screen changes.
 
 The approved mock is in `docs/mocks.md`, section 7.2, with the decisions in section 7.3. Box
 tables by default, highlighting and the palette follow sections 14.3 to 14.5.
@@ -380,6 +381,7 @@ an ANSI theme and the desktop app keep the theme keys. `/handily palette` shows 
 | Bullets, numbers, quote bar | `inactive`                         | `#cba6f7`                                                        |
 | Open task `[ ]`             | `inactive`                         | `#9399b2`                                                        |
 | Quote text                  | no colour                          | `#a6adc8`                                                        |
+| Reply frame and its label   | `claude`                           | `#fab387`                                                        |
 
 The mod reads the `handily` row and the `theme` row of `/config` when the session starts and when
 either changes, and draws its replies again. A mod installed without the `handily` bundle draws
@@ -2424,6 +2426,35 @@ At a terminal of 40 columns or more a bubble draws. Under 40 columns it draws as
   rule, the bar or the frame, so a copy of that text holds no rule characters.
 - The desktop app draws each prompt as it draws it.
 
+## A reply frame
+
+The `replyStyle` setting picks how a reply of Claude draws: with its bullet (`off`, the default)
+or in a frame (`frame`). The first text block of a reply carries `● Claude` in the top line of
+its frame:
+
+```text
+╭─ ● Claude ───────────────────────────────────────────────────────────────────╮
+│ Ingest p95 and errors per hour, from logs/hourly.csv:                        │
+│                                                                              │
+│ p95 jumped from 46 ms to 2 s at 14:00, and the timeouts started in the same  │
+│ hour.                                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+- A reply that calls tools between its sentences draws one frame for each text block. Only the
+  first frame carries `● Claude`.
+- Tables, code blocks, diagrams, charts, the count of hidden lines and the buttons draw inside the
+  frame.
+- The frame takes 4 columns, and the bullet takes 2. So a line of a framed reply holds 2 columns
+  less: 76 columns at a terminal of 80, and 36 at 40.
+- At a terminal of 40 columns or more a frame draws. Under 40 columns the reply draws with its
+  bullet.
+- The frame and the label have the `claude` colour of your theme, or `#fab387` with the
+  `catppuccin-mocha` palette.
+- `copy reply`, each `copy` button and `/replies copy` copy the text without a frame character. A
+  mouse selection over several lines takes the `│` of each side with it.
+- The desktop app draws each reply without a frame.
+
 ## The prompts tab
 
 `/replies prompts` opens a `prompts` tab that lists each prompt that you typed in this session.
@@ -2537,6 +2568,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | `highlight`    | `on`     | `on` draws numbers, durations, versions and paths in their own colours. `off` draws them plain                 |
 | `headingStyle` | `banner` | `banner` draws a box around H1 and a rule under H2. `bold`, `underline` and `uppercase` draw no box            |
 | `promptStyle`  | `rule`   | `rule` draws a rule above a prompt that you type. `bar` draws a bar at its left, `bubble` a frame at the right |
+| `replyStyle`   | `off`    | `frame` draws each reply in a frame labelled `● Claude` at 40 columns or more. `off` draws the bullet          |
 
 | Command                  | Effect                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------- |
