@@ -6,6 +6,39 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.25.0 - 2026-11-12
+
+### Added
+
+- **reply-view puts tables and diagrams that fit side by side.** A table or a drawn diagram that
+  follows another with only blank lines between them shares a row with it when both fit, with
+  their button rows and 3 columns between them. The tops align, and a block that does not fit
+  starts a new row. A code block and a diagram that does not draw stay stacked. The new
+  `sideBySide` setting is `on` by default. A person who uses a terminal screen reader sets it to
+  `off`, because a screen reader reads a shared row across both blocks. The desktop app always
+  stacks the blocks. A mouse selection across a shared row takes both blocks, while each `copy`
+  button, `copy reply` and `/replies copy` give each block alone as its markdown.
+  (handily-36bsx.9.1)
+- **reply-view puts a chart beside a table or a diagram.** A chart in a shared row draws at the
+  width of its title line with its buttons, 52 columns for a bar chart, and joins the row only
+  when that width fits. At 80 columns a table and a chart stay stacked. A chart that changes its
+  shape at that width, such as a line chart that draws as bars, stays stacked. A chart alone or
+  in a stack keeps the whole width. In a shared row, `copy drawing` gives the chart as the row
+  draws it, and `copy` and `/replies copy chart` give the chart source. The desktop app always
+  stacks the blocks. (handily-36bsx.9.2)
+
+### Fixed
+
+- **reply-view cuts a shared row at the fold.** A folded reply that starts with a shared row
+  taller than 30 rows showed only the fold row, and a shared row that crossed row 30 was hidden
+  with all that followed it. Now the preview cuts each block of the row at the same row, as it
+  cuts a block in a stack. The fold row names a cut diagram and counts the hidden rows from the
+  tallest block of the row. `more` shows the whole row. (handily-36bsx.9.3)
+- **reply-view says when `/replies hints` turns the hints on but no hint goes out.** The reply said
+  that each prompt carries a hint, also while the reply view or the `diagrams` setting was off. In
+  these cases no hint goes out. Now the reply says that no hint goes out, names each reason and
+  gives the command or the setting that changes it. (handily-aneev)
+
 ## handily-board 0.23.0 - 2026-11-12
 
 ### Added

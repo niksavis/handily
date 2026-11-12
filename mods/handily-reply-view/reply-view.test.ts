@@ -1805,6 +1805,12 @@ const HINT_CHARACTERS_AT_MOST = 540
 const HINTS_ON =
   'diagram hints on for this session. Each prompt that you type carries one hint about mermaid diagrams, about 215 tokens.'
 const HINTS_OFF = 'diagram hints off for this session. A prompt that you type carries no hint.'
+const HINTS_HELD_BY_VIEW =
+  'diagram hints on for this session. No hint goes out while the reply view is off. /replies turns the reply view on.'
+const HINTS_HELD_BY_DIAGRAMS =
+  'diagram hints on for this session. No hint goes out while the diagrams setting is off. Set the diagrams setting to on in /config.'
+const HINTS_HELD_BY_BOTH =
+  'diagram hints on for this session. No hint goes out while the reply view is off and the diagrams setting is off. /replies turns the reply view on. Set the diagrams setting to on in /config.'
 
 type Submitted = { text: string; wait: boolean; origin: PromptOrigin; context?: readonly string[] }
 
@@ -1993,6 +1999,70 @@ describe('diagram hints', () => {
         expect(await commandText($, 'hints')).toBe(HINTS_OFF)
         await $.prompt.submit(submitted({ kind: 'composer' }))
         expect(read.map((prompt) => prompt.context)).toEqual([undefined])
+      },
+    )
+
+    hintsTest(
+      `/replies hints says that no hint goes out while /replies turned the reply view off on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        await commandText($)
+        expect(await commandText($, 'hints')).toBe(HINTS_HELD_BY_VIEW)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+      },
+    )
+
+    hintsTest(
+      `/replies hints says that no hint goes out while the mode setting is off on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_HELD_BY_VIEW)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+      },
+      { mode: 'off' },
+    )
+
+    hintsTest(
+      `/replies hints says that no hint goes out while the diagrams setting is off on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_HELD_BY_DIAGRAMS)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+        expect(await commandText($, 'hints')).toBe(HINTS_OFF)
+      },
+      { diagrams: 'off' },
+    )
+
+    hintsTest(
+      `/replies hints names both reasons while the reply view and the diagrams setting are off on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_HELD_BY_BOTH)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual(NO_HINT)
+      },
+      { mode: 'off', diagrams: 'off' },
+    )
+
+    hintsTest(
+      `/replies hints names the reason again when /replies turns the reply view off after the hints on ${surface}`,
+      undefined,
+      surface,
+      async (read, $) => {
+        expect(await commandText($, 'hints')).toBe(HINTS_ON)
+        await commandText($)
+        expect(await commandText($, 'hints')).toBe(HINTS_OFF)
+        expect(await commandText($, 'hints')).toBe(HINTS_HELD_BY_VIEW)
+        await commandText($)
+        await $.prompt.submit(submitted({ kind: 'composer' }))
+        expect(read.map((prompt) => prompt.context)).toEqual([[MEASURED_HINT]])
       },
     )
   }
