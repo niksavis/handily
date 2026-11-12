@@ -193,8 +193,10 @@ type Piece = {
   isOpened?: boolean
   beside?: Beside
   whole: () => RenderElement
-  cut: (rows: number) => Drawing | null
+  cut: (rows: number) => Cut | null
 }
+
+type Cut = Drawing & { diagram?: string }
 
 type Beside = { columns: number; at: (width: number) => Piece }
 
@@ -1680,7 +1682,11 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
         lines: drawing.lines.slice(0, count),
         inked: drawing.inked.slice(0, count),
       }
-      return { element: column([title.element, drawingBody(context, first, key)]), rows: budget }
+      return {
+        element: column([title.element, drawingBody(context, first, key)]),
+        rows: budget,
+        diagram: drawing.plain,
+      }
     },
   }
 }
@@ -1759,31 +1765,59 @@ export function replyWidth(
   return columns - EDGE_COLUMNS[replyEdge(columns, hasBullet, replyStyle)]
 }
 
+type RowCell = { columns: number; piece: Piece }
+
+type ShownCell = { columns: number; element: RenderElement }
+
+function shownAt(piece: Piece, budget: number): Cut | null {
+  return piece.rows <= budget ? { element: piece.whole(), rows: piece.rows } : piece.cut(budget)
+}
+
+function cellsAt(cells: readonly RowCell[], budget: number): (Cut & ShownCell)[] | null {
+  const shown: (Cut & ShownCell)[] = []
+  for (const cell of cells) {
+    const cut = shownAt(cell.piece, budget)
+    if (cut === null) return null
+    shown.push({ ...cut, columns: cell.columns })
+  }
+  return shown
+}
+
 function rowPiece(context: Context, besides: readonly Beside[], key: string): Piece {
   const { Box } = context.elements
   const cells = besides.map((beside) => ({
     columns: beside.columns,
     piece: beside.at(beside.columns),
   }))
+  const row = (shown: readonly ShownCell[]) =>
+    Box({
+      key,
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: COLUMNS_BETWEEN,
+      children: shown.map((cell, index) =>
+        Box({
+          key: `${key}-${String(index)}`,
+          flexDirection: 'column',
+          width: cell.columns,
+          flexShrink: 0,
+          children: cell.element,
+        }),
+      ),
+    })
   return {
     rows: Math.max(...cells.map((cell) => cell.piece.rows)),
-    whole: () =>
-      Box({
-        key,
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: COLUMNS_BETWEEN,
-        children: cells.map((cell, index) =>
-          Box({
-            key: `${key}-${String(index)}`,
-            flexDirection: 'column',
-            width: cell.columns,
-            flexShrink: 0,
-            children: cell.piece.whole(),
-          }),
-        ),
-      }),
-    cut: () => null,
+    whole: () => row(cells.map((cell) => ({ columns: cell.columns, element: cell.piece.whole() }))),
+    cut: (budget) => {
+      const shown = cellsAt(cells, budget)
+      if (shown === null) return null
+      const diagram = shown.find((cell) => cell.diagram !== undefined)?.diagram
+      return {
+        element: row(shown),
+        rows: Math.max(...shown.map((cell) => cell.rows)),
+        ...(diagram === undefined ? {} : { diagram }),
+      }
+    },
   }
 }
 
@@ -1822,7 +1856,7 @@ function foldedPreview(pieces: readonly Piece[]): Preview {
     if (cut === null) break
     shown.push({ element: cut.element, rows: cut.rows + gap })
     const cutDiagram =
-      piece.diagram === undefined ? null : { name: piece.diagram, rows: piece.rows - cut.rows }
+      cut.diagram === undefined ? null : { name: cut.diagram, rows: piece.rows - cut.rows }
     return { shown, cutDiagram }
   }
   return { shown, cutDiagram: null }

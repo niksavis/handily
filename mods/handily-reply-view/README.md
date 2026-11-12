@@ -2489,8 +2489,14 @@ At 80 columns the same reply draws the diagram under the table.
   `/replies copy` give each block as its own markdown, in reading order, with no space between
   the columns.
 - A mouse selection across a shared row takes the lines of both blocks.
-- In a folded reply, a shared row counts as its tallest block. A shared row that does not fit
-  whole in the first 30 lines shows when you press `more`.
+- In a folded reply, a shared row counts as its tallest block. When the first 30 rows end inside
+  a shared row, the preview cuts each block of the row at the same row, as it cuts a block in a
+  stack. A block that ends above that row shows whole. `more` shows the whole row.
+- When a diagram of the row is cut, the fold row names it and counts the hidden rows of the row
+  from its tallest block. Of two cut diagrams, the fold row names the first. A diagram in a
+  shared row is cut also when the preview with the whole diagram takes 60 rows or fewer.
+- When a block of the row cannot be cut that short, the preview ends above the row. A table needs
+  its frame and one row, and a diagram needs its title line and 5 rows of the drawing.
 - The `sideBySide` setting `off` stacks every block. The desktop app always stacks them.
 
 ## The prompts tab
