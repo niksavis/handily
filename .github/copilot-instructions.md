@@ -84,7 +84,7 @@ claude --plugin-dir mods/<name>
 - Purpose: handily is a public repository of Claude Code mods (plugins of function hooks) and a Claude plugin marketplace. The mods show work items, tasks and sessions for any tracker. No mod needs basicly.
 - Boundary: mods show and ask. Mods never enforce. Enforcement belongs in git hooks or a harness, because a git hook holds for every agent.
 - Stack: TypeScript 6.0 (pinned below 6.1 for typescript-eslint), ESLint with typescript-eslint strict type-checked rules, Prettier, Node.js 22 or later. The Claude Code CLI version is pinned in `.github/workflows/basicly-gates.yml`.
-- Layout: one mod per folder in `mods/<name>/`, listed in `.claude-plugin/marketplace.json` with source `./mods/<name>`. `scripts/mods.mjs` runs every gate over every mod.
+- Layout: one mod per folder in `mods/<name>/`, listed in `.claude-plugin/marketplace.json` with a `git-subdir` source at its latest release tag, written by `npm run marketplace -- --pin <name>`. `scripts/mods.mjs` runs every gate over every mod.
 - Design: `docs/design.md` is the authority for the mods, the decisions and the open questions. Read it before you start a mod.
 
 ### Lane Dispatch Quirks

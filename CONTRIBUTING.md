@@ -47,7 +47,7 @@ through `basicly verify --mode full`.
 
 | Gate | Command | What it refuses |
 | --- | --- | --- |
-| Validate | `npm run validate` | A manifest or marketplace error, a name mismatch between folder, manifest and marketplace, a marketplace file that differs from the `npm run marketplace` output |
+| Validate | `npm run validate` | A manifest or marketplace error, a name mismatch between folder, manifest and marketplace, a marketplace file that differs from the `npm run marketplace` output, an entry that does not pin a release tag and the commit of that tag, a released mod with no entry |
 | Type check | `npm run typecheck` | A type error against the Claude Code mod API |
 | Lint | `npm run lint` | typescript-eslint strict type-checked findings, such as a promise that is not awaited |
 | Format | `npm run format:check` | Code that Prettier would change. `npm run check` does not run it |
@@ -98,9 +98,9 @@ Never bypass a failing gate. `--no-verify` is not allowed. Fix the cause.
 2. Create `mods/<name>/` with `.claude-plugin/plugin.json`, `hooks/hooks.json`,
    `hooks/register.ts`, a `tsconfig.json` that extends `./.claude-plugin/types/tsconfig.json`,
    and tests.
-3. Run `npm run marketplace` and commit the generated `.claude-plugin/marketplace.json`. The
-   generator takes the `version` and the `description` of the mod from its `plugin.json`. Do
-   not edit the file by hand.
+3. Do not add the mod to `.claude-plugin/marketplace.json`. A mod gets its entry at its first
+   release, when `npm run marketplace -- --pin <name>` pins it at its release tag. Until then
+   `npm run marketplace` leaves the mod out and prints a note. Do not edit the file by hand.
 4. Run `npm run types`, then `npm run check`.
 5. Load all mods in a session with `claude --plugin-dir mods`. A mod that needs another mod does
    not load alone.

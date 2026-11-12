@@ -9,56 +9,101 @@
   "plugins": [
     {
       "name": "handily",
-      "source": "./mods/handily",
-      "version": "0.11.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily",
+        "ref": "handily--v0.11.0",
+        "sha": "f95fae921a62a99dbf0c4415c47a37c5d617fbe0"
+      },
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
     {
       "name": "handily-board",
-      "source": "./mods/handily-board",
-      "version": "0.23.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-board",
+        "ref": "handily-board--v0.23.0",
+        "sha": "8bb149378a646b04a26b3f3c9400b5f16ee28ab8"
+      },
       "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, and four model tools keep the list."
     },
     {
       "name": "handily-filetree",
-      "source": "./mods/handily-filetree",
-      "version": "0.13.1",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-filetree",
+        "ref": "handily-filetree--v0.13.1",
+        "sha": "f118acd35f0212de00622489fce4a6694f2e0987"
+      },
       "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
     },
     {
       "name": "handily-item-toasts",
-      "source": "./mods/handily-item-toasts",
-      "version": "0.8.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-item-toasts",
+        "ref": "handily-item-toasts--v0.8.0",
+        "sha": "695ce64b6a4c26736c668bdad9ec407e470623ea"
+      },
       "description": "A toast when a work item changes outside this session, at most one every 30 s."
     },
     {
       "name": "handily-quiet-items",
-      "source": "./mods/handily-quiet-items",
-      "version": "0.5.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-quiet-items",
+        "ref": "handily-quiet-items--v0.5.0",
+        "sha": "b454f13a3e99eb5e093b59161100397cbca74f15"
+      },
       "description": "One short row in place of each tracker write in the transcript."
     },
     {
       "name": "handily-reply-view",
-      "source": "./mods/handily-reply-view",
-      "version": "0.24.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-reply-view",
+        "ref": "handily-reply-view--v0.24.0",
+        "sha": "35fcc4a0d0a8d1a571b5fc756761191a90828ba3"
+      },
       "description": "Long replies fold to their first lines, tables draw in a full box or with rules between their columns with Table style rules, numbers, paths and inline code in replies draw in their own colours, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
     {
       "name": "handily-simple-view",
-      "source": "./mods/handily-simple-view",
-      "version": "0.10.1",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-simple-view",
+        "ref": "handily-simple-view--v0.10.1",
+        "sha": "5c9f95e487a8bf4c35fc49d9e4da0c874c156ff4"
+      },
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
     {
       "name": "handily-tests",
-      "source": "./mods/handily-tests",
-      "version": "0.2.1",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-tests",
+        "ref": "handily-tests--v0.2.1",
+        "sha": "301ac3baf28eb7f6b76abc5a0315f10898c297a7"
+      },
       "description": "A tests tab that lists each failed test by name with its file, line and assertion diff, read from the vitest, jest, node --test or pytest output of a Bash call. /tests opens it."
     },
     {
       "name": "handily-workitems",
-      "source": "./mods/handily-workitems",
-      "version": "0.8.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "niksavis/handily",
+        "path": "mods/handily-workitems",
+        "ref": "handily-workitems--v0.8.0",
+        "sha": "1d51809d2d210c4c52581df85fe2668898a13a61"
+      },
       "description": "Provider of one typed work item list over any tracker, for other handily mods."
     }
   ]

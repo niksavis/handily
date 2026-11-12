@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import {
   chmodSync,
   cpSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -684,12 +685,7 @@ function pinnedBoard(sha) {
   }
 }
 
-const relativeItems = {
-  name: 'items',
-  source: './mods/items',
-  version: '0.1.0',
-  description: 'Items with no release tag.',
-}
+const untaggedItemsNote = /^NOTE items: no release tag items--v\* exists yet/m
 
 test('marketplace --pin writes a git-subdir source at the release tag with the peeled commit of an annotated tag and no version', () => {
   const repo = makeRepoWithTaggedMod()
@@ -701,12 +697,47 @@ test('marketplace --pin writes a git-subdir source at the release tag with the p
   const board = listedEntry(text, 'board')
   assert.deepEqual(board, pinnedBoard(repo.tagCommit))
   assert.equal(Object.hasOwn(board, 'version'), false)
-  assert.deepEqual(listedEntry(text, 'items'), relativeItems)
+  assert.equal(listedEntry(text, 'items'), undefined)
+})
+
+test('marketplace refuses a mod that has a release tag and no pinned entry, names the mod and the pin command, and writes nothing', () => {
+  const repo = makeRepoWithTaggedMod()
+  const result = runMarketplace(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.match(
+    result.stderr,
+    /^FAIL board: it has the release tag board--v0\.2\.0, and \.claude-plugin\/marketplace\.json does not list it; run `npm run marketplace -- --pin board`$/m,
+  )
+  assert.equal(existsSync(repo.marketplace), false)
+})
+
+test('marketplace refuses a relative entry of a mod that has a release tag and writes nothing', () => {
+  const repo = makeRepoWithTaggedMod()
+  const relative = { name: 'board', source: './mods/board', version: '0.2.0', description: 'x' }
+  const before = `${JSON.stringify({ name: 'niksavis', plugins: [relative] }, null, 2)}\n`
+  writeFileSync(repo.marketplace, before)
+  const result = runMarketplace(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.match(result.stderr, /^FAIL board: it has the release tag board--v0\.2\.0/m)
+  assert.equal(readFileSync(repo.marketplace, 'utf8'), before)
+})
+
+test('marketplace leaves out a mod with no release tag and notes it', () => {
+  const repo = makeRepoWithTaggedMod()
+  const result = runMarketplace(repo, '--pin', 'board')
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, untaggedItemsNote)
+  const text = readFileSync(repo.marketplace, 'utf8')
+  assert.deepEqual(
+    JSON.parse(text).plugins.map((plugin) => plugin.name),
+    ['board'],
+  )
+  assert.equal(text.includes('./mods/'), false)
 })
 
 test('marketplace --pin refuses a mod whose release tag does not exist, names the tag and the claude plugin tag command, and writes nothing', () => {
   const repo = makeRepoWithTaggedMod()
-  assert.equal(runMarketplace(repo).status, 0)
+  assert.equal(runMarketplace(repo, '--pin', 'board').status, 0)
   const before = readFileSync(repo.marketplace, 'utf8')
   const result = runMarketplace(repo, '--pin', 'items')
   assert.equal(result.status, 1, result.stdout + result.stderr)
@@ -720,25 +751,25 @@ test('marketplace keeps a pinned entry as written when the plugin.json version o
   const written = { ...pinnedBoard('0123456789abcdef0123456789abcdef01234567'), extra: 'kept' }
   writeFileSync(
     repo.marketplace,
-    `${JSON.stringify({ name: 'niksavis', plugins: [written, relativeItems] }, null, 2)}\n`,
+    `${JSON.stringify({ name: 'niksavis', plugins: [written] }, null, 2)}\n`,
   )
   writeManifest(repo.root, 'board', { version: '0.3.0', description: 'An unreleased board.' })
   const result = runMarketplace(repo)
   assert.equal(result.status, 0, result.stdout + result.stderr)
   const text = readFileSync(repo.marketplace, 'utf8')
   assert.deepEqual(listedEntry(text, 'board'), written)
-  assert.deepEqual(listedEntry(text, 'items'), relativeItems)
+  assert.equal(listedEntry(text, 'items'), undefined)
 })
 
 test('marketplace --pin --dry-run prints the pinned file and writes nothing', () => {
   const repo = makeRepoWithTaggedMod()
-  assert.equal(runMarketplace(repo).status, 0)
-  const before = readFileSync(repo.marketplace, 'utf8')
+  const stale = pinnedBoard('0123456789abcdef0123456789abcdef01234567')
+  const before = `${JSON.stringify({ name: 'niksavis', plugins: [stale] }, null, 2)}\n`
+  writeFileSync(repo.marketplace, before)
   const result = runMarketplace(repo, '--pin', 'board', '--dry-run')
   assert.equal(result.status, 0, result.stdout + result.stderr)
   assert.match(result.stdout, new RegExp(`"ref": "${boardTag}",\\n\\s+"sha": "${repo.tagCommit}"`))
   assert.equal(readFileSync(repo.marketplace, 'utf8'), before)
-  assert.deepEqual(listedEntry(before, 'board').source, './mods/board')
 })
 
 test('a second marketplace --pin of the same tag leaves the file byte for byte unchanged', () => {
@@ -753,7 +784,7 @@ test('a second marketplace --pin of the same tag leaves the file byte for byte u
 
 test('marketplace refuses a pin of a name that is not a mod and an unknown argument, and writes nothing', () => {
   const repo = makeRepoWithTaggedMod()
-  assert.equal(runMarketplace(repo).status, 0)
+  assert.equal(runMarketplace(repo, '--pin', 'board').status, 0)
   const before = readFileSync(repo.marketplace, 'utf8')
   const missing = runMarketplace(repo, '--pin', 'nothing')
   assert.equal(missing.status, 1, missing.stdout + missing.stderr)
@@ -820,16 +851,28 @@ function pinnedRepo(options) {
   return repo
 }
 
-test('validate passes the relative marketplace that the generator writes today', () => {
-  const repo = makeValidateRepo({ boardDependsOnItems: true })
+test('validate passes the pinned marketplace that the generator writes, and a plain run keeps it byte for byte', () => {
+  const repo = pinnedRepo({ boardDependsOnItems: true, tagItems: true })
+  const pinned = readFileSync(repo.marketplace, 'utf8')
+  assert.equal(pinned.includes('./mods/'), false)
   assert.equal(runMarketplace(repo).status, 0)
-  assert.deepEqual(
-    listedEntry(readFileSync(repo.marketplace, 'utf8'), 'board').source,
-    './mods/board',
-  )
+  assert.equal(readFileSync(repo.marketplace, 'utf8'), pinned)
   const result = runValidate(repo)
   assert.equal(result.status, 0, result.stdout + result.stderr)
   assert.deepEqual(failLines(result), [])
+})
+
+test('validate refuses a relative source and names the pin command', () => {
+  const repo = pinnedRepo()
+  editEntry(repo, 'board', (entry) => ({ ...entry, source: './mods/board' }))
+  const result = runValidate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.ok(
+    failLines(result).includes(
+      `FAIL board: marketplace source is "./mods/board"; it must be a git-subdir source at a release tag, which \`${pinCommand('board')}\` writes`,
+    ),
+    result.stderr,
+  )
 })
 
 test('validate passes a pinned entry at its release tag and notes a mod with no release tag yet', () => {
@@ -889,11 +932,12 @@ test('validate notes and does not refuse a mod with no release tag and no market
   const repo = pinnedRepo()
   editEntry(repo, 'items', () => undefined)
   const result = runValidate(repo)
-  assert.match(result.stdout, /^NOTE items: no release tag items--v\* exists yet/m)
+  assert.match(result.stdout, untaggedItemsNote)
   assert.deepEqual(
     failLines(result).filter((line) => line.startsWith('FAIL items:')),
     [],
   )
+  assert.equal(result.status, 0, result.stdout + result.stderr)
 })
 
 test('validate refuses a dependency named by the manifest at its tag that the marketplace does not list at a tag', () => {
@@ -946,8 +990,9 @@ test('validate refuses a pinned entry with another url, path, source kind or ref
   }
 })
 
-test('validate in a shallow clone with no tags says to run git fetch --tags for a pinned entry and passes a relative one', () => {
+test('validate in a shallow clone with no tags says to run git fetch --tags for a pinned entry and passes after the fetch', () => {
   const repo = pinnedRepo()
+  pinGit(repo.root, 'rm', '-r', '--quiet', '--', 'mods/items')
   pinGit(repo.root, 'add', '--', '.claude-plugin', 'scripts', '.agents')
   pinGit(repo.root, 'commit', '--quiet', `--date=${pinFixtureDate}`, '-m', 'pin board')
   const parent = mkdtempSync(join(tmpdir(), 'handily-mods-shallow-'))
@@ -970,13 +1015,7 @@ test('validate in a shallow clone with no tags says to run git fetch --tags for 
   assert.deepEqual(failLines(result), [
     `FAIL board: the release tag ${boardTag} is not in this shallow clone; run \`git fetch --tags\`, then run the command again`,
   ])
-  clone.marketplace = join(clone.root, '.claude-plugin', 'marketplace.json')
-  editEntry(clone, 'board', () => ({
-    name: 'board',
-    source: './mods/board',
-    version: boardAtTag.version,
-    description: 'The board on main after its tag.',
-  }))
-  const relative = runValidate(clone)
-  assert.equal(relative.status, 0, relative.stdout + relative.stderr)
+  pinGit(clone.root, 'fetch', '--quiet', '--tags')
+  const fetched = runValidate(clone)
+  assert.equal(fetched.status, 0, fetched.stdout + fetched.stderr)
 })

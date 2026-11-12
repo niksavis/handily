@@ -404,33 +404,24 @@ function writtenEntries() {
   return new Map(plugins.map((plugin) => [plugin?.name, plugin]))
 }
 
-function relativeEntry(mod) {
-  const manifest = readManifest(mod)
-  if (!manifest) return undefined
-  for (const field of ['version', 'description']) {
-    if (typeof manifest[field] !== 'string' || manifest[field] === '') {
-      fail(`${mod.name}: plugin.json has no ${field}; the marketplace entry needs it`)
-    }
-  }
-  return {
-    name: mod.name,
-    source: `./mods/${mod.name}`,
-    version: manifest.version,
-    description: manifest.description,
-  }
-}
-
-function marketplaceText(mods, pins = new Set()) {
+function generatedPlugins(mods, { pins = new Set(), reportUnlisted = false } = {}) {
   const written = writtenEntries()
   const plugins = []
   for (const mod of mods) {
     const kept = written.get(mod.name)
-    let entry
-    if (pins.has(mod.name)) entry = pinnedEntry(mod)
-    else if (isPinnedEntry(kept)) entry = kept
-    else entry = relativeEntry(mod)
-    if (entry) plugins.push(entry)
+    if (pins.has(mod.name)) {
+      const entry = pinnedEntry(mod)
+      if (entry) plugins.push(entry)
+    } else if (isPinnedEntry(kept)) {
+      plugins.push(kept)
+    } else if (reportUnlisted) {
+      checkUnlistedMod(mod)
+    }
   }
+  return plugins
+}
+
+function marketplaceText(plugins) {
   return `${JSON.stringify({ ...marketplaceHeader, plugins }, null, 2)}\n`
 }
 
@@ -441,8 +432,9 @@ function generateMarketplace(mods, { values }) {
     if (!names.has(name)) fail(`--pin ${name}: mods/${name} is not a mod`)
   }
   if (failures.length > 0) return
-  const text = marketplaceText(mods, pins)
+  const plugins = generatedPlugins(mods, { pins, reportUnlisted: true })
   if (failures.length > 0) return
+  const text = marketplaceText(plugins)
   if (values['dry-run']) {
     process.stdout.write(text)
     return
@@ -450,15 +442,15 @@ function generateMarketplace(mods, { values }) {
   const label = relative(root, marketplacePath)
   const current = existsSync(marketplacePath) ? readFileSync(marketplacePath, 'utf8') : undefined
   if (current === text) {
-    console.log(`${label} is unchanged with ${mods.length} plugin(s)`)
+    console.log(`${label} is unchanged with ${plugins.length} plugin(s)`)
     return
   }
   writeFileSync(marketplacePath, text)
-  console.log(`wrote ${label} with ${mods.length} plugin(s)`)
+  console.log(`wrote ${label} with ${plugins.length} plugin(s)`)
 }
 
 function checkMarketplaceIsGenerated(mods) {
-  const expected = marketplaceText(mods)
+  const expected = marketplaceText(generatedPlugins(mods))
   const actual = existsSync(marketplacePath) ? readFileSync(marketplacePath, 'utf8') : ''
   if (actual.replaceAll('\r\n', '\n') !== expected) {
     fail(
@@ -505,15 +497,10 @@ function checkUnlistedMod(mod) {
   }
 }
 
-function checkRelativeEntry(mod, entry) {
-  if (entry.source !== `./mods/${mod.name}`) {
-    fail(
-      `${mod.name}: marketplace source is ${JSON.stringify(entry.source)}; it must be "./mods/${mod.name}" or a git-subdir source at a release tag, which \`${pinCommand(mod.name)}\` writes`,
-    )
-    return
-  }
-  const { tag, problem } = latestReleaseTag(mod)
-  if (problem === undefined && tag === undefined && !isShallowClone()) noteUntaggedMod(mod)
+function checkUnpinnedEntry(mod, entry) {
+  fail(
+    `${mod.name}: marketplace source is ${JSON.stringify(entry.source)}; it must be a git-subdir source at a release tag, which \`${pinCommand(mod.name)}\` writes`,
+  )
 }
 
 function pinnedSourceProblem(mod, source) {
@@ -576,7 +563,7 @@ function checkMarketplace(mods) {
     const entry = listed.get(mod.name)
     if (!entry) checkUnlistedMod(mod)
     else if (isPinnedEntry(entry)) checkPinnedEntry(mod, entry, listed)
-    else checkRelativeEntry(mod, entry)
+    else checkUnpinnedEntry(mod, entry)
   }
   const names = new Set(mods.map((mod) => mod.name))
   for (const name of listed.keys()) {

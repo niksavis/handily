@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
@@ -45,7 +47,7 @@ jobs:
           fi
           manifest_version="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "${manifest}")"
           if [ "${manifest_version}" != "${version}" ]; then
-            echo "::error::release: tag ${TAG} has version ${version}, but ${manifest} has version ${manifest_version}; set the version, run npm run marketplace, commit, and tag again"
+            echo "::error::release: tag ${TAG} has version ${version}, but ${manifest} has version ${manifest_version}; set the version, commit, and tag again"
             exit 1
           fi
           echo "name=${name}" >> "${GITHUB_OUTPUT}"
