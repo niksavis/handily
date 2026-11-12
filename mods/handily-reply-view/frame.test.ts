@@ -1,6 +1,7 @@
 import type { On, RenderPropsOf } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
-import { diagramOf } from './hooks/draw'
+import { diagramOf, replyTree, type ReplyElements, type ReplyLayout } from './hooks/draw'
+import { blocksOf } from './hooks/markdown'
 import { displayWidth } from './hooks/width'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -49,6 +50,8 @@ const BLOCK_REPLIES = [
   ['a code block', CODE_REPLY, 'const total = rows.length'],
   ['a diagram', DIAGRAM_REPLY, 'ingest'],
 ] as const
+
+const ALL_REPLIES = [MOCK_REPLY, ...BLOCK_REPLIES.map(([, text]) => text)]
 
 type Surface = (typeof SURFACES)[number]
 
@@ -136,6 +139,46 @@ async function commandText($: Engine, args: string, columns = 80): Promise<strin
     presentation: { isFullscreen: false, columns },
   })
   return result.text ?? ''
+}
+
+function fakeElement(type: string) {
+  return (props: Record<string, unknown>) => {
+    const { children, ...rest } = props
+    return { type, props: rest, children: children === undefined ? [] : [children].flat() }
+  }
+}
+
+const FAKE_ELEMENTS = {
+  Box: fakeElement('Box'),
+  Text: fakeElement('Text'),
+  Button: fakeElement('Button'),
+  Markdown: fakeElement('Markdown'),
+  Code: fakeElement('Code'),
+} as unknown as ReplyElements
+
+function treeOf(text: string, layout: Partial<ReplyLayout>): string {
+  return JSON.stringify(
+    replyTree(
+      FAKE_ELEMENTS,
+      text,
+      blocksOf(text),
+      {
+        columns: 80,
+        hasBullet: true,
+        isFirstOfReply: true,
+        surface: 'terminal',
+        drawsDiagrams: true,
+        tableStyle: 'box',
+        headingStyle: 'banner',
+        doneGlyph: '✓',
+        highlight: true,
+        palette: 'theme',
+        ...layout,
+      },
+      'folded',
+      { copy: () => undefined, fold: () => undefined },
+    ),
+  )
 }
 
 function isDrawnNode(value: unknown): value is DrawnNode {
@@ -430,19 +473,18 @@ describe('the reply frame', () => {
   })
 
   for (const surface of SURFACES) {
-    test(`with replyStyle off a reply draws the same tree as with no setting on ${surface}`, async ($, on) => {
+    test(`with no replyStyle setting no reply draws a frame on ${surface}`, async ($, on) => {
       await started($, on, { surface })
-      const unset: unknown[] = []
-      for (const text of [MOCK_REPLY, ...BLOCK_REPLIES.map(([, block]) => block)]) {
-        unset.push(await drawnTree($, text, 80, surface))
+      for (const text of ALL_REPLIES) {
+        const tree = await drawnTree($, text, 80, surface)
+        expect(framesOf(tree)).toEqual([])
+        expect(JSON.stringify(tree)).not.toContain('Claude')
       }
-      expect(unset.flatMap(framesOf)).toEqual([])
-      expect(JSON.stringify(unset)).not.toContain('Claude')
     })
   }
 
   test(
-    'with replyStyle off the drawn tree equals the one of no setting',
+    'with replyStyle off a reply draws with its bullet and no frame',
     { options: { replyStyle: 'off' } },
     async ($, on) => {
       await started($, on)
@@ -458,12 +500,34 @@ describe('the reply frame', () => {
     },
   )
 
+  test('replyStyle off draws the same tree as no replyStyle, for prose, a table, a code block and a diagram', () => {
+    for (const text of ALL_REPLIES) {
+      expect(treeOf(text, { replyStyle: 'off' })).toBe(treeOf(text, {}))
+      expect(treeOf(text, { replyStyle: 'frame' })).not.toBe(treeOf(text, {}))
+    }
+  })
+
+  test('replyStyle frame under 40 columns draws the same tree as no replyStyle', () => {
+    for (const text of ALL_REPLIES) {
+      for (const columns of [39, 30]) {
+        expect(treeOf(text, { replyStyle: 'frame', columns })).toBe(treeOf(text, { columns }))
+      }
+    }
+  })
+
+  test('replyStyle frame with no bullet, as on the desktop, draws the same tree as no replyStyle', () => {
+    const desktop = { hasBullet: false, surface: 'desktop' } as const
+    for (const text of ALL_REPLIES) {
+      expect(treeOf(text, { ...desktop, replyStyle: 'frame' })).toBe(treeOf(text, desktop))
+    }
+  })
+
   test(
     'on the desktop a reply draws with no frame when replyStyle is frame',
     FRAME,
     async ($, on) => {
       await started($, on, { surface: 'desktop' })
-      for (const text of [MOCK_REPLY, ...BLOCK_REPLIES.map(([, block]) => block)]) {
+      for (const text of ALL_REPLIES) {
         const tree = await drawnTree($, text, 80, 'desktop')
         expect(framesOf(tree)).toEqual([])
         expect(JSON.stringify(tree)).not.toContain('● Claude')
@@ -529,7 +593,7 @@ describe('the reply frame', () => {
     FRAME,
     async ($, on) => {
       await started($, on)
-      for (const text of [MOCK_REPLY, ...BLOCK_REPLIES.map(([, block]) => block)]) {
+      for (const text of ALL_REPLIES) {
         for (const isFirst of [true, false]) {
           const ui = await mountReply($, reply(text, isFirst))
           const strings = textStrings(await ui.drawn())
