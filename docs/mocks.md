@@ -2419,7 +2419,7 @@ pending or in-progress task is open; a done task is not.
 #### 8.13d A stalled task (over 15 minutes, as 8.2d3)
 
 ```text
-▶ 2 Write the tab mocks                              16m ▰▰▱▱ 1/4 [ board ] [-]    16m in warning
+▶ 2 Write the tab mocks                      stalled 16m ▰▰▱▱ 1/4 [ board ] [-]    stalled 16m in warning
 ```
 
 #### 8.13e Open tasks for you (with 9uj3n.8): attention first
@@ -2523,8 +2523,8 @@ the transcript shows why
   - `/board list` prints the For you block and an offered plan as text.
   - The band line reads as text. The bar glyphs read poorly, but `1/4` carries the same fact.
 - **`NO_COLOR`.** Every state has a mark and a word: `◆ open`, `✓ done`, `■ rejected`, `■ not
-  added`, `■ not sent`, `next`, `withdrawn`. The one exception is the stalled time in the band,
-  which copies 8.2d3 (see the failure modes).
+  added`, `■ not sent`, `next`, `withdrawn`. A stalled time reads `stalled 16m` in `warning`, on
+  the band and on the pane task row (8.2d3, handily-y8t3v).
 
 ### 8.14 Context parts and a trend in the Session details (handily-u2exd, approved 2026-10-29)
 

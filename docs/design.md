@@ -121,8 +121,8 @@ The Nerd column gives the Nerd Font icon of each signal when the setting Glyphs 
 code at run time. `scripts/signals.test.mjs` fails when the table differs from this one, when
 another mod keeps a `hooks/signals.ts` that the test does not compare, or when a mark is not one
 column wide. The tabs of `handily-board` map their states to the signals as follows. The aging
-dots, `2▶`, `⌀` and `↻` are not built yet. In their place, the time of a task in progress turns
-to `warning` after `STALLED_AFTER_MS` (handily-9uj3n.6).
+dots, `2▶`, `⌀` and `↻` are not built yet. In their place, the time of a task in progress reads
+`stalled 16m` in `warning` after `STALLED_AFTER_MS` (handily-9uj3n.6, handily-y8t3v).
 
 | Signal | this session: tasks | this session: agents | this machine |
 | --- | --- | --- | --- |
@@ -1035,7 +1035,7 @@ The named thresholds:
 | `QUIET_MS` | 120000 | A running agent with no event for this time is `quiet` |
 | `LANES_FROM` | body 80 | From this body width, the agent rows have a `ctx` column and a lane |
 | `CHECKS_KEPT` | 20 | The board keeps the last 20 checks. `[ last 5 checks ]` shows 5 of them |
-| `STALLED_AFTER_MS` | 900000 (15 minutes) | A task whose current run in progress is longer draws its time in the warning colour (handily-9uj3n.6). The clock keeps `runAt`, the start of the current run |
+| `STALLED_AFTER_MS` | 900000 (15 minutes) | A task whose current run in progress is longer draws its time as `stalled 16m` in the warning colour (handily-9uj3n.6, handily-y8t3v). The clock keeps `runAt`, the start of the current run |
 
 #### Plan tasks, tasks for you and the band (handily-9uj3n.7, .8 and .9)
 
@@ -1067,8 +1067,8 @@ Decisions of the person (2026-10-29):
 10. An answer is one line of at most 1000 characters. The control and bidi rules of
     `titleRefusal` refuse it by name.
 
-The band reads `stalled` before a stalled time since handily-crupjy.2. The word on the pane
-task row and in the header is a later record, handily-y8t3v.
+The band reads `stalled` before a stalled time since handily-crupjy.2. The pane task row reads
+the same word since handily-y8t3v. Both take it from `runTime` in `hooks/activity.ts`.
 
 Source of an approved plan (handily-9uj3n.7):
 
@@ -1181,9 +1181,8 @@ Failure modes:
   The answers of the person are quoted too.
 - A keyboard person cannot press the transcript button. The pane, the band and `/board plan` are
   the keyboard paths, and the README says so.
-- On the band, the word `stalled` names a stalled time, so `NO_COLOR` and a red and green colour
-  blindness keep it. On the pane task row and in the header, the time differs only by its colour
-  until handily-y8t3v.
+- On the band and on the pane task row, the word `stalled` names a stalled time, so `NO_COLOR`
+  and a red and green colour blindness keep it (handily-y8t3v).
 - On the mobile app there is no band and no Input. An answer goes through `/board answer`, and
   the row says so (8.12k).
 - With `-p` nothing draws. The tools and the notes still work, so Claude can assign a task that
