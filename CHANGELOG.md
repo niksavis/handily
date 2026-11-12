@@ -6,6 +6,16 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.21.1 - 2026-11-12
+
+### Fixed
+
+- **board: a stalled task time in the this session tab now reads `stalled 16m`, not only a
+  warning colour.** A task that has been in progress for more than 15 minutes in its current run
+  showed its time only in the warning colour, which a person with red green colour blindness or
+  a terminal with no colour cannot see. The task row now puts the word `stalled` before the time,
+  as the band already did. A narrow pane cuts the task title, never the time. (handily-y8t3v)
+
 ## handily-board 0.21.0 - 2026-11-12
 
 ### Added
