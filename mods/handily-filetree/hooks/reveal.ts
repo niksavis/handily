@@ -8,6 +8,7 @@ type Mention = { absolute: string; inside: string }
 const PERSON_ORIGINS: ReadonlySet<string> = new Set(['composer', 'bridge'])
 const MENTION = /(?<=^|\s)@(?:"([^"]+)"|(\S+))/g
 const LINE_RANGE = /#L\d+(?:-\d+)?$/
+const TRAILING_MARKS = /[.,;:!?)]+$/
 
 export function newReveal(): Reveal {
   return { path: undefined }
@@ -23,10 +24,14 @@ export function isPersonPrompt(
   return e.command === undefined && e.isMeta !== true && PERSON_ORIGINS.has(e.origin.kind)
 }
 
-export function mentionedPaths(text: string): string[] {
+export function mentionedPaths(text: string): string[][] {
   return [...text.matchAll(MENTION)].flatMap((match) => {
-    const path = (match[1] ?? match[2] ?? '').replace(LINE_RANGE, '')
-    return path === '' ? [] : [path]
+    const typed = match[1] ?? match[2] ?? ''
+    const spellings = [typed, typed.replace(TRAILING_MARKS, '')].map((path) =>
+      path.replace(LINE_RANGE, ''),
+    )
+    const tried = [...new Set(spellings)].filter((path) => path !== '')
+    return tried.length === 0 ? [] : [tried]
   })
 }
 
@@ -55,12 +60,16 @@ export async function revealedPath(
   site: { cwd: string; text: string },
 ): Promise<string | undefined> {
   const { cwd, text } = site
-  const mentions = mentionedPaths(text).flatMap((path) => mentionIn(cwd, path) ?? [])
+  const mentions = mentionedPaths(text)
+    .map((spellings) => spellings.flatMap((path) => mentionIn(cwd, path) ?? []))
+    .filter((spellings) => spellings.length > 0)
   if (mentions.length === 0) return undefined
   const root = (await landing($, cwd))?.realPath
   if (root === undefined) return undefined
-  for (const mention of mentions.reverse()) {
-    if (landsInside(await landing($, mention.absolute), root)) return mention.inside
+  for (const spellings of mentions.reverse()) {
+    for (const mention of spellings) {
+      if (landsInside(await landing($, mention.absolute), root)) return mention.inside
+    }
   }
   return undefined
 }

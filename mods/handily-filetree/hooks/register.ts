@@ -736,7 +736,7 @@ export const register: Register = (on) => {
     const touched = await touchDrawOf($, site, touches, filter)
     const choice = isInline ? 'work' : ((await $.state.get(VIEW)).value ?? 'work')
     const isWorkTree = choice === 'work' || task !== undefined
-    const source = workSourceOf(git, touched, reveal.path)
+    const source = workSourceOf(git, touched, isInline ? undefined : reveal.path)
     const tree = isWorkTree ? workTree(workPaths(source)) : undefined
     const actions = {
       ...actionsOf($, { cwd, listings, watch, work: tree, facts }),

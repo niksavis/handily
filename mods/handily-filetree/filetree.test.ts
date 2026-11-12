@@ -6533,6 +6533,57 @@ describe(REVEAL_CRITERION, () => {
   })
 })
 
+describe('the @path reveal: punctuation, views and filters', () => {
+  const ended: readonly string[] = [
+    'Read @docs/design.md.',
+    'Can you read @docs/design.md?',
+    'Read @docs/design.md, then stop',
+    'Read @docs/design.md#L10-20.',
+  ]
+  for (const text of ended) {
+    test(`a mark after the @path does not stop the reveal: ${text}`, async ($, on) => {
+      const seen = revealWorld(on)
+      const ui = await openFiles($, seen)
+      await submitPrompt($, text)
+      expect(await treeLines(ui)).toEqual(REVEALED_ALL_TREE)
+      await ui.unmount()
+    })
+  }
+
+  test('the list inline above the prompt does not show the named file', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await openFiles($, seen, 'terminal', 'inline')
+    await submitPrompt($, 'Read @docs/design.md')
+    expect((await screen(ui)).join('\n')).not.toContain('design.md')
+    await ui.unmount()
+  })
+
+  test('after the tab closes, the work view no longer shows the named file', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await mountWork($, seen, 'terminal')
+    await submitPrompt($, 'Read @docs/design.md')
+    expect(await treeLines(ui)).toEqual([...REVEALED_DESIGN, WORK_NOTE])
+    await ui.unmount()
+    expect(await tree($, 'close')).toBe('Tree closed.')
+    const again = await mountWork($, seen, 'terminal')
+    expect((await treeLines(again)).join('\n')).not.toContain('design.md')
+    await again.unmount()
+  })
+
+  test('with an agent filter, the work view does not show the named file', async ($, on) => {
+    const seen = revealWorld(on)
+    const ui = await mountWork($, seen, 'terminal')
+    await read($, 'README.md')
+    await submitPrompt($, 'Read @docs/design.md')
+    expect((await treeLines(ui)).join('\n')).toContain('design.md')
+    await ui.select({ key: 'agent', value: 'main' })
+    const filtered = (await treeLines(ui)).join('\n')
+    expect(filtered).toContain('README.md')
+    expect(filtered).not.toContain('design.md')
+    await ui.unmount()
+  })
+})
+
 describe('the @path reveal: refusals', () => {
   const refused: readonly [string, string][] = [
     ['a path that leaves the folder with ..', 'Read @../other/notes.md'],

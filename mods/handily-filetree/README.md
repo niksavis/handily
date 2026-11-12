@@ -723,10 +723,14 @@ work view: touched and changed files
 ```
 
 - The work view shows the file with no mark until a prompt names another file, the tab closes or
-  the session ends. With an agent filter or a task filter, the work view does not show it.
+  the session ends. With an agent filter or a task filter, the work view does not show it. The
+  list inline above the prompt does not show it.
 - When a prompt names several files, the tab shows the last name that passes the checks below.
 - `@"docs/my notes.md"` also works. `[ @ to prompt ]` writes this form for a name with a space.
   A line range, such as `@docs/design.md#L10-20`, also works.
+- A mark after the name, such as `@docs/design.md.` or `@docs/design.md?`, does not stop the
+  reveal. When the name with the mark is not a file, the mod tries the name without the marks
+  `.,;:!?)` at its end. An `@` straight after `(` is not read.
 - Only your own prompt counts: a prompt that you type, or send through Remote Control. A prompt
   from another session, from a background task or from a plugin changes nothing. A slash command
   line changes nothing.
