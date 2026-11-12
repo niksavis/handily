@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
@@ -220,6 +220,48 @@ export function installedShaFailures(installed, marketplace) {
   return found
 }
 
+const createdScratchFolders = new Set()
+
+function isStrictlyUnder(path, root) {
+  const inside = relative(root, path)
+  return inside !== '' && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside)
+}
+
+function resolvedPath(path) {
+  try {
+    return realpathSync(path)
+  } catch {
+    return undefined
+  }
+}
+
+export function removeScratchFolder(
+  path,
+  { temporaryRoot = tmpdir(), created = createdScratchFolders } = {},
+) {
+  if (!created.has(path)) {
+    return `the scratch folder ${path} was not created by this run of the gate; the gate did not remove it`
+  }
+  const resolved = resolvedPath(path)
+  const resolvedRoot = resolvedPath(temporaryRoot)
+  if (
+    resolved === undefined ||
+    resolvedRoot === undefined ||
+    !isStrictlyUnder(resolved, resolvedRoot)
+  ) {
+    return `the scratch folder ${path} is not under the temporary root ${temporaryRoot}; the gate did not remove it`
+  }
+  rmSync(resolved, { recursive: true, force: true })
+  created.delete(path)
+  return undefined
+}
+
+function createScratchFolder() {
+  const path = mkdtempSync(join(tmpdir(), 'handily-install-gate-'))
+  createdScratchFolders.add(path)
+  return path
+}
+
 const failures = []
 
 function fail(message) {
@@ -416,7 +458,7 @@ function finish() {
 
 function inScratchProfile(check) {
   const personalConfig = readPersonalConfig()
-  const base = mkdtempSync(join(tmpdir(), 'handily-install-gate-'))
+  const base = createScratchFolder()
   const scratch = { base, config: join(base, 'config'), work: join(base, 'work') }
   mkdirSync(scratch.config)
   mkdirSync(scratch.work)
@@ -426,7 +468,8 @@ function inScratchProfile(check) {
   } catch (error) {
     fail(error.message)
   } finally {
-    rmSync(base, { recursive: true, force: true })
+    const refusal = removeScratchFolder(base)
+    if (refusal !== undefined) fail(refusal)
   }
   checkPersonalConfigUnchanged(personalConfig)
   finish()
