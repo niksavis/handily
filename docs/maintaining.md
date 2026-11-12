@@ -92,6 +92,28 @@ release commit.
    git push origin main
    ```
 
+## Live checks
+
+A live check runs one prompt in a real Claude Code session with a mod and keeps the screen:
+
+```sh
+npm run live -- --mods DIR --columns 40 --prompt TEXT --out FILE [--settings JSON] [--timeout-s N]
+```
+
+1. The script makes a new scratch folder and starts `claude --plugin-dir DIR` in a work folder
+   inside it. The session runs on a private tmux server with the given columns and 50 rows.
+2. It answers Yes to the folder trust prompt only when the prompt names its own work folder.
+3. It waits for the input line, types the prompt and waits for the line that reports the end of
+   the turn.
+4. It writes the screen with colour to `--out` and prints the plain text.
+5. It kills its own tmux server and removes its scratch folder on every exit, also on Ctrl+C.
+
+The script sends no key to any other prompt, such as a permission prompt, a question or the
+trust prompt of another folder. It writes the screen, names the prompt and exits with status 1.
+When a wait passes `--timeout-s` (180 seconds by default), it writes the last screen, names the
+wait and exits with status 1. Give the mods as a copy made with `git archive`, so that the
+session writes nothing into the repository.
+
 ## Test time gate on a developer machine
 
 The "Test time limit" section of [CONTRIBUTING.md](../CONTRIBUTING.md) gives the rule of the test
