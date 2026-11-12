@@ -24,8 +24,8 @@
         "source": "git-subdir",
         "url": "niksavis/handily",
         "path": "mods/handily-board",
-        "ref": "handily-board--v0.23.0",
-        "sha": "8bb149378a646b04a26b3f3c9400b5f16ee28ab8"
+        "ref": "handily-board--v0.24.0",
+        "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
       },
       "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, and four model tools keep the list."
     },
@@ -35,8 +35,8 @@
         "source": "git-subdir",
         "url": "niksavis/handily",
         "path": "mods/handily-filetree",
-        "ref": "handily-filetree--v0.13.1",
-        "sha": "f118acd35f0212de00622489fce4a6694f2e0987"
+        "ref": "handily-filetree--v0.14.0",
+        "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
       },
       "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
     },
@@ -79,8 +79,8 @@
         "source": "git-subdir",
         "url": "niksavis/handily",
         "path": "mods/handily-simple-view",
-        "ref": "handily-simple-view--v0.10.1",
-        "sha": "5c9f95e487a8bf4c35fc49d9e4da0c874c156ff4"
+        "ref": "handily-simple-view--v0.11.0",
+        "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
       },
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
