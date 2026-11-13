@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,9 @@ record_view = _load("record_view.py", "basicly_tracker_kit_record_view")
 board = _load("board.py", "basicly_tracker_kit_board")
 fields = _load("fields.py", "basicly_tracker_kit_fields")
 arguments = _load("arguments.py", "basicly_tracker_kit_arguments")
+vault_arguments = _load("vault_arguments.py", "basicly_tracker_kit_vault_arguments")
+vault_config = _load("vault_config.py", "basicly_tracker_kit_vault_config")
+vault_cli = _load("vault_cli.py", "basicly_tracker_kit_vault_cli")
 pin = _load("pin.py", "basicly_tracker_kit_pin")
 mirror = _load("mirror.py", "basicly_tracker_kit_mirror")
 settings = _load("settings.py", "basicly_tracker_kit_settings")
@@ -116,58 +120,64 @@ _owed_of = record_view.owed_of
 
 
 _WRITES: dict[str, Callable[[argparse.Namespace, Any], Sequence[Any]]] = {
-    "child": lambda a, r: commands.create_child(
+    "child": lambda a, c: commands.create_child(
         a.directory,
         a.parent,
         _minting(_fields(a.title, a.field, a)),
         status=a.status,
-        redact=r,
+        context=c,
     ),
-    "update": lambda a, r: commands.update(
+    "update": lambda a, c: commands.update(
         a.directory,
         a.record,
         fields=_fields("", a.field, a),
         status=a.status,
         add_labels=a.add_label,
         remove_labels=a.remove_label,
-        redact=r,
+        context=c,
         if_seq=a.if_seq,
         claimant=_holder(a),
     ),
-    "close": lambda a, r: commands.close(
-        a.directory, a.record, reason=a.reason, resolution=a.resolution, redact=r
+    "close": lambda a, c: commands.close(
+        a.directory, a.record, reason=a.reason, resolution=a.resolution, context=c
     ),
-    "review": lambda a, r: commands.record_process(
-        a.directory, a.record, json.loads(a.evidence), redact=r
+    "review": lambda a, c: commands.record_process(
+        a.directory, a.record, json.loads(a.evidence), redact=c
     ),
-    "confirm": lambda a, r: commands.record_process(
-        a.directory, a.record, json.loads(a.evidence), completed=True, redact=r
+    "confirm": lambda a, c: commands.record_process(
+        a.directory, a.record, json.loads(a.evidence), completed=True, redact=c
     ),
-    "comment": lambda a, r: commands.comment(a.directory, a.record, a.text, redact=r),
-    "dep": lambda a, r: commands.add_dependency(
-        a.directory, a.record, a.target, edge_type=a.edge_type, redact=r
+    "comment": lambda a, c: commands.comment(a.directory, a.record, a.text, context=c),
+    "dep": lambda a, c: commands.add_dependency(
+        a.directory, a.record, a.target, edge_type=a.edge_type, context=c
     ),
-    "undep": lambda a, r: commands.remove_dependency(
-        a.directory, a.record, a.target, edge_type=a.edge_type, redact=r
+    "undep": lambda a, c: commands.remove_dependency(
+        a.directory, a.record, a.target, edge_type=a.edge_type, context=c
     ),
-    "delete": lambda a, r: commands.delete(a.directory, a.record, redact=r),
-    "assign": lambda a, r: commands.assign(
-        a.directory, a.record, _holder(a), take=a.take, redact=r
+    "delete": lambda a, c: commands.delete(a.directory, a.record, context=c),
+    "assign": lambda a, c: commands.assign(
+        a.directory, a.record, _holder(a), take=a.take, context=c
     ),
-    "claim": lambda a, r: commands.claim(a.directory, a.record, _holder(a), take=a.take, redact=r),
-    "unassign": lambda a, r: commands.unassign(a.directory, a.record, redact=r),
-    "resolve": lambda a, r: commands.resolve(a.directory, a.record, redact=r),
-    "acknowledge-loss": lambda a, r: fsck.recovery.acknowledge(
+    "claim": lambda a, c: commands.claim(a.directory, a.record, _holder(a), take=a.take, context=c),
+    "unassign": lambda a, c: commands.unassign(
+        a.directory, a.record, _releaser(a), take=a.take, context=c
+    ),
+    "resolve": lambda a, c: commands.resolve(a.directory, a.record, context=c),
+    "acknowledge-loss": lambda a, c: fsck.recovery.acknowledge(
         a.directory,
         a.record,
         fsck.recovery.Request(tuple(a.sequence), a.reason, tuple(a.evidence)),
-        redact=r,
+        redact=c.redactor,
     ),
 }
 
 
 def _holder(args: argparse.Namespace) -> str:
-    return getattr(args, "to", "") or commands.holders.default_holder(Path.cwd())
+    return getattr(args, "to", "") or commands.holders.default_holder(Path.cwd(), os.environ)
+
+
+def _releaser(args: argparse.Namespace) -> str:
+    return getattr(args, "by", "") or commands.holders.default_holder(Path.cwd(), os.environ)
 
 
 def _compacted(args: argparse.Namespace) -> dict[str, object]:
@@ -180,9 +190,7 @@ def _compacted(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-_VIEWS: dict[
-    str, Callable[[argparse.Namespace, Callable[[str], str] | None], dict[str, object]]
-] = {
+_VIEWS: dict[str, Callable[[argparse.Namespace, Any], dict[str, object]]] = {
     "ready": lambda a, _r: queries.ready(
         a.directory, limit=a.limit, mine=_holder(a) if a.mine else ""
     ),
@@ -191,18 +199,18 @@ _VIEWS: dict[
     "compact": lambda a, _r: _compacted(a),
     "shards": lambda a, _r: fsck.shards_report(a.directory),
     "board": lambda a, _r: {"written": board.write(a.directory, a.out).as_posix()},
-    "import": lambda a, r: beans.import_backlog(
+    "import": lambda a, c: beans.import_backlog(
         a.directory,
         beans.Source(a.source_format, Path(a.export), a.source or None),
-        redact=r,
+        redact=c.redactor,
         dry_run=a.dry_run,
     ),
     "sync": lambda a, _r: mirror.sync(a.directory, a.root, dry_run=a.dry_run),
     "scaffold": lambda a, _r: record_view.scaffold_of(a.directory, a.type),
     "fields": lambda a, _r: fields.table(record_view.templates.load(a.directory)),
     "refine": lambda a, _r: record_view.refine_queue(a.directory),
-    "migrate-fields": lambda a, r: {
-        "appended": [event.record for event in commands.migrate_fields(a.directory, redact=r)]
+    "migrate-fields": lambda a, c: {
+        "appended": [event.record for event in commands.migrate_fields(a.directory, context=c)]
     },
     "config": lambda a, _r: (
         settings.write(a.directory, a.name, a.value)
@@ -212,7 +220,10 @@ _VIEWS: dict[
 }
 
 
-def _shown(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+def _shown(args: argparse.Namespace, clock: Callable[[], float]) -> tuple[int, Any]:
+    if getattr(args, "json", False):
+        shown = vault_cli.shown(args.directory, [args.record], clock)
+        return (EXIT_OK if all(one.get("found", True) for one in shown) else EXIT_REFUSED), shown
     found = record_view.read_view(
         args.directory, args.record, view=args.view, snapshot=args.snapshot
     )
@@ -266,7 +277,7 @@ def _commit_check(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
         )
     found, unreadable = events.read_events(args.directory)
     states = events.fold(found).records
-    committer = commands.holders.default_holder(Path.cwd())
+    committer = commands.holders.default_holder(Path.cwd(), os.environ)
     ledger = Path(args.directory).resolve()
     here = Path(__file__).resolve()
     runner = args.runner or f"python3 {_relative(here)}"
@@ -281,27 +292,33 @@ def _commit_check(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     return EXIT_OK, {"committer": committer, "ids": commands.claims.named_ids(message, states)}
 
 
-_REFUSABLE: dict[str, Callable[[argparse.Namespace], tuple[int, dict[str, object]]]] = {
-    "commit-check": _commit_check,
+_REFUSABLE: dict[str, Callable[[argparse.Namespace, Callable[[], float]], tuple[int, Any]]] = {
+    "commit-check": lambda a, _c: _commit_check(a),
     "show": _shown,
-    "dor": _dor,
-    "fsck": _fsck,
+    "dor": lambda a, _c: _dor(a),
+    "fsck": lambda a, _c: _fsck(a),
 }
 
 
-def _run(
-    args: argparse.Namespace, redact: Callable[[str], str] | None
-) -> tuple[int, dict[str, object]]:
+def _run(args: argparse.Namespace, redact: Callable[[str], str] | None) -> tuple[int, Any]:
+    clock = events.wall_clock()
+    if (vault := vault_cli.HANDLERS.get(args.command)) is not None:
+        report = vault(args, clock)
+        code = report.pop("exit", EXIT_OK)
+        return (code if isinstance(code, int) else EXIT_OK), report
     starts = args.command in _STARTS_A_LEDGER and not getattr(args, "dry_run", False)
     args.directory = commands.resolve_ledger(args.directory, starts=starts)
     pin.require(args.directory)
+    if args.command in vault_cli.READS and not getattr(args, "json", False):
+        args.directory = vault_cli.view_of(args, clock)
+    context = commands.vault_write.WriteContext(redact, clock)
     if args.command == "create":
         written = create_record(
             args.directory,
             _minting(_fields(args.title, args.field, args)),
             prefix=settings.create_prefix(args.directory, args.prefix),
             status=args.status,
-            redact=redact,
+            context=context,
         )
         record = written[0].record
         return EXIT_OK, {
@@ -310,11 +327,11 @@ def _run(
             **_owed_of(args.directory, record),
         }
     if (gate := _REFUSABLE.get(args.command)) is not None:
-        return gate(args)
+        return gate(args, clock)
     if (view := _VIEWS.get(args.command)) is not None:
-        return EXIT_OK, view(args, redact)
+        return EXIT_OK, view(args, context)
     if (write := _WRITES.get(args.command)) is not None:
-        appended = write(args, redact)
+        appended = write(args, context)
         if appended:
             record = appended[0].record
         else:
@@ -334,20 +351,31 @@ def _run(
 
 def invoke(args: argparse.Namespace, redact: Callable[[str], str] | None = None) -> tuple:
 
-    report: Mapping[str, object]
+    report: Any
     try:
         code, report = _run(args, redact)
+    except commands.vault_write.VaultRefusedError as exc:
+        report = dict(exc.report)
+        code = report.pop("exit", EXIT_REFUSED)
+        code = code if isinstance(code, int) else EXIT_REFUSED
     except events.LedgerError as exc:
         code, report = EXIT_REFUSED, {"refused": str(exc)}
     except ValueError as exc:
         code, report = EXIT_REFUSED, {"refused": str(exc)}
+    if isinstance(report, list):
+        return code, report
     version = 2 if args.command in _BLOCKING_REPORTS else 1
     return code, {"schema": f"{SCHEMA_PREFIX}.{args.command}.v{version}", **report}
 
 
 def main(argv: Sequence[str] | None = None, *, redact: Callable[[str], str] | None = None) -> int:
 
-    args = arguments.parser().parse_args(argv)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    argv = list(vault_config.with_vault(argv, Path.cwd(), vault_arguments.routed_verbs(argv)))
+    verb = argv[0] if argv else ""
+    routed = "--vault" in argv or verb in vault_arguments.VAULT_ONLY
+    form = vault_arguments.FORMS.get(verb) if routed else None
+    args = (form or arguments.parser)().parse_args(argv)
     code, report = invoke(args, redact)
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:
