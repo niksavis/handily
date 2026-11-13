@@ -7,7 +7,8 @@ const ERROR_PREFIX = 'Error: '
 const CLASSIFIER_DENIAL =
   /^Error: Permission for this action was denied by the Claude Code auto mode classifier\. Reason: (?:\[([^\]\r\n]+)\]|The server-side auto mode classifier judged this action dangerous \(it gave no explanation\))\.(?: |$)/
 const RULE_DENIAL = /^(?:Error: )?Permission to use \S+ with command [\s\S]+ has been denied\.$/
-const PERSON_DENIAL = /^(?:Error: )?The user doesn't want to proceed with this tool use\.(?:\s|$)/
+const PERSON_DENIAL =
+  /^(?:Error: )?(?:User rejected tool use$|The user doesn't want to proceed with this tool use\.(?:\s|$))/
 
 export const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 

@@ -602,9 +602,12 @@ At 40 columns, drawn from the cell widths that the 40-column test checks:
   same shape with another tool name draws the same row. A deny rule on `Write` removes the
   `Write` tool, so no `Write` call can be denied by a rule.
 - You (handily-ee3l12): the text starts `The user doesn't want to proceed with this tool use.`,
-  captured on Claude Code 2.1.312. The row shows the tool, the path, the pattern or the command,
-  `#denied#` and `#by you#`. The mod reads this text with and without the `Error:` prefix,
-  because no capture shows which of the two the row gets.
+  or it is exactly `User rejected tool use`. Both forms were captured from local transcripts on
+  Claude Code 2.1.312. The tool result content holds the long sentence, and the recorded
+  `toolUseResult` holds the short form. The row shows the tool, the path, the pattern or the
+  command, `#denied#` and `#by you#`. The mod reads each form with and without the `Error:`
+  prefix, because no capture shows which text the row gets. A text that only starts with the
+  short form keeps the row of today.
 - The marker is red. The row has no buttons, and the result block is drawn empty.
 - In a narrow terminal, the path, the pattern, the description or the command is cut first,
   then the reason of the classifier. `#denied#`, `#auto mode#`, `#by a rule#` and `#by you#` are

@@ -131,11 +131,11 @@ The auto mode classifier, a permission rule or you can deny a call before it run
 ● Bash  rm notes.md  denied  by you
 ```
 
-| Denied by                       | The text that the mod reads                                                                             | The words after `denied`    |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------- |
-| The auto mode classifier        | `Permission for this action was denied by the Claude Code auto mode classifier. Reason:` and the reason | `auto mode:` and the reason |
-| A permission rule               | `Permission to use Bash with command touch other.txt has been denied.`                                  | `by a rule`                 |
-| You, at the permission question | starts with `The user doesn't want to proceed with this tool use.`                                      | `by you`                    |
+| Denied by                       | The text that the mod reads                                                                                | The words after `denied`    |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------- |
+| The auto mode classifier        | `Permission for this action was denied by the Claude Code auto mode classifier. Reason:` and the reason    | `auto mode:` and the reason |
+| A permission rule               | `Permission to use Bash with command touch other.txt has been denied.`                                     | `by a rule`                 |
+| You, at the permission question | starts with `The user doesn't want to proceed with this tool use.`, or is exactly `User rejected tool use` | `by you`                    |
 
 - The reason of the classifier is the text in brackets. The server-side sentence of the
   classifier gives no explanation, so the row shows `auto mode` alone.
@@ -144,9 +144,12 @@ The auto mode classifier, a permission rule or you can deny a call before it run
 - The permission rule text was captured on Claude Code 2.1.322. A text of the same shape with
   another tool name draws the same row. A deny rule on `Write` removes the `Write` tool, so no
   `Write` call can be denied by a rule.
-- Your denial was captured on Claude Code 2.1.312. The mod reads it with and without the
-  `Error:` prefix, because no capture shows which of the two the row gets. A live check of this
-  row is still open.
+- Both forms of your denial were captured from local transcripts on Claude Code 2.1.312. The
+  tool result content that the model reads starts with the long sentence. The recorded
+  `toolUseResult` is exactly `User rejected tool use`.
+- The mod reads each form with and without the `Error:` prefix, because no capture shows which
+  text the row gets, or whether the text has the prefix. A text that only starts with
+  `User rejected tool use` keeps the row of today. A live check of this row is still open.
 - `denied` and the words after it are red, and so is the marker. The row has no buttons, and the
   result block is empty.
 - In a narrow terminal, the path, the pattern, the description or the command is cut first,
