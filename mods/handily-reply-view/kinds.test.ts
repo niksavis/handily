@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
+import { drawEntities } from './hooks/er'
 import { parseMermaid } from './hooks/mermaid'
 import { drawState } from './hooks/state'
 import { displayWidth } from './hooks/width'
@@ -1092,11 +1093,6 @@ describe('ER diagrams', () => {
       refusedBy('subgraph does not draw yet', 2),
     ],
     [
-      'a relationship to itself',
-      lines('erDiagram', '  A ||--o{ A : has'),
-      refusedBy('a relationship from an entity to itself does not draw yet', 2),
-    ],
-    [
       '13 attributes',
       lines(
         'erDiagram',
@@ -1111,4 +1107,74 @@ describe('ER diagrams', () => {
       expect(parseMermaid(source)).toEqual(reason)
     })
   }
+})
+
+const SELF_RELATION_CRITERION =
+  'When an erDiagram has a relationship from an entity to itself, reply-view draws a loop on the right of that box with both cardinalities and the label'
+
+const MANAGES = lines('erDiagram', '  USER ||--o{ USER : manages')
+
+const MANAGES_DRAWN = ['╭──────╮', '│ USER ├─ 1 manages ─┐', '│      ├─ 0..n ──────┘', '╰──────╯']
+
+const LOOP_AND_LINKS = lines(
+  'erDiagram',
+  '  EMPLOYEE ||--o{ TASK : owns',
+  '  EMPLOYEE |o--o{ EMPLOYEE : manages',
+  '  TEAM ||--|{ EMPLOYEE : has',
+  '  EMPLOYEE {',
+  '    string id PK',
+  '    string team FK',
+  '  }',
+)
+
+function erLines(source: string, width: number): string[] {
+  const diagram = parseMermaid(source)
+  if (diagram.kind !== 'er') throw new Error(`not an ER diagram: ${diagram.kind}`)
+  const drawn = drawEntities(diagram, width)
+  if (drawn.kind !== 'drawing') throw new Error(`not drawn: ${drawn.reason}`)
+  return drawn.lines
+}
+
+describe(SELF_RELATION_CRITERION, () => {
+  for (const surface of SURFACES) {
+    for (const columns of [80, 30]) {
+      viewTest(
+        `a relationship from an entity to itself draws as a loop on the right of its box with both cardinalities and the label on ${surface} at ${String(columns)} columns`,
+        async (_world, $) => {
+          const ui = await mountDiagram($, MANAGES, surface, columns)
+          const rows = (await drawnRows(ui, surface)).map(rowText)
+          expect(rows).toEqual(MANAGES_DRAWN)
+          expect(tooWide(rows, surface, columns)).toEqual([])
+          await ui.unmount()
+        },
+      )
+    }
+  }
+
+  test('a loop on an entity with attributes and two other relationships draws beside the box and crosses no line', () => {
+    const drawn = erLines(LOOP_AND_LINKS, 78)
+    const loopTop = drawn.findIndex((row) => row.includes('├─ 0..1 manages ─'))
+    expect(loopTop).toBeGreaterThan(-1)
+    const column = drawn[loopTop]?.indexOf('┐') ?? -1
+    expect(column).toBeGreaterThan(-1)
+    const loopEnd = drawn.findIndex((row, at) => at > loopTop && row.charAt(column) === '┘')
+    expect(drawn[loopEnd]).toContain('├─ 0..n ─')
+    for (const row of drawn.slice(loopTop + 1, loopEnd)) expect(row.charAt(column)).toBe('│')
+    expect(drawn.join('\n')).toContain('owns')
+    expect(drawn.join('\n')).toContain('has')
+    expect(drawn.join('\n')).not.toMatch(/┼/)
+  })
+
+  test('two loops on one entity nest, the first one inside the later one, and cross no line', () => {
+    expect(
+      erLines(lines('erDiagram', '  USER ||--o{ USER : manages', '  USER |o--o| USER : pairs'), 78),
+    ).toEqual([
+      '╭──────╮',
+      '│ USER ├─ 0..1 pairs ───┐',
+      '│      ├─ 1 manages ──┐ │',
+      '│      ├─ 0..n ───────┘ │',
+      '│      ├─ 0..1 ─────────┘',
+      '╰──────╯',
+    ])
+  })
 })

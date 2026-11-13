@@ -19,7 +19,14 @@ import {
 } from './commands'
 import { isTestCommand } from './command'
 import { bashOutputOf, outcomeOf } from './output'
-import { type PaneActions, type PaneView, TESTS_PANE, drawDock, drawInline } from './pane'
+import {
+  type PaneActions,
+  type PaneView,
+  TESTS_PANE,
+  drawDock,
+  drawGlance,
+  drawInline,
+} from './pane'
 import {
   type Running,
   type StatusSetting,
@@ -379,8 +386,13 @@ export const register: Register = (on, options) => {
     }
     const view = await paneView($, keep)
     const actions = actionsOf($, keep)
-    return e.props.placement === 'inline'
-      ? drawInline(elements, view, actions)
-      : drawDock(elements, view, actions)
+    switch (e.props.placement) {
+      case 'inline':
+        return drawInline(elements, view, actions)
+      case 'widget':
+        return drawGlance(elements, view)
+      default:
+        return drawDock(elements, view, actions)
+    }
   })
 }

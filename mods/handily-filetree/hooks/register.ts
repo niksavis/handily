@@ -40,6 +40,7 @@ import {
   type PaneActions,
   type TaskDraw,
   type TouchDraw,
+  drawGlance,
   drawInline,
   drawTree,
 } from './pane'
@@ -729,6 +730,7 @@ export const register: Register = (on) => {
     }
     const git = gitView(watch, await $.clock.now(), glyphs)
     const rootName = folderName(cwd)
+    if (placement === 'widget') return drawGlance(elements, rootName, git)
     const list = listerOf($, cwd, listings, git.marks)
     const isInline = placement === 'inline'
     const task = isInline ? undefined : filter.task

@@ -217,6 +217,10 @@ M docs/mocks.md                                           ✎ main +1       1m
 
 With nothing touched and nothing changed, the one row reads `No changed or touched files.`
 
+In the `widget` placement, the small form of a minimized pane on the desktop app, the tab draws
+the `Files` head line alone, such as `Files  app · main · clean`, and no button and no select,
+because a click may not reach a widget.
+
 ## Git status
 
 In a git repo, the header shows the branch, the commits ahead and behind, and the count of

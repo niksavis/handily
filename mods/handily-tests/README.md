@@ -68,6 +68,9 @@ vitest · npm test · 0s ago · 1.4s
   counts as a pass.
 - The mark and the word `failed` draw in `error`. A pass draws `✓` and `passed` in `success`.
 - On the desktop app the marks are plain, whatever the Glyphs setting of `handily` is.
+- In the `widget` placement, the small form of a minimized pane on the desktop app, the tab
+  draws the head line of the docked form alone, such as `Tests  ■ 1 failed · 3 of 4 passed`,
+  and no button, because a click may not reach a widget.
 
 A run that the mod cannot read whole never shows a pass. The words say what happened:
 

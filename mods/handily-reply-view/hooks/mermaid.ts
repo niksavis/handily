@@ -256,6 +256,12 @@ const LINE_ENDING = /\r\n?/g
 const COMMENT = /^%%/
 const DIRECTIVE = /^\s*%%\{\s*([A-Za-z]+)/
 const TRAILING_SEMICOLON = /;$/
+const STATEMENT_END = ';'
+const FLOW_HEADER_WITH_STATEMENTS = /^(?:flowchart|graph)\b[^;"[\]|]*;/
+const LABEL_OPENERS: ReadonlySet<string> = new Set(['[', '(', '{'])
+const LABEL_CLOSERS: ReadonlySet<string> = new Set([']', ')', '}'])
+const QUOTE = '"'
+const TEXT_LINK = /--(?![->.])/y
 const LINE_BREAK = /<br\s*\/?>/i
 const FLOW_HEADER = /^(flowchart|graph)(?:\s+(\S+))?$/
 const SEQUENCE_HEADER = 'sequenceDiagram'
@@ -587,6 +593,15 @@ class FlowchartBuilder {
   constructor(private readonly direction: FlowDirection) {}
 
   add(statement: Statement): void {
+    const texts = flowStatementTexts(statement.text)
+    if (texts.length === 1) {
+      this.addOne(statement)
+      return
+    }
+    for (const text of texts) this.addOne({ ...statement, text })
+  }
+
+  private addOne(statement: Statement): void {
     const { line, text } = statement
     if (IGNORED_FLOW_STATEMENT.test(text)) return
     if (this.structure(statement)) return
@@ -961,8 +976,78 @@ function builderOf(header: Statement): Builder {
   throw unknownHeader(header)
 }
 
-function parsed(statements: readonly Statement[]): MermaidDiagram | Refusal {
+function closedAt(text: string, closing: string, from: number): number {
+  const end = text.indexOf(closing, from)
+  return end < 0 ? text.length : end + closing.length
+}
+
+function bracketEnd(text: string, from: number): number {
+  let depth = 0
+  for (let at = from; at < text.length; at += 1) {
+    const char = text.charAt(at)
+    if (char === QUOTE) at = closedAt(text, QUOTE, at + 1) - 1
+    else if (LABEL_OPENERS.has(char)) depth += 1
+    else if (LABEL_CLOSERS.has(char)) {
+      depth -= 1
+      if (depth === 0) return at + 1
+    }
+  }
+  return text.length
+}
+
+function linkAt(text: string, at: number): string | undefined {
+  return Object.keys(LINKS).find((link) => text.startsWith(link, at))
+}
+
+function isTextLinkAt(text: string, at: number): boolean {
+  TEXT_LINK.lastIndex = at
+  return TEXT_LINK.test(text)
+}
+
+function labelEnd(text: string, at: number): number | null {
+  const char = text.charAt(at)
+  if (char === QUOTE) return closedAt(text, QUOTE, at + 1)
+  if (char === PIPE) return closedAt(text, PIPE, at + 1)
+  if (LABEL_OPENERS.has(char)) return bracketEnd(text, at)
+  const link = linkAt(text, at)
+  if (link !== undefined) return at + link.length
+  if (isTextLinkAt(text, at)) return closedAt(text, TEXT_LINK_CLOSING, at + 2)
+  return null
+}
+
+export function flowStatementTexts(text: string): string[] {
+  const texts: string[] = []
+  let start = 0
+  let at = 0
+  while (at < text.length) {
+    const end = labelEnd(text, at)
+    if (end !== null) {
+      at = end
+      continue
+    }
+    if (text.charAt(at) === STATEMENT_END) {
+      texts.push(text.slice(start, at))
+      start = at + 1
+    }
+    at += 1
+  }
+  texts.push(text.slice(start))
+  return texts.map((one) => one.trim()).filter((one) => one !== '')
+}
+
+function withFlowHeaderApart(statements: readonly Statement[]): readonly Statement[] {
   const [header, ...body] = statements
+  if (header === undefined || !FLOW_HEADER_WITH_STATEMENTS.test(header.text)) return statements
+  const end = header.text.indexOf(STATEMENT_END)
+  return [
+    { ...header, text: header.text.slice(0, end).trimEnd() },
+    { ...header, text: header.text.slice(end + 1).trim() },
+    ...body,
+  ]
+}
+
+function parsed(statements: readonly Statement[]): MermaidDiagram | Refusal {
+  const [header, ...body] = withFlowHeaderApart(statements)
   if (header === undefined) {
     return { kind: 'refused', reason: 'the block is empty', line: null, limit: null }
   }

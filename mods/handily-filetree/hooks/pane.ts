@@ -1421,6 +1421,13 @@ function inlineRows(
   ]
 }
 
+export function drawGlance(elements: PaneElements, rootName: string, git: GitView): RenderElement {
+  return elements.Box({
+    flexDirection: 'column',
+    children: [drawHeader(elements, rootName, git, elements.bodyColumns, 'one')],
+  })
+}
+
 export function drawInline(
   elements: PaneElements,
   site: { root: Listing; rootName: string; work: readonly WorkPath[] },

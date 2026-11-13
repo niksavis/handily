@@ -971,6 +971,15 @@ function forYouPress(host: TaskHost, ui: PaneUi, act: Act, now: number) {
   }
 }
 
+export async function drawGlance(
+  elements: PaneElements,
+  host: TaskHost,
+  work: PaneWork,
+): Promise<RenderElement> {
+  const list = ownList(await readList(host))
+  return elements.Box({ flexDirection: 'column', children: [drawHeader(elements, list, work)] })
+}
+
 export async function drawPane(
   elements: PaneElements,
   host: TaskHost,

@@ -209,7 +209,9 @@ async function tests($: Engine, args: string): Promise<string> {
   return result.text ?? ''
 }
 
-function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPropsOf['Pane'] {
+type Placement = RenderPropsOf['Pane']['placement']
+
+function paneProps(placement: Placement, bodyColumns: number): RenderPropsOf['Pane'] {
   return {
     title: PANE,
     isFocused: false,
@@ -223,7 +225,7 @@ function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPro
 async function mountTests(
   $: Engine,
   surface: RenderSurface,
-  placement: 'dock' | 'inline' = 'dock',
+  placement: Placement = 'dock',
   columns = 41,
 ) {
   return $.ui.mount({
@@ -500,6 +502,32 @@ describe('the tests tab lists each failed test by name', () => {
     expect(seen.toasts.at(-1)).toContain('■ Copy failed')
     expect(seen.logs.at(-1)).toContain('no-clipboard')
   })
+})
+
+const WIDGET_CRITERION =
+  'When a pane of handily-board, handily-filetree or handily-tests renders in the widget placement, it draws no button, as the types say a click may not reach a widget'
+
+describe(WIDGET_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`the tests tab in the widget placement draws the head line of the docked form alone and no button, on ${surface}`, async ($, on) => {
+      const seen = world(on)
+      answer(seen, 'npm test', failing(VITEST_ONE_FAILED))
+      await start($)
+      const empty = await mountTests($, surface, 'widget', 41)
+      expect(await screen(empty, 41)).toEqual(['Tests  no run yet'])
+      await empty.unmount()
+      await bash($, 'npm test')
+      const docked = await mountTests($, surface, 'dock', 41)
+      const dockLines = await screen(docked, 41)
+      expect(await docked.find({ type: 'Button' })).toBeDefined()
+      await docked.unmount()
+      expect(dockLines[0]).toMatch(/^Tests {2}■ 1 failed/)
+      const widget = await mountTests($, surface, 'widget', 41)
+      expect(await screen(widget, 41)).toEqual([dockLines[0]])
+      expect(await widget.find({ type: 'Button' })).toBeUndefined()
+      await widget.unmount()
+    })
+  }
 })
 
 describe('the runner is found from the output format', () => {

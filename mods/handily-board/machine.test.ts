@@ -292,7 +292,9 @@ async function showMachine($: Engine, seen: World): Promise<void> {
   await seen.clock.settle()
 }
 
-function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPropsOf['Pane'] {
+type Placement = RenderPropsOf['Pane']['placement']
+
+function paneProps(placement: Placement, bodyColumns: number): RenderPropsOf['Pane'] {
   return {
     title: 'this machine',
     isFocused: false,
@@ -303,12 +305,7 @@ function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPro
   }
 }
 
-async function mountTab(
-  $: Engine,
-  surface: RenderSurface,
-  placement: 'dock' | 'inline',
-  columns: number,
-) {
+async function mountTab($: Engine, surface: RenderSurface, placement: Placement, columns: number) {
   return $.ui.mount({
     plugin: PLUGIN,
     surface,
@@ -373,7 +370,7 @@ async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<s
 async function screenAt(
   $: Engine,
   surface: RenderSurface,
-  placement: 'dock' | 'inline',
+  placement: Placement,
   columns: number,
 ): Promise<string[]> {
   const ui = await mountTab($, surface, placement, columns)
@@ -2006,6 +2003,45 @@ describe(QUESTION_CRITERION, () => {
   })
 })
 
+const STALE_AT_FIRST_FAILURE = [
+  'Inbox  3 wait in 2 sessions · read 27s ago',
+  '◆ lane-a1      permission  scout: Edit hooks/band.ts         last report 27s',
+  '◆ api-login    waits       permission prompt                 last report 27s',
+  '◆ lane-a1      decide      Release handily-board 0.23.0?     last report 27s',
+]
+
+const STALE_AT_FIRST_FAILURE_41 = [
+  'Inbox  3 wait · 2 sessions · 27s',
+  '◆ lane-a1 permission           report 27s',
+  '  scout: Edit hooks/band.ts',
+  '◆ api-login waits              report 27s',
+  '  permission prompt',
+  '◆ lane-a1 decide               report 27s',
+  '  Release handily-board 0.23.0?',
+]
+
+const FIRST_FAILURE_CRITERION =
+  'When the claude agents poll has failed once, the inbox draws no row of that poll as a live wait: each such row is marked stale with the age of the last good report from the first failed poll'
+
+describe(FIRST_FAILURE_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`from the first failed poll each row reads the age of the last report, and the mark, the kind and the wait count draw dim and never in the colour of needs you, on ${surface}`, async ($, on) => {
+      const seen = await machineWith($, on, surface, API_PROGRESS, LANE_WAITING)
+      seen.agents = { exitCode: 1, stdout: '' }
+      await seen.clock.advance(POLL_INTERVAL_MS)
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual(STALE_AT_FIRST_FAILURE)
+      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual(STALE_AT_FIRST_FAILURE_41)
+      const ui = await mountTab($, surface, 'inline', 76)
+      for (const text of [/^◆ $/, /^permission/, /^decide/, /^3 wait/]) {
+        const found = await ui.find({ type: 'Text', text })
+        expect(found?.props.dimColor).toBe(true)
+        expect(found?.props.color).toBeUndefined()
+      }
+      await ui.unmount()
+    })
+  }
+})
+
 const ABSENT_CRITERION =
   'When a session is absent from claude agents, the inbox draws no row for it, even when its store key still holds waits'
 
@@ -2052,12 +2088,7 @@ describe(ABSENT_CRITERION, () => {
       const seen = await machineWith($, on, surface, API_PROGRESS, LANE_WAITING)
       seen.agents = { exitCode: 1, stdout: '' }
       await seen.clock.advance(POLL_INTERVAL_MS)
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
-        'Inbox  3 wait in 2 sessions · read 27s ago',
-        '◆ lane-a1      permission  scout: Edit hooks/band.ts                     55s',
-        '◆ api-login    waits       permission prompt                               —',
-        '◆ lane-a1      decide      Release handily-board 0.23.0?                  6m',
-      ])
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual(STALE_AT_FIRST_FAILURE)
       await seen.clock.advance(POLL_INTERVAL_MS * 7)
       expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
         'Inbox  3 wait in 2 sessions · read 2m ago',
@@ -2147,6 +2178,33 @@ const OVERFLOW_WAITS = {
     taskWait('do', 'Rotate the staging API key', 5 * MINUTE),
   ],
 }
+
+const WIDGET_CRITERION =
+  'When a pane of handily-board, handily-filetree or handily-tests renders in the widget placement, it draws no button, as the types say a click may not reach a widget'
+
+describe(WIDGET_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`the this machine tab in the widget placement draws the Inbox head and the Sessions head alone and no button, while the docked form has the fold button, on ${surface}`, async ($, on) => {
+      await machineWith(
+        $,
+        on,
+        surface,
+        { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
+        { ...LANE_PROGRESS, waits: OVERFLOW_WAITS.lane },
+      )
+      const docked = await mountTab($, surface, 'dock', 41)
+      expect(await docked.find({ type: 'Button' })).toBeDefined()
+      const dockLines = await screen(docked, 41)
+      await docked.unmount()
+      const widget = await mountTab($, surface, 'widget', 41)
+      expect(inboxOf(dockLines)[0]).toBe('Inbox  7 wait · 2 sessions · 12s')
+      expect(sessionsOf(dockLines)[0]).toMatch(/^Sessions {2}4 · /)
+      expect(await screen(widget, 41)).toEqual([inboxOf(dockLines)[0], sessionsOf(dockLines)[0]])
+      expect(await widget.find({ type: 'Button' })).toBeUndefined()
+      await widget.unmount()
+    })
+  }
+})
 
 const INBOX_STATES_CRITERION =
   'When nothing waits, the Inbox head reads nothing waits with the session count and the read age; when more than 5 waits exist, it draws 5 rows and a fold that counts the rest by kind'

@@ -206,9 +206,6 @@ export class EntityBuilder {
     const from = this.entity(parts.first)
     const to = this.entity(parts.second)
     if (parts.firstCard === undefined || parts.secondCard === undefined) throw doesNotParse(line)
-    if (from === to) {
-      throw lineFault(line, 'a relationship from an entity to itself does not draw yet')
-    }
     this.relations.push({
       from: from.id,
       to: to.id,

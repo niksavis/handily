@@ -165,14 +165,33 @@ function centerRows(link: StackLink): CenterRow[] {
   ]
 }
 
+function isLoop(side: Side): boolean {
+  return side.upper === side.lower
+}
+
+function byChannel(one: Side, other: Side): number {
+  return one.channel - other.channel
+}
+
+function stubOrder(sides: readonly Side[], at: number): { side: Side; isUpper: boolean }[] {
+  const own = sides.filter((side) => side.upper === at || side.lower === at)
+  const loops = own.filter(isLoop).sort(byChannel)
+  const entries = own.filter((side) => side.lower === at && !isLoop(side)).sort(byChannel)
+  const exits = own
+    .filter((side) => side.upper === at && !isLoop(side))
+    .sort(byChannel)
+    .reverse()
+  return [
+    ...entries.map((side) => ({ side, isUpper: false })),
+    ...[...loops].reverse().map((side) => ({ side, isUpper: true })),
+    ...loops.map((side) => ({ side, isUpper: false })),
+    ...exits.map((side) => ({ side, isUpper: true })),
+  ]
+}
+
 function boxPlans(stack: Stack, sides: readonly Side[]): BoxPlan[] {
   return stack.boxes.map((box, at) => {
-    const entries = sides
-      .filter((side) => side.lower === at)
-      .sort((one, other) => one.channel - other.channel)
-    const exits = sides
-      .filter((side) => side.upper === at)
-      .sort((one, other) => other.channel - one.channel)
+    const order = stubOrder(sides, at)
     const titleRows = Math.max(1, box.title.length)
     const ruleRows = box.body.length > 0 ? 1 : 0
     const last = titleRows + ruleRows + box.body.length
@@ -180,11 +199,8 @@ function boxPlans(stack: Stack, sides: readonly Side[]): BoxPlan[] {
       ...Array.from({ length: titleRows }, (_, row) => 1 + row),
       ...box.body.map((_, row) => 1 + titleRows + ruleRows + row),
     ]
-    for (let row = last + 1; free.length < entries.length + exits.length; row++) free.push(row)
-    const stubs = [
-      ...entries.map((side) => ({ side, isUpper: false })),
-      ...exits.map((side) => ({ side, isUpper: true })),
-    ].map(({ side, isUpper }, order) => stubOf(side, isUpper, free[order] ?? 1))
+    for (let row = last + 1; free.length < order.length; row++) free.push(row)
+    const stubs = order.map(({ side, isUpper }, index) => stubOf(side, isUpper, free[index] ?? 1))
     const height = Math.max(last, ...stubs.map((stub) => stub.row)) + 2
     return { box, height, stubs }
   })

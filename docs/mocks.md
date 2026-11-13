@@ -1844,11 +1844,16 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ◆ scout waits for permission: Bash npm test
 ◆ 2 agents wait for permission
 ◆ scout waits for permission: Bash npm t…
+◆ scout asks a question: Which region?
+◆ 2 agents wait for you
 ```
 
 - One agent waits: 43 columns.
 - Two agents wait: 30 columns.
 - The first line cut to 41 columns: 41 columns.
+- A question of `AskUserQuestion` reads `asks a question` with the first question, and a plan
+  approval of `ExitPlanMode` reads `waits` with the tool name (handily-6u0cq5). Two or more
+  waits that are not all tool permissions read `wait for you`.
 - The line never names the context. The Claude Code status line already shows it, and the
   Session line of the board says `high` from 80 percent. When nothing waits, the board sets no
   status line.
@@ -2970,8 +2975,9 @@ Inbox  could not read the other sessions
 Inbox  could not read the other sessions; the debug log names why
 ```
 
-When a poll fails over 30 seconds after the last answer, each row shows the age of the last report
-in place of its own age:
+From the first failed poll, each row shows the age of the last report in place of its own age.
+The mark, the kind and the wait count draw dim, not in the colour of needs you, so no row reads
+as a live wait:
 
 ```text
 Inbox  3 wait in 2 sessions · read 2m ago

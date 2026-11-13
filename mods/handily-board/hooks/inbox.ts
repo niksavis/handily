@@ -1,5 +1,5 @@
 import { lastSegment, type AgentsCache, type SessionRow } from './agents-json'
-import { isOldBackground, STALE_DATA_AFTER_MS, waitsForOf } from './cards'
+import { isOldBackground, waitsForOf } from './cards'
 import { isOlderThanStart, type Progress } from './progress'
 import {
   counted,
@@ -179,7 +179,7 @@ export function inboxView(data: InboxData): InboxView {
     sessions: running.length,
     waiting: each.filter((one) => one.rows.length > 0 || countOf(one.notKept) > 0).length,
     dataAt: listed.at,
-    isStale: failure !== null && now - listed.at > STALE_DATA_AFTER_MS,
+    isStale: failure !== null,
     isUnreadable: data.progress === null,
   }
 }

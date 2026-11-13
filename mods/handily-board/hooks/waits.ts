@@ -98,10 +98,18 @@ export function askedQuestion(tool: string, input: unknown): string | null {
   return line === '' ? null : maskedCredentials(line)
 }
 
+export type AskSight = { kind: 'permission' } | { kind: TextAskKind; title: string }
+
+export function askSight(call: AskedCall): AskSight {
+  if (call.tool === QUESTION_TOOL) return { kind: 'question', title: call.question ?? call.tool }
+  if (call.tool === PLAN_TOOL) return { kind: 'waits', title: call.tool }
+  return { kind: 'permission' }
+}
+
 export function askWait(agent: string, call: AskedCall, since: number): AskWait {
-  if (call.tool === QUESTION_TOOL) return textAsk('question', call.question ?? call.tool, since)
-  if (call.tool === PLAN_TOOL) return textAsk('waits', call.tool, since)
-  return permissionWait(agent, call.tool, call.target, since)
+  const sight = askSight(call)
+  if (sight.kind === 'permission') return permissionWait(agent, call.tool, call.target, since)
+  return textAsk(sight.kind, sight.title, since)
 }
 
 function taskWait(task: BoardTask): TaskWait {

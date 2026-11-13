@@ -17,6 +17,7 @@ import type {
   TurnStepResult,
 } from 'claude-code'
 import {
+  type AskedQuestions,
   type StatusLineSetting,
   type Wait,
   agentWait,
@@ -127,7 +128,7 @@ import {
 import { lastSegment } from './agents-json'
 import { openedKeys, shownNames, stepText } from './agent-rows'
 import { DEFAULT_PALETTE } from './palette'
-import { drawMachine } from './machine'
+import { drawMachine, drawMachineGlance } from './machine'
 import {
   type Machine,
   type SessionsHost,
@@ -155,7 +156,7 @@ import {
   withTasks,
 } from './progress'
 import { askedQuestion, askWait, type AskWait } from './waits'
-import { type PaneWork, agentsOpener, drawPane } from './pane'
+import { type PaneWork, agentsOpener, drawGlance, drawPane } from './pane'
 import {
   PLAN_TOOL,
   type PlanAnswer,
@@ -1024,12 +1025,16 @@ async function isSessionTabSeen($: EngineInterface): Promise<boolean> {
   return isTasksSeen(await $.ui.panes())
 }
 
+function askedQuestions(attention: AttentionKeep): AskedQuestions {
+  return new Map([...attention.asks].map(([callId, ask]) => [callId, ask.question]))
+}
+
 async function attentionNow(
   $: EngineInterface,
   attention: AttentionKeep,
 ): Promise<string | undefined> {
   const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), await $.clock.now()) : []
-  const text = attentionText(rows, await sessionSignals($))
+  const text = attentionText(rows, await sessionSignals($), askedQuestions(attention))
   if (text === undefined || (await isSessionTabSeen($))) return undefined
   return text
 }
@@ -1109,10 +1114,10 @@ async function untilSettled<R>(
 
 async function waitOf($: EngineInterface, ask: WaitingAsk): Promise<Wait | undefined> {
   const { agentId } = ask
-  if (agentId === undefined) return mainWait(ask.sight)
+  if (agentId === undefined) return mainWait(ask.sight, ask.question)
   const rows = await agentView(agentHostOf($), await $.clock.now())
   const row = rows.find((one) => one.id === agentId && one.look === 'needsYou')
-  return row === undefined ? undefined : agentWait(row)
+  return row === undefined ? undefined : agentWait(row, ask.question)
 }
 
 async function askWaits($: EngineInterface, attention: AttentionKeep): Promise<AskWait[]> {
@@ -2287,6 +2292,7 @@ export const register: Register = (on, options) => {
     }
     clearStatus($, attention)
     startRedraw($, redraw, attention)
+    if (placement === 'widget') return drawGlance(elements, hostOf($), work)
     return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown, redraw), work)
   })
 
@@ -2317,6 +2323,7 @@ export const register: Register = (on, options) => {
       toggle,
       signals: await drawnSignals($, e.surface),
     }
+    if (placement === 'widget') return drawMachineGlance(elements, view, now, inbox)
     return drawMachine(elements, view, now, inbox)
   })
 }

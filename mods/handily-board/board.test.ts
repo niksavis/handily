@@ -437,7 +437,9 @@ async function publish($: Engine, snapshot: Snapshot): Promise<void> {
   })
 }
 
-function paneProps(placement: 'dock' | 'inline', bodyColumns = 40): RenderPropsOf['Pane'] {
+type Placement = RenderPropsOf['Pane']['placement']
+
+function paneProps(placement: Placement, bodyColumns = 40): RenderPropsOf['Pane'] {
   return {
     title: 'Tasks',
     isFocused: false,
@@ -3856,7 +3858,7 @@ async function mountTab(
   $: Engine,
   surface: Surface,
   requestId: string,
-  placement: 'dock' | 'inline',
+  placement: Placement,
   columns: number,
 ) {
   return $.ui.mount({
@@ -3952,6 +3954,30 @@ const SESSION_SCREENS: readonly {
     ],
   },
 ]
+
+const WIDGET_CRITERION =
+  'When a pane of handily-board, handily-filetree or handily-tests renders in the widget placement, it draws no button, as the types say a click may not reach a widget'
+
+describe(WIDGET_CRITERION, () => {
+  test(
+    'the this session tab in the widget placement draws the Tasks head line alone and no button, while the docked form has buttons',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await mockWork($, seen)
+      for (const surface of SURFACES) {
+        const docked = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await docked.find({ type: 'Button' })).toBeDefined()
+        await docked.unmount()
+        const widget = await mountTab($, surface, PANE, 'widget', 41)
+        expect(await screen(widget, 41)).toEqual(['Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m'])
+        expect(await widget.find({ type: 'Button' })).toBeUndefined()
+        await widget.unmount()
+      }
+    },
+  )
+})
 
 describe(SESSION_TAB_CRITERION, () => {
   for (const { placement, columns, lines, framed } of SESSION_SCREENS) {
@@ -7767,6 +7793,8 @@ function commandOf(input: unknown): string | undefined {
   return isRecord(input) && typeof input.command === 'string' ? input.command : undefined
 }
 
+const ASKED_TOOLS = ['AskUserQuestion', 'ExitPlanMode']
+
 function isAsked(input: unknown): boolean {
   return ASKED_COMMANDS.includes(commandOf(input) ?? '')
 }
@@ -7777,9 +7805,9 @@ function personDialog(on: On): PersonDialog {
   const calls = new Map<string, string>()
   let opened = 0
   on('tool.check', (_$, e) => {
-    const isAskedCall = isAsked(e.input)
+    const isAskedCall = isAsked(e.input) || ASKED_TOOLS.includes(e.tool)
     if (isAskedCall && e.tool_use_id !== undefined) {
-      calls.set(commandOf(e.input) ?? '', e.tool_use_id)
+      calls.set(commandOf(e.input) ?? e.tool, e.tool_use_id)
     }
     return { decision: isAskedCall ? 'ask' : 'allow' }
   })
@@ -8184,6 +8212,89 @@ for (const surface of SURFACES) {
         },
       )
     }
+  })
+}
+
+const ASK_KIND_CRITERION =
+  'When an AskUserQuestion or ExitPlanMode ask waits, the attention notice and the status line use the kind of askWait (question or waits) and never the word permission'
+
+const REGION_QUESTION = {
+  tool: 'AskUserQuestion' as const,
+  questions: [
+    {
+      question: 'Which region?',
+      header: 'Region',
+      options: [
+        { label: 'eu', description: 'Europe' },
+        { label: 'us', description: 'America' },
+      ],
+      multiSelect: false,
+    },
+  ],
+}
+
+for (const surface of SURFACES) {
+  describe(ASK_KIND_CRITERION, () => {
+    test(
+      `a question of the main loop sends a notice and a toast that say asks a question with the question, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { notice: { isSent: false, reason: 'disabled' } })
+        const dialog = personDialog(on)
+        await startOn($, surface)
+        const call = $.tool.call(REGION_QUESTION)
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.notices).toEqual(['app needs you: Claude asks a question: Which region?'])
+        expect(seen.toasts).toEqual([
+          ['◆ app needs you', 'Claude asks a question', 'Which region?'],
+        ])
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `a plan approval of the main loop sends a notice that says waits with ExitPlanMode, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on)
+        await startOn($, surface)
+        const call = $.tool.call({ tool: 'ExitPlanMode' })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.notices).toEqual(['app needs you: Claude waits: ExitPlanMode'])
+        dialog.refuse()
+        await call
+      },
+    )
+
+    test(
+      `a subagent question sets a status line that says asks a question, and a question with a plan approval reads 2 agents wait for you, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on)
+        await startOn($, surface)
+        seen.agents.push(runningAgent(SCOUT, 'scout'), runningAgent(LANE, 'lane-b'))
+        const question = $.tool.call({ ...REGION_QUESTION, agentId: SCOUT })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.statuses).toEqual(['◆ scout asks a question: Which region?'])
+        expect(seen.notices).toEqual(['app needs you: scout asks a question: Which region?'])
+        const plan = $.tool.call({ tool: 'ExitPlanMode', agentId: LANE })
+        await dialog.opened(2)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.statuses.at(-1)).toBe('◆ 2 agents wait for you')
+        expect(seen.notices.at(-1)).toBe('app needs you: lane-b waits: ExitPlanMode')
+        expect([...seen.statuses, ...seen.notices].join('\n')).not.toContain('permission')
+        dialog.allow()
+        dialog.allow()
+        await question
+        await plan
+      },
+    )
   })
 }
 
