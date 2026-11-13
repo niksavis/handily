@@ -62,7 +62,7 @@ import {
   type Rail,
 } from './rail'
 import { keepChangedPaletteSetting, keepPaletteSetting, shownPalette } from './palette-setting'
-import { drawRail } from './rail-pane'
+import { drawRail, railSeatOf } from './rail-pane'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
 import { timeFormatOf } from './turn-time'
 import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
@@ -558,7 +558,7 @@ export const register: Register = (on, options) => {
       railSite.rail,
       {
         bodyColumns: e.props.bodyColumns,
-        placement: e.props.placement,
+        placement: railSeatOf(e.props.placement),
         now: await $.clock.now(),
         doing: glyphs.doing,
         blocked: glyphs.blocked,
