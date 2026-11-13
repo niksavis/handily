@@ -317,7 +317,7 @@ function pinnedPlugin(name, version, sha) {
     name,
     source: {
       source: 'git-subdir',
-      url: 'niksavis/handily',
+      url: 'https://github.com/niksavis/handily.git',
       path: `mods/${name}`,
       ref: `${name}--v${version}`,
       sha,
