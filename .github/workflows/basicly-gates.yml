@@ -13,6 +13,8 @@ name: basicly-gates
     branches: [main]
     paths-ignore:
       - ".basicly/ledger/**"
+  schedule:
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:
@@ -81,3 +83,22 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code@2.1.323
       - name: Configured verify checks
         run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.44.1/basicly-0.44.1-py3-none-any.whl basicly verify --mode full
+
+  mods-newest:
+    name: mods on newest Claude Code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dev dependencies
+        run: npm ci --no-fund --no-audit
+      - name: Install the newest Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@latest
+      - name: Print the resolved Claude Code version
+        shell: bash
+        run: claude --version | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run the mod tests on the newest Claude Code
+        run: npm test
