@@ -13,6 +13,7 @@ export type SessionRow = {
   key: string
   sessionId: string | null
   name: string
+  givenName?: string | null
   kind: SessionKind
   word: string
   waitingFor: string | null
@@ -86,6 +87,7 @@ function readRow(entry: unknown): SessionRow | null {
     key: rowKey(entry, sessionId),
     sessionId,
     name: rowName(entry, sessionId),
+    givenName: optionalText(entry.name),
     kind,
     word,
     waitingFor: optionalText(entry.waitingFor),
@@ -118,6 +120,7 @@ function isSessionRow(value: unknown): value is SessionRow {
     typeof value.key === 'string' &&
     isTextOrNull(value.sessionId) &&
     typeof value.name === 'string' &&
+    (value.givenName === undefined || isTextOrNull(value.givenName)) &&
     (value.kind === 'interactive' || value.kind === 'background') &&
     typeof value.word === 'string' &&
     isTextOrNull(value.waitingFor) &&

@@ -1,6 +1,17 @@
 import type { BoardList, BoardStatus, BoardTask } from '../types'
 import { openForPerson } from './for-you'
 import { isStatus, ownList } from './tasks'
+import {
+  NO_WAITS,
+  readWaits,
+  waitsOfAsks,
+  waitsOfTasks,
+  withoutLastWait,
+  type AskWait,
+  type SharedWaits,
+  type SharedWait,
+  type WaitCounts,
+} from './waits'
 import { cutToWidth } from './width'
 
 export const PROGRESS_PREFIX = 'session:'
@@ -40,6 +51,8 @@ export type Progress = {
   agentCount: number
   context: SharedContext | null
   openForYou: number | null
+  waits: readonly SharedWait[]
+  waitsMore: WaitCounts
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -84,6 +97,7 @@ export function emptyProgress(sessionId: string, cwd: string, now: number): Prog
     agentCount: 0,
     context: null,
     openForYou: null,
+    ...NO_WAITS,
   }
 }
 
@@ -138,22 +152,37 @@ export function readProgress(value: unknown): Progress | null {
   if (context === undefined) return null
   const openForYou = readOpenForYou(value.openForYou)
   if (openForYou === undefined) return null
-  return { ...(value as Progress), ...agents, context, openForYou }
+  const waits = readWaits(value)
+  if (waits === null) return null
+  return { ...(value as Progress), ...agents, context, openForYou, ...waits }
 }
 
 export function entryBytes(progress: Progress): number {
   return new TextEncoder().encode(JSON.stringify(progress)).length
 }
 
+function isOverLimit(progress: Progress): boolean {
+  return entryBytes(progress) > ENTRY_BYTES_AT_MOST
+}
+
+function waitsOf(progress: Progress): SharedWaits {
+  return { waits: progress.waits, waitsMore: progress.waitsMore }
+}
+
 export function withinLimit(progress: Progress): Progress {
   let kept = progress
-  while (entryBytes(kept) > ENTRY_BYTES_AT_MOST && kept.agents.length > 0) {
+  while (isOverLimit(kept) && kept.agents.length > 0) {
     kept = { ...kept, agents: kept.agents.slice(0, -1) }
+  }
+  let fewer = isOverLimit(kept) ? withoutLastWait(waitsOf(kept)) : null
+  while (fewer !== null) {
+    kept = { ...kept, ...fewer }
+    fewer = isOverLimit(kept) ? withoutLastWait(fewer) : null
   }
   const bytes = entryBytes(kept)
   if (bytes > ENTRY_BYTES_AT_MOST) {
     throw new Error(
-      `the entry is ${String(bytes)} bytes with no agent, over the limit of ${String(ENTRY_BYTES_AT_MOST)}`,
+      `the entry is ${String(bytes)} bytes with no agent and no wait, over the limit of ${String(ENTRY_BYTES_AT_MOST)}`,
     )
   }
   return kept
@@ -205,12 +234,23 @@ export function listSummary(all: BoardList): ListSummary {
   }
 }
 
+export function withAsks(
+  progress: Progress,
+  asks: readonly AskWait[],
+  all: BoardList,
+  now: number,
+): Progress {
+  return { ...progress, updatedAt: now, ...waitsOfAsks(asks, all) }
+}
+
 export function withTasks(progress: Progress, all: BoardList, now: number): Progress {
   const { current, done, total, ids } = listSummary(all)
   const openForYou = openForPerson(all).length
+  const waits = waitsOfTasks(waitsOf(progress), all)
   if (total === 0) {
     return {
       ...progress,
+      ...waits,
       updatedAt: now,
       openForYou,
       task: null,
@@ -225,6 +265,7 @@ export function withTasks(progress: Progress, all: BoardList, now: number): Prog
   const isAdded = ids.some((id) => !progress.taskIds.includes(id))
   return {
     ...progress,
+    ...waits,
     updatedAt: now,
     openForYou,
     task: current ? taskLabel(current) : null,

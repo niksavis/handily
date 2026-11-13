@@ -2841,6 +2841,138 @@ too. A jump from below 80 to 95 percent or more shows only the 95 percent toast.
   sessions of this machine through one store key for each limit kind.
 - **Keys and commands.** None new. `/board stats` prints the pace line with the details.
 
+### 8.16 The Inbox on the this machine tab (handily-fwkt.8.28)
+
+The F1 draft mocks of 2026-11-12, at 80 and 40 columns, are not in this repository. The blocks
+below are the text that the board tests assert, not the draft. The rules and the limits are in
+docs/design.md section 4.9, under "The Inbox".
+
+The person runs several sessions on this machine. Their goal is to see what each session asks of
+them without a visit to each window. They see it first at the top of the this machine tab.
+
+#### 8.16a Inline, body 76: one row for each wait
+
+```text
+Inbox  3 wait in 2 sessions · read 12s ago
+◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m
+◆ lane-a1      permission  scout: Edit hooks/band.ts                     40s
+◆ lane-a1      decide      Release handily-board 0.23.0?                  6m
+Sessions  4 · 2 need you · polled 12s ago
+```
+
+#### 8.16b Docked, body 41 and 30: the detail on a second line
+
+```text
+Inbox  3 wait · 2 sessions · 12s
+◆ api-login permission                 2m
+  Claude: Bash npm test --workspace mods…
+◆ lane-a1 permission                  40s
+  scout: Edit hooks/band.ts
+◆ lane-a1 decide                       6m
+  Release handily-board 0.23.0?
+```
+
+At body 30, the head drops the age before it cuts a word:
+
+```text
+Inbox  1 wait · 1 session
+◆ api-login waits            —
+  permission prompt
+```
+
+#### 8.16c A session with no board wait: the waitingFor text
+
+A session that needs the person in `claude agents` and publishes no board wait shows the word
+`waits` and the `waitingFor` text. A plan approval and a tool permission both read
+`permission prompt`. With no text, the row reads `an answer`, as the card does.
+
+```text
+Inbox  2 wait in 2 sessions · read 0s ago
+◆ bg-blocked   waits       an answer                                       —
+◆ inte…waiting waits       permission prompt                               —
+```
+
+#### 8.16d More than 5 waits: the fold
+
+```text
+Inbox  8 wait in 2 sessions · read 12s ago
+◆ api-login    permission  Claude: Bash npm run a                         2m
+◆ api-login    permission  Claude: Bash npm run b                         1m
+◆ lane-a1      permission  scout: Edit a.ts                              40s
+◆ api-login    permission  Claude: Bash npm run c                        30s
+◆ lane-a1      permission  scout: Edit b.ts                              20s
+[ +3 more · 1 decide · 2 do ]
+```
+
+Pressed, the fold shows the hidden rows:
+
+```text
+◆ lane-a1      decide      Release handily-board 0.23.0?                  6m
+◆ lane-a1      do          Rotate the staging API key                     5m
+[ hide 2 more ]
+1 more over the store limit
+```
+
+#### 8.16e Head states
+
+```text
+Inbox  nothing waits · 3 sessions · read 12s ago
+Inbox  reading the other sessions…
+Inbox  could not read the other sessions
+Inbox  could not read the other sessions; the debug log names why
+```
+
+When a poll fails over 30 seconds after the last answer, each row shows the age of the last report
+in place of its own age:
+
+```text
+Inbox  3 wait in 2 sessions · read 2m ago
+◆ lane-a1      permission  scout: Edit hooks/band.ts          last report 2m
+◆ api-login    waits       permission prompt                  last report 2m
+◆ lane-a1      decide      Release handily-board 0.23.0?      last report 2m
+```
+
+At body 30, the session name shortens so that the age of the last report stays whole:
+
+```text
+Inbox  4 wait · 3 sessions
+◆ fact…p permission report 57s
+  scout: Edit docs/a.md
+◆ api-…n permission report 57s
+  Claude: Bash npm test --wor…
+◆ lane…1 permission report 57s
+  scout: Edit hooks/band.ts
+◆ lane-a1 decide    report 57s
+  Release handily-board 0.23.…
+```
+
+#### 8.16f Text from another session
+
+The board escapes each control and bidi character, because another session wrote the text:
+
+```text
+Inbox  3 wait in 2 sessions · read 12s ago
+◆ lane\u0000a1 permission  sc\u202eout: Bash rm \u0007x                  40s
+◆ api-login    waits       input\u202eneeded                               —
+◆ lane\u0000a1 decide      Ship\u2066 it\u001b[31m                        6m
+```
+
+#### 8.16g A question and a plan approval
+
+A session that runs the board publishes an `AskUserQuestion` ask as `question` with the first
+question, and an `ExitPlanMode` ask as `waits` with the tool name:
+
+```text
+Inbox  2 wait in 2 sessions · read 12s ago
+◆ api-login    question    Which date library should we use?              2m
+◆ lane-a1      waits       ExitPlanMode                                  40s
+```
+
+- **Colour.** The mark `◆` and the kind take the `waitsForYou` colour. The name is bold. The age is
+  dim.
+- **Buttons.** The fold is the only button. No row answers a permission prompt or a question.
+- **Keys and commands.** None new.
+
 ### Risks
 
 - Width: the 41-column agent row has no spare column; a dock dragged below 36 drops columns
