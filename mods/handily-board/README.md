@@ -1242,7 +1242,8 @@ What the Inbox cannot show:
 - **A session that ended shows until the next poll that answers.** Its key stays in the store,
   but the Inbox draws only the sessions that `claude agents` lists. The rows of an ended session
   stay until the next poll, at most 15 seconds later while the tab shows. While the poll fails,
-  the rows stay with the age of the last report, such as `last report 2m`, until a poll answers.
+  the rows stay until a poll answers. For the first 30 seconds of the failure they keep their own
+  ages. After that they read the age of the last report, such as `last report 2m`.
 - **A session first seen while it waits has no age.** The `waits` row shows `—`, because the
   poll did not see the wait begin.
 - **A session that loads the board from another source shares no store.** A session started with
