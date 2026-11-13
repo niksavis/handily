@@ -25,7 +25,7 @@ import {
   noteTool,
   type Rail,
 } from './hooks/rail'
-import { drawRail, type RailElements } from './hooks/rail-pane'
+import { drawRail, railSeatOf, type RailElements, type RailSeat } from './hooks/rail-pane'
 import { drawsSample, hintKinds, MERMAID_KINDS } from './fixtures/mermaid-kinds'
 import {
   chartLinks,
@@ -5567,7 +5567,10 @@ function railLines(value: unknown, isStyled = false): string[] {
   )
 }
 
-function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPropsOf['Pane'] {
+function paneProps(
+  placement: RenderPropsOf['Pane']['placement'],
+  bodyColumns: number,
+): RenderPropsOf['Pane'] {
   return {
     title: PROMPTS_PANE,
     isFocused: false,
@@ -5581,7 +5584,7 @@ function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPro
 async function mountRail(
   $: Engine,
   surface: Surface,
-  placement: 'dock' | 'inline',
+  placement: RenderPropsOf['Pane']['placement'],
   columns: number,
 ) {
   return $.ui.mount({
@@ -5801,7 +5804,7 @@ function railHandle(scenes: readonly RailScene[], surface: Surface): RailHandle 
   return { rail: scenesRail(scenes), port: fakePort(), jumps: [], copies: [], surface }
 }
 
-function drawnRail(handle: RailHandle, columns = 41, placement: 'dock' | 'inline' = 'dock') {
+function drawnRail(handle: RailHandle, columns = 41, placement: RailSeat = 'dock') {
   return drawRail(
     FAKE_RAIL_ELEMENTS,
     handle.rail,
@@ -6089,6 +6092,18 @@ describe('prompt rail: the prompts tab rows and widths', () => {
       await ui.unmount()
     })
 
+    railTest(
+      'a pane in the widget placement draws the header line alone',
+      surface,
+      async (_world, $, clock) => {
+        await playScenes($, clock, MOCK_A_SCENES)
+        const ui = await mountRail($, surface, 'widget', 41)
+        expect(railLines(await ui.drawn())).toEqual(['Prompts  12 · at 12 · since 10:02'])
+        expect(await ui.find({ type: 'Button' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+
     for (const { placement, columns } of RAIL_WIDTHS) {
       railTest(
         `every line of the tab fits body ${String(columns)} ${placement}`,
@@ -6119,6 +6134,28 @@ describe('prompt rail: the prompts tab rows and widths', () => {
       })
     }
   }
+
+  for (const surface of SURFACES) {
+    test(`a widget seat draws the header line alone and no button on ${surface}`, () => {
+      const handle = railHandle(MOCK_A_SCENES, surface)
+      handle.rail.at = 9
+      const tree = drawnRail(handle, 30, 'widget')
+      expect(railLines(tree)).toEqual(['Prompts 12 · at 9'])
+      for (const key of ['prev', 'next', 'last', 'prompt-9']) {
+        expect(foundButton(tree, key)).toBeUndefined()
+      }
+    })
+  }
+
+  test('the rail seat reads inline and widget by name and any other placement as dock', () => {
+    expect(['dock', 'inline', 'widget', 'sidebar', ''].map(railSeatOf)).toEqual([
+      'dock',
+      'inline',
+      'widget',
+      'dock',
+      'dock',
+    ])
+  })
 
   test('body 30 keeps the tool count only, and inline at body 76 draws 8 rows around at', () => {
     const handle = railHandle(MOCK_A_SCENES, 'terminal')

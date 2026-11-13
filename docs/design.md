@@ -1137,7 +1137,13 @@ The band (handily-9uj3n.9):
 
 - `AbovePrompt` has `hasSurvey` ("a hook yields to it"), `isWorking`, `maxRows`, `bodyColumns`
   and `view`. `bodyColumns` is the width of the column less the 5 columns of the engine's `[-]`.
-  The band is raised on the terminal and desktop surfaces only.
+  The band is raised on the terminal and desktop surfaces only. From Claude Code 2.1.323 it is
+  also raised on mobile.
+- From Claude Code 2.1.323 the engine asks `AbovePrompt` once for each plugin that hooks it, and
+  `e.plugin` names that plugin. `plugin` is a default matcher key, so a hook that does not name
+  it hears the rows of its own plugin only. The new `AbovePromptList` stacks the rows of all the
+  plugins in a column. So the band of another mod is its own row and never comes from the
+  `next(e)` of the board. Up to 2.1.322 the band is one chain over all the plugins.
 - Hooks of one event nest by tier: `prepend`, `user`, `append`, `builtin`, `core`. The types do
   not give the order of two user plugins.
 - A bare digit typed into an empty prompt presses a band Button that has a `hotkey`. So the band
@@ -1146,7 +1152,10 @@ The band (handily-9uj3n.9):
   the this session tab is shown or nothing waits and no agent row shows. Otherwise it awaits
   `next(e)`. Only an engine
   element (`{ type: 'engine' }`) beneath gets the board's line. Any other drawing beneath is
-  returned unchanged, so the board never covers another band mod.
+  returned unchanged, so the board never covers another band mod. On 2.1.323 a drawing beneath
+  the board comes from a hook that names `plugin: 'handily-board'` or `plugin: '*'`, and the
+  band of another mod draws in its own row of the same band. The yield test registers its drawing
+  both ways, so it sits beneath the board on 2.1.322 and on 2.1.323 (handily-fuqm8v).
 - A call of a plugin on its own `$.ui.open` or `$.ui.close` runs only the hooks beneath it, so
   the board never sees its own opens. The board counts each open and close of its panes in the
   state key `paneChanges`. Only the band reads that key, so a change draws the band again and
@@ -1166,10 +1175,12 @@ Probes that are still open, each with a safe path in the code:
 - What `next(e)` returns in an `AbovePrompt` render when no hook beneath draws. The test kit
   of Claude Code 2.1.312 has no drawing of its own: a mount with no test hook beneath fails with
   `no implementation for ui.render`. So the tests answer with an engine element, as the
-  transcript row tests do. If the live engine returns another shape, the board yields and
-  draws no band.
-- The order of two user plugins on the band. Two band mods that each yield to the other draw
-  nothing. A second dummy band plugin in tmux can measure it.
+  transcript row tests do. The test kits of 2.1.322 and 2.1.323 answer `{ type: 'engine', ref:
+  1 }` (a probe mod in `claude plugin test`, 2026-11-13). If the live engine returns another
+  shape, the board yields and draws no band.
+- The order of two user plugins on the band, up to Claude Code 2.1.322. Two band mods that each
+  yield to the other draw nothing. A second dummy band plugin in tmux can measure it. On
+  2.1.323 the engine stacks one row for each plugin, so neither band yields to the other.
 
 Repairs of the plan offer (review of 2026-10-29):
 

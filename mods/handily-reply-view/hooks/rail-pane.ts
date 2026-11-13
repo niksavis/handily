@@ -15,9 +15,11 @@ import { wrappedAtWords } from './wrap'
 
 export type RailElements = Pick<ReplyElements, 'Box' | 'Text' | 'Button'>
 
+export type RailSeat = 'dock' | 'inline' | 'widget'
+
 export type RailLayout = {
   bodyColumns: number
-  placement: 'dock' | 'inline'
+  placement: RailSeat
   now: number
   doing: string
   blocked: string
@@ -396,6 +398,32 @@ function inline(context: Context): RenderNode[] {
   ]
 }
 
+function glance(context: Context): RenderNode[] {
+  const columns = context.layout.bodyColumns
+  return [context.elements.Text({ bold: true, children: headerText(context, columns) })]
+}
+
+export function railSeatOf(placement: string): RailSeat {
+  switch (placement) {
+    case 'inline':
+    case 'widget':
+      return placement
+    default:
+      return 'dock'
+  }
+}
+
+function seatChildren(context: Context): RenderNode[] {
+  switch (context.layout.placement) {
+    case 'inline':
+      return inline(context)
+    case 'widget':
+      return glance(context)
+    case 'dock':
+      return docked(context)
+  }
+}
+
 export function drawRail(
   elements: RailElements,
   rail: Rail,
@@ -403,8 +431,5 @@ export function drawRail(
   actions: RailActions,
 ): RenderElement {
   const context: Context = { elements, layout, actions, rail }
-  return elements.Box({
-    flexDirection: 'column',
-    children: layout.placement === 'inline' ? inline(context) : docked(context),
-  })
+  return elements.Box({ flexDirection: 'column', children: seatChildren(context) })
 }
