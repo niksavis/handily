@@ -7,8 +7,8 @@ const ERROR_PREFIX = 'Error: '
 const CLASSIFIER_DENIAL =
   /^Error: Permission for this action was denied by the Claude Code auto mode classifier\. Reason: (?:\[([^\]\r\n]+)\]|The server-side auto mode classifier judged this action dangerous \(it gave no explanation\))\.(?: |$)/
 const RULE_DENIAL = /^(?:Error: )?Permission to use \S+ with command [\s\S]+ has been denied\.$/
-const PERSON_DENIAL =
-  /^(?:Error: )?(?:User rejected tool use$|The user doesn't want to proceed with this tool use\.(?:\s|$))/
+
+export const PERSON_REJECTED_OUTPUT = 'User rejected tool use'
 
 export const FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write'])
 
@@ -123,7 +123,6 @@ export function refusalLine(output: unknown): string | null {
 export function deniedCall(output: unknown): Denial | null {
   if (typeof output !== 'string') return null
   if (RULE_DENIAL.test(output)) return { kind: 'denied', denier: 'rule', reason: null }
-  if (PERSON_DENIAL.test(output)) return { kind: 'denied', denier: 'person', reason: null }
   const denial = CLASSIFIER_DENIAL.exec(output)
   if (denial === null) return null
   const reason = denial[1]
@@ -132,6 +131,12 @@ export function deniedCall(output: unknown): Denial | null {
     denier: 'classifier',
     reason: reason === undefined ? null : shownText(reason),
   }
+}
+
+export function personRejection(output: unknown): Denial | null {
+  return output === PERSON_REJECTED_OUTPUT
+    ? { kind: 'denied', denier: 'person', reason: null }
+    : null
 }
 
 export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {

@@ -28,8 +28,10 @@ import {
   fileEdit,
   isRecord,
   lineCount,
+  personRejection,
   refusalLine,
   shownPath,
+  type Denial,
 } from './output'
 import {
   READING_TOOLS,
@@ -41,6 +43,7 @@ import {
 import {
   bashRow,
   changesBlock,
+  deniedResultLine,
   deniedRow,
   fileRow,
   genericRow,
@@ -485,11 +488,20 @@ function isStoppedRow(props: RenderPropsOf['ToolResult']): boolean {
   return (isFileRow || drawsGenericRow(props.tool)) && refusalLine(props.output) !== null
 }
 
+function rejectionByPerson(props: RenderPropsOf['ToolResult']): Denial | null {
+  if (!props.isErrored) return null
+  const drawsOwnRow =
+    props.tool === 'Bash' || FILE_TOOLS.has(props.tool) || READING_TOOLS.has(props.tool)
+  return drawsOwnRow ? personRejection(props.output) : null
+}
+
 async function resultDrawing(
   $: EngineInterface,
   props: RenderPropsOf['ToolResult'],
   look: RowLook,
 ): Promise<RenderElement | null> {
+  const rejection = rejectionByPerson(props)
+  if (rejection !== null) return deniedResultLine(look, rejection)
   if (props.tool === 'Bash') return bashResult($, props, look)
   if (props.isErrored) return isStoppedRow(props) ? look.elements.Box({}) : null
   if (READING_TOOLS.has(props.tool)) {

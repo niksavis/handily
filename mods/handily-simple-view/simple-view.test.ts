@@ -11,6 +11,7 @@ import {
 } from 'claude-code/testing'
 import type { QuietItemsSimpleViewMode } from './.claude-plugin/types/handily-quiet-items'
 import { commandLabel, programOf, segments } from './hooks/command'
+import { PERSON_REJECTED_OUTPUT } from './hooks/output'
 import { displayWidth } from './hooks/width'
 
 const ROOT = '/work/app'
@@ -2111,36 +2112,68 @@ function ruleDenied(text: string = RULE_DENIED_BASH_ON_2_1_322): Answer {
   return erroredWith(`Error: ${text}`, text)
 }
 
-const PERSON_REJECTED_RECORD_ON_2_1_312 = 'User rejected tool use'
+const PERSON_REJECTED_ANSWER_ON_2_1_323 = erroredWith(
+  `Error: ${PERSON_DENIED_ON_2_1_312}`,
+  PERSON_DENIED_ON_2_1_312,
+)
+const PERSON_REJECTED_TOOLS = [
+  ...DENIED_FILE_CALLS,
+  { tool: 'Grep', input: { pattern: 'TODO', path: `${ROOT}/src` } },
+  { tool: 'Bash', input: { command: 'touch other.txt', description: 'Create the other file' } },
+] as const
+const NOT_PERSON_REJECTED_OUTPUTS = [
+  `${PERSON_REJECTED_OUTPUT}.`,
+  `${PERSON_REJECTED_OUTPUT} for the second time`,
+  `${PERSON_REJECTED_OUTPUT}\nmore`,
+  `Error: ${PERSON_REJECTED_OUTPUT}`,
+  PERSON_REJECTED_OUTPUT.toLowerCase(),
+  PERSON_DENIED_ON_2_1_312,
+  `Error: ${PERSON_DENIED_ON_2_1_312}`,
+]
+const ON_SCREEN = { first: 0, last: 1, of: 2 }
 
-function personDenied(result: string): Answer {
-  return erroredWith(result, PERSON_DENIED_ON_2_1_312)
+function rejectedResultProps(
+  id: string,
+  tool: string,
+  output: unknown = PERSON_REJECTED_OUTPUT,
+): RenderPropsOf['ToolResult'] {
+  return { tool_use_id: id, tool, output, isErrored: true, isExpanded: false, onScreen: ON_SCREEN }
 }
 
-const PERSON_DENIED = personDenied(`Error: ${PERSON_DENIED_ON_2_1_312}`)
-const PERSON_DENIED_PLAIN = personDenied(PERSON_DENIED_ON_2_1_312)
-const PERSON_DENIAL_FORMS = [
-  {
-    form: 'the long sentence of the tool result content in local transcripts on 2.1.312',
-    text: PERSON_DENIED_ON_2_1_312,
-  },
-  {
-    form: 'the short toolUseResult record in local transcripts on 2.1.312',
-    text: PERSON_REJECTED_RECORD_ON_2_1_312,
-  },
-] as const
-const PERSON_REJECTED_RECORD_STARTS = [
-  `${PERSON_REJECTED_RECORD_ON_2_1_312}.`,
-  `${PERSON_REJECTED_RECORD_ON_2_1_312} for the second time`,
-  `${PERSON_REJECTED_RECORD_ON_2_1_312}\nmore`,
-]
+async function rejectedCall(world: World, $: Engine, tool: string, input: object) {
+  world.answer = () => PERSON_REJECTED_ANSWER_ON_2_1_323
+  const id = await runTool(world, $, { tool, ...input })
+  return { use: streamingProps(id, tool, input), result: rejectedResultProps(id, tool) }
+}
+
+async function resultLine(
+  $: Engine,
+  surface: Surface,
+  props: RenderPropsOf['ToolResult'],
+  columns: number,
+) {
+  const ui = await $.ui.mount({
+    plugin: 'handily-simple-view',
+    surface,
+    component: 'ToolResult',
+    props,
+    viewport: { columns, rows: 40 },
+  })
+  const tree = await ui.drawn()
+  const row = (await ui.findAll({ type: 'Box' })).find((box) => box.props.gap === 2)
+  const cells = (row?.children ?? []).filter(isDrawnNode)
+  const buttons = await ui.findAll({ type: 'Button' })
+  await ui.unmount()
+  return {
+    lines: sketchLines(tree, columns).map((line) => line.trimEnd()),
+    shown: cells.map(shown),
+    shrinks: cells.map((cell) => cell.props?.flexShrink),
+    buttons,
+  }
+}
 
 describe('calls that a permission rule or the person denied', () => {
   const TOUCH_INPUT = { command: 'touch other.txt', description: 'Create the other file' }
-  const DENIED_CALLS = [
-    ...DENIED_FILE_CALLS,
-    { tool: 'Bash', input: TOUCH_INPUT, path: 'touch other.txt' },
-  ] as const
 
   for (const surface of SURFACES) {
     viewTest(
@@ -2184,46 +2217,105 @@ describe('calls that a permission rule or the person denied', () => {
   )
 
   for (const surface of SURFACES) {
-    for (const { form, text } of PERSON_DENIAL_FORMS) {
-      for (const { tool, input, path } of DENIED_CALLS) {
-        viewTest(
-          `draws the ${tool} call that the person denied with denied by you from ${form} on ${surface}`,
-          async (world, $) => {
-            for (const output of [text, `Error: ${text}`]) {
-              const answer = personDenied(output)
-              world.answer = () => answer
-              const id = await runTool(world, $, { tool, ...input })
-              const use = useProps(id, tool, input, answer)
-              expect(await texts($, surface, { component: 'ToolUse', props: use }), output).toEqual(
-                [`${MARKER[surface]}${tool} ${path} denied by you`],
-              )
-              const ui = await mountUse($, use, surface)
-              expect((await ui.find({ type: 'Text', text: 'by you' }))?.props.color).toBe('error')
-              expect(await ui.findAll({ type: 'Button' })).toEqual([])
-              await ui.unmount()
-              const result = await drawn(
-                $,
-                { component: 'ToolResult', props: resultProps(id, tool, answer) },
-                surface,
-              )
-              expect(result.tree, output).toMatchObject({ type: 'Box' })
-              expect(result.textCount, output).toBe(0)
-            }
-          },
-        )
-      }
+    for (const { tool, input } of PERSON_REJECTED_TOOLS) {
+      viewTest(
+        `draws denied by you in place of the engine result line when the person rejected a ${tool} call on ${surface}`,
+        async (world, $) => {
+          const { use, result } = await rejectedCall(world, $, tool, input)
+          const above = await mountUse($, use, surface)
+          expect(await above.findAll({ type: 'Text', text: 'denied' })).toEqual([])
+          await above.unmount()
+          expect(await texts($, surface, { component: 'ToolResult', props: result })).toEqual([
+            'denied by you',
+          ])
+          const ui = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolResult',
+            props: result,
+          })
+          expect((await ui.find({ type: 'Text', text: 'denied' }))?.props.color).toBe('error')
+          expect((await ui.find({ type: 'Text', text: 'by you' }))?.props.color).toBe('error')
+          expect(await ui.findAll({ type: 'Button' })).toEqual([])
+          await ui.unmount()
+        },
+      )
     }
   }
 
   for (const surface of SURFACES) {
     viewTest(
-      `draws a Grep call that the person denied with its pattern and denied by you on ${surface}`,
-      async (_world, $) => {
-        const input = { pattern: 'TODO', path: `${ROOT}/src` }
-        const use = useProps('toolu_r2', 'Grep', input, PERSON_DENIED)
-        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-          `${MARKER[surface]}Grep "TODO" in src denied by you`,
-        ])
+      `keeps the engine row above the denied by you line of a rejected Edit or Write on ${surface}`,
+      async (world, $) => {
+        for (const { tool, input } of DENIED_FILE_CALLS.filter((call) => call.tool !== 'Read')) {
+          const { use } = await rejectedCall(world, $, tool, input)
+          expect((await drawn($, { component: 'ToolUse', props: use }, surface)).tree).toEqual(
+            ENGINE_ROW,
+          )
+        }
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(`keeps denied by you whole at 120 and 40 columns on ${surface}`, async (world, $) => {
+      const [write] = DENIED_FILE_CALLS.filter((call) => call.tool === 'Write')
+      if (write === undefined) throw new Error('no Write call')
+      const { result } = await rejectedCall(world, $, write.tool, write.input)
+      const indent = surface === 'terminal' ? '  ' : ''
+      for (const columns of [120, 40]) {
+        const line = await resultLine($, surface, result, columns)
+        expect(line.lines, String(columns)).toEqual([`${indent}#denied#  #by you#`])
+        expect(line.shown).toEqual(['denied', 'by you'])
+        expect(line.shrinks).toEqual([0, 0])
+        expect(line.buttons).toEqual([])
+      }
+    })
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `keeps the engine result line for an output that is not the measured rejection text on ${surface}`,
+      async (world, $) => {
+        const files = PERSON_REJECTED_TOOLS.filter((call) => call.tool !== 'Bash')
+        for (const { tool, input } of files) {
+          const { result } = await rejectedCall(world, $, tool, input)
+          for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
+            const props = rejectedResultProps(result.tool_use_id, tool, output)
+            expect(
+              (await drawn($, { component: 'ToolResult', props }, surface)).tree,
+              `${tool} ${output}`,
+            ).toEqual(ENGINE_ROW)
+          }
+          const done = { ...result, isErrored: false }
+          expect(
+            (await drawn($, { component: 'ToolResult', props: done }, surface)).tree,
+            tool,
+          ).toEqual(ENGINE_ROW)
+        }
+        const bash = await rejectedCall(world, $, 'Bash', TOUCH_INPUT)
+        for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
+          const props = rejectedResultProps(bash.result.tool_use_id, 'Bash', output)
+          const ui = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolResult',
+            props,
+          })
+          expect(await ui.findAll({ type: 'Text', text: 'by you' }), output).toEqual([])
+          await ui.unmount()
+        }
+        const fetch = await genericCall(
+          world,
+          $,
+          'WebFetch',
+          FETCH_INPUT,
+          PERSON_REJECTED_ANSWER_ON_2_1_323,
+        )
+        const props = rejectedResultProps(fetch.tool_use_id, 'WebFetch')
+        expect((await drawn($, { component: 'ToolResult', props }, surface)).tree).toEqual(
+          ENGINE_ROW,
+        )
       },
     )
   }
@@ -2256,7 +2348,6 @@ describe('calls that a permission rule or the person denied', () => {
         const others = [
           RULE_DENIED_BASH_ON_2_1_322.replace('has been denied', 'was denied'),
           RULE_DENIED_BASH_ON_2_1_322.replace(' with command touch other.txt', ''),
-          PERSON_DENIED_ON_2_1_312.replace('this tool use.', 'this tool use'),
         ]
         for (const text of others) {
           const answer = erroredWith(`Error: ${text}`, text)
@@ -2275,61 +2366,21 @@ describe('calls that a permission rule or the person denied', () => {
             (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
           ).toEqual(ENGINE_ROW)
         }
-        for (const answer of [ruleDenied(), PERSON_DENIED]) {
-          const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, answer)
-          expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-            `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
-          ])
-          const result = resultProps(use.tool_use_id, 'WebFetch', answer)
-          expect(
-            (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
-          ).toEqual(ENGINE_ROW)
-        }
+        const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, ruleDenied())
+        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+          `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
+        ])
+        const result = resultProps(use.tool_use_id, 'WebFetch', ruleDenied())
+        expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
+          ENGINE_ROW,
+        )
       },
     )
   }
 
   for (const surface of SURFACES) {
     viewTest(
-      `keeps the row of today for a text that only starts with the short toolUseResult record on ${surface}`,
-      async (world, $) => {
-        for (const start of PERSON_REJECTED_RECORD_STARTS) {
-          const first = start.split('\n')[0] ?? start
-          const prefixed = personDenied(`Error: ${start}`)
-          world.answer = () => prefixed
-          const id = await runBash(world, $, TOUCH_INPUT)
-          const bash = useProps(id, 'Bash', TOUCH_INPUT, prefixed)
-          expect(await texts($, surface, { component: 'ToolUse', props: bash }), start).toEqual([
-            `${MARKER[surface]}Create the other file touch error ${first}`,
-          ])
-          for (const answer of [prefixed, personDenied(start)]) {
-            const edit = useProps('toolu_r7', 'Edit', EDIT_INPUT, answer)
-            expect(
-              (await drawn($, { component: 'ToolUse', props: edit }, surface)).tree,
-              start,
-            ).toEqual(ENGINE_ROW)
-            const result = resultProps('toolu_r7', 'Edit', answer)
-            expect(
-              (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
-              start,
-            ).toEqual(ENGINE_ROW)
-          }
-          const plain = personDenied(start)
-          world.answer = () => plain
-          const plainId = await runBash(world, $, TOUCH_INPUT)
-          const plainBash = useProps(plainId, 'Bash', TOUCH_INPUT, plain)
-          expect(
-            (await drawn($, { component: 'ToolUse', props: plainBash }, surface)).tree,
-            start,
-          ).toEqual(ENGINE_ROW)
-        }
-      },
-    )
-  }
-
-  for (const surface of SURFACES) {
-    viewTest(
-      `cuts the path or the command first and keeps denied by you and by a rule whole at 40 columns on ${surface}`,
+      `cuts the path or the command first and keeps denied by a rule whole at 40 columns on ${surface}`,
       async (world, $) => {
         const editInput = { ...EDIT_INPUT, file_path: `${ROOT}/${LONG_PATH}` }
         const command = 'touch src/components/navigation/sidebar.tsx'
@@ -2339,23 +2390,6 @@ describe('calls that a permission rule or the person denied', () => {
         const cases = [
           { props: useProps('toolu_r5', 'Edit', editInput, ruleDenied()), words: 'by a rule' },
           { props: useProps(id, 'Bash', bashInput, ruleDenied()), words: 'by a rule' },
-          {
-            props: useProps('toolu_r6', 'Edit', editInput, PERSON_DENIED),
-            words: 'by you',
-          },
-          {
-            props: useProps(id, 'Bash', bashInput, PERSON_DENIED_PLAIN),
-            words: 'by you',
-          },
-          {
-            props: useProps(
-              'toolu_r8',
-              'Edit',
-              editInput,
-              personDenied(PERSON_REJECTED_RECORD_ON_2_1_312),
-            ),
-            words: 'by you',
-          },
         ]
         for (const { props, words } of cases) {
           const target = props.tool === 'Bash' ? command : LONG_PATH

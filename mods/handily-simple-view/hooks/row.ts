@@ -306,6 +306,18 @@ function changeLines(changes: ChangeLines): ChangeLine[] {
   return lines
 }
 
+export function deniedResultLine(look: RowLook, denial: Denial): RenderElement {
+  return look.elements.Box({
+    paddingLeft: look.hasToolMarker ? RESULT_INDENT : 0,
+    children: line(
+      { ...look, hasToolMarker: false },
+      'row',
+      'error',
+      deniedCells(look, [], denial),
+    ),
+  })
+}
+
 export function changesBlock(look: RowLook, changes: ChangeLines): RenderElement {
   const { Box, Text } = look.elements
   return Box({
