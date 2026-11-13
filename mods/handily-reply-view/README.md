@@ -617,6 +617,10 @@ replaces the source:
   `✓ Copied the flowchart drawing`.
 - The view draws `flowchart` and `graph` with the directions `TD`, `TB` and `LR`. A flowchart `LR`
   that is too wide for the screen draws top down.
+- A semicolon between two statements of a flowchart ends the first one, as a new line does. So
+  `A --> B; B --> C` and `graph LR; A --> B` draw as on separate lines. A semicolon inside a quoted
+  label, a bracket label such as `B[three; four]`, a pipe label or a text link such as
+  `-- seven; eight -->` stays in the label.
 - When the labels of the boxes must fit, they wrap at spaces at 16 columns, then at 12 columns. A
   longer word stays whole, and its box widens. Only when the drawing still does not fit, a long
   word breaks inside, at the room that its level leaves for each box. A box alone in its level
@@ -1201,9 +1205,19 @@ A cardinality draws as a word, not as a crow's foot:
 - The entities take the colours of the boxes in turn. The keys `PK`, `FK` and `UK` are bold. The
   types, the comments, the lines and the words are in `inactive`.
 - `direction`, `classDef`, `class`, `style` and `:::name` draw nothing.
-- These draw as the source under a note that names the reason: a `subgraph`, a relationship from
-  an entity to itself, and a cardinality that does not parse, such as
-  `line 3: the cardinality }|..|x does not parse.`
+- A relationship from an entity to itself draws as a loop on the right of its box. The upper end
+  of the loop shows the first cardinality and the label, and the lower end shows the second
+  cardinality. A second loop on the same entity draws around the first:
+
+```text
+  ╭──────╮
+  │ USER ├─ 1 manages ─┐
+  │      ├─ 0..n ──────┘
+  ╰──────╯
+```
+
+- These draw as the source under a note that names the reason: a `subgraph` and a cardinality
+  that does not parse, such as `line 3: the cardinality }|..|x does not parse.`
 
 ## A chart
 

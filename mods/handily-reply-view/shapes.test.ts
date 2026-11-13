@@ -578,3 +578,59 @@ describe('a narrow sequence diagram', () => {
     })
   })
 })
+
+const SEMICOLON_CRITERION =
+  'When a flowchart line holds two statements joined by a semicolon outside quotes and brackets, reply-view draws the same diagram as for the two statements on two lines, keeps a semicolon inside a quoted label or an edge label'
+
+const ONE_LINE_FLOWCHART = lines(
+  'flowchart TD',
+  '  A[Ask] --> B{Fits?}; B -->|yes| C(Draw)',
+  '  B -->|no| D([Note]); D --> E[[Wait]];',
+)
+
+function flowchartLines(source: string): string[] {
+  return flowchartDrawing(source).lines
+}
+
+describe(SEMICOLON_CRITERION, () => {
+  for (const surface of SURFACES) {
+    viewTest(
+      `two statements joined by a semicolon draw as the same diagram as on two lines on ${surface}`,
+      async (_world, $) => {
+        const joined = await mountDiagram($, ONE_LINE_FLOWCHART, surface)
+        const joinedRows = (await drawnRows(joined, surface)).map(rowText)
+        await joined.unmount()
+        const apart = await mountDiagram($, FLOWCHART, surface)
+        const apartRows = (await drawnRows(apart, surface)).map(rowText)
+        await apart.unmount()
+        expect(joinedRows.join('\n')).toContain('│ Wait │')
+        expect(joinedRows).toEqual(apartRows)
+      },
+    )
+  }
+
+  test('the header line may end its own statement with a semicolon and hold more statements', () => {
+    expect(flowchartLines(lines('graph LR; A --> B; B --> C'))).toEqual(
+      flowchartLines(lines('graph LR', 'A --> B', 'B --> C')),
+    )
+  })
+
+  test('a semicolon inside a quoted label, a bracket label, a pipe label or a text link stays in the label', () => {
+    const joined = lines(
+      'flowchart LR',
+      '  A["one; two"] --> B[three; four]; B -->|five; six| C -- seven; eight --> D',
+      '  D -- "nine; ten" --> E',
+    )
+    const apart = lines(
+      'flowchart LR',
+      '  A["one; two"] --> B[three; four]',
+      '  B -->|five; six| C -- seven; eight --> D',
+      '  D -- "nine; ten" --> E',
+    )
+    const drawn = flowchartLines(joined)
+    expect(drawn).toEqual(flowchartLines(apart))
+    for (const label of ['one; two', 'three; four', 'five; six', 'seven; eight', 'nine; ten']) {
+      expect(drawn.join('\n')).toContain(label)
+    }
+  })
+})
