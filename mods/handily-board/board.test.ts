@@ -437,7 +437,9 @@ async function publish($: Engine, snapshot: Snapshot): Promise<void> {
   })
 }
 
-function paneProps(placement: 'dock' | 'inline', bodyColumns = 40): RenderPropsOf['Pane'] {
+type Placement = RenderPropsOf['Pane']['placement']
+
+function paneProps(placement: Placement, bodyColumns = 40): RenderPropsOf['Pane'] {
   return {
     title: 'Tasks',
     isFocused: false,
@@ -3856,7 +3858,7 @@ async function mountTab(
   $: Engine,
   surface: Surface,
   requestId: string,
-  placement: 'dock' | 'inline',
+  placement: Placement,
   columns: number,
 ) {
   return $.ui.mount({
@@ -3952,6 +3954,30 @@ const SESSION_SCREENS: readonly {
     ],
   },
 ]
+
+const WIDGET_CRITERION =
+  'When a pane of handily-board, handily-filetree or handily-tests renders in the widget placement, it draws no button, as the types say a click may not reach a widget'
+
+describe(WIDGET_CRITERION, () => {
+  test(
+    'the this session tab in the widget placement draws the Tasks head line alone and no button, while the docked form has buttons',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      await mockWork($, seen)
+      for (const surface of SURFACES) {
+        const docked = await mountTab($, surface, PANE, 'dock', 41)
+        expect(await docked.find({ type: 'Button' })).toBeDefined()
+        await docked.unmount()
+        const widget = await mountTab($, surface, PANE, 'widget', 41)
+        expect(await screen(widget, 41)).toEqual(['Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m'])
+        expect(await widget.find({ type: 'Button' })).toBeUndefined()
+        await widget.unmount()
+      }
+    },
+  )
+})
 
 describe(SESSION_TAB_CRITERION, () => {
   for (const { placement, columns, lines, framed } of SESSION_SCREENS) {

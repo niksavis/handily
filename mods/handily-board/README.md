@@ -314,6 +314,9 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 ```
 
 - The first rows are the Session section. A later section describes it.
+- In the `widget` placement, the small form of a minimized pane on the desktop app, the tab
+  draws the `Tasks` head line alone and no button, because a click may not reach a widget. The
+  `this machine` tab draws its `Inbox` head and its `Sessions` head line there.
 - The header shows a bar, the done count of all tasks, the counts of the tasks in progress
   (`▶`) and pending (`○`), and the time since the first tool call of the main loop. The bar
   has one cell for each task, at most 8. Its cells are done in `success`, in progress in

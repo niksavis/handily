@@ -283,7 +283,9 @@ async function tree($: Engine, args: string): Promise<string> {
   return result.text ?? ''
 }
 
-function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPropsOf['Pane'] {
+type Placement = RenderPropsOf['Pane']['placement']
+
+function paneProps(placement: Placement, bodyColumns: number): RenderPropsOf['Pane'] {
   return {
     title: 'files',
     isFocused: false,
@@ -313,7 +315,7 @@ async function pickView(ui: Viewed, view: View): Promise<void> {
 async function mountFiles(
   $: Engine,
   surface: RenderSurface,
-  placement: 'dock' | 'inline' = 'dock',
+  placement: Placement = 'dock',
   columns = 41,
   view: View = 'all',
 ) {
@@ -903,7 +905,7 @@ async function mountSettled(
   $: Engine,
   seen: World,
   surface: RenderSurface,
-  placement: 'dock' | 'inline' = 'dock',
+  placement: Placement = 'dock',
   columns = 41,
 ) {
   const ui = await mountFiles($, surface, placement, columns)
@@ -931,6 +933,25 @@ function underTool(on: On): void {
   on('tool.call', () => ({ result: '' }))
   on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
 }
+
+const WIDGET_CRITERION =
+  'When a pane of handily-board, handily-filetree or handily-tests renders in the widget placement, it draws no button, as the types say a click may not reach a widget'
+
+describe(WIDGET_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`the files tab in the widget placement draws the Files head line alone and no button, while the docked form has buttons, on ${surface}`, async ($, on) => {
+      const seen = gitWorld(on, [['.', [file('README.md')]]], { kind: 'ok', stdout: CLEAN })
+      const docked = await openFiles($, seen, surface)
+      expect(await docked.find({ type: 'Button' })).toBeDefined()
+      await docked.unmount()
+      const widget = await mountSettled($, seen, surface, 'widget', 41)
+      expect(await screen(widget, 41)).toEqual(['Files  app · main · clean'])
+      expect(await widget.find({ type: 'Button' })).toBeUndefined()
+      expect(await widget.find({ type: 'Select' })).toBeUndefined()
+      await widget.unmount()
+    })
+  }
+})
 
 describe('git status: letters and counts', () => {
   for (const surface of SURFACES) {

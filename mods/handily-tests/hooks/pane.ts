@@ -307,20 +307,32 @@ function runningLines(elements: PaneElements, running: Running, view: PaneView):
   return [headRow(elements, runningHeadline(running, view.now)), ...lastLine]
 }
 
-function noRunLines(elements: PaneElements): RenderElement[] {
+function noRunHead(elements: PaneElements): RenderElement {
   const headline: Headline = { role: 'toDo', text: 'no run yet', tail: '' }
-  const { Box, Text, bodyColumns } = elements
+  const { Box, Text } = elements
+  return Box({
+    flexDirection: 'row',
+    children: [
+      Text({ bold: true, children: `${TITLE}${TITLE_GAP}` }),
+      Text({ dimColor: true, children: headline.text }),
+    ],
+  })
+}
+
+function noRunLines(elements: PaneElements): RenderElement[] {
+  const { Text, bodyColumns } = elements
   const lines = bodyColumns >= WIDE_BODY ? NO_RUN_LINES : [NO_RUN_TEXT]
-  return [
-    Box({
-      flexDirection: 'row',
-      children: [
-        Text({ bold: true, children: `${TITLE}${TITLE_GAP}` }),
-        Text({ dimColor: true, children: headline.text }),
-      ],
-    }),
-    ...lines.map((line) => Text({ dimColor: true, children: line })),
-  ]
+  return [noRunHead(elements), ...lines.map((line) => Text({ dimColor: true, children: line }))]
+}
+
+function glanceHead(elements: PaneElements, view: PaneView): RenderElement {
+  const [last] = view.runs
+  if (view.running !== undefined) return headRow(elements, runningHeadline(view.running, view.now))
+  return last === undefined ? noRunHead(elements) : headRow(elements, headlineOf(last))
+}
+
+export function drawGlance(elements: PaneElements, view: PaneView): RenderElement {
+  return elements.Box({ flexDirection: 'column', children: [glanceHead(elements, view)] })
 }
 
 export function drawDock(

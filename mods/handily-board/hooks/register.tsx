@@ -128,7 +128,7 @@ import {
 import { lastSegment } from './agents-json'
 import { openedKeys, shownNames, stepText } from './agent-rows'
 import { DEFAULT_PALETTE } from './palette'
-import { drawMachine } from './machine'
+import { drawMachine, drawMachineGlance } from './machine'
 import {
   type Machine,
   type SessionsHost,
@@ -156,7 +156,7 @@ import {
   withTasks,
 } from './progress'
 import { askedQuestion, askWait, type AskWait } from './waits'
-import { type PaneWork, agentsOpener, drawPane } from './pane'
+import { type PaneWork, agentsOpener, drawGlance, drawPane } from './pane'
 import {
   PLAN_TOOL,
   type PlanAnswer,
@@ -2292,6 +2292,7 @@ export const register: Register = (on, options) => {
     }
     clearStatus($, attention)
     startRedraw($, redraw, attention)
+    if (placement === 'widget') return drawGlance(elements, hostOf($), work)
     return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown, redraw), work)
   })
 
@@ -2322,6 +2323,7 @@ export const register: Register = (on, options) => {
       toggle,
       signals: await drawnSignals($, e.surface),
     }
+    if (placement === 'widget') return drawMachineGlance(elements, view, now, inbox)
     return drawMachine(elements, view, now, inbox)
   })
 }

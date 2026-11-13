@@ -900,6 +900,27 @@ function bodyOf(elements: MachineElements, view: MachineView, now: number): Rend
   }
 }
 
+function glanceHead(elements: MachineElements, view: MachineView, now: number): RenderElement {
+  const layout = layoutOf(elements)
+  if (view.kind !== 'cards') return keyedText(elements, 'header', { bold: true }, TITLE)
+  return drawParts(elements, 'header', headerParts(view, now, layout), layout.columns)
+}
+
+export function drawMachineGlance(
+  elements: MachineElements,
+  view: MachineView,
+  now: number,
+  inbox: InboxView | null,
+): RenderElement {
+  return elements.Box({
+    flexDirection: 'column',
+    children: [
+      ...(inbox === null ? [] : [inboxHead(elements, inbox, now, elements.bodyColumns)]),
+      glanceHead(elements, view, now),
+    ],
+  })
+}
+
 export function drawMachine(
   elements: MachineElements,
   view: MachineView,
