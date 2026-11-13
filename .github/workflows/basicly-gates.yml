@@ -64,15 +64,15 @@ jobs:
           fetch-tags: true
       - uses: astral-sh/setup-uv@v7
       - name: Catalog lint
-        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.44.1/basicly-0.44.1-py3-none-any.whl basicly catalog lint
+        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.45.0/basicly-0.45.0-py3-none-any.whl basicly catalog lint
       - name: Projection drift check
-        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.44.1/basicly-0.44.1-py3-none-any.whl basicly check
+        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.45.0/basicly-0.45.0-py3-none-any.whl basicly check
       - name: Skill projection drift check
-        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.44.1/basicly-0.44.1-py3-none-any.whl basicly skills-check
+        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.45.0/basicly-0.45.0-py3-none-any.whl basicly skills-check
       - name: Hook wiring drift check
         run: |
-          uvx --from https://github.com/niksavis/basicly/releases/download/v0.44.1/basicly-0.44.1-py3-none-any.whl basicly hooks-build --runtime-only
-          uvx --from https://github.com/niksavis/basicly/releases/download/v0.44.1/basicly-0.44.1-py3-none-any.whl basicly hooks-check
+          uvx --from https://github.com/niksavis/basicly/releases/download/v0.45.0/basicly-0.45.0-py3-none-any.whl basicly hooks-build --runtime-only
+          uvx --from https://github.com/niksavis/basicly/releases/download/v0.45.0/basicly-0.45.0-py3-none-any.whl basicly hooks-check
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
@@ -82,7 +82,7 @@ jobs:
       - name: Install the pinned Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code@2.1.323
       - name: Configured verify checks
-        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.44.1/basicly-0.44.1-py3-none-any.whl basicly verify --mode full
+        run: uvx --from https://github.com/niksavis/basicly/releases/download/v0.45.0/basicly-0.45.0-py3-none-any.whl basicly verify --mode full
 
   mods-newest:
     name: mods on newest Claude Code
@@ -100,5 +100,7 @@ jobs:
       - name: Print the resolved Claude Code version
         shell: bash
         run: claude --version | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Validate the mods on the newest Claude Code
+        run: npm run validate
       - name: Run the mod tests on the newest Claude Code
         run: npm test

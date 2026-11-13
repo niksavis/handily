@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+import importlib.util
+import sys
+import time
+import traceback
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+_HERE = Path(__file__).resolve().parent
+
+
+def _load(file_name: str, module_name: str) -> Any:
+
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(module_name, _HERE / file_name)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"the tracker kit's {file_name} is missing from beside vault_claim.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+git_runner = _load("git_runner.py", "basicly_tracker_kit_git_runner")
+events = _load("events.py", "basicly_tracker_kit_events")
+vault_clone = _load("vault_clone.py", "basicly_tracker_kit_vault_clone")
+vault_queue = _load("vault_queue.py", "basicly_tracker_kit_vault_queue")
+vault_share = _load("vault_share.py", "basicly_tracker_kit_vault_share")
+vault_fold = _load("vault_fold.py", "basicly_tracker_kit_vault_fold")
+
+DEADLINE = 30.0
+PROBE = 5.0
+FRESH = 1.0
+JOIN_WAIT = 0.05
+STALL = 5.0
+POLL = 0.1
+LANDED = 0
+FIX = 1
+LOST = 3
+UNSETTLED = 4
+UNREACHABLE = 5
+INTERNAL = 6
+YOURS = 7
+
+Clock = Callable[[], float]
+_INTERNAL = (
+    OSError,
+    LookupError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    RuntimeError,
+    git_runner.GitRunnerError,
+    events.LedgerError,
+)
+Runner = Callable[..., str]
+
+
+@dataclass(frozen=True)
+class Ask:
+    clone: Any
+    state: Path
+    record: str
+    session: str
+    clock: Callable[[], float]
+    runner: Callable[..., str] = git_runner.run
+    name: str = ""
+
+
+NAME_MAX = 100
+NAME_FIX = "set your holder name first: `git config basicly.holder 'your name'`, then claim again"
+NAME_UNSAFE = (
+    "the holder name from git config basicly.holder looks like a path, a secret or control text; "
+    "set a plain name: `git config basicly.holder 'your name'`"
+)
+
+
+def name_refusal(name: str) -> str:
+
+    if not name:
+        return NAME_FIX
+    if len(name) > NAME_MAX or not name.isprintable() or vault_queue.redact.text(name) != name:
+        return NAME_UNSAFE
+    return ""
+
+
+class _Budget:
+    def __init__(self, deadline: float, ticks: Clock) -> None:
+        self._end = ticks() + deadline
+        self._ticks = ticks
+        self.timing: dict[str, float] = {}
+
+    def add(self, key: str, seconds: object) -> None:
+        value = float(seconds) if isinstance(seconds, (int, float)) else 0.0
+        self.timing[key] = round(self.timing.get(key, 0.0) + value, 3)
+
+    def now(self) -> float:
+        return self._ticks()
+
+    def left(self, cap: float | None = None) -> float:
+        remaining = max(0.01, self._end - self._ticks())
+        return remaining if cap is None else min(cap, remaining)
+
+
+def _state(clone: Any, record: str) -> Any:
+    return vault_fold.fold(vault_clone.valid_events(clone)).records.get(record)
+
+
+def holder(clone: Any, record: str) -> tuple | None:
+    state = _state(clone, record)
+    return None if state is None else state.holder
+
+
+def _held_elsewhere(record: str, vault: str, held: tuple, name: str = "") -> dict[str, object]:
+    return {
+        "exit": LOST,
+        "record": record,
+        "holder": {"writer": held[0], "session": held[1], "name": name},
+        "next": f"claim {record} --take --reason 'why' --vault {vault}",
+    }
+
+
+def _lost(clone: Any, record: str) -> dict[str, object] | None:
+    state = _state(clone, record)
+    if state is None or state.holder is None:
+        return None
+    return _held_elsewhere(record, clone.url, state.holder, state.name)
+
+
+def _unsettled(record: str, vault: str, why: str) -> dict[str, object]:
+    return {
+        "exit": UNSETTLED,
+        "record": record,
+        "unsettled": why,
+        "next": [
+            f"claim {record} --wait --vault {vault}",
+            f"claim {record} --cancel --vault {vault}",
+        ],
+    }
+
+
+def _check(ask: Ask, budget: _Budget, writer: str) -> dict[str, object] | None:
+
+    clone = ask.clone
+    vault_clone.private(clone.folder)
+    check = f"git fetch {clone.url} refs/heads/main"
+    try:
+        fetched = vault_clone.fetch(
+            clone,
+            clock=ask.clock,
+            runner=ask.runner,
+            timeout=budget.left(PROBE),
+            lock_wait=budget.left(),
+        )
+    except vault_clone.CloneError:
+        fetched = {"fetched": False}
+    budget.add("fetch_lock_wait_s", fetched.get("fetch_lock_wait_s"))
+    if not fetched.get("fetched"):
+        return {"exit": UNREACHABLE, "record": ask.record, "check": check}
+    held = holder(clone, ask.record)
+    if held == (writer, ask.session):
+        mine = {"writer": writer, "session": ask.session, "name": ask.name}
+        return {"exit": YOURS, "record": ask.record, "holder": mine}
+    return None if held is None else _lost(clone, ask.record)
+
+
+def _share_or_join(ask: Ask, budget: _Budget, made: str, fresh: bool) -> bool:
+
+    joined_at = None
+    while True:
+        stalled = joined_at is not None and joined_at - budget.left() >= STALL
+        plan = vault_share.Plan(
+            ask.clock,
+            urgent=True,
+            deadline_s=budget.left(),
+            fresh=fresh and joined_at is None,
+            lock_wait=JOIN_WAIT,
+            keep_going=False,
+            unlocked=stalled,
+        )
+        asked = budget.now()
+        try:
+            shared = vault_share.share(ask.clone, ask.state, plan=plan, runner=ask.runner)
+        except events.LockUnavailableError:
+            budget.add("joined_wait_s", budget.now() - asked)
+            joined_at = budget.left() if joined_at is None else joined_at
+            if made in vault_clone.valid_ids(ask.clone):
+                return True
+            if budget.left() <= POLL:
+                raise
+            time.sleep(POLL)
+            budget.add("joined_wait_s", POLL)
+            continue
+        budget.add("share_lock_wait_s", shared.get("lock_wait_s"))
+        budget.add("fetch_lock_wait_s", shared.get("fetch_lock_wait_s"))
+        return joined_at is not None
+
+
+def _land(ask: Ask, budget: _Budget, writer: str, fetched_left: float) -> dict[str, object]:
+
+    clone, record = ask.clone, ask.record
+    origin = vault_queue.Origin(ask.session, False, ask.clock)
+    draft = {"kind": "claim", "record": record, "payload": {vault_fold.HOLDER_NAME: ask.name}}
+    made = vault_queue.write(clone, [draft], state=ask.state, origin=origin)["events"][0]
+    fresh = fetched_left - budget.left() < FRESH
+    try:
+        joined = _share_or_join(ask, budget, made, fresh)
+    except (
+        vault_share.DeadlineError,
+        git_runner.GitTimeoutError,
+        events.LockUnavailableError,
+    ) as exc:
+        return {**_unsettled(record, clone.url, str(exc)), "claim": made}
+    held = holder(clone, record)
+    if held == (writer, ask.session):
+        return {"exit": LANDED, "record": record, "claim": made, "joined": joined}
+    if held is None:
+        return {**_unsettled(record, clone.url, "the claim has not landed yet"), "claim": made}
+    return _lost(clone, record) or _held_elsewhere(record, clone.url, held)
+
+
+def _attempt(ask: Ask, budget: _Budget) -> dict[str, object]:
+    started = budget.now()
+    writer = vault_queue.writer_of(ask.state)
+    early = _check(ask, budget, writer)
+    shown = early if early is not None else _land(ask, budget, writer, budget.left())
+    budget.add("claim_s", budget.now() - started)
+    return {**shown, "timing": dict(budget.timing)}
+
+
+def claim(
+    ask: Ask, *, ticks: Clock = time.monotonic, deadline: float = DEADLINE
+) -> dict[str, object]:
+
+    clone, record, session, clock = ask.clone, ask.record, ask.session, ask.clock
+    if not session:
+        return {"exit": FIX, "fix": "name the session with --session or BASICLY_TRACKER_SESSION"}
+    if not record or not record.isprintable() or record.startswith("-"):
+        return {
+            "exit": FIX,
+            "fix": "name the record id to claim, as in claim acme-a1b2 --vault ...",
+        }
+    if refused := name_refusal(ask.name):
+        return {"exit": FIX, "record": record, "fix": refused}
+    try:
+        return _attempt(ask, _Budget(deadline, ticks))
+    except vault_share.ShareError as exc:
+        return {"exit": FIX, "record": record, "fix": str(exc)}
+    except _INTERNAL:
+        log = clone.folder / "log" / f"claim-{int(clock())}.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(traceback.format_exc(), encoding="utf-8")
+        return {
+            "exit": INTERNAL,
+            "record": record,
+            "log": str(log),
+            "next": f"sync --vault {clone.url}",
+        }
