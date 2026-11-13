@@ -1433,9 +1433,10 @@ The sources:
   shortens to the room that the mark, the kind and the age leave, to 5 columns at least. So the
   age stays whole, also `report 57s` at body 30.
 - **Failures.** A store that cannot be read logs to the debug log, and the Inbox keeps the `waits`
-  rows of `claude agents`. A poll that failed over 30 seconds after the last answer shows the age
-  of the last report on each row. While the poll fails, the Inbox cannot see that a session ended,
-  so the rows of that session stay until a poll answers.
+  rows of `claude agents`. From the first failed poll, each row shows the age of the last report,
+  and the mark, the kind and the wait count draw dim, not in the colour of needs you. While the
+  poll fails, the Inbox cannot see that a session ended, so the rows of that session stay until a
+  poll answers, and none of them reads as a live wait (handily-7sx9q6).
 - **Escaping.** Every name, tool, target, title and `waitingFor` text goes through `escaped`.
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)

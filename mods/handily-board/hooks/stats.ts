@@ -1,6 +1,6 @@
 import { NO_AGENTS, agentStatsText, agentsTitleText } from './agent-rows'
 import { type AgentRow, waitingRows } from './agents'
-import { agentWaitLine } from './attention'
+import { NO_QUESTIONS, agentWaitLine } from './attention'
 import type { SessionRateLimit } from 'claude-code'
 import { familiesText, verdictWords, verdictsText } from './checks'
 import { detailsText, limitName, resetsInMs } from './details'
@@ -82,7 +82,7 @@ function sessionLines(stats: Stats, signals: SignalLooks): string[] {
   return [
     sessionHeadWords(view),
     ...indented([
-      ...waiting.map((row) => agentWaitLine(row, signals)),
+      ...waiting.map((row) => agentWaitLine(row, signals, NO_QUESTIONS)),
       ...present([requestWords(stats.request), requestsWords(stats.request), receiptWords(view)]),
       ...(details === '' ? [] : details.split('\n')),
       ...present([contextWords(stats.vitals, stats.now)]),

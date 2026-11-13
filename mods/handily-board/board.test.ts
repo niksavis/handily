@@ -7767,6 +7767,8 @@ function commandOf(input: unknown): string | undefined {
   return isRecord(input) && typeof input.command === 'string' ? input.command : undefined
 }
 
+const ASKED_TOOLS = ['AskUserQuestion', 'ExitPlanMode']
+
 function isAsked(input: unknown): boolean {
   return ASKED_COMMANDS.includes(commandOf(input) ?? '')
 }
@@ -7777,9 +7779,9 @@ function personDialog(on: On): PersonDialog {
   const calls = new Map<string, string>()
   let opened = 0
   on('tool.check', (_$, e) => {
-    const isAskedCall = isAsked(e.input)
+    const isAskedCall = isAsked(e.input) || ASKED_TOOLS.includes(e.tool)
     if (isAskedCall && e.tool_use_id !== undefined) {
-      calls.set(commandOf(e.input) ?? '', e.tool_use_id)
+      calls.set(commandOf(e.input) ?? e.tool, e.tool_use_id)
     }
     return { decision: isAskedCall ? 'ask' : 'allow' }
   })
@@ -8184,6 +8186,89 @@ for (const surface of SURFACES) {
         },
       )
     }
+  })
+}
+
+const ASK_KIND_CRITERION =
+  'When an AskUserQuestion or ExitPlanMode ask waits, the attention notice and the status line use the kind of askWait (question or waits) and never the word permission'
+
+const REGION_QUESTION = {
+  tool: 'AskUserQuestion' as const,
+  questions: [
+    {
+      question: 'Which region?',
+      header: 'Region',
+      options: [
+        { label: 'eu', description: 'Europe' },
+        { label: 'us', description: 'America' },
+      ],
+      multiSelect: false,
+    },
+  ],
+}
+
+for (const surface of SURFACES) {
+  describe(ASK_KIND_CRITERION, () => {
+    test(
+      `a question of the main loop sends a notice and a toast that say asks a question with the question, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { notice: { isSent: false, reason: 'disabled' } })
+        const dialog = personDialog(on)
+        await startOn($, surface)
+        const call = $.tool.call(REGION_QUESTION)
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.notices).toEqual(['app needs you: Claude asks a question: Which region?'])
+        expect(seen.toasts).toEqual([
+          ['◆ app needs you', 'Claude asks a question', 'Which region?'],
+        ])
+        dialog.allow()
+        await call
+      },
+    )
+
+    test(
+      `a plan approval of the main loop sends a notice that says waits with ExitPlanMode, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on)
+        await startOn($, surface)
+        const call = $.tool.call({ tool: 'ExitPlanMode' })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.notices).toEqual(['app needs you: Claude waits: ExitPlanMode'])
+        dialog.refuse()
+        await call
+      },
+    )
+
+    test(
+      `a subagent question sets a status line that says asks a question, and a question with a plan approval reads 2 agents wait for you, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const dialog = personDialog(on)
+        await startOn($, surface)
+        seen.agents.push(runningAgent(SCOUT, 'scout'), runningAgent(LANE, 'lane-b'))
+        const question = $.tool.call({ ...REGION_QUESTION, agentId: SCOUT })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.statuses).toEqual(['◆ scout asks a question: Which region?'])
+        expect(seen.notices).toEqual(['app needs you: scout asks a question: Which region?'])
+        const plan = $.tool.call({ tool: 'ExitPlanMode', agentId: LANE })
+        await dialog.opened(2)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        expect(seen.statuses.at(-1)).toBe('◆ 2 agents wait for you')
+        expect(seen.notices.at(-1)).toBe('app needs you: lane-b waits: ExitPlanMode')
+        expect([...seen.statuses, ...seen.notices].join('\n')).not.toContain('permission')
+        dialog.allow()
+        dialog.allow()
+        await question
+        await plan
+      },
+    )
   })
 }
 

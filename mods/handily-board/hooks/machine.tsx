@@ -689,6 +689,10 @@ function inboxForms(view: InboxView, now: number, isWide: boolean): Part[][] {
   }
 }
 
+function waitLook(view: InboxRows): Pick<Part, 'color' | 'dimColor'> {
+  return view.isStale ? { dimColor: true } : { color: SIGNALS.waitsForYou.color }
+}
+
 function rowsForms(view: InboxRows, now: number, isWide: boolean): Part[][] {
   const age = elapsedText(now - view.dataAt)
   const read: Part = { text: isWide ? `read ${age} ago` : age, dimColor: true }
@@ -700,7 +704,7 @@ function rowsForms(view: InboxRows, now: number, isWide: boolean): Part[][] {
     ]
     return [joined([...nothing, read]), joined(nothing)]
   }
-  const waits: Part = { text: `${String(count)} wait`, color: SIGNALS.waitsForYou.color }
+  const waits: Part = { text: `${String(count)} wait`, ...waitLook(view) }
   const facts: Part[] = isWide
     ? [{ ...waits, text: `${waits.text} in ${sessionsText(view.waiting)}` }]
     : [waits, { text: sessionsText(view.waiting), dimColor: true }]
@@ -744,8 +748,8 @@ function inboxRowLines(
   now: number,
   columns: number,
 ): RenderElement[] {
-  const look = elements.signals.waitsForYou
-  const mark = `${look.mark} `
+  const look = waitLook(view)
+  const mark = `${elements.signals.waitsForYou.mark} `
   const isWide = columns >= INBOX_WIDE_FROM
   const tail = ` ${inboxAge(row, view, now, isWide).padStart(ROW_TIME_WIDTH)}`
   const session = escaped(row.session)
@@ -757,9 +761,9 @@ function inboxRowLines(
       0,
     )
     const parts: Part[] = [
-      { text: mark, color: look.color },
+      { text: mark, ...look },
       { text: padToWidth(cutName(session, INBOX_NAME_AT_MOST), INBOX_NAME_WIDTH), bold: true },
-      { text: padToWidth(row.kind, INBOX_KIND_WIDTH), color: look.color },
+      { text: padToWidth(row.kind, INBOX_KIND_WIDTH), ...look },
       { text: padToWidth(fitted(detail, room), room) },
       { text: tail, dimColor: true },
     ]
@@ -773,9 +777,9 @@ function inboxRowLines(
   )
   const lead = displayWidth(mark) + displayWidth(name) + displayWidth(kind)
   const head: Part[] = [
-    { text: mark, color: look.color },
+    { text: mark, ...look },
     { text: name, bold: true },
-    { text: kind, color: look.color },
+    { text: kind, ...look },
     { text: ' '.repeat(Math.max(columns - lead - displayWidth(tail), 0)) },
     { text: tail, dimColor: true },
   ]

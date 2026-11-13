@@ -17,6 +17,7 @@ import type {
   TurnStepResult,
 } from 'claude-code'
 import {
+  type AskedQuestions,
   type StatusLineSetting,
   type Wait,
   agentWait,
@@ -1024,12 +1025,16 @@ async function isSessionTabSeen($: EngineInterface): Promise<boolean> {
   return isTasksSeen(await $.ui.panes())
 }
 
+function askedQuestions(attention: AttentionKeep): AskedQuestions {
+  return new Map([...attention.asks].map(([callId, ask]) => [callId, ask.question]))
+}
+
 async function attentionNow(
   $: EngineInterface,
   attention: AttentionKeep,
 ): Promise<string | undefined> {
   const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), await $.clock.now()) : []
-  const text = attentionText(rows, await sessionSignals($))
+  const text = attentionText(rows, await sessionSignals($), askedQuestions(attention))
   if (text === undefined || (await isSessionTabSeen($))) return undefined
   return text
 }
@@ -1109,10 +1114,10 @@ async function untilSettled<R>(
 
 async function waitOf($: EngineInterface, ask: WaitingAsk): Promise<Wait | undefined> {
   const { agentId } = ask
-  if (agentId === undefined) return mainWait(ask.sight)
+  if (agentId === undefined) return mainWait(ask.sight, ask.question)
   const rows = await agentView(agentHostOf($), await $.clock.now())
   const row = rows.find((one) => one.id === agentId && one.look === 'needsYou')
-  return row === undefined ? undefined : agentWait(row)
+  return row === undefined ? undefined : agentWait(row, ask.question)
 }
 
 async function askWaits($: EngineInterface, attention: AttentionKeep): Promise<AskWait[]> {

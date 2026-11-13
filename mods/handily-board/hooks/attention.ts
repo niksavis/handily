@@ -3,7 +3,9 @@ import type { BoardToolSight } from '../types'
 import { callText } from './agent-rows'
 import { type AgentRow, waitingRows } from './agents'
 import type { SignalLooks } from './signals'
+import { escaped } from './tasks'
 import { marked, type ToastParts } from './toast'
+import { askSight, type AskSight } from './waits'
 
 export type StatusLineSetting = 'attention' | 'off'
 
@@ -21,26 +23,62 @@ export function statusLineSetting(options: PluginOptions): StatusLineSetting {
   return known
 }
 
-export type Wait = { who: string; call: BoardToolSight | null }
+export type Wait = { who: string; call: BoardToolSight | null; question: string | null }
 
-function waitLead(wait: Wait): string {
-  return `${wait.who} waits for permission`
+export type AskedQuestions = ReadonlyMap<string, string | null>
+
+export const NO_QUESTIONS: AskedQuestions = new Map()
+
+function sightOf(wait: Wait): AskSight {
+  return wait.call === null
+    ? { kind: 'permission' }
+    : askSight({ ...wait.call, question: wait.question })
+}
+
+function waitLead(wait: Wait, sight: AskSight): string {
+  switch (sight.kind) {
+    case 'permission':
+      return `${wait.who} waits for permission`
+    case 'question':
+      return `${wait.who} asks a question`
+    case 'waits':
+      return `${wait.who} waits`
+  }
+}
+
+function waitDetail(wait: Wait, sight: AskSight): string | null {
+  if (sight.kind !== 'permission') return escaped(sight.title)
+  return wait.call === null ? null : callText(wait.call)
+}
+
+function waitWords(wait: Wait): { lead: string; detail: string | null } {
+  const sight = sightOf(wait)
+  return { lead: waitLead(wait, sight), detail: waitDetail(wait, sight) }
 }
 
 function waitText(wait: Wait): string {
-  return wait.call === null ? waitLead(wait) : `${waitLead(wait)}: ${callText(wait.call)}`
+  const { lead, detail } = waitWords(wait)
+  return detail === null ? lead : `${lead}: ${detail}`
 }
 
-export function agentWait(row: AgentRow): Wait {
-  return { who: row.shownName, call: row.call }
+export function agentWait(row: AgentRow, question: string | null): Wait {
+  return { who: row.shownName, call: row.call, question }
 }
 
-export function agentWaitLine(row: AgentRow, signals: SignalLooks): string {
-  return `${signals.waitsForYou.mark} ${waitText(agentWait(row))}`
+function questionOf(row: AgentRow, questions: AskedQuestions): string | null {
+  return row.callId === null ? null : (questions.get(row.callId) ?? null)
 }
 
-export function mainWait(call: BoardToolSight): Wait {
-  return { who: MAIN_LOOP, call }
+export function agentWaitLine(
+  row: AgentRow,
+  signals: SignalLooks,
+  questions: AskedQuestions,
+): string {
+  return `${signals.waitsForYou.mark} ${waitText(agentWait(row, questionOf(row, questions)))}`
+}
+
+export function mainWait(call: BoardToolSight, question: string | null): Wait {
+  return { who: MAIN_LOOP, call, question }
 }
 
 export function noticeText(session: string, wait: Wait): string {
@@ -49,13 +87,23 @@ export function noticeText(session: string, wait: Wait): string {
 
 export function noticeParts(session: string, wait: Wait): ToastParts {
   const head = marked('waitsForYou', `${session} needs you`)
-  return wait.call === null ? [head, waitLead(wait)] : [head, waitLead(wait), callText(wait.call)]
+  const { lead, detail } = waitWords(wait)
+  return detail === null ? [head, lead] : [head, lead, detail]
 }
 
-export function attentionText(rows: readonly AgentRow[], signals: SignalLooks): string | undefined {
+function isPermissionWait(row: AgentRow): boolean {
+  return sightOf(agentWait(row, null)).kind === 'permission'
+}
+
+export function attentionText(
+  rows: readonly AgentRow[],
+  signals: SignalLooks,
+  questions: AskedQuestions,
+): string | undefined {
   const waiting = waitingRows(rows)
   const [first] = waiting
   if (first === undefined) return undefined
-  if (waiting.length === 1) return agentWaitLine(first, signals)
-  return `${signals.waitsForYou.mark} ${String(waiting.length)} agents wait for permission`
+  if (waiting.length === 1) return agentWaitLine(first, signals, questions)
+  const words = waiting.every(isPermissionWait) ? 'wait for permission' : 'wait for you'
+  return `${signals.waitsForYou.mark} ${String(waiting.length)} agents ${words}`
 }

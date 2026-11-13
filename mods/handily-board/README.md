@@ -682,6 +682,8 @@ the tests:
 ```text
 ◆ scout waits for permission: Bash npm test
 ◆ 2 agents wait for permission
+◆ scout asks a question: Which region?
+◆ 2 agents wait for you
 ```
 
 - A wait is the same wait that the agent rows show as `needs you`: an ask of a subagent that is
@@ -697,6 +699,10 @@ the tests:
   which tab is shown every 10 seconds while a tab is open, so a switch to `this machine` shows the
   line within 10 seconds.
 - The call target is masked as in the permission checks.
+- The kind of the wait comes from the same rule as the Inbox, `askWait` in `hooks/waits.ts`. An
+  `AskUserQuestion` ask reads `asks a question` with the first question, and an `ExitPlanMode`
+  ask reads `waits` with the tool name. Two or more waits that are not all tool permissions read
+  `wait for you`. The line says `permission` only for a tool permission.
 - The setting `statusLine` turns the line off. The Settings section names it.
 
 ### The desktop notice
@@ -708,10 +714,14 @@ Captures from the tests, for a session in the folder `app`:
 ```text
 app needs you: scout waits for permission: Bash npm test
 app needs you: Claude waits for permission: Bash npm test
+app needs you: Claude asks a question: Which region?
+app needs you: Claude waits: ExitPlanMode
 ```
 
 - The notice names the folder of the session, who waits and the call. `Claude` is the main
   loop. A subagent is named as on its agent row.
+- A question of `AskUserQuestion` reads `asks a question` with the first question, and a plan
+  approval of `ExitPlanMode` reads `waits` with the tool name, as in the status line.
 - Each wait sends at most one notice. The board decides at the 3 second mark. A wait that starts
   while the `this session` tab is shown and placed sends no notice, also when the tab closes
   later.
@@ -1230,12 +1240,12 @@ Inbox  3 wait · 2 sessions · 12s
 - The Inbox shows other sessions only, never this session. The desktop app shows no Inbox,
   because it lists no other session.
 
-| State                                         | The Inbox head shows                                                                                  |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| The first poll has not answered               | `reading the other sessions…`                                                                         |
-| `claude agents` failed with no list           | `could not read the other sessions`                                                                   |
-| The store cannot be read                      | `could not read the other sessions; the debug log names why`, and the `waits` rows of `claude agents` |
-| A poll failed over 30 s after the last answer | the rows, with `last report 2m` in place of each age                                                  |
+| State                               | The Inbox head shows                                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| The first poll has not answered     | `reading the other sessions…`                                                                         |
+| `claude agents` failed with no list | `could not read the other sessions`                                                                   |
+| The store cannot be read            | `could not read the other sessions; the debug log names why`, and the `waits` rows of `claude agents` |
+| A poll failed                       | the rows, dim, with `last report 2m` in place of each age                                             |
 
 What the Inbox cannot show:
 
@@ -1247,8 +1257,9 @@ What the Inbox cannot show:
 - **A session that ended shows until the next poll that answers.** Its key stays in the store,
   but the Inbox draws only the sessions that `claude agents` lists. The rows of an ended session
   stay until the next poll, at most 15 seconds later while the tab shows. While the poll fails,
-  the rows stay until a poll answers. For the first 30 seconds of the failure they keep their own
-  ages. After that they read the age of the last report, such as `last report 2m`.
+  the rows stay until a poll answers. From the first failed poll, each row reads the age of the
+  last report, such as `last report 2m`, and the mark, the kind and the wait count of the head
+  draw dim, not in the colour of needs you. So no row of a failed poll reads as a live wait.
 - **A session first seen while it waits has no age.** The `waits` row shows `—`, because the
   poll did not see the wait begin.
 - **A session that loads the board from another source shares no store.** A session started with
