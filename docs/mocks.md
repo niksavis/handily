@@ -605,6 +605,19 @@ At 40 columns, drawn from the cell widths that the 40-column test checks:
 - A text in neither shape keeps the row of today. A generic tool keeps its generic row with
   `#error#` for each of the two denials.
 
+A denial by you (handily-ee3l12): after a No to the permission prompt, the engine sends no new
+row, only a result with the text `User rejected tool use`, captured on Claude Code 2.1.323.
+The row of the call stays, and one line shows under it. Measured live at 120 and 40 columns on
+2026-11-13:
+
+```text
+● Write(other.txt)
+  #denied#  #by you#
+```
+
+- `#denied#` and `#by you#` are never cut. The line has no buttons.
+- Any other result text draws no such line, and the result of today stays.
+
 ### Terminal, fallback cases (the engine row is drawn unchanged, `next(e)`)
 
 ```text

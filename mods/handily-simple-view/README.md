@@ -33,28 +33,29 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 
 ## Rows
 
-| Call                                                       | Row                                                                                                     | Result block under it               |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `Bash`, `Read`, `Grep`, `Glob`, before the run             | description or tool, the parts of the input it can read, dim `…`                                        | as the engine draws it              |
-| `Bash`, running                                            | description, program, dim `running`, time since the call started                                        | as the engine draws it              |
-| `Bash`, no error                                           | description, program, `exit 0`, stdout line count, time                                                 | one `Updated` line per changed file |
-| `Bash`, `Exit code N`                                      | description, program, `exit N`, the first non-empty error line, time                                    | empty                               |
-| `Bash`, refused by a hook                                  | description, program, `refused`, the first line of the hook message, time                               | empty                               |
-| `Bash`, another `Error:` text                              | description, program, `error`, the first non-empty line of the text, time                               | empty                               |
-| `Bash`, denied by the auto mode classifier                 | description, program, `denied`, `auto mode` and the reason                                              | empty                               |
-| `Bash`, denied by a permission rule                        | `Bash`, the command, `denied`, `by a rule`                                                              | empty                               |
-| `Edit`, `Write`                                            | tool, file path, added and removed line totals                                                          | empty                               |
-| `Read`                                                     | tool, file path, line count, or the range of lines that the call read                                   | empty                               |
-| `Grep`                                                     | tool, pattern in quotes, `in` and the folder, the count of the output mode                              | empty                               |
-| `Glob`                                                     | tool, pattern, `in` and the folder, the count of matched files                                          | empty                               |
-| `Read`, `Grep`, `Glob`, running                            | tool, the path or the pattern from the input, dim `…`                                                   | as the engine draws it              |
-| `Edit`, `Write`, `Read`, `Grep`, `Glob`, refused by a hook | tool, the path or the pattern from the input, `refused`, the first line of the hook message             | empty                               |
-| `Edit`, `Write`, `Read`, `Grep`, `Glob`, denied            | tool, the path or the pattern from the input, `denied`, then `auto mode` and the reason, or `by a rule` | empty                               |
-| Any other tool, before the run                             | tool name, input summary, dim `…`                                                                       | as the engine draws it              |
-| Any other tool, running                                    | tool name, input summary, dim `running`, time since the call started                                    | as the engine draws it              |
-| Any other tool, no error                                   | tool name, input summary, `done`, line count of the result, time                                        | empty                               |
-| Any other tool, error                                      | tool name, input summary, `error`                                                                       | as the engine draws it              |
-| Any other tool, refused by a hook                          | tool name, input summary, `error`                                                                       | empty                               |
+| Call                                                           | Row                                                                                                     | Result block under it               |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `Bash`, `Read`, `Grep`, `Glob`, before the run                 | description or tool, the parts of the input it can read, dim `…`                                        | as the engine draws it              |
+| `Bash`, running                                                | description, program, dim `running`, time since the call started                                        | as the engine draws it              |
+| `Bash`, no error                                               | description, program, `exit 0`, stdout line count, time                                                 | one `Updated` line per changed file |
+| `Bash`, `Exit code N`                                          | description, program, `exit N`, the first non-empty error line, time                                    | empty                               |
+| `Bash`, refused by a hook                                      | description, program, `refused`, the first line of the hook message, time                               | empty                               |
+| `Bash`, another `Error:` text                                  | description, program, `error`, the first non-empty line of the text, time                               | empty                               |
+| `Bash`, denied by the auto mode classifier                     | description, program, `denied`, `auto mode` and the reason                                              | empty                               |
+| `Bash`, denied by a permission rule                            | `Bash`, the command, `denied`, `by a rule`                                                              | empty                               |
+| `Edit`, `Write`                                                | tool, file path, added and removed line totals                                                          | empty                               |
+| `Read`                                                         | tool, file path, line count, or the range of lines that the call read                                   | empty                               |
+| `Grep`                                                         | tool, pattern in quotes, `in` and the folder, the count of the output mode                              | empty                               |
+| `Glob`                                                         | tool, pattern, `in` and the folder, the count of matched files                                          | empty                               |
+| `Read`, `Grep`, `Glob`, running                                | tool, the path or the pattern from the input, dim `…`                                                   | as the engine draws it              |
+| `Edit`, `Write`, `Read`, `Grep`, `Glob`, refused by a hook     | tool, the path or the pattern from the input, `refused`, the first line of the hook message             | empty                               |
+| `Edit`, `Write`, `Read`, `Grep`, `Glob`, denied                | tool, the path or the pattern from the input, `denied`, then `auto mode` and the reason, or `by a rule` | empty                               |
+| `Bash`, `Edit`, `Write`, `Read`, `Grep`, `Glob`, denied by you | the row of the call stays as it was drawn before the run                                                | one line: `denied`, `by you`        |
+| Any other tool, before the run                                 | tool name, input summary, dim `…`                                                                       | as the engine draws it              |
+| Any other tool, running                                        | tool name, input summary, dim `running`, time since the call started                                    | as the engine draws it              |
+| Any other tool, no error                                       | tool name, input summary, `done`, line count of the result, time                                        | empty                               |
+| Any other tool, error                                          | tool name, input summary, `error`                                                                       | as the engine draws it              |
+| Any other tool, refused by a hook                              | tool name, input summary, `error`                                                                       | empty                               |
 
 - The description is the `description` that the model gave. Without one, the row shows the
   first command segment. An ellipsis (`…`) marks a cut or a segment that follows.
@@ -146,6 +147,22 @@ The auto mode classifier or a permission rule can deny a call before it runs. A 
   then the reason of the classifier. `denied`, `auto mode` and `by a rule` are never cut.
 - A text in another shape keeps the row of today. A tool with the generic row keeps that row with
   `error`.
+
+### Denied by you
+
+When you answer No to the permission prompt of a `Bash`, `Edit`, `Write`, `Read`, `Grep` or
+`Glob` call, the row of the call stays and one short line shows under it:
+
+```text
+● Write(other.txt)
+  denied  by you
+```
+
+- The mod reads the result text `User rejected tool use`, captured on Claude Code 2.1.323. Any
+  other text draws no such line, and the result of today stays.
+- `denied` and `by you` are red and never cut. The line has no buttons.
+- `Edit` and `Write` keep the row of the engine. `Bash`, `Read`, `Grep` and `Glob` keep the row
+  that simple-view drew before the run, with the dim `…`.
 
 ## The generic row
 
