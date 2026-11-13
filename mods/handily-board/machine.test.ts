@@ -14,10 +14,20 @@ import {
   entryBytes,
   progressKey,
   readProgress,
+  withAsks,
   withinLimit,
+  withTasks,
   type AgentSummary,
   type Progress,
 } from './hooks/progress'
+import {
+  askWait,
+  countOf,
+  permissionWait as sharedAsk,
+  WAITS_AT_MOST,
+  type SharedWait,
+} from './hooks/waits'
+import type { BoardList, BoardTask, BoardTaskKind } from './types'
 import { displayWidth } from './hooks/width'
 import { MACHINE_AGENTS, MACHINE_NOW, RECORDED_AGENTS, type AgentEntry } from './fixtures/agents'
 
@@ -51,6 +61,7 @@ type World = {
   subagents: AgentInfo[]
   logs: string[]
   hold: (() => Promise<void>) | null
+  keysDenial: string | null
 }
 
 const REPOS: Record<string, { top: string; gitDir: string; commonDir: string; branch: string }> = {
@@ -113,6 +124,8 @@ function progressOf(sessionId: string, fields: Partial<Progress>): Progress {
     agentCount: 0,
     context: null,
     openForYou: 0,
+    waits: [],
+    waitsMore: {},
     ...fields,
   }
 }
@@ -141,10 +154,17 @@ function storeWith(...entries: Progress[]): Record<string, unknown> {
   return Object.fromEntries(entries.map((entry) => [progressKey(entry.sessionId), entry]))
 }
 
-function memoryStore(on: On, entries: Record<string, unknown>): Map<string, unknown> {
+function memoryStore(
+  on: On,
+  entries: Record<string, unknown>,
+  keysDenial: () => string | null,
+): Map<string, unknown> {
   const store = new Map(Object.entries(entries))
   on('store.get', (_$, e) => ({ value: store.get(e.key) }))
-  on('store.keys', () => ({ value: [...store.keys()] }))
+  on('store.keys', () => {
+    const deny = keysDenial()
+    return deny === null ? { value: [...store.keys()] } : { deny }
+  })
   on('store.delete', (_$, e) => {
     store.delete(e.key)
     return { value: undefined }
@@ -163,7 +183,7 @@ function world(
 ): World {
   const state: World = {
     clock: mock.clock(on, { now: NOW - 14 * MINUTE }),
-    store: memoryStore(on, entries),
+    store: memoryStore(on, entries, () => state.keysDenial),
     surfaces,
     panes: new Set(),
     shown: undefined,
@@ -173,6 +193,7 @@ function world(
     subagents: [],
     logs: [],
     hold: null,
+    keysDenial: null,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: OWN_ID }))
@@ -361,13 +382,22 @@ async function screenAt(
   return lines
 }
 
+function sessionsOf(lines: readonly string[]): string[] {
+  const start = lines.findIndex((line) => line.startsWith('Sessions'))
+  if (start < 0) throw new Error('the screen has no Sessions head')
+  return lines.slice(start)
+}
+
 const RULE_41 = '─'.repeat(41)
 const RULE_30 = '─'.repeat(30)
 
 const MOCK_41 = [
+  'Inbox  1 wait · 1 session · 12s',
+  '◆ api-login waits                       —',
+  '  permission prompt',
   'Sessions  4 · 1 needs you · 12s ago',
   '◆ api-login  interactive  needs you',
-  '  waits for: permission',
+  '  waits for: permission prompt',
   '  ▶ Fix the login redirect ▰▰▱ 2/3',
   '  api · feat/login · 2h worked',
   RULE_41,
@@ -386,9 +416,12 @@ const MOCK_41 = [
 ]
 
 const MOCK_30 = [
+  'Inbox  1 wait · 1 session',
+  '◆ api-login waits            —',
+  '  permission prompt',
   'Sessions  4 · 1 needs you',
   '◆ api-login  needs you',
-  '  waits for: permission',
+  '  waits for: permission prompt',
   '  ▶ Fix the login red… ▰▰▱ 2/3',
   '  api · feat/login · 2h',
   RULE_30,
@@ -407,9 +440,11 @@ const MOCK_30 = [
 ]
 
 const MOCK_76 = [
+  'Inbox  1 wait in 1 session · read 12s ago',
+  '◆ api-login    waits       permission prompt                               —',
   'Sessions  4 · 1 needs you · polled 12s ago',
   '◆ api-login  inter needs you   api · feat/login                      2/3  2h',
-  '    waits for: permission',
+  '    waits for: permission prompt',
   '▶ mocks      inter this · busy app · main                            1/4 14m',
   '    agents 3 · 1 failed',
   '▶ lane-a1    bg    working     app.wt/lane-a1 · lane/a1              3/6 22m',
@@ -486,7 +521,7 @@ describe(CARD_CRITERION, () => {
     await showMachine($, seen)
     expect(seen.shown).toBe(MACHINE)
     expect(seen.agentsRuns).toBe(2)
-    expect((await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
+    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
       'Sessions  4 · 1 needs you · 0s ago',
     )
   })
@@ -502,7 +537,7 @@ describe(CARD_CRITERION, () => {
     await showMachine($, seen)
     expect(seen.shown).toBe(MACHINE)
     expect(seen.agentsRuns).toBe(1)
-    expect((await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
+    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
       'Sessions  4 · 1 needs you · 5s ago',
     )
   })
@@ -519,12 +554,12 @@ describe(CARD_CRITERION, () => {
     await mockWork($, seen)
     await showMachine($, seen)
     expect(seen.agentsRuns).toBe(0)
-    expect((await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
+    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
       'Sessions  4 · 1 needs you · 5s ago',
     )
     await seen.clock.advance(POLL_INTERVAL_MS)
     expect(seen.agentsRuns).toBe(1)
-    expect((await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
+    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
       'Sessions  4 · 1 needs you · 0s ago',
     )
   })
@@ -596,7 +631,7 @@ const STATE_AGENTS: AgentEntry[] = [
     pid: 3003,
     kind: 'interactive',
     status: 'waiting',
-    waitingFor: 'permission',
+    waitingFor: 'permission prompt',
   }),
   session('mocks', {
     pid: 2001,
@@ -620,6 +655,8 @@ describe(SORT_CRITERION, () => {
       const ui = await mountTab($, surface, 'dock', 41)
       const heads = (await screen(ui, 41)).filter((line) => /^[▶◆○✓■] /.test(line))
       expect(heads).toEqual([
+        '◆ bg-blocked waits                      —',
+        '◆ inte…waiting waits                    —',
         '◆ bg-blocked  background  needs you',
         '◆ inter-waiting  interactive  needs you',
         '■ bg-failed  background  failed',
@@ -633,7 +670,9 @@ describe(SORT_CRITERION, () => {
         found.text,
         found.props.color,
       ])
-      expect(marks.slice(0, 3)).toEqual([
+      expect(marks.slice(0, 5)).toEqual([
+        ['◆ ', 'warning'],
+        ['◆ ', 'warning'],
         ['◆ ', 'warning'],
         ['◆ ', 'warning'],
         ['■ ', 'error'],
@@ -651,11 +690,14 @@ describe(SORT_CRITERION, () => {
     await showMachine($, seen)
     const lines = await screenAt($, 'terminal', 'inline', 76)
     expect(lines).toEqual([
+      'Inbox  2 wait in 2 sessions · read 0s ago',
+      '◆ bg-blocked   waits       an answer                                       —',
+      '◆ inte…waiting waits       permission prompt                               —',
       'Sessions  8 · 2 need you · 1 failed · polled 0s ago',
       '◆ bg-b…cked  bg    needs you   docs · main                                1h',
       '    waits for: an answer',
       '◆ inte…ting  inter needs you   docs · main                                1h',
-      '    waits for: permission',
+      '    waits for: permission prompt',
       '■ bg-failed  bg    failed      docs · main                                 —',
       '▶ mocks      inter this · busy app · main                            1/4 14m',
       '    agents 3 · 1 failed',
@@ -681,12 +723,12 @@ describe(SORT_CRITERION, () => {
         pid: 2003,
         kind: 'interactive',
         status: 'waiting',
-        waitingFor: 'permission',
+        waitingFor: 'permission prompt',
       }),
     ])
     await mockWork($, seen)
     await showMachine($, seen)
-    const heads = (await screenAt($, 'terminal', 'inline', 76)).filter((line) =>
+    const heads = sessionsOf(await screenAt($, 'terminal', 'inline', 76)).filter((line) =>
       /^[▶◆○✓■] /.test(line),
     )
     expect(heads.map((line) => line.split(/\s+/)[1])).toEqual(['api-login', 'mocks', 'lane-a1'])
@@ -727,12 +769,12 @@ describe(WAITS_CRITERION, () => {
       await mockWork($, seen)
       await showMachine($, seen)
       const docked = await screenAt($, surface, 'dock', 41)
-      expect(docked.slice(1, 3)).toEqual([
+      expect(sessionsOf(docked).slice(1, 3)).toEqual([
         '◆ api-login  interactive  needs you',
-        '  waits for: permission',
+        '  waits for: permission prompt',
       ])
       const inline = await screenAt($, surface, 'inline', 76)
-      expect(inline[2]).toBe('    waits for: permission')
+      expect(sessionsOf(inline)[2]).toBe('    waits for: permission prompt')
       expect(docked.filter((line) => line.includes('waits for:'))).toHaveLength(1)
     })
   }
@@ -746,7 +788,7 @@ describe(WAITS_CRITERION, () => {
     const blocked = lines.indexOf('◆ bg-blocked  background  needs you')
     expect(lines[blocked + 1]).toBe('  waits for: an answer')
     const waiting = lines.indexOf('◆ inter-waiting  interactive  needs you')
-    expect(lines[waiting + 1]).toBe('  waits for: permission')
+    expect(lines[waiting + 1]).toBe('  waits for: permission prompt')
   })
 })
 
@@ -798,6 +840,7 @@ describe(STATES_CRITERION, () => {
       seen.surfaces = ['terminal', surface]
       for (const columns of [30, 41]) {
         expect(await screenAt($, surface, 'dock', columns)).toEqual([
+          'Inbox  reading the sessions…',
           'Sessions',
           'Listing the local sessions…',
         ])
@@ -811,6 +854,7 @@ describe(STATES_CRITERION, () => {
     await mockWork($, seen)
     await showMachine($, seen)
     expect(await screenAt($, 'terminal', 'dock', 41)).toEqual([
+      'Inbox  nothing waits · 0 sessions · 0s',
       'Sessions',
       'No local sessions are listed.',
       '▶ 00000000  this  busy',
@@ -826,7 +870,8 @@ describe(STATES_CRITERION, () => {
     seen.agents = agentsJson(MACHINE_AGENTS.filter((entry) => entry.sessionId === OWN_ID))
     await mockWork($, seen)
     await showMachine($, seen)
-    expect((await screenAt($, 'terminal', 'dock', 41)).slice(0, 3)).toEqual([
+    expect((await screenAt($, 'terminal', 'dock', 41)).slice(0, 4)).toEqual([
+      'Inbox  nothing waits · 0 sessions · 0s',
       'Sessions  1',
       'Only this session is running.',
       '▶ mocks  interactive  this  busy',
@@ -839,11 +884,11 @@ describe(STATES_CRITERION, () => {
     await showMachine($, seen)
     seen.agents = { exitCode: 1, stdout: '' }
     await seen.clock.advance(POLL_INTERVAL_MS)
-    const fresh = await screenAt($, 'terminal', 'dock', 41)
+    const fresh = sessionsOf(await screenAt($, 'terminal', 'dock', 41))
     expect(fresh[0]).toBe('Sessions  4 · 1 needs you · 15s ago')
     expect(fresh[1]).toBe('◆ api-login  interactive  needs you')
     await seen.clock.advance(POLL_INTERVAL_MS * 7)
-    const lines = await screenAt($, 'terminal', 'dock', 41)
+    const lines = sessionsOf(await screenAt($, 'terminal', 'dock', 41))
     expect(lines.slice(0, 4)).toEqual([
       'Sessions  4 · 1 needs you · 2m ago',
       'Last poll failed; showing 2m old data.',
@@ -885,7 +930,10 @@ describe(STATES_CRITERION, () => {
       await showMachine($, seen)
       for (const surface of SURFACES) {
         seen.surfaces = ['terminal', surface]
-        expect(await screenAt($, surface, 'dock', 41)).toEqual(lines)
+        expect(await screenAt($, surface, 'dock', 41)).toEqual([
+          'Inbox  other sessions unreadable',
+          ...lines,
+        ])
       }
       const ui = await mountTab($, 'terminal', 'dock', 41)
       expect((await ui.find({ type: 'Text', text: /^claude / }))?.props.color).toBe('error')
@@ -918,7 +966,7 @@ describe(STATES_CRITERION, () => {
     const lines = await screenAt($, 'terminal', 'dock', 41)
     const api = lines.indexOf('◆ api-login  interactive  needs you')
     expect(lines.slice(api + 1, api + 4)).toEqual([
-      '  waits for: permission',
+      '  waits for: permission prompt',
       '  no tasks',
       '  api · feat/login · 2h worked',
     ])
@@ -953,7 +1001,9 @@ describe(STATES_CRITERION, () => {
     for (const id of [1, 2, 3, 4, 5])
       await $.tool.call({ tool: TOOL_UPDATE, id, status: 'completed' })
     await showMachine($, seen)
-    expect((await screenAt($, 'terminal', 'dock', 41))[3]).toBe('  ○ Step 6 ▰▰▰▰▱▱▱▱ 5/10')
+    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[3]).toBe(
+      '  ○ Step 6 ▰▰▰▰▱▱▱▱ 5/10',
+    )
   })
 })
 
@@ -1021,7 +1071,9 @@ describe(SHARED_CRITERION, () => {
 
   test('an entry over 4096 bytes with no agent is refused by name', () => {
     const entry = progressOf(OWN_ID, { cwd: `/${'d'.repeat(ENTRY_BYTES_AT_MOST)}` })
-    expect(() => withinLimit(entry)).toThrow(/bytes with no agent, over the limit of 4096/)
+    expect(() => withinLimit(entry)).toThrow(
+      /bytes with no agent and no wait, over the limit of 4096/,
+    )
     expect(entryBytes(progressOf(OWN_ID, {}))).toBeLessThan(ENTRY_BYTES_AT_MOST)
   })
 
@@ -1378,18 +1430,18 @@ describe(HIGH_CONTEXT_CRITERION, () => {
       await mockWork($, seen)
       await showMachine($, seen)
       const docked = await screenAt($, surface, 'dock', 41)
-      expect(docked.slice(1, 6)).toEqual([
+      expect(sessionsOf(docked).slice(1, 6)).toEqual([
         '◆ api-login  interactive  needs you',
-        '  waits for: permission',
+        '  waits for: permission prompt',
         '  ▶ Fix the login redirect ▰▰▱ 2/3',
         '  api · feat/login · 2h worked',
         '  ctx 85% high · $7.31',
       ])
       expect(contextLines(docked)).toEqual(['  ctx 85% high · $7.31'])
       const inline = await screenAt($, surface, 'inline', 76)
-      expect(inline.slice(1, 4)).toEqual([
+      expect(sessionsOf(inline).slice(1, 4)).toEqual([
         '◆ api-login  inter needs you   api · feat/login                      2/3  2h',
-        '    waits for: permission',
+        '    waits for: permission prompt',
         '    ctx 85% high · $7.31',
       ])
     })
@@ -1508,7 +1560,8 @@ const DOCS_ID = '00000000-0000-4000-8000-00000000000d'
 const FOR_YOU_LINE = /tasks? for you/
 
 function cardFrom(lines: readonly string[], head: string, count: number): string[] {
-  const at = lines.findIndex((line) => line.startsWith(head))
+  const cards = lines.findIndex((line) => line.startsWith('Sessions'))
+  const at = lines.findIndex((line, index) => index > cards && line.startsWith(head))
   if (at < 0) throw new Error(`no card starts with ${head}`)
   return lines.slice(at, at + count)
 }
@@ -1531,7 +1584,7 @@ describe(FOR_YOU_CARD_CRITERION, () => {
     test(`another session with 2 open tasks for the person waits for 2 tasks for you and counts as need you, docked on ${surface}`, async ($, on) => {
       await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 2 })
       const lines = await screenAt($, surface, 'dock', 41)
-      expect(lines[0]).toBe('Sessions  4 · 2 need you · 12s ago')
+      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 2 need you · 12s ago')
       expect(cardFrom(lines, '◆ lane-a1', 4)).toEqual([
         '◆ lane-a1  background  needs you',
         '  waits for: 2 tasks for you',
@@ -1543,7 +1596,7 @@ describe(FOR_YOU_CARD_CRITERION, () => {
     test(`another session with 2 open tasks for the person waits for 2 tasks for you under its row, inline on ${surface}`, async ($, on) => {
       await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 2 })
       const lines = await screenAt($, surface, 'inline', 76)
-      expect(lines[0]).toBe('Sessions  4 · 2 need you · polled 12s ago')
+      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 2 need you · polled 12s ago')
       expect(cardFrom(lines, '◆ lane-a1', 2)).toEqual([
         '◆ lane-a1    bg    needs you   app.wt/lane-a1 · lane/a1              3/6 22m',
         '    waits for: 2 tasks for you',
@@ -1567,7 +1620,7 @@ describe(FOR_YOU_CARD_CRITERION, () => {
       await showMachine($, seen)
       await seen.clock.advance(12 * SECOND)
       const lines = await screenAt($, surface, 'dock', 41)
-      expect(lines[0]).toBe('Sessions  4 · 2 need you · 12s ago')
+      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 2 need you · 12s ago')
       expect(cardFrom(lines, '◆ mocks', 3)).toEqual([
         '◆ mocks  interactive  this  needs you',
         '  waits for: 2 tasks for you',
@@ -1607,7 +1660,7 @@ describe(NO_FOR_YOU_CRITERION, () => {
     test(`a session with 0 open tasks for the person shows no tasks for you line and is not counted, on ${surface}`, async ($, on) => {
       await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 0 })
       const lines = await screenAt($, surface, 'dock', 41)
-      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
       expect(cardFrom(lines, '▶ lane-a1', 2)).toEqual([
         '▶ lane-a1  background  working',
         '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
@@ -1627,7 +1680,7 @@ describe(NO_FOR_YOU_CRITERION, () => {
       await showMachine($, seen)
       await seen.clock.advance(12 * SECOND)
       const lines = await screenAt($, surface, 'dock', 41)
-      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
       expect(cardFrom(lines, '▶ lane-a1', 2)).toEqual([
         '▶ lane-a1  background  working',
         '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
@@ -1638,10 +1691,10 @@ describe(NO_FOR_YOU_CRITERION, () => {
     test(`a session with a permission wait and tasks for the person is counted once, on ${surface}`, async ($, on) => {
       await machineWith($, on, surface, { ...API_PROGRESS, openForYou: 2 }, LANE_PROGRESS)
       const lines = await screenAt($, surface, 'dock', 41)
-      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
       expect(cardFrom(lines, '◆ api-login', 4)).toEqual([
         '◆ api-login  interactive  needs you',
-        '  waits for: permission',
+        '  waits for: permission prompt',
         '  waits for: 2 tasks for you',
         '  ▶ Fix the login redirect ▰▰▱ 2/3',
       ])
@@ -1659,7 +1712,7 @@ describe(NO_FOR_YOU_CRITERION, () => {
         progressOf(DOCS_ID, { cwd: '/work/docs', openForYou: 3 }),
       )
       const lines = await screenAt($, surface, 'dock', 41)
-      expect(lines[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
+      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
       expect(lines).toContain('▶ lane-a1  background  working')
       expect(lines).toContain('✓ docs-pass  background  done')
       expect(lines.filter((line) => FOR_YOU_LINE.test(line))).toEqual([])
@@ -1674,5 +1727,668 @@ describe(NO_FOR_YOU_CRITERION, () => {
     expect(readProgress({ ...LANE_PROGRESS, openForYou: '2' })).toBeNull()
     expect(readProgress({ ...LANE_PROGRESS, openForYou: -1 })).toBeNull()
     expect(readProgress({ ...LANE_PROGRESS, openForYou: 1.5 })).toBeNull()
+  })
+})
+
+const DRAW_AT = NOW + 12 * SECOND
+const ABSENT_ID = '00000000-0000-4000-8000-00000000000e'
+
+function permissionWait(agent: string, tool: string, target: string, ageMs: number): SharedWait {
+  return { kind: 'permission', agent, tool, target, since: DRAW_AT - ageMs }
+}
+
+function taskWait(kind: BoardTaskKind, title: string, ageMs: number): SharedWait {
+  return { kind, title, since: DRAW_AT - ageMs }
+}
+
+const API_WAITS: SharedWait[] = [
+  permissionWait('Claude', 'Bash', 'npm test --workspace mods/api', 2 * MINUTE),
+]
+
+const LANE_WAITS: SharedWait[] = [
+  permissionWait('scout', 'Edit', 'hooks/band.ts', 40 * SECOND),
+  taskWait('decide', 'Release handily-board 0.23.0?', 6 * MINUTE),
+]
+
+const API_WAITING = { ...API_PROGRESS, waits: API_WAITS }
+const LANE_WAITING = { ...LANE_PROGRESS, waits: LANE_WAITS, openForYou: 1 }
+
+function inboxOf(lines: readonly string[]): string[] {
+  const end = lines.findIndex((line) => line.startsWith('Sessions'))
+  return end === -1 ? [...lines] : lines.slice(0, end)
+}
+
+function agentsWith(change: (entry: AgentEntry) => AgentEntry | null): AgentsAnswer {
+  return agentsJson(
+    MACHINE_AGENTS.map(change).filter((entry): entry is AgentEntry => entry !== null),
+  )
+}
+
+function without(entry: AgentEntry, field: string): AgentEntry {
+  return Object.fromEntries(Object.entries(entry).filter(([key]) => key !== field))
+}
+
+function apiAs(fields: AgentEntry): AgentsAnswer {
+  return agentsWith((entry) => {
+    if (entry.sessionId !== API_ID) return entry
+    return { ...without(entry, 'waitingFor'), ...fields }
+  })
+}
+
+const INBOX_WIDE = [
+  'Inbox  3 wait in 2 sessions · read 12s ago',
+  '◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m',
+  '◆ lane-a1      permission  scout: Edit hooks/band.ts                     40s',
+  '◆ lane-a1      decide      Release handily-board 0.23.0?                  6m',
+]
+
+const INBOX_NARROW = [
+  'Inbox  3 wait · 2 sessions · 12s',
+  '◆ api-login permission                 2m',
+  '  Claude: Bash npm test --workspace mods…',
+  '◆ lane-a1 permission                  40s',
+  '  scout: Edit hooks/band.ts',
+  '◆ lane-a1 decide                       6m',
+  '  Release handily-board 0.23.0?',
+]
+
+const INBOX_CRITERION =
+  'When the store holds a wait or open tasks for the person of another session that claude agents lists as running, the this machine tab draws an Inbox section at its top with one row for each wait'
+
+describe(INBOX_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`the inbox draws one row for each wait with the session name, the kind word, the detail and the age, above the cards, on ${surface}`, async ($, on) => {
+      await machineWith($, on, surface, API_WAITING, LANE_WAITING)
+      const wide = await screenAt($, surface, 'inline', 76)
+      expect(inboxOf(wide)).toEqual(INBOX_WIDE)
+      expect(wide[INBOX_WIDE.length]).toBe('Sessions  4 · 2 need you · polled 12s ago')
+      const narrow = await screenAt($, surface, 'dock', 41)
+      expect(inboxOf(narrow)).toEqual(INBOX_NARROW)
+    })
+  }
+
+  test('the kind word and the mark take the colour of needs you, the name is bold and the age is dim', async ($, on) => {
+    await machineWith($, on, 'terminal', API_WAITING, LANE_WAITING)
+    const ui = await mountTab($, 'terminal', 'inline', 76)
+    expect((await ui.find({ type: 'Text', text: 'Inbox' }))?.props.bold).toBe(true)
+    expect((await ui.find({ type: 'Text', text: /^decide/ }))?.props.color).toBe('warning')
+    expect((await ui.find({ type: 'Text', text: /^api-login/ }))?.props.bold).toBe(true)
+    expect((await ui.find({ type: 'Text', text: '  6m' }))?.props.dimColor).toBe(true)
+    await ui.unmount()
+  })
+
+  test('the name comes from claude agents, otherwise from the last folder of the cwd', async ($, on) => {
+    const seen = await machineWith($, on, 'terminal', API_WAITING, LANE_PROGRESS)
+    seen.agents = agentsWith((entry) => {
+      if (entry.sessionId !== API_ID) return entry
+      return { ...without(entry, 'name'), cwd: '/work/api-v2' }
+    })
+    await seen.clock.advance(3 * SECOND)
+    const lines = inboxOf(await screenAt($, 'terminal', 'inline', 76))
+    expect(lines[1]).toBe(
+      '◆ api-v2       permission  Claude: Bash npm test --workspace mods/api     2m',
+    )
+  })
+
+  test('a desktop session draws no inbox, because other sessions are listed only in a terminal session', async ($, on) => {
+    const seen = world(on, storeWith(API_WAITING, LANE_WAITING), ['desktop'])
+    await mockWork($, seen)
+    await showMachine($, seen)
+    const lines = await screenAt($, 'desktop', 'dock', 41)
+    expect(lines[0]).toBe('Sessions')
+    expect(lines.filter((line) => line.startsWith('Inbox'))).toEqual([])
+  })
+})
+
+const LISTED_WAIT_CRITERION =
+  'When claude agents gives a waitingFor text for a running session that holds no board wait, the inbox draws a row with the word waits and that text, and it never tells a plan approval from a tool permission'
+
+describe(LISTED_WAIT_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a session first seen while it waits draws waits and the raw text with no age, on ${surface}`, async ($, on) => {
+      await machineWith($, on, surface, API_PROGRESS, LANE_PROGRESS)
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
+        'Inbox  1 wait in 1 session · read 12s ago',
+        '◆ api-login    waits       permission prompt                               —',
+      ])
+      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
+        'Inbox  1 wait · 1 session · 12s',
+        '◆ api-login waits                       —',
+        '  permission prompt',
+      ])
+    })
+  }
+
+  test('a wait the poll saw begin draws the age since that poll', async ($, on) => {
+    const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS))
+    seen.agents = apiAs({ status: 'busy' })
+    await mockWork($, seen)
+    await showMachine($, seen)
+    seen.agents = apiAs({ status: 'waiting', waitingFor: 'input needed' })
+    await seen.clock.advance(POLL_INTERVAL_MS)
+    await seen.clock.settle()
+    await seen.clock.advance(2 * MINUTE)
+    const lines = inboxOf(await screenAt($, 'terminal', 'inline', 76))
+    expect(lines[1]).toBe(
+      '◆ api-login    waits       input needed                                   2m',
+    )
+  })
+
+  test('a plan approval and a tool permission both draw as waits with the same raw text, never as plan', async ($, on) => {
+    await machineWith($, on, 'terminal', API_PROGRESS, LANE_PROGRESS)
+    const lines = inboxOf(await screenAt($, 'terminal', 'inline', 76))
+    expect(lines.filter((line) => /plan/.test(line))).toEqual([])
+    expect(lines.filter((line) => line.includes(' waits '))).toHaveLength(1)
+  })
+
+  test('a session with a board wait draws only its board rows, not the waitingFor row', async ($, on) => {
+    await machineWith($, on, 'terminal', API_WAITING, LANE_PROGRESS)
+    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
+      'Inbox  1 wait in 1 session · read 12s ago',
+      '◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m',
+    ])
+  })
+
+  for (const surface of SURFACES) {
+    test(`a waiting or blocked session with no waitingFor draws waits an answer, as its card does, on ${surface}`, async ($, on) => {
+      const seen = world(on, {}, ['terminal', surface])
+      seen.agents = agentsJson(STATE_AGENTS)
+      await mockWork($, seen)
+      await showMachine($, seen)
+      const lines = await screenAt($, surface, 'dock', 41)
+      expect(inboxOf(lines)).toEqual([
+        'Inbox  2 wait · 2 sessions · 0s',
+        '◆ bg-blocked waits                      —',
+        '  an answer',
+        '◆ inte…waiting waits                    —',
+        '  permission prompt',
+      ])
+      expect(sessionsOf(lines)[0]).toMatch(/^Sessions {2}8 · 2 need you · /)
+    })
+  }
+
+  test('a key with open tasks for the person and no wait list draws a count row', async ($, on) => {
+    const old = Object.fromEntries(
+      Object.entries({ ...LANE_PROGRESS, openForYou: 2 }).filter(
+        ([key]) => key !== 'waits' && key !== 'waitsMore',
+      ),
+    )
+    const seen = world(on, { ...storeWith(API_WAITING), [progressKey(LANE_ID)]: old })
+    await mockWork($, seen)
+    await showMachine($, seen)
+    await seen.clock.advance(12 * SECOND)
+    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
+      'Inbox  3 wait in 2 sessions · read 12s ago',
+      '◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m',
+      '◆ lane-a1      waits       2 tasks for you                                 —',
+    ])
+  })
+  test('an old background job that claude agents lists as running draws its waits, though its card is hidden', async ($, on) => {
+    const factoryId = '00000000-0000-4000-8000-000000000009'
+    const factory = progressOf(factoryId, {
+      cwd: '/work/docs',
+      waits: [permissionWait('scout', 'Edit', 'docs/a.md', 5 * MINUTE)],
+    })
+    await machineWith($, on, 'terminal', API_PROGRESS, LANE_PROGRESS, factory)
+    const lines = await screenAt($, 'terminal', 'inline', 76)
+    expect(inboxOf(lines)).toEqual([
+      'Inbox  2 wait in 2 sessions · read 12s ago',
+      '◆ factory loop permission  scout: Edit docs/a.md                          5m',
+      '◆ api-login    waits       permission prompt                               —',
+    ])
+    expect(lines).toContain('1 older background job hidden')
+  })
+
+  test('an old background job with a waitingFor text draws a waits row, though its card is hidden', async ($, on) => {
+    const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS))
+    seen.agents = agentsWith((entry) =>
+      entry.name === 'factory loop' ? { ...entry, waitingFor: 'input needed' } : entry,
+    )
+    await mockWork($, seen)
+    await showMachine($, seen)
+    const lines = await screenAt($, 'terminal', 'inline', 76)
+    expect(inboxOf(lines).filter((line) => line.startsWith('◆ factory loop'))).toEqual([
+      '◆ factory loop waits       input needed                                    —',
+    ])
+    expect(lines).toContain('1 older background job hidden')
+  })
+})
+
+function questionWait(title: string, ageMs: number): SharedWait {
+  return { kind: 'question', title, since: DRAW_AT - ageMs }
+}
+
+const QUESTION_CRITERION =
+  'When an ask of this session is a question or a plan approval, the inbox draws the word question or waits and never permission'
+
+describe(QUESTION_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a question wait draws the word question with the question, and an ExitPlanMode wait draws waits, on ${surface}`, async ($, on) => {
+      await machineWith(
+        $,
+        on,
+        surface,
+        { ...API_PROGRESS, waits: [questionWait('Which date library should we use?', 2 * MINUTE)] },
+        {
+          ...LANE_PROGRESS,
+          waits: [{ kind: 'waits', title: 'ExitPlanMode', since: DRAW_AT - 40 * SECOND }],
+        },
+      )
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
+        'Inbox  2 wait in 2 sessions · read 12s ago',
+        '◆ api-login    question    Which date library should we use?              2m',
+        '◆ lane-a1      waits       ExitPlanMode                                  40s',
+      ])
+      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
+        'Inbox  2 wait · 2 sessions · 12s',
+        '◆ api-login question                   2m',
+        '  Which date library should we use?',
+        '◆ lane-a1 waits                       40s',
+        '  ExitPlanMode',
+      ])
+    })
+  }
+
+  test('a question hidden by the fold counts as question', async ($, on) => {
+    await machineWith(
+      $,
+      on,
+      'terminal',
+      { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
+      {
+        ...LANE_PROGRESS,
+        waits: [...OVERFLOW_WAITS.lane.slice(0, 2), questionWait('Which region?', 10 * SECOND)],
+      },
+    )
+    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76)).at(-1)).toBe(
+      '[ +1 more · 1 question ]',
+    )
+  })
+})
+
+const ABSENT_CRITERION =
+  'When a session is absent from claude agents, the inbox draws no row for it, even when its store key still holds waits'
+
+describe(ABSENT_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`an absent session, an ended session and a key older than its session draw no row, on ${surface}`, async ($, on) => {
+      const lane = MACHINE_AGENTS.find((entry) => entry.sessionId === LANE_ID)
+      if (!lane) throw new Error('the fixture has no lane session')
+      const seen = await machineWith(
+        $,
+        on,
+        surface,
+        { ...API_PROGRESS, waits: [] },
+        { ...LANE_WAITING, updatedAt: Number(lane.startedAt) - 61 * SECOND },
+        progressOf(ABSENT_ID, { cwd: '/work/gone', waits: API_WAITS }),
+        progressOf(DOCS_ID, { cwd: '/work/docs', waits: LANE_WAITS, openForYou: 1 }),
+      )
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
+        'Inbox  1 wait in 1 session · read 12s ago',
+        '◆ api-login    waits       permission prompt                               —',
+      ])
+      expect(readProgress(seen.store.get(progressKey(ABSENT_ID)))?.waits).toEqual(API_WAITS)
+    })
+  }
+
+  test('a session that died still draws its waits until the next poll, under the age of the last read, and no row after it', async ($, on) => {
+    const seen = await machineWith($, on, 'terminal', API_PROGRESS, LANE_WAITING)
+    seen.agents = agentsWith((entry) => (entry.sessionId === LANE_ID ? null : entry))
+    const before = inboxOf(await screenAt($, 'terminal', 'inline', 76))
+    expect(before[0]).toBe('Inbox  3 wait in 2 sessions · read 12s ago')
+    expect(before.filter((line) => line.startsWith('◆ lane-a1'))).toHaveLength(2)
+    await seen.clock.advance(POLL_INTERVAL_MS - 12 * SECOND)
+    await seen.clock.settle()
+    const after = inboxOf(await screenAt($, 'terminal', 'inline', 76))
+    expect(after).toEqual([
+      'Inbox  1 wait in 1 session · read 0s ago',
+      '◆ api-login    waits       permission prompt                               —',
+    ])
+    expect(readProgress(seen.store.get(progressKey(LANE_ID)))?.waits).toEqual(LANE_WAITS)
+  })
+
+  for (const surface of SURFACES) {
+    test(`a session that died while the poll keeps failing draws its waits under the age of the last report, and no row once a poll answers, on ${surface}`, async ($, on) => {
+      const seen = await machineWith($, on, surface, API_PROGRESS, LANE_WAITING)
+      seen.agents = { exitCode: 1, stdout: '' }
+      await seen.clock.advance(POLL_INTERVAL_MS)
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
+        'Inbox  3 wait in 2 sessions · read 27s ago',
+        '◆ lane-a1      permission  scout: Edit hooks/band.ts                     55s',
+        '◆ api-login    waits       permission prompt                               —',
+        '◆ lane-a1      decide      Release handily-board 0.23.0?                  6m',
+      ])
+      await seen.clock.advance(POLL_INTERVAL_MS * 7)
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
+        'Inbox  3 wait in 2 sessions · read 2m ago',
+        '◆ lane-a1      permission  scout: Edit hooks/band.ts          last report 2m',
+        '◆ api-login    waits       permission prompt                  last report 2m',
+        '◆ lane-a1      decide      Release handily-board 0.23.0?      last report 2m',
+      ])
+      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
+        'Inbox  3 wait · 2 sessions · 2m',
+        '◆ lane-a1 permission            report 2m',
+        '  scout: Edit hooks/band.ts',
+        '◆ api-login waits               report 2m',
+        '  permission prompt',
+        '◆ lane-a1 decide                report 2m',
+        '  Release handily-board 0.23.0?',
+      ])
+      seen.agents = agentsWith((entry) => (entry.sessionId === LANE_ID ? null : entry))
+      await seen.clock.advance(POLL_INTERVAL_MS)
+      await seen.clock.settle()
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
+        'Inbox  1 wait in 1 session · read 12s ago',
+        '◆ api-login    waits       permission prompt                               —',
+      ])
+      expect(readProgress(seen.store.get(progressKey(LANE_ID)))?.waits).toEqual(LANE_WAITS)
+    })
+  }
+
+  test('when the poll fails for over 30 seconds, each row reads the age of the last report', async ($, on) => {
+    const seen = await machineWith($, on, 'terminal', API_PROGRESS, LANE_WAITING)
+    seen.agents = { exitCode: 1, stdout: '' }
+    await seen.clock.advance(POLL_INTERVAL_MS * 8)
+    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
+      'Inbox  3 wait in 2 sessions · read 2m ago',
+      '◆ lane-a1      permission  scout: Edit hooks/band.ts          last report 2m',
+      '◆ api-login    waits       permission prompt                  last report 2m',
+      '◆ lane-a1      decide      Release handily-board 0.23.0?      last report 2m',
+    ])
+    expect(inboxOf(await screenAt($, 'terminal', 'dock', 41)).slice(0, 2)).toEqual([
+      'Inbox  3 wait · 2 sessions · 2m',
+      '◆ lane-a1 permission            report 2m',
+    ])
+  })
+
+  for (const surface of SURFACES) {
+    test(`at a body of 30 columns a stale permission row shortens the session name and keeps the whole age, on ${surface}`, async ($, on) => {
+      const factory = progressOf('00000000-0000-4000-8000-000000000009', {
+        cwd: '/work/docs',
+        waits: [permissionWait('scout', 'Edit', 'docs/a.md', 5 * MINUTE)],
+      })
+      const seen = await machineWith($, on, surface, API_WAITING, LANE_WAITING, factory)
+      seen.agents = { exitCode: 1, stdout: '' }
+      await seen.clock.advance(POLL_INTERVAL_MS * 3)
+      expect(inboxOf(await screenAt($, surface, 'dock', 30))).toEqual([
+        'Inbox  4 wait · 3 sessions',
+        '◆ fact…p permission report 57s',
+        '  scout: Edit docs/a.md',
+        '◆ api-…n permission report 57s',
+        '  Claude: Bash npm test --wor…',
+        '◆ lane…1 permission report 57s',
+        '  scout: Edit hooks/band.ts',
+        '◆ lane-a1 decide    report 57s',
+        '  Release handily-board 0.23.…',
+      ])
+      await seen.clock.advance(POLL_INTERVAL_MS * 5)
+      expect(
+        inboxOf(await screenAt($, surface, 'dock', 30)).filter((line) => line.startsWith('◆')),
+      ).toEqual([
+        '◆ fact…op permission report 2m',
+        '◆ api-…in permission report 2m',
+        '◆ lane-a1 permission report 2m',
+        '◆ lane-a1 decide     report 2m',
+      ])
+    })
+  }
+})
+
+const OVERFLOW_WAITS = {
+  api: [
+    permissionWait('Claude', 'Bash', 'npm run a', 2 * MINUTE),
+    permissionWait('Claude', 'Bash', 'npm run b', MINUTE),
+    permissionWait('Claude', 'Bash', 'npm run c', 30 * SECOND),
+  ],
+  lane: [
+    permissionWait('scout', 'Edit', 'a.ts', 40 * SECOND),
+    permissionWait('scout', 'Edit', 'b.ts', 20 * SECOND),
+    taskWait('decide', 'Release handily-board 0.23.0?', 6 * MINUTE),
+    taskWait('do', 'Rotate the staging API key', 5 * MINUTE),
+  ],
+}
+
+const INBOX_STATES_CRITERION =
+  'When nothing waits, the Inbox head reads nothing waits with the session count and the read age; when more than 5 waits exist, it draws 5 rows and a fold that counts the rest by kind'
+
+describe(INBOX_STATES_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`nothing waits: the head counts the other running sessions and the read age, on ${surface}`, async ($, on) => {
+      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
+      seen.agents = apiAs({ status: 'busy' })
+      await mockWork($, seen)
+      await showMachine($, seen)
+      await seen.clock.advance(12 * SECOND)
+      const wide = await screenAt($, surface, 'inline', 76)
+      expect(inboxOf(wide)).toEqual(['Inbox  nothing waits · 3 sessions · read 12s ago'])
+      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
+        'Inbox  nothing waits · 3 sessions · 12s',
+      ])
+    })
+
+    test(`more than 5 waits: 5 rows and a fold that counts the rest by kind, also the waits over the store limit, on ${surface}`, async ($, on) => {
+      await machineWith(
+        $,
+        on,
+        surface,
+        { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
+        { ...LANE_PROGRESS, waits: OVERFLOW_WAITS.lane, waitsMore: { do: 1 }, openForYou: 3 },
+      )
+      const ui = await mountTab($, surface, 'inline', 76)
+      expect(inboxOf(await screen(ui, 76))).toEqual([
+        'Inbox  8 wait in 2 sessions · read 12s ago',
+        '◆ api-login    permission  Claude: Bash npm run a                         2m',
+        '◆ api-login    permission  Claude: Bash npm run b                         1m',
+        '◆ lane-a1      permission  scout: Edit a.ts                              40s',
+        '◆ api-login    permission  Claude: Bash npm run c                        30s',
+        '◆ lane-a1      permission  scout: Edit b.ts                              20s',
+        '[ +3 more · 1 decide · 2 do ]',
+      ])
+      const fold = await ui.find({ type: 'Button', text: '+3 more · 1 decide · 2 do' })
+      await ui.press({ key: fold?.key ?? '' })
+      expect(inboxOf(await screen(ui, 76)).slice(6)).toEqual([
+        '◆ lane-a1      decide      Release handily-board 0.23.0?                  6m',
+        '◆ lane-a1      do          Rotate the staging API key                     5m',
+        '[ hide 2 more ]',
+        '1 more over the store limit',
+      ])
+      await ui.unmount()
+    })
+  }
+
+  test('loading: the head says it reads the sessions until the first poll answers', async ($, on) => {
+    const seen = world(on)
+    await mockWork($, seen)
+    seen.hold = () => seen.clock.sleep(20 * SECOND)
+    await showMachine($, seen)
+    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
+      'Inbox  reading the other sessions…',
+    ])
+    expect(inboxOf(await screenAt($, 'terminal', 'dock', 41))).toEqual([
+      'Inbox  reading the sessions…',
+    ])
+  })
+
+  test('error: an unreadable store keeps the waitingFor rows of claude agents and logs why', async ($, on) => {
+    const seen = await machineWith($, on, 'terminal', API_WAITING, LANE_WAITING)
+    seen.keysDenial = 'the store file is not JSON'
+    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
+      'Inbox  could not read the other sessions; the debug log names why',
+      '◆ api-login    waits       permission prompt                               —',
+    ])
+    expect(inboxOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
+      'Inbox  other sessions unreadable',
+    )
+    expect(
+      seen.logs.filter((line) => line.includes('the other sessions were not read')),
+    ).not.toEqual([])
+  })
+
+  test('error: a failed claude agents with nothing listed says the other sessions are not read', async ($, on) => {
+    const seen = world(on)
+    seen.agents = { exitCode: 1, stdout: '' }
+    await mockWork($, seen)
+    await showMachine($, seen)
+    expect((await screenAt($, 'terminal', 'inline', 76)).slice(0, 2)).toEqual([
+      'Inbox  could not read the other sessions',
+      'Sessions',
+    ])
+  })
+})
+
+const INBOX_ESCAPE_CRITERION =
+  'When a wait detail holds a control or bidi character, the inbox draws it escaped, and no inbox row has a button that answers a permission prompt or a question'
+
+const RAW_UNSAFE = /[\p{Cc}\p{Cf}]/u
+
+describe(INBOX_ESCAPE_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a control or bidi character in a name, a target, a title or a waitingFor draws escaped, on ${surface}`, async ($, on) => {
+      const seen = world(
+        on,
+        storeWith(API_PROGRESS, {
+          ...LANE_PROGRESS,
+          waits: [
+            permissionWait('sc\u{202E}out', 'Bash', 'rm \u0007x', 40 * SECOND),
+            taskWait('decide', 'Ship\u{2066} it\u001b[31m', 6 * MINUTE),
+          ],
+        }),
+        ['terminal', surface],
+      )
+      seen.agents = agentsWith((entry) => {
+        if (entry.sessionId === API_ID) return { ...entry, waitingFor: 'input\u{202E}needed' }
+        if (entry.sessionId === LANE_ID) return { ...entry, name: 'lane\u0000a1' }
+        return entry
+      })
+      await mockWork($, seen)
+      await showMachine($, seen)
+      await seen.clock.advance(12 * SECOND)
+      const lines = inboxOf(await screenAt($, surface, 'inline', 76))
+      expect(lines).toEqual([
+        'Inbox  3 wait in 2 sessions · read 12s ago',
+        '◆ lane\\u0000a1 permission  sc\\u202eout: Bash rm \\u0007x                  40s',
+        '◆ api-login    waits       input\\u202eneeded                               —',
+        '◆ lane\\u0000a1 decide      Ship\\u2066 it\\u001b[31m                        6m',
+      ])
+      expect(lines.filter((line) => RAW_UNSAFE.test(line))).toEqual([])
+    })
+  }
+
+  test('no inbox row has a button, and the only inbox button is the fold', async ($, on) => {
+    await machineWith(
+      $,
+      on,
+      'terminal',
+      { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
+      { ...LANE_PROGRESS, waits: OVERFLOW_WAITS.lane, openForYou: 2 },
+    )
+    const ui = await mountTab($, 'terminal', 'inline', 76)
+    const buttons = await ui.findAll({ type: 'Button' })
+    expect(buttons.map((button) => button.key)).toEqual(['machine:inbox'])
+    await ui.unmount()
+    const few = await screenAt($, 'terminal', 'dock', 41)
+    expect(few.filter((line) => /\[ (go|allow|deny|yes|no|answer)/.test(line))).toEqual([])
+  })
+})
+
+function personTask(id: number, kind: BoardTaskKind, title: string): BoardTask {
+  return {
+    id,
+    title,
+    status: 'pending',
+    for: 'person',
+    kind,
+    askedAt: NOW - MINUTE,
+    by: 'model',
+    item: null,
+  }
+}
+
+function listOf(...tasks: BoardTask[]): BoardList {
+  return { tasks, nextId: tasks.length + 1 }
+}
+
+const KEY_WAITS_CRITERION =
+  'The store key of a session keeps at most 5 waits and counts the rest by kind, within 4096 bytes, with the permission waits before the tasks for the person'
+
+describe(KEY_WAITS_CRITERION, () => {
+  test('7 permission waits with long multi-byte text and 2 tasks keep at most 5 waits, count the rest by kind and stay within 4096 bytes', () => {
+    const long = 'é漢\u0007'.repeat(100)
+    const asks = Array.from({ length: 7 }, (_, index) =>
+      sharedAsk(`agent ${String(index)} ${long}`, `Tool${long}`, long, NOW - index * SECOND),
+    )
+    const list = listOf(personTask(1, 'decide', long), personTask(2, 'do', long))
+    const kept = withinLimit(withAsks(progressOf(OWN_ID, {}), asks, list, NOW))
+    expect(entryBytes(kept)).toBeLessThanOrEqual(ENTRY_BYTES_AT_MOST)
+    expect(kept.waits.length).toBeLessThanOrEqual(WAITS_AT_MOST)
+    expect(kept.waits.length + countOf(kept.waitsMore)).toBe(9)
+    expect(kept.waitsMore.decide).toBe(1)
+    expect(kept.waitsMore.do).toBe(1)
+    expect(kept.waits.every((wait) => wait.kind === 'permission')).toBe(true)
+    expect(readProgress(JSON.parse(JSON.stringify(kept)))).toEqual(kept)
+  })
+
+  test('a task for the person joins after the permission waits, and a task change keeps the permission waits', () => {
+    const ask = sharedAsk('Claude', 'Bash', 'npm test', NOW - SECOND)
+    const asked = listOf(personTask(1, 'decide', 'Release it?'))
+    const both = withAsks(progressOf(OWN_ID, {}), [ask], asked, NOW)
+    expect(both.waits).toEqual([ask, { kind: 'decide', title: 'Release it?', since: NOW - MINUTE }])
+    const answered = withTasks(both, listOf(), NOW)
+    expect(answered.waits).toEqual([ask])
+    expect(withAsks(answered, [], listOf(), NOW).waits).toEqual([])
+  })
+
+  test('a task change keeps the question and waits asks, and their counts over the limit', () => {
+    const question = askWait(
+      'Claude',
+      { tool: 'AskUserQuestion', target: null, question: 'Which date library?' },
+      NOW - SECOND,
+    )
+    const plan = askWait(
+      'Claude',
+      { tool: 'ExitPlanMode', target: null, question: null },
+      NOW - SECOND,
+    )
+    const bash = askWait(
+      'Claude',
+      { tool: 'Bash', target: 'npm test', question: 'not a question' },
+      NOW - SECOND,
+    )
+    expect([question, plan, bash]).toEqual([
+      { kind: 'question', title: 'Which date library?', since: NOW - SECOND },
+      { kind: 'waits', title: 'ExitPlanMode', since: NOW - SECOND },
+      {
+        kind: 'permission',
+        agent: 'Claude',
+        tool: 'Bash',
+        target: 'npm test',
+        since: NOW - SECOND,
+      },
+    ])
+    const asked = listOf(personTask(1, 'decide', 'Release it?'))
+    const both = withAsks(progressOf(OWN_ID, {}), [question, plan], asked, NOW)
+    expect(both.waits).toEqual([
+      question,
+      plan,
+      { kind: 'decide', title: 'Release it?', since: NOW - MINUTE },
+    ])
+    expect(withTasks(both, listOf(), NOW).waits).toEqual([question, plan])
+    const many = withAsks(progressOf(OWN_ID, {}), Array(6).fill(question), listOf(), NOW)
+    expect(many.waitsMore).toEqual({ question: 1 })
+    const changed = withTasks(many, asked, NOW)
+    expect(changed.waits).toEqual(Array(5).fill(question))
+    expect(changed.waitsMore).toEqual({ question: 1, decide: 1 })
+    expect(readProgress(JSON.parse(JSON.stringify(changed)))).toEqual(changed)
+  })
+
+  test('a key with no wait list reads as no waits, and a bad wait drops the key', () => {
+    const old = Object.fromEntries(
+      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'waits' && key !== 'waitsMore'),
+    )
+    expect(readProgress(old)).toMatchObject({ waits: [], waitsMore: {} })
+    expect(readProgress({ ...LANE_PROGRESS, waits: [{ kind: 'plan', title: 'x' }] })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, waits: [{ kind: 'permission', agent: 1 }] })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, waitsMore: { permission: -1 } })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, waits: Array(6).fill(API_WAITS[0]) })).toBeNull()
   })
 })

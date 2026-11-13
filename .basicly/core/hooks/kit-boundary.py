@@ -33,6 +33,20 @@ _REACHES_OUT = {
 LISTENER_KIT = "board"
 LISTENER_IMPORTS = frozenset({"http", "http.server", "urllib.parse"})
 
+GIT_RUNNER = ("tracker", "git_runner.py")
+GIT_RUNNER_IMPORTS = frozenset({"subprocess"})
+
+ENVIRONMENT_KIT = "tracker"
+ENVIRONMENT_ADAPTERS = frozenset({
+    "cli.py",
+    "commands.py",
+    "process_evidence.py",
+    "settings.py",
+    "git_runner.py",
+    "vault_cli.py",
+})
+_ENVIRONMENT_NAMES = frozenset({"environ", "environb", "getenv", "getenvb", "putenv", "unsetenv"})
+
 _PATH_CALLS = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
 _JOIN_CALLS = frozenset({"join", "joinpath"})
 
@@ -192,15 +206,48 @@ def _dedupe(findings: list[Finding]) -> list[Finding]:
     return unique
 
 
-def module_findings(module: Path, rel: str, kit: str = "") -> list[Finding]:
+def _environment_findings(rel: str, tree: ast.Module) -> list[Finding]:
+    findings: list[Finding] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "os"
+            and node.attr in _ENVIRONMENT_NAMES
+        ):
+            findings.append(Finding(rel, node.lineno, "reads-environment", f"os.{node.attr}"))
+        elif isinstance(node, ast.ImportFrom) and node.module == "os":
+            findings += [
+                Finding(rel, node.lineno, "reads-environment", f"from os import {alias.name}")
+                for alias in node.names
+                if alias.name in _ENVIRONMENT_NAMES
+            ]
+    return findings
+
+
+def reads_environment_allowed(place: tuple[str, ...]) -> bool:
+    return place[:1] != (ENVIRONMENT_KIT,) or (len(place) == 2 and place[1] in ENVIRONMENT_ADAPTERS)
+
+
+def allowed_imports(place: tuple[str, ...]) -> frozenset[str]:
+    if place[:1] == (LISTENER_KIT,):
+        return LISTENER_IMPORTS
+    if place == GIT_RUNNER:
+        return GIT_RUNNER_IMPORTS
+    return frozenset()
+
+
+def module_findings(module: Path, rel: str, place: tuple[str, ...] = ()) -> list[Finding]:
 
     source = module.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source, filename=str(module))
     except SyntaxError as exc:
         return [Finding(rel, exc.lineno or 1, "unparseable", exc.msg)]
-    allowed = LISTENER_IMPORTS if kit == LISTENER_KIT else frozenset()
-    return _import_findings(rel, tree, allowed) + _path_findings(rel, tree)
+    findings = _import_findings(rel, tree, allowed_imports(place)) + _path_findings(rel, tree)
+    if not reads_environment_allowed(place):
+        findings += _environment_findings(rel, tree)
+    return findings
 
 
 def scan(kit_root: Path, repo_root: Path | None = None) -> list[Finding]:
@@ -211,7 +258,7 @@ def scan(kit_root: Path, repo_root: Path | None = None) -> list[Finding]:
             rel = module.relative_to(base).as_posix()
         except ValueError:
             rel = module.as_posix()
-        findings += module_findings(module, rel, module.relative_to(kit_root).parts[0])
+        findings += module_findings(module, rel, module.relative_to(kit_root).parts)
     return findings
 
 
@@ -240,7 +287,9 @@ def main(argv: list[str] | None = None) -> int:
         "declares — the dependency "
         "direction is one-way, and the kit imports nothing but the standard library, "
         "reaching no network and spawning no process. Only the board kit may import "
-        f"{', '.join(sorted(LISTENER_IMPORTS))}, to listen on loopback when a person serves it.",
+        f"{', '.join(sorted(LISTENER_IMPORTS))}, to listen on loopback when a person serves it. "
+        f"Only {'/'.join(GIT_RUNNER)} may import "
+        f"{', '.join(sorted(GIT_RUNNER_IMPORTS))}, to run git.",
         file=sys.stderr,
     )
     for finding in findings:

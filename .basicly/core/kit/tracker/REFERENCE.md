@@ -74,6 +74,16 @@ full source prose, including notes above this limit.
 python3 .basicly/kit/tracker/cli.py comment .basicly/ledger acme-a1b2 "The export drops a trailing newline."
 ```
 
+With `--vault`, the comment goes to the vault's queue beside its clone instead of the ledger. Every
+string in the event is redacted first: credential shapes and absolute paths become
+`<redacted:rule>` markers. The command prints the queued count, the age of the oldest queued
+event and what shares the queue next. Where `CI` or `BASICLY_TRACKER_EPHEMERAL` is set, it asks
+for an immediate share. A queue line torn by a crash is cut back and reported.
+
+```sh
+python3 .basicly/kit/tracker/cli.py comment acme-a1b2 --vault path/to/vault.git --text "The export drops a trailing newline."
+```
+
 ### dep
 
 Record that the first record waits on the second. `--type` sets the edge type, `blocks`
@@ -122,6 +132,18 @@ first.
 python3 .basicly/kit/tracker/cli.py claim .basicly/ledger acme-a1b2 --to alex
 ```
 
+With `--vault`, `claim` reserves the record in the vault for this session (`--session`, else
+`BASICLY_TRACKER_SESSION`) within one 30 s deadline that every git call shares. The first valid
+claim in the vault wins. Exit codes: 0 the claim landed; 1 a session, a record id or a repair is
+missing, and the fix is printed; 3 another session holds the record or won it, and the take
+command is printed; 4 the deadline passed and the claim is unsettled, with `--wait` and
+`--cancel` named; 5 the fetch gave no answer within 5 s, nothing is queued and the fetch command
+is printed; 6 an internal error, with the log path and `sync`; 7 this session already holds it.
+
+```sh
+python3 .basicly/kit/tracker/cli.py claim acme-a1b2 --vault path/to/vault.git --session s1
+```
+
 ### resolve
 
 Two branches can write the same record, and the merge keeps both events. When they set one
@@ -136,10 +158,61 @@ python3 .basicly/kit/tracker/cli.py resolve .basicly/ledger acme-a1b2
 
 ### unassign
 
-Give a reserved record back.
+Give a reserved record back. Only its holder can do this: `--by` names who gives it back
+(default: `git config user.name`). Anyone else is refused with the holder's name. To release
+another holder's record on purpose, pass `--take`, which the ledger records.
 
 ```sh
 python3 .basicly/kit/tracker/cli.py unassign .basicly/ledger acme-a1b2
+python3 .basicly/kit/tracker/cli.py unassign .basicly/ledger acme-a1b2 --take
+```
+
+### vault-check
+
+Sort every commit on a vault's first-parent chain into a genesis, format, batch or archive
+commit, or quarantine it with the rule it breaks. A quarantined commit voids only itself, and
+nothing after a valid `ended` event counts. The vault is the backlog repository of design
+version 8; this command only reads it.
+
+```sh
+python3 .basicly/kit/tracker/cli.py vault-check path/to/vault.git
+```
+
+### vault-show
+
+Fold a vault's valid events and show one record: its holder (writer and session), its status,
+every void event with the reason, and whether it holds an event kind this tracker cannot fold.
+The first valid claim wins; only the holder can give a record back.
+
+```sh
+python3 .basicly/kit/tracker/cli.py vault-show path/to/vault.git acme-a1b2
+```
+
+### fetch
+
+Clone a vault bare into the machine state folder the first time, then fetch its `main` into
+`refs/remotes/origin/main`. One lock per clone makes a second fetch wait. A failed fetch is
+retried once; after that the command shows the last fetched state and its age. After a fetch,
+every new commit is sorted as `vault-check` does, quarantined commits are listed, and
+`refs/basicly/seen` moves to the head. If the head no longer contains the seen commit, `seen`
+stays and the report says `retracted`. The state folder is `--state`, else
+`BASICLY_TRACKER_STATE`, else `basicly-tracker` under `XDG_STATE_HOME` (`LOCALAPPDATA` on
+Windows), else under `~/.local/state`.
+
+```sh
+python3 .basicly/kit/tracker/cli.py fetch --vault path/to/vault.git
+```
+
+`hook EVENT --vault` runs from an agent hook and never fails the agent. `session-start` and
+`prompt` fetch with a 3 s deadline at most every 20 s, then share only when this clone's bulk
+slot is due (180 s after its last share). `stop` and `session-end` share the whole queue. A
+person's write shares at once when the slot is due; otherwise a later `fetch` or write shares
+it. `status --vault` makes no network call: it prints the fetch age, the last shared event and
+its age per writer, the queued count and the oldest queued age, and any unrepaired retraction.
+
+```sh
+python3 .basicly/kit/tracker/cli.py hook stop --vault path/to/vault.git
+python3 .basicly/kit/tracker/cli.py status --vault path/to/vault.git
 ```
 
 ### delete
@@ -203,6 +276,18 @@ holds. It warns when `.beads/beads.db` is newer than the export, and names
 python3 .basicly/kit/tracker/cli.py sync .basicly/ledger --dry-run
 ```
 
+With `--vault`, `sync` shares the vault queue instead. It fetches, drops queued events the
+vault already holds, appends the rest to this writer's segment as one commit on the fetched
+head, and pushes it without force. A refused push fetches and rebuilds, at most 5 times; with
+`--urgent` it retries until `--deadline` seconds pass. After a push, `refs/basicly/seen` moves
+and the shared events leave the queue. If the vault holds a valid `ended` event, nothing is
+pushed, the queue is kept, and the reason and successor are printed. A share that stops at any
+step leaves each event in the vault once after the next `sync`.
+
+```sh
+python3 .basicly/kit/tracker/cli.py sync --vault path/to/vault.git
+```
+
 ## Read
 
 ### ready
@@ -241,6 +326,20 @@ ledger unless the committer (`git config user.name`) holds a record the message 
 progress or closed. A ledger with no record yet passes, and the files a kit install manages
 (`.basicly/kit/`, the tracker and board skills, `.gitignore`, `.gitattributes`) do not count,
 so the install commit works.
+
+With `--vault`, `commit-msg` checks the message file against the vault claims of this session
+(`--session`, else `BASICLY_TRACKER_SESSION`). It exits 1 when the message names no record id
+and has no `Record: none` line, and prints the claim command and `Record: none`. A record id
+is the `(id)` that ends the subject, or a `Record: <id>` line. When the session holds exactly
+one claim, the hook adds the id in parentheses to the subject instead. Git-generated
+`Merge`, `Revert "`, `fixup!` and `squash!` messages pass, and a revert or fixup takes the id
+in the subject it repeats. A named record that this session does not hold, or whose claim has not reached the
+vault, passes with a warning and the claim command. When a fetch older than 20 s fails, the
+hook queues a local `miss` event for the record.
+
+```sh
+python3 .basicly/kit/tracker/cli.py commit-msg --vault path/to/vault.git .git/COMMIT_EDITMSG
+```
 
 ### show
 
@@ -323,6 +422,21 @@ Fold the whole log and report anything broken. Exit 0 clean, 1 stale derivative,
 
 ```sh
 python3 .basicly/kit/tracker/cli.py fsck .basicly/ledger
+```
+
+With `--vault`, `fsck` reports the vault clone instead: the head, `refs/basicly/seen`, every
+retracted ref and whether it is repaired, every quarantined commit with its rule, and the queue
+size. When a fetched head no longer holds the commit `seen` named, the old tip is kept as
+`refs/basicly/retracted/N` and every share is refused until a repair. `--repair` works from the
+local clone only: your own lost lines go back in the queue as they were, other writers' lost
+lines go in one `requeue` event that changes no holder, and each claim that no longer holds gets
+a `claim-lost` event. Kept quarantine entries are processed the same way.
+`--accept-rewrite HEAD --purge` accepts the fetched head and drops the retracted refs.
+`reclone --vault` clones again and keeps `refs/basicly/*` and the writer id.
+
+```sh
+python3 .basicly/kit/tracker/cli.py fsck --vault path/to/vault.git --repair
+python3 .basicly/kit/tracker/cli.py reclone --vault path/to/vault.git
 ```
 
 ### acknowledge-loss

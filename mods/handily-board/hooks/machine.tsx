@@ -7,7 +7,7 @@ import type {
   ThemeKey,
 } from 'claude-code'
 import { elapsedText } from './activity'
-import { numberedNames } from './agent-rows'
+import { callText, numberedNames } from './agent-rows'
 import { POLL_INTERVAL_MS, type AgentsFailure, type SessionKind } from './agents-json'
 import { progressBar } from './bar'
 import type {
@@ -19,11 +19,21 @@ import type {
   MachineView,
   SessionCard,
 } from './cards'
+import {
+  INBOX_ROWS_AT_MOST,
+  waitCount,
+  type InboxDetail,
+  type InboxKind,
+  type InboxRow,
+  type InboxView,
+} from './inbox'
+import { cutName } from './names'
 import { fitParts } from './parts'
 import type { AgentSummary, SharedContext } from './progress'
 import { SIGNALS, type Signal, type SignalLook, type SignalLooks, needsYouText } from './signals'
 import { escaped, statusLook } from './tasks'
 import { dollars, highText } from './vitals'
+import { WAIT_KINDS } from './waits'
 import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './width'
 
 export type MachineElements = {
@@ -66,6 +76,14 @@ const AGENT_NAME_AT_MOST = 12
 const AGENT_NAME_WIDTH = 14
 const NARROW_NAME_WIDTH = 13
 const DESKTOP_LINE = 'Other sessions are listed only in a terminal session.'
+const INBOX_TITLE = 'Inbox'
+const INBOX_WIDE_FROM = 60
+const INBOX_NAME_AT_MOST = 12
+const INBOX_NAME_WIDTH = 13
+const INBOX_NARROW_NAME_AT_LEAST = 5
+const INBOX_KIND_WIDTH = 12
+const INBOX_DETAIL_INDENT = 2
+const INBOX_FOLD = 'machine:inbox'
 
 const ATTENTION_SIGNALS: Record<Attention, Signal> = {
   needsYou: 'waitsForYou',
@@ -634,6 +652,222 @@ function drawFailure(elements: MachineElements, failure: AgentsFailure): RenderE
   ]
 }
 
+type InboxRows = Extract<InboxView, { kind: 'rows' }>
+
+function sessionsText(count: number): string {
+  return count === 1 ? '1 session' : `${String(count)} sessions`
+}
+
+function inboxForms(view: InboxView, now: number, isWide: boolean): Part[][] {
+  const unreadable: Part = {
+    text: isWide
+      ? 'could not read the other sessions; the debug log names why'
+      : 'other sessions unreadable',
+    color: SIGNALS.blocked.color,
+  }
+  switch (view.kind) {
+    case 'loading':
+      return [
+        [
+          {
+            text: isWide ? 'reading the other sessions…' : 'reading the sessions…',
+            dimColor: true,
+          },
+        ],
+      ]
+    case 'failed':
+      return [
+        [
+          {
+            text: isWide ? 'could not read the other sessions' : 'other sessions unreadable',
+            color: SIGNALS.blocked.color,
+          },
+        ],
+      ]
+    case 'rows':
+      return view.isUnreadable ? [[unreadable]] : rowsForms(view, now, isWide)
+  }
+}
+
+function rowsForms(view: InboxRows, now: number, isWide: boolean): Part[][] {
+  const age = elapsedText(now - view.dataAt)
+  const read: Part = { text: isWide ? `read ${age} ago` : age, dimColor: true }
+  const count = waitCount(view)
+  if (count === 0) {
+    const nothing: Part[] = [
+      { text: 'nothing waits', dimColor: true },
+      { text: sessionsText(view.sessions), dimColor: true },
+    ]
+    return [joined([...nothing, read]), joined(nothing)]
+  }
+  const waits: Part = { text: `${String(count)} wait`, color: SIGNALS.waitsForYou.color }
+  const facts: Part[] = isWide
+    ? [{ ...waits, text: `${waits.text} in ${sessionsText(view.waiting)}` }]
+    : [waits, { text: sessionsText(view.waiting), dimColor: true }]
+  return [joined([...facts, read]), joined(facts)]
+}
+
+function partsWidth(parts: readonly Part[]): number {
+  return displayWidth(parts.map((part) => part.text).join(''))
+}
+
+function inboxHead(elements: MachineElements, view: InboxView, now: number, columns: number) {
+  const title: Part[] = [{ text: INBOX_TITLE, bold: true }, { text: GAP }]
+  const forms = inboxForms(view, now, columns >= INBOX_WIDE_FROM).map((form) => [...title, ...form])
+  const head = forms.find((form) => partsWidth(form) <= columns) ?? forms.at(-1) ?? title
+  return drawParts(elements, 'inbox:head', head, columns)
+}
+
+function detailText(detail: InboxDetail): string {
+  switch (detail.kind) {
+    case 'call':
+      return `${escaped(detail.agent)}: ${callText({ tool: detail.tool, target: detail.target })}`
+    case 'text':
+      return escaped(detail.text)
+    case 'forYou':
+      return forYouText(detail.count)
+  }
+}
+
+function inboxAge(row: InboxRow, view: InboxRows, now: number, isWide: boolean): string {
+  if (view.isStale) {
+    const age = elapsedText(now - view.dataAt)
+    return isWide ? `last report ${age}` : `report ${age}`
+  }
+  return row.ageMs === null ? NO_TIME : elapsedText(row.ageMs)
+}
+
+function inboxRowLines(
+  elements: MachineElements,
+  row: InboxRow,
+  view: InboxRows,
+  now: number,
+  columns: number,
+): RenderElement[] {
+  const look = elements.signals.waitsForYou
+  const mark = `${look.mark} `
+  const isWide = columns >= INBOX_WIDE_FROM
+  const tail = ` ${inboxAge(row, view, now, isWide).padStart(ROW_TIME_WIDTH)}`
+  const session = escaped(row.session)
+  const detail = detailText(row.detail)
+  const key = `inbox:${row.key}`
+  if (isWide) {
+    const room = Math.max(
+      columns - displayWidth(mark) - INBOX_NAME_WIDTH - INBOX_KIND_WIDTH - displayWidth(tail),
+      0,
+    )
+    const parts: Part[] = [
+      { text: mark, color: look.color },
+      { text: padToWidth(cutName(session, INBOX_NAME_AT_MOST), INBOX_NAME_WIDTH), bold: true },
+      { text: padToWidth(row.kind, INBOX_KIND_WIDTH), color: look.color },
+      { text: padToWidth(fitted(detail, room), room) },
+      { text: tail, dimColor: true },
+    ]
+    return [drawParts(elements, key, parts, columns)]
+  }
+  const kind = ` ${row.kind}`
+  const nameRoom = columns - displayWidth(mark) - displayWidth(kind) - displayWidth(tail)
+  const name = cutName(
+    session,
+    Math.min(INBOX_NAME_AT_MOST, Math.max(nameRoom, INBOX_NARROW_NAME_AT_LEAST)),
+  )
+  const lead = displayWidth(mark) + displayWidth(name) + displayWidth(kind)
+  const head: Part[] = [
+    { text: mark, color: look.color },
+    { text: name, bold: true },
+    { text: kind, color: look.color },
+    { text: ' '.repeat(Math.max(columns - lead - displayWidth(tail), 0)) },
+    { text: tail, dimColor: true },
+  ]
+  return [
+    drawParts(elements, key, head, columns),
+    drawParts(
+      elements,
+      `${key}:detail`,
+      [{ text: fitted(detail, Math.max(columns - INBOX_DETAIL_INDENT, 0)) }],
+      columns,
+      INBOX_DETAIL_INDENT,
+    ),
+  ]
+}
+
+function foldCounts(hidden: readonly InboxRow[], view: InboxRows): Map<InboxKind, number> {
+  const counts = new Map<InboxKind, number>()
+  for (const row of hidden) counts.set(row.kind, (counts.get(row.kind) ?? 0) + row.count)
+  for (const [kind, count] of Object.entries(view.notKept)) {
+    const known = WAIT_KINDS.find((one) => one === kind)
+    if (known !== undefined) counts.set(known, (counts.get(known) ?? 0) + count)
+  }
+  return counts
+}
+
+function inboxFoldText(hidden: readonly InboxRow[], view: InboxRows): string {
+  const counts = foldCounts(hidden, view)
+  const total = [...counts.values()].reduce((sum, count) => sum + count, 0)
+  const kinds = WAIT_KINDS.flatMap((kind) => {
+    const count = counts.get(kind) ?? 0
+    return count > 0 ? [`${String(count)} ${kind}`] : []
+  })
+  return [`+${String(total)} more`, ...kinds].join(SEPARATOR)
+}
+
+function notKeptCount(view: InboxRows): number {
+  return Object.values(view.notKept).reduce((sum, count) => sum + count, 0)
+}
+
+function inboxFoldLines(
+  elements: MachineElements,
+  view: InboxRows,
+  hidden: readonly InboxRow[],
+  columns: number,
+): RenderElement[] {
+  const notKept = notKeptCount(view)
+  if (hidden.length === 0) {
+    if (notKept === 0) return []
+    return [
+      drawParts(
+        elements,
+        'inbox:more',
+        [{ text: inboxFoldText([], view), dimColor: true }],
+        columns,
+      ),
+    ]
+  }
+  const isOpen = elements.expanded.has(INBOX_FOLD)
+  const label = isOpen ? `hide ${String(hidden.length)} more` : inboxFoldText(hidden, view)
+  return [
+    buttonLine(elements, INBOX_FOLD, fitted(label, Math.max(columns - 4, 1)), 0),
+    ...(isOpen && notKept > 0
+      ? [
+          drawParts(
+            elements,
+            'inbox:not-kept',
+            [{ text: `${String(notKept)} more over the store limit`, dimColor: true }],
+            columns,
+          ),
+        ]
+      : []),
+  ]
+}
+
+function inboxLines(
+  elements: MachineElements,
+  view: InboxView,
+  now: number,
+  columns: number,
+): RenderElement[] {
+  const head = inboxHead(elements, view, now, columns)
+  if (view.kind !== 'rows') return [head]
+  const isOpen = elements.expanded.has(INBOX_FOLD)
+  const shown = isOpen ? view.rows : view.rows.slice(0, INBOX_ROWS_AT_MOST)
+  const hidden = view.rows.slice(INBOX_ROWS_AT_MOST)
+  return [
+    head,
+    ...shown.flatMap((row) => inboxRowLines(elements, row, view, now, columns)),
+    ...inboxFoldLines(elements, view, hidden, columns),
+  ]
+}
+
 function layoutOf(elements: MachineElements): Layout {
   const columns = elements.bodyColumns
   return {
@@ -666,6 +900,13 @@ export function drawMachine(
   elements: MachineElements,
   view: MachineView,
   now: number,
+  inbox: InboxView | null,
 ): RenderElement {
-  return elements.Box({ flexDirection: 'column', children: bodyOf(elements, view, now) })
+  return elements.Box({
+    flexDirection: 'column',
+    children: [
+      ...(inbox === null ? [] : inboxLines(elements, inbox, now, elements.bodyColumns)),
+      ...bodyOf(elements, view, now),
+    ],
+  })
 }

@@ -675,7 +675,9 @@ stays as the record of the design. The plugin `handily-session-board` is removed
   - No estimate for N minutes after a task is added.
 - Optional extra data from sessions that run handily: the current task, task progress and the
   count of open tasks for the person, under one `$.store` key per session id. `$.store` merges
-  writes per key across concurrent sessions (probe 6). The mod writes its key on task events,
+  writes per key across concurrent sessions that load the board from the same source (probe 6).
+  A session started with `--plugin-dir` and an installed session do not share a store (probe
+  handily-gmvyf3, Claude Code 2.1.322). The mod writes its key on task events,
   with the current session id. A key is stale when its session is absent from `claude agents`.
   The board does not read the engine's task files on disk, because their format is internal.
 - `claude` on `PATH` in a desktop session is not measured (probe 8 needs the person). Until it
@@ -1373,6 +1375,68 @@ The named constants, all in `hooks/pace.ts`:
 | `LEVEL_WORDS` | none at 80, `nearly full` at 95 | The word after the percent in the toast |
 | `WARN_MARK` | the `waitsForYou` role (`◆` in the plain set) | The mark at the start of the toast, drawn from the glyph set |
 | `CLAIM_WAIT_MS` | 200 to 800 | The random wait before the read-back |
+
+#### The Inbox (handily-fwkt.8.28)
+
+Step 1 of the F1 inbox, the owner pick of 2026-11-12. The Inbox at the top of the this machine
+tab lists what waits for the person in the other sessions of this machine. The mocks are
+`docs/mocks.md` section 8.16. They are the test captures, because the F1 draft mocks are not in
+this repository.
+
+Known limits:
+
+- **A plan approval and a tool permission look the same in `claude agents`.** `claude agents
+  --json` gives `waitingFor` `permission prompt` for both (probe handily-gmvyf3). A row from it
+  reads `waits` and the raw text, and never names a plan. A board wait tells them apart by the
+  tool: `AskUserQuestion` publishes `question`, and `ExitPlanMode` publishes `waits` with the
+  tool name, because its input holds no plan that proves a plan approval.
+- **A session that ended shows until the next poll.** A session that ends leaves `claude agents`
+  at once, and its store key stays. The Inbox draws only the sessions of the last poll, so the
+  rows of an ended session stay until the next poll answers, at most 15 seconds later while the
+  tab shows. The test `a session that died still draws its waits until the next poll, under the
+  age of the last read, and no row after it` asserts it.
+- **A session first seen while it waits has no age.** The poll keeps the time of the last state
+  change (`stateSince`). When it equals the start time, the poll did not see the wait begin, and
+  the row shows `—`.
+- **Two sources share no store.** A session that loads the board from another source sees the
+  other only through `claude agents`, as a `waits` row.
+- **No end reason.** `claude agents` gives no reason when a session ends.
+
+The sources:
+
+| Row | Source |
+| --- | --- |
+| `permission` | the store key `session:<session id>` of that session: a `tool.check` ask with no decision after `NEEDS_YOU_AFTER_MS` (3 s), with the agent name, the tool, the masked target and the time of the ask |
+| `question` | the same key: an ask of `AskUserQuestion` after 3 s, with the first line of the first question, masked, or the tool name, by `askWait` in `hooks/waits.ts` |
+| `waits` with `ExitPlanMode` | the same key: an ask of `ExitPlanMode` after 3 s, by the same `askWait` |
+| `decide`, `answer`, `do` | the same key: the open tasks for the person, after the permission waits |
+| `waits` | `claude agents --json`: the `waitingFor` text of a session that needs the person and has no wait in its key, or `an answer` with no text, by `waitsForOf` in `hooks/cards.ts`, the rule of the card |
+| `waits` with `N tasks for you` | a key from an earlier version that has `openForYou` and no wait list |
+
+- **Which sessions.** The Inbox reads the sessions that the last poll lists as not ended, other
+  than this session. A background job that `isOldBackground` hides from the cards still draws its
+  key waits and its `waitingFor` text, but no `an answer` row. A key written more than 60 seconds
+  before its session started shows no row.
+- **The key.** It keeps at most `WAITS_AT_MOST` (5) waits and counts the rest by kind in
+  `waitsMore`. The agent name and the tool keep `WAIT_NAME_AT_MOST` (40) characters, and the
+  target and a title `WAIT_TEXT_AT_MOST` (80). A key over 4096 bytes sheds waits into the count
+  before the board refuses it. The decision, a forgotten ask, the end of the agent turn and
+  `/clear` remove the wait of an ask.
+- **The order.** `permission`, `question`, `waits`, `decide`, `answer`, then `do`, the order of
+  `WAIT_KINDS` in `hooks/waits.ts`. Inside a kind, the oldest first.
+- **The fold.** The Inbox draws at most `INBOX_ROWS_AT_MOST` (5) rows. The fold button
+  `machine:inbox` counts the rest by kind, with the waits that the keys counted in `waitsMore`.
+  It is the only button of the Inbox. No row answers a permission prompt or a question, because a
+  mod shows and asks and never acts for the person in another session.
+- **The width.** From 60 columns, each wait is one row. Below, the detail goes on a second line.
+  When the head does not fit, the read age drops first. When a row does not fit, the session name
+  shortens to the room that the mark, the kind and the age leave, to 5 columns at least. So the
+  age stays whole, also `report 57s` at body 30.
+- **Failures.** A store that cannot be read logs to the debug log, and the Inbox keeps the `waits`
+  rows of `claude agents`. A poll that failed over 30 seconds after the last answer shows the age
+  of the last report on each row. While the poll fails, the Inbox cannot see that a session ended,
+  so the rows of that session stay until a poll answers.
+- **Escaping.** Every name, tool, target, title and `waitingFor` text goes through `escaped`.
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
