@@ -10490,10 +10490,12 @@ describe('the task band above the prompt (handily-9uj3n.9)', () => {
       withWorkitems,
       async ($, on) => {
         world(on)
-        on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
-          const { Text } = $.ui.resolve(e)
-          return Text({ children: 'a survey of another mod' })
-        })
+        on('ui.render', { component: 'AbovePrompt', plugin: PLUGIN }, ($, e) =>
+          $.ui.resolve(e).Text({ children: 'a survey of another mod' }),
+        )
+        on('ui.render', { component: 'AbovePrompt' }, ($, e, next) =>
+          'plugin' in e ? next(e) : $.ui.resolve(e).Text({ children: 'a survey of another mod' }),
+        )
         await start($)
         await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
         const ui = await mountBand($, surface)

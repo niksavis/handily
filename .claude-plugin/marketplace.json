@@ -11,7 +11,7 @@
       "name": "handily",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily",
         "ref": "handily--v0.11.0",
         "sha": "f95fae921a62a99dbf0c4415c47a37c5d617fbe0"
@@ -22,7 +22,7 @@
       "name": "handily-board",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-board",
         "ref": "handily-board--v0.24.0",
         "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
@@ -33,7 +33,7 @@
       "name": "handily-filetree",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-filetree",
         "ref": "handily-filetree--v0.14.0",
         "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
@@ -44,7 +44,7 @@
       "name": "handily-item-toasts",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-item-toasts",
         "ref": "handily-item-toasts--v0.8.0",
         "sha": "695ce64b6a4c26736c668bdad9ec407e470623ea"
@@ -55,7 +55,7 @@
       "name": "handily-quiet-items",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-quiet-items",
         "ref": "handily-quiet-items--v0.5.0",
         "sha": "b454f13a3e99eb5e093b59161100397cbca74f15"
@@ -66,7 +66,7 @@
       "name": "handily-reply-view",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-reply-view",
         "ref": "handily-reply-view--v0.25.0",
         "sha": "07b9c3ce5df82ac365ec1bc4971aa12ad9bce408"
@@ -77,7 +77,7 @@
       "name": "handily-simple-view",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-simple-view",
         "ref": "handily-simple-view--v0.11.0",
         "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
@@ -88,7 +88,7 @@
       "name": "handily-tests",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-tests",
         "ref": "handily-tests--v0.2.1",
         "sha": "301ac3baf28eb7f6b76abc5a0315f10898c297a7"
@@ -99,7 +99,7 @@
       "name": "handily-workitems",
       "source": {
         "source": "git-subdir",
-        "url": "niksavis/handily",
+        "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-workitems",
         "ref": "handily-workitems--v0.8.0",
         "sha": "1d51809d2d210c4c52581df85fe2668898a13a61"
