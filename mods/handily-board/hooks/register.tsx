@@ -154,7 +154,7 @@ import {
   withContext,
   withTasks,
 } from './progress'
-import { permissionWait, type PermissionWait } from './waits'
+import { askedQuestion, askWait, type AskWait } from './waits'
 import { type PaneWork, agentsOpener, drawPane } from './pane'
 import {
   PLAN_TOOL,
@@ -1001,7 +1001,12 @@ type PartsKeep = { view: PartsView; isStale: boolean }
 
 type TrendKeep = { current: BoardTrend | undefined }
 
-type WaitingAsk = { agentId: string | undefined; sight: BoardToolSight; since: number }
+type WaitingAsk = {
+  agentId: string | undefined
+  sight: BoardToolSight
+  question: string | null
+  since: number
+}
 
 type AttentionKeep = {
   setting: StatusLineSetting
@@ -1110,14 +1115,14 @@ async function waitOf($: EngineInterface, ask: WaitingAsk): Promise<Wait | undef
   return row === undefined ? undefined : agentWait(row)
 }
 
-async function askWaits($: EngineInterface, attention: AttentionKeep): Promise<PermissionWait[]> {
+async function askWaits($: EngineInterface, attention: AttentionKeep): Promise<AskWait[]> {
   const now = await $.clock.now()
-  const waits: PermissionWait[] = []
+  const waits: AskWait[] = []
   for (const ask of attention.asks.values()) {
     if (now - ask.since < NEEDS_YOU_AFTER_MS) continue
     const wait = await waitOf($, ask)
     if (wait === undefined) continue
-    waits.push(permissionWait(wait.who, ask.sight.tool, ask.sight.target, ask.since))
+    waits.push(askWait(wait.who, { ...ask.sight, question: ask.question }, ask.since))
   }
   return waits.sort((a, b) => a.since - b.since)
 }
@@ -1177,6 +1182,7 @@ async function noteCheck(
   attention.asks.set(callId, {
     agentId,
     sight: { tool: e.tool, target },
+    question: askedQuestion(e.tool, e.input),
     since: await $.clock.now(),
   })
   $.clock.after(NEEDS_YOU_AFTER_MS, () => {

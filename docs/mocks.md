@@ -2957,6 +2957,17 @@ Inbox  3 wait in 2 sessions · read 12s ago
 ◆ lane\u0000a1 decide      Ship\u2066 it\u001b[31m                        6m
 ```
 
+#### 8.16g A question and a plan approval
+
+A session that runs the board publishes an `AskUserQuestion` ask as `question` with the first
+question, and an `ExitPlanMode` ask as `waits` with the tool name:
+
+```text
+Inbox  2 wait in 2 sessions · read 12s ago
+◆ api-login    question    Which date library should we use?              2m
+◆ lane-a1      waits       ExitPlanMode                                  40s
+```
+
 - **Colour.** The mark `◆` and the kind take the `waitsForYou` colour. The name is bold. The age is
   dim.
 - **Buttons.** The fold is the only button. No row answers a permission prompt or a question.

@@ -20,7 +20,13 @@ import {
   type AgentSummary,
   type Progress,
 } from './hooks/progress'
-import { countOf, permissionWait as sharedAsk, WAITS_AT_MOST, type SharedWait } from './hooks/waits'
+import {
+  askWait,
+  countOf,
+  permissionWait as sharedAsk,
+  WAITS_AT_MOST,
+  type SharedWait,
+} from './hooks/waits'
 import type { BoardList, BoardTask, BoardTaskKind } from './types'
 import { displayWidth } from './hooks/width'
 import { MACHINE_AGENTS, MACHINE_NOW, RECORDED_AGENTS, type AgentEntry } from './fixtures/agents'
@@ -1948,6 +1954,58 @@ describe(LISTED_WAIT_CRITERION, () => {
   })
 })
 
+function questionWait(title: string, ageMs: number): SharedWait {
+  return { kind: 'question', title, since: DRAW_AT - ageMs }
+}
+
+const QUESTION_CRITERION =
+  'When an ask of this session is a question or a plan approval, the inbox draws the word question or waits and never permission'
+
+describe(QUESTION_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`a question wait draws the word question with the question, and an ExitPlanMode wait draws waits, on ${surface}`, async ($, on) => {
+      await machineWith(
+        $,
+        on,
+        surface,
+        { ...API_PROGRESS, waits: [questionWait('Which date library should we use?', 2 * MINUTE)] },
+        {
+          ...LANE_PROGRESS,
+          waits: [{ kind: 'waits', title: 'ExitPlanMode', since: DRAW_AT - 40 * SECOND }],
+        },
+      )
+      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
+        'Inbox  2 wait in 2 sessions · read 12s ago',
+        '◆ api-login    question    Which date library should we use?              2m',
+        '◆ lane-a1      waits       ExitPlanMode                                  40s',
+      ])
+      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
+        'Inbox  2 wait · 2 sessions · 12s',
+        '◆ api-login question                   2m',
+        '  Which date library should we use?',
+        '◆ lane-a1 waits                       40s',
+        '  ExitPlanMode',
+      ])
+    })
+  }
+
+  test('a question hidden by the fold counts as question', async ($, on) => {
+    await machineWith(
+      $,
+      on,
+      'terminal',
+      { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
+      {
+        ...LANE_PROGRESS,
+        waits: [...OVERFLOW_WAITS.lane.slice(0, 2), questionWait('Which region?', 10 * SECOND)],
+      },
+    )
+    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76)).at(-1)).toBe(
+      '[ +1 more · 1 question ]',
+    )
+  })
+})
+
 const ABSENT_CRITERION =
   'When a session is absent from claude agents, the inbox draws no row for it, even when its store key still holds waits'
 
@@ -2278,6 +2336,49 @@ describe(KEY_WAITS_CRITERION, () => {
     const answered = withTasks(both, listOf(), NOW)
     expect(answered.waits).toEqual([ask])
     expect(withAsks(answered, [], listOf(), NOW).waits).toEqual([])
+  })
+
+  test('a task change keeps the question and waits asks, and their counts over the limit', () => {
+    const question = askWait(
+      'Claude',
+      { tool: 'AskUserQuestion', target: null, question: 'Which date library?' },
+      NOW - SECOND,
+    )
+    const plan = askWait(
+      'Claude',
+      { tool: 'ExitPlanMode', target: null, question: null },
+      NOW - SECOND,
+    )
+    const bash = askWait(
+      'Claude',
+      { tool: 'Bash', target: 'npm test', question: 'not a question' },
+      NOW - SECOND,
+    )
+    expect([question, plan, bash]).toEqual([
+      { kind: 'question', title: 'Which date library?', since: NOW - SECOND },
+      { kind: 'waits', title: 'ExitPlanMode', since: NOW - SECOND },
+      {
+        kind: 'permission',
+        agent: 'Claude',
+        tool: 'Bash',
+        target: 'npm test',
+        since: NOW - SECOND,
+      },
+    ])
+    const asked = listOf(personTask(1, 'decide', 'Release it?'))
+    const both = withAsks(progressOf(OWN_ID, {}), [question, plan], asked, NOW)
+    expect(both.waits).toEqual([
+      question,
+      plan,
+      { kind: 'decide', title: 'Release it?', since: NOW - MINUTE },
+    ])
+    expect(withTasks(both, listOf(), NOW).waits).toEqual([question, plan])
+    const many = withAsks(progressOf(OWN_ID, {}), Array(6).fill(question), listOf(), NOW)
+    expect(many.waitsMore).toEqual({ question: 1 })
+    const changed = withTasks(many, asked, NOW)
+    expect(changed.waits).toEqual(Array(5).fill(question))
+    expect(changed.waitsMore).toEqual({ question: 1, decide: 1 })
+    expect(readProgress(JSON.parse(JSON.stringify(changed)))).toEqual(changed)
   })
 
   test('a key with no wait list reads as no waits, and a bad wait drops the key', () => {

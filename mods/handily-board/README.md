@@ -1207,14 +1207,16 @@ Inbox  3 wait · 2 sessions · 12s
 - A row is the session name, the kind, the detail and the age. The name comes from
   `claude agents`. A session with no name shows the last folder of its path.
 
-  | Kind                       | Source                                                                  | Detail                                    |
-  | -------------------------- | ----------------------------------------------------------------------- | ----------------------------------------- |
-  | `permission`               | a permission ask of that session with no decision after 3 seconds       | the agent, the tool and the masked target |
-  | `decide`, `answer` or `do` | an open task for you in that session                                    | the task title                            |
-  | `waits`                    | a session that needs you in `claude agents` and publishes no board wait | the `waitingFor` text, or `an answer`     |
+  | Kind                       | Source                                                                  | Detail                                       |
+  | -------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+  | `permission`               | a permission ask of that session with no decision after 3 seconds       | the agent, the tool and the masked target    |
+  | `question`                 | an `AskUserQuestion` ask of that session with no answer after 3 seconds | the first question, masked, or the tool name |
+  | `waits`                    | an `ExitPlanMode` ask of that session with no decision after 3 seconds  | `ExitPlanMode`                               |
+  | `decide`, `answer` or `do` | an open task for you in that session                                    | the task title                               |
+  | `waits`                    | a session that needs you in `claude agents` and publishes no board wait | the `waitingFor` text, or `an answer`        |
 
-- The rows sort by kind: `permission`, `waits`, `decide`, `answer`, then `do`. Inside a kind, the
-  oldest wait comes first.
+- The rows sort by kind: `permission`, `question`, `waits`, `decide`, `answer`, then `do`.
+  Inside a kind, the oldest wait comes first.
 - The Inbox shows at most 5 rows. A fold button counts the rest by kind, such as
   `+3 more · 1 decide · 2 do`. Pressed, it shows all rows and becomes `hide N more`. Waits that
   the other session could not keep in its store key show as `N more over the store limit`.
@@ -1237,8 +1239,11 @@ Inbox  3 wait · 2 sessions · 12s
 
 What the Inbox cannot show:
 
-- **A plan approval and a tool permission look the same.** `claude agents` gives
-  `permission prompt` for both, so the row reads `waits` and `permission prompt` for both.
+- **A plan approval and a tool permission of a session with no board wait look the same.**
+  `claude agents` gives `permission prompt` for both, so such a row reads `waits` and
+  `permission prompt` for both. A session that runs the board publishes its own asks: a tool
+  permission reads `permission`, a question reads `question`, and a plan approval reads `waits`
+  with `ExitPlanMode`. The input of `ExitPlanMode` holds no plan, so the row does not say `plan`.
 - **A session that ended shows until the next poll that answers.** Its key stays in the store,
   but the Inbox draws only the sessions that `claude agents` lists. The rows of an ended session
   stay until the next poll, at most 15 seconds later while the tab shows. While the poll fails,
@@ -1268,11 +1273,12 @@ What the Inbox cannot show:
   and total counts and whether the agent failed. The board writes it when a subagent task list
   changes, when an agent starts and when an agent turn ends. The name keeps 40 characters and
   the task 80.
-- The key also lists the waits of the session, at most 5: each permission ask with no decision
-  after 3 seconds (the agent name, the tool, the masked target and the time of the ask), then the
-  open tasks for you. It counts the rest by kind. The decision, a forgotten ask, the end of the
-  agent turn and `/clear` remove a permission wait. The agent name and the tool keep 40
-  characters, and the target and the title 80.
+- The key also lists the waits of the session, at most 5: each ask with no decision after 3
+  seconds, then the open tasks for you. A permission ask keeps the agent name, the tool, the
+  masked target and the time of the ask. An `AskUserQuestion` ask keeps the first question,
+  masked, and an `ExitPlanMode` ask keeps the tool name. It counts the rest by kind. The
+  decision, a forgotten ask, the end of the agent turn and `/clear` remove the wait of an ask.
+  The agent name and the tool keep 40 characters, and the target and the title 80.
 - The key also keeps the context percent and the cost from the engine event `session.measure`.
   The board writes them when the rounded percent or the cost in cents changes, and at each
   session start. A key from an earlier version without them reads as no context.

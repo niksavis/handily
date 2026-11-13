@@ -33,6 +33,7 @@ import type { AgentSummary, SharedContext } from './progress'
 import { SIGNALS, type Signal, type SignalLook, type SignalLooks, needsYouText } from './signals'
 import { escaped, statusLook } from './tasks'
 import { dollars, highText } from './vitals'
+import { WAIT_KINDS } from './waits'
 import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './width'
 
 export type MachineElements = {
@@ -83,7 +84,6 @@ const INBOX_NARROW_NAME_AT_LEAST = 5
 const INBOX_KIND_WIDTH = 12
 const INBOX_DETAIL_INDENT = 2
 const INBOX_FOLD = 'machine:inbox'
-const INBOX_FOLD_KINDS: readonly InboxKind[] = ['permission', 'waits', 'decide', 'answer', 'do']
 
 const ATTENTION_SIGNALS: Record<Attention, Signal> = {
   needsYou: 'waitsForYou',
@@ -795,7 +795,7 @@ function foldCounts(hidden: readonly InboxRow[], view: InboxRows): Map<InboxKind
   const counts = new Map<InboxKind, number>()
   for (const row of hidden) counts.set(row.kind, (counts.get(row.kind) ?? 0) + row.count)
   for (const [kind, count] of Object.entries(view.notKept)) {
-    const known = INBOX_FOLD_KINDS.find((one) => one === kind)
+    const known = WAIT_KINDS.find((one) => one === kind)
     if (known !== undefined) counts.set(known, (counts.get(known) ?? 0) + count)
   }
   return counts
@@ -804,7 +804,7 @@ function foldCounts(hidden: readonly InboxRow[], view: InboxRows): Map<InboxKind
 function inboxFoldText(hidden: readonly InboxRow[], view: InboxRows): string {
   const counts = foldCounts(hidden, view)
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0)
-  const kinds = INBOX_FOLD_KINDS.flatMap((kind) => {
+  const kinds = WAIT_KINDS.flatMap((kind) => {
     const count = counts.get(kind) ?? 0
     return count > 0 ? [`${String(count)} ${kind}`] : []
   })

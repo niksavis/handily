@@ -1385,9 +1385,11 @@ this repository.
 
 Known limits:
 
-- **A plan approval and a tool permission look the same.** `claude agents --json` gives
-  `waitingFor` `permission prompt` for both (probe handily-gmvyf3). The row reads `waits` and the
-  raw text, and never names a plan.
+- **A plan approval and a tool permission look the same in `claude agents`.** `claude agents
+  --json` gives `waitingFor` `permission prompt` for both (probe handily-gmvyf3). A row from it
+  reads `waits` and the raw text, and never names a plan. A board wait tells them apart by the
+  tool: `AskUserQuestion` publishes `question`, and `ExitPlanMode` publishes `waits` with the
+  tool name, because its input holds no plan that proves a plan approval.
 - **A session that ended shows until the next poll.** A session that ends leaves `claude agents`
   at once, and its store key stays. The Inbox draws only the sessions of the last poll, so the
   rows of an ended session stay until the next poll answers, at most 15 seconds later while the
@@ -1405,6 +1407,8 @@ The sources:
 | Row | Source |
 | --- | --- |
 | `permission` | the store key `session:<session id>` of that session: a `tool.check` ask with no decision after `NEEDS_YOU_AFTER_MS` (3 s), with the agent name, the tool, the masked target and the time of the ask |
+| `question` | the same key: an ask of `AskUserQuestion` after 3 s, with the first line of the first question, masked, or the tool name, by `askWait` in `hooks/waits.ts` |
+| `waits` with `ExitPlanMode` | the same key: an ask of `ExitPlanMode` after 3 s, by the same `askWait` |
 | `decide`, `answer`, `do` | the same key: the open tasks for the person, after the permission waits |
 | `waits` | `claude agents --json`: the `waitingFor` text of a session that needs the person and has no wait in its key, or `an answer` with no text, by `waitsForOf` in `hooks/cards.ts`, the rule of the card |
 | `waits` with `N tasks for you` | a key from an earlier version that has `openForYou` and no wait list |
@@ -1417,9 +1421,9 @@ The sources:
   `waitsMore`. The agent name and the tool keep `WAIT_NAME_AT_MOST` (40) characters, and the
   target and a title `WAIT_TEXT_AT_MOST` (80). A key over 4096 bytes sheds waits into the count
   before the board refuses it. The decision, a forgotten ask, the end of the agent turn and
-  `/clear` remove a permission wait.
-- **The order.** `permission`, `waits`, `decide`, `answer`, then `do`. Inside a kind, the oldest
-  first.
+  `/clear` remove the wait of an ask.
+- **The order.** `permission`, `question`, `waits`, `decide`, `answer`, then `do`, the order of
+  `WAIT_KINDS` in `hooks/waits.ts`. Inside a kind, the oldest first.
 - **The fold.** The Inbox draws at most `INBOX_ROWS_AT_MOST` (5) rows. The fold button
   `machine:inbox` counts the rest by kind, with the waits that the keys counted in `waitsMore`.
   It is the only button of the Inbox. No row answers a permission prompt or a question, because a

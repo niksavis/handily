@@ -1,11 +1,18 @@
 import { lastSegment, type AgentsCache, type SessionRow } from './agents-json'
 import { isOldBackground, STALE_DATA_AFTER_MS, waitsForOf } from './cards'
 import { isOlderThanStart, type Progress } from './progress'
-import { counted, countOf, type SharedWait, type WaitCounts, type WaitKind } from './waits'
+import {
+  counted,
+  countOf,
+  WAIT_KINDS,
+  type SharedWait,
+  type WaitCounts,
+  type WaitKind,
+} from './waits'
 
 export const INBOX_ROWS_AT_MOST = 5
 
-export type InboxKind = WaitKind | 'waits'
+export type InboxKind = WaitKind
 
 export type InboxDetail =
   | { kind: 'call'; agent: string; tool: string; target: string | null }
@@ -41,8 +48,6 @@ export type InboxData = {
   cache: AgentsCache | undefined
   progress: readonly Progress[] | null
 }
-
-const KIND_ORDER: readonly InboxKind[] = ['permission', 'waits', 'decide', 'answer', 'do']
 
 function sessionName(row: SessionRow): string {
   return row.givenName ?? lastSegment(row.cwd)
@@ -135,7 +140,7 @@ function sessionWaits(
 }
 
 function kindRank(row: InboxRow): number {
-  return KIND_ORDER.indexOf(row.kind)
+  return WAIT_KINDS.indexOf(row.kind)
 }
 
 function byKindThenAge(a: InboxRow, b: InboxRow): number {

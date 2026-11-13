@@ -1693,15 +1693,18 @@ type Dialog = {
   callOf: (asked: string) => string
 }
 
-function askedOf(input: unknown): string | undefined {
-  if (!isRecord(input)) return undefined
+function askedOf(input: unknown, tool: string): string {
+  if (!isRecord(input)) return tool
   const asked = [input.command, input.file_path].find((value) => typeof value === 'string')
-  return typeof asked === 'string' ? asked : undefined
+  return typeof asked === 'string' ? asked : tool
 }
 
-function verdictOf(verdicts: Readonly<Record<string, Verdict>>, input: unknown): Verdict {
-  const asked = askedOf(input)
-  return asked === undefined ? 'allow' : (verdicts[asked] ?? 'allow')
+function verdictOf(
+  verdicts: Readonly<Record<string, Verdict>>,
+  input: unknown,
+  tool: string,
+): Verdict {
+  return verdicts[askedOf(input, tool)] ?? 'allow'
 }
 
 type Settling = { decision: 'accept' | 'reject'; source: string; mode: 'default' | 'auto' }
@@ -1745,9 +1748,9 @@ function personDialog(on: On, verdicts: Readonly<Record<string, Verdict>>): Dial
   const calls = new Map<string, string>()
   let opened = 0
   on('tool.check', (_$, e) => {
-    const decision = verdictOf(verdicts, e.input)
+    const decision = verdictOf(verdicts, e.input, e.tool)
     if (decision === 'ask' && e.tool_use_id !== undefined) {
-      calls.set(askedOf(e.input) ?? '', e.tool_use_id)
+      calls.set(askedOf(e.input, e.tool), e.tool_use_id)
     }
     return { decision }
   })
@@ -1779,7 +1782,7 @@ function personDialog(on: On, verdicts: Readonly<Record<string, Verdict>>): Dial
 }
 
 function classifier(on: On, verdicts: Readonly<Record<string, Verdict>>): void {
-  on('tool.check', (_$, e) => ({ decision: verdictOf(verdicts, e.input) }))
+  on('tool.check', (_$, e) => ({ decision: verdictOf(verdicts, e.input, e.tool) }))
   on('classic.PermissionRequest', () => decisionOf('allow'))
 }
 
@@ -2498,6 +2501,102 @@ describe(PUBLISH_CRITERION, () => {
       },
     )
   }
+
+  for (const surface of SURFACES) {
+    test(
+      `an AskUserQuestion ask writes a question wait with the first question, masked, and the answer removes it, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const store = keptStore(on)
+        const dialog = personDialog(on, { AskUserQuestion: 'ask' })
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        const askedAt = seen.clock.now()
+        const call = $.tool.call({
+          tool: 'AskUserQuestion',
+          questions: [
+            {
+              question: 'Deploy with --token abc123secret now?\nThe release waits.',
+              header: 'Deploy',
+              options: [
+                { label: 'Yes', description: 'Deploy now' },
+                { label: 'No', description: 'Wait' },
+              ],
+              multiSelect: false,
+            },
+            {
+              question: 'Which region?',
+              header: 'Region',
+              options: [
+                { label: 'eu', description: 'Europe' },
+                { label: 'us', description: 'America' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([
+          { kind: 'question', title: 'Deploy with --token *** now?', since: askedAt },
+        ])
+        await settles($, dialog, 'AskUserQuestion', PERSON_ALLOWS)
+        await call
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([])
+      },
+    )
+
+    test(
+      `an ExitPlanMode ask writes a waits wait with the tool name and never the kind permission, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const store = keptStore(on)
+        const dialog = personDialog(on, { ExitPlanMode: 'ask' })
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        const askedAt = seen.clock.now()
+        const call = $.tool.call({ tool: 'ExitPlanMode' })
+        await dialog.opened(1)
+        await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([{ kind: 'waits', title: 'ExitPlanMode', since: askedAt }])
+        await settles($, dialog, 'ExitPlanMode', PERSON_REFUSES)
+        await call
+        await seen.clock.settle()
+        expect(keptWaits(store)).toEqual([])
+      },
+    )
+  }
+
+  test(
+    'a subagent AskUserQuestion ask with no question text writes a question wait with the tool name',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      const store = keptStore(on)
+      const dialog = personDialog(on, { AskUserQuestion: 'ask' })
+      await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+      await spawn($, SCOUT, 'general-purpose', 'scout the hooks', { name: 'scout' })
+      seen.agents.push(
+        listed(SCOUT, 'general-purpose', 'running', {
+          name: 'scout',
+          description: 'scout the hooks',
+        }),
+      )
+      const askedAt = seen.clock.now()
+      const call = $.tool.call(inLoop({ tool: 'AskUserQuestion', questions: [] }, SCOUT))
+      await dialog.opened(1)
+      await seen.clock.advance(NEEDS_YOU_AFTER_MS)
+      await seen.clock.settle()
+      expect(keptWaits(store)).toEqual([
+        { kind: 'question', title: 'AskUserQuestion', since: askedAt },
+      ])
+      await settles($, dialog, 'AskUserQuestion', PERSON_ALLOWS)
+      await call
+    },
+  )
 
   test('an ask decided before 3 s writes no wait', withWorkitems, async ($, on) => {
     const seen = world(on)

@@ -7,7 +7,7 @@ import {
   waitsOfAsks,
   waitsOfTasks,
   withoutLastWait,
-  type PermissionWait,
+  type AskWait,
   type SharedWaits,
   type SharedWait,
   type WaitCounts,
@@ -236,7 +236,7 @@ export function listSummary(all: BoardList): ListSummary {
 
 export function withAsks(
   progress: Progress,
-  asks: readonly PermissionWait[],
+  asks: readonly AskWait[],
   all: BoardList,
   now: number,
 ): Progress {

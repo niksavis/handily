@@ -1,14 +1,31 @@
 import type { BoardList, BoardTask, BoardTaskKind } from '../types'
+import { maskedCredentials } from './credentials'
 import { openForPerson } from './for-you'
+import { PLAN_TOOL } from './plan'
 import { cutToWidth } from './width'
 
 export const WAITS_AT_MOST = 5
 export const WAIT_NAME_AT_MOST = 40
 export const WAIT_TEXT_AT_MOST = 80
 
-export type WaitKind = 'permission' | BoardTaskKind
+export const QUESTION_TOOL = 'AskUserQuestion'
 
-export const WAIT_KINDS: readonly WaitKind[] = ['permission', 'decide', 'answer', 'do']
+type TextAskKind = 'question' | 'waits'
+
+export type AskKind = 'permission' | TextAskKind
+
+export type WaitKind = AskKind | BoardTaskKind
+
+export const WAIT_KINDS: readonly WaitKind[] = [
+  'permission',
+  'question',
+  'waits',
+  'decide',
+  'answer',
+  'do',
+]
+
+const ASK_KINDS: readonly AskKind[] = ['permission', 'question', 'waits']
 
 export type PermissionWait = {
   kind: 'permission'
@@ -18,9 +35,15 @@ export type PermissionWait = {
   since: number
 }
 
+export type TextAskWait = { kind: TextAskKind; title: string; since: number }
+
+export type AskWait = PermissionWait | TextAskWait
+
 export type TaskWait = { kind: BoardTaskKind; title: string; since: number | null }
 
-export type SharedWait = PermissionWait | TaskWait
+export type SharedWait = AskWait | TaskWait
+
+export type AskedCall = { tool: string; target: string | null; question: string | null }
 
 export type WaitCounts = Partial<Record<WaitKind, number>>
 
@@ -38,6 +61,10 @@ function shortText(text: string, columns: number): string {
 
 function isWaitKind(value: unknown): value is WaitKind {
   return WAIT_KINDS.some((kind) => kind === value)
+}
+
+function isTextAskKind(kind: WaitKind): kind is TextAskKind {
+  return kind === 'question' || kind === 'waits'
 }
 
 function isCount(value: unknown): value is number {
@@ -59,6 +86,24 @@ export function permissionWait(
   }
 }
 
+function textAsk(kind: TextAskKind, title: string, since: number): TextAskWait {
+  return { kind, title: shortText(title, WAIT_TEXT_AT_MOST), since }
+}
+
+export function askedQuestion(tool: string, input: unknown): string | null {
+  if (tool !== QUESTION_TOOL || !isRecord(input) || !Array.isArray(input.questions)) return null
+  const first: unknown = input.questions[0]
+  if (!isRecord(first) || typeof first.question !== 'string') return null
+  const line = first.question.split(/\r?\n/, 1)[0]?.trim() ?? ''
+  return line === '' ? null : maskedCredentials(line)
+}
+
+export function askWait(agent: string, call: AskedCall, since: number): AskWait {
+  if (call.tool === QUESTION_TOOL) return textAsk('question', call.question ?? call.tool, since)
+  if (call.tool === PLAN_TOOL) return textAsk('waits', call.tool, since)
+  return permissionWait(agent, call.tool, call.target, since)
+}
+
 function taskWait(task: BoardTask): TaskWait {
   return {
     kind: task.kind ?? 'do',
@@ -77,27 +122,31 @@ export function countOf(counts: WaitCounts): number {
 }
 
 function sharedWaits(
-  asks: readonly PermissionWait[],
-  asksNotKept: number,
+  asks: readonly AskWait[],
+  asksNotKept: WaitCounts,
   list: BoardList,
 ): SharedWaits {
   const all: SharedWait[] = [...asks, ...openForPerson(list).map(taskWait)]
-  const rest = all
+  const waitsMore = all
     .slice(WAITS_AT_MOST)
-    .reduce<WaitCounts>((counts, wait) => counted(counts, wait.kind, 1), {})
-  return { waits: all.slice(0, WAITS_AT_MOST), waitsMore: counted(rest, 'permission', asksNotKept) }
+    .reduce<WaitCounts>((counts, wait) => counted(counts, wait.kind, 1), asksNotKept)
+  return { waits: all.slice(0, WAITS_AT_MOST), waitsMore }
 }
 
-export function isPermission(wait: SharedWait): wait is PermissionWait {
-  return wait.kind === 'permission'
+function isAsk(wait: SharedWait): wait is AskWait {
+  return ASK_KINDS.some((kind) => kind === wait.kind)
 }
 
-export function waitsOfAsks(asks: readonly PermissionWait[], list: BoardList): SharedWaits {
-  return sharedWaits(asks, 0, list)
+function askCounts(counts: WaitCounts): WaitCounts {
+  return ASK_KINDS.reduce<WaitCounts>((kept, kind) => counted(kept, kind, counts[kind] ?? 0), {})
+}
+
+export function waitsOfAsks(asks: readonly AskWait[], list: BoardList): SharedWaits {
+  return sharedWaits(asks, {}, list)
 }
 
 export function waitsOfTasks(shared: SharedWaits, list: BoardList): SharedWaits {
-  return sharedWaits(shared.waits.filter(isPermission), shared.waitsMore.permission ?? 0, list)
+  return sharedWaits(shared.waits.filter(isAsk), askCounts(shared.waitsMore), list)
 }
 
 export function withoutLastWait(shared: SharedWaits): SharedWaits | null {
@@ -116,10 +165,12 @@ function readPermission(value: Record<string, unknown>): PermissionWait | null {
 
 function readWait(value: unknown): SharedWait | null {
   if (!isRecord(value) || !isWaitKind(value.kind)) return null
-  if (value.kind === 'permission') return readPermission(value)
-  const { title, since } = value
-  if (typeof title !== 'string' || (since !== null && typeof since !== 'number')) return null
-  return { kind: value.kind, title, since }
+  const { kind, title, since } = value
+  if (kind === 'permission') return readPermission(value)
+  if (typeof title !== 'string') return null
+  if (isTextAskKind(kind)) return typeof since === 'number' ? { kind, title, since } : null
+  if (since !== null && typeof since !== 'number') return null
+  return { kind, title, since }
 }
 
 function readCounts(value: unknown): WaitCounts | null {
