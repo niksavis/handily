@@ -1153,8 +1153,8 @@ The band (handily-9uj3n.9):
   `next(e)`. Only an engine
   element (`{ type: 'engine' }`) beneath gets the board's line. Any other drawing beneath is
   returned unchanged, so the board never covers another band mod. On 2.1.323 a drawing beneath
-  the board comes only from a hook that names `plugin: 'handily-board'`, and the band of another
-  mod draws in its own row of the same band. The yield test registers its drawing
+  the board comes from a hook that names `plugin: 'handily-board'` or `plugin: '*'`, and the
+  band of another mod draws in its own row of the same band. The yield test registers its drawing
   both ways, so it sits beneath the board on 2.1.322 and on 2.1.323 (handily-fuqm8v).
 - A call of a plugin on its own `$.ui.open` or `$.ui.close` runs only the hooks beneath it, so
   the board never sees its own opens. The board counts each open and close of its panes in the

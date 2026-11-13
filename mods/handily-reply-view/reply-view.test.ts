@@ -5567,7 +5567,10 @@ function railLines(value: unknown, isStyled = false): string[] {
   )
 }
 
-function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPropsOf['Pane'] {
+function paneProps(
+  placement: RenderPropsOf['Pane']['placement'],
+  bodyColumns: number,
+): RenderPropsOf['Pane'] {
   return {
     title: PROMPTS_PANE,
     isFocused: false,
@@ -5581,7 +5584,7 @@ function paneProps(placement: 'dock' | 'inline', bodyColumns: number): RenderPro
 async function mountRail(
   $: Engine,
   surface: Surface,
-  placement: 'dock' | 'inline',
+  placement: RenderPropsOf['Pane']['placement'],
   columns: number,
 ) {
   return $.ui.mount({
@@ -6088,6 +6091,18 @@ describe('prompt rail: the prompts tab rows and widths', () => {
       expect(world.toasts.at(-1)?.lines).toEqual(['✓ Copied the prompt', '2 lines'])
       await ui.unmount()
     })
+
+    railTest(
+      'a pane in the widget placement draws the header line alone',
+      surface,
+      async (_world, $, clock) => {
+        await playScenes($, clock, MOCK_A_SCENES)
+        const ui = await mountRail($, surface, 'widget', 41)
+        expect(railLines(await ui.drawn())).toEqual(['Prompts  12 · at 12 · since 10:02'])
+        expect(await ui.find({ type: 'Button' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
 
     for (const { placement, columns } of RAIL_WIDTHS) {
       railTest(
