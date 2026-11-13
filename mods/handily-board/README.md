@@ -1085,12 +1085,16 @@ Agents  6 · no open task                                          [ board ]
 
 ## The this machine tab
 
-The tab shows a card for each Claude Code session on this machine:
+The tab shows the Inbox and a card for each Claude Code session on this machine. A capture from
+the tests, docked at 41 columns:
 
 ```text
+Inbox  1 wait · 1 session · 12s
+◆ api-login waits                       —
+  permission prompt
 Sessions  4 · 1 needs you · 12s ago
 ◆ api-login  interactive  needs you
-  waits for: permission
+  waits for: permission prompt
   ▶ Fix the login redirect ▰▰▱ 2/3
   api · feat/login · 2h worked
 ─────────────────────────────────────────
@@ -1175,6 +1179,80 @@ Sessions  4 · 1 needs you · 12s ago
   first 4 and last 4 characters. The agents of another session fold into one `N agents` button
   under the row. Pressed, it shows the agent rows and becomes `hide N agents`.
 
+### The Inbox
+
+The Inbox at the top of the tab lists what waits for you in the other sessions of this machine. A
+capture from the tests, inline at 76 columns:
+
+```text
+Inbox  3 wait in 2 sessions · read 12s ago
+◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m
+◆ lane-a1      permission  scout: Edit hooks/band.ts                     40s
+◆ lane-a1      decide      Release handily-board 0.23.0?                  6m
+```
+
+Below 60 columns, the detail goes on a second line. When a row does not fit, the session name
+shortens and the age stays whole. The same waits, docked at 41 columns:
+
+```text
+Inbox  3 wait · 2 sessions · 12s
+◆ api-login permission                 2m
+  Claude: Bash npm test --workspace mods…
+◆ lane-a1 permission                  40s
+  scout: Edit hooks/band.ts
+◆ lane-a1 decide                       6m
+  Release handily-board 0.23.0?
+```
+
+- A row is the session name, the kind, the detail and the age. The name comes from
+  `claude agents`. A session with no name shows the last folder of its path.
+
+  | Kind                       | Source                                                                  | Detail                                    |
+  | -------------------------- | ----------------------------------------------------------------------- | ----------------------------------------- |
+  | `permission`               | a permission ask of that session with no decision after 3 seconds       | the agent, the tool and the masked target |
+  | `decide`, `answer` or `do` | an open task for you in that session                                    | the task title                            |
+  | `waits`                    | a session that needs you in `claude agents` and publishes no board wait | the `waitingFor` text, or `an answer`     |
+
+- The rows sort by kind: `permission`, `waits`, `decide`, `answer`, then `do`. Inside a kind, the
+  oldest wait comes first.
+- The Inbox shows at most 5 rows. A fold button counts the rest by kind, such as
+  `+3 more · 1 decide · 2 do`. Pressed, it shows all rows and becomes `hide N more`. Waits that
+  the other session could not keep in its store key show as `N more over the store limit`.
+- The fold is the only button. No row answers a permission prompt or a question. Go to that
+  session to answer it.
+- When nothing waits, the head reads `nothing waits`, the count of the other sessions and the
+  age of the list, such as `Inbox  nothing waits · 3 sessions · read 12s ago`. When the head does
+  not fit, the age drops first.
+- The board escapes each control and bidi character in a name, a target, a title or a
+  `waitingFor` text, because another session wrote that text.
+- The Inbox shows other sessions only, never this session. The desktop app shows no Inbox,
+  because it lists no other session.
+
+| State                                         | The Inbox head shows                                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| The first poll has not answered               | `reading the other sessions…`                                                                         |
+| `claude agents` failed with no list           | `could not read the other sessions`                                                                   |
+| The store cannot be read                      | `could not read the other sessions; the debug log names why`, and the `waits` rows of `claude agents` |
+| A poll failed over 30 s after the last answer | the rows, with `last report 2m` in place of each age                                                  |
+
+What the Inbox cannot show:
+
+- **A plan approval and a tool permission look the same.** `claude agents` gives
+  `permission prompt` for both, so the row reads `waits` and `permission prompt` for both.
+- **A session that ended shows until the next poll that answers.** Its key stays in the store,
+  but the Inbox draws only the sessions that `claude agents` lists. The rows of an ended session
+  stay until the next poll, at most 15 seconds later while the tab shows. While the poll fails,
+  the rows stay with the age of the last report, such as `last report 2m`, until a poll answers.
+- **A session first seen while it waits has no age.** The `waits` row shows `—`, because the
+  poll did not see the wait begin.
+- **A session that loads the board from another source shares no store.** A session started with
+  `--plugin-dir` and an installed session each have their own store. Each sees the other only as
+  a `waits` row from `claude agents`, with no permission detail.
+- **The Inbox does not say why a session ended.** `claude agents` stops listing an ended session
+  and gives no reason.
+- **A background job whose state has not changed for over 24 hours shows no `an answer` row.**
+  Its card is hidden, so the Inbox draws it only with a wait in its key or a `waitingFor` text.
+
 ### Where the data comes from
 
 - `claude agents --json --all`, every 15 seconds, only while the tab is shown. The mod keeps the
@@ -1189,6 +1267,11 @@ Sessions  4 · 1 needs you · 12s ago
   and total counts and whether the agent failed. The board writes it when a subagent task list
   changes, when an agent starts and when an agent turn ends. The name keeps 40 characters and
   the task 80.
+- The key also lists the waits of the session, at most 5: each permission ask with no decision
+  after 3 seconds (the agent name, the tool, the masked target and the time of the ask), then the
+  open tasks for you. It counts the rest by kind. The decision, a forgotten ask, the end of the
+  agent turn and `/clear` remove a permission wait. The agent name and the tool keep 40
+  characters, and the target and the title 80.
 - The key also keeps the context percent and the cost from the engine event `session.measure`.
   The board writes them when the rounded percent or the cost in cents changes, and at each
   session start. A key from an earlier version without them reads as no context.
