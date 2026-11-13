@@ -109,6 +109,10 @@ function isRowWaiting(row: SessionRow): boolean {
   return row.waitingFor !== null || NEEDS_YOU_WORDS.has(row.word)
 }
 
+export function waitsForOf(row: SessionRow): string | null {
+  return isRowWaiting(row) ? (row.waitingFor ?? UNKNOWN_WAIT) : null
+}
+
 function needsYou(isWaiting: boolean, openForYou: number): boolean {
   return isWaiting || openForYou > 0
 }
@@ -122,8 +126,7 @@ export function attentionOf(row: SessionRow, openForYou: number): Attention {
 
 function rowState(row: SessionRow, attention: Attention) {
   if (attention !== 'needsYou') return { state: row.word, waitsFor: null }
-  const waitsFor = isRowWaiting(row) ? (row.waitingFor ?? UNKNOWN_WAIT) : null
-  return { state: NEEDS_YOU_STATE, waitsFor }
+  return { state: NEEDS_YOU_STATE, waitsFor: waitsForOf(row) }
 }
 
 function unlistedAttention(isWorking: boolean, openForYou: number): Attention {

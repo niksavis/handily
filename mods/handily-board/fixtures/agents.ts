@@ -80,7 +80,7 @@ export const MACHINE_AGENTS: readonly AgentEntry[] = [
     sessionId: '00000000-0000-4000-8000-00000000000c',
     name: 'api-login',
     status: 'waiting',
-    waitingFor: 'permission',
+    waitingFor: 'permission prompt',
   },
   {
     id: '0000b009',

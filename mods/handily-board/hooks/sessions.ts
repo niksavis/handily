@@ -11,6 +11,7 @@ import {
 } from './agents-json'
 import type { OpenPane } from './board'
 import { desktopView, machineView, type MachineView } from './cards'
+import { inboxView, type InboxView } from './inbox'
 import {
   emptyProgress,
   isExpired,
@@ -161,7 +162,16 @@ export async function removeExpiredKeys(host: SessionsHost): Promise<void> {
   }
 }
 
-export type MachineRead = { view: MachineView; now: number }
+export type MachineRead = { view: MachineView; inbox: InboxView | null; now: number }
+
+async function readOtherProgress(host: SessionsHost): Promise<Progress[] | null> {
+  try {
+    return await readAllProgress(host)
+  } catch (error) {
+    host.debug(`handily-board: the other sessions were not read: ${String(error)}`)
+    return null
+  }
+}
 
 export async function readMachine(host: SessionsHost, machine: Machine): Promise<MachineRead> {
   const now = await host.now()
@@ -174,10 +184,15 @@ export async function readMachine(host: SessionsHost, machine: Machine): Promise
     agents: await host.agents(),
   }
   if (!(await canListSessions(host))) {
-    return { view: desktopView({ now, own, cache: undefined, progress: [] }), now }
+    return { view: desktopView({ now, own, cache: undefined, progress: [] }), inbox: null, now }
   }
   startPolling(host, machine)
   const cache = readCache(await host.storeGet(AGENTS_CACHE_KEY))
   if (!isFresh(cache, now)) host.after(0, pollTick(host, machine))
-  return { view: machineView({ now, own, cache, progress: await readAllProgress(host) }), now }
+  const progress = await readOtherProgress(host)
+  return {
+    view: machineView({ now, own, cache, progress: progress ?? [] }),
+    inbox: inboxView({ now, ownSessionId: sessionId, cache, progress }),
+    now,
+  }
 }

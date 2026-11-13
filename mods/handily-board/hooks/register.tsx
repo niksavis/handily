@@ -2289,7 +2289,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const host = hostOf($)
     const expanded = new Set(await host.expanded())
-    const { view, now } = await readMachine(sessionsHost($), machine)
+    const { view, inbox, now } = await readMachine(sessionsHost($), machine)
     startRedraw($, redraw, attention)
     const { bodyColumns, placement } = e.props
     const toggle = (key: string) => {
@@ -2311,6 +2311,6 @@ export const register: Register = (on, options) => {
       toggle,
       signals: await drawnSignals($, e.surface),
     }
-    return drawMachine(elements, view, now)
+    return drawMachine(elements, view, now, inbox)
   })
 }
