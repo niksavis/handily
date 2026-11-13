@@ -2119,6 +2119,7 @@ const PERSON_REJECTED_ANSWER_ON_2_1_323 = erroredWith(
 const PERSON_REJECTED_TOOLS = [
   ...DENIED_FILE_CALLS,
   { tool: 'Grep', input: { pattern: 'TODO', path: `${ROOT}/src` } },
+  { tool: 'Glob', input: { pattern: '*.ts', path: `${ROOT}/src` } },
   { tool: 'Bash', input: { command: 'touch other.txt', description: 'Create the other file' } },
 ] as const
 const NOT_PERSON_REJECTED_OUTPUTS = [
@@ -2296,14 +2297,13 @@ describe('calls that a permission rule or the person denied', () => {
         const bash = await rejectedCall(world, $, 'Bash', TOUCH_INPUT)
         for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
           const props = rejectedResultProps(bash.result.tool_use_id, 'Bash', output)
-          const ui = await $.ui.mount({
-            plugin: 'handily-simple-view',
-            surface,
-            component: 'ToolResult',
-            props,
-          })
-          expect(await ui.findAll({ type: 'Text', text: 'by you' }), output).toEqual([])
-          await ui.unmount()
+          const result = await drawn($, { component: 'ToolResult', props }, surface)
+          if (output.startsWith('Error: ')) {
+            expect(result.tree, output).toMatchObject({ type: 'Box' })
+            expect(result.textCount, output).toBe(0)
+          } else {
+            expect(result.tree, output).toEqual(ENGINE_ROW)
+          }
         }
         const fetch = await genericCall(
           world,
