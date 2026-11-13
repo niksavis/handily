@@ -14,10 +14,14 @@ import {
   entryBytes,
   progressKey,
   readProgress,
+  withAsks,
   withinLimit,
+  withTasks,
   type AgentSummary,
   type Progress,
 } from './hooks/progress'
+import { countOf, permissionWait as sharedAsk, WAITS_AT_MOST } from './hooks/waits'
+import type { BoardList, BoardTask, BoardTaskKind } from './types'
 import { displayWidth } from './hooks/width'
 import { MACHINE_AGENTS, MACHINE_NOW, RECORDED_AGENTS, type AgentEntry } from './fixtures/agents'
 
@@ -113,6 +117,8 @@ function progressOf(sessionId: string, fields: Partial<Progress>): Progress {
     agentCount: 0,
     context: null,
     openForYou: 0,
+    waits: [],
+    waitsMore: {},
     ...fields,
   }
 }
@@ -1021,7 +1027,9 @@ describe(SHARED_CRITERION, () => {
 
   test('an entry over 4096 bytes with no agent is refused by name', () => {
     const entry = progressOf(OWN_ID, { cwd: `/${'d'.repeat(ENTRY_BYTES_AT_MOST)}` })
-    expect(() => withinLimit(entry)).toThrow(/bytes with no agent, over the limit of 4096/)
+    expect(() => withinLimit(entry)).toThrow(
+      /bytes with no agent and no wait, over the limit of 4096/,
+    )
     expect(entryBytes(progressOf(OWN_ID, {}))).toBeLessThan(ENTRY_BYTES_AT_MOST)
   })
 
@@ -1674,5 +1682,69 @@ describe(NO_FOR_YOU_CRITERION, () => {
     expect(readProgress({ ...LANE_PROGRESS, openForYou: '2' })).toBeNull()
     expect(readProgress({ ...LANE_PROGRESS, openForYou: -1 })).toBeNull()
     expect(readProgress({ ...LANE_PROGRESS, openForYou: 1.5 })).toBeNull()
+  })
+})
+
+function personTask(id: number, kind: BoardTaskKind, title: string): BoardTask {
+  return {
+    id,
+    title,
+    status: 'pending',
+    for: 'person',
+    kind,
+    askedAt: NOW - MINUTE,
+    by: 'model',
+    item: null,
+  }
+}
+
+function listOf(...tasks: BoardTask[]): BoardList {
+  return { tasks, nextId: tasks.length + 1 }
+}
+
+const KEY_WAITS_CRITERION =
+  'The store key of a session keeps at most 5 waits and counts the rest by kind, within 4096 bytes, with the permission waits before the tasks for the person'
+
+describe(KEY_WAITS_CRITERION, () => {
+  test('7 permission waits with long multi-byte text and 2 tasks keep at most 5 waits, count the rest by kind and stay within 4096 bytes', () => {
+    const long = 'é漢\u0007'.repeat(100)
+    const asks = Array.from({ length: 7 }, (_, index) =>
+      sharedAsk(`agent ${String(index)} ${long}`, `Tool${long}`, long, NOW - index * SECOND),
+    )
+    const list = listOf(personTask(1, 'decide', long), personTask(2, 'do', long))
+    const kept = withinLimit(withAsks(progressOf(OWN_ID, {}), asks, list, NOW))
+    expect(entryBytes(kept)).toBeLessThanOrEqual(ENTRY_BYTES_AT_MOST)
+    expect(kept.waits.length).toBeLessThanOrEqual(WAITS_AT_MOST)
+    expect(kept.waits.length + countOf(kept.waitsMore)).toBe(9)
+    expect(kept.waitsMore.decide).toBe(1)
+    expect(kept.waitsMore.do).toBe(1)
+    expect(kept.waits.every((wait) => wait.kind === 'permission')).toBe(true)
+    expect(readProgress(JSON.parse(JSON.stringify(kept)))).toEqual(kept)
+  })
+
+  test('a task for the person joins after the permission waits, and a task change keeps the permission waits', () => {
+    const ask = sharedAsk('Claude', 'Bash', 'npm test', NOW - SECOND)
+    const asked = listOf(personTask(1, 'decide', 'Release it?'))
+    const both = withAsks(progressOf(OWN_ID, {}), [ask], asked, NOW)
+    expect(both.waits).toEqual([ask, { kind: 'decide', title: 'Release it?', since: NOW - MINUTE }])
+    const answered = withTasks(both, listOf(), NOW)
+    expect(answered.waits).toEqual([ask])
+    expect(withAsks(answered, [], listOf(), NOW).waits).toEqual([])
+  })
+
+  test('a key with no wait list reads as no waits, and a bad wait drops the key', () => {
+    const old = Object.fromEntries(
+      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'waits' && key !== 'waitsMore'),
+    )
+    expect(readProgress(old)).toMatchObject({ waits: [], waitsMore: {} })
+    expect(readProgress({ ...LANE_PROGRESS, waits: [{ kind: 'plan', title: 'x' }] })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, waits: [{ kind: 'permission', agent: 1 }] })).toBeNull()
+    expect(readProgress({ ...LANE_PROGRESS, waitsMore: { permission: -1 } })).toBeNull()
+    expect(
+      readProgress({
+        ...LANE_PROGRESS,
+        waits: Array(6).fill(sharedAsk('Claude', 'Bash', 'npm test', NOW)),
+      }),
+    ).toBeNull()
   })
 })

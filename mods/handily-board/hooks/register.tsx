@@ -150,9 +150,11 @@ import {
   completeTurn,
   startTurn,
   withAgents,
+  withAsks,
   withContext,
   withTasks,
 } from './progress'
+import { permissionWait, type PermissionWait } from './waits'
 import { type PaneWork, agentsOpener, drawPane } from './pane'
 import {
   PLAN_TOOL,
@@ -999,13 +1001,14 @@ type PartsKeep = { view: PartsView; isStale: boolean }
 
 type TrendKeep = { current: BoardTrend | undefined }
 
-type WaitingAsk = { agentId: string | undefined; sight: BoardToolSight }
+type WaitingAsk = { agentId: string | undefined; sight: BoardToolSight; since: number }
 
 type AttentionKeep = {
   setting: StatusLineSetting
   text: string | undefined
   refreshes: number
   asks: Map<string, WaitingAsk>
+  machine: Machine
 }
 
 function hasAgentAsk(attention: AttentionKeep): boolean {
@@ -1057,6 +1060,7 @@ async function forgetAsks(
 ): Promise<void> {
   const forgotten = [...attention.asks].filter(([callId, ask]) => isForgotten(callId, ask))
   for (const [callId] of forgotten) attention.asks.delete(callId)
+  if (forgotten.length > 0) await shareWaits($, attention)
   if (forgotten.some(([, ask]) => ask.agentId !== undefined)) await refreshStatus($, attention)
 }
 
@@ -1078,6 +1082,7 @@ async function settleAsk(
   const ask = attention.asks.get(callId)
   if (ask === undefined) return
   attention.asks.delete(callId)
+  await shareWaits($, attention)
   if (ask.agentId === undefined) return
   await noteSettled(agentHostOf($), ask.agentId, callId)
   $.ui.invalidate('ui.render')
@@ -1103,6 +1108,24 @@ async function waitOf($: EngineInterface, ask: WaitingAsk): Promise<Wait | undef
   const rows = await agentView(agentHostOf($), await $.clock.now())
   const row = rows.find((one) => one.id === agentId && one.look === 'needsYou')
   return row === undefined ? undefined : agentWait(row)
+}
+
+async function askWaits($: EngineInterface, attention: AttentionKeep): Promise<PermissionWait[]> {
+  const now = await $.clock.now()
+  const waits: PermissionWait[] = []
+  for (const ask of attention.asks.values()) {
+    if (now - ask.since < NEEDS_YOU_AFTER_MS) continue
+    const wait = await waitOf($, ask)
+    if (wait === undefined) continue
+    waits.push(permissionWait(wait.who, ask.sight.tool, ask.sight.target, ask.since))
+  }
+  return waits.sort((a, b) => a.since - b.since)
+}
+
+function shareWaits($: EngineInterface, attention: AttentionKeep): Promise<void> {
+  return updateProgress(sessionsHost($), attention.machine, async (progress, now, list) =>
+    withAsks(progress, await askWaits($, attention), list, now),
+  )
 }
 
 async function notifyOrToast($: EngineInterface, text: string, parts: ToastParts): Promise<void> {
@@ -1151,11 +1174,16 @@ async function noteCheck(
   if (verdict.decision !== 'ask') return
   const { agentId, tool_use_id: callId } = e
   if (agentId !== undefined) await noteAsk(agentHostOf($), agentId, callId, target)
-  attention.asks.set(callId, { agentId, sight: { tool: e.tool, target } })
+  attention.asks.set(callId, {
+    agentId,
+    sight: { tool: e.tool, target },
+    since: await $.clock.now(),
+  })
   $.clock.after(NEEDS_YOU_AFTER_MS, () => {
     $.ui.invalidate('ui.render')
     void refreshStatus($, attention)
     void noticeWait($, attention, callId)
+    if (attention.asks.has(callId)) void shareWaits($, attention)
   })
 }
 
@@ -1658,6 +1686,7 @@ export const register: Register = (on, options) => {
     text: undefined,
     refreshes: 0,
     asks: new Map(),
+    machine,
   }
 
   on('session.start', async ($, e, next) => {
@@ -1677,7 +1706,9 @@ export const register: Register = (on, options) => {
     const host = sessionsHost($)
     await removeExpiredKeys(host)
     await removeStaleWarnings(warnHost($))
-    await updateProgress(host, machine, (progress, now, list) => withTasks(progress, list, now))
+    await updateProgress(host, machine, async (progress, now, list) =>
+      withAsks(withTasks(progress, list, now), await askWaits($, attention), list, now),
+    )
     await readUsage($, vitals)
     await warnFromVitals($, warnings, vitals.current)
     await trendOf($, trend)
@@ -1816,6 +1847,7 @@ export const register: Register = (on, options) => {
     }
     if (e.reason === 'clear') {
       attention.asks.clear()
+      await shareWaits($, attention)
       await refreshStatus($, attention)
       checks.current = EMPTY_CHECKS
       log.current = EMPTY_LOG
