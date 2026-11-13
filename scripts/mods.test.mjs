@@ -922,7 +922,7 @@ function pinnedBoard(sha) {
     name: 'board',
     source: {
       source: 'git-subdir',
-      url: 'niksavis/handily',
+      url: 'https://github.com/niksavis/handily.git',
       path: 'mods/board',
       ref: boardTag,
       sha,
@@ -1219,7 +1219,16 @@ test('validate refuses a pinned entry with a version because claude plugin tag r
 
 test('validate refuses a pinned entry with another url, path, source kind or ref and names the expected value', () => {
   const cases = [
-    ['url', 'someone/fork', '"url" is "someone/fork"; it must be "niksavis/handily"'],
+    [
+      'url',
+      'niksavis/handily',
+      '"url" is "niksavis/handily"; it must be "https://github.com/niksavis/handily.git"',
+    ],
+    [
+      'url',
+      'someone/fork',
+      '"url" is "someone/fork"; it must be "https://github.com/niksavis/handily.git"',
+    ],
     ['path', 'mods/items', '"path" is "mods/items"; it must be "mods/board"'],
     ['source', 'github', '"source" is "github"; it must be "git-subdir"'],
     ['ref', 'main', '"ref" is "main"; it must be a release tag board--vVERSION'],

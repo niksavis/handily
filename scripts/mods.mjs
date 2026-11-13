@@ -20,7 +20,7 @@ const root = join(import.meta.dirname, '..')
 const modsDir = join(root, 'mods')
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
 const marketplaceCommand = 'npm run marketplace'
-const marketplaceRepository = 'niksavis/handily'
+const marketplaceRepository = 'https://github.com/niksavis/handily.git'
 const marketplaceHeader = {
   name: 'niksavis',
   owner: { name: 'niksavis' },
