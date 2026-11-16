@@ -24,8 +24,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-board",
-        "ref": "handily-board--v0.24.0",
-        "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
+        "ref": "handily-board--v0.25.0",
+        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
       },
       "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, and four model tools keep the list."
     },
@@ -35,8 +35,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-filetree",
-        "ref": "handily-filetree--v0.14.0",
-        "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
+        "ref": "handily-filetree--v0.14.1",
+        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
       },
       "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
     },
@@ -68,8 +68,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-reply-view",
-        "ref": "handily-reply-view--v0.25.0",
-        "sha": "07b9c3ce5df82ac365ec1bc4971aa12ad9bce408"
+        "ref": "handily-reply-view--v0.26.0",
+        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
       },
       "description": "Long replies fold to their first lines, tables draw in a full box or with rules between their columns with Table style rules, numbers, paths and inline code in replies draw in their own colours, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
@@ -79,8 +79,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-simple-view",
-        "ref": "handily-simple-view--v0.11.0",
-        "sha": "91ce23abaac608f7217d07cdee1117a91826a3ef"
+        "ref": "handily-simple-view--v0.12.0",
+        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
       },
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
@@ -90,8 +90,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-tests",
-        "ref": "handily-tests--v0.2.1",
-        "sha": "301ac3baf28eb7f6b76abc5a0315f10898c297a7"
+        "ref": "handily-tests--v0.2.2",
+        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
       },
       "description": "A tests tab that lists each failed test by name with its file, line and assertion diff, read from the vitest, jest, node --test or pytest output of a Bash call. /tests opens it."
     },
