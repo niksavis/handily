@@ -6,6 +6,6 @@ pre-commit:
   commands:
     basicly-dispatch:
       env:
-        BASICLY_SECRET_EXCLUDE: ^mods/[^/]+/\.claude-plugin/types/
+        BASICLY_SECRET_EXCLUDE: ^(mods|probes)/[^/]+/\.claude-plugin/types/
 extends:
 - .basicly/lefthook.yml

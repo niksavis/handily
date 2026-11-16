@@ -60,6 +60,7 @@ async function surfacesText($: EngineInterface): Promise<string> {
 
 function toastText($: EngineInterface): string {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- row d shows what the engine returns from a toast typed as void
     const returned: unknown = $.ui.toast(TOAST_TEXT)
     return `returned ${String(returned)}`
   } catch (error) {

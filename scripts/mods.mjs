@@ -17,7 +17,10 @@ import { parseArgs } from 'node:util'
 import { createScratchFolder, removeScratchFolder } from './scratch.mjs'
 
 const root = join(import.meta.dirname, '..')
-const modsDir = join(root, 'mods')
+const gatedFolders = [
+  { folder: 'mods', isPublished: true },
+  { folder: 'probes', isPublished: false },
+]
 const marketplacePath = join(root, '.claude-plugin', 'marketplace.json')
 const marketplaceCommand = 'npm run marketplace'
 const marketplaceRepository = 'https://github.com/niksavis/handily.git'
@@ -56,19 +59,30 @@ function readJson(path, label) {
   }
 }
 
-function listMods() {
-  if (!existsSync(modsDir)) return []
+function listFolderMods({ folder, isPublished }) {
+  const parent = join(root, folder)
+  if (!existsSync(parent)) return []
   const mods = []
-  for (const entry of readdirSync(modsDir, { withFileTypes: true })) {
+  for (const entry of readdirSync(parent, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
-    const dir = join(modsDir, entry.name)
+    const dir = join(parent, entry.name)
     if (!existsSync(join(dir, '.claude-plugin', 'plugin.json'))) {
-      fail(`mods/${entry.name}: no .claude-plugin/plugin.json; a folder under mods/ is a mod`)
+      fail(
+        `${folder}/${entry.name}: no .claude-plugin/plugin.json; a folder under ${folder}/ is a mod`,
+      )
       continue
     }
-    mods.push({ name: entry.name, dir })
+    mods.push({ name: isPublished ? entry.name : `${folder}/${entry.name}`, dir, isPublished })
   }
   return mods.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function listMods() {
+  return gatedFolders.flatMap(listFolderMods)
+}
+
+function publishedMods(mods) {
+  return mods.filter((mod) => mod.isPublished)
 }
 
 function typesDir(mod) {
@@ -90,7 +104,7 @@ function declaredDependencies(manifest, label) {
 
 function dependenciesOf(mod, mods) {
   const declared = declaredDependencies(readManifest(mod), mod.name)
-  const byName = new Map(mods.map((candidate) => [candidate.name, candidate]))
+  const byName = new Map(publishedMods(mods).map((candidate) => [candidate.name, candidate]))
   const found = new Map()
   const pending = [...declared]
   while (pending.length > 0) {
@@ -621,7 +635,8 @@ function isGeneratedTypesPath(path) {
   return path.includes(generatedTypesSegment)
 }
 
-const sourceDirs = [modsDir, join(root, 'scripts')]
+const gatedFolderNames = gatedFolders.map(({ folder }) => folder)
+const sourceDirs = [...gatedFolderNames, 'scripts'].map((folder) => join(root, folder))
 const sourceFilePattern = /\.(ts|tsx|mjs)$/
 const hiddenCharacterPattern = /[\p{Cf}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu
 
@@ -667,7 +682,7 @@ function lint(mods) {
     '--no-error-on-unmatched-pattern',
     '--max-warnings',
     '0',
-    'mods',
+    ...gatedFolderNames,
     'scripts',
     'eslint.config.mjs',
   ])
@@ -708,12 +723,13 @@ function checkEngineSnapshotIsTracked(mods) {
 }
 
 function validate(mods) {
-  checkMarketplace(mods)
-  checkMarketplaceIsGenerated(mods)
+  const published = publishedMods(mods)
+  checkMarketplace(published)
+  checkMarketplaceIsGenerated(published)
   checkCodexMarketplaceIsEmpty()
   checkEngineSnapshotIsTracked(mods)
-  const strict = mods.length > 0 ? ['--strict'] : []
-  if (mods.length === 0) {
+  const strict = published.length > 0 ? ['--strict'] : []
+  if (published.length === 0) {
     console.log(
       '0 mods under mods/: the marketplace is checked without --strict until the first mod',
     )
@@ -1159,7 +1175,7 @@ function test(mods) {
 }
 
 const tasks = {
-  marketplace: generateMarketplace,
+  marketplace: (mods, options) => generateMarketplace(publishedMods(mods), options),
   types: layTypesOfInstalledVersion,
   typecheck,
   lint,

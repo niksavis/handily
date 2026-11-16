@@ -14,7 +14,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['mods/**/*.{ts,tsx}'],
+    files: ['mods/**/*.{ts,tsx}', 'probes/**/*.{ts,tsx}'],
     extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: {

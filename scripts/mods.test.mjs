@@ -318,6 +318,52 @@ test('validate passes when every laid engine types file is tracked', () => {
   assert.equal(trackedResult.status, 0, trackedResult.stdout + trackedResult.stderr)
 })
 
+function writePlugin(dir, manifest) {
+  mkdirSync(join(dir, '.claude-plugin'), { recursive: true })
+  writeFileSync(join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify(manifest))
+}
+
+function makeRepoWithProbes() {
+  const root = mkdtempSync(join(tmpdir(), 'handily-mods-probes-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  copyGateScripts(root)
+  symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
+  mkdirSync(join(root, '.claude-plugin'))
+  mkdirSync(join(root, 'probes', 'stray', 'hooks'), { recursive: true })
+  writeFileSync(join(root, 'probes', 'stray', 'hooks', 'register.ts'), 'export {}\n')
+  const probe = join(root, 'probes', 'untyped')
+  writePlugin(probe, { name: 'untyped-probe', version: '0.1.0', description: 'A probe.' })
+  writeFileSync(
+    join(probe, 'tsconfig.json'),
+    JSON.stringify({ extends: './.claude-plugin/types/tsconfig.json', include: ['hooks'] }),
+  )
+  writePlugin(join(root, 'mods', 'listed'), {
+    name: 'listed',
+    version: '0.1.0',
+    description: 'A mod.',
+  })
+  return { root }
+}
+
+const probesRepo = makeRepoWithProbes()
+const probesTypecheck = runMods(probesRepo, 'typecheck', emptyBin)
+
+test('typecheck fails and names a folder under probes/ that has no plugin.json', () => {
+  assert.equal(probesTypecheck.status, 1, probesTypecheck.stdout + probesTypecheck.stderr)
+  assert.ok(
+    failLines(probesTypecheck).includes(
+      'FAIL probes/stray: no .claude-plugin/plugin.json; a folder under probes/ is a mod',
+    ),
+    probesTypecheck.stderr,
+  )
+})
+
+test('typecheck names a probe by its folder under probes/ and gives the lay command with that folder', () => {
+  assert.match(probesTypecheck.stderr, /FAIL probes\/untyped: no laid types; tsc did not run/)
+  assert.match(probesTypecheck.stderr, /claude --plugin-dir probes\/untyped\b/)
+})
+
 const criterionTitle = 'When the tab draws 30 agents, the draw reads the state 5 times'
 const timedTestSource = `import { describe, test } from 'claude-code/testing'
 const CRITERION = '${criterionTitle}'
@@ -944,6 +990,23 @@ test('marketplace --pin writes a git-subdir source at the release tag with the p
   assert.deepEqual(board, pinnedBoard(repo.tagCommit))
   assert.equal(Object.hasOwn(board, 'version'), false)
   assert.equal(listedEntry(text, 'items'), undefined)
+})
+
+test('marketplace --pin lists the pinned mod and no probe, and names no probe in its output', () => {
+  const repo = makeRepoWithTaggedMod()
+  writePlugin(join(repo.root, 'probes', 'desktop'), {
+    name: 'desktop-probe',
+    version: '0.1.0',
+    description: 'A probe.',
+  })
+  const result = runMarketplace(repo, '--pin', 'board')
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  const text = readFileSync(repo.marketplace, 'utf8')
+  assert.deepEqual(
+    JSON.parse(text).plugins.map((plugin) => plugin.name),
+    ['board'],
+  )
+  assert.doesNotMatch(result.stdout + result.stderr, /desktop-probe|probes\/desktop: /)
 })
 
 test('marketplace refuses a mod that has a release tag and no pinned entry, names the mod and the pin command, and writes nothing', () => {

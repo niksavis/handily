@@ -18,8 +18,8 @@ Claims in [design.md](design.md) rest on these facts. The workitems mod refuses 
 the desktop because of one of them. The probe shows each fact in one pane, so that one reading
 settles them.
 
-The probe is in `probes/desktop/`. It is not a released mod. The marketplace file does not list it,
-and no repository gate tests it.
+The probe is in `probes/desktop/`. It is not a released mod. The marketplace file does not list it.
+`npm run check` validates, typechecks, lints and tests it, the same as each mod under `mods/`.
 
 ## Use native Windows, not WSL
 
