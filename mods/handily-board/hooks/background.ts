@@ -171,7 +171,7 @@ export function noteStop(keep: BackgroundKeep, facts: StopFacts, now: number): B
   for (const id of keep.firstSeen.keys()) if (!ids.has(id)) keep.firstSeen.delete(id)
   for (const item of read) if (!keep.firstSeen.has(item.id)) keep.firstSeen.set(item.id, now)
   if (read.length === 0) {
-    keep.current = { kind: 'idle', at: now }
+    keep.current = tasks.length + crons.length === 0 ? { kind: 'idle', at: now } : UNREPORTED
     return keep.current
   }
   const items = read

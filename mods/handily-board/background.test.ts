@@ -11,6 +11,7 @@ import {
 } from 'claude-code/testing'
 import {
   NO_TURN,
+  besideAskText,
   STALE_AFTER_MS,
   newBackgroundKeep,
   noteStop,
@@ -22,7 +23,12 @@ import {
   wakeupTime,
 } from './hooks/background'
 import { GLYPH_SETS } from './hooks/glyphs'
-import { progressKey, readProgress } from './hooks/progress'
+import { emptyProgress, progressKey, readProgress } from './hooks/progress'
+import { EMPTY_CHECKS } from './hooks/checks'
+import { DEFAULT_PALETTE } from './hooks/palette'
+import { NO_REQUEST } from './hooks/request'
+import { sessionStateParts } from './hooks/session'
+import { EMPTY_VITALS } from './hooks/vitals'
 import { signalLooks } from './hooks/signals'
 import { PLAIN_SIGNALS } from './hooks/toasting'
 import { displayWidth } from './hooks/width'
@@ -411,6 +417,39 @@ describe('the background state rule', () => {
     ])
   })
 
+  test('lists that hold no readable item read as no turn, never idle', () => {
+    const keep = newBackgroundKeep()
+    expect(noteStop(keep, { background_tasks: [42, { id: 1 }], session_crons: [] }, START)).toEqual(
+      {
+        kind: 'noTurn',
+        isUnreported: true,
+      },
+    )
+  })
+
+  test('the Session head beside an agent wait reads the waits, then the short waiting age', () => {
+    const keep = newBackgroundKeep()
+    const background = noteStop(keep, { background_tasks: [SHELL], session_crons: [] }, START)
+    const view = {
+      vitals: EMPTY_VITALS,
+      background,
+      waits: 1,
+      checks: EMPTY_CHECKS,
+      request: NO_REQUEST,
+      now: START + 3 * MINUTE,
+      signals: PLAIN_SIGNALS,
+      palette: DEFAULT_PALETTE,
+      hasResets: false,
+    }
+    expect(
+      sessionStateParts(view)
+        .map((part) => part.text)
+        .join(''),
+    ).toBe('◆ 1 waits · ◷ 3m')
+    if (background.kind !== 'waiting') throw new Error('expected waiting')
+    expect(besideAskText(background, PLAIN_SIGNALS)).toBe('◷ +1 in background')
+  })
+
   test('a one shot wakeup shows its time, a recurring one and an odd field show the schedule raw', () => {
     expect(wakeupTime('5 9 16 11 *', false)).toBe('at 09:05')
     expect(wakeupTime('*/10 * * * *', true)).toBe('cron */10 * * * *')
@@ -712,6 +751,27 @@ describe(NO_TURN_CRITERION, () => {
         }
         expect(lines.join('\n')).not.toContain('idle')
         expect(seen.statuses).toEqual([])
+      },
+    )
+
+    test(
+      `a session start writes no background into its entry, so a reload never shows old work, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, [surface])
+        const old = {
+          ...emptyProgress(OWN_ID, ROOT, START - MINUTE),
+          background: {
+            since: START - 60 * MINUTE,
+            seenAt: START - 50 * MINUTE,
+            count: 1,
+            kind: 'shell',
+            title: 'Old',
+          },
+        }
+        seen.store.set(progressKey(OWN_ID), old)
+        await start($, surface)
+        expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.background).toBeNull()
       },
     )
 

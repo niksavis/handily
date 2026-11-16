@@ -8931,7 +8931,7 @@ recurring one `cron <schedule>`. Two or more items name the oldest and `+N more 
 ◷ shell     waiting   Watch the CI run · gh run watch 18842 --exit-status                                       open  3m
 ```
 
-**1c. 40 columns, body 35: the detail cuts, then the kind; the mark, the word and the age stay.**
+**1c. 40 columns, body 35: the detail cuts, the row age drops, the head keeps its age.**
 
 ```text
 ◷ waiting 3m · no task    [ board ]
@@ -9014,7 +9014,8 @@ reports it idle. The Inbox is unchanged.
   ```
 
 - **Missed Stop** (crash, `/clear`, resume): the state resets to `no turn`.
-- **40 columns:** the command cuts first, then the description, then the kind.
+- **40 columns:** the command cuts first, then the description. The kind and the word stay, the
+  row age drops, and the head keeps the age.
 - **`NO_COLOR` and colour blindness:** the mark `◷` differs in shape and the word `waiting`
   stands beside it.
 - **An aborted turn** may end with no Stop, so the head reads `○ no turn` until the next Stop.

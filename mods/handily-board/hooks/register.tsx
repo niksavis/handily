@@ -1868,7 +1868,11 @@ export const register: Register = (on, options) => {
     await removeExpiredKeys(host)
     await removeStaleWarnings(warnHost($))
     await updateProgress(host, machine, async (progress, now, list) =>
-      withAsks(withTasks(progress, list, now), await askWaits($, attention), list, now),
+      withBackground(
+        withAsks(withTasks(progress, list, now), await askWaits($, attention), list, now),
+        sharedBackground(background.current),
+        now,
+      ),
     )
     await readUsage($, vitals)
     await warnFromVitals($, warnings, vitals.current)

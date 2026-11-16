@@ -1232,7 +1232,8 @@ and the band draws even with no open task. Captures from the tests, at a band bo
   bar and the count.
 - Background rows come after the agent rows and share the 3 rows of the strip. A background
   subagent has an agent row already, so it has no background row.
-- The detail cuts first, then the kind. The mark, `waiting` and the age never cut.
+- The detail cuts first. The mark, the kind, `waiting` and `open` never cut. Below a band body
+  of 50 columns the age of a row drops, and the head keeps it.
 - `open` on a shell, monitor or workflow row runs `/tasks`. A wakeup row has no button.
 - `open` on a needs-you or a running row runs `/tasks`. On a failed or a done row, it opens the
   board with that agent row open, so you see its answer and its last calls.
