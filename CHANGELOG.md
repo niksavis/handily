@@ -6,6 +6,103 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.26.0 - 2026-11-16
+
+### Added
+
+- **handily-reply-view: an ER relationship from an entity to itself draws as a loop.** Before,
+  the block drew as the source under the note
+  `a relationship from an entity to itself does not draw yet`. Now the loop stands on the right
+  of the box. Its upper end shows the first cardinality and the label, and its lower end shows
+  the second cardinality, such as `1 manages` and `0..n`. A second loop on the same entity draws
+  around the first. (handily-a9qm1r)
+
+### Fixed
+
+- **handily-reply-view: a flowchart line with a semicolon between two statements draws.**
+  Mermaid accepts `A --> B; B --> C` and `graph LR; A --> B`, and the reply view refused them
+  with `line 2 does not parse`. Now a semicolon outside a label ends a statement, as a new line
+  does. A semicolon inside a quoted label, a bracket label, a pipe label or a text link such as
+  `-- a; b -->` stays in the label. (handily-09otse)
+- **The reply view passes validation on Claude Code 2.1.323 and draws a minimized prompts pane.**
+  Claude Code 2.1.323 adds the `widget` placement, the small form of a minimized pane on the
+  desktop app. `claude plugin validate --strict` refused the reply view, because the prompts
+  pane took only `dock` and `inline`. Now a prompts pane in the `widget` placement draws its
+  header line only, such as `Prompts 12 · at 9`, with no buttons, because a click may not reach
+  a widget. Any other new placement draws as `dock`. The board test of the band that yields to
+  a drawing beneath it passes again on 2.1.323. The board code did not change. (handily-fuqm8v)
+
+## handily-board 0.25.0 - 2026-11-16
+
+### Added
+
+- **handily-board: an Inbox on the this machine tab lists what waits for you in the other
+  sessions.** Each row names the session, the kind (`permission`, `question`, `waits`, `decide`,
+  `answer` or `do`), the detail and the age. A permission ask with no decision after 3 seconds
+  goes into the store key of its session, with the agent, the tool and the masked target. A
+  question of `AskUserQuestion` reads `question` with the first question, and a plan approval of
+  `ExitPlanMode` reads `waits`. A session that publishes no wait shows the `waitingFor` text of
+  `claude agents`, where a plan approval and a tool permission both read `permission prompt`.
+  The Inbox shows at most 5 rows and a fold that counts the rest by kind. No row answers a
+  prompt. Sessions that load the board from different sources share no store.
+  (handily-fwkt.8.28)
+
+### Fixed
+
+- **handily-board: the status line and the desktop notice no longer say permission for a
+  question or a plan approval.** They take the kind from `askWait`, the same rule as the Inbox.
+  An `AskUserQuestion` ask reads `asks a question` with the first question, such as
+  `app needs you: Claude asks a question: Which region?`. An `ExitPlanMode` ask reads `waits`,
+  such as `app needs you: Claude waits: ExitPlanMode`. Two or more waiting agents that are not
+  all tool permissions read `2 agents wait for you`. (handily-6u0cq5)
+- **handily-board: no Inbox row of a failed poll reads as a live wait.** From the first failed
+  poll of `claude agents`, each Inbox row reads the age of the last good report, such as
+  `last report 27s`, in place of its own age. The mark, the kind and the wait count of the head
+  draw dim, not in the colour of needs you. Before, the rows kept their own ages for the first
+  30 seconds of the failure, and the rows of a session that ended drew as a live permission wait.
+  (handily-7sx9q6)
+- **handily-board, handily-filetree and handily-tests draw no button in the widget placement.**
+  Claude Code 2.1.323 adds the `widget` placement, the small form of a minimized pane on the
+  desktop app, and its types say that a click may not reach it. The three mods drew the docked
+  form with its buttons there. Now a widget draws the head line alone: `Tasks` for the
+  `this session` tab, the `Inbox` and `Sessions` heads for the `this machine` tab, the `Files`
+  head line, and the `Tests` head line of the docked form. (handily-5ahlbn)
+
+## handily-simple-view 0.12.0 - 2026-11-16
+
+### Added
+
+- **simple-view names a call that a permission rule or you denied in one short row.** A denied
+  `Bash`, `Edit`, `Read`, `Grep` or `Glob` call shows the tool, the path, the pattern or the
+  command, `denied` and `by a rule`. The row has no buttons, and at 40 columns the path or the
+  command is cut first. The rule text was captured on Claude Code 2.1.322. A text in another
+  shape keeps the row of today. The README and section 6 of the mocks now describe both denial
+  rows, the one of the auto mode classifier included. When you answer No to the permission
+  prompt of such a call, one short line `denied  by you` shows under its row. The mod reads the
+  text `User rejected tool use`, captured on Claude Code 2.1.323. (handily-ee3l12)
+
+## handily-filetree 0.14.1 - 2026-11-16
+
+### Fixed
+
+- **handily-board, handily-filetree and handily-tests draw no button in the widget placement.**
+  Claude Code 2.1.323 adds the `widget` placement, the small form of a minimized pane on the
+  desktop app, and its types say that a click may not reach it. The three mods drew the docked
+  form with its buttons there. Now a widget draws the head line alone: `Tasks` for the
+  `this session` tab, the `Inbox` and `Sessions` heads for the `this machine` tab, the `Files`
+  head line, and the `Tests` head line of the docked form. (handily-5ahlbn)
+
+## handily-tests 0.2.2 - 2026-11-16
+
+### Fixed
+
+- **handily-board, handily-filetree and handily-tests draw no button in the widget placement.**
+  Claude Code 2.1.323 adds the `widget` placement, the small form of a minimized pane on the
+  desktop app, and its types say that a click may not reach it. The three mods drew the docked
+  form with its buttons there. Now a widget draws the head line alone: `Tasks` for the
+  `this session` tab, the `Inbox` and `Sessions` heads for the `this machine` tab, the `Files`
+  head line, and the `Tests` head line of the docked form. (handily-5ahlbn)
+
 ## handily-board 0.24.0 - 2026-11-12
 
 ### Added
