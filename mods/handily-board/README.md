@@ -490,8 +490,9 @@ Findings  ◆ 2 open
 - A filed record is a bare task with the finding as its title and no other field, so it fails
   the Definition of Ready of a basicly tracker until someone shapes it. In a repository whose
   tracker uses a basicly vault, a filed record can take up to the share slot (180 s on basicly
-  0.46.1) to reach other machines, and `basicly tracker status` shows it as queued until then.
-  This was measured on 2026-11-16 with basicly 0.46.1 in a scratch vault.
+  0.46.1) to reach other machines, and `python3 .basicly/core/kit/tracker/cli.py status` shows
+  it as queued until then. This was measured on 2026-11-16 with basicly 0.46.1 in a scratch
+  vault.
 - A long finding is cut on its row, and its whole text shows under it.
 - The findings live in `$.state` under `findings`. `/clear` empties them.
 
