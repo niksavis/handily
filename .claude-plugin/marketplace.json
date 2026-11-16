@@ -24,10 +24,10 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-board",
-        "ref": "handily-board--v0.25.0",
-        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
+        "ref": "handily-board--v0.26.0",
+        "sha": "6c4a98cf7fc9fc7b37bb46d3410b9f01ce3ea6d5"
       },
-      "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, and four model tools keep the list."
+      "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss."
     },
     {
       "name": "handily-filetree",
@@ -35,8 +35,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-filetree",
-        "ref": "handily-filetree--v0.14.1",
-        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
+        "ref": "handily-filetree--v0.15.0",
+        "sha": "6c4a98cf7fc9fc7b37bb46d3410b9f01ce3ea6d5"
       },
       "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
     },
@@ -101,8 +101,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-workitems",
-        "ref": "handily-workitems--v0.8.0",
-        "sha": "1d51809d2d210c4c52581df85fe2668898a13a61"
+        "ref": "handily-workitems--v0.9.0",
+        "sha": "6c4a98cf7fc9fc7b37bb46d3410b9f01ce3ea6d5"
       },
       "description": "Provider of one typed work item list over any tracker, for other handily mods."
     }
