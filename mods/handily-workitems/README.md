@@ -328,15 +328,22 @@ button of `board`.
 
 - It runs only after an approved read: the last snapshot has the state `ok`. Its source must
   have a create command. Only `basicly` has one, and it runs
-  `basicly tracker write -- create <title> --type task --json` in the repo root, with the
-  `basicly` that the PATH names outside the repo root.
+  `basicly tracker write -- create <title> --type task --json` in the repo root.
+- The create runs the repo code in `.basicly/core/kit/tracker`, whatever version of basicly
+  runs it. So it has its own approval, apart from the read. The first create asks, in the same
+  dialog as the read, `Allow handily to run this repo's tracker CLI to create a work item?`, and
+  runs nothing. After `Allow for this repo`, the next create runs. The approval is keyed on the
+  repo root, the command, the real path of `basicly` and the sha256 of every kit file, and a
+  change of a kit file asks again. `basicly --version` does not lift this.
 - It returns `{ created: true, id }` with the id that the CLI prints, then reads the tracker
-  again.
+  again. A read that fails then does not change the answer, so a caller never files twice.
 - It returns `{ created: false, reason }` and runs nothing while workitems is paused, before an
-  approved read, for a source with no create command, on the desktop app, and for a title that
-  is empty, starts with `-`, has a control character or has more than 256 characters.
+  approved read, before the create approval, for a source with no create command, on the
+  desktop app, and for a title that is empty, starts with `-`, has a control character or has
+  more than 256 characters.
 - A CLI that exits non-zero, does not start or prints no id gives `{ created: false, reason }`.
-  The reason names the command, never the title.
+- Each reason is short, such as `the tracker state is terminal-only`, so a toast can show it.
+  It never repeats the title.
 
 ## Refresh
 

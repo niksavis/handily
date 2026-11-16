@@ -1,12 +1,6 @@
 import type { WorkitemsCreateResult, WorkitemsItem } from '../../types'
 import { numeral } from '../states'
-import {
-  coverStamp,
-  programOutsideRoot,
-  quotedCommand,
-  type ApprovalKey,
-  type CoveredFolder,
-} from '../approval'
+import { coverStamp, quotedCommand, type ApprovalKey, type CoveredFolder } from '../approval'
 import { argumentProblem, FileProblem } from '../config'
 import { runJson } from './adapter'
 import {
@@ -30,8 +24,10 @@ const PROGRAM = 'basicly'
 const LABEL = 'basicly tracker items'
 const COMMAND = [PROGRAM, 'tracker', 'items'] as const
 const CREATE = [PROGRAM, 'tracker', 'write', '--', 'create'] as const
-const CREATE_LABEL = 'basicly tracker write -- create'
 const CREATE_FLAGS = ['--type', 'task', '--json'] as const
+const CREATE_QUESTION = "Allow handily to run this repo's tracker CLI to create a work item?"
+const CREATE_NOTE = `(the create runs the repo code in ${KIT_FOLDER}; asked again if a file there changes)`
+const CREATE_NOT_APPROVED = 'the create is not approved for this repo'
 const OPEN_STATUSES = ['open', 'in_progress', 'blocked'] as const
 const ITEMS_FLAGS = ['--json', ...OPEN_STATUSES.flatMap((status) => ['--status', status])]
 const VERSION_LABEL = 'basicly --version'
@@ -207,36 +203,40 @@ function createdId(stdout: string): string | undefined {
 }
 
 async function createBasicly(files: TrackerFiles, title: string): Promise<WorkitemsCreateResult> {
-  if (title.trim() === '') return notCreated('the title is empty.')
-  if (title.startsWith('-'))
-    return notCreated('the title starts with -, which basicly reads as a flag.')
+  if (title.trim() === '') return notCreated('the title is empty')
+  if (title.startsWith('-')) return notCreated('the title starts with -')
   const problem = argumentProblem(title)
-  if (problem !== null)
-    return notCreated(`the title has a character or a length that basicly cannot take: ${problem}.`)
+  if (problem !== null) return notCreated(`a title ${problem} is not passed`)
   if (!(await files.commands.canRun())) {
-    return notCreated(`${CREATE_LABEL} runs only in a terminal session.`)
+    return notCreated('the create runs only in a terminal')
   }
-  let argv0: string
+  let verdict
   try {
-    argv0 = await programOutsideRoot(files, CREATE)
+    verdict = await files.commands.approvals.check(files, {
+      command: CREATE,
+      shown: [...CREATE, ...CREATE_FLAGS],
+      folders: KIT_CODE,
+      note: CREATE_NOTE,
+      ignoresFolders: () => Promise.resolve(false),
+      question: CREATE_QUESTION,
+    })
   } catch (error) {
     if (error instanceof FileProblem) return notCreated(error.reason)
     throw error
   }
-  const argv = [argv0, ...CREATE.slice(1), title, ...CREATE_FLAGS]
+  if (!verdict.approved) return notCreated(CREATE_NOT_APPROVED)
+  const argv = [verdict.argv0, ...CREATE.slice(1), title, ...CREATE_FLAGS]
   let result
   try {
     result = await files.commands.run(argv, pythonEnv(files.root))
   } catch {
-    return notCreated(`${CREATE_LABEL} did not start or did not end in time.`)
+    return notCreated('the create did not start or end in time')
   }
   if (result.exitCode !== 0) {
-    return notCreated(
-      `${CREATE_LABEL} exited ${String(result.exitCode)}. Run it in a shell to see why.`,
-    )
+    return notCreated(`the create exited ${String(result.exitCode)}`)
   }
   const id = createdId(result.stdout)
-  if (id === undefined) return notCreated(`${CREATE_LABEL} printed no record id.`)
+  if (id === undefined) return notCreated('the create printed no record id')
   return { created: true, id }
 }
 

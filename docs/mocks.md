@@ -8878,6 +8878,10 @@ and the person files, fixes or dismisses it with a button. No button calls a mod
                 basicly tracker write -- create "<text>" --type task --json
                 toast: ✓ Filed as app-7k2q  "The date parser drops the time zone"
                 the row goes away
+[ file ]     -> (first press in a repo) the workitems question:
+                Allow handily to run this repo's tracker CLI to create a work item?
+                toast: ■ Finding not filed  the create is not approved for this repo
+                the row stays; press [ file ] again after Allow for this repo
 [ file ]     -> (no approved read, paused, desktop, a tracker with no create command)
                 toast: ■ Finding not filed  <reason>  fix or dismiss it here
                 the row stays

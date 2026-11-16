@@ -450,7 +450,7 @@ For you  ◆ 3 open
 
 Claude records a finding outside the task with `finding_add`: a bug, a risk or a gap that it
 does not fix now. The section `Findings` comes after `For you`, above `Tasks`. Each finding
-has three buttons. A capture from the tests, docked at 41 columns:
+has three buttons. Docked at 41 columns, as the tests read the rows:
 
 ```text
 Findings  ◆ 2 open
@@ -463,12 +463,22 @@ Findings  ◆ 2 open
 
 - `[ file ]` creates a tracker record with the finding text as its title. The mod runs the
   tracker CLI only on this press, through `$.workitems.create` of `workitems`, and the tracker
-  gates still apply. With a basicly ledger it runs `basicly tracker write -- create <text>
---type task --json`. The toast names the new id, and the row goes away.
+  gates still apply. With a basicly ledger it runs this command:
+
+  ```sh
+  basicly tracker write -- create "<text>" --type task --json
+  ```
+
+  The toast names the new id, and the row goes away. A second press while the CLI runs does
+  nothing.
+
+- The first `[ file ]` in a repo asks the workitems question to allow the create, because it
+  runs the repo code of the tracker kit, and files nothing. Press `[ file ]` again after
+  `Allow for this repo`. [workitems](../handily-workitems/README.md#create) gives the rules.
 - `[ file ]` creates nothing, and keeps the row, when workitems cannot run the CLI: on the
-  desktop app, while workitems is paused, before an approved read of the tracker, or with a
-  tracker that has no create command in handily. Only a basicly tracker has one. The toast
-  names the reason.
+  desktop app, while workitems is paused, before an approved read of the tracker, before the
+  create approval, or with a tracker that has no create command in handily. Only a basicly
+  tracker has one. The toast names the reason.
 - `[ fix ]` puts `Fix this finding: <text>` in the prompt box, after any draft, and sends
   nothing. You send it to hand the finding to Claude. The row goes away when the prompt box
   takes the text.

@@ -33,6 +33,7 @@ const BUTTON_GAP = 1
 const ACTION_LABELS = ['file', 'fix', 'dismiss'] as const
 const NOT_FILED = 'Finding not filed'
 const NOT_HANDED = 'Finding not handed to Claude'
+const filing = new Set<number>()
 
 export function findingRefusal(text: unknown, held: number): string | undefined {
   if (typeof text !== 'string' || text.trim() === '') {
@@ -74,14 +75,20 @@ async function findingOf(host: FindingsHost, id: number): Promise<BoardFinding |
 }
 
 export async function fileFinding(host: FindingsHost, id: number): Promise<ToastParts | undefined> {
-  const finding = await findingOf(host, id)
-  if (finding === undefined) return undefined
-  const made = await host.create(finding.text)
-  if (!made.created) {
-    return refusedParts(NOT_FILED, withoutFinalPeriod(made.reason), 'fix or dismiss it here')
+  if (filing.has(id)) return undefined
+  filing.add(id)
+  try {
+    const finding = await findingOf(host, id)
+    if (finding === undefined) return undefined
+    const made = await host.create(finding.text)
+    if (!made.created) {
+      return refusedParts(NOT_FILED, withoutFinalPeriod(made.reason), 'fix or dismiss it here')
+    }
+    await host.edit((current) => withoutFinding(current, id))
+    return [marked('done', `Filed as ${made.id}`), { quoted: finding.text }]
+  } finally {
+    filing.delete(id)
   }
-  await host.edit((current) => withoutFinding(current, id))
-  return [marked('done', `Filed as ${made.id}`), { quoted: finding.text }]
 }
 
 export async function fixFinding(host: FindingsHost, id: number): Promise<ToastParts | undefined> {

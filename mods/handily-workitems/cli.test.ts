@@ -762,25 +762,84 @@ function largeBeadsWorld(on: On, text = LARGE_TEXT, options: WorldOptions = {}):
 
 const FINDING = 'The date parser drops the time zone'
 const CREATE_ARGS = ['tracker', 'write', '--', 'create']
-const CREATE_ARGV = [BASICLY_BIN, ...CREATE_ARGS, FINDING, '--type', 'task', '--json']
+const CREATE_FLAGS = ['--type', 'task', '--json']
+const CREATE_ARGV = [BASICLY_BIN, ...CREATE_ARGS, FINDING, ...CREATE_FLAGS]
+const CREATE_QUESTION = [
+  "Allow handily to run this repo's tracker CLI to create a work item?",
+  [BASICLY_BIN, ...CREATE_ARGS, ...CREATE_FLAGS].map((argument) => `"${argument}"`).join(' '),
+  '(the create runs the repo code in .basicly/core/kit/tracker; asked again if a file there changes)',
+].join('\n')
+const NOT_APPROVED = {
+  created: false,
+  reason: 'the create is not approved for this repo',
+}
 
 function isCreateRun(run: Run): boolean {
   return run.argv.slice(1, 5).join(' ') === CREATE_ARGS.join(' ')
 }
 
+async function created(engine: Engine, title: string): Promise<unknown> {
+  return JSON.parse(await commandText(engine, 'create', title)) as unknown
+}
+
+async function approvedCreate($: Engine, on: On) {
+  const approved = await approvedBasicly($, on)
+  const { clock, world } = approved
+  expect(await created($, FINDING)).toEqual(NOT_APPROVED)
+  await settleUntil(
+    clock,
+    () => Promise.resolve(world.stored.size),
+    (size) => size >= 4,
+    'the stored create approval',
+  )
+  return approved
+}
+
 describe('create through the tracker CLI', () => {
   test(
-    'create runs one basicly tracker write -- create with the title after an approved read and gives the new id',
+    'the first create asks its own approval that covers the kit files and runs nothing, and after Allow one create runs with the title and gives the new id',
     { plugins: [consumer] },
     async ($, on) => {
-      const { world } = await approvedBasicly($, on)
+      const { world } = await approvedCreate($, on)
+      expect(world.asks.map((ask) => ask.question)).toEqual([PATH_QUESTION, CREATE_QUESTION])
       expect(world.runs.filter(isCreateRun)).toEqual([])
       world.outputs.set(CREATE_ARGV.join(' '), { stdout: '{"id": "app-7k2q"}\n' })
-      const made = JSON.parse(await commandText($, 'create', FINDING)) as unknown
-      expect(made).toEqual({ created: true, id: 'app-7k2q' })
+      expect(await created($, FINDING)).toEqual({ created: true, id: 'app-7k2q' })
       expect(world.runs.filter(isCreateRun).map(({ argv, cwd }) => ({ argv, cwd }))).toEqual([
         { argv: CREATE_ARGV, cwd: ROOT },
       ])
+    },
+  )
+
+  test(
+    'a changed kit file asks the create approval again and runs nothing, whatever basicly --version prints',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedCreate($, on)
+      reportVersion(world, 'basicly 0.45.0')
+      changeKit(world, 99)
+      expect(await created($, FINDING)).toEqual(NOT_APPROVED)
+      expect(world.runs.filter(isCreateRun)).toEqual([])
+    },
+  )
+
+  test(
+    'a refresh that fails after the create still gives the new id',
+    { plugins: [consumer] },
+    async ($, on) => {
+      let isPublishRefused = false
+      on('state.set', { plugin: 'handily-workitems', key: 'snapshot' }, (_$, e, next) =>
+        isPublishRefused ? { deny: 'the test refused the snapshot' } : next(e),
+      )
+      const { world } = await approvedCreate($, on)
+      world.outputs.set(CREATE_ARGV.join(' '), { stdout: '{"id": "app-7k2q"}\n' })
+      world.afterRun = (argv) => {
+        if (argv.slice(1, 5).join(' ') !== CREATE_ARGS.join(' ')) return
+        touchLedger(world, 50)
+        isPublishRefused = true
+      }
+      expect(await created($, FINDING)).toEqual({ created: true, id: 'app-7k2q' })
+      expect(world.runs.filter(isCreateRun)).toHaveLength(1)
     },
   )
 
@@ -789,10 +848,9 @@ describe('create through the tracker CLI', () => {
     { plugins: [consumer] },
     async ($, on) => {
       const { world } = await approvedBasicly($, on)
-      const made = JSON.parse(await commandText($, 'create', '--force')) as unknown
-      expect(made).toEqual({
+      expect(await created($, '--force')).toEqual({
         created: false,
-        reason: 'the title starts with -, which basicly reads as a flag.',
+        reason: 'the title starts with -',
       })
       expect(world.runs.filter(isCreateRun)).toEqual([])
     },
@@ -802,12 +860,11 @@ describe('create through the tracker CLI', () => {
     'a create that exits non-zero names the command and creates nothing',
     { plugins: [consumer] },
     async ($, on) => {
-      const { world } = await approvedBasicly($, on)
+      const { world } = await approvedCreate($, on)
       world.outputs.set(CREATE_ARGV.join(' '), { exitCode: 1, stderr: 'refused' })
-      const made = JSON.parse(await commandText($, 'create', FINDING)) as unknown
-      expect(made).toEqual({
+      expect(await created($, FINDING)).toEqual({
         created: false,
-        reason: 'basicly tracker write -- create exited 1. Run it in a shell to see why.',
+        reason: 'the create exited 1',
       })
       expect(world.runs.filter(isCreateRun)).toHaveLength(1)
     },
@@ -821,12 +878,43 @@ describe('create through the tracker CLI', () => {
       const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
       answerBasicly(world)
       await startSession($, clock, false)
-      const made = JSON.parse(await commandText($, 'create', FINDING)) as unknown
-      expect(made).toEqual({
+      expect(await created($, FINDING)).toEqual({
         created: false,
-        reason: 'the tracker is not read: its state is approval-needed.',
+        reason: 'the tracker state is approval-needed',
       })
       expect(world.runs.filter(isCreateRun)).toEqual([])
+    },
+  )
+
+  test(
+    'create while workitems is paused refuses by name and runs no tracker CLI',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBasicly($, on)
+      await commandText($, 'workitems', 'pause')
+      expect(await created($, FINDING)).toEqual({
+        created: false,
+        reason: 'workitems is paused',
+      })
+      expect(world.runs.filter(isCreateRun)).toEqual([])
+    },
+  )
+
+  test(
+    'create in a beads tracker refuses by name and runs no command',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 1_000 })
+      const world = fakeWorld(on, { [ISSUES_FILE]: `${BEADS_LINE}\n` }, PATH_WITHOUT_BASICLY)
+      const snapshot = await startSession($, clock, true, stateIs('ok'))
+      expect(snapshot.source).toBe('beads')
+      const runs = world.runs.length
+      const made = await created($, FINDING)
+      expect(made).toEqual({
+        created: false,
+        reason: `handily creates no item in ${String(snapshot.sourceLabel)}`,
+      })
+      expect(world.runs).toHaveLength(runs)
     },
   )
 })

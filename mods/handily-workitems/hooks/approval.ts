@@ -34,7 +34,10 @@ export type ApprovalRequest = {
   folders: readonly CoveredFolder[]
   note: string
   ignoresFolders: (key: ApprovalKey) => Promise<boolean>
+  question?: string
 }
+
+export const READ_QUESTION = "Allow handily to run this repo's tracker CLI to read work items?"
 
 export type Verdict = { approved: true; argv0: string } | { approved: false }
 
@@ -184,13 +187,8 @@ export async function coverStamp(
   return lines.sort().join('\n')
 }
 
-function approvalQuestion(shown: readonly string[], note: string): string {
-  const lines = [
-    "Allow handily to run this repo's tracker CLI to read work items?",
-    quotedCommand(shown),
-    note,
-  ]
-  return lines.join('\n')
+function approvalQuestion(question: string, shown: readonly string[], note: string): string {
+  return [question, quotedCommand(shown), note].join('\n')
 }
 
 async function digestOf(value: object): Promise<string> {
@@ -269,7 +267,8 @@ export function createApprovals(host: ApprovalHost): Approvals {
       }
       const mayAsk = isInteractive && !declined.has(storeKey) && !asking.has(storeKey)
       const shown = [argv0, ...request.shown.slice(1)]
-      if (mayAsk) askPerson(storeKey, key, approvalQuestion(shown, request.note))
+      const question = approvalQuestion(request.question ?? READ_QUESTION, shown, request.note)
+      if (mayAsk) askPerson(storeKey, key, question)
       return { approved: false }
     },
   }

@@ -28,6 +28,7 @@ type World = {
   clock: MockClock
   runs: string[][]
   answer: Run
+  gate: Promise<void> | undefined
   toasts: string[]
   fills: { text: string; mode: string | undefined }[]
   draft: string
@@ -45,6 +46,12 @@ const fakeWorkitems: Plugin = {
           refresh: () =>
             Promise.resolve({ created: [], updated: [], closed: [], version: 1, state: 'read' }),
           create: async ({ title }) => {
+            if (!(await built.session.surfaces()).includes('terminal')) {
+              return {
+                created: false as const,
+                reason: 'the tracker state is terminal-only',
+              }
+            }
             const run = await built.process.run(['tracker-cli', 'create', title])
             return run.exitCode === 0
               ? { created: true as const, id: run.stdout.trim() }
@@ -64,18 +71,21 @@ const withWorkitems = { plugins: [fakeWorkitems] }
 
 const CREATE_RUN = (title: string) => ['tracker-cli', 'create', title]
 
-function world(on: On): World {
+function world(on: On, surface: Surface = 'terminal'): World {
   const state: World = {
     clock: mock.clock(on, { now: START }),
     runs: [],
     answer: { exitCode: 0, stdout: 'app-7k2q\n', stderr: '' },
+    gate: undefined,
     toasts: [],
     fills: [],
     draft: '',
     submitted: [],
   }
-  on('process.run', (_$, e) => {
+  on('session.surfaces', () => ({ value: [surface] }))
+  on('process.run', async (_$, e) => {
     state.runs.push([...e.argv])
+    await state.gate
     return {
       value: { ...state.answer, isStdoutTruncated: false, isStderrTruncated: false },
     }
@@ -175,14 +185,19 @@ describe('findings that Claude records', () => {
       `when Claude records a finding with finding_add, the board lists it with file, fix and dismiss buttons and runs no tracker CLI, on ${surface}`,
       withWorkitems,
       async ($, on) => {
-        const seen = world(on)
+        const seen = world(on, surface)
         await startOn($, surface)
         const answer = await record($, FINDING)
         expect(answer.deny).toBeUndefined()
         expect(String(answer.result)).toContain('Recorded finding 1.')
-        const ui = await mountOn($, surface)
-        expect(textOf(await ui.find({ key: 'findings-head' }))).toContain('Findings')
-        expect(textOf(await ui.find({ key: 'row:finding:1' }))).toContain(FINDING)
+        await record($, 'The retry loop never backs off')
+        const ui = await mountOn($, surface, 41)
+        expect(textOf(await ui.find({ key: 'findings-head' }))).toBe('Findings  ◆ 2 open')
+        expect(textOf(await ui.find({ key: 'row:finding:1' }))).toBe(`◆ 1 ${FINDING}`)
+        expect(textOf(await ui.find({ key: 'row:finding:2' }))).toBe(
+          '◆ 2 The retry loop never backs off',
+        )
+        expect(textOf(await ui.find({ key: 'finding-actions:1' }))).toBe('filefixdismiss')
         expect(labelOf(await ui.find({ key: 'finding-file:1' }))).toBe('file')
         expect(labelOf(await ui.find({ key: 'finding-fix:1' }))).toBe('fix')
         expect(labelOf(await ui.find({ key: 'finding-dismiss:1' }))).toBe('dismiss')
@@ -190,34 +205,77 @@ describe('findings that Claude records', () => {
         await ui.unmount()
       },
     )
-
-    test(
-      `pressing file runs one create through the workitems provider with the finding text and removes the row, on ${surface}`,
-      withWorkitems,
-      async ($, on) => {
-        const seen = world(on)
-        await startOn($, surface)
-        await record($, FINDING)
-        await record($, 'The retry loop never backs off')
-        const ui = await mountOn($, surface)
-        expect(seen.runs).toEqual([])
-        await ui.press({ key: 'finding-file:1' })
-        await settled(seen, () => seen.toasts.length > 0)
-        expect(seen.runs).toEqual([CREATE_RUN(FINDING)])
-        expect(await ui.find({ key: 'row:finding:1' })).toBeUndefined()
-        expect(textOf(await ui.find({ key: 'row:finding:2' }))).toContain('The retry loop')
-        expect(seen.toasts.some((text) => text.includes('Filed as app-7k2q'))).toBe(true)
-        await ui.unmount()
-      },
-    )
   }
+
+  test(
+    'pressing file runs one create through the workitems provider with the finding text and removes the row',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await startOn($, 'terminal')
+      await record($, FINDING)
+      await record($, 'The retry loop never backs off')
+      const ui = await mountOn($, 'terminal')
+      expect(seen.runs).toEqual([])
+      await ui.press({ key: 'finding-file:1' })
+      await settled(seen, () => seen.toasts.length > 0)
+      expect(seen.runs).toEqual([CREATE_RUN(FINDING)])
+      expect(await ui.find({ key: 'row:finding:1' })).toBeUndefined()
+      expect(textOf(await ui.find({ key: 'row:finding:2' }))).toContain('The retry loop')
+      expect(seen.toasts.some((text) => text.includes('Filed as app-7k2q'))).toBe(true)
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'two presses of file while the tracker CLI runs make one run',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      let release: () => void = () => undefined
+      seen.gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      await startOn($, 'terminal')
+      await record($, FINDING)
+      const ui = await mountOn($, 'terminal')
+      await ui.press({ key: 'finding-file:1' })
+      await settled(seen, () => seen.runs.length > 0)
+      await ui.press({ key: 'finding-file:1' })
+      await seen.clock.settle()
+      release()
+      await settled(seen, () => seen.toasts.length > 0)
+      await seen.clock.settle()
+      expect(seen.runs).toEqual([CREATE_RUN(FINDING)])
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'on the desktop app file runs no tracker CLI, keeps the row and names the reason in a toast',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, 'desktop')
+      await startOn($, 'desktop')
+      await record($, FINDING)
+      const ui = await mountOn($, 'desktop')
+      await ui.press({ key: 'finding-file:1' })
+      await settled(seen, () => seen.toasts.length > 0)
+      expect(seen.runs).toEqual([])
+      expect(textOf(await ui.find({ key: 'row:finding:1' }))).toContain(FINDING)
+      expect(seen.toasts.some((text) => text.includes('the tracker state is terminal-only'))).toBe(
+        true,
+      )
+      await ui.unmount()
+    },
+  )
 
   test(
     'a create that workitems refuses keeps the finding and names the reason in a toast',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
-      seen.answer = { exitCode: 1, stdout: '', stderr: 'handily creates no item in beans.' }
+      seen.answer = { exitCode: 1, stdout: '', stderr: 'handily creates no item in beans' }
       await startOn($, 'terminal')
       await record($, FINDING)
       const ui = await mountOn($, 'terminal')
@@ -252,7 +310,7 @@ describe('findings that Claude records', () => {
   )
 
   test('pressing dismiss removes the row and runs no tracker CLI', withWorkitems, async ($, on) => {
-    const seen = world(on)
+    const seen = world(on, 'desktop')
     await startOn($, 'desktop')
     await record($, FINDING)
     const ui = await mountOn($, 'desktop')
@@ -266,13 +324,16 @@ describe('findings that Claude records', () => {
   })
 
   test(
-    'a long finding shows its whole text under the cut row on a narrow pane',
+    'a long finding is cut on its row and shows its whole text under it at 41 columns',
     withWorkitems,
     async ($, on) => {
       world(on)
       await startOn($, 'terminal')
       await record($, LONG_FINDING)
-      const ui = await mountOn($, 'terminal', 40)
+      const ui = await mountOn($, 'terminal', 41)
+      const row = textOf(await ui.find({ key: 'row:finding:1' }))
+      expect(row.startsWith('◆ 1 The date parser drops the time zone')).toBe(true)
+      expect(row.endsWith('…')).toBe(true)
       expect(textOf(await ui.find({ key: 'finding:1' }))).toContain(LONG_FINDING)
       await ui.unmount()
     },

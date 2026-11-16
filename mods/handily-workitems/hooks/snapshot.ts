@@ -470,6 +470,10 @@ function deliveredToItsOwnCallers(): undefined {
   return undefined
 }
 
+function readAgainByThePoll(): undefined {
+  return undefined
+}
+
 function inspectedAgainAtTheRoot(): undefined {
   return undefined
 }
@@ -635,22 +639,22 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     if (paused) {
       return {
         created: false,
-        reason: 'workitems is paused. /workitems resume reads the tracker again.',
+        reason: 'workitems is paused',
       }
     }
     const read = current
     if (read === undefined) {
-      return { created: false, reason: 'workitems has not read the tracker yet.' }
+      return { created: false, reason: 'workitems has not read the tracker yet' }
     }
     if (read.state !== 'ok') {
-      return { created: false, reason: `the tracker is not read: its state is ${read.state}.` }
+      return { created: false, reason: `the tracker state is ${read.state}` }
     }
     const reader = readers.find((one) => one.name === read.source)
     if (reader?.create === undefined) {
-      return { created: false, reason: `handily creates no item in ${read.sourceLabel}.` }
+      return { created: false, reason: `handily creates no item in ${read.sourceLabel}` }
     }
     const made = await reader.create(filesAtRoot(host, read.root), args.title)
-    if (made.created) await requestRead()
+    if (made.created) await requestRead().catch(readAgainByThePoll)
     return made
   }
 
