@@ -1,6 +1,7 @@
 # handily-filetree
 
-`filetree` shows the working folder of the session as a tree in a pane tab named `files`. The tab
+`filetree` shows the working folder of the session as a tree in a pane tab named `files`. When
+an agent edits a file in another git repository, the tab shows that repository. The tab
 opens on the work view: only the files that an agent touched or that git shows as changed.
 `[ all files ]` shows the whole tree. Folders come first. The mod lists a folder only when you
 open it.
@@ -78,8 +79,8 @@ work view: touched and changed files
   files in it. A press opens it and lists it.
 - Outside a git repo, a folder that changed while a Bash call ran shows closed with its mark. A
   press opens it and lists it.
-- A path with `.` or `..` in it shows at the place that it names. A path outside the working
-  folder does not show.
+- A path with `.` or `..` in it shows at the place that it names. A path outside the folder of
+  the tree does not show.
 - A more button in the work view draws all entries of that folder in the work view only. The
   200 entry cap of the all files view stays.
 - A file that an agent touched under a folder that the mod does not list, such as
@@ -337,7 +338,7 @@ diff exited 128.  [ retry ]
 
 How the mod reads the state:
 
-- The mod finds the repo from the working folder upward. It reads a `.git` folder, or the
+- The mod finds the repo from the folder of the tree upward. It reads a `.git` folder, or the
   `gitdir:` line of a `.git` file, as a worktree has. It reads the branch from `HEAD`, and runs no
   process for it. With no `.git` above, it runs no git process.
 - Every 2 s, while the tab is shown, the mod reads the time stamps of the git `index` and `HEAD`.
@@ -710,6 +711,39 @@ docs/mocks.md  M +1 -0
   list the files in it. Its own `[ diff ]` shows the whole file.
 - When the 2,000 lines or the 100,000 characters are used, the next files read
   `not shown; the pane is full`.
+
+## The repository where the agents work
+
+When an agent edits a file in another git repository than the session folder, the files tab
+shows the tree of that repository and names it in the header. Git status, the marks and the
+buttons then work in that repository. The test fixture, docked at body 41 in the work view, after
+`main` edited `/work/lib/src/util.ts` in a session in `/work/app`:
+
+```text
+Files  lib · dev · 1 changed
+[ all files ] {agent: all} [ refresh ]
+Now  1 agent
+✎ main      src/util.ts                2s
+───────────────────────────────── [ +/- ]
+▾ src/  M1
+  M util.ts               ✎ main       2s
+work view: touched and changed files
+```
+
+- The newest edit picks the folder of the tree. An edit is an Edit, Write or NotebookEdit call of
+  any agent, also of a subagent, that ended without an error or a deny. When the agents edit in
+  two repositories at once, the tree shows the repository of the newest edit.
+- An edit in the session folder, or in the repository that holds the session folder, brings the
+  tree back to the session folder.
+- A prompt that names a file of the session folder after an `@` also brings the tree back.
+  [A file that a prompt names](#a-file-that-a-prompt-names) says how.
+- A read, a Grep, a Bash call and an edit outside any git repository do not move the tree.
+- The mod finds the top of the repository from the folder of the edited file upward, as it finds
+  the repo of the session folder. It runs no process for it.
+- A move closes a preview or a diff and drops the file that a prompt named. The open folders, the
+  view and the filters stay.
+- The mod keeps the repository in its memory. A new session, or a change of the session folder,
+  shows the session folder again. The mod never runs `/cd`: Claude keeps working where it was.
 
 ## A file that a prompt names
 

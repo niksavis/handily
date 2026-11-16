@@ -6667,3 +6667,133 @@ describe('the @path reveal: refusals', () => {
     await ui.unmount()
   })
 })
+
+const LIB = '/work/lib'
+const TOOLS = '/work/tools'
+const FOLLOW_CRITERION =
+  'When an agent works in another repository than the session root, the files tab shows that repository and names it in the header'
+
+function secondRepo(seen: World, top: string, branch: string, entries: [string, FsEntry[]][]) {
+  seen.files.set(`${top}/.git`, { kind: 'dir', text: '', mtimeMs: 1 })
+  gitFolder(seen, `${top}/.git`, `ref: refs/heads/${branch}\n`)
+  for (const [path, listing] of entries)
+    seen.folders.set(path === '.' ? top : `${top}/${path}`, listing)
+}
+
+function followWorld(on: On): World {
+  const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: CLEAN })
+  secondRepo(seen, LIB, 'dev', [
+    ['.', [folder('src'), file('package.json')]],
+    ['src', [file('util.ts'), file('index.ts')]],
+  ])
+  secondRepo(seen, TOOLS, 'main', [['.', [file('run.sh')]]])
+  return seen
+}
+
+async function editAt($: Engine, path: string, agentId?: string): Promise<void> {
+  await $.tool.call({
+    tool: 'Edit',
+    file_path: path,
+    old_string: 'a',
+    new_string: 'b',
+    ...(agentId === undefined ? {} : { agentId }),
+  })
+}
+
+async function followed($: Engine, seen: World, path: string, agentId?: string) {
+  await editAt($, path, agentId)
+  await seen.clock.advance(2000)
+  await seen.clock.settle()
+}
+
+describe(FOLLOW_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`an edit in a second repository moves the files tab to the tree of that repository with its name in the header, on the ${surface}`, async ($, on) => {
+      const seen = followWorld(on)
+      fakeTools(on, seen, new Map())
+      const ui = await mountWork($, seen, surface)
+      expect((await headerOf(ui))[0]).toBe('Files  app · main · clean')
+      seen.answer = { kind: 'ok', stdout: statusOf([changed('.M', 'src/util.ts')]) }
+      await followed($, seen, `${LIB}/src/util.ts`)
+      await ui.redraw(DOCKED_PANE)
+      expect(await screen(ui)).toEqual([
+        'Files  lib · dev · 1 changed',
+        ...controlsOn(surface, WORK_CONTROLS),
+        'Now  1 agent',
+        '✎ main      src/util.ts                2s',
+        ruleOn(surface),
+        '▾ src/  M1',
+        '  M util.ts               ✎ main       2s',
+        WORK_NOTE,
+      ])
+      expect(seen.runs.map((run) => run.cwd)).toEqual([ROOT, LIB])
+      await ui.unmount()
+      const widget = await mountSettled($, seen, surface, 'widget', 41)
+      expect(await screen(widget, 41)).toEqual(['Files  lib · dev · 1 changed'])
+      await widget.unmount()
+    })
+  }
+
+  test('the newest edit of any agent picks the repository, and an edit in the session folder brings the tree back', async ($, on) => {
+    const seen = followWorld(on)
+    fakeTools(on, seen, new Map())
+    const ui = await mountWork($, seen, 'terminal')
+    await followed($, seen, `${LIB}/src/util.ts`)
+    await ui.redraw(DOCKED_PANE)
+    expect((await headerOf(ui))[0]).toBe('Files  lib · dev · clean')
+    await followed($, seen, `${TOOLS}/run.sh`, SCOUT)
+    await ui.redraw(DOCKED_PANE)
+    expect((await headerOf(ui))[0]).toBe('Files  tools · main · clean')
+    expect(await treeLines(ui)).toEqual([
+      `  run.sh                  ✎ ${SCOUT.slice(0, 8)}   2s`,
+      WORK_NOTE,
+    ])
+    await followed($, seen, `${ROOT}/hooks/pane.tsx`)
+    await ui.redraw(DOCKED_PANE)
+    expect((await headerOf(ui))[0]).toBe('Files  app · main · clean')
+    const folders = seen.runs.map((run) => run.cwd)
+    const moves = folders.filter((cwd, at) => at === 0 || folders[at - 1] !== cwd)
+    expect(moves).toEqual([ROOT, LIB, TOOLS, ROOT])
+    await ui.unmount()
+  })
+
+  test('a read, a denied edit, an edit outside any repository and an unreadable git file leave the tree on the session folder', async ($, on) => {
+    const seen = followWorld(on)
+    fakeTools(on, seen, new Map([['Edit', { answer: 'deny' }]]))
+    seen.files.set('/work/broken/.git', {
+      kind: 'file',
+      text: '',
+      mtimeMs: 1,
+      denial: "EACCES: permission denied, open '/work/broken/.git'",
+    })
+    const ui = await mountWork($, seen, 'terminal')
+    await $.tool.call({ tool: 'Read', file_path: `${LIB}/src/index.ts` })
+    await followed($, seen, `${LIB}/src/util.ts`)
+    await $.tool.call({ tool: 'Write', file_path: '/scratch/notes.md', content: 'n' })
+    await $.tool.call({ tool: 'Write', file_path: '/work/broken/a.ts', content: 'a' })
+    expect(seen.logs.some((line) => line.includes('cannot find the repository'))).toBe(true)
+    await seen.clock.advance(2000)
+    await seen.clock.settle()
+    await ui.redraw(DOCKED_PANE)
+    expect((await headerOf(ui))[0]).toBe('Files  app · main · clean')
+    expect(seen.runs.every((run) => run.cwd === ROOT)).toBe(true)
+    await ui.unmount()
+  })
+
+  test('a prompt that names a file of the session folder brings the tree back and reveals the file', async ($, on) => {
+    const seen = followWorld(on)
+    underTool(on)
+    seen.files.set(ROOT, { kind: 'dir', text: '', mtimeMs: 1 })
+    textFile(seen, 'docs/design.md', 'text')
+    const ui = await mountWork($, seen, 'terminal')
+    await followed($, seen, `${LIB}/src/util.ts`)
+    await ui.redraw(DOCKED_PANE)
+    expect((await headerOf(ui))[0]).toBe('Files  lib · dev · clean')
+    await submitPrompt($, 'Read @docs/design.md and sum it up')
+    await seen.clock.settle()
+    await ui.redraw(DOCKED_PANE)
+    expect((await headerOf(ui))[0]).toBe('Files  app · main · clean')
+    expect(await treeLines(ui)).toContain('    design.md')
+    await ui.unmount()
+  })
+})

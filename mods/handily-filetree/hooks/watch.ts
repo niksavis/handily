@@ -1,7 +1,7 @@
 import type { EngineInterface, ProcessRunResult, Timer } from 'claude-code'
 import { FILES_PANE } from './commands'
 import { type Numstat, numstatArgv, parseNumstat } from './lines'
-import { type GitRepo, branchOf, findRepo, joinPath } from './repo'
+import { type GitRepo, type RepoFs, branchOf, findRepo, joinPath } from './repo'
 import { type Shell, shellStatus, stampOf } from './shellmarks'
 import { type GitStatus, ignoredArgv, parseIgnored, parseStatus, statusArgv } from './status'
 
@@ -274,18 +274,21 @@ async function readBranch($: EngineInterface, repo: GitRepo): Promise<string | u
   }
 }
 
+export function repoFsOf($: EngineInterface): RepoFs {
+  return {
+    stat: (path: string) => $.fs.stat(path).catch(() => undefined),
+    read: (path: string) => $.fs.read(path),
+  }
+}
+
 export async function syncRepo($: EngineInterface, watch: GitWatch, cwd: string): Promise<void> {
   if (watch.cwd !== cwd) {
     resetWatch(watch)
     watch.cwd = cwd
   }
   if (watch.repo !== undefined) return
-  const fs = {
-    stat: (path: string) => $.fs.stat(path).catch(() => undefined),
-    read: (path: string) => $.fs.read(path),
-  }
   watch.repo =
-    (await findRepo(fs, cwd).catch((error: unknown) => {
+    (await findRepo(repoFsOf($), cwd).catch((error: unknown) => {
       log($, `cannot read the git folder: ${String(error)}`)
       return undefined
     })) ?? null

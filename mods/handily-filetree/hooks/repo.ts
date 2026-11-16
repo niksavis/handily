@@ -43,12 +43,31 @@ async function gitDirAt(fs: RepoFs, folder: string): Promise<string | undefined>
   return ABSOLUTE.test(named) ? named : joinPath(folder, named)
 }
 
-export async function findRepo(fs: RepoFs, cwd: string): Promise<GitRepo | undefined> {
-  for (let folder: string | undefined = cwd; folder !== undefined; folder = parentFolder(folder)) {
+async function repoAbove(
+  fs: RepoFs,
+  start: string,
+): Promise<{ folder: string; gitDir: string } | undefined> {
+  for (
+    let folder: string | undefined = start;
+    folder !== undefined;
+    folder = parentFolder(folder)
+  ) {
     const gitDir = await gitDirAt(fs, folder)
-    if (gitDir !== undefined) return { gitDir, prefix: prefixOf(cwd, folder) }
+    if (gitDir !== undefined) return { folder, gitDir }
   }
   return undefined
+}
+
+export async function findRepo(fs: RepoFs, cwd: string): Promise<GitRepo | undefined> {
+  const found = await repoAbove(fs, cwd)
+  return found === undefined
+    ? undefined
+    : { gitDir: found.gitDir, prefix: prefixOf(cwd, found.folder) }
+}
+
+export async function repoTopOf(fs: RepoFs, path: string): Promise<string | undefined> {
+  const folder = parentFolder(path)
+  return folder === undefined ? undefined : (await repoAbove(fs, folder))?.folder
 }
 
 export function branchOf(head: string): string | undefined {
