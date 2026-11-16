@@ -1662,6 +1662,28 @@ Limits:
 | Patch lines kept per edit (`PATCH_LINES`) | 400 |
 | Rows of the step view inline above the prompt | 8 |
 
+#### Follow the repository where the agents work (handily-outrnk)
+
+When an agent edits a file in another git repository than the session folder, the files tab
+shows the tree of that repository and names it in the header. Reference: claude-code-filetree
+commit `3bfea14a` (MIT licence), read on 2026-11-16. handily copies no code from it.
+
+Decisions:
+
+- The tree moves, and the session does not. The reference runs `/cd`; a handily mod shows and
+  never acts for the person.
+- The newest edit of any agent picks the folder of the tree: an Edit, Write or NotebookEdit call
+  that ended without an error or a deny. So with edits in two repositories at once, the tree
+  shows the repository of the newest edit. The reference scores reads and writes over three
+  minutes, with a lead and a cooldown; handily keeps one rule that a person can predict.
+- An edit in the session folder, or in the repository that holds it, brings the tree back, and so
+  does a prompt that names a file of the session folder after an `@`.
+- A read, a Grep, a Bash call and an edit outside any git repository do not move the tree.
+- The top of the repository comes from the same `.git` walk as the session repository. No process
+  runs for it.
+- The followed repository lives in the memory of the mod. A new session or a change of the
+  session folder shows the session folder again.
+
 ## 5. Repo layout (proposed)
 
 ```text

@@ -29,6 +29,7 @@ import {
   shownStep,
 } from './edits'
 import { type Facts, clearFacts, factsOf, newFacts, staleFacts, wantFacts } from './facts'
+import { type Follow, clearFollow, followEdit, newFollow, treeRootOf } from './follow'
 import { type GitView, gitView } from './gitview'
 import { GLYPH_SETS } from './glyphs'
 import type { LookSite } from './look'
@@ -110,6 +111,7 @@ import {
   newWatch,
   noteChange,
   noticeFocus,
+  repoFsOf,
   requestStatus,
   resetWatch,
   startKeeper,
@@ -329,6 +331,27 @@ async function noteEditCall(
   })
 }
 
+async function followCall(
+  $: EngineInterface,
+  site: { follow: Follow; looking: Looking; reveal: Reveal },
+  call: { tool: string; seen: SeenCall | undefined; answer: ToolCallResult | undefined },
+): Promise<void> {
+  const { tool, seen, answer } = call
+  if (!isEditTool(tool) || seen?.touch.kind !== 'file') return
+  if (answer === undefined || !isAnswered(answer)) return
+  const path = resolvedPath(seen.cwd, seen.touch.path)
+  const hasMoved = await followEdit(repoFsOf($), site.follow, { cwd: seen.cwd, path }).catch(
+    (error: unknown) => {
+      $.ui.log(`handily-filetree: cannot find the repository of ${path}: ${String(error)}`)
+      return false
+    },
+  )
+  if (!hasMoved) return
+  resetLooking(site.looking)
+  clearReveal(site.reveal)
+  redraw($)
+}
+
 function openSteps($: EngineInterface, site: { edits: Edits; looking: Looking }, at: number): void {
   const { edits, looking } = site
   looking.look = undefined
@@ -523,12 +546,14 @@ function workSourceOf(git: GitView, touched: TouchDraw, revealed: string | undef
 
 async function revealMentioned(
   $: EngineInterface,
-  site: { listings: Listings; reveal: Reveal; looking: Looking },
+  site: { listings: Listings; reveal: Reveal; looking: Looking; follow: Follow },
   text: string,
 ): Promise<void> {
   const cwd = await $.session.cwd()
   const path = await revealedPath($, { cwd, text })
   if (path === undefined) return
+  if (treeRootOf(site.follow, cwd) !== cwd) resetLooking(site.looking)
+  clearFollow(site.follow)
   const folders = ancestorsOf(path)
   await update($, OPEN, (current = []) => {
     const added = folders.filter((folder) => !current.includes(folder))
@@ -569,6 +594,7 @@ export const register: Register = (on) => {
   const stepSite = { edits, looking }
   const facts = newFacts()
   const reveal = newReveal()
+  const follow = newFollow()
   let factsStatus: ShownStatus | undefined
 
   on('session.start', async ($, e, next) => {
@@ -601,6 +627,7 @@ export const register: Register = (on) => {
     clearEdits(edits)
     clearFacts(facts)
     clearReveal(reveal)
+    clearFollow(follow)
     filter.picked = undefined
     filter.task = undefined
     return next(e)
@@ -633,6 +660,7 @@ export const register: Register = (on) => {
       await noteBoardClocks($, touches)
       if (seen !== undefined) await endCall($, touches, { id: e.tool_use_id, seen, answer })
       await noteEditCall($, edits, { tool: e.tool, seen, answer })
+      await followCall($, { follow, looking, reveal }, { tool: e.tool, seen, answer })
       if (isShell) await endShell($, context, { id: e.tool_use_id, answer })
       if (CHANGING_TOOLS.has(e.tool)) {
         noteChange(watch)
@@ -656,9 +684,11 @@ export const register: Register = (on) => {
     requestStatus($, watch)
     const submitted = await next(e)
     if (submitted.drop !== undefined || !isPersonPrompt(e)) return submitted
-    await revealMentioned($, { listings, reveal, looking }, e.text).catch((error: unknown) => {
-      $.ui.log(`handily-filetree: the @path reveal failed: ${String(error)}`)
-    })
+    await revealMentioned($, { listings, reveal, looking, follow }, e.text).catch(
+      (error: unknown) => {
+        $.ui.log(`handily-filetree: the @path reveal failed: ${String(error)}`)
+      },
+    )
     return submitted
   })
 
@@ -720,7 +750,7 @@ export const register: Register = (on) => {
       hasIcons,
       surface,
     }
-    const cwd = await $.session.cwd()
+    const cwd = treeRootOf(follow, await $.session.cwd())
     await syncRepo($, watch, cwd)
     watchShown($, watch)
     noticeFocus($, watch, e.props.isFocused)
