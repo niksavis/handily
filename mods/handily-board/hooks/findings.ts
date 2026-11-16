@@ -102,8 +102,12 @@ export async function fixFinding(host: FindingsHost, id: number): Promise<ToastP
       'ask Claude in your prompt',
     )
   }
-  await host.edit((current) => withoutFinding(current, id))
   return undefined
+}
+
+export function withoutSentFixes(current: BoardFindings, sent: string): BoardFindings {
+  const kept = current.findings.filter((finding) => !sent.includes(fixPrompt(finding)))
+  return kept.length === current.findings.length ? current : { ...current, findings: kept }
 }
 
 export async function dismissFinding(host: FindingsHost, id: number): Promise<undefined> {

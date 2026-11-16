@@ -480,13 +480,15 @@ Findings  ◆ 2 open
   create approval, or with a tracker that has no create command in handily. Only a basicly
   tracker has one. The toast names the reason.
 - `[ fix ]` puts `Fix this finding: <text>` in the prompt box, after any draft, and sends
-  nothing. You send it to hand the finding to Claude. The row goes away when the prompt box
-  takes the text.
+  nothing. You send it to hand the finding to Claude. The row stays until you send a prompt
+  that holds that text, so a cleared prompt keeps the finding.
 - `[ dismiss ]` removes the row. Nothing is told to Claude.
 - No button calls a model. The mod writes to the tracker only on `[ file ]`.
 - The text is one line of at most 200 characters, with no control or bidi control character,
   and it does not start with `-`. A subagent cannot record a finding. The board holds at most
   20 findings. A bad input is refused with the reason, and the board does not change.
+- A filed record is a bare task with the finding as its title and no other field, so it fails
+  the Definition of Ready of a basicly tracker until someone shapes it.
 - A long finding is cut on its row, and its whole text shows under it.
 - The findings live in `$.state` under `findings`. `/clear` empties them.
 

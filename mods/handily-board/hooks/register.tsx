@@ -200,7 +200,13 @@ import {
   withdrawnLead,
 } from './for-you'
 import { CHANGE_FAILED, refusedParts } from './replies'
-import { EMPTY_FINDINGS, type FindingsHost, findingRefusal, withFinding } from './findings'
+import {
+  EMPTY_FINDINGS,
+  type FindingsHost,
+  findingRefusal,
+  withFinding,
+  withoutSentFixes,
+} from './findings'
 import { commandOf } from './retry'
 import type { ToastParts } from './toast'
 import {
@@ -561,6 +567,14 @@ async function modelFinding(
   return {
     result: `Recorded finding ${String(outcome.id)}. The person sees it under Findings on the board and files, fixes or dismisses it. Do not act on it in this turn.`,
     row: undefined,
+  }
+}
+
+async function clearSentFixes($: EngineInterface, sent: string): Promise<void> {
+  try {
+    await update($, FINDINGS, (current = EMPTY_FINDINGS) => withoutSentFixes(current, sent))
+  } catch (error) {
+    $.ui.log(`handily-board: the sent fix was not cleared: ${String(error)}`)
   }
 }
 
@@ -1974,6 +1988,7 @@ export const register: Register = (on, options) => {
       const entered = await next(sent)
       if (entered.drop === undefined) await notePrompt($, log, e)
       if (entered.drop === undefined && isPersonPrompt(e)) await clearBandEnds($, 'isAnswerSeen')
+      if (entered.drop === undefined && isPersonPrompt(e)) await clearSentFixes($, e.text)
       return entered
     }
     try {

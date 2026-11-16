@@ -291,7 +291,7 @@ describe('findings that Claude records', () => {
   )
 
   test(
-    'pressing fix fills the prompt box with the finding, sends nothing, runs no tracker CLI and removes the row',
+    'pressing fix fills the prompt box with the finding, sends nothing, runs no tracker CLI and keeps the row, also after the person clears the prompt',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
@@ -304,7 +304,37 @@ describe('findings that Claude records', () => {
       expect(seen.fills).toEqual([{ text: `${FIX_LEAD} ${FINDING}`, mode: 'replace' }])
       expect(seen.submitted).toEqual([])
       expect(seen.runs).toEqual([])
+      expect(textOf(await ui.find({ key: 'row:finding:1' }))).toContain(FINDING)
+      seen.draft = ''
+      await $.prompt.submit({
+        text: 'go on with the task',
+        wait: false,
+        origin: { kind: 'composer' },
+      })
+      await seen.clock.settle()
+      expect(textOf(await ui.find({ key: 'row:finding:1' }))).toContain(FINDING)
+      await ui.unmount()
+    },
+  )
+
+  test(
+    'when the person sends the fix prompt, the row of that finding goes and the others stay',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await startOn($, 'terminal')
+      await record($, FINDING)
+      await record($, 'The retry loop never backs off')
+      const ui = await mountOn($, 'terminal')
+      await ui.press({ key: 'finding-fix:1' })
+      await settled(seen, () => seen.fills.length > 0)
+      const sent = seen.fills[0]?.text ?? ''
+      await $.prompt.submit({ text: sent, wait: false, origin: { kind: 'composer' } })
+      await seen.clock.settle()
+      expect(seen.submitted).toEqual([sent])
       expect(await ui.find({ key: 'row:finding:1' })).toBeUndefined()
+      expect(textOf(await ui.find({ key: 'row:finding:2' }))).toContain('The retry loop')
+      expect(seen.runs).toEqual([])
       await ui.unmount()
     },
   )

@@ -8886,6 +8886,6 @@ and the person files, fixes or dismisses it with a button. No button calls a mod
                 toast: ■ Finding not filed  <reason>  fix or dismiss it here
                 the row stays
 [ fix ]      -> the prompt box gets "Fix this finding: <text>", after any draft; nothing is sent
-                the row goes away
+                the row stays until a sent prompt holds that text; a cleared prompt keeps it
 [ dismiss ]  -> the row goes away; Claude is not told
 ```
