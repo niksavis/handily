@@ -6,6 +6,43 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.26.0 - 2026-11-16
+
+### Added
+
+- **The board lists the findings that Claude records, and you file, fix or dismiss each one.** A
+  fifth model tool, `finding_add`, records a finding outside the task: one line of at most 200
+  characters. The `this session` tab shows it under `Findings`, after `For you`, with three
+  buttons. `[ file ]` creates a tracker record with the finding text as its title, through the new
+  `$.workitems.create` of `workitems`, which runs `basicly tracker write -- create` in a basicly
+  repo after an approved read. The create runs the repo code of the tracker kit, so the first
+  press asks its own workitems approval, which covers every kit file, and files nothing. It runs
+  the tracker CLI only on a press, and the toast names the new id or the reason why nothing was
+  filed. `[ fix ]` puts `Fix this finding: <text>` in the prompt box and sends nothing.
+  `[ dismiss ]` removes the row. No button calls a model. (handily-dyf7t)
+
+## handily-workitems 0.9.0 - 2026-11-16
+
+### Added
+
+- **workitems can create a tracker record on a press of the person.** The contract gains
+  `$.workitems.create({ title })`. In a basicly repo it runs `basicly tracker write -- create`
+  with the title, `--type task` and `--json`, only after an approved read and its own create
+  approval, which covers every file of the tracker kit. It refuses by name and runs nothing while
+  paused, on desktop, for another tracker and for a bad title. handily-board 0.26.0 uses it for
+  its `[ file ]` button. (handily-dyf7t)
+
+## handily-filetree 0.15.0 - 2026-11-16
+
+### Added
+
+- **The files tab follows the repository where the agents work.** When Claude or a subagent
+  edits a file in another git repository than the session folder, the files tab shows the tree of
+  that repository and names it in the header, with its branch and git status. The newest edit
+  picks the repository. An edit in the session folder, or a prompt that names a file of it after
+  an `@`, brings the tree back. Reads, Bash calls and edits outside any git repository do not move
+  the tree, and the mod never runs `/cd`. (handily-outrnk)
+
 ## handily-reply-view 0.26.0 - 2026-11-16
 
 ### Added
