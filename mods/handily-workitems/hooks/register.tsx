@@ -133,6 +133,7 @@ export const register: Register = (on) => {
       ...built,
       workitems: {
         refresh: (args) => created.refresh(args),
+        create: (args) => created.create(args),
         writeVerbs: () => Promise.resolve(writeVerbs),
         classify: (command) => Promise.resolve(classify(command)),
         trackerFile: (args) => Promise.resolve(trackerFileOf(args)),

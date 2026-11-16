@@ -4,7 +4,8 @@
 that Claude and you share. The `this machine` tab shows a card for each Claude Code session on
 this machine, and the session that waits for you comes first. Claude keeps
 its plan in the list through four model tools. You see the list and change it with `/board`, or
-on the board.
+on the board. A fifth tool, `finding_add`, lists what Claude found outside the task, and you
+file, fix or dismiss each finding.
 
 A default Claude Code session has no task tool of its own, so the mod owns the list. It does not
 read or write the built-in `Task*` tools.
@@ -207,6 +208,7 @@ You can press every button on both tabs with the keyboard alone. A live check on
 | `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before` |
 | `task_assign` | `kind`: `do`, `answer` or `decide`, `title`, and `options` and `why`   | Assigns a task to you                |
 | `task_list`   | none                                                                   | Returns the list                     |
+| `finding_add` | `text`: one line                                                       | Lists a finding for you              |
 
 - The mod registers the tools at `session.start`. The model calls them as
   `mcp__handily-board__<name>`. Each answer is the whole list, in the order of the work.
@@ -443,6 +445,40 @@ For you  ◆ 3 open
   only the other tasks.
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
+
+### Findings
+
+Claude records a finding outside the task with `finding_add`: a bug, a risk or a gap that it
+does not fix now. The section `Findings` comes after `For you`, above `Tasks`. Each finding
+has three buttons. A capture from the tests, docked at 41 columns:
+
+```text
+Findings  ◆ 2 open
+◆ 1 The date parser drops the time zone
+    [ file ] [ fix ] [ dismiss ]
+◆ 2 The retry loop never backs off
+    [ file ] [ fix ] [ dismiss ]
+─────────────────────────────────────────
+```
+
+- `[ file ]` creates a tracker record with the finding text as its title. The mod runs the
+  tracker CLI only on this press, through `$.workitems.create` of `workitems`, and the tracker
+  gates still apply. With a basicly ledger it runs `basicly tracker write -- create <text>
+--type task --json`. The toast names the new id, and the row goes away.
+- `[ file ]` creates nothing, and keeps the row, when workitems cannot run the CLI: on the
+  desktop app, while workitems is paused, before an approved read of the tracker, or with a
+  tracker that has no create command in handily. Only a basicly tracker has one. The toast
+  names the reason.
+- `[ fix ]` puts `Fix this finding: <text>` in the prompt box, after any draft, and sends
+  nothing. You send it to hand the finding to Claude. The row goes away when the prompt box
+  takes the text.
+- `[ dismiss ]` removes the row. Nothing is told to Claude.
+- No button calls a model. The mod writes to the tracker only on `[ file ]`.
+- The text is one line of at most 200 characters, with no control or bidi control character,
+  and it does not start with `-`. A subagent cannot record a finding. The board holds at most
+  20 findings. A bad input is refused with the reason, and the board does not change.
+- A long finding is cut on its row, and its whole text shows under it.
+- The findings live in `$.state` under `findings`. `/clear` empties them.
 
 ### The Session section
 
@@ -1387,7 +1423,7 @@ starts and after a change of it or of the theme in `/config`.
   last turn from zero. `/clear` and a resume empty them, because each starts a new session id.
   The permission checks stay until `/clear`.
 - `/clear` ends the session with the reason `clear`. The list of the main loop, the lists of all
-  subagents and the tool calls reset.
+  subagents, the findings and the tool calls reset.
 - Each end of the session, `/clear` and a resume included, clears the agent rows.
 - The board draws again at each tool call, and every 10 seconds while a tab is shown, so the
   times move.
@@ -1400,4 +1436,4 @@ claude plugin test mods/handily-board
 ```
 
 `board` depends on `workitems`, so load the `mods` folder. The tests replace `workitems` with an
-inline fake.
+inline fake. `[ file ]` needs the `$.workitems.create` of workitems at this version or later.

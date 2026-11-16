@@ -1,6 +1,7 @@
 import type { FsEntry, ProcessRunResult } from 'claude-code'
 import type {
   WorkitemsAdapterWrites,
+  WorkitemsCreateResult,
   WorkitemsFailedReason,
   WorkitemsItem,
   WorkitemsWriteVerbs,
@@ -59,6 +60,7 @@ export type Reader = {
   isPresent?: (files: TrackerFiles) => Promise<boolean>
   signature?: (files: TrackerFiles) => Promise<string>
   read: (files: TrackerFiles) => Promise<ReadOutcome>
+  create?: (files: TrackerFiles, title: string) => Promise<WorkitemsCreateResult>
 }
 
 export function createReaders(): readonly Reader[] {

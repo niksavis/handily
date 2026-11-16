@@ -152,6 +152,7 @@ const fakeWorkitems: Plugin = {
             await built.state.set({ plugin: 'handily-workitems', key: 'snapshot' }, answer.snapshot)
             return answer.result
           },
+          create: () => Promise.reject(new Error('item-toasts creates no item')),
           writeVerbs: () => Promise.reject(new Error('item-toasts reads no write verbs')),
           classify: async (command) => {
             const path = `/fake/workitems/classify/${encodeURIComponent(command)}`

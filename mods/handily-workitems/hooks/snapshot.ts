@@ -7,6 +7,8 @@ import type {
 } from 'claude-code'
 import type {
   WorkitemsChecked,
+  WorkitemsCreateArgs,
+  WorkitemsCreateResult,
   WorkitemsDiff,
   WorkitemsFailedReason,
   WorkitemsItem,
@@ -66,6 +68,7 @@ export type ProviderHost = {
 
 export type Provider = {
   refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsRefreshResult>
+  create: (args: WorkitemsCreateArgs) => Promise<WorkitemsCreateResult>
   pause: (last: WorkitemsSnapshot | undefined) => Promise<void>
   resume: () => void
   isPaused: () => boolean
@@ -628,7 +631,31 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     }
   }
 
+  async function create(args: WorkitemsCreateArgs): Promise<WorkitemsCreateResult> {
+    if (paused) {
+      return {
+        created: false,
+        reason: 'workitems is paused. /workitems resume reads the tracker again.',
+      }
+    }
+    const read = current
+    if (read === undefined) {
+      return { created: false, reason: 'workitems has not read the tracker yet.' }
+    }
+    if (read.state !== 'ok') {
+      return { created: false, reason: `the tracker is not read: its state is ${read.state}.` }
+    }
+    const reader = readers.find((one) => one.name === read.source)
+    if (reader?.create === undefined) {
+      return { created: false, reason: `handily creates no item in ${read.sourceLabel}.` }
+    }
+    const made = await reader.create(filesAtRoot(host, read.root), args.title)
+    if (made.created) await requestRead()
+    return made
+  }
+
   return {
+    create,
     refresh: async (args) => {
       const since = sinceOf(args)
       if (paused) return { ...diffSince(since), version, state: 'paused' }

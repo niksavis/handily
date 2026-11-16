@@ -69,6 +69,7 @@ import {
   SESSIONS_PANE,
   TASKS_PANE,
   type PaneUi,
+  type PromptFill,
   boardMode,
   closeBoard,
   isTasksSeen,
@@ -199,6 +200,7 @@ import {
   withdrawnLead,
 } from './for-you'
 import { CHANGE_FAILED, refusedParts } from './replies'
+import { EMPTY_FINDINGS, type FindingsHost, findingRefusal, withFinding } from './findings'
 import { commandOf } from './retry'
 import type { ToastParts } from './toast'
 import {
@@ -279,7 +281,10 @@ const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
 const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
-const NOT_PLAN_TOOLS: ReadonlySet<string> = new Set([TOOL_LIST, TOOL_ASSIGN])
+const TOOL_FINDING = 'mcp__handily-board__finding_add'
+const NOT_PLAN_TOOLS: ReadonlySet<string> = new Set([TOOL_LIST, TOOL_ASSIGN, TOOL_FINDING])
+const FINDING_MAIN_LOOP_ONLY =
+  'finding_add works only in the main loop; tell the main agent what you found.'
 const MAIN_LOOP_ONLY = 'task_assign works only in the main loop; tell the main agent what you need.'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
@@ -299,6 +304,7 @@ const AGENTS = { plugin: 'handily-board', key: 'agents' } as const
 const PLAN_ID = { plugin: 'handily-board', key: 'planId' } as const
 const PANE_CHANGES = { plugin: 'handily-board', key: 'paneChanges' } as const
 const TREND = { plugin: 'handily-board', key: 'trend' } as const
+const FINDINGS = { plugin: 'handily-board', key: 'findings' } as const
 const BOARD_NOT_OPENED = refusedParts(
   'The board did not open',
   'the transcript shows why',
@@ -413,6 +419,26 @@ const TOOLS: readonly ToolSpec[] = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     isDeferred: false,
   },
+  {
+    name: 'finding_add',
+    description: [
+      'Record a finding outside your task: a bug, a risk or a gap that you noticed and do not fix now. The finding shows under Findings on the board, and the person files it in the tracker, hands it back to you as a prompt, or dismisses it.',
+      'The call does not block and changes nothing else. Do not act on the finding in this turn. Only the main loop can record a finding.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description:
+            'The finding as one line of at most 200 characters; it becomes the title of a tracker record when the person files it.',
+        },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    isDeferred: false,
+  },
 ]
 
 export const PROMPT_SECTION_ID = 'handily-board:tasks'
@@ -490,6 +516,51 @@ function hostOf($: EngineInterface): TaskHost {
         return 'the board could not keep the note; see the transcript log'
       }
     },
+  }
+}
+
+async function fillPrompt($: EngineInterface, text: string): Promise<PromptFill> {
+  const draft = await $.prompt.read()
+  const filled = await $.prompt.fill(
+    draft.text.trim() === '' ? { text } : { text: ` ${text}`, mode: 'append' },
+  )
+  return { isFilled: filled.isFilled, refusal: filled.refusal }
+}
+
+function findingsOf($: EngineInterface): FindingsHost {
+  return {
+    read: async () => (await $.state.get(FINDINGS)).value ?? EMPTY_FINDINGS,
+    edit: async (change) => {
+      await update($, FINDINGS, (current = EMPTY_FINDINGS) => change(current))
+    },
+    create: (title) => $.workitems.create({ title }),
+    fillPrompt: (text) => fillPrompt($, text),
+  }
+}
+
+async function modelFinding(
+  $: EngineInterface,
+  text: unknown,
+  agentId: string | undefined,
+): Promise<ModelAnswer> {
+  if (agentId !== undefined) return { deny: FINDING_MAIN_LOOP_ONLY }
+  const at = await $.clock.now()
+  let outcome: { refusal: string } | { id: number } | undefined
+  await update($, FINDINGS, (current = EMPTY_FINDINGS) => {
+    const refusal = findingRefusal(text, current.findings.length)
+    if (refusal !== undefined || typeof text !== 'string') {
+      outcome = { refusal: refusal ?? 'finding_add needs text.' }
+      return current
+    }
+    const added = withFinding(current, text, at)
+    outcome = { id: added.finding.id }
+    return added.findings
+  })
+  if (outcome === undefined) throw new Error('handily-board: the state update never ran the change')
+  if ('refusal' in outcome) return { deny: outcome.refusal }
+  return {
+    result: `Recorded finding ${String(outcome.id)}. The person sees it under Findings on the board and files, fixes or dismisses it. Do not act on it in this turn.`,
+    row: undefined,
   }
 }
 
@@ -1345,13 +1416,7 @@ function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep, redraw: Red
       await notePaneChange($)
     },
     panes: () => $.ui.panes(),
-    fillPrompt: async (text) => {
-      const draft = await $.prompt.read()
-      const filled = await $.prompt.fill(
-        draft.text.trim() === '' ? { text } : { text: ` ${text}`, mode: 'append' },
-      )
-      return { isFilled: filled.isFilled, refusal: filled.refusal }
-    },
+    fillPrompt: (text) => fillPrompt($, text),
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
     },
@@ -1867,6 +1932,7 @@ export const register: Register = (on, options) => {
       refused.clear()
       await resetList(hostOf($))
       await $.state.set(PERSON_CHANGES, [])
+      await $.state.set(FINDINGS, EMPTY_FINDINGS)
       await $.state.set(PLAN_ID, null)
       await resetAgentLists($)
       await resetActivity($)
@@ -2068,6 +2134,9 @@ export const register: Register = (on, options) => {
     if (assigned.task !== undefined) asks.push(assigned.task)
     return answerWithRow($, e.tool_use_id, assigned.answer)
   }).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_FINDING }, async ($, e) =>
+    answerWithRow($, e.tool_use_id, await modelFinding($, e.text, e.agentId)),
+  ).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_LIST }, async ($, e) =>
     answerWithRow($, e.tool_use_id, await modelList(modelHostOf($, e.agentId))),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
@@ -2293,7 +2362,14 @@ export const register: Register = (on, options) => {
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     if (placement === 'widget') return drawGlance(elements, hostOf($), work)
-    return drawPane(elements, hostOf($), plansOf($), uiOf($, notes, breakdown, redraw), work)
+    return drawPane(
+      elements,
+      hostOf($),
+      plansOf($),
+      uiOf($, notes, breakdown, redraw),
+      work,
+      findingsOf($),
+    )
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {

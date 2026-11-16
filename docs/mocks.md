@@ -8821,3 +8821,67 @@ The owner approved the 8 recommended answers of the designer:
 - **Two band mods** still yield to each other by the 8.13k rule. If both yield, no strip shows.
 - **The 10 s tick:** a tool and a time can lag by up to 10 s. A change of state does not lag.
 - **No band in two cases:** the mobile app and `-p`. There, `/board list` is the only path.
+
+## 17. handily-board: findings that Claude records (handily-dyf7t)
+
+Claude records a finding outside the task with the model tool `finding_add`. The board lists it,
+and the person files, fixes or dismisses it with a button. No button calls a model.
+
+- The section `Findings` comes after `For you` and above `Tasks`: attention first (8.0).
+- `◆` and `open` in `warning` mark a finding that waits for the person, as in 8.12.
+- With no finding, the section is absent. The tab looks as in 8.12a or 8.10b.
+
+### 17a Docked, body 41: two findings
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ [this session]  this machine              │  (engine tab row)
+│ Session  ctx 48% · $2.10 · turn +$0.22    │
+│ Findings  ◆ 2 open                        │  NEW: ◆ and "open" in warning
+│ ◆ 1 The date parser drops the time zone   │  NEW
+│     [ file ] [ fix ] [ dismiss ]          │  NEW
+│ ◆ 2 The retry loop never backs off        │  NEW
+│     [ file ] [ fix ] [ dismiss ]          │  NEW
+│ ───────────────────────────────────────── │
+│ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m             │
+│ ▶ 2 Write the tab mocks         4m [ rm ] │
+╰───────────────────────────────────────────╯
+```
+
+### 17b A long finding: cut on its row, whole under it
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Findings  ◆ 1 open                        │
+│ ◆ 1 The date parser drops the time zone … │  cut at the body width
+│     The date parser drops the time zone   │  NEW, dim, wraps
+│     of every timestamp that the export    │
+│     writes to the report file             │
+│     [ file ] [ fix ] [ dismiss ]          │
+╰───────────────────────────────────────────╯
+```
+
+### 17c Desktop app, body 41 (the same tree, native buttons)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Findings  ◆ 1 open                        │
+│ ◆ 1 The date parser drops the time zone   │
+│     [file] [fix] [dismiss]                │  native buttons
+╰───────────────────────────────────────────╯
+```
+
+### 17d What each button does
+
+```text
+[ file ]     -> workitems runs the tracker CLI once:
+                basicly tracker write -- create "<text>" --type task --json
+                toast: ✓ Filed as app-7k2q  "The date parser drops the time zone"
+                the row goes away
+[ file ]     -> (no approved read, paused, desktop, a tracker with no create command)
+                toast: ■ Finding not filed  <reason>  fix or dismiss it here
+                the row stays
+[ fix ]      -> the prompt box gets "Fix this finding: <text>", after any draft; nothing is sent
+                the row goes away
+[ dismiss ]  -> the row goes away; Claude is not told
+```

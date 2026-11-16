@@ -181,6 +181,7 @@ const fakeWorkitems: Plugin = {
               state: world.snapshot.state === 'paused' ? 'paused' : 'read',
             }
           },
+          create: () => Promise.reject(new Error('quiet-items creates no item')),
           writeVerbs: () => Promise.reject(new Error('quiet-items reads no write verbs')),
           classify: async (command) => {
             const path = `/fake/workitems/classify/${encodeURIComponent(command)}`

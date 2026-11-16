@@ -1,6 +1,13 @@
-import type { WorkitemsItem } from '../../types'
+import type { WorkitemsCreateResult, WorkitemsItem } from '../../types'
 import { numeral } from '../states'
-import { coverStamp, quotedCommand, type ApprovalKey, type CoveredFolder } from '../approval'
+import {
+  coverStamp,
+  programOutsideRoot,
+  quotedCommand,
+  type ApprovalKey,
+  type CoveredFolder,
+} from '../approval'
+import { argumentProblem, FileProblem } from '../config'
 import { runJson } from './adapter'
 import {
   checkedItem,
@@ -22,6 +29,9 @@ const KIT_CODE: readonly CoveredFolder[] = [{ path: KIT_FOLDER, suffix: '', recu
 const PROGRAM = 'basicly'
 const LABEL = 'basicly tracker items'
 const COMMAND = [PROGRAM, 'tracker', 'items'] as const
+const CREATE = [PROGRAM, 'tracker', 'write', '--', 'create'] as const
+const CREATE_LABEL = 'basicly tracker write -- create'
+const CREATE_FLAGS = ['--type', 'task', '--json'] as const
 const OPEN_STATUSES = ['open', 'in_progress', 'blocked'] as const
 const ITEMS_FLAGS = ['--json', ...OPEN_STATUSES.flatMap((status) => ['--status', status])]
 const VERSION_LABEL = 'basicly --version'
@@ -180,6 +190,56 @@ async function basiclySignature(files: TrackerFiles): Promise<string> {
   ].join('\n')
 }
 
+function notCreated(reason: string): WorkitemsCreateResult {
+  return { created: false, reason }
+}
+
+function createdId(stdout: string): string | undefined {
+  const line = stdout.split(/\r?\n/, 1)[0] ?? ''
+  try {
+    const parsed: unknown = JSON.parse(line)
+    if (!isRecord(parsed)) return undefined
+    const { id } = parsed
+    return typeof id === 'string' && id !== '' && argumentProblem(id) === null ? id : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function createBasicly(files: TrackerFiles, title: string): Promise<WorkitemsCreateResult> {
+  if (title.trim() === '') return notCreated('the title is empty.')
+  if (title.startsWith('-'))
+    return notCreated('the title starts with -, which basicly reads as a flag.')
+  const problem = argumentProblem(title)
+  if (problem !== null)
+    return notCreated(`the title has a character or a length that basicly cannot take: ${problem}.`)
+  if (!(await files.commands.canRun())) {
+    return notCreated(`${CREATE_LABEL} runs only in a terminal session.`)
+  }
+  let argv0: string
+  try {
+    argv0 = await programOutsideRoot(files, CREATE)
+  } catch (error) {
+    if (error instanceof FileProblem) return notCreated(error.reason)
+    throw error
+  }
+  const argv = [argv0, ...CREATE.slice(1), title, ...CREATE_FLAGS]
+  let result
+  try {
+    result = await files.commands.run(argv, pythonEnv(files.root))
+  } catch {
+    return notCreated(`${CREATE_LABEL} did not start or did not end in time.`)
+  }
+  if (result.exitCode !== 0) {
+    return notCreated(
+      `${CREATE_LABEL} exited ${String(result.exitCode)}. Run it in a shell to see why.`,
+    )
+  }
+  const id = createdId(result.stdout)
+  if (id === undefined) return notCreated(`${CREATE_LABEL} printed no record id.`)
+  return { created: true, id }
+}
+
 export function createBasiclyReader(): Reader {
   const memory: VersionMemory = {}
   return {
@@ -187,5 +247,6 @@ export function createBasiclyReader(): Reader {
     marker: TEMPLATE,
     signature: basiclySignature,
     read: (files) => readBasicly(files, memory),
+    create: createBasicly,
   }
 }

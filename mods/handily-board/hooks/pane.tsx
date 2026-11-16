@@ -57,6 +57,13 @@ import {
   personUndo,
 } from './for-you'
 import { drawForYou } from './for-you-view'
+import {
+  type FindingsHost,
+  dismissFinding,
+  drawFindings,
+  fileFinding,
+  fixFinding,
+} from './findings'
 import { AGENTS_VIEW_FAILED, CHANGE_FAILED, FILES_VIEW_FAILED, refusedParts } from './replies'
 import { SIGNALS, type SignalLooks } from './signals'
 import {
@@ -986,10 +993,22 @@ export async function drawPane(
   plans: PlanHost,
   ui: PaneUi,
   work: PaneWork,
+  findingsHost: FindingsHost,
 ): Promise<RenderElement> {
   const { Box, Text } = elements
   const act = actor(ui)
   const all = await readList(host)
+  const findings = drawFindings(elements, await findingsHost.read(), {
+    file: (id) => {
+      act(() => fileFinding(findingsHost, id))
+    },
+    fix: (id) => {
+      act(() => fixFinding(findingsHost, id))
+    },
+    dismiss: (id) => {
+      act(() => dismissFinding(findingsHost, id))
+    },
+  })
   const list = ownList(all)
   const plan = await drawPlan(elements, host, plans, all, act)
   const hasList = list.tasks.length > 0
@@ -1035,6 +1054,7 @@ export async function drawPane(
       ...drawSession(elements, work, layout, countParts),
       ...plan,
       ...forYou,
+      ...findings,
       ...tasks,
       work.agents.length === 0 && !hasList ? Text({ dimColor: true, children: NO_AGENTS }) : null,
       ...drawAgents(elements, work.agents, layout, work.now, agentsOpener(ui)),

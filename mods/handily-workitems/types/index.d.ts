@@ -177,8 +177,16 @@ export type WorkitemsLinesArgs = {
   now: number
 }
 
+export type WorkitemsCreateArgs = {
+  title: string
+}
+
+export type WorkitemsCreateResult =
+  { created: true; id: string } | { created: false; reason: string }
+
 export type Workitems = {
   refresh: (args?: WorkitemsRefreshArgs) => Promise<WorkitemsRefreshResult>
+  create: (args: WorkitemsCreateArgs) => Promise<WorkitemsCreateResult>
   writeVerbs: () => Promise<WorkitemsWriteVerbs>
   classify: (command: string) => Promise<WorkitemsParsedCommand>
   trackerFile: (args: WorkitemsTrackerFileArgs) => Promise<string | null>

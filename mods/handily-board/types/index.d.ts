@@ -38,6 +38,10 @@ export type BoardList = {
   nextId: number
 }
 
+export type BoardFinding = { id: number; text: string; at: number }
+
+export type BoardFindings = { findings: readonly BoardFinding[]; nextId: number }
+
 export type BoardPersonChange = { text: string; tasks: readonly BoardTask[] }
 
 export type BoardPlan = {
@@ -165,6 +169,7 @@ declare module 'claude-code' {
     'handily-board': {
       list: BoardList
       personChanges: readonly BoardPersonChange[]
+      findings: BoardFindings
       agentList: StateFamily<BoardList>
       agentIds: readonly string[]
       agentPlans: BoardAgentPlans

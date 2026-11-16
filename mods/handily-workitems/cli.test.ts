@@ -339,6 +339,9 @@ const consumer: Plugin = {
       if (e.command === 'refresh-since') {
         return { text: JSON.stringify(await $.workitems.refresh({ since: Number(e.args) })) }
       }
+      if (e.command === 'create') {
+        return { text: JSON.stringify(await $.workitems.create({ title: e.args })) }
+      }
       if (e.command === 'write-verbs') {
         return { text: JSON.stringify(await $.workitems.writeVerbs()) }
       }
@@ -756,6 +759,77 @@ function largeBeadsWorld(on: On, text = LARGE_TEXT, options: WorldOptions = {}):
   world.files.set(CMD, { text: 'binary', mtimeMs: 1 })
   return world
 }
+
+const FINDING = 'The date parser drops the time zone'
+const CREATE_ARGS = ['tracker', 'write', '--', 'create']
+const CREATE_ARGV = [BASICLY_BIN, ...CREATE_ARGS, FINDING, '--type', 'task', '--json']
+
+function isCreateRun(run: Run): boolean {
+  return run.argv.slice(1, 5).join(' ') === CREATE_ARGS.join(' ')
+}
+
+describe('create through the tracker CLI', () => {
+  test(
+    'create runs one basicly tracker write -- create with the title after an approved read and gives the new id',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBasicly($, on)
+      expect(world.runs.filter(isCreateRun)).toEqual([])
+      world.outputs.set(CREATE_ARGV.join(' '), { stdout: '{"id": "app-7k2q"}\n' })
+      const made = JSON.parse(await commandText($, 'create', FINDING)) as unknown
+      expect(made).toEqual({ created: true, id: 'app-7k2q' })
+      expect(world.runs.filter(isCreateRun).map(({ argv, cwd }) => ({ argv, cwd }))).toEqual([
+        { argv: CREATE_ARGV, cwd: ROOT },
+      ])
+    },
+  )
+
+  test(
+    'create refuses a title that starts with a dash and runs no tracker CLI',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBasicly($, on)
+      const made = JSON.parse(await commandText($, 'create', '--force')) as unknown
+      expect(made).toEqual({
+        created: false,
+        reason: 'the title starts with -, which basicly reads as a flag.',
+      })
+      expect(world.runs.filter(isCreateRun)).toEqual([])
+    },
+  )
+
+  test(
+    'a create that exits non-zero names the command and creates nothing',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedBasicly($, on)
+      world.outputs.set(CREATE_ARGV.join(' '), { exitCode: 1, stderr: 'refused' })
+      const made = JSON.parse(await commandText($, 'create', FINDING)) as unknown
+      expect(made).toEqual({
+        created: false,
+        reason: 'basicly tracker write -- create exited 1. Run it in a shell to see why.',
+      })
+      expect(world.runs.filter(isCreateRun)).toHaveLength(1)
+    },
+  )
+
+  test(
+    'create before an approved read refuses by name and runs no tracker CLI',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 1_000 })
+      const world = fakeWorld(on, BASICLY_REPO, PATH_WITH_BASICLY)
+      answerBasicly(world)
+      await startSession($, clock, false)
+      const made = JSON.parse(await commandText($, 'create', FINDING)) as unknown
+      expect(made).toEqual({
+        created: false,
+        reason: 'the tracker is not read: its state is approval-needed.',
+      })
+      expect(world.runs.filter(isCreateRun)).toEqual([])
+    },
+  )
+})
 
 describe('beads over 4 MiB streamed by a system reader', () => {
   test(

@@ -45,6 +45,7 @@ const fakeWorkitems: Plugin = {
         workitems: {
           refresh: () =>
             Promise.resolve({ created: [], updated: [], closed: [], version: 1, state: 'read' }),
+          create: () => Promise.reject(new Error('the fake workitems creates no item')),
           writeVerbs: () => Promise.reject(new Error('the fake workitems has no write verbs')),
           classify: () => Promise.reject(new Error('the fake workitems classifies no command')),
           trackerFile: () => Promise.reject(new Error('the fake workitems names no tracker file')),
@@ -1575,7 +1576,7 @@ const DRAW_WORK_CRITERION =
 
 const TASKS_PER_AGENT = 20
 const ROWS_OF_ACTIVE_AGENTS = 6
-const STATE_READS_PER_DRAW: Record<Surface, number> = { terminal: 8, desktop: 6 }
+const STATE_READS_PER_DRAW: Record<Surface, number> = { terminal: 9, desktop: 7 }
 const SLOW_RUNNER_FILL_TIMEOUT_MS = 30_000
 const withRoomToFillAgents = { ...withWorkitems, timeoutMs: SLOW_RUNNER_FILL_TIMEOUT_MS }
 
@@ -1595,7 +1596,7 @@ async function fillAgents($: Engine, seen: World, count: number): Promise<void> 
 describe(DRAW_WORK_CRITERION, () => {
   for (const agents of [1, 30]) {
     test(
-      `a draw with ${String(agents)} agents of ${String(TASKS_PER_AGENT)} tasks reads the state 8 times on terminal, with the glyph and palette settings, and 6 times on desktop`,
+      `a draw with ${String(agents)} agents of ${String(TASKS_PER_AGENT)} tasks reads the state 9 times on terminal, with the glyph and palette settings, and 7 times on desktop`,
       withRoomToFillAgents,
       async ($, on) => {
         const seen = world(on)
@@ -1628,7 +1629,7 @@ describe(DRAW_WORK_CRITERION, () => {
   }
 
   test(
-    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 8 times on terminal and 6 on desktop from the second',
+    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 9 times on terminal and 7 on desktop from the second',
     withRoomToFillAgents,
     async ($, on) => {
       const agents = 30

@@ -305,6 +305,7 @@ its `plugin.json`, and the engine lays the contract into that mod's types folder
 | `$.workitems.writeVerbs()`                                      | The write verbs of each tracker CLI that the mod knows                                         |
 | `$.workitems.classify(command)`                                 | Reads a shell command: `write`, `echoed`, `opaque` or `none`, with the tracker writes it found |
 | `$.workitems.trackerFile({ path, root })`                       | The tracker file that `path` names, relative to `root`, or `null`                              |
+| `$.workitems.create({ title })`                                 | Creates one item through the tracker CLI. See [Create](#create)                                |
 
 The snapshot `state` is one of `ok`, `failed`, `approval-needed`, `stale`, `no-tracker`,
 `terminal-only` and `paused`. This version produces each of them except `stale`. A `paused`
@@ -318,6 +319,24 @@ Each snapshot also carries these fields:
 | `version`   | A number that rises by 1 each time the data changes |
 | `at`        | The time of the read that gave this data            |
 | `checkedAt` | The time of the check that made this snapshot       |
+
+## Create
+
+`$.workitems.create({ title })` creates one item with the tracker's own CLI, so the tracker gates
+still apply. A mod calls it only on an explicit action of the person, such as the `[ file ]`
+button of `board`.
+
+- It runs only after an approved read: the last snapshot has the state `ok`. Its source must
+  have a create command. Only `basicly` has one, and it runs
+  `basicly tracker write -- create <title> --type task --json` in the repo root, with the
+  `basicly` that the PATH names outside the repo root.
+- It returns `{ created: true, id }` with the id that the CLI prints, then reads the tracker
+  again.
+- It returns `{ created: false, reason }` and runs nothing while workitems is paused, before an
+  approved read, for a source with no create command, on the desktop app, and for a title that
+  is empty, starts with `-`, has a control character or has more than 256 characters.
+- A CLI that exits non-zero, does not start or prints no id gives `{ created: false, reason }`.
+  The reason names the command, never the title.
 
 ## Refresh
 

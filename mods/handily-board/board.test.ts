@@ -82,6 +82,7 @@ const fakeWorkitems: Plugin = {
         workitems: {
           refresh: () =>
             Promise.resolve({ created: [], updated: [], closed: [], version: 1, state: 'read' }),
+          create: () => Promise.reject(new Error('the fake workitems creates no item')),
           writeVerbs: () => Promise.reject(new Error('the fake workitems has no write verbs')),
           classify: () => Promise.reject(new Error('the fake workitems classifies no command')),
           trackerFile: () => Promise.reject(new Error('the fake workitems names no tracker file')),
@@ -476,7 +477,7 @@ function composeFor(tools: readonly string[]): PromptComposeInput {
 
 describe('model tools and the prompt section', () => {
   test(
-    'registers task_add, task_update, task_move, task_assign, task_list and /board at session start',
+    'registers task_add, task_update, task_move, task_assign, task_list, finding_add and /board at session start',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
@@ -487,6 +488,7 @@ describe('model tools and the prompt section', () => {
         'task_move',
         'task_assign',
         'task_list',
+        'finding_add',
       ])
       expect(seen.commands).toEqual(['board'])
     },
