@@ -2616,7 +2616,7 @@ describe('the pane follows the work', () => {
       await agentCall($, 'a1', 'hooks/')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ──────────────────── ○ no turn ─╮',
+        '╭─ Session ─────────────────────── ○ idle ─╮',
         '│ ctx — until the first reply              │',
         '│ limits — until the first reply           │',
         '│ req —                                    │',
@@ -2764,7 +2764,7 @@ describe('the pane follows the work', () => {
       await bash($, 'npm test')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ──────────────────── ○ no turn ─╮',
+        '╭─ Session ─────────────────────── ○ idle ─╮',
         '│ ctx — until the first reply              │',
         '│ limits — until the first reply           │',
         '│ req —                                    │',
@@ -2857,7 +2857,7 @@ describe('the pane follows the work', () => {
       await readsOf($, 20)
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ──────────────────── ○ no turn ─╮',
+        '╭─ Session ─────────────────────── ○ idle ─╮',
         '│ ctx — until the first reply              │',
         '│ limits — until the first reply           │',
         '│ req —                                    │',
@@ -3883,7 +3883,7 @@ const SESSION_SCREENS: readonly {
     placement: 'dock',
     columns: 41,
     framed: [
-      '╭─ Session ───────────────── ○ no turn ─╮',
+      '╭─ Session ──────────────────── ○ idle ─╮',
       '│ ctx — until the first reply           │',
       '│ limits — until the first reply        │',
       '│ req —                                 │',
@@ -3902,7 +3902,7 @@ const SESSION_SCREENS: readonly {
       '[ Add a task ][Add]',
     ],
     lines: [
-      'Session  ○ no turn',
+      'Session  ○ idle',
       'ctx — until the first reply',
       'req —',
       'gate 10 ▮▮▮▮▮▮▮▮▮▮',
@@ -3922,7 +3922,7 @@ const SESSION_SCREENS: readonly {
     placement: 'dock',
     columns: 30,
     lines: [
-      'Session  ○ no turn',
+      'Session  ○ idle',
       'ctx — until the first reply',
       'req —',
       'gate 10 ▮▮▮▮▮▮▮▮▮▮',
@@ -3943,7 +3943,7 @@ const SESSION_SCREENS: readonly {
     placement: 'inline',
     columns: 80,
     lines: [
-      'Session  ○ no turn · ctx — until the first reply',
+      'Session  ○ idle · ctx — until the first reply',
       '    req —',
       '    gate 10 ▮▮▮▮▮▮▮▮▮▮ 10 allowed · 0 asked · 0 denied',
       '    f: file 10  s: shell 0  o: other 0',
@@ -8002,7 +8002,7 @@ for (const surface of SURFACES) {
         await measure($, { percent: 91, usd: 12.4 })
         const { call } = await scoutWaits($, seen, dialog)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ no turn')
+        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ idle')
         await ui.unmount()
         dialog.allow()
         await call
@@ -8501,7 +8501,7 @@ for (const surface of SURFACES) {
         expect(seen.statuses).toEqual([SCOUT_WAITS])
         expect(seen.notices).toEqual([SCOUT_NOTICE])
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ no turn')
+        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ idle')
         await ui.unmount()
         dialog.allow()
         await call
@@ -12143,7 +12143,7 @@ describe(NERD_TAB_CRITERION, () => {
       const narrow = await mountTab($, 'terminal', PANE, 'dock', 30)
       const flat = await screen(narrow, 30)
       await narrow.unmount()
-      expect(flat[0]).toBe(`Session  ${NERD_BELL} 1 waits · ${NERD_TO_DO} no turn`)
+      expect(flat[0]).toBe(`Session  ${NERD_BELL} 1 waits · ${NERD_TO_DO} idle`)
       expect(flat).toContain(`${NERD_DOING} 2 Write the tab m… 4m [ rm ]`)
       expect(widthProblems(flat, 30)).toEqual([])
       dialog.allow()

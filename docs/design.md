@@ -1262,8 +1262,16 @@ Session head and the this machine cards show it.
 - The board extends its one `classic.Stop` hook; the engine refuses a second hook on one event.
   It reads only a Stop with no `agent_id`. `hooks/background.ts` holds the rule: waiting when a
   list is not empty, idle when both are empty, no turn when a list is missing. A main
-  `turn.start` sets no turn, and `vitals.isTurnRunning` draws working on top. `/clear` and a
-  resume reset to no turn. No Stop yet reads as no turn, never idle.
+  `turn.start` sets no turn, and `vitals.isTurnRunning` draws working on top; a subagent turn
+  changes nothing, also in the published entry. `/clear` and a resume reset to no turn until the
+  next Stop. A new session reads idle before its first Stop: `session.start` sets it, and a
+  classic SessionStart with the source `resume`, `clear` or `fork` takes it back, because the
+  survival of background work across them is not measured (council of 2026-11-16).
+- Claude Code 2.1.325 sends no Stop for a turn interrupted with Esc (measured live on
+  2026-11-16). When a main `turn.complete` has the reason `aborted` and no Stop came after its
+  `turn.start`, the board restores the waiting state that held before that turn, with its items
+  and first seen times. The next Stop or main turn start ends it.
+- Every `session.end` stops the waiting timer and publishes no background.
 - The age counts from the Stop that first reported the oldest item. The board keeps the first
   time of each task or cron id across Stops, so a woken turn does not reset a long CI watch.
 - After 30 minutes with no turn, the age gets `?` and the line adds `not seen since 40m`. The

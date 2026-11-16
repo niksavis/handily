@@ -165,6 +165,9 @@ import {
   besideAskText,
   forgetBackground,
   isMainStop,
+  noteAbortedTurn,
+  noteStartSource,
+  noteStartup,
   isWaiting,
   newBackgroundKeep,
   noteStop,
@@ -1861,6 +1864,7 @@ export const register: Register = (on, options) => {
     })
     await keepGlyphSetting($)
     await keepPaletteSetting($)
+    noteStartup(background, await $.clock.now())
     if (mode === 'always') await openUnasked(uiOf($, notes, breakdown, redraw))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
@@ -1929,8 +1933,9 @@ export const register: Register = (on, options) => {
       await noteRunStart(agentHostOf($), e.agentId)
       noteLogRun(log, e.agentId)
     }
+    const shared = sharedBackground(background.current)
     await updateProgress(sessionsHost($), machine, (progress, now, list) =>
-      withTasks(startTurn(progress, now), list, now),
+      withBackground(withTasks(startTurn(progress, now), list, now), shared, now),
     )
     return next(e)
   })
@@ -1972,6 +1977,9 @@ export const register: Register = (on, options) => {
       await updateProgress(sessionsHost($), machine, (progress, now, list) =>
         withTasks(completeTurn(progress, now), list, now),
       )
+      if (e.reason === 'aborted' && noteAbortedTurn(background)) {
+        await noteBackground($, redraw, attention)
+      }
     } else {
       const { agentId } = e
       const kind = TURN_END_KINDS[e.reason]
@@ -2010,9 +2018,10 @@ export const register: Register = (on, options) => {
     steps.counts.clear()
     pulses.heardAt.clear()
     pulses.callsFrom.clear()
+    forgetBackground(background)
+    if (NEW_SESSION_REASONS.has(e.reason)) background.isCarried = true
+    await noteBackground($, redraw, attention)
     if (NEW_SESSION_REASONS.has(e.reason)) {
-      forgetBackground(background)
-      await noteBackground($, redraw, attention)
       await noteVitals($, vitals, withClear)
       noteRequest($, request, withRequestsCleared)
       await setTrend($, trend, EMPTY_TREND)
@@ -2040,6 +2049,11 @@ export const register: Register = (on, options) => {
 
   on('classic.SessionStart', ($, e, next) => {
     noteMode($, request, e)
+    if (e.agent_id === undefined) {
+      const wasIdle = background.current.kind === 'idle'
+      noteStartSource(background, e.source)
+      if (wasIdle && background.current.kind !== 'idle') $.ui.invalidate('ui.render')
+    }
     return next(e)
   })
 

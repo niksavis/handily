@@ -546,11 +546,11 @@ for (const surface of SURFACES) {
         await turnEnds($)
         const after = await screenOn($, surface, 'dock', 41)
         if (surface === 'terminal') {
-          expect(before[0]).toBe('╭─ Session ───────────────── ○ no turn ─╮')
+          expect(before[0]).toBe('╭─ Session ──────────────────── ○ idle ─╮')
           expect(running[0]).toBe('╭─ Session ───────────────── ▶ working ─╮')
           expect(after[0]).toBe('╭─ Session ───────────────── ○ no turn ─╮')
         } else {
-          expect(before.slice(0, 2)).toEqual(['Session  ○ no turn', 'ctx — until the first reply'])
+          expect(before.slice(0, 2)).toEqual(['Session  ○ idle', 'ctx — until the first reply'])
           expect(running.slice(0, 2)).toEqual(['Session  ▶ working', 'ctx — until the first reply'])
           expect(after[0]).toBe('Session  ○ no turn')
         }

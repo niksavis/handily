@@ -345,24 +345,27 @@ function drawTasks(
   }
   const bar = columns >= BAR_FROM ? barParts(list) : []
   const time = columns >= TIME_FROM ? timePart(task, view) : []
-  const lead = withLead(
-    waitingLead(waiting, columns, elements.signals),
-    leftParts(view, task, elements.signals),
-    columns,
-  )
-  const fixed = (withTime: boolean) =>
-    partsWidth(spaced([withTime ? time : [], bar, list.tasks.length > 0 ? [count] : []])) +
-    1 +
-    buttonWidth(BOARD_LABEL) +
-    1 +
-    partsWidth(lead)
-  const keepsTime = columns - fixed(true) >= TITLE_AT_LEAST || task === undefined
-  const right = spaced([keepsTime ? time : [], bar, list.tasks.length > 0 ? [count] : []])
-  const room = Math.max(columns - fixed(keepsTime), 0)
+  const wait = waitingLead(waiting, columns, elements.signals)
+  const taskLead = leftParts(view, task, elements.signals)
+  const counted = list.tasks.length > 0 ? [count] : []
+  const rightOf = (withTime: boolean, withCount: boolean) =>
+    spaced([withTime ? time : [], bar, withCount ? counted : []])
+  const fixed = (shown: readonly Part[], right: readonly Part[]) =>
+    partsWidth(right) + 1 + buttonWidth(BOARD_LABEL) + 1 + partsWidth(shown)
+  const full = withLead(wait, taskLead, columns)
+  const keepsTime =
+    columns - fixed(full, rightOf(true, true)) >= TITLE_AT_LEAST || task === undefined
+  const hasRoom = (shown: readonly Part[], right: readonly Part[]) =>
+    columns - fixed(shown, right) >= (task === undefined ? 0 : 1)
+  const keepsCount = wait.length === 0 || hasRoom(full, rightOf(keepsTime, true))
+  const right = rightOf(keepsTime, keepsCount)
+  const keepsTask = wait.length === 0 || hasRoom(full, right)
+  const lead = keepsTask ? full : wait
+  const room = Math.max(columns - fixed(lead, right), 0)
   const more = task === undefined ? [] : moreRunning(list)
   const title = task === undefined ? '' : escaped(task.title)
   const titleParts: Part[] =
-    task === undefined
+    task === undefined || !keepsTask
       ? []
       : room >= displayWidth(title) + partsWidth(more)
         ? [{ text: title }, ...more]
@@ -627,9 +630,9 @@ function drawHead(
 }
 
 function backgroundDetail(item: BackgroundItem): Part[] {
-  const title: Part[] = item.title === '' ? [] : [{ text: item.title }]
+  const title: Part[] = item.title === '' ? [] : [{ text: escaped(item.title) }]
   if (item.detail === null) return title
-  const detail: Part = { text: item.detail, dimColor: true }
+  const detail: Part = { text: escaped(item.detail), dimColor: true }
   return title.length === 0 ? [detail] : [...title, { text: PART_LEAD, dimColor: true }, detail]
 }
 
@@ -644,7 +647,8 @@ function drawBackgroundRow(
   const isWide = columns >= WIDE_FROM
   const look = waitingLook(elements.signals)
   const stateWidth = isWide ? STATE_COLUMNS : displayWidth(WAITING_WORD)
-  const nameWidth = Math.max(NAME_COLUMNS, displayWidth(item.kind))
+  const kind = escaped(item.kind)
+  const nameWidth = Math.max(NAME_COLUMNS, displayWidth(kind))
   const time = ageText(item.firstSeenAt, waiting.now, isStale(waiting.background, waiting.now))
   const timeWidth = isWide ? GAP + Math.max(TIME_COLUMNS, displayWidth(time)) : 0
   const openWidth = GAP + displayWidth(OPEN_LABEL)
@@ -665,7 +669,7 @@ function drawBackgroundRow(
     flexDirection: 'row',
     children: [
       fixedBox(elements, MARK_COLUMNS, Text({ color: look.color, children: `${look.mark} ` })),
-      fixedBox(elements, nameWidth + GAP, Text({ bold: true, children: item.kind })),
+      fixedBox(elements, nameWidth + GAP, Text({ bold: true, children: kind })),
       fixedBox(elements, stateWidth + GAP, Text({ color: WAITING_COLOR, children: WAITING_WORD })),
       Box({
         flexDirection: 'row',

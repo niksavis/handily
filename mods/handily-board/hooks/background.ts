@@ -40,10 +40,37 @@ export const NO_TURN: Background = { kind: 'noTurn', isUnreported: false }
 
 const UNREPORTED: Background = { kind: 'noTurn', isUnreported: true }
 
-export type BackgroundKeep = { current: Background; firstSeen: Map<string, number> }
+export type BackgroundKeep = {
+  current: Background
+  firstSeen: Map<string, number>
+  hasStop: boolean
+  isCarried: boolean
+  beforeTurn: Background | undefined
+}
 
 export function newBackgroundKeep(): BackgroundKeep {
-  return { current: NO_TURN, firstSeen: new Map() }
+  return {
+    current: NO_TURN,
+    firstSeen: new Map(),
+    hasStop: false,
+    isCarried: false,
+    beforeTurn: undefined,
+  }
+}
+
+export type StartSource = 'startup' | 'resume' | 'clear' | 'compact' | 'fork'
+
+const CARRIED_SOURCES: ReadonlySet<string> = new Set(['resume', 'clear', 'fork'])
+
+export function noteStartup(keep: BackgroundKeep, now: number): void {
+  if (keep.hasStop || keep.isCarried || keep.current.kind !== 'noTurn') return
+  keep.current = { kind: 'idle', at: now }
+}
+
+export function noteStartSource(keep: BackgroundKeep, source: string): void {
+  if (!CARRIED_SOURCES.has(source) || keep.hasStop) return
+  keep.isCarried = true
+  if (keep.current.kind === 'idle') keep.current = NO_TURN
 }
 
 export type StopFacts = {
@@ -64,7 +91,7 @@ function stringOf(value: unknown): string | null {
 
 export function shownText(text: string): string {
   const line = text.split(/\r?\n/u, 1)[0]?.trim() ?? ''
-  return cutToWidth(escaped(maskedCredentials(line)), ITEM_TEXT_AT_MOST)
+  return cutToWidth(maskedCredentials(line), ITEM_TEXT_AT_MOST)
 }
 
 function joinedDetail(parts: readonly (string | null)[]): string | null {
@@ -162,6 +189,8 @@ export function isMainStop(facts: StopFacts): boolean {
 export function noteStop(keep: BackgroundKeep, facts: StopFacts, now: number): Background {
   const tasks = facts.background_tasks
   const crons = facts.session_crons
+  keep.hasStop = true
+  keep.beforeTurn = undefined
   if (!Array.isArray(tasks) || !Array.isArray(crons)) {
     keep.current = UNREPORTED
     return keep.current
@@ -184,12 +213,22 @@ export function noteStop(keep: BackgroundKeep, facts: StopFacts, now: number): B
 }
 
 export function noteTurnStart(keep: BackgroundKeep): void {
+  keep.beforeTurn = keep.current.kind === 'waiting' ? keep.current : undefined
   keep.current = NO_TURN
+}
+
+export function noteAbortedTurn(keep: BackgroundKeep): boolean {
+  const { beforeTurn } = keep
+  keep.beforeTurn = undefined
+  if (beforeTurn === undefined || keep.current.kind !== 'noTurn') return false
+  keep.current = beforeTurn
+  return true
 }
 
 export function forgetBackground(keep: BackgroundKeep): void {
   keep.current = NO_TURN
   keep.firstSeen.clear()
+  keep.beforeTurn = undefined
 }
 
 export type TurnState = 'working' | 'waiting' | 'idle' | 'noTurn'
@@ -242,12 +281,8 @@ export function waitingHead(
 }
 
 export function itemWords(item: BackgroundItem): string {
-  return item.title === '' ? item.kind : `${item.kind} ${item.title}`
-}
-
-export function itemLine(item: BackgroundItem): string {
-  const words = itemWords(item)
-  return item.detail === null ? words : `${words}${SEPARATOR}${item.detail}`
+  const kind = escaped(item.kind)
+  return item.title === '' ? kind : `${kind} ${escaped(item.title)}`
 }
 
 export function moreText(count: number): string {
@@ -267,7 +302,7 @@ export function waitingStatusText(
   const head = waitingHead(background, now, signals)
   if (first === undefined) return head
   const rest = background.items.length - 1
-  const tail = rest > 0 ? moreText(rest) : first.detail
+  const tail = rest > 0 ? moreText(rest) : first.detail === null ? null : escaped(first.detail)
   const words = itemWords(first)
   return [head, tail === null ? words : `${words}${SEPARATOR}${tail}`].join(SEPARATOR)
 }

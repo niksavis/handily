@@ -8906,8 +8906,8 @@ The state rule, from engine facts only:
 | --- | --- | --- |
 | working | a main `turn.start` with no end after it | `▶ working` |
 | waiting | the last main Stop listed `background_tasks` or `session_crons` | `◷ waiting 3m` |
-| idle | the last main Stop listed both empty | `○ idle` |
-| no turn | no Stop yet, after `/clear` or resume, or a Stop without the lists | `○ no turn` |
+| idle | the last main Stop listed both empty, or a new session before its first Stop | `○ idle` |
+| no turn | a turn ended with no Stop, after `/clear` or resume until a Stop, or a Stop without the lists | `○ no turn` |
 
 Line pattern: `◷ waiting <age> · <kind> <description> · <command | server tool | name>`. The age
 counts from the Stop that first reported the oldest item. A one-shot wakeup shows `at HH:MM`, a
@@ -8974,8 +8974,9 @@ Working, idle and no turn set no line. The line clears while the this session ta
 │ background: not reported              │
 ```
 
-The line `background: not reported` shows only after a Stop without the lists. Before the first
-Stop the head says `○ no turn` with no such line. With an agent wait, the head reads
+The line `background: not reported` shows only after a Stop without the lists. A new session
+reads `○ idle` before its first Stop; after `/clear` or a resume the head says `○ no turn` with
+no such line. With an agent wait, the head reads
 `◆ 1 waits · ◷ 3m`.
 
 **3b. Inline at 40, and docked on the desktop app.**
@@ -9018,4 +9019,6 @@ reports it idle. The Inbox is unchanged.
   row age drops, and the head keeps the age.
 - **`NO_COLOR` and colour blindness:** the mark `◷` differs in shape and the word `waiting`
   stands beside it.
-- **An aborted turn** may end with no Stop, so the head reads `○ no turn` until the next Stop.
+- **An interrupted turn** ends with no Stop (measured on Claude Code 2.1.325). When the turn
+  before it left waiting, the board restores that waiting state with its first seen ages; after an
+  idle Stop the head reads `○ no turn` until the next Stop.

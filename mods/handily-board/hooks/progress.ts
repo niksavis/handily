@@ -292,7 +292,7 @@ export function withContext(
 }
 
 export function startTurn(progress: Progress, now: number): Progress {
-  return { ...progress, updatedAt: now, isWorking: true, turnStartedAt: now, background: null }
+  return { ...progress, updatedAt: now, isWorking: true, turnStartedAt: now }
 }
 
 export function withBackground(

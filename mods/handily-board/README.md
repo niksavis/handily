@@ -638,16 +638,22 @@ Session  ◷ waiting 3m
 
 The board reads the turn state from engine facts only:
 
-| State   | When                                                                     | Shows                        |
-| ------- | ------------------------------------------------------------------------ | ---------------------------- |
-| working | a main turn started and has not ended                                    | `▶ working`, `claude`        |
-| waiting | the last Stop listed background tasks or session crons                   | `◷ waiting 3m`, `suggestion` |
-| idle    | the last Stop listed none of both                                        | `○ idle`, dim                |
-| no turn | no Stop since the start, a `/clear` or a resume, or a Stop without lists | `○ no turn`, dim             |
+| State   | When                                                                                                 | Shows                        |
+| ------- | ---------------------------------------------------------------------------------------------------- | ---------------------------- |
+| working | a main turn started and has not ended                                                                | `▶ working`, `claude`        |
+| waiting | the last Stop listed background tasks or session crons                                               | `◷ waiting 3m`, `suggestion` |
+| idle    | the last Stop listed none of both, or a new session before its first Stop                            | `○ idle`, dim                |
+| no turn | a turn ended with no Stop, after a `/clear` or a resume until the next Stop, or a Stop without lists | `○ no turn`, dim             |
 
 - The board reads `background_tasks` and `session_crons` from the Stop input of the main loop,
   through its function hook `classic.Stop`. A Stop of a subagent changes nothing. The next main
-  turn start clears waiting.
+  turn start clears waiting. A subagent turn keeps it.
+- A new session reads `○ idle` until its first Stop, because no background work can run yet.
+  After `/clear` and after a resume, the head reads `○ no turn` until a Stop reports the lists,
+  because it is not known whether background work survives them.
+- Claude Code sends no Stop when you interrupt a turn with Esc. When a main turn ends aborted
+  with no Stop after its start, the board restores the waiting state of the Stop before, with
+  the same items and ages, until the next Stop or main turn start.
 - The age counts from the Stop that first reported the oldest item, so a long CI watch keeps
   its age when Claude Code wakes a turn for another item. The oldest item comes first.
 - A shell row shows the description and the command. A monitor row shows the server and the

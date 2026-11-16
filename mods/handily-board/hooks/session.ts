@@ -28,6 +28,7 @@ import { SIGNALS, type SignalLooks } from './signals'
 import { tokensText } from './tokens'
 import { type Vitals, addedCents, cents, dollars, hasReading, lastCents } from './vitals'
 import { displayWidth, fitted, padToWidth } from './width'
+import { escaped } from './tasks'
 
 export type SessionView = {
   vitals: Vitals
@@ -433,7 +434,7 @@ function framedRow(
 ): RenderElement {
   const { Box, Text } = elements
   const lead = index === 0 ? BACKGROUND_LEAD : ' '.repeat(BACKGROUND_LEAD.length)
-  const kind = padToWidth(item.kind, KIND_COLUMNS)
+  const kind = padToWidth(escaped(item.kind), KIND_COLUMNS)
   const age = itemAge(item, view).padStart(AGE_COLUMNS)
   const titleRoom = Math.max(room - displayWidth(lead) - displayWidth(kind) - 1 - AGE_COLUMNS, 0)
   return Box({
@@ -442,7 +443,7 @@ function framedRow(
     children: [
       Text({ dimColor: true, children: lead }),
       Text({ color: WAITING_COLOR, children: `${kind} ` }),
-      Text({ children: padToWidth(fitted(item.title, titleRoom), titleRoom) }),
+      Text({ children: padToWidth(fitted(escaped(item.title), titleRoom), titleRoom) }),
       Text({ dimColor: true, children: age }),
     ],
   })
@@ -498,7 +499,8 @@ function flatBackground(
   const more = moreParts(items.length - 1)
   const hasButton = items.some((item) => item.hasButton)
   const buttonWidth = hasButton ? 1 + displayWidth(OPEN_LABEL) : 0
-  const lead = `${BACKGROUND_LEAD}${first.kind} `
+  const kind = escaped(first.kind)
+  const lead = `${BACKGROUND_LEAD}${kind} `
   const room = Math.max(
     look.room - look.indent - displayWidth(lead) - displayWidth(more) - buttonWidth,
     0,
@@ -510,8 +512,8 @@ function flatBackground(
       paddingLeft: look.indent,
       children: [
         Text({ dimColor: true, children: BACKGROUND_LEAD }),
-        Text({ color: WAITING_COLOR, children: `${first.kind} ` }),
-        Text({ children: fitted(first.title, room) }),
+        Text({ color: WAITING_COLOR, children: `${kind} ` }),
+        Text({ children: fitted(escaped(first.title), room) }),
         Text({ dimColor: true, children: more }),
         ...(hasButton
           ? [

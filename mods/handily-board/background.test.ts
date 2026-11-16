@@ -74,6 +74,7 @@ const withWorkitems = { plugins: [fakeWorkitems] }
 type World = {
   clock: MockClock
   statuses: (string | undefined)[]
+  redraws: number
   commands: string[]
   store: Map<string, unknown>
   surfaces: RenderSurface[]
@@ -83,6 +84,7 @@ function world(on: On, surfaces: RenderSurface[] = ['terminal']): World {
   const state: World = {
     clock: mock.clock(on, { now: START }),
     statuses: [],
+    redraws: 0,
     commands: [],
     store: new Map(),
     surfaces,
@@ -95,6 +97,7 @@ function world(on: On, surfaces: RenderSurface[] = ['terminal']): World {
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('classic.Stop', () => ({}))
+  on('classic.SessionStart', () => ({}))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('tool.register', (_$, e) => ({ value: { tool: `mcp__handily-board__${e.name}` } }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
@@ -105,6 +108,10 @@ function world(on: On, surfaces: RenderSurface[] = ['terminal']): World {
   on('ui.open', () => ({ value: { isPlaced: true as const } }))
   on('ui.panes', () => ({ value: [] }))
   on('ui.log', () => ({ value: undefined }))
+  on('ui.invalidate', (_$, e, next) => {
+    if (e.event === 'ui.render') state.redraws += 1
+    return next(e)
+  })
   on('ui.status', (_$, e) => {
     state.statuses.push(e.text)
     return { value: undefined }
@@ -734,9 +741,7 @@ describe(NO_TURN_CRITERION, () => {
         await start($, surface)
         const fresh = sessionPart(await tabLines($, surface, 'dock', 41))
         expect(fresh[0]).toBe(
-          surface === 'terminal'
-            ? '╭─ Session ───────────────── ○ no turn ─╮'
-            : 'Session  ○ no turn',
+          surface === 'terminal' ? '╭─ Session ──────────────────── ○ idle ─╮' : 'Session  ○ idle',
         )
         await turn($, seen, 't1')
         await stop($, { crons: [] })
@@ -797,4 +802,169 @@ describe(NO_TURN_CRITERION, () => {
       },
     )
   }
+})
+
+const REPAIR_CRITERION =
+  'The board keeps waiting through a subagent turn and an interrupted main turn, reads a new session as idle, and stops its timer at every session end.'
+
+async function sessionStart($: Engine, source: string): Promise<void> {
+  await $.classic.SessionStart({
+    ...classicBase(),
+    hook_event_name: 'SessionStart',
+    source,
+  } as Parameters<Engine['classic']['SessionStart']>[0])
+}
+
+function headOf(lines: readonly string[]): string {
+  return lines[0] ?? ''
+}
+
+describe(REPAIR_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `a subagent turn start keeps the published waiting state and the head, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, [surface])
+        await start($, surface)
+        await turn($, seen, 't1')
+        await stop($, { tasks: [SHELL], crons: [] })
+        await $.turn.start({ text: 'scout', turnId: 'a1', agentId: 'a0000002scout' })
+        await $.turn.start({ text: 'scout again', turnId: 'a2', agentId: 'a0000002scout' })
+        expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.background?.title).toBe(
+          'Watch the CI run',
+        )
+        expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toContain('◷ waiting')
+      },
+    )
+
+    test(
+      `a main turn interrupted with no Stop restores waiting with its first seen age, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, [surface])
+        await start($, surface)
+        await turn($, seen, 't1')
+        await stop($, { tasks: [SHELL], crons: [] })
+        await seen.clock.advance(2 * MINUTE)
+        await $.turn.start({ text: 'go on', turnId: 't2' })
+        await seen.clock.advance(MINUTE)
+        await $.turn.complete({
+          turnId: 't2',
+          reason: 'aborted',
+          answer: '',
+          durationMs: MINUTE,
+          isAborted: true,
+        })
+        expect(lastStatus(seen)).toBe(
+          '◷ waiting 3m · shell Watch the CI run · gh run watch 18842 --exit-status',
+        )
+        expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toBe(
+          surface === 'terminal'
+            ? '╭─ Session ────────────── ◷ waiting 3m ─╮'
+            : 'Session  ◷ waiting 3m',
+        )
+        expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.background?.count).toBe(1)
+      },
+    )
+
+    test(
+      `an interrupted turn after an idle Stop stays no turn, and a turn that answers restores nothing, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, [surface])
+        await start($, surface)
+        await turn($, seen, 't1')
+        await stop($, { tasks: [SHELL], crons: [] })
+        await turn($, seen, 't2')
+        expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toContain('○ no turn')
+        await stop($, { tasks: [], crons: [] })
+        await $.turn.start({ text: 'go on', turnId: 't3' })
+        await $.turn.complete({
+          turnId: 't3',
+          reason: 'aborted',
+          answer: '',
+          durationMs: SECOND,
+          isAborted: true,
+        })
+        expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toContain('○ no turn')
+      },
+    )
+
+    test(
+      `a new session reads idle before its first Stop, and a resume or a clear reads no turn, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, [surface])
+        await start($, surface)
+        await sessionStart($, 'startup')
+        expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toBe(
+          surface === 'terminal' ? '╭─ Session ──────────────────── ○ idle ─╮' : 'Session  ○ idle',
+        )
+        await sessionStart($, 'resume')
+        expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toBe(
+          surface === 'terminal'
+            ? '╭─ Session ───────────────── ○ no turn ─╮'
+            : 'Session  ○ no turn',
+        )
+      },
+    )
+
+    test(
+      `a resume that starts the process reads no turn before its first Stop, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, [surface])
+        await sessionStart($, 'resume')
+        await start($, surface)
+        expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toContain('○ no turn')
+      },
+    )
+
+    test(
+      `at 30 columns with a task open the band head fits its width, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, [surface])
+        await start($, surface)
+        await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
+        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'in_progress' })
+        await turn($, seen, 't1')
+        await stop($, { tasks: [SHELL], crons: [] })
+        await seen.clock.advance(6 * MINUTE)
+        for (const columns of [25, 30, 32, 35]) {
+          const head = (await bandLines($, surface, columns))?.[0] ?? ''
+          expect(head.startsWith('◷ waiting 6m'), head).toBe(true)
+          expect(head.endsWith('[ board ]'), head).toBe(true)
+        }
+      },
+    )
+
+    test(
+      `a session end of any reason stops the waiting timer, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, [surface])
+        await start($, surface)
+        await turn($, seen, 't1')
+        await stop($, { tasks: [SHELL], crons: [] })
+        await $.session.end({ reason: 'other', sessionId: OWN_ID, resume: { id: OWN_ID } })
+        const redraws = seen.redraws
+        await seen.clock.advance(MINUTE)
+        expect(seen.redraws).toBe(redraws)
+        expect(lastStatus(seen)).toBeUndefined()
+      },
+    )
+  }
+
+  test('the shared entry keeps a control character unescaped, and the line escapes it once', () => {
+    const keep = newBackgroundKeep()
+    const bell = { ...SHELL, description: 'Watch\u0007 the CI run' }
+    const state = noteStop(keep, { background_tasks: [bell], session_crons: [] }, START)
+    expect(sharedBackground(state)?.title).toBe('Watch\u0007 the CI run')
+    if (state.kind !== 'waiting') throw new Error('expected waiting')
+    expect(waitingStatusText(state, START, PLAIN_SIGNALS)).toBe(
+      '◷ waiting 0s · shell Watch\\u0007 the CI run · gh run watch 18842 --exit-status',
+    )
+  })
 })
