@@ -13,8 +13,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily",
-        "ref": "handily--v0.11.0",
-        "sha": "f95fae921a62a99dbf0c4415c47a37c5d617fbe0"
+        "ref": "handily--v0.12.0",
+        "sha": "53bf7c286a168baf7e0ba0e20c9c690babf4edc4"
       },
       "description": "Every handily mod in one install, and /handily to show which mods are installed and loaded."
     },
@@ -24,8 +24,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-board",
-        "ref": "handily-board--v0.26.0",
-        "sha": "6c4a98cf7fc9fc7b37bb46d3410b9f01ce3ea6d5"
+        "ref": "handily-board--v0.27.0",
+        "sha": "53bf7c286a168baf7e0ba0e20c9c690babf4edc4"
       },
       "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss."
     },
