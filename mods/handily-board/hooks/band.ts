@@ -14,6 +14,19 @@ import {
   waitsText,
 } from './agent-rows'
 import type { AgentRow } from './agents'
+import {
+  type Background,
+  type BackgroundItem,
+  WAITING_COLOR,
+  WAITING_WORD,
+  ageText,
+  inBackgroundText,
+  isShownInBand,
+  isStale,
+  notSeenText,
+  waitingAge,
+  waitingLook,
+} from './background'
 import { BAR_EMPTY, BAR_FILLED, barCells } from './bar'
 import type { PaneElements } from './pane'
 import { fitParts } from './parts'
@@ -36,6 +49,7 @@ const CUT_MARK = '…'
 const SPACE_BEFORE_CUT = /\s+…$/u
 const AGENTS_WORD = 'Agents'
 const NO_TASK_TEXT = 'no open task'
+const NO_SHORT_TEXT = 'no task'
 const STRIP_ROWS_AT_MOST = 3
 const STRIP_TICK_MS = 10_000
 const WIDE_FROM = 50
@@ -75,6 +89,11 @@ export type BandView =
       now: number
     }
   | { kind: 'agents'; count: number }
+  | { kind: 'waiting' }
+
+export type Waiting = Extract<Background, { kind: 'waiting' }>
+
+export type BandWaiting = { background: Waiting; now: number }
 
 export function bandView(
   all: BoardList,
@@ -82,6 +101,7 @@ export function bandView(
   activity: BoardActivity,
   now: number,
   agents: number,
+  isWaitingNow = false,
 ): BandView | undefined {
   if (plan !== undefined && isOffered(plan) && !plan.isDismissed) return { kind: 'plan', plan }
   const list = ownList(all)
@@ -90,11 +110,12 @@ export function bandView(
   ).length
   const isOpen = list.tasks.some((task) => task.status !== 'completed')
   if (isOpen || forYou > 0) return { kind: 'tasks', list, forYou, activity, now }
-  return agents > 0 ? { kind: 'agents', count: agents } : undefined
+  if (agents > 0) return { kind: 'agents', count: agents }
+  return isWaitingNow ? { kind: 'waiting' } : undefined
 }
 
-export function isTimed(view: BandView, agents: number): boolean {
-  if (agents > 0) return true
+export function isTimed(view: BandView, agents: number, isWaitingNow = false): boolean {
+  if (agents > 0 || isWaitingNow) return true
   return view.kind === 'tasks' && view.list.tasks.some((task) => task.status === 'in_progress')
 }
 
@@ -183,6 +204,7 @@ type BandElements = Pick<PaneElements, 'Box' | 'Text' | 'Button' | 'signals'>
 
 export type BandActions = {
   open: () => void
+  openTasks?: () => void
   addPlan: (id: string) => void
   openAgent: (row: AgentRow) => void
 }
@@ -224,6 +246,35 @@ function spaced(groups: readonly (readonly Part[])[]): Part[] {
   return groups
     .filter((group) => group.length > 0)
     .flatMap((group, index) => (index === 0 ? [...group] : [{ text: ' ' }, ...group]))
+}
+
+function waitingLead(
+  waiting: BandWaiting | undefined,
+  columns: number,
+  signals: SignalLooks,
+): Part[] {
+  if (waiting === undefined) return []
+  const { background, now } = waiting
+  const mark = waitingLook(signals).mark
+  const head: Part = {
+    text: `${mark} ${WAITING_WORD} ${waitingAge(background, now)}`,
+    color: WAITING_COLOR,
+  }
+  const stale: Part[] =
+    columns >= CONTEXT_FROM && isStale(background, now)
+      ? [{ text: `${PART_LEAD}${notSeenText(background.at, now)}`, dimColor: true }]
+      : []
+  return [head, ...stale]
+}
+
+function leadGap(columns: number): Part {
+  return columns >= WIDE_FROM ? { text: PART_LEAD, dimColor: true } : { text: ' ' }
+}
+
+function withLead(lead: readonly Part[], parts: readonly Part[], columns: number): Part[] {
+  if (lead.length === 0) return [...parts]
+  if (parts.length === 0) return [...lead]
+  return [...lead, leadGap(columns), ...parts]
 }
 
 function leftParts(
@@ -282,6 +333,7 @@ function drawTasks(
   columns: number,
   button: RenderElement,
   key: string,
+  waiting: BandWaiting | undefined,
 ): RenderElement {
   const { list } = view
   const task =
@@ -293,7 +345,11 @@ function drawTasks(
   }
   const bar = columns >= BAR_FROM ? barParts(list) : []
   const time = columns >= TIME_FROM ? timePart(task, view) : []
-  const lead = leftParts(view, task, elements.signals)
+  const lead = withLead(
+    waitingLead(waiting, columns, elements.signals),
+    leftParts(view, task, elements.signals),
+    columns,
+  )
   const fixed = (withTime: boolean) =>
     partsWidth(spaced([withTime ? time : [], bar, list.tasks.length > 0 ? [count] : []])) +
     1 +
@@ -320,20 +376,37 @@ function drawAgentsHead(
   columns: number,
   button: RenderElement,
   key: string,
+  waiting: BandWaiting | undefined,
 ): RenderElement {
   const gap = columns >= WIDE_FROM ? '  ' : ' '
-  const room = Math.max(columns - buttonWidth(BOARD_LABEL) - GAP - displayWidth(AGENTS_WORD), 0)
+  const wait = waitingLead(waiting, columns, elements.signals)
+  const lead = wait.length === 0 ? [] : [...wait, leadGap(columns)]
+  const used = partsWidth(lead) + displayWidth(AGENTS_WORD)
+  const room = Math.max(columns - buttonWidth(BOARD_LABEL) - GAP - used, 0)
   const tail = fitted(`${gap}${String(count)} · ${NO_TASK_TEXT}`, room)
   return draw(
     elements,
-    [
-      { text: AGENTS_WORD, bold: true },
-      { text: tail, dimColor: true },
-    ],
+    [...lead, { text: AGENTS_WORD, bold: true }, { text: tail, dimColor: true }],
     [],
     button,
     key,
   )
+}
+
+function drawWaitingHead(
+  elements: BandElements,
+  waiting: BandWaiting | undefined,
+  columns: number,
+  button: RenderElement,
+  key: string,
+): RenderElement {
+  const lead = waitingLead(waiting, columns, elements.signals)
+  const count = waiting?.background.items.length ?? 0
+  const words =
+    columns >= WIDE_FROM ? `${inBackgroundText(count)}${PART_LEAD}${NO_TASK_TEXT}` : NO_SHORT_TEXT
+  const room = Math.max(columns - buttonWidth(BOARD_LABEL) - GAP - partsWidth(lead), 0)
+  const tail = fitted(`${PART_LEAD}${words}`, room)
+  return draw(elements, [...lead, { text: tail, dimColor: true }], [], button, key)
 }
 
 function drawPlan(
@@ -521,11 +594,12 @@ export function foldLabel(hidden: readonly AgentRow[], columns: number): string 
   return label(kept)
 }
 
-export function stripShown(rows: readonly AgentRow[], maxRows: number): number {
-  const most = Math.min(rows.length, STRIP_ROWS_AT_MOST)
+export function stripShown(rows: readonly AgentRow[], maxRows: number, others = 0): number {
+  const total = rows.length + others
+  const most = Math.min(total, STRIP_ROWS_AT_MOST)
   const needsYou = Math.min(rows.filter((row) => row.look === 'needsYou').length, most)
   for (let shown = most; shown > needsYou; shown -= 1) {
-    const lines = 1 + shown + (rows.length > shown ? 1 : 0)
+    const lines = 1 + shown + (total > shown ? 1 : 0)
     if (lines <= maxRows) return shown
   }
   return needsYou
@@ -537,16 +611,95 @@ function drawHead(
   columns: number,
   actions: BandActions,
   key: string,
+  waiting: BandWaiting | undefined,
 ): RenderElement {
   const button = elements.Button({ key: 'band-board', label: BOARD_LABEL, onPress: actions.open })
   switch (view.kind) {
     case 'plan':
       return drawPlan(elements, view.plan, columns, actions, button, key)
     case 'tasks':
-      return drawTasks(elements, view, columns, button, key)
+      return drawTasks(elements, view, columns, button, key, waiting)
     case 'agents':
-      return drawAgentsHead(elements, view.count, columns, button, key)
+      return drawAgentsHead(elements, view.count, columns, button, key, waiting)
+    case 'waiting':
+      return drawWaitingHead(elements, waiting, columns, button, key)
   }
+}
+
+function backgroundDetail(item: BackgroundItem): Part[] {
+  const title: Part[] = item.title === '' ? [] : [{ text: item.title }]
+  if (item.detail === null) return title
+  const detail: Part = { text: item.detail, dimColor: true }
+  return title.length === 0 ? [detail] : [...title, { text: PART_LEAD, dimColor: true }, detail]
+}
+
+function drawBackgroundRow(
+  elements: BandElements,
+  item: BackgroundItem,
+  columns: number,
+  waiting: BandWaiting,
+  onOpen: (() => void) | undefined,
+): RenderElement {
+  const { Box, Text, Button } = elements
+  const isWide = columns >= WIDE_FROM
+  const look = waitingLook(elements.signals)
+  const stateWidth = isWide ? STATE_COLUMNS : displayWidth(WAITING_WORD)
+  const nameWidth = Math.max(NAME_COLUMNS, displayWidth(item.kind))
+  const time = ageText(item.firstSeenAt, waiting.now, isStale(waiting.background, waiting.now))
+  const timeWidth = isWide ? GAP + Math.max(TIME_COLUMNS, displayWidth(time)) : 0
+  const openWidth = GAP + displayWidth(OPEN_LABEL)
+  const fixed = MARK_COLUMNS + nameWidth + GAP + stateWidth + GAP + openWidth + timeWidth
+  const detail = fittedDetail(backgroundDetail(item), Math.max(columns - fixed, 0))
+  const open =
+    item.hasButton && onOpen !== undefined
+      ? Button({
+          key: `band-background-open:${item.id}`,
+          label: OPEN_LABEL,
+          plain: true,
+          dimColor: true,
+          onPress: onOpen,
+        })
+      : Text({ children: ' '.repeat(displayWidth(OPEN_LABEL)) })
+  return Box({
+    key: `band-background:${item.id}`,
+    flexDirection: 'row',
+    children: [
+      fixedBox(elements, MARK_COLUMNS, Text({ color: look.color, children: `${look.mark} ` })),
+      fixedBox(elements, nameWidth + GAP, Text({ bold: true, children: item.kind })),
+      fixedBox(elements, stateWidth + GAP, Text({ color: WAITING_COLOR, children: WAITING_WORD })),
+      Box({
+        flexDirection: 'row',
+        flexGrow: 1,
+        flexShrink: 1,
+        children: detail.map((part) => textOf(elements, part)),
+      }),
+      Box({ flexShrink: 0, marginLeft: GAP, children: [open] }),
+      isWide
+        ? fixedBox(
+            elements,
+            timeWidth,
+            Text({ dimColor: true, children: time.padStart(timeWidth) }),
+          )
+        : null,
+    ],
+  })
+}
+
+function bandItems(waiting: BandWaiting | undefined): BackgroundItem[] {
+  return waiting === undefined ? [] : waiting.background.items.filter(isShownInBand)
+}
+
+function mixedFoldLabel(hidden: readonly AgentRow[], items: number, columns: number): string {
+  const lead = `+${String(hidden.length + items)} more`
+  const counts = countsOf(hidden).map(
+    ({ group, count }) => `${String(count)} ${GROUP_WORDS[group]}`,
+  )
+  const parts = [lead, ...counts, inBackgroundText(items)]
+  let kept = parts
+  while (buttonWidth(kept.join(PART_LEAD)) > columns && kept.length > 2) {
+    kept = [...kept.slice(0, -2), ...kept.slice(-1)]
+  }
+  return kept.join(PART_LEAD)
 }
 
 export function drawBand(
@@ -555,12 +708,21 @@ export function drawBand(
   columns: number,
   actions: BandActions,
   strip: BandStrip = { rows: [], maxRows: 0 },
+  waiting?: BandWaiting,
 ): RenderElement {
-  if (strip.rows.length === 0) return drawHead(elements, view, columns, actions, 'band')
-  const shown = stripShown(strip.rows, strip.maxRows)
-  const hidden = strip.rows.slice(shown)
+  const items = bandItems(waiting)
+  if (strip.rows.length === 0 && (items.length === 0 || waiting === undefined)) {
+    return drawHead(elements, view, columns, actions, 'band', waiting)
+  }
+  const shown = stripShown(strip.rows, strip.maxRows, items.length)
+  const agentsShown = Math.min(shown, strip.rows.length)
+  const itemsShown = shown - agentsShown
+  const hidden = strip.rows.slice(agentsShown)
+  const hiddenItems = items.length - itemsShown
+  const label =
+    hiddenItems === 0 ? foldLabel(hidden, columns) : mixedFoldLabel(hidden, hiddenItems, columns)
   const fold =
-    hidden.length === 0
+    hidden.length === 0 && hiddenItems === 0
       ? null
       : elements.Box({
           key: 'band-fold',
@@ -568,7 +730,7 @@ export function drawBand(
           children: [
             elements.Button({
               key: FOLD_KEY,
-              label: foldLabel(hidden, columns),
+              label,
               onPress: actions.open,
             }),
           ],
@@ -577,12 +739,17 @@ export function drawBand(
     key: 'band',
     flexDirection: 'column',
     children: [
-      drawHead(elements, view, columns, actions, HEAD_KEY),
-      ...strip.rows.slice(0, shown).map((row) =>
+      drawHead(elements, view, columns, actions, HEAD_KEY, waiting),
+      ...strip.rows.slice(0, agentsShown).map((row) =>
         drawAgentRow(elements, row, columns, () => {
           actions.openAgent(row)
         }),
       ),
+      ...(waiting === undefined
+        ? []
+        : items
+            .slice(0, itemsShown)
+            .map((item) => drawBackgroundRow(elements, item, columns, waiting, actions.openTasks))),
       fold,
     ],
   })

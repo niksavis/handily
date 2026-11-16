@@ -73,6 +73,7 @@ const OWN_MARK_ROLES = {
     { role: 'folderOpen', sets: SETS },
     { role: 'branch', sets: NERD_ONLY },
   ],
+  'handily-board': [{ role: 'waiting', sets: SETS }],
 }
 const NERD_FIRST = 0xe000
 const NERD_LAST = 0xf8ff

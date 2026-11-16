@@ -537,8 +537,11 @@ Session  ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $
     f: file 10  s: shell 0  o: other 0
 ```
 
-- The frame title ends with the waits, if any, and then `▶ working` in `claude` while a main
-  turn runs, or `○ idle` dim after it. Without a frame, the same words follow the title.
+- The frame title ends with the waits, if any, and then the turn state: `▶ working` in
+  `claude` while a main turn runs, `◷ waiting 3m` in `suggestion` while background work runs
+  after the turn, `○ idle` dim when the last turn left nothing running, and `○ no turn` dim when
+  the board does not know. Without a frame, the same words follow the title. The section
+  "Waiting on background work" below gives the rule.
 - When the board knows the context window, the context shows the tokens over the window, such
   as `124k/200k` or `663k/1.0M`, after the percent. A narrow row moves them to the next line.
 - From a body of 56 columns, each limit shows when it resets, such as `5h ▰▱▱▱▱ 31% resets 2h`.
@@ -613,6 +616,54 @@ The context and a limit at 80 percent or more, from the tests at 41 columns:
   of the session, the first row is a button. A press opens the details under it. The next section
   describes them.
 - `/board stats` prints the same figures as words, for a screen reader.
+
+### Waiting on background work
+
+When a turn ends with work still running in the background, such as a `gh run watch` shell, a
+monitor, a background subagent or a scheduled wakeup, Claude Code shows a quiet prompt. The
+board marks this state as waiting, so it does not look idle. Captures from the tests, docked at
+41 columns on the terminal, and inline at 40 columns:
+
+```text
+╭─ Session ────────────── ◷ waiting 3m ─╮
+│ on shell   Watch the CI run        3m │
+│    monitor deploy log              3m │
+│    [ tasks ] +1 more                  │
+```
+
+```text
+Session  ◷ waiting 3m
+    on shell Watch the CI … +2 more open
+```
+
+The board reads the turn state from engine facts only:
+
+| State   | When                                                                     | Shows                        |
+| ------- | ------------------------------------------------------------------------ | ---------------------------- |
+| working | a main turn started and has not ended                                    | `▶ working`, `claude`        |
+| waiting | the last Stop listed background tasks or session crons                   | `◷ waiting 3m`, `suggestion` |
+| idle    | the last Stop listed none of both                                        | `○ idle`, dim                |
+| no turn | no Stop since the start, a `/clear` or a resume, or a Stop without lists | `○ no turn`, dim             |
+
+- The board reads `background_tasks` and `session_crons` from the Stop input of the main loop,
+  through its function hook `classic.Stop`. A Stop of a subagent changes nothing. The next main
+  turn start clears waiting.
+- The age counts from the Stop that first reported the oldest item, so a long CI watch keeps
+  its age when Claude Code wakes a turn for another item. The oldest item comes first.
+- A shell row shows the description and the command. A monitor row shows the server and the
+  tool. A subagent row shows the agent type and the description. A one-shot wakeup shows
+  `at 14:00` from the minute and hour of its cron, and a recurring one shows `cron */10 * * * *`.
+- Each text is cut to its first line, masked as the permission checks mask a call target, and
+  shows control and bidi characters as escapes.
+- After 30 minutes with no turn, the age reads `40m?` and the line adds `not seen since 40m`.
+  The board never clears waiting by itself, because only Claude Code knows when the work ends.
+- A Stop without the lists, such as on an older Claude Code, shows `○ no turn` and, in the
+  frame, `background: not reported`. The board never guesses idle.
+- `[ tasks ]` and `open` run `/tasks`. A wakeup has no button.
+- While the session waits, the board draws again every 10 seconds, so the age moves also with
+  no tab open.
+- The mark is `◷` in the plain set and the Nerd Font icon nf-cod-watch in the nerd set. The
+  word `waiting` always stands beside it, so the state reads without colour.
 
 ### The Session details
 
@@ -741,6 +792,21 @@ the tests:
 ◆ 2 agents wait for you
 ```
 
+It also sets the line while the session waits on background work:
+
+```text
+◷ waiting 3m · shell Watch the CI run · gh run watch 18842 --exit-status
+◷ waiting 3m · monitor deploy log · ci-mcp watch_deploy
+◷ waiting 3m · wakeup at 14:00 · Check the CI run again and merge when it is green
+◷ waiting 3m · agent Explore · Map the hooks
+◷ waiting 3m · shell Watch the CI run · +3 more in background
+◷ waiting 40m? · not seen since 40m · shell Watch the CI run · gh run watch 18842 --exit-status
+◆ scout waits for permission: Bash npm test · ◷ +1 in background
+```
+
+- The age stands at the left, so a narrow terminal cuts the command first. The line comes under
+  the setting `attention` and clears when the next turn starts.
+
 - A wait is the same wait that the agent rows show as `needs you`: an ask of a subagent that is
   not settled after 3 seconds. One wait names the agent and the call. Two or more waits show
   their count. An agent that the engine lists as `waiting` (`on hold`) is no wait. An ask that
@@ -748,7 +814,8 @@ the tests:
   the call then runs longer.
 - The line never names the context, because the Claude Code status line already shows it. A
   context of 80 percent or more shows `high` on the Session line of the board.
-- The board clears the line when nothing waits, and while the `this session` tab is shown and
+- The board clears the line when nothing waits for you and no background work runs, and while
+  the `this session` tab is shown and
   placed. When the board closes, the line comes back. A tab
   that waits undrawn, as with the mode `always` on a narrow terminal, does not clear it. The board checks
   which tab is shown every 10 seconds while a tab is open, so a switch to `this machine` shows the
@@ -1114,9 +1181,9 @@ Agents  6 · no open task                                          [ board ]
   with a digit typed into an empty prompt.
 - The time and the bar never cut. The title cuts first. Below 50 columns the bar drops, and
   below 30 columns the time drops.
-- The band draws nothing while the `this session` tab is shown, with no open task, no plan and
-  no agent row, while a survey holds the band, and with the setting `band` at `off`. Claude Code
-  draws the band on the terminal and the desktop app only.
+- The band draws nothing while the `this session` tab is shown, with no open task, no plan, no
+  agent row and no background work, while a survey holds the band, and with the setting `band`
+  at `off`. Claude Code draws the band on the terminal and the desktop app only.
 - When another mod beneath the board draws the band, the board shows that drawing unchanged.
   The board draws only over the engine drawing.
 
@@ -1139,6 +1206,34 @@ Agents  6 · no open task                                          [ board ]
   `[ +3 more agents · 3 running ]`. It opens the board. When the band has too few rows, the
   running rows drop first. A needs-you row never drops.
 - With no open task, the head line reads `Agents  6 · no open task` and keeps `[ board ]`.
+
+### Background rows
+
+While the session waits on background work, the head line starts with the waiting mark and age,
+and the band draws even with no open task. Captures from the tests, at a band body of 120 and
+35 columns:
+
+```text
+◷ waiting 3m · 3 in background · no open task                                                                  [ board ]
+◷ shell     waiting   Watch the CI run · gh run watch 18842 --exit-status                                       open  3m
+◷ monitor   waiting   deploy log · ci-mcp watch_deploy                                                          open  3m
+◷ wakeup    waiting   at 14:00 · Check the CI run again and merge when it is green                                    3m
+```
+
+```text
+◷ waiting 3m · no task    [ board ]
+◷ shell     waiting Watch the… open
+◷ monitor   waiting deploy log open
+◷ wakeup    waiting at 14:00…
+[ +1 more · 1 in background ]
+```
+
+- With a task, the head reads `◷ waiting 3m · ▶ 1 Write the tab mocks` and keeps the time, the
+  bar and the count.
+- Background rows come after the agent rows and share the 3 rows of the strip. A background
+  subagent has an agent row already, so it has no background row.
+- The detail cuts first, then the kind. The mark, `waiting` and the age never cut.
+- `open` on a shell, monitor or workflow row runs `/tasks`. A wakeup row has no button.
 - `open` on a needs-you or a running row runs `/tasks`. On a failed or a done row, it opens the
   board with that agent row open, so you see its answer and its last calls.
 - A done row stays after Claude Code stops listing its agent, and leaves at your next prompt.
@@ -1179,21 +1274,28 @@ Sessions  4 · 1 needs you · 12s ago
 
 - The header counts the cards, the sessions that need you and the failed ones, and says how old
   the list is.
-- The cards sort by attention: a session that needs you, then failed, working, idle and ended.
+- The cards sort by attention: a session that needs you, then failed, working, waiting, idle and
+  ended.
   This session goes first in its own group, not first overall.
 - The first line of a card is the mark, the name, the `interactive` or `background` badge,
   `this` on this session, and the state.
 
-  | Mark | State                                                      | Colour    |
-  | ---- | ---------------------------------------------------------- | --------- |
-  | `◆`  | `needs you`: a `waitingFor` value, or `waiting`, `blocked` | `warning` |
-  | `■`  | `failed`                                                   | `error`   |
-  | `▶`  | `busy`, `working`                                          | `claude`  |
-  | `○`  | `idle`, or a word the board does not know                  | `subtle`  |
-  | `✓`  | `done`, `stopped`                                          | `success` |
+  | Mark | State                                                       | Colour       |
+  | ---- | ----------------------------------------------------------- | ------------ |
+  | `◆`  | `needs you`: a `waitingFor` value, or `waiting`, `blocked`  | `warning`    |
+  | `■`  | `failed`                                                    | `error`      |
+  | `▶`  | `busy`, `working`                                           | `claude`     |
+  | `◷`  | `waiting 3m`: idle, and the board published background work | `suggestion` |
+  | `○`  | `idle`, or a word the board does not know                   | `subtle`     |
+  | `✓`  | `done`, `stopped`                                           | `success`    |
 
 - A session that needs you has a `waits for:` line with its `waitingFor` value. With no value,
   the line says `waits for: an answer`.
+- A waiting session has an `in background:` line with the oldest item, such as
+  `in background: shell Watch the CI run`, and `+1 more` for the rest. Only a session that runs
+  the board and publishes its background work shows waiting. Claude Code reports such a session
+  as idle, and a session without the board keeps the engine word. The Inbox does not list
+  background work.
 - The task line shows the current task, a bar and the done count. The bar has one cell per task,
   at most 8. With more tasks, each cell is a share. A session that runs the board with an empty
   list shows `no tasks`. A session without the board has no task line.
@@ -1345,6 +1447,10 @@ What the Inbox cannot show:
   masked, and an `ExitPlanMode` ask keeps the tool name. It counts the rest by kind. The
   decision, a forgotten ask, the end of the agent turn and `/clear` remove the wait of an ask.
   The agent name and the tool keep 40 characters, and the target and the title 80.
+- The key also keeps the background work of the last Stop: the count, the time it was first
+  seen, the time of that Stop, and the kind and the title of the oldest item, cut to 80
+  characters. A turn start and `/clear` set it to none. A key from an earlier version without
+  it reads as none.
 - The key also keeps the context percent and the cost from the engine event `session.measure`.
   The board writes them when the rounded percent or the cost in cents changes, and at each
   session start. A key from an earlier version without them reads as no context.

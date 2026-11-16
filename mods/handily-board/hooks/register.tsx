@@ -153,9 +153,25 @@ import {
   startTurn,
   withAgents,
   withAsks,
+  withBackground,
   withContext,
   withTasks,
 } from './progress'
+import {
+  BACKGROUND_TICK_MS,
+  type BackgroundKeep,
+  NO_TURN,
+  type StopFacts,
+  besideAskText,
+  forgetBackground,
+  isMainStop,
+  isWaiting,
+  newBackgroundKeep,
+  noteStop,
+  noteTurnStart,
+  sharedBackground,
+  waitingStatusText,
+} from './background'
 import { askedQuestion, askWait, type AskWait } from './waits'
 import { type PaneWork, agentsOpener, drawGlance, drawPane } from './pane'
 import {
@@ -733,6 +749,7 @@ type Redraw = {
   clock: Timer | undefined
   clockTicks: number
   clockSurfaces: Map<RenderSurface, number>
+  backgroundTimer: Timer | undefined
 }
 
 function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): void {
@@ -904,6 +921,7 @@ type SessionKeeps = {
   breakdown: PartsKeep
   trend: TrendKeep
   log: LogKeep
+  background: BackgroundKeep
 }
 
 async function isTreeListed($: EngineInterface): Promise<boolean> {
@@ -937,6 +955,7 @@ async function workOf($: EngineInterface, keeps: SessionKeeps, inView?: string):
     activity: activity ?? EMPTY_ACTIVITY,
     agents,
     vitals: keeps.vitals.current,
+    background: keeps.background.current,
     checks: keeps.checks.current,
     request: keeps.request.current,
     hasTree: await isTreeListed($),
@@ -1100,6 +1119,7 @@ type AttentionKeep = {
   refreshes: number
   asks: Map<string, WaitingAsk>
   machine: Machine
+  background: BackgroundKeep
 }
 
 function hasAgentAsk(attention: AttentionKeep): boolean {
@@ -1118,8 +1138,18 @@ async function attentionNow(
   $: EngineInterface,
   attention: AttentionKeep,
 ): Promise<string | undefined> {
-  const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), await $.clock.now()) : []
-  const text = attentionText(rows, await sessionSignals($), askedQuestions(attention))
+  const now = await $.clock.now()
+  const rows = hasAgentAsk(attention) ? await agentView(agentHostOf($), now) : []
+  const signals = await sessionSignals($)
+  const asked = attentionText(rows, signals, askedQuestions(attention))
+  const waiting = attention.background.current
+  let text = asked
+  if (isWaiting(waiting)) {
+    text =
+      asked === undefined
+        ? waitingStatusText(waiting, now, signals)
+        : `${asked} · ${besideAskText(waiting, signals)}`
+  }
   if (text === undefined || (await isSessionTabSeen($))) return undefined
   return text
 }
@@ -1297,6 +1327,7 @@ async function noteVitals(
 function vitalsText(vitals: Vitals, now: number): string {
   const view = {
     vitals,
+    background: NO_TURN,
     waits: 0,
     checks: EMPTY_CHECKS,
     request: NO_REQUEST,
@@ -1746,6 +1777,43 @@ function toolFailed($: EngineInterface, tool: string, error: HookFailure): { den
   return { deny: `handily-board could not answer ${tool}: ${reason}.` }
 }
 
+function keepBackgroundTick($: EngineInterface, redraw: Redraw, attention: AttentionKeep): void {
+  if (!isWaiting(attention.background.current)) {
+    redraw.backgroundTimer?.cancel()
+    redraw.backgroundTimer = undefined
+    return
+  }
+  redraw.backgroundTimer ??= $.clock.every(BACKGROUND_TICK_MS, () => {
+    $.ui.invalidate('ui.render')
+    void refreshStatus($, attention)
+  })
+}
+
+async function noteBackground(
+  $: EngineInterface,
+  redraw: Redraw,
+  attention: AttentionKeep,
+): Promise<void> {
+  keepBackgroundTick($, redraw, attention)
+  $.ui.invalidate('ui.render')
+  const shared = sharedBackground(attention.background.current)
+  await updateProgress(sessionsHost($), attention.machine, (progress, now) =>
+    withBackground(progress, shared, now),
+  )
+  await refreshStatus($, attention)
+}
+
+async function noteBackgroundStop(
+  $: EngineInterface,
+  redraw: Redraw,
+  attention: AttentionKeep,
+  facts: StopFacts,
+): Promise<void> {
+  if (!isMainStop(facts)) return
+  noteStop(attention.background, facts, await $.clock.now())
+  await noteBackground($, redraw, attention)
+}
+
 export const register: Register = (on, options) => {
   const mode = boardMode(options)
   const band = bandSetting(options)
@@ -1757,6 +1825,7 @@ export const register: Register = (on, options) => {
     clock: undefined,
     clockTicks: 0,
     clockSurfaces: new Map(),
+    backgroundTimer: undefined,
   }
   const machine = newMachine(SESSIONS_PANE.id)
   const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
@@ -1771,12 +1840,14 @@ export const register: Register = (on, options) => {
   const notes: RowNotes = new Map()
   const asks: BoardTask[] = []
   const pulses = newPulses()
+  const background = newBackgroundKeep()
   const attention: AttentionKeep = {
     setting: statusLineSetting(options),
     text: undefined,
     refreshes: 0,
     asks: new Map(),
     machine,
+    background,
   }
 
   on('session.start', async ($, e, next) => {
@@ -1843,6 +1914,13 @@ export const register: Register = (on, options) => {
       const now = await $.clock.now()
       await noteVitals($, vitals, (current) => withTurnStart(current, now))
       await noteTrend($, trend, trendTurnStarted)
+      const wasWaiting = isWaiting(background.current)
+      noteTurnStart(background)
+      if (wasWaiting) {
+        keepBackgroundTick($, redraw, attention)
+        $.ui.invalidate('ui.render')
+        await refreshStatus($, attention)
+      }
     } else {
       await noteRunStart(agentHostOf($), e.agentId)
       noteLogRun(log, e.agentId)
@@ -1929,6 +2007,8 @@ export const register: Register = (on, options) => {
     pulses.heardAt.clear()
     pulses.callsFrom.clear()
     if (NEW_SESSION_REASONS.has(e.reason)) {
+      forgetBackground(background)
+      await noteBackground($, redraw, attention)
       await noteVitals($, vitals, withClear)
       noteRequest($, request, withRequestsCleared)
       await setTrend($, trend, EMPTY_TREND)
@@ -1964,8 +2044,15 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('classic.Stop', ($, e, next) => {
+  on('classic.Stop', async ($, e, next) => {
     noteMode($, request, e)
+    try {
+      await noteBackgroundStop($, redraw, attention, e)
+    } catch (error) {
+      $.ui.log(`handily-board: the background work was not read: ${String(error)}`, {
+        to: 'debug',
+      })
+    }
     return next(e)
   })
 
@@ -2180,7 +2267,17 @@ export const register: Register = (on, options) => {
         await countParts($, breakdown)
         return {
           text: statsText(
-            await workOf($, { vitals, checks, request, steps, pulses, breakdown, trend, log }),
+            await workOf($, {
+              vitals,
+              checks,
+              request,
+              steps,
+              pulses,
+              breakdown,
+              trend,
+              log,
+              background,
+            }),
             await sessionSignals($),
           ),
         }
@@ -2194,6 +2291,7 @@ export const register: Register = (on, options) => {
           breakdown,
           trend,
           log,
+          background,
         })
         const who = { names: shownNames(work.agents), labels: agentLabels(work.agents) }
         return { text: logText(log.current, who, await sessionSignals($), command.text) }
@@ -2247,14 +2345,16 @@ export const register: Register = (on, options) => {
     const plan = await offeredPlan(plans)
     const now = await $.clock.now()
     const agents = stripRows(await agentsNow($, { steps, pulses }, now))
-    const view = bandView(await readList(host), plan, activity, now, agents.length)
+    const waitingNow = background.current
+    const isWaitingNow = isWaiting(waitingNow)
+    const view = bandView(await readList(host), plan, activity, now, agents.length, isWaitingNow)
     if (view === undefined) return yieldBand()
     const beneath = await next(e)
     if (!isEngineDrawing(beneath)) {
       stopBand()
       return beneath
     }
-    keepBandTime($, redraw, isTimed(view, agents.length))
+    keepBandTime($, redraw, isTimed(view, agents.length, isWaitingNow))
     const rows = heldRows(redraw.strip, agents, now)
     const { Box, Text, Button } = $.ui.resolve(e)
     const signals = await drawnSignals($, e.surface)
@@ -2276,6 +2376,7 @@ export const register: Register = (on, options) => {
       e.props.bodyColumns,
       {
         open,
+        openTasks: openAgents,
         openAgent: (row) => {
           if (isLiveRow(row)) {
             openAgents()
@@ -2298,6 +2399,7 @@ export const register: Register = (on, options) => {
         },
       },
       strip,
+      isWaitingNow ? { background: waitingNow, now } : undefined,
     )
   })
 
@@ -2367,7 +2469,7 @@ export const register: Register = (on, options) => {
       signals: await drawnSignals($, e.surface),
       palette: await shownPalette($, e.surface),
     }
-    const keeps = { vitals, checks, request, steps, pulses, breakdown, trend, log }
+    const keeps = { vitals, checks, request, steps, pulses, breakdown, trend, log, background }
     const work = await workOf($, keeps, e.props.view.agentId)
     if (hasStripFailure(work.agents)) {
       $.clock.after(0, () => {

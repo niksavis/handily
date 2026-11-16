@@ -126,6 +126,7 @@ function progressOf(sessionId: string, fields: Partial<Progress>): Progress {
     openForYou: 0,
     waits: [],
     waitsMore: {},
+    background: null,
     ...fields,
   }
 }
@@ -2448,5 +2449,123 @@ describe(KEY_WAITS_CRITERION, () => {
     expect(readProgress({ ...LANE_PROGRESS, waits: [{ kind: 'permission', agent: 1 }] })).toBeNull()
     expect(readProgress({ ...LANE_PROGRESS, waitsMore: { permission: -1 } })).toBeNull()
     expect(readProgress({ ...LANE_PROGRESS, waits: Array(6).fill(API_WAITS[0]) })).toBeNull()
+  })
+})
+
+const WAITING_CARD_CRITERION =
+  'When the board publishes this session for the this machine tab, a waiting session shows waiting on its card, in the order needs you, failed, working, waiting, idle, ended.'
+
+const CI_SHELL = {
+  id: 'bakfjlhsk',
+  type: 'shell',
+  status: 'running',
+  description: 'Watch the CI run',
+  command: 'gh run watch 18842 --exit-status',
+}
+
+const IDLE_AGENTS: readonly AgentEntry[] = MACHINE_AGENTS.map((entry) => {
+  if (entry.sessionId === OWN_ID) return { ...entry, status: 'idle' }
+  if (entry.sessionId === LANE_ID) return { ...entry, state: 'idle' }
+  return entry
+})
+
+const LANE_IN_BACKGROUND = progressOf(LANE_ID, {
+  ...LANE_PROGRESS,
+  background: {
+    since: NOW - 20 * MINUTE,
+    seenAt: NOW - 5 * MINUTE,
+    count: 2,
+    kind: 'monitor',
+    title: 'deploy log',
+  },
+})
+
+async function waitOnShell($: Engine, seen: World, on: On): Promise<void> {
+  on('classic.Stop', () => ({}))
+  on('ui.status', () => ({ value: undefined }))
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await seen.clock.advance(MINUTE)
+  await $.turn.complete({
+    turnId: 't1',
+    reason: 'answer',
+    answer: '',
+    durationMs: MINUTE,
+    isAborted: false,
+  })
+  await $.classic.Stop({
+    session_id: OWN_ID,
+    transcript_path: '/work/t.jsonl',
+    cwd: ROOT,
+    stop_hook_active: false,
+    background_tasks: [CI_SHELL],
+    session_crons: [],
+  })
+}
+
+describe(WAITING_CARD_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(`this session and a session that publishes background work draw waiting, after needs you and before ended, on ${surface}`, async ($, on) => {
+      const seen = world(on, storeWith(API_PROGRESS, LANE_IN_BACKGROUND), ['terminal', surface])
+      seen.agents = agentsJson(IDLE_AGENTS)
+      await waitOnShell($, seen, on)
+      const entry = readProgress(seen.store.get(progressKey(OWN_ID)))
+      expect(entry?.background).toEqual({
+        since: NOW - 13 * MINUTE,
+        seenAt: NOW - 13 * MINUTE,
+        count: 1,
+        kind: 'shell',
+        title: 'Watch the CI run',
+      })
+      await seen.clock.advance(MINUTE)
+      await showMachine($, seen)
+      await seen.clock.advance(2 * MINUTE)
+      const lines = sessionsOf(await screenAt($, surface, 'dock', 41))
+      const heads = lines.filter((line) => /^[◆■▶◷○✓] /u.test(line))
+      expect(heads).toEqual([
+        '◆ api-login  interactive  needs you',
+        '◷ mocks  interactive  this  waiting 3m',
+        '◷ lane-a1  background  waiting 10m',
+        '✓ docs-pass  background  done',
+      ])
+      const own = lines.indexOf('◷ mocks  interactive  this  waiting 3m')
+      expect(lines[own + 1]).toBe('  in background: shell Watch the CI run')
+      const lane = lines.indexOf('◷ lane-a1  background  waiting 10m')
+      expect(lines[lane + 1]).toBe('  in background: monitor deploy log · +1…')
+    })
+  }
+
+  test('a desktop session draws its own card waiting with the plain mark', async ($, on) => {
+    const seen = world(on, storeWith(API_PROGRESS), ['desktop'])
+    await waitOnShell($, seen, on)
+    await showMachine($, seen)
+    const lines = await screenAt($, 'desktop', 'dock', 41)
+    const own = lines.findIndex((line) => line.startsWith('◷ 00000000'))
+    expect(lines.slice(own, own + 2)).toEqual([
+      '◷ 00000000  this  waiting 0s',
+      '  in background: shell Watch the CI run',
+    ])
+  })
+
+  test('a session without the board, or with the engine word working, keeps the engine word', async ($, on) => {
+    const busy = MACHINE_AGENTS.map((entry) =>
+      entry.sessionId === LANE_ID ? { ...entry, state: 'working' } : entry,
+    )
+    const seen = world(on, storeWith(API_PROGRESS, LANE_IN_BACKGROUND), ['terminal'])
+    seen.agents = agentsJson(busy)
+    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+    await showMachine($, seen)
+    const lines = sessionsOf(await screenAt($, 'terminal', 'dock', 41))
+    expect(lines).toContain('▶ lane-a1  background  working')
+    expect(lines.join('\n')).not.toContain('in background')
+  })
+
+  test('the store entry of a stale wait reads back, and a bad background drops the entry', () => {
+    expect(readProgress(JSON.parse(JSON.stringify(LANE_IN_BACKGROUND)))).toEqual(LANE_IN_BACKGROUND)
+    expect(readProgress({ ...LANE_IN_BACKGROUND, background: { since: 'x' } })).toBeNull()
+    const old = Object.fromEntries(
+      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'background'),
+    )
+    expect(readProgress(old)?.background).toBeNull()
   })
 })

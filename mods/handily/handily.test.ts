@@ -920,6 +920,7 @@ const GLYPH_ROWS = [
   'folder    |▸|   |\u{F07B}| nf-fa-folder',
   'open      |▾|   |\u{F07C}| nf-fa-folder_open',
   'branch    |·|   |\u{F418}| nf-oct-git_branch',
+  'waiting   |◷|   |\u{EB7C}| nf-cod-watch',
 ]
 const PLAIN_TEST_LINE =
   'The nerd column is a test: when each icon fills one cell between its bars, Glyphs nerd is safe in this terminal.'
@@ -933,7 +934,7 @@ function refusedLine(stored: string): string {
 }
 
 describe('the glyph sets', () => {
-  test('keeps the plain marks and the nerd icons of the ten roles', () => {
+  test('keeps the plain marks and the nerd icons of the eleven roles', () => {
     expect(GLYPH_SETS.plain).toEqual({
       doing: '\u{25B6}',
       done: '\u{2713}',
@@ -945,6 +946,7 @@ describe('the glyph sets', () => {
       folderClosed: '\u{25B8}',
       folderOpen: '\u{25BE}',
       branch: '\u{00B7}',
+      waiting: '\u{25F7}',
     })
     const codePoints = Object.fromEntries(
       Object.entries(GLYPH_SETS.nerd).map(([role, glyph]) => [role, glyph.codePointAt(0)]),
@@ -960,9 +962,10 @@ describe('the glyph sets', () => {
       folderClosed: 0xf07b,
       folderOpen: 0xf07c,
       branch: 0xf418,
+      waiting: 0xeb7c,
     })
     expect(Object.values(GLYPH_SETS.nerd).map((glyph) => Array.from(glyph).length)).toEqual(
-      Array.from({ length: 10 }, () => 1),
+      Array.from({ length: 11 }, () => 1),
     )
     expect(Object.keys(NERD_NAMES)).toEqual(Object.keys(GLYPH_SETS.plain))
   })

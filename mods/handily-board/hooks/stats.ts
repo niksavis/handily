@@ -10,6 +10,7 @@ import { requestWords, requestsWords } from './request'
 import type { SignalLooks } from './signals'
 import { type SessionView, receiptWords, sessionHeadWords, tokensOverWindow } from './session'
 import type { Vitals } from './vitals'
+import { NO_TURN } from './background'
 
 const STATS_INDENT = '    '
 const SECOND_MS = 1000
@@ -70,6 +71,7 @@ function sessionLines(stats: Stats, signals: SignalLooks): string[] {
   const waiting = waitingRows(stats.agents)
   const view: SessionView = {
     vitals: stats.vitals,
+    background: NO_TURN,
     waits: waiting.length,
     checks: stats.checks,
     request: stats.request,

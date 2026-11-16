@@ -9,6 +9,7 @@ export const GLYPHS = {
   folderClosed: { plain: '▸', nerdName: 'nf-fa-folder', nerd: 0xf07b },
   folderOpen: { plain: '▾', nerdName: 'nf-fa-folder_open', nerd: 0xf07c },
   branch: { plain: '·', nerdName: 'nf-oct-git_branch', nerd: 0xf418 },
+  waiting: { plain: '◷', nerdName: 'nf-cod-watch', nerd: 0xeb7c },
 }
 
 export const TYPE_ICONS = {

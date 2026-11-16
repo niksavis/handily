@@ -16,6 +16,7 @@ import {
   type Progress,
   type SharedContext,
 } from './progress'
+import { type SharedBackground, WAITING_WORD, sharedAge } from './background'
 import { openForPerson } from './for-you'
 import { paneTaskText } from './tasks'
 import { isHighPercent } from './vitals'
@@ -23,12 +24,13 @@ import { isHighPercent } from './vitals'
 export const HIDE_BACKGROUND_AFTER_MS = 24 * 60 * 60_000
 export const STALE_DATA_AFTER_MS = 30_000
 
-export type Attention = 'needsYou' | 'failed' | 'working' | 'idle' | 'ended'
+export type Attention = 'needsYou' | 'failed' | 'working' | 'waiting' | 'idle' | 'ended'
 
 export const ATTENTION_ORDER: readonly Attention[] = [
   'needsYou',
   'failed',
   'working',
+  'waiting',
   'idle',
   'ended',
 ]
@@ -66,6 +68,7 @@ export type SessionCard = {
   agents: AgentCounts | null
   agentRows: readonly AgentSummary[]
   context: SharedContext | null
+  background: SharedBackground | null
 }
 
 export type CardsView = {
@@ -216,8 +219,10 @@ function otherCard(
   now: number,
 ): SessionCard {
   const isStale = progress !== undefined && isOlderThanStart(progress, row.startedAt)
-  const openForYou = sharedOpenForYou(progress, !row.isEnded && !isStale)
+  const isShown = !row.isEnded && !isStale
+  const openForYou = sharedOpenForYou(progress, isShown)
   const attention = attentionOf(row, openForYou)
+  const shared = isShown ? progress?.background : null
   let time: CardTime = { kind: 'elapsed', ms: now - row.startedAt }
   if (row.isEnded) time = { kind: 'ended' }
   else if (progress && !isStale) {
@@ -229,8 +234,7 @@ function otherCard(
     kind: row.kind,
     isOwn: false,
     isUnlisted: false,
-    attention,
-    ...rowState(row, attention),
+    ...withWaiting({ attention, ...rowState(row, attention) }, shared, now),
     openForYou,
     task: keyTask(progress, isStale),
     place: placeOf(row, cache),
@@ -262,8 +266,7 @@ export function ownCard(
     kind: row?.kind ?? null,
     isOwn: true,
     isUnlisted,
-    attention,
-    ...state,
+    ...withWaiting({ attention, ...state }, own.progress?.background, now),
     openForYou,
     task: listTask(own.list),
     place: row && cache ? placeOf(row, cache) : lastSegment(own.cwd),
@@ -272,6 +275,24 @@ export function ownCard(
     agents: agentCounts(own.agents),
     agentRows: [],
     context: highContext(own.progress, true),
+  }
+}
+
+type CardState = Pick<SessionCard, 'attention' | 'state' | 'waitsFor' | 'background'>
+
+function withWaiting(
+  card: Pick<SessionCard, 'attention' | 'state' | 'waitsFor'>,
+  shared: SharedBackground | null | undefined,
+  now: number,
+): CardState {
+  if (card.attention !== 'idle' || shared === null || shared === undefined) {
+    return { ...card, background: null }
+  }
+  return {
+    attention: 'waiting',
+    state: `${WAITING_WORD} ${sharedAge(shared, now)}`,
+    waitsFor: null,
+    background: shared,
   }
 }
 

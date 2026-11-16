@@ -190,6 +190,7 @@ Each role of the table changes with the setting. Source of the code points: nerd
 | `folderClosed` | a closed folder | filetree `pane.ts` | `▸` | nf-fa-folder | `U+F07B` | Ⓕ |
 | `folderOpen` | an open folder | filetree `pane.ts` | `▾` | nf-fa-folder_open | `U+F07C` | ⓕ |
 | `branch` | the separator before the branch in the Files header | filetree `gitview.ts` | `·` | nf-oct-git_branch | `U+F418` | Ⓨ |
+| `waiting` | the session waits on background work | board (`background.ts`) | `◷` | nf-cod-watch | `U+EB7C` | Ⓦ |
 
 The five nerd state icons have five different outlines: a triangle, a tick, a ring, a circled x
 and a bell. So the states differ in shape without colour, as the plain marks do.
@@ -1245,6 +1246,37 @@ The owner approved the mocks and the 8 recommended answers on 2026-11-10. The ap
   change come from the rows kept at the last 10 second tick. So they change on the tick only.
 - Every text from an agent or a tool target goes through `escaped`: the name, the tool and its
   target, the answer line and the plan step.
+
+#### Waiting on background work (handily-uht4tq)
+
+The owner asked on 2026-11-16 for a clear mark of idle, working and waiting, because a session
+that waits on a CI build looks idle in the terminal. The approved mocks are `docs/mocks.md`
+section 18. Owner decisions of 2026-11-16: the waiting colour is the theme key `suggestion`; the
+status line carries waiting under the setting `attention`; the band, the status line, the
+Session head and the this machine cards show it.
+
+- Probe of 2026-11-16 on Claude Code 2.1.325, under the organisation security plugin: the
+  function hook `classic.Stop` at the end of a turn that started `sleep 90` in the background
+  received `background_tasks` with the shell and `session_crons` empty. When the shell ended,
+  the engine woke a turn, and its Stop reported both lists empty.
+- The board extends its one `classic.Stop` hook; the engine refuses a second hook on one event.
+  It reads only a Stop with no `agent_id`. `hooks/background.ts` holds the rule: waiting when a
+  list is not empty, idle when both are empty, no turn when a list is missing. A main
+  `turn.start` sets no turn, and `vitals.isTurnRunning` draws working on top. `/clear` and a
+  resume reset to no turn. No Stop yet reads as no turn, never idle.
+- The age counts from the Stop that first reported the oldest item. The board keeps the first
+  time of each task or cron id across Stops, so a woken turn does not reset a long CI watch.
+- After 30 minutes with no turn, the age gets `?` and the line adds `not seen since 40m`. The
+  board never clears waiting by itself.
+- A 10 second timer runs while the session waits and redraws and refreshes the status line, so
+  the age moves with no tab and no band.
+- The session entry `session:<id>` keeps `background`: the count, the first and last seen times,
+  and the kind and title of the oldest item, cut to 80 characters, so the 4096 byte limit holds.
+  A card shows waiting only where the engine reports the session idle.
+- The glyph role `waiting` is `◷` (U+25F7) in the plain set and nf-cod-watch (U+EB7C) in the nerd
+  set. The code point was checked against the codicon CSS that ships with VS Code extensions on
+  this machine, where seven known roles match; it was not checked against nerd-fonts
+  `glyphnames.json`, nor measured live in a terminal.
 
 #### Context parts and a trend (handily-u2exd)
 

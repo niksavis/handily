@@ -534,7 +534,7 @@ describe(FRAME_CRITERION, () => {
       await start($)
       const framed = await screenOn($, 'terminal', 'dock', 41)
       expect(framed.slice(0, 6)).toEqual([
-        '╭─ Session ──────────────────── ○ idle ─╮',
+        '╭─ Session ───────────────── ○ no turn ─╮',
         '│ ctx — until the first reply           │',
         '│ limits — until the first reply        │',
         '│ req —                                 │',
@@ -545,7 +545,11 @@ describe(FRAME_CRITERION, () => {
       expect(framed.at(-3)).toBe('No agents yet.')
       expect(framed.at(-4)?.startsWith('╰')).toBe(true)
       const flat = await screenOn($, 'desktop', 'dock', 41)
-      expect(flat.slice(0, 3)).toEqual(['Session  ○ idle', 'ctx — until the first reply', 'req —'])
+      expect(flat.slice(0, 3)).toEqual([
+        'Session  ○ no turn',
+        'ctx — until the first reply',
+        'req —',
+      ])
       expect(flat[3]?.startsWith('Tasks')).toBe(true)
       expect(flat).toContain('No agents yet.')
     },
@@ -587,7 +591,7 @@ const GAUGE_VIEWS: readonly {
     placement: 'inline',
     columns: 76,
     lines: [
-      'Session  ○ idle · ctx ▰▰▰▰▰▰▰▱▱▱ 71% · 142k/200k · $9.02',
+      'Session  ○ no turn · ctx ▰▰▰▰▰▰▰▱▱▱ 71% · 142k/200k · $9.02',
       '    5h ▰▱▱▱▱ 31% resets 2h · 7d ▱▱▱▱▱ 13% resets 2h',
     ],
   },
@@ -633,7 +637,7 @@ describe(GAUGE_CRITERION, () => {
         '│ $12.40 · 5h ▰▰▰▰▱ 84% high · 7d 13%   │',
       ])
       expect((await screenOn($, 'desktop', 'dock', 41)).slice(0, 3)).toEqual([
-        'Session  ○ idle',
+        'Session  ○ no turn',
         'ctx ▰▰▰▰▰▰▰▰▰▱ 91% high · 182k/200k',
         '$12.40 · 5h ▰▰▰▰▱ 84% high · 7d ▱▱▱▱▱ 13%',
       ])
@@ -661,7 +665,7 @@ describe(GAUGE_CRITERION, () => {
       for (const surface of SURFACES) {
         const lines = (await screenOn($, surface, 'inline', 76)).slice(0, 2)
         expect(lines).toEqual([
-          'Session  ○ idle · ctx ▰▱▱▱▱▱▱▱▱▱ 20% · 40k/200k · $1.00',
+          'Session  ○ no turn · ctx ▰▱▱▱▱▱▱▱▱▱ 20% · 40k/200k · $1.00',
           '    5h ▱▱▱▱▱ 9% resets 2h · 7d ▰▰▰▰▱ 99% high resets 2h',
         ])
       }

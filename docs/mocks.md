@@ -8682,7 +8682,8 @@ This replaces 8.13k.
 
 | Case | What shows |
 | --- | --- |
-| No open task, and no agent row to show | nothing |
+| No open task, no agent row to show and no background work | nothing |
+| No open task, no agent row, and the session waits on background work (handily-uht4tq) | the waiting head of 18.1 with background rows; changed 2026-11-16 |
 | Only done agents, after the next prompt | nothing (the done rows end at the prompt) |
 | The this session tab is shown, docked or inline | nothing (`next(e)`); the pane holds the agents |
 | A survey holds the band, a plugin beneath draws, `[-]` collapsed, setting `band` off | as 8.13k |
@@ -8889,3 +8890,131 @@ and the person files, fixes or dismisses it with a button. No button calls a mod
                 the row stays until a sent prompt holds that text; a cleared prompt keeps it
 [ dismiss ]  -> the row goes away; Claude is not told
 ```
+
+## 18. handily-board: a session that waits on background work (handily-uht4tq, approved 2026-11-16)
+
+The owner asked on 2026-11-16 for a clear mark of idle, working and waiting, because a session
+that waits on a CI build looks idle in the terminal. Owner decisions of 2026-11-16: the waiting
+colour is the theme key `suggestion`; the status line carries waiting under the setting
+`attention`; surfaces A (band), C (status line), D (Session head) and E (this machine cards) are
+built, F is rejected. The blocks of 18.1, 18.2, 18.4 and 18.5 and the waiting rows of 18.3 are
+the text that the board tests assert. The `ctx` and cost parts of 18.3b follow the design draft.
+
+The state rule, from engine facts only:
+
+| State | When | Mark and word |
+| --- | --- | --- |
+| working | a main `turn.start` with no end after it | `▶ working` |
+| waiting | the last main Stop listed `background_tasks` or `session_crons` | `◷ waiting 3m` |
+| idle | the last main Stop listed both empty | `○ idle` |
+| no turn | no Stop yet, after `/clear` or resume, or a Stop without the lists | `○ no turn` |
+
+Line pattern: `◷ waiting <age> · <kind> <description> · <command | server tool | name>`. The age
+counts from the Stop that first reported the oldest item. A one-shot wakeup shows `at HH:MM`, a
+recurring one `cron <schedule>`. Two or more items name the oldest and `+N more in background`.
+
+### 18.1 The band (A)
+
+**1a. 120 columns, body 120, no open task.**
+
+```text
+◷ waiting 3m · 3 in background · no open task                                                                  [ board ]
+◷ shell     waiting   Watch the CI run · gh run watch 18842 --exit-status                                       open  3m
+◷ monitor   waiting   deploy log · ci-mcp watch_deploy                                                          open  3m
+◷ wakeup    waiting   at 14:00 · Check the CI run again and merge when it is green                                    3m
+```
+
+**1b. With a task in progress, the waiting lead comes first.**
+
+```text
+◷ waiting 3m · ▶ 1 Write the tab mocks                                                                3m ▰ 0/1 [ board ]
+◷ shell     waiting   Watch the CI run · gh run watch 18842 --exit-status                                       open  3m
+```
+
+**1c. 40 columns, body 35: the detail cuts, then the kind; the mark, the word and the age stay.**
+
+```text
+◷ waiting 3m · no task    [ board ]
+◷ shell     waiting Watch the… open
+◷ monitor   waiting deploy log open
+◷ wakeup    waiting at 14:00…
+[ +1 more · 1 in background ]
+```
+
+- Background rows come after the agent rows and share the 3 rows of 16. A background subagent
+  has an agent row, so it has no background row.
+- `open` on a shell, monitor or workflow row runs `/tasks`. A wakeup row has no button.
+
+### 18.2 The status line (C)
+
+```text
+◷ waiting 3m · shell Watch the CI run · gh run watch 18842 --exit-status
+◷ waiting 3m · monitor deploy log · ci-mcp watch_deploy
+◷ waiting 3m · wakeup at 14:00 · Check the CI run again and merge when it is green
+◷ waiting 3m · agent Explore · Map the hooks
+◷ waiting 3m · shell Watch the CI run · +3 more in background
+◆ scout waits for permission: Bash npm test · ◷ +1 in background
+```
+
+Working, idle and no turn set no line. The line clears while the this session tab is shown.
+
+### 18.3 The Session head (D)
+
+**3a. Docked, body 41, framed.**
+
+```text
+╭─ Session ───────────────── ▶ working ─╮
+╭─ Session ──────────────────── ○ idle ─╮
+╭─ Session ────────────── ◷ waiting 3m ─╮
+│ on shell   Watch the CI run        3m │
+│    monitor deploy log              3m │
+│    [ tasks ] +1 more                  │
+╰───────────────────────────────────────╯
+╭─ Session ───────────────── ○ no turn ─╮
+│ background: not reported              │
+```
+
+The line `background: not reported` shows only after a Stop without the lists. Before the first
+Stop the head says `○ no turn` with no such line. With an agent wait, the head reads
+`◆ 1 waits · ◷ 3m`.
+
+**3b. Inline at 40, and docked on the desktop app.**
+
+```text
+Session  ▶ working · ctx 62% · $4.18
+Session  ○ idle · ctx 62% · $4.18
+Session  ◷ waiting 3m
+    on shell Watch the CI … +2 more open
+Session  ○ no turn · ctx 62% · $4.18
+```
+
+### 18.4 The this machine cards (E)
+
+```text
+◆ api-login  interactive  needs you
+◷ mocks  interactive  this  waiting 3m
+  in background: shell Watch the CI run
+◷ lane-a1  background  waiting 10m
+  in background: monitor deploy log · +1…
+✓ docs-pass  background  done
+```
+
+Cards sort: needs you, failed, working, waiting, idle, ended. Only a session that runs the board
+and publishes `background` in its `session:<id>` entry shows waiting, and only where Claude Code
+reports it idle. The Inbox is unchanged.
+
+### 18.5 Failure modes
+
+- **Stale waiting.** A shell killed in `/tasks` with no turn after it: after 30 minutes the age
+  reads `40m?` and the lines add `not seen since 40m`. The board never clears it by itself.
+
+  ```text
+  ◷ waiting 40m? · not seen since 40m · shell Watch the CI run · gh run watch 18842 --exit-status
+  ╭─ Session ──────────── ◷ waiting 40m? ─╮
+  ```
+
+- **Missed Stop** (crash, `/clear`, resume): the state resets to `no turn`.
+- **40 columns:** the command cuts first, then the description, then the kind.
+- **`NO_COLOR` and colour blindness:** the mark `◷` differs in shape and the word `waiting`
+  stands beside it.
+- **An aborted turn** may end with no Stop, so the head reads `○ no turn` until the next Stop.

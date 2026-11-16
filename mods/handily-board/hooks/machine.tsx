@@ -34,6 +34,7 @@ import { SIGNALS, type Signal, type SignalLook, type SignalLooks, needsYouText }
 import { escaped, statusLook } from './tasks'
 import { dollars, highText } from './vitals'
 import { WAIT_KINDS } from './waits'
+import { sharedLine, waitingLook } from './background'
 import { cutToWidth, displayWidth, fitted, lastToWidth, padToWidth } from './width'
 
 export type MachineElements = {
@@ -85,12 +86,19 @@ const INBOX_KIND_WIDTH = 12
 const INBOX_DETAIL_INDENT = 2
 const INBOX_FOLD = 'machine:inbox'
 
-const ATTENTION_SIGNALS: Record<Attention, Signal> = {
+const ATTENTION_SIGNALS: Record<Exclude<Attention, 'waiting'>, Signal> = {
   needsYou: 'waitsForYou',
   failed: 'blocked',
   working: 'doing',
   idle: 'toDo',
   ended: 'done',
+}
+
+const IN_BACKGROUND = 'in background: '
+
+function attentionLook(attention: Attention, signals: SignalLooks): SignalLook {
+  if (attention === 'waiting') return waitingLook(signals)
+  return signals[ATTENTION_SIGNALS[attention]]
 }
 
 const BADGES: Record<SessionKind, string> = { interactive: 'interactive', background: 'background' }
@@ -259,7 +267,7 @@ function forYouText(count: number): string {
 }
 
 function cardHeadParts(card: SessionCard, layout: Layout, signals: SignalLooks): Part[] {
-  const look = signals[ATTENTION_SIGNALS[card.attention]]
+  const look = attentionLook(card.attention, signals)
   const badges: Part[] = [
     ...(card.kind === null || layout.isNarrow
       ? []
@@ -437,6 +445,17 @@ function detailLines(
   if (card.waitsFor !== null) {
     lines.push(drawParts(elements, `${key}:waits`, waitParts(card.waitsFor), columns, indent))
   }
+  if (card.background !== null) {
+    lines.push(
+      drawParts(
+        elements,
+        `${key}:background`,
+        [{ text: IN_BACKGROUND, dimColor: true }, { text: escaped(sharedLine(card.background)) }],
+        columns,
+        indent,
+      ),
+    )
+  }
   if (card.openForYou > 0) {
     lines.push(
       drawParts(
@@ -520,7 +539,7 @@ function rowParts(
   columns: number,
   signals: SignalLooks,
 ): Part[] {
-  const look = signals[ATTENTION_SIGNALS[card.attention]]
+  const look = attentionLook(card.attention, signals)
   const badge = card.kind === null ? '' : ROW_BADGES[card.kind]
   const tail = ` ${rowCount(card.task).padStart(widths.count)} ${rowTime(card.time).padStart(ROW_TIME_WIDTH)}`
   const mark = `${look.mark} `

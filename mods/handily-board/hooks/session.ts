@@ -1,6 +1,20 @@
 import type { RenderElement, SessionRateLimit, ThemeKey } from 'claude-code'
 import type { BoardChecks } from '../types'
 import { elapsedText } from './activity'
+import {
+  type Background,
+  type BackgroundItem,
+  NO_TURN_WORD,
+  WAITING_COLOR,
+  WAITING_WORD,
+  ageText,
+  isStale,
+  isWaiting,
+  notSeenText,
+  turnState,
+  waitingAge,
+  waitingLook,
+} from './background'
 import { gateAtoms, verdictParts } from './checks'
 import { counted, limitName, resetsInMs } from './details'
 import { SESSION_LOOK, type StyledPart, drawStyledParts, titlePart } from './frame'
@@ -13,10 +27,11 @@ import { type RequestFacts, requestAtoms } from './request'
 import { SIGNALS, type SignalLooks } from './signals'
 import { tokensText } from './tokens'
 import { type Vitals, addedCents, cents, dollars, hasReading, lastCents } from './vitals'
-import { displayWidth } from './width'
+import { displayWidth, fitted, padToWidth } from './width'
 
 export type SessionView = {
   vitals: Vitals
+  background: Background
   waits: number
   checks: BoardChecks
   request: RequestFacts
@@ -63,21 +78,38 @@ function waitsAtom(waits: number, signals: SignalLooks): FlowAtom {
   return single([{ text: waitsText(waits, signals), color: WAITS_COLOR }])
 }
 
-function statePart(view: SessionView): StyledPart {
+function statePart(view: SessionView, isShort = false): StyledPart {
   const { doing, toDo } = view.signals
-  return view.vitals.isTurnRunning
-    ? { text: `${doing.mark} ${WORKING_WORD}`, color: doing.color }
-    : { text: `${toDo.mark} ${IDLE_WORD}`, dimColor: true }
+  const { background, now } = view
+  switch (turnState(view.vitals.isTurnRunning, background)) {
+    case 'working':
+      return { text: `${doing.mark} ${WORKING_WORD}`, color: doing.color }
+    case 'waiting': {
+      const mark = waitingLook(view.signals).mark
+      const age = isWaiting(background) ? waitingAge(background, now) : ''
+      const text = isShort ? `${mark} ${age}` : `${mark} ${WAITING_WORD} ${age}`
+      return { text, color: WAITING_COLOR }
+    }
+    case 'idle':
+      return { text: `${toDo.mark} ${IDLE_WORD}`, dimColor: true }
+    case 'noTurn':
+      return { text: `${toDo.mark} ${NO_TURN_WORD}`, dimColor: true }
+  }
 }
 
 export function sessionStateParts(view: SessionView): StyledPart[] {
-  const state = statePart(view)
-  if (view.waits === 0) return [state]
+  if (view.waits === 0) return [statePart(view)]
   return [
     { text: waitsText(view.waits, view.signals), color: WAITS_COLOR },
     { text: ' · ', dimColor: true },
-    state,
+    statePart(view, true),
   ]
+}
+
+function staleAtoms(view: SessionView): FlowAtom[] {
+  const { background, now } = view
+  if (!isWaiting(background) || !isStale(background, now)) return []
+  return [single([{ text: notSeenText(background.at, now) }])]
 }
 
 function stateAtoms(view: SessionView): FlowAtom[] {
@@ -87,6 +119,7 @@ function stateAtoms(view: SessionView): FlowAtom[] {
   return [
     ...waits,
     single([color === undefined ? { text: state.text } : { text: state.text, color }]),
+    ...staleAtoms(view),
   ]
 }
 
@@ -326,6 +359,7 @@ export type SessionDraw = {
   open: (() => void) | undefined
   details: RenderElement | null
   after: readonly RenderElement[]
+  background?: readonly RenderElement[]
 }
 
 function drawHead(elements: PaneElements, draw: SessionDraw, line: SessionLine): RenderElement {
@@ -355,8 +389,12 @@ function drawLine(elements: PaneElements, line: SessionLine, indent: number): Re
 
 export function drawSessionLines(elements: PaneElements, draw: SessionDraw): RenderElement[] {
   const [first, ...more] = draw.lines.head
+  const background = draw.background ?? []
+  const isBefore = !draw.hasTitle
   return [
+    ...(isBefore ? background : []),
     first === undefined ? null : drawHead(elements, draw, first),
+    ...(isBefore ? [] : background),
     ...more.map((line) => drawLine(elements, line, draw.indent)),
     draw.details,
     ...draw.lines.rest.map((line) => drawLine(elements, line, draw.indent)),
@@ -370,4 +408,152 @@ export function drawSessionLines(elements: PaneElements, draw: SessionDraw): Ren
 
 export function sessionIndent(isInline: boolean): number {
   return flatIndent(isInline)
+}
+
+const BACKGROUND_LEAD = 'on '
+const KIND_COLUMNS = 7
+const AGE_COLUMNS = 4
+const ROWS_IN_FRAME = 2
+const TASKS_LABEL = 'tasks'
+const OPEN_LABEL = 'open'
+const NOT_REPORTED = 'background: not reported'
+
+export type BackgroundLook = { isFramed: boolean; room: number; indent: number; open: () => void }
+
+function itemAge(item: BackgroundItem, view: SessionView): string {
+  return ageText(item.firstSeenAt, view.now, isStale(view.background, view.now))
+}
+
+function framedRow(
+  elements: PaneElements,
+  item: BackgroundItem,
+  index: number,
+  view: SessionView,
+  room: number,
+): RenderElement {
+  const { Box, Text } = elements
+  const lead = index === 0 ? BACKGROUND_LEAD : ' '.repeat(BACKGROUND_LEAD.length)
+  const kind = padToWidth(item.kind, KIND_COLUMNS)
+  const age = itemAge(item, view).padStart(AGE_COLUMNS)
+  const titleRoom = Math.max(room - displayWidth(lead) - displayWidth(kind) - 1 - AGE_COLUMNS, 0)
+  return Box({
+    key: `session-background:${String(index)}`,
+    flexDirection: 'row',
+    children: [
+      Text({ dimColor: true, children: lead }),
+      Text({ color: WAITING_COLOR, children: `${kind} ` }),
+      Text({ children: padToWidth(fitted(item.title, titleRoom), titleRoom) }),
+      Text({ dimColor: true, children: age }),
+    ],
+  })
+}
+
+function moreParts(count: number): string {
+  return count > 0 ? ` +${String(count)} more` : ''
+}
+
+function framedBackground(
+  elements: PaneElements,
+  items: readonly BackgroundItem[],
+  view: SessionView,
+  look: BackgroundLook,
+): RenderElement[] {
+  const { Box, Text, Button } = elements
+  const shown = items.slice(0, ROWS_IN_FRAME)
+  const hidden = items.length - shown.length
+  const hasButton = items.some((item) => item.hasButton)
+  const tail =
+    hasButton || hidden > 0
+      ? [
+          Box({
+            key: 'session-background-more',
+            flexDirection: 'row',
+            paddingLeft: BACKGROUND_LEAD.length,
+            children: [
+              ...(hasButton
+                ? [
+                    Button({
+                      key: 'session-background-tasks',
+                      label: TASKS_LABEL,
+                      onPress: look.open,
+                    }),
+                  ]
+                : []),
+              Text({ dimColor: true, children: moreParts(hidden) }),
+            ],
+          }),
+        ]
+      : []
+  return [...shown.map((item, index) => framedRow(elements, item, index, view, look.room)), ...tail]
+}
+
+function flatBackground(
+  elements: PaneElements,
+  items: readonly BackgroundItem[],
+  look: BackgroundLook,
+): RenderElement[] {
+  const { Box, Text, Button } = elements
+  const [first] = items
+  if (first === undefined) return []
+  const more = moreParts(items.length - 1)
+  const hasButton = items.some((item) => item.hasButton)
+  const buttonWidth = hasButton ? 1 + displayWidth(OPEN_LABEL) : 0
+  const lead = `${BACKGROUND_LEAD}${first.kind} `
+  const room = Math.max(
+    look.room - look.indent - displayWidth(lead) - displayWidth(more) - buttonWidth,
+    0,
+  )
+  return [
+    Box({
+      key: 'session-background:0',
+      flexDirection: 'row',
+      paddingLeft: look.indent,
+      children: [
+        Text({ dimColor: true, children: BACKGROUND_LEAD }),
+        Text({ color: WAITING_COLOR, children: `${first.kind} ` }),
+        Text({ children: fitted(first.title, room) }),
+        Text({ dimColor: true, children: more }),
+        ...(hasButton
+          ? [
+              Box({
+                marginLeft: 1,
+                flexShrink: 0,
+                children: [
+                  Button({
+                    key: 'session-background-open',
+                    label: OPEN_LABEL,
+                    plain: true,
+                    dimColor: true,
+                    onPress: look.open,
+                  }),
+                ],
+              }),
+            ]
+          : []),
+      ],
+    }),
+  ]
+}
+
+export function backgroundLines(
+  elements: PaneElements,
+  view: SessionView,
+  look: BackgroundLook,
+): RenderElement[] {
+  const { background } = view
+  if (view.vitals.isTurnRunning) return []
+  if (background.kind === 'noTurn') {
+    return look.isFramed && background.isUnreported
+      ? [
+          elements.Box({
+            key: 'session-background-none',
+            children: [elements.Text({ dimColor: true, children: NOT_REPORTED })],
+          }),
+        ]
+      : []
+  }
+  if (!isWaiting(background)) return []
+  return look.isFramed
+    ? framedBackground(elements, background.items, view, look)
+    : flatBackground(elements, background.items, look)
 }

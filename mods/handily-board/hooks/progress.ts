@@ -1,4 +1,5 @@
 import type { BoardList, BoardStatus, BoardTask } from '../types'
+import { type SharedBackground, readSharedBackground } from './background'
 import { openForPerson } from './for-you'
 import { isStatus, ownList } from './tasks'
 import {
@@ -53,6 +54,7 @@ export type Progress = {
   openForYou: number | null
   waits: readonly SharedWait[]
   waitsMore: WaitCounts
+  background: SharedBackground | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -98,6 +100,7 @@ export function emptyProgress(sessionId: string, cwd: string, now: number): Prog
     context: null,
     openForYou: null,
     ...NO_WAITS,
+    background: null,
   }
 }
 
@@ -154,7 +157,9 @@ export function readProgress(value: unknown): Progress | null {
   if (openForYou === undefined) return null
   const waits = readWaits(value)
   if (waits === null) return null
-  return { ...(value as Progress), ...agents, context, openForYou, ...waits }
+  const background = readSharedBackground(value.background)
+  if (background === undefined) return null
+  return { ...(value as Progress), ...agents, context, openForYou, ...waits, background }
 }
 
 export function entryBytes(progress: Progress): number {
@@ -287,7 +292,15 @@ export function withContext(
 }
 
 export function startTurn(progress: Progress, now: number): Progress {
-  return { ...progress, updatedAt: now, isWorking: true, turnStartedAt: now }
+  return { ...progress, updatedAt: now, isWorking: true, turnStartedAt: now, background: null }
+}
+
+export function withBackground(
+  progress: Progress,
+  background: SharedBackground | null,
+  now: number,
+): Progress {
+  return { ...progress, updatedAt: now, background }
 }
 
 export function completeTurn(progress: Progress, now: number): Progress {

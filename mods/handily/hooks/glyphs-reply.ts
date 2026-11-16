@@ -24,6 +24,7 @@ const ROLE_LABELS: Readonly<Record<GlyphRole, string>> = {
   folderClosed: 'folder',
   folderOpen: 'open',
   branch: 'branch',
+  waiting: 'waiting',
 }
 
 const LABEL_COLUMNS = 10

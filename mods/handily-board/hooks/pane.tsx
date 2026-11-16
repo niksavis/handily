@@ -79,6 +79,7 @@ import {
 } from './tasks'
 import type { ToastParts } from './toast'
 import type { Vitals } from './vitals'
+import type { Background } from './background'
 import {
   TASKS_LOOK,
   SESSION_LOOK,
@@ -93,6 +94,7 @@ import {
   RESETS_FROM,
   type SessionView,
   drawSessionLines,
+  backgroundLines,
   flatLines,
   framedLines,
   sessionIndent,
@@ -122,6 +124,7 @@ export type PaneWork = {
   activity: BoardActivity
   agents: readonly AgentRow[]
   vitals: Vitals
+  background: Background
   checks: BoardChecks
   request: RequestFacts
   hasTree: boolean
@@ -792,6 +795,7 @@ function drawSession(
   work: PaneWork,
   layout: RowLayout,
   count: () => void,
+  openTasks: () => void,
 ): RenderElement[] {
   const isFramedHere = isFramed(elements)
   const inner = isFramedHere ? framedElements(elements) : elements
@@ -807,6 +811,7 @@ function drawSession(
   const isOpen = layout.expanded.has(SESSION_DETAILS)
   const view: SessionView = {
     vitals: work.vitals,
+    background: work.background,
     waits: waitingCount(work.agents),
     checks: work.checks,
     request: work.request,
@@ -838,6 +843,12 @@ function drawSession(
           )
         : null,
     after: drawFamilies(inner, work.checks, details.names, layout, lineRoom(inner, isFramedHere)),
+    background: backgroundLines(inner, view, {
+      isFramed: isFramedHere,
+      room: inner.bodyColumns,
+      indent: isFramedHere ? 0 : sessionIndent(elements.isInline),
+      open: openTasks,
+    }),
   })
   if (!isFramedHere) return drawn
   const title = [titlePart(SESSION_LOOK, elements.palette)]
@@ -1051,7 +1062,7 @@ export async function drawPane(
   return Box({
     flexDirection: 'column',
     children: [
-      ...drawSession(elements, work, layout, countParts),
+      ...drawSession(elements, work, layout, countParts, agentsOpener(ui)),
       ...plan,
       ...forYou,
       ...findings,

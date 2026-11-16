@@ -509,7 +509,7 @@ const SCENE_SCREENS: readonly {
     placement: 'dock',
     columns: 41,
     framed: [
-      '╭─ Session ──────────────────── ○ idle ─╮',
+      '╭─ Session ───────────────── ○ no turn ─╮',
       '│ ctx — until the first reply           │',
       '│ limits — until the first reply        │',
       '│ req —                                 │',
@@ -535,7 +535,7 @@ const SCENE_SCREENS: readonly {
       '[ Add a task ][Add]',
     ],
     lines: [
-      'Session  ○ idle',
+      'Session  ○ no turn',
       'ctx — until the first reply',
       'req —',
       SCENE_GATE,
@@ -562,7 +562,7 @@ const SCENE_SCREENS: readonly {
     placement: 'dock',
     columns: 30,
     lines: [
-      'Session  ○ idle',
+      'Session  ○ no turn',
       'ctx — until the first reply',
       'req —',
       SCENE_GATE,
@@ -590,7 +590,7 @@ const SCENE_SCREENS: readonly {
     placement: 'inline',
     columns: 76,
     lines: [
-      'Session  ○ idle · ctx — until the first reply',
+      'Session  ○ no turn · ctx — until the first reply',
       '    req —',
       `    ${SCENE_GATE} ${SCENE_VERDICTS}`,
       `    ${SCENE_FAMILIES}`,
@@ -1019,7 +1019,7 @@ describe(FOLD_CRITERION, () => {
           bySurface(
             surface,
             [
-              '╭─ Session ──────────────────── ○ idle ─╮',
+              '╭─ Session ───────────────── ○ no turn ─╮',
               '│ ctx — until the first reply           │',
               '│ limits — until the first reply        │',
               '│ req —                                 │',
@@ -1044,7 +1044,7 @@ describe(FOLD_CRITERION, () => {
               '[ Add a task ][Add]',
             ],
             [
-              'Session  ○ idle',
+              'Session  ○ no turn',
               'ctx — until the first reply',
               'req —',
               'gate 1 ▮ 1 allowed · 0 asked · 0 denied',
@@ -1823,7 +1823,7 @@ async function scoutTurnEnds($: Engine): Promise<void> {
 const NEEDS_YOU_CRITERION =
   'When a subagent call waits for the permission dialog, its row shows needs you with the waits for line, and the Session line counts it'
 
-const SCOUT_WAITS_HEAD = 'Session  ◆ 1 waits · ○ idle'
+const SCOUT_WAITS_HEAD = 'Session  ◆ 1 waits · ○ no turn'
 
 const SCOUT_WAITS_CARD = [
   '╭────────────────╮',
@@ -1923,7 +1923,7 @@ describe(NEEDS_YOU_CRITERION, () => {
         ui === framed ? terminal : desktop
       for (const ui of shown) {
         const asked = await screen(ui, 41)
-        expect(sessionHead(asked)).toBe('Session  ○ idle')
+        expect(sessionHead(asked)).toBe('Session  ○ no turn')
         expect(agentLines(asked)).toEqual([
           'Agents  1',
           ...rows(
@@ -1981,7 +1981,7 @@ describe(NEEDS_YOU_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         const lines = await screen(ui, 41)
-        expect(sessionHead(lines)).toBe('Session  ◆ 2 wait · ○ idle')
+        expect(sessionHead(lines)).toBe('Session  ◆ 2 wait · ○ no turn')
         expect(agentLines(lines)).toEqual(
           bySurface(
             surface,
@@ -2035,7 +2035,7 @@ async function clearedRow($: Engine, row: string): Promise<void> {
   for (const surface of SURFACES) {
     const ui = await mountTab($, surface, 'dock', 41)
     const lines = await screen(ui, 41)
-    expect(sessionHead(lines)).toBe('Session  ○ idle')
+    expect(sessionHead(lines)).toBe('Session  ○ no turn')
     const agents = agentLines(lines)
     if (surface === 'terminal') {
       expect(agents.slice(0, 4)).toEqual([
@@ -2095,7 +2095,7 @@ describe(CLEARS_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         const lines = await screen(ui, 41)
-        expect(sessionHead(lines)).toBe('Session  ○ idle')
+        expect(sessionHead(lines)).toBe('Session  ○ no turn')
         expect(agentLines(lines).slice(0, 2)).toEqual(['Agents  all 1 done', '[ +1 ended ]'])
         await ui.unmount()
       }
@@ -2175,7 +2175,7 @@ const CHECK_SCREENS: readonly {
   {
     columns: 41,
     framed: [
-      '╭─ Session ──────────────────── ○ idle ─╮',
+      '╭─ Session ───────────────── ○ no turn ─╮',
       '│ ctx — until the first reply           │',
       '│   checks 6 · 3 allowed · 2 asked      │',
       '│   1 denied                            │',
@@ -2188,7 +2188,7 @@ const CHECK_SCREENS: readonly {
       '│   allowed  Read hooks/agen…   Explore │',
     ],
     lines: [
-      'Session  ○ idle',
+      'Session  ○ no turn',
       'ctx — until the first reply',
       '    checks 6 · 3 allowed · 2 asked',
       '    1 denied',
@@ -2204,7 +2204,7 @@ const CHECK_SCREENS: readonly {
   {
     columns: 100,
     framed: [
-      `╭─ Session ${'─'.repeat(79)} ○ idle ─╮`,
+      `╭─ Session ${'─'.repeat(76)} ○ no turn ─╮`,
       `│ ${'ctx — until the first reply'.padEnd(96)} │`,
       `│ ${'  checks 6 · 3 allowed · 2 asked · 1 denied'.padEnd(96)} │`,
       `│ ${'  file 3 · shell 3 · other 0'.padEnd(96)} │`,
@@ -2216,7 +2216,7 @@ const CHECK_SCREENS: readonly {
       `│ ${'  allowed  Read hooks/agents.ts   Explore'.padEnd(96)} │`,
     ],
     lines: [
-      'Session  ○ idle',
+      'Session  ○ no turn',
       'ctx — until the first reply',
       '    checks 6 · 3 allowed · 2 asked · 1 denied',
       '    file 3 · shell 3 · other 0',

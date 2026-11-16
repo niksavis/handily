@@ -530,12 +530,12 @@ function sectionOf(lines: readonly string[], title: string): string[] {
 }
 
 const TITLE_CRITERION =
-  'When the Session section draws in a frame (terminal, body 41 or more), its title ends with the waits, if any, and then ▶ working while a main turn runs or ○ idle after it.'
+  'When the Session section draws in a frame (terminal, body 41 or more), its title ends with the waits, if any, and then ▶ working while a main turn runs or ○ no turn after it when no Stop reported the background work.'
 
 for (const surface of SURFACES) {
   describe(TITLE_CRITERION, () => {
     test(
-      `the Session title says working while a turn runs and idle after it, on ${surface}`,
+      `the Session title says working while a turn runs and no turn after it with no Stop, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -546,13 +546,13 @@ for (const surface of SURFACES) {
         await turnEnds($)
         const after = await screenOn($, surface, 'dock', 41)
         if (surface === 'terminal') {
-          expect(before[0]).toBe('╭─ Session ──────────────────── ○ idle ─╮')
+          expect(before[0]).toBe('╭─ Session ───────────────── ○ no turn ─╮')
           expect(running[0]).toBe('╭─ Session ───────────────── ▶ working ─╮')
-          expect(after[0]).toBe('╭─ Session ──────────────────── ○ idle ─╮')
+          expect(after[0]).toBe('╭─ Session ───────────────── ○ no turn ─╮')
         } else {
-          expect(before.slice(0, 2)).toEqual(['Session  ○ idle', 'ctx — until the first reply'])
+          expect(before.slice(0, 2)).toEqual(['Session  ○ no turn', 'ctx — until the first reply'])
           expect(running.slice(0, 2)).toEqual(['Session  ▶ working', 'ctx — until the first reply'])
-          expect(after[0]).toBe('Session  ○ idle')
+          expect(after[0]).toBe('Session  ○ no turn')
         }
         expect(seen.redraws).toBeGreaterThan(0)
       },

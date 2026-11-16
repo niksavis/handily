@@ -43,6 +43,7 @@ import { NO_REQUEST } from './hooks/request'
 import { sessionBlockText } from './hooks/session'
 import { PLAIN_SIGNALS } from './hooks/toasting'
 import { EMPTY_VITALS } from './hooks/vitals'
+import { NO_TURN } from './hooks/background'
 
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
@@ -2615,7 +2616,7 @@ describe('the pane follows the work', () => {
       await agentCall($, 'a1', 'hooks/')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ─────────────────────── ○ idle ─╮',
+        '╭─ Session ──────────────────── ○ no turn ─╮',
         '│ ctx — until the first reply              │',
         '│ limits — until the first reply           │',
         '│ req —                                    │',
@@ -2763,7 +2764,7 @@ describe('the pane follows the work', () => {
       await bash($, 'npm test')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ─────────────────────── ○ idle ─╮',
+        '╭─ Session ──────────────────── ○ no turn ─╮',
         '│ ctx — until the first reply              │',
         '│ limits — until the first reply           │',
         '│ req —                                    │',
@@ -2788,7 +2789,7 @@ describe('the pane follows the work', () => {
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
       const cleared = await mountPane($)
       expect(unframed(await screen(cleared, WIDTH)).slice(0, 7)).toEqual([
-        'Session  ○ idle',
+        'Session  ○ no turn',
         'ctx — until the first reply',
         'limits — until the first reply',
         'req —',
@@ -2856,7 +2857,7 @@ describe('the pane follows the work', () => {
       await readsOf($, 20)
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ─────────────────────── ○ idle ─╮',
+        '╭─ Session ──────────────────── ○ no turn ─╮',
         '│ ctx — until the first reply              │',
         '│ limits — until the first reply           │',
         '│ req —                                    │',
@@ -3882,7 +3883,7 @@ const SESSION_SCREENS: readonly {
     placement: 'dock',
     columns: 41,
     framed: [
-      '╭─ Session ──────────────────── ○ idle ─╮',
+      '╭─ Session ───────────────── ○ no turn ─╮',
       '│ ctx — until the first reply           │',
       '│ limits — until the first reply        │',
       '│ req —                                 │',
@@ -3901,7 +3902,7 @@ const SESSION_SCREENS: readonly {
       '[ Add a task ][Add]',
     ],
     lines: [
-      'Session  ○ idle',
+      'Session  ○ no turn',
       'ctx — until the first reply',
       'req —',
       'gate 10 ▮▮▮▮▮▮▮▮▮▮',
@@ -3921,7 +3922,7 @@ const SESSION_SCREENS: readonly {
     placement: 'dock',
     columns: 30,
     lines: [
-      'Session  ○ idle',
+      'Session  ○ no turn',
       'ctx — until the first reply',
       'req —',
       'gate 10 ▮▮▮▮▮▮▮▮▮▮',
@@ -3942,7 +3943,7 @@ const SESSION_SCREENS: readonly {
     placement: 'inline',
     columns: 80,
     lines: [
-      'Session  ○ idle · ctx — until the first reply',
+      'Session  ○ no turn · ctx — until the first reply',
       '    req —',
       '    gate 10 ▮▮▮▮▮▮▮▮▮▮ 10 allowed · 0 asked · 0 denied',
       '    f: file 10  s: shell 0  o: other 0',
@@ -5286,7 +5287,8 @@ async function mainTurnEnds($: Engine, turnId: string): Promise<void> {
 
 const SESSION_HEAD_KEY = /^session(-more|-money)?(:\d+)?$/u
 const SESSION_TITLE_LEAD = /^Session( {2})?/u
-const TURN_STATE = /^(?:▶ working|○ idle)(?: · )?|(?: · )?(?:▶ working|○ idle)$/u
+const TURN_STATE =
+  /^(?:▶ working|○ idle|○ no turn)(?: · )?|(?: · )?(?:▶ working|○ idle|○ no turn)$/u
 const UNTIL_REPLY = 'ctx — until the first reply'
 const LIMITS_UNTIL_REPLY = `${UNTIL_REPLY} · limits — until the first reply`
 
@@ -7188,6 +7190,7 @@ describe(NO_PACE_CRITERION, () => {
     }
     const view = {
       vitals,
+      background: NO_TURN,
       waits: 0,
       checks: EMPTY_CHECKS,
       request: NO_REQUEST,
@@ -7999,7 +8002,7 @@ for (const surface of SURFACES) {
         await measure($, { percent: 91, usd: 12.4 })
         const { call } = await scoutWaits($, seen, dialog)
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ idle')
+        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ no turn')
         await ui.unmount()
         dialog.allow()
         await call
@@ -8498,7 +8501,7 @@ for (const surface of SURFACES) {
         expect(seen.statuses).toEqual([SCOUT_WAITS])
         expect(seen.notices).toEqual([SCOUT_NOTICE])
         const ui = await mountTab($, surface, PANE, 'dock', 41)
-        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ idle')
+        expect(unframed(await screen(ui, 41))[0]).toBe('Session  ◆ 1 waits · ○ no turn')
         await ui.unmount()
         dialog.allow()
         await call
@@ -12140,7 +12143,7 @@ describe(NERD_TAB_CRITERION, () => {
       const narrow = await mountTab($, 'terminal', PANE, 'dock', 30)
       const flat = await screen(narrow, 30)
       await narrow.unmount()
-      expect(flat[0]).toBe(`Session  ${NERD_BELL} 1 waits · ${NERD_TO_DO} idle`)
+      expect(flat[0]).toBe(`Session  ${NERD_BELL} 1 waits · ${NERD_TO_DO} no turn`)
       expect(flat).toContain(`${NERD_DOING} 2 Write the tab m… 4m [ rm ]`)
       expect(widthProblems(flat, 30)).toEqual([])
       dialog.allow()

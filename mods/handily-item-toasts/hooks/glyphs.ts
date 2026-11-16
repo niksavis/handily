@@ -13,6 +13,7 @@ export type GlyphRole =
   | 'folderClosed'
   | 'folderOpen'
   | 'branch'
+  | 'waiting'
 
 export type GlyphSet = Readonly<Record<GlyphRole, string>>
 
@@ -28,6 +29,7 @@ export const GLYPH_SETS: Readonly<Record<GlyphSetting, GlyphSet>> = {
     folderClosed: '▸',
     folderOpen: '▾',
     branch: '·',
+    waiting: '◷',
   },
   nerd: {
     doing: '\u{EB2C}',
@@ -40,6 +42,7 @@ export const GLYPH_SETS: Readonly<Record<GlyphSetting, GlyphSet>> = {
     folderClosed: '\u{F07B}',
     folderOpen: '\u{F07C}',
     branch: '\u{F418}',
+    waiting: '\u{EB7C}',
   },
 }
 
@@ -54,6 +57,7 @@ export const NERD_NAMES: Readonly<Record<GlyphRole, string>> = {
   folderClosed: 'nf-fa-folder',
   folderOpen: 'nf-fa-folder_open',
   branch: 'nf-oct-git_branch',
+  waiting: 'nf-cod-watch',
 }
 
 export const GLYPH_ROLES = Object.keys(NERD_NAMES) as readonly GlyphRole[]
