@@ -854,7 +854,7 @@ Measured facts (tmux, Claude Code 2.1.296):
   and at 120 columns.
 - Since handily-c6yihd (2026-11-17), `/board` and `/board machine` open only the pane asked for and
   close the other board pane, so the board is one pane and one close closes it. The tab rows in
-  the mocks below show the engine's row of a session that has other panes open.
+  the mocks below predate this record: the board no longer shows both of its panes as tabs.
 - With both panes open and pane-b shown, `ui.open` on pane-a without `focus` does not bring pane-a
   forward. With `focus: true` it does (pane-a drew, pane-b stopped). The pane then also holds the keyboard.
 - `/board` is free. Built-ins `/tasks`, `/agents`, `/plan` and `/status` exist.
@@ -2362,7 +2362,8 @@ The titles and the options wrap; nothing is cut. The kind column loses its secon
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-A title is cut before a button; a press on the title opens it, as in 8.12g.
+A title is cut before a button; a press on the title opens it. Since handily-c6yihd the dock
+wraps every title in full (8.12g); this inline layout is not built.
 
 #### 8.12k A press sends the answer at once, and the row shows the exact text (handily-c6yihd)
 

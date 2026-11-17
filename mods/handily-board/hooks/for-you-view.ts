@@ -407,7 +407,7 @@ function sentLine(elements: PaneElements, task: BoardTask, prompt: string): Rend
 
 function settledLines(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
   const { result } = task
-  const note = view.notes.get(task.id)
+  const note = result?.isSent === false ? view.notes.get(task.id) : undefined
   const notes = note === undefined ? [] : [noteLine(elements, task.id, note)]
   const prompt = result?.prompt
   if (prompt !== undefined && result?.isFresh === true) {

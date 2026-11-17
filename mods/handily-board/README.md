@@ -158,12 +158,12 @@ Replies, from the tests:
 
 ## Keyboard
 
-You can press every button on both tabs with the keyboard alone. A live check on Claude Code
+You can press every button on both panes with the keyboard alone. A live check on Claude Code
 2.1.300 in a terminal measured these keys:
 
 | Key                        | Effect                                                                                                                      |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `/board`, `/board machine` | A hidden tab comes forward and takes the keyboard                                                                           |
+| `/board`, `/board machine` | A hidden board pane comes forward and takes the keyboard                                                                    |
 | ctrl+x, then Tab           | From the prompt, gives the keyboard to the first tab. From a tab, to the next tab, and from the last tab back to the prompt |
 | Tab, Shift+Tab             | Moves the focus to the next or the previous button, in reading order                                                        |
 | Enter                      | Presses the button that has the focus                                                                                       |
@@ -171,10 +171,9 @@ You can press every button on both tabs with the keyboard alone. A live check on
 | `f`, `s`, `o`              | Shows or hides the last 5 checks of the file, shell or other family                                                         |
 | `1` to `5`                 | Opens or closes the agent with that digit                                                                                   |
 
-- `/board` already gives the keyboard to the tab it brings forward. Press Tab, not ctrl+x tab.
-  ctrl+x tab there moves the keyboard to the this machine tab, whose cards have no button, so
-  Tab then walks only the tab row and the close mark. A live check in tmux on Claude Code
-  2.1.312 measured this (handily-9uj3n.10).
+- `/board` already gives the keyboard to the pane it brings forward. Press Tab, not ctrl+x tab.
+  ctrl+x tab there moves the keyboard to the next pane. A live check in tmux on Claude Code
+  2.1.312 measured this (handily-9uj3n.10), when the board still opened both panes as tabs.
 
 - Claude Code keeps the focus at the same place in the order of the buttons, not on the same
   button. A live check on 2.1.300 measured this with `up` and `down`: the task moved, and the
@@ -444,9 +443,10 @@ For you  ◆ 3 open
   prompt and show `to send` with `[ undo ]`. That prompt carries one note for Claude with every
   such result, after your list changes. After the prompt the results fold under
   `[ +N answered ]`. `[ clear done ]` and `/board clear` remove them.
-- A long title, question, reason or option wraps over as many lines as it needs, at any width.
-  Nothing is cut. When an option does not fit on a button, its button shows its number, such as
-  `[ 1 ]`, and the full option wraps beside it.
+- A long title, question, reason of Claude or option wraps over as many lines as it needs, at
+  any width, and so does the text that a press sent. None of these is cut. When an option does
+  not fit on a button, its button shows its number, such as `[ 1 ]`, and the full option wraps
+  beside it.
 - An empty answer, an answer of more than 1000 characters and an answer with a line break or a
   bidi control character are refused on the row, by name. Nothing is sent.
 - Claude withdraws a task with `task_update` and the status `removed`. The row stays, dim, as

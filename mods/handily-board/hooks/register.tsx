@@ -412,7 +412,7 @@ const TOOLS: readonly ToolSpec[] = [
     description: [
       'Assign one task to the person: something to do (kind do), a question to answer (kind answer) or a choice between 2 to 4 options (kind decide). The task shows under For you on the board.',
       'When a release, a merge, a cleanup or a delete waits for the person, assign a decide task with the options go and not now, and act only after the answer go, while a permission prompt stays as it is.',
-      'The call does not block. The result of the person comes with a later prompt, in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
+      'The call does not block. The result of the person comes with a later prompt: an answer or a choice that the person presses on the board comes as their own prompt, which names the task, and any other result in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
       'Withdraw a task for the person with task_update and the status removed. Only the main loop can assign a task.',
     ].join(' '),
     inputSchema: {

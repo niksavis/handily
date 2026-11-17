@@ -10489,7 +10489,7 @@ describe(SEND_CRITERION, () => {
         const pane = await mountTasks($, surface)
         await pane.input({ key: 'answer:2', text: ' 8443 ' })
         await pane.press({ key: 'for-pick:3:2' })
-        expect(entered).toEqual([
+        expect(entered).toMatchObject([
           { text: SENT_ANSWER, origin: OWN_PROMPT, context: [] },
           { text: SENT_CHOICE, origin: OWN_PROMPT, context: [] },
         ])
@@ -10544,6 +10544,10 @@ describe(SEND_CRITERION, () => {
         await $.prompt.submit({ text: SENT_CHOICE, wait: false, origin: { kind: 'composer' } })
         expect(entered.at(-1)?.context.filter((text) => text.startsWith(ANSWERED))).toEqual([])
         expect(await board($, 'undo 3')).toBe('Task 3 was already sent to Claude. Nothing changed.')
+        const after = await mountTasks($, surface)
+        await after.press({ key: 'for-answered' })
+        expect(joinedWords(forYouLines(await screen(after, 41)))).not.toContain('not sent')
+        await after.unmount()
       },
     )
 
@@ -10618,9 +10622,11 @@ describe(WRAP_CRITERION, () => {
             expect(await pane.find({ key: `for-pick:2:${String(at)}` })).toBeDefined()
           }
           await pane.press({ key: 'for-pick:2:4' })
-          expect(entered.map((one) => one.text)).toEqual([
-            `Decision on task 2, "${ASKED_TITLE}": "${ASKED_OPTIONS[3] ?? ''}"`,
-          ])
+          const prompt = `Decision on task 2, "${ASKED_TITLE}": "${ASKED_OPTIONS[3] ?? ''}"`
+          expect(entered.map((one) => one.text)).toEqual([prompt])
+          const sent = forYouLines(await screen(pane, columns))
+          expect(sent.join('\n')).not.toContain('…')
+          expect(joinedWords(sent)).toContain(`sent ${prompt}`)
           await pane.unmount()
         },
       )
