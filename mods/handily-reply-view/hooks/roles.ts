@@ -14,6 +14,13 @@ export type ReplyRole =
   | 'alertWarning'
   | 'alertCaution'
   | 'replyFrame'
+  | 'tableKind'
+  | 'codeKind'
+  | 'diagramKind'
+  | 'chartKind'
+  | 'copied'
+  | 'notCopied'
+  | 'notDrawn'
 
 export type RoleLook = { key?: ThemeKey; mocha?: string }
 
@@ -30,6 +37,13 @@ export const ROLE_LOOKS: Readonly<Record<ReplyRole, RoleLook>> = {
   alertWarning: { key: 'warning' },
   alertCaution: { key: 'error' },
   replyFrame: { key: 'claude', mocha: '#fab387' },
+  tableKind: { key: 'claude', mocha: '#f9e2af' },
+  codeKind: { key: 'merged', mocha: '#cba6f7' },
+  diagramKind: { key: 'suggestion', mocha: '#89b4fa' },
+  chartKind: { key: 'planMode', mocha: '#a6e3a1' },
+  copied: { key: 'success' },
+  notCopied: { key: 'error' },
+  notDrawn: { key: 'warning' },
 }
 
 const THEME_CYCLE_ROLES: readonly PaletteRole[] = [

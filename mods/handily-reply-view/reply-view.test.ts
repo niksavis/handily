@@ -38,6 +38,14 @@ import {
   sequenceOf,
 } from './fixtures/generated-diagrams'
 import { expectEngineRow, expectNoEngineRow } from './fixtures/engine-row'
+import {
+  buttonsLine,
+  DIAGRAM_BUTTONS,
+  headSketch,
+  TABLE_BUTTONS,
+  tableHeadSketch,
+  tableHeadUnder,
+} from './fixtures/buttons'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -363,6 +371,8 @@ function edges(left: string, right: string, columns = COLUMNS): string {
 }
 
 const DIVIDER = `~${'─'.repeat(COLUMNS - 2)}~`
+const FOLD_BUTTONS = buttonsLine('more', 'copy reply')
+const OPEN_BUTTONS = buttonsLine('less', 'copy reply')
 
 const LONG_REPLY = Array.from({ length: 54 }, (_, index) => `Line ${String(index + 1)}`).join('\n')
 
@@ -522,12 +532,12 @@ describe('long reply', () => {
           expect(folded).toEqual([
             '● Line =1=',
             ...highlightedLines(2, 30),
-            edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'),
+            edges('  ~▸ 24 more lines~', FOLD_BUTTONS),
           ])
         } else {
           expect(folded).toEqual([
             ...shownLines(1, 30).map((line) => line.trim()),
-            edges('~… 24 more lines~', '[ more ] [ copy reply ]'),
+            edges('~▸ 24 more lines~', FOLD_BUTTONS),
           ])
         }
         await ui.unmount()
@@ -544,7 +554,7 @@ describe('long reply', () => {
         `● ${DIVIDER}`,
         ...highlightedLines(1, 54),
         `  ${DIVIDER}`,
-        edges('', '[ less ] [ copy reply ]'),
+        edges('  ~▾~', OPEN_BUTTONS),
       ])
       await ui.press({ key: 'fold' })
       const folded = await sketchOf(ui)
@@ -552,7 +562,7 @@ describe('long reply', () => {
       expect(folded.some((line) => line.includes(DIVIDER))).toBe(false)
       expect(await ui.find({ key: 'opened-top' })).toBeUndefined()
       expect(await ui.find({ key: 'opened-bottom' })).toBeUndefined()
-      expect(folded.at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'))
+      expect(folded.at(-1)).toBe(edges('  ~▸ 24 more lines~', FOLD_BUTTONS))
       await ui.unmount()
     },
   )
@@ -576,11 +586,11 @@ describe('long reply', () => {
       await ui.press({ key: 'fold' })
       const drawn = await sketchOf(ui)
       expect(drawn.slice(-5)).toEqual([
-        `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+        `  ${headSketch('sh', 'code', COLUMNS - 2 - 8 - 2)}  [ copy ]`,
         '  ^*npm*^ ci',
         '  ^*npm*^ test',
         `  ${DIVIDER}`,
-        edges('', '[ less ] [ copy reply ]'),
+        edges('  ~▾~', OPEN_BUTTONS),
       ])
       await ui.press({ key: 'block-1-copy' })
       await ui.press({ key: 'copy-reply' })
@@ -595,7 +605,7 @@ describe('long reply', () => {
 
   viewTest('the hidden count cuts at the end on a narrow screen', async (_world, $) => {
     const ui = await mountReply($, reply(LONG_REPLY), 'terminal', 40)
-    expect((await ui.find({ type: 'Text', text: '… 24 more lines' }))?.props.wrap).toBe(
+    expect((await ui.find({ type: 'Text', text: '▸ 24 more lines' }))?.props.wrap).toBe(
       'truncate-end',
     )
     await ui.unmount()
@@ -680,7 +690,7 @@ describe('long reply', () => {
       expect(cut).toMatch(/^ {2}word0 word1( word\d+)* word\d+…$/)
       expect(cut.length - 2).toBeLessThanOrEqual(2 * (COLUMNS - 2))
       expect(long.startsWith(cut.slice(2, -1))).toBe(true)
-      expect(folded[9]).toBe(edges('  ~… 11 more lines~', '[ more ] [ copy reply ]'))
+      expect(folded[9]).toBe(edges('  ~▸ 11 more lines~', FOLD_BUTTONS))
       await ui.unmount()
     },
   )
@@ -694,8 +704,8 @@ describe('long reply', () => {
       await ui.redraw(reply(LONG_REPLY))
       const later = await sketchOf(ui)
       expect(later.slice(0, 30)).toEqual(early.slice(0, 30))
-      expect(early.at(-1)).toBe(edges('  ~… 10 more lines~', '[ more ] [ copy reply ]'))
-      expect(later.at(-1)).toBe(edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'))
+      expect(early.at(-1)).toBe(edges('  ~▸ 10 more lines~', FOLD_BUTTONS))
+      expect(later.at(-1)).toBe(edges('  ~▸ 24 more lines~', FOLD_BUTTONS))
       await ui.unmount()
     },
   )
@@ -728,7 +738,8 @@ describe('tables', () => {
       expect(await sketchOf(ui)).toEqual([
         '● The state of the mods:',
         '',
-        `  ${headed('Mod         │ State    │ Next')}  [ copy ] [ copy as text ]`,
+        `  ${tableHeadSketch(2, 41)}`,
+        `  ${headed('Mod         │ State    │ Next')}`,
         `  ${subtle('════════════╪══════════╪═════════════════')}`,
         `  ${ruled('task-pane   │ released │ follows the work')}`,
         '  *simple-view* %│% &released& %│% click to expand',
@@ -747,29 +758,13 @@ describe('tables', () => {
   })
 
   rulesTest(
-    'a table that does not fit 39 columns draws one block per row with the buttons on the first title',
+    'a table that does not fit 39 columns draws one block per row under its head and buttons',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 39)
       expect(await sketchOf(ui, 39)).toEqual([
         '● The state of the mods:',
         '',
-        '  *task-pane*  [ copy ] [ copy as text ]',
-        '    @State:@ released',
-        '    @Next:@ follows the work',
-        '',
-        '  *simple-view*',
-        '    @State:@ &released&',
-        '    @Next:@ click to expand',
-      ])
-      await ui.unmount()
-    },
-  )
-
-  rulesTest(
-    'a block title too long to sit beside the buttons keeps its place and the buttons go under the blocks',
-    async (_world, $) => {
-      const ui = await mountReply($, reply(TABLE), 'terminal', 36)
-      expect((await sketchOf(ui, 36)).slice(2)).toEqual([
+        ...tableHeadUnder(2, 37).map((line) => `  ${line}`),
         '  *task-pane*',
         '    @State:@ released',
         '    @Next:@ follows the work',
@@ -777,17 +772,35 @@ describe('tables', () => {
         '  *simple-view*',
         '    @State:@ &released&',
         '    @Next:@ click to expand',
-        `  ${' '.repeat(34 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
   )
 
   rulesTest(
-    'a wrapped table with no room on its header line or its last row puts the buttons on a line under it',
+    'at 36 columns the buttons of the row blocks stand under the table head, above the blocks',
+    async (_world, $) => {
+      const ui = await mountReply($, reply(TABLE), 'terminal', 36)
+      expect((await sketchOf(ui, 36)).slice(2)).toEqual([
+        ...tableHeadUnder(2, 34).map((line) => `  ${line}`),
+        '  *task-pane*',
+        '    @State:@ released',
+        '    @Next:@ follows the work',
+        '',
+        '  *simple-view*',
+        '    @State:@ &released&',
+        '    @Next:@ click to expand',
+      ])
+      await ui.unmount()
+    },
+  )
+
+  rulesTest(
+    'a wrapped table at 40 columns with no room beside its head puts the buttons under the head',
     async (_world, $) => {
       const ui = await mountReply($, reply(TABLE), 'terminal', 40)
       expect((await sketchOf(ui, 40)).slice(2)).toEqual([
+        ...tableHeadUnder(2, 38).map((line) => `  ${line}`),
         `  ${headed('Mod         │ State    │ Next')}`,
         `  ${subtle('════════════╪══════════╪══════════════')}`,
         `  ${ruled('task-pane   │ released │ follows the')}`,
@@ -795,7 +808,6 @@ describe('tables', () => {
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
         '  *simple-view* %│% &released& %│% click to',
         `  ${ruled('            │          │ expand')}`,
-        `  ${' '.repeat(38 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -807,7 +819,8 @@ describe('tables', () => {
       const ui = await mountReply($, reply(LONG_TABLE))
       const drawn = await sketchOf(ui)
       expect(drawn).toEqual([
-        `● ${headed('Mod        │ Change                          │ Risk                    │ Owner')}`,
+        `● ${tableHeadSketch(2, 78)}`,
+        `  ${headed('Mod        │ Change                          │ Risk                    │ Owner')}`,
         `  ${subtle('═══════════╪═════════════════════════════════╪═════════════════════════╪══════')}`,
         `  ${ruled('reply-view │ Tables wrap their long cells    │ A wide table can still  │ Ana')}`,
         `  ${ruled('           │ inside their columns and keep   │ take many lines on a    │')}`,
@@ -815,7 +828,6 @@ describe('tables', () => {
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄')}`,
         `  ${ruled('task-pane  │ Each task tool call draws as    │ Low                     │ Bo')}`,
         `  ${ruled('           │ one row                         │                         │')}`,
-        `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
       ])
       expect(RULE_CHARACTERS.filter((rule) => drawn.join('').includes(rule))).toEqual([
         ...RULE_CHARACTERS,
@@ -844,7 +856,7 @@ describe('tables', () => {
   )
 
   rulesTest(
-    'a wrapped table whose header line is full puts the buttons after the short last row',
+    'a wrapped table whose header line is full has its buttons on its head',
     async (_world, $) => {
       const table = [
         '| Name | What the view does with a column of twelve cells or less while a long column wraps |',
@@ -854,30 +866,31 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        `● ${headed('Name         │ What the view does with a column of twelve cells or less while')}`,
+        `● ${tableHeadSketch(2, 78)}`,
+        `  ${headed('Name         │ What the view does with a column of twelve cells or less while')}`,
         `  ${headed('             │ a long column wraps')}`,
         `  ${subtle('═════════════╪════════════════════════════════════════════════════════════════')}`,
         `  ${ruled('twelve-cells │ The view keeps a column of twelve cells or less at its natural')}`,
         `  ${ruled('             │ width')}`,
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
-        edges(`  ${ruled('short        │ x')}`, '[ copy ] [ copy as text ]'),
+        `  ${ruled('short        │ x')}`,
       ])
       await ui.unmount()
     },
   )
 
   rulesTest(
-    'a wrapped table at 120 columns whose last row is full puts the buttons on a line under it',
+    'a wrapped table at 120 columns whose last row is full has its buttons on its head',
     async (_world, $) => {
       const ui = await mountReply($, reply(LONG_TABLE), 'terminal', 120)
       expect(await sketchOf(ui, 120)).toEqual([
-        `● ${headed('Mod        │ Change                                                │ Risk                                      │ Owner')}`,
+        `● ${tableHeadSketch(2, 118)}`,
+        `  ${headed('Mod        │ Change                                                │ Risk                                      │ Owner')}`,
         `  ${subtle('═══════════╪═══════════════════════════════════════════════════════╪═══════════════════════════════════════════╪══════')}`,
         `  ${ruled('reply-view │ Tables wrap their long cells inside their columns and │ A wide table can still take many lines on │ Ana')}`,
         `  ${ruled('           │ keep the rows aligned                                 │ a narrow screen                           │')}`,
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄')}`,
         `  ${ruled('task-pane  │ Each task tool call draws as one row                  │ Low                                       │ Bo')}`,
-        `  ${' '.repeat(118 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -888,7 +901,8 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(CHANGES_TABLE), 'terminal', 120)
       expect(await sketchOf(ui, 120)).toEqual([
-        `● ${headed('Change        │ Why                                                    │ Effect')}  [ copy ] [ copy as text ]`,
+        `● ${tableHeadSketch(2, 118)}`,
+        `  ${headed('Change        │ Why                                                    │ Effect')}`,
         `  ${subtle('══════════════╪════════════════════════════════════════════════════════╪══════════════════════════════════════════════')}`,
         `  ${ruled('Buttons on    │ The buttons took a line of their own under every       │ A table that fits draws its buttons after the')}`,
         `  ${ruled('the header    │ table, so a short table took one line more than it     │ headings, and the reply is one line shorter')}`,
@@ -912,7 +926,8 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        edges(`● ${headed('Name         │ Note')}`, '[ copy ] [ copy as text ]'),
+        `● ${tableHeadSketch(2, 78)}`,
+        `  ${headed('Name         │ Note')}`,
         `  ${subtle('═════════════╪════════════════════════════════════════════════════════════════')}`,
         `  ${ruled('twelve-cells │ The view keeps a column of twelve cells or less at its natural')}`,
         `  ${ruled('             │ width while the long column wraps inside its own width')}`,
@@ -934,7 +949,8 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        `● ${headed('Step         │ Lint    │ Test   │ Ship')}  [ copy ] [ copy as text ]`,
+        `● ${tableHeadSketch(2, 41)}`,
+        `  ${headed('Step         │ Lint    │ Test   │ Ship')}`,
         `  ${subtle('═════════════╪═════════╪════════╪════════')}`,
         `  ${ruled('build-checks │ passed  │ passed │ passed')}`,
         `  ${ruled('release-note │ skipped │ failed │ skipped')}`,
@@ -944,20 +960,21 @@ describe('tables', () => {
   )
 
   rulesTest(
-    'a table of a header, its rule and 28 rows takes 30 lines and does not fold',
+    'a table of a head, a header, its rule and 27 rows takes 30 lines and does not fold',
     async (_world, $) => {
-      const rows = Array.from({ length: 28 }, (_, index) => `| row ${String(index + 1)} | ok |`)
+      const rows = Array.from({ length: 27 }, (_, index) => `| row ${String(index + 1)} | ok |`)
       const ui = await mountReply(
         $,
         reply(['| Name | State |', '| --- | --- |', ...rows].join('\n')),
       )
       const drawn = await sketchOf(ui)
       expect(drawn).toHaveLength(30)
-      expect(drawn.slice(0, 2)).toEqual([
-        `● ${headed('Name   │ State')}  [ copy ] [ copy as text ]`,
+      expect(drawn.slice(0, 3)).toEqual([
+        `● ${tableHeadSketch(27, 14)}`,
+        `  ${headed('Name   │ State')}`,
         `  ${subtle('═══════╪══════')}`,
       ])
-      expect(drawn.at(-1)).toBe(`  ${ruled('row =28= │ ok')}`)
+      expect(drawn.at(-1)).toBe(`  ${ruled('row =27= │ ok')}`)
       await ui.unmount()
     },
   )
@@ -976,19 +993,21 @@ describe('tables', () => {
         40,
       )
       const drawn = await sketchOf(ui, 40)
-      expect(drawn.slice(0, 6)).toEqual([
-        `● ${headed('Mod         │ State    │ Next')}`,
+      expect(drawn.slice(0, 8)).toEqual([
+        `● ${headSketch('table', 'table', 38, '11 rows')}`,
+        `  ${' '.repeat(38 - displayWidth(TABLE_BUTTONS))}${TABLE_BUTTONS}`,
+        `  ${headed('Mod         │ State    │ Next')}`,
         `  ${subtle('════════════╪══════════╪══════════════')}`,
         `  ${ruled('row =1= name  │ released │ follows the')}`,
         `  ${ruled('            │          │ work')}`,
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
         `  ${ruled('row =2= name  │ released │ follows the')}`,
       ])
-      expect(drawn.slice(25)).toEqual([
+      expect(drawn.slice(27)).toEqual([
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
         `  ${ruled('row =9= name  │ released │ follows the')}`,
         `  ${ruled('            │          │ work')}`,
-        '  ~… 7 more lines~  [ more ] [ copy reply ]',
+        `  ~▸ 6 more lines~  ${FOLD_BUTTONS}`,
       ])
       await ui.unmount()
     },
@@ -1023,8 +1042,9 @@ describe('tables', () => {
   rulesTest('keeps a column right-aligned when the table says so', async (_world, $) => {
     const table = ['| Mod | Tests |', '| :-- | --: |', '| a | 7 |', '| b | 140 |'].join('\n')
     const ui = await mountReply($, reply(table))
-    expect((await sketchOf(ui)).slice(0, 4)).toEqual([
-      `● ${headed('Mod │ Tests')}  [ copy ] [ copy as text ]`,
+    expect((await sketchOf(ui)).slice(0, 5)).toEqual([
+      `● ${tableHeadSketch(2, 11)}`,
+      `  ${headed('Mod │ Tests')}`,
       `  ${subtle('════╪══════')}`,
       '  a   %│%     =7=',
       '  b   %│%   =140=',
@@ -1045,7 +1065,8 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(table))
       expect(await sketchOf(ui)).toEqual([
-        `● ${headed('Path        │ Glob')}  [ copy ] [ copy as text ]`,
+        `● ${tableHeadSketch(4, 23)}`,
+        `  ${headed('Path        │ Glob')}`,
         `  ${subtle('════════════╪══════════')}`,
         '  &__init__.py& %│% &**/*.ts&',
         '  &~~x~~&       %│% &[x](y)&',
@@ -1090,7 +1111,7 @@ describe('tables', () => {
       '      --- | ---',
       '      c | d',
       '',
-      `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+      `  ${headSketch('sh', 'code', COLUMNS - 2 - 8 - 2)}  [ copy ]`,
       '  ^*ls*^',
     ])
     await ui.unmount()
@@ -1109,11 +1130,12 @@ describe('tables', () => {
       ].join('\n')
       const ui = await mountReply($, reply(text))
       expect(await sketchOf(ui)).toEqual([
-        `● ${headed('Name    │ Value')}  [ copy ] [ copy as text ]`,
+        `● ${tableHeadSketch(1, 15)}`,
+        `  ${headed('Name    │ Value')}`,
         `  ${subtle('════════╪══════')}`,
         `  ${ruled('example │ ok')}`,
         '',
-        `  ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+        `  ${headSketch('sh', 'code', COLUMNS - 2 - 8 - 2)}  [ copy ]`,
         '  ^*echo*^ a °|° ^*cat*^',
       ])
       await ui.press({ key: 'block-1-copy' })
@@ -1128,7 +1150,9 @@ describe('tables', () => {
       const text = '| Very long heading | Another very long heading |\n| --- | --- |'
       const ui = await mountReply($, reply(text), 'terminal', 30)
       expect(await sketchOf(ui, 30)).toEqual([
-        '● *@Very long heading@*  [ copy ]',
+        `● ${headSketch('table', 'table', 28, '0 rows')}`,
+        `  ${' '.repeat(20)}[ copy ]`,
+        '  *@Very long heading@*',
         '  *@Another very long heading@*',
       ])
       await ui.unmount()
@@ -1143,6 +1167,7 @@ describe('tables', () => {
       expect(await sketchOf(ui)).toEqual([
         '● The three mods passed every gate but one:',
         '',
+        `  ${tableHeadSketch(3, 78)}`,
         `  ${headed('Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step')}`,
         `  ${subtle('════════════════════╪═════════╪═══════╪═══════╪══════╪═══════╪════════════════')}`,
         '  handily-reply-view  %│%   =0.6.0= %│%   =212= %│%  =2638= %│% pass %│% Ana   %│% diagrams in the',
@@ -1153,7 +1178,6 @@ describe('tables', () => {
         dotted,
         '  handily-board       %│%   =1.2.0= %│%    =98= %│%  =3310= %│% fail %│% Cy    %│% agents of other',
         `  ${ruled('                    │         │       │       │      │       │ sessions')}`,
-        `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -1169,6 +1193,7 @@ describe('tables', () => {
       expect(await sketchOf(ui)).toEqual([
         'The three mods passed every gate but one:',
         '',
+        tableHeadSketch(3, 80),
         headed('Mod                 │ Version │ Tests │ Lines │ Gate │ Owner │ Next step'),
         subtle('════════════════════╪═════════╪═══════╪═══════╪══════╪═══════╪══════════════════'),
         'handily-reply-view  %│%   =0.6.0= %│%   =212= %│%  =2638= %│% pass %│% Ana   %│% diagrams in the',
@@ -1179,7 +1204,6 @@ describe('tables', () => {
         dotted,
         'handily-board       %│%   =1.2.0= %│%    =98= %│%  =3310= %│% fail %│% Cy    %│% agents of other',
         ruled('                    │         │       │       │      │       │ sessions'),
-        `${' '.repeat(80 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -1190,7 +1214,8 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(PATHS_TABLE))
       expect(await sketchOf(ui)).toEqual([
-        `● ${headed('Path                               │ Note')}  [ copy ] [ copy as text ]`,
+        `● ${tableHeadSketch(1, 78)}`,
+        `  ${headed('Path                               │ Note')}`,
         `  ${subtle('═══════════════════════════════════╪══════════════════════════════════════════')}`,
         '  §mods/handily-reply-view/hooks/tabl§ %│% the note names',
         '  §e-of-the-reply-view.ts§             %│% handily-simple-view-and-handily-board as',
@@ -1205,14 +1230,14 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(FILES_TABLE))
       expect(await sketchOf(ui)).toEqual([
-        `● ${headed('File                                                     │ Change     │ Note')}`,
+        `● ${tableHeadSketch(1, 78)}`,
+        `  ${headed('File                                                     │ Change     │ Note')}`,
         `  ${subtle('═════════════════════════════════════════════════════════╪════════════╪═══════')}`,
         '  §mods/handily-reply-view/hooks/table-of-the-reply-view.ts§ %│% keeps      %│% the',
         `  ${ruled('                                                         │ every word │ note')}`,
         `  ${ruled('                                                         │ whole when │ is')}`,
         `  ${ruled('                                                         │ room       │ plain')}`,
         `  ${ruled('                                                         │ allows     │ words')}`,
-        `  ${' '.repeat(78 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -1223,11 +1248,11 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 41)
       expect(await sketchOf(ui, 41)).toEqual([
-        `● ${headed('Name                           │ Note')}`,
+        ...tableHeadUnder(1, 39).map((line, index) => `${index === 0 ? '●' : ' '} ${line}`),
+        `  ${headed('Name                           │ Note')}`,
         `  ${subtle('═══════════════════════════════╪═══════')}`,
         '  handily-reply-view/hooks/table %│% abc',
         ...Array.from({ length: 9 }, () => `  ${ruled('                               │ abc')}`),
-        `${' '.repeat(41 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -1238,11 +1263,11 @@ describe('tables', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(SIX_CELLS_TABLE), 'terminal', 40)
       expect(await sketchOf(ui, 40)).toEqual([
-        `● ${headed('Name            │ Note')}`,
+        ...tableHeadUnder(1, 38).map((line, index) => `${index === 0 ? '●' : ' '} ${line}`),
+        `  ${headed('Name            │ Note')}`,
         `  ${subtle('════════════════╪═════════════════════')}`,
         '  handily-reply-v %│% abc abc abc abc abc',
         `  ${ruled('iew/hooks/table │ abc abc abc abc abc')}`,
-        `${' '.repeat(40 - 25)}[ copy ] [ copy as text ]`,
       ])
       await ui.unmount()
     },
@@ -1258,7 +1283,8 @@ describe('tables', () => {
         const ui = await mountReply($, reply(WHO_TABLE), surface)
         const drawn = await sketchOf(ui)
         expect(drawn.slice(2)).toEqual([
-          `${lead}${headed('Owner  │ Status   │ Note')}  [ copy ] [ copy as text ]`,
+          `${lead}${tableHeadSketch(3, 34)}`,
+          `${lead}${headed('Owner  │ Status   │ Note')}`,
           `${lead}${subtle('═══════╪══════════╪═══════════════')}`,
           `${lead}${ruled(`${TECHIE} Ana │ ✅ done  │ 表格对齐`)}`,
           `${lead}${ruled(`${AUSTRIA} Bo  │ ${WARNING} waits │ 日本語のテスト`)}`,
@@ -1277,7 +1303,7 @@ describe('tables', () => {
         const ui = await mountReply($, reply(WIDE_WHO_TABLE), surface, 60)
         const drawn = await sketchOf(ui, 60)
         const dotted = `${lead}${subtle('┄'.repeat(20) + '┼' + '┄'.repeat(10) + '┼' + '┄'.repeat(60 - indent - 32))}`
-        expect(drawn.slice(2, 12)).toEqual([
+        expect(drawn.slice(3, 13)).toEqual([
           `${lead}${headed('Owner               │ Status   │ Note')}`,
           `${lead}${subtle('═'.repeat(20) + '╪' + '═'.repeat(10) + '╪' + '═'.repeat(60 - indent - 32))}`,
           `${lead}${ruled(`${TECHIE} Ana              │ ✅ done  │ 表格对齐`)}`,
@@ -1313,8 +1339,9 @@ describe('tables', () => {
       `| family | ${FAMILY} | ok |`,
     ].join('\n')
     const ui = await mountReply($, reply(text))
-    expect((await sketchOf(ui)).slice(0, 8)).toEqual([
-      `● ${headed('Check  │ Result │ Note')}  [ copy ] [ copy as text ]`,
+    expect((await sketchOf(ui)).slice(0, 9)).toEqual([
+      `● ${tableHeadSketch(6, 22)}`,
+      `  ${headed('Check  │ Result │ Note')}`,
       `  ${subtle('═══════╪════════╪═════')}`,
       `  ${ruled('build  │ ✅     │ ok')}`,
       `  ${ruled('lint   │ ❌     │ ok')}`,
@@ -1334,10 +1361,11 @@ describe('tables', () => {
       )
       const ui = await mountReply($, reply(text), 'terminal', 26)
       expect(await sketchOf(ui, 26)).toEqual([
-        '● *build*',
-        `    @State:@ ${'✅'.repeat(10)}`,
+        `● ${headSketch('table', 'table', 24, '1 row')}`,
         `  ${' '.repeat(16)}[ copy ]`,
         `  ${' '.repeat(8)}[ copy as text ]`,
+        '  *build*',
+        `    @State:@ ${'✅'.repeat(10)}`,
       ])
       await ui.unmount()
     },
@@ -1353,7 +1381,7 @@ describe('tables', () => {
         '| [docs](https://x.example/a_b) | 5 \\* 3 &lt; 4 |',
       ].join('\n')
       const ui = await mountReply($, reply(table))
-      expect((await sketchOf(ui)).slice(1)).toEqual([
+      expect((await sketchOf(ui)).slice(2)).toEqual([
         `  ${subtle('═════╪══════════════════════════')}`,
         '  #1   %│% draft & ^_https://x.example_^',
         '  ^_docs_^ %│% =5= * =3= < =4=',
@@ -1377,7 +1405,7 @@ describe('tables', () => {
     async (world, $) => {
       const text = ['| Name | Value |', '| --- | --- |', '| zero\u200bwidth | ok |'].join('\n')
       const ui = await mountReply($, reply(text))
-      expect((await sketchOf(ui))[2]).toBe(`  ${ruled('zero\\u200bwidth │ ok')}`)
+      expect((await sketchOf(ui))[3]).toBe(`  ${ruled('zero\\u200bwidth │ ok')}`)
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual(['Name: zero\u200bwidth\nValue: ok'])
       await ui.unmount()
@@ -1386,18 +1414,19 @@ describe('tables', () => {
 
   for (const surface of SURFACES) {
     rulesTest(
-      `a small table in a reply of 18 columns puts each button on its own line under it on ${surface}`,
+      `a small table in a reply of 18 columns puts each button on its own line under its head on ${surface}`,
       async (_world, $) => {
         const columns = screenColumns(surface, 18)
         const ui = await mountReply($, reply(SMALL_TABLE), surface, columns)
         const drawn = await sketchOf(ui, columns)
         expect(drawn).toEqual(
           onSurface(surface, [
+            '~── ~@*table*@~ · 1 row …~',
+            `${' '.repeat(10)}[ copy ]`,
+            '  [ copy as text ]',
             headed('A \u2502 B'),
             subtle('\u2550\u2550\u256a\u2550\u2550'),
             '=1= %\u2502% =2=',
-            '[ copy ]',
-            '[ copy as text ]',
           ]),
         )
         expect(drawn.filter((line) => plainWidth(line) > columns)).toEqual([])
@@ -1406,13 +1435,18 @@ describe('tables', () => {
     )
 
     rulesTest(
-      `the blocks of a table in a reply of 18 columns put each button on its own line under them on ${surface}`,
+      `the blocks of a table in a reply of 18 columns put each button on its own line under the table head on ${surface}`,
       async (_world, $) => {
         const columns = screenColumns(surface, 18)
         const ui = await mountReply($, reply(TABLE), surface, columns)
         const drawn = await sketchOf(ui, columns)
-        expect(drawn.slice(-2)).toEqual(
-          onSurface(surface, ['', `${' '.repeat(10)}[ copy ]`, '  [ copy as text ]']).slice(1),
+        expect(drawn.slice(2, 5)).toEqual(
+          onSurface(surface, [
+            '',
+            '~── ~@*table*@~ · 2 rows…~',
+            `${' '.repeat(10)}[ copy ]`,
+            '  [ copy as text ]',
+          ]).slice(1),
         )
         expect(buttonLines(drawn).filter((line) => plainWidth(line) > columns)).toEqual([])
         await ui.unmount()
@@ -1424,14 +1458,14 @@ describe('tables', () => {
       async (world, $) => {
         const columns = screenColumns(surface, 12)
         const cases = [
-          [SMALL_TABLE, '[ copy ]', 'block-0-text'],
-          [TABLE, '    [ copy ]', 'block-1-text'],
+          [SMALL_TABLE, 0, 'block-0-text'],
+          [TABLE, 2, 'block-1-text'],
         ] as const
-        for (const [table, copyLine, textKey] of cases) {
+        for (const [table, headAt, textKey] of cases) {
           const ui = await mountReply($, reply(table), surface, columns)
           const drawn = await sketchOf(ui, columns)
-          expect(drawn.slice(-2)).toEqual(
-            onSurface(surface, ['', copyLine, '[ copy as\u2026 ]']).slice(1),
+          expect(drawn.slice(headAt + 1, headAt + 3)).toEqual(
+            onSurface(surface, ['', '    [ copy ]', '[ copy as\u2026 ]']).slice(1),
           )
           expect(buttonLines(drawn).filter((line) => plainWidth(line) > columns)).toEqual([])
           await ui.press({ key: textKey })
@@ -1459,11 +1493,10 @@ describe('fenced blocks', () => {
     'a fenced block draws a title line from its tag and a copy button that copies the content only',
     async (world, $) => {
       const ui = await mountReply($, reply(FENCE))
-      const rule = `── plan ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── plan '.length)}`
       expect(await sketchOf(ui)).toEqual([
         '● Here is the plan:',
         '',
-        `  ~${rule}~  [ copy ]`,
+        `  ${headSketch('plan', 'code', COLUMNS - 2 - 8 - 2)}  [ copy ]`,
         '  1. Write the mocks',
         '  2. Ask the person',
       ])
@@ -1486,7 +1519,7 @@ describe('fenced blocks', () => {
   viewTest('a block that is still open draws up to the end of the text', async (world, $) => {
     const ui = await mountReply($, reply('```sh\nnpm ci\nnpm test'))
     expect(await sketchOf(ui)).toEqual([
-      `● ~── sh ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── sh '.length)}~  [ copy ]`,
+      `● ${headSketch('sh', 'code', COLUMNS - 2 - 8 - 2)}  [ copy ]`,
       '  ^*npm*^ ci',
       '  ^*npm*^ test',
     ])
@@ -1510,7 +1543,7 @@ describe('fenced blocks', () => {
       expect(await sketchOf(ui)).toEqual([
         '● °1.°Add:',
         '',
-        `  ~── python ${'─'.repeat(COLUMNS - 2 - 8 - 2 - '── python '.length)}~  [ copy ]`,
+        `  ${headSketch('python', 'code', COLUMNS - 2 - 8 - 2)}  [ copy ]`,
         '  def f():',
         '      return 1',
         '',
@@ -1730,9 +1763,7 @@ describe('/replies', () => {
       expect(await commandText($)).toBe(
         'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, durations, versions and paths in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
       )
-      expect((await sketchOf(ui)).at(-1)).toBe(
-        edges('  ~… 24 more lines~', '[ more ] [ copy reply ]'),
-      )
+      expect((await sketchOf(ui)).at(-1)).toBe(edges('  ~▸ 24 more lines~', FOLD_BUTTONS))
       await ui.unmount()
       await table.unmount()
     },
@@ -3785,7 +3816,6 @@ describe('sequence drawings', () => {
 })
 
 const DIAGRAM_COLUMNS = [78, 40] as const
-const DIAGRAM_BUTTONS = '[ copy ] [ copy drawing ]'
 const FENCE_BUTTON_ROOM = '  [ copy ]'.length
 
 function mermaidReply(lead: string, ...sources: string[]): string {
@@ -3809,21 +3839,33 @@ function titledRule(title: string, columns: number): string {
   return head + '─'.repeat(Math.max(columns - cellsIn(head), 2))
 }
 
+function uncolouredHead(name: string, columns: number): string {
+  const rule = titledRule(`mermaid · ${name}`, columns).slice(`── mermaid · ${name}`.length)
+  return `~── ~*mermaid*~ · ${name}${rule}~`
+}
+
 function diagramTitleLines(width: number, name = 'flowchart'): string[] {
   const title = `mermaid · ${name}`
   const room = width - DIAGRAM_BUTTONS.length - 2
   if (cellsIn(titledRule(title, 0)) <= room) {
-    return [`~${titledRule(title, room)}~  ${DIAGRAM_BUTTONS}`]
+    return [`${uncolouredHead(name, room)}  ${DIAGRAM_BUTTONS}`]
   }
-  return [
-    `~${titledRule(title, width)}~`,
-    ' '.repeat(width - DIAGRAM_BUTTONS.length) + DIAGRAM_BUTTONS,
-  ]
+  return [uncolouredHead(name, width), ' '.repeat(width - DIAGRAM_BUTTONS.length) + DIAGRAM_BUTTONS]
 }
 
-function todaysFence(source: string, width: number): string[] {
-  const title = `~${titledRule('mermaid', Math.max(width - FENCE_BUTTON_ROOM, 4))}~  [ copy ]`
-  return source === '' ? [title] : [title, ...source.split('\n')]
+function refusedHead(room: number): string {
+  const rule = titledRule('mermaid · not drawn', room).slice('── mermaid · not drawn'.length)
+  return `~── ~^*mermaid*^~ · ~!not drawn!~${rule}~`
+}
+
+function todaysFence(source: string, width: number, note?: string): string[] {
+  const room = Math.max(width - FENCE_BUTTON_ROOM, 4)
+  const head =
+    note === undefined
+      ? `${headSketch('mermaid', 'code', room)}  [ copy ]`
+      : `${refusedHead(room)}  [ copy ]`
+  const lines = [head, ...(note === undefined ? [] : [`~${note}~`])]
+  return source === '' ? lines : [...lines, ...source.split('\n')]
 }
 
 function diagramTest(name: string, options: Record<string, string>, body: ViewBody): void {
@@ -3979,7 +4021,7 @@ describe('a folded reply around its diagrams', () => {
             ...classes,
           ]),
         )
-        expect(folded.at(-1)).toContain(`~… ${String(2 + orders.length)} more lines~`)
+        expect(folded.at(-1)).toContain(`~▸ ${String(2 + orders.length)} more lines~`)
         await ui.unmount()
       },
     )
@@ -4001,7 +4043,7 @@ describe('a folded reply around its diagrams', () => {
           ]),
         )
         expect(folded.at(-1)).toContain(
-          `~… sequence diagram, ${String(pings.length - shownRows)} more rows~`,
+          `~▸ sequence diagram, ${String(pings.length - shownRows)} more rows~`,
         )
         await ui.press({ key: 'block-1-drawing' })
         expect(world.copies).toEqual([pings.join('\n')])
@@ -4016,7 +4058,7 @@ describe('a folded reply around its diagrams', () => {
         const text = `${mermaidReply('Here are the pings:', PINGS)}\n\nAfter 1\nAfter 2`
         const ui = await mountReply($, reply(text), surface, FOLD_COLUMNS)
         expect((await uncolouredSketchOf(ui, FOLD_COLUMNS)).at(-1)).toContain(
-          `~… sequence diagram, ${String(pings.length - 27)} more rows, then 3 more lines~`,
+          `~▸ sequence diagram, ${String(pings.length - 27)} more rows, then 3 more lines~`,
         )
         await ui.unmount()
       },
@@ -4032,7 +4074,7 @@ describe('a folded reply around its diagrams', () => {
       FOLD_COLUMNS,
     )
     expect((await uncolouredSketchOf(ui, FOLD_COLUMNS)).at(-1)).toContain(
-      `~… flowchart, ${String(chain.length - 27)} more rows~`,
+      `~▸ flowchart, ${String(chain.length - 27)} more rows~`,
     )
     await ui.unmount()
   })
@@ -4062,8 +4104,8 @@ describe('a folded reply around its diagrams', () => {
         expect(folded.slice(0, -1)).toEqual(onSurface('terminal', [...lead, ...diagram]))
         expect(folded.at(-1)).toContain(
           shownRows === 0
-            ? `~… ${String(2 + pings.length)} more lines~`
-            : `~… sequence diagram, ${String(pings.length - shownRows)} more rows~`,
+            ? `~▸ ${String(2 + pings.length)} more lines~`
+            : `~▸ sequence diagram, ${String(pings.length - shownRows)} more rows~`,
         )
         await ui.unmount()
       },
@@ -4124,14 +4166,15 @@ describe('diagram blocks', () => {
             onSurface(surface, [
               'Here is the flow:',
               '',
-              '~diagram not drawn: line 3 does not parse.~',
-              ...todaysFence(MOCK_9_8_SOURCE, width),
+              ...todaysFence(MOCK_9_8_SOURCE, width, 'diagram not drawn: line 3 does not parse.'),
               '',
-              '~diagram not drawn: the gantt diagram has no tasks.~',
-              ...todaysFence(GANTT_SOURCE, width),
+              ...todaysFence(
+                GANTT_SOURCE,
+                width,
+                'diagram not drawn: the gantt diagram has no tasks.',
+              ),
               '',
-              '~diagram not drawn: the block is empty.~',
-              ...todaysFence('', width),
+              ...todaysFence('', width, 'diagram not drawn: the block is empty.'),
             ]),
           )
           expect(await ui.find({ key: 'block-2-drawing' })).toBeUndefined()
@@ -4186,7 +4229,7 @@ describe('diagram blocks', () => {
               ...drawing.map((line) => line.trimEnd()),
             ]),
           )
-          expect(folded.at(-1)).toContain('~… 3 more lines~')
+          expect(folded.at(-1)).toContain('~▸ 3 more lines~')
           await ui.press({ key: 'block-1-drawing' })
           await ui.press({ key: 'copy-reply' })
           expect(world.copies).toEqual([drawing.join('\n'), text])
@@ -4294,8 +4337,8 @@ describe('diagram blocks', () => {
         reply(mermaidReply('The reply takes three steps:', MOCK_9_7_ALT_SOURCE)),
       )
       const title = (await sketchOf(ui))[2] ?? ''
-      expect(title.replace(/~/g, '')).toBe(
-        '  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]',
+      expect(title.replace(/[~^*]/g, '')).toBe(
+        `  ${titledRule('mermaid · sequence', 76 - DIAGRAM_BUTTONS.length)}  ${DIAGRAM_BUTTONS}`,
       )
       await ui.unmount()
     },
@@ -4313,8 +4356,8 @@ describe('diagram blocks', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● The reply takes three steps:',
         '',
+        `  ${refusedHead(28)}  [ copy ]`,
         '  ~diagram not drawn: it takes 59 columns, the screen has 38. Widen the window or shorten the labels.~',
-        '  ~── mermaid ─────────────────~  [ copy ]',
         ...MOCK_9_9_WIDE_SOURCE.split('\n').map((line) => `  ${line}`),
       ])
       expect(await ui.find({ key: 'block-1-drawing' })).toBeUndefined()
@@ -4327,8 +4370,8 @@ describe('diagram blocks', () => {
     async (_world, $) => {
       const ui = await mountReply($, reply(mermaidReply('This is how:', MOCK_9_5_SOURCE)))
       const title = (await sketchOf(ui))[2] ?? ''
-      expect(title.replace(/~/g, '')).toBe(
-        '  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]',
+      expect(title.replace(/[~^*]/g, '')).toBe(
+        `  ${titledRule('mermaid · flowchart', 76 - DIAGRAM_BUTTONS.length)}  ${DIAGRAM_BUTTONS}`,
       )
       await ui.unmount()
     },
@@ -4341,8 +4384,8 @@ describe('diagram blocks', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● Wide:',
         '',
+        `  ${refusedHead(28)}  [ copy ]`,
         '  ~diagram not drawn: it takes 59 columns, the screen has 38. Widen the window or shorten the labels.~',
-        '  ~── mermaid ─────────────────~  [ copy ]',
         '  flowchart TD',
         '    A[Start] --> B[Alpha box] & C[Bravo box] & D[Charlie box] & E[Delta box]',
       ])
@@ -4360,8 +4403,8 @@ describe('diagram blocks', () => {
         40,
       )
       expect((await uncolouredSketchOf(ui, 40)).slice(2, 5)).toEqual([
-        '  ~── mermaid · flowchart ───────────────~',
-        '               [ copy ] [ copy drawing ]',
+        `  ${uncolouredHead('flowchart', 38)}`,
+        `  ${' '.repeat(38 - DIAGRAM_BUTTONS.length)}${DIAGRAM_BUTTONS}`,
         `  ${drawnLines(MOCK_9_6_SOURCE, 38)[0] ?? ''}`,
       ])
       await ui.unmount()
@@ -4432,14 +4475,14 @@ describe('diagram blocks', () => {
       expect(drawn.slice(0, 5)).toEqual([
         '● Tiny:',
         '',
-        '  ~── mermaid · flow…~',
+        '  ~── ~*mermaid*~ · flow…~',
         `  ${' '.repeat(10)}[ copy ]`,
         `  ${' '.repeat(2)}[ copy drawing ]`,
       ])
       expect(drawn.slice(5)).toEqual(
         drawnLines(TINY_SOURCE, 18).map((line) => `  ${line}`.trimEnd()),
       )
-      expect(drawn.filter((line) => cellsIn(line.replace(/~/g, '')) > 20)).toEqual([])
+      expect(drawn.filter((line) => cellsIn(line.replace(/[~*]/g, '')) > 20)).toEqual([])
       await ui.unmount()
     },
   )
@@ -4455,11 +4498,11 @@ describe('diagram blocks', () => {
     const drawing = drawnLines(TINY_SOURCE, 18)
     const folded = await uncolouredSketchOf(ui, 20)
     expect(folded.slice(-6 - drawing.length)).toEqual([
-      '  ~── mermaid · flow…~',
+      '  ~── ~*mermaid*~ · flow…~',
       `  ${' '.repeat(10)}[ copy ]`,
       `  ${' '.repeat(2)}[ copy drawing ]`,
       ...drawing.map((line) => `  ${line}`.trimEnd()),
-      '  ~… 2 more lines~',
+      '  ~▸ 2 more lines~',
       `  ${' '.repeat(10)}[ more ]`,
       `  ${' '.repeat(4)}[ copy reply ]`,
     ])
@@ -4745,7 +4788,7 @@ function widerThan(lines: readonly string[], columns: number): string[] {
 
 describe('a very narrow reply', () => {
   for (const surface of SURFACES) {
-    for (const width of [23, 24]) {
+    for (const width of [27, 28]) {
       viewTest(
         `in a reply of ${String(width)} columns the fold row leaves room for the gap and puts its buttons under the count on ${surface}`,
         async (_world, $) => {
@@ -4755,8 +4798,8 @@ describe('a very narrow reply', () => {
           expect(folded.slice(-2)).toEqual(
             onSurface(surface, [
               '',
-              '~… 24 more lines~',
-              `${' '.repeat(width - 23)}[ more ] [ copy reply ]`,
+              '~▸ 24 more lines~',
+              `${' '.repeat(width - 27)}${FOLD_BUTTONS}`,
             ]).slice(1),
           )
           expect(widerThan(folded, columns)).toEqual([])
@@ -4766,13 +4809,13 @@ describe('a very narrow reply', () => {
     }
 
     viewTest(
-      `in a reply of 25 columns the fold row keeps more and copy reply on one line after the gap on ${surface}`,
+      `in a reply of 30 columns the open fold row keeps its mark, less and copy reply on one line after the gap on ${surface}`,
       async (_world, $) => {
-        const columns = screenColumns(surface, 25)
+        const columns = screenColumns(surface, 30)
         const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
         await ui.press({ key: 'fold' })
         const opened = await sketchOf(ui, columns)
-        expect(opened.at(-1)).toBe(onSurface(surface, ['', '  [ less ] [ copy reply ]'])[1])
+        expect(opened.at(-1)).toBe(onSurface(surface, ['', `~▾~  ${OPEN_BUTTONS}`])[1])
         expect(widerThan(opened, columns)).toEqual([])
         await ui.unmount()
       },
@@ -4787,7 +4830,7 @@ describe('a very narrow reply', () => {
         expect(folded.slice(-3)).toEqual(
           onSurface(surface, [
             '',
-            '~… 24 more lines~',
+            '~▸ 24 more lines~',
             `${' '.repeat(10)}[ more ]`,
             `${' '.repeat(4)}[ copy reply ]`,
           ]).slice(1),
@@ -4819,7 +4862,7 @@ describe('a very narrow reply', () => {
           onSurface(surface, ['', `${' '.repeat(4)}[ more ]`, '[ copy re… ]']).slice(1),
         )
         expect(widerThan(buttonLines(folded), columns)).toEqual([])
-        expect((await ui.find({ type: 'Text', text: '… 24 more lines' }))?.props.wrap).toBe(
+        expect((await ui.find({ type: 'Text', text: '▸ 24 more lines' }))?.props.wrap).toBe(
           'truncate-end',
         )
         await ui.press({ key: 'copy-reply' })
@@ -4838,7 +4881,7 @@ describe('a very narrow reply', () => {
           onSurface(surface, [
             'Here is the plan:',
             '',
-            `~── plan ${'─'.repeat(10)}~`,
+            headSketch('plan', 'code', 18),
             `${' '.repeat(10)}[ copy ]`,
             '1. Write the mocks',
             '2. Ask the person',
@@ -4886,9 +4929,9 @@ describe('a very narrow reply', () => {
       const folded = await sketchOf(ui, 18)
       expect(folded.slice(-6)).toEqual([
         '',
-        `~── plan ${'─'.repeat(10)}~`,
+        headSketch('plan', 'code', 18),
         `${' '.repeat(10)}[ copy ]`,
-        '~… 2 more lines~',
+        '~▸ 2 more lines~',
         `${' '.repeat(10)}[ more ]`,
         `${' '.repeat(4)}[ copy reply ]`,
       ])
@@ -4909,7 +4952,8 @@ const GATES_TABLE = [
 const GATES_MARKDOWN = GATES_TABLE.split('\n').slice(2).join('\n')
 
 const GATES_RULES = [
-  '@*Mod*@           %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@  [ copy ] [ copy as text ]',
+  tableHeadSketch(2, 49),
+  '@*Mod*@           %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@',
   `%${'═'.repeat(14)}╪${'═'.repeat(7)}╪${'═'.repeat(6)}╪${'═'.repeat(19)}%`,
   '&handily-board& %│%   =212= %│% *pass* %│% frames, see ^_design_^',
   '&reply-view&    %│%    =98= %│% *fail* %│% &npm test& exits =1=',
@@ -4919,9 +4963,8 @@ function boxRule(left: string, fill: string, cross: string, right: string): stri
   return `%${left}${[15, 7, 6, 20].map((width) => fill.repeat(width)).join(cross)}${right}%`
 }
 
-const GATES_BOX_BUTTONS = '[ copy ] [ copy as text ]'
-
 const GATES_BOX = [
+  tableHeadSketch(2, 53),
   boxRule('┌', '─', '┬', '┐'),
   '%│% @*Mod*@           %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@               %│%',
   boxRule('╞', '═', '╪', '╡'),
@@ -4932,7 +4975,7 @@ const GATES_BOX = [
 ]
 
 function gatesBox(): string[] {
-  return [...GATES_BOX, `${' '.repeat(28)}${GATES_BOX_BUTTONS}`]
+  return [...GATES_BOX]
 }
 
 function gatesDrawn(surface: Surface): string[] {
@@ -4940,17 +4983,26 @@ function gatesDrawn(surface: Surface): string[] {
 }
 
 const SMALL_BOX = [
+  headSketch('table', 'table', 29, '1 row'),
+  TABLE_BUTTONS,
   '%┌───┬───┐%',
   '%│% @*A*@ %│% @*B*@ %│%',
   '%╞═══╪═══╡%',
   '%│% =1= %│% =2= %│%',
   '%└───┴───┘%',
-  '[ copy ] [ copy as text ]',
 ]
 
-const SMALL_RULES = ['@*A*@ %│% @*B*@  [ copy ] [ copy as text ]', '%══╪══%', '=1= %│% =2=']
+const SMALL_RULES = [
+  headSketch('table', 'table', 29, '1 row'),
+  TABLE_BUTTONS,
+  '@*A*@ %│% @*B*@',
+  '%══╪══%',
+  '=1= %│% =2=',
+]
 
 const GATES_BLOCKS = [
+  headSketch('table', 'table', 37, '2 rows'),
+  `${' '.repeat(8)}${TABLE_BUTTONS}`,
   '*&handily-board&*',
   '  @Tests:@ =212=',
   '  @Gate:@ *pass*',
@@ -4960,7 +5012,6 @@ const GATES_BLOCKS = [
   '  @Tests:@ =98=',
   '  @Gate:@ *fail*',
   '  @Next:@ &npm test& exits =1=',
-  `${' '.repeat(12)}[ copy ] [ copy as text ]`,
 ]
 
 const TABLE_STYLE_REFUSAL =
@@ -5064,7 +5115,7 @@ describe('colour pass', () => {
         const link = await ui.find({ type: 'Text', text: /^design$/ })
         expect([link?.props.color, link?.props.underline]).toEqual(['suggestion', true])
         const indent = surface === 'terminal' ? 2 : 0
-        expect(drawn.slice(2).map(bordersOf)).toEqual(
+        expect(drawn.slice(3).map(bordersOf)).toEqual(
           Array.from({ length: 4 }, () => [indent + 14, indent + 22, indent + 29]),
         )
         await ui.press({ key: 'block-1-copy' })
@@ -5147,7 +5198,9 @@ describe('colour pass', () => {
           const ui = await mountReply($, reply(SMALL_TABLE), surface, columns)
           expect(await sketchOf(ui, columns)).toEqual(
             onSurface(surface, [
-              '@*A*@ %│% @*B*@  [ copy ] [ copy as text ]',
+              headSketch('table', 'table', 29, '1 row'),
+              TABLE_BUTTONS,
+              '@*A*@ %│% @*B*@',
               '%══╪══%',
               '=1= %│% =2=',
             ]),
@@ -5242,7 +5295,7 @@ describe('colour pass', () => {
     { tableStyle: 'rules' },
     async (world, $) => {
       const ui = await mountReply($, reply('| Name | Note |\n| - | - |\n| &#xE001;x | `y` |'))
-      expect((await sketchOf(ui))[2]).toBe('  \u{E001}x   %│% &y&')
+      expect((await sketchOf(ui))[3]).toBe('  \u{E001}x   %│% &y&')
       await ui.press({ key: 'block-0-text' })
       expect(world.copies).toEqual(['Name: \u{E001}x\nNote: y'])
       await ui.unmount()
@@ -5257,7 +5310,7 @@ describe('colour pass', () => {
         $,
         reply('| Code | Tick |\n| - | - |\n| ``a`b`` | `` `tick` `` |'),
       )
-      expect((await sketchOf(ui))[2]).toBe('  &a`b&  %│% &`tick`&')
+      expect((await sketchOf(ui))[3]).toBe('  &a`b&  %│% &`tick`&')
       expect((await ui.find({ type: 'Text', text: /^a`b$/ }))?.props.color).toBe('permission')
       expect((await ui.find({ type: 'Text', text: /^`tick`$/ }))?.props.color).toBe('permission')
       await ui.press({ key: 'block-0-text' })
@@ -5274,7 +5327,7 @@ describe('colour pass', () => {
         $,
         reply('| Name | Note |\n| - | - |\n| my__private__var | x**bold**y |\n| __loud__ | ok |'),
       )
-      expect((await sketchOf(ui)).slice(2)).toEqual([
+      expect((await sketchOf(ui)).slice(3)).toEqual([
         '  my__private__var %│% x*bold*y',
         '  *loud*             %│% ok',
       ])

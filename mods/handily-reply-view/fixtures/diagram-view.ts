@@ -116,7 +116,7 @@ export async function noteOf(ui: Mounted): Promise<string | undefined> {
 }
 
 export async function shownSource(ui: Mounted): Promise<string> {
-  return (await ui.find({ key: 'block-1-noted' }))?.text ?? ''
+  return (await ui.find({ key: 'block-1' }))?.text ?? ''
 }
 
 export function tooWideNote(columns: number, screen: number): string {

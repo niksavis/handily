@@ -9,9 +9,12 @@ import type { ReplyViewFold, ReplyViewMode } from '../types'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import {
   blockCopyOf,
+  copyMarkKey,
+  COPY_WORD,
   DEFAULT_COLUMNS,
   DRAWN_CHARACTERS_AT_MOST,
   plural,
+  REPLY_COPY_LABEL,
   replyCopy,
   replyTree,
   replyWidth,
@@ -19,6 +22,7 @@ import {
   type BlockKind,
   type CopyLayout,
   type ReplyActions,
+  type ReplyMarks,
 } from './draw'
 import { DEFAULT_REPLY_STYLE, isReplyStyle, REPLY_STYLES, type ReplyStyle } from './frame'
 import { DIAGRAM_HINT } from './hint'
@@ -71,6 +75,7 @@ const COMMAND = 'replies'
 const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
 const RAIL_VERSION = { plugin: 'handily-reply-view', key: 'railVersion' } as const
 const HINTS = { plugin: 'handily-reply-view', key: 'hints' } as const
+const COPIED = { plugin: 'handily-reply-view', key: 'copied' } as const
 const HINTS_ARGUMENT = 'hints'
 const COPY_ARGUMENT = 'copy'
 const REPLY_WORD = 'reply'
@@ -259,14 +264,29 @@ async function toggleHints(
   return hints === 'on' ? hintsOnText(await noHintCauses($, rule)) : HINTS_OFF_TEXT
 }
 
+async function keepCopyMark(
+  $: EngineInterface,
+  mark: string | undefined,
+  isCopied: boolean,
+): Promise<void> {
+  if (mark === undefined) return
+  try {
+    await $.state.set(COPIED, { key: mark, isCopied })
+  } catch (error) {
+    logFailure($, 'the copy button keeps its old label', error)
+  }
+}
+
 async function copyText(
   $: EngineInterface,
   text: string,
   what: string,
   surface: RenderSurface,
+  mark?: string,
 ): Promise<void> {
   try {
     const result = await $.ui.copy({ text, surface })
+    await keepCopyMark($, mark, result.isCopied)
     showGlyphToast(
       $,
       result.isCopied
@@ -275,14 +295,25 @@ async function copyText(
     )
   } catch (error) {
     logFailure($, `${what} was not copied`, error)
+    await keepCopyMark($, mark, false)
     showGlyphToast($, COPY_FAILED)
+  }
+}
+
+async function replyMarks($: EngineInterface, surface: RenderSurface): Promise<ReplyMarks> {
+  const glyphs = await paneGlyphs($, surface)
+  return {
+    done: glyphs.done,
+    blocked: glyphs.blocked,
+    folded: glyphs.folderClosed,
+    opened: glyphs.folderOpen,
   }
 }
 
 function replyActions($: EngineInterface, id: string): ReplyActions {
   return {
-    copy: (text, what, surface) => {
-      void copyText($, text, what, surface)
+    copy: (copy, surface) => {
+      void copyText($, copy.text, copy.what, surface, copy.mark)
     },
     fold: (next, block) => {
       const what = block === undefined ? 'the reply' : 'the code block'
@@ -307,8 +338,9 @@ async function copied(
   $: EngineInterface,
   copy: BlockCopy,
   surface: RenderSurface,
+  label: string,
 ): Promise<undefined> {
-  await copyText($, copy.text, copy.what, surface)
+  await copyText($, copy.text, copy.what, surface, copyMarkKey(label, copy.text))
   return undefined
 }
 
@@ -320,13 +352,15 @@ async function copyFromReply(
   if (word !== REPLY_WORD && !isBlockKind(word)) return USAGE_TEXT
   if (reply === undefined) return NO_REPLY_TEXT
   const [surface = 'terminal'] = await $.session.surfaces()
-  if (!isBlockKind(word)) return copied($, replyCopy(reply), surface)
+  if (!isBlockKind(word)) {
+    return copied($, replyCopy(reply), surface, REPLY_COPY_LABEL)
+  }
   const copy = lastCopyOf(reply, word, {
     width: replyWidth(request.columns, hasBulletOn(surface), request.replyStyle),
     surface,
     drawsDiagrams: request.drawsDiagrams,
   })
-  return copy === null ? noBlockText(word) : copied($, copy, surface)
+  return copy === null ? noBlockText(word) : copied($, copy, surface, COPY_WORD)
 }
 
 type RailSite = { rail: Rail; version: number }
@@ -694,6 +728,8 @@ export const register: Register = (on, options) => {
             tableStyle,
             headingStyle,
             doneGlyph: (await paneGlyphs($, e.surface)).done,
+            marks: await replyMarks($, e.surface),
+            copyMark: (await $.state.get(COPIED)).value ?? null,
             highlight,
             palette: await shownPalette($, e.surface),
             codeFolds: await codeFoldsOf($, e.requestId, blocks),

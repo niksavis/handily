@@ -10,6 +10,7 @@ import {
   mountReply,
   rowOf,
   SCENES,
+  scenesAt,
   sharedRowsOf,
   stackedBlock,
   started,
@@ -153,8 +154,8 @@ describe('blocks that fit share a row', () => {
       { options: scene.options },
       async ($, on) => {
         await started($, on)
-        const first = tableWide(40, 'a')
-        const second = tableWide(scene.room - 40 - GAP.length, 'b')
+        const first = tableWide(50, 'a')
+        const second = tableWide(scene.room - 50 - GAP.length, 'b')
         const third = tableWide(30, 'c')
         const shown = await stackedBlocks($, [first, second, third], scene)
         const [one, two, three] = shown
@@ -168,8 +169,8 @@ describe('blocks that fit share a row', () => {
     )
   }
 
-  test('three tables that fit together share one row', async ($, on) => {
-    const scene = SCENES[0]
+  test('three tables that fit together share one row at 170 columns', async ($, on) => {
+    const scene = scenesAt(170)[0]
     if (scene === undefined) return
     await started($, on)
     const texts = [tableWide(30, 'a'), tableWide(30, 'b'), tableWide(30, 'c')]
@@ -326,7 +327,7 @@ describe('a shared row in a folded reply', () => {
     expect(tallRows).toBeGreaterThan(shortRows)
     const total = 1 + 1 + tallRows + 1 + list.length
     const lines = await bodyLines($, text, scene)
-    expect(lines.some((line) => line.startsWith(`… ${String(total - 30)} more lines`))).toBe(true)
+    expect(lines.some((line) => line.startsWith(`▸ ${String(total - 30)} more lines`))).toBe(true)
     expect(sharedRowsOf(await drawnTree($, text))).toHaveLength(1)
   })
 })

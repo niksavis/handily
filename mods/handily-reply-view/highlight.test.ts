@@ -6,6 +6,7 @@ import { blocksOf, copiedCell, markedCell, PLAIN_MARK, textOfRuns } from './hook
 import { copiedCell as baseCopiedCell, markedCell as baseMarkedCell } from './fixtures/base-cells'
 import { displayWidth } from './hooks/width'
 import { expectNoEngineRow } from './fixtures/engine-row'
+import { headSketch, tableHeadSketch, tableHeadUnder } from './fixtures/buttons'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -173,9 +174,13 @@ function boxLines(props: Record<string, unknown>, children: unknown[], width: nu
           ...lines(child, inner),
         ])
       : rowLines(children, inner, gap)
+  const placed =
+    props.justifyContent === 'flex-end'
+      ? flowed.map((line) => ' '.repeat(Math.max(inner - plainWidth(line), 0)) + line)
+      : flowed
   return [
     ...Array<string>(Number(props.marginTop ?? 0)).fill(''),
-    ...flowed.map((line) => (line === '' ? line : ' '.repeat(indent) + line)),
+    ...placed.map((line) => (line === '' ? line : ' '.repeat(indent) + line)),
   ]
 }
 
@@ -302,6 +307,7 @@ const P1_PROSE_PLAIN = [
 ]
 
 const P1_BOX = [
+  `  ${tableHeadSketch(3, 53)}`,
   '  %┌───────────────┬───────┬──────┬────────────────────┐%',
   '  %│% @*Mod*@           %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@               %│%',
   '  %╞═══════════════╪═══════╪══════╪════════════════════╡%',
@@ -311,11 +317,11 @@ const P1_BOX = [
   '  %├───────────────┼───────┼──────┼────────────────────┤%',
   '  %│% filetree      %│% =1,024= %│% pass %│% =v0.13.0= in =3m= =12s=  %│%',
   '  %└───────────────┴───────┴──────┴────────────────────┘%',
-  `${' '.repeat(30)}[ copy ] [ copy as text ]`,
 ]
 
 const P1_RULES_DESKTOP = [
-  '@*Mod*@           %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@  [ copy ] [ copy as text ]',
+  tableHeadSketch(3, 49),
+  '@*Mod*@           %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@',
   '%══════════════╪═══════╪══════╪═══════════════════%',
   'handily-board %│%   =212= %│% pass %│% frames, see design',
   'reply-view    %│%    =98= %│% fail %│% npm test exits =1=',
@@ -475,14 +481,15 @@ describe('box tables by default', () => {
           expect(drawn).toEqual([
             '● The columns of the report:',
             '',
+            `  ${headSketch('table', 'table', 29 - 2 - 8, '0 rows')}  [ copy ]`,
             '  %┌─────┬───────┬──────┬──────┐%',
             '  %│% @*Mod*@ %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@ %│%',
             '  %└─────┴───────┴──────┴──────┘%',
-            `${' '.repeat(23)}[ copy ]`,
           ])
         } else {
           expect(drawn.slice(2)).toEqual([
-            '@*Mod*@ %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@  [ copy ]',
+            `${headSketch('table', 'table', 29 - 2 - 8, '0 rows')}  [ copy ]`,
+            '@*Mod*@ %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@',
             '%════╪═══════╪══════╪═════%',
           ])
         }
@@ -507,6 +514,7 @@ describe('box tables by default', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● =3= mods passed in =3m= =12s=:',
         '',
+        ...tableHeadUnder(2, 29).map((line) => `  ${line}`),
         '  %┌──────────┬───────┬──────┐%',
         '  %│% @*Mod*@      %│% @*Tests*@ %│% @*Gate*@ %│%',
         '  %╞══════════╪═══════╪══════╡%',
@@ -514,7 +522,6 @@ describe('box tables by default', () => {
         '  %├──────────┼───────┼──────┤%',
         '  %│% filetree %│% =1,024= %│% pass %│%',
         '  %└──────────┴───────┴──────┘%',
-        '    [ copy ] [ copy as text ]',
       ])
       await ui.unmount()
     },
@@ -819,14 +826,16 @@ describe('the row blocks of a narrow table (handily-8wxdwh)', () => {
       const ui = await mountReply($, NARROW_TABLE, 'terminal', 30)
       const drawn = (await sketchOf(ui, 30)).map((line) => line.replace(MARK_CHARACTERS, ''))
       expect(drawn).toEqual([
-        '● task-pane',
+        `● ${'─'.repeat(2)} table · 2 rows ${'─'.repeat(28 - '── table · 2 rows '.length)}`,
+        `  ${' '.repeat(20)}[ copy ]`,
+        `  ${' '.repeat(12)}[ copy as text ]`,
+        '  task-pane',
         '    State: released',
         '    Next:  follows the work',
         '',
         '  simple-view',
         '    State: released',
         '    Next:  click to expand',
-        '     [ copy ] [ copy as text ]',
       ])
       const tree = await ui.drawn()
       expect(columnGaps(tree)).toEqual([])
@@ -1209,12 +1218,12 @@ describe('one blank line between the blocks of a reply', () => {
         '  °•° first =1=',
         '  °•° second =2=',
         '',
+        `  ${tableHeadSketch(1, 9)}`,
         '  %┌───┬───┐%',
         '  %│% @*A*@ %│% @*B*@ %│%',
         '  %╞═══╪═══╡%',
         '  %│% =1= %│% =2= %│%',
         '  %└───┴───┘%',
-        '  [ copy ] [ copy as text ]',
       ])
       const tree = await ui.drawn()
       expect(columnGaps(tree)).toEqual([])
@@ -1237,7 +1246,8 @@ describe('one blank line between the blocks of a reply', () => {
         '- first 1',
         '- second 2',
         '',
-        '@*A*@ %│% @*B*@  [ copy ] [ copy as text ]',
+        tableHeadSketch(1, 5),
+        '@*A*@ %│% @*B*@',
         '%══╪══%',
         '=1= %│% =2=',
       ])

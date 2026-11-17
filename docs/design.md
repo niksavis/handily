@@ -181,14 +181,14 @@ Each role of the table changes with the setting. Source of the code points: nerd
 | Role | Meaning | Who draws it | Plain | Nerd icon | Code point | Stand-in |
 | --- | --- | --- | --- | --- | --- | --- |
 | `doing` | in progress, a running agent | board (`signals.ts`), every toast | `▶` | nf-cod-play | `U+EB2C` | Ⓟ |
-| `done` | finished | board, toasts | `✓` | nf-cod-check | `U+EAB2` | Ⓒ |
+| `done` | finished | board, toasts, reply-view copy button | `✓` | nf-cod-check | `U+EAB2` | Ⓒ |
 | `toDo` | open, pending, idle | board, toasts | `○` | nf-cod-circle_large | `U+EBB5` | Ⓞ |
-| `blocked` | failed, refused | board (also `lanes.ts`), toasts, filetree | `■` | nf-cod-error | `U+EA87` | Ⓧ |
+| `blocked` | failed, refused | board (also `lanes.ts`), toasts, filetree, reply-view copy button | `■` | nf-cod-error | `U+EA87` | Ⓧ |
 | `waitsForYou` | needs you | board (also `lanes.ts`, `attention.ts`, `vitals.ts`), toasts | `◆` | nf-cod-bell | `U+EAA2` | Ⓑ |
 | `edited` | an agent edited the file | filetree `marks.ts` | `✎` | nf-cod-edit | `U+EA73` | Ⓔ |
 | `read` | an agent read the file | filetree `marks.ts` | `◦` | nf-cod-eye | `U+EA70` | Ⓡ |
-| `folderClosed` | a closed folder | filetree `pane.ts` | `▸` | nf-fa-folder | `U+F07B` | Ⓕ |
-| `folderOpen` | an open folder | filetree `pane.ts` | `▾` | nf-fa-folder_open | `U+F07C` | ⓕ |
+| `folderClosed` | a closed folder | filetree `pane.ts`, reply-view fold rows | `▸` | nf-fa-folder | `U+F07B` | Ⓕ |
+| `folderOpen` | an open folder | filetree `pane.ts`, reply-view fold row | `▾` | nf-fa-folder_open | `U+F07C` | ⓕ |
 | `branch` | the separator before the branch in the Files header | filetree `gitview.ts` | `·` | nf-oct-git_branch | `U+F418` | Ⓨ |
 | `waiting` | the session waits on background work | board (`background.ts`) | `◷` | nf-cod-watch | `U+EB7C` | Ⓦ |
 
@@ -1607,6 +1607,37 @@ Settings and commands:
   2.1.318 (reply-view README). prismantis states about 630 prompt tokens for its diagram hints (its
   README).
 - A transcript button takes a click only. The `/replies copy` forms give a path from the keyboard.
+
+#### Block heads, the copy state and the fold row (handily-d75xdi)
+
+The owner asked on 2026-11-17 for better signals, layout and colour in the main window. A design
+swarm of three designers proposed 15 changes; the owner took the six that two designers proposed
+or that were small. The mocks are `docs/mocks.md` section 19 (reply-view) and section 6
+(simple-view). Owner decisions of 2026-11-17: where the design text and a mock differ, the text
+wins; items 4 and 5 (the state marks and the slow mark of simple-view) wait for the session state
+design, so no glyph role was added.
+
+- **A head on every block.** A table, a code block, a diagram and a chart open with one line: a
+  dim rule, the kind word bold in the colour of its kind, the counts dim, and the buttons at the
+  right edge. Table `claude`, code `merged`, diagram `suggestion`, chart `planMode`; the
+  catppuccin-mocha hexes are in `hooks/roles.ts`. The fold button of a long code block stands
+  first, then the copies. A table no longer places its buttons on its header line, its last row
+  or a line under it: one rule for every block. A table head ends at the right edge of the
+  table, so a narrow table keeps its place in a shared row.
+- **The copy state.** The state store keeps one value, `copied`: the key of the last pressed
+  button (its label and a hash of the text) and whether the copy worked. Every reply reads it
+  while drawing, so the mark leaves a button when another block is copied. `/replies copy`
+  writes the same key. The button key and the toast do not change.
+- **Nothing moves.** A button after the first keeps a slot as wide as its widest label (`✓ copied
+  …` or `■ not copied`). The first button grows to the left into the rule, which gives up the
+  columns. The width rules of the head and of a shared row count the first button at rest, so a
+  pressed button never moves a block to another row. Cost: the slot draws up to 4 spaces before
+  `[ copy as text ]` or `[ copy drawing ]` at rest.
+- **The fold row names what it hides.** Each block piece carries its kind words; the fold row
+  counts the kinds of the pieces that the preview does not show at all. `▸` and `▾` are the
+  `folderClosed` and `folderOpen` glyph roles. Under 60 columns the kinds take their own line.
+- **A diagram that does not draw** says `not drawn` in `warning` on its head; the note keeps its
+  text (`diagram not drawn: …`) and stands under the head.
 
 ### 4.11 handily-filetree (handily-02b2v)
 

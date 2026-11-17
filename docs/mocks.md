@@ -3074,6 +3074,8 @@ handily-5zzxk.5, handily-5zzxk.6 and handily-5zzxk.7 cite the old numbers.
 
 ### 9.0 Conventions
 
+Section 19 (handily-d75xdi) supersedes the button places and the title lines of these mocks.
+
 - The blocks are plain text, with no look markup. Section 12.0 adds a Colours line from
   2026-10-29. A script checked the width of each line with
   the grapheme widths of handily-5zzxk.1: a ZWJ emoji, a flag, a keycap and an emoji with VS16
@@ -6884,6 +6886,8 @@ handily-bktw4); section 12 (colour convention); section 11 (glyph sets); design.
 
 ### 15.0 Conventions
 
+Section 19 (handily-d75xdi) supersedes the block heads, the button places and the fold row here.
+
 - Conventions of 9.0, 12.0 and 14.0 apply. Blocks are plain text. A `Colours:` line under a
   block names the look by theme key and by the catppuccin-mocha hex of 14.4; 15.9 lists every
   role once. A meaning never rests on colour alone.
@@ -9045,3 +9049,129 @@ reports it idle. The Inbox is unchanged.
 - **An interrupted turn** ends with no Stop (measured on Claude Code 2.1.325). When the turn
   before it left waiting, the board restores that waiting state with its first seen ages; after an
   idle Stop the head reads `○ no turn` until the next Stop.
+
+## 19. Main window polish: block heads, the copy state and the fold row (handily-d75xdi, approved 2026-11-17)
+
+The owner asked on 2026-11-17 for better signals, layout and colour in the features that he uses
+all the time in the main window: the reply layout, the copy and more buttons, tables and
+diagrams. A design swarm of three designers drew the changes, and the owner approved the merged
+design. These mocks are the build. They supersede the button places of 9.1 to 9.11, 12.4, 12.5,
+15.2 and 15.3 and the fold row of 7.2 and 15.1. Simple-view keeps its part in section 6: the
+reason of a failed call on its own line.
+
+### 19.0 Conventions
+
+- Conventions of 9.0, 12.0 and 15.0 apply. The reply indent is 2, so the body is 118 columns at
+  120 and 38 at 40. Theme keys only, the plain glyph set, one column for each glyph.
+- `[ … ]` is a button. A button after the first one keeps room for its widest label, so its
+  slot can draw spaces before it at rest.
+
+### 19.1 A head on every block, 120 columns
+
+```text
+● The fix, the numbers and the flow:
+
+  ── sh ──────────────────────────────────────────────────────────────────────────────────────────────────────  [ copy ]
+  git show v2.3.0:config/prod.yaml | grep pool_size
+
+  ── table · 3 rows ──  [ copy ]     [ copy as text ]
+  ┌───────┬───────┬──────┐
+  │ Hour  │ p95   │ Errs │
+  ╞═══════╪═══════╪══════╡
+  │ 11:00 │    45 │    0 │
+  └───────┴───────┴──────┘
+
+  ── mermaid · flowchart ────────────────────────────────────────────────────────────────  [ copy ]     [ copy drawing ]
+  ╭────────╮   ╭───────╮
+  │ Prompt │──▶│ Reply │
+  ╰────────╯   ╰───────╯
+
+  ── ts · 45 lines ─────────────────────────────────────────────────────────────────────────────────  [ more ] [ copy ]
+   1  export function rollupHourly(
+  …
+  ▸ 30 more lines
+
+  ── mermaid · not drawn ──────────────────────────────────────────────────────────────────────────────────────  [ copy ]
+  diagram not drawn: box does not draw yet.
+  sequenceDiagram
+```
+
+Colours: the rule and the counts dim. The kind word bold: `table` in `claude`, the tag of a code
+block in `merged`, `mermaid` of a diagram in `suggestion`, of a chart in `planMode`. `not drawn`
+in `warning`, the note dim.
+
+- The buttons sit on the first line of the block at the right edge: the fold button first, then
+  the copies. A table head ends at the right edge of the table, or after its buttons when the
+  table is narrower.
+- A table no longer puts its buttons on its header line, its last row or a line under it.
+
+### 19.2 A head on every block, 40 columns
+
+```text
+● The fix and the numbers:
+
+  ── sh ──────────────────────────  [ copy ]
+  git show v2.3.0:config/prod.yaml | g
+  rep pool_size
+
+  ── table · 3 rows ────────────
+  [ copy ]     [ copy as text ]
+  ┌───────┬───────┬──────┐
+  │ Hour  │ p95   │ Errs │
+
+  ── mermaid · flowchart ───────────────
+           [ copy ]     [ copy drawing ]
+```
+
+- When the head and the buttons do not fit on one line, the buttons stand under the head at its
+  right edge; when the buttons do not fit together, each one takes a line.
+- A head wider than the reply is cut with `…`, as `── mermaid · flow…` at 20 columns.
+
+### 19.3 The copy state
+
+```text
+  ── sh ──────────────────────────────────────────────────────────────────────────────────────────────────────  [ copy ]
+  ── sh ──────────────────────────────────────────────────────────────────────────────────────────────────  [ ✓ copied ]
+  ── sh ──────────────────────────────────────────────────────────────────────────────────────────────  [ ■ not copied ]
+  ── mermaid · flowchart ────────────────────────────────────────────────────────────────  [ copy ] [ ✓ copied drawing ]
+  ── mermaid · flowchart ────────────────────────────────────────────────────────────  [ ✓ copied ]     [ copy drawing ]
+  ── table · 3 rows ──  [ copy ] [ ✓ copied as text ]
+  ▸ 15 more lines                                                                        [ more ] [ ✓ copied reply ]
+```
+
+Colours: `✓ copied …` in `success`, `■ not copied` in `error`. `✓` and `■` are the `done` and
+`blocked` glyphs.
+
+- The mark stays on the one button until another copy, also `/replies copy`. The toast stays.
+- No button moves. The first button grows to the left into the rule; a later button fills the
+  room that it kept.
+
+### 19.4 The fold row names what it hides
+
+```text
+120 columns
+  ▸ 15 more lines · 1 table · 1 sh block · 1 flowchart                                        [ more ]     [ copy reply ]
+  ▸ 15 more lines                                                                              [ more ]     [ copy reply ]
+  ▾                                                                                            [ less ]     [ copy reply ]
+
+40 columns
+  ▸ 15 more lines
+    1 table · 1 sh block · 1 flowchart
+           [ more ]     [ copy reply ]
+```
+
+Colours: the count dim, each kind in the colour of its head.
+
+- `▸` folded and `▾` open are the `folderClosed` and `folderOpen` glyphs.
+- Only the blocks that the preview does not show are named. A cut diagram keeps its wording:
+  `▸ flowchart, 12 more rows, then 15 more lines`.
+- At 60 columns or more the kinds follow the count on one line and are cut before the count.
+  Under 60 columns they take their own line, and the buttons stand under them.
+
+### 19.5 Failure modes
+
+- **A narrow cell of a shared row.** A pressed first button needs up to 8 columns more than at
+  rest. When its rule has no room left, the end of the head text is cut with `…`; no button moves.
+- **Two replies with the same block.** The mark follows the label and the copied text, so the
+  same block in two replies shows the mark in both.
+- **A kind list wider than the row** is cut at its end; the count and the buttons stay whole.

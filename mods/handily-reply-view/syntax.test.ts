@@ -412,7 +412,7 @@ describe('a block over 20 lines folds (mocks 15.2d, handily-36bsx.4)', () => {
         language: 'ts',
         startLine: 1,
       })
-      expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 30 more lines')
+      expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('▸ 30 more lines')
       expect((await ui.find({ key: 'block-1-fold' }))?.props.label).toBe('more')
       expect(await ui.find({ key: 'fold' })).toBeUndefined()
       await ui.press({ key: 'block-1-copy' })
@@ -438,7 +438,7 @@ describe('a block over 20 lines folds (mocks 15.2d, handily-36bsx.4)', () => {
       const rows = await codeLines(ui)
       expect(rows).toHaveLength(15)
       expect(rows.slice(0, 2)).toEqual([' 1echo 1', ' 2echo 2'])
-      expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 10 more lines')
+      expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('▸ 10 more lines')
       expect(await lookOf(ui, ' 1')).toEqual({ dimColor: true })
       await ui.press({ key: 'block-1-fold' })
       expect(await codeLines(ui)).toHaveLength(25)
@@ -460,7 +460,7 @@ describe('a block over 20 lines folds (mocks 15.2d, handily-36bsx.4)', () => {
       await whole.unmount()
       const folded = await mountReply($, fenced('py', `${twenty}\nx = 21`))
       expect((await folded.find({ type: 'Code' }))?.props.startLine).toBe(1)
-      expect((await folded.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 6 more lines')
+      expect((await folded.find({ type: 'Text', text: /more line/ }))?.text).toBe('▸ 6 more lines')
       await folded.unmount()
     },
   )
@@ -468,7 +468,7 @@ describe('a block over 20 lines folds (mocks 15.2d, handily-36bsx.4)', () => {
   sceneTest('under 40 columns a folded block shows no line numbers', {}, async (_world, $) => {
     const ts = await mountReply($, fenced('ts', ROLLUP), 'terminal', 30)
     expect((await ts.find({ type: 'Code' }))?.props.startLine).toBeUndefined()
-    expect((await ts.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 30 more lines')
+    expect((await ts.find({ type: 'Text', text: /more line/ }))?.text).toBe('▸ 30 more lines')
     await ts.unmount()
     const long = numbered(25, (line) => `echo ${String(line)}`)
     const sh = await mountReply($, fenced('sh', long), 'terminal', 30)
@@ -823,7 +823,7 @@ describe('own colours share the fold, the copy and the limits of a shell block (
       expect((await ui.find({ type: 'Text', text: /^── md/ }))?.text).toMatch(
         /^── md · 25 lines ─+$/,
       )
-      expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 10 more lines')
+      expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('▸ 10 more lines')
       expect(await spanLook(ui, '-')).toEqual({ color: 'inactive' })
       await ui.press({ key: 'block-1-copy' })
       expect(world.copies).toEqual([long])

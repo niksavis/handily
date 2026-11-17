@@ -22,11 +22,12 @@ import {
   type Drawn,
   type Scene,
 } from './fixtures/layout'
+import { DIAGRAM_BUTTONS } from './fixtures/buttons'
 import { isDrawnNode, nodesOf, sketchOf, type DrawnNode } from './fixtures/sketch'
 
 const FOLD_AFTER = 30
-const TITLE_WIDTH = 52
-const TITLE_LINE = '── mermaid · bar chart ──  [ copy ] [ copy drawing ]'
+const TITLE_LINE = `── mermaid · bar chart ──  ${DIAGRAM_BUTTONS}`
+const TITLE_WIDTH = displayWidth(TITLE_LINE)
 const INTRO = 'The numbers, then the shape:'
 const TABLE_SIDES = '│  │'.length
 const HOURS_TABLE = [
@@ -180,7 +181,11 @@ describe('a chart shares a row at its title width', () => {
           ]),
         )
         const hidden = chart.lines.length - FOLD_AFTER
-        expect(shown.fold.startsWith(`… bar chart, ${String(hidden)} more rows`)).toBe(true)
+        expect(
+          shown.fold.startsWith(`▸ bar chart, ${String(hidden)} more rows`)
+            ? `▸ bar chart, ${String(hidden)} more rows`
+            : shown.fold,
+        ).toBe(`▸ bar chart, ${String(hidden)} more rows`)
       },
     )
   }

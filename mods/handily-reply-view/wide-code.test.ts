@@ -157,7 +157,7 @@ describe('a drawing in a code block that is wider than the body', () => {
       20,
       30 - 1 - 1 - 21 - 1 - 2 - 1,
     ])
-    expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('… 17 more lines')
+    expect((await ui.find({ type: 'Text', text: /more line/ }))?.text).toBe('▸ 17 more lines')
     await ui.unmount()
   })
 })

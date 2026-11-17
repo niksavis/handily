@@ -1,5 +1,5 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
-import type { ReplyViewFold } from '../types'
+import type { ReplyViewCopyMark, ReplyViewFold } from '../types'
 import { drawBlock } from './block'
 import { isCutDrawing } from './drawing'
 import { ALERT_WORDS, runsWidth, wrappedRuns, type AlertKind, type HeadingStyle } from './blocks'
@@ -17,6 +17,7 @@ import {
   type ReplyStyle,
 } from './frame'
 import { drawGantt } from './gantt'
+import { GLYPH_SETS } from './glyphs'
 import { drawGitGraph } from './gitgraph'
 import { highlightedRuns } from './highlight'
 import { drawJourney } from './journey'
@@ -55,6 +56,7 @@ import { drawState } from './state'
 import {
   codeDrawingOf,
   codeFoldKey,
+  contentHash,
   FOLDED_LINES,
   foldsCode,
   grouped,
@@ -83,7 +85,6 @@ import {
   tableLook,
   tableWidth,
   textCopy,
-  textOfSpans,
   type Cell,
   type Span,
   type TableFrame,
@@ -105,6 +106,12 @@ const FIELD_INDENT = 2
 const BUTTON_CHROME_COLUMNS = '[  ]'.length
 const BUTTONS_GAP = 2
 const BLOCKS_BELOW_COLUMNS = 40
+const KINDS_BESIDE_FROM_COLUMNS = 60
+const KINDS_INDENT = 2
+const HEAD_SEPARATOR = ' · '
+export const COPY_WORD = 'copy'
+const NOT_DRAWN_WORD = 'not drawn'
+export const REPLY_COPY_LABEL = `${COPY_WORD} reply`
 const RULE = '─'
 const LANGUAGE_TAG = /^[\w+#.-]{1,32}$/
 const TAG_COLUMNS_AT_MOST = 24
@@ -151,6 +158,21 @@ export type DiagramOutcome = DiagramDrawing | Refusal
 
 export type BlockCopy = { text: string; what: string }
 
+export type MarkedCopy = BlockCopy & { mark: string }
+
+export type ReplyMarks = { done: string; blocked: string; folded: string; opened: string }
+
+export const PLAIN_MARKS: ReplyMarks = {
+  done: GLYPH_SETS.plain.done,
+  blocked: GLYPH_SETS.plain.blocked,
+  folded: GLYPH_SETS.plain.folderClosed,
+  opened: GLYPH_SETS.plain.folderOpen,
+}
+
+export function copyMarkKey(label: string, text: string): string {
+  return `${label}:${contentHash(text)}:${String(text.length)}`
+}
+
 export type BlockKind = 'diagram' | 'chart' | 'table' | 'code'
 
 export type KindCopy = { kind: BlockKind; copy: BlockCopy }
@@ -163,7 +185,7 @@ export type ReplyElements = Pick<
 >
 
 export type ReplyActions = {
-  copy: (text: string, what: string, surface: RenderSurface) => void
+  copy: (copy: MarkedCopy, surface: RenderSurface) => void
   fold: (next: ReplyViewFold, block?: string) => void
 }
 
@@ -181,14 +203,19 @@ export type ReplyLayout = {
   codeFolds?: ReadonlyMap<string, ReplyViewFold>
   replyStyle?: ReplyStyle
   sideBySide?: SideBySide
+  marks?: ReplyMarks
+  copyMark?: ReplyViewCopyMark | null
 }
 
 type ReplyEdge = 'none' | 'bullet' | 'frame'
 
 type Drawing = { element: RenderElement; rows: number }
 
+type KindWord = { word: string; role: ReplyRole }
+
 type Piece = {
   rows: number
+  kinds?: readonly KindWord[]
   diagram?: string
   isOpened?: boolean
   beside?: Beside
@@ -202,7 +229,7 @@ type Beside = { columns: number; at: (width: number) => Piece }
 
 type CutDiagram = { name: string; rows: number }
 
-type Preview = { shown: Drawing[]; cutDiagram: CutDiagram | null }
+type Preview = { shown: Drawing[]; cutDiagram: CutDiagram | null; hiddenFrom: number }
 
 type Context = {
   elements: ReplyElements
@@ -219,6 +246,8 @@ type Context = {
   codeFolds: ReadonlyMap<string, ReplyViewFold>
   codeBudget: { nodesLeft: number }
   actions: ReplyActions
+  marks: ReplyMarks
+  copyMark: ReplyViewCopyMark | null
 }
 
 function rowsOf(line: string, width: number): number {
@@ -242,17 +271,6 @@ function sum(numbers: readonly number[]): number {
 
 export function plural(count: number, word: string): string {
   return `${String(count)} ${word}${count === 1 ? '' : 's'}`
-}
-
-function copyButton(context: Context, key: string, label: string, text: string, what: string) {
-  return context.elements.Button({
-    key,
-    label,
-    dimColor: true,
-    onPress: (press) => {
-      context.actions.copy(text, what, press.surface)
-    },
-  })
 }
 
 function cutLine(line: string, columns: number): string {
@@ -744,7 +762,7 @@ function prosePiece(context: Context, prose: Prose): Piece {
   return itemsPiece(context, proseItems(context, prosePartsOf(prose.lines, context.doneGlyph)))
 }
 
-type Buttons = { element: RenderElement; columns: number }
+type Buttons = { element: RenderElement; columns: number; shown: number }
 
 type CopyAction = { key: string; label: string; text: string; what: string }
 
@@ -752,31 +770,105 @@ type FoldAction = { key: string; label: string; next: ReplyViewFold; block?: str
 
 type ButtonAction = CopyAction | FoldAction
 
-function actionButton(context: Context, action: ButtonAction, label: string): RenderElement {
-  if ('next' in action) {
-    return context.elements.Button({
-      key: action.key,
-      label,
-      dimColor: true,
-      onPress: () => {
-        context.actions.fold(action.next, action.block)
-      },
-    })
-  }
-  return copyButton(context, action.key, label, action.text, action.what)
+type CopyState = 'rest' | 'copied' | 'failed'
+
+const COPY_ROLES: Readonly<Record<Exclude<CopyState, 'rest'>, ReplyRole>> = {
+  copied: 'copied',
+  failed: 'notCopied',
 }
 
-function fittedButton(context: Context, action: ButtonAction): Buttons {
-  const label = fitted(action.label, Math.max(context.width - BUTTON_CHROME_COLUMNS, 1))
+function copyLabels(context: Context, label: string): Readonly<Record<CopyState, string>> {
+  const rest = label.startsWith(COPY_WORD) ? label.slice(COPY_WORD.length) : ` ${label}`
   return {
-    columns: displayWidth(label) + BUTTON_CHROME_COLUMNS,
-    element: actionButton(context, action, label),
+    rest: label,
+    copied: `${context.marks.done} copied${rest}`,
+    failed: `${context.marks.blocked} not copied`,
+  }
+}
+
+function copyStateOf(context: Context, action: CopyAction): CopyState {
+  const mark = context.copyMark
+  if (mark === null || mark.key !== copyMarkKey(action.label, action.text)) return 'rest'
+  return mark.isCopied ? 'copied' : 'failed'
+}
+
+function copyButton(
+  context: Context,
+  action: CopyAction,
+  label: string,
+  state: CopyState,
+): RenderElement {
+  const { Button, Text } = context.elements
+  const onPress = (press: { surface: RenderSurface }) => {
+    context.actions.copy(
+      { text: action.text, what: action.what, mark: copyMarkKey(action.label, action.text) },
+      press.surface,
+    )
+  }
+  if (state === 'rest') return Button({ key: action.key, label, dimColor: true, onPress })
+  return Button({
+    key: action.key,
+    label,
+    onPress,
+    children: Text({ color: roleColor(context, COPY_ROLES[state]), children: label }),
+  })
+}
+
+function buttonRoom(context: Context): number {
+  return Math.max(context.width - BUTTON_CHROME_COLUMNS, 1)
+}
+
+function fittedButton(context: Context, action: ButtonAction, isFirst: boolean): Buttons {
+  const room = buttonRoom(context)
+  if ('next' in action) {
+    const label = fitted(action.label, room)
+    const columns = displayWidth(label) + BUTTON_CHROME_COLUMNS
+    return {
+      columns,
+      shown: columns,
+      element: context.elements.Button({
+        key: action.key,
+        label,
+        dimColor: true,
+        onPress: () => {
+          context.actions.fold(action.next, action.block)
+        },
+      }),
+    }
+  }
+  const labels = copyLabels(context, action.label)
+  const state = copyStateOf(context, action)
+  const widest = Math.max(
+    ...Object.values(labels).map((label) => displayWidth(fitted(label, room))),
+  )
+  const columns = widest + BUTTON_CHROME_COLUMNS
+  const label = fitted(labels[state], room)
+  const shown = displayWidth(label) + BUTTON_CHROME_COLUMNS
+  if (isFirst) {
+    const rest = displayWidth(fitted(labels.rest, room)) + BUTTON_CHROME_COLUMNS
+    return { columns: rest, shown, element: copyButton(context, action, label, state) }
+  }
+  return {
+    columns,
+    shown: columns,
+    element: context.elements.Box({
+      key: `${action.key}-slot`,
+      width: columns,
+      flexShrink: 0,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      children: copyButton(context, action, label, state),
+    }),
   }
 }
 
 function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
+  const [first, ...rest] = buttons
+  const gaps = buttons.length - 1
+  const others = sum(rest.map((button) => button.columns)) + gaps
   return {
-    columns: sum(buttons.map((button) => button.columns)) + buttons.length - 1,
+    columns: (first?.columns ?? 0) + others,
+    shown: (first?.shown ?? 0) + others,
     element: context.elements.Box({
       flexDirection: 'row',
       flexShrink: 0,
@@ -789,7 +881,7 @@ function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
 function buttonsTogether(context: Context, actions: readonly ButtonAction[]): Buttons {
   return buttonRow(
     context,
-    actions.map((action) => fittedButton(context, action)),
+    actions.map((action, index) => fittedButton(context, action, index === 0)),
   )
 }
 
@@ -797,7 +889,7 @@ function stackedButtons(context: Context, actions: readonly ButtonAction[]): But
   const together = buttonsTogether(context, actions)
   return together.columns <= context.width
     ? [together]
-    : actions.map((action) => buttonRow(context, [fittedButton(context, action)]))
+    : actions.map((action) => buttonRow(context, [fittedButton(context, action, true)]))
 }
 
 function tableCopy(table: Table): BlockCopy {
@@ -831,7 +923,7 @@ function fenceTag(fence: Fence): string {
 
 function tableActions(table: Table, key: string): CopyAction[] {
   const text = textCopy(table)
-  const markdown = { key: `${key}-copy`, label: 'copy', ...tableCopy(table) }
+  const markdown = { key: `${key}-copy`, label: COPY_WORD, ...tableCopy(table) }
   return text === ''
     ? [markdown]
     : [markdown, { key: `${key}-text`, label: 'copy as text', text, what: 'the table as text' }]
@@ -936,17 +1028,8 @@ function ruleRow(context: Context, text: string, key: string) {
   return Box({ key, children: Text({ dimColor: true, wrap: 'truncate-end', children: text }) })
 }
 
-type ButtonsPlace = 'header' | 'last-row' | 'under'
-
-function buttonsPlace(
-  context: Context,
-  room: number,
-  first: string,
-  last: string | undefined,
-): ButtonsPlace {
-  const fitsAfter = (line: string) => displayWidth(line) + room <= context.width
-  if (fitsAfter(first)) return 'header'
-  return last !== undefined && fitsAfter(last) ? 'last-row' : 'under'
+function tableHead(look: TableLook): Head {
+  return { kind: 'table', role: 'tableKind', detail: [plural(look.rows.length, 'row')] }
 }
 
 function columnsPiece(
@@ -959,63 +1042,40 @@ function columnsPiece(
   const { Box } = context.elements
   const { widths, frame } = layout
   const actions = tableActions(table, key)
-  const buttons = buttonsTogether(context, actions)
-  const room = buttons.columns + BUTTONS_GAP
-  const width = framedWidth(widths, frame)
+  const head = tableHead(look)
+  const title = titleWithButtons(
+    context,
+    head,
+    actions,
+    key,
+    headEnd(context, head, actions, framedWidth(widths, frame)),
+  )
   const headerSpans = spanLines(look, widths, look.header, frame)
   const rowSpans = look.rows.map((row) => spanLines(look, widths, row, frame))
   const isWrapped = [headerSpans, ...rowSpans].some((lines) => lines.length > 1)
   const linesBetweenRows = frame.rulesEveryRow || isWrapped ? 1 : 0
   const top = frame.top === null ? null : ruleLine(widths, frame.top)
   const bottom = frame.bottom === null ? null : ruleLine(widths, frame.bottom)
-  const lastRowLine = rowSpans.at(-1)?.at(-1)
-  const place = frame.hasSides
-    ? 'under'
-    : buttonsPlace(
-        context,
-        room,
-        textOfSpans(headerSpans[0] ?? []),
-        lastRowLine === undefined ? undefined : textOfSpans(lastRowLine),
-      )
-  const endWithButtons = (line: string) =>
-    Math.min(context.width, Math.max(width, displayWidth(line) + room))
-  const placed = (text: RenderElement, line: string, at: ButtonsPlace) =>
-    place === at ? lineWithButtons(context, text, buttons, endWithButtons(line)) : text
-  const lineWithPlace = {
-    header: textOfSpans(headerSpans[0] ?? []),
-    'last-row': textOfSpans(lastRowLine ?? []),
-    under: null,
-  }[place]
-  const columns =
-    lineWithPlace === null
-      ? Math.max(width, ...stackedButtons(context, actions).map((line) => line.columns))
-      : endWithButtons(lineWithPlace)
+  const width = framedWidth(widths, frame)
+  const columns = headEnd(context, head, actions, width)
   const heading = [
+    title.element,
     ...(top === null ? [] : [tableRule(context, top, 'top')]),
-    ...headerSpans.map((spans, index) => {
-      const text = tableLine(
-        context,
-        spans,
-        index === 0 ? 'header' : `header-${String(index)}`,
-        true,
-      )
-      return index === 0 ? placed(text, textOfSpans(spans), 'header') : text
-    }),
+    ...headerSpans.map((spans, index) =>
+      tableLine(context, spans, index === 0 ? 'header' : `header-${String(index)}`, true),
+    ),
     ...(frame.hasSides && rowSpans.length === 0
       ? []
       : [tableRule(context, ruleLine(widths, frame.header), 'header-rule')]),
   ]
   const closing = bottom === null ? [] : [tableRule(context, bottom, 'bottom')]
-  const lastRow = rowSpans.length - 1
   const drawnRows = rowSpans.map((lines, index) =>
     Box({
       key: `row-${String(index)}`,
       flexDirection: 'column',
-      children: lines.map((spans, lineIndex) => {
-        const text = tableLine(context, spans, `line-${String(lineIndex)}`, false)
-        const isLast = index === lastRow && lineIndex === lines.length - 1
-        return isLast ? placed(text, textOfSpans(spans), 'last-row') : text
-      }),
+      children: lines.map((spans, lineIndex) =>
+        tableLine(context, spans, `line-${String(lineIndex)}`, false),
+      ),
     }),
   )
   const rowRule = ruleLine(widths, frame.row)
@@ -1025,19 +1085,18 @@ function columnsPiece(
         ? [tableRule(context, rowRule, `rule-${String(index)}`), row]
         : [row],
     )
-  const under = place === 'under' ? buttonsUnder(context, actions, width) : []
   const rowsBox = (shown: readonly RenderElement[]) =>
     Box({ key: 'rows', flexDirection: 'column', children: ruled(shown) })
   const column = (children: RenderElement[]) => Box({ key, flexDirection: 'column', children })
   const rowRules = linesBetweenRows * Math.max(rowSpans.length - 1, 0)
-  const frameRows = heading.length + closing.length
+  const frameRows = title.rows + heading.length - 1 + closing.length
   return {
-    rows: frameRows + sum(rowSpans.map((lines) => lines.length)) + rowRules + under.length,
+    rows: frameRows + sum(rowSpans.map((lines) => lines.length)) + rowRules,
     beside: {
       columns,
       at: (narrowed) => columnsPiece({ ...context, width: narrowed }, table, look, layout, key),
     },
-    whole: () => column([...heading, rowsBox(drawnRows), ...closing, ...under]),
+    whole: () => column([...heading, rowsBox(drawnRows), ...closing]),
     cut: (budget) => {
       let used = frameRows
       let count = 0
@@ -1056,21 +1115,11 @@ function columnsPiece(
   }
 }
 
-function titleLine(context: Context, buttons: Buttons | null, title: RenderElement): RenderElement {
-  return buttons === null ? title : lineWithButtons(context, title, buttons, context.width)
-}
-
 function labelRoom(context: Context): number {
   return Math.max(Math.floor((context.width - FIELD_INDENT - 1) / 2), 2)
 }
 
-function rowBlock(
-  context: Context,
-  look: TableLook,
-  row: readonly Cell[],
-  index: number,
-  buttons: Buttons | null,
-): Drawing {
+function rowBlock(context: Context, look: TableLook, row: readonly Cell[], index: number): Drawing {
   const { Box, Text } = context.elements
   const labels = Math.min(labelWidth(look), labelRoom(context))
   const fields = fieldsOf(look, row)
@@ -1082,7 +1131,7 @@ function rowBlock(
       key: `row-${String(index)}`,
       flexDirection: 'column',
       children: [
-        titleLine(context, buttons, title),
+        title,
         ...fields.map((field, fieldIndex) =>
           Box({
             key: `field-${String(fieldIndex)}`,
@@ -1113,7 +1162,7 @@ function rowBlock(
   }
 }
 
-function headingsBlock(context: Context, look: TableLook, buttons: Buttons | null): Drawing {
+function headingsBlock(context: Context, look: TableLook): Drawing {
   const { Box } = context.elements
   const [first, ...more] = look.header
   const title =
@@ -1124,7 +1173,7 @@ function headingsBlock(context: Context, look: TableLook, buttons: Buttons | nul
       key: 'headings',
       flexDirection: 'column',
       children: [
-        title === null ? null : titleLine(context, buttons, title),
+        title,
         ...more.map((heading, index) =>
           cellLine(context, heading, 'heading', `heading-${String(index)}`),
         ),
@@ -1135,20 +1184,11 @@ function headingsBlock(context: Context, look: TableLook, buttons: Buttons | nul
 
 function blocksPiece(context: Context, table: Table, look: TableLook, key: string): Piece {
   const { Box } = context.elements
-  const actions = tableActions(table, key)
-  const buttons = buttonsTogether(context, actions)
-  const firstRow = look.rows[0]
-  const firstTitle =
-    firstRow === undefined ? (look.header[0]?.text ?? '') : rowTitle(firstRow, 0).text
-  const isOnTitle = displayWidth(firstTitle) + BUTTONS_GAP + buttons.columns <= context.width
-  const titled = isOnTitle ? buttons : null
+  const title = titleWithButtons(context, tableHead(look), tableActions(table, key), key)
   const blocks =
     look.rows.length > 0
-      ? look.rows.map((row, index) =>
-          rowBlock(context, look, row, index, index === 0 ? titled : null),
-        )
-      : [headingsBlock(context, look, titled)]
-  const under = isOnTitle ? [] : buttonsUnder(context, actions, context.width)
+      ? look.rows.map((row, index) => rowBlock(context, look, row, index))
+      : [headingsBlock(context, look)]
   const column = (shown: readonly Drawing[]) =>
     blocksColumn(
       context.elements,
@@ -1156,11 +1196,13 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
       shown.map((block) => block.element),
       `${key}-blocks`,
     )
+  const titled = (shown: readonly Drawing[]) =>
+    Box({ key, flexDirection: 'column', children: [title.element, column(shown)] })
   return {
-    rows: sum(blocks.map((block) => block.rows)) + blocks.length - 1 + under.length,
-    whole: () => Box({ key, flexDirection: 'column', children: [column(blocks), ...under] }),
+    rows: title.rows + sum(blocks.map((block) => block.rows)) + blocks.length - 1,
+    whole: () => titled(blocks),
     cut: (budget) => {
-      let used = 0
+      let used = title.rows
       let count = 0
       for (const block of blocks) {
         const needed = block.rows + (count > 0 ? 1 : 0)
@@ -1168,7 +1210,7 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
         used += needed
         count += 1
       }
-      return count === 0 ? null : { element: column(blocks.slice(0, count)), rows: used }
+      return count === 0 ? null : { element: titled(blocks.slice(0, count)), rows: used }
     },
   }
 }
@@ -1198,39 +1240,117 @@ function titleRule(title: string, columns: number): string {
   return head + RULE.repeat(Math.max(columns - displayWidth(head), RULE_COLUMNS_AT_LEAST))
 }
 
+type Head = { kind: string; role: ReplyRole; detail: readonly string[]; state?: string }
+
+function headText(head: Head): string {
+  return [head.kind, ...head.detail, head.state ?? '']
+    .filter((part) => part !== '')
+    .join(HEAD_SEPARATOR)
+}
+
+type HeadPart = { text: string; look: 'dim' | 'kind' | 'state' }
+
+function headParts(head: Head, rule: string): HeadPart[] {
+  const lead = `${RULE.repeat(2)} `
+  const parts: HeadPart[] = [{ text: lead, look: 'dim' }]
+  const add = (text: string, look: HeadPart['look']) => {
+    if (text === '') return
+    if (parts.length > 1) parts.push({ text: HEAD_SEPARATOR, look: 'dim' })
+    parts.push({ text, look })
+  }
+  add(head.kind, 'kind')
+  for (const part of head.detail) add(part, 'dim')
+  add(head.state ?? '', 'state')
+  parts.push({ text: rule.slice(lead.length + headText(head).length), look: 'dim' })
+  return parts.reduce<HeadPart[]>((merged, part) => {
+    const last = merged.at(-1)
+    if (last?.look === 'dim' && part.look === 'dim') last.text += part.text
+    else merged.push({ ...part })
+    return merged
+  }, [])
+}
+
+function fittedParts(parts: readonly HeadPart[], columns: number): HeadPart[] {
+  const total = sum(parts.map((part) => displayWidth(part.text)))
+  if (total <= columns) return [...parts]
+  const shown: HeadPart[] = []
+  let room = Math.max(columns - displayWidth(CUT_MARK), 0)
+  for (const part of parts) {
+    const kept = cutToWidth(part.text, room)
+    room -= displayWidth(kept)
+    if (kept.length < part.text.length) {
+      shown.push({ ...part, text: `${kept}${CUT_MARK}` })
+      break
+    }
+    shown.push(part)
+  }
+  return shown
+}
+
+function headLine(context: Context, head: Head, columns: number, key: string): RenderElement {
+  const { Box, Text } = context.elements
+  const text = headText(head)
+  const rule = titleRule(text, columns)
+  if (text === '') {
+    return Box({ key, children: Text({ dimColor: true, wrap: 'truncate-end', children: rule }) })
+  }
+  const looks = {
+    dim: { dimColor: true },
+    kind: { bold: true, color: roleColor(context, head.role) },
+    state: { color: roleColor(context, 'notDrawn') },
+  } as const
+  return Box({
+    key,
+    flexShrink: 1,
+    children: Text({
+      wrap: 'truncate-end',
+      children: fittedParts(headParts(head, rule), columns).map((part) =>
+        Text({ ...looks[part.look], children: part.text }),
+      ),
+    }),
+  })
+}
+
 function ruleWithButtons(
   context: Context,
-  rule: string,
+  head: Head,
+  room: number,
   buttons: RenderElement,
   key: string,
 ): RenderElement {
-  const { Box, Text } = context.elements
+  const { Box } = context.elements
   return Box({
     key: `${key}-title`,
     flexDirection: 'row',
     children: [
-      Box({
-        flexShrink: 1,
-        children: Text({ dimColor: true, wrap: 'truncate-end', children: rule }),
-      }),
+      headLine(context, head, room, 'title-rule'),
       Box({ flexShrink: 0, marginLeft: BUTTONS_GAP, children: buttons }),
     ],
   })
 }
 
+type FenceLook = { role: ReplyRole; state?: string; note?: string }
+
+const CODE_LOOK: FenceLook = { role: 'codeKind' }
+
 function fenceTitle(
   context: Context,
   fence: Fence,
-  copy: BlockCopy,
+  actions: readonly ButtonAction[],
   key: string,
   count: number | null,
+  look: FenceLook,
 ): Drawing {
-  const tag = fenceTag(fence)
   const lines = count === null ? '' : `${grouped(count)} lines`
   return titleWithButtons(
     context,
-    [tag, lines].filter((part) => part !== '').join(' · '),
-    [{ key: `${key}-copy`, label: 'copy', ...copy }],
+    {
+      kind: fenceTag(fence),
+      role: look.role,
+      detail: lines === '' ? [] : [lines],
+      ...(look.state === undefined ? {} : { state: look.state }),
+    },
+    actions,
     key,
   )
 }
@@ -1309,38 +1429,25 @@ function codeBody(
   return context.elements.Code({ source: lines.join('\n'), ...language, ...gutter, ...look.wrap })
 }
 
-function codeFoldRow(
-  context: Context,
-  fold: ReplyViewFold,
-  hidden: number,
-  block: string,
-  key: string,
-): RenderElement {
+function codeFoldRow(context: Context, hidden: number, key: string): RenderElement {
   const { Box, Text } = context.elements
-  const button = buttonsTogether(context, [
-    {
-      key: `${key}-fold`,
-      label: fold === 'folded' ? 'more' : 'less',
-      next: fold === 'folded' ? 'open' : 'folded',
-      block,
-    },
-  ])
-  const count =
-    fold === 'folded'
-      ? Box({
-          flexShrink: 1,
-          children: Text({
-            dimColor: true,
-            wrap: 'truncate-end',
-            children: `… ${plural(hidden, 'more line')}`,
-          }),
-        })
-      : null
   return Box({
     key: `${key}-fold-row`,
-    flexDirection: 'row',
-    children: [count, Box({ flexGrow: 1, minWidth: BUTTONS_GAP }), button.element],
+    children: Text({
+      dimColor: true,
+      wrap: 'truncate-end',
+      children: `${context.marks.folded} ${plural(hidden, 'more line')}`,
+    }),
   })
+}
+
+function codeFoldAction(fold: ReplyViewFold, block: string, key: string): FoldAction {
+  return {
+    key: `${key}-fold`,
+    label: fold === 'folded' ? 'more' : 'less',
+    next: fold === 'folded' ? 'open' : 'folded',
+    block,
+  }
 }
 
 function fencePiece(
@@ -1348,6 +1455,7 @@ function fencePiece(
   fence: Fence,
   key: string,
   copy: BlockCopy = codeCopy(fence),
+  fenceLook: FenceLook = CODE_LOOK,
 ): Piece {
   const { Box, Text } = context.elements
   const lines = fence.content === '' ? [] : shownText(fence.content).split('\n')
@@ -1377,13 +1485,31 @@ function fencePiece(
         .map((tokens) => tokens.map((token) => token.text).join(''))
     : shown
   const rows = drawnLines.map((line) => (isCut ? 1 : rowsOf(line, context.width - gutter)))
-  const title = fenceTitle(context, fence, copy, key, folds ? lines.length : null)
+  const actions: ButtonAction[] = [
+    ...(folds ? [codeFoldAction(fold, block, key)] : []),
+    { key: `${key}-copy`, label: COPY_WORD, ...copy },
+  ]
+  const title = fenceTitle(context, fence, actions, key, folds ? lines.length : null, fenceLook)
+  const notes = [
+    ...(fenceLook.note === undefined ? [] : [fenceLook.note]),
+    ...(drawing.kind === 'plain' ? [drawing.note] : []),
+  ]
   const note =
-    drawing.kind === 'plain'
-      ? Box({ key: `${key}-plain`, children: Text({ dimColor: true, children: drawing.note }) })
-      : null
-  const head = title.rows + (drawing.kind === 'plain' ? rowsOf(drawing.note, context.width) : 0)
-  const foot = folds ? codeFoldRow(context, fold, lines.length - shown.length, block, key) : null
+    notes.length === 0
+      ? null
+      : Box({
+          key: `${key}-plain`,
+          flexDirection: 'column',
+          children: notes.map((text, index) =>
+            Box({
+              key: `note-${String(index)}`,
+              children: Text({ dimColor: true, children: text }),
+            }),
+          ),
+        })
+  const head = title.rows + sum(notes.map((text) => rowsOf(text, context.width)))
+  const foot =
+    folds && fold === 'folded' ? codeFoldRow(context, lines.length - shown.length, key) : null
   const footRows = foot === null ? 0 : 1
   const draw = (count: number, hasFoot: boolean) =>
     Box({
@@ -1562,7 +1688,7 @@ export function diagramOf(source: string, width: number, surface: RenderSurface)
 
 function diagramActions(fence: Fence, drawing: DiagramDrawing, key: string): CopyAction[] {
   return [
-    { key: `${key}-copy`, label: 'copy', ...mermaidCopy(fence, drawing) },
+    { key: `${key}-copy`, label: COPY_WORD, ...mermaidCopy(fence, drawing) },
     {
       key: `${key}-drawing`,
       label: 'copy drawing',
@@ -1572,30 +1698,41 @@ function diagramActions(fence: Fence, drawing: DiagramDrawing, key: string): Cop
   ]
 }
 
+function headEnd(
+  context: Context,
+  head: Head,
+  actions: readonly ButtonAction[],
+  bodyWidth: number,
+): number {
+  const together = titleColumns(context, head, actions)
+  if (together <= context.width) return Math.max(bodyWidth, together)
+  return Math.max(
+    bodyWidth,
+    Math.min(context.width, displayWidth(titleRule(headText(head), 0))),
+    ...stackedButtons(context, actions).map((line) => line.columns),
+  )
+}
+
 function titleWithButtons(
   context: Context,
-  title: string,
+  head: Head,
   actions: readonly ButtonAction[],
   key: string,
+  end = context.width,
 ): Drawing {
   const together = buttonsTogether(context, actions)
-  const room = context.width - together.columns - BUTTONS_GAP
-  if (displayWidth(titleRule(title, 0)) <= room) {
-    return {
-      rows: 1,
-      element: ruleWithButtons(context, titleRule(title, room), together.element, key),
-    }
+  const room = end - together.columns - BUTTONS_GAP
+  if (displayWidth(titleRule(headText(head), 0)) <= room) {
+    const ruleRoom = end - together.shown - BUTTONS_GAP
+    return { rows: 1, element: ruleWithButtons(context, head, ruleRoom, together.element, key) }
   }
-  const lines = buttonsUnder(context, actions, context.width)
+  const lines = buttonsUnder(context, actions, end)
   return {
     rows: 1 + lines.length,
     element: context.elements.Box({
       key: `${key}-title`,
       flexDirection: 'column',
-      children: [
-        ruleRow(context, fitted(titleRule(title, context.width), context.width), 'title-rule'),
-        ...lines,
-      ],
+      children: [headLine(context, head, Math.min(end, context.width), 'title-rule'), ...lines],
     }),
   }
 }
@@ -1637,8 +1774,20 @@ function drawingBody(context: Context, drawing: DiagramDrawing, key: string): Re
   })
 }
 
-function titleColumns(context: Context, title: string, actions: readonly ButtonAction[]): number {
-  return displayWidth(titleRule(title, 0)) + BUTTONS_GAP + buttonsTogether(context, actions).columns
+function titleColumns(context: Context, head: Head, actions: readonly ButtonAction[]): number {
+  return (
+    displayWidth(titleRule(headText(head), 0)) +
+    BUTTONS_GAP +
+    buttonsTogether(context, actions).columns
+  )
+}
+
+function diagramHead(fence: Fence, name: string): Head {
+  return {
+    kind: MERMAID_TAG,
+    role: isChartSource(fence.content) ? 'chartKind' : 'diagramKind',
+    detail: [name],
+  }
 }
 
 function chartBeside(
@@ -1647,8 +1796,8 @@ function chartBeside(
   drawing: DiagramDrawing,
   key: string,
 ): { beside?: Beside } {
-  const title = `${MERMAID_TAG} · ${drawing.name}`
-  const columns = titleColumns(context, title, diagramActions(fence, drawing, key))
+  const head = diagramHead(fence, drawing.name)
+  const columns = titleColumns(context, head, diagramActions(fence, drawing, key))
   if (columns >= context.width) return {}
   const narrow = diagramOf(fence.content, columns, context.surface)
   if (narrow.kind !== 'drawing' || narrow.shape !== drawing.shape) return {}
@@ -1667,9 +1816,9 @@ function diagramBeside(
   key: string,
 ): { beside?: Beside } {
   if (isChartSource(fence.content)) return chartBeside(context, fence, drawing, key)
-  const title = `${MERMAID_TAG} · ${drawing.name}`
+  const head = diagramHead(fence, drawing.name)
   const columns = Math.max(
-    titleColumns(context, title, diagramActions(fence, drawing, key)),
+    titleColumns(context, head, diagramActions(fence, drawing, key)),
     ...drawing.lines.map(displayWidth),
   )
   return {
@@ -1684,7 +1833,7 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
   const { Box } = context.elements
   const title = titleWithButtons(
     context,
-    `${MERMAID_TAG} · ${drawing.name}`,
+    diagramHead(fence, drawing.name),
     diagramActions(fence, drawing, key),
     key,
   )
@@ -1712,13 +1861,11 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
 }
 
 function notDrawnPiece(context: Context, fence: Fence, refusal: Refusal, key: string): Piece {
-  const note = `${isChartSource(fence.content) ? 'chart' : 'diagram'} not drawn: ${refusal.reason}.`
-  return notedPiece(
-    context,
-    note,
-    fencePiece(context, fence, key, mermaidCopy(fence, refusal)),
-    key,
-  )
+  return fencePiece(context, fence, key, mermaidCopy(fence, refusal), {
+    role: isChartSource(fence.content) ? 'chartKind' : 'diagramKind',
+    state: NOT_DRAWN_WORD,
+    note: `${isChartSource(fence.content) ? 'chart' : 'diagram'} ${NOT_DRAWN_WORD}: ${refusal.reason}.`,
+  })
 }
 
 function mermaidPiece(context: Context, fence: Fence, key: string): Piece {
@@ -1728,8 +1875,19 @@ function mermaidPiece(context: Context, fence: Fence, key: string): Piece {
     : notDrawnPiece(context, fence, outcome, key)
 }
 
-function pieceOf(context: Context, block: Block, index: number): Piece {
-  const key = `block-${String(index)}`
+function fenceKind(context: Context, fence: Fence): KindWord {
+  if (!drawsAsDiagram(context.drawsDiagrams, fence)) {
+    const tag = fenceTag(fence)
+    return { word: tag === '' ? 'code block' : `${tag} block`, role: 'codeKind' }
+  }
+  const isChart = isChartSource(fence.content)
+  const role = isChart ? 'chartKind' : 'diagramKind'
+  const outcome = diagramOf(fence.content, context.width, context.surface)
+  if (outcome.kind === 'drawing') return { word: outcome.plain, role }
+  return { word: isChart ? 'chart' : 'diagram', role }
+}
+
+function blockPiece(context: Context, block: Block, key: string): Piece {
   switch (block.kind) {
     case 'prose':
       return prosePiece(context, block)
@@ -1740,6 +1898,14 @@ function pieceOf(context: Context, block: Block, index: number): Piece {
         ? mermaidPiece(context, block, key)
         : fencePiece(context, block, key)
   }
+}
+
+function pieceOf(context: Context, block: Block, index: number): Piece {
+  const piece = blockPiece(context, block, `block-${String(index)}`)
+  if (block.kind === 'prose') return piece
+  const kind: KindWord =
+    block.kind === 'table' ? { word: 'table', role: 'tableKind' } : fenceKind(context, block)
+  return { ...piece, kinds: [kind] }
 }
 
 export function blockCopyOf(block: Block, layout: CopyLayout): KindCopy | null {
@@ -1803,7 +1969,12 @@ function cellsAt(cells: readonly RowCell[], budget: number): (Cut & ShownCell)[]
   return shown
 }
 
-function rowPiece(context: Context, besides: readonly Beside[], key: string): Piece {
+function rowPiece(
+  context: Context,
+  besides: readonly Beside[],
+  key: string,
+  kinds: readonly KindWord[],
+): Piece {
   const { Box } = context.elements
   const cells = besides.map((beside) => ({
     columns: beside.columns,
@@ -1827,6 +1998,7 @@ function rowPiece(context: Context, besides: readonly Beside[], key: string): Pi
     })
   return {
     rows: Math.max(...cells.map((cell) => cell.piece.rows)),
+    kinds,
     whole: () => row(cells.map((cell) => ({ columns: cell.columns, element: cell.piece.whole() }))),
     cut: (budget) => {
       const shown = cellsAt(cells, budget)
@@ -1851,7 +2023,12 @@ function rowsOfPieces(context: Context, pieces: readonly Piece[]): Piece[] {
     const [only, ...more] = row
     if (only !== undefined && more.length === 0) return only
     const besides = row.flatMap((piece) => (piece.beside === undefined ? [] : [piece.beside]))
-    return rowPiece(context, besides, `row-${String(index)}`)
+    return rowPiece(
+      context,
+      besides,
+      `row-${String(index)}`,
+      row.flatMap((piece) => piece.kinds ?? []),
+    )
   })
 }
 
@@ -1859,6 +2036,7 @@ function foldedPreview(pieces: readonly Piece[]): Preview {
   const shown: Drawing[] = []
   let used = 0
   for (const piece of pieces) {
+    const hiddenFrom = shown.length + 1
     const gap = shown.length > 0 ? 1 : 0
     const end = used + gap + piece.rows
     if (end <= FOLD_AFTER_ROWS) {
@@ -1870,21 +2048,33 @@ function foldedPreview(pieces: readonly Piece[]): Preview {
     if (budget <= 0) break
     if (piece.isOpened === true || (piece.diagram !== undefined && end <= PREVIEW_ROWS_AT_MOST)) {
       shown.push({ element: piece.whole(), rows: piece.rows + gap })
-      break
+      return { shown, cutDiagram: null, hiddenFrom }
     }
     const cut = piece.cut(budget)
     if (cut === null) break
     shown.push({ element: cut.element, rows: cut.rows + gap })
     const cutDiagram =
       cut.diagram === undefined ? null : { name: cut.diagram, rows: piece.rows - cut.rows }
-    return { shown, cutDiagram }
+    return { shown, cutDiagram, hiddenFrom }
   }
-  return { shown, cutDiagram: null }
+  return { shown, cutDiagram: null, hiddenFrom: shown.length }
 }
 
-function hiddenText(hidden: number, cutDiagram: CutDiagram | null): string {
-  if (cutDiagram === null) return `… ${plural(hidden, 'more line')}`
-  const rest = `… ${cutDiagram.name}, ${plural(cutDiagram.rows, 'more row')}`
+type KindCount = { text: string; role: ReplyRole }
+
+function kindCounts(kinds: readonly KindWord[]): KindCount[] {
+  const counts = new Map<string, { count: number; role: ReplyRole }>()
+  for (const kind of kinds) {
+    const known = counts.get(kind.word)
+    if (known === undefined) counts.set(kind.word, { count: 1, role: kind.role })
+    else known.count += 1
+  }
+  return [...counts].map(([word, { count, role }]) => ({ text: plural(count, word), role }))
+}
+
+function hiddenText(lead: string, hidden: number, cutDiagram: CutDiagram | null): string {
+  if (cutDiagram === null) return `${lead} ${plural(hidden, 'more line')}`
+  const rest = `${lead} ${cutDiagram.name}, ${plural(cutDiagram.rows, 'more row')}`
   const after = hidden - cutDiagram.rows
   return after > 0 ? `${rest}, then ${plural(after, 'more line')}` : rest
 }
@@ -1896,25 +2086,72 @@ function foldActions(fold: ReplyViewFold, text: string): ButtonAction[] {
       label: fold === 'folded' ? 'more' : 'less',
       next: fold === 'folded' ? 'open' : 'folded',
     },
-    { key: 'copy-reply', label: 'copy reply', ...replyCopy(text) },
+    { key: 'copy-reply', label: REPLY_COPY_LABEL, ...replyCopy(text) },
   ]
 }
 
-function foldRow(context: Context, fold: ReplyViewFold, text: string, hidden: string) {
+function kindSpans(context: Context, kinds: readonly KindCount[]): CellChild[] {
+  const { Text } = context.elements
+  return kinds.flatMap((kind, index) => [
+    ...(index === 0 ? [] : [Text({ dimColor: true, children: HEAD_SEPARATOR })]),
+    Text({ color: roleColor(context, kind.role), children: kind.text }),
+  ])
+}
+
+function dimLine(context: Context, text: string, shrinks: boolean): RenderElement {
   const { Box, Text } = context.elements
-  const count =
-    fold === 'folded'
-      ? Box({
+  return Box({
+    flexShrink: shrinks ? 1 : 0,
+    children: Text({ dimColor: true, wrap: 'truncate-end', children: text }),
+  })
+}
+
+type FoldLine = { fold: ReplyViewFold; text: string; hidden: string; kinds: readonly KindCount[] }
+
+function foldRow(context: Context, line: FoldLine) {
+  const { Box, Text } = context.elements
+  const { fold, kinds } = line
+  const count = dimLine(context, fold === 'folded' ? line.hidden : context.marks.opened, true)
+  const actions = foldActions(fold, line.text)
+  const together = buttonsTogether(context, actions)
+  const named = fold === 'folded' && kinds.length > 0
+  const fitsBeside = displayWidth(line.hidden) + 2 * BUTTONS_GAP + together.columns <= context.width
+  if (named && context.columns >= KINDS_BESIDE_FROM_COLUMNS && fitsBeside) {
+    return Box({
+      key: 'fold-row',
+      flexDirection: 'row',
+      children: [
+        dimLine(context, line.hidden, false),
+        Box({
           flexShrink: 1,
           children: Text({
-            dimColor: true,
             wrap: 'truncate-end',
-            children: hidden,
+            children: [
+              Text({ dimColor: true, children: HEAD_SEPARATOR }),
+              ...kindSpans(context, kinds),
+            ],
           }),
-        })
-      : null
-  const actions = foldActions(fold, text)
-  const together = buttonsTogether(context, actions)
+        }),
+        Box({ flexGrow: 1, minWidth: BUTTONS_GAP }),
+        together.element,
+      ],
+    })
+  }
+  if (named) {
+    return Box({
+      key: 'fold-row',
+      flexDirection: 'column',
+      children: [
+        Box({ key: 'fold-count', children: count }),
+        Box({
+          key: 'fold-kinds',
+          paddingLeft: KINDS_INDENT,
+          children: Text({ children: kindSpans(context, kinds) }),
+        }),
+        ...buttonsUnder(context, actions, context.width),
+      ],
+    })
+  }
   if (together.columns + BUTTONS_GAP <= context.width) {
     return Box({
       key: 'fold-row',
@@ -1995,6 +2232,8 @@ export function replyTree(
     codeBudget: { nodesLeft: CODE_NODES_AT_MOST },
     drawsProse: layout.surface === PROSE_SURFACE && !blocks.some(isDefiningProse),
     actions,
+    marks: layout.marks ?? PLAIN_MARKS,
+    copyMark: layout.copyMark ?? null,
   }
   const blockPieces = blocks.map((block, index) => pieceOf(context, block, index))
   const pieces = sharesRows(layout) ? rowsOfPieces(context, blockPieces) : blockPieces
@@ -2009,7 +2248,10 @@ export function replyTree(
     isLong && fold === 'folded'
       ? preview.shown
       : pieces.map((piece) => ({ element: piece.whole(), rows: piece.rows }))
-  const hidden = hiddenText(total - previewRows, preview?.cutDiagram ?? null)
+  const hidden = hiddenText(context.marks.folded, total - previewRows, preview?.cutDiagram ?? null)
+  const kinds = kindCounts(
+    pieces.slice(preview?.hiddenFrom ?? pieces.length).flatMap((piece) => piece.kinds ?? []),
+  )
   const isOpened = isLong && fold === 'open'
   const divider = (key: string) => (isOpened ? ruleRow(context, RULE.repeat(width), key) : null)
   const body = Box({
@@ -2022,7 +2264,7 @@ export function replyTree(
         shown.map((drawing) => drawing.element),
       ),
       divider('opened-bottom'),
-      isLong ? foldRow(context, fold, text, hidden) : null,
+      isLong ? foldRow(context, { fold, text, hidden, kinds }) : null,
     ],
   })
   return withEdge(elements, layout, body)

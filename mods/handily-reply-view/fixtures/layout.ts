@@ -3,12 +3,12 @@ import type { Engine } from 'claude-code/testing'
 import { diagramOf, replyTree, type ReplyElements, type ReplyLayout } from '../hooks/draw'
 import { blocksOf } from '../hooks/markdown'
 import { displayWidth } from '../hooks/width'
+import { DIAGRAM_BUTTONS } from './buttons'
 import { nodesOf, padded, sketchOf, type DrawnNode } from './sketch'
 
 export const COLUMNS = 120
 export const GAP = '   '
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
-const DIAGRAM_BUTTONS = '[ copy ] [ copy drawing ]'
 const BUTTONS_GAP = 2
 
 export type Surface = 'terminal' | 'desktop'

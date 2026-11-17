@@ -135,7 +135,11 @@ function boxLines(node: DrawnNode, width: number): string[] {
           ...sketchLines(child, inner),
         ])
       : rowLines(flowing, inner, gap)
-  const indented = flowed.map((line) => (line === '' ? line : ' '.repeat(indent) + line))
+  const placed =
+    props.justifyContent === 'flex-end'
+      ? flowed.map((line) => ' '.repeat(Math.max(inner - displayWidth(line), 0)) + line)
+      : flowed
+  const indented = placed.map((line) => (line === '' ? line : ' '.repeat(indent) + line))
   const lines = isFramed ? framedLines(indented, outer, padding) : indented
   for (const placed of children.filter(isAbsolute)) {
     const top = numberProp(placed, 'top')

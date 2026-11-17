@@ -855,7 +855,7 @@ describe('the block review findings (handily-36bsx.2)', () => {
       expect(drawn[0]).toMatch(/^● ╭─+╮$/)
       expect(drawn[1]).toMatch(/^ {2}│ word word/)
       expect(drawn.at(-2)).toMatch(/^ {2}╰─+╯$/)
-      expect(drawn.at(-1)).toMatch(/^ {2}… \d+ more lines/)
+      expect(drawn.at(-1)).toMatch(/^ {2}▸ \d+ more lines/)
       await ui.unmount()
     },
   )
@@ -869,7 +869,7 @@ describe('the block review findings (handily-36bsx.2)', () => {
       expect(drawn[0]).toMatch(/^● ╭─ Note ─+╮$/)
       expect(drawn[1]).toMatch(/^ {2}│ word word/)
       expect(drawn.at(-2)).toMatch(/^ {2}╰─+╯$/)
-      expect(drawn.at(-1)).toMatch(/^ {2}… \d+ more lines/)
+      expect(drawn.at(-1)).toMatch(/^ {2}▸ \d+ more lines/)
       await ui.unmount()
     },
   )

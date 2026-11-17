@@ -183,7 +183,7 @@ export function gutterNumber(line: number, lineCount: number): string {
   return String(line).padStart(String(lineCount).length)
 }
 
-function contentHash(text: string): string {
+export function contentHash(text: string): string {
   let hash = HASH_SEED
   for (let index = 0; index < text.length; index += 1) {
     hash = Math.imul(hash ^ text.charCodeAt(index), HASH_PRIME) >>> 0

@@ -13,6 +13,9 @@ flowchart, sequence diagram, state diagram, class diagram, ER diagram, git graph
 timeline, user journey, quadrant chart, kanban, packet diagram, sankey diagram, radar diagram,
 treemap, block diagram, requirement diagram, C4 diagram or architecture diagram draws as a
 diagram, with a `copy` button for its source and a `copy drawing` button for the drawing. Each
+table, code block, diagram and chart opens with a head: a rule with its kind word in the colour
+of its kind, and its buttons at the right edge. A pressed copy button reads `✓ copied` until you
+copy another block, and the fold row of a long reply names the blocks that it hides. Each
 prompt that you type opens under a coloured rule labelled `you`, so you find it when you scroll.
 The `promptStyle` setting draws it with a bar at its left or in a frame at the right instead.
 The `replyStyle` setting `frame` draws each reply in a frame labelled `● Claude`. It is off by
@@ -36,7 +39,20 @@ buttons at the right edge:
   - Step 1 of the release ran without a warning.
   …
   - Step 27 of the release ran without a warning.
-  … 15 more lines                                       [ more ] [ copy reply ]
+  ▸ 15 more lines · 1 table · 1 sh block · 1 flowchart        [ more ]     [ copy reply ]
+```
+
+- The count starts with `▸`, the glyph of a closed folder. After the count the fold row names the
+  blocks that the fold hides, each kind in the colour of its head: `table`, the tag of a code
+  block and `block`, such as `sh block`, the kind of a diagram, such as `flowchart`, or the kind
+  of a chart. A block that the preview shows in part is not named. When the row is too narrow,
+  the list of kinds is cut at its end, never the count. Under 60 columns the kinds stand on their
+  own line under the count, and the buttons under them:
+
+```text
+  ▸ 15 more lines
+    1 table · 1 sh block · 1 flowchart
+                 [ more ]     [ copy reply ]
 ```
 
 - `more` shows the whole reply between two dim divider lines, with `less` and `copy reply` under
@@ -49,7 +65,7 @@ buttons at the right edge:
   …
   - Step 42 of the release ran without a warning.
   ──────────────────────────────────────────────────────────────────────────────
-                                                        [ less ] [ copy reply ]
+  ▾                                                     [ less ]     [ copy reply ]
 ```
 
 - `copy reply` copies the whole reply as markdown, as Claude wrote it. Its label differs from the
@@ -57,6 +73,8 @@ buttons at the right edge:
   the block and which takes the reply.
 - A toast names what a copy button copied on its first line and the line count on the next
   line, such as `✓ Copied the sh block` and `2 lines`. It stays 6 seconds.
+- The pressed button shows the outcome: `✓ copied reply` in the success colour, or
+  `■ not copied` in the error colour. [The copy state](#the-copy-state) gives the rule.
 - A copy that fails draws `■ Not copied`, then the reason, such as
   `no screen is attached to this session`. It stays 10 seconds. When the copy throws, the reason
   is `the transcript shows why`, and the transcript holds the error.
@@ -70,7 +88,7 @@ buttons at the right edge:
 ● Line 1
   …
   Line 30
-  … 24 more lines
+  ▸ 24 more lines
             [ more ]
       [ copy reply ]
 ```
@@ -87,10 +105,13 @@ buttons at the right edge:
 ## A table
 
 By default a table on a screen of 40 columns or more draws in a full box. A double rule stands
-under the header, and a rule stands between each two rows. The `copy` and `copy as text` buttons
-stand under the box and end at its right edge. At 80 columns the box looks like this:
+under the header, and a rule stands between each two rows. The table opens with its head:
+`table` bold in `claude`, the count of its data rows, and the `copy` and `copy as text` buttons.
+The head ends at the right edge of the table, or after the buttons when the table is narrower.
+At 80 columns the box looks like this:
 
 ```text
+  ── table · 2 rows ────  [ copy ]     [ copy as text ]
   ┌───────────────┬───────┬──────┬────────────────────┐
   │ Mod           │ Tests │ Gate │ Next               │
   ╞═══════════════╪═══════╪══════╪════════════════════╡
@@ -98,8 +119,10 @@ stand under the box and end at its right edge. At 80 columns the box looks like 
   ├───────────────┼───────┼──────┼────────────────────┤
   │ reply-view    │    98 │ fail │ npm test exits 1   │
   └───────────────┴───────┴──────┴────────────────────┘
-                              [ copy ] [ copy as text ]
 ```
+
+- When the head and the buttons do not fit on one line, the buttons stand under the head at its
+  right edge, and each button on its own line when the two do not fit together.
 
 - A table with no data rows draws its header in the box, with no double rule.
 - The box takes 4 columns more than the `rules` style, so a wide table draws one block for each
@@ -116,11 +139,12 @@ The `tableStyle` setting `rules` draws a table without a box. The columns stay a
 header is bold, and a column that the table aligns to the right stays right-aligned. A `│` stands
 between the columns on every line, and a double `═` line with a `╪` at each column stands under
 the header. The rules span the width of the table, not the width of the screen. Each rule
-character takes one column, so the rules do not change the widths of the columns. The `copy` and
-`copy as text` buttons stand on the header line when they fit after the headings:
+character takes one column, so the rules do not change the widths of the columns. The head with
+the `copy` and `copy as text` buttons stands above the header:
 
 ```text
-  Mod         │ State    │ Next  [ copy ] [ copy as text ]
+  ── table · 2 rows ──  [ copy ]     [ copy as text ]
+  Mod         │ State    │ Next
   ════════════╪══════════╪═════════════════
   task-pane   │ released │ follows the work
   simple-view │ released │ click to expand
@@ -146,7 +170,8 @@ At 120 columns, a column of short phrases such as `Buttons on the header row` is
 wraps and gives its width to the other long columns:
 
 ```text
-  Change        │ Why                                                    │ Effect              [ copy ] [ copy as text ]
+  ── table · 2 rows ─────────────────────────────────────────────────────────────────────  [ copy ]     [ copy as text ]
+  Change        │ Why                                                    │ Effect
   ══════════════╪════════════════════════════════════════════════════════╪══════════════════════════════════════════════
   Buttons on    │ The buttons took a line of their own under every       │ A table that fits draws its buttons after the
   the header    │ table, so a short table took one line more than it     │ headings, and the reply is one line shorter
@@ -156,37 +181,15 @@ wraps and gives its width to the other long columns:
                 │ reader lost the columns                                │ rows stay aligned on a normal screen
 ```
 
-In the `rules` style, the view puts the buttons in the first of these places where they fit:
-
-1. The header line, after the headings.
-2. The last line of the last row, after its text.
-3. A line of their own, under the table.
-
-A heading or a cell never moves and is never cut to make room for the buttons. The buttons end at
-the right edge of the table. The `│` rules on the last line count as its text, so the buttons fit
-on the last row only when that line ends early. At 80 columns, this table has no room on its
-header line or its last row, so the buttons go under it:
-
-```text
-  Mod        │ Change                          │ Risk                    │ Owner
-  ═══════════╪═════════════════════════════════╪═════════════════════════╪══════
-  reply-view │ Tables wrap their long cells    │ A wide table can still  │ Ana
-             │ inside their columns and keep   │ take many lines on a    │
-             │ the rows aligned                │ narrow screen           │
-  ┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄
-  task-pane  │ Each task tool call draws as    │ Low                     │ Bo
-             │ one row                         │                         │
-                                                     [ copy ] [ copy as text ]
-```
-
 On a screen narrower than 40 columns, a table that does not fit draws each row as a block. The
 view also draws blocks when a column of the table would get fewer than 6 cells. The first cell is
 the bold title of the block, and each other cell is a `label: value` line. One blank line stands
-between two blocks. The buttons stand on the title of the first block when they fit there, and
-otherwise on a line of their own under the last block:
+between two blocks. The head and its buttons stand above the first block:
 
 ```text
-  task-pane  [ copy ] [ copy as text ]
+  ── table · 2 rows ─────────────────
+          [ copy ]     [ copy as text ]
+  task-pane
     State: released
     Next:  follows the work
 ```
@@ -390,8 +393,9 @@ the theme keys.
 
 ## A fenced block
 
-A fenced block gets a dim title line from its tag, and a `copy` button at the right edge. The
-content draws with the highlighting of Claude Code for that language:
+A fenced block gets a head from its tag: a dim rule with the tag bold in `merged`, and a `copy`
+button at the right edge. The content draws with the highlighting of Claude Code for that
+language:
 
 ```text
   ── plan ──────────────────────────────────────────────────────────  [ copy ]
@@ -489,20 +493,20 @@ terminal, the view colours a block with the tag `md` or `markdown`, and a block 
 
 ### A long block folds
 
-A block of more than 20 lines shows its first 15 lines with line numbers, a dim count of the
-hidden lines and a `more` button. The title line counts the lines:
+A block of more than 20 lines shows its first 15 lines with line numbers and a dim count of the
+hidden lines. The head counts the lines and holds a `more` button before `copy`:
 
 ```text
-  ── ts · 45 lines ─────────────────────────────────────────────────  [ copy ]
+  ── ts · 45 lines ─────────────────────────────────────  [ more ] [ copy ]
    1  export function rollupHourly(
    2    readings: Reading[],
   …
   15      continue
-  … 30 more lines                                                     [ more ]
+  ▸ 30 more lines
 ```
 
-- `more` shows the whole block, with `less` under it. `copy` copies the whole block, without
-  the line numbers.
+- `more` shows the whole block, and the head holds `less` in its place. `copy` copies the whole
+  block, without the line numbers.
 - Under 40 columns the block shows no line numbers.
 - A folded block counts as its title, 15 lines and the count line in the fold of a long reply.
   So a reply of one block of 45 lines does not fold. An opened block draws whole in the fold
@@ -590,19 +594,42 @@ width:
 - `copy` copies the block as written, with the whole lines.
 - On the desktop app, the same rule applies, with the width of the reply there.
 
+## The copy state
+
+A copy button shows what its last press did. After a copy that worked, `[ copy ]` reads
+`[ ✓ copied ]` in `success`, and `[ copy drawing ]` reads `[ ✓ copied drawing ]`. After a copy
+that failed, the button reads `[ ■ not copied ]` in `error`. The toast stays as before and gives
+the reason. The mark stays on that one button until you copy another block, also with
+`/replies copy`, which marks the button of the block that it copied.
+
+```text
+  ── sh ────────────────────────────────────────────────────────  [ copy ]
+  ── sh ────────────────────────────────────────────────────  [ ✓ copied ]
+  ── mermaid · flowchart ──────────────────  [ copy ]     [ copy drawing ]
+  ── mermaid · flowchart ──────────────────  [ copy ] [ ✓ copied drawing ]
+  ── mermaid · flowchart ──────────────  [ ✓ copied ]     [ copy drawing ]
+```
+
+- Nothing else on the line moves. A button after the first one keeps room for its widest label,
+  so a button right of it never shifts. The first button grows to the left into the rule.
+- The check and the square are the `done` and `blocked` glyphs, so the `glyphs` setting of
+  handily draws them as Nerd Font icons.
+- The view keeps the mark for the session in its state, by the label of the button and the text
+  that it copied. So the same block in another reply shows the mark too.
+
 ## A diagram
 
 A fenced block with the tag `mermaid` that holds a flowchart, a sequence diagram, a state
 diagram, a class diagram, an ER diagram, a gantt diagram, a git graph, a mind map, a timeline, a
 user journey, a quadrant chart, a kanban, a packet diagram, a sankey diagram, a radar diagram, a
 treemap, a block diagram, a requirement diagram, a C4 diagram or an architecture diagram draws as
-a diagram. The diagram has a dim title line and two buttons at the right edge. The drawing
-replaces the source:
+a diagram. The diagram has a head with `mermaid` bold in `suggestion` (a chart in `planMode`), the
+kind of the diagram, and two buttons at the right edge. The drawing replaces the source:
 
 ```text
 ● The view decides per block:
 
-  ── mermaid · flowchart ────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · flowchart ────────────────────────  [ copy ]     [ copy drawing ]
   ╭────────╮   ╭───────╮   ┌──────────┐ yes  ╭─────────╮
   │ Prompt │──▶│ Reply │──▶│ ◇ Table? │──┬──▶│ Columns │
   ╰────────╯   ╰───────╯   └──────────┘  │   ╰─────────╯
@@ -655,14 +682,14 @@ replaces the source:
 - The view keeps the last 32 drawings for this session, one for each source, width and surface.
   So a reply that draws again at the same width does not lay out its diagram again.
 
-A block that does not draw keeps the look of a fenced block. One dim note above it names the
-reason:
+A block that does not draw keeps the look of a fenced block. Its head says `not drawn` in
+`warning`, and one dim note under the head names the reason:
 
 ```text
 ● Here is the flow:
 
+  ── mermaid · not drawn ─────────────────────────────────────────────  [ copy ]
   diagram not drawn: line 3 does not parse.
-  ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
   flowchart TD
     A[Start] --> B[Parse]
     B => C[Draw]
@@ -734,7 +761,7 @@ columns:
     │───────────▶│
     │  pong 11   │
     │◀───────────│
-  … sequence diagram, 39 more rows                     [ more ] [ copy reply ]
+  ▸ sequence diagram, 39 more rows                 [ more ]     [ copy reply ]
 ```
 
 `copy drawing` copies the whole drawing, also when the preview shows a part of it. The fold of
