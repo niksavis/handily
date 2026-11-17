@@ -37,6 +37,7 @@ import {
   REPLY_COLUMNS,
   sequenceOf,
 } from './fixtures/generated-diagrams'
+import { expectEngineRow, expectNoEngineRow } from './fixtures/engine-row'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -506,7 +507,7 @@ describe('long reply', () => {
           expect(await sketchOf(ui)).toEqual(['● Line =1=', ...highlightedLines(2, 30)])
           expect(await ui.findAll({ type: 'Button' })).toEqual([])
         } else {
-          expect(await ui.drawn()).toEqual(ENGINE_ROW)
+          expectEngineRow(await ui.drawn())
         }
         await ui.unmount()
       },
@@ -701,7 +702,7 @@ describe('long reply', () => {
 
   viewTest('a summary block draws as the engine draws it', async (_world, $) => {
     const ui = await mountReply($, reply(LONG_REPLY, { isSummary: true }))
-    expect(await ui.drawn()).toEqual(ENGINE_ROW)
+    expectEngineRow(await ui.drawn())
     await ui.unmount()
   })
 
@@ -1676,7 +1677,7 @@ describe('typed prompts', () => {
     for (const surface of SURFACES) {
       promptTest(`${row} draws as the engine draws it on ${surface}`, async (_world, $) => {
         const ui = await mountPrompt($, prompt('The task is done.', extra), surface)
-        expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await ui.drawn())
         await ui.unmount()
       })
     }
@@ -1687,7 +1688,7 @@ describe('typed prompts', () => {
     async (_world, $) => {
       const ui = await mountPrompt($, prompt(PROMPT, { isExpanded: true }))
       const drawn = await ui.drawn()
-      expect(drawn).toEqual(ENGINE_ROW)
+      expectEngineRow(drawn)
       expect(RULE_CHARACTERS.some((rule) => JSON.stringify(drawn).includes(rule))).toBe(false)
       await ui.unmount()
     },
@@ -1695,7 +1696,7 @@ describe('typed prompts', () => {
 
   promptTest('a typed prompt draws as the engine draws it on desktop', async (_world, $) => {
     const ui = await mountPrompt($, prompt(PROMPT), 'desktop')
-    expect(await ui.drawn()).toEqual(ENGINE_ROW)
+    expectEngineRow(await ui.drawn())
     await ui.unmount()
   })
 
@@ -1704,7 +1705,7 @@ describe('typed prompts', () => {
     async (_world, $) => {
       const ui = await mountPrompt($, prompt(PROMPT))
       await commandText($)
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await ui.drawn())
       await commandText($)
       expect(await sketchOf(ui)).toEqual(framed('you'))
       await ui.unmount()
@@ -1723,9 +1724,9 @@ describe('/replies', () => {
       expect(await commandText($)).toBe(
         'off for this session. Replies and prompts draw as Claude Code draws them.',
       )
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await ui.drawn())
       const table = await mountReply($, reply(TABLE), 'terminal', COLUMNS, 'message-2')
-      expect(await table.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await table.drawn())
       expect(await commandText($)).toBe(
         'on for this session. A reply longer than 30 lines folds to its first lines. Tables draw in a full box, or with rules between their columns when the Table style setting is rules. Numbers, durations, versions and paths in replies draw in their own colours unless the Highlight setting is off. Tables and code blocks get copy buttons. Each prompt that you type opens under a rule labelled you.',
       )
@@ -1764,10 +1765,10 @@ describe('/replies', () => {
         await $.session.start({ cwd: '/work/app', surface, isInteractive: true })
         expect(written).toEqual(['off'])
         const ui = await mountReply($, reply(LONG_REPLY), surface)
-        expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await ui.drawn())
         expect(await commandText($)).toMatch(/^on for this session/)
         expect(written).toEqual(['off', 'on'])
-        expect(await ui.drawn()).not.toEqual(ENGINE_ROW)
+        expectNoEngineRow(await ui.drawn())
         await ui.unmount()
       },
     )

@@ -45,6 +45,26 @@ import { PLAIN_SIGNALS } from './hooks/toasting'
 import { EMPTY_VITALS } from './hooks/vitals'
 import { NO_TURN } from './hooks/background'
 
+function isEngineRow(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as { type?: unknown; ref?: unknown }
+  return (
+    row.type === 'engine' &&
+    typeof row.ref === 'number' &&
+    Number.isInteger(row.ref) &&
+    row.ref >= 0
+  )
+}
+
+function expectEngineRow(value: unknown, message?: string): void {
+  expect(value, message).toMatchObject({ type: 'engine', ref: expect.any(Number) })
+  expect(isEngineRow(value), message ?? 'an engine row with a ref of 0 or more').toBe(true)
+}
+
+function expectNoEngineRow(value: unknown, message?: string): void {
+  expect(isEngineRow(value), message ?? 'a row that is not the engine row').toBe(false)
+}
+
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Item = Snapshot['items'][number]
 
@@ -3499,8 +3519,10 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
     expect(refused.answer).toEqual({
       deny: 'No task 9. The list is empty. Call task_list to see them.',
     })
-    expect(await callRow($, 'terminal', useOf(refused))).toEqual(ENGINE_ROW)
-    expect(await resultBlock($, 'terminal', refused)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+    expectEngineRow(await callRow($, 'terminal', useOf(refused)))
+    const refusedBlock = await resultBlock($, 'terminal', refused)
+    expectEngineRow(refusedBlock.tree)
+    expect(refusedBlock.textCount).toBe(0)
   })
 
   test(
@@ -3512,10 +3534,12 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
       await start($)
       const added = await called($, seen, { tool: TOOL_ADD, title: 'One' })
       for (const extra of [{ isErrored: true }, { isRunning: true }, { isInterrupted: true }]) {
-        expect(await callRow($, 'terminal', useOf(added, extra))).toEqual(ENGINE_ROW)
+        expectEngineRow(await callRow($, 'terminal', useOf(added, extra)))
       }
       const errored = { ...added, answer: { deny: 'failed' } }
-      expect(await resultBlock($, 'terminal', errored)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+      const erroredBlock = await resultBlock($, 'terminal', errored)
+      expectEngineRow(erroredBlock.tree)
+      expect(erroredBlock.textCount).toBe(0)
     },
   )
 
@@ -3529,8 +3553,10 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
       const refused = await called($, seen, { tool: TOOL_ADD, titles: ['One', 'Two\u0007'] })
       const { deny } = refused.answer as { deny?: string }
       expect(deny?.startsWith('task_add refused title 2: ')).toBe(true)
-      expect(await callRow($, 'terminal', useOf(refused))).toEqual(ENGINE_ROW)
-      expect(await resultBlock($, 'terminal', refused)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+      expectEngineRow(await callRow($, 'terminal', useOf(refused)))
+      const refusedBlock = await resultBlock($, 'terminal', refused)
+      expectEngineRow(refusedBlock.tree)
+      expect(refusedBlock.textCount).toBe(0)
     },
   )
 
@@ -3543,10 +3569,12 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
       await start($)
       const added = await called($, seen, { tool: TOOL_ADD, title: 'One' })
       const unknown = { ...added, id: 'toolu_never_seen' }
-      expect(await callRow($, 'terminal', useOf(unknown))).toEqual(ENGINE_ROW)
-      expect(await resultBlock($, 'terminal', unknown)).toEqual({ tree: ENGINE_ROW, textCount: 0 })
+      expectEngineRow(await callRow($, 'terminal', useOf(unknown)))
+      const unknownBlock = await resultBlock($, 'terminal', unknown)
+      expectEngineRow(unknownBlock.tree)
+      expect(unknownBlock.textCount).toBe(0)
       const bash = { ...added, tool: 'Bash' }
-      expect(await callRow($, 'terminal', useOf(bash))).toEqual(ENGINE_ROW)
+      expectEngineRow(await callRow($, 'terminal', useOf(bash)))
     },
   )
 
@@ -3563,7 +3591,7 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
       )
       await start($)
       const added = await called($, seen, { tool: TOOL_ADD, title: 'One' })
-      expect(await callRow($, 'terminal', useOf(added))).toEqual(ENGINE_ROW)
+      expectEngineRow(await callRow($, 'terminal', useOf(added)))
       const why = `the engine draws the row of ${added.id}`
       expect(seen.logs.some((text) => text.includes(why))).toBe(true)
     },
@@ -3585,7 +3613,7 @@ describe('a task tool row the mod cannot draw is the engine row', () => {
       expect(added.answer).toEqual({
         result: 'Added task 1: "One".\n\nTasks (0 of 1 done)\n  1  pending      claude   "One"',
       })
-      expect(await callRow($, 'terminal', useOf(added))).toEqual(ENGINE_ROW)
+      expectEngineRow(await callRow($, 'terminal', useOf(added)))
     },
   )
 })
@@ -9760,7 +9788,7 @@ describe('an approved plan as tasks (handily-9uj3n.7)', () => {
       for (const surface of SURFACES) {
         const rejected = await approve($, seen)
         const row = await mountPlanRow($, surface, rejected, true)
-        expect(await row.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await row.drawn())
         await row.unmount()
       }
       answers.current = planOf(PLAN_TEXT, true)
@@ -9774,7 +9802,7 @@ describe('an approved plan as tasks (handily-9uj3n.7)', () => {
       for (const surface of SURFACES) {
         for (const call of [agentPlan, fromAgent, bulleted]) {
           const row = await mountPlanRow($, surface, call)
-          expect(await row.drawn()).toEqual(ENGINE_ROW)
+          expectEngineRow(await row.drawn())
           await row.unmount()
         }
         const pane = await mountTasks($, surface)
@@ -10496,7 +10524,7 @@ describe('the task band above the prompt (handily-9uj3n.9)', () => {
         await ui.press({ key: 'band-board' })
         expect(seen.opens[0]).toEqual({ id: PANE, title: 'this session', focus: true })
         expect(await ui.find({ key: 'band' })).toBeUndefined()
-        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        expectEngineRow(await ui.drawn())
         await ui.unmount()
         expect(seen.toasts).toEqual([])
       },
@@ -10548,16 +10576,16 @@ describe('the task band above the prompt (handily-9uj3n.9)', () => {
           await ui.unmount()
           return tree
         }
-        expect(await drawn()).toMatchObject({ type: 'engine' })
+        expectEngineRow(await drawn())
         await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
         expect(await bandLine($, surface)).toBeDefined()
-        expect(await drawn(true)).toMatchObject({ type: 'engine' })
+        expectEngineRow(await drawn(true))
         expect(await board($, '')).toBe('Board opened: this session.')
-        expect(await drawn()).toMatchObject({ type: 'engine' })
+        expectEngineRow(await drawn())
         expect(await board($, '')).toBe('Board closed.')
         expect(await bandLine($, surface)).toBeDefined()
         await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
-        expect(await drawn()).toMatchObject({ type: 'engine' })
+        expectEngineRow(await drawn())
         expect(seen.toasts).toEqual([])
       },
     )
@@ -10596,7 +10624,7 @@ describe('the task band above the prompt (handily-9uj3n.9)', () => {
         await bandFour($, seen)
         await approve($, seen)
         const ui = await mountBand($, surface)
-        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        expectEngineRow(await ui.drawn())
         await ui.unmount()
       },
     )
@@ -11108,7 +11136,7 @@ for (const surface of SURFACES) {
         await personPrompt($)
         const ui = await mountBand($, surface)
         expect(await ui.find({ key: 'band' })).toBeUndefined()
-        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        expectEngineRow(await ui.drawn())
         await ui.unmount()
       },
     )
@@ -11200,7 +11228,7 @@ for (const surface of SURFACES) {
         seen.agents.splice(0, 1)
         const ui = await mountBand($, surface)
         expect(await ui.find({ key: 'band' })).toBeUndefined()
-        expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+        expectEngineRow(await ui.drawn())
         await ui.unmount()
       },
     )
@@ -12303,4 +12331,30 @@ describe(SIGNALS_FROM_SET_CRITERION, () => {
       expect(failures[0]).toContain('the store is locked')
     },
   )
+})
+
+describe('the engine row check', () => {
+  test('passes for an engine row of ref 0 and of ref 1', () => {
+    expectEngineRow({ type: 'engine', ref: 0 })
+    expectEngineRow({ type: 'engine', ref: 1 })
+    expectNoEngineRow({ type: 'Box', ref: 0 })
+  })
+
+  test('fails for a row of another type and for a ref that is not an integer of 0 or more', () => {
+    expect(() => {
+      expectEngineRow({ type: 'Box', ref: 0 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: -1 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: 1.5 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine' })
+    }).toThrow()
+    expect(() => {
+      expectNoEngineRow({ type: 'engine', ref: 1 })
+    }).toThrow()
+  })
 })

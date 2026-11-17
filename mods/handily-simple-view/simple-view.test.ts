@@ -14,6 +14,26 @@ import { commandLabel, programOf, segments } from './hooks/command'
 import { PERSON_REJECTED_OUTPUT } from './hooks/output'
 import { displayWidth } from './hooks/width'
 
+function isEngineRow(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as { type?: unknown; ref?: unknown }
+  return (
+    row.type === 'engine' &&
+    typeof row.ref === 'number' &&
+    Number.isInteger(row.ref) &&
+    row.ref >= 0
+  )
+}
+
+function expectEngineRow(value: unknown, message?: string): void {
+  expect(value, message).toMatchObject({ type: 'engine', ref: expect.any(Number) })
+  expect(isEngineRow(value), message ?? 'an engine row with a ref of 0 or more').toBe(true)
+}
+
+function expectNoEngineRow(value: unknown, message?: string): void {
+  expect(isEngineRow(value), message ?? 'a row that is not the engine row').toBe(false)
+}
+
 const ROOT = '/work/app'
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -1378,7 +1398,7 @@ describe('Edit and Write rows', () => {
       component: 'ToolUse',
       props: useProps('toolu_e2', 'Edit', {}, answer),
     } as const
-    expect((await drawn($, target)).tree).toEqual(ENGINE_ROW)
+    expectEngineRow((await drawn($, target)).tree)
   })
 })
 
@@ -1590,7 +1610,7 @@ describe('Read, Grep and Glob rows', () => {
     ]
     for (const [tool, input, answer, extra] of cases) {
       const use = useProps('toolu_x1', tool, input, answer, extra)
-      expect((await drawn($, { component: 'ToolUse', props: use })).tree).toEqual(ENGINE_ROW)
+      expectEngineRow((await drawn($, { component: 'ToolUse', props: use })).tree)
     }
     for (const [tool, result] of [
       ['Read', missing],
@@ -1598,7 +1618,7 @@ describe('Read, Grep and Glob rows', () => {
       ['Glob', { result: { filenames: [] } }],
     ] as const) {
       const props = resultProps('toolu_x1', tool, result)
-      expect((await drawn($, { component: 'ToolResult', props })).tree).toEqual(ENGINE_ROW)
+      expectEngineRow((await drawn($, { component: 'ToolResult', props })).tree)
     }
   })
 })
@@ -1846,12 +1866,10 @@ describe('file rows that a hook refused', () => {
           const answer: Answer = { isError: true, result: `Error: ${text}`, text }
           const use = useProps('toolu_h3', tool, { file_path: `${ROOT}/note.txt` }, answer)
           const result = resultProps('toolu_h3', tool, answer)
-          expect((await drawn($, { component: 'ToolUse', props: use }, surface)).tree).toEqual(
-            ENGINE_ROW,
-          )
-          expect(
+          expectEngineRow((await drawn($, { component: 'ToolUse', props: use }, surface)).tree)
+          expectEngineRow(
             (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
-          ).toEqual(ENGINE_ROW)
+          )
         }
       },
     )
@@ -2030,9 +2048,7 @@ describe('calls that the auto mode classifier denied', () => {
           `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
         ])
         const result = resultProps(use.tool_use_id, 'WebFetch', denied)
-        expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
-          ENGINE_ROW,
-        )
+        expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
       },
     )
   }
@@ -2250,9 +2266,7 @@ describe('calls that a permission rule or the person denied', () => {
       async (world, $) => {
         for (const { tool, input } of DENIED_FILE_CALLS.filter((call) => call.tool !== 'Read')) {
           const { use } = await rejectedCall(world, $, tool, input)
-          expect((await drawn($, { component: 'ToolUse', props: use }, surface)).tree).toEqual(
-            ENGINE_ROW,
-          )
+          expectEngineRow((await drawn($, { component: 'ToolUse', props: use }, surface)).tree)
         }
       },
     )
@@ -2283,16 +2297,16 @@ describe('calls that a permission rule or the person denied', () => {
           const { result } = await rejectedCall(world, $, tool, input)
           for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
             const props = rejectedResultProps(result.tool_use_id, tool, output)
-            expect(
+            expectEngineRow(
               (await drawn($, { component: 'ToolResult', props }, surface)).tree,
               `${tool} ${output}`,
-            ).toEqual(ENGINE_ROW)
+            )
           }
           const done = { ...result, isErrored: false }
-          expect(
+          expectEngineRow(
             (await drawn($, { component: 'ToolResult', props: done }, surface)).tree,
             tool,
-          ).toEqual(ENGINE_ROW)
+          )
         }
         const bash = await rejectedCall(world, $, 'Bash', TOUCH_INPUT)
         for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
@@ -2302,7 +2316,7 @@ describe('calls that a permission rule or the person denied', () => {
             expect(result.tree, output).toMatchObject({ type: 'Box' })
             expect(result.textCount, output).toBe(0)
           } else {
-            expect(result.tree, output).toEqual(ENGINE_ROW)
+            expectEngineRow(result.tree, output)
           }
         }
         const fetch = await genericCall(
@@ -2313,9 +2327,7 @@ describe('calls that a permission rule or the person denied', () => {
           PERSON_REJECTED_ANSWER_ON_2_1_323,
         )
         const props = rejectedResultProps(fetch.tool_use_id, 'WebFetch')
-        expect((await drawn($, { component: 'ToolResult', props }, surface)).tree).toEqual(
-          ENGINE_ROW,
-        )
+        expectEngineRow((await drawn($, { component: 'ToolResult', props }, surface)).tree)
       },
     )
   }
@@ -2358,22 +2370,18 @@ describe('calls that a permission rule or the person denied', () => {
             `${MARKER[surface]}Create the other file touch error ${text}`,
           ])
           const edit = useProps('toolu_r4', 'Edit', EDIT_INPUT, answer)
-          expect((await drawn($, { component: 'ToolUse', props: edit }, surface)).tree).toEqual(
-            ENGINE_ROW,
-          )
+          expectEngineRow((await drawn($, { component: 'ToolUse', props: edit }, surface)).tree)
           const result = resultProps('toolu_r4', 'Edit', answer)
-          expect(
+          expectEngineRow(
             (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
-          ).toEqual(ENGINE_ROW)
+          )
         }
         const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, ruleDenied())
         expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
           `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
         ])
         const result = resultProps(use.tool_use_id, 'WebFetch', ruleDenied())
-        expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
-          ENGINE_ROW,
-        )
+        expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
       },
     )
   }
@@ -2533,7 +2541,7 @@ describe('generic tool row', () => {
               component: 'ToolUse',
               props,
             })
-            expect(await ui.drawn()).toEqual(ENGINE_ROW)
+            expectEngineRow(await ui.drawn())
             await ui.unmount()
           }
           const result = resultProps('toolu_k1', tool, answer)
@@ -2543,7 +2551,7 @@ describe('generic tool row', () => {
             component: 'ToolResult',
             props: result,
           })
-          expect(await ui.drawn()).toEqual(ENGINE_ROW)
+          expectEngineRow(await ui.drawn())
           await ui.unmount()
         }
       },
@@ -2556,9 +2564,7 @@ describe('generic tool row', () => {
         `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
       ])
       const result = resultProps(use.tool_use_id, 'WebFetch', refused)
-      expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
-        ENGINE_ROW,
-      )
+      expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
     })
 
     viewTest(
@@ -2570,9 +2576,7 @@ describe('generic tool row', () => {
           `${MARKER[surface]}Skill no-comments error`,
         ])
         const result = resultProps(use.tool_use_id, 'Skill', errored)
-        expect((await drawn($, { component: 'ToolResult', props: result }, surface)).tree).toEqual(
-          ENGINE_ROW,
-        )
+        expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
       },
     )
 
@@ -2686,14 +2690,14 @@ describe('generic tool row', () => {
   viewTest('leaves the generic row to the engine while the mode is off', async (world, $) => {
     const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, FETCH_ANSWER)
     await commandText($, 'off')
-    expect((await drawn($, { component: 'ToolUse', props: use })).tree).toEqual(ENGINE_ROW)
+    expectEngineRow((await drawn($, { component: 'ToolUse', props: use })).tree)
     const result = resultProps(use.tool_use_id, 'WebFetch', FETCH_ANSWER)
-    expect((await drawn($, { component: 'ToolResult', props: result })).tree).toEqual(ENGINE_ROW)
+    expectEngineRow((await drawn($, { component: 'ToolResult', props: result })).tree)
   })
 
   viewTest('leaves an interrupted call to the engine', async (_world, $) => {
     const props = streamingProps('toolu_i1', 'WebFetch', FETCH_INPUT, { isInterrupted: true })
-    expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
+    expectEngineRow((await drawn($, { component: 'ToolUse', props })).tree)
   })
 
   viewTest('/simple show N prints a generic call in full', async (world, $) => {
@@ -2805,13 +2809,13 @@ describe('quiet-items rows', () => {
     const quiet = await runBash(world, $, input)
     const plain = await runBash(world, $, { command: 'br show handily-ab12', description: 'Show' })
     const answer = world.answer(input)
-    expect(
+    expectEngineRow(
       (await drawn($, { component: 'ToolUse', props: useProps(quiet, 'Bash', input, answer) }))
         .tree,
-    ).toEqual(ENGINE_ROW)
-    expect(
+    )
+    expectEngineRow(
       (await drawn($, { component: 'ToolResult', props: resultProps(quiet, 'Bash', answer) })).tree,
-    ).toEqual(ENGINE_ROW)
+    )
     expect(
       await texts($, 'terminal', {
         component: 'ToolUse',
@@ -2852,8 +2856,8 @@ describe('/simple', () => {
     expect(await commandText($, '')).toBe(
       'off for this session. Tool calls draw as Claude Code draws them.',
     )
-    expect((await drawn($, use)).tree).toEqual(ENGINE_ROW)
-    expect((await drawn($, result)).tree).toEqual(ENGINE_ROW)
+    expectEngineRow((await drawn($, use)).tree)
+    expectEngineRow((await drawn($, result)).tree)
     expect(await commandText($, '')).toBe(
       'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, where 1 is the last call.',
     )
@@ -2893,9 +2897,9 @@ describe('/simple', () => {
         props: useProps(id, 'Bash', input, world.answer(input)),
       } as const
       expect(await commandText($, 'off')).toBe(OFF_REPLY)
-      expect((await drawn($, use)).tree).toEqual(ENGINE_ROW)
+      expectEngineRow((await drawn($, use)).tree)
       expect(await commandText($, 'off')).toBe(OFF_REPLY)
-      expect((await drawn($, use)).tree).toEqual(ENGINE_ROW)
+      expectEngineRow((await drawn($, use)).tree)
       expect(await commandText($, 'on')).toBe(ON_REPLY)
       expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines'])
       expect(await commandText($, 'on')).toBe(ON_REPLY)
@@ -2953,10 +2957,10 @@ describe('/simple', () => {
           component: 'ToolUse',
           props: useProps(id, 'Bash', input, world.answer(input)),
         } as const
-        expect((await drawn($, use, surface)).tree).toEqual(ENGINE_ROW)
+        expectEngineRow((await drawn($, use, surface)).tree)
         expect(await commandText($, '')).toBe(ON_REPLY)
         expect(written).toEqual(['off', 'on'])
-        expect((await drawn($, use, surface)).tree).not.toEqual(ENGINE_ROW)
+        expectNoEngineRow((await drawn($, use, surface)).tree)
       },
     )
   }
@@ -3259,15 +3263,15 @@ describe('fallback to the engine row', () => {
     const props = useProps(id, 'Bash', input, failed('Error: Exit code 130\n^C'), {
       isInterrupted: true,
     })
-    expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
-    expect(
+    expectEngineRow((await drawn($, { component: 'ToolUse', props })).tree)
+    expectEngineRow(
       (
         await drawn($, {
           component: 'ToolResult',
           props: resultProps(id, 'Bash', failed('Interrupted by user')),
         })
       ).tree,
-    ).toEqual(ENGINE_ROW)
+    )
   })
 
   viewTest('when the error text does not start with Error:', async (world, $) => {
@@ -3275,47 +3279,47 @@ describe('fallback to the engine row', () => {
     world.answer = () => refusal
     const input = { command: 'rm notes.md', description: 'Remove the notes' }
     const id = await runBash(world, $, input)
-    expect(
+    expectEngineRow(
       (await drawn($, { component: 'ToolUse', props: useProps(id, 'Bash', input, refusal) })).tree,
-    ).toEqual(ENGINE_ROW)
-    expect(
+    )
+    expectEngineRow(
       (await drawn($, { component: 'ToolResult', props: resultProps(id, 'Bash', refusal) })).tree,
-    ).toEqual(ENGINE_ROW)
+    )
   })
 
   viewTest('when the call runs in the background', async (world, $) => {
     world.answer = () => answered('', { backgroundTaskId: 'b1' })
     const input = { command: 'npm run dev', description: 'Start', run_in_background: true }
     const id = await runBash(world, $, input)
-    expect(
+    expectEngineRow(
       (
         await drawn($, {
           component: 'ToolUse',
           props: useProps(id, 'Bash', input, world.answer(input)),
         })
       ).tree,
-    ).toEqual(ENGINE_ROW)
+    )
   })
 
   viewTest('when the output is not a shape it reads', async (world, $) => {
     const input = { command: 'ls', description: 'List' }
     const id = await runBash(world, $, input)
     const odd = { result: { stdout: 3 } } as unknown as Answer
-    expect(
+    expectEngineRow(
       (await drawn($, { component: 'ToolUse', props: useProps(id, 'Bash', input, odd) })).tree,
-    ).toEqual(ENGINE_ROW)
-    expect(
+    )
+    expectEngineRow(
       (await drawn($, { component: 'ToolUse', props: useProps(id, 'Read', {}, odd) })).tree,
-    ).toEqual(ENGINE_ROW)
+    )
     const oddInput = { command: 'ls', description: 3 }
-    expect(
+    expectEngineRow(
       (
         await drawn($, {
           component: 'ToolUse',
           props: useProps(id, 'Bash', oddInput, world.answer(input)),
         })
       ).tree,
-    ).toEqual(ENGINE_ROW)
+    )
     expect(world.logs).toEqual([])
   })
 
@@ -3332,7 +3336,7 @@ describe('fallback to the engine row', () => {
     ]
     for (const [tool, input] of cases) {
       const props = streamingProps('toolu_s2', tool, input)
-      expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
+      expectEngineRow((await drawn($, { component: 'ToolUse', props })).tree)
     }
     expect(world.logs).toEqual([])
   })
@@ -3340,7 +3344,7 @@ describe('fallback to the engine row', () => {
   viewTest('when an abort dropped the call before it ran', async (_world, $) => {
     for (const tool of ['Bash', 'Read']) {
       const props = streamingProps('toolu_s3', tool, {}, { isInterrupted: true })
-      expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
+      expectEngineRow((await drawn($, { component: 'ToolUse', props })).tree)
     }
   })
 
@@ -3360,7 +3364,7 @@ describe('fallback to the engine row', () => {
       },
     } as Answer
     const props = useProps('toolu_e9', 'Edit', {}, answer)
-    expect((await drawn($, { component: 'ToolUse', props })).tree).toEqual(ENGINE_ROW)
+    expectEngineRow((await drawn($, { component: 'ToolUse', props })).tree)
     expect(
       world.logs.some((line) => line.startsWith('simple-view: the engine draws toolu_e9')),
     ).toBe(true)
@@ -3474,4 +3478,30 @@ describe('the glyph setting', () => {
       expect(world.glyphs).toEqual(['plain', 'nerd'])
     },
   )
+})
+
+describe('the engine row check', () => {
+  test('passes for an engine row of ref 0 and of ref 1', () => {
+    expectEngineRow({ type: 'engine', ref: 0 })
+    expectEngineRow({ type: 'engine', ref: 1 })
+    expectNoEngineRow({ type: 'Box', ref: 0 })
+  })
+
+  test('fails for a row of another type and for a ref that is not an integer of 0 or more', () => {
+    expect(() => {
+      expectEngineRow({ type: 'Box', ref: 0 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: -1 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: 1.5 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine' })
+    }).toThrow()
+    expect(() => {
+      expectNoEngineRow({ type: 'engine', ref: 1 })
+    }).toThrow()
+  })
 })

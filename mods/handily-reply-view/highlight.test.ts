@@ -5,6 +5,7 @@ import { highlightedRuns, tokensOf, type Token } from './hooks/highlight'
 import { blocksOf, copiedCell, markedCell, PLAIN_MARK, textOfRuns } from './hooks/markdown'
 import { copiedCell as baseCopiedCell, markedCell as baseMarkedCell } from './fixtures/base-cells'
 import { displayWidth } from './hooks/width'
+import { expectNoEngineRow } from './fixtures/engine-row'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -703,7 +704,7 @@ describe('highlight off', () => {
     { options: { highlight: 'off' } },
     async (_world, $) => {
       const ui = await mountReply($, P1_PROSE.join('\n'), 'terminal')
-      expect(await ui.drawn()).not.toEqual(ENGINE_ROW)
+      expectNoEngineRow(await ui.drawn())
       expect(await sketchOf(ui)).toEqual(P1_PROSE_PLAIN)
       await ui.unmount()
     },

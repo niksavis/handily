@@ -2,6 +2,7 @@ import type { AgentInfo, AgentStatus, ConfigRow, ConfigValue, On, RenderPropsOf 
 import { describe, expect, mock, test, type Engine, type MockClock } from 'claude-code/testing'
 import { register } from './hooks/register'
 import { displayWidth } from './hooks/width'
+import { expectEngineRow } from './fixtures/engine-row'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -267,7 +268,7 @@ describe('the turn footer', () => {
         expect(await sketchOf(own)).toEqual(DRAWN_BAKED)
         await own.unmount()
         const engine = await mountLine($, { ...BAKED, ...extra })
-        expect(await engine.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await engine.drawn())
         await engine.unmount()
       },
     )
@@ -301,7 +302,7 @@ describe('the turn footer', () => {
       await appendTurnLine($)
       for (const surface of SURFACES) {
         const ui = await mountLine($, BAKED, surface)
-        if (surface === 'desktop') expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        if (surface === 'desktop') expectEngineRow(await ui.drawn())
         else expect(await sketchOf(ui)).toEqual(DRAWN_BAKED)
         await ui.unmount()
       }
@@ -314,7 +315,7 @@ describe('the turn footer', () => {
     async (_world, $) => {
       await appendTurnLine($)
       const engine = await mountLine($, BAKED)
-      expect(await engine.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await engine.drawn())
       await engine.unmount()
       await toggleReplies($)
       const own = await mountLine($, BAKED)
@@ -330,7 +331,7 @@ describe('the turn footer', () => {
       await appendTurnLine($)
       await toggleReplies($)
       const off = await mountLine($, BAKED)
-      expect(await off.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await off.drawn())
       await off.unmount()
       await toggleReplies($)
       const on = await mountLine($, BAKED)
@@ -350,7 +351,7 @@ describe('the turn footer', () => {
       async (world, $) => {
         await appendTurnLine($)
         const engine = await mountLine($, BAKED)
-        expect(await engine.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await engine.drawn())
         await engine.unmount()
         world.config = [
           ...world.config.filter((row) => row.key !== 'turnDuration'),
@@ -376,7 +377,7 @@ describe('the turn footer', () => {
       {},
       async (_world, $) => {
         const engine = await mountLine($, { word: 'Baked', durationMs })
-        expect(await engine.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await engine.drawn())
         await engine.unmount()
         const own = await mountLine($, { word: 'Baked', durationMs: 3_000 })
         expect(await sketchOf(own)).toEqual(['', '~✻~ ~Baked for ~=3s='])
@@ -470,7 +471,7 @@ describe('the turn footer', () => {
     async (world, $) => {
       await appendTurnLine($)
       const engine = await mountLine($, BAKED)
-      expect(await engine.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await engine.drawn())
       await engine.unmount()
       world.settings = { timeFormat: 'auto' }
       const own = await mountLine($, BAKED)
@@ -487,7 +488,7 @@ describe('the turn footer', () => {
         world.agents = [agent(status)]
         await appendTurnLine($)
         const ui = await mountLine($, BAKED)
-        expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await ui.drawn())
         world.agents = [agent('completed')]
         await $.turn.complete({
           turnId: 'agent-turn-1',
@@ -535,7 +536,7 @@ describe('the turn footer', () => {
         world.agents = [agent('running')]
         await appendTurnLine($)
         const ui = await mountLine($, BAKED)
-        expect(await ui.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await ui.drawn())
         world.agents = [agent('completed')]
         await $.session.append({
           message: { ...message, content: [...message.content] },

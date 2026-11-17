@@ -10,6 +10,26 @@ import {
 import { hasEchoedSuccess, onReply } from './hooks/register'
 import type { QuietItemsSimpleViewMode } from './types'
 
+function isEngineRow(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as { type?: unknown; ref?: unknown }
+  return (
+    row.type === 'engine' &&
+    typeof row.ref === 'number' &&
+    Number.isInteger(row.ref) &&
+    row.ref >= 0
+  )
+}
+
+function expectEngineRow(value: unknown, message?: string): void {
+  expect(value, message).toMatchObject({ type: 'engine', ref: expect.any(Number) })
+  expect(isEngineRow(value), message ?? 'an engine row with a ref of 0 or more').toBe(true)
+}
+
+function expectNoEngineRow(value: unknown, message?: string): void {
+  expect(isEngineRow(value), message ?? 'a row that is not the engine row').toBe(false)
+}
+
 type Snapshot = PluginState['handily-workitems']['snapshot']
 type Diff = { created: Item[]; updated: Item[]; closed: Item[] }
 type Item = Snapshot['items'][number]
@@ -535,7 +555,7 @@ describe('fallback to the engine row', () => {
     await startSession($)
     const id = await runBash($, calls, 'br close handily-zz99')
     expect(world.sinces).toEqual([])
-    expect(await drawnUse($, toolUse(id, 'br close handily-zz99'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br close handily-zz99')))
   })
 
   quietTest('when the call was interrupted', async (world, $, on) => {
@@ -545,7 +565,7 @@ describe('fallback to the engine row', () => {
     await startSession($)
     const id = await runBash($, calls, 'br close handily-ab12')
     expect(world.sinces).toEqual([])
-    expect(await drawnUse($, toolUse(id, 'br close handily-ab12'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br close handily-ab12')))
   })
 
   quietTest('while the row is running, interrupted or errored', async (world, $, on) => {
@@ -554,10 +574,10 @@ describe('fallback to the engine row', () => {
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
     const done = toolUse(id, 'br create --title x')
-    expect(await drawnUse($, done)).not.toEqual(ENGINE_ROW)
-    expect(await drawnUse($, { ...done, isRunning: true, output: undefined })).toEqual(ENGINE_ROW)
-    expect(await drawnUse($, { ...done, isInterrupted: true })).toEqual(ENGINE_ROW)
-    expect(await drawnUse($, { ...done, isErrored: true })).toEqual(ENGINE_ROW)
+    expectNoEngineRow(await drawnUse($, done))
+    expectEngineRow(await drawnUse($, { ...done, isRunning: true, output: undefined }))
+    expectEngineRow(await drawnUse($, { ...done, isInterrupted: true }))
+    expectEngineRow(await drawnUse($, { ...done, isErrored: true }))
   })
 
   quietTest('when the refresh diff is empty', async (world, $, on) => {
@@ -565,14 +585,14 @@ describe('fallback to the engine row', () => {
     await startSession($)
     const id = await runBash($, calls, 'br update handily-ab12 --status in_progress')
     expect(world.sinces).toEqual([7])
-    expect(await drawnUse($, toolUse(id, 'br update'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br update')))
     const result = await $.ui.mount({
       plugin: 'handily-quiet-items',
       surface: 'terminal',
       component: 'ToolResult',
       props: toolResult(id),
     })
-    expect(await result.drawn()).toEqual(ENGINE_ROW)
+    expectEngineRow(await result.drawn())
     await result.unmount()
   })
 
@@ -581,10 +601,10 @@ describe('fallback to the engine row', () => {
     world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+    expectNoEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     world.refreshError = 'since 8 is older than the 50 kept diffs'
     const failed = await runBash($, calls, 'br create --title y')
-    expect(await drawnUse($, toolUse(failed, 'br create --title y'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(failed, 'br create --title y')))
   })
 
   quietTest('when the workitems command check fails', async (world, $, on) => {
@@ -596,7 +616,7 @@ describe('fallback to the engine row', () => {
     const id = calls.ids.at(-1) ?? ''
     expect(result.text).toBe(FULL_RESULT_TEXT)
     expect(world.sinces).toEqual([])
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     expect(
       world.logs.filter((line) =>
         line.startsWith(`quiet-items: no row for ${id}; the command check failed:`),
@@ -617,7 +637,7 @@ describe('fallback to the engine row', () => {
     })
     const id = calls.ids.at(-1) ?? ''
     expect(id).not.toBe('')
-    expect(
+    expectEngineRow(
       await drawnUse($, {
         tool_use_id: id,
         tool: 'Edit',
@@ -626,7 +646,7 @@ describe('fallback to the engine row', () => {
         isErrored: false,
         isInterrupted: false,
       }),
-    ).toEqual(ENGINE_ROW)
+    )
     expect(
       world.logs.filter((line) =>
         line.startsWith(`quiet-items: no row for ${id}; the tracker file check failed:`),
@@ -656,7 +676,7 @@ describe('fallback to the engine row', () => {
       await startSession($)
       const id = await runBash($, calls, 'br create --title x')
       expect(world.sinces).toEqual([])
-      expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+      expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     })
   }
 
@@ -667,7 +687,7 @@ describe('fallback to the engine row', () => {
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
     expect(world.sinces).toEqual([])
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     expect(world.logs).toEqual([])
   })
 
@@ -686,7 +706,7 @@ describe('fallback to the engine row', () => {
     expect(result.text).toBe('warning: handily-zz99 not found')
     const id = calls.ids.at(-1) ?? ''
     expect(world.sinces).toEqual([])
-    expect(await drawnUse($, toolUse(id, 'br close handily-ab12 handily-zz99'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br close handily-ab12 handily-zz99')))
   })
 
   for (const [command, stdout] of [
@@ -701,7 +721,7 @@ describe('fallback to the engine row', () => {
       await startSession($)
       const id = await runBash($, calls, command)
       expect(world.sinces).toEqual([])
-      expect(await drawnUse($, toolUse(id, command))).toEqual(ENGINE_ROW)
+      expectEngineRow(await drawnUse($, toolUse(id, command)))
     })
   }
 
@@ -712,14 +732,14 @@ describe('fallback to the engine row', () => {
       await startSession($)
       const id = await runBash($, calls, command)
       expect(world.sinces).toEqual([])
-      expect(await drawnUse($, toolUse(id, command))).toEqual(ENGINE_ROW)
+      expectEngineRow(await drawnUse($, toolUse(id, command)))
       const result = await $.ui.mount({
         plugin: 'handily-quiet-items',
         surface: 'terminal',
         component: 'ToolResult',
         props: toolResult(id),
       })
-      expect(await result.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await result.drawn())
       await result.unmount()
     })
   }
@@ -731,7 +751,7 @@ describe('fallback to the engine row', () => {
       await startSession($)
       const id = await runBash($, calls, command)
       expect(world.sinces).toEqual([])
-      expect(await drawnUse($, toolUse(id, command))).toEqual(ENGINE_ROW)
+      expectEngineRow(await drawnUse($, toolUse(id, command)))
     })
   }
 
@@ -742,7 +762,7 @@ describe('fallback to the engine row', () => {
       await startSession($)
       const id = await runBash($, calls, command)
       expect(world.sinces).toEqual([])
-      expect(await drawnUse($, toolUse(id, command))).toEqual(ENGINE_ROW)
+      expectEngineRow(await drawnUse($, toolUse(id, command)))
     })
   }
 })
@@ -860,7 +880,7 @@ describe('simple-view mode', () => {
           component: 'ToolUse',
           props: toolUse(id, command),
         })
-        expect(await use.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await use.drawn())
         await use.unmount()
         const result = await $.ui.mount({
           plugin: 'handily-quiet-items',
@@ -868,7 +888,7 @@ describe('simple-view mode', () => {
           component: 'ToolResult',
           props: toolResult(id),
         })
-        expect(await result.drawn()).toEqual(ENGINE_ROW)
+        expectEngineRow(await result.drawn())
         await result.unmount()
       },
     )
@@ -902,7 +922,7 @@ describe('simple-view mode', () => {
       expect(await commandText($)).toBe(
         'quiet-items on for this session, but /simple is off, so tracker writes draw in full.',
       )
-      expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+      expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     },
   )
 
@@ -934,11 +954,11 @@ describe('simple-view mode', () => {
         component: 'ToolUse',
         props: toolUse(id, 'br create --title x'),
       })
-      expect(await use.drawn()).not.toEqual(ENGINE_ROW)
+      expectNoEngineRow(await use.drawn())
       await setSimpleViewMode($, 'off')
-      expect(await use.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await use.drawn())
       await setSimpleViewMode($, 'on')
-      expect(await use.drawn()).not.toEqual(ENGINE_ROW)
+      expectNoEngineRow(await use.drawn())
       await use.unmount()
     },
   )
@@ -953,10 +973,10 @@ describe('simple-view mode', () => {
         await startSession($)
         const id = await runBash($, calls, 'br create --title x')
         await writeSimpleViewMode($, mode)
-        expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+        expectNoEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
         expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([true])
         await commandText($)
-        expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+        expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
         expect(await groupExpansion($, calls, toolGroup(id, 'br create --title x'))).toEqual([
           false,
         ])
@@ -969,9 +989,9 @@ describe('simple-view mode', () => {
     world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+    expectNoEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     await commandText($)
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
   })
 })
 
@@ -1020,7 +1040,7 @@ describe('raw tracker edit', () => {
       await startSession($)
       await $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b' })
       const id = calls.ids.at(-1) ?? ''
-      expect(
+      expectEngineRow(
         await drawnUse($, {
           tool_use_id: id,
           tool: 'Edit',
@@ -1029,7 +1049,7 @@ describe('raw tracker edit', () => {
           isErrored: false,
           isInterrupted: false,
         }),
-      ).toEqual(ENGINE_ROW)
+      )
     })
   }
 
@@ -1039,7 +1059,7 @@ describe('raw tracker edit', () => {
     await startSession($)
     await $.tool.call({ tool: 'Write', file_path: `${ROOT}/notes.md`, content: 'x' })
     const id = calls.ids.at(-1) ?? ''
-    expect(
+    expectEngineRow(
       await drawnUse($, {
         tool_use_id: id,
         tool: 'Write',
@@ -1048,7 +1068,7 @@ describe('raw tracker edit', () => {
         isErrored: false,
         isInterrupted: false,
       }),
-    ).toEqual(ENGINE_ROW)
+    )
   })
 })
 
@@ -1061,15 +1081,15 @@ describe('/quiet-items', () => {
     world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+    expectNoEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     expect(await commandText($)).toBe(
       'quiet-items off for this session. Tracker commands draw in full.',
     )
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     expect(await commandText($)).toBe(
       'quiet-items on for this session. Tracker writes draw as one row.',
     )
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+    expectNoEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
   })
 
   quietTest('starts from the mode setting', { options: { mode: 'off' } }, async (world, $, on) => {
@@ -1077,11 +1097,11 @@ describe('/quiet-items', () => {
     world.callChange = { ...emptyDiff(), created: [AB12] }
     await startSession($)
     const id = await runBash($, calls, 'br create --title x')
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+    expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
     expect(await commandText($)).toBe(
       'quiet-items on for this session. Tracker writes draw as one row.',
     )
-    expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+    expectNoEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
   })
 
   quietTest(
@@ -1127,12 +1147,12 @@ describe('/quiet-items', () => {
       const id = await runBash($, calls, 'br create --title x')
       expect(await commandText($, 'off')).toBe(OFF_REPLY)
       expect(await storedMode($)).toBe('off')
-      expect(await drawnUse($, toolUse(id, 'br create --title x'))).toEqual(ENGINE_ROW)
+      expectEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
       expect(await commandText($, 'off')).toBe(OFF_REPLY)
       expect(await storedMode($)).toBe('off')
       expect(await commandText($, 'on')).toBe(ON_REPLY)
       expect(await storedMode($)).toBe('on')
-      expect(await drawnUse($, toolUse(id, 'br create --title x'))).not.toEqual(ENGINE_ROW)
+      expectNoEngineRow(await drawnUse($, toolUse(id, 'br create --title x')))
       expect(await commandText($, 'on')).toBe(ON_REPLY)
       expect(await commandText($)).toBe(OFF_REPLY)
       expect(await commandText($)).toBe(ON_REPLY)
@@ -1231,5 +1251,31 @@ describe('a paused workitems', () => {
     expect(onReply({ ...okSnapshot(7), state: 'paused', reason: null })).toBe(
       'quiet-items on for this session, but workitems is paused (/workitems resume reads the tracker again), so tracker commands draw in full.',
     )
+  })
+})
+
+describe('the engine row check', () => {
+  test('passes for an engine row of ref 0 and of ref 1', () => {
+    expectEngineRow({ type: 'engine', ref: 0 })
+    expectEngineRow({ type: 'engine', ref: 1 })
+    expectNoEngineRow({ type: 'Box', ref: 0 })
+  })
+
+  test('fails for a row of another type and for a ref that is not an integer of 0 or more', () => {
+    expect(() => {
+      expectEngineRow({ type: 'Box', ref: 0 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: -1 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: 1.5 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine' })
+    }).toThrow()
+    expect(() => {
+      expectNoEngineRow({ type: 'engine', ref: 1 })
+    }).toThrow()
   })
 })

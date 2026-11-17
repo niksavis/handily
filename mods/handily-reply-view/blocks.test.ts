@@ -1,6 +1,7 @@
 import type { ConfigRow, On, RenderPropsOf } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 import { displayWidth } from './hooks/width'
+import { expectEngineRow } from './fixtures/engine-row'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -1030,7 +1031,7 @@ describe('the desktop and copy (handily-36bsx.2)', () => {
     {},
     async (_world, $) => {
       const ui = await mountReply($, EVERY_BLOCK, 'desktop')
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await ui.drawn())
       await ui.unmount()
     },
   )

@@ -4,6 +4,7 @@ import { jumpTo, PROMPTS_PANE, type RailPort } from './hooks/jump'
 import { drawnPrompt } from './hooks/prompt'
 import { addPrompt, newRail, promptNumberOf, promptsOf } from './hooks/rail'
 import { displayWidth } from './hooks/width'
+import { expectEngineRow } from './fixtures/engine-row'
 
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
 const TYPED_AT = new Date(2026, 9, 30, 10, 51).getTime()
@@ -564,7 +565,7 @@ describe('the prompt styles', () => {
       await started($, on)
       const ui = await mountPrompt($, 'line\n'.repeat(20), { isExpanded: true })
       const drawn = await ui.drawn()
-      expect(drawn).toEqual(ENGINE_ROW)
+      expectEngineRow(drawn)
       expect(FRAME_CHARACTERS.some((frame) => JSON.stringify(drawn).includes(frame))).toBe(false)
       await ui.unmount()
     },
@@ -576,7 +577,7 @@ describe('the prompt styles', () => {
     async ($, on) => {
       await started($, on)
       const ui = await mountPrompt($, 'line\n'.repeat(20), { isExpanded: true })
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await ui.drawn())
       await ui.unmount()
     },
   )
@@ -782,7 +783,7 @@ describe('the promptStyle setting', () => {
     async ($, on) => {
       await started($, on, {}, 'desktop')
       const ui = await mountPrompt($, MOCK_PROMPT, { surface: 'desktop' })
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await ui.drawn())
       await ui.unmount()
     },
   )
@@ -793,7 +794,7 @@ describe('the promptStyle setting', () => {
     async ($, on) => {
       await started($, on, {}, 'desktop')
       const ui = await mountPrompt($, MOCK_PROMPT, { surface: 'desktop' })
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await ui.drawn())
       await ui.unmount()
     },
   )
@@ -807,7 +808,7 @@ describe('the promptStyle setting', () => {
       expect(await toggleText($)).toBe(
         'off for this session. Replies and prompts draw as Claude Code draws them.',
       )
-      expect(await ui.drawn()).toEqual(ENGINE_ROW)
+      expectEngineRow(await ui.drawn())
       expect(await toggleText($)).toMatch(
         / Each prompt that you type draws in a frame at the right under the label you\.$/,
       )

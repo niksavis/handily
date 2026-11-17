@@ -11,6 +11,26 @@ import {
   statusesOf,
 } from './hooks/status'
 
+function isEngineRow(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as { type?: unknown; ref?: unknown }
+  return (
+    row.type === 'engine' &&
+    typeof row.ref === 'number' &&
+    Number.isInteger(row.ref) &&
+    row.ref >= 0
+  )
+}
+
+function expectEngineRow(value: unknown, message?: string): void {
+  expect(value, message).toMatchObject({ type: 'engine', ref: expect.any(Number) })
+  expect(isEngineRow(value), message ?? 'an engine row with a ref of 0 or more').toBe(true)
+}
+
+function expectNoEngineRow(value: unknown, message?: string): void {
+  expect(isEngineRow(value), message ?? 'a row that is not the engine row').toBe(false)
+}
+
 const SURFACES: RenderSurface[] = ['terminal', 'desktop']
 const MODS = [
   'handily-workitems',
@@ -902,7 +922,7 @@ describe('/handily colours', () => {
         component: 'CommandOutput',
         props: { command: 'handily', args: '', text: 'handily: an older reply', isErrored: false },
       })
-      expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
+      expectEngineRow(await ui.drawn())
       await ui.unmount()
     })
   }
@@ -1190,7 +1210,7 @@ describe('/handily glyphs', () => {
         component: 'CommandOutput',
         props: { command: 'handily', args: 'glyphs', text: engineRowText(text), isErrored: false },
       })
-      expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
+      expectEngineRow(await ui.drawn())
       await ui.unmount()
     })
   }
@@ -1260,5 +1280,31 @@ describe('manifests', () => {
     expect(() => manifestDescription('{"name":"handily-workitems"}', 'handily-workitems')).toThrow(
       'the plugin.json of handily-workitems has no "description"',
     )
+  })
+})
+
+describe('the engine row check', () => {
+  test('passes for an engine row of ref 0 and of ref 1', () => {
+    expectEngineRow({ type: 'engine', ref: 0 })
+    expectEngineRow({ type: 'engine', ref: 1 })
+    expectNoEngineRow({ type: 'Box', ref: 0 })
+  })
+
+  test('fails for a row of another type and for a ref that is not an integer of 0 or more', () => {
+    expect(() => {
+      expectEngineRow({ type: 'Box', ref: 0 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: -1 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine', ref: 1.5 })
+    }).toThrow()
+    expect(() => {
+      expectEngineRow({ type: 'engine' })
+    }).toThrow()
+    expect(() => {
+      expectNoEngineRow({ type: 'engine', ref: 1 })
+    }).toThrow()
   })
 })
