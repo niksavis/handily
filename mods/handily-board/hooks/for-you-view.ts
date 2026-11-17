@@ -1,6 +1,7 @@
 import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardList, BoardTask } from '../types'
 import { elapsedText } from './activity'
+import { wrappedText } from './frame'
 import type { PaneElements, RowLayout } from './pane'
 import { SIGNALS, type SignalLooks } from './signals'
 import { escaped, isForPerson } from './tasks'
@@ -14,7 +15,6 @@ const KIND_WIDTH = 6
 const WIDE_FROM = 36
 const BUTTON_CHROME = 4
 const BUTTON_GAP = 1
-const OPTION_COLUMNS = 20
 const PLACEHOLDER_WIDE = 'Your answer'
 const PLACEHOLDER_NARROW = 'Answer'
 const NOT_SENT = 'not sent:'
@@ -105,41 +105,70 @@ function drawHead(elements: PaneElements, asked: readonly BoardTask[]): RenderEl
   })
 }
 
+function wrappedLines(
+  elements: PaneElements,
+  text: string,
+  room: number,
+  style: TextStyle = {},
+): RenderElement[] {
+  return wrappedText(text, Math.max(room, 1)).map((line) =>
+    elements.Text({ ...style, children: line }),
+  )
+}
+
+function hanging(
+  elements: PaneElements,
+  key: string,
+  head: { parts: readonly RenderElement[]; width: number },
+  lines: readonly RenderElement[],
+): RenderElement {
+  const { Box, Text } = elements
+  const [first, ...rest] = lines
+  return Box({
+    key,
+    flexDirection: 'column',
+    children: [
+      Box({ flexDirection: 'row', children: [...head.parts, ...(first ? [first] : [])] }),
+      ...rest.map((line) =>
+        Box({ flexDirection: 'row', children: [Text({ children: ' '.repeat(head.width) }), line] }),
+      ),
+    ],
+  })
+}
+
 function rowLine(
   elements: PaneElements,
   task: BoardTask,
   idWidth: number,
   view: ForYouView,
-): { line: RenderElement; isCut: boolean } {
-  const { Box, Text, Button } = elements
+): RenderElement {
+  const { Text, Button } = elements
   const isWide = elements.bodyColumns >= WIDE_FROM
   const { mark, color } = markOf(task, elements.signals)
   const isDim = task.isWithdrawn === true
   const lead = `${mark} ${String(task.id).padStart(idWidth)} `
   const kind = `${(task.kind ?? 'do').padEnd(KIND_WIDTH)}${isWide ? '  ' : ' '}`
   const room = Math.max(elements.bodyColumns - displayWidth(lead) - displayWidth(kind), 1)
-  const title = escaped(task.title)
-  const shown = fitted(title, room)
-  return {
-    isCut: shown !== title,
-    line: Box({
-      key: `row:for:${String(task.id)}`,
-      flexDirection: 'row',
-      children: [
-        Text({ color, dimColor: isDim, children: `${mark} ` }),
-        Text({ dimColor: isDim, children: `${String(task.id).padStart(idWidth)} ` }),
-        Text({ dimColor: true, children: kind }),
-        Button({
-          key: `open:${openKey(task.id)}`,
-          plain: true,
-          onPress: () => {
-            view.layout.toggle(openKey(task.id))
-          },
-          children: [Text({ dimColor: isDim, children: shown })],
-        }),
-      ],
-    }),
-  }
+  const [first = '', ...rest] = wrappedText(escaped(task.title), room)
+  const head = [
+    Text({ color, dimColor: isDim, children: `${mark} ` }),
+    Text({ dimColor: isDim, children: `${String(task.id).padStart(idWidth)} ` }),
+    Text({ dimColor: true, children: kind }),
+  ]
+  const button = Button({
+    key: `open:${openKey(task.id)}`,
+    plain: true,
+    onPress: () => {
+      view.layout.toggle(openKey(task.id))
+    },
+    children: [Text({ dimColor: isDim, children: first })],
+  })
+  return hanging(
+    elements,
+    `row:for:${String(task.id)}`,
+    { parts: head, width: displayWidth(lead) + displayWidth(kind) },
+    [button, ...rest.map((line) => Text({ dimColor: isDim, children: line }))],
+  )
 }
 
 function packed(labels: readonly string[], room: number): number[][] {
@@ -171,16 +200,56 @@ function buttonRow(elements: PaneElements, key: string, buttons: readonly Render
 }
 
 function noteLine(elements: PaneElements, id: number, note: string): RenderElement {
-  const { Box, Text } = elements
-  const lead = `${elements.signals.blocked.mark} ${NOT_SENT}`
-  const room = elements.bodyColumns - UNDER_INDENT - displayWidth(lead) - 1
-  return Box({
-    key: `note:${String(id)}`,
-    flexDirection: 'row',
-    children: [
-      Text({ color: SIGNALS.blocked.color, children: lead }),
-      Text({ children: ` ${fitted(note, Math.max(room, 1))}` }),
-    ],
+  const lead = `${elements.signals.blocked.mark} ${NOT_SENT} `
+  const room = elements.bodyColumns - UNDER_INDENT - displayWidth(lead)
+  return hanging(
+    elements,
+    `note:${String(id)}`,
+    {
+      parts: [elements.Text({ color: SIGNALS.blocked.color, children: lead })],
+      width: displayWidth(lead),
+    },
+    wrappedLines(elements, note, room),
+  )
+}
+
+function optionRows(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
+  const { Box, Button } = elements
+  const id = String(task.id)
+  const labels = (task.options ?? []).map((option) => escaped(option))
+  const room = elements.bodyColumns - UNDER_INDENT
+  const pick = (at: number, label: string) =>
+    Button({
+      key: `for-pick:${id}:${String(at + 1)}`,
+      label,
+      onPress: () => {
+        view.press.pick(task.id, at + 1)
+      },
+    })
+  if (labels.every((label) => displayWidth(label) + BUTTON_CHROME <= room)) {
+    return packed(labels, room).map((line, index) =>
+      buttonRow(
+        elements,
+        `options:${id}:${String(index)}`,
+        line.map((at) => pick(at, labels[at] ?? '')),
+      ),
+    )
+  }
+  return labels.map((label, at) => {
+    const number = String(at + 1)
+    const width = displayWidth(number) + BUTTON_CHROME + BUTTON_GAP
+    return hanging(
+      elements,
+      `options:${id}:${String(at)}`,
+      {
+        parts: [
+          Box({ flexShrink: 0, children: [pick(at, number)] }),
+          elements.Text({ children: ' '.repeat(BUTTON_GAP) }),
+        ],
+        width,
+      },
+      wrappedLines(elements, label, room - width),
+    )
   })
 }
 
@@ -251,26 +320,8 @@ function openActions(elements: PaneElements, task: BoardTask, view: ForYouView):
         : Text({ dimColor: true, children: `answer: /board answer ${id} <text>` })
       return [field, ...notes, reject]
     }
-    case 'decide': {
-      const labels = (task.options ?? []).map((option) => fitted(escaped(option), OPTION_COLUMNS))
-      const room = elements.bodyColumns - UNDER_INDENT
-      const lines = packed(labels, room).map((line, index) =>
-        buttonRow(
-          elements,
-          `options:${id}:${String(index)}`,
-          line.map((at) =>
-            Button({
-              key: `for-pick:${id}:${String(at + 1)}`,
-              label: labels[at] ?? '',
-              onPress: () => {
-                view.press.pick(task.id, at + 1)
-              },
-            }),
-          ),
-        ),
-      )
-      return [...lines, ...notes, reject]
-    }
+    case 'decide':
+      return [...optionRows(elements, task, view), ...notes, reject]
     case 'do':
     case undefined: {
       const done = Button({
@@ -341,17 +392,48 @@ function settledLine(elements: PaneElements, task: BoardTask, view: ForYouView):
   })
 }
 
-function openedLines(elements: PaneElements, task: BoardTask, view: ForYouView, isCut: boolean) {
+const SENT_LEAD = 'sent '
+const FILLED_LEAD = 'in your prompt box: '
+
+function sentLine(elements: PaneElements, task: BoardTask, prompt: string): RenderElement {
+  const width = displayWidth(SENT_LEAD)
+  return hanging(
+    elements,
+    `sent:${String(task.id)}`,
+    { parts: [elements.Text({ color: elements.signals.done.color, children: SENT_LEAD })], width },
+    wrappedLines(elements, prompt, elements.bodyColumns - UNDER_INDENT - width),
+  )
+}
+
+function settledLines(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
+  const { result } = task
+  const note = result?.isSent === false ? view.notes.get(task.id) : undefined
+  const notes = note === undefined ? [] : [noteLine(elements, task.id, note)]
+  const prompt = result?.prompt
+  if (prompt !== undefined && result?.isFresh === true) {
+    return [sentLine(elements, task, prompt), ...notes]
+  }
+  const room = elements.bodyColumns - UNDER_INDENT
+  const filled =
+    prompt !== undefined && result?.isSent === false
+      ? wrappedLines(elements, `${FILLED_LEAD}${prompt}`, room, { dimColor: true })
+      : []
+  return [...notes, ...filled, settledLine(elements, task, view)]
+}
+
+function openedLines(elements: PaneElements, task: BoardTask, view: ForYouView) {
   const { Text } = elements
   if (!view.layout.expanded.has(openKey(task.id))) return []
   const asked =
     task.askedAt === undefined ? 'asked' : `asked ${elapsedText(view.now - task.askedAt)} ago`
   const by = task.kind === 'decide' ? ' · options by Claude' : ''
+  const room = elements.bodyColumns - UNDER_INDENT
   return [
-    isCut ? Text({ children: escaped(task.title) }) : null,
-    Text({ dimColor: true, children: `${asked}${by}` }),
-    task.why === undefined ? null : Text({ dimColor: true, children: escaped(task.why) }),
-  ].filter((line) => line !== null)
+    Text({ dimColor: true, children: fitted(`${asked}${by}`, room) }),
+    ...(task.why === undefined
+      ? []
+      : wrappedLines(elements, escaped(task.why), room, { dimColor: true })),
+  ]
 }
 
 function withdrawnText(task: BoardTask): string {
@@ -365,12 +447,12 @@ function drawTask(
   view: ForYouView,
 ): RenderElement {
   const { Box, Text } = elements
-  const { line, isCut } = rowLine(elements, task, idWidth, view)
+  const line = rowLine(elements, task, idWidth, view)
   const under =
     task.isWithdrawn === true
       ? [Text({ dimColor: true, children: withdrawnText(task) })]
       : task.result
-        ? [settledLine(elements, task, view)]
+        ? settledLines(elements, task, view)
         : openActions(elements, task, view)
   return Box({
     key: `task:for:${String(task.id)}`,
@@ -380,7 +462,7 @@ function drawTask(
       Box({
         flexDirection: 'column',
         paddingLeft: UNDER_INDENT,
-        children: [...openedLines(elements, task, view, isCut), ...under],
+        children: [...openedLines(elements, task, view), ...under],
       }),
     ],
   })
@@ -394,7 +476,11 @@ export function drawForYou(elements: PaneElements, view: ForYouView): RenderElem
   const open = asked.filter((task) => !isSettled(task) && task.isWithdrawn !== true)
   const toSend = asked.filter((task) => task.result?.isSent === false)
   const withdrawn = asked.filter((task) => task.isWithdrawn === true)
-  const sent = asked.filter((task) => task.result?.isSent === true && task.isWithdrawn !== true)
+  const isFresh = (task: BoardTask) => task.result?.isFresh === true && task.isWithdrawn !== true
+  const fresh = asked.filter(isFresh)
+  const sent = asked.filter(
+    (task) => task.result?.isSent === true && task.isWithdrawn !== true && !isFresh(task),
+  )
   const isAllOpenShown = view.layout.expanded.has(FOR_YOU_GROUP) || open.length <= OPEN_SHOWN
   const shownOpen = isAllOpenShown ? open : open.slice(0, OPEN_SHOWN)
   const isSentShown = view.layout.expanded.has(ANSWERED_GROUP)
@@ -414,6 +500,7 @@ export function drawForYou(elements: PaneElements, view: ForYouView): RenderElem
           },
         })
       : null,
+    ...fresh.map(draw),
     ...toSend.map(draw),
     ...withdrawn.map(draw),
     toSend.length > 0

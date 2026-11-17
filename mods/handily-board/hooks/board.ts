@@ -1,4 +1,5 @@
 import type { PluginOptions, RenderSurface } from 'claude-code'
+import type { PromptSend } from './for-you'
 import { marked, type ToastParts } from './toast'
 
 export const TASKS_PANE = { id: 'tasks', title: 'this session' } as const
@@ -40,6 +41,7 @@ export type PaneUi = {
   close: (id: string) => Promise<void>
   panes: () => Promise<readonly OpenPane[]>
   fillPrompt: (text: string) => Promise<PromptFill>
+  submitPrompt: (text: string) => Promise<PromptSend>
   openAgents: () => Promise<void>
   openFiles: (taskId: number) => Promise<void>
   focus: (key: string) => Promise<void>
@@ -59,23 +61,25 @@ export function isTasksSeen(panes: readonly OpenPane[]): boolean {
   return panes.some((open) => open.id === TASKS_PANE.id && open.isShown && open.isPlaced)
 }
 
-async function openUnopened(
+async function closeOthers(
   ui: PaneUi,
-  panes: readonly BoardPane[],
+  asked: BoardPane,
   before: readonly OpenPane[],
 ): Promise<void> {
-  for (const pane of panes) {
-    if (!before.some((open) => open.id === pane.id)) await ui.open(pane, false)
+  for (const open of before.filter((one) => isBoardPane(one) && one.id !== asked.id)) {
+    try {
+      await ui.close(open.id)
+    } catch (error) {
+      ui.log(`handily-board: the other board pane stayed open: ${String(error)}`)
+    }
   }
 }
 
 export async function showPane(ui: PaneUi, asked: BoardPane): Promise<PaneOpened> {
   const before = await ui.panes()
   const isShown = before.some((open) => open.id === asked.id && open.isShown)
-  const at = BOARD_PANES.indexOf(asked)
-  await openUnopened(ui, BOARD_PANES.slice(0, at), before)
   const opened = await ui.open(asked, !isShown)
-  await openUnopened(ui, BOARD_PANES.slice(at + 1), before)
+  await closeOthers(ui, asked, before)
   return opened
 }
 
@@ -98,8 +102,9 @@ export async function sessionCommand(ui: PaneUi, mode: BoardMode): Promise<strin
 }
 
 export async function openUnasked(ui: PaneUi): Promise<void> {
+  const before = await ui.panes()
   const opened = await ui.open(TASKS_PANE, false)
-  await ui.open(SESSIONS_PANE, false)
+  await closeOthers(ui, TASKS_PANE, before)
   if (opened.isPlaced) return
   ui.log(`handily-board: the board waits undrawn: ${opened.reason}`)
   ui.showToast(WAITS_FOR_WIDER_TERMINAL)

@@ -875,6 +875,9 @@ Measured facts (tmux, Claude Code 2.1.296):
 - A pane in a hidden tab does not draw.
 - With two panes open, the engine shows them as tabs. Both panes were placed in fullscreen at 90
   and at 120 columns.
+- Since handily-c6yihd (2026-11-17), `/board` and `/board machine` open only the pane asked for and
+  close the other board pane, so the board is one pane and one close closes it. The tab rows in
+  the mocks below predate this record: the board no longer shows both of its panes as tabs.
 - With both panes open and pane-b shown, `ui.open` on pane-a without `focus` does not bring pane-a
   forward. With `focus: true` it does (pane-a drew, pane-b stopped). The pane then also holds the keyboard.
 - `/board` is free. Built-ins `/tasks`, `/agents`, `/plan` and `/status` exist.
@@ -2168,8 +2171,10 @@ A successful add shows no toast (ftx0x.4): the transcript line and the pane both
 ### 8.12 Tasks for you (handily-9uj3n.8)
 
 Claude assigns a task to the person, of the kind `do`, `answer` or `decide`. The person marks it
-done, answers it, picks an option or rejects it. Every result waits for the next prompt, as a change
-of 8.6 does. The next prompt carries one note with all of them.
+done, answers it, picks an option or rejects it. A press on an option or on `[Send]` submits the
+answer at once as the person's own prompt (8.12k, handily-c6yihd). Done, a rejection, and the
+commands `/board answer` and `/board pick` wait for the next prompt, as a change of 8.6 does. The
+next prompt carries one note with all of them.
 
 - The section `For you` comes first, above `Tasks`: attention first (8.0).
 - `◆` marks an open task (it waits for you). `✓` marks done, answered or decided, in `success`. `■`
@@ -2204,7 +2209,10 @@ of 8.6 does. The next prompt carries one note with all of them.
 The task ids pad to the widest id in the section, so the kind and the title line up. The kind word
 is dim.
 
-#### 8.12b Three answered, before the next prompt (each can be undone)
+#### 8.12b Answered by command or button, before the next prompt (each can be undone)
+
+The answer and the choice below came from `/board answer 9 8443` and `/board pick 10 2`. A press
+on the pane sends them at once instead, as in 8.12k.
 
 ```text
 ╭─────────────────────────────────────────✕─╮
@@ -2313,19 +2321,24 @@ is dim.
 ╰───────────────────────────────────────────╯
 ```
 
-#### 8.12g A cut title and a long option, pressed open
+#### 8.12g A long title and a long option, pressed open (handily-c6yihd)
 
 ```text
 ╭─────────────────────────────────────────✕─╮
-│ ◆ 10 decide  Pick the cache store for t…  │  pressed open
-│     Pick the cache store for the          │  NEW: full title, wrapped
-│     staging probe                         │
-│     asked 3m ago · options by Claude      │  NEW, dim
-│     [ Postgres ] [ SQLite ]               │
-│     [ Redis ] [ No cache at all, an… ]    │  an option cut at 20
+│ ◆ 10 decide  Pick the cache store for the │  the title wraps, never cut
+│              staging probe                │
+│     asked 3m ago · options by Claude      │  pressed open: dim
+│     [ 1 ] Postgres                        │  an option does not fit a button:
+│     [ 2 ] SQLite                          │  every button shows its number
+│     [ 3 ] Redis                           │
+│     [ 4 ] No cache at all, and a note in  │  the full option wraps beside it
+│           the README                      │
 │     [ reject ]                            │
 ╰───────────────────────────────────────────╯
 ```
+
+When every option fits on a button, the buttons show the options, as in 8.12a. The reason of
+Claude (`why`) wraps in full under `asked`.
 
 #### 8.12h Docked, body 30
 
@@ -2334,12 +2347,15 @@ is dim.
 │ [this session]  this machine   │  (engine tab row)
 │ Session  ctx 48% · $2.10       │
 │ For you  ◆ 3 open              │
-│ ◆  8 do     Rotate the stag…   │
+│ ◆  8 do     Rotate the staging │
+│             API key            │
 │     [ done ] [ reject ]        │
-│ ◆  9 answer Which port does…   │
+│ ◆  9 answer Which port does    │
+│             staging use?       │
 │     [ Answer ___ ][Send]       │
 │     [ reject ]                 │
-│ ◆ 10 decide Which cache sto…   │
+│ ◆ 10 decide Which cache store  │
+│             for now?           │
 │     [ Postgres ] [ SQLite ]    │
 │     [ Redis ]                  │
 │     [ reject ]                 │
@@ -2349,7 +2365,7 @@ is dim.
 ╰────────────────────────────────╯
 ```
 
-The options wrap; they never cut below 20 characters. The kind column loses its second space.
+The titles and the options wrap; nothing is cut. The kind column loses its second space.
 
 #### 8.12i Inline, 80 columns (body 76): one line for each task
 
@@ -2369,7 +2385,51 @@ The options wrap; they never cut below 20 characters. The kind column loses its 
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-A title is cut before a button; a press on the title opens it, as in 8.12g.
+A title is cut before a button; a press on the title opens it. Since handily-c6yihd the dock
+wraps every title in full (8.12g); this inline layout is not built.
+
+#### 8.12k A press sends the answer at once, and the row shows the exact text (handily-c6yihd)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 1 open                         │
+│ ◆ 11 do      Delete the old bucket        │
+│     [ done ] [ reject ]                   │
+│ ✓  9 answer  Which port does staging use? │  [Send] pressed with 8443
+│     sent Answer to task 9, "Which port    │  "sent" in success; the exact
+│          does staging use?": 8443         │  prompt text, wrapped
+│ ✓ 10 decide  Which cache store for now?   │  [ SQLite ] pressed
+│     sent Decision on task 10, "Which      │
+│          cache store for now?": "SQLite"  │
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
+- The board submits the text with `$.prompt.submit` and `asUser`, so Claude reads it as the
+  person's words. While a turn runs, it waits until the session is idle.
+- The sent rows stay until the person's next prompt, then fold under `[ +N answered ]` (8.12d).
+  A sent answer has no `[ undo ]`.
+- Council of 2026-11-17: submit at once, 2 of 3; the dissent (safety) asked for a fill and Enter,
+  because a misclick starts a turn. The exact text on the row shows a misclick at once.
+
+#### 8.12l The prompt is not taken: the text waits in the prompt box
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ✓ 10 decide  Which cache store for now?   │
+│     ■ not sent: the prompt was held back: │  ■ and "not sent:" in error
+│                 the session is paused; it │
+│                 waits in your prompt box  │
+│     in your prompt box: Decision on task  │  dim
+│     10, "Which cache store for now?":     │
+│     "SQLite"                              │
+│     chose "SQLite", to send      [ undo ] │
+╰───────────────────────────────────────────╯
+```
+
+- Enter on the filled prompt sends it, and the next note does not repeat the answer.
+- When the prompt box does not take the text either, the line ends with `Claude gets it with your
+  next prompt`, and the answer goes in the note of the next prompt, as in 8.12b.
 
 #### 8.12j Desktop app, body 41
 

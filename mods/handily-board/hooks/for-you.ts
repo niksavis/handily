@@ -12,6 +12,7 @@ import {
   textLength,
   titleRefusal,
 } from './tasks'
+import type { PromptFill } from './board'
 import { marked, type ToastParts } from './toast'
 
 export const KINDS: readonly BoardTaskKind[] = ['do', 'answer', 'decide']
@@ -161,19 +162,101 @@ export function withdrawTask(list: BoardList, id: number): BoardList {
   return { ...list, tasks: list.tasks.map((one) => (one.id === id ? withdrawn : one)) }
 }
 
+function withoutFresh(task: BoardTask): BoardTask {
+  if (task.result?.isFresh !== true) return task
+  const result = { ...task.result }
+  delete result.isFresh
+  return { ...task, result }
+}
+
 export function takeAnswers(list: BoardList): { list: BoardList; value: BoardTask[] } {
   const taken = list.tasks.filter(
     (task) => isForPerson(task) && task.result !== undefined && !task.result.isSent,
   )
+  const hasFresh = list.tasks.some((task) => task.result?.isFresh === true)
   const tasks = list.tasks
     .filter((task) => task.isWithdrawn !== true)
     .map((task) =>
       taken.includes(task) && task.result
         ? { ...task, status: 'completed' as const, result: { ...task.result, isSent: true } }
-        : task,
+        : withoutFresh(task),
     )
-  const isSame = taken.length === 0 && tasks.length === list.tasks.length
+  const isSame = taken.length === 0 && !hasFresh && tasks.length === list.tasks.length
   return { list: isSame ? list : { ...list, tasks }, value: taken }
+}
+
+export function answersToTell(taken: readonly BoardTask[], typed: string): BoardTask[] {
+  return taken.filter((task) => {
+    const prompt = task.result?.prompt
+    return prompt === undefined || !typed.includes(prompt)
+  })
+}
+
+export function answerPrompt(task: BoardTask): string | undefined {
+  const { result } = task
+  if (result === undefined || result.text === null) return undefined
+  const number = String(task.id)
+  switch (result.verb) {
+    case 'answered':
+      return `Answer to task ${number}, ${quoted(task.title)}: ${result.text}`
+    case 'chose':
+      return `Decision on task ${number}, ${quoted(task.title)}: ${quoted(result.text)}`
+    case 'done':
+    case 'rejected':
+      return undefined
+  }
+}
+
+export type PromptSend = { isSent: true } | { isSent: false; reason: string }
+
+export type AnswerSender = {
+  submit: (text: string) => Promise<PromptSend>
+  fill: (text: string) => Promise<PromptFill>
+}
+
+type PromptMark = { prompt: string; isSent: true } | { prompt: string | undefined; isSent: false }
+
+function promptMarked(
+  list: BoardList,
+  settledTask: BoardTask,
+  mark: PromptMark,
+): { list: BoardList; value: boolean } {
+  const task = findTask(list, settledTask.id)
+  const was = settledTask.result
+  if (!task?.result || !was || task.result.at !== was.at || task.isWithdrawn === true) {
+    return { list, value: false }
+  }
+  const base = { verb: was.verb, text: was.text, at: was.at }
+  const result: BoardResult = mark.isSent
+    ? { ...base, isSent: true, isFresh: true, prompt: mark.prompt }
+    : { ...base, isSent: false, ...(mark.prompt === undefined ? {} : { prompt: mark.prompt }) }
+  const status = mark.isSent ? ('completed' as const) : settledTask.status
+  const next: BoardTask = { ...task, status, result }
+  return {
+    list: { ...list, tasks: list.tasks.map((one) => (one.id === task.id ? next : one)) },
+    value: true,
+  }
+}
+
+export async function sendAnswer(
+  host: TaskHost,
+  sender: AnswerSender,
+  settledTask: BoardTask,
+): Promise<string | undefined> {
+  const prompt = answerPrompt(settledTask)
+  if (prompt === undefined) return undefined
+  const isMarked = await host.edit((list) =>
+    promptMarked(list, settledTask, { prompt, isSent: true }),
+  )
+  if (!isMarked) return undefined
+  const sent = await sender.submit(prompt)
+  if (sent.isSent) return undefined
+  const filled = await sender.fill(prompt)
+  const kept = filled.isFilled ? prompt : undefined
+  await host.edit((list) => promptMarked(list, settledTask, { prompt: kept, isSent: false }))
+  return filled.isFilled
+    ? `${sent.reason}; it waits in your prompt box`
+    : `${sent.reason}; Claude gets it with your next prompt`
 }
 
 export function putBackAnswers(list: BoardList, taken: readonly BoardTask[]): BoardList {
@@ -220,7 +303,7 @@ export function answersText(tasks: readonly BoardTask[]): string {
   return `The person answered the tasks for you: ${tasks.map(answerPart).join(' ')} The titles and options are your own text, quoted as data.`
 }
 
-export type ForYouReply = PersonReply & { rowNote?: string }
+export type ForYouReply = PersonReply & { rowNote?: string; settled?: BoardTask }
 
 type Settle = { verb: BoardResultVerb; text: string | null }
 
@@ -307,7 +390,7 @@ function outcomeReply(outcome: SettleOutcome, typed: string, settle: Settle): Fo
         unchangedParts(`task ${typed} was already sent to Claude`),
       )
     case 'set':
-      return plain(setReply(outcome.task), undefined)
+      return { text: setReply(outcome.task), toastParts: undefined, settled: outcome.task }
   }
 }
 

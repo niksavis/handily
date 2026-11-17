@@ -93,11 +93,45 @@ jobs:
         env:
           NAME: ${{ steps.tag.outputs.name }}
         run: claude plugin tag "mods/${NAME}" --dry-run --force
-      - name: Run the gates
-        run: npm run check
+      - name: Validate the mods
+        run: node scripts/mods.mjs validate
+      - name: Typecheck the mods
+        if: ${{ !cancelled() }}
+        run: node scripts/mods.mjs typecheck
+      - name: Lint the mods
+        if: ${{ !cancelled() }}
+        run: node scripts/mods.mjs lint
+      - name: Run the scripts tests
+        if: ${{ !cancelled() }}
+        run: node scripts/mods.mjs test-scripts
+
+  mod-tests:
+    name: mod tests ${{ matrix.shard }} of 4
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Install dev dependencies
+        run: npm ci --no-fund --no-audit
+      - name: Install the pinned Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.323
+      - name: Run the mod tests of this shard
+        run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/4
 
   publish:
-    needs: verify
+    needs: [verify, mod-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -1,7 +1,7 @@
 # handily-board
 
-`board` shows your work in one pane with two tabs. The `this session` tab shows the task list
-that Claude and you share. The `this machine` tab shows a card for each Claude Code session on
+`board` shows your work in one pane at a time. The `this session` pane shows the task list
+that Claude and you share. The `this machine` pane shows a card for each Claude Code session on
 this machine, and the session that waits for you comes first. Claude keeps
 its plan in the list through four model tools. You see the list and change it with `/board`, or
 on the board. A fifth tool, `finding_add`, lists what Claude found outside the task, and you
@@ -19,8 +19,8 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 
 | Command                    | Effect                                                                  |
 | -------------------------- | ----------------------------------------------------------------------- |
-| `/board`                   | Opens the board and shows the `this session` tab                        |
-| `/board machine`           | Opens the board and shows the `this machine` tab                        |
+| `/board`                   | Opens the board as the `this session` pane                              |
+| `/board machine`           | Opens the board as the `this machine` pane                              |
 | `/board add <text>`        | Adds a task with the author `you`                                       |
 | `/board add <item id>`     | Adds a `tracker` task with the title of that open item, once            |
 | `/board add -- <text>`     | Adds the text as a task, also when it looks like an item id             |
@@ -68,10 +68,11 @@ Replies, from the tests:
 /board plan              No approved plan with numbered steps in this session. Nothing changed.
 ```
 
-- `/board` and `/board machine` open both panes, so Claude Code shows them as two tabs. When the
-  tab that you asked for is hidden, the mod opens it with `focus`, so it comes forward and takes
-  the keyboard. Esc gives the keyboard back. When the tab is already shown, the mod opens it
-  without `focus`, and the keyboard stays at the prompt.
+- `/board` and `/board machine` open only the pane that you asked for, and close the other board
+  pane when it is open. So the board is one pane, and one close, from its tab or with
+  `/board close`, closes it. When the pane that you asked for is hidden, the mod opens it with
+  `focus`, so it comes forward and takes the keyboard. Esc gives the keyboard back. When the
+  pane is already shown, the mod opens it without `focus`, and the keyboard stays at the prompt.
 - When Claude Code does not show the board yet, the reply says why and names `/board list`.
 - `/board stats` prints the figures of the Session line, its details and the agent rows as
   text, for a screen reader or a session that cannot show the pane. The board does not need to
@@ -157,12 +158,12 @@ Replies, from the tests:
 
 ## Keyboard
 
-You can press every button on both tabs with the keyboard alone. A live check on Claude Code
+You can press every button on both panes with the keyboard alone. A live check on Claude Code
 2.1.300 in a terminal measured these keys:
 
 | Key                        | Effect                                                                                                                      |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `/board`, `/board machine` | A hidden tab comes forward and takes the keyboard                                                                           |
+| `/board`, `/board machine` | A hidden board pane comes forward and takes the keyboard                                                                    |
 | ctrl+x, then Tab           | From the prompt, gives the keyboard to the first tab. From a tab, to the next tab, and from the last tab back to the prompt |
 | Tab, Shift+Tab             | Moves the focus to the next or the previous button, in reading order                                                        |
 | Enter                      | Presses the button that has the focus                                                                                       |
@@ -170,10 +171,9 @@ You can press every button on both tabs with the keyboard alone. A live check on
 | `f`, `s`, `o`              | Shows or hides the last 5 checks of the file, shell or other family                                                         |
 | `1` to `5`                 | Opens or closes the agent with that digit                                                                                   |
 
-- `/board` already gives the keyboard to the tab it brings forward. Press Tab, not ctrl+x tab.
-  ctrl+x tab there moves the keyboard to the this machine tab, whose cards have no button, so
-  Tab then walks only the tab row and the close mark. A live check in tmux on Claude Code
-  2.1.312 measured this (handily-9uj3n.10).
+- `/board` already gives the keyboard to the pane it brings forward. Press Tab, not ctrl+x tab.
+  ctrl+x tab there moves the keyboard to the next pane. A live check in tmux on Claude Code
+  2.1.312 measured this (handily-9uj3n.10), when the board still opened both panes as tabs.
 
 - Claude Code keeps the focus at the same place in the order of the buttons, not on the same
   button. A live check on 2.1.300 measured this with `up` and `down`: the task moved, and the
@@ -415,8 +415,9 @@ For you  ◆ 3 open
 - The `task_assign` description holds this sentence: "When a release, a merge, a cleanup or a
   delete waits for the person, assign a decide task with the options go and not now, and act
   only after the answer go, while a permission prompt stays as it is." The call does not
-  block, so your answer reaches Claude with your next prompt. A decide task does not replace a
-  permission prompt. Claude Code still asks for each permission as before.
+  block. A press on an option sends your answer to Claude at once, as your own prompt. A decide
+  task does not replace a permission prompt. Claude Code still asks for each permission as
+  before.
 - The sentence costs 59 input tokens for each model request. This count was measured on
   2026-11-12 with Claude Code 2.1.322 and the model `claude-opus-5-5`. Two sets of `claude -p`
   runs of the same prompt differ only in this sentence, in a copy of the mod that
@@ -428,9 +429,24 @@ For you  ◆ 3 open
   word `rejected` marks a rejected one.
 - `[ reject ]` asks for an optional reason first, so one press cannot reject a task. The
   mobile app has no input, so the row names `/board answer`.
-- Each result waits for your next prompt and shows `to send` with `[ undo ]`. That prompt
-  carries one note for Claude with every result, after your list changes. After the prompt the
-  results fold under `[ +N answered ]`. `[ clear done ]` and `/board clear` remove them.
+- A press on an option of a decide task, or `[Send]` on an answer task, sends the answer to
+  Claude at once, as your own prompt. When a turn runs, the prompt waits until the session is
+  idle. The prompt holds the whole answer, such as
+  `Decision on task 4, "Which cache store for now?": "SQLite"`. The row then shows `sent` and
+  the exact text, so a press on the wrong option shows at once. It stays there until your next
+  prompt. An answer that is sent cannot be undone.
+- When Claude Code does not take the prompt, the mod puts the same text in your prompt box,
+  and the row says why with `■ not sent:` and shows `in your prompt box:`. Enter sends it, and
+  Claude gets the answer once. When the prompt box does not take it either, the answer waits for
+  your next prompt.
+- `[ done ]`, a rejection, and the commands `/board answer` and `/board pick` wait for your next
+  prompt and show `to send` with `[ undo ]`. That prompt carries one note for Claude with every
+  such result, after your list changes. After the prompt the results fold under
+  `[ +N answered ]`. `[ clear done ]` and `/board clear` remove them.
+- A long title, question, reason of Claude or option wraps over as many lines as it needs, at
+  any width, and so does the text that a press sent. None of these is cut. When an option does
+  not fit on a button, its button shows its number, such as `[ 1 ]`, and the full option wraps
+  beside it.
 - An empty answer, an answer of more than 1000 characters and an answer with a line break or a
   bidi control character are refused on the row, by name. Nothing is sent.
 - Claude withdraws a task with `task_update` and the status `removed`. The row stays, dim, as

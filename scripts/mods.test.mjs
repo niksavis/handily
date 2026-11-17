@@ -892,6 +892,102 @@ test('test fails by name when claude plugin test prints no test time', () => {
   ])
 })
 
+const quickOutput = '\n(pass) quick [1.00ms]\n'
+const shardCount = 3
+
+function makeShardedRepo() {
+  const repo = makeTimedRepo()
+  const second = join(repo.root, 'mods', 'second')
+  mkdirSync(join(second, '.claude-plugin'), { recursive: true })
+  writeFileSync(join(second, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'second' }))
+  writeFileSync(
+    join(second, 'second.test.ts'),
+    `import { test } from 'claude-code/testing'\ntest('${'a long title '.repeat(400)}', async () => {})\n`,
+  )
+  return repo
+}
+
+function runShardGate(repo, bin, args) {
+  const env = { ...environmentWithoutGit, PATH: bin }
+  delete env.GITHUB_ACTIONS
+  delete env.NODE_TEST_CONTEXT
+  return spawnSync(process.execPath, [join(repo.root, 'scripts', 'mods.mjs'), ...args], {
+    cwd: repo.root,
+    encoding: 'utf8',
+    env,
+  })
+}
+
+const shardedRepo = makeShardedRepo()
+const shardRuns = Array.from({ length: shardCount }, (_, index) => {
+  const bin = makeTimedClaude([quickOutput])
+  const result = runShardGate(shardedRepo, bin, ['test', '--shard', `${String(index + 1)}/3`])
+  return { result, calls: readCalls(bin) }
+})
+
+function callKeys(call) {
+  const mod = call.dir.split(/[\\/]/).at(-1)
+  return call.testFiles.map((file) => `${mod}/${file}`)
+}
+
+test('test --shard runs every test file of every mod in exactly one shard', () => {
+  for (const { result } of shardRuns) assert.equal(result.status, 0, result.stdout + result.stderr)
+  const keys = shardRuns.flatMap(({ calls }) => calls.flatMap(callKeys))
+  assert.deepEqual(keys.toSorted(), [
+    'second/second.test.ts',
+    'timed/hooks/inner.test.ts',
+    'timed/other.test.ts',
+    'timed/timed.test.ts',
+  ])
+})
+
+test('test --shard runs a mod in its own folder when the shard holds all its test files', () => {
+  assert.deepEqual(
+    shardRuns[0].calls.map((call) => call.dir),
+    [join(shardedRepo.root, 'mods', 'second')],
+  )
+})
+
+test('test --shard runs the part of a split mod in a copy that it removes afterwards', () => {
+  const split = shardRuns.slice(1).flatMap(({ calls }) => calls)
+  assert.equal(split.length, 2)
+  for (const call of split) {
+    assert.notEqual(call.dir, join(shardedRepo.root, 'mods', 'timed'))
+    assert.equal(existsSync(call.dir), false, `${call.dir} is left after the gate`)
+  }
+})
+
+test('test --shard names its shard and file count and leaves the scripts tests to test-scripts', () => {
+  assert.match(
+    shardRuns[2].result.stdout,
+    /^test: shard 3 of 3 runs 2 test file\(s\) of 1 mod\(s\); node scripts\/mods\.mjs test-scripts runs the scripts tests$/m,
+  )
+  for (const { result } of shardRuns) assert.doesNotMatch(result.stdout, /passes/)
+})
+
+test('test-scripts runs the scripts tests and no mod test', () => {
+  const bin = makeTimedClaude([quickOutput])
+  const result = runShardGate(shardedRepo, bin, ['test-scripts'])
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /passes/)
+  assert.deepEqual(readCalls(bin), [])
+})
+
+test('test refuses a shard that is not one of its count and names the form', () => {
+  for (const shard of ['4/3', '0/3', 'two', '1/0']) {
+    const bin = makeTimedClaude([quickOutput])
+    const result = runShardGate(shardedRepo, bin, ['test', '--shard', shard])
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+    assert.ok(
+      result.stderr.includes(
+        `test: --shard ${shard} is not one shard of a count, such as --shard 2/4`,
+      ),
+      result.stderr,
+    )
+    assert.deepEqual(readCalls(bin), [])
+  }
+})
+
 const pinFixtureDate = '2026-01-01T00:00:00Z'
 const pinFixtureConfig = [
   ['user.name', 'Fixture Author'],

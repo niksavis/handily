@@ -15,6 +15,7 @@
     "format:check": "prettier --no-error-on-unmatched-pattern --check mods probes scripts eslint.config.mjs",
     "validate": "node scripts/mods.mjs validate",
     "test": "node scripts/mods.mjs test",
+    "test-scripts": "node scripts/mods.mjs test-scripts",
     "check": "node scripts/mods.mjs check",
     "install-gate": "node scripts/install-gate.mjs",
     "install-gate:pinned": "node scripts/install-gate.mjs --pinned",

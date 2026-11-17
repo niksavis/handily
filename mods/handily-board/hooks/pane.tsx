@@ -55,6 +55,7 @@ import {
   personPick,
   personReject,
   personUndo,
+  sendAnswer,
 } from './for-you'
 import { drawForYou } from './for-you-view'
 import {
@@ -957,12 +958,16 @@ async function drawPlan(
 }
 
 function forYouPress(host: TaskHost, ui: PaneUi, act: Act, now: number) {
-  const settle = (id: number, run: () => Promise<ForYouReply>) => {
+  const sender = { submit: ui.submitPrompt, fill: ui.fillPrompt }
+  const settle = (id: number, run: () => Promise<ForYouReply>, isSentNow = false) => {
     act(async () => {
       const reply = await run()
       ui.noteRow(id, reply.rowNote)
       if (reply.rowNote === undefined) {
         await host.editExpanded((keys) => keys.filter((key) => key !== `reject:${String(id)}`))
+      }
+      if (isSentNow && reply.settled !== undefined) {
+        ui.noteRow(id, await sendAnswer(host, sender, reply.settled))
       }
       return reply.toastParts
     })
@@ -972,10 +977,10 @@ function forYouPress(host: TaskHost, ui: PaneUi, act: Act, now: number) {
       settle(id, () => personDone(host, id, now))
     },
     answer: (id: number, text: string) => {
-      settle(id, () => personAnswer(host, id, text, now))
+      settle(id, () => personAnswer(host, id, text, now), true)
     },
     pick: (id: number, choice: number) => {
-      settle(id, () => personPick(host, id, choice, now))
+      settle(id, () => personPick(host, id, choice, now), true)
     },
     reject: (id: number, reason: string) => {
       settle(id, () => personReject(host, id, reason, now))

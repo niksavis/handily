@@ -18,6 +18,8 @@ export type BoardResult = {
   text: string | null
   at: number
   isSent: boolean
+  prompt?: string
+  isFresh?: true
 }
 
 export type BoardTask = {

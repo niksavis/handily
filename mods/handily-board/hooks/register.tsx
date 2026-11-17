@@ -205,7 +205,9 @@ import {
 } from './band'
 import {
   type AssignInput,
+  type PromptSend,
   answersText,
+  answersToTell,
   asksParts,
   assignTask,
   assignment,
@@ -410,7 +412,7 @@ const TOOLS: readonly ToolSpec[] = [
     description: [
       'Assign one task to the person: something to do (kind do), a question to answer (kind answer) or a choice between 2 to 4 options (kind decide). The task shows under For you on the board.',
       'When a release, a merge, a cleanup or a delete waits for the person, assign a decide task with the options go and not now, and act only after the answer go, while a permission prompt stays as it is.',
-      'The call does not block. The result of the person comes with a later prompt, in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
+      'The call does not block. The result of the person comes with a later prompt: an answer or a choice that the person presses on the board comes as their own prompt, which names the task, and any other result in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
       'Withdraw a task for the person with task_update and the status removed. Only the main loop can assign a task.',
     ].join(' '),
     inputSchema: {
@@ -550,6 +552,20 @@ async function fillPrompt($: EngineInterface, text: string): Promise<PromptFill>
     draft.text.trim() === '' ? { text } : { text: ` ${text}`, mode: 'append' },
   )
   return { isFilled: filled.isFilled, refusal: filled.refusal }
+}
+
+async function submitPrompt($: EngineInterface, text: string): Promise<PromptSend> {
+  try {
+    const entered = await $.prompt.submit({ text, asUser: true })
+    if (entered.drop === undefined) return { isSent: true }
+    return {
+      isSent: false,
+      reason: `the prompt was held back: ${withoutFinalPeriod(entered.drop)}`,
+    }
+  } catch (error) {
+    $.ui.log(`handily-board: the answer was not submitted: ${String(error)}`)
+    return { isSent: false, reason: 'this session did not take the prompt' }
+  }
 }
 
 function findingsOf($: EngineInterface): FindingsHost {
@@ -1465,6 +1481,7 @@ function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep, redraw: Red
     },
     panes: () => $.ui.panes(),
     fillPrompt: (text) => fillPrompt($, text),
+    submitPrompt: (text) => submitPrompt($, text),
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
     },
@@ -2097,7 +2114,8 @@ export const register: Register = (on, options) => {
       return entered
     }
     try {
-      const answers = answered.length === 0 ? undefined : answersText(answered)
+      const told = answersToTell(answered, e.text)
+      const answers = told.length === 0 ? undefined : answersText(told)
       const isTold = taken.length > 0 || answers !== undefined
       const list = await readList(hostOf($))
       const changes = isTold ? personNote(taken, list, answers) : undefined
