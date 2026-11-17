@@ -880,15 +880,19 @@ Defer to quiet-items:
 ### 4.9 handily-board (handily-fwkt.8.19)
 
 - Decision of the person (2026-10-13): one plugin, `handily-board`, replaces `task-pane`,
-  `agent-board` and `session-board`. It has two panes, which the engine shows as two tabs:
-  `this session` (tasks and this session's agents) and `this machine` (every local session).
+  `agent-board` and `session-board`. It has two panes: `this session` (tasks and this session's
+  agents) and `this machine` (every local session).
+- Decision of the owner (2026-11-17, handily-c6yihd): the board opens one pane at a time.
+  `/board` and `/board machine` open the pane asked for and close the other board pane, so one
+  close from the tab closes the board. Before, both panes opened as two tabs, and closing the
+  board took two closes.
 - The old plugins are removed with no alias and no deprecation version. A release note tells a
   person who installed one how to uninstall it and install `handily-board`.
 - The bundle `handily` lists `handily-board` in place of the three old plugins. `/handily`
   names `handily-task-pane@handily`, `handily-session-board@handily` and
   `handily-agent-board@handily` as old ids of `handily-board`, with the command that uninstalls
   each (handily-fwkt.8.19.4).
-- Command: `/board`. `/board machine` shows the second tab. `/task` is dropped, because it sits
+- Command: `/board`. `/board machine` shows the second pane. `/task` is dropped, because it sits
   next to the built-in `/tasks` (background jobs) in the slash menu.
 - One plugin, not two, because each plugin has its own `$.store`, and a plugin opens only its own
   panes. With two plugins, the agent data of other sessions would sit in two stores, and

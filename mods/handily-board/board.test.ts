@@ -1102,18 +1102,15 @@ const MACHINE_OPEN = { id: MACHINE, title: 'this machine' }
 const WAITS_TOAST = ['◆ Board waits for a wider terminal', 'run /board to open it here']
 const NERD_WAITS_TOAST = ['\u{EAA2} Board waits for a wider terminal', 'run /board to open it here']
 
-describe('When the person runs /board, the plugin opens the this session and this machine panes and shows this session; it passes focus only when the asked tab is hidden', () => {
+describe('When the person runs /board, the plugin opens the this session pane alone; it passes focus only when the pane is hidden', () => {
   test(
-    '/board opens this session with focus, because it is not shown yet, then this machine without focus, in the tab order of the mock',
+    '/board opens this session with focus, because it is not shown yet, and no this machine pane',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
       await start($)
       expect(await board($, '')).toBe('Board opened: this session.')
-      expect(seen.opens).toEqual([
-        { ...SESSION_OPEN, focus: true },
-        { ...MACHINE_OPEN, focus: false },
-      ])
+      expect(seen.opens).toEqual([{ ...SESSION_OPEN, focus: true }])
       expect(seen.shown).toBe(PANE)
     },
   )
@@ -1127,7 +1124,7 @@ describe('When the person runs /board, the plugin opens the this session and thi
       await board($, '')
       expect(await board($, '')).toBe('Board opened: this session.')
       expect(seen.opens.at(-1)).toEqual({ ...SESSION_OPEN, focus: false })
-      expect(seen.opens).toHaveLength(3)
+      expect(seen.opens).toHaveLength(2)
     },
   )
 
@@ -1158,18 +1155,15 @@ describe('When the person runs /board, the plugin opens the this session and thi
   )
 })
 
-describe('When the person runs /board machine, the plugin shows the this machine tab', () => {
+describe('When the person runs /board machine, the plugin shows the this machine pane alone', () => {
   test(
-    '/board machine opens this session, then this machine with focus, because this machine is not shown yet',
+    '/board machine opens this machine with focus, because it is not shown yet, and no this session pane',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
       await start($)
       expect(await board($, 'machine')).toBe('Board opened: this machine.')
-      expect(seen.opens).toEqual([
-        { ...SESSION_OPEN, focus: false },
-        { ...MACHINE_OPEN, focus: true },
-      ])
+      expect(seen.opens).toEqual([{ ...MACHINE_OPEN, focus: true }])
       expect(seen.shown).toBe(MACHINE)
     },
   )
@@ -1193,35 +1187,35 @@ describe('When the person runs /board machine, the plugin shows the this machine
       await board($, 'machine')
       expect(await board($, 'machine')).toBe('Board opened: this machine.')
       expect(seen.opens.at(-1)).toEqual({ ...MACHINE_OPEN, focus: false })
-      expect(seen.panes).toEqual(new Set([PANE, MACHINE]))
+      expect(seen.panes).toEqual(new Set([MACHINE]))
     },
   )
 })
 
 describe('The userConfig mode off, toggle or always behaves as section 6 of the mock says', () => {
   test(
-    'toggle, the default, opens the board, and /board on the shown this session tab closes both panes',
+    'toggle, the default, opens the board, and /board on the shown this session pane closes it',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
       await start($)
       expect(seen.opened).toEqual([])
       expect(await board($, '')).toBe('Board opened: this session.')
-      expect(seen.panes).toEqual(new Set([PANE, MACHINE]))
+      expect(seen.panes).toEqual(new Set([PANE]))
       expect(await board($, '')).toBe('Board closed.')
       expect(seen.panes.size).toBe(0)
     },
   )
 
   test(
-    'toggle: /board on the shown this machine tab shows this session and closes nothing',
+    'toggle: /board on the shown this machine pane shows this session in its place',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
       await start($)
       await board($, 'machine')
       expect(await board($, '')).toBe('Board opened: this session.')
-      expect(seen.panes).toEqual(new Set([PANE, MACHINE]))
+      expect(seen.panes).toEqual(new Set([PANE]))
       expect(seen.shown).toBe(PANE)
     },
   )
@@ -1235,20 +1229,17 @@ describe('The userConfig mode off, toggle or always behaves as section 6 of the 
       expect(seen.opened).toEqual([])
       expect(await board($, '')).toBe('Board opened: this session.')
       expect(await board($, '')).toBe('Board opened: this session.')
-      expect(seen.panes).toEqual(new Set([PANE, MACHINE]))
+      expect(seen.panes).toEqual(new Set([PANE]))
     },
   )
 
   test(
-    'always opens both panes unasked at session start, with no focus and no toast',
+    'always opens the this session pane unasked at session start, with no focus and no toast',
     { ...withWorkitems, options: { mode: 'always' } },
     async ($, on) => {
       const seen = world(on)
       await start($)
-      expect(seen.opens).toEqual([
-        { ...SESSION_OPEN, focus: false },
-        { ...MACHINE_OPEN, focus: false },
-      ])
+      expect(seen.opens).toEqual([{ ...SESSION_OPEN, focus: false }])
       expect(seen.shown).toBe(PANE)
       expect(seen.toasts).toEqual([])
     },
@@ -10134,7 +10125,7 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
     )
 
     test(
-      `done, an answer, a choice and a rejection reach Claude in one note at the next prompt on ${surface}`,
+      `done and a rejection pressed on the pane, and an answer and a choice typed as commands, reach Claude in one note at the next prompt on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -10142,8 +10133,8 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
         await assignFour($)
         const pane = await mountTasks($, surface)
         await pane.press({ key: 'for-done:1' })
-        await pane.input({ key: 'answer:2', text: ' 8443 ' })
-        await pane.press({ key: 'for-pick:3:2' })
+        await board($, 'answer 2  8443 ')
+        await board($, 'pick 3 2')
         await pane.press({ key: 'for-reject:4' })
         await pane.input({ key: 'reason:4', text: 'not my call' })
         const lines = await screen(pane, 41)
@@ -10433,7 +10424,8 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
       const narrow = await mountTasks($, 'terminal', 'dock', 30)
       expect(await screen(narrow, 30)).toEqual(
         expect.arrayContaining([
-          '◆ 1 do     Rotate the staging…',
+          '◆ 1 do     Rotate the staging',
+          '           API key',
           '    [ Answer ][Send]',
           '    [ Postgres ] [ SQLite ]',
           '    [ Redis ]',
@@ -10453,6 +10445,213 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
       await mobile.unmount()
     },
   )
+})
+
+const SENT_ANSWER = 'Answer to task 2, "Which port does staging use?": 8443'
+const SENT_CHOICE = 'Decision on task 3, "Which cache store for now?": "SQLite"'
+const OWN_PROMPT = { kind: 'plugin', name: PLUGIN, asUser: true }
+
+type Entered = { text: string; origin: unknown; context: readonly string[] }
+
+function enteredPrompts(on: On, held?: string): Entered[] {
+  const entered: Entered[] = []
+  on('prompt.submit', (_$, e) => {
+    if (held !== undefined && e.origin.kind === 'plugin') return { drop: held }
+    entered.push({ text: e.text, origin: e.origin, context: e.context ?? [] })
+    return { text: e.text, context: e.context }
+  })
+  return entered
+}
+
+function forYouLines(lines: readonly string[]): string[] {
+  const head = lines.findIndex((line) => line.startsWith('For you'))
+  const end = lines.findIndex((line, index) => index > head && line.startsWith('─'))
+  return lines.slice(head + 1, end)
+}
+
+function joinedWords(lines: readonly string[]): string {
+  return lines.join(' ').replace(/\s+/gu, ' ')
+}
+
+const SEND_CRITERION =
+  'When the person presses a decide option or Send on an answer task, the board submits the answer as the person prompt at once, or when the session is idle, and shows the exact text it sent.'
+
+describe(SEND_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `Send and a decide option submit the answer as the person's prompt at once, and the row shows the exact text, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on)
+        await start($)
+        await assignFour($)
+        const pane = await mountTasks($, surface)
+        await pane.input({ key: 'answer:2', text: ' 8443 ' })
+        await pane.press({ key: 'for-pick:3:2' })
+        expect(entered).toEqual([
+          { text: SENT_ANSWER, origin: OWN_PROMPT, context: [] },
+          { text: SENT_CHOICE, origin: OWN_PROMPT, context: [] },
+        ])
+        const lines = await screen(pane, 41)
+        expect(lines).toEqual(
+          expect.arrayContaining([
+            '✓ 2 answer  Which port does staging use?',
+            '    sent Answer to task 2, "Which port',
+            '         does staging use?": 8443',
+            '✓ 3 decide  Which cache store for now?',
+            '    sent Decision on task 3, "Which cache',
+            '         store for now?": "SQLite"',
+          ]),
+        )
+        expect(lines).not.toContain('Claude gets them with your next prompt.')
+        expect(seen.toasts).toEqual([])
+        await pane.unmount()
+        expect(await board($, 'undo 2')).toBe('Task 2 was already sent to Claude. Nothing changed.')
+        await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
+        expect(entered.at(-1)?.context.filter((text) => text.startsWith(ANSWERED))).toEqual([])
+        const after = await mountTasks($, surface)
+        expect(await after.find({ key: 'sent:2' })).toBeUndefined()
+        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+2 answered')
+        await after.unmount()
+      },
+    )
+
+    test(
+      `a submit that a hook holds back fills the prompt box, says so on the row, and the answer reaches Claude once, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on, 'the session is paused.')
+        const fills: string[] = []
+        on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+        on('prompt.fill', (_$, e) => {
+          fills.push(e.text)
+          return { isFilled: true }
+        })
+        await start($)
+        await assignFour($)
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'for-pick:3:2' })
+        expect(entered).toEqual([])
+        expect(fills).toEqual([SENT_CHOICE])
+        const lines = await screen(pane, 41)
+        expect(joinedWords(forYouLines(lines))).toContain(
+          '■ not sent: the prompt was held back: the session is paused; it waits in your prompt box',
+        )
+        expect(joinedWords(forYouLines(lines))).toContain(`in your prompt box: ${SENT_CHOICE}`)
+        await pane.unmount()
+        await $.prompt.submit({ text: SENT_CHOICE, wait: false, origin: { kind: 'composer' } })
+        expect(entered.at(-1)?.context.filter((text) => text.startsWith(ANSWERED))).toEqual([])
+        expect(await board($, 'undo 3')).toBe('Task 3 was already sent to Claude. Nothing changed.')
+      },
+    )
+
+    test(
+      `a submit that fails and a prompt box that refuses the fill leave the answer for the next prompt, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on, 'the session is paused.')
+        on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+        on('prompt.fill', () => ({ isFilled: false }))
+        await start($)
+        await assignFour($)
+        const pane = await mountTasks($, surface)
+        await pane.input({ key: 'answer:2', text: '8443' })
+        expect(joinedWords(forYouLines(await screen(pane, 41)))).toContain(
+          '■ not sent: the prompt was held back: the session is paused; Claude gets it with your next prompt',
+        )
+        await pane.unmount()
+        await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
+        expect(entered.at(-1)?.context).toEqual([
+          expect.stringContaining(`${ANSWERED} task 2 (answer) answered "8443".`),
+        ])
+      },
+    )
+  }
+})
+
+const ASKED_TITLE =
+  'Which of the two staging regions should the probe use from now on, given that the eastern one is cheaper but the western one sits closer to the people who run the nightly load test'
+const ASKED_WHY =
+  'The probe runs every hour and the bill for the eastern region is half of the bill for the western one'
+const ASKED_OPTIONS = [
+  'The eastern region, because it costs half and is good enough',
+  'The western region, close to the people who run the load',
+  'Both regions, with the probe in east and a second in west',
+  'Neither region until the owner of the bill sets a budget',
+]
+
+const WRAP_CRITERION =
+  'When a task for the person has a long title, question or options, the rows wrap the whole text at 40 and 120 columns instead of cutting it.'
+
+describe(WRAP_CRITERION, () => {
+  for (const surface of SURFACES) {
+    for (const columns of [40, 120]) {
+      test(
+        `a long title, why and options wrap in full and every option keeps its button at ${String(columns)} columns on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          world(on, { hasOwnPromptHook: true })
+          const entered = enteredPrompts(on)
+          await start($)
+          await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: ASKED_TITLE })
+          await $.tool.call({
+            tool: TOOL_ASSIGN,
+            kind: 'decide',
+            title: ASKED_TITLE,
+            options: ASKED_OPTIONS,
+            why: ASKED_WHY,
+          })
+          const pane = await mountTasks($, surface, 'dock', columns)
+          await pane.press({ key: 'open:for:2' })
+          const lines = forYouLines(await screen(pane, columns))
+          expect(lines.join('\n')).not.toContain('…')
+          const text = joinedWords(lines)
+          expect(text).toContain(`1 answer ${ASKED_TITLE}`)
+          expect(text).toContain(`2 decide ${ASKED_TITLE}`)
+          expect(text).toContain(ASKED_WHY)
+          for (const option of ASKED_OPTIONS) expect(text).toContain(option)
+          expect(lines.filter((line) => line.includes(ASKED_TITLE.slice(0, 20)))).toHaveLength(2)
+          for (const at of [1, 2, 3, 4]) {
+            expect(await pane.find({ key: `for-pick:2:${String(at)}` })).toBeDefined()
+          }
+          await pane.press({ key: 'for-pick:2:4' })
+          expect(entered.map((one) => one.text)).toEqual([
+            `Decision on task 2, "${ASKED_TITLE}": "${ASKED_OPTIONS[3] ?? ''}"`,
+          ])
+          await pane.unmount()
+        },
+      )
+    }
+  }
+})
+
+const ONE_PANE_CRITERION =
+  'When the person runs /board, the board opens one pane, and one close closes it.'
+
+describe(ONE_PANE_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `/board opens only this session, /board machine shows only this machine, and one close leaves no board pane, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+        expect(await board($, '')).toBe('Board opened: this session.')
+        expect(seen.opens).toEqual([{ ...SESSION_OPEN, focus: true }])
+        expect(seen.panes).toEqual(new Set([PANE]))
+        expect(await board($, 'machine')).toBe('Board opened: this machine.')
+        expect(seen.panes).toEqual(new Set([MACHINE]))
+        expect(await board($, 'close')).toBe('Board closed.')
+        expect(seen.panes.size).toBe(0)
+        expect(await board($, '')).toBe('Board opened: this session.')
+        expect(await board($, '')).toBe('Board closed.')
+        expect(seen.panes.size).toBe(0)
+      },
+    )
+  }
 })
 
 function bandProps(bodyColumns = 75, hasSurvey = false): RenderPropsOf['AbovePrompt'] {
@@ -11543,7 +11742,7 @@ describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
           title: 'Which port does staging use?',
         })
         const pane = await mountTasks($, surface)
-        await pane.input({ key: 'answer:1', text: '8443' })
+        await board($, 'answer 1 8443')
         const withdrawn = await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'removed' })
         expect(withdrawn.result).toBe(
           [

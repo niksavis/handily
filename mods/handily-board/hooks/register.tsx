@@ -205,7 +205,9 @@ import {
 } from './band'
 import {
   type AssignInput,
+  type PromptSend,
   answersText,
+  answersToTell,
   asksParts,
   assignTask,
   assignment,
@@ -550,6 +552,20 @@ async function fillPrompt($: EngineInterface, text: string): Promise<PromptFill>
     draft.text.trim() === '' ? { text } : { text: ` ${text}`, mode: 'append' },
   )
   return { isFilled: filled.isFilled, refusal: filled.refusal }
+}
+
+async function submitPrompt($: EngineInterface, text: string): Promise<PromptSend> {
+  try {
+    const entered = await $.prompt.submit({ text, asUser: true })
+    if (entered.drop === undefined) return { isSent: true }
+    return {
+      isSent: false,
+      reason: `the prompt was held back: ${withoutFinalPeriod(entered.drop)}`,
+    }
+  } catch (error) {
+    $.ui.log(`handily-board: the answer was not submitted: ${String(error)}`)
+    return { isSent: false, reason: 'this session did not take the prompt' }
+  }
 }
 
 function findingsOf($: EngineInterface): FindingsHost {
@@ -1465,6 +1481,7 @@ function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep, redraw: Red
     },
     panes: () => $.ui.panes(),
     fillPrompt: (text) => fillPrompt($, text),
+    submitPrompt: (text) => submitPrompt($, text),
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
     },
@@ -2097,7 +2114,8 @@ export const register: Register = (on, options) => {
       return entered
     }
     try {
-      const answers = answered.length === 0 ? undefined : answersText(answered)
+      const told = answersToTell(answered, e.text)
+      const answers = told.length === 0 ? undefined : answersText(told)
       const isTold = taken.length > 0 || answers !== undefined
       const list = await readList(hostOf($))
       const changes = isTold ? personNote(taken, list, answers) : undefined
