@@ -8,6 +8,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -952,26 +953,37 @@ function testFileOf(mod, path) {
   return relative(mod.dir, path).split(sep).join('/')
 }
 
-function runTestFileAlone(mod, file) {
-  const copyRoot = createScratchFolder('handily-rerun-')
+const testRunOptions = {
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'inherit'],
+  maxBuffer: testOutputMaxBytes,
+}
+
+function runTestFilesInCopy(mod, files, label, prefix) {
+  const copyRoot = createScratchFolder(prefix)
   try {
     const copy = join(copyRoot, basename(mod.dir))
     cpSync(mod.dir, copy, {
       recursive: true,
-      filter: (path) => !testFilePattern.test(path) || testFileOf(mod, path) === file,
+      filter: (path) => !testFilePattern.test(path) || files.has(testFileOf(mod, path)),
     })
     const load = machineLoad()
-    const result = run(
-      `${mod.name}: claude plugin test of ${file} alone`,
-      'claude',
-      ['plugin', 'test', copy],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: testOutputMaxBytes },
-    )
-    return { load, times: result?.status === 0 ? readTestTimes(result.stdout) : [] }
+    const result = run(label, 'claude', ['plugin', 'test', copy], testRunOptions)
+    return { load, result }
   } finally {
     const refusal = removeScratchFolder(copyRoot)
     if (refusal !== undefined) fail(`${mod.name}: ${refusal}`)
   }
+}
+
+function runTestFileAlone(mod, file) {
+  const { load, result } = runTestFilesInCopy(
+    mod,
+    new Set([file]),
+    `${mod.name}: claude plugin test of ${file} alone`,
+    'handily-rerun-',
+  )
+  return { load, times: result?.status === 0 ? readTestTimes(result.stdout) : [] }
 }
 
 function judgeRunAlone(over, aloneMs, load) {
@@ -1149,18 +1161,95 @@ function countRunsAlone(ranAgain) {
   for (const again of ranAgain) warnOfCreep(again, tests[again.key], windowRuns)
 }
 
-function test(mods) {
+function listTestFiles(mod) {
+  return readdirSync(mod.dir, { withFileTypes: true, recursive: true })
+    .filter((entry) => entry.isFile() && testFilePattern.test(entry.name))
+    .map((entry) => join(entry.parentPath, entry.name))
+    .filter((path) => !isGeneratedTypesPath(path))
+    .map((path) => testFileOf(mod, path))
+    .sort()
+}
+
+const shardPattern = /^([1-9]\d*)\/([1-9]\d*)$/
+
+function readShard(text) {
+  const match = shardPattern.exec(text)
+  if (match === null || Number(match[1]) > Number(match[2])) {
+    console.error(
+      `test: --shard ${text} is not one shard of a count, such as --shard 2/4; give a shard from 1 to the count`,
+    )
+    process.exit(2)
+  }
+  return { index: Number(match[1]), count: Number(match[2]) }
+}
+
+function compareText(a, b) {
+  if (a < b) return -1
+  return a > b ? 1 : 0
+}
+
+function shardFiles(mods, { index, count }) {
+  const items = mods.flatMap((mod) =>
+    listTestFiles(mod).map((file) => ({
+      mod,
+      file,
+      key: `${mod.name}/${file}`,
+      bytes: statSync(join(mod.dir, file)).size,
+    })),
+  )
+  items.sort((a, b) => b.bytes - a.bytes || compareText(a.key, b.key))
+  const shards = Array.from({ length: count }, () => ({ bytes: 0, items: [] }))
+  for (const item of items) {
+    const lightest = shards.reduce((best, shard) => (shard.bytes < best.bytes ? shard : best))
+    lightest.bytes += item.bytes
+    lightest.items.push(item)
+  }
+  const files = new Map()
+  for (const { mod, file } of shards[index - 1].items) {
+    files.set(mod.name, (files.get(mod.name) ?? new Set()).add(file))
+  }
+  return files
+}
+
+function runModTests(mod, files) {
+  if (files === undefined || files.size === listTestFiles(mod).length) {
+    return run(
+      `${mod.name}: claude plugin test`,
+      'claude',
+      ['plugin', 'test', mod.dir],
+      testRunOptions,
+    )
+  }
+  const named = [...files].sort().join(', ')
+  return runTestFilesInCopy(
+    mod,
+    files,
+    `${mod.name}: claude plugin test of ${named}`,
+    'handily-shard-',
+  ).result
+}
+
+function runScriptTests() {
+  run('scripts: node --test', process.execPath, ['--test', 'scripts/*.test.mjs'])
+}
+
+function test(mods, { values = {} } = {}) {
+  const shard = values.shard === undefined ? undefined : readShard(values.shard)
+  const filesByMod = shard === undefined ? undefined : shardFiles(mods, shard)
+  if (shard !== undefined) {
+    const total = [...filesByMod.values()].reduce((sum, files) => sum + files.size, 0)
+    console.log(
+      `test: shard ${shard.index} of ${shard.count} runs ${total} test file(s) of ${filesByMod.size} mod(s); node scripts/mods.mjs test-scripts runs the scripts tests`,
+    )
+  }
   const timesByMod = []
   for (const mod of mods) {
     if (!hasTests(mod.dir)) {
       fail(`${mod.name}: no *.test.ts file; every mod ships tests`)
       continue
     }
-    const result = run(`${mod.name}: claude plugin test`, 'claude', ['plugin', 'test', mod.dir], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'inherit'],
-      maxBuffer: testOutputMaxBytes,
-    })
+    if (filesByMod !== undefined && !filesByMod.has(mod.name)) continue
+    const result = runModTests(mod, filesByMod?.get(mod.name))
     if (result?.status === 0) timesByMod.push({ mod, times: readTestTimes(result.stdout) })
   }
   const slowness = machineSlowness(timesByMod)
@@ -1171,7 +1260,7 @@ function test(mods) {
   }
   const ranAgain = timesByMod.flatMap(({ mod, times }) => checkTestTimes(mod, times, slowness))
   if (!isCiRunner) countRunsAlone(ranAgain)
-  run('scripts: node --test', process.execPath, ['--test', 'scripts/*.test.mjs'])
+  if (shard === undefined) runScriptTests()
 }
 
 const tasks = {
@@ -1181,6 +1270,7 @@ const tasks = {
   lint,
   validate,
   test,
+  'test-scripts': runScriptTests,
   check: (mods) => {
     validate(mods)
     typecheck(mods)
@@ -1191,8 +1281,9 @@ const tasks = {
 
 const taskArguments = {
   marketplace: { pin: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } },
+  test: { shard: { type: 'string' } },
 }
-const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run]`
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], or node scripts/mods.mjs test [--shard <index>/<count>]`
 
 function readTaskArguments(name, args) {
   try {

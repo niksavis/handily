@@ -42,8 +42,9 @@ Run the gates before you push:
 npm run check
 ```
 
-`npm run check` runs validate, type check, lint and test. CI runs every gate in the table
-through `basicly verify --mode full`.
+`npm run check` runs validate, type check, lint and test. CI runs every gate in the table, the
+checks of `basicly verify --mode full`, with the mod tests split into 4 parallel jobs by
+`node scripts/mods.mjs test --shard <n>/4` and the scripts tests in `npm run test-scripts`.
 
 | Gate | Command | What it refuses |
 | --- | --- | --- |
