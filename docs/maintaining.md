@@ -124,8 +124,8 @@ git common directory.
 
 | Workflow | Starts on | What it does |
 | --- | --- | --- |
-| `.github/workflows/basicly-gates.yml` | A push or a pull request to `main` that changes more than the tracker ledger | Checks the commit messages, runs the basicly drift checks, then `basicly verify --mode full` on a checkout with the full history and all tags, so that validate can read each release tag |
-| `.github/workflows/release.yml` | A pushed tag that matches `*--v*` | Checks that the tag and `plugin.json` agree and that the marketplace file is generated, checks the tag with `claude plugin tag`, runs `npm run check` on a checkout with all tags, then publishes a GitHub release with the notes of the `CHANGELOG.md` section of the version |
+| `.github/workflows/basicly-gates.yml` | A push or a pull request to `main` that changes more than the tracker ledger | Checks the commit messages and runs the basicly drift checks. One job runs the checks of `basicly verify --mode full` step by step on a checkout with the full history and all tags, so that validate can read each release tag, with the mod tests split out: `node scripts/mods.mjs test --shard <n>/4` runs a quarter of the mod test files in each of 4 parallel jobs, on the pinned and on the newest Claude Code, and `node scripts/mods.mjs test-scripts` runs the scripts tests |
+| `.github/workflows/release.yml` | A pushed tag that matches `*--v*` | Checks that the tag and `plugin.json` agree and that the marketplace file is generated, checks the tag with `claude plugin tag`, runs the tasks of `npm run check` on a checkout with all tags, with the mod tests in 4 parallel shard jobs, then publishes a GitHub release with the notes of the `CHANGELOG.md` section of the version |
 
 ## Pinned versions
 
