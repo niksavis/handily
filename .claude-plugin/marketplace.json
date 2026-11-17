@@ -24,10 +24,10 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-board",
-        "ref": "handily-board--v0.27.0",
-        "sha": "53bf7c286a168baf7e0ba0e20c9c690babf4edc4"
+        "ref": "handily-board--v0.28.0",
+        "sha": "0d2025e5c8057b139bf39182c227f9b42814d0ad"
       },
-      "description": "A board with two tabs: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss."
+      "description": "A board with two panes, one open at a time: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss."
     },
     {
       "name": "handily-filetree",
@@ -68,8 +68,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-reply-view",
-        "ref": "handily-reply-view--v0.26.0",
-        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
+        "ref": "handily-reply-view--v0.27.0",
+        "sha": "0d2025e5c8057b139bf39182c227f9b42814d0ad"
       },
       "description": "Long replies fold to their first lines, tables draw in a full box or with rules between their columns with Table style rules, numbers, paths and inline code in replies draw in their own colours, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
@@ -79,8 +79,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-simple-view",
-        "ref": "handily-simple-view--v0.12.0",
-        "sha": "77029bb36a805be9517a436d7d2e51cda6e68fdc"
+        "ref": "handily-simple-view--v0.13.0",
+        "sha": "0d2025e5c8057b139bf39182c227f9b42814d0ad"
       },
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
