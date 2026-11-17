@@ -526,8 +526,12 @@ After:
 ```text
 ● List the mods  ~ls~  +exit 0+  ~7 lines~  ~1.1s~                                              (live)
 ● sleep 4 …  ~sleep~  +exit 0+  ~1 line~  ~4.3s~                                               (live)
-● List a missing folder  ~ls~  #exit 2#  #ls: cannot access '/nonexistent-folder': No such file or directory#  ~0.4s~  (live)
-● Print x after a pipe  ~true~  #refused#  #pipe-status-guard: refusing a status read after `tail`: the pipeline's exit status …#
+● List a missing folder  ~ls~  #exit 2#  ~0.4s~                                                 [ more ] [ copy ]
+  #ls: cannot access '/nonexistent-folder': No such file or directory#
+● Run the build  ~tsc~  #exit 127#  ~command not found~  ~0.1s~                                 [ more ] [ copy ]
+  #sh: 1: tsc: not found#
+● Print x after a pipe  ~true~  #refused#                                                       [ more ] [ copy ]
+  #pipe-status-guard: refusing a status read after `tail`: the pipeline's exit status is the FILTER's, not th…#
 ● Append a probe line  ~printf~  +exit 0+  ~0 lines~  ~2.8s~                                    (live)
   Updated README.md (+1 -0)
 ● Run the unit tests  ~npm~  !running!  ~3.0s~
@@ -537,12 +541,30 @@ After:
 ● Write  docs/new.md  ~+3 -0~
 ● Edit  src/app.ts  ~+2 -1~
 ● Write  /elsewhere/big.json
-● Edit  note.txt  #refused#  #probe-guard: file tools are refused in this folder#
+● Edit  note.txt  #refused#
+  #probe-guard: file tools are refused in this folder#
+```
+
+A failed call below 60 columns, 40 columns (handily-d75xdi): the time and the buttons move under
+the reason.
+
+```text
+● List a missing folder  ~ls~  #exit 2#
+  #ls: cannot access '/nonexistent-fold…#
+  ~0.4s~  [ more ] [ copy ]
+● Print x after a pipe  ~true~  #refused#
+  #pipe-status-guard: refusing a statu…#
+  [ more ] [ copy ]
 ```
 
 - The marker `●` is green after `exit 0`, red after `exit N` and dim while the call runs.
-- Columns: description (cut first, `truncate-end`), program, state, count or first error line,
-  time. Two spaces between columns.
+- Columns: description (cut first, `truncate-end`), program, state, count, time. Two spaces
+  between columns.
+- The reason of a failed call goes on its own line under the row, in the error colour, indented
+  two columns and cut at the row end (handily-d75xdi): the first error line after `exit N`, the
+  first line of the hook message after `refused`, the first line after `error`. `exit N` names
+  126 `not executable`, 127 `command not found`, 130 `interrupted` and 143 `stopped` dim beside
+  the code.
 - No description: the first command segment, cut at 60 characters. An ellipsis marks a cut or
   a segment that follows (`sleep 4 …`).
 - The result block holds one line per changed file (`Updated`, `Created` or `Deleted`, with the
@@ -551,14 +573,15 @@ After:
   also drawn empty when the engine sent no `bashEditDiff`, because then the mod cannot tell
   whether the call changed a file.
 - After `exit N`, and under an `Edit` or `Write` row, the result block is drawn empty.
-- A call that a hook refused before the run shows `refused` and the first line of the hook
-  message (handily-fwkt.8.26). The row leaves out the text before the message:
+- A call that a hook refused before the run shows `refused`, and the first line of the hook
+  message under the row (handily-fwkt.8.26). The row leaves out the text before the message:
   `Error: PreToolUse:Bash hook error: [<hook command>]:`. Another errored text that starts with
   `Error:` shows `error` and its first line, unless it is a denial. A denial has the row of
   "Terminal, denied calls" below.
   The result block is drawn empty, and `[ more ]` opens the full message.
 - An `Edit`, `Write`, `Read`, `Grep` or `Glob` call that a hook refused shows the tool, the path
-  or the pattern, `#refused#` and the first line of the hook message (handily-fwkt.8.27). The
+  or the pattern and `#refused#`, and the first line of the hook message under the row
+  (handily-fwkt.8.27). The
   marker is red and the result block is drawn empty. Another error of these tools keeps the
   row and the error text of the engine.
 - A generic row of a call that a hook refused shows `#error#`, and its result block is drawn

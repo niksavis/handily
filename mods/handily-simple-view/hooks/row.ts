@@ -33,6 +33,14 @@ const DENIERS: Readonly<Record<Denier, string>> = {
   person: PERSON_DENIER,
 }
 const TIME_SHOWN_FROM_MS = 1000
+const RESULT_INDENT = 2
+const REASON_BESIDE_FROM_COLUMNS = 60
+const EXIT_NAMES: Readonly<Record<number, string>> = {
+  126: 'not executable',
+  127: 'command not found',
+  130: 'interrupted',
+  143: 'stopped',
+}
 
 function cell(
   { Box, Text }: RowElements,
@@ -107,19 +115,76 @@ function stateCells(state: Exclude<BashState, Denial>): Cell[] {
         ...stderrCells(state.stderr),
       ]
     case 'exit':
-      return errorCells(`exit ${String(state.code)}`, state.line)
+      return [
+        errorWord(`exit ${String(state.code)}`),
+        { text: EXIT_NAMES[state.code] ?? '', style: { dimColor: true } },
+      ]
     case 'refused':
-      return errorCells(REFUSED_WORD, state.line)
+      return [errorWord(REFUSED_WORD)]
     case 'error':
-      return errorCells(state.kind, state.line)
+      return [errorWord(state.kind)]
   }
 }
 
-function errorCells(word: string, line: string): Cell[] {
-  return [
-    { text: word, style: { color: 'error' } },
-    { text: line, style: { color: 'error', wrap: 'truncate-end' }, canShrink: true },
-  ]
+function errorWord(word: string): Cell {
+  return { text: word, style: { color: 'error' } }
+}
+
+function reasonOf(state: BashState): string | null {
+  if (state.kind !== 'exit' && state.kind !== 'refused' && state.kind !== 'error') return null
+  return state.line === '' ? null : state.line
+}
+
+function underRow(look: RowLook, key: string, child: RenderElement): RenderElement {
+  return look.elements.Box({
+    key,
+    paddingLeft: look.hasToolMarker ? RESULT_INDENT : 0,
+    children: child,
+  })
+}
+
+function reasonLine(look: RowLook, reason: string): RenderElement {
+  return underRow(
+    look,
+    'reason',
+    look.elements.Text({ color: 'error', wrap: 'truncate-end', children: reason }),
+  )
+}
+
+function tailLine(look: RowLook, time: Cell, actions: RenderElement | null): RenderElement | null {
+  if (time.text === '' && actions === null) return null
+  const { Box } = look.elements
+  return underRow(
+    look,
+    'tail',
+    Box({
+      flexDirection: 'row',
+      gap: CELL_GAP,
+      children: [time.text === '' ? null : cell(look.elements, time), actions],
+    }),
+  )
+}
+
+function withReason(
+  look: RowLook,
+  marker: ThemeKey,
+  cells: { leading: Cell[]; time: Cell },
+  reason: string,
+  actions: RenderElement | null,
+): RenderElement {
+  const { Box } = look.elements
+  const isBeside = look.columns >= REASON_BESIDE_FROM_COLUMNS
+  const row = isBeside
+    ? line(look, 'row', marker, [...cells.leading, cells.time], actions)
+    : line(look, 'row', marker, cells.leading)
+  return Box({
+    flexDirection: 'column',
+    children: [
+      row,
+      reasonLine(look, reason),
+      isBeside ? null : tailLine(look, cells.time, actions),
+    ],
+  })
 }
 
 function leastCells(cell: Cell): number {
@@ -149,8 +214,7 @@ function deniedCells(look: RowLook, others: readonly Cell[], denial: Denial): Ce
 }
 
 function hasCutText(state: BashState): boolean {
-  if (state.kind === 'done') return state.stderr !== null
-  return 'line' in state && state.line !== ''
+  return state.kind === 'done' && state.stderr !== null
 }
 
 function timeText(elapsedMs: number | null): string {
@@ -187,7 +251,12 @@ export function bashRow(
     view.state.kind === 'denied'
       ? deniedCells(look, [label, program, time], view.state)
       : stateCells(view.state)
-  return line(look, 'row', MARKERS[view.state.kind], [label, program, ...state, time], actions)
+  const marker = MARKERS[view.state.kind]
+  const reason = reasonOf(view.state)
+  if (reason !== null) {
+    return withReason(look, marker, { leading: [label, program, ...state], time }, reason, actions)
+  }
+  return line(look, 'row', marker, [label, program, ...state, time], actions)
 }
 
 export function totalsText({ added, removed }: Totals): string {
@@ -235,11 +304,9 @@ export function refusedRow(
   target: readonly string[],
   message: string,
 ): RenderElement {
-  return line(look, 'row', 'error', [
-    { text: tool },
-    ...keptTargetCells(target),
-    ...errorCells(REFUSED_WORD, message),
-  ])
+  const leading = [{ text: tool }, ...keptTargetCells(target), errorWord(REFUSED_WORD)]
+  if (message === '') return line(look, 'row', 'error', leading)
+  return withReason(look, 'error', { leading, time: { text: '' } }, message, null)
 }
 
 export function deniedRow(
@@ -287,8 +354,6 @@ export function genericRow(look: RowLook, view: GenericView): RenderElement {
 }
 
 export type ChangeLines = { files: readonly FileChange[]; moreFiles: number } | null
-
-const RESULT_INDENT = 2
 
 type ChangeLine = { text: string; isDim: boolean }
 

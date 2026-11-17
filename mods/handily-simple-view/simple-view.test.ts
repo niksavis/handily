@@ -41,6 +41,7 @@ const RENUMBERED_ENGINE_ROW = { type: 'engine', ref: 1 } as const
 const MARKER = { terminal: '● ', desktop: '' } as const
 const QUIET_COMMAND = 'br close handily-ab12'
 const BOX_COLUMNS = 40
+const ROW_KEYS: ReadonlySet<string> = new Set(['row', 'reason', 'tail'])
 const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 const QUIET_MODE_COMMAND = 'quiet-items-mode'
 
@@ -285,7 +286,9 @@ type Mountable =
 async function texts($: Engine, surface: Surface, target: Mountable): Promise<string[]> {
   const ui = await $.ui.mount({ plugin: 'handily-simple-view', surface, ...target })
   const boxes = await ui.findAll({ type: 'Box' })
-  const keyed = boxes.filter((box) => box.key === 'row' || box.key?.startsWith('change-'))
+  const keyed = boxes.filter(
+    (box) => ROW_KEYS.has(box.key ?? '') || box.key?.startsWith('change-') === true,
+  )
   const found = keyed.map((box) => box.children.map(shown).join(' ').replace(/\s+/g, ' ').trim())
   await ui.unmount()
   return found
@@ -695,7 +698,8 @@ describe('Bash row', () => {
           props: useProps(id, 'Bash', input, answer),
         }),
       ).toEqual([
-        `${MARKER[surface]}Type check the project npx exit 2 src/app.ts(3,1): error TS2304 15s`,
+        `${MARKER[surface]}Type check the project npx exit 2 15s`,
+        'src/app.ts(3,1): error TS2304',
       ])
       const ui = await $.ui.mount({
         plugin: 'handily-simple-view',
@@ -776,7 +780,8 @@ describe('Bash row', () => {
         const answer = world.answer(REFUSED_INPUT)
         const use = useProps(id, 'Bash', REFUSED_INPUT, answer)
         expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-          `${MARKER[surface]}Print x after a pipe true refused ${HOOK_MESSAGE_LINES[0]}`,
+          `${MARKER[surface]}Print x after a pipe true refused`,
+          HOOK_MESSAGE_LINES[0],
         ])
         const ui = await mountUse($, use, surface)
         expect((await ui.find({ type: 'Text', text: 'refused' }))?.props.color).toBe('error')
@@ -814,7 +819,8 @@ describe('Bash row', () => {
           const id = await runBash(world, $, input)
           const use = useProps(id, 'Bash', input, failed(text))
           expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-            `${MARKER[surface]}Remove the notes rm error ${first}`,
+            `${MARKER[surface]}Remove the notes rm error`,
+            first,
           ])
           const result = await drawn(
             $,
@@ -844,34 +850,82 @@ describe('Bash row', () => {
   })
 
   for (const surface of SURFACES) {
-    viewTest(
-      `an exit N row keeps the description and cuts the error text first on ${surface}`,
-      async (world, $) => {
-        const description = 'List a folder that does not exist'
-        world.answer = () =>
-          failed(
-            "Error: Exit code 2\nls: cannot access '/nonexistent-folder': No such file or directory",
-          )
-        const input = { command: 'ls /nonexistent-folder', description }
-        const id = await runBash(world, $, input)
-        const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)), surface)
-        const cellOf = async (text: string) =>
-          (await ui.findAll({ type: 'Box' })).find(
-            (box) =>
-              box.children.length === 1 &&
-              (box.children[0] as { children?: unknown[] }).children?.[0] === text,
-          )
-        const label = await cellOf(description)
-        const error = await cellOf(
-          "ls: cannot access '/nonexistent-folder': No such file or directory",
-        )
-        expect(label?.props).toMatchObject({ flexShrink: 1, minWidth: description.length })
-        expect(error?.props).toMatchObject({ flexShrink: 1 })
-        expect(error?.props.minWidth).toBeUndefined()
-        await ui.unmount()
-      },
-    )
+    for (const columns of [120, 40]) {
+      viewTest(
+        `a failed call puts its reason on its own line under the row in the error colour at ${String(columns)} columns on ${surface}`,
+        async (world, $) => {
+          const description = 'List a missing folder'
+          const reason = "ls: cannot access '/nonexistent-folder': No such file or directory"
+          world.delayMs = 2000
+          world.answer = () => failed(`Error: Exit code 2\n${reason}`)
+          const input = { command: 'ls /nonexistent-folder', description }
+          const id = await runBash(world, $, input)
+          const ui = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolUse',
+            props: useProps(id, 'Bash', input, world.answer(input)),
+            viewport: { columns, rows: 40 },
+          })
+          const keys = (await ui.findAll({ type: 'Box' }))
+            .map((box) => box.key)
+            .filter((key) => key !== undefined && ROW_KEYS.has(key))
+          const line = await ui.find({ type: 'Text', text: reason })
+          const lines = sketch(await ui.drawn())
+          await ui.unmount()
+          expect(line?.props).toMatchObject({ color: 'error', wrap: 'truncate-end' })
+          const indent = surface === 'terminal' ? '  ' : ''
+          const row = `${surface === 'terminal' ? '#●# ' : ''}${description}  ~ls~  #exit 2#`
+          if (columns >= 60) {
+            expect(keys).toEqual(['row', 'reason'])
+            expect(lines).toEqual([
+              edges(`${row}  ~2.0s~`, '[ more ] [ copy ]'),
+              `${indent}#${reason}#`,
+            ])
+          } else {
+            expect(keys).toEqual(['row', 'reason', 'tail'])
+            expect(lines).toEqual([
+              row,
+              `${indent}#${reason}#`,
+              `${indent}~2.0s~  [ more ] [ copy ]`,
+            ])
+          }
+        },
+      )
+    }
   }
+
+  for (const [code, name] of [
+    [126, 'not executable'],
+    [127, 'command not found'],
+    [130, 'interrupted'],
+    [143, 'stopped'],
+  ] as const) {
+    viewTest(`exit ${String(code)} names itself dim beside the code`, async (world, $) => {
+      world.answer = () => failed(`Error: Exit code ${String(code)}\nsh: 1: tsc: not found`)
+      const input = { command: 'tsc', description: 'Run the build' }
+      const id = await runBash(world, $, input)
+      const props = useProps(id, 'Bash', input, world.answer(input))
+      expect(await texts($, 'terminal', { component: 'ToolUse', props })).toEqual([
+        `● Run the build tsc exit ${String(code)} ${name}`,
+        'sh: 1: tsc: not found',
+      ])
+      const ui = await mountUse($, props)
+      expect((await ui.find({ type: 'Text', text: name }))?.props.dimColor).toBe(true)
+      await ui.unmount()
+    })
+  }
+
+  viewTest('exit 2 has no name beside the code', async (world, $) => {
+    world.answer = () => failed('Error: Exit code 2\nnope')
+    const input = { command: 'ls x', description: 'List x' }
+    const id = await runBash(world, $, input)
+    const props = useProps(id, 'Bash', input, world.answer(input))
+    expect(await texts($, 'terminal', { component: 'ToolUse', props })).toEqual([
+      '● List x ls exit 2',
+      'nope',
+    ])
+  })
 
   viewTest('shows the first command segment cut with an ellipsis', async (world, $) => {
     const input = { command: 'cd /work/app && npm test -- --watch=false' }
@@ -1097,9 +1151,10 @@ describe('tool row fold and copy', () => {
     const id = await runBash(world, $, input)
     const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
     await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(
-      opened(['  ~  src/app.ts(3,1): error TS2304~', '  ~more~']),
-    )
+    expect(sketch(await ui.drawn()).slice(1)).toEqual([
+      '  #src/app.ts(3,1): error TS2304#',
+      ...opened(['  ~  src/app.ts(3,1): error TS2304~', '  ~more~']),
+    ])
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore\n'])
     await ui.unmount()
@@ -1120,6 +1175,7 @@ describe('tool row fold and copy', () => {
         const indent = surface === 'terminal' ? '  ' : ''
         const divider = `${indent}~${'─'.repeat(80 - indent.length)}~`
         expect(sketch(await ui.drawn()).slice(1)).toEqual([
+          `${indent}#${HOOK_MESSAGE_LINES[0]}#`,
           divider,
           ...HOOK_MESSAGE_LINES.map((line) => `${indent}~${line}~`),
           divider,
@@ -1712,7 +1768,7 @@ describe('row labels with a control character', () => {
         component: 'ToolUse',
         props: useProps(id, 'Bash', input, world.answer(input)),
       }),
-    ).toEqual(['● Build make exit 1 build failed'])
+    ).toEqual(['● Build make exit 1', 'build failed'])
   })
 
   viewTest(
@@ -1739,13 +1795,14 @@ describe('file rows that a hook refused', () => {
   for (const surface of SURFACES) {
     for (const { tool, input, path } of FILE_REFUSALS_CAPTURED_ON_2_1_312) {
       viewTest(
-        `draws a refused ${tool} call as captured on Claude Code 2.1.312 as one row on ${surface}`,
+        `draws a refused ${tool} call as captured on Claude Code 2.1.312 as one row and its reason under it on ${surface}`,
         async (world, $) => {
           world.answer = () => hookRefused(tool)
           const id = await runTool(world, $, { tool, ...input })
           const use = useProps(id, tool, input, hookRefused(tool))
           expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-            `${MARKER[surface]}${tool} ${path} refused ${PROBE_GUARD_MESSAGE}`,
+            `${MARKER[surface]}${tool} ${path} refused`,
+            PROBE_GUARD_MESSAGE,
           ])
           const ui = await mountUse($, use, surface)
           expect((await ui.find({ type: 'Text', text: 'refused' }))?.props.color).toBe('error')
@@ -1781,11 +1838,13 @@ describe('file rows that a hook refused', () => {
           })
         const marker = MARKER[surface]
         expect(await rowOf('Grep', { pattern: 'TODO', path: `${ROOT}/src` })).toEqual([
-          `${marker}Grep "TODO" in src refused ${PROBE_GUARD_MESSAGE}`,
+          `${marker}Grep "TODO" in src refused`,
+          PROBE_GUARD_MESSAGE,
         ])
-        expect(await rowOf('Edit', {})).toEqual([`${marker}Edit refused ${PROBE_GUARD_MESSAGE}`])
+        expect(await rowOf('Edit', {})).toEqual([`${marker}Edit refused`, PROBE_GUARD_MESSAGE])
         expect(await rowOf('Read', { file_path: 7 })).toEqual([
-          `${marker}Read refused ${PROBE_GUARD_MESSAGE}`,
+          `${marker}Read refused`,
+          PROBE_GUARD_MESSAGE,
         ])
       },
     )
@@ -1799,7 +1858,8 @@ describe('file rows that a hook refused', () => {
         const input = { file_path: `${ROOT}/note.txt` }
         const use = useProps('toolu_h4', 'Edit', input, hookRefused('Edit'))
         expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-          `${MARKER[surface]}Edit refused ${PROBE_GUARD_MESSAGE}`,
+          `${MARKER[surface]}Edit refused`,
+          PROBE_GUARD_MESSAGE,
         ])
         const result = await drawn(
           $,
@@ -1840,7 +1900,6 @@ describe('file rows that a hook refused', () => {
           `"${input.pattern}"`,
           `in ${'f'.repeat(37)}`,
           'refused',
-          PROBE_GUARD_MESSAGE,
         ])
         const gaps = 2 * (cells.length - 1)
         const width = MARKER[surface].length + gaps + least.reduce((sum, cell) => sum + cell, 0)
@@ -2040,7 +2099,8 @@ describe('calls that the auto mode classifier denied', () => {
         const id = await runBash(world, $, BASH_INPUT)
         const bash = useProps(id, 'Bash', BASH_INPUT, world.answer(BASH_INPUT))
         expect(await texts($, surface, { component: 'ToolUse', props: bash })).toEqual([
-          `${MARKER[surface]}Remove the notes rm error ${other}`,
+          `${MARKER[surface]}Remove the notes rm error`,
+          other,
         ])
         const denied = classifierDenied(BASH_DENIED_ON_2_1_296)
         const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, denied)
@@ -2367,7 +2427,8 @@ describe('calls that a permission rule or the person denied', () => {
           const id = await runBash(world, $, TOUCH_INPUT)
           const bash = useProps(id, 'Bash', TOUCH_INPUT, answer)
           expect(await texts($, surface, { component: 'ToolUse', props: bash })).toEqual([
-            `${MARKER[surface]}Create the other file touch error ${text}`,
+            `${MARKER[surface]}Create the other file touch error`,
+            text,
           ])
           const edit = useProps('toolu_r4', 'Edit', EDIT_INPUT, answer)
           expectEngineRow((await drawn($, { component: 'ToolUse', props: edit }, surface)).tree)

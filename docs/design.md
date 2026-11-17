@@ -823,6 +823,16 @@ the state (`…`, `running`, `done`, `error`), and the line count of the result 
   `next(e)` gave. They do not pin the output shape of a tool, so a change of an engine-owned
   output does not break them.
 
+The failure reason under the row (handily-d75xdi, 2026-11-17). The owner asked for clearer
+signals in the main window. The reason of a failed `Bash` call (`exit N`, `refused`, `error`)
+and of a refused file call moves from the end of the row to its own line under the row, in the
+theme key `error`, indented two columns and cut at the row end. The row keeps the state word and
+the time, so a long reason no longer pushes the time off the row. Below 60 columns the time and
+the buttons move to a third line under the reason. `exit N` names four codes dim beside the
+code, because they say what happened better than the number: 126 `not executable`, 127
+`command not found`, 130 `interrupted` and 143 `stopped`. A denial keeps its reason on the row,
+because it is a short word of who denied it, not a failure text.
+
 Hand-off to other mods. The order of two plugins in the `user` tier is not in the types. In a
 live check on 2.1.300 the chain was `handily-board`, `handily-reply-view`,
 `handily-simple-view`, `handily-quiet-items`, then `cc-plugin-diff@builtin`. So the `ToolUse`

@@ -12,12 +12,17 @@ screen changes.
 
 ```text
 ● List the mods  ls  exit 0  7 lines  1.1s                                  [ more ] [ copy ]
-● List a folder that does not exist  ls  exit 2  ls: cannot access '/n…  [ more ] [ copy ]
-● Print x after a pipe  true  refused  pipe-status-guard: refusing a st…  [ more ] [ copy ]
+● List a folder that does not exist  ls  exit 2  0.4s                   [ more ] [ copy ]
+  ls: cannot access '/nonexistent-folder': No such file or directory
+● Run the build  tsc  exit 127  command not found  0.1s                 [ more ] [ copy ]
+  sh: 1: tsc: not found
+● Print x after a pipe  true  refused                                   [ more ] [ copy ]
+  pipe-status-guard: refusing a status read after `tail`: the pipeline…
 ● Append a probe line  printf  exit 0  0 lines  2.8s
   Updated README.md (+1 -0)
 ● Edit  src/app.ts  +2 -1
-● Edit  note.txt  refused  probe-guard: file tools are refused in this folder
+● Edit  note.txt  refused
+  probe-guard: file tools are refused in this folder
 ● Edit  src/app.ts  denied  auto mode: Self-Modification
 ● Bash  touch other.txt  denied  by a rule
 ● Read  mods/handily/.claude-plugin/plugin.json  18 lines
@@ -38,9 +43,9 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 | `Bash`, `Read`, `Grep`, `Glob`, before the run                 | description or tool, the parts of the input it can read, dim `…`                                        | as the engine draws it              |
 | `Bash`, running                                                | description, program, dim `running`, time since the call started                                        | as the engine draws it              |
 | `Bash`, no error                                               | description, program, `exit 0`, stdout line count, time                                                 | one `Updated` line per changed file |
-| `Bash`, `Exit code N`                                          | description, program, `exit N`, the first non-empty error line, time                                    | empty                               |
-| `Bash`, refused by a hook                                      | description, program, `refused`, the first line of the hook message, time                               | empty                               |
-| `Bash`, another `Error:` text                                  | description, program, `error`, the first non-empty line of the text, time                               | empty                               |
+| `Bash`, `Exit code N`                                          | description, program, `exit N`, the name of the code, time; the first non-empty error line under it     | empty                               |
+| `Bash`, refused by a hook                                      | description, program, `refused`, time; the first line of the hook message under it                      | empty                               |
+| `Bash`, another `Error:` text                                  | description, program, `error`, time; the first non-empty line of the text under it                      | empty                               |
 | `Bash`, denied by the auto mode classifier                     | description, program, `denied`, `auto mode` and the reason                                              | empty                               |
 | `Bash`, denied by a permission rule                            | `Bash`, the command, `denied`, `by a rule`                                                              | empty                               |
 | `Edit`, `Write`                                                | tool, file path, added and removed line totals                                                          | empty                               |
@@ -48,7 +53,7 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 | `Grep`                                                         | tool, pattern in quotes, `in` and the folder, the count of the output mode                              | empty                               |
 | `Glob`                                                         | tool, pattern, `in` and the folder, the count of matched files                                          | empty                               |
 | `Read`, `Grep`, `Glob`, running                                | tool, the path or the pattern from the input, dim `…`                                                   | as the engine draws it              |
-| `Edit`, `Write`, `Read`, `Grep`, `Glob`, refused by a hook     | tool, the path or the pattern from the input, `refused`, the first line of the hook message             | empty                               |
+| `Edit`, `Write`, `Read`, `Grep`, `Glob`, refused by a hook     | tool, the path or the pattern from the input, `refused`; the first line of the hook message under it    | empty                               |
 | `Edit`, `Write`, `Read`, `Grep`, `Glob`, denied                | tool, the path or the pattern from the input, `denied`, then `auto mode` and the reason, or `by a rule` | empty                               |
 | `Bash`, `Edit`, `Write`, `Read`, `Grep`, `Glob`, denied by you | the row of the call stays as it was drawn before the run                                                | one line: `denied`, `by you`        |
 | Any other tool, before the run                                 | tool name, input summary, dim `…`                                                                       | as the engine draws it              |
@@ -79,13 +84,18 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
   `/simple show N` prints `File diff: not reported by the engine.`
 - A hook that refuses a call before it runs sends `Error: PreToolUse:Bash hook error:`, the
   hook command in brackets and its message. The row leaves out all of that text up to the
-  message, and shows the first line of the message after `refused`.
+  message, and shows the first line of the message on its own line under the row.
 - A hook refusal of `Edit`, `Write` or `Read` has the same shape, with the tool name in place of
-  `Bash`, as captured on Claude Code 2.1.312. The row shows the tool, the path, `refused` and
-  the first line of the message. Another error of these tools, such as
+  `Bash`, as captured on Claude Code 2.1.312. The row shows the tool, the path and `refused`,
+  and the first line of the message goes under the row. Another error of these tools, such as
   `File has not been read yet`, keeps the row and the error text of the engine.
 - Any other errored `Bash` text that starts with `Error:`, is not an exit code and is not a
-  denial shows `error` and the first non-empty line after `Error:`.
+  denial shows `error`, and the first non-empty line after `Error:` goes under the row.
+- The reason of a failed call, the line under the row, draws in the error colour, indented under
+  the row and cut at the row end. Below 60 columns the time and the buttons move to a line of
+  their own under the reason.
+- `exit N` names four codes dim beside the code: 126 `not executable`, 127
+  `command not found`, 130 `interrupted` and 143 `stopped`. Other codes have no name.
   [Denied calls](#denied-calls) gives the rows of a denial.
 - After `exit N`, the engine sends no diff, but the command can still have changed a file.
   `/simple show N` then prints `File diff: not reported by the engine.`
@@ -94,10 +104,9 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 - The `bashEditDiffEnabled` setting turns Bash edit tracking on or off. The
   `CLAUDE_CODE_BASH_EDIT_DIFF` environment variable wins over the setting. Without either, the
   engine decides, and the mod cannot read that decision.
-- When an error line or a stderr line follows the description, the description keeps up to 40
-  cells. The terminal cuts the error line or the stderr line first. In a refused `Edit`, `Write`,
-  `Read`, `Grep` or `Glob` row, the path, or the pattern and the folder together, keep up to 40
-  cells.
+- When a stderr line follows the description, the description keeps up to 40 cells. The
+  terminal cuts the stderr line first. In a refused `Edit`, `Write`, `Read`, `Grep` or `Glob`
+  row, the path, or the pattern and the folder together, keep up to 40 cells.
 - A path inside the session root shows relative to the root, and the root itself shows as `.`.
   Another path shows in full.
 - The row shows the time only from 1 second. The engine gives no run time for a `Bash` call, so
