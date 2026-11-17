@@ -41,6 +41,7 @@ import { expectEngineRow, expectNoEngineRow } from './fixtures/engine-row'
 import {
   buttonsLine,
   DIAGRAM_BUTTONS,
+  DIAGRAM_RESERVED,
   headSketch,
   TABLE_BUTTONS,
   tableHeadSketch,
@@ -603,11 +604,9 @@ describe('long reply', () => {
     },
   )
 
-  viewTest('the hidden count cuts at the end on a narrow screen', async (_world, $) => {
+  viewTest('the hidden count stays whole on a narrow screen', async (_world, $) => {
     const ui = await mountReply($, reply(LONG_REPLY), 'terminal', 40)
-    expect((await ui.find({ type: 'Text', text: '▸ 24 more lines' }))?.props.wrap).toBe(
-      'truncate-end',
-    )
+    expect((await ui.find({ type: 'Text', text: '▸ 24 more lines' }))?.props.wrap).toBeUndefined()
     await ui.unmount()
   })
 
@@ -1007,7 +1006,8 @@ describe('tables', () => {
         `  ${subtle('┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄')}`,
         `  ${ruled('row =9= name  │ released │ follows the')}`,
         `  ${ruled('            │          │ work')}`,
-        `  ~▸ 6 more lines~  ${FOLD_BUTTONS}`,
+        '  ~▸ 6 more lines~',
+        `  ${' '.repeat(38 - displayWidth(FOLD_BUTTONS))}${FOLD_BUTTONS}`,
       ])
       await ui.unmount()
     },
@@ -3817,6 +3817,7 @@ describe('sequence drawings', () => {
 
 const DIAGRAM_COLUMNS = [78, 40] as const
 const FENCE_BUTTON_ROOM = '  [ copy ]'.length
+const FENCE_RESERVED = '[ ■ not copied ]'.length
 
 function mermaidReply(lead: string, ...sources: string[]): string {
   return [lead, ...sources.flatMap((source) => ['', '```mermaid', source, '```'])].join('\n')
@@ -3847,7 +3848,7 @@ function uncolouredHead(name: string, columns: number): string {
 function diagramTitleLines(width: number, name = 'flowchart'): string[] {
   const title = `mermaid · ${name}`
   const room = width - DIAGRAM_BUTTONS.length - 2
-  if (cellsIn(titledRule(title, 0)) <= room) {
+  if (cellsIn(titledRule(title, 0)) <= width - DIAGRAM_RESERVED - 2) {
     return [`${uncolouredHead(name, room)}  ${DIAGRAM_BUTTONS}`]
   }
   return [uncolouredHead(name, width), ' '.repeat(width - DIAGRAM_BUTTONS.length) + DIAGRAM_BUTTONS]
@@ -3859,12 +3860,14 @@ function refusedHead(room: number): string {
 }
 
 function todaysFence(source: string, width: number, note?: string): string[] {
-  const room = Math.max(width - FENCE_BUTTON_ROOM, 4)
-  const head =
-    note === undefined
-      ? `${headSketch('mermaid', 'code', room)}  [ copy ]`
-      : `${refusedHead(room)}  [ copy ]`
-  const lines = [head, ...(note === undefined ? [] : [`~${note}~`])]
+  const title = note === undefined ? 'mermaid' : 'mermaid · not drawn'
+  const headAt = (room: number) =>
+    note === undefined ? headSketch('mermaid', 'code', room) : refusedHead(room)
+  const fits = cellsIn(titledRule(title, 0)) <= width - FENCE_RESERVED - 2
+  const head = fits
+    ? [`${headAt(width - FENCE_BUTTON_ROOM)}  [ copy ]`]
+    : [headAt(width), `${' '.repeat(width - 8)}[ copy ]`]
+  const lines = [...head, ...(note === undefined ? [] : [`~${note}~`])]
   return source === '' ? lines : [...lines, ...source.split('\n')]
 }
 
@@ -4057,7 +4060,8 @@ describe('a folded reply around its diagrams', () => {
         const pings = diagramLines(PINGS, surface)
         const text = `${mermaidReply('Here are the pings:', PINGS)}\n\nAfter 1\nAfter 2`
         const ui = await mountReply($, reply(text), surface, FOLD_COLUMNS)
-        expect((await uncolouredSketchOf(ui, FOLD_COLUMNS)).at(-1)).toContain(
+        const lines = await uncolouredSketchOf(ui, FOLD_COLUMNS)
+        expect(lines.find((line) => line.includes('▸'))).toContain(
           `~▸ sequence diagram, ${String(pings.length - 27)} more rows, then 3 more lines~`,
         )
         await ui.unmount()
@@ -4221,7 +4225,8 @@ describe('diagram blocks', () => {
           const text = `${mermaidReply(lead.join('\n'), MOCK_9_5_SOURCE)}\n\nAfter 1\nAfter 2`
           const ui = await mountReply($, reply(text), surface, columns)
           const folded = await uncolouredSketchOf(ui, columns)
-          expect(folded.slice(0, -1)).toEqual(
+          const count = folded.findIndex((line) => line.includes('▸'))
+          expect(folded.slice(0, count)).toEqual(
             onSurface(surface, [
               ...lead,
               '',
@@ -4229,12 +4234,14 @@ describe('diagram blocks', () => {
               ...drawing.map((line) => line.trimEnd()),
             ]),
           )
-          expect(folded.at(-1)).toContain('~▸ 3 more lines~')
+          expect(folded[count]).toContain('~▸ 3 more lines~')
           await ui.press({ key: 'block-1-drawing' })
           await ui.press({ key: 'copy-reply' })
           expect(world.copies).toEqual([drawing.join('\n'), text])
           await ui.press({ key: 'fold' })
-          expect((await uncolouredSketchOf(ui, columns)).slice(-4, -2)).toEqual(
+          const opened = await uncolouredSketchOf(ui, columns)
+          const after = opened.findIndex((line) => line.endsWith('After 2'))
+          expect(opened.slice(after - 1, after + 1)).toEqual(
             onSurface(surface, ['', 'After 1', 'After 2']).slice(-2),
           )
           await ui.unmount()
@@ -4356,7 +4363,8 @@ describe('diagram blocks', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● The reply takes three steps:',
         '',
-        `  ${refusedHead(28)}  [ copy ]`,
+        `  ${refusedHead(38)}`,
+        `  ${' '.repeat(30)}[ copy ]`,
         '  ~diagram not drawn: it takes 59 columns, the screen has 38. Widen the window or shorten the labels.~',
         ...MOCK_9_9_WIDE_SOURCE.split('\n').map((line) => `  ${line}`),
       ])
@@ -4384,7 +4392,8 @@ describe('diagram blocks', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● Wide:',
         '',
-        `  ${refusedHead(28)}  [ copy ]`,
+        `  ${refusedHead(38)}`,
+        `  ${' '.repeat(30)}[ copy ]`,
         '  ~diagram not drawn: it takes 59 columns, the screen has 38. Widen the window or shorten the labels.~',
         '  flowchart TD',
         '    A[Start] --> B[Alpha box] & C[Bravo box] & D[Charlie box] & E[Delta box]',
@@ -4799,7 +4808,7 @@ describe('a very narrow reply', () => {
             onSurface(surface, [
               '',
               '~▸ 24 more lines~',
-              `${' '.repeat(width - 27)}${FOLD_BUTTONS}`,
+              `${' '.repeat(width - displayWidth(FOLD_BUTTONS))}${FOLD_BUTTONS}`,
             ]).slice(1),
           )
           expect(widerThan(folded, columns)).toEqual([])
@@ -4809,13 +4818,19 @@ describe('a very narrow reply', () => {
     }
 
     viewTest(
-      `in a reply of 30 columns the open fold row keeps its mark, less and copy reply on one line after the gap on ${surface}`,
+      `in a reply of 30 columns the open fold row puts less and copy reply under its mark on ${surface}`,
       async (_world, $) => {
         const columns = screenColumns(surface, 30)
         const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
         await ui.press({ key: 'fold' })
         const opened = await sketchOf(ui, columns)
-        expect(opened.at(-1)).toBe(onSurface(surface, ['', `~▾~  ${OPEN_BUTTONS}`])[1])
+        expect(opened.slice(-2)).toEqual(
+          onSurface(surface, [
+            '',
+            '~▾~',
+            `${' '.repeat(30 - displayWidth(OPEN_BUTTONS))}${OPEN_BUTTONS}`,
+          ]).slice(1),
+        )
         expect(widerThan(opened, columns)).toEqual([])
         await ui.unmount()
       },
@@ -4862,9 +4877,9 @@ describe('a very narrow reply', () => {
           onSurface(surface, ['', `${' '.repeat(4)}[ more ]`, '[ copy re… ]']).slice(1),
         )
         expect(widerThan(buttonLines(folded), columns)).toEqual([])
-        expect((await ui.find({ type: 'Text', text: '▸ 24 more lines' }))?.props.wrap).toBe(
-          'truncate-end',
-        )
+        expect(
+          (await ui.find({ type: 'Text', text: '▸ 24 more lines' }))?.props.wrap,
+        ).toBeUndefined()
         await ui.press({ key: 'copy-reply' })
         expect(world.copies).toEqual([LONG_REPLY])
         await ui.unmount()
@@ -4910,10 +4925,10 @@ describe('a very narrow reply', () => {
   }
 
   viewTest(
-    'in a reply of 12 columns the copy button of a block with no tag stays on its rule',
+    'in a reply of 12 columns the copy button of a block with no tag stands under its rule, with room for its pressed label',
     async (_world, $) => {
       const ui = await mountReply($, reply('~~~\necho hi\n~~~'), 'desktop', 12)
-      expect(await sketchOf(ui, 12)).toEqual(['~──~  [ copy ]', 'echo hi'])
+      expect(await sketchOf(ui, 12)).toEqual([`~${'─'.repeat(12)}~`, '    [ copy ]', 'echo hi'])
       await ui.unmount()
     },
   )
@@ -4983,8 +4998,8 @@ function gatesDrawn(surface: Surface): string[] {
 }
 
 const SMALL_BOX = [
-  headSketch('table', 'table', 29, '1 row'),
-  TABLE_BUTTONS,
+  headSketch('table', 'table', 33, '1 row'),
+  `${' '.repeat(8)}${TABLE_BUTTONS}`,
   '%┌───┬───┐%',
   '%│% @*A*@ %│% @*B*@ %│%',
   '%╞═══╪═══╡%',
@@ -4993,8 +5008,8 @@ const SMALL_BOX = [
 ]
 
 const SMALL_RULES = [
-  headSketch('table', 'table', 29, '1 row'),
-  TABLE_BUTTONS,
+  headSketch('table', 'table', 33, '1 row'),
+  `${' '.repeat(8)}${TABLE_BUTTONS}`,
   '@*A*@ %│% @*B*@',
   '%══╪══%',
   '=1= %│% =2=',
@@ -5002,7 +5017,7 @@ const SMALL_RULES = [
 
 const GATES_BLOCKS = [
   headSketch('table', 'table', 37, '2 rows'),
-  `${' '.repeat(8)}${TABLE_BUTTONS}`,
+  `${' '.repeat(12)}${TABLE_BUTTONS}`,
   '*&handily-board&*',
   '  @Tests:@ =212=',
   '  @Gate:@ *pass*',
@@ -5198,8 +5213,8 @@ describe('colour pass', () => {
           const ui = await mountReply($, reply(SMALL_TABLE), surface, columns)
           expect(await sketchOf(ui, columns)).toEqual(
             onSurface(surface, [
-              headSketch('table', 'table', 29, '1 row'),
-              TABLE_BUTTONS,
+              headSketch('table', 'table', 33, '1 row'),
+              `${' '.repeat(8)}${TABLE_BUTTONS}`,
               '@*A*@ %│% @*B*@',
               '%══╪══%',
               '=1= %│% =2=',

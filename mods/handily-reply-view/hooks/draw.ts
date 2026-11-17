@@ -818,14 +818,18 @@ function buttonRoom(context: Context): number {
   return Math.max(context.width - BUTTON_CHROME_COLUMNS, 1)
 }
 
-function fittedButton(context: Context, action: ButtonAction, isFirst: boolean): Buttons {
+type FittedButton = { element: RenderElement; rest: number; shown: number; widest: number }
+
+function fittedButton(context: Context, action: ButtonAction): FittedButton {
   const room = buttonRoom(context)
+  const columnsOf = (label: string) => displayWidth(fitted(label, room)) + BUTTON_CHROME_COLUMNS
   if ('next' in action) {
     const label = fitted(action.label, room)
-    const columns = displayWidth(label) + BUTTON_CHROME_COLUMNS
+    const columns = columnsOf(label)
     return {
-      columns,
+      rest: columns,
       shown: columns,
+      widest: columns,
       element: context.elements.Button({
         key: action.key,
         label,
@@ -838,37 +842,21 @@ function fittedButton(context: Context, action: ButtonAction, isFirst: boolean):
   }
   const labels = copyLabels(context, action.label)
   const state = copyStateOf(context, action)
-  const widest = Math.max(
-    ...Object.values(labels).map((label) => displayWidth(fitted(label, room))),
-  )
-  const columns = widest + BUTTON_CHROME_COLUMNS
   const label = fitted(labels[state], room)
-  const shown = displayWidth(label) + BUTTON_CHROME_COLUMNS
-  if (isFirst) {
-    const rest = displayWidth(fitted(labels.rest, room)) + BUTTON_CHROME_COLUMNS
-    return { columns: rest, shown, element: copyButton(context, action, label, state) }
-  }
   return {
-    columns,
-    shown: columns,
-    element: context.elements.Box({
-      key: `${action.key}-slot`,
-      width: columns,
-      flexShrink: 0,
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-      children: copyButton(context, action, label, state),
-    }),
+    rest: columnsOf(labels.rest),
+    shown: columnsOf(labels[state]),
+    widest: Math.max(...Object.values(labels).map(columnsOf)),
+    element: copyButton(context, action, label, state),
   }
 }
 
-function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
-  const [first, ...rest] = buttons
-  const gaps = buttons.length - 1
-  const others = sum(rest.map((button) => button.columns)) + gaps
+function buttonRow(context: Context, buttons: readonly FittedButton[]): Buttons {
+  const gaps = Math.max(buttons.length - 1, 0)
+  const reserve = Math.max(0, ...buttons.map((button) => button.widest - button.rest))
   return {
-    columns: (first?.columns ?? 0) + others,
-    shown: (first?.shown ?? 0) + others,
+    columns: sum(buttons.map((button) => button.rest)) + gaps + reserve,
+    shown: sum(buttons.map((button) => button.shown)) + gaps,
     element: context.elements.Box({
       flexDirection: 'row',
       flexShrink: 0,
@@ -881,7 +869,7 @@ function buttonRow(context: Context, buttons: readonly Buttons[]): Buttons {
 function buttonsTogether(context: Context, actions: readonly ButtonAction[]): Buttons {
   return buttonRow(
     context,
-    actions.map((action, index) => fittedButton(context, action, index === 0)),
+    actions.map((action) => fittedButton(context, action)),
   )
 }
 
@@ -889,7 +877,7 @@ function stackedButtons(context: Context, actions: readonly ButtonAction[]): But
   const together = buttonsTogether(context, actions)
   return together.columns <= context.width
     ? [together]
-    : actions.map((action) => buttonRow(context, [fittedButton(context, action, true)]))
+    : actions.map((action) => buttonRow(context, [fittedButton(context, action)]))
 }
 
 function tableCopy(table: Table): BlockCopy {
@@ -2098,11 +2086,12 @@ function kindSpans(context: Context, kinds: readonly KindCount[]): CellChild[] {
   ])
 }
 
-function dimLine(context: Context, text: string, shrinks: boolean): RenderElement {
+function countLine(context: Context, text: string): RenderElement {
   const { Box, Text } = context.elements
   return Box({
-    flexShrink: shrinks ? 1 : 0,
-    children: Text({ dimColor: true, wrap: 'truncate-end', children: text }),
+    key: 'fold-count',
+    flexShrink: 0,
+    children: Text({ dimColor: true, children: text }),
   })
 }
 
@@ -2111,58 +2100,43 @@ type FoldLine = { fold: ReplyViewFold; text: string; hidden: string; kinds: read
 function foldRow(context: Context, line: FoldLine) {
   const { Box, Text } = context.elements
   const { fold, kinds } = line
-  const count = dimLine(context, fold === 'folded' ? line.hidden : context.marks.opened, true)
+  const shown = fold === 'folded' ? line.hidden : context.marks.opened
   const actions = foldActions(fold, line.text)
   const together = buttonsTogether(context, actions)
   const named = fold === 'folded' && kinds.length > 0
-  const fitsBeside = displayWidth(line.hidden) + 2 * BUTTONS_GAP + together.columns <= context.width
-  if (named && context.columns >= KINDS_BESIDE_FROM_COLUMNS && fitsBeside) {
+  const fitsBeside =
+    context.columns >= KINDS_BESIDE_FROM_COLUMNS &&
+    displayWidth(shown) + BUTTONS_GAP + together.columns <= context.width
+  const kindsList = (separated: boolean) =>
+    Text({
+      ...(separated ? { wrap: 'truncate-end' as const } : {}),
+      children: [
+        ...(separated ? [Text({ dimColor: true, children: HEAD_SEPARATOR })] : []),
+        ...kindSpans(context, kinds),
+      ],
+    })
+  if (fitsBeside) {
     return Box({
       key: 'fold-row',
       flexDirection: 'row',
       children: [
-        dimLine(context, line.hidden, false),
-        Box({
-          flexShrink: 1,
-          children: Text({
-            wrap: 'truncate-end',
-            children: [
-              Text({ dimColor: true, children: HEAD_SEPARATOR }),
-              ...kindSpans(context, kinds),
-            ],
-          }),
-        }),
+        countLine(context, shown),
+        named ? Box({ key: 'fold-kinds', flexShrink: 1, children: kindsList(true) }) : null,
         Box({ flexGrow: 1, minWidth: BUTTONS_GAP }),
         together.element,
       ],
     })
   }
-  if (named) {
-    return Box({
-      key: 'fold-row',
-      flexDirection: 'column',
-      children: [
-        Box({ key: 'fold-count', children: count }),
-        Box({
-          key: 'fold-kinds',
-          paddingLeft: KINDS_INDENT,
-          children: Text({ children: kindSpans(context, kinds) }),
-        }),
-        ...buttonsUnder(context, actions, context.width),
-      ],
-    })
-  }
-  if (together.columns + BUTTONS_GAP <= context.width) {
-    return Box({
-      key: 'fold-row',
-      flexDirection: 'row',
-      children: [count, Box({ flexGrow: 1, minWidth: BUTTONS_GAP }), together.element],
-    })
-  }
   return Box({
     key: 'fold-row',
     flexDirection: 'column',
-    children: [count, ...buttonsUnder(context, actions, context.width)],
+    children: [
+      countLine(context, shown),
+      named
+        ? Box({ key: 'fold-kinds', paddingLeft: KINDS_INDENT, children: kindsList(false) })
+        : null,
+      ...buttonsUnder(context, actions, context.width),
+    ],
   })
 }
 

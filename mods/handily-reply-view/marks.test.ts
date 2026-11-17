@@ -149,18 +149,71 @@ describe('the copy state on a copy button', () => {
       )
 
       markTest(
-        `pressing one button of a diagram moves no other button at ${String(columns)} columns on ${surface}`,
+        `one space stands between the buttons at rest and after each press, and the right edge stays, at ${String(columns)} columns on ${surface}`,
         async (_world, $) => {
-          const ui = await mountReply($, together('The flow:', FLOW), surface, columns)
-          const before = await linesOf(ui, columns)
-          await ui.press({ key: 'block-1-drawing' })
-          const drawing = await linesOf(ui, columns)
-          expect(endOf(drawing, 'copy')).toEqual(endOf(before, 'copy'))
-          expect(endOf(drawing, '✓ copied drawing')).toEqual(endOf(before, 'copy drawing'))
-          await ui.press({ key: 'block-1-copy' })
-          const copy = await linesOf(ui, columns)
-          expect(endOf(copy, '✓ copied')).toEqual(endOf(before, 'copy'))
-          expect(endOf(copy, 'copy drawing')).toEqual(endOf(before, 'copy drawing'))
+          const cases = [
+            {
+              text: FLOW,
+              keys: ['block-1-copy', 'block-1-drawing'],
+              rest: ['copy', 'copy drawing'],
+            },
+            { text: TABLE, keys: ['block-1-copy', 'block-1-text'], rest: ['copy', 'copy as text'] },
+            { text: LONG_CODE, keys: ['block-1-copy'], rest: ['more', 'copy'] },
+          ] as const
+          for (const { text, keys, rest } of cases) {
+            const ui = await mountReply($, together('Here:', text), surface, columns)
+            const group = (labels: readonly string[]) =>
+              labels.map((label) => `[ ${label} ]`).join(' ')
+            const before = await linesOf(ui, columns)
+            const restGroup = group(rest)
+            expect(before.some((line) => line.endsWith(restGroup))).toBe(true)
+            const edge = endOf(before, rest.at(-1) ?? '')
+            for (const key of keys) {
+              await ui.press({ key })
+              const labels = await Promise.all(
+                (await buttonKeysIn(ui, 'block-1-title')).map(async (found) =>
+                  String((await ui.find({ key: found }))?.props.label),
+                ),
+              )
+              const after = await linesOf(ui, columns)
+              expect(after.some((line) => line.endsWith(group(labels)))).toBe(true)
+              expect(endOf(after, labels.at(-1) ?? '').end).toBe(edge.end)
+            }
+            await ui.unmount()
+          }
+        },
+      )
+
+      markTest(
+        `a press never cuts the head text, also after /replies copy table, at ${String(columns)} columns on ${surface}`,
+        async (_world, $) => {
+          const text = together('Here:', TABLE)
+          await $.turn.complete({
+            answer: text,
+            durationMs: 1000,
+            isAborted: false,
+            turnId: 'turn-1',
+            reason: 'answer',
+          })
+          const ui = await mountReply($, text, surface, columns)
+          const headOf = (lines: readonly string[]) =>
+            lines.find((line) => line.includes('── table')) ?? ''
+          expect(headOf(await linesOf(ui, columns))).toContain('── table · 2 rows ──')
+          await $.command.run({
+            command: 'replies',
+            args: 'copy table',
+            origin: { kind: 'sdk' },
+            presentation: { isFullscreen: false, columns },
+          })
+          await ui.redraw(reply(text))
+          const pressed = await linesOf(ui, columns)
+          expect(headOf(pressed)).toContain('── table · 2 rows ──')
+          expect(headOf(pressed)).not.toContain('…')
+          expect(pressed.some((line) => line.includes('[ ✓ copied ] [ copy as text ]'))).toBe(true)
+          await ui.press({ key: 'block-1-text' })
+          const second = await linesOf(ui, columns)
+          expect(headOf(second)).toContain('── table · 2 rows ──')
+          expect(headOf(second)).not.toContain('…')
           await ui.unmount()
         },
       )
@@ -317,6 +370,26 @@ describe('the fold row names what it hides', () => {
             expect(buttons).toBe(count)
           }
           await ui.unmount()
+        },
+      )
+
+      markTest(
+        `the fold count stays whole and under 60 columns the buttons stand under it at ${String(columns)} columns on ${surface}`,
+        async (_world, $) => {
+          for (const text of [together(TABLE, PROSE), hidden]) {
+            const ui = await mountReply($, text, surface, columns)
+            const count = await ui.find({ key: 'fold-count' })
+            expect(count?.text).toMatch(/^▸ \d+ more lines$/)
+            expect(nodesOf(count).some((node) => node.props?.wrap !== undefined)).toBe(false)
+            const lines = await linesOf(ui, columns)
+            const row = lines.findIndex((line) => line.includes(count?.text ?? '▸'))
+            const buttons = lines.findIndex((line) => line.includes('[ more ]'))
+            expect(row).toBeGreaterThanOrEqual(0)
+            expect(lines[row]).not.toContain('…')
+            if (columns < NARROW_BELOW) expect(buttons).toBeGreaterThan(row)
+            else expect(buttons).toBe(row)
+            await ui.unmount()
+          }
         },
       )
 

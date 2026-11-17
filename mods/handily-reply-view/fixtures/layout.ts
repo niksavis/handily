@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import { diagramOf, replyTree, type ReplyElements, type ReplyLayout } from '../hooks/draw'
 import { blocksOf } from '../hooks/markdown'
 import { displayWidth } from '../hooks/width'
-import { DIAGRAM_BUTTONS } from './buttons'
+import { DIAGRAM_BUTTONS, DIAGRAM_RESERVED } from './buttons'
 import { nodesOf, padded, sketchOf, type DrawnNode } from './sketch'
 
 export const COLUMNS = 120
@@ -206,7 +206,7 @@ export function diagramBlock(source: string, kind: string, room: number): Drawn 
   if (outcome.kind !== 'drawing') throw new Error(`the diagram did not draw: ${outcome.reason}`)
   const drawing = outcome.lines.map((line) => line.trimEnd())
   const head = `── mermaid · ${kind} `
-  const titleLeast = displayWidth(`${head}──`) + BUTTONS_GAP + displayWidth(DIAGRAM_BUTTONS)
+  const titleLeast = displayWidth(`${head}──`) + BUTTONS_GAP + DIAGRAM_RESERVED
   const width = Math.max(titleLeast, ...drawing.map(displayWidth))
   const rule = '─'.repeat(width - BUTTONS_GAP - displayWidth(DIAGRAM_BUTTONS) - displayWidth(head))
   const title = `${head}${rule}${' '.repeat(BUTTONS_GAP)}${DIAGRAM_BUTTONS}`

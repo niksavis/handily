@@ -22,12 +22,14 @@ import {
   type Drawn,
   type Scene,
 } from './fixtures/layout'
-import { DIAGRAM_BUTTONS } from './fixtures/buttons'
+import { DIAGRAM_BUTTONS, DIAGRAM_RESERVED } from './fixtures/buttons'
 import { isDrawnNode, nodesOf, sketchOf, type DrawnNode } from './fixtures/sketch'
 
 const FOLD_AFTER = 30
-const TITLE_LINE = `── mermaid · bar chart ──  ${DIAGRAM_BUTTONS}`
-const TITLE_WIDTH = displayWidth(TITLE_LINE)
+const WIDE_COLUMNS = 130
+const TITLE_HEAD = '── mermaid · bar chart '
+const TITLE_WIDTH = displayWidth(`${TITLE_HEAD}──`) + 2 + DIAGRAM_RESERVED
+const TITLE_LINE = `${TITLE_HEAD}${'─'.repeat(TITLE_WIDTH - 2 - displayWidth(DIAGRAM_BUTTONS) - displayWidth(TITLE_HEAD))}  ${DIAGRAM_BUTTONS}`
 const INTRO = 'The numbers, then the shape:'
 const TABLE_SIDES = '│  │'.length
 const HOURS_TABLE = [
@@ -106,9 +108,9 @@ async function commandText($: Engine, args: string): Promise<string> {
 }
 
 describe('a chart shares a row at its title width', () => {
-  for (const scene of SCENES) {
+  for (const scene of scenesAt(WIDE_COLUMNS)) {
     test(
-      `a bar chart after a table at 120 columns draws beside the table at its title width of 52 columns with its buttons, ${scene.name}`,
+      `a bar chart after a table at 130 columns draws beside the table at its title width with its buttons, ${scene.name}`,
       { options: scene.options },
       async ($, on) => {
         await started($, on)
@@ -117,7 +119,7 @@ describe('a chart shares a row at its title width', () => {
         expect(chart.width).toBe(TITLE_WIDTH)
         expect(chart.lines[0]).toBe(TITLE_LINE)
         expect(await bodyLines($, MOCK_REPLY, scene)).toEqual([INTRO, '', ...rowOf([table, chart])])
-        const rows = sharedRowsOf(await drawnTree($, MOCK_REPLY))
+        const rows = sharedRowsOf(await drawnTree($, MOCK_REPLY, 'terminal', scene.columns))
         expect(rows).toHaveLength(1)
         const [row] = rows
         if (row === undefined) return
@@ -157,7 +159,9 @@ describe('a chart shares a row at its title width', () => {
           '',
           ...stackedChart,
         ])
-        expect(sharedRowsOf(await drawnTree($, together(over, fence)))).toEqual([])
+        expect(
+          sharedRowsOf(await drawnTree($, together(over, fence), 'terminal', scene.columns)),
+        ).toEqual([])
       },
     )
 
@@ -172,7 +176,7 @@ describe('a chart shares a row at its title width', () => {
         expect(chart.lines.length).toBeGreaterThan(table.lines.length)
         const tableCut = folded(await bodyLines($, TALL_TABLE, scene)).preview
         const text = together(TALL_TABLE, fenced('mermaid', TALL_CHART))
-        expect(sharedRowsOf(await drawnTree($, text))).toHaveLength(1)
+        expect(sharedRowsOf(await drawnTree($, text, 'terminal', scene.columns))).toHaveLength(1)
         const shown = folded(await bodyLines($, text, scene))
         expect(shown.preview).toEqual(
           rowOf([

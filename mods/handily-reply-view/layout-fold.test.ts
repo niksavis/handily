@@ -3,13 +3,12 @@ import { displayWidth } from './hooks/width'
 import {
   bodyLines,
   bodyOf,
-  COLUMNS,
   diagramBlock,
   drawnTree,
   fenced,
   mountReply,
   rowOf,
-  SCENES,
+  scenesAt,
   sharedRowsOf,
   started,
   tableOf,
@@ -21,6 +20,7 @@ import {
 import { sketchOf } from './fixtures/sketch'
 
 const FOLD_AFTER = 30
+const WIDE_COLUMNS = 130
 const NODES = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
 const TALL_FLOW = flowchartOf(NODES)
 const SHORT_FLOW = flowchartOf(NODES.slice(0, 3))
@@ -59,9 +59,9 @@ function folded(lines: readonly string[]): { preview: string[]; fold: string } {
 }
 
 async function openedLines($: Engine, text: string, scene: Scene): Promise<string[]> {
-  const ui = await mountReply($, text)
+  const ui = await mountReply($, text, 'terminal', scene.columns)
   await ui.press({ key: 'fold' })
-  const lines = bodyOf(sketchOf(await ui.drawn(), COLUMNS), scene)
+  const lines = bodyOf(sketchOf(await ui.drawn(), scene.columns), scene)
   await ui.press({ key: 'fold' })
   await ui.unmount()
   return lines.slice(1, -2)
@@ -76,7 +76,7 @@ async function cutAlone($: Engine, text: string, scene: Scene): Promise<string[]
 }
 
 describe('a folded reply cuts a shared row like a stack', () => {
-  for (const scene of SCENES) {
+  for (const scene of scenesAt(WIDE_COLUMNS)) {
     test(
       `a reply that starts with a shared row taller than 30 rows shows each block cut at row 30, not an empty preview, ${scene.name}`,
       { options: scene.options },
@@ -87,7 +87,7 @@ describe('a folded reply cuts a shared row like a stack', () => {
         expect(table.lines.length).toBeGreaterThan(FOLD_AFTER)
         expect(diagram.lines.length).toBeGreaterThan(FOLD_AFTER)
         const text = together(TALL_TABLE, fenced('mermaid', TALL_FLOW))
-        expect(sharedRowsOf(await drawnTree($, text))).toHaveLength(1)
+        expect(sharedRowsOf(await drawnTree($, text, 'terminal', scene.columns))).toHaveLength(1)
         const tableCut = await cutAlone($, TALL_TABLE, scene)
         const shown = folded(await bodyLines($, text, scene))
         expect(shown.preview).toEqual(
@@ -120,7 +120,7 @@ describe('a folded reply cuts a shared row like a stack', () => {
         expect(diagram.lines.length).toBeGreaterThan(budget)
         expect(table.lines.length).toBeGreaterThan(budget)
         const text = together(PROSE, TALL_TABLE, fenced('mermaid', TALL_FLOW))
-        expect(sharedRowsOf(await drawnTree($, text))).toHaveLength(1)
+        expect(sharedRowsOf(await drawnTree($, text, 'terminal', scene.columns))).toHaveLength(1)
         const shown = folded(await bodyLines($, text, scene))
         expect(shown.preview).toEqual([
           ...before,
@@ -145,7 +145,7 @@ describe('a folded reply cuts a shared row like a stack', () => {
         const stacked = await cutAlone($, together(PROSE, FORTY_ROW_TABLE), scene)
         const before = stacked.slice(0, 11)
         const text = together(PROSE, FORTY_ROW_TABLE, fenced('mermaid', SHORT_FLOW))
-        expect(sharedRowsOf(await drawnTree($, text))).toHaveLength(1)
+        expect(sharedRowsOf(await drawnTree($, text, 'terminal', scene.columns))).toHaveLength(1)
         const shown = folded(await bodyLines($, text, scene))
         expect(shown.preview).toEqual([
           ...before,
@@ -170,7 +170,7 @@ describe('a folded reply cuts a shared row like a stack', () => {
         const diagram = diagramBlock(TALL_FLOW, 'flowchart', scene.room)
         expect(table.lines.length).toBeGreaterThan(diagram.lines.length)
         const text = together(TALL_TABLE, fenced('mermaid', TALL_FLOW), AFTER)
-        expect(sharedRowsOf(await drawnTree($, text))).toHaveLength(1)
+        expect(sharedRowsOf(await drawnTree($, text, 'terminal', scene.columns))).toHaveLength(1)
         const shown = folded(await bodyLines($, text, scene))
         const rowRows = table.lines.length - FOLD_AFTER
         expect(
@@ -194,8 +194,12 @@ describe('a folded reply cuts a shared row like a stack', () => {
           fenced('mermaid', TALL_SEQUENCE),
           fenced('mermaid', TALL_FLOW),
         )
-        expect(sharedRowsOf(await drawnTree($, flowFirst))).toHaveLength(1)
-        expect(sharedRowsOf(await drawnTree($, sequenceFirst))).toHaveLength(1)
+        expect(sharedRowsOf(await drawnTree($, flowFirst, 'terminal', scene.columns))).toHaveLength(
+          1,
+        )
+        expect(
+          sharedRowsOf(await drawnTree($, sequenceFirst, 'terminal', scene.columns)),
+        ).toHaveLength(1)
         expect(
           folded(await bodyLines($, flowFirst, scene)).fold.startsWith(
             `▸ flowchart, ${String(hidden)} more rows`,
@@ -222,7 +226,7 @@ describe('a folded reply cuts a shared row like a stack', () => {
         const text = together(LONG_PROSE, TALL_TABLE, fenced('mermaid', TALL_FLOW))
         const shown = folded(await bodyLines($, text, scene))
         expect(shown.preview).toEqual(above)
-        expect(sharedRowsOf(await drawnTree($, text))).toEqual([])
+        expect(sharedRowsOf(await drawnTree($, text, 'terminal', scene.columns))).toEqual([])
         const diagram = diagramBlock(TALL_FLOW, 'flowchart', scene.room)
         const hidden = 1 + Math.max(table.lines.length, diagram.lines.length)
         expect(

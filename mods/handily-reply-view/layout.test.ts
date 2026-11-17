@@ -28,6 +28,7 @@ const TABLE_SIDES = '│  │'.length
 const FLOW_SOURCE = 'flowchart LR\n  A[ingest] --> B[store]'
 const REFUSED_SOURCE = 'flowchart RL\n  A --> B'
 const CODE_SOURCE = 'const total = rows.length\nprint(total)'
+const WIDE_COLUMNS = 130
 const SETTING_LOG =
   'handily-reply-view: userConfig sideBySide is "wide"; set it to on or off in /config. Side by side stays on.'
 
@@ -86,21 +87,23 @@ async function commandText($: Engine, args: string): Promise<string> {
 }
 
 describe('blocks that fit share a row', () => {
-  for (const scene of SCENES) {
+  for (const scene of scenesAt(WIDE_COLUMNS)) {
     test(
       `two tables whose widths and 3 columns fill the room of ${String(scene.room)} share a row with tops aligned, ${scene.name}`,
       { options: scene.options },
       async ($, on) => {
         await started($, on)
-        const left = tableWide(50, 'a')
-        const right = tableWide(scene.room - 50 - GAP.length, 'b')
+        const left = tableWide(56, 'a')
+        const right = tableWide(scene.room - 56 - GAP.length, 'b')
         const shownLeft = await stackedBlock($, left, scene)
         const shownRight = await stackedBlock($, right, scene)
         expect(shownLeft.width + GAP.length + shownRight.width).toBe(scene.room)
         expect(await bodyLines($, together(left, right), scene)).toEqual(
           rowOf([shownLeft, shownRight]),
         )
-        const rows = sharedRowsOf(await drawnTree($, together(left, right)))
+        const rows = sharedRowsOf(
+          await drawnTree($, together(left, right), 'terminal', scene.columns),
+        )
         expect(rows).toHaveLength(1)
         const [row] = rows
         if (row === undefined) return
@@ -114,15 +117,17 @@ describe('blocks that fit share a row', () => {
       { options: scene.options },
       async ($, on) => {
         await started($, on)
-        const left = tableWide(50, 'a')
-        const right = tableWide(scene.room - 50 - GAP.length + 1, 'b')
+        const left = tableWide(56, 'a')
+        const right = tableWide(scene.room - 56 - GAP.length + 1, 'b')
         const shownLeft = await stackedBlock($, left, scene)
         const shownRight = await stackedBlock($, right, scene)
         expect(shownLeft.width + GAP.length + shownRight.width).toBe(scene.room + 1)
         expect(await bodyLines($, together(left, right), scene)).toEqual(
           stackOf([shownLeft, shownRight]),
         )
-        expect(sharedRowsOf(await drawnTree($, together(left, right)))).toEqual([])
+        expect(
+          sharedRowsOf(await drawnTree($, together(left, right), 'terminal', scene.columns)),
+        ).toEqual([])
       },
     )
 
@@ -154,8 +159,8 @@ describe('blocks that fit share a row', () => {
       { options: scene.options },
       async ($, on) => {
         await started($, on)
-        const first = tableWide(50, 'a')
-        const second = tableWide(scene.room - 50 - GAP.length, 'b')
+        const first = tableWide(56, 'a')
+        const second = tableWide(scene.room - 56 - GAP.length, 'b')
         const third = tableWide(30, 'c')
         const shown = await stackedBlocks($, [first, second, third], scene)
         const [one, two, three] = shown
@@ -169,8 +174,8 @@ describe('blocks that fit share a row', () => {
     )
   }
 
-  test('three tables that fit together share one row at 170 columns', async ($, on) => {
-    const scene = scenesAt(170)[0]
+  test('three tables that fit together share one row at 190 columns', async ($, on) => {
+    const scene = scenesAt(190)[0]
     if (scene === undefined) return
     await started($, on)
     const texts = [tableWide(30, 'a'), tableWide(30, 'b'), tableWide(30, 'c')]
@@ -353,7 +358,7 @@ describe('copy of a shared row', () => {
 })
 
 describe('the text of a shared row', () => {
-  for (const scene of SCENES) {
+  for (const scene of scenesAt(WIDE_COLUMNS)) {
     test(
       `no Text of a shared row holds a control character other than tab or newline, ${scene.name}`,
       { options: scene.options },
@@ -361,10 +366,10 @@ describe('the text of a shared row', () => {
         await started($, on)
         const texts = [
           together(tableWide(40, 'a'), fenced('mermaid', FLOW_SOURCE)),
-          together(tableWide(30, 'a'), tableWide(30, 'b'), tableWide(30, 'c')),
+          together(tableWide(30, 'a'), tableWide(30, 'b')),
         ]
         for (const text of texts) {
-          const tree = await drawnTree($, text)
+          const tree = await drawnTree($, text, 'terminal', scene.columns)
           expect(sharedRowsOf(tree)).toHaveLength(1)
           expect(controlsIn(tree)).toEqual([])
         }

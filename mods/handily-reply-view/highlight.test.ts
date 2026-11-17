@@ -481,14 +481,14 @@ describe('box tables by default', () => {
           expect(drawn).toEqual([
             '● The columns of the report:',
             '',
-            `  ${headSketch('table', 'table', 29 - 2 - 8, '0 rows')}  [ copy ]`,
+            `  ${headSketch('table', 'table', 38 - 2 - 8, '0 rows')}  [ copy ]`,
             '  %┌─────┬───────┬──────┬──────┐%',
             '  %│% @*Mod*@ %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@ %│%',
             '  %└─────┴───────┴──────┴──────┘%',
           ])
         } else {
           expect(drawn.slice(2)).toEqual([
-            `${headSketch('table', 'table', 29 - 2 - 8, '0 rows')}  [ copy ]`,
+            `${headSketch('table', 'table', 38 - 2 - 8, '0 rows')}  [ copy ]`,
             '@*Mod*@ %│% @*Tests*@ %│% @*Gate*@ %│% @*Next*@',
             '%════╪═══════╪══════╪═════%',
           ])
@@ -514,7 +514,7 @@ describe('box tables by default', () => {
       expect(await sketchOf(ui, 40)).toEqual([
         '● =3= mods passed in =3m= =12s=:',
         '',
-        ...tableHeadUnder(2, 29).map((line) => `  ${line}`),
+        ...tableHeadUnder(2, 33).map((line) => `  ${line}`),
         '  %┌──────────┬───────┬──────┐%',
         '  %│% @*Mod*@      %│% @*Tests*@ %│% @*Gate*@ %│%',
         '  %╞══════════╪═══════╪══════╡%',

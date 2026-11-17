@@ -11,7 +11,9 @@
   under it. (handily-d75xdi)
 - **reply-view shows the outcome of a copy on its button.** A pressed copy button reads
   `✓ copied` in the success colour, or `■ not copied` in the error colour, until another block is
-  copied, also by `/replies copy`. No other button on the line moves. (handily-d75xdi)
+  copied, also by `/replies copy`. One space stands between the buttons, and the head keeps
+  room for a pressed label, so a press never cuts the head text. (handily-d75xdi)
 - **The fold row of a long reply names the blocks that it hides.** After the count, such as
   `▸ 15 more lines · 1 table · 1 sh block · 1 flowchart`, each kind in the colour of its head.
-  Under 60 columns the kinds take their own line. (handily-d75xdi)
+  The count is never cut; under 60 columns the kinds and the buttons take their own lines.
+  (handily-d75xdi)

@@ -9123,8 +9123,8 @@ reason of a failed call on its own line.
 
 - Conventions of 9.0, 12.0 and 15.0 apply. The reply indent is 2, so the body is 118 columns at
   120 and 38 at 40. Theme keys only, the plain glyph set, one column for each glyph.
-- `[ … ]` is a button. A button after the first one keeps room for its widest label, so its
-  slot can draw spaces before it at rest.
+- `[ … ]` is a button. One space stands between two buttons. The head keeps room for the widest
+  pressed label as rule to the left of the buttons.
 
 ### 19.1 A head on every block, 120 columns
 
@@ -9134,19 +9134,19 @@ reason of a failed call on its own line.
   ── sh ──────────────────────────────────────────────────────────────────────────────────────────────────────  [ copy ]
   git show v2.3.0:config/prod.yaml | grep pool_size
 
-  ── table · 3 rows ──  [ copy ]     [ copy as text ]
+  ── table · 3 rows ──────────  [ copy ] [ copy as text ]
   ┌───────┬───────┬──────┐
   │ Hour  │ p95   │ Errs │
   ╞═══════╪═══════╪══════╡
   │ 11:00 │    45 │    0 │
   └───────┴───────┴──────┘
 
-  ── mermaid · flowchart ────────────────────────────────────────────────────────────────  [ copy ]     [ copy drawing ]
+  ── mermaid · flowchart ────────────────────────────────────────────────────────────────────  [ copy ] [ copy drawing ]
   ╭────────╮   ╭───────╮
   │ Prompt │──▶│ Reply │
   ╰────────╯   ╰───────╯
 
-  ── ts · 45 lines ─────────────────────────────────────────────────────────────────────────  [ more ]         [ copy ]
+  ── ts · 45 lines ─────────────────────────────────────────────────────────────────────────────────  [ more ] [ copy ]
    1  export function rollupHourly(
   …
   ▸ 30 more lines
@@ -9174,13 +9174,13 @@ in `warning`, the note dim.
   git show v2.3.0:config/prod.yaml | g
   rep pool_size
 
-  ── table · 3 rows ────────────
-  [ copy ]     [ copy as text ]
+  ── table · 3 rows ───────────────
+          [ copy ] [ copy as text ]
   ┌───────┬───────┬──────┐
   │ Hour  │ p95   │ Errs │
 
   ── mermaid · flowchart ───────────────
-           [ copy ]     [ copy drawing ]
+               [ copy ] [ copy drawing ]
 ```
 
 - When the head and the buttons do not fit on one line, the buttons stand under the head at its
@@ -9193,31 +9193,33 @@ in `warning`, the note dim.
   ── sh ──────────────────────────────────────────────────────────────────────────────────────────────────────  [ copy ]
   ── sh ──────────────────────────────────────────────────────────────────────────────────────────────────  [ ✓ copied ]
   ── sh ──────────────────────────────────────────────────────────────────────────────────────────────  [ ■ not copied ]
+  ── mermaid · flowchart ────────────────────────────────────────────────────────────────────  [ copy ] [ copy drawing ]
   ── mermaid · flowchart ────────────────────────────────────────────────────────────────  [ copy ] [ ✓ copied drawing ]
-  ── mermaid · flowchart ────────────────────────────────────────────────────────────  [ ✓ copied ]     [ copy drawing ]
-  ── table · 3 rows ──  [ copy ] [ ✓ copied as text ]
-  ▸ 15 more lines                                                                        [ more ] [ ✓ copied reply ]
+  ── mermaid · flowchart ────────────────────────────────────────────────────────────────  [ ✓ copied ] [ copy drawing ]
+  ── table · 3 rows ──────────  [ copy ] [ copy as text ]
+  ── table · 3 rows ──────  [ copy ] [ ✓ copied as text ]
+  ▸ 15 more lines                                                                            [ more ] [ ✓ copied reply ]
 ```
 
 Colours: `✓ copied …` in `success`, `■ not copied` in `error`. `✓` and `■` are the `done` and
 `blocked` glyphs.
 
 - The mark stays on the one button until another copy, also `/replies copy`. The toast stays.
-- No button moves. The first button grows to the left into the rule; a later button fills the
-  room that it kept.
+- The gaps stay one space and the right edge stays; a press shortens the rule. The head text
+  never shortens.
 
 ### 19.4 The fold row names what it hides
 
 ```text
 120 columns
-  ▸ 15 more lines · 1 table · 1 sh block · 1 flowchart                                        [ more ]     [ copy reply ]
-  ▸ 15 more lines                                                                              [ more ]     [ copy reply ]
-  ▾                                                                                            [ less ]     [ copy reply ]
+  ▸ 15 more lines · 1 table · 1 sh block · 1 flowchart                                            [ more ] [ copy reply ]
+  ▸ 15 more lines                                                                                  [ more ] [ copy reply ]
+  ▾                                                                                                [ less ] [ copy reply ]
 
 40 columns
   ▸ 15 more lines
     1 table · 1 sh block · 1 flowchart
-           [ more ]     [ copy reply ]
+               [ more ] [ copy reply ]
 ```
 
 Colours: the count dim, each kind in the colour of its head.
@@ -9230,8 +9232,10 @@ Colours: the count dim, each kind in the colour of its head.
 
 ### 19.5 Failure modes
 
-- **A narrow cell of a shared row.** A pressed first button needs up to 8 columns more than at
-  rest. When its rule has no room left, the end of the head text is cut with `…`; no button moves.
+- **A narrow cell of a shared row.** The width of the cell counts the room for a pressed label,
+  so a press never cuts the head text. When the head and the buttons do not fit, the buttons
+  stand under the head.
+- **The fold count at 40 columns** stays whole; the buttons stand under it.
 - **Two replies with the same block.** The mark follows the label and the copied text, so the
   same block in two replies shows the mark in both.
 - **A kind list wider than the row** is cut at its end; the count and the buttons stay whole.

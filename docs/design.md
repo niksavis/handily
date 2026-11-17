@@ -1632,11 +1632,15 @@ design, so no glyph role was added.
   button (its label and a hash of the text) and whether the copy worked. Every reply reads it
   while drawing, so the mark leaves a button when another block is copied. `/replies copy`
   writes the same key. The button key and the toast do not change.
-- **Nothing moves.** A button after the first keeps a slot as wide as its widest label (`✓ copied
-  …` or `■ not copied`). The first button grows to the left into the rule, which gives up the
-  columns. The width rules of the head and of a shared row count the first button at rest, so a
-  pressed button never moves a block to another row. Cost: the slot draws up to 4 spaces before
-  `[ copy as text ]` or `[ copy drawing ]` at rest.
+- **One space between buttons.** The button group keeps one space between buttons always. The
+  head reserves the extra columns of the widest pressed label of the group (`✓ copied …` or
+  `■ not copied`, at most 8) as rule to the left of the group, so a press shortens the rule and
+  never the gaps or the head text. The fit of a head and the width of a shared row count the
+  reserve; when they do not fit, the buttons stand under the head. The live check on Claude Code
+  2.1.326 (2026-11-17) found the first build's slots as wide gaps and a press that cut the head
+  text, and this rule replaced it.
+- **The fold count is never cut.** Under 60 columns, or when the count and the buttons do not fit
+  on one line, the buttons stand under the count.
 - **The fold row names what it hides.** Each block piece carries its kind words; the fold row
   counts the kinds of the pieces that the preview does not show at all. `▸` and `▾` are the
   `folderClosed` and `folderOpen` glyph roles. Under 60 columns the kinds take their own line.
