@@ -6,6 +6,49 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.28.0 - 2026-11-17
+
+### Added
+
+- **A press on a task for you sends the answer to Claude at once, and the board is one pane.**
+  In `handily-board`, a press on an option of a decide task, or `[Send]` on an answer task, now
+  submits the answer as your own prompt. When a turn runs, it waits until the session is idle.
+  The row shows `sent` and the exact text, so a wrong press shows at once. When Claude Code does
+  not take the prompt, the text waits in your prompt box. Done, a rejection and the commands
+  `/board answer` and `/board pick` still go with your next prompt. A long title, question or
+  option of a task for you now wraps in full instead of being cut. `/board` and
+  `/board machine` open only the pane you asked for, so one close closes the board.
+  (handily-c6yihd)
+
+## handily-reply-view 0.27.0 - 2026-11-17
+
+### Added
+
+- **reply-view opens every table, code block, diagram and chart with a head.** A dim rule holds
+  the kind word bold in the colour of its kind (table `claude`, code `merged`, diagram
+  `suggestion`, chart `planMode`) and the buttons at the right edge, the fold button of a long
+  code block first. A diagram that does not draw says `not drawn` on its head, with the reason
+  under it. (handily-d75xdi)
+- **reply-view shows the outcome of a copy on its button.** A pressed copy button reads
+  `✓ copied` in the success colour, or `■ not copied` in the error colour, until another block is
+  copied, also by `/replies copy`. One space stands between the buttons, and the head keeps
+  room for a pressed label, so a press never cuts the head text. (handily-d75xdi)
+- **The fold row of a long reply names the blocks that it hides.** After the count, such as
+  `▸ 15 more lines · 1 table · 1 sh block · 1 flowchart`, each kind in the colour of its head.
+  The count is never cut; under 60 columns the kinds and the buttons take their own lines.
+  (handily-d75xdi)
+
+## handily-simple-view 0.13.0 - 2026-11-17
+
+### Added
+
+- **simple-view puts the reason of a failed call on its own line under the row.** The first
+  error line after `exit N`, the hook message after `refused` and the text after `error` draw in
+  the error colour under the row, so the state word and the time stay on the row. Below 60
+  columns the time and the buttons move under the reason. `exit N` names 126, 127, 130 and 143
+  dim beside the code: `not executable`, `command not found`, `interrupted` and `stopped`.
+  (handily-d75xdi)
+
 ## handily-board 0.27.0 - 2026-11-16
 
 ### Added
