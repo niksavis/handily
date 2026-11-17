@@ -497,7 +497,7 @@ A block of more than 20 lines shows its first 15 lines with line numbers and a d
 hidden lines. The head counts the lines and holds a `more` button before `copy`:
 
 ```text
-  ── ts · 45 lines ─────────────────────────────────────  [ more ] [ copy ]
+  ── ts · 45 lines ─────────────────────────────  [ more ]         [ copy ]
    1  export function rollupHourly(
    2    readings: Reading[],
   …
@@ -733,7 +733,7 @@ columns:
 ```text
 ● Here are the pings:
 
-  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · sequence ─────────────────────────  [ copy ]     [ copy drawing ]
   ╭───╮        ╭───╮
   │ A │        │ B │
   ╰─┬─╯        ╰─┬─╯
@@ -899,7 +899,7 @@ A `sequenceDiagram` draws under the title line `── mermaid · sequence ─�
 ```text
 ● The reply takes three steps:
 
-  ── mermaid · sequence ─────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · sequence ─────────────────────────  [ copy ]     [ copy drawing ]
   ╭─────╮        ╭────────╮        ╭────────────╮
   │ You │        │ Claude │        │ reply-view │
   ╰──┬──╯        ╰────┬───╯        ╰──────┬─────╯
@@ -975,7 +975,7 @@ and as `◉` where a transition ends at it. Each state that ends at `[*]` gets i
 ```text
 ● The car moves through three states:
 
-  ── mermaid · state ────────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · state ────────────────────────────  [ copy ]     [ copy drawing ]
       ●
       ▼
   ╭───────╮
@@ -1083,7 +1083,7 @@ ER diagram do, and each relation has its own route, so no two relations share a 
 ```text
 ● Reply-view parses a reply into blocks:
 
-  ── mermaid · class ────────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · class ────────────────────────────  [ copy ]     [ copy drawing ]
   ╭─────────────────────╮
   │ Reply               │
   ├─────────────────────┤
@@ -1156,7 +1156,7 @@ mention. All the entities have the width of the widest one. The title line is
 ```text
 ● The session log keeps three tables:
 
-  ── mermaid · er ───────────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · er ───────────────────────────────  [ copy ]     [ copy drawing ]
   ╭────────────────────╮
   │ SESSION            │
   ├────────────────────┤
@@ -1260,7 +1260,7 @@ fits the screen. Each value stands above its bar:
 ```text
 ● p95 jumped at 14:00 and stayed high:
 
-  ── mermaid · bar chart ────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · bar chart ────────────────────────  [ copy ]     [ copy drawing ]
   Ingest p95 by hour (ms)
 
   2500 ┤                      2029   2032
@@ -1337,7 +1337,7 @@ that page at 80 columns:
 ```text
 ● The plan of the gantt work:
 
-  ── mermaid · gantt ────────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · gantt ────────────────────────────  [ copy ]     [ copy drawing ]
   Adding GANTT diagram functionality to mermaid
   A section
     Completed task                ░░░░░         ┊                ┊
@@ -1412,7 +1412,7 @@ screen, so the newest commit is at the bottom, as in the source:
 ```text
 ● The feature lands in two branches:
 
-  ── mermaid · gitgraph ─────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · gitgraph ─────────────────────────  [ copy ]     [ copy drawing ]
   ╷ main
   ● 1
   ● 2
@@ -1434,7 +1434,7 @@ At 40 columns, a label that does not fit wraps under its lanes:
 ● The feature lands in two branches:
 
   ── mermaid · gitgraph ────────────────
-               [ copy ] [ copy drawing ]
+           [ copy ]     [ copy drawing ]
   ╷ main
   ● 1
   ● 2
@@ -1500,7 +1500,7 @@ A `mindmap` draws as a tree from its root, under the title line `── mermaid 
 ```text
 ● The topics of the talk:
 
-  ── mermaid · mindmap ──────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · mindmap ──────────────────────────  [ copy ]     [ copy drawing ]
    ╭───────╮
   ( mindmap )
    ╰┬──────╯
@@ -1527,7 +1527,7 @@ At 40 columns, a long node wraps under its own text:
 ● The topics of the talk:
 
   ── mermaid · mindmap ─────────────────
-               [ copy ] [ copy drawing ]
+           [ copy ]     [ copy drawing ]
    ╭───────╮
   ( mindmap )
    ╰┬──────╯
@@ -1576,7 +1576,7 @@ A `timeline` draws its periods down an axis, under the title line `── mermai
 ```text
 ● Five industrial ages:
 
-  ── mermaid · timeline ─────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · timeline ─────────────────────────  [ copy ]     [ copy drawing ]
   Timeline of Industrial Revolution
   ┄┄ 17th-20th century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
   ● Industry 1.0  • Machinery, Water power, Steam
@@ -1594,7 +1594,7 @@ At 40 columns, the events wrap in their column:
 ● Five industrial ages:
 
   ── mermaid · timeline ────────────────
-               [ copy ] [ copy drawing ]
+           [ copy ]     [ copy drawing ]
   Timeline of Industrial Revolution
   ┄┄ 17th-20th century ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
   ● Industry 1.0  • Machinery, Water
@@ -1644,7 +1644,7 @@ A `journey` draws a score bar for each task, under the title line `── mermai
 ```text
 ● A day at work:
 
-  ── mermaid · journey ──────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · journey ──────────────────────────  [ copy ]     [ copy drawing ]
   My working day
   ┄┄ Go to work ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
   █████ 5  Make tea       Me
@@ -1700,7 +1700,7 @@ A `quadrantChart` draws its four quadrants in a frame, under the title line
 ```text
 ● Where the campaigns stand:
 
-  ── mermaid · quadrant ─────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · quadrant ─────────────────────────  [ copy ]     [ copy drawing ]
   Reach and engagement of campaigns
   ▲ High Engagement
   ┌────────── Need to promote ──────────┬───────── We should expand ──────────┐
@@ -1783,7 +1783,7 @@ A `kanban` draws its columns side by side, each with its cards, under the title 
 ```text
 ● The board for this week:
 
-  ── mermaid · kanban ───────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · kanban ───────────────────────────  [ copy ]     [ copy drawing ]
   Todo                      In progress               Done
   ╭──────────────────────╮  ╭──────────────────────╮  ╭──────────────────────╮
   │ Write the parser     │  │ Pick the glyphs for  │  │ Read the Mermaid     │
@@ -1842,7 +1842,7 @@ A `packet` or `packet-beta` draws its fields in rows of 32 bits, under the title
 ```text
 ● The TCP header:
 
-  ── mermaid · packet ───────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · packet ───────────────────────────  [ copy ]     [ copy drawing ]
   TCP Packet
   ┌0────────────────────────────15┬16───────────────────────────31┐
   │          Source Port          │       Destination Port        │
@@ -1913,7 +1913,7 @@ with links out, one row for each link draws a bar to scale and its value:
 ```text
 ● Where the power goes:
 
-  ── mermaid · sankey ───────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · sankey ───────────────────────────  [ copy ]     [ copy drawing ]
   Solar                                                                       60
   └─ Grid            ████████████████████████████████████████████████         60
   Wind                                                                        40
@@ -1963,7 +1963,7 @@ to `max`:
 ```text
 ● The four restaurants by three measures:
 
-  ── mermaid · radar ────────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · radar ────────────────────────────  [ copy ]     [ copy drawing ]
   Restaurant Comparison
   Food Quality  Restaurant A ███████████████████████████████████████▎          4
                 Restaurant B █████████████████████████████▍                    3
@@ -2025,7 +2025,7 @@ of the whole and its value:
 ```text
 ● Sales by group:
 
-  ── mermaid · treemap ──────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · treemap ──────────────────────────  [ copy ]     [ copy drawing ]
   Sales
   Products          ████████████████████████████████████████████████████████ 180
   ├─ Electronics    ███████████████████████████████▏                         100
@@ -2071,7 +2071,7 @@ A `block` or `block-beta` draws its blocks in a grid of `columns`, under the tit
 ```text
 ● The system:
 
-  ── mermaid · block ────────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · block ────────────────────────────  [ copy ]     [ copy drawing ]
   ╭──────────╮                ╭──────────╮
   │ Frontend │  ───────────▶  │ Backend  │
   ╰──────────╯                ╰──────────╯
@@ -2133,7 +2133,7 @@ does. The title line is `── mermaid · requirement ──`:
 ```text
 ● The checkout has two requirements:
 
-  ── mermaid · requirement ──────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · requirement ──────────────────────  [ copy ]     [ copy drawing ]
   ╭─────────────────────────────────────╮
   │ «Element»                           │
   │ gateway                             │
@@ -2222,7 +2222,7 @@ draws as:
 ```text
 ● The checkout talks to the card provider:
 
-  ── mermaid · c4 ───────────────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · c4 ───────────────────────────────  [ copy ]     [ copy drawing ]
   Checkout
                                ╭─────────────╮
                                │ Shopper     │
@@ -2326,7 +2326,7 @@ draws as:
 ```text
 ● The shop runs in one cloud:
 
-  ── mermaid · architecture ─────────────────────────  [ copy ] [ copy drawing ]
+  ── mermaid · architecture ─────────────────────  [ copy ]     [ copy drawing ]
   Shop
       ╭─────╮
       │ CDN │
@@ -2500,42 +2500,42 @@ its frame:
 ## Side by side
 
 A table, a drawn diagram or a chart that follows another with only blank lines between them
-shares a row with it when both fit. The width of each block includes its button row, and 3
-columns stand between the blocks. At 120 columns:
+shares a row with it when both fit. The width of each block includes its head and its buttons,
+and 3 columns stand between the blocks. At 120 columns:
 
 ```text
 ● The hours, then the flow:
 
-  ┌───────┬───────┬──────┐    ── mermaid · flowchart ──  [ copy ] [ copy drawing ]
-  │ Hour  │ p95   │ Errs │    ╭────────╮   ╭───────╮
-  ╞═══════╪═══════╪══════╡    │ ingest │──▶│ store │
-  │ 11:00 │ 45    │ 0    │    ╰────────╯   ╰───────╯
+  ── table · 3 rows ──  [ copy ]     [ copy as text ]   ── mermaid · flowchart ──  [ copy ]     [ copy drawing ]
+  ┌───────┬───────┬──────┐                              ╭────────╮   ╭───────╮
+  │ Hour  │ p95   │ Errs │                              │ ingest │──▶│ store │
+  ╞═══════╪═══════╪══════╡                              ╰────────╯   ╰───────╯
+  │ 11:00 │ 45    │ 0    │
   ├───────┼───────┼──────┤
   │ 14:00 │ 2,029 │ 14   │
   ├───────┼───────┼──────┤
   │ 15:00 │ 2,032 │ 18   │
   └───────┴───────┴──────┘
-  [ copy ] [ copy as text ]
 ```
 
 At 80 columns the same reply draws the diagram under the table.
 
-A chart in a shared row draws at the width of its title line with its buttons. That is 52 columns
-for a bar chart. The chart joins the row only when that width fits. At 120 columns:
+A chart in a shared row draws at the width of its head with its buttons. That is 56 columns for a
+bar chart. The chart joins the row only when that width fits. At 120 columns:
 
 ```text
 ● The numbers, then the shape:
 
-  ┌───────┬───────┬──────┐    ── mermaid · bar chart ──  [ copy ] [ copy drawing ]
-  │ Hour  │   p95 │ Errs │    p95 by hour (ms)
-  ╞═══════╪═══════╪══════╡    11:00 ▊                                           45
-  │ 11:00 │    45 │    0 │    14:00 █████████████████████████████████▎        2029
-  ├───────┼───────┼──────┤    15:00 █████████████████████████████████▍        2032
-  │ 14:00 │ 2,029 │   14 │          0                                    2500
+  ── table · 3 rows ──  [ copy ]     [ copy as text ]   ── mermaid · bar chart ──  [ copy ]     [ copy drawing ]
+  ┌───────┬───────┬──────┐                              p95 by hour (ms)
+  │ Hour  │   p95 │ Errs │                              11:00 ▊                                           45
+  ╞═══════╪═══════╪══════╡                              14:00 █████████████████████████████████▎        2029
+  │ 11:00 │    45 │    0 │                              15:00 █████████████████████████████████▍        2032
+  ├───────┼───────┼──────┤                                    0                                    2500
+  │ 14:00 │ 2,029 │   14 │
   ├───────┼───────┼──────┤
   │ 15:00 │ 2,032 │   18 │
   └───────┴───────┴──────┘
-  [ copy ] [ copy as text ]
 ```
 
 At 80 columns the same reply draws the chart under the table, at the whole width of the reply.

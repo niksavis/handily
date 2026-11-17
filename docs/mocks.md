@@ -9086,7 +9086,7 @@ reason of a failed call on its own line.
   │ Prompt │──▶│ Reply │
   ╰────────╯   ╰───────╯
 
-  ── ts · 45 lines ─────────────────────────────────────────────────────────────────────────────────  [ more ] [ copy ]
+  ── ts · 45 lines ─────────────────────────────────────────────────────────────────────────  [ more ]         [ copy ]
    1  export function rollupHourly(
   …
   ▸ 30 more lines

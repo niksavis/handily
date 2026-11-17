@@ -70,13 +70,19 @@ function reply(text: string): RenderPropsOf['AssistantMessage'] {
   return { text, isFirstOfReply: true }
 }
 
-async function mountReply($: Engine, text: string, surface: Surface, columns: number) {
+async function mountReply(
+  $: Engine,
+  text: string,
+  surface: Surface,
+  columns: number,
+  requestId = 'message-1',
+) {
   return $.ui.mount({
     plugin: 'handily-reply-view',
     surface,
     component: 'AssistantMessage',
     props: reply(text),
-    requestId: 'message-1',
+    requestId,
     viewport: { columns, rows: 40 },
   })
 }
@@ -173,6 +179,18 @@ describe('the copy state on a copy button', () => {
       },
     )
   }
+
+  markTest('a copy in another reply clears the mark of the first reply', async (_world, $) => {
+    const first = await mountReply($, together('One:', FENCE), 'terminal', 120, 'message-1')
+    await first.press({ key: 'block-1-copy' })
+    expect((await first.find({ key: 'block-1-copy' }))?.props.label).toBe('✓ copied')
+    const second = await mountReply($, together('Two:', SECOND_FENCE), 'terminal', 120, 'message-2')
+    await second.press({ key: 'block-1-copy' })
+    expect((await second.find({ key: 'block-1-copy' }))?.props.label).toBe('✓ copied')
+    expect((await first.find({ key: 'block-1-copy' }))?.props.label).toBe('copy')
+    await first.unmount()
+    await second.unmount()
+  })
 
   markTest('/replies copy code marks the button of the block it copied', async (world, $) => {
     const text = together('Run this:', FENCE)
@@ -315,5 +333,21 @@ describe('the fold row names what it hides', () => {
         },
       )
     }
+
+    markTest(
+      `the list of kinds is cut before the count at 64 columns on ${surface}`,
+      async (_world, $) => {
+        const many = together(PROSE, TABLE, FENCE, FLOW, CHART, SECOND_FENCE, LONG_CODE)
+        const ui = await mountReply($, many, surface, 64)
+        const row = await ui.find({ key: 'fold-row' })
+        const [count, kinds] = (row?.children ?? []) as DrawnNode[]
+        expect(count?.props?.flexShrink).toBe(0)
+        expect(kinds?.props?.flexShrink).toBe(1)
+        const list = (kinds?.children ?? [])[0] as DrawnNode | undefined
+        expect(list?.props?.wrap).toBe('truncate-end')
+        expect(row?.text).toMatch(/^▸ \d+ more lines · /)
+        await ui.unmount()
+      },
+    )
   }
 })
