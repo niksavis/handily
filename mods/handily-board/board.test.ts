@@ -11881,12 +11881,17 @@ describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)
     )
 
     test(
-      `the band follows a switch to the this machine tab at once and to another tab within 10 seconds on ${surface}`,
+      `the band follows a switch to the this machine tab at once and to another tab within 10 seconds, shows a closed board at once, and no draw writes state, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
         engineRows(on)
         ownSession(on)
+        const paneWrites: number[] = []
+        on('state.set', { plugin: PLUGIN, key: 'paneChanges' }, (_$, e, next) => {
+          paneWrites.push(e.value)
+          return next(e)
+        })
         await start($)
         await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
         expect(await board($, '')).toBe('Board opened: this session.')
@@ -11894,6 +11899,7 @@ describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)
         const band = await mountBand($, surface)
         expect(await band.find({ key: 'band' })).toBeUndefined()
         seen.shown = MACHINE
+        const written = paneWrites.length
         const machine = await $.ui.mount({
           plugin: PLUGIN,
           surface,
@@ -11909,11 +11915,20 @@ describe('review repairs of the plan offer and the band (handily-9uj3n.7 and .9)
         const again = await mountTasks($, surface)
         await seen.clock.advance(0)
         expect(await band.find({ key: 'band' })).toBeUndefined()
+        expect(paneWrites.length).toBe(written)
         seen.shown = 'another-plugin-pane'
         await seen.clock.advance(10_000)
         expect(await band.find({ key: 'band' })).toBeDefined()
+        seen.shown = PANE
+        await seen.clock.advance(10_000)
+        expect(await band.find({ key: 'band' })).toBeUndefined()
+        expect(await board($, 'close')).toBe('Board closed.')
+        expect(await band.find({ key: 'band' })).toBeDefined()
         await again.unmount()
+        await seen.clock.advance(0)
+        expect(await band.find({ key: 'band' })).toBeDefined()
         await band.unmount()
+        expect(seen.logs.filter((line) => line.includes('state.set: denied'))).toEqual([])
       },
     )
   }

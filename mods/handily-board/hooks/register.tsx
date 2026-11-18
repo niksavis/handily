@@ -783,12 +783,16 @@ function keepBandTime($: EngineInterface, redraw: Redraw, isTimed: boolean): voi
   })
 }
 
-function noteTabSeen($: EngineInterface, redraw: Redraw, isSeen: boolean): void {
-  if (redraw.bandSawTab === undefined || redraw.bandSawTab === isSeen) return
+function isBandBehind(redraw: Redraw, isSeen: boolean): boolean {
+  return redraw.bandSawTab !== undefined && redraw.bandSawTab !== isSeen
+}
+
+async function noteTabSeen($: EngineInterface, redraw: Redraw): Promise<void> {
+  if (redraw.bandSawTab === undefined) return
+  const isSeen = await isSessionTabSeen($)
+  if (!isBandBehind(redraw, isSeen)) return
   redraw.bandSawTab = undefined
-  $.clock.after(0, () => {
-    void notePaneChange($)
-  })
+  $.ui.invalidate('ui.render')
 }
 
 function stopRedraw(redraw: Redraw): void {
@@ -2489,7 +2493,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: TASKS_PANE.id }, async ($, e) => {
-    noteTabSeen($, redraw, true)
+    await noteTabSeen($, redraw)
     const { Box, Text, Button } = $.ui.resolve(e)
     const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
     const { bodyColumns, placement } = e.props
@@ -2526,7 +2530,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {
-    noteTabSeen($, redraw, false)
+    await noteTabSeen($, redraw)
     const { Box, Text, Button } = $.ui.resolve(e)
     const host = hostOf($)
     const expanded = new Set(await host.expanded())
