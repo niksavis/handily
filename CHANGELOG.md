@@ -6,6 +6,21 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.28.1 - 2026-11-18
+
+### Fixed
+
+- **handily-board: the band follows a closed board or a tab switch at once, with no refused
+  write.** When a board pane drew after a close or a tab switch, the board wrote state from that
+  draw. Claude Code 2.1.327 refuses a state write while a draw runs, so the debug log read
+  `the band may show a closed board late: ... state.set: denied` and the band could show the
+  closed board late. Now the draw only asks for a redraw and writes no state. (handily-cli304)
+- **handily-board: an answer sent by a press shows in the board Log.** When you pressed an option
+  of a decide task or Send on an answer task, the board submitted the answer as your prompt, but
+  Claude Code skips the hooks of the plugin that submits, so the Log had no row for it. Now the
+  board writes the `you` row itself when Claude Code takes the answer, with the same look as a
+  typed prompt, and once only. (handily-5tixgg)
+
 ## handily-simple-view 0.13.1 - 2026-11-18
 
 ### Fixed
