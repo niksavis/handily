@@ -988,6 +988,106 @@ test('test refuses a shard that is not one of its count and names the form', () 
   }
 })
 
+const testTimesFix = 'node scripts/mods.mjs test-times <log>...'
+
+function writeStoredTimes(repo, text) {
+  writeFileSync(join(repo.root, 'scripts', 'test-times.json'), text)
+}
+
+test('test --shard balances by the stored test times and times a file with no stored time by its bytes', () => {
+  const repo = makeShardedRepo()
+  writeStoredTimes(
+    repo,
+    JSON.stringify({
+      'timed/timed.test.ts': 900_000,
+      'timed/other.test.ts': 100,
+      'second/second.test.ts': 100,
+    }),
+  )
+  const runs = Array.from({ length: shardCount }, (_, index) => {
+    const bin = makeTimedClaude([quickOutput])
+    const result = runShardGate(repo, bin, ['test', '--shard', `${String(index + 1)}/3`])
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    return readCalls(bin).flatMap(callKeys).toSorted()
+  })
+  assert.deepEqual(runs, [
+    ['timed/timed.test.ts'],
+    ['timed/hooks/inner.test.ts'],
+    ['second/second.test.ts', 'timed/other.test.ts'],
+  ])
+})
+
+test('test --shard refuses stored test times that hold no time in ms and names the command that writes them', () => {
+  const repo = makeShardedRepo()
+  writeStoredTimes(repo, JSON.stringify({ 'timed/timed.test.ts': 'slow' }))
+  const bin = makeTimedClaude([quickOutput])
+  const result = runShardGate(repo, bin, ['test', '--shard', '1/3'])
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.ok(
+    result.stderr.includes(
+      `test: scripts/test-times.json holds no time in ms for timed/timed.test.ts; write it again with ${testTimesFix}`,
+    ),
+    result.stderr,
+  )
+  assert.deepEqual(readCalls(bin), [])
+})
+
+test('test-times writes the mean time of each test file from CI logs and writes nothing for a log that names an unknown file', () => {
+  const repo = makeShardedRepo()
+  writeStoredTimes(repo, JSON.stringify({ 'second/second.test.ts': 42, 'gone/gone.test.ts': 9 }))
+  const prefix = 'mod tests 1 of 4 on newest Claude Code\tRun the mod tests of this shard\t'
+  const byteOrderMark = String.fromCodePoint(0xfeff)
+  const ciLog = join(repo.root, 'ci.log')
+  writeFileSync(
+    ciLog,
+    [
+      'timed.test.ts:',
+      '(pass) a draw [5.00ms]',
+      '(pass) a short draw [7.00ms]',
+      'inner.test.ts:',
+      '(pass) another file [3.00ms]',
+    ]
+      .map((line) => `${prefix}${byteOrderMark}2026-11-18T20:12:44.5733423Z ${line}`)
+      .join('\n'),
+  )
+  const plainLog = join(repo.root, 'plain.log')
+  writeFileSync(plainLog, 'timed.test.ts:\n(pass) a draw [16.00ms]\n')
+  const unknownLog = join(repo.root, 'unknown.log')
+  writeFileSync(unknownLog, 'unknown.test.ts:\n(pass) a draw [1.00ms]\n')
+  const storePath = join(repo.root, 'scripts', 'test-times.json')
+  const bin = makeTimedClaude([quickOutput])
+
+  const refused = runShardGate(repo, bin, ['test-times', ciLog, unknownLog])
+  assert.equal(refused.status, 1, refused.stdout + refused.stderr)
+  assert.deepEqual(failLines(refused), [
+    `FAIL test-times: ${unknownLog} times the test file unknown.test.ts, which is no test file of a mod`,
+  ])
+  assert.deepEqual(JSON.parse(readFileSync(storePath, 'utf8')), {
+    'second/second.test.ts': 42,
+    'gone/gone.test.ts': 9,
+  })
+
+  const written = runShardGate(repo, bin, ['test-times', ciLog, plainLog])
+  assert.equal(written.status, 0, written.stdout + written.stderr)
+  assert.equal(
+    readFileSync(storePath, 'utf8'),
+    `${JSON.stringify(
+      {
+        'second/second.test.ts': 42,
+        'timed/hooks/inner.test.ts': 3,
+        'timed/timed.test.ts': 14,
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  assert.match(
+    written.stdout,
+    /^test-times: 1 test file\(s\) have no time and shard by their bytes: timed\/other\.test\.ts$/m,
+  )
+  assert.deepEqual(readCalls(bin), [])
+})
+
 const pinFixtureDate = '2026-01-01T00:00:00Z'
 const pinFixtureConfig = [
   ['user.name', 'Fixture Author'],

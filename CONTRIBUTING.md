@@ -43,8 +43,11 @@ npm run check
 ```
 
 `npm run check` runs validate, type check, lint and test. CI runs every gate in the table, the
-checks of `basicly verify --mode full`, with the mod tests split into 4 parallel jobs by
-`node scripts/mods.mjs test --shard <n>/4` and the scripts tests in `npm run test-scripts`.
+checks of `basicly verify --mode full`, with the mod tests split into parallel jobs by
+`node scripts/mods.mjs test --shard <n>/<count>` and the scripts tests in `npm run test-scripts`.
+The shards balance by the time of each test file in `scripts/test-times.json`. A file with no
+time there counts by its bytes. To update the times, save the log of each mod test job with
+`gh run view --job <id> --log > <file>`, then run `node scripts/mods.mjs test-times <file>...`.
 
 | Gate | Command | What it refuses |
 | --- | --- | --- |

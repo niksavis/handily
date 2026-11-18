@@ -97,18 +97,25 @@ jobs:
         run: node scripts/mods.mjs test-scripts
 
   mod-tests:
-    name: mod tests ${{ matrix.shard }} of 4 on ${{ matrix.engine }} Claude Code
+    name: mod tests ${{ matrix.shard }} of ${{ matrix.shards }} on ${{ matrix.engine }} Claude Code
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         engine: [pinned, newest]
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
+        exclude:
+          - engine: pinned
+            shard: 5
+          - engine: pinned
+            shard: 6
         include:
           - engine: pinned
             package: "@anthropic-ai/claude-code@2.1.323"
+            shards: 4
           - engine: newest
             package: "@anthropic-ai/claude-code@latest"
+            shards: 6
     steps:
       - uses: actions/checkout@v7
         with:
@@ -126,7 +133,7 @@ jobs:
         shell: bash
         run: claude --version | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the mod tests of this shard
-        run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/4
+        run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/${{ matrix.shards }}
 
   mods-newest:
     name: mods on newest Claude Code

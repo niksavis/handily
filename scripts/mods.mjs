@@ -1188,27 +1188,174 @@ function compareText(a, b) {
   return a > b ? 1 : 0
 }
 
-function shardFiles(mods, { index, count }) {
-  const items = mods.flatMap((mod) =>
-    listTestFiles(mod).map((file) => ({
-      mod,
-      file,
-      key: `${mod.name}/${file}`,
-      bytes: statSync(join(mod.dir, file)).size,
-    })),
+const testTimesPath = join(root, 'scripts', 'test-times.json')
+const testTimesLabel = 'scripts/test-times.json'
+const testTimesCommand = 'node scripts/mods.mjs test-times <log>...'
+const logLinePrefixPattern =
+  /^(?:[^\t]*\t[^\t]*\t)?\uFEFF?(?:\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z )?/
+
+function refuseStoredTestTimes(task, problem) {
+  console.error(
+    `${task}: ${testTimesLabel} ${problem}; write it again with ${testTimesCommand}, or remove it to shard by file bytes`,
   )
-  items.sort((a, b) => b.bytes - a.bytes || compareText(a.key, b.key))
-  const shards = Array.from({ length: count }, () => ({ bytes: 0, items: [] }))
+  process.exit(2)
+}
+
+function readStoredTestTimes(task) {
+  if (!existsSync(testTimesPath)) return {}
+  let stored
+  try {
+    stored = JSON.parse(readFileSync(testTimesPath, 'utf8'))
+  } catch (error) {
+    refuseStoredTestTimes(task, `cannot be read (${error.message})`)
+  }
+  if (stored === null || typeof stored !== 'object' || Array.isArray(stored)) {
+    refuseStoredTestTimes(task, 'is not an object of test file keys and times in ms')
+  }
+  const bad = Object.entries(stored)
+    .filter(([, ms]) => typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0)
+    .map(([key]) => key)
+  if (bad.length > 0) refuseStoredTestTimes(task, `holds no time in ms for ${bad.join(', ')}`)
+  return stored
+}
+
+function storedTime(stored, key) {
+  return Object.hasOwn(stored, key) ? stored[key] : undefined
+}
+
+function sumOf(values) {
+  return values.reduce((sum, value) => sum + value, 0)
+}
+
+const concurrentTestFiles = 3
+
+function shardCost(items) {
+  const weightsByMod = new Map()
+  for (const { mod, weight } of items) {
+    weightsByMod.set(mod.name, [...(weightsByMod.get(mod.name) ?? []), weight])
+  }
+  return sumOf(
+    [...weightsByMod.values()].map((weights) =>
+      Math.max(...weights, sumOf(weights) / concurrentTestFiles),
+    ),
+  )
+}
+
+function shardFiles(mods, { index, count }) {
+  const stored = readStoredTestTimes('test')
+  const items = mods.flatMap((mod) =>
+    listTestFiles(mod).map((file) => {
+      const key = `${mod.name}/${file}`
+      return {
+        mod,
+        file,
+        key,
+        bytes: statSync(join(mod.dir, file)).size,
+        ms: storedTime(stored, key),
+      }
+    }),
+  )
+  const timed = items.filter((item) => item.ms !== undefined)
+  const timedBytes = sumOf(timed.map((item) => item.bytes))
+  const msPerByte = timedBytes > 0 ? sumOf(timed.map((item) => item.ms)) / timedBytes : 1
+  for (const item of items) item.weight = item.ms ?? item.bytes * msPerByte
+  items.sort((a, b) => b.weight - a.weight || compareText(a.key, b.key))
+  const shards = Array.from({ length: count }, () => ({ items: [] }))
   for (const item of items) {
-    const lightest = shards.reduce((best, shard) => (shard.bytes < best.bytes ? shard : best))
-    lightest.bytes += item.bytes
-    lightest.items.push(item)
+    const costs = shards.map((shard) => shardCost([...shard.items, item]))
+    const lightest = costs.indexOf(Math.min(...costs))
+    shards[lightest].items.push(item)
   }
   const files = new Map()
   for (const { mod, file } of shards[index - 1].items) {
     files.set(mod.name, (files.get(mod.name) ?? new Set()).add(file))
   }
   return files
+}
+
+function readLogTestTimes(path) {
+  let text
+  try {
+    text = readFileSync(resolve(path), 'utf8')
+  } catch (error) {
+    fail(`test-times: cannot read the test log ${path} (${error.message})`)
+    return []
+  }
+  return readTestTimes(
+    text
+      .split(/\r?\n/)
+      .map((line) => line.replace(logLinePrefixPattern, ''))
+      .join('\n'),
+  )
+}
+
+function keysByTestFileName(mods) {
+  const keys = new Map()
+  for (const mod of mods) {
+    for (const file of listTestFiles(mod)) {
+      for (const name of new Set([file, basename(file)])) {
+        keys.set(name, [...(keys.get(name) ?? []), `${mod.name}/${file}`])
+      }
+    }
+  }
+  return keys
+}
+
+function writeTestTimes(mods, { positionals = [] } = {}) {
+  if (positionals.length === 0) {
+    console.error(
+      `test-times: name at least one test log, such as the output of gh run view --job <id> --log; usage: ${testTimesCommand}`,
+    )
+    process.exit(2)
+  }
+  const stored = readStoredTestTimes('test-times')
+  const keysByName = keysByTestFileName(mods)
+  const measured = new Map()
+  for (const path of positionals) {
+    const times = readLogTestTimes(path)
+    if (times.length === 0) {
+      fail(`test-times: ${path} holds no test time such as "(pass) name [12.34ms]"`)
+      continue
+    }
+    const msByKey = new Map()
+    for (const { file, ms } of times) {
+      const keys = keysByName.get(file) ?? []
+      if (keys.length !== 1) {
+        const which =
+          keys.length === 0 ? 'no test file of a mod' : `the name of ${keys.join(' and ')}`
+        fail(`test-times: ${path} times the test file ${file ?? 'with no name'}, which is ${which}`)
+        continue
+      }
+      msByKey.set(keys[0], (msByKey.get(keys[0]) ?? 0) + ms)
+    }
+    for (const [key, ms] of msByKey) measured.set(key, [...(measured.get(key) ?? []), ms])
+  }
+  if (failures.length > 0) {
+    console.error(`test-times: wrote nothing to ${testTimesLabel}`)
+    return
+  }
+  const times = {}
+  let kept = 0
+  const untimed = []
+  for (const key of mods
+    .flatMap((mod) => listTestFiles(mod).map((file) => `${mod.name}/${file}`))
+    .sort(compareText)) {
+    const runs = measured.get(key)
+    if (runs !== undefined) times[key] = Math.round(sumOf(runs) / runs.length)
+    else if (storedTime(stored, key) !== undefined) {
+      times[key] = storedTime(stored, key)
+      kept += 1
+    } else untimed.push(key)
+  }
+  writeFileSync(testTimesPath, `${JSON.stringify(times, null, 2)}\n`)
+  console.log(
+    `test-times: wrote ${Object.keys(times).length} test file time(s) to ${testTimesLabel}: ${measured.size} measured in ${positionals.length} log(s), ${kept} kept from before`,
+  )
+  if (untimed.length > 0) {
+    console.log(
+      `test-times: ${untimed.length} test file(s) have no time and shard by their bytes: ${untimed.join(', ')}`,
+    )
+  }
 }
 
 function runModTests(mod, files) {
@@ -1271,6 +1418,7 @@ const tasks = {
   validate,
   test,
   'test-scripts': runScriptTests,
+  'test-times': writeTestTimes,
   check: (mods) => {
     validate(mods)
     typecheck(mods)
@@ -1283,11 +1431,16 @@ const taskArguments = {
   marketplace: { pin: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } },
   test: { shard: { type: 'string' } },
 }
-const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], or node scripts/mods.mjs test [--shard <index>/<count>]`
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count>], or ${testTimesCommand}`
 
 function readTaskArguments(name, args) {
   try {
-    return parseArgs({ args, options: taskArguments[name] ?? {}, strict: true })
+    return parseArgs({
+      args,
+      options: taskArguments[name] ?? {},
+      strict: true,
+      allowPositionals: name === 'test-times',
+    })
   } catch (error) {
     console.error(`${name}: ${error.message}`)
     console.error(usage)

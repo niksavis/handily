@@ -30,23 +30,57 @@ function fullModeCommands() {
     .filter((check) => check.modes.includes('full'))
 }
 
+function matrixItems(text, key) {
+  const section = new RegExp(`^( +)${key}:\\n((?:\\1 +.*\\n)+)`, 'm').exec(text)
+  if (section === null) return []
+  return section[2]
+    .split(/^ +- /m)
+    .slice(1)
+    .map((item) =>
+      Object.fromEntries(
+        [...item.matchAll(/(\w+): (.+)/g)].map((found) => [found[1], found[2].trim()]),
+      ),
+    )
+}
+
+function shardRows(text, count) {
+  const list = /^\s+shard: \[([\d, ]+)\]$/m.exec(text)
+  if (list === null) return undefined
+  const shards = list[1].split(',').map((value) => Number(value.trim()))
+  if (count !== '${{ matrix.shards }}') return [{ name: '', count: Number(count), shards }]
+  const engines = /^\s+engine: \[([\w, -]+)\]$/m.exec(text)?.[1].split(',') ?? []
+  const included = matrixItems(text, 'include')
+  const excluded = matrixItems(text, 'exclude')
+  return engines.map((value) => {
+    const engine = value.trim()
+    return {
+      name: ` on the ${engine} row`,
+      count: Number(included.find((item) => item.engine === engine)?.shards),
+      shards: shards.filter(
+        (shard) => !excluded.some((item) => item.engine === engine && Number(item.shard) === shard),
+      ),
+    }
+  })
+}
+
 function shardProblems(path, text = read(path)) {
-  const counts = [...text.matchAll(/--shard \$\{\{ matrix\.shard \}\}\/(\d+)/g)].map((found) =>
-    Number(found[1]),
-  )
-  const lists = [...text.matchAll(/^\s+shard: \[([\d, ]+)\]$/gm)].map((found) =>
-    found[1].split(',').map((value) => Number(value.trim())),
-  )
-  if (counts.length === 0) return [`${path} runs no ${shardedTest} step`]
-  if (counts.length !== lists.length) {
-    return [`${path} has ${counts.length} sharded test step(s) and ${lists.length} shard list(s)`]
+  const steps = [
+    ...text.matchAll(/--shard \$\{\{ matrix\.shard \}\}\/(\d+|\$\{\{ matrix\.shards \}\})/g),
+  ]
+  const lists = [...text.matchAll(/^\s+shard: \[/gm)]
+  if (steps.length === 0) return [`${path} runs no ${shardedTest} step`]
+  if (steps.length !== 1 || lists.length !== 1) {
+    return [`${path} has ${steps.length} sharded test step(s) and ${lists.length} shard list(s)`]
   }
-  return counts.flatMap((count, index) => {
+  const rows = shardRows(text, steps[0][1])
+  if (rows === undefined || rows.length === 0)
+    return [`${path} gives its sharded test step no rows`]
+  return rows.flatMap(({ name, count, shards }) => {
     const expected = Array.from({ length: count }, (_, shard) => shard + 1)
-    return JSON.stringify(lists[index]) === JSON.stringify(expected)
+    return Number.isInteger(count) && JSON.stringify(shards) === JSON.stringify(expected)
       ? []
       : [
-          `${path} runs --shard of ${count} with the shard list [${lists[index].join(', ')}]; list every shard from 1 to ${count} once`,
+          `${path} runs --shard of ${String(count)}${name} with the shard list [${shards.join(', ')}]; list every shard from 1 to ${String(count)} once`,
         ]
   })
 }
@@ -94,6 +128,24 @@ describe('CI runs every configured check, and the sharded mod tests cover every 
       '        shard: [1, 2, 4]\n        run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/3\n'
     assert.deepEqual(shardProblems('w.yml', text), [
       'w.yml runs --shard of 3 with the shard list [1, 2, 4]; list every shard from 1 to 3 once',
+    ])
+    const rows = [
+      '        engine: [pinned, newest]',
+      '        shard: [1, 2, 3, 4, 5]',
+      '        exclude:',
+      '          - engine: pinned',
+      '            shard: 5',
+      '        include:',
+      '          - engine: pinned',
+      '            shards: 4',
+      '          - engine: newest',
+      '            shards: 6',
+      '    steps:',
+      '        run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/${{ matrix.shards }}',
+      '',
+    ].join('\n')
+    assert.deepEqual(shardProblems('w.yml', rows), [
+      'w.yml runs --shard of 6 on the newest row with the shard list [1, 2, 3, 4, 5]; list every shard from 1 to 6 once',
     ])
   })
 })
