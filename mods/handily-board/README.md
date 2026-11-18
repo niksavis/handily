@@ -1075,6 +1075,9 @@ Log  7 events
   has seconds.
 - `you` is a prompt of the person, `main` the main loop, and an agent its name. `denied`,
   `failed` and `aborted` take `error`, `done` takes `success`.
+- An answer that the board sends for you, when you press an option of a decide task or Send on
+  an answer task, shows as a `you` row with the text sent, once. An answer that a hook holds
+  back gets no row until you send it.
 - An agent end shows once for each run: `done`, `failed`, or `aborted` for an interrupted or
   killed agent. The board logs it when the turn of the agent ends, or at the time the agent list
   first says that the agent ended. An agent that had ended before the board saw it run, also

@@ -554,10 +554,13 @@ async function fillPrompt($: EngineInterface, text: string): Promise<PromptFill>
   return { isFilled: filled.isFilled, refusal: filled.refusal }
 }
 
-async function submitPrompt($: EngineInterface, text: string): Promise<PromptSend> {
+async function submitPrompt($: EngineInterface, log: LogKeep, text: string): Promise<PromptSend> {
   try {
     const entered = await $.prompt.submit({ text, asUser: true })
-    if (entered.drop === undefined) return { isSent: true }
+    if (entered.drop === undefined) {
+      await notePromptText($, log, text)
+      return { isSent: true }
+    }
     return {
       isSent: false,
       reason: `the prompt was held back: ${withoutFinalPeriod(entered.drop)}`,
@@ -1055,9 +1058,13 @@ function isPersonPrompt(e: PromptSubmitInput): boolean {
   return isPrompt && e.text.trim() !== ''
 }
 
+async function notePromptText($: EngineInterface, keep: LogKeep, text: string): Promise<void> {
+  noteEvent($, keep, await $.clock.now(), { kind: 'prompt', agentId: null, detail: text })
+}
+
 async function notePrompt($: EngineInterface, keep: LogKeep, e: PromptSubmitInput): Promise<void> {
   if (!isPersonPrompt(e)) return
-  noteEvent($, keep, await $.clock.now(), { kind: 'prompt', agentId: null, detail: e.text })
+  await notePromptText($, keep, e.text)
 }
 
 async function clearBandEnds($: EngineInterface, seen: SeenEnd): Promise<void> {
@@ -1470,7 +1477,10 @@ async function resetAgentLists($: EngineInterface): Promise<void> {
 
 type RowNotes = Map<number, string>
 
-function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep, redraw: Redraw): PaneUi {
+type UiKeeps = { notes: RowNotes; parts: PartsKeep; redraw: Redraw; log: LogKeep }
+
+function uiOf($: EngineInterface, keeps: UiKeeps): PaneUi {
+  const { notes, parts, redraw, log } = keeps
   return {
     open: async (pane, focus) => {
       const opened = await $.ui.open(
@@ -1485,7 +1495,7 @@ function uiOf($: EngineInterface, notes: RowNotes, parts: PartsKeep, redraw: Red
     },
     panes: () => $.ui.panes(),
     fillPrompt: (text) => fillPrompt($, text),
-    submitPrompt: (text) => submitPrompt($, text),
+    submitPrompt: (text) => submitPrompt($, log, text),
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
     },
@@ -1862,6 +1872,7 @@ export const register: Register = (on, options) => {
   const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
   const refused = new Set<string>()
   const notes: RowNotes = new Map()
+  const uiKeeps: UiKeeps = { notes, parts: breakdown, redraw, log }
   const asks: BoardTask[] = []
   const pulses = newPulses()
   const background = newBackgroundKeep()
@@ -1886,7 +1897,7 @@ export const register: Register = (on, options) => {
     await keepGlyphSetting($)
     await keepPaletteSetting($)
     noteStartup(background, await $.clock.now())
-    if (mode === 'always') await openUnasked(uiOf($, notes, breakdown, redraw))
+    if (mode === 'always') await openUnasked(uiOf($, uiKeeps))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
     const host = sessionsHost($)
@@ -2289,11 +2300,11 @@ export const register: Register = (on, options) => {
     switch (command.kind) {
       case 'session':
         await clearBandEnds($, 'isFailureSeen')
-        return { text: await sessionCommand(uiOf($, notes, breakdown, redraw), mode) }
+        return { text: await sessionCommand(uiOf($, uiKeeps), mode) }
       case 'machine':
-        return { text: await openBoard(uiOf($, notes, breakdown, redraw), SESSIONS_PANE) }
+        return { text: await openBoard(uiOf($, uiKeeps), SESSIONS_PANE) }
       case 'close':
-        return { text: await closeBoard(uiOf($, notes, breakdown, redraw)) }
+        return { text: await closeBoard(uiOf($, uiKeeps)) }
       case 'clear':
         return { text: (await personClear(host)).text }
       case 'list': {
@@ -2398,7 +2409,7 @@ export const register: Register = (on, options) => {
     const rows = heldRows(redraw.strip, agents, now)
     const { Box, Text, Button } = $.ui.resolve(e)
     const signals = await drawnSignals($, e.surface)
-    const ui = uiOf($, notes, breakdown, redraw)
+    const ui = uiOf($, uiKeeps)
     const failed = (error: unknown) => {
       ui.log(`handily-board: the board did not open from the band: ${String(error)}`)
       ui.showToast(BOARD_NOT_OPENED)
@@ -2519,14 +2530,7 @@ export const register: Register = (on, options) => {
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     if (placement === 'widget') return drawGlance(elements, hostOf($), work)
-    return drawPane(
-      elements,
-      hostOf($),
-      plansOf($),
-      uiOf($, notes, breakdown, redraw),
-      work,
-      findingsOf($),
-    )
+    return drawPane(elements, hostOf($), plansOf($), uiOf($, uiKeeps), work, findingsOf($))
   })
 
   on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE.id }, async ($, e) => {

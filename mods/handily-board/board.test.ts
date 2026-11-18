@@ -10479,7 +10479,7 @@ const SEND_CRITERION =
 describe(SEND_CRITERION, () => {
   for (const surface of SURFACES) {
     test(
-      `Send and a decide option submit the answer as the person's prompt at once, and the row shows the exact text, on ${surface}`,
+      `Send and a decide option submit the answer as the person's prompt at once, the row shows the exact text, and the Log has one row for each answer, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on, { hasOwnPromptHook: true })
@@ -10510,6 +10510,17 @@ describe(SEND_CRITERION, () => {
         expect(await board($, 'undo 2')).toBe('Task 2 was already sent to Claude. Nothing changed.')
         await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
         expect(entered.at(-1)?.context.filter((text) => text.startsWith(ANSWERED))).toEqual([])
+        await $.prompt.submit({
+          text: SENT_CHOICE,
+          wait: false,
+          origin: { kind: 'plugin', name: PLUGIN, asUser: true },
+        })
+        const logged = (await board($, 'log you')).split('\n')
+        expect(logged.map((line) => line.replace(/^\S+ /u, ''))).toEqual([
+          'you go on',
+          `you ${SENT_CHOICE}`,
+          `you ${SENT_ANSWER}`,
+        ])
         const after = await mountTasks($, surface)
         expect(await after.find({ key: 'sent:2' })).toBeUndefined()
         expect((await after.find({ key: 'for-answered' }))?.text).toBe('+2 answered')
@@ -10543,6 +10554,7 @@ describe(SEND_CRITERION, () => {
         await pane.unmount()
         await $.prompt.submit({ text: SENT_CHOICE, wait: false, origin: { kind: 'composer' } })
         expect(entered.at(-1)?.context.filter((text) => text.startsWith(ANSWERED))).toEqual([])
+        expect((await board($, 'log you')).split('\n')).toHaveLength(1)
         expect(await board($, 'undo 3')).toBe('Task 3 was already sent to Claude. Nothing changed.')
         const after = await mountTasks($, surface)
         await after.press({ key: 'for-answered' })
