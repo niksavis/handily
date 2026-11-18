@@ -850,9 +850,9 @@ describe('Bash row', () => {
   })
 
   for (const surface of SURFACES) {
-    for (const columns of [120, 40]) {
+    for (const columns of [140, 40]) {
       viewTest(
-        `a failed call puts its reason on its own line under the row in the error colour at ${String(columns)} columns on ${surface}`,
+        `a failed call puts its reason under the row in the error colour and a row that does not fit puts its time and buttons on their own line at ${String(columns)} columns on ${surface}`,
         async (world, $) => {
           const description = 'List a missing folder'
           const reason = "ls: cannot access '/nonexistent-folder': No such file or directory"
@@ -889,6 +889,31 @@ describe('Bash row', () => {
               `${indent}#${reason}#`,
               `${indent}~2.0s~  [ more ] [ copy ]`,
             ])
+          }
+          const counted = 'Count the lines of the notes'
+          world.answer = () =>
+            answered(Array.from({ length: 21 }, (_, index) => `n ${String(index)}\n`).join(''))
+          const okInput = { command: 'python3 count.py', description: counted }
+          const okProps = useProps(
+            await runBash(world, $, okInput),
+            'Bash',
+            okInput,
+            world.answer(okInput),
+          )
+          const ok = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolUse',
+            props: okProps,
+            viewport: { columns, rows: 40 },
+          })
+          const okLines = sketch(await ok.drawn())
+          await ok.unmount()
+          const okRow = `${surface === 'terminal' ? '+●+ ' : ''}${counted}  ~python3~  +exit 0+  ~21 lines~`
+          if (columns >= 60) {
+            expect(okLines).toEqual([edges(`${okRow}  ~2.0s~`, '[ more ] [ copy ]')])
+          } else {
+            expect(okLines).toEqual([okRow, `${indent}~2.0s~  [ more ] [ copy ]`])
           }
         },
       )
@@ -1786,7 +1811,7 @@ describe('row labels with a control character', () => {
           component: 'ToolUse',
           props: useProps(id, 'Bash', input, world.answer(input)),
         }),
-      ).toEqual(['● Run the tool tool No\\u007fmatches 0 lines 1 stderr line warning: old'])
+      ).toEqual(['● Run the tool tool No\\u007fmatches 0 lines 1 stderr line warning: old', ''])
     },
   )
 })

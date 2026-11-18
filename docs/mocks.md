@@ -557,6 +557,14 @@ the reason.
   [ more ] [ copy ]
 ```
 
+A successful call that does not fit with its buttons, 40 columns (handily-zidozd): the time and
+the buttons move under the row, and the state word and the line count stay whole.
+
+```text
+● Count the …  ~python3~  +exit 0+  ~21 lines~
+  ~2.0s~  [ more ] [ copy ]
+```
+
 - The marker `●` is green after `exit 0`, red after `exit N` and dim while the call runs.
 - Columns: description (cut first, `truncate-end`), program, state, count, time. Two spaces
   between columns.
