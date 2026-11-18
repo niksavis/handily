@@ -1,5 +1,6 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import { elapsedText } from './detail'
+import { FOLD_BUTTONS_CELLS } from './fold'
 import type { BashEnd, Denial, Denier, FileChange, StderrSummary, Totals } from './output'
 import { displayWidth } from './width'
 
@@ -19,6 +20,8 @@ export type BashView = {
 }
 
 const LABEL_KEPT_CELLS = 40
+const LABEL_SHOWN_AT_LEAST = 8
+const ACTIONS_SPACE_CELLS = 2
 const PENDING_TEXT = '…'
 const MARKER_CELLS = 2
 const CELL_GAP = 2
@@ -56,7 +59,7 @@ function cell(
 function trailing(elements: RowElements, actions: RenderElement | null): RenderElement[] {
   if (actions === null) return []
   return [
-    elements.Box({ flexGrow: 1, minWidth: 2 }),
+    elements.Box({ flexGrow: 1, minWidth: ACTIONS_SPACE_CELLS }),
     elements.Box({ flexShrink: 0, children: actions }),
   ]
 }
@@ -213,6 +216,18 @@ function deniedCells(look: RowLook, others: readonly Cell[], denial: Denial): Ce
   ]
 }
 
+function fitsWithActions(look: RowLook, cells: readonly Cell[]): boolean {
+  const drawn = cells.filter((part) => part.text !== '')
+  const least = drawn.reduce((sum, part) => sum + leastCells(part), 0)
+  const used =
+    (look.hasToolMarker ? MARKER_CELLS : 0) +
+    CELL_GAP * Math.max(drawn.length - 1, 0) +
+    least +
+    ACTIONS_SPACE_CELLS +
+    FOLD_BUTTONS_CELLS
+  return used <= look.columns
+}
+
 function hasCutText(state: BashState): boolean {
   return state.kind === 'done' && state.stderr !== null
 }
@@ -256,7 +271,21 @@ export function bashRow(
   if (reason !== null) {
     return withReason(look, marker, { leading: [label, program, ...state], time }, reason, actions)
   }
-  return line(look, 'row', marker, [label, program, ...state, time], actions)
+  const cells = [label, program, ...state, time]
+  const shownLabel: Cell = {
+    ...label,
+    keptCells: label.keptCells ?? Math.min(displayWidth(label.text), LABEL_SHOWN_AT_LEAST),
+  }
+  if (actions === null || fitsWithActions(look, [shownLabel, program, ...state, time])) {
+    return line(look, 'row', marker, cells, actions)
+  }
+  return look.elements.Box({
+    flexDirection: 'column',
+    children: [
+      line(look, 'row', marker, [label, program, ...state]),
+      tailLine(look, time, actions),
+    ],
+  })
 }
 
 export function totalsText({ added, removed }: Totals): string {

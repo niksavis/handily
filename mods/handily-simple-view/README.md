@@ -94,6 +94,9 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 - The reason of a failed call, the line under the row, draws in the error colour, indented under
   the row and cut at the row end. Below 60 columns the time and the buttons move to a line of
   their own under the reason.
+- A row that does not fit with its `more` and `copy` buttons, such as a successful row at 40
+  columns, puts the time and the buttons on a line of their own under the row. The state word
+  and the line count stay whole.
 - `exit N` names four codes dim beside the code: 126 `not executable`, 127
   `command not found`, 130 `interrupted` and 143 `stopped`. Other codes have no name.
   [Denied calls](#denied-calls) gives the rows of a denial.

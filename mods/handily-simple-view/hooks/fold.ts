@@ -9,6 +9,16 @@ export const DRAWN_CHARACTERS_AT_MOST = 60_000
 const RESULT_INDENT = 2
 const RULE = '─'
 const LEADING_BLANK_LINES = /^(?:[ \t]*\r?\n)+/
+const FOLD_LABELS = ['more', 'less'] as const
+const COPY_LABEL = 'copy'
+const BUTTON_FRAME_CELLS = 4
+const BUTTON_GAP = 1
+
+export const FOLD_BUTTONS_CELLS =
+  Math.max(...FOLD_LABELS.map((label) => label.length)) +
+  COPY_LABEL.length +
+  2 * BUTTON_FRAME_CELLS +
+  BUTTON_GAP
 
 export type CallOutput = { text: string; lines: string[]; savedTo: string | null }
 
@@ -54,11 +64,11 @@ export function foldButtons(
   const { Box, Button } = look.elements
   return Box({
     flexDirection: 'row',
-    gap: 1,
+    gap: BUTTON_GAP,
     children: [
       Button({
         key: 'fold',
-        label: fold === 'folded' ? 'more' : 'less',
+        label: fold === 'folded' ? FOLD_LABELS[0] : FOLD_LABELS[1],
         dimColor: true,
         onPress: () => {
           actions.fold(fold === 'folded' ? 'open' : 'folded')
@@ -68,7 +78,7 @@ export function foldButtons(
         ? null
         : Button({
             key: 'copy',
-            label: 'copy',
+            label: COPY_LABEL,
             dimColor: true,
             onPress: (press) => {
               actions.copy?.(press.surface)

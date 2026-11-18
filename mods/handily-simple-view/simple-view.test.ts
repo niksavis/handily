@@ -895,6 +895,49 @@ describe('Bash row', () => {
     }
   }
 
+  for (const surface of SURFACES) {
+    for (const columns of [140, 40]) {
+      viewTest(
+        `a successful call keeps its state and line count whole and puts more and copy on their own line when they do not fit at ${String(columns)} columns on ${surface}`,
+        async (world, $) => {
+          const description = 'Count the lines of the notes'
+          world.delayMs = 2000
+          world.answer = () =>
+            answered(Array.from({ length: 21 }, (_, index) => `n ${String(index)}\n`).join(''))
+          const input = { command: 'python3 count.py', description }
+          const id = await runBash(world, $, input)
+          const props = useProps(id, 'Bash', input, world.answer(input))
+          const ui = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolUse',
+            props,
+            viewport: { columns, rows: 40 },
+          })
+          const keys = (await ui.findAll({ type: 'Box' }))
+            .map((box) => box.key)
+            .filter((key) => key !== undefined && ROW_KEYS.has(key))
+          const lines = sketch(await ui.drawn())
+          await ui.unmount()
+          const cells = await rowCells($, surface, props, columns)
+          const indent = surface === 'terminal' ? '  ' : ''
+          const row = `${surface === 'terminal' ? '+●+ ' : ''}${description}  ~python3~  +exit 0+  ~21 lines~`
+          expect(lines[0]).toContain('+exit 0+  ~21 lines~')
+          if (columns >= 60) {
+            expect(keys).toEqual(['row'])
+            expect(lines).toEqual([edges(`${row}  ~2.0s~`, '[ more ] [ copy ]')])
+          } else {
+            expect(lines[0]).not.toContain('[ ')
+            expect(keys).toEqual(['row', 'tail'])
+            expect(lines).toEqual([row, `${indent}~2.0s~  [ more ] [ copy ]`])
+            expect(cells.shown).toEqual([description, 'python3', 'exit 0', '21 lines'])
+            expect(cells.width).toBeLessThanOrEqual(columns)
+          }
+        },
+      )
+    }
+  }
+
   for (const [code, name] of [
     [126, 'not executable'],
     [127, 'command not found'],
@@ -1456,6 +1499,57 @@ describe('Edit and Write rows', () => {
     } as const
     expectEngineRow((await drawn($, target)).tree)
   })
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `draws Edit and Write and Read rows as one line with no button at 40 columns on ${surface}`,
+      async (_world, $) => {
+        const created = {
+          type: 'create',
+          filePath: `${ROOT}/${LONG_PATH}`,
+          content: 'a\nb\nc\n',
+          structuredPatch: [],
+          originalFile: null,
+        }
+        const editAnswer = { result: edit } as Answer
+        const writeAnswer = { result: created } as Answer
+        const calls = [
+          {
+            props: useProps('toolu_n1', 'Edit', { file_path: edit.filePath }, editAnswer),
+            shown: ['Edit', 'src/app.ts', '+2 -1'],
+          },
+          {
+            props: useProps('toolu_n2', 'Write', { file_path: created.filePath }, writeAnswer),
+            shown: ['Write', LONG_PATH, '+3 -0'],
+          },
+          {
+            props: useProps(
+              'toolu_n3',
+              'Read',
+              { file_path: PLUGIN_JSON },
+              { result: readOutput(PLUGIN_JSON, 1, 18, 18) },
+            ),
+            shown: ['Read', 'mods/handily/.claude-plugin/plugin.json', '18 lines'],
+          },
+        ]
+        for (const call of calls) {
+          const cells = await rowCells($, surface, call.props, 40)
+          expect(cells.shown).toEqual(call.shown)
+          expect(cells.buttons).toEqual([])
+          expect(cells.width).toBeLessThanOrEqual(40)
+          const ui = await $.ui.mount({
+            plugin: 'handily-simple-view',
+            surface,
+            component: 'ToolUse',
+            props: call.props,
+            viewport: { columns: 40, rows: 40 },
+          })
+          expect(sketch(await ui.drawn())).toHaveLength(1)
+          await ui.unmount()
+        }
+      },
+    )
+  }
 })
 
 describe('Read, Grep and Glob rows', () => {
@@ -1786,7 +1880,7 @@ describe('row labels with a control character', () => {
           component: 'ToolUse',
           props: useProps(id, 'Bash', input, world.answer(input)),
         }),
-      ).toEqual(['● Run the tool tool No\\u007fmatches 0 lines 1 stderr line warning: old'])
+      ).toEqual(['● Run the tool tool No\\u007fmatches 0 lines 1 stderr line warning: old', ''])
     },
   )
 })
