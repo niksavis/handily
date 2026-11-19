@@ -1183,6 +1183,33 @@ function readShard(text) {
   return { index: Number(match[1]), count: Number(match[2]) }
 }
 
+function posixPath(path) {
+  return path.split(sep).join('/')
+}
+
+function refuseFile(text, problem) {
+  console.error(
+    `test: --file ${text} ${problem}; give a test file of a mod, such as --file mods/handily-board/board.test.ts`,
+  )
+  process.exit(2)
+}
+
+function namedFiles(mods, texts) {
+  const files = new Map()
+  for (const text of texts) {
+    const path = posixPath(text).replace(/^\.\//, '')
+    const mod = mods.find((candidate) =>
+      path.startsWith(`${posixPath(relative(root, candidate.dir))}/`),
+    )
+    if (mod === undefined) refuseFile(text, 'is not in the folder of a mod')
+    const file = path.slice(posixPath(relative(root, mod.dir)).length + 1)
+    if (!testFilePattern.test(file)) refuseFile(text, 'is not a *.test.ts or *.test.tsx file')
+    if (!listTestFiles(mod).includes(file)) refuseFile(text, `names no test file of ${mod.name}`)
+    files.set(mod.name, (files.get(mod.name) ?? new Set()).add(file))
+  }
+  return files
+}
+
 function compareText(a, b) {
   if (a < b) return -1
   return a > b ? 1 : 0
@@ -1381,8 +1408,21 @@ function runScriptTests() {
 }
 
 function test(mods, { values = {} } = {}) {
+  if (values.file !== undefined && values.shard !== undefined) {
+    console.error(
+      'test: --file and --shard do not go together; run node scripts/mods.mjs test --file <path> alone, or node scripts/mods.mjs test --shard <index>/<count>',
+    )
+    process.exit(2)
+  }
   const shard = values.shard === undefined ? undefined : readShard(values.shard)
-  const filesByMod = shard === undefined ? undefined : shardFiles(mods, shard)
+  const named = values.file === undefined ? undefined : namedFiles(mods, values.file)
+  const filesByMod = named ?? (shard === undefined ? undefined : shardFiles(mods, shard))
+  if (named !== undefined) {
+    const total = [...named.values()].reduce((sum, files) => sum + files.size, 0)
+    console.log(
+      `test: --file runs ${total} test file(s) of ${named.size} mod(s); npm test runs every test file`,
+    )
+  }
   if (shard !== undefined) {
     const total = [...filesByMod.values()].reduce((sum, files) => sum + files.size, 0)
     console.log(
@@ -1407,7 +1447,7 @@ function test(mods, { values = {} } = {}) {
   }
   const ranAgain = timesByMod.flatMap(({ mod, times }) => checkTestTimes(mod, times, slowness))
   if (!isCiRunner) countRunsAlone(ranAgain)
-  if (shard === undefined) runScriptTests()
+  if (filesByMod === undefined) runScriptTests()
 }
 
 const tasks = {
@@ -1429,9 +1469,9 @@ const tasks = {
 
 const taskArguments = {
   marketplace: { pin: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } },
-  test: { shard: { type: 'string' } },
+  test: { shard: { type: 'string' }, file: { type: 'string', multiple: true } },
 }
-const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count>], or ${testTimesCommand}`
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>...], or ${testTimesCommand}`
 
 function readTaskArguments(name, args) {
   try {

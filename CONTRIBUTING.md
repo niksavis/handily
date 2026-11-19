@@ -57,6 +57,14 @@ time there counts by its bytes. To update the times, save the log of each mod te
 | Format | `npm run format:check` | Code that Prettier would change. `npm run check` does not run it |
 | Test | `npm test` | A failing test, a mod with no `*.test.ts`, or a test that takes more than a third of its time limit in the suite run and again when it runs alone |
 
+### One test file
+
+`npm test -- --file mods/<name>/<file>.test.ts` runs only that test file of the mod, with the
+rest of its folder, through the same copy that the gate uses for a test that runs again alone.
+Give `--file` more than once to run more files. It refuses a path that is not a test file of a
+mod, and it does not go together with `--shard`. The gates never pass `--file`, so they run
+every test file.
+
 ### Test time limit
 
 A mod test has a time limit of 5000 ms, unless its `TestOptions` set `timeoutMs`. `npm test`

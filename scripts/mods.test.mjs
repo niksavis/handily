@@ -988,6 +988,92 @@ test('test refuses a shard that is not one of its count and names the form', () 
   }
 })
 
+test('test --file runs only the named test files in a copy of the mod that it removes afterwards', () => {
+  const bin = makeTimedClaude([quickOutput])
+  const result = runShardGate(shardedRepo, bin, ['test', '--file', 'mods/timed/other.test.ts'])
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  const calls = readCalls(bin)
+  assert.deepEqual(calls.flatMap(callKeys), ['timed/other.test.ts'])
+  for (const call of calls) {
+    assert.notEqual(call.dir, join(shardedRepo.root, 'mods', 'timed'))
+    assert.equal(existsSync(call.dir), false, `${call.dir} is left after the gate`)
+  }
+  assert.match(
+    result.stdout,
+    /^test: --file runs 1 test file\(s\) of 1 mod\(s\); npm test runs every test file$/m,
+  )
+  assert.doesNotMatch(result.stdout, /passes/)
+})
+
+test('test --file takes files of two mods and runs a mod whose every test file it names in its own folder', () => {
+  const bin = makeTimedClaude([quickOutput])
+  const result = runShardGate(shardedRepo, bin, [
+    'test',
+    '--file',
+    './mods/timed/hooks/inner.test.ts',
+    '--file',
+    'mods/second/second.test.ts',
+  ])
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  const calls = readCalls(bin)
+  assert.deepEqual(calls.flatMap(callKeys).toSorted(), [
+    'second/second.test.ts',
+    'timed/hooks/inner.test.ts',
+  ])
+  assert.ok(calls.some((call) => call.dir === join(shardedRepo.root, 'mods', 'second')))
+})
+
+test('test --file refuses a path that is no test file of a mod and names the form', () => {
+  const refusals = [
+    ['scripts/mods.mjs', 'is not in the folder of a mod'],
+    ['mods/timed/hooks/register.ts', 'is not a *.test.ts or *.test.tsx file'],
+    ['mods/timed/missing.test.ts', 'names no test file of timed'],
+  ]
+  for (const [path, problem] of refusals) {
+    const bin = makeTimedClaude([quickOutput])
+    const result = runShardGate(shardedRepo, bin, ['test', '--file', path])
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+    assert.ok(
+      result.stderr.includes(
+        `test: --file ${path} ${problem}; give a test file of a mod, such as --file mods/handily-board/board.test.ts`,
+      ),
+      result.stderr,
+    )
+    assert.deepEqual(readCalls(bin), [])
+  }
+})
+
+test('test refuses --file together with --shard and names both commands', () => {
+  const bin = makeTimedClaude([quickOutput])
+  const result = runShardGate(shardedRepo, bin, [
+    'test',
+    '--shard',
+    '1/3',
+    '--file',
+    'mods/timed/other.test.ts',
+  ])
+  assert.equal(result.status, 2, result.stdout + result.stderr)
+  assert.ok(
+    result.stderr.includes(
+      'test: --file and --shard do not go together; run node scripts/mods.mjs test --file <path> alone, or node scripts/mods.mjs test --shard <index>/<count>',
+    ),
+    result.stderr,
+  )
+  assert.deepEqual(readCalls(bin), [])
+})
+
+test('test with no --file runs every test file of every mod', () => {
+  const bin = makeTimedClaude([quickOutput])
+  const result = runShardGate(shardedRepo, bin, ['test'])
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(readCalls(bin).flatMap(callKeys).toSorted(), [
+    'second/second.test.ts',
+    'timed/hooks/inner.test.ts',
+    'timed/other.test.ts',
+    'timed/timed.test.ts',
+  ])
+})
+
 const testTimesFix = 'node scripts/mods.mjs test-times <log>...'
 
 function writeStoredTimes(repo, text) {

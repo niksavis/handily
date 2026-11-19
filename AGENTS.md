@@ -65,6 +65,12 @@ claude plugin validate --strict mods/<name>
 claude plugin test mods/<name>
 ```
 
+One test file of a mod:
+
+```sh
+npm test -- --file mods/<name>/<file>.test.ts
+```
+
 Format:
 
 ```sh
