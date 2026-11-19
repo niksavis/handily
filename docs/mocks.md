@@ -3379,14 +3379,11 @@ An empty block:
   ── mermaid ─────────────────────────────────────────────────────────  [ copy ]
 ```
 
-While the reply streams:
+While the reply streams on the terminal, no text of it shows, and the spinner line shows its
+progress (handily-sr0k5y):
 
 ```text
-● Here is the flow:
-
-  ```mermaid
-  flowchart TD
-    A[Start] --> B[Pa
+✻ writing reply · 13 lines · 1 table… (4s · ↓ 203 tokens)
 ```
 
 ### 9.9 A narrow screen, 40 columns
