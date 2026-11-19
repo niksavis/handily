@@ -103,15 +103,10 @@ jobs:
       matrix:
         engine: [pinned, newest]
         shard: [1, 2, 3, 4, 5, 6]
-        exclude:
-          - engine: pinned
-            shard: 5
-          - engine: pinned
-            shard: 6
         include:
           - engine: pinned
             package: "@anthropic-ai/claude-code@2.1.323"
-            shards: 4
+            shards: 6
           - engine: newest
             package: "@anthropic-ai/claude-code@latest"
             shards: 6
