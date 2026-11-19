@@ -37,6 +37,10 @@ import {
   toolTarget,
   withClocks,
   withMainCall,
+  withScriptSteps,
+  withBoardUse,
+  isScriptCall,
+  RESUME_NOTE,
   withPlanUpdate,
 } from './activity'
 import {
@@ -917,7 +921,32 @@ async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
   const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
   const lag = planLag(activity)
   if (lag === undefined || !isNoteDue(activity)) return undefined
-  return { text: planNote(lag, ownList(list).tasks.length > 0), calls: activity.calls }
+  return { text: planNote(lag, ownList(list).tasks.length > 0), calls: activity.sincePlan }
+}
+
+const SCRIPT_TOOL = 'REPL'
+
+async function noteScriptSteps(
+  $: EngineInterface,
+  uses: readonly { name: string }[],
+): Promise<void> {
+  const steps = uses.filter((use) => use.name === SCRIPT_TOOL).length
+  if (steps === 0) return
+  try {
+    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withScriptSteps(current, steps))
+  } catch (error) {
+    $.ui.log(`handily-board: the script steps were not counted: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+async function noteBoardUse($: EngineInterface): Promise<void> {
+  const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
+  if (activity.usesBoard === true) return
+  try {
+    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withBoardUse(current))
+  } catch (error) {
+    $.ui.log(`handily-board: the board use was not kept: ${String(error)}`, { to: 'debug' })
+  }
 }
 
 async function recordNote($: EngineInterface, calls: number): Promise<void> {
@@ -1904,6 +1933,7 @@ export const register: Register = (on, options) => {
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
   const failures: FailureKeep = { shown: new Set() }
+  const resume = { isNoteDue: false }
   const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
   const refused = new Set<string>()
   const notes: RowNotes = new Map()
@@ -2022,7 +2052,9 @@ export const register: Register = (on, options) => {
         }
         yield chunk
       }
-      return await stream.result
+      const result = await stream.result
+      await noteScriptSteps($, result.toolUses)
+      return result
     }
     heard(pulses, agentId, await $.clock.now())
     const stepped = yield* next(e)
@@ -2118,6 +2150,7 @@ export const register: Register = (on, options) => {
   on('classic.SessionStart', ($, e, next) => {
     noteMode($, request, e)
     if (e.agent_id === undefined) {
+      if (e.source === 'resume') resume.isNoteDue = true
       const wasIdle = background.current.kind === 'idle'
       noteStartSource(background, e.source)
       if (wasIdle && background.current.kind !== 'idle') $.ui.invalidate('ui.render')
@@ -2155,6 +2188,7 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
+    const resumed = PERSON_ORIGINS.has(e.origin.kind) && resume.isNoteDue ? RESUME_NOTE : undefined
     const taken = await takeChanges($)
     const answered = await takeAnswered($)
     const enter = async (sent: PromptSubmitInput) => {
@@ -2171,7 +2205,7 @@ export const register: Register = (on, options) => {
       const isTold = taken.length > 0 || answers !== undefined
       const list = await readList(hostOf($))
       const changes = isTold ? personNote(taken, list, answers) : undefined
-      const notes = [changes, plan?.text].filter((text) => text !== undefined)
+      const notes = [resumed, changes, plan?.text].filter((text) => text !== undefined)
       if (notes.length === 0) return await enter(e)
       const entered = await enter({ ...e, context: [...(e.context ?? []), ...notes] })
       if (entered.drop !== undefined) {
@@ -2180,6 +2214,7 @@ export const register: Register = (on, options) => {
         return entered
       }
       if (plan) await recordNote($, plan.calls)
+      if (resumed !== undefined) resume.isNoteDue = false
       return entered
     } catch (error) {
       await putBackChanges($, taken)
@@ -2197,6 +2232,7 @@ export const register: Register = (on, options) => {
     if (isTaskTool(e.tool)) {
       if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
       const answer = await next(e)
+      if (e.agentId === undefined && answer.deny === undefined) await noteBoardUse($)
       if (e.agentId === undefined && isPlanTool(e.tool) && answer.deny === undefined) {
         await notePlanChange($)
       }
@@ -2207,7 +2243,9 @@ export const register: Register = (on, options) => {
     const { agentId } = e
     if (agentId === undefined) {
       const now = await $.clock.now()
-      await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withMainCall(current, sight, now))
+      await update($, ACTIVITY, (current = EMPTY_ACTIVITY) =>
+        withMainCall(current, sight, now, !isScriptCall(e.tool_use_id)),
+      )
       const answer = await untilSettled($, attention, e.tool_use_id, () => next(e))
       await noteVitals($, vitals, (current) =>
         withTurnCall(current, e.tool, answer.isError === true),

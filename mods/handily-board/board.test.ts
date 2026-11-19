@@ -2999,6 +2999,7 @@ describe('the work tracker never blocks or repeats a call', () => {
       })
       world(on, { hasOwnPromptHook: true })
       await start($)
+      await $.tool.call({ tool: TOOL_LIST })
       await readsOf($, 20)
       const entered = await $.prompt.submit({
         text: 'go on',
@@ -3118,6 +3119,7 @@ describe('the plan note at prompt submit', () => {
       world(on, { hasOwnPromptHook: true })
       const rows = submitted(on)
       await start($)
+      await $.tool.call({ tool: TOOL_LIST })
       await readsOf($, 19)
       await submit($, 'go on')
       await readsOf($, 1)
@@ -3158,6 +3160,7 @@ describe('the plan note at prompt submit', () => {
         return { text: e.text, context: e.context }
       })
       await start($)
+      await $.tool.call({ tool: TOOL_LIST })
       await readsOf($, 20)
       const dropped = await submit($, 'drop me')
       expect(dropped.drop).toBe('a hook refused the prompt')
@@ -3190,6 +3193,73 @@ describe('the plan note at prompt submit', () => {
       await readsOf($, 19)
       await submit($, 'after the update')
       expect(rows.at(-1)?.context).toEqual([])
+    },
+  )
+
+  test(
+    'no plan note goes out in a session that has not called a board tool',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const rows = submitted(on)
+      await start($)
+      await readsOf($, 45)
+      await submit($, 'go on')
+      expect(rows.map((row) => row.context)).toEqual([[]])
+    },
+  )
+
+  test(
+    'in Code Mode a REPL call counts once for the plan note and the calls inside the script count not at all',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const steps = stepWorld(on)
+      const rows = submitted(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_LIST })
+      for (let index = 0; index < 25; index += 1) {
+        await $.tool.call({
+          tool: 'Read',
+          file_path: `${ROOT}/src/file${String(index)}.ts`,
+          tool_use_id: `repl_${String(index)}`,
+        })
+      }
+      await submit($, 'after one script')
+      for (let index = 0; index < 20; index += 1) {
+        await step($, steps, undefined, {
+          ...stepped('turn-1', null, 'tool_use'),
+          index,
+          toolUses: [{ name: 'REPL', input: { code: 'await file("a.md").text()' } }],
+        })
+      }
+      await submit($, 'after twenty scripts')
+      expect(rows.map((row) => row.context)).toEqual([
+        [],
+        [expect.stringContaining('after 20 tool calls of yours')],
+      ])
+    },
+  )
+
+  test(
+    'the first person prompt after a resume carries one note that the task ids are gone',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      on('classic.SessionStart', () => ({}))
+      const rows = submitted(on)
+      await start($)
+      await $.classic.SessionStart({ source: 'resume' })
+      await submit($, 'a background result', 'task-notification')
+      await submit($, 'go on')
+      await submit($, 'and the tests')
+      expect(rows.map((row) => row.context)).toEqual([
+        [],
+        [
+          '[handily-board] This session was resumed, and the board starts a resumed session with an empty task list. Task ids from before the resume are gone: add your plan again with task_add before you call task_update or task_move.',
+        ],
+        [],
+      ])
     },
   )
 })

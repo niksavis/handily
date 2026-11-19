@@ -82,6 +82,7 @@ export type BoardActivity = {
   noteAt: number | null
   clocks: Readonly<Partial<Record<string, BoardTaskClock>>>
   doneAt?: number | null
+  usesBoard?: boolean
 }
 
 export type BoardAgentStatus =

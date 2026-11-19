@@ -73,10 +73,17 @@ function counted(perTool: readonly BoardToolCount[], tool: string): BoardToolCou
   return perTool.map((count) => (count.tool === tool ? { tool, calls: count.calls + 1 } : count))
 }
 
+const SCRIPT_CALL_PREFIX = 'repl_'
+
+export function isScriptCall(callId: string): boolean {
+  return callId.startsWith(SCRIPT_CALL_PREFIX)
+}
+
 export function withMainCall(
   activity: BoardActivity,
   sight: BoardToolSight,
   now: number,
+  isStep: boolean,
 ): BoardActivity {
   return {
     ...activity,
@@ -84,8 +91,16 @@ export function withMainCall(
     firstAt: activity.firstAt ?? now,
     last: sight,
     perTool: counted(activity.perTool, sight.tool),
-    sincePlan: activity.sincePlan + 1,
+    sincePlan: activity.sincePlan + (isStep ? 1 : 0),
   }
+}
+
+export function withScriptSteps(activity: BoardActivity, steps: number): BoardActivity {
+  return steps === 0 ? activity : { ...activity, sincePlan: activity.sincePlan + steps }
+}
+
+export function withBoardUse(activity: BoardActivity): BoardActivity {
+  return activity.usesBoard === true ? activity : { ...activity, usesBoard: true }
 }
 
 function clockOf(
@@ -126,7 +141,7 @@ export function withPlanUpdate(
   list: BoardList,
   now: number,
 ): BoardActivity {
-  return { ...withClocks(activity, list, now), sincePlan: 0 }
+  return { ...withClocks(activity, list, now), sincePlan: 0, noteAt: null }
 }
 
 export function planLag(activity: BoardActivity): number | undefined {
@@ -134,9 +149,12 @@ export function planLag(activity: BoardActivity): number | undefined {
 }
 
 export function isNoteDue(activity: BoardActivity): boolean {
-  if (planLag(activity) === undefined) return false
-  return activity.noteAt === null || activity.calls - activity.noteAt >= PLAN_WARNING_CALLS
+  if (activity.usesBoard !== true || planLag(activity) === undefined) return false
+  return activity.noteAt === null || activity.sincePlan - activity.noteAt >= PLAN_WARNING_CALLS
 }
+
+export const RESUME_NOTE =
+  '[handily-board] This session was resumed, and the board starts a resumed session with an empty task list. Task ids from before the resume are gone: add your plan again with task_add before you call task_update or task_move.'
 
 export function planNote(lag: number, hasList: boolean): string {
   const calls = `${String(lag)} tool calls`
