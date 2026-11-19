@@ -6,6 +6,28 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.29.0 - 2026-11-19
+
+The agent can now close a task it gave you: when it did the task itself, when you say in the chat
+that you did it, or when the task is no longer needed. The board says who closed each task and how.
+While a task for you is open, each of your prompts carries one line that names at most 5 open tasks.
+That line measured 273 characters with 2 short titles in a live check. The estimate is 70 to 150
+tokens per prompt (assumed at 4 characters per token, not measured).
+
+### Added
+
+- **handily-board: Claude can close a task that it assigned to you, and the board shows who
+  closed it.** The new tool `task_close` closes a `do`, `answer` or `decide` task with
+  `claude_did` (only for `do`), `person_did` with your own words in `said`, or `not_needed`.
+  The board checks `said` literally against your last prompts, kept in memory only.
+  `task_update` no longer withdraws a task for you; it names `task_close` with `not_needed`.
+  Each closed row starts with who closed it, such as `Claude: you answered` or
+  `you: done · to send`, and wraps its whole text with no `…`. `[ reopen ]` and
+  `/board reopen <n>` open a task that Claude closed and tell Claude at your next prompt. The
+  fold reads `[ +N closed ]`. A prompt that you type names at most 5 open tasks for you to
+  Claude. The transcript draws one row for each `task_assign` and `task_close` call. From a
+  body of 50 columns, the band names the oldest open task for you. (handily-fybumg)
+
 ## handily-board 0.28.3 - 2026-11-19
 
 ### Fixed
