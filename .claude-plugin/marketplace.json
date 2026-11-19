@@ -68,8 +68,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-reply-view",
-        "ref": "handily-reply-view--v0.28.0",
-        "sha": "ae03e2948081481408bc254ce9db8226ecd3d0e4"
+        "ref": "handily-reply-view--v0.29.0",
+        "sha": "ba48d8c8e0fba34ba72ecc2afbdc1a124a02e1de"
       },
       "description": "Long replies fold to their first lines, tables draw in a full box or with rules between their columns with Table style rules, numbers, paths and inline code in replies draw in their own colours, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
@@ -79,8 +79,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-simple-view",
-        "ref": "handily-simple-view--v0.13.1",
-        "sha": "d7245e64c8a03978a52d96a2e2970d5ea11f1f25"
+        "ref": "handily-simple-view--v0.14.0",
+        "sha": "ba48d8c8e0fba34ba72ecc2afbdc1a124a02e1de"
       },
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
