@@ -351,12 +351,18 @@ const SEEN_STATUSES: Record<SeenEnd, ReadonlySet<RowStatus>> = {
   isFailureSeen: new Set<RowStatus>(['failed']),
 }
 
-function isUnseenEnd(agent: BoardAgent, seen: SeenEnd): boolean {
+function isUnseenEnd(agent: BoardAgent, seen: SeenEnd, only?: ReadonlySet<string>): boolean {
+  if (only !== undefined && !only.has(agent.id)) return false
   return agent[seen] !== true && SEEN_STATUSES[seen].has(statusOf(agent))
 }
 
-export function withEndsSeen(agents: Agents, viewed: Agents, seen: SeenEnd): BoardAgent[] {
-  const ends = viewed.filter((agent) => isUnseenEnd(agent, seen))
+export function withEndsSeen(
+  agents: Agents,
+  viewed: Agents,
+  seen: SeenEnd,
+  only?: ReadonlySet<string>,
+): BoardAgent[] {
+  const ends = viewed.filter((agent) => isUnseenEnd(agent, seen, only))
   const unstored = ends.filter((end) => !agents.some((agent) => agent.id === end.id))
   const ids = new Set(ends.map((agent) => agent.id))
   return [...agents, ...unstored].map((agent) =>
@@ -630,12 +636,16 @@ export async function noteTurnEnd(host: AgentHost, agentId: string, answer: stri
   await host.change((agents) => withList(withTurnEnd(agents, agentId, now, answer), listed, now))
 }
 
-export async function noteEndsSeen(host: AgentHost, seen: SeenEnd): Promise<void> {
+export async function noteEndsSeen(
+  host: AgentHost,
+  seen: SeenEnd,
+  only?: ReadonlySet<string>,
+): Promise<void> {
   const listed = await host.listed()
   const now = await host.now()
   const viewed = withList(await host.stored(), listed, now)
-  if (!viewed.some((agent) => isUnseenEnd(agent, seen))) return
-  await host.change((current) => withEndsSeen(current, withList(current, listed, now), seen))
+  if (!viewed.some((agent) => isUnseenEnd(agent, seen, only))) return
+  await host.change((current) => withEndsSeen(current, withList(current, listed, now), seen, only))
 }
 
 export async function noteAgentList(host: AgentHost): Promise<void> {

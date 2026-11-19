@@ -195,7 +195,7 @@ import {
   bandView,
   drawBand,
   forgetStrip,
-  hasStripFailure,
+  stripGroup,
   heldRows,
   isEngineDrawing,
   isLiveRow,
@@ -938,7 +938,41 @@ type LogKeep = {
   runs: Map<string, AgentRun>
 }
 
+type FailureKeep = { shown: Set<string> }
+
+function withShownFailures(rows: AgentRow[], failures: FailureKeep): AgentRow[] {
+  if (failures.shown.size === 0) return rows
+  return rows.map((row) =>
+    row.look === 'failed' && failures.shown.has(row.id) ? { ...row, isFailureSeen: true } : row,
+  )
+}
+
+function noteShownFailures(
+  $: EngineInterface,
+  failures: FailureKeep,
+  rows: readonly AgentRow[],
+): void {
+  const unseen = rows.filter((row) => stripGroup(row) === 'failed')
+  if (unseen.length === 0) return
+  for (const row of unseen) failures.shown.add(row.id)
+  $.ui.invalidate('ui.render')
+}
+
+async function keepShownFailures($: EngineInterface, failures: FailureKeep): Promise<void> {
+  if (failures.shown.size === 0) return
+  const shown = new Set(failures.shown)
+  try {
+    await noteEndsSeen(agentHostOf($), 'isFailureSeen', shown)
+    for (const id of shown) failures.shown.delete(id)
+  } catch (error) {
+    $.ui.log(`handily-board: the band may keep an ended agent row: ${String(error)}`, {
+      to: 'debug',
+    })
+  }
+}
+
 type SessionKeeps = {
+  failures: FailureKeep
   vitals: VitalsKeep
   checks: ChecksKeep
   request: RequestKeep
@@ -963,11 +997,11 @@ async function isTreeListed($: EngineInterface): Promise<boolean> {
 
 async function agentsNow(
   $: EngineInterface,
-  keeps: Pick<SessionKeeps, 'steps' | 'pulses'>,
+  keeps: Pick<SessionKeeps, 'steps' | 'pulses' | 'failures'>,
   now: number,
 ): Promise<AgentRow[]> {
   const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps.last, keeps.steps.counts)
-  return withStalls(rows, keeps.pulses, now)
+  return withShownFailures(withStalls(rows, keeps.pulses, now), keeps.failures)
 }
 
 async function workOf($: EngineInterface, keeps: SessionKeeps, inView?: string): Promise<PaneWork> {
@@ -1869,6 +1903,7 @@ export const register: Register = (on, options) => {
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
+  const failures: FailureKeep = { shown: new Set() }
   const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
   const refused = new Set<string>()
   const notes: RowNotes = new Map()
@@ -1999,6 +2034,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
+      await keepShownFailures($, failures)
       const asked = stillAsked(await readList(hostOf($)), asks.splice(0))
       const parts = asksParts(asked)
       if (parts !== undefined && !(await isSessionTabSeen($))) showGlyphToast($, parts)
@@ -2125,6 +2161,7 @@ export const register: Register = (on, options) => {
       const entered = await next(sent)
       if (entered.drop === undefined) await notePrompt($, log, e)
       if (entered.drop === undefined && isPersonPrompt(e)) await clearBandEnds($, 'isAnswerSeen')
+      if (entered.drop === undefined) await keepShownFailures($, failures)
       if (entered.drop === undefined && isPersonPrompt(e)) await clearSentFixes($, e.text)
       return entered
     }
@@ -2295,6 +2332,7 @@ export const register: Register = (on, options) => {
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
 
   on('command.run', { command: 'board' }, async ($, e) => {
+    await keepShownFailures($, failures)
     const host = hostOf($)
     const command = parseBoardCommand(e.args)
     switch (command.kind) {
@@ -2319,6 +2357,7 @@ export const register: Register = (on, options) => {
         return {
           text: statsText(
             await workOf($, {
+              failures,
               vitals,
               checks,
               request,
@@ -2334,6 +2373,7 @@ export const register: Register = (on, options) => {
         }
       case 'log': {
         const work = await workOf($, {
+          failures,
           vitals,
           checks,
           request,
@@ -2395,7 +2435,7 @@ export const register: Register = (on, options) => {
     const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
     const plan = await offeredPlan(plans)
     const now = await $.clock.now()
-    const agents = stripRows(await agentsNow($, { steps, pulses }, now))
+    const agents = stripRows(await agentsNow($, { steps, pulses, failures }, now))
     const waitingNow = background.current
     const isWaitingNow = isWaiting(waitingNow)
     const view = bandView(await readList(host), plan, activity, now, agents.length, isWaitingNow)
@@ -2456,6 +2496,7 @@ export const register: Register = (on, options) => {
 
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
+    await keepShownFailures($, failures)
     if (isBoardPaneId(e.id)) await notePaneChange($)
     if (isBoardPaneId(e.id) && (await openBoardPanes($)).length === 0) stopRedraw(redraw)
     if (isBoardPaneId(e.id)) await refreshStatus($, attention)
@@ -2520,13 +2561,20 @@ export const register: Register = (on, options) => {
       signals: await drawnSignals($, e.surface),
       palette: await shownPalette($, e.surface),
     }
-    const keeps = { vitals, checks, request, steps, pulses, breakdown, trend, log, background }
-    const work = await workOf($, keeps, e.props.view.agentId)
-    if (hasStripFailure(work.agents)) {
-      $.clock.after(0, () => {
-        void clearBandEnds($, 'isFailureSeen')
-      })
+    const keeps = {
+      failures,
+      vitals,
+      checks,
+      request,
+      steps,
+      pulses,
+      breakdown,
+      trend,
+      log,
+      background,
     }
+    const work = await workOf($, keeps, e.props.view.agentId)
+    noteShownFailures($, failures, work.agents)
     clearStatus($, attention)
     startRedraw($, redraw, attention)
     if (placement === 'widget') return drawGlance(elements, hostOf($), work)

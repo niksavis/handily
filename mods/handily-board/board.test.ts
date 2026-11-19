@@ -11468,9 +11468,14 @@ for (const surface of SURFACES) {
     )
 
     test(
-      `a failed row leaves the band once the board opens from the band and the this session tab shows, and the done row stays, on ${surface}`,
+      `a failed row leaves the band once the board opens from the band and the this session tab shows, the tab draw writes no state, a later failure stays, and the done row stays, on ${surface}`,
       withWorkitems,
       async ($, on) => {
+        const agentWrites: unknown[] = []
+        on('state.set', { plugin: PLUGIN, key: 'agents' }, (_$, e, next) => {
+          agentWrites.push(e.value)
+          return next(e)
+        })
         const { seen } = await keepScene($, on, surface)
         seen.agents.splice(0, seen.agents.length)
         const band = await mountStrip($, surface, 75)
@@ -11481,11 +11486,20 @@ for (const surface of SURFACES) {
         const again = await mountStrip($, surface, 75)
         await again.press({ key: 'band-board' })
         await again.unmount()
+        const written = agentWrites.length
         const pane = await mountTab($, surface, PANE, 'dock', 80)
         await seen.clock.settle()
+        expect(agentWrites.length).toBe(written)
         await pane.unmount()
+        await spawnFrom($, STRIP_TESTER)
+        seen.agents.push({ ...runningAgent(STRIP_TESTER, 'tester'), status: 'failed' })
+        await agentEnds($, STRIP_TESTER, '', 1_000)
         expect(await board($, 'close')).toBe('Board closed.')
-        expect(await stripLines($, surface, 75)).toEqual([ONE_AGENT_HEAD_75, KEPT_75[2]])
+        const lines = await stripLines($, surface, 75)
+        expect(lines.some((line) => line.includes('lane-b'))).toBe(false)
+        expect(lines.some((line) => line.includes('tester') && line.includes('failed'))).toBe(true)
+        expect(lines).toContain(KEPT_75[2])
+        expect(seen.logs.filter((line) => line.includes('state.set: denied'))).toEqual([])
       },
     )
 
