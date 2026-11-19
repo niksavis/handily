@@ -333,6 +333,7 @@ const RESULT_WORDS: Record<BoardResultVerb, string> = {
   answered: 'answered',
   chose: 'decided',
   rejected: 'rejected',
+  dropped: 'unneeded',
 }
 
 const CLOSED_WORD = 'closed'
@@ -373,6 +374,7 @@ function resultDetail(task: BoardTask): string | undefined {
     answered: 'answer',
     chose: 'chose',
     rejected: 'reason',
+    dropped: 'note',
   }
   return `${words[result.verb]} ${quoted(result.text)}`
 }

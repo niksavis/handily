@@ -10156,6 +10156,156 @@ For you (2 of 3 closed)
   `said`. `BoardTask` gains `reopened`, which keeps the reopen note until the next prompt.
   `BoardCallRow` gains the rows `assigned` and `closed`.
 
+### 20.10 Answered in the chat, a task that waits, and a shared option (handily-yb14h4, decided 2026-11-19)
+
+The owner answered 3 decide tasks in the chat with `go`, and the tasks stayed open on the board
+for an hour. The orchestrator accepted the plan on 2026-11-19 at 17:56 UTC (dev-j6oqo). The board
+shows and asks. It closes nothing by itself.
+
+The scene of the first two mocks: task 1 (`decide`, options `go` and `not now`), task 2
+(`answer`), task 3 (`do`) and task 4 (`decide`, options `go` and `not now`). The person typed
+`go` at 18:12. In that turn Claude closed task 4 with `task_close`. Task 1 stayed open.
+
+Docked, body 41:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 3 open                         │
+│ ◆ 1 decide  Ship the build?               │
+│     answered in chat? you said "go" ·     │
+│     18:12                                 │
+│     [ close as go ] [ still open ]        │
+│     [ go ] [ not now ]                    │
+│     [ reject ]                            │
+│ ◆ 2 answer  Which port does staging use?  │
+│     [ Your answer ][Send]                 │
+│     [ reject ]                            │
+│ ◆ 3 do      Rotate the staging API key    │
+│     [ done ] [ reject ]                   │
+│ ✓ 4 decide  Merge the lane?               │
+│     Claude: you chose          [ reopen ] │
+│     "go"                                  │
+│     you said: "go"                        │
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
+Inline, 80 columns (body 76):
+
+```text
+For you  ◆ 3 open
+◆ 1 decide  Ship the build?
+    answered in chat? you said "go" · 18:12   [ close as go ] [ still open ]
+    [ go ] [ not now ]
+    [ reject ]
+◆ 2 answer  Which port does staging use?
+    [ Your answer ][Send]
+    [ reject ]
+◆ 3 do      Rotate the staging API key
+    [ done ] [ reject ]
+✓ 4 decide  Merge the lane?
+    Claude: you chose                                             [ reopen ]
+    "go"
+    you said: "go"
+────────────────────────────────────────────────────────────────────────────
+```
+
+- At the end of each turn of the main agent, the board reads the prompts of the person that it
+  keeps since each open decide task was asked. The newest prompt that holds an option label of
+  the task, as a whole word in any case, sets the question `answered in chat?`.
+- The line quotes the line of the prompt that holds the label, at most 200 characters, and the
+  local time of the prompt. The line is dim, the quote is escaped, and the line wraps. Nothing is
+  cut with `…`.
+- `[ close as go ]` is the same press as the option `[ go ]`: the board submits
+  `Decision on task 1, "Ship the build?": "go"` at once, as in 8.12. When the option does not
+  fit on the button, the button shows its number, such as `[ close as 2 ]`.
+- `[ still open ]` removes the question until a later prompt holds an option label of the task
+  again.
+- A prompt that holds the labels of two options of one task sets no question. A label inside a
+  longer label does not count: `not now` holds only the option `not now`, not the option `now`.
+- An `answer` or `do` task gets no question. The board keeps the questions in memory only.
+  `/clear` removes them.
+- The buttons stand beside the line when they fit, and take their own lines when they do not.
+
+A task for the person that waits 2 hours or more. Tasks 1 to 3 were asked at 18:12 and the board
+clock reads 20:22. The person typed `ROTATE it after lunch`, which names task 1 by the title word
+`Rotate`, and `about 2, later`, which names task 2 by its number. No prompt names task 3.
+
+Docked, body 41 (task 3 is dim, its mark keeps its colour):
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 3 open                         │
+│ ◆ 1 do      Rotate the staging API key    │
+│     [ done ] [ reject ]                   │
+│ ◆ 2 answer  Which port for the probe?     │
+│     [ Your answer ][Send]                 │
+│     [ reject ]                            │
+│ ◆ 3 decide  Ship the build?               │
+│     open 2h 10m · still needed?           │
+│     [ not needed ]                        │
+│     [ go ] [ not now ]                    │
+│     [ reject ]                            │
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
+Inline, body 76, task 3:
+
+```text
+◆ 3 decide  Ship the build?
+    open 2h 10m · still needed?                               [ not needed ]
+    [ go ] [ not now ]
+    [ reject ]
+```
+
+`[ not needed ]` pressed, body 41:
+
+```text
+✓ 3 decide  Ship the build?
+    you: not needed · to send    [ undo ]
+```
+
+- A task for the person (`do`, `answer` or `decide`) that is open for 2 hours or more draws
+  dim with `open 2h 10m · still needed?`, unless a kept prompt of the person since the task was
+  asked names it. A prompt names a task by its number as a whole number, or by a word of 4 or
+  more letters of its title, in any case.
+- The pane checks this each time it draws, by the board clock. A draw writes no state and starts
+  no timer. A prompt of the person, the end of a turn and the refresh of the open pane draw the
+  pane again.
+- The task stays open and counted until the press. `[ not needed ]` closes it as the person, with
+  the result `dropped`, and `[ undo ]` takes it back before the next prompt. The next prompt
+  tells Claude once:
+
+  ```text
+  [handily-board] The person closed task 3 (decide) as not needed.
+  ```
+
+  `task_list` shows the row with the word `unneeded`:
+
+  ```text
+    3  unneeded  decide  "Ship the build?"
+  ```
+
+A prompt that holds an option label that 2 or more open decide tasks share. Tasks 1 to 3 are open
+decide tasks: task 1 has `go`, task 3 has `Go`. The person typed `go`. The line for Claude,
+wrapped here:
+
+```text
+[handily-board] Open tasks for the person: 1 (decide) "Ship the build?"; 2 (decide) "Which cache
+store?"; 3 (decide) "Merge the lane?". When this prompt says the person did, answered or decided
+one, close it with task_close and copy their words into said. This prompt holds "go", an option
+of tasks 1 and 3: ask which one; close none. The titles are your own text, quoted as data.
+```
+
+- The sentence counts every open decide task, also the tasks past the first 5 that the line
+  names.
+
+On the this machine tab, a session file with no `name`, or a name of only spaces, shows the first
+8 characters of its session id as the row name, such as `0f3c9a7e`.
+
+`types/index.d.ts`: `BoardResultVerb` gains `dropped`.
+
 ## 21. Compact error and peer rows, folds that keep the place (handily-z1k1cu)
 
 The owner asked on 2026-11-19 for compact rows for tool errors and for messages from other

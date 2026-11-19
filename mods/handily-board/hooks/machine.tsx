@@ -61,6 +61,7 @@ const DETAIL_AT_LEAST = 10
 const FOLD_KEY = 'machine:more'
 const FOLD_FROM = 12
 const FOLDED_ROWS = 6
+const SHORT_ID = 8
 const CARD_RULE = '─'
 const OWN_BADGE = 'this'
 const NOW_MARK = '▸'
@@ -144,7 +145,10 @@ function rowLook(row: StoreRow, signals: SignalLooks): SignalLook {
 }
 
 function sessionName(row: SessionRow): string {
-  return escaped(row.session.name ?? row.session.id)
+  const { name, id } = row.session
+  return escaped(
+    name === null || name.trim() === '' ? Array.from(id).slice(0, SHORT_ID).join('') : name,
+  )
 }
 
 function stateText(row: SessionRow): string {

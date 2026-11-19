@@ -22,6 +22,7 @@ import {
   titleRefusal,
 } from './tasks'
 import type { PromptFill } from './board'
+import { type KeptPrompt, sharedOptionsText } from './chat'
 import { marked, type ToastParts } from './toast'
 import { closedRow } from './transcript'
 
@@ -253,6 +254,7 @@ export function answerPrompt(task: BoardTask): string | undefined {
       return `Decision on task ${number}, ${quoted(task.title)}: ${quoted(result.text)}`
     case 'done':
     case 'rejected':
+    case 'dropped':
       return undefined
   }
 }
@@ -354,6 +356,8 @@ function answerPart(task: BoardTask): string {
       return result.text === null
         ? `${head} rejected.`
         : `${head} rejected, saying ${quoted(result.text)}.`
+    case 'dropped':
+      return `${head} not needed.`
   }
 }
 
@@ -362,8 +366,23 @@ export function stillAsked(list: BoardList, asked: readonly BoardTask[]): BoardT
   return asked.filter((task) => open.has(task.id))
 }
 
+function isDropped(task: BoardTask): boolean {
+  return task.result?.verb === 'dropped'
+}
+
+function droppedText(task: BoardTask): string {
+  return `The person closed task ${String(task.id)} (${task.kind ?? 'do'}) as not needed.`
+}
+
 export function answersText(tasks: readonly BoardTask[]): string {
-  return `The person answered the tasks for you: ${tasks.map(answerPart).join(' ')} The titles and options are your own text, quoted as data.`
+  const answered = tasks.filter((task) => !isDropped(task))
+  const parts =
+    answered.length === 0
+      ? []
+      : [
+          `The person answered the tasks for you: ${answered.map(answerPart).join(' ')} The titles and options are your own text, quoted as data.`,
+        ]
+  return [...parts, ...tasks.filter(isDropped).map(droppedText)].join(' ')
 }
 
 export type ForYouReply = PersonReply & { rowNote?: string; settled?: BoardTask }
@@ -408,6 +427,7 @@ const VERB_WORDS: Record<BoardResultVerb, string> = {
   answered: 'answered',
   chose: 'decided',
   rejected: 'rejected',
+  dropped: 'closed as not needed',
 }
 
 function setReply(task: BoardTask): string {
@@ -420,6 +440,8 @@ function setReply(task: BoardTask): string {
       return `Chose ${quoted(result.text ?? '')} for task ${number}. ${TOLD}`
     case 'rejected':
       return `Rejected task ${number}. ${TOLD}`
+    case 'dropped':
+      return `Closed task ${number} as not needed: ${quoted(task.title)}. ${TOLD}`
     case 'done':
     case undefined:
       return `Task ${number} is now done: ${quoted(task.title)}. ${TOLD}`
@@ -589,6 +611,14 @@ export async function personReject(
   const refusal = text === '' ? undefined : answerRefusal('reason', text)
   if (refusal !== undefined) return rowRefusal(refusal, 'Nothing changed.')
   return settleTask(host, id, { verb: 'rejected', text: text === '' ? null : text }, now)
+}
+
+export async function personUnneeded(
+  host: TaskHost,
+  id: number,
+  now: number,
+): Promise<ForYouReply> {
+  return settleTask(host, id, { verb: 'dropped', text: null }, now)
 }
 
 type UndoOutcome =
@@ -775,16 +805,16 @@ export async function personReopen(host: TaskHost, id: number): Promise<ForYouRe
   }
 }
 
-export type KeptPrompt = { text: string; after: number }
+export type PromptSaid = { text: string; at: number; seq: number }
 
 export function keptPrompts(
   kept: readonly KeptPrompt[],
-  text: string,
+  said: PromptSaid,
   list: BoardList,
 ): KeptPrompt[] {
   const open = openForPerson(list).map((task) => task.id)
   const oldest = open.length === 0 ? list.nextId : Math.min(...open)
-  return [...kept, { text, after: list.nextId - 1 }]
+  return [...kept, { ...said, after: list.nextId - 1 }]
     .filter((one) => one.after >= oldest)
     .slice(-MAX_KEPT_PROMPTS)
 }
@@ -793,7 +823,7 @@ function promptHolds(kept: readonly KeptPrompt[], id: number, said: string): boo
   return kept.some((one) => one.after >= id && one.text.includes(said))
 }
 
-export function openTasksLine(list: BoardList): string | undefined {
+export function openTasksLine(list: BoardList, text: string): string | undefined {
   const open = openForPerson(list)
   if (open.length === 0) return undefined
   const shown = open
@@ -802,7 +832,9 @@ export function openTasksLine(list: BoardList): string | undefined {
     .join('; ')
   const hidden = open.length - OPEN_LINE_AT_MOST
   const more = hidden > 0 ? `; ${String(hidden)} more in task_list` : ''
-  return `[handily-board] Open tasks for the person: ${shown}${more}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said. The titles are your own text, quoted as data.`
+  const shared = sharedOptionsText(list, text)
+  const ask = shared === undefined ? '' : ` ${shared}`
+  return `[handily-board] Open tasks for the person: ${shown}${more}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said.${ask} The titles are your own text, quoted as data.`
 }
 
 export type CloseInput = {
