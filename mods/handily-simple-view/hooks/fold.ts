@@ -1,29 +1,27 @@
 import type { RenderElement, RenderSurface } from 'claude-code'
-import type { SimpleViewFold } from '../types'
 import { erroredOutput, isRecord } from './output'
 import type { RowLook } from './row'
-import { shownLine } from './shown'
 
-export const OPEN_LINES = 20
 export const DRAWN_CHARACTERS_AT_MOST = 60_000
 const RESULT_INDENT = 2
-const RULE = '─'
 const LEADING_BLANK_LINES = /^(?:[ \t]*\r?\n)+/
-const FOLD_LABELS = ['more', 'less'] as const
+export const FOLD_LABELS = { folded: 'more', shown: 'shown' } as const
 const COPY_LABEL = 'copy'
 const BUTTON_FRAME_CELLS = 4
 const BUTTON_GAP = 1
 
+export type FoldLabel = keyof typeof FOLD_LABELS
+
+export const FOLD_BUTTON_CELLS =
+  Math.max(...Object.values(FOLD_LABELS).map((label) => label.length)) + BUTTON_FRAME_CELLS
+
 export const FOLD_BUTTONS_CELLS =
-  Math.max(...FOLD_LABELS.map((label) => label.length)) +
-  COPY_LABEL.length +
-  2 * BUTTON_FRAME_CELLS +
-  BUTTON_GAP
+  FOLD_BUTTON_CELLS + COPY_LABEL.length + BUTTON_FRAME_CELLS + BUTTON_GAP
 
 export type CallOutput = { text: string; lines: string[]; savedTo: string | null }
 
 export type FoldActions = {
-  fold: (next: SimpleViewFold) => void
+  press: () => void
   copy?: (surface: RenderSurface) => void
 }
 
@@ -38,13 +36,14 @@ function stdoutThenStderr(stdout: string, stderr: string): string {
   return `${stdout}${isBreakNeeded ? '\n' : ''}${stderr}`
 }
 
+export function erroredCallOutput(text: string): CallOutput | null {
+  const errored = erroredOutput(text)
+  const body = (errored === null ? text : errored.body).replace(LEADING_BLANK_LINES, '')
+  return outputOf(body, body, null)
+}
+
 export function callOutput(output: unknown, isErrored: boolean): CallOutput | null {
-  if (isErrored) {
-    const errored = erroredOutput(output)
-    if (errored === null) return null
-    const errorOutput = errored.body.replace(LEADING_BLANK_LINES, '')
-    return outputOf(errorOutput, errorOutput, null)
-  }
+  if (isErrored) return typeof output === 'string' ? erroredCallOutput(output) : null
   if (!isRecord(output) || typeof output.stdout !== 'string') return null
   const stderr = typeof output.stderr === 'string' ? output.stderr : ''
   const drawn = [output.stdout.trimEnd(), stderr.trimEnd()].filter((part) => part !== '').join('\n')
@@ -52,15 +51,15 @@ export function callOutput(output: unknown, isErrored: boolean): CallOutput | nu
   return outputOf(stdoutThenStderr(output.stdout, stderr), drawn, savedTo)
 }
 
+export function commandOutput(command: string): CallOutput {
+  return { text: command, lines: command.split(/\r?\n/), savedTo: null }
+}
+
 export function plural(count: number, word: string): string {
   return `${String(count)} ${word}${count === 1 ? '' : 's'}`
 }
 
-export function foldButtons(
-  look: RowLook,
-  fold: SimpleViewFold,
-  actions: FoldActions,
-): RenderElement {
+export function foldButtons(look: RowLook, label: FoldLabel, actions: FoldActions): RenderElement {
   const { Box, Button } = look.elements
   return Box({
     flexDirection: 'row',
@@ -68,10 +67,10 @@ export function foldButtons(
     children: [
       Button({
         key: 'fold',
-        label: fold === 'folded' ? FOLD_LABELS[0] : FOLD_LABELS[1],
-        dimColor: true,
+        label: FOLD_LABELS[label],
+        dimColor: label === 'folded',
         onPress: () => {
-          actions.fold(fold === 'folded' ? 'open' : 'folded')
+          actions.press()
         },
       }),
       actions.copy === undefined
@@ -88,77 +87,11 @@ export function foldButtons(
   })
 }
 
-function drawnLines(lines: readonly string[], fold: 'open' | 'all'): string[] {
-  if (fold === 'open') return lines.slice(0, OPEN_LINES).map(shownLine)
-  const drawn: string[] = []
-  let characters = 0
-  for (const line of lines) {
-    const shown = shownLine(line)
-    characters += shown.length + 1
-    if (characters > DRAWN_CHARACTERS_AT_MOST) break
-    drawn.push(shown)
-  }
-  return drawn
-}
-
-function noteLines(output: CallOutput, fold: 'open' | 'all', drawn: number): string[] {
-  const left = output.lines.length - drawn
-  const notes: string[] = []
-  if (fold === 'open' && left > 0) notes.push('…')
-  if (fold === 'all' && left > 0) {
-    notes.push(`… ${plural(left, 'more line')} not drawn. Copy takes all of them.`)
-  }
-  if (output.savedTo !== null) {
-    notes.push(`The full output is in ${shownLine(output.savedTo)}. Copy takes all of it.`)
-  }
-  return notes
-}
-
-export function outputBlock(
-  look: RowLook,
-  output: CallOutput,
-  fold: 'open' | 'all',
-  actions: FoldActions,
-): RenderElement {
-  const { Box, Text, Button } = look.elements
-  const drawn = drawnLines(output.lines, fold)
-  const textLine = (text: string, index: number, key: string) =>
-    Box({
-      key: `${key}-${String(index)}`,
-      children: Text({ dimColor: true, wrap: 'truncate-end', children: text === '' ? ' ' : text }),
-    })
-  const hasAllButton = fold === 'open' && output.lines.length > OPEN_LINES
-  const indent = look.hasToolMarker ? RESULT_INDENT : 0
-  const divider = (key: string) =>
-    Box({
-      key,
-      children: Text({
-        dimColor: true,
-        wrap: 'truncate-end',
-        children: RULE.repeat(Math.max(look.columns - indent, 1)),
-      }),
-    })
+export function hintLine(look: RowLook, text: string): RenderElement {
+  const { Box, Text } = look.elements
   return Box({
-    flexDirection: 'column',
-    paddingLeft: indent,
-    children: [
-      divider('opened-top'),
-      ...drawn.map((text, index) => textLine(text, index, 'line')),
-      ...noteLines(output, fold, drawn.length).map((text, index) => textLine(text, index, 'note')),
-      hasAllButton
-        ? Box({
-            key: 'all-lines',
-            children: Button({
-              key: 'all',
-              label: `all ${String(output.lines.length)} lines`,
-              dimColor: true,
-              onPress: () => {
-                actions.fold('all')
-              },
-            }),
-          })
-        : null,
-      divider('opened-bottom'),
-    ],
+    key: 'hint',
+    paddingLeft: look.hasToolMarker ? RESULT_INDENT : 0,
+    children: Text({ dimColor: true, wrap: 'truncate-end', children: text }),
   })
 }

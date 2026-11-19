@@ -223,13 +223,20 @@ type Piece = {
   cut: (rows: number) => Cut | null
 }
 
-type Cut = Drawing & { diagram?: string }
+type Cut = Drawing & { diagram?: string; rest: () => RenderElement | null }
 
 type Beside = { columns: number; at: (width: number) => Piece }
 
 type CutDiagram = { name: string; rows: number }
 
-type Preview = { shown: Drawing[]; cutDiagram: CutDiagram | null; hiddenFrom: number }
+type Preview = {
+  shown: Drawing[]
+  cutDiagram: CutDiagram | null
+  hiddenFrom: number
+  tail: Tail
+}
+
+type Tail = { continued: (() => RenderElement | null) | null; after: number }
 
 type Context = {
   elements: ReplyElements
@@ -273,17 +280,18 @@ export function plural(count: number, word: string): string {
   return `${String(count)} ${word}${count === 1 ? '' : 's'}`
 }
 
-function cutLine(line: string, columns: number): string {
+function keptPrefix(line: string, columns: number): string {
   const kept = cutToWidth(line, Math.max(columns - 1, 1))
   const space = kept.lastIndexOf(' ')
-  const word = space > kept.length / 2 ? kept.slice(0, space) : kept
-  return `${word.trimEnd()}${CUT_MARK}`
+  return space > kept.length / 2 ? kept.slice(0, space) : kept
 }
+
+type ItemCut = { element: RenderElement; rest: () => RenderElement | null }
 
 type ProseItem = {
   rows: number
   whole: () => RenderElement
-  cut: (rows: number) => RenderElement | null
+  cut: (rows: number) => ItemCut | null
 }
 
 function paint(context: Context, role: PaletteRole): Color {
@@ -383,6 +391,22 @@ function cutRuns(runs: readonly Run[], kept: number): Run[] {
   return [...cut, { text: CUT_MARK, mark: PLAIN_MARK }]
 }
 
+function restRuns(runs: readonly Run[], kept: number): Run[] {
+  const rest: Run[] = []
+  let skip = kept
+  for (const run of runs) {
+    if (skip >= run.text.length) {
+      skip -= run.text.length
+      continue
+    }
+    rest.push({ ...run, text: run.text.slice(skip) })
+    skip = 0
+  }
+  const [first, ...others] = rest
+  if (first === undefined) return []
+  return [{ ...first, text: first.text.trimStart() }, ...others]
+}
+
 function indentOf(context: Context, line: DrawnLine): string {
   return ' '.repeat(Math.min(line.indent, Math.floor(context.width / 2)))
 }
@@ -437,7 +461,13 @@ function linesItem(context: Context, lines: readonly RenderElement[], key: strin
   return {
     rows: lines.length,
     whole: () => column([...lines]),
-    cut: (budget) => (budget <= 0 ? null : column(lines.slice(0, budget))),
+    cut: (budget) =>
+      budget <= 0
+        ? null
+        : {
+            element: column(lines.slice(0, budget)),
+            rest: () => (budget >= lines.length ? null : column(lines.slice(budget))),
+          },
   }
 }
 
@@ -459,7 +489,14 @@ function framedItem(
   return {
     rows: body.length + edges,
     whole: () => column(body),
-    cut: (budget) => (budget <= edges ? null : column(body.slice(0, budget - edges))),
+    cut: (budget) => {
+      if (budget <= edges) return null
+      const shown = budget - edges
+      return {
+        element: column(body.slice(0, shown)),
+        rest: () => (shown >= body.length ? null : column(body.slice(shown))),
+      }
+    },
   }
 }
 
@@ -552,7 +589,13 @@ function barItem(
   return {
     rows: drawn.length,
     whole: () => column(drawn),
-    cut: (budget) => (budget <= 0 ? null : column(drawn.slice(0, budget))),
+    cut: (budget) =>
+      budget <= 0
+        ? null
+        : {
+            element: column(drawn.slice(0, budget)),
+            rest: () => (budget >= drawn.length ? null : column(drawn.slice(budget))),
+          },
   }
 }
 
@@ -636,9 +679,16 @@ function drawnItem(context: Context, line: DrawnLine, key: string): ProseItem {
     whole: () => drawnLineElement(context, line, line.runs, key),
     cut: (budget) => {
       if (budget <= 0) return null
-      const kept = cutLine(text, budget * room)
-      const runs = cutRuns(line.runs, kept.length - CUT_MARK.length)
-      return drawnLineElement(context, line, runs, key)
+      const kept = keptPrefix(text, budget * room).trimEnd().length
+      return {
+        element: drawnLineElement(context, line, cutRuns(line.runs, kept), key),
+        rest: () => {
+          const runs = restRuns(line.runs, kept)
+          if (runs.length === 0) return null
+          const marker = ' '.repeat(displayWidth(line.marker))
+          return drawnLineElement(context, { ...line, marker }, runs, `${key}-rest`)
+        },
+      }
     },
   }
 }
@@ -656,6 +706,7 @@ function markdownItem(context: Context, lines: readonly string[], key?: string):
     cut: (budget) => {
       const shown: string[] = []
       let used = 0
+      let rest: string[] = []
       for (const [index, line] of lines.entries()) {
         const needed = rows[index] ?? 1
         if (used + needed <= budget) {
@@ -663,10 +714,16 @@ function markdownItem(context: Context, lines: readonly string[], key?: string):
           used += needed
           continue
         }
-        if (budget > used) shown.push(cutLine(line, (budget - used) * context.width))
+        rest = lines.slice(index)
+        if (budget > used) {
+          const prefix = keptPrefix(line, (budget - used) * context.width)
+          shown.push(`${prefix.trimEnd()}${CUT_MARK}`)
+          rest = [line.slice(prefix.length).trimStart(), ...lines.slice(index + 1)]
+        }
         break
       }
-      return shown.length === 0 ? null : draw(shown)
+      if (shown.length === 0) return null
+      return { element: draw(shown), rest: () => (rest.length === 0 ? null : draw(rest)) }
     },
   }
 }
@@ -700,7 +757,7 @@ function spacedItem(context: Context, item: ProseItem): ProseItem {
     whole: () => spaced(item.whole()),
     cut: (budget) => {
       const cut = budget > 1 ? item.cut(budget - 1) : null
-      return cut === null ? null : spaced(cut)
+      return cut === null ? null : { element: spaced(cut.element), rest: cut.rest }
     },
   }
 }
@@ -729,20 +786,33 @@ function itemsPiece(context: Context, items: readonly ProseItem[]): Piece {
     cut: (budget) => {
       const shown: RenderElement[] = []
       let used = 0
-      for (const item of items) {
+      let rest: () => RenderElement[] = () => []
+      for (const [index, item] of items.entries()) {
         if (used + item.rows <= budget) {
           shown.push(item.whole())
           used += item.rows
           continue
         }
         const cut = item.cut(budget - used)
-        if (cut !== null) {
-          shown.push(cut)
+        const after = () => items.slice(index + 1).map((next) => next.whole())
+        if (cut === null) {
+          rest = () => items.slice(index).map((next) => next.whole())
+        } else {
+          shown.push(cut.element)
           used = budget
+          rest = () => [cut.rest(), ...after()].filter((element) => element !== null)
         }
         break
       }
-      return shown.length === 0 ? null : { element: column(shown), rows: used }
+      if (shown.length === 0) return null
+      return {
+        element: column(shown),
+        rows: used,
+        rest: () => {
+          const tail = rest()
+          return tail.length === 0 ? null : column(tail)
+        },
+      }
     },
   }
 }
@@ -754,8 +824,10 @@ function prosePiece(context: Context, prose: Prose): Piece {
       rows: item.rows,
       whole: item.whole,
       cut: (budget) => {
-        const element = item.cut(budget)
-        return element === null ? null : { element, rows: Math.min(budget, item.rows) }
+        const cut = item.cut(budget)
+        return cut === null
+          ? null
+          : { element: cut.element, rows: Math.min(budget, item.rows), rest: cut.rest }
       },
     }
   }
@@ -1011,11 +1083,6 @@ function tableRule(context: Context, text: string, key: string) {
   })
 }
 
-function ruleRow(context: Context, text: string, key: string) {
-  const { Box, Text } = context.elements
-  return Box({ key, children: Text({ dimColor: true, wrap: 'truncate-end', children: text }) })
-}
-
 function tableHead(look: TableLook): Head {
   return { kind: 'table', role: 'tableKind', detail: [plural(look.rows.length, 'row')] }
 }
@@ -1098,6 +1165,17 @@ function columnsPiece(
       return {
         element: column([...heading, rowsBox(drawnRows.slice(0, count)), ...closing]),
         rows: used,
+        rest: () => {
+          if (count >= drawnRows.length) return null
+          const rule =
+            linesBetweenRows > 0 ? [tableRule(context, rowRule, `rule-${String(count)}`)] : []
+          const rows = Box({
+            key: 'rows-rest',
+            flexDirection: 'column',
+            children: [...rule, ...ruled(drawnRows.slice(count))],
+          })
+          return Box({ key: `${key}-rest`, flexDirection: 'column', children: [rows, ...closing] })
+        },
       }
     },
   }
@@ -1198,7 +1276,19 @@ function blocksPiece(context: Context, table: Table, look: TableLook, key: strin
         used += needed
         count += 1
       }
-      return count === 0 ? null : { element: titled(blocks.slice(0, count)), rows: used }
+      if (count === 0) return null
+      return {
+        element: titled(blocks.slice(0, count)),
+        rows: used,
+        rest: () =>
+          count >= blocks.length
+            ? null
+            : Box({
+                key: `${key}-rest`,
+                flexDirection: 'column',
+                children: column(blocks.slice(count)),
+              }),
+      }
     },
   }
 }
@@ -1371,18 +1461,24 @@ type CodeLines = {
   wrap: { wrap?: 'truncate-end' }
 }
 
-function ownBody(context: Context, lines: readonly CodeToken[][], look: CodeLines, key: string) {
+function ownBody(
+  context: Context,
+  lines: readonly CodeToken[][],
+  look: CodeLines,
+  key: string,
+  from = 0,
+) {
   const { Box, Text } = context.elements
   return Box({
     key: `${key}-lines`,
     flexDirection: 'column',
     children: lines.map((tokens, index) => {
-      const lineKey = `${key}-line-${String(index + 1)}`
+      const lineKey = `${key}-line-${String(from + index + 1)}`
       const text = Text({
         children: tokens.length === 0 ? ' ' : tokens.map((token) => tokenSpan(context, token)),
       })
       if (look.gutter === 0) return Box({ key: lineKey, children: text })
-      const number = gutterNumber(index + 1, look.lineCount)
+      const number = gutterNumber(from + index + 1, look.lineCount)
       return Box({
         key: lineKey,
         flexDirection: 'row',
@@ -1405,15 +1501,16 @@ function codeBody(
   lines: readonly string[],
   look: CodeLines,
   key: string,
+  from = 0,
 ): RenderElement | null {
   if (lines.length === 0) return null
   const { drawing } = look
   if (isOwnDrawing(drawing)) {
-    return ownBody(context, drawing.lines.slice(0, lines.length), look, key)
+    return ownBody(context, drawing.lines.slice(from, from + lines.length), look, key, from)
   }
   const language =
     drawing.kind === 'engine' && LANGUAGE_TAG.test(fence.tag) ? { language: fence.tag } : {}
-  const gutter = look.gutter === 0 ? {} : { startLine: 1 }
+  const gutter = look.gutter === 0 ? {} : { startLine: from + 1 }
   return context.elements.Code({ source: lines.join('\n'), ...language, ...gutter, ...look.wrap })
 }
 
@@ -1524,7 +1621,16 @@ function fencePiece(
         count += 1
       }
       const hasFoot = count === shown.length && used + footRows <= budget
-      return { element: draw(count, hasFoot), rows: used + (hasFoot ? footRows : 0) }
+      return {
+        element: draw(count, hasFoot),
+        rows: used + (hasFoot ? footRows : 0),
+        rest: () => {
+          const body = codeBody(context, fence, shown.slice(count), look, `${key}-rest`, count)
+          const tailFoot = hasFoot ? null : foot
+          if (body === null && tailFoot === null) return null
+          return Box({ key: `${key}-rest`, flexDirection: 'column', children: [body, tailFoot] })
+        },
+      }
     },
   }
   return isCut ? notedPiece(context, cutNote(lines, context.width), piece, `${key}-cut`) : piece
@@ -1547,7 +1653,9 @@ function notedPiece(context: Context, note: string, piece: Piece, key: string): 
     whole: () => noted(piece.whole()),
     cut: (budget) => {
       const cut = piece.cut(budget - noteRows)
-      return cut === null ? null : { element: noted(cut.element), rows: noteRows + cut.rows }
+      return cut === null
+        ? null
+        : { element: noted(cut.element), rows: noteRows + cut.rows, rest: cut.rest }
     },
     ...(piece.isOpened === undefined ? {} : { isOpened: piece.isOpened }),
   }
@@ -1839,10 +1947,16 @@ function diagramPiece(context: Context, fence: Fence, drawing: DiagramDrawing, k
         lines: drawing.lines.slice(0, count),
         inked: drawing.inked.slice(0, count),
       }
+      const rest = {
+        ...drawing,
+        lines: drawing.lines.slice(count),
+        inked: drawing.inked.slice(count),
+      }
       return {
         element: column([title.element, drawingBody(context, first, key)]),
         rows: budget,
         diagram: drawing.plain,
+        rest: () => (rest.lines.length === 0 ? null : drawingBody(context, rest, `${key}-rest`)),
       }
     },
   }
@@ -1944,7 +2058,8 @@ type RowCell = { columns: number; piece: Piece }
 type ShownCell = { columns: number; element: RenderElement }
 
 function shownAt(piece: Piece, budget: number): Cut | null {
-  return piece.rows <= budget ? { element: piece.whole(), rows: piece.rows } : piece.cut(budget)
+  if (piece.rows > budget) return piece.cut(budget)
+  return { element: piece.whole(), rows: piece.rows, rest: () => null }
 }
 
 function cellsAt(cells: readonly RowCell[], budget: number): (Cut & ShownCell)[] | null {
@@ -1996,6 +2111,16 @@ function rowPiece(
         element: row(shown),
         rows: Math.max(...shown.map((cell) => cell.rows)),
         ...(diagram === undefined ? {} : { diagram }),
+        rest: () => {
+          const rests = shown.map((cell) => ({ columns: cell.columns, element: cell.rest() }))
+          if (rests.every((cell) => cell.element === null)) return null
+          return row(
+            rests.map((cell) => ({
+              columns: cell.columns,
+              element: cell.element ?? Box({}),
+            })),
+          )
+        },
       }
     },
   }
@@ -2036,16 +2161,17 @@ function foldedPreview(pieces: readonly Piece[]): Preview {
     if (budget <= 0) break
     if (piece.isOpened === true || (piece.diagram !== undefined && end <= PREVIEW_ROWS_AT_MOST)) {
       shown.push({ element: piece.whole(), rows: piece.rows + gap })
-      return { shown, cutDiagram: null, hiddenFrom }
+      return { shown, cutDiagram: null, hiddenFrom, tail: { continued: null, after: hiddenFrom } }
     }
     const cut = piece.cut(budget)
     if (cut === null) break
     shown.push({ element: cut.element, rows: cut.rows + gap })
     const cutDiagram =
       cut.diagram === undefined ? null : { name: cut.diagram, rows: piece.rows - cut.rows }
-    return { shown, cutDiagram, hiddenFrom }
+    return { shown, cutDiagram, hiddenFrom, tail: { continued: cut.rest, after: hiddenFrom } }
   }
-  return { shown, cutDiagram: null, hiddenFrom: shown.length }
+  const after = shown.length
+  return { shown, cutDiagram: null, hiddenFrom: after, tail: { continued: null, after } }
 }
 
 type KindCount = { text: string; role: ReplyRole }
@@ -2095,18 +2221,25 @@ function countLine(context: Context, text: string): RenderElement {
   })
 }
 
-type FoldLine = { fold: ReplyViewFold; text: string; hidden: string; kinds: readonly KindCount[] }
+type FoldLine = {
+  fold: ReplyViewFold
+  text: string
+  hidden: string
+  below: string
+  kinds: readonly KindCount[]
+}
 
 function foldRow(context: Context, line: FoldLine) {
   const { Box, Text } = context.elements
   const { fold, kinds } = line
-  const shown = fold === 'folded' ? line.hidden : context.marks.opened
+  const shown = fold === 'folded' ? line.hidden : line.below
   const actions = foldActions(fold, line.text)
   const together = buttonsTogether(context, actions)
-  const named = fold === 'folded' && kinds.length > 0
+  const named = kinds.length > 0
+  const widest = Math.max(displayWidth(line.hidden), displayWidth(line.below))
   const fitsBeside =
     context.columns >= KINDS_BESIDE_FROM_COLUMNS &&
-    displayWidth(shown) + BUTTONS_GAP + together.columns <= context.width
+    widest + BUTTONS_GAP + together.columns <= context.width
   const kindsList = (separated: boolean) =>
     Text({
       ...(separated ? { wrap: 'truncate-end' as const } : {}),
@@ -2182,6 +2315,24 @@ function withEdge(elements: ReplyElements, layout: ReplyLayout, body: RenderElem
   })
 }
 
+function tailColumn(
+  context: Context,
+  surface: RenderSurface,
+  pieces: readonly Piece[],
+  tail: Tail,
+): RenderElement {
+  const { Box } = context.elements
+  const after = pieces.slice(tail.after).map((piece) => piece.whole())
+  const continued = tail.continued?.() ?? null
+  const blocks = continued === null ? after : [continued, ...after]
+  return Box({
+    key: 'tail',
+    flexDirection: 'column',
+    ...(continued === null && after.length > 0 ? { marginTop: 1 } : {}),
+    children: blocksColumn(context.elements, surface, blocks, 'tail-blocks'),
+  })
+}
+
 export function replyTree(
   elements: ReplyElements,
   text: string,
@@ -2218,27 +2369,25 @@ export function replyTree(
   const isEngineReply = layout.surface !== PROSE_SURFACE && blocks.every(isProse)
   if (blocks.length === 0 || (!isLong && isEngineReply)) return null
   const { Box } = elements
-  const shown =
-    isLong && fold === 'folded'
-      ? preview.shown
-      : pieces.map((piece) => ({ element: piece.whole(), rows: piece.rows }))
+  const shown = isLong
+    ? preview.shown
+    : pieces.map((piece) => ({ element: piece.whole(), rows: piece.rows }))
   const hidden = hiddenText(context.marks.folded, total - previewRows, preview?.cutDiagram ?? null)
   const kinds = kindCounts(
     pieces.slice(preview?.hiddenFrom ?? pieces.length).flatMap((piece) => piece.kinds ?? []),
   )
   const isOpened = isLong && fold === 'open'
-  const divider = (key: string) => (isOpened ? ruleRow(context, RULE.repeat(width), key) : null)
+  const below = hiddenText(context.marks.opened, total - previewRows, preview?.cutDiagram ?? null)
   const body = Box({
     flexDirection: 'column',
     children: [
-      divider('opened-top'),
       blocksColumn(
         elements,
         layout.surface,
         shown.map((drawing) => drawing.element),
       ),
-      divider('opened-bottom'),
-      isLong ? foldRow(context, { fold, text, hidden, kinds }) : null,
+      isLong ? foldRow(context, { fold, text, hidden, below, kinds }) : null,
+      isOpened ? tailColumn(context, layout.surface, pieces, preview.tail) : null,
     ],
   })
   return withEdge(elements, layout, body)

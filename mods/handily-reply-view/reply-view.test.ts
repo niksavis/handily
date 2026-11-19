@@ -7,7 +7,7 @@ import type {
   SessionMessage,
   UiCopyResult,
 } from 'claude-code'
-import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
+import { describe, expect, mock, test, type Engine, type Plugin } from 'claude-code/testing'
 import type { ToastParts } from './hooks/toast'
 import { displayWidth, graphemesOf } from './hooks/width'
 import { parseMermaid, type Refusal, type SequenceDiagram } from './hooks/mermaid'
@@ -546,27 +546,31 @@ describe('long reply', () => {
     )
   }
 
-  viewTest(
-    'more shows the whole reply between two dim divider lines and less folds it again without them',
-    async (_world, $) => {
-      const ui = await mountReply($, reply(LONG_REPLY))
-      await ui.press({ key: 'fold' })
-      expect(await sketchOf(ui)).toEqual([
-        `● ${DIVIDER}`,
-        ...highlightedLines(1, 54),
-        `  ${DIVIDER}`,
-        edges('  ~▾~', OPEN_BUTTONS),
-      ])
-      await ui.press({ key: 'fold' })
-      const folded = await sketchOf(ui)
-      expect(folded[0]).toBe('● Line =1=')
-      expect(folded.some((line) => line.includes(DIVIDER))).toBe(false)
-      expect(await ui.find({ key: 'opened-top' })).toBeUndefined()
-      expect(await ui.find({ key: 'opened-bottom' })).toBeUndefined()
-      expect(folded.at(-1)).toBe(edges('  ~▸ 24 more lines~', FOLD_BUTTONS))
-      await ui.unmount()
-    },
-  )
+  for (const surface of SURFACES) {
+    viewTest(
+      `more keeps the preview and the pressed button at their lines and draws the hidden lines under the fold row, with no rule, and less folds it again on ${surface}`,
+      async (_world, $) => {
+        const ui = await mountReply($, reply(LONG_REPLY), surface)
+        const folded = await sketchOf(ui)
+        await ui.press({ key: 'fold' })
+        const opened = await sketchOf(ui)
+        const lead = surface === 'terminal' ? '  ' : ''
+        expect(opened.slice(0, 30)).toEqual(folded.slice(0, 30))
+        expect(folded[30]).toBe(edges(`${lead}~▸ 24 more lines~`, FOLD_BUTTONS))
+        expect(opened[30]).toBe(edges(`${lead}~▾ 24 more lines~`, OPEN_BUTTONS))
+        expect(opened.slice(31)).toEqual(
+          surface === 'terminal'
+            ? highlightedLines(31, 54)
+            : shownLines(31, 54).map((line) => line.trim()),
+        )
+        expect(opened.some((line) => line.includes(DIVIDER))).toBe(false)
+        expect(await ui.find({ key: 'opened-top' })).toBeUndefined()
+        await ui.press({ key: 'fold' })
+        expect(await sketchOf(ui)).toEqual(folded)
+        await ui.unmount()
+      },
+    )
+  }
 
   viewTest('copy copies the whole reply as markdown', async (world, $) => {
     const ui = await mountReply($, reply(LONG_REPLY))
@@ -586,13 +590,13 @@ describe('long reply', () => {
       const ui = await mountReply($, reply(text))
       await ui.press({ key: 'fold' })
       const drawn = await sketchOf(ui)
-      expect(drawn.slice(-5)).toEqual([
+      expect(drawn.slice(-3)).toEqual([
         `  ${headSketch('sh', 'code', COLUMNS - 2 - 8 - 2)}  [ copy ]`,
         '  ^*npm*^ ci',
         '  ^*npm*^ test',
-        `  ${DIVIDER}`,
-        edges('  ~▾~', OPEN_BUTTONS),
       ])
+      expect(drawn[30]?.startsWith('  ~▾ ')).toBe(true)
+      expect(drawn[30]?.endsWith(OPEN_BUTTONS)).toBe(true)
       await ui.press({ key: 'block-1-copy' })
       await ui.press({ key: 'copy-reply' })
       expect(world.copies).toEqual(['npm ci\nnpm test', text])
@@ -724,7 +728,7 @@ describe('long reply', () => {
   viewTest('shows hidden characters in the reply as escapes', async (_world, $) => {
     const ui = await mountReply($, reply(`${LONG_REPLY}\u200b\u0007`))
     await ui.press({ key: 'fold' })
-    expect((await sketchOf(ui)).at(-3)).toBe('  Line 54\\u200b\\u0007')
+    expect((await sketchOf(ui)).at(-1)).toBe('  Line 54\\u200b\\u0007')
     await ui.unmount()
   })
 })
@@ -1632,7 +1636,6 @@ const OTHER_ROWS: readonly [string, Partial<RenderPropsOf['UserMessage']>][] = [
   ],
   ['a message from another agent', { origin: { kind: 'unclassified' }, from: { name: 'Explore' } }],
   ['a message from a teammate', { origin: { kind: 'unclassified' }, from: { name: 'Ana' } }],
-  ['a message from another session', { origin: { kind: 'peer' }, from: { name: 'release' } }],
   [
     'a message from a channel',
     { origin: { kind: 'channel', server: 'slack' }, from: { name: 'Bo' } },
@@ -4818,19 +4821,23 @@ describe('a very narrow reply', () => {
     }
 
     viewTest(
-      `in a reply of 30 columns the open fold row puts less and copy reply under its mark on ${surface}`,
+      `in a reply of 30 columns the open fold row puts less and copy reply under its count at the lines of more on ${surface}`,
       async (_world, $) => {
         const columns = screenColumns(surface, 30)
         const ui = await mountReply($, reply(LONG_REPLY), surface, columns)
+        const folded = await sketchOf(ui, columns)
+        const at = folded.findIndex((line) => line.includes('▸'))
         await ui.press({ key: 'fold' })
         const opened = await sketchOf(ui, columns)
-        expect(opened.slice(-2)).toEqual(
+        expect(opened.slice(0, at)).toEqual(folded.slice(0, at))
+        expect(opened.slice(at, at + 2)).toEqual(
           onSurface(surface, [
             '',
-            '~▾~',
+            '~▾ 24 more lines~',
             `${' '.repeat(30 - displayWidth(OPEN_BUTTONS))}${OPEN_BUTTONS}`,
           ]).slice(1),
         )
+        expect(folded[at + 1]).toBe(opened[at + 1]?.replace('less', 'more'))
         expect(widerThan(opened, columns)).toEqual([])
         await ui.unmount()
       },
@@ -4851,11 +4858,14 @@ describe('a very narrow reply', () => {
           ]).slice(1),
         )
         expect(widerThan(folded, columns)).toEqual([])
+        const at = folded.findIndex((line) => line.includes('▸'))
         await ui.press({ key: 'fold' })
         const opened = await sketchOf(ui, columns)
-        expect(opened.slice(-2)).toEqual(
+        expect(opened.slice(0, at)).toEqual(folded.slice(0, at))
+        expect(opened.slice(at, at + 3)).toEqual(
           onSurface(surface, [
             '',
+            '~▾ 24 more lines~',
             `${' '.repeat(10)}[ less ]`,
             `${' '.repeat(4)}[ copy reply ]`,
           ]).slice(1),
@@ -6416,4 +6426,266 @@ describe('prompt rail: review repairs', () => {
     expect(lines).toContain('▸ 31 10:32 Prompt 31              0 tools')
     expect(lines).toHaveLength(3 + 140 + 3)
   })
+})
+
+const PEER_LONG =
+  'coordinator: the push window ended at 14:00 UTC. Nothing was landed: the lane carries a tracker change.\nThe next window opens at 16:00 UTC.\nAsk before you push.'
+
+function peer(text: string, name: string, extra: Partial<RenderPropsOf['UserMessage']> = {}) {
+  return { text, origin: { kind: 'peer' as const }, from: { name }, isExpanded: false, ...extra }
+}
+
+async function mountPeer(
+  $: Engine,
+  props: RenderPropsOf['UserMessage'],
+  surface: Surface,
+  viewport: { columns: number; rows: number; isFullscreen?: boolean },
+) {
+  return $.ui.mount({
+    plugin: 'handily-reply-view',
+    surface,
+    component: 'UserMessage',
+    props,
+    requestId: 'peer-1',
+    viewport,
+  })
+}
+
+async function mountMessagePane($: Engine, surface: Surface) {
+  return $.ui.mount({
+    plugin: 'handily-reply-view',
+    surface,
+    component: 'Pane',
+    requestId: 'message',
+    props: { ...paneProps('dock', 60), title: 'message' },
+    viewport: { columns: 150, rows: 40, isFullscreen: true },
+  })
+}
+
+async function peerLines(ui: {
+  findAll: (query: { type: string }) => Promise<{ key?: string; text: string }[]>
+}) {
+  const boxes = await ui.findAll({ type: 'Box' })
+  return boxes.filter((box) => box.key?.startsWith('message-') === true).map((box) => box.text)
+}
+
+const BOARD_PANE_OWNER: Plugin = { name: 'probe-board', register() {} }
+const PEER_DOCKED = { columns: 83, rows: 40, isFullscreen: true } as const
+
+function peerDockTest(name: string, body: RailBody): void {
+  test(name, { plugins: [BOARD_PANE_OWNER] }, async ($, on) => {
+    const world = railBeneath(on)
+    const clock = mock.clock(on, { now: RAIL_START })
+    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    await body(world, $, clock)
+  })
+}
+
+async function boardPane(
+  $: Engine,
+  placement: 'dock' | 'inline',
+  columns: number,
+  surface: Surface,
+): Promise<boolean> {
+  const ui = await $.ui.mount({
+    plugin: 'probe-board',
+    surface,
+    component: 'Pane',
+    requestId: 'board',
+    props: { ...paneProps(placement, 60), title: 'board' },
+    viewport: { columns, rows: 40, isFullscreen: true },
+  })
+  const keeps = await ui.keepsBeneath()
+  await ui.unmount()
+  return keeps
+}
+
+describe('peer messages', () => {
+  for (const surface of SURFACES) {
+    railTest(
+      'a short peer message draws one row with the sender and the text',
+      surface,
+      async (_world, $) => {
+        const ui = await mountPeer($, peer('release: lane-a1 is merged.', 'release'), surface, {
+          columns: 120,
+          rows: 40,
+        })
+        expect(await peerLines(ui)).toEqual(['> from release  lane-a1 is merged.'])
+        expect(await ui.findAll({ type: 'Button' })).toEqual([])
+        await ui.unmount()
+      },
+    )
+
+    railTest(
+      'a long peer message draws one row with the sender, the first words, the line count and more, and drops the leading name',
+      surface,
+      async (_world, $) => {
+        const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, {
+          columns: 80,
+          rows: 40,
+        })
+        const [row] = await peerLines(ui)
+        expect(row?.startsWith('> from coordinator  the push window ended at 14:00 UTC.')).toBe(
+          true,
+        )
+        expect(row).not.toContain('coordinator: ')
+        expect(row?.endsWith('…  3 linesmore')).toBe(true)
+        expect(displayWidth(row?.replace(/more$/, '') ?? '')).toBeLessThanOrEqual(
+          80 - '[ shown ]'.length,
+        )
+        expect((await ui.find({ key: 'message-fold' }))?.props.label).toBe('more')
+        await ui.unmount()
+      },
+    )
+
+    railTest(
+      'a long peer message at 40 columns draws the count on the row and the first words under it',
+      surface,
+      async (_world, $) => {
+        const name = 'a-very-long-session-name'
+        const text = PEER_LONG.replace('coordinator: ', `${name}: `)
+        const ui = await mountPeer($, peer(text, name), surface, { columns: 40, rows: 40 })
+        expect(await peerLines(ui)).toEqual([
+          '> from a-very-long… · 3 linesmore',
+          'the push window ended at 14:00 UTC. N…',
+        ])
+        await ui.unmount()
+      },
+    )
+
+    railTest(
+      'the ctrl+o view draws a peer message as the engine draws it',
+      surface,
+      async (_world, $) => {
+        const ui = await mountPeer(
+          $,
+          peer(PEER_LONG, 'coordinator', { isExpanded: true }),
+          surface,
+          {
+            columns: 120,
+            rows: 40,
+          },
+        )
+        expectEngineRow(await ui.drawn())
+        await ui.unmount()
+      },
+    )
+
+    railTest(
+      'more at 150 columns in fullscreen opens the message tab once and the row keeps its height and reads shown',
+      surface,
+      async (world, $) => {
+        const wide = { columns: 150, rows: 40, isFullscreen: true }
+        const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, wide)
+        const before = await peerLines(ui)
+        await ui.press({ key: 'message-fold' })
+        expect(await peerLines(ui)).toHaveLength(before.length)
+        expect((await ui.find({ key: 'message-fold' }))?.props.label).toBe('shown')
+        await ui.press({ key: 'message-fold' })
+        expect(world.opens).toEqual([{ id: 'message', focus: false }])
+        await ui.unmount()
+        const pane = await mountMessagePane($, surface)
+        expect(await peerLines(pane)).toEqual([
+          'from coordinator · peer session',
+          '─'.repeat(60),
+          'the push window ended at 14:00 UTC. Nothing was landed: the lane carries a tracker change.',
+          'The next window opens at 16:00 UTC.',
+          'Ask before you push.',
+          '─'.repeat(60),
+          'copy',
+        ])
+        await pane.press({ key: 'message-copy' })
+        expect(world.copies).toEqual([PEER_LONG.slice('coordinator: '.length)])
+        await pane.unmount()
+      },
+    )
+
+    railTest(
+      'more below 110 columns opens no pane and names ctrl+o under the row until it is pressed again',
+      surface,
+      async (world, $) => {
+        const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, {
+          columns: 100,
+          rows: 40,
+          isFullscreen: true,
+        })
+        await ui.press({ key: 'message-fold' })
+        expect(world.opens).toEqual([])
+        expect((await peerLines(ui)).at(-1)).toBe('ctrl+o shows the whole message.')
+        expect((await ui.find({ key: 'message-fold' }))?.props.label).toBe('shown')
+        await ui.press({ key: 'message-fold' })
+        expect(await peerLines(ui)).toHaveLength(1)
+        await ui.unmount()
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    peerDockTest(
+      `with the board docked at 83 transcript columns more opens the message tab and the row keeps its height on ${surface}`,
+      async (world, $) => {
+        expect(await boardPane($, 'dock', 83, surface)).toBe(true)
+        const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, PEER_DOCKED)
+        const before = await peerLines(ui)
+        await ui.press({ key: 'message-fold' })
+        expect(world.opens).toEqual([{ id: 'message', focus: false }])
+        expect(await peerLines(ui)).toHaveLength(before.length)
+        await ui.unmount()
+      },
+    )
+
+    peerDockTest(
+      `after the transcript columns change from those of the dock more names ctrl+o on ${surface}`,
+      async (world, $) => {
+        await boardPane($, 'dock', 83, surface)
+        const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, {
+          ...PEER_DOCKED,
+          columns: 90,
+        })
+        await ui.press({ key: 'message-fold' })
+        expect(world.opens).toEqual([])
+        expect((await peerLines(ui)).at(-1)).toBe('ctrl+o shows the whole message.')
+        await ui.unmount()
+      },
+    )
+
+    peerDockTest(
+      `an inline pane of another plugin does not count as a dock for a message row on ${surface}`,
+      async (world, $) => {
+        expect(await boardPane($, 'inline', 83, surface)).toBe(true)
+        const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, PEER_DOCKED)
+        await ui.press({ key: 'message-fold' })
+        expect(world.opens).toEqual([])
+        await ui.unmount()
+      },
+    )
+  }
+
+  railTest('the sender name is cut at 20 cells', 'terminal', async (_world, $) => {
+    const ui = await mountPeer(
+      $,
+      peer('done', 'a-very-long-session-name-for-the-lane'),
+      'terminal',
+      {
+        columns: 120,
+        rows: 40,
+      },
+    )
+    expect(await peerLines(ui)).toEqual(['> from a-very-long-session…  done'])
+    await ui.unmount()
+  })
+
+  railTest(
+    'a peer message draws as the engine draws it while /replies is off',
+    'terminal',
+    async (_world, $) => {
+      await railCommand($, '')
+      const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), 'terminal', {
+        columns: 120,
+        rows: 40,
+      })
+      expectEngineRow(await ui.drawn())
+      await ui.unmount()
+    },
+  )
 })

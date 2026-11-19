@@ -10,7 +10,9 @@ export type SimpleViewTiming = {
 
 export type SimpleViewDiffGap = 'unreported' | 'untracked'
 
-export type SimpleViewFold = 'folded' | 'open' | 'all'
+export type SimpleViewFold = 'folded' | 'hinted'
+
+export type SimpleViewViewing = { tool_use_id: string; version: number }
 
 export type SimpleViewCall = {
   generation: number
@@ -35,6 +37,7 @@ declare module 'claude-code' {
       count: number
       calls: StateFamily<SimpleViewCall>
       folds: StateFamily<SimpleViewFold>
+      viewing: SimpleViewViewing
       ready: { root: string }
       glyphs: SimpleViewGlyphs
     }

@@ -55,17 +55,22 @@ buttons at the right edge:
                      [ more ] [ copy reply ]
 ```
 
-- `more` shows the whole reply between two dim divider lines, with `less` and `copy reply` under
-  the lower line. The lines show where the opened reply starts and ends, which is the text that
-  `copy reply` takes. `less` folds it again and removes both lines:
+- `more` keeps the place on the screen. The preview stays as it was, no rule is added above it,
+  and the fold row stays at its line with `less` where `more` was. The fold row turns `▸` into
+  `▾`, and the rest of the reply draws under it. A block that the preview cut goes on under
+  the fold row from the line where the preview cut it: a paragraph from the next word, a table
+  from the next row, a code block from the next line with its line numbers, a diagram from its
+  next row. No title and no button repeats. `less` folds the rest again:
 
 ```text
-● ──────────────────────────────────────────────────────────────────────────────
-  The release is done. task-pane 0.3.0 and agent-board 0.2.0 are published, and every gate passed.
+● The release is done. task-pane 0.3.0 and agent-board 0.2.0 are published, and every gate passed.
+
+  - Step 1 of the release ran without a warning.
   …
-  - Step 42 of the release ran without a warning.
-  ──────────────────────────────────────────────────────────────────────────────
-  ▾                                                         [ less ] [ copy reply ]
+  - Step 27 of the release ran without a warning.
+  ▾ 15 more lines · 1 table · 1 sh block · 1 flowchart            [ less ] [ copy reply ]
+  - Step 28 of the release ran without a warning.
+  …
 ```
 
 - `copy reply` copies the whole reply as markdown, as Claude wrote it. Its label differs from the
@@ -2394,6 +2399,36 @@ when it does not fit:
 The syntax follows the [architecture page](https://mermaid.js.org/syntax/architecture.html) of
 Mermaid 12.3.0.
 
+## A message from another session
+
+A message from another session (`origin.kind` `peer`) draws as one row: the sender, the first
+words of the message and its line count, with `more`. A leading `sender:` in the body is left
+out, so the name shows once. A message of one line that fits draws whole, with no count and no
+button.
+
+```text
+120 columns
+> from release  lane-a1 is merged.
+> from coordinator  the push window ended at 14:00 UTC. Nothing was landed: the lane carries a trac…  3 lines   [ more ]
+
+40 columns
+> from a-very-long… · 3 lines   [ more ]
+  the push window ended at 14:00 UTC. N…
+```
+
+Colours: `>` and `from` dim, the sender bold in `suggestion`, the count and the button dim.
+
+- The sender is cut at 20 cells, and at 12 cells under 60 columns.
+- In fullscreen from 110 columns, or while the `message` tab is open, `more` shows the whole
+  message in the `message` tab with a `copy` button (key `c`), and reads `shown`. The row keeps
+  its height.
+- Below 110 columns no pane opens. The row adds one dim line, `ctrl+o shows the whole message.`,
+  and a second press removes it.
+- ctrl+o still shows the whole message: in the ctrl+o view the engine draws the row
+  (`isExpanded` true).
+- Every other message row, such as a teammate, a channel or a task notification, draws as Claude
+  Code draws it.
+
 ## A prompt that you type
 
 The `promptStyle` setting picks how a prompt that you type draws: `rule` (the default), `bar` or
@@ -2759,7 +2794,19 @@ chart draws under the block before it.
   columns of a table after it.
 - The widest cell of each column sets the layout of the table: aligned, wrapped or in blocks.
 - A press on `more` or `less` keeps one small value for that reply in `$.state`, so the reply
-  stays open or folded when it draws again.
+  stays open or folded when it draws again. A press on `more` of a message row below 110
+  columns keeps one small value for that row, and the `message` tab keeps the id of the message
+  that it shows.
+- The fold keeps the place of the pressed button only while the engine keeps the place of the
+  reply. At the bottom of a fullscreen transcript the engine keeps its bottom edge, so the rest of
+  a reply that opens under the fold row pushes the reply up. Scrolled up, the engine keeps its
+  top edge, and the button stays at its line (probe P2 of handily-z1k1cu, Claude Code 2.1.328).
+- With another pane already docked, such as the board, the transcript is narrower, for example
+  83 columns at 150. The mod reads every `Pane` render, of any plugin, and keeps in memory the
+  transcript columns seen while a pane renders docked. In fullscreen a press at those same
+  columns opens the `message` tab, which joins the dock. A resize or a closed dock changes the
+  columns, and the press then adds the ctrl+o line. That the `Pane` render carries the
+  transcript columns is not measured.
 - Each prompt that you type keeps its time in `$.state` for this session.
 - A `subgraph` inside a `subgraph`, an edge to a `subgraph`, a sequence diagram with `box`,
   `create` or `destroy`, a state diagram with nested states, a fork, a join, a choice or a note,

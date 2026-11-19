@@ -10,6 +10,10 @@ export type ReplyViewCopyMark = { key: string; isCopied: boolean }
 
 export type ReplyViewHeld = { lines: number; tables: number }
 
+export type ReplyViewMessageFold = 'folded' | 'hinted'
+
+export type ReplyViewViewedMessage = { requestId: string; version: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'handily-reply-view': {
@@ -26,6 +30,8 @@ declare module 'claude-code' {
       palette: ReplyViewPalette
       copied: ReplyViewCopyMark
       held: ReplyViewHeld | null
+      messageFolds: StateFamily<ReplyViewMessageFold>
+      viewedMessage: ReplyViewViewedMessage
     }
   }
 }

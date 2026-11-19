@@ -76,6 +76,16 @@ import {
 } from './rail'
 import { keepChangedPaletteSetting, keepPaletteSetting, shownPalette } from './palette-setting'
 import { drawRail, railSeatOf } from './rail-pane'
+import {
+  MESSAGE_PANE,
+  drawMessagePane,
+  newMessageSite,
+  peerMessage,
+  peerRow,
+  pressMessage,
+  type MessagePort,
+  type MessageSite,
+} from './peer'
 import { DEFAULT_TABLE_STYLE, isTableStyle, TABLE_STYLES, type TableStyle } from './table'
 import { timeFormatOf } from './turn-time'
 import { keepChangedGlyphSetting, keepGlyphSetting, paneGlyphs, showGlyphToast } from './toasting'
@@ -86,6 +96,7 @@ const RAIL_VERSION = { plugin: 'handily-reply-view', key: 'railVersion' } as con
 const HINTS = { plugin: 'handily-reply-view', key: 'hints' } as const
 const COPIED = { plugin: 'handily-reply-view', key: 'copied' } as const
 const HELD = { plugin: 'handily-reply-view', key: 'held' } as const
+const VIEWED_MESSAGE = { plugin: 'handily-reply-view', key: 'viewedMessage' } as const
 const HINTS_ARGUMENT = 'hints'
 const COPY_ARGUMENT = 'copy'
 const REPLY_WORD = 'reply'
@@ -494,6 +505,84 @@ function holdPort($: EngineInterface): HoldPort {
   }
 }
 
+function messagePortOf($: EngineInterface): MessagePort {
+  return {
+    panes: () => $.ui.panes(),
+    open: () => $.ui.open({ ...MESSAGE_PANE }),
+    show: async (requestId) => {
+      const { value } = await $.state.get(VIEWED_MESSAGE)
+      await $.state.set(VIEWED_MESSAGE, { requestId, version: (value?.version ?? 0) + 1 })
+    },
+    hint: async (requestId, isHinted) => {
+      await $.state.set(
+        { plugin: 'handily-reply-view', key: 'messageFolds', id: requestId },
+        isHinted ? 'hinted' : 'folded',
+      )
+    },
+    isHinted: async (requestId) => {
+      const { value } = await $.state.get({
+        plugin: 'handily-reply-view',
+        key: 'messageFolds',
+        id: requestId,
+      })
+      return value === 'hinted'
+    },
+  }
+}
+
+type PeerProps = {
+  text: string
+  isExpanded: boolean
+  origin: { kind: string }
+  from?: { name: string }
+}
+
+function peerName(props: PeerProps): string | null {
+  if (props.origin.kind !== 'peer' || props.isExpanded) return null
+  return props.from?.name ?? null
+}
+
+async function peerDrawing(
+  $: EngineInterface,
+  e: { requestId: string; viewport?: RenderViewport; props: PeerProps },
+  site: MessageSite,
+  elements: Parameters<typeof peerRow>[0],
+): Promise<RenderElement | null> {
+  const name = peerName(e.props)
+  if (name === null) return null
+  const message = peerMessage(e.requestId, name, e.props.text)
+  if (message.lines.length === 0) return null
+  const { value: viewed } = await $.state.get(VIEWED_MESSAGE)
+  const { value: fold = 'folded' } = await $.state.get({
+    plugin: 'handily-reply-view',
+    key: 'messageFolds',
+    id: e.requestId,
+  })
+  const viewport = e.viewport
+  return peerRow(
+    elements,
+    message,
+    {
+      columns: e.viewport?.columns ?? DEFAULT_COLUMNS,
+      isShown: viewed?.requestId === e.requestId,
+      isHinted: fold === 'hinted',
+    },
+    () => {
+      const seat =
+        viewport === undefined
+          ? undefined
+          : {
+              columns: viewport.columns,
+              isFullscreen: viewport.isFullscreen,
+              dockColumns: site.dockColumns,
+            }
+      void pressMessage(messagePortOf($), site, message, seat).catch((error: unknown) => {
+        logFailure($, `message ${e.requestId} did not open`, error)
+      })
+    },
+  )
+}
+
 type PromptSite = { rail: Rail; style: PromptStyle; defaultMode: ReplyViewMode }
 
 async function promptLookOf(
@@ -543,6 +632,7 @@ export const register: Register = (on, options) => {
   }
   let lastReply: string | undefined
   const railSite: RailSite = { rail: newRail(), version: 0 }
+  const messageSite = newMessageSite()
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -605,6 +695,15 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     lastReply = undefined
+    messageSite.message = null
+    try {
+      const { value } = await $.state.get(VIEWED_MESSAGE)
+      if (value !== undefined && value.requestId !== '') {
+        await $.state.set(VIEWED_MESSAGE, { requestId: '', version: value.version + 1 })
+      }
+    } catch (error) {
+      logFailure($, 'the message tab keeps the message of the ended session', error)
+    }
     clearRail(railSite.rail)
     await redrawRail($, railSite)
     return next(e)
@@ -651,6 +750,13 @@ export const register: Register = (on, options) => {
       await redrawRail($, railSite)
     }
     return result
+  })
+
+  on('ui.render', { component: 'Pane', plugin: '*' }, (_$, e, next) => {
+    if (e.props.placement === 'dock' && e.viewport !== undefined) {
+      messageSite.dockColumns = e.viewport.columns
+    }
+    return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PROMPTS_PANE.id }, async ($, e) => {
@@ -752,7 +858,41 @@ export const register: Register = (on, options) => {
     return drawn ?? next(e)
   })
 
+  on('ui.close', { id: MESSAGE_PANE.id }, async ($, e, next) => {
+    const result = await next(e)
+    messageSite.message = null
+    try {
+      const { value } = await $.state.get(VIEWED_MESSAGE)
+      await $.state.set(VIEWED_MESSAGE, { requestId: '', version: (value?.version ?? 0) + 1 })
+    } catch (error) {
+      logFailure($, 'the message rows keep the shown label', error)
+    }
+    return result
+  })
+
+  on('ui.render', { component: 'Pane', requestId: MESSAGE_PANE.id }, async ($, e) => {
+    await $.state.get(VIEWED_MESSAGE)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    return drawMessagePane({ Box, Text, Button }, messageSite, e.props.bodyColumns, (surface) => {
+      const lines = messageSite.message?.lines ?? []
+      void copyText($, lines.join('\n'), 'the message', surface)
+    })
+  })
+
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    if (e.props.origin.kind === 'peer') {
+      let peer: RenderElement | null = null
+      try {
+        const { value: mode = defaultMode } = await $.state.get(MODE)
+        if (mode === 'on') {
+          const { Box, Text, Button } = $.ui.resolve(e)
+          peer = await peerDrawing($, e, messageSite, { Box, Text, Button })
+        }
+      } catch (error) {
+        logFailure($, `the engine draws message ${e.requestId}`, error)
+      }
+      return peer ?? next(e)
+    }
     const isFramed =
       e.surface === 'terminal' &&
       e.props.origin.kind === 'composer' &&

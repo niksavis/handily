@@ -58,17 +58,25 @@ function folded(lines: readonly string[]): { preview: string[]; fold: string } {
   return { preview: lines.slice(0, -1), fold: lines.at(-1) ?? '' }
 }
 
-async function openedLines($: Engine, text: string, scene: Scene): Promise<string[]> {
+type Opened = { above: string[]; below: string[] }
+
+async function openedLines($: Engine, text: string, scene: Scene): Promise<Opened> {
   const ui = await mountReply($, text, 'terminal', scene.columns)
   await ui.press({ key: 'fold' })
   const lines = bodyOf(sketchOf(await ui.drawn(), scene.columns), scene)
   await ui.press({ key: 'fold' })
   await ui.unmount()
-  return lines.slice(1, -2)
+  const at = lines.findIndex((line) => line.startsWith('▾ '))
+  return { above: lines.slice(0, at), below: lines.slice(at + 1) }
+}
+
+function closingOf(above: readonly string[], below: readonly string[]): number {
+  return above.length > 0 && above.at(-1) === below.at(-1) ? 1 : 0
 }
 
 async function wholeTable($: Engine, table: string, scene: Scene): Promise<Drawn> {
-  return drawnOf(await openedLines($, table, scene))
+  const { above, below } = await openedLines($, table, scene)
+  return drawnOf([...above.slice(0, above.length - closingOf(above, below)), ...below])
 }
 
 async function cutAlone($: Engine, text: string, scene: Scene): Promise<string[]> {
@@ -238,14 +246,23 @@ describe('a folded reply cuts a shared row like a stack', () => {
     )
 
     test(
-      `the unfolded view shows the whole shared row, ${scene.name}`,
+      `the unfolded view keeps the cut shared row above the fold row and draws the rest of each block under it, ${scene.name}`,
       { options: scene.options },
       async ($, on) => {
         await started($, on)
         const table = await wholeTable($, TALL_TABLE, scene)
+        const tableCut = await cutAlone($, TALL_TABLE, scene)
         const diagram = diagramBlock(TALL_FLOW, 'flowchart', scene.room)
         const text = together(TALL_TABLE, fenced('mermaid', TALL_FLOW))
-        expect(await openedLines($, text, scene)).toEqual(rowOf([table, diagram]))
+        const { above, below } = await openedLines($, text, scene)
+        expect(above).toEqual(folded(await bodyLines($, text, scene)).preview)
+        const closing = tableCut.at(-1) === table.lines.at(-1) ? 1 : 0
+        expect(below).toEqual(
+          rowOf([
+            { lines: table.lines.slice(tableCut.length - closing), width: table.width },
+            { lines: diagram.lines.slice(FOLD_AFTER), width: diagram.width },
+          ]),
+        )
       },
     )
   }

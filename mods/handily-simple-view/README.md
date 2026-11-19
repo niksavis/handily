@@ -5,10 +5,12 @@ tool or a tool that a plugin adds. `Bash`, `Edit`, `Write`, `Read`, `Grep` and `
 rows. Every other tool has the generic row: the tool name, a short summary of the input, the
 state, and the size of the result and the time. A call that asks you or shows you a plan keeps
 the row of Claude Code.
-A `Bash` row with output has a `more` button that opens the output under the row, and a `copy`
-button that copies it. `/simple off` and `/simple on` switch the view for the session.
-`/simple show N` prints one call in full. The model still reads the full tool result. Only the
-screen changes.
+A `Bash` row with output has a `more` button that shows the output in the `call` tab, and a
+`copy` button that copies it. A press never changes the height of the row. A call that failed,
+also inside a REPL script, draws one row and one reason line under it.
+`/simple off` and `/simple on` switch the view for the session. `/simple show N` prints one
+call in full, and `/simple open N` shows it in the `call` tab. The model still reads the full
+tool result. Only the screen changes.
 
 ```text
 ● List the mods  ls  exit 0  7 lines  1.1s                                  [ more ] [ copy ]
@@ -23,6 +25,8 @@ screen changes.
 ● Edit  src/app.ts  +2 -1
 ● Edit  note.txt  refused
   probe-guard: file tools are refused in this folder
+● Edit  hooks/transcript.ts  error
+  File has not been read yet. Read it first before writing to it.
 ● Edit  src/app.ts  denied  auto mode: Self-Modification
 ● Bash  touch other.txt  denied  by a rule
 ● Read  mods/handily/.claude-plugin/plugin.json  18 lines
@@ -31,8 +35,8 @@ screen changes.
 ● claude-in-chrome · list_connected_browsers  done  1 line
 ```
 
-The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
-`docs/design.md`, section 4.8.
+The approved mocks are in `docs/mocks.md`, sections 6 and 21. Section 7.2 is superseded by
+section 21. The design is in `docs/design.md`, section 4.8.
 
 [docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
 
@@ -59,8 +63,9 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 | Any other tool, before the run                                 | tool name, input summary, dim `…`                                                                       | as the engine draws it              |
 | Any other tool, running                                        | tool name, input summary, dim `running`, time since the call started                                    | as the engine draws it              |
 | Any other tool, no error                                       | tool name, input summary, `done`, line count of the result, time                                        | empty                               |
-| Any other tool, error                                          | tool name, input summary, `error`                                                                       | as the engine draws it              |
-| Any other tool, refused by a hook                              | tool name, input summary, `error`                                                                       | empty                               |
+| Any other tool, error                                          | tool name, input summary, `error`; the first non-empty line of the error text under it                  | empty                               |
+| Any other tool, refused by a hook                              | tool name, input summary, `error`; the first line of the hook message under it                          | empty                               |
+| `Edit`, `Write`, `Read`, `Grep` or `Glob`, another error       | tool, path or pattern, `error`; the first non-empty line of the error text under it                     | empty                               |
 
 - The description is the `description` that the model gave. Without one, the row shows the
   first command segment. An ellipsis (`…`) marks a cut or a segment that follows.
@@ -88,12 +93,23 @@ The approved mocks are in `docs/mocks.md`, sections 6 and 7.2. The design is in
 - A hook refusal of `Edit`, `Write` or `Read` has the same shape, with the tool name in place of
   `Bash`, as captured on Claude Code 2.1.312. The row shows the tool, the path and `refused`,
   and the first line of the message goes under the row. Another error of these tools, such as
-  `File has not been read yet`, keeps the row and the error text of the engine.
+  `File has not been read yet`, shows the tool, the path and `error`, and the first non-empty
+  line of the error text goes under the row.
+- A call inside a REPL script that fails reaches the row with no output: Claude Code 2.1.328
+  draws it with `output` undefined. The mod keeps the error text of each failed call from its
+  `tool.call`, keyed by the tool use id, for the last 50 failed calls of the session. The row
+  takes its reason from that text. A failed call that the mod did not keep, such as a call of a
+  subagent or of an ended session, keeps the row of the engine.
+- The reason line leaves out `Error:` and the `<tool_use_error>` tags. A failed call with no
+  error text shows a dim `no error text` line.
 - Any other errored `Bash` text that starts with `Error:`, is not an exit code and is not a
   denial shows `error`, and the first non-empty line after `Error:` goes under the row.
 - The reason of a failed call, the line under the row, draws in the error colour, indented under
-  the row and cut at the row end. Below 60 columns the time and the buttons move to a line of
-  their own under the reason.
+  the row and cut at the row end. Below 60 columns the reason wraps to at most two lines. A
+  longer reason is cut at a word with `…`, and the row then gets `more`. Below 60 columns the
+  row keeps only `more`: the time and `copy` are in the `call` tab.
+- A failed row with more text than the row shows, such as a second error line, gets `more` and
+  `copy`.
 - A row that does not fit with its `more` and `copy` buttons, such as a successful row at 40
   columns, puts the time and the buttons on a line of their own under the row. The state word
   and the line count stay whole.
@@ -206,9 +222,9 @@ Claude Code release adds, and any MCP tool, gets the generic row.
   runs. `done` is green and `error` is red.
 - The line count is the count of lines in the result as the model read it. The time shows from
   1 second. The mod clock measures it around the call, as for `Bash`.
-- After `error`, the engine draws the error text under the row. When a hook refused the call,
-  the result block is empty, as for a refused `Bash` call. `/simple show N` prints the call in
-  full.
+- After `error`, the first non-empty line of the error text goes under the row, and the result
+  block is empty. When a hook refused the call, the line is the first line of the hook message.
+  `/simple show N` prints the call in full.
 - A call has no line count and no time when a subagent made it, when it is from an ended
   session, or when a plugin above simple-view answered it.
 
@@ -276,44 +292,63 @@ dim until the pointer is on them.
 ● Run the unit tests  npm  exit 0  140 lines  3.0s                          [ more ] [ copy ]
 ```
 
-`more` opens the output under the row, at most 20 lines, between two dim divider lines that show
-where the opened output starts and ends. Then `all 140 lines` opens every line, and `less` on the
-row folds the output again and removes both lines:
+A press on `more` never changes the height of the row, so the text that you looked at stays
+where it was. What the press does depends on the room:
+
+- In fullscreen from 110 columns, or while the `call` tab is open, the output opens in the
+  `call` tab, and `more` reads `shown`. The tab docks beside the transcript. It opens once and
+  stays open: Esc gives the keys back and keeps the tab. A second press on another row shows that
+  call in the same tab.
+- Below 110 columns, or on the main screen, no pane opens, because an inline pane pushes the
+  transcript up. The row adds one dim line that names the command, such as
+  `/simple open 3 shows this call in the call tab.`. The number follows new calls. A second
+  press removes the line.
 
 ```text
-● Run the unit tests  npm  exit 0  140 lines  3.0s                          [ less ] [ copy ]
-  ──────────────────────────────────────────────────────────────────────────────────────────
-  line 1
-  …
-  line 20
-  …
-  [ all 140 lines ]
-  ──────────────────────────────────────────────────────────────────────────────────────────
+● Run the unit tests  npm  exit 0  140 lines  3.0s                         [ shown ] [ copy ]
 ```
+
+The `call` tab, docked, body 60 columns:
+
+```text
+Bash · exit 0 · 3.0s
+Run the unit tests
+$ npm test
+────────────────────────────────────────────────────────────
+line 1
+…
+line 140
+────────────────────────────────────────────────────────────
+140 lines
+[ copy ] [ < error ] [ error > ]
+```
+
+`< error` and `error >` draw only when the session keeps another call that failed.
 
 - `copy` copies the full output of the call: stdout, then stderr, exactly as the engine gave
   them. Trailing spaces and blank lines stay. After `exit N` it copies the error output under the
   `Error: Exit code N` line. After `refused` it copies the message of the hook, and after
-  `error` the text after `Error:`. `more` opens the same text.
+  `error` the text after `Error:`. The `call` tab shows the same text.
+- In the `call` tab, `copy` (key `c`) copies the call. `< error` (key `p`) and `error >`
+  (key `n`) show the previous or the next kept call that failed.
 - A toast says `✓ Copied the output`, then the line count on the next line, such as
   `140 lines`. It stays 6 seconds.
 - A copy that fails draws `■ Not copied`, then the reason, such as
   `the clipboard took nothing`. It stays 10 seconds. When the copy throws, the reason is
   `the transcript shows why`, and the transcript holds the error.
-- When the engine saved a large output to a file, the row shows only the preview that the engine
-  kept. `copy` reads the saved file and copies all of it.
-- The opened lines are dim and never wrap: a long line is cut at the row end. `copy` keeps the
-  whole line. Colour codes are dropped, a line that a carriage return overwrote shows its last
-  part, a tab becomes spaces up to the next 8-cell stop, and other hidden characters show as
+- When the engine saved a large output to a file, the press reads the saved file, and the
+  `call` tab shows all of it. `copy` reads the saved file and copies all of it. When the file
+  cannot be read, the tab says `The saved output could not be read.` and names the path.
+- In the `call` tab, colour codes are dropped, a line that a carriage return overwrote shows its
+  last part, a tab becomes spaces up to the next 8-cell stop, and other hidden characters show as
   escapes such as `\u200b`. A wide character or an emoji takes 2 cells, and a combining mark
-  takes none.
-- `all N lines` draws at most 60000 characters. Then a dim line says how many lines it did not
-  draw, and `copy` still takes all of them.
-- A running call has `more` only. It opens the full command under the row, one dim line for
-  each command line. When the call ends, an opened row shows the output in place of the command.
-- Each row opens and folds alone. A call with no output and an `Edit` or `Write` row have no
-  buttons. An output of only spaces, tabs and blank lines counts as no output, so its row shows
-  `0 lines` and has no buttons.
+  takes none. The tab draws at most 60000 characters. Then a dim line says how many lines it did
+  not draw, and `copy` still takes all of them.
+- A running call has `more` only. The `call` tab shows the full command.
+- A call with no output and an `Edit` or `Write` row have no buttons. An output of only spaces,
+  tabs and blank lines counts as no output, so its row shows `0 lines` and has no buttons.
+- The press handler is `pressMore(port, site, call, seat)` in `hooks/viewer.ts`. It answers
+  `viewer`, `hint` or `unhint`.
 
 ## When the engine row stays
 
@@ -327,11 +362,11 @@ simple-view draws the engine row unchanged in each of these cases:
   how.
 - The call was interrupted or ran in the background.
 - A `Bash` call errored with a text that does not start with `Error:`.
+- A failed call whose error text the mod did not keep and whose output is no error text, or an
+  error text that starts with `Interrupted by user` or `[Request interrupted by user`.
 - The output or the input is not a shape that the mod reads, or a staged `Edit` or `Write` that
   did not change the file. A `Read` of an image, a PDF, a notebook or an unchanged file is not a
   shape that the mod reads.
-- A `Read`, `Grep` or `Glob` call that errored with a text that is not a hook refusal and not a
-  denial.
 - An input field of the wrong type, also while the input streams, such as a `command` that is
   not text.
 - Drawing the row failed. The mod writes the reason to the transcript.
@@ -362,9 +397,9 @@ on. Each call of the group then draws as its own row, so the failure is visible.
 
 While the live group holds a `Bash` call that runs in the foreground, simple-view also unfolds
 that group. The engine would draw the full command of the running call there, over many lines.
-The running call draws as one row instead, and its `more` button opens the command. When no call
-of the group runs, the group folds again to the line of the engine, unless a call of the group
-failed.
+The running call draws as one row instead, and its `more` button shows the command in the
+`call` tab. When no call of the group runs, the group folds again to the line of the engine,
+unless a call of the group failed.
 
 ## Settings and the commands
 
@@ -372,21 +407,26 @@ failed.
 | ------- | ------- | --------------------------------------------- |
 | `mode`  | `on`    | The mode when a session starts: `on` or `off` |
 
-| Command          | Effect                                                                                   |
-| ---------------- | ---------------------------------------------------------------------------------------- |
-| `/simple on`     | Turns the view on for this session, and replies with the new mode                        |
-| `/simple off`    | Turns the view off for this session, and replies with the new mode                       |
-| `/simple`        | Turns the view off or on for this session, and replies with the new mode                 |
-| `/simple show N` | Prints the input, the output and the file diff of the N-th last tool call. 1 is the last |
+| Command              | Effect                                                                                   |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `/simple on`         | Turns the view on for this session, and replies with the new mode                        |
+| `/simple off`        | Turns the view off for this session, and replies with the new mode                       |
+| `/simple`            | Turns the view off or on for this session, and replies with the new mode                 |
+| `/simple show N`     | Prints the input, the output and the file diff of the N-th last tool call. 1 is the last |
+| `/simple open N`     | Shows the N-th last tool call in the `call` tab and gives it the keys. 1 is the last     |
+| `/simple open`       | Shows the last tool call in the `call` tab                                               |
+| `/simple open error` | Shows the last kept call that failed in the `call` tab                                   |
 
 - The mod keeps the mode in the `mode` key of its `$.state`, so a change does not reach other
   sessions. When the session starts and the key is unset, the mod writes the `mode` setting to
   it. So a session starts with the mode of the setting, and `/simple` toggles from there.
   `/handily` shows the setting beside the mode when the two differ.
-- `/simple show N` refuses a number outside the kept calls, and gives the valid range.
+- `/simple show N` and `/simple open N` refuse a number outside the kept calls, and give the
+  valid range. `/simple open` shows the kept record of the call, which is cut at 8000
+  characters, as `/simple show N` prints it.
 - Any other argument changes nothing, and the reply names the valid forms.
 - ctrl+o cannot expand a single row. The engine reuses the drawn row and does not call the mod
-  again. Use `more` on the row, or `/simple show N`.
+  again. Use `more` on the row, `/simple open N` or `/simple show N`.
 
 ## Memory limit
 
@@ -401,10 +441,26 @@ no delete, so the mod writes each new call over a slot of the ended session. The
 the upper limit. One small time record (three numbers) stays for each `Bash` call and each call
 with the generic row of the process. A call with the generic row also keeps one line count.
 
-A press on `more`, `all N lines` or `less` keeps one small value for that call in `$.state`, so
-the row stays open or folded when it draws again.
+A press on `more` below 110 columns keeps one small value for that call in `$.state`, so the
+line that names `/simple open` stays when the row draws again. The `call` tab keeps the id of
+the call that it shows in `$.state`, and the text of that call in memory. The error texts of the
+last 50 failed calls stay in memory, and a session end clears them.
 
 ## Known limits
+
+- The mod cannot tell whether the transcript is scrolled up. `onScreen` gives only which rows of
+  the row itself are visible, and a press carries no scroll position. So below 110 columns every
+  press adds the `/simple open` line, at the bottom and scrolled up. At the bottom the row then
+  grows by one line.
+- With another pane already docked, such as the board, the transcript is narrower, for example 83
+  columns at 150. The mod hears every `Pane` render, of any plugin, and only reads it: it keeps in
+  memory the transcript columns seen while a pane renders with `placement` `dock`. In fullscreen
+  a press at those same columns counts as docked, so the `call` tab joins the dock as a tab. A
+  resize or a closed dock changes the columns, and the remembered dock no longer counts. That the
+  `Pane` render carries the transcript columns, not the terminal columns, is not measured.
+- The shape of the error text that `tool.call` answers for a failed call inside a REPL script is
+  not measured. The mod reads it with or without `Error:` and with or without the
+  `<tool_use_error>` tags.
 
 - `/simple` does not change the mode of `quiet-items`. Claude Code refuses a write to the state
   of another plugin: `handily-quiet-items owns that value and only its owner writes it`. Use

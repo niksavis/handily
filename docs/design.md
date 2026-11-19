@@ -798,8 +798,9 @@ Limits:
 
 ### 4.8 simple-view (handily-v921)
 
-One row for each tool call, one `/simple` switch per session, and `/simple show N` to print a
-call in full. The mocks are in `docs/mocks.md`, section 6.
+One row for each tool call, one `/simple` switch per session, `/simple show N` to print a
+call in full, and `/simple open N` to show it in the `call` tab. The mocks are in
+`docs/mocks.md`, sections 6 and 21.
 
 Measured usage (2026-10-08, 94 local session transcripts, top level only): 13356 tool calls.
 `Bash` made 11744 of them (88 percent), `Edit` 327 and `Write` 239. So the mod started with
@@ -829,11 +830,47 @@ The failure reason under the row (handily-d75xdi, 2026-11-17). The owner asked f
 signals in the main window. The reason of a failed `Bash` call (`exit N`, `refused`, `error`)
 and of a refused file call moves from the end of the row to its own line under the row, in the
 theme key `error`, indented two columns and cut at the row end. The row keeps the state word and
-the time, so a long reason no longer pushes the time off the row. Below 60 columns the time and
-the buttons move to a third line under the reason. `exit N` names four codes dim beside the
-code, because they say what happened better than the number: 126 `not executable`, 127
-`command not found`, 130 `interrupted` and 143 `stopped`. A denial keeps its reason on the row,
-because it is a short word of who denied it, not a failure text.
+the time, so a long reason no longer pushes the time off the row. Below 60 columns the reason
+wraps to at most two lines, a longer one is cut at a word with `…`, and the row keeps only
+`more` (handily-z1k1cu, option B; before, the time and the buttons moved to a third line).
+`exit N` names four codes dim beside the code, because they say what happened better than the
+number: 126 `not executable`, 127 `command not found`, 130 `interrupted` and 143 `stopped`. A
+denial keeps its reason on the row, because it is a short word of who denied it, not a failure
+text.
+
+Compact error rows and the call tab (handily-z1k1cu, decided 2026-11-19). The owner asked for
+compact rows for many tool errors, and for a fold that does not move the view. The probes of
+2026-11-19 on Claude Code 2.1.328 set the build:
+
+- A failed call inside a REPL script renders `ToolUse` and `ToolResult` with its real tool name,
+  `isErrored` true and `output` undefined (probe P1). The engine draws its own error row. So the
+  `tool.call` hook keeps the error text of each failed call, keyed by `tool_use_id`, for the
+  last 50 failed calls, in memory, and a session end clears it. `ToolUse` and `ToolResult` call
+  one decision: the row draws the tool, its label, the state word and one reason line, and the
+  result block is empty. A failed call that the mod did not keep keeps the engine row.
+- Every failed `Edit`, `Write`, `Read`, `Grep`, `Glob` and generic call now draws its own row
+  and reason, when the text has an error shape (`Error:`, the `<tool_use_error>` tags, or a
+  kept `tool.call` answer). A text that starts with `Interrupted by user` keeps the engine row,
+  because `ToolResult` carries no `isInterrupted`.
+- A press on `more` never changes the height of a row. A row that grows at the bottom of a
+  fullscreen transcript pushes itself up (probe P2), and the first docked pane narrows the
+  transcript once (probe P6a), while a second pane opens as a tab of the same dock (P6b). So in
+  fullscreen from 110 columns, or while the `call` tab is open, `more` shows the call in the
+  `call` tab, which opens once and stays: no `closeOnEscape`. Below 110 columns an inline pane
+  pushes the transcript up (P6c), so no pane opens and the row adds one line that names
+  `/simple open N`.
+- The decision asked for an in-place unfold while the view is scrolled up. No sound signal
+  exists: `onScreen` gives only which rows of the row itself are visible, and `ui.press`
+  carries no scroll position. So every press below 110 columns adds the line.
+- A dock is in fullscreen from 110 columns, but a docked pane narrows the transcript, for example
+  to 83 at 150 (probe P6a). So a `ui.render` hook on `Pane` with `{ plugin: "*" }` reads every
+  pane render, returns `next(e)` unchanged, and keeps in memory the columns seen while a pane
+  renders with `placement` `dock`. A press in fullscreen at 110 columns or more, or at the
+  remembered columns, opens the tab, which joins the dock (P6b). A resize or a closed dock changes
+  the columns, so the remembered dock no longer counts. reply-view does the same for the
+  `message` tab. That the `Pane` render reports the transcript columns is not measured.
+- The press handler is `pressMore(port, site, call, seat)` in `hooks/viewer.ts`. A port carries
+  the engine calls, so a test or a probe command can call it.
 
 Hand-off to other mods. The order of two plugins in the `user` tier is not in the types. In a
 live check on 2.1.300 the chain was `handily-board`, `handily-reply-view`,
@@ -850,7 +887,7 @@ Engine facts (Claude Code 2.1.294, from the generated types and two live probes)
 | `ToolUse` props carry no start time | The mod reads `$.clock.now()` before and after `next(e)` in `tool.call`, and keeps the time in `$.state` by `tool_use_id`. The time includes a permission wait |
 | A `$.state` read while drawing subscribes the row | A `$.clock.every` of 1 s writes the running time, so the running row redraws. The timer stops when the call ends |
 | An errored `Bash` output is a string `Error: Exit code N` and the stderr lines. A timeout is `Error: Exit code 143` (local transcripts, 2026-10-27) | The row shows `exit N` and the first non-empty line after it |
-| A call that a `PreToolUse` hook refused has the output `Error: PreToolUse:Bash hook error: [<hook command>]: <message>`, over many lines (198 such outputs in the local transcripts, grep, 2026-10-27) | The row shows `refused` and the first line of the message, and `more` opens the whole message (handily-fwkt.8.26). A generic row shows `error` and an empty result block. The same shape for a tool other than `Bash` is assumed, not measured |
+| A call that a `PreToolUse` hook refused has the output `Error: PreToolUse:Bash hook error: [<hook command>]: <message>`, over many lines (198 such outputs in the local transcripts, grep, 2026-10-27) | The row shows `refused` and the first line of the message, and the `call` tab shows the whole message (handily-fwkt.8.26, handily-z1k1cu). A generic row shows `error` and an empty result block. The same shape for a tool other than `Bash` is assumed, not measured |
 | Other errored `Bash` outputs start with `Error:` too: a permission denial, a refusal at the permission question, a guard of the engine (local transcripts, 2026-10-27) | The row shows `error` and the first non-empty line after `Error:`. A text without `Error:` draws the engine row |
 | A successful `Bash` output has no exit code | The row shows `exit 0`, or `returnCodeInterpretation` when the engine gives one |
 | `bashEditDiff` holds the per-file hunks of a `Bash` call | The `ToolResult` shows one line per file with its totals. Replacing that `ToolResult` hides the engine's diff body |
@@ -1644,6 +1681,28 @@ design, so no glyph role was added.
   `folderClosed` and `folderOpen` glyph roles. Under 60 columns the kinds take their own line.
 - **A diagram that does not draw** says `not drawn` in `warning` on its head; the note keeps its
   text (`diagram not drawn: …`) and stands under the head.
+
+#### Peer message rows and a fold that keeps its place (handily-z1k1cu)
+
+The owner asked on 2026-11-19 for compact `Message from` rows and for a fold that keeps the
+place on the screen. The mocks are `docs/mocks.md` section 21.
+
+- **Peer message rows.** A `UserMessage` with `origin.kind` `peer` and a sender draws one row:
+  `> from`, the sender, the first words, the line count and `more`. Probe P3 measured that
+  shape on 2.1.328; the other origins keep the engine row. A leading `sender:` in the body is
+  left out. With `isExpanded` true (the ctrl+o view) the row passes to the engine, so ctrl+o
+  still shows the whole message. `more` shows the message in the `message` tab under the rule
+  of simple-view: docked from 110 columns, else a dim `ctrl+o` line under the row.
+- **The fold keeps the pressed button at its line.** The open reply draws the folded preview
+  unchanged, then the fold row with the same text and layout, then the rest. No rule is added
+  above the preview. Each cut of a block returns its rest from the same split point, so a
+  paragraph goes on from the next word, a table from the next row, a code block from the next
+  line with its line numbers, a diagram from its next row, and a shared row from the next row of
+  each cell. The rest has no title and no button, so no button key repeats.
+- **Limit.** At the bottom of a fullscreen transcript the engine keeps the bottom edge, so the
+  rest that opens under the fold row pushes the reply up. Scrolled up, the engine keeps the top
+  edge, and the button stays at its line (probe P2).
+- **Recaps** have no render site (probe P4): engine gap handily-xaxdjy.
 
 ### 4.11 handily-filetree (handily-02b2v)
 

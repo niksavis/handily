@@ -12,6 +12,7 @@ import {
 import type { QuietItemsSimpleViewMode } from './.claude-plugin/types/handily-quiet-items'
 import { commandLabel, programOf, segments } from './hooks/command'
 import { PERSON_REJECTED_OUTPUT } from './hooks/output'
+import { newViewerSite, pressMore, type ViewedCall, type ViewerPort } from './hooks/viewer'
 import { displayWidth } from './hooks/width'
 
 function isEngineRow(value: unknown): boolean {
@@ -70,7 +71,12 @@ type World = {
   renumberedUseId: string | null
   config: ConfigRow[]
   glyphs: unknown[]
+  opens: Opened[]
+  panes: Set<string>
+  shownPane: string | undefined
 }
+
+type Opened = { id: string; title: string | undefined; focus: boolean; closeOnEscape: boolean }
 
 function bashOutput(stdout: string, extra: Record<string, unknown> = {}) {
   return { stdout, stderr: '', interrupted: false, ...extra }
@@ -151,8 +157,36 @@ function engineBeneath(on: On): World {
     renumberedUseId: null,
     config: [],
     glyphs: [],
+    opens: [],
+    panes: new Set(),
+    shownPane: undefined,
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('ui.open', (_$, e) => {
+    world.opens.push({
+      id: e.id,
+      title: e.title,
+      focus: e.focus === true,
+      closeOnEscape: e.closeOnEscape === true,
+    })
+    world.panes.add(e.id)
+    world.shownPane = e.id
+    return { value: { isPlaced: true as const } }
+  })
+  on('ui.close', (_$, e) => {
+    world.panes.delete(e.id)
+    if (world.shownPane === e.id) world.shownPane = undefined
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: [...world.panes].map((id) => ({
+      id,
+      title: id,
+      isShown: id === world.shownPane,
+      isFocused: false,
+      isPlaced: true,
+    })),
+  }))
   on('config.list', () => ({ value: world.config }))
   on('config.set', (_$, e) => {
     world.config = world.config.map((row) => (row.key === e.key ? { ...row, value: e.value } : row))
@@ -759,7 +793,7 @@ describe('Bash row', () => {
     )
   })
 
-  viewTest('shows exit N alone when no error line follows', async (world, $) => {
+  viewTest('shows exit N and no error text when no error line follows', async (world, $) => {
     world.answer = () => failed('Error: Exit code 1')
     const input = { command: 'false', description: 'Fail' }
     const id = await runBash(world, $, input)
@@ -768,7 +802,7 @@ describe('Bash row', () => {
         component: 'ToolUse',
         props: useProps(id, 'Bash', input, world.answer(input)),
       }),
-    ).toEqual(['● Fail false exit 1'])
+    ).toEqual(['● Fail false exit 1', 'no error text'])
   })
 
   for (const surface of SURFACES) {
@@ -852,7 +886,7 @@ describe('Bash row', () => {
   for (const surface of SURFACES) {
     for (const columns of [140, 40]) {
       viewTest(
-        `a failed call puts its reason under the row in the error colour and a row that does not fit puts its time and buttons on their own line at ${String(columns)} columns on ${surface}`,
+        `a failed call puts its reason under the row in the error colour, and below 60 columns the reason wraps to two lines and the row keeps more alone, at ${String(columns)} columns on ${surface}`,
         async (world, $) => {
           const description = 'List a missing folder'
           const reason = "ls: cannot access '/nonexistent-folder': No such file or directory"
@@ -869,11 +903,11 @@ describe('Bash row', () => {
           })
           const keys = (await ui.findAll({ type: 'Box' }))
             .map((box) => box.key)
-            .filter((key) => key !== undefined && ROW_KEYS.has(key))
-          const line = await ui.find({ type: 'Text', text: reason })
+            .filter((key) => key !== undefined && (ROW_KEYS.has(key) || key === 'reason-2'))
+          const first = await ui.find({ type: 'Text', text: 'ls: cannot access' })
           const lines = sketch(await ui.drawn())
           await ui.unmount()
-          expect(line?.props).toMatchObject({ color: 'error', wrap: 'truncate-end' })
+          expect(first?.props).toMatchObject({ color: 'error', wrap: 'truncate-end' })
           const indent = surface === 'terminal' ? '  ' : ''
           const row = `${surface === 'terminal' ? '#●# ' : ''}${description}  ~ls~  #exit 2#`
           if (columns >= 60) {
@@ -883,12 +917,20 @@ describe('Bash row', () => {
               `${indent}#${reason}#`,
             ])
           } else {
-            expect(keys).toEqual(['row', 'reason', 'tail'])
-            expect(lines).toEqual([
-              row,
-              `${indent}#${reason}#`,
-              `${indent}~2.0s~  [ more ] [ copy ]`,
-            ])
+            expect(keys).toEqual(['row', 'reason', 'reason-2'])
+            expect(lines).toEqual(
+              surface === 'terminal'
+                ? [
+                    edges(row, '[ more ]'),
+                    '  #ls: cannot access#',
+                    "  #'/nonexistent-folder': No such file…#",
+                  ]
+                : [
+                    edges(row, '[ more ]'),
+                    "#ls: cannot access '/nonexistent-folder':#",
+                    '#No such file or directory#',
+                  ],
+            )
           }
           const counted = 'Count the lines of the notes'
           world.answer = () =>
@@ -1037,14 +1079,88 @@ async function mountUse($: Engine, props: RenderPropsOf['ToolUse'], surface: Sur
   return $.ui.mount({ plugin: 'handily-simple-view', surface, component: 'ToolUse', props })
 }
 
-const DIVIDER = `  ~${'─'.repeat(80 - 2)}~`
+const WIDE = { columns: 150, rows: 40, isFullscreen: true } as const
+const NARROW = { columns: 100, rows: 40, isFullscreen: true } as const
+const MAIN_SCREEN = { columns: 150, rows: 40, isFullscreen: false } as const
+const CALL_TAB = { id: 'call', title: 'call', focus: false, closeOnEscape: false }
+const VIEWER_BODY = 60
 
-function opened(lines: readonly string[]): string[] {
-  return [DIVIDER, ...lines, DIVIDER]
+type Seat = { columns: number; rows: number; isFullscreen?: boolean }
+
+async function mountAt(
+  $: Engine,
+  props: RenderPropsOf['ToolUse'],
+  viewport: Seat,
+  surface: Surface = 'terminal',
+) {
+  return $.ui.mount({
+    plugin: 'handily-simple-view',
+    surface,
+    component: 'ToolUse',
+    props,
+    viewport,
+  })
+}
+
+async function mountViewer($: Engine, surface: Surface = 'terminal') {
+  return $.ui.mount({
+    plugin: 'handily-simple-view',
+    surface,
+    component: 'Pane',
+    requestId: 'call',
+    props: {
+      title: 'call',
+      isFocused: false,
+      bodyColumns: VIEWER_BODY,
+      placement: 'dock',
+      scroll: { offset: 0, bodyRows: 40 },
+      view: {},
+    },
+    viewport: WIDE,
+  })
+}
+
+async function viewerText($: Engine, surface: Surface = 'terminal'): Promise<string[]> {
+  const ui = await mountViewer($, surface)
+  const boxes = await ui.findAll({ type: 'Box' })
+  const found = boxes
+    .filter((box) => box.key?.startsWith('viewer-') === true)
+    .filter((box) => box.key !== 'viewer-body' && box.key !== 'viewer-buttons')
+    .filter((box) => box.key?.startsWith('viewer-line-') !== true)
+    .map((box) => box.children.map(shown).join(' '))
+  await ui.unmount()
+  return found
+}
+
+async function viewerBody($: Engine, surface: Surface = 'terminal'): Promise<string[]> {
+  const ui = await mountViewer($, surface)
+  const boxes = await ui.findAll({ type: 'Box' })
+  const lines = boxes
+    .filter((box) => box.key?.startsWith('viewer-line-') === true)
+    .map((box) => box.children.map(shown).join(''))
+  await ui.unmount()
+  return lines
+}
+
+async function shownInTab(
+  $: Engine,
+  props: RenderPropsOf['ToolUse'],
+  surface: Surface = 'terminal',
+): Promise<string[]> {
+  const ui = await mountAt($, props, WIDE, surface)
+  await ui.press({ key: 'fold' })
+  await ui.unmount()
+  return viewerBody($, surface)
+}
+
+async function bashProps(world: World, $: Engine, input: BashCall, answer: Answer) {
+  world.answer = () => answer
+  const id = await runBash(world, $, input)
+  return useProps(id, 'Bash', input, answer)
 }
 
 function numbered(from: number, to: number): string[] {
-  return Array.from({ length: to - from + 1 }, (_, index) => `  ~line ${String(from + index)}~`)
+  return Array.from({ length: to - from + 1 }, (_, index) => `line ${String(from + index)}`)
 }
 
 describe('tool row fold and copy', () => {
@@ -1061,70 +1177,227 @@ describe('tool row fold and copy', () => {
         await ui.unmount()
       },
     )
-  }
 
-  viewTest(
-    'more opens 20 lines under the row, all opens every line, less folds it',
-    async (world, $) => {
-      const ui = await mountUse($, await longCall(world, $))
-      await ui.press({ key: 'fold' })
-      expect(sketch(await ui.drawn())).toEqual([
-        edges(FOLDED_ROW, '[ less ] [ copy ]'),
-        ...opened([...numbered(1, 20), '  ~…~', '  [ all 140 lines ]']),
-      ])
-      await ui.press({ key: 'all' })
-      const all = sketch(await ui.drawn())
-      expect(all).toEqual([edges(FOLDED_ROW, '[ less ] [ copy ]'), ...opened(numbered(1, 140))])
-      await ui.press({ key: 'fold' })
-      expect(sketch(await ui.drawn())).toEqual([edges(FOLDED_ROW, '[ more ] [ copy ]')])
-      await ui.unmount()
-    },
-  )
-
-  for (const surface of SURFACES) {
     viewTest(
-      `more draws a dim divider line above and below the opened output across the screen and less removes both on ${surface}`,
+      `more at 150 columns in fullscreen opens the call tab once, keeps it open and keeps the row at one line that reads shown on ${surface}`,
       async (world, $) => {
-        const ui = await $.ui.mount({
-          plugin: 'handily-simple-view',
-          surface,
-          component: 'ToolUse',
-          props: await longCall(world, $),
-          viewport: { columns: 60, rows: 40 },
-        })
-        const indent = surface === 'terminal' ? 2 : 0
-        const divider = `${' '.repeat(indent)}~${'─'.repeat(60 - indent)}~`
+        const row = surface === 'terminal' ? FOLDED_ROW : FOLDED_ROW.slice('+●+ '.length)
+        const ui = await mountAt($, await longCall(world, $), WIDE, surface)
+        expect(sketch(await ui.drawn())).toEqual([edges(row, '[ more ] [ copy ]')])
         await ui.press({ key: 'fold' })
-        const open = sketch(await ui.drawn())
-        expect([open[1], open.at(-1)]).toEqual([divider, divider])
-        expect(await ui.find({ key: 'opened-top' })).toBeDefined()
+        expect(sketch(await ui.drawn())).toEqual([edges(row, '[ shown ] [ copy ]')])
+        expect(world.opens).toEqual([CALL_TAB])
+        const second = await mountAt($, await longCall(world, $), WIDE, surface)
+        await second.press({ key: 'fold' })
+        expect(world.opens).toEqual([CALL_TAB])
+        expect(world.panes).toEqual(new Set(['call']))
+        expect(sketch(await ui.drawn())).toEqual([edges(row, '[ more ] [ copy ]')])
+        expect(sketch(await second.drawn())).toEqual([edges(row, '[ shown ] [ copy ]')])
+        await second.unmount()
+        await ui.unmount()
+      },
+    )
+
+    viewTest(
+      `below 110 columns more opens no pane and the row names /simple open with the call number on ${surface}`,
+      async (world, $) => {
+        const ui = await mountAt($, await longCall(world, $), NARROW, surface)
         await ui.press({ key: 'fold' })
-        expect(sketch(await ui.drawn())).toHaveLength(1)
-        expect(await ui.find({ key: 'opened-top' })).toBeUndefined()
-        expect(await ui.find({ key: 'opened-bottom' })).toBeUndefined()
+        expect(world.opens).toEqual([])
+        const indent = surface === 'terminal' ? '  ' : ''
+        const row = surface === 'terminal' ? FOLDED_ROW : FOLDED_ROW.slice('+●+ '.length)
+        expect(sketch(await ui.drawn())).toEqual([
+          edges(row, '[ shown ] [ copy ]'),
+          `${indent}~/simple open 1 shows this call in the call tab.~`,
+        ])
+        world.delayMs = 0
+        world.answer = () => answered('x\n')
+        await runBash(world, $, { command: 'ls', description: 'List' })
+        await ui.redraw()
+        expect(sketch(await ui.drawn())[1]).toBe(
+          `${indent}~/simple open 2 shows this call in the call tab.~`,
+        )
+        await ui.press({ key: 'fold' })
+        expect(sketch(await ui.drawn())).toEqual([edges(row, '[ more ] [ copy ]')])
         await ui.unmount()
       },
     )
   }
 
-  viewTest('more on one row leaves every other row folded', async (world, $) => {
-    const first = await mountUse($, await longCall(world, $))
-    const second = await mountUse($, await longCall(world, $))
+  viewTest(
+    'more on the main screen at 150 columns opens no pane and names /simple open',
+    async (world, $) => {
+      const ui = await mountAt($, await longCall(world, $), MAIN_SCREEN)
+      await ui.press({ key: 'fold' })
+      expect(world.opens).toEqual([])
+      expect(sketch(await ui.drawn())[1]).toBe(
+        '  ~/simple open 1 shows this call in the call tab.~',
+      )
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'more below 110 columns shows the call in the call tab when the tab is open and shown',
+    async (world, $) => {
+      world.panes.add('call')
+      world.shownPane = 'call'
+      const ui = await mountAt($, await longCall(world, $), NARROW)
+      await ui.press({ key: 'fold' })
+      expect(world.opens).toEqual([])
+      expect(sketch(await ui.drawn())).toEqual([edges(FOLDED_ROW, '[ shown ] [ copy ]')])
+      expect((await viewerBody($)).slice(0, 2)).toEqual(['line 1', 'line 2'])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
+    'more shows a call tab that hides behind another tab with one open',
+    async (world, $) => {
+      world.panes.add('call')
+      world.panes.add('board')
+      world.shownPane = 'board'
+      const ui = await mountAt($, await longCall(world, $), WIDE)
+      await ui.press({ key: 'fold' })
+      expect(world.opens).toEqual([CALL_TAB])
+      await ui.unmount()
+    },
+  )
+
+  describe('pressMore, the press handler of more', () => {
+    function fakePort(panes: { id: string; isShown: boolean; isPlaced: boolean }[]) {
+      const done: string[] = []
+      let isHinted = false
+      const port: ViewerPort = {
+        panes: () => Promise.resolve(panes),
+        open: () => {
+          done.push('open')
+          return Promise.resolve({ isPlaced: true as const })
+        },
+        read: () => Promise.resolve('read'),
+        show: (id) => {
+          done.push(`show ${id}`)
+          return Promise.resolve()
+        },
+        hint: (id, hinted) => {
+          isHinted = hinted
+          done.push(`${hinted ? 'hint' : 'unhint'} ${id}`)
+          return Promise.resolve()
+        },
+        isHinted: () => Promise.resolve(isHinted),
+        log: (text) => {
+          done.push(text)
+        },
+      }
+      return { port, done }
+    }
+    const call: ViewedCall = {
+      toolUseId: 'toolu_p1',
+      head: 'Bash · exit 1',
+      label: 'Run the tests',
+      command: 'npm test',
+      output: { text: 'x', lines: ['x'], savedTo: null },
+      isErrored: true,
+    }
+
+    test('opens the call tab from 110 columns in fullscreen and hints below', async () => {
+      const wide = fakePort([])
+      const site = newViewerSite()
+      expect(
+        await pressMore(wide.port, site, call, {
+          columns: 110,
+          isFullscreen: true,
+          dockColumns: null,
+        }),
+      ).toBe('viewer')
+      expect(wide.done).toEqual(['show toolu_p1', 'open'])
+      expect(site.call).toEqual(call)
+      const narrow = fakePort([])
+      const seat = { columns: 109, isFullscreen: true, dockColumns: null }
+      expect(await pressMore(narrow.port, newViewerSite(), call, seat)).toBe('hint')
+      expect(await pressMore(narrow.port, newViewerSite(), call, seat)).toBe('unhint')
+      expect(narrow.done).toEqual(['hint toolu_p1', 'unhint toolu_p1'])
+      const main = fakePort([])
+      expect(
+        await pressMore(main.port, newViewerSite(), call, {
+          columns: 200,
+          isFullscreen: false,
+          dockColumns: 200,
+        }),
+      ).toBe('hint')
+      expect(await pressMore(fakePort([]).port, newViewerSite(), call, undefined)).toBe('hint')
+    })
+
+    test('uses the open call tab at any width and opens it again only while it is hidden', async () => {
+      const shown = fakePort([{ id: 'call', isShown: true, isPlaced: true }])
+      const seat = { columns: 80, isFullscreen: true, dockColumns: null }
+      expect(await pressMore(shown.port, newViewerSite(), call, seat)).toBe('viewer')
+      expect(shown.done).toEqual(['show toolu_p1'])
+      const hidden = fakePort([{ id: 'call', isShown: false, isPlaced: true }])
+      expect(await pressMore(hidden.port, newViewerSite(), call, seat)).toBe('viewer')
+      expect(hidden.done).toEqual(['show toolu_p1', 'open'])
+    })
+
+    test('opens the call tab below 110 columns while a dock was seen at the same transcript width', async () => {
+      const docked = fakePort([])
+      const seat = { columns: 83, isFullscreen: true, dockColumns: 83 }
+      expect(await pressMore(docked.port, newViewerSite(), call, seat)).toBe('viewer')
+      const resized = fakePort([])
+      const other = { columns: 90, isFullscreen: true, dockColumns: 83 }
+      expect(await pressMore(resized.port, newViewerSite(), call, other)).toBe('hint')
+    })
+  })
+
+  viewTest(
+    'the call tab shows the head, the label, the command and every line of the output',
+    async (world, $) => {
+      const ui = await mountAt($, await longCall(world, $), WIDE)
+      await ui.press({ key: 'fold' })
+      await ui.unmount()
+      const head = await viewerText($)
+      expect(head.slice(0, 4)).toEqual([
+        'Bash · exit 0 · 3.0s',
+        'Run the unit tests',
+        '$ npm test',
+        '─'.repeat(VIEWER_BODY),
+      ])
+      expect(head.at(-1)).toBe('140 lines')
+      expect(await viewerBody($)).toEqual(numbered(1, 140))
+    },
+  )
+
+  viewTest('the call tab says how to fill it before any press', async (_world, $) => {
+    expect(await viewerText($)).toEqual([])
+    const ui = await mountViewer($)
+    expect(sketch(await ui.drawn())).toEqual([
+      '~No call is shown here yet. Press more on a tool row, or run /simple open.~',
+    ])
+    await ui.unmount()
+  })
+
+  viewTest('the copy button of the call tab copies the output', async (world, $) => {
+    const ui = await mountAt($, await longCall(world, $), WIDE)
+    await ui.press({ key: 'fold' })
+    await ui.unmount()
+    const viewer = await mountViewer($)
+    await viewer.press({ key: 'viewer-copy' })
+    expect(world.copies).toEqual([LONG_STDOUT])
+    await viewer.unmount()
+  })
+
+  viewTest('more on one row leaves every other row at more', async (world, $) => {
+    const first = await mountAt($, await longCall(world, $), WIDE)
+    const second = await mountAt($, await longCall(world, $), WIDE)
     await first.press({ key: 'fold' })
     expect(sketch(await second.drawn())).toEqual([edges(FOLDED_ROW, '[ more ] [ copy ]')])
     await first.unmount()
     await second.unmount()
   })
 
-  viewTest('more on a short output opens every line and draws no all button', async (world, $) => {
-    world.answer = () => answered('alpha\n\tbeta\n')
+  viewTest('the call tab shows every line of a short output', async (world, $) => {
     const input = { command: 'ls', description: 'List files' }
-    const id = await runBash(world, $, input)
-    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-    await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(opened(['  ~alpha~', '  ~        beta~']))
-    expect(await ui.find({ key: 'all' })).toBeUndefined()
-    await ui.unmount()
+    const props = await bashProps(world, $, input, answered('alpha\n\tbeta\n'))
+    expect(await shownInTab($, props)).toEqual(['alpha', '        beta'])
   })
 
   viewTest('copy copies the full output of the call and says so', async (world, $) => {
@@ -1136,12 +1409,10 @@ describe('tool row fold and copy', () => {
   })
 
   viewTest('copy keeps the trailing spaces and blank lines of the stdout', async (world, $) => {
-    world.answer = () => answered('abc  \n\n')
     const input = { command: 'printf', description: 'Print padded text' }
-    const id = await runBash(world, $, input)
-    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-    await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(opened(['  ~abc~']))
+    const props = await bashProps(world, $, input, answered('abc  \n\n'))
+    expect(await shownInTab($, props)).toEqual(['abc'])
+    const ui = await mountUse($, props)
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['abc  \n\n'])
     expect(world.toasts).toEqual([{ lines: ['✓ Copied the output', '1 line'], timeoutMs: 6000 }])
@@ -1169,42 +1440,28 @@ describe('tool row fold and copy', () => {
     await ui.unmount()
   })
 
-  viewTest('an exit N row opens and copies the error output', async (world, $) => {
-    const error = 'Error: Exit code 2\n\n  src/app.ts(3,1): error TS2304\nmore\n'
-    world.answer = () => failed(error)
-    const input = { command: 'npx tsc -p .', description: 'Type check the project' }
-    const id = await runBash(world, $, input)
-    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-    await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual([
-      '  #src/app.ts(3,1): error TS2304#',
-      ...opened(['  ~  src/app.ts(3,1): error TS2304~', '  ~more~']),
-    ])
-    await ui.press({ key: 'copy' })
-    expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore\n'])
-    await ui.unmount()
-  })
+  viewTest(
+    'an exit N row shows the error output in the call tab and copies it',
+    async (world, $) => {
+      const error = 'Error: Exit code 2\n\n  src/app.ts(3,1): error TS2304\nmore\n'
+      const input = { command: 'npx tsc -p .', description: 'Type check the project' }
+      const props = await bashProps(world, $, input, failed(error))
+      expect(await shownInTab($, props)).toEqual(['  src/app.ts(3,1): error TS2304', 'more'])
+      const ui = await mountUse($, props)
+      expect(sketch(await ui.drawn()).slice(1)).toEqual(['  #src/app.ts(3,1): error TS2304#'])
+      await ui.press({ key: 'copy' })
+      expect(world.copies).toEqual(['  src/app.ts(3,1): error TS2304\nmore\n'])
+      await ui.unmount()
+    },
+  )
 
   for (const surface of SURFACES) {
     viewTest(
-      `a refused row opens and copies the full hook message on ${surface}`,
+      `a refused row shows and copies the full hook message on ${surface}`,
       async (world, $) => {
-        world.answer = () => failed(HOOK_REFUSAL)
-        const id = await runBash(world, $, REFUSED_INPUT)
-        const ui = await mountUse(
-          $,
-          useProps(id, 'Bash', REFUSED_INPUT, failed(HOOK_REFUSAL)),
-          surface,
-        )
-        await ui.press({ key: 'fold' })
-        const indent = surface === 'terminal' ? '  ' : ''
-        const divider = `${indent}~${'─'.repeat(80 - indent.length)}~`
-        expect(sketch(await ui.drawn()).slice(1)).toEqual([
-          `${indent}#${HOOK_MESSAGE_LINES[0]}#`,
-          divider,
-          ...HOOK_MESSAGE_LINES.map((line) => `${indent}~${line}~`),
-          divider,
-        ])
+        const props = await bashProps(world, $, REFUSED_INPUT, failed(HOOK_REFUSAL))
+        expect(await shownInTab($, props, surface)).toEqual(HOOK_MESSAGE_LINES)
+        const ui = await mountUse($, props, surface)
         await ui.press({ key: 'copy' })
         expect(world.copies).toEqual([HOOK_MESSAGE])
         await ui.unmount()
@@ -1212,21 +1469,24 @@ describe('tool row fold and copy', () => {
     )
   }
 
-  viewTest('copy of an output saved to a file copies the file', async (world, $) => {
+  viewTest('the call tab and copy of an output saved to a file read the file', async (world, $) => {
     const path = `${ROOT}/.tool-results/out.txt`
     world.files[path] = 'all\nof\nit\n'
-    world.answer = () => answered('all\n', { persistedOutputPath: path })
     const input = { command: 'cat big.log', description: 'Print the log' }
-    const id = await runBash(world, $, input)
-    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-    await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(
-      opened(['  ~all~', `  ~The full output is in ${path}. Copy takes all of it.~`]),
-    )
+    const props = await bashProps(world, $, input, answered('all\n', { persistedOutputPath: path }))
+    expect(await shownInTab($, props)).toEqual(['all', 'of', 'it'])
+    const ui = await mountUse($, props)
     await ui.press({ key: 'copy' })
     expect(world.copies).toEqual(['all\nof\nit\n'])
     expect(world.toasts).toEqual([{ lines: ['✓ Copied the output', '3 lines'], timeoutMs: 6000 }])
     await ui.unmount()
+  })
+
+  viewTest('the call tab says so when the saved file cannot be read', async (world, $) => {
+    const path = `${ROOT}/.tool-results/gone.txt`
+    const input = { command: 'cat big.log', description: 'Print the log' }
+    const props = await bashProps(world, $, input, answered('all\n', { persistedOutputPath: path }))
+    expect(await shownInTab($, props)).toEqual(['The saved output could not be read.', path])
   })
 
   viewTest('says why a copy failed', async (world, $) => {
@@ -1287,52 +1547,43 @@ describe('tool row fold and copy', () => {
     },
   )
 
-  viewTest('shows hidden characters as escapes and drops colour codes', async (world, $) => {
-    world.answer = () => answered('\u001b[32mok\u001b[0m\u200b\n10%\r100%\n')
-    const input = { command: 'npm ci', description: 'Install' }
-    const id = await runBash(world, $, input)
-    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-    await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(opened(['  ~ok\\u200b~', '  ~100%~']))
-    await ui.unmount()
-  })
-
   viewTest(
-    'keeps the joiner inside an emoji and escapes a joiner outside one',
+    'the call tab shows hidden characters as escapes and drops colour codes',
     async (world, $) => {
-      const family = '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}'
-      world.answer = () => answered(`${family}\tX\na\u{200D}b\n`)
-      const input = { command: 'cat family.txt', description: 'Print the family' }
-      const id = await runBash(world, $, input)
-      const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-      await ui.press({ key: 'fold' })
-      expect(sketch(await ui.drawn()).slice(1)).toEqual(
-        opened([`  ~${family}${' '.repeat(6)}X~`, '  ~a\\u200db~']),
-      )
-      await ui.unmount()
+      const input = { command: 'npm ci', description: 'Install' }
+      const text = '\u001b[32mok\u001b[0m\u200b\n10%\r100%\n'
+      const props = await bashProps(world, $, input, answered(text))
+      expect(await shownInTab($, props)).toEqual(['ok\\u200b', '100%'])
     },
   )
 
-  viewTest('a tab moves to the next 8-cell stop by display cells', async (world, $) => {
-    const lines = ['界\tX', '\u00e9\tX', 'e\u0301\tX', '🙂\tX', '👍🏽\tX', '\u0301\tX', '\u200b\tX']
-    world.answer = () => answered(`${lines.join('\n')}\n`)
-    const input = { command: 'cat cells.txt', description: 'Print the cells' }
-    const id = await runBash(world, $, input)
-    const ui = await mountUse($, useProps(id, 'Bash', input, world.answer(input)))
-    await ui.press({ key: 'fold' })
-    expect(sketch(await ui.drawn()).slice(1)).toEqual(
-      opened([
-        `  ~界${' '.repeat(6)}X~`,
-        `  ~\u00e9${' '.repeat(7)}X~`,
-        `  ~e\u0301${' '.repeat(7)}X~`,
-        `  ~🙂${' '.repeat(6)}X~`,
-        `  ~👍🏽${' '.repeat(6)}X~`,
-        `  ~\u0301${' '.repeat(8)}X~`,
-        `  ~\\u200b${' '.repeat(2)}X~`,
-      ]),
-    )
-    await ui.unmount()
-  })
+  viewTest(
+    'the call tab keeps the joiner inside an emoji and escapes a joiner outside one',
+    async (world, $) => {
+      const family = '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}'
+      const input = { command: 'cat family.txt', description: 'Print the family' }
+      const props = await bashProps(world, $, input, answered(`${family}\tX\na\u{200D}b\n`))
+      expect(await shownInTab($, props)).toEqual([`${family}${' '.repeat(6)}X`, 'a\\u200db'])
+    },
+  )
+
+  viewTest(
+    'a tab in the call tab moves to the next 8-cell stop by display cells',
+    async (world, $) => {
+      const lines = ['界\tX', '\u00e9\tX', 'e\u0301\tX', '🙂\tX', '👍🏽\tX', '\u0301\tX', '\u200b\tX']
+      const input = { command: 'cat cells.txt', description: 'Print the cells' }
+      const props = await bashProps(world, $, input, answered(`${lines.join('\n')}\n`))
+      expect(await shownInTab($, props)).toEqual([
+        `界${' '.repeat(6)}X`,
+        `\u00e9${' '.repeat(7)}X`,
+        `e\u0301${' '.repeat(7)}X`,
+        `🙂${' '.repeat(6)}X`,
+        `👍🏽${' '.repeat(6)}X`,
+        `\u0301${' '.repeat(8)}X`,
+        `\\u200b${' '.repeat(2)}X`,
+      ])
+    },
+  )
 
   viewTest('a call with no output draws no buttons', async (world, $) => {
     world.answer = () => answered('')
@@ -1353,7 +1604,7 @@ describe('tool row fold and copy', () => {
   })
 
   viewTest(
-    'a running call draws one row with a dim running state and its full command behind more',
+    'a running call draws one row with a dim running state and its full command in the call tab',
     async (world, $) => {
       world.delayMs = 4000
       const command = 'git add -A\ngit commit -m "save"\ngit push'
@@ -1369,19 +1620,374 @@ describe('tool row fold and copy', () => {
         { result: undefined },
         { isRunning: true, output: undefined },
       )
-      const ui = await mountUse($, props)
+      const ui = await mountAt($, props, WIDE)
       const row = '● Commit and push the work  ~git~  ~running~  ~3.0s~'
       expect(sketch(await ui.drawn())).toEqual([edges(row, '[ more ]')])
       await ui.press({ key: 'fold' })
-      expect(sketch(await ui.drawn())).toEqual([
-        edges(row, '[ less ]'),
-        ...opened(['  ~git add -A~', '  ~git commit -m "save"~', '  ~git push~']),
-      ])
+      expect(sketch(await ui.drawn())).toEqual([edges(row, '[ shown ]')])
       await ui.unmount()
+      expect(await viewerBody($)).toEqual(['git add -A', 'git commit -m "save"', 'git push'])
       await world.clock.advance(1000)
       await pending
     },
   )
+})
+
+const PANE_OWNER: Plugin = { name: 'probe-board', register() {} }
+
+function dockTest(name: string, body: ViewBody): void {
+  test(name, { plugins: [fakeQuietItems, PANE_OWNER] }, async ($, on) => {
+    const world = engineBeneath(on)
+    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+    await body(world, $, on)
+  })
+}
+
+async function otherPane(
+  $: Engine,
+  placement: 'dock' | 'inline',
+  columns: number,
+  surface: Surface,
+): Promise<boolean> {
+  const ui = await $.ui.mount({
+    plugin: 'probe-board',
+    surface,
+    component: 'Pane',
+    requestId: 'board',
+    props: {
+      title: 'board',
+      isFocused: false,
+      bodyColumns: 60,
+      placement,
+      scroll: { offset: 0, bodyRows: 40 },
+      view: {},
+    },
+    viewport: { columns, rows: 40, isFullscreen: true },
+  })
+  const keeps = await ui.keepsBeneath()
+  await ui.unmount()
+  return keeps
+}
+
+describe('a pane that another plugin docked', () => {
+  const DOCKED = { columns: 83, rows: 40, isFullscreen: true } as const
+  for (const surface of SURFACES) {
+    dockTest(
+      `with the board docked at 83 transcript columns more opens the call tab and the row keeps one line on ${surface}`,
+      async (world, $) => {
+        expect(await otherPane($, 'dock', 83, surface)).toBe(true)
+        const ui = await mountAt($, await longCall(world, $), DOCKED, surface)
+        await ui.press({ key: 'fold' })
+        expect(world.opens).toEqual([CALL_TAB])
+        expect(sketch(await ui.drawn())).toHaveLength(1)
+        expect((await ui.find({ key: 'fold' }))?.props.label).toBe('shown')
+        await ui.unmount()
+      },
+    )
+
+    dockTest(
+      `after the transcript columns change from those of the dock more takes the hint path on ${surface}`,
+      async (world, $) => {
+        await otherPane($, 'dock', 83, surface)
+        const ui = await mountAt($, await longCall(world, $), { ...DOCKED, columns: 90 }, surface)
+        await ui.press({ key: 'fold' })
+        expect(world.opens).toEqual([])
+        expect(sketch(await ui.drawn())).toHaveLength(2)
+        await ui.unmount()
+      },
+    )
+
+    dockTest(
+      `an inline pane of another plugin does not count as a dock on ${surface}`,
+      async (world, $) => {
+        expect(await otherPane($, 'inline', 83, surface)).toBe(true)
+        const ui = await mountAt($, await longCall(world, $), DOCKED, surface)
+        await ui.press({ key: 'fold' })
+        expect(world.opens).toEqual([])
+        expect(sketch(await ui.drawn())).toHaveLength(2)
+        await ui.unmount()
+      },
+    )
+  }
+})
+
+describe('errored calls inside a REPL script and classic errored calls', () => {
+  function inner(id: string, tool: string, input: unknown): RenderPropsOf['ToolUse'] {
+    return useProps(id, tool, input, { isError: true, result: undefined }, { output: undefined })
+  }
+
+  function innerResult(id: string, tool: string): RenderPropsOf['ToolResult'] {
+    return { tool_use_id: id, tool, output: undefined, isErrored: true }
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `an inner Bash call that failed draws exit N and the reason that its tool.call answered on ${surface}`,
+      async (world, $) => {
+        world.answer = () => failed('Exit code 3\nnpm ERR! missing script: probe')
+        const input = { command: 'npm run probe', description: 'Run the probe' }
+        const id = await runBash(world, $, input)
+        expect(
+          await texts($, surface, { component: 'ToolUse', props: inner(id, 'Bash', input) }),
+        ).toEqual([`${MARKER[surface]}Run the probe npm exit 3`, 'npm ERR! missing script: probe'])
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: innerResult(id, 'Bash') },
+          surface,
+        )
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+      },
+    )
+
+    viewTest(
+      `an inner Read that failed draws one error row and the reason without the tool_use_error tags on ${surface}`,
+      async (world, $) => {
+        world.answer = () =>
+          failed(
+            '<tool_use_error>File does not exist. Note: your current working directory is /work/app.</tool_use_error>',
+          )
+        const input = { file_path: `${ROOT}/gone.md` }
+        const id = await runTool(world, $, { tool: 'Read', ...input })
+        expect(
+          await texts($, surface, { component: 'ToolUse', props: inner(id, 'Read', input) }),
+        ).toEqual([
+          `${MARKER[surface]}Read gone.md error`,
+          'File does not exist. Note: your current working directory is /work/app.',
+        ])
+        const result = await drawn(
+          $,
+          { component: 'ToolResult', props: innerResult(id, 'Read') },
+          surface,
+        )
+        expect(result.textCount).toBe(0)
+      },
+    )
+
+    viewTest(
+      `an inner call with an empty error text draws no error text under the row on ${surface}`,
+      async (world, $) => {
+        world.answer = () => failed('Error: Exit code 1')
+        const input = { command: 'false', description: 'Fail' }
+        const id = await runBash(world, $, input)
+        expect(
+          await texts($, surface, { component: 'ToolUse', props: inner(id, 'Bash', input) }),
+        ).toEqual([`${MARKER[surface]}Fail false exit 1`, 'no error text'])
+      },
+    )
+  }
+
+  viewTest(
+    'an inner MCP call that failed takes its reason from its tool.call',
+    async (world, $) => {
+      world.answer = () => failed('No task 7. The list is empty.')
+      const tool = 'mcp__board__task_update'
+      const id = await runTool(world, $, { tool, taskId: '7' })
+      const use = useProps(
+        id,
+        tool,
+        { taskId: '7' },
+        { isError: true, result: [{ type: 'text', text: 'x' }] },
+      )
+      expect(await texts($, 'terminal', { component: 'ToolUse', props: use })).toEqual([
+        '● board · task_update 7 error',
+        'No task 7. The list is empty.',
+      ])
+    },
+  )
+
+  viewTest(
+    'an errored call that no tool.call kept draws as the engine draws it',
+    async (_world, $) => {
+      const props = inner('repl_unknown', 'Bash', { command: 'false' })
+      expectEngineRow((await drawn($, { component: 'ToolUse', props })).tree)
+      expectEngineRow(
+        (await drawn($, { component: 'ToolResult', props: innerResult('repl_unknown', 'Bash') }))
+          .tree,
+      )
+    },
+  )
+
+  viewTest('a session end forgets the kept error texts', async (world, $) => {
+    world.answer = () => failed('Exit code 2\nboom')
+    const input = { command: 'false', description: 'Fail' }
+    const id = await runBash(world, $, input)
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+    expectEngineRow(
+      (await drawn($, { component: 'ToolUse', props: inner(id, 'Bash', input) })).tree,
+    )
+  })
+
+  viewTest('keeps the error texts of the last 50 failed calls only', async (world, $) => {
+    world.answer = () => failed('Exit code 2\nfirst')
+    const input = { command: 'false', description: 'Fail' }
+    const first = await runBash(world, $, input)
+    world.answer = () => failed('Exit code 2\nlater')
+    for (let index = 0; index < 49; index += 1) await runBash(world, $, { command: 'false' })
+    world.answer = () => failed('Exit code 2\nlast')
+    const last = await runBash(world, $, input)
+    expectEngineRow(
+      (await drawn($, { component: 'ToolUse', props: inner(first, 'Bash', input) })).tree,
+    )
+    expect(
+      await texts($, 'terminal', { component: 'ToolUse', props: inner(last, 'Bash', input) }),
+    ).toEqual(['● Fail false exit 2', 'last'])
+  })
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `at 40 columns a file error reason wraps to two lines, and a longer one is cut with more on ${surface}`,
+      async (_world, $) => {
+        const short = 'File has not been read yet. Read it first before writing to it.'
+        const long = `${short} The file changed on disk since the last read, so read it again.`
+        const rowAt = async (text: string) => {
+          const answer: Answer = { isError: true, result: `Error: ${text}`, text }
+          const props = useProps('toolu_w40', 'Edit', { file_path: `${ROOT}/a.ts` }, answer)
+          const ui = await mountAt($, props, { columns: 40, rows: 40, isFullscreen: true }, surface)
+          const lines = sketch(await ui.drawn())
+          const buttons = (await ui.findAll({ type: 'Button' })).map((button) => button.key)
+          await ui.unmount()
+          return { lines, buttons }
+        }
+        const marker = surface === 'terminal' ? '#●# ' : ''
+        const indent = surface === 'terminal' ? '  ' : ''
+        const fits = await rowAt(short)
+        expect(fits.buttons).toEqual([])
+        expect(fits.lines[0]).toBe(`${marker}Edit  a.ts  #error#`)
+        expect(fits.lines.slice(1)).toEqual(
+          surface === 'terminal'
+            ? ['  #File has not been read yet. Read it#', '  #first before writing to it.#']
+            : ['#File has not been read yet. Read it#', '#first before writing to it.#'],
+        )
+        const cut = await rowAt(long)
+        expect(cut.buttons).toEqual(['fold'])
+        expect(cut.lines).toHaveLength(3)
+        expect(cut.lines[0]).toBe(edges(`${marker}Edit  a.ts  #error#`, '[ more ]'))
+        expect(cut.lines[2]?.endsWith('…#')).toBe(true)
+        expect(cut.lines[1]?.startsWith(`${indent}#File has not been read yet.`)).toBe(true)
+      },
+    )
+  }
+
+  viewTest(
+    'at 120 columns a long reason stays on one line and the row gets more and copy',
+    async (_world, $) => {
+      const text = `${'The edit failed because the file changed. '.repeat(4).trim()}\nSecond line of the error.`
+      const answer: Answer = { isError: true, result: `Error: ${text}`, text }
+      const props = useProps('toolu_w120', 'Edit', { file_path: `${ROOT}/a.ts` }, answer)
+      const ui = await mountAt($, props, { columns: 120, rows: 40, isFullscreen: true })
+      const lines = sketch(await ui.drawn())
+      expect(lines).toHaveLength(2)
+      expect(lines[0]).toBe(edges('#●# Edit  a.ts  #error#', '[ more ] [ copy ]'))
+      await ui.press({ key: 'fold' })
+      await ui.unmount()
+      expect(await viewerBody($)).toEqual(text.split('\n'))
+    },
+  )
+})
+
+describe('/simple open', () => {
+  async function openText($: Engine, args: string) {
+    return commandText($, `open${args === '' ? '' : ` ${args}`}`)
+  }
+
+  viewTest('says so before any tool call', async (world, $) => {
+    expect(await openText($, '')).toBe('/simple open has no tool call to show yet in this session.')
+    expect(world.opens).toEqual([])
+  })
+
+  viewTest(
+    'opens the last call in the call tab with the keys when no number is given',
+    async (world, $) => {
+      world.answer = () => answered('first\n')
+      await runBash(world, $, { command: 'echo first', description: 'Say first' })
+      world.answer = () => answered('second\n')
+      await runBash(world, $, { command: 'echo second', description: 'Say second' })
+      expect(await openText($, '')).toBe('Call 1 of the last 2 is in the call tab.')
+      expect(world.opens).toEqual([{ ...CALL_TAB, focus: true }])
+      expect(await viewerBody($)).toEqual(['second'])
+      expect((await viewerText($))[0]).toMatch(/^Bash · done · \d+\.\ds · call 1 of 2$/)
+    },
+  )
+
+  viewTest('opens call N, where 1 is the last call', async (world, $) => {
+    world.answer = () => answered('first\n')
+    await runBash(world, $, { command: 'echo first', description: 'Say first' })
+    world.answer = () => answered('second\n')
+    await runBash(world, $, { command: 'echo second', description: 'Say second' })
+    expect(await openText($, '2')).toBe('Call 2 of the last 2 is in the call tab.')
+    expect(await viewerBody($)).toEqual(['first'])
+    expect(await viewerBody($, 'desktop')).toEqual(['first'])
+    expect((await viewerText($)).slice(1, 3)).toEqual(['Say first', '$ echo first'])
+  })
+
+  viewTest(
+    'open error opens the last call that failed, and the tab steps between failed calls',
+    async (world, $) => {
+      world.answer = () => failed('Error: Exit code 1\nolder failure')
+      await runBash(world, $, { command: 'false', description: 'Fail first' })
+      world.answer = () => answered('ok\n')
+      await runBash(world, $, { command: 'true', description: 'Pass' })
+      world.answer = () => failed('Error: Exit code 2\nnewer failure')
+      await runBash(world, $, { command: 'false', description: 'Fail again' })
+      world.answer = () => answered('ok\n')
+      await runBash(world, $, { command: 'true', description: 'Pass again' })
+      expect(await openText($, 'error')).toBe('Call 2 of the last 4 is in the call tab.')
+      expect(await viewerBody($)).toEqual(['Error: Exit code 2', 'newer failure'])
+      const viewer = await mountViewer($)
+      expect(await viewer.find({ key: 'viewer-next' })).toBeUndefined()
+      await viewer.press({ key: 'viewer-previous' })
+      await viewer.unmount()
+      expect(await viewerBody($)).toEqual(['Error: Exit code 1', 'older failure'])
+      const older = await mountViewer($)
+      expect(await older.find({ key: 'viewer-previous' })).toBeUndefined()
+      await older.press({ key: 'viewer-next' })
+      await older.unmount()
+      expect(await viewerBody($)).toEqual(['Error: Exit code 2', 'newer failure'])
+    },
+  )
+
+  viewTest('open error says so when no kept call failed', async (world, $) => {
+    world.answer = () => answered('ok\n')
+    await runBash(world, $, { command: 'true', description: 'Pass' })
+    expect(await openText($, 'error')).toBe(
+      'No kept call failed. /simple open N shows call N, where 1 is the last call.',
+    )
+    expect(world.opens).toEqual([])
+  })
+
+  viewTest('refuses a number out of range or a word and gives the range', async (world, $) => {
+    world.answer = () => answered('ok\n')
+    await runBash(world, $, { command: 'true', description: 'Pass' })
+    const range =
+      '/simple open takes a call number from 1 to 1, where 1 is the last tool call, or the word error.'
+    expect(await openText($, '2')).toBe(`No call 2 is kept. ${range}`)
+    expect(await openText($, '0')).toBe(`No call 0 is kept. ${range}`)
+    expect(await openText($, 'last')).toBe(range)
+    expect(await commandText($, 'open 1 2')).toBe(
+      '/simple takes on, off, show N, open N, open error or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, and /simple open error shows the last call that failed. Set the default with the plugin\'s "mode" setting.',
+    )
+    expect(world.opens).toEqual([])
+  })
+
+  viewTest(
+    'opens the call tab with the keys also while the tab is already shown',
+    async (world, $) => {
+      const ui = await mountAt($, await longCall(world, $), WIDE)
+      await ui.press({ key: 'fold' })
+      await ui.unmount()
+      expect(await openText($, '1')).toBe('Call 1 of the last 1 is in the call tab.')
+      expect(world.opens).toEqual([CALL_TAB, { ...CALL_TAB, focus: true }])
+    },
+  )
+
+  viewTest('a row whose call the tab shows reads shown', async (world, $) => {
+    const props = await longCall(world, $)
+    const ui = await mountAt($, props, WIDE)
+    expect(await openText($, '1')).toBe('Call 1 of the last 1 is in the call tab.')
+    expect(sketch(await ui.drawn())).toEqual([edges(FOLDED_ROW, '[ shown ] [ copy ]')])
+    await ui.unmount()
+  })
 })
 
 describe('Edit and Write rows', () => {
@@ -1670,38 +2276,75 @@ describe('Read, Grep and Glob rows', () => {
     expect(await rowOf(globOutput({ numFiles: 1 }))).toEqual(['● Glob **/* 1 file'])
   })
 
-  viewTest('passes an errored or unread Read, Grep or Glob on', async (_w, $) => {
-    const missing = failed(
-      'File does not exist. Note: your current working directory is /work/app.',
-    )
-    const cases: [string, unknown, Answer, Partial<RenderPropsOf['ToolUse']>][] = [
-      ['Read', { file_path: `${ROOT}/nope.ts` }, missing, {}],
-      ['Grep', { pattern: 'x', path: `${ROOT}/nope` }, failed('Error: Path does not exist'), {}],
-      [
-        'Read',
-        { file_path: `${ROOT}/a.png` },
-        { result: { type: 'image', file: { base64: '', type: 'image/png', originalSize: 1 } } },
-        {},
-      ],
-      ['Read', { file_path: PLUGIN_JSON }, { result: { type: 'file_unchanged', file: {} } }, {}],
-      ['Grep', { pattern: 'x' }, { result: grepOutput({ numLines: 3 }) }, {}],
-      ['Grep', { path: ROOT }, { result: grepOutput({ mode: 'count', numMatches: 3 }) }, {}],
-      ['Glob', { pattern: 3 }, { result: globOutput({}) }, {}],
-      ['Glob', { pattern: '*' }, { result: { filenames: [] } }, {}],
-    ]
-    for (const [tool, input, answer, extra] of cases) {
-      const use = useProps('toolu_x1', tool, input, answer, extra)
-      expectEngineRow((await drawn($, { component: 'ToolUse', props: use })).tree)
-    }
-    for (const [tool, result] of [
-      ['Read', missing],
-      ['Grep', { result: grepOutput({ numLines: 3 }) }],
-      ['Glob', { result: { filenames: [] } }],
-    ] as const) {
-      const props = resultProps('toolu_x1', tool, result)
-      expectEngineRow((await drawn($, { component: 'ToolResult', props })).tree)
-    }
-  })
+  viewTest(
+    'draws an errored Read or Grep as one error row and the reason under it',
+    async (_w, $) => {
+      const missing = failed(
+        'Error: File does not exist. Note: your current working directory is /work/app.',
+      )
+      const errored: [string, unknown, Answer, string][] = [
+        ['Read', { file_path: `${ROOT}/nope.ts` }, missing, '● Read nope.ts error'],
+        [
+          'Grep',
+          { pattern: 'x', path: `${ROOT}/nope` },
+          failed('Error: Path does not exist'),
+          '● Grep "x" in nope error',
+        ],
+      ]
+      const reasons = [
+        'File does not exist. Note: your current working directory is /work/app.',
+        'Path does not exist',
+      ]
+      for (const [index, [tool, input, answer, row]] of errored.entries()) {
+        const use = useProps('toolu_x0', tool, input, answer)
+        expect(await texts($, 'terminal', { component: 'ToolUse', props: use })).toEqual([
+          row,
+          reasons[index],
+        ])
+        const result = await drawn($, {
+          component: 'ToolResult',
+          props: resultProps('toolu_x0', tool, answer),
+        })
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
+      }
+    },
+  )
+
+  viewTest(
+    'passes an unread Read, Grep or Glob on, and an error text of no known shape',
+    async (_w, $) => {
+      const unshaped = failed(
+        'File does not exist. Note: your current working directory is /work/app.',
+      )
+      const cases: [string, unknown, Answer, Partial<RenderPropsOf['ToolUse']>][] = [
+        ['Read', { file_path: `${ROOT}/nope.ts` }, unshaped, {}],
+        [
+          'Read',
+          { file_path: `${ROOT}/a.png` },
+          { result: { type: 'image', file: { base64: '', type: 'image/png', originalSize: 1 } } },
+          {},
+        ],
+        ['Read', { file_path: PLUGIN_JSON }, { result: { type: 'file_unchanged', file: {} } }, {}],
+        ['Grep', { pattern: 'x' }, { result: grepOutput({ numLines: 3 }) }, {}],
+        ['Grep', { path: ROOT }, { result: grepOutput({ mode: 'count', numMatches: 3 }) }, {}],
+        ['Glob', { pattern: 3 }, { result: globOutput({}) }, {}],
+        ['Glob', { pattern: '*' }, { result: { filenames: [] } }, {}],
+      ]
+      for (const [tool, input, answer, extra] of cases) {
+        const use = useProps('toolu_x1', tool, input, answer, extra)
+        expectEngineRow((await drawn($, { component: 'ToolUse', props: use })).tree)
+      }
+      for (const [tool, result] of [
+        ['Read', unshaped],
+        ['Grep', { result: grepOutput({ numLines: 3 }) }],
+        ['Glob', { result: { filenames: [] } }],
+      ] as const) {
+        const props = resultProps('toolu_x1', tool, result)
+        expectEngineRow((await drawn($, { component: 'ToolResult', props })).tree)
+      }
+    },
+  )
 })
 
 const PROBE_GUARD_MESSAGE = 'probe-guard: file tools are refused in this folder'
@@ -1935,7 +2578,7 @@ describe('file rows that a hook refused', () => {
 
   for (const surface of SURFACES) {
     viewTest(
-      `leaves an Edit, Write or Read error that no hook refused to the engine on ${surface}`,
+      `draws an Edit, Write or Read error that no hook refused as one row and the first line of the error under it on ${surface}`,
       async (_world, $) => {
         const errors: [string, string][] = [
           ['Edit', 'File has not been read yet. Read it first before writing to it.'],
@@ -1950,10 +2593,13 @@ describe('file rows that a hook refused', () => {
           const answer: Answer = { isError: true, result: `Error: ${text}`, text }
           const use = useProps('toolu_h3', tool, { file_path: `${ROOT}/note.txt` }, answer)
           const result = resultProps('toolu_h3', tool, answer)
-          expectEngineRow((await drawn($, { component: 'ToolUse', props: use }, surface)).tree)
-          expectEngineRow(
-            (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
-          )
+          expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
+            `${MARKER[surface]}${tool} note.txt error`,
+            text,
+          ])
+          const drawnResult = await drawn($, { component: 'ToolResult', props: result }, surface)
+          expect(drawnResult.tree).toMatchObject({ type: 'Box' })
+          expect(drawnResult.textCount).toBe(0)
         }
       },
     )
@@ -2117,7 +2763,7 @@ describe('calls that the auto mode classifier denied', () => {
 
   for (const surface of SURFACES) {
     viewTest(
-      `keeps the row of today for a classifier text with another reason shape and for a generic tool on ${surface}`,
+      `keeps the row of today for a classifier text with another reason shape, and draws a generic tool as an error row with the classifier text under it, on ${surface}`,
       async (world, $) => {
         const other = `${DENIAL_START}The command deletes the notes.${DENIAL_ADVICE}${BASH_RULE_ADVICE}`
         world.answer = () => failed(`Error: ${other}`)
@@ -2129,11 +2775,13 @@ describe('calls that the auto mode classifier denied', () => {
         ])
         const denied = classifierDenied(BASH_DENIED_ON_2_1_296)
         const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, denied)
-        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-          `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
-        ])
+        const fetchRow = await texts($, surface, { component: 'ToolUse', props: use })
+        expect(fetchRow[0]).toBe(`${MARKER[surface]}WebFetch ${PAGE_URL} error`)
+        expect(fetchRow[1]?.startsWith(DENIAL_START)).toBe(true)
+        expect(fetchRow).toHaveLength(2)
         const result = resultProps(use.tool_use_id, 'WebFetch', denied)
-        expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
+        const drawnResult = await drawn($, { component: 'ToolResult', props: result }, surface)
+        expect(drawnResult.textCount).toBe(0)
       },
     )
   }
@@ -2375,17 +3023,15 @@ describe('calls that a permission rule or the person denied', () => {
 
   for (const surface of SURFACES) {
     viewTest(
-      `keeps the engine result line for an output that is not the measured rejection text on ${surface}`,
+      `draws no denied by you line for an output that is not the measured rejection text on ${surface}`,
       async (world, $) => {
         const files = PERSON_REJECTED_TOOLS.filter((call) => call.tool !== 'Bash')
         for (const { tool, input } of files) {
           const { result } = await rejectedCall(world, $, tool, input)
           for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
             const props = rejectedResultProps(result.tool_use_id, tool, output)
-            expectEngineRow(
-              (await drawn($, { component: 'ToolResult', props }, surface)).tree,
-              `${tool} ${output}`,
-            )
+            const drawnResult = await drawn($, { component: 'ToolResult', props }, surface)
+            expect(drawnResult.textCount, `${tool} ${output}`).toBe(0)
           }
           const done = { ...result, isErrored: false }
           expectEngineRow(
@@ -2440,7 +3086,7 @@ describe('calls that a permission rule or the person denied', () => {
 
   for (const surface of SURFACES) {
     viewTest(
-      `keeps the row of today for a text that matches neither shape and for a generic tool on ${surface}`,
+      `draws an error row with the text under it for a text that matches neither shape on ${surface}`,
       async (world, $) => {
         const others = [
           RULE_DENIED_BASH_ON_2_1_322.replace('has been denied', 'was denied'),
@@ -2456,18 +3102,23 @@ describe('calls that a permission rule or the person denied', () => {
             text,
           ])
           const edit = useProps('toolu_r4', 'Edit', EDIT_INPUT, answer)
-          expectEngineRow((await drawn($, { component: 'ToolUse', props: edit }, surface)).tree)
+          expect(await texts($, surface, { component: 'ToolUse', props: edit })).toEqual([
+            `${MARKER[surface]}Edit src/app.ts error`,
+            text,
+          ])
           const result = resultProps('toolu_r4', 'Edit', answer)
-          expectEngineRow(
-            (await drawn($, { component: 'ToolResult', props: result }, surface)).tree,
-          )
+          expect(
+            (await drawn($, { component: 'ToolResult', props: result }, surface)).textCount,
+          ).toBe(0)
         }
         const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, ruleDenied())
-        expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
-          `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
-        ])
+        const fetchRow = await texts($, surface, { component: 'ToolUse', props: use })
+        expect(fetchRow[0]).toBe(`${MARKER[surface]}WebFetch ${PAGE_URL} error`)
+        expect(fetchRow).toHaveLength(2)
         const result = resultProps(use.tool_use_id, 'WebFetch', ruleDenied())
-        expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
+        expect(
+          (await drawn($, { component: 'ToolResult', props: result }, surface)).textCount,
+        ).toBe(0)
       },
     )
   }
@@ -2643,31 +3294,37 @@ describe('generic tool row', () => {
       },
     )
 
-    viewTest(`draws an error state and leaves the error text on ${surface}`, async (world, $) => {
+    viewTest(`draws an error state and the error text under it on ${surface}`, async (world, $) => {
       const refused = failed('Request failed with status code 404')
       const use = await genericCall(world, $, 'WebFetch', { url: PAGE_URL }, refused)
       expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
         `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
+        'Request failed with status code 404',
       ])
       const result = resultProps(use.tool_use_id, 'WebFetch', refused)
-      expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
+      expect((await drawn($, { component: 'ToolResult', props: result }, surface)).textCount).toBe(
+        0,
+      )
     })
 
     viewTest(
-      `leaves the error text of an Error: answer that no hook refused on ${surface}`,
+      `draws the error text of an Error: answer that no hook refused under the row without Error: on ${surface}`,
       async (world, $) => {
         const errored = failed('Error: Unknown skill: no-comments')
         const use = await genericCall(world, $, 'Skill', { skill: 'no-comments' }, errored)
         expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
           `${MARKER[surface]}Skill no-comments error`,
+          'Unknown skill: no-comments',
         ])
         const result = resultProps(use.tool_use_id, 'Skill', errored)
-        expectEngineRow((await drawn($, { component: 'ToolResult', props: result }, surface)).tree)
+        expect(
+          (await drawn($, { component: 'ToolResult', props: result }, surface)).textCount,
+        ).toBe(0)
       },
     )
 
     viewTest(
-      `draws a call that a hook refused as one error row with no error text on ${surface}`,
+      `draws a call that a hook refused as one error row and the first line of the hook message on ${surface}`,
       async (world, $) => {
         const refused = failed(
           'Error: PreToolUse:WebFetch hook error: [python3 "${CLAUDE_PROJECT_DIR}/hooks/fetch-guard.py"]: fetch-guard: refusing a fetch outside the allowed hosts\nAllowed: docs.example.com\n',
@@ -2675,6 +3332,7 @@ describe('generic tool row', () => {
         const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, refused)
         expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
           `${MARKER[surface]}WebFetch ${PAGE_URL} error`,
+          'fetch-guard: refusing a fetch outside the allowed hosts',
         ])
         const result = await drawn(
           $,
@@ -2711,7 +3369,7 @@ describe('generic tool row', () => {
       return lines
     }
     expect(await rowOf(done)).toEqual([`+●+ WebFetch  ${PAGE_URL}  +done+  ~3 lines~`])
-    expect(await rowOf(errored)).toEqual([`#●# WebFetch  ${PAGE_URL}  #error#`])
+    expect(await rowOf(errored)).toEqual([`#●# WebFetch  ${PAGE_URL}  #error#`, '  #timeout#'])
   })
 
   viewTest('shows running and the time since its tool.call', async (world, $) => {
@@ -2780,6 +3438,22 @@ describe('generic tool row', () => {
     const result = resultProps(use.tool_use_id, 'WebFetch', FETCH_ANSWER)
     expectEngineRow((await drawn($, { component: 'ToolResult', props: result })).tree)
   })
+
+  viewTest(
+    'leaves the result of an interrupted file or generic call to the engine',
+    async (_world, $) => {
+      for (const tool of ['Edit', 'Read', 'WebFetch']) {
+        const props = resultProps('toolu_i2', tool, failed('Interrupted by user'))
+        expectEngineRow((await drawn($, { component: 'ToolResult', props })).tree, tool)
+        const request = resultProps(
+          'toolu_i2',
+          tool,
+          failed('[Request interrupted by user for tool use]'),
+        )
+        expectEngineRow((await drawn($, { component: 'ToolResult', props: request })).tree, tool)
+      }
+    },
+  )
 
   viewTest('leaves an interrupted call to the engine', async (_world, $) => {
     const props = streamingProps('toolu_i1', 'WebFetch', FETCH_INPUT, { isInterrupted: true })
@@ -2930,7 +3604,7 @@ describe('quiet-items rows', () => {
 
 const OFF_REPLY = 'off for this session. Tool calls draw as Claude Code draws them.'
 const ON_REPLY =
-  'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, where 1 is the last call.'
+  'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, and /simple open N shows it in the call tab, where 1 is the last call.'
 
 describe('/simple', () => {
   viewTest('toggles the mode and every row follows it', async (world, $) => {
@@ -2945,7 +3619,7 @@ describe('/simple', () => {
     expectEngineRow((await drawn($, use)).tree)
     expectEngineRow((await drawn($, result)).tree)
     expect(await commandText($, '')).toBe(
-      'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, where 1 is the last call.',
+      'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, and /simple open N shows it in the call tab, where 1 is the last call.',
     )
     expect(await texts($, 'terminal', use)).toEqual(['● List files ls exit 0 2 lines'])
   })
@@ -3016,7 +3690,7 @@ describe('/simple', () => {
     'replies with the valid forms by name to an unknown argument and keeps the mode',
     async (_world, $) => {
       const usage =
-        '/simple takes on, off, show N or no argument. /simple on and /simple off set this session, /simple toggles it, and /simple show N prints the N-th last tool call in full. Set the default with the plugin\'s "mode" setting.'
+        '/simple takes on, off, show N, open N, open error or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, and /simple open error shows the last call that failed. Set the default with the plugin\'s "mode" setting.'
       expect(await commandText($, 'of')).toBe(usage)
       expect(await commandText($, 'on now')).toBe(usage)
       expect(await commandText($, 'show 1 2')).toBe(usage)

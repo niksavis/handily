@@ -1,8 +1,8 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
 import { elapsedText } from './detail'
-import { FOLD_BUTTONS_CELLS } from './fold'
+import { FOLD_BUTTONS_CELLS, foldButtons, type FoldActions, type FoldLabel } from './fold'
 import type { BashEnd, Denial, Denier, FileChange, StderrSummary, Totals } from './output'
-import { displayWidth } from './width'
+import { displayWidth, fitted, graphemesOf } from './width'
 
 type RowElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 type CellStyle = Omit<Parameters<RowElements['Text']>[0], 'children'>
@@ -11,6 +11,8 @@ type Cell = { text: string; style?: CellStyle; canShrink?: boolean; keptCells?: 
 export type RowLook = { elements: RowElements; hasToolMarker: boolean; columns: number }
 
 export type BashState = { kind: 'pending' } | { kind: 'running' } | BashEnd
+
+export type RowButtons = { label: FoldLabel; actions: FoldActions }
 
 export type BashView = {
   label: string
@@ -27,6 +29,7 @@ const MARKER_CELLS = 2
 const CELL_GAP = 2
 const REFUSED_WORD = 'refused'
 const DENIED_WORD = 'denied'
+const ERROR_WORD = 'error'
 const CLASSIFIER_DENIER = 'auto mode'
 const RULE_DENIER = 'by a rule'
 const PERSON_DENIER = 'by you'
@@ -38,6 +41,9 @@ const DENIERS: Readonly<Record<Denier, string>> = {
 const TIME_SHOWN_FROM_MS = 1000
 const RESULT_INDENT = 2
 const REASON_BESIDE_FROM_COLUMNS = 60
+const REASON_LINES_AT_MOST = 2
+const NO_REASON_TEXT = 'no error text'
+const CUT_MARK = '…'
 const EXIT_NAMES: Readonly<Record<number, string>> = {
   126: 'not executable',
   127: 'command not found',
@@ -134,7 +140,8 @@ function errorWord(word: string): Cell {
 }
 
 function reasonOf(state: BashState): string | null {
-  if (state.kind !== 'exit' && state.kind !== 'refused' && state.kind !== 'error') return null
+  if (state.kind === 'exit' || state.kind === 'error') return state.line
+  if (state.kind !== 'refused') return null
   return state.line === '' ? null : state.line
 }
 
@@ -146,11 +153,82 @@ function underRow(look: RowLook, key: string, child: RenderElement): RenderEleme
   })
 }
 
-function reasonLine(look: RowLook, reason: string): RenderElement {
-  return underRow(
-    look,
-    'reason',
-    look.elements.Text({ color: 'error', wrap: 'truncate-end', children: reason }),
+function reasonRoom(look: RowLook): number {
+  return Math.max(look.columns - (look.hasToolMarker ? RESULT_INDENT : 0), 1)
+}
+
+function isNarrow(look: RowLook): boolean {
+  return look.columns < REASON_BESIDE_FROM_COLUMNS
+}
+
+function cutToCells(text: string, cells: number): string {
+  let kept = ''
+  let used = 0
+  for (const { grapheme, cells: width } of graphemesOf(text)) {
+    if (used + width > cells) break
+    kept += grapheme
+    used += width
+  }
+  return kept
+}
+
+function wrappedLines(text: string, room: number): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const word of text.split(' ').filter((part) => part !== '')) {
+    const joined = line === '' ? word : `${line} ${word}`
+    if (displayWidth(joined) <= room) {
+      line = joined
+      continue
+    }
+    if (line !== '') lines.push(line)
+    let rest = word
+    while (displayWidth(rest) > room) {
+      const head = cutToCells(rest, room)
+      if (head === '') break
+      lines.push(head)
+      rest = rest.slice(head.length)
+    }
+    line = rest
+  }
+  if (line !== '') lines.push(line)
+  return lines
+}
+
+function cutAtWord(line: string, room: number): string {
+  if (displayWidth(`${line}${CUT_MARK}`) <= room) return `${line}${CUT_MARK}`
+  const space = line.lastIndexOf(' ')
+  if (space <= 0) return fitted(line, room)
+  return `${line.slice(0, space).trimEnd()}${CUT_MARK}`
+}
+
+type ReasonLayout = { lines: string[]; isCut: boolean }
+
+function reasonLayout(look: RowLook, reason: string): ReasonLayout {
+  const room = reasonRoom(look)
+  if (!isNarrow(look)) return { lines: [reason], isCut: displayWidth(reason) > room }
+  const wrapped = wrappedLines(reason, room)
+  if (wrapped.length <= REASON_LINES_AT_MOST) return { lines: wrapped, isCut: false }
+  const kept = wrapped.slice(0, REASON_LINES_AT_MOST)
+  kept[REASON_LINES_AT_MOST - 1] = cutAtWord(kept.at(-1) ?? '', room)
+  return { lines: kept, isCut: true }
+}
+
+export function isReasonCut(look: RowLook, reason: string): boolean {
+  return reason !== '' && reasonLayout(look, reason).isCut
+}
+
+function reasonLines(look: RowLook, reason: string): RenderElement[] {
+  const { Text } = look.elements
+  if (reason === '') {
+    return [underRow(look, 'reason', Text({ dimColor: true, children: NO_REASON_TEXT }))]
+  }
+  return reasonLayout(look, reason).lines.map((text, index) =>
+    underRow(
+      look,
+      index === 0 ? 'reason' : `reason-${String(index + 1)}`,
+      Text({ color: 'error', wrap: 'truncate-end', children: text }),
+    ),
   )
 }
 
@@ -168,26 +246,25 @@ function tailLine(look: RowLook, time: Cell, actions: RenderElement | null): Ren
   )
 }
 
+function rowButtons(look: RowLook, buttons: RowButtons | null): RenderElement | null {
+  if (buttons === null) return null
+  if (!isNarrow(look)) return foldButtons(look, buttons.label, buttons.actions)
+  return foldButtons(look, buttons.label, { press: buttons.actions.press })
+}
+
 function withReason(
   look: RowLook,
   marker: ThemeKey,
   cells: { leading: Cell[]; time: Cell },
   reason: string,
-  actions: RenderElement | null,
+  buttons: RowButtons | null,
 ): RenderElement {
   const { Box } = look.elements
-  const isBeside = look.columns >= REASON_BESIDE_FROM_COLUMNS
-  const row = isBeside
-    ? line(look, 'row', marker, [...cells.leading, cells.time], actions)
-    : line(look, 'row', marker, cells.leading)
-  return Box({
-    flexDirection: 'column',
-    children: [
-      row,
-      reasonLine(look, reason),
-      isBeside ? null : tailLine(look, cells.time, actions),
-    ],
-  })
+  const actions = rowButtons(look, buttons)
+  const row = isNarrow(look)
+    ? line(look, 'row', marker, cells.leading, actions)
+    : line(look, 'row', marker, [...cells.leading, cells.time], actions)
+  return Box({ flexDirection: 'column', children: [row, ...reasonLines(look, reason)] })
 }
 
 function leastCells(cell: Cell): number {
@@ -250,7 +327,7 @@ const MARKERS: Readonly<Record<BashState['kind'], ThemeKey>> = {
 export function bashRow(
   look: RowLook,
   view: BashView,
-  actions: RenderElement | null = null,
+  buttons: RowButtons | null = null,
 ): RenderElement {
   const label: Cell = {
     text: view.label,
@@ -269,8 +346,9 @@ export function bashRow(
   const marker = MARKERS[view.state.kind]
   const reason = reasonOf(view.state)
   if (reason !== null) {
-    return withReason(look, marker, { leading: [label, program, ...state], time }, reason, actions)
+    return withReason(look, marker, { leading: [label, program, ...state], time }, reason, buttons)
   }
+  const actions = buttons === null ? null : foldButtons(look, buttons.label, buttons.actions)
   const cells = [label, program, ...state, time]
   const shownLabel: Cell = {
     ...label,
@@ -332,10 +410,22 @@ export function refusedRow(
   tool: string,
   target: readonly string[],
   message: string,
+  buttons: RowButtons | null = null,
 ): RenderElement {
   const leading = [{ text: tool }, ...keptTargetCells(target), errorWord(REFUSED_WORD)]
   if (message === '') return line(look, 'row', 'error', leading)
-  return withReason(look, 'error', { leading, time: { text: '' } }, message, null)
+  return withReason(look, 'error', { leading, time: { text: '' } }, message, buttons)
+}
+
+export function erroredRow(
+  look: RowLook,
+  tool: string,
+  target: readonly string[],
+  reason: string,
+  buttons: RowButtons | null,
+): RenderElement {
+  const leading = [{ text: tool }, ...keptTargetCells(target), errorWord(ERROR_WORD)]
+  return withReason(look, 'error', { leading, time: { text: '' } }, reason, buttons)
 }
 
 export function deniedRow(
@@ -368,9 +458,15 @@ const GENERIC_STATES: Readonly<Record<GenericState, { marker: ThemeKey; cell: Ce
   error: { marker: 'error', cell: { text: 'error', style: { color: 'error' } } },
 }
 
-export function genericRow(look: RowLook, view: GenericView): RenderElement {
+export type GenericReason = { text: string; buttons: RowButtons | null }
+
+export function genericRow(
+  look: RowLook,
+  view: GenericView,
+  reason: GenericReason | null = null,
+): RenderElement {
   const { marker, cell: stateCell } = GENERIC_STATES[view.state]
-  return line(look, 'row', marker, [
+  const leading: Cell[] = [
     { text: view.label },
     { text: view.summary, style: { wrap: 'truncate-end' }, canShrink: true },
     stateCell,
@@ -378,8 +474,15 @@ export function genericRow(look: RowLook, view: GenericView): RenderElement {
       text: view.state === 'done' && view.lines !== null ? plural(view.lines, 'line') : '',
       style: { dimColor: true },
     },
-    { text: view.state === 'pending' ? '' : timeText(view.elapsedMs), style: { dimColor: true } },
-  ])
+  ]
+  const time: Cell = {
+    text: view.state === 'pending' ? '' : timeText(view.elapsedMs),
+    style: { dimColor: true },
+  }
+  if (view.state === 'error' && reason !== null) {
+    return withReason(look, marker, { leading, time }, reason.text, reason.buttons)
+  }
+  return line(look, 'row', marker, [...leading, time])
 }
 
 export type ChangeLines = { files: readonly FileChange[]; moreFiles: number } | null

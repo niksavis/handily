@@ -81,9 +81,14 @@ function folded(lines: readonly string[]): { preview: string[]; fold: string } {
 async function wholeTable($: Engine, table: string, scene: Scene): Promise<Drawn> {
   const ui = await mountReply($, table)
   await ui.press({ key: 'fold' })
-  const lines = bodyOf(sketchOf(await ui.drawn(), COLUMNS), scene).slice(1, -2)
+  const opened = bodyOf(sketchOf(await ui.drawn(), COLUMNS), scene)
   await ui.press({ key: 'fold' })
   await ui.unmount()
+  const at = opened.findIndex((line) => line.startsWith('▾ '))
+  const above = opened.slice(0, at)
+  const below = opened.slice(at + 1)
+  const closing = above.length > 0 && above.at(-1) === below.at(-1) ? 1 : 0
+  const lines = [...above.slice(0, above.length - closing), ...below]
   return { lines, width: Math.max(...lines.map(displayWidth)) }
 }
 

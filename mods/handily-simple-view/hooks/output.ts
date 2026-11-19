@@ -4,6 +4,9 @@ import { shownLine, shownText } from './shown'
 const EXIT_PREFIX = /^Error: Exit code (\d+)[^\n]*(?:\n|$)/
 const HOOK_REFUSAL_PREFIX = /^Error: \w+:\S+ hook error: \[[^\n]*?\]: /
 const ERROR_PREFIX = 'Error: '
+const TOOL_USE_ERROR_TAGS = /<\/?tool_use_error>/g
+const LEADING_SPACE = /^\s+/
+const INTERRUPTION = /^(?:Error: )?(?:\[Request interrupted by user|Interrupted by user)/
 const CLASSIFIER_DENIAL =
   /^Error: Permission for this action was denied by the Claude Code auto mode classifier\. Reason: (?:\[([^\]\r\n]+)\]|The server-side auto mode classifier judged this action dangerous \(it gave no explanation\))\.(?: |$)/
 const RULE_DENIAL = /^(?:Error: )?Permission to use \S+ with command [\s\S]+ has been denied\.$/
@@ -113,6 +116,30 @@ export function erroredOutput(output: unknown): ErroredOutput | null {
   if (refusal !== null) return { end: { kind: 'refused' }, body: output.slice(refusal[0].length) }
   if (!output.startsWith(ERROR_PREFIX)) return null
   return { end: { kind: 'error' }, body: output.slice(ERROR_PREFIX.length) }
+}
+
+function bareErrorText(text: string): string {
+  const bare = text.replace(TOOL_USE_ERROR_TAGS, '').replace(LEADING_SPACE, '')
+  return bare.startsWith(ERROR_PREFIX) ? bare : `${ERROR_PREFIX}${bare}`
+}
+
+export function erroredText(output: unknown, kept: string | undefined): string | null {
+  if (typeof output === 'string') return output.replace(TOOL_USE_ERROR_TAGS, '')
+  return kept === undefined ? null : bareErrorText(kept)
+}
+
+export function hasErrorShape(text: string): boolean {
+  return text.startsWith(ERROR_PREFIX) || /<tool_use_error>/.test(text)
+}
+
+export function isInterruption(text: string): boolean {
+  return INTERRUPTION.test(text)
+}
+
+export function errorReason(text: string): string {
+  const errored = erroredOutput(text)
+  const line = firstNonEmptyLine(errored === null ? text : errored.body)
+  return line.startsWith(ERROR_PREFIX) ? line.slice(ERROR_PREFIX.length) : line
 }
 
 export function refusalLine(output: unknown): string | null {

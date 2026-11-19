@@ -591,9 +591,12 @@ the buttons move under the row, and the state word and the line count stay whole
   or the pattern and `#refused#`, and the first line of the hook message under the row
   (handily-fwkt.8.27). The
   marker is red and the result block is drawn empty. Another error of these tools keeps the
-  row and the error text of the engine.
+  row and the error text of the engine. (Superseded by section 21.1, handily-z1k1cu: another
+  error now shows `#error#` and the first line of the error text under the row.)
 - A generic row of a call that a hook refused shows `#error#`, and its result block is drawn
   empty. Another error of a generic row keeps the error text of the engine under the row.
+  (Superseded by section 21.1, handily-z1k1cu: the row shows the first line of the hook message
+  or of the error text under it, and the result block is empty.)
 - `Write /elsewhere/big.json` with no totals: the engine gave no diff, so the mod shows the path
   only.
 - A call without an error that wrote to stderr adds the stderr line count and the first
@@ -790,6 +793,9 @@ The empty pane with tracker items (handily-yxie3): the first 10 open items show,
 `[ all 29 open ]`. A click shows all of them, in a list that scrolls.
 
 ### 7.2 Compact transcript: fold, expand and copy (handily-t899o)
+
+Superseded by section 21 (handily-z1k1cu, 2026-11-19): `more` no longer opens the output under
+the row. The text below is kept as the record of the first build.
 
 A tool call stays one row, as in simple-view, and gets two buttons:
 
@@ -3967,6 +3973,9 @@ The view decides per block:
 ```
 
 ### 9.11 A long reply with a diagram, 80 columns
+
+The opened mock below is superseded by section 21.6 (handily-z1k1cu): no rule is added above the
+preview, and the rest of the reply draws under the fold row.
 
 Folded, the diagram shows only its title line:
 
@@ -8147,6 +8156,9 @@ Notes:
 
 #### 15.3g The class diagram at 40 columns: it folds, and `[ more ]` opens it
 
+The opened mock below is superseded by section 21.6 (handily-z1k1cu): the preview and the fold
+row stay at their lines, and the rest of the diagram draws under the fold row.
+
 The stack is 25 columns wide, so it fits a reply of 38 columns with no wrap. With the prose and
 the title lines the reply has more than 30 rows, so it folds after the title lines of the diagram
 (7.2):
@@ -9721,6 +9733,9 @@ Colours: `✓ copied …` in `success`, `■ not copied` in `error`. `✓` and `
 
 ### 19.4 The fold row names what it hides
 
+The open row `▾` with nothing after it is superseded by section 21.6 (handily-z1k1cu): the open
+fold row keeps the text of the folded row with `▾`, and the rest of the reply draws under it.
+
 ```text
 120 columns
   ▸ 15 more lines · 1 table · 1 sh block · 1 flowchart                                            [ more ] [ copy reply ]
@@ -10140,3 +10155,188 @@ For you (2 of 3 closed)
 - **`types/index.d.ts`.** `BoardResult` gains `by` (`person` or `claude`), `how`, `note` and
   `said`. `BoardTask` gains `reopened`, which keeps the reopen note until the next prompt.
   `BoardCallRow` gains the rows `assigned` and `closed`.
+
+## 21. Compact error and peer rows, folds that keep the place (handily-z1k1cu)
+
+The owner asked on 2026-11-19 for compact rows for tool errors and for messages from other
+sessions, and for a fold that does not move the view. The orchestrator decided option B for the
+reason at 40 columns, and the fold A plus B: a row keeps its height, and `more` shows the text
+in a docked tab. The probes P0 to P7 and the decisions are in the comments of the record. These
+mocks are the build. They replace 7.2 and the open row of 19.4.
+
+### 21.0 Conventions
+
+As section 19.0: plain text, one `Colours:` line under each block, theme keys only. `[ … ]` is a
+Button. A row has one reason line under it, never more, except under 60 columns, where the reason
+wraps to two lines.
+
+### 21.1 Failed calls, 120 columns
+
+```text
+● Run the board tests  npm  exit 1  2.0s                                                               [ more ] [ copy ]
+  FAIL src/board.test.ts > closes a task: expected "done", received "open"
+● Fail  false  exit 1
+  no error text
+● Edit  hooks/transcript.ts  error
+  File has not been read yet. Read it first before writing to it.
+● board · task_update  7  error
+  No task 7. The list is empty.
+```
+
+Colours: `●`, `exit 1`, `error` and the reason in `error`; the program and the time dim;
+`no error text` dim; buttons dim.
+
+- A call inside a REPL script reaches the row with `output` undefined (probe P1). The reason
+  then comes from the error text that `tool.call` answered for the same tool use id.
+- An `Edit` or `Read` row and a generic row get `more` and `copy` only when the error text
+  has more than the reason line shows.
+
+### 21.2 Failed calls, 40 columns (option B)
+
+```text
+● List a folder  ls  exit 2     [ more ]
+  ls: cannot access
+  '/nonexistent-folder': No such file…
+● Edit  a.ts  error
+  File has not been read yet. Read it
+  first before writing to it.
+● Edit  a.ts  error             [ more ]
+  File has not been read yet. Read it
+  first before writing to it. The file…
+```
+
+Colours: as 21.1.
+
+- The reason wraps at words to at most two lines. A longer reason is cut at a word with `…`, and
+  the row gets `more`.
+- Under 60 columns the row keeps only `more`. The time and `copy` are in the `call` tab.
+
+### 21.3 A press on more
+
+Fullscreen from 110 columns, drawn at 120: the row keeps its height, and the button reads `shown`.
+
+```text
+● Run the unit tests  npm  exit 0  140 lines  3.0s                                                    [ shown ] [ copy ]
+```
+
+Below 110 columns, or on the main screen: no pane opens. The row adds one dim line.
+
+```text
+● Run the unit tests  npm  exit 0  140 lines  3.0s                                [ shown ] [ copy ]
+  /simple open 1 shows this call in the call tab.
+```
+
+Colours: `shown` at full strength, `more` dim; the line dim.
+
+- The `call` tab opens once, without `closeOnEscape`, so Esc gives the keys back and keeps the
+  tab. A press on another row shows that call in the same tab.
+- The number in the line follows new calls: 1 is the last call. A second press removes the line.
+
+### 21.4 The call tab, docked, body 60
+
+```text
+Bash · exit 0 · 3.0s
+Run the unit tests
+$ npm test
+────────────────────────────────────────────────────────────
+line 1
+…
+line 140
+────────────────────────────────────────────────────────────
+140 lines
+[ copy ] [ < error ] [ error > ]
+```
+
+Colours: the head bold; the command, the rules and the count dim.
+
+- Keys: `c` copies, `p` shows the previous kept call that failed, `n` the next one.
+  `< error` and `error >` draw only when such a call is kept.
+- `/simple open N` and `/simple open error` open the tab with the keys and show the kept record,
+  whose head adds `call N of M`.
+- Empty: `No call is shown here yet. Press more on a tool row, or run /simple open.`
+- A saved output that cannot be read: `The saved output could not be read.` and the path.
+
+Replies of `/simple open`:
+
+```text
+Call 1 of the last 2 is in the call tab.
+/simple open has no tool call to show yet in this session.
+No kept call failed. /simple open N shows call N, where 1 is the last call.
+No call 2 is kept. /simple open takes a call number from 1 to 1, where 1 is the last tool call, or the word error.
+```
+
+### 21.5 A message from another session
+
+```text
+120 columns
+> from release  lane-a1 is merged.
+> from coordinator  the push window ended at 14:00 UTC. Nothing was landed: the lane carries a trac…  3 lines   [ more ]
+
+40 columns
+> from a-very-long… · 3 lines   [ more ]
+  the push window ended at 14:00 UTC. N…
+```
+
+Colours: `>` and `from` dim; the sender bold in `suggestion`; the count and the button dim.
+
+- Only `origin.kind` `peer` with a sender draws so (probe P3). A leading `sender:` in the body
+  is left out. The ctrl+o view (`isExpanded` true) draws the row of the engine.
+- `more` shows the message in the `message` tab under the rule of 21.3. Below 110 columns the
+  row adds `ctrl+o shows the whole message.`.
+
+The `message` tab, body 60:
+
+```text
+from coordinator · peer session
+────────────────────────────────────────────────────────────
+the push window ended at 14:00 UTC. Nothing was landed: the lane carries a tracker change.
+The next window opens at 16:00 UTC.
+Ask before you push.
+────────────────────────────────────────────────────────────
+[ copy ]
+```
+
+### 21.6 The reply fold keeps the pressed button at its line
+
+Folded, then open, 80 columns:
+
+```text
+● Line 1
+  …
+  Line 30
+  ▸ 24 more lines                                        [ more ] [ copy reply ]
+
+● Line 1
+  …
+  Line 30
+  ▾ 24 more lines                                        [ less ] [ copy reply ]
+  Line 31
+  …
+  Line 54
+```
+
+Colours: as 19.4.
+
+- No rule is added above the preview, and the fold row keeps its text and its layout, so
+  `less` stands where `more` stood.
+- A block that the preview cut goes on under the fold row: a paragraph from the next word, a
+  table from the next row (no second head), a code block from the next line with its line
+  numbers, a diagram from its next row, a shared row from the next row of each cell.
+
+### 21.7 Failure modes and limits
+
+- **Scrolled up or at the bottom.** `onScreen` gives only the visible rows of the row itself,
+  and a press carries no scroll position. So below 110 columns every press adds the line of
+  21.3, and at the bottom the row grows by one line.
+- **Another pane docked first.** With the board docked at 150 columns the transcript has 83
+  columns. A read-only `Pane` hook of every plugin keeps the columns seen while a pane renders
+  docked. A press in fullscreen at those columns opens the tab, which joins the dock. After a
+  resize or a closed dock the columns differ, and the press takes the line of 21.3.
+- **The reply fold at the bottom.** The engine keeps the bottom edge of a fullscreen transcript
+  at the bottom (probe P2), so the rest that opens under the fold row pushes the reply up there.
+  Scrolled up, the button stays at its line.
+- **The error text of a call inside a REPL script** is read with or without `Error:` and the
+  `<tool_use_error>` tags. Its shape is not measured. A text that starts with
+  `Interrupted by user` keeps the row of the engine.
+- **Recaps** have no render site in Claude Code 2.1.328 (probe P4). They stay as the engine draws
+  them: engine gap handily-xaxdjy.
