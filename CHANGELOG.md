@@ -6,6 +6,16 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.28.2 - 2026-11-19
+
+### Fixed
+
+- **handily-board: a failed agent row leaves the band with no refused write.** When the this
+  session tab drew a failed agent row, the board marked the row as seen from a timer that Claude
+  Code 2.1.327 and later can refuse while the draw runs, so the failed row could stay in the band.
+  Now the draw writes no state, the band hides the row at once, and the next command, prompt or
+  pane close keeps the mark. A failure after the draw stays in the band. (handily-m4zwe0)
+
 ## handily-reply-view 0.28.0 - 2026-11-19
 
 ### Added
