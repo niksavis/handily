@@ -6972,8 +6972,8 @@ Section 19 (handily-d75xdi) supersedes the block heads, the button places and th
   None is wider than its screen.
 - **Environment.** Terminal first. The desktop app is stated in each part. Mobile draws as the
   desktop does (no pointer: the buttons are native).
-- **Streaming.** While a reply streams, Claude Code draws it, and reply-view draws the complete
-  reply once at the end (reply-view README 71). This holds for every mock here.
+- **Streaming.** On the terminal, reply-view holds back the text of a reply while it streams, and
+  draws the complete reply once (handily-sr0k5y). This holds for every mock here.
 
 ### 15.1 Every reply: paragraphs, headings, lists, task lists, quotes and alerts
 

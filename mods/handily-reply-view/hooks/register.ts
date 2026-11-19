@@ -5,7 +5,7 @@ import type {
   RenderSurface,
   RenderViewport,
 } from 'claude-code'
-import type { ReplyViewFold, ReplyViewMode } from '../types'
+import type { ReplyViewFold, ReplyViewHeld, ReplyViewMode } from '../types'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import {
   blockCopyOf,
@@ -26,6 +26,15 @@ import {
 } from './draw'
 import { DEFAULT_REPLY_STYLE, isReplyStyle, REPLY_STYLES, type ReplyStyle } from './frame'
 import { DIAGRAM_HINT } from './hint'
+import {
+  DEFAULT_STREAMING,
+  heldStep,
+  isStreaming,
+  progressText,
+  STREAMINGS,
+  type HoldPort,
+  type Streaming,
+} from './holdback'
 import { jumpTo, PROMPTS_PANE, railCommandOf, runRailCommand, type RailPort } from './jump'
 import { DEFAULT_HEADING_STYLE, HEADING_STYLES, isHeadingStyle, type HeadingStyle } from './blocks'
 import {
@@ -76,6 +85,7 @@ const MODE = { plugin: 'handily-reply-view', key: 'mode' } as const
 const RAIL_VERSION = { plugin: 'handily-reply-view', key: 'railVersion' } as const
 const HINTS = { plugin: 'handily-reply-view', key: 'hints' } as const
 const COPIED = { plugin: 'handily-reply-view', key: 'copied' } as const
+const HELD = { plugin: 'handily-reply-view', key: 'held' } as const
 const HINTS_ARGUMENT = 'hints'
 const COPY_ARGUMENT = 'copy'
 const REPLY_WORD = 'reply'
@@ -138,6 +148,12 @@ const CHECKED_SETTINGS: readonly CheckedSetting[] = [
     options: SIDE_BY_SIDE,
     fallback: `Side by side stays ${DEFAULT_SIDE_BY_SIDE}.`,
     isOption: isSideBySide,
+  },
+  {
+    key: 'streaming',
+    options: STREAMINGS,
+    fallback: `Streaming stays ${DEFAULT_STREAMING}.`,
+    isOption: isStreaming,
   },
 ]
 
@@ -443,6 +459,41 @@ async function codeFoldsOf(
   return new Map(folds)
 }
 
+type HoldRule = { streaming: Streaming; defaultMode: ReplyViewMode }
+
+async function holdsStep(
+  $: EngineInterface,
+  agentId: string | undefined,
+  rule: HoldRule,
+): Promise<boolean> {
+  if (rule.streaming === 'live' || agentId !== undefined) return false
+  const { value: mode = rule.defaultMode } = await $.state.get(MODE)
+  if (mode === 'off') return false
+  const surfaces = await $.session.surfaces()
+  return surfaces.length > 0 && surfaces.every((surface) => surface === 'terminal')
+}
+
+function holdPort($: EngineInterface): HoldPort {
+  let shown: ReplyViewHeld | null = null
+  return {
+    now: () => $.clock.now(),
+    show: async (held) => {
+      if (held === shown) return
+      shown = held
+      try {
+        await $.state.set(HELD, held)
+        $.ui.invalidate('ui.render')
+      } catch (error) {
+        logFailure($, 'the spinner line keeps its own words', error)
+      }
+    },
+    note: (text) => {
+      $.ui.log(text, { to: 'debug' })
+      return Promise.resolve()
+    },
+  }
+}
+
 type PromptSite = { rail: Rail; style: PromptStyle; defaultMode: ReplyViewMode }
 
 async function promptLookOf(
@@ -486,6 +537,10 @@ export const register: Register = (on, options) => {
   const sideBySide: SideBySide = isSideBySide(options.sideBySide)
     ? options.sideBySide
     : DEFAULT_SIDE_BY_SIDE
+  const holdRule: HoldRule = {
+    streaming: isStreaming(options.streaming) ? options.streaming : DEFAULT_STREAMING,
+    defaultMode,
+  }
   let lastReply: string | undefined
   const railSite: RailSite = { rail: newRail(), version: 0 }
   on('session.start', async ($, e, next) => {
@@ -563,6 +618,23 @@ export const register: Register = (on, options) => {
     }
     if (e.agentId !== undefined) await recheckWork($)
     return next(e)
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    if (!(await holdsStep($, e.agentId, holdRule))) return yield* next(e)
+    const port = holdPort($)
+    try {
+      return yield* heldStep(next(e), port)
+    } finally {
+      await port.show(null)
+    }
+  })
+
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const { value: held = null } = await $.state.get(HELD)
+    if (held === null) return next(e)
+    return next({ ...e, props: { ...e.props, message: progressText(held) } })
   })
 
   on('tool.call', async ($, e, next) => {

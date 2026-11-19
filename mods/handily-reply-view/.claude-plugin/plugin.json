@@ -63,6 +63,13 @@
       "options": ["on", "off"],
       "default": "on"
     },
+    "streaming": {
+      "type": "string",
+      "title": "Streaming",
+      "description": "Whether the text of a reply waits until the reply view draws it in its final layout, with its progress on the spinner line (held), or streams as Claude Code draws it (live). Text that streams longer than 8 seconds shows at once and streams on.",
+      "options": ["held", "live"],
+      "default": "held"
+    },
     "highlight": {
       "type": "string",
       "title": "Highlight",

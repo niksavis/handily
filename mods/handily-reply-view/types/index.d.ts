@@ -8,6 +8,8 @@ export type ReplyViewPalette = 'theme' | 'catppuccin-mocha'
 
 export type ReplyViewCopyMark = { key: string; isCopied: boolean }
 
+export type ReplyViewHeld = { lines: number; tables: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'handily-reply-view': {
@@ -23,6 +25,7 @@ declare module 'claude-code' {
       glyphs: ReplyViewGlyphs
       palette: ReplyViewPalette
       copied: ReplyViewCopyMark
+      held: ReplyViewHeld | null
     }
   }
 }

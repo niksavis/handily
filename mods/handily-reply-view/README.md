@@ -99,8 +99,12 @@ buttons at the right edge:
   app, such a reply draws as Claude Code draws it, unless it holds a table or a fenced block.
 - The fold never shows the title line of a diagram alone.
   [A folded diagram](#a-folded-diagram) gives the rule.
-- While a reply streams, Claude Code draws it itself, and the view draws the reply only when it
-  is complete, so the look of the reply changes once at the end.
+- On the terminal, the view holds back the text of a reply while it streams and draws the reply
+  once, in its final layout. Meanwhile the spinner line shows the progress, such as
+  `writing reply · 12 lines · 1 table`. Text that streams longer than 8 seconds shows at once and
+  streams on, so a long reply never looks stopped. Esc shows the held text at once, and the
+  transcript keeps it. The `streaming` setting `live` streams replies as Claude Code draws them.
+  The replies of a subagent, and every reply on the desktop app, stream as Claude Code draws them.
 
 ## A table
 
@@ -2682,6 +2686,7 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | `promptStyle`  | `rule`   | `rule` draws a rule above a prompt that you type. `bar` draws a bar at its left, `bubble` a frame at the right |
 | `replyStyle`   | `off`    | `frame` draws each reply in a frame labelled `● Claude` at 40 columns or more. `off` draws the bullet          |
 | `sideBySide`   | `on`     | `on` draws tables and diagrams that follow each other in one row when they fit. `off` stacks them              |
+| `streaming`    | `held`   | `held` holds back the text of a reply until the view draws it whole. `live` streams it as Claude Code draws it |
 
 | Command                  | Effect                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------- |
