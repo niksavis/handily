@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -32,6 +34,7 @@ def _load(file_name: str, module_name: str) -> Any:
 git_runner = _load("git_runner.py", "basicly_tracker_kit_git_runner")
 events = _load("events.py", "basicly_tracker_kit_events")
 vault_shapes = _load("vault_shapes.py", "basicly_tracker_kit_vault_shapes")
+vault_config = _load("vault_config.py", "basicly_tracker_kit_vault_config")
 
 STATE_NAME = "basicly-tracker"
 STATE_VARIABLE = "BASICLY_TRACKER_STATE"
@@ -41,6 +44,7 @@ SEEN_REF = "refs/basicly/seen"
 RETRACTED_PREFIX = "refs/basicly/retracted/"
 REPAIRED_NAME = "repaired"
 FETCHED_NAME = "fetched"
+FETCH_GENERATION_NAME = "fetch.generation"
 VALID_NAME = "valid.ids"
 EVENTS_NAME = "valid.jsonl"
 COVERS_NAME = "valid.at"
@@ -81,9 +85,16 @@ def state_root(environ: Mapping[str, str], home: Path, *, windows: bool) -> Path
     return home / ".local" / "state" / STATE_NAME
 
 
+def _local_path(text: str) -> Path:
+    if not text.startswith("file://"):
+        return Path(text)
+    rest = re.sub(r"%([0-9A-Fa-f]{2})", lambda hit: chr(int(hit.group(1), 16)), text[7:])
+    return Path(rest[1:] if re.match(r"/[A-Za-z]:", rest) else rest)
+
+
 def vault_source(text: str) -> tuple[str, bool]:
 
-    path = Path(text)
+    path = _local_path(text)
     if path.is_dir():
         return path.resolve().as_uri(), True
     try:
@@ -95,22 +106,58 @@ def vault_source(text: str) -> tuple[str, bool]:
         ) from None
 
 
-def locate(state: Path, vault: str) -> Clone:
+def _refuse_guarded_vault(vault: str) -> None:
+    for root in events.records_guard_roots():
+        config = vault_config.load(root)
+        if config is None:
+            continue
+        named = {config.vault}
+        with contextlib.suppress(CloneError):
+            named.add(vault_source(config.vault)[0])
+        if vault in named:
+            events.refuse_records_in_ci(root / ".basicly")
 
+
+def locate(state: Path, vault: str) -> Clone:
+    _refuse_guarded_vault(vault)
     url, allow_file = vault_source(vault)
     name = hashlib.sha256(url.encode("utf-8")).hexdigest()[:24]
     return Clone(url, Path(state) / "vaults" / name, allow_file)
 
 
 def private(path: Path) -> None:
+    if os.name == "nt":
+        permissions = _load("windows_permissions.py", "basicly_tracker_kit_windows_permissions")
+        try:
+            permissions.private(path)
+        except permissions.DefaultOwnerError as error:
+            raise CloneError(
+                "Windows uses a default owner other than the current user. "
+                "Run this tracker command under an account "
+                "whose default owner is its current user. "
+                "Preserve existing state and queued events."
+            ) from error
+        except OSError as error:
+            raise CloneError(
+                "Windows vault state is not private. "
+                "Preserve its existing folder and queued events. "
+                "Check the folder selected by --state or BASICLY_TRACKER_STATE. "
+                "Correct its ownership and access lists before retrying."
+            ) from error
+        return
     path.mkdir(parents=True, exist_ok=True)
-    if os.name != "nt":
-        path.chmod(0o700)
+    path.chmod(0o700)
+
+
+def protect(clone: Clone) -> None:
+    installer = _load("vault_push_hooks.py", "basicly_tracker_kit_vault_push_hooks")
+    installer.install(clone.bare, owned=True)
 
 
 def _ensure(clone: Clone, runner: Runner, timeout: float) -> None:
 
     if (clone.bare / "HEAD").is_file():
+        protect(clone)
         return
     partial = clone.folder / "clone.partial"
     if partial.exists():
@@ -119,6 +166,7 @@ def _ensure(clone: Clone, runner: Runner, timeout: float) -> None:
     runner(["config", "remote.origin.url", clone.url], partial, timeout=timeout)
     runner(["config", "remote.origin.fetch", FETCH_REFSPEC], partial, timeout=timeout)
     partial.rename(clone.bare)
+    protect(clone)
 
 
 def ref(clone: Clone, name: str, runner: Runner, timeout: float) -> str:
@@ -189,13 +237,17 @@ def quarantine(clone: Clone) -> list[dict[str, object]]:
     return list({entry["commit"]: entry for entry in found}.values())
 
 
-def _verdicts(clone: Clone, commits: list[str], stop: dict | None) -> tuple:
+def _verdicts(
+    clone: Clone, commits: list[str], stop: dict | None, parents: dict[str, list[str]]
+) -> tuple:
 
     ids: list[str] = []
     found: list[dict] = []
     held: list[dict[str, object]] = []
     for commit in commits:
-        verdict = None if stop else vault_shapes.classify(clone.bare, commit)
+        verdict = (
+            None if stop else vault_shapes.classify(clone.bare, commit, parents=parents[commit])
+        )
         if verdict is None or not verdict.valid:
             held.append({"commit": commit, "rule": verdict.rule if verdict else AFTER_ENDED})
             continue
@@ -239,13 +291,16 @@ def rebuild(
 def _advance(clone: Clone, head: str, runner: Runner, timeout: float) -> dict[str, object]:
 
     seen = ref(clone, SEEN_REF, runner, timeout)
-    chain = vault_shapes.first_parent_chain(clone.bare, head)
+    if seen and head == seen and _read(clone.folder / COVERS_NAME).strip() == seen:
+        return {"seen": head, "moved": False, "retracted": False, "quarantined": []}
+    parents = vault_shapes.first_parent_entries(clone.bare, head)
+    chain = list(parents)
     if seen and seen not in chain:
         _retract(clone, seen, runner, timeout)
         return {"seen": seen, "moved": False, "retracted": True, "quarantined": []}
     whole = not seen or _read(clone.folder / COVERS_NAME).strip() != seen
     new = chain if whole else chain[chain.index(seen) + 1 :]
-    ids, held, stop, found = _verdicts(clone, new, None if whole else ended(clone))
+    ids, held, stop, found = _verdicts(clone, new, None if whole else ended(clone), parents)
     lines = "".join(json.dumps(event, sort_keys=True) + "\n" for event in found)
     durable(clone.folder / EVENTS_NAME, lines, append=not whole)
     durable(clone.folder / VALID_NAME, "".join(f"{i}\n" for i in ids), append=not whole)
@@ -276,6 +331,16 @@ def settle(
     return {**shown, "fetch_lock_wait_s": waited}
 
 
+@dataclass(frozen=True)
+class Fetch:
+    clock: Callable[[], float]
+    runner: Runner = git_runner.run
+    timeout: float = git_runner.DEFAULT_TIMEOUT
+    lock_wait: float = LOCK_WAIT
+    coalesce: bool = False
+    previous_generation: str | None = None
+
+
 def fetch(
     clone: Clone,
     *,
@@ -284,21 +349,73 @@ def fetch(
     lock_wait: float = LOCK_WAIT,
     clock: Callable[[], float],
 ) -> dict[str, object]:
+    return fetch_with(clone, Fetch(clock, runner, timeout, lock_wait))
+
+
+def _covered_head(clone: Clone, runner: Runner, timeout: float) -> str:
+    head = ref(clone, HEAD_REF, runner, timeout)
+    if (
+        head
+        and _read(clone.folder / COVERS_NAME).strip() == head
+        and ref(clone, SEEN_REF, runner, timeout) == head
+    ):
+        return head
+    return ""
+
+
+def _advanced_head(clone: Clone, previous: str, runner: Runner, timeout: float) -> str:
+    try:
+        with events.LedgerLock(clone.folder / "fetch", timeout_s=0):
+            covered = _read(clone.folder / COVERS_NAME).strip()
+            if not covered or covered == previous:
+                return ""
+            head = _covered_head(clone, runner, timeout)
+            return head if head != previous else ""
+    except events.LockUnavailableError:
+        return ""
+
+
+def fetch_with(clone: Clone, request: Fetch) -> dict[str, object]:
+    _refuse_guarded_vault(clone.url)
+
+    runner, timeout, lock_wait, clock, coalesce = (
+        request.runner,
+        request.timeout,
+        request.lock_wait,
+        request.clock,
+        request.coalesce,
+    )
 
     private(clone.folder.parent.parent)
     private(clone.folder)
     stamp = clone.folder / FETCHED_NAME
+    generation = clone.folder / FETCH_GENERATION_NAME
+    before = request.previous_generation
+    if before is None:
+        before = _read(generation) if coalesce else ""
     asked = time.monotonic()
     with events.LedgerLock(clone.folder / "fetch", timeout_s=lock_wait):
         waited = round(time.monotonic() - asked, 3)
         _ensure(clone, runner, timeout)
-        fetched = _fetch_twice(clone, runner, timeout)
-        head = ref(clone, HEAD_REF, runner, timeout)
+        latest = _read(generation) if coalesce else ""
+        joined = bool(latest and latest != before)
+        if joined:
+            try:
+                git_runner.writer_id(latest.strip())
+            except git_runner.GitValueError:
+                joined = False
+        covered = _covered_head(clone, runner, timeout) if joined else ""
+        joined = bool(covered)
+        fetched = joined or _fetch_twice(clone, runner, timeout)
+        head = covered if joined else ref(clone, HEAD_REF, runner, timeout)
         if not head:
             raise CloneError(f"could not fetch {clone.url} and no earlier fetch exists; retry")
-        if fetched:
+        if joined:
+            seen = {"seen": head, "moved": False}
+        elif fetched:
             stamp.write_text(f"{clock()}\n", encoding="utf-8")
             seen = _advance(clone, head, runner, timeout)
+            durable(generation, git_runner.new_writer_id() + "\n")
         else:
             seen = {"seen": ref(clone, SEEN_REF, runner, timeout), "moved": False}
     stamped = _read(stamp).strip()
@@ -309,5 +426,6 @@ def fetch(
         "fetched": fetched,
         "age_s": age,
         "fetch_lock_wait_s": waited,
+        **({"coalesced": True} if joined else {}),
         **seen,
     }

@@ -5,7 +5,7 @@ import sys
 import time
 import traceback
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -91,9 +91,10 @@ def name_refusal(name: str) -> str:
 
 class _Budget:
     def __init__(self, deadline: float, ticks: Clock) -> None:
-        self._end = ticks() + deadline
+        self._end = ticks() + deadline - min(POLL, deadline / 2)
         self._ticks = ticks
         self.timing: dict[str, float] = {}
+        self.refresh_failed = False
 
     def add(self, key: str, seconds: object) -> None:
         value = float(seconds) if isinstance(seconds, (int, float)) else 0.0
@@ -103,7 +104,7 @@ class _Budget:
         return self._ticks()
 
     def left(self, cap: float | None = None) -> float:
-        remaining = max(0.01, self._end - self._ticks())
+        remaining = max(0.0, self._end - self._ticks())
         return remaining if cap is None else min(cap, remaining)
 
 
@@ -150,14 +151,20 @@ def _check(ask: Ask, budget: _Budget, writer: str) -> dict[str, object] | None:
     vault_clone.private(clone.folder)
     check = f"git fetch {clone.url} refs/heads/main"
     try:
-        fetched = vault_clone.fetch(
+        fetched = vault_clone.fetch_with(
             clone,
-            clock=ask.clock,
-            runner=ask.runner,
-            timeout=budget.left(PROBE),
-            lock_wait=budget.left(),
+            vault_clone.Fetch(
+                clock=ask.clock,
+                runner=ask.runner,
+                timeout=min(PROBE, budget.left() / 2),
+                lock_wait=budget.left(),
+                coalesce=True,
+            ),
         )
-    except vault_clone.CloneError:
+    except (
+        vault_clone.CloneError,
+        git_runner.GitTimeoutError,
+    ):
         fetched = {"fetched": False}
     budget.add("fetch_lock_wait_s", fetched.get("fetch_lock_wait_s"))
     if not fetched.get("fetched"):
@@ -172,20 +179,51 @@ def _check(ask: Ask, budget: _Budget, writer: str) -> dict[str, object] | None:
 def _share_or_join(ask: Ask, budget: _Budget, made: str, fresh: bool) -> bool:
 
     joined_at = None
+    writer = vault_queue.writer_of(ask.state)
+    progress = vault_clone._read(ask.clone.folder / vault_share.PROGRESS_NAME)
+
+    def decided() -> bool:
+        try:
+            with events.LedgerLock(ask.clone.folder / "fetch", timeout_s=0):
+                if made in vault_clone.valid_ids(ask.clone):
+                    return True
+                held = holder(ask.clone, ask.record)
+        except events.LockUnavailableError:
+            return False
+        return held is not None and held != (writer, ask.session)
+
     while True:
-        stalled = joined_at is not None and joined_at - budget.left() >= STALL
+        if decided():
+            return joined_at is not None
+        if budget.left() <= 0:
+            raise vault_share.DeadlineError("the claim deadline expired")
+        latest = vault_clone._read(ask.clone.folder / vault_share.PROGRESS_NAME)
+        if joined_at is not None and latest and latest != progress:
+            joined_at = budget.left()
+        progress = latest
+        stalled = joined_at is not None and joined_at - budget.left() >= min(STALL, joined_at / 2)
         plan = vault_share.Plan(
             ask.clock,
             urgent=True,
             deadline_s=budget.left(),
             fresh=fresh and joined_at is None,
-            lock_wait=JOIN_WAIT,
+            lock_wait=min(JOIN_WAIT, budget.left()),
             keep_going=False,
             unlocked=stalled,
+            stop_when=decided,
         )
         asked = budget.now()
         try:
-            shared = vault_share.share(ask.clone, ask.state, plan=plan, runner=ask.runner)
+            shared = vault_share.share(
+                ask.clone, ask.state, plan=plan, runner=ask.runner, clock=budget.now
+            )
+        except (
+            vault_share.DeadlineError,
+            git_runner.GitTimeoutError,
+        ):
+            if decided():
+                return joined_at is not None
+            raise
         except events.LockUnavailableError:
             budget.add("joined_wait_s", budget.now() - asked)
             joined_at = budget.left() if joined_at is None else joined_at
@@ -193,12 +231,70 @@ def _share_or_join(ask: Ask, budget: _Budget, made: str, fresh: bool) -> bool:
                 return True
             if budget.left() <= POLL:
                 raise
-            time.sleep(POLL)
-            budget.add("joined_wait_s", POLL)
+            if _wait_join(ask, budget, decided):
+                return True
             continue
         budget.add("share_lock_wait_s", shared.get("lock_wait_s"))
         budget.add("fetch_lock_wait_s", shared.get("fetch_lock_wait_s"))
-        return joined_at is not None
+        if decided() or shared.get("ended"):
+            return joined_at is not None
+        fresh = False
+
+
+def _wait_join(ask: Ask, budget: _Budget, decided: Callable[[], bool]) -> bool:
+    if _refresh_join(ask, budget) or decided():
+        return True
+    if budget.left() > POLL:
+        time.sleep(POLL)
+        budget.add("joined_wait_s", POLL)
+    return False
+
+
+def _refresh_join(ask: Ask, budget: _Budget) -> bool:
+    if budget.refresh_failed:
+        return False
+    stamp = vault_clone._read(ask.clone.folder / vault_clone.FETCHED_NAME).strip()
+    if stamp and ask.clock() - float(stamp) < POLL:
+        return False
+    allowance = min(PROBE * 2, budget.left() / 2)
+    end = budget.now() + allowance
+    fetch_failed = False
+
+    def runner(args: list[str], cwd: Path, **options: Any) -> str:
+        nonlocal fetch_failed
+        left = end - budget.now()
+        if left <= 0:
+            raise git_runner.GitTimeoutError("the helper refresh allowance expired")
+        options["timeout"] = min(float(options.get("timeout", left)), left)
+        try:
+            result = ask.runner(args, cwd, **options)
+        except git_runner.GitRunnerError:
+            if args[0] == "fetch":
+                fetch_failed = True
+            raise
+        if args[0] == "fetch":
+            fetch_failed = False
+        return result
+
+    request = vault_clone.Fetch(
+        clock=ask.clock,
+        runner=runner,
+        timeout=allowance / 2,
+        lock_wait=0,
+        coalesce=True,
+    )
+    try:
+        shown = vault_clone.fetch_with(ask.clone, request)
+    except events.LockUnavailableError:
+        return False
+    except vault_clone.CloneError, git_runner.GitTimeoutError:
+        budget.refresh_failed = fetch_failed
+        return False
+    budget.refresh_failed = not shown.get("fetched", False)
+    budget.add("fetch_lock_wait_s", shown.get("fetch_lock_wait_s"))
+    if shown.get("retracted") or vault_clone.unrepaired(ask.clone, ask.runner, budget.left()):
+        raise vault_share.ShareError("the vault dropped seen commits; run fsck --repair --vault")
+    return vault_clone.ended(ask.clone) is not None
 
 
 def _land(ask: Ask, budget: _Budget, writer: str, fetched_left: float) -> dict[str, object]:
@@ -226,9 +322,18 @@ def _land(ask: Ask, budget: _Budget, writer: str, fetched_left: float) -> dict[s
 
 def _attempt(ask: Ask, budget: _Budget) -> dict[str, object]:
     started = budget.now()
+
+    def runner(args: list[str], cwd: Path, **options: Any) -> str:
+        left = budget.left()
+        if left <= 0:
+            raise git_runner.GitTimeoutError("the claim deadline expired")
+        options["timeout"] = min(float(options.get("timeout", left)), left)
+        return ask.runner(args, cwd, **options)
+
+    bounded = replace(ask, runner=runner)
     writer = vault_queue.writer_of(ask.state)
-    early = _check(ask, budget, writer)
-    shown = early if early is not None else _land(ask, budget, writer, budget.left())
+    early = _check(bounded, budget, writer)
+    shown = early if early is not None else _land(bounded, budget, writer, budget.left())
     budget.add("claim_s", budget.now() - started)
     return {**shown, "timing": dict(budget.timing)}
 

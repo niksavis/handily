@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from typing import Any
 
 DEFAULT_STATUS = "open"
@@ -63,11 +64,13 @@ def all_projects_argument(parser: Any) -> None:
     )
 
 
-def parser() -> argparse.ArgumentParser:
+def parser(extend: Callable[[Any], None] | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Create, read, query and advance work items in a tracker kit ledger."
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    if extend is not None:
+        extend(sub)
 
     create = sub.add_parser("create", help="mint a record id and append its first events")
     create.add_argument("directory", help=DIRECTORY_HELP)
@@ -300,6 +303,9 @@ def _add_vault_parsers(sub: Any) -> None:
     fetched.add_argument("--vault", required=True, help="the vault URL or local repository")
     fetched.add_argument("--state", help="the machine state folder (default: per user)")
     fetched.add_argument("--timeout", type=float, default=30.0, help="seconds per git call")
+    status = sub.add_parser("status", help="list the queued local events a vault has not received")
+    status.add_argument("--vault", required=True, help="the vault URL or local repository")
+    status.add_argument("--state", help="the machine state folder (default: per user)")
 
 
 def _add_sync_parser(sub: Any) -> None:

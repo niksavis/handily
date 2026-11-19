@@ -22,8 +22,16 @@ class InvalidEventError(LedgerError):
     pass
 
 
+class FrozenLedgerError(LedgerError):
+    exit_code = 2
+
+
 class LockUnavailableError(LedgerError):
     retryable = True
+
+
+class RecordsInCIError(LedgerError):
+    pass
 
 
 _HERE = Path(__file__).resolve().parent
@@ -46,12 +54,32 @@ def _load_sibling(file_name: str, module_name: str) -> ModuleType:
 
 ids = _load_sibling("ids.py", _IDS_MODULE_NAME)
 locking = _load_sibling("locking.py", "basicly_tracker_kit_locking")
+ledger_files = _load_sibling("ledger_files.py", "basicly_tracker_kit_ledger_files")
+RECORDS_GUARD = "BASICLY_CI_NO_RECORDS"
+_GUARD_SOURCE = (
+    _load_sibling("git_runner.py", "basicly_tracker_kit_git_runner")
+    if (_HERE / "git_runner.py").is_file()
+    else None
+)
 
 
-LOG_GLOB = "events-*.jsonl"
-INITIAL_LOG_NAME = "events-0001.jsonl"
+def records_guard_roots() -> tuple[Path, ...]:
+    named = "" if _GUARD_SOURCE is None else _GUARD_SOURCE.environment_value(RECORDS_GUARD)
+    return tuple(Path(part).resolve() for part in named.split(os.pathsep) if part)
 
-PENDING_GLOB = "pending-*.jsonl"
+
+def refuse_records_in_ci(path: Path | str) -> None:
+    target = Path(path).resolve()
+    if any(target.is_relative_to(root / ".basicly") for root in records_guard_roots()):
+        raise RecordsInCIError(
+            "CI never reads tracker records; run this check in the local landing verify"
+        )
+
+
+LOG_GLOB = ledger_files.LOG_GLOB
+INITIAL_LOG_NAME = ledger_files.INITIAL_LOG_NAME
+
+PENDING_GLOB = ledger_files.PENDING_GLOB
 _PENDING_PREFIX, _, _PENDING_SUFFIX = PENDING_GLOB.partition("*")
 WRITER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
@@ -62,7 +90,7 @@ _GIT_DIR_MARK = "gitdir:"
 _GIT_BRANCH_PREFIX = "refs/heads/"
 DETACHED_WRITER = "detached"
 
-LOCK_NAME = ".events.lock"
+LOCK_NAME = locking.LEDGER_LOCK_NAME
 
 TRUNCATABLE_KEYS = frozenset({"text", "value", "output", "detail"})
 
@@ -756,12 +784,12 @@ class Quarantine:
 
 def log_paths(directory: Path | str) -> list[Path]:
 
-    return sorted(Path(directory).glob(LOG_GLOB))
+    return ledger_files.log_paths(directory)
 
 
 def pending_paths(directory: Path | str) -> list[Path]:
 
-    return sorted(Path(directory).glob(PENDING_GLOB))
+    return ledger_files.pending_paths(directory)
 
 
 def ledger_paths(directory: Path | str) -> list[Path]:
@@ -873,6 +901,7 @@ _PARSED = StampedFiles(PARSED_LOGS)
 
 def read_log(path: Path | str) -> tuple[list[Event], list[Quarantine]]:
 
+    refuse_records_in_ci(path)
     file_path = Path(path)
     stamp = file_stamp(file_path)
     if stamp is None:
@@ -917,6 +946,7 @@ def read_events_from(paths: Sequence[Path]) -> tuple[list[Event], list[Quarantin
 
 
 def read_events(directory: Path | str) -> tuple[list[Event], list[Quarantine]]:
+    refuse_records_in_ci(directory)
     return read_events_from(ledger_paths(directory))
 
 
@@ -1140,6 +1170,11 @@ def append(  # noqa: PLR0913 — every keyword is an injected dependency the kit
     historical_prose: bool = False,
 ) -> list[Event]:
 
+    frozen = _load_sibling("ledger_freeze.py", "basicly_tracker_kit_ledger_freeze")
+    try:
+        frozen.refuse_append(Path(directory))
+    except frozen.FreezeError as exc:
+        raise FrozenLedgerError(str(exc)) from exc
     pending = list(drafts)
     if not pending:
         return []
