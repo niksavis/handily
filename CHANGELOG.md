@@ -6,6 +6,29 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.30.0 - 2026-11-19
+
+The this machine tab now reads a session store folder: open owner asks come first, then every
+session with its state (dead, stale, needs you, working, quiet), project, what it does now and how
+old that text is. Two new options, store and answerWindow, set it up. In the answer window a press
+on an option of an ask fills the prompt box and never sends. The claude agents poll, the Inbox, the
+cards of other sessions and their task bars are removed.
+
+### Changed
+
+- **The this machine tab of `handily-board` reads a session store folder.** The tab no longer
+  polls `claude agents --json`. It reads `<store>/sessions/<session id>.json` and
+  `<store>/asks/<record>.json` every 15 seconds while it is shown, and lists the open owner asks
+  first and then every session with its state: `dead`, `stale`, `needs you`, `working` or
+  `quiet`. Set the new option `store` in `/config` to the absolute path of the folder. With no
+  `store`, the tab names the option and reads nothing. The new option `answerWindow` names the
+  session whose board fills the prompt box when you press an option of an ask. The board never
+  sends it. A file that the tab cannot read shows under `files not read` with its reason.
+- **Removed without a replacement:** the Inbox, the cards of other sessions with their tasks,
+  agents and context, and the store keys `agents` and `session:<id>` that each session wrote for
+  the others. Old keys stay in the store of the board and are not read. There is no setting to
+  bring the old tab back. (handily-s3yqhr)
+
 ## handily-board 0.29.0 - 2026-11-19
 
 The agent can now close a task it gave you: when it did the task itself, when you say in the chat
