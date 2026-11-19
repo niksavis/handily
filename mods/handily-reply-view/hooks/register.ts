@@ -83,6 +83,7 @@ import {
   peerMessage,
   peerRow,
   pressMessage,
+  widestAfter,
   type MessagePort,
   type MessageSite,
 } from './peer'
@@ -573,8 +574,9 @@ async function peerDrawing(
           ? undefined
           : {
               columns: viewport.columns,
+              rows: viewport.rows,
               isFullscreen: viewport.isFullscreen,
-              dockColumns: site.dockColumns,
+              widest: site.widest,
             }
       void pressMessage(messagePortOf($), site, message, seat).catch((error: unknown) => {
         logFailure($, `message ${e.requestId} did not open`, error)
@@ -730,6 +732,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    messageSite.widest = widestAfter(messageSite.widest, e.viewport)
     if (e.surface !== 'terminal') return next(e)
     const { value: held = null } = await $.state.get(HELD)
     if (held === null) return next(e)
@@ -752,14 +755,8 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  on('ui.render', { component: 'Pane', plugin: '*' }, (_$, e, next) => {
-    if (e.props.placement === 'dock' && e.viewport !== undefined) {
-      messageSite.dockColumns = e.viewport.columns
-    }
-    return next(e)
-  })
-
   on('ui.render', { component: 'Pane', requestId: PROMPTS_PANE.id }, async ($, e) => {
+    messageSite.widest = widestAfter(messageSite.widest, e.viewport)
     await $.state.get(RAIL_VERSION)
     const { Box, Text, Button } = $.ui.resolve(e)
     const glyphs = await paneGlyphs($, e.surface)
@@ -834,6 +831,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    messageSite.widest = widestAfter(messageSite.widest, e.viewport)
     if (isEngineTurnLine(e)) return next(e)
     let drawn: RenderElement | null = null
     try {
@@ -871,6 +869,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: MESSAGE_PANE.id }, async ($, e) => {
+    messageSite.widest = widestAfter(messageSite.widest, e.viewport)
     await $.state.get(VIEWED_MESSAGE)
     const { Box, Text, Button } = $.ui.resolve(e)
     return drawMessagePane({ Box, Text, Button }, messageSite, e.props.bodyColumns, (surface) => {
@@ -880,6 +879,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    messageSite.widest = widestAfter(messageSite.widest, e.viewport)
     if (e.props.origin.kind === 'peer') {
       let peer: RenderElement | null = null
       try {
@@ -921,6 +921,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    messageSite.widest = widestAfter(messageSite.widest, e.viewport)
     if (e.props.isSummary === true || e.props.text.length > DRAWN_CHARACTERS_AT_MOST) return next(e)
     let drawn: RenderElement | null = null
     try {

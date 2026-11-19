@@ -16,12 +16,13 @@ const EMPTY_TEXT = 'No message is shown here yet. Press more on a message row.'
 
 export type PeerMessage = { requestId: string; name: string; lines: string[] }
 
-export type MessageSite = { message: PeerMessage | null; dockColumns: number | null }
+export type MessageSite = { message: PeerMessage | null; widest: Widest | null }
 
 export type MessageSeat = {
   columns: number
+  rows: number
   isFullscreen: boolean | undefined
-  dockColumns: number | null
+  widest: Widest | null
 }
 
 export type MessagePress = 'viewer' | 'hint' | 'unhint'
@@ -39,7 +40,7 @@ type PeerElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 export type PeerRowLook = { columns: number; isShown: boolean; isHinted: boolean }
 
 export function newMessageSite(): MessageSite {
-  return { message: null, dockColumns: null }
+  return { message: null, widest: null }
 }
 
 function bodyOf(text: string, name: string): string {
@@ -165,9 +166,30 @@ export function peerRow(
   })
 }
 
+export type Widest = { columns: number; rows: number }
+
+export type SeenViewport = { columns: number; rows: number; isFullscreen?: boolean }
+
+export function widestAfter(
+  widest: Widest | null,
+  viewport: SeenViewport | undefined,
+): Widest | null {
+  if (viewport?.isFullscreen !== true) return widest
+  const isNew =
+    widest === null || viewport.rows !== widest.rows || viewport.columns > widest.columns
+  return isNew ? { columns: viewport.columns, rows: viewport.rows } : widest
+}
+
 export function docksAt(seat: MessageSeat | undefined): boolean {
   if (seat?.isFullscreen !== true) return false
-  return seat.columns >= DOCK_FROM_COLUMNS || seat.dockColumns === seat.columns
+  if (seat.columns >= DOCK_FROM_COLUMNS) return true
+  const { widest } = seat
+  return (
+    widest !== null &&
+    widest.columns >= DOCK_FROM_COLUMNS &&
+    seat.columns < widest.columns &&
+    seat.rows === widest.rows
+  )
 }
 
 export async function pressMessage(

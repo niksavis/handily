@@ -22,8 +22,9 @@ export type ViewerSite = { call: ViewedCall | null; unread: string | null }
 
 export type Seat = {
   columns: number
+  rows: number
   isFullscreen: boolean | undefined
-  dockColumns: number | null
+  widest: Widest | null
 }
 
 export type PressOutcome = 'viewer' | 'hint' | 'unhint'
@@ -44,9 +45,30 @@ export function newViewerSite(): ViewerSite {
   return { call: null, unread: null }
 }
 
+export type Widest = { columns: number; rows: number }
+
+export type SeenViewport = { columns: number; rows: number; isFullscreen?: boolean }
+
+export function widestAfter(
+  widest: Widest | null,
+  viewport: SeenViewport | undefined,
+): Widest | null {
+  if (viewport?.isFullscreen !== true) return widest
+  const isNew =
+    widest === null || viewport.rows !== widest.rows || viewport.columns > widest.columns
+  return isNew ? { columns: viewport.columns, rows: viewport.rows } : widest
+}
+
 export function docksAt(seat: Seat | undefined): boolean {
   if (seat?.isFullscreen !== true) return false
-  return seat.columns >= DOCK_FROM_COLUMNS || seat.dockColumns === seat.columns
+  if (seat.columns >= DOCK_FROM_COLUMNS) return true
+  const { widest } = seat
+  return (
+    widest !== null &&
+    widest.columns >= DOCK_FROM_COLUMNS &&
+    seat.columns < widest.columns &&
+    seat.rows === widest.rows
+  )
 }
 
 async function loaded(port: ViewerPort, call: ViewedCall): Promise<ViewedCall | string> {

@@ -12,7 +12,13 @@ import {
 import type { QuietItemsSimpleViewMode } from './.claude-plugin/types/handily-quiet-items'
 import { commandLabel, programOf, segments } from './hooks/command'
 import { PERSON_REJECTED_OUTPUT } from './hooks/output'
-import { newViewerSite, pressMore, type ViewedCall, type ViewerPort } from './hooks/viewer'
+import {
+  newViewerSite,
+  pressMore,
+  widestAfter,
+  type ViewedCall,
+  type ViewerPort,
+} from './hooks/viewer'
 import { displayWidth } from './hooks/width'
 
 function isEngineRow(value: unknown): boolean {
@@ -1307,13 +1313,14 @@ describe('tool row fold and copy', () => {
         await pressMore(wide.port, site, call, {
           columns: 110,
           isFullscreen: true,
-          dockColumns: null,
+          rows: 40,
+          widest: null,
         }),
       ).toBe('viewer')
       expect(wide.done).toEqual(['show toolu_p1', 'open'])
       expect(site.call).toEqual(call)
       const narrow = fakePort([])
-      const seat = { columns: 109, isFullscreen: true, dockColumns: null }
+      const seat = { columns: 109, isFullscreen: true, rows: 40, widest: null }
       expect(await pressMore(narrow.port, newViewerSite(), call, seat)).toBe('hint')
       expect(await pressMore(narrow.port, newViewerSite(), call, seat)).toBe('unhint')
       expect(narrow.done).toEqual(['hint toolu_p1', 'unhint toolu_p1'])
@@ -1322,7 +1329,8 @@ describe('tool row fold and copy', () => {
         await pressMore(main.port, newViewerSite(), call, {
           columns: 200,
           isFullscreen: false,
-          dockColumns: 200,
+          rows: 40,
+          widest: { columns: 200, rows: 40 },
         }),
       ).toBe('hint')
       expect(await pressMore(fakePort([]).port, newViewerSite(), call, undefined)).toBe('hint')
@@ -1330,7 +1338,7 @@ describe('tool row fold and copy', () => {
 
     test('uses the open call tab at any width and opens it again only while it is hidden', async () => {
       const shown = fakePort([{ id: 'call', isShown: true, isPlaced: true }])
-      const seat = { columns: 80, isFullscreen: true, dockColumns: null }
+      const seat = { columns: 80, isFullscreen: true, rows: 40, widest: null }
       expect(await pressMore(shown.port, newViewerSite(), call, seat)).toBe('viewer')
       expect(shown.done).toEqual(['show toolu_p1'])
       const hidden = fakePort([{ id: 'call', isShown: false, isPlaced: true }])
@@ -1338,13 +1346,34 @@ describe('tool row fold and copy', () => {
       expect(hidden.done).toEqual(['show toolu_p1', 'open'])
     })
 
-    test('opens the call tab below 110 columns while a dock was seen at the same transcript width', async () => {
-      const docked = fakePort([])
-      const seat = { columns: 83, isFullscreen: true, dockColumns: 83 }
-      expect(await pressMore(docked.port, newViewerSite(), call, seat)).toBe('viewer')
-      const resized = fakePort([])
-      const other = { columns: 90, isFullscreen: true, dockColumns: 83 }
-      expect(await pressMore(resized.port, newViewerSite(), call, other)).toBe('hint')
+    test('opens the call tab below 110 columns while a wider transcript was seen at the same rows', async () => {
+      const widest = { columns: 150, rows: 40 }
+      const docked = { columns: 83, rows: 40, isFullscreen: true, widest }
+      expect(await pressMore(fakePort([]).port, newViewerSite(), call, docked)).toBe('viewer')
+      const resized = { columns: 83, rows: 30, isFullscreen: true, widest }
+      expect(await pressMore(fakePort([]).port, newViewerSite(), call, resized)).toBe('hint')
+      const narrow = {
+        columns: 83,
+        rows: 40,
+        isFullscreen: true,
+        widest: { columns: 100, rows: 40 },
+      }
+      expect(await pressMore(fakePort([]).port, newViewerSite(), call, narrow)).toBe('hint')
+    })
+
+    test('widestAfter keeps the widest fullscreen columns and starts again when the rows change', () => {
+      const seen = widestAfter(null, { columns: 150, rows: 40, isFullscreen: true })
+      expect(seen).toEqual({ columns: 150, rows: 40 })
+      expect(widestAfter(seen, { columns: 83, rows: 40, isFullscreen: true })).toEqual(seen)
+      expect(widestAfter(seen, { columns: 83, rows: 40, isFullscreen: false })).toEqual(seen)
+      expect(widestAfter(seen, { columns: 83, rows: 30, isFullscreen: true })).toEqual({
+        columns: 83,
+        rows: 30,
+      })
+      expect(widestAfter(seen, { columns: 160, rows: 40, isFullscreen: true })).toEqual({
+        columns: 160,
+        rows: 40,
+      })
     })
   })
 
@@ -1633,49 +1662,21 @@ describe('tool row fold and copy', () => {
   )
 })
 
-const PANE_OWNER: Plugin = { name: 'probe-board', register() {} }
+describe('a press beside a pane that another plugin docked', () => {
+  const ROWS = 40
+  const WIDEST = { columns: 150, rows: ROWS, isFullscreen: true } as const
+  const DOCKED = { columns: 83, rows: ROWS, isFullscreen: true } as const
 
-function dockTest(name: string, body: ViewBody): void {
-  test(name, { plugins: [fakeQuietItems, PANE_OWNER] }, async ($, on) => {
-    const world = engineBeneath(on)
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    await body(world, $, on)
-  })
-}
+  async function seen($: Engine, world: World, viewport: Seat, surface: Surface) {
+    const ui = await mountAt($, await longCall(world, $), viewport, surface)
+    await ui.unmount()
+  }
 
-async function otherPane(
-  $: Engine,
-  placement: 'dock' | 'inline',
-  columns: number,
-  surface: Surface,
-): Promise<boolean> {
-  const ui = await $.ui.mount({
-    plugin: 'probe-board',
-    surface,
-    component: 'Pane',
-    requestId: 'board',
-    props: {
-      title: 'board',
-      isFocused: false,
-      bodyColumns: 60,
-      placement,
-      scroll: { offset: 0, bodyRows: 40 },
-      view: {},
-    },
-    viewport: { columns, rows: 40, isFullscreen: true },
-  })
-  const keeps = await ui.keepsBeneath()
-  await ui.unmount()
-  return keeps
-}
-
-describe('a pane that another plugin docked', () => {
-  const DOCKED = { columns: 83, rows: 40, isFullscreen: true } as const
   for (const surface of SURFACES) {
-    dockTest(
-      `with the board docked at 83 transcript columns more opens the call tab and the row keeps one line on ${surface}`,
+    viewTest(
+      `a transcript seen at 150 columns, then at 83 with the same rows, opens the call tab and the row keeps one line on ${surface}`,
       async (world, $) => {
-        expect(await otherPane($, 'dock', 83, surface)).toBe(true)
+        await seen($, world, WIDEST, surface)
         const ui = await mountAt($, await longCall(world, $), DOCKED, surface)
         await ui.press({ key: 'fold' })
         expect(world.opens).toEqual([CALL_TAB])
@@ -1685,11 +1686,11 @@ describe('a pane that another plugin docked', () => {
       },
     )
 
-    dockTest(
-      `after the transcript columns change from those of the dock more takes the hint path on ${surface}`,
+    viewTest(
+      `a transcript seen at 150 columns, then at 83 with other rows, takes the hint path on ${surface}`,
       async (world, $) => {
-        await otherPane($, 'dock', 83, surface)
-        const ui = await mountAt($, await longCall(world, $), { ...DOCKED, columns: 90 }, surface)
+        await seen($, world, WIDEST, surface)
+        const ui = await mountAt($, await longCall(world, $), { ...DOCKED, rows: 30 }, surface)
         await ui.press({ key: 'fold' })
         expect(world.opens).toEqual([])
         expect(sketch(await ui.drawn())).toHaveLength(2)
@@ -1697,10 +1698,10 @@ describe('a pane that another plugin docked', () => {
       },
     )
 
-    dockTest(
-      `an inline pane of another plugin does not count as a dock on ${surface}`,
+    viewTest(
+      `a transcript never wider than 100 columns takes the hint path on ${surface}`,
       async (world, $) => {
-        expect(await otherPane($, 'inline', 83, surface)).toBe(true)
+        await seen($, world, { ...WIDEST, columns: 100 }, surface)
         const ui = await mountAt($, await longCall(world, $), DOCKED, surface)
         await ui.press({ key: 'fold' })
         expect(world.opens).toEqual([])

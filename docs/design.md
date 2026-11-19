@@ -863,12 +863,17 @@ compact rows for many tool errors, and for a fold that does not move the view. T
   exists: `onScreen` gives only which rows of the row itself are visible, and `ui.press`
   carries no scroll position. So every press below 110 columns adds the line.
 - A dock is in fullscreen from 110 columns, but a docked pane narrows the transcript, for example
-  to 83 at 150 (probe P6a). So a `ui.render` hook on `Pane` with `{ plugin: "*" }` reads every
-  pane render, returns `next(e)` unchanged, and keeps in memory the columns seen while a pane
-  renders with `placement` `dock`. A press in fullscreen at 110 columns or more, or at the
-  remembered columns, opens the tab, which joins the dock (P6b). A resize or a closed dock changes
-  the columns, so the remembered dock no longer counts. reply-view does the same for the
-  `message` tab. That the `Pane` render reports the transcript columns is not measured.
+  to 83 at 150 (probe P6a). A first build read every `Pane` render with `{ plugin: "*" }`, but
+  the live check on the committed lane cc5fffe found that the board answers its own `Pane`
+  without `next(e)` and stands above both mods in the chain, so that hook never heard it. Now
+  each mod keeps in memory, from every render that it already hooks, the widest
+  `viewport.columns` seen with `isFullscreen` true and the `viewport.rows` seen with it. A
+  render with other rows starts the widest again. A press counts as docked when the transcript
+  has 110 columns or more, or when the widest seen has 110 or more, the transcript is now
+  narrower, and the rows are the same: a dock narrows the transcript and keeps the rows, while a
+  resize usually changes the rows. The tab then joins the dock (P6b). It fails when the terminal
+  is made narrower from the side only with the rows unchanged: the press opens one inline pane
+  once, and later presses use the open tab. reply-view does the same for the `message` tab.
 - The press handler is `pressMore(port, site, call, seat)` in `hooks/viewer.ts`. A port carries
   the engine calls, so a test or a probe command can call it.
 

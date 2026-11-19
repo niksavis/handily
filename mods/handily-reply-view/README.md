@@ -2801,12 +2801,16 @@ chart draws under the block before it.
   reply. At the bottom of a fullscreen transcript the engine keeps its bottom edge, so the rest of
   a reply that opens under the fold row pushes the reply up. Scrolled up, the engine keeps its
   top edge, and the button stays at its line (probe P2 of handily-z1k1cu, Claude Code 2.1.328).
-- With another pane already docked, such as the board, the transcript is narrower, for example
-  83 columns at 150. The mod reads every `Pane` render, of any plugin, and keeps in memory the
-  transcript columns seen while a pane renders docked. In fullscreen a press at those same
-  columns opens the `message` tab, which joins the dock. A resize or a closed dock changes the
-  columns, and the press then adds the ctrl+o line. That the `Pane` render carries the
-  transcript columns is not measured.
+- With another pane already docked, such as the board, the transcript is narrower, for example 83
+  columns at 150. The mod keeps in memory the widest transcript columns that its own renders saw
+  in fullscreen, and the rows that came with them. A press counts as docked when the transcript
+  has 110 columns or more, or when the widest seen has 110 or more, the transcript is now
+  narrower, and the rows are the same. A dock narrows the transcript and keeps the rows. A resize
+  of the terminal usually changes the rows, and the next render then starts the widest again.
+  So the `message` tab joins the dock as a tab, and after a resize the press takes the ctrl+o line.
+  It fails in one case: a terminal made narrower from the side only, with the rows unchanged,
+  counts as docked, so the press opens one inline pane above the prompt once. From then on the
+  tab is open, and the next press uses it.
 - Each prompt that you type keeps its time in `$.state` for this session.
 - A `subgraph` inside a `subgraph`, an edge to a `subgraph`, a sequence diagram with `box`,
   `create` or `destroy`, a state diagram with nested states, a fork, a join, a choice or a note,

@@ -453,11 +453,15 @@ last 50 failed calls stay in memory, and a session end clears them.
   press adds the `/simple open` line, at the bottom and scrolled up. At the bottom the row then
   grows by one line.
 - With another pane already docked, such as the board, the transcript is narrower, for example 83
-  columns at 150. The mod hears every `Pane` render, of any plugin, and only reads it: it keeps in
-  memory the transcript columns seen while a pane renders with `placement` `dock`. In fullscreen
-  a press at those same columns counts as docked, so the `call` tab joins the dock as a tab. A
-  resize or a closed dock changes the columns, and the remembered dock no longer counts. That the
-  `Pane` render carries the transcript columns, not the terminal columns, is not measured.
+  columns at 150. The mod keeps in memory the widest transcript columns that its own renders saw
+  in fullscreen, and the rows that came with them. A press counts as docked when the transcript
+  has 110 columns or more, or when the widest seen has 110 or more, the transcript is now
+  narrower, and the rows are the same. A dock narrows the transcript and keeps the rows. A resize
+  of the terminal usually changes the rows, and the next render then starts the widest again.
+  So the `call` tab joins the dock as a tab, and after a resize the press takes the `/simple open` line.
+  It fails in one case: a terminal made narrower from the side only, with the rows unchanged,
+  counts as docked, so the press opens one inline pane above the prompt once. From then on the
+  tab is open, and the next press uses it.
 - The shape of the error text that `tool.call` answers for a failed call inside a REPL script is
   not measured. The mod reads it with or without `Error:` and with or without the
   `<tool_use_error>` tags.

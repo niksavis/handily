@@ -7,7 +7,7 @@ import type {
   SessionMessage,
   UiCopyResult,
 } from 'claude-code'
-import { describe, expect, mock, test, type Engine, type Plugin } from 'claude-code/testing'
+import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import type { ToastParts } from './hooks/toast'
 import { displayWidth, graphemesOf } from './hooks/width'
 import { parseMermaid, type Refusal, type SequenceDiagram } from './hooks/mermaid'
@@ -6469,36 +6469,8 @@ async function peerLines(ui: {
   return boxes.filter((box) => box.key?.startsWith('message-') === true).map((box) => box.text)
 }
 
-const BOARD_PANE_OWNER: Plugin = { name: 'probe-board', register() {} }
 const PEER_DOCKED = { columns: 83, rows: 40, isFullscreen: true } as const
-
-function peerDockTest(name: string, body: RailBody): void {
-  test(name, { plugins: [BOARD_PANE_OWNER] }, async ($, on) => {
-    const world = railBeneath(on)
-    const clock = mock.clock(on, { now: RAIL_START })
-    await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
-    await body(world, $, clock)
-  })
-}
-
-async function boardPane(
-  $: Engine,
-  placement: 'dock' | 'inline',
-  columns: number,
-  surface: Surface,
-): Promise<boolean> {
-  const ui = await $.ui.mount({
-    plugin: 'probe-board',
-    surface,
-    component: 'Pane',
-    requestId: 'board',
-    props: { ...paneProps(placement, 60), title: 'board' },
-    viewport: { columns, rows: 40, isFullscreen: true },
-  })
-  const keeps = await ui.keepsBeneath()
-  await ui.unmount()
-  return keeps
-}
+const PEER_WIDEST = { columns: 150, rows: 40, isFullscreen: true } as const
 
 describe('peer messages', () => {
   for (const surface of SURFACES) {
@@ -6621,10 +6593,12 @@ describe('peer messages', () => {
   }
 
   for (const surface of SURFACES) {
-    peerDockTest(
-      `with the board docked at 83 transcript columns more opens the message tab and the row keeps its height on ${surface}`,
+    railTest(
+      'a transcript seen at 150 columns, then at 83 with the same rows, opens the message tab and the row keeps its height',
+      surface,
       async (world, $) => {
-        expect(await boardPane($, 'dock', 83, surface)).toBe(true)
+        const wide = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, PEER_WIDEST)
+        await wide.unmount()
         const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, PEER_DOCKED)
         const before = await peerLines(ui)
         await ui.press({ key: 'message-fold' })
@@ -6634,13 +6608,15 @@ describe('peer messages', () => {
       },
     )
 
-    peerDockTest(
-      `after the transcript columns change from those of the dock more names ctrl+o on ${surface}`,
+    railTest(
+      'a transcript seen at 150 columns, then at 83 with other rows, names ctrl+o under a message row',
+      surface,
       async (world, $) => {
-        await boardPane($, 'dock', 83, surface)
+        const wide = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, PEER_WIDEST)
+        await wide.unmount()
         const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, {
           ...PEER_DOCKED,
-          columns: 90,
+          rows: 30,
         })
         await ui.press({ key: 'message-fold' })
         expect(world.opens).toEqual([])
@@ -6649,10 +6625,15 @@ describe('peer messages', () => {
       },
     )
 
-    peerDockTest(
-      `an inline pane of another plugin does not count as a dock for a message row on ${surface}`,
+    railTest(
+      'a transcript never wider than 100 columns names ctrl+o under a message row',
+      surface,
       async (world, $) => {
-        expect(await boardPane($, 'inline', 83, surface)).toBe(true)
+        const narrow = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, {
+          ...PEER_WIDEST,
+          columns: 100,
+        })
+        await narrow.unmount()
         const ui = await mountPeer($, peer(PEER_LONG, 'coordinator'), surface, PEER_DOCKED)
         await ui.press({ key: 'message-fold' })
         expect(world.opens).toEqual([])

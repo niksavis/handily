@@ -70,8 +70,10 @@ import {
   newViewerSite,
   pressMore,
   showInViewer,
+  widestAfter,
   type OpenOutcome,
   type Seat,
+  type Widest,
   type ViewedCall,
   type ViewerPort,
   type ViewerSite,
@@ -230,11 +232,11 @@ type CallMemory = {
   errors: Map<string, string>
   seqs: Map<string, number>
   viewer: ViewerSite
-  dockColumns: number | null
+  widest: Widest | null
 }
 
 function newMemory(): CallMemory {
-  return { errors: new Map(), seqs: new Map(), viewer: newViewerSite(), dockColumns: null }
+  return { errors: new Map(), seqs: new Map(), viewer: newViewerSite(), widest: null }
 }
 
 function forgetCalls(memory: CallMemory): void {
@@ -438,9 +440,7 @@ async function buttonsFor(
     actions: {
       press: () => {
         const seat =
-          draw.seat === undefined
-            ? undefined
-            : { ...draw.seat, dockColumns: draw.memory.dockColumns }
+          draw.seat === undefined ? undefined : { ...draw.seat, widest: draw.memory.widest }
         void pressFold($, draw.memory, call, seat)
       },
       copy:
@@ -982,14 +982,8 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  on('ui.render', { component: 'Pane', plugin: '*' }, (_$, e, next) => {
-    if (e.props.placement === 'dock' && e.viewport !== undefined) {
-      memory.dockColumns = e.viewport.columns
-    }
-    return next(e)
-  })
-
   on('ui.render', { component: 'Pane', requestId: VIEWER_PANE.id }, async ($, e) => {
+    memory.widest = widestAfter(memory.widest, e.viewport)
     await $.state.get(VIEWING)
     const { Box, Text, Button } = $.ui.resolve(e)
     return viewerDrawing($, memory, e, { Box, Text, Button })
@@ -1032,6 +1026,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    memory.widest = widestAfter(memory.widest, e.viewport)
     if (!shouldUnfold(e.props)) return next(e)
     let isOn = false
     try {
@@ -1044,6 +1039,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
+    memory.widest = widestAfter(memory.widest, e.viewport)
     const beneath = await next(e)
     if (!isEngineOwnRow(beneath)) return beneath
     let drawn: RenderElement | null = null
@@ -1061,8 +1057,9 @@ export const register: Register = (on, options) => {
               ? undefined
               : {
                   columns: e.viewport.columns,
+                  rows: e.viewport.rows,
                   isFullscreen: e.viewport.isFullscreen,
-                  dockColumns: memory.dockColumns,
+                  widest: memory.widest,
                 },
         }
         drawn =

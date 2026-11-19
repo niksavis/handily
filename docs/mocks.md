@@ -10329,9 +10329,12 @@ Colours: as 19.4.
   and a press carries no scroll position. So below 110 columns every press adds the line of
   21.3, and at the bottom the row grows by one line.
 - **Another pane docked first.** With the board docked at 150 columns the transcript has 83
-  columns. A read-only `Pane` hook of every plugin keeps the columns seen while a pane renders
-  docked. A press in fullscreen at those columns opens the tab, which joins the dock. After a
-  resize or a closed dock the columns differ, and the press takes the line of 21.3.
+  columns. Each mod keeps the widest fullscreen columns that its own renders saw and the rows
+  with them. A press counts as docked at 110 columns or more, or when the widest seen has 110 or
+  more, the transcript is now narrower and the rows are the same: the tab then joins the dock.
+  Other rows mean a resize, and the press takes the line of 21.3. It fails when a terminal is
+  made narrower from the side only with the rows unchanged: the press then opens one inline pane
+  once, and later presses use the open tab.
 - **The reply fold at the bottom.** The engine keeps the bottom edge of a fullscreen transcript
   at the bottom (probe P2), so the rest that opens under the fold row pushes the reply up there.
   Scrolled up, the button stays at its line.
