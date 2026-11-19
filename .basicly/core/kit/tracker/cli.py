@@ -26,6 +26,7 @@ def _load(file_name: str, module_name: str) -> Any:
     return module
 
 
+_load("bootstrap.py", "basicly_tracker_bootstrap").require_runtime()
 snapshot = _load("snapshot.py", "basicly_tracker_kit_snapshot")
 scheduler = _load("scheduler.py", "basicly_tracker_kit_scheduler")
 commands = _load("commands.py", "basicly_tracker_kit_commands")
@@ -36,10 +37,13 @@ shaping = _load("shaping.py", "basicly_tracker_kit_shaping")
 record_view = _load("record_view.py", "basicly_tracker_kit_record_view")
 board = _load("board.py", "basicly_tracker_kit_board")
 fields = _load("fields.py", "basicly_tracker_kit_fields")
+cli_fields = _load("cli_fields.py", "basicly_tracker_kit_cli_fields")
+vault_migration_cli = _load("vault_migration_cli.py", "basicly_tracker_kit_vault_migration_cli")
 arguments = _load("arguments.py", "basicly_tracker_kit_arguments")
 vault_arguments = _load("vault_arguments.py", "basicly_tracker_kit_vault_arguments")
 vault_config = _load("vault_config.py", "basicly_tracker_kit_vault_config")
 vault_cli = _load("vault_cli.py", "basicly_tracker_kit_vault_cli")
+vault_refusal = _load("vault_refusal.py", "basicly_tracker_kit_vault_refusal")
 pin = _load("pin.py", "basicly_tracker_kit_pin")
 mirror = _load("mirror.py", "basicly_tracker_kit_mirror")
 settings = _load("settings.py", "basicly_tracker_kit_settings")
@@ -72,40 +76,9 @@ _BLOCKING_REPORTS = frozenset({
 _STARTS_A_LEDGER = frozenset({"create", "import"})
 
 
-def _field_value(raw: str) -> object:
-
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return raw
-
-
-def _fields(
-    title: str, pairs: Sequence[str], shape: argparse.Namespace | None = None
-) -> dict[str, object]:
-
-    fields: dict[str, object] = {}
-    if title:
-        fields[scheduler.TITLE_FIELD] = title
-    fields.update(_shape_fields(shape))
-    for pair in pairs:
-        name, sep, raw = pair.partition("=")
-        if not sep or not name:
-            raise ValueError(f"--field {pair!r} is not name=value")
-        fields[name] = _field_value(raw)
-    return fields
-
-
-def _shape_fields(shape: argparse.Namespace | None):
-
-    if shape is None:
-        return ()
-    declared = (
-        (shaping.ACCEPTANCE_FIELD, getattr(shape, "acceptance", None)),
-        (shaping.REQUIREMENTS_FIELD, getattr(shape, "requirements", None)),
-        (shaping.DESCRIPTION_FIELD, getattr(shape, "description", None)),
-    )
-    return tuple((name, value) for name, value in declared if value)
+_field_value = cli_fields.field_value
+_fields = cli_fields.fields
+_shape_fields = cli_fields.shape_fields
 
 
 def _minting(fields: dict[str, object]) -> dict[str, object]:
@@ -300,18 +273,64 @@ _REFUSABLE: dict[str, Callable[[argparse.Namespace, Callable[[], float]], tuple[
 }
 
 
+def _refuse_vault_ledger_form(args: argparse.Namespace) -> None:
+    if args.command not in {"assign", "resolve", "acknowledge-loss", "delete"}:
+        return
+    ledger = commands.git_layout.shared_ledger(args.directory)
+    config = vault_config.load(ledger.resolve())
+    if config is None or commands._is_repository(ledger):
+        return
+    records = getattr(args, "record", getattr(args, "parent", []))
+    records = [records] if isinstance(records, str) else records
+    for record in records:
+        directory = ledger.resolve().relative_to(config.path.parent).as_posix()
+        refusal = vault_refusal.ledger_form(args.command, record, directory)
+        raise commands.TrackerCommandError(commands.vault_write.redact.text(refusal))
+
+
+def _migration(
+    args: argparse.Namespace, redact: Callable[[str], str] | None, clock: Callable[[], float]
+) -> dict[str, object]:
+    state = None if args.preview or args.state else vault_cli._state_root()
+    return vault_migration_cli.run(args, redact, clock, state)
+
+
 def _run(args: argparse.Namespace, redact: Callable[[str], str] | None) -> tuple[int, Any]:
-    clock = events.wall_clock()
-    if (vault := vault_cli.HANDLERS.get(args.command)) is not None:
-        report = vault(args, clock)
+    clock = events.wall_clock(getattr(args, "clock", None))
+    if args.command == "bootstrap":
+        return _load("bootstrap.py", "basicly_tracker_bootstrap").run(args.repository, clock)
+    return _run_command(args, redact, clock)
+
+
+def _run_command(
+    args: argparse.Namespace, redact: Callable[[str], str] | None, clock: Callable[[], float]
+) -> tuple[int, Any]:
+    if not (args.command == "migrate" and getattr(args, "freeze", False)):
+        vault_cli.check_frozen()
+    context = commands.vault_write.WriteContext(redact, clock)
+    vault_cli.route_ledger_alias(args)
+    vault = vault_cli.HANDLERS.get(args.command)
+    if args.command == "migrate" or vault is not None:
+        report = (
+            _migration(args, redact, clock)
+            if args.command == "migrate"
+            else vault(args, context if args.command == "comment-vault" else clock)
+        )
         code = report.pop("exit", EXIT_OK)
-        return (code if isinstance(code, int) else EXIT_OK), report
+        code = code if isinstance(code, int) else EXIT_OK
+        if code != EXIT_OK and not isinstance(report.get("refused"), str):
+            report["refused"] = commands.vault_write.redact.text(
+                vault_refusal.message(code, report)
+            )
+        return code, report
+    _refuse_vault_ledger_form(args)
     starts = args.command in _STARTS_A_LEDGER and not getattr(args, "dry_run", False)
     args.directory = commands.resolve_ledger(args.directory, starts=starts)
     pin.require(args.directory)
-    if args.command in vault_cli.READS and not getattr(args, "json", False):
+    if args.command in vault_cli.READS and not (
+        args.command == "show" and getattr(args, "json", False)
+    ):
         args.directory = vault_cli.view_of(args, clock)
-    context = commands.vault_write.WriteContext(redact, clock)
     if args.command == "create":
         written = create_record(
             args.directory,
@@ -324,7 +343,7 @@ def _run(args: argparse.Namespace, redact: Callable[[str], str] | None) -> tuple
         return EXIT_OK, {
             "record": record,
             "events": [event.id for event in written],
-            **_owed_of(args.directory, record),
+            **_owed_of(vault_cli.view_of(args, clock), record),
         }
     if (gate := _REFUSABLE.get(args.command)) is not None:
         return gate(args, clock)
@@ -341,7 +360,7 @@ def _run(args: argparse.Namespace, redact: Callable[[str], str] | None) -> tuple
             "record": record,
             "events": [event.id for event in appended],
             "appended": bool(appended),
-            **_owed_of(args.directory, record),
+            **_owed_of(vault_cli.view_of(args, clock), record),
         }
     records = query_records(
         args.directory, status=args.status, limit=args.limit, query=args.query, summary=args.summary
@@ -358,6 +377,9 @@ def invoke(args: argparse.Namespace, redact: Callable[[str], str] | None = None)
         report = dict(exc.report)
         code = report.pop("exit", EXIT_REFUSED)
         code = code if isinstance(code, int) else EXIT_REFUSED
+        report["refused"] = commands.vault_write.redact.text(vault_refusal.message(code, report))
+    except (events.FrozenLedgerError, vault_cli.ledger_freeze.FreezeError) as exc:
+        code, report = 2, {"refused": str(exc)}
     except events.LedgerError as exc:
         code, report = EXIT_REFUSED, {"refused": str(exc)}
     except ValueError as exc:
@@ -371,11 +393,14 @@ def invoke(args: argparse.Namespace, redact: Callable[[str], str] | None = None)
 def main(argv: Sequence[str] | None = None, *, redact: Callable[[str], str] | None = None) -> int:
 
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["bootstrap"]:
+        return int(_load("bootstrap.py", "basicly_tracker_bootstrap").main(argv[1:]))
     argv = list(vault_config.with_vault(argv, Path.cwd(), vault_arguments.routed_verbs(argv)))
     verb = argv[0] if argv else ""
     routed = "--vault" in argv or verb in vault_arguments.VAULT_ONLY
     form = vault_arguments.FORMS.get(verb) if routed else None
-    args = (form or arguments.parser)().parse_args(argv)
+    parser = form() if form else arguments.parser(vault_migration_cli.add_parser)
+    args = parser.parse_args(argv)
     code, report = invoke(args, redact)
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:

@@ -26,6 +26,7 @@ def _load(file_name: str, module_name: str) -> Any:
 
 git_runner = _load("git_runner.py", "basicly_tracker_kit_git_runner")
 vault_clone = _load("vault_clone.py", "basicly_tracker_kit_vault_clone")
+vault_push_guard = _load("vault_push_guard.py", "basicly_tracker_kit_vault_push_guard")
 
 SUGGESTED_NAME = "backlog-vault"
 FIX = 1
@@ -42,6 +43,8 @@ PERMISSIONS = [
     "On GitHub Free that means a private vault cannot be protected on the host and a public one "
     "can; you choose.",
     "The tracker checks the vault history itself and stops on a rewrite, with or without that.",
+    "CI needs no access to the vault: CI never reads tracker records, and the local commit "
+    "hook checks record ids.",
 ]
 
 _README = """# Backlog vault
@@ -118,7 +121,11 @@ def _commit(work: Path, runner: Runner) -> str:
         runner(entry, bare, env=env)
     tree = runner(["write-tree"], bare, env=env).strip()
     made = ["-c", "commit.gpgSign=false", "commit-tree", tree, "-m", "genesis"]
-    return runner(made, bare).strip()
+    who = {"NAME": "basicly tracker", "EMAIL": "tracker@writers.basicly.invalid"}
+    identity = {
+        f"GIT_{role}_{key}": value for role in ("AUTHOR", "COMMITTER") for key, value in who.items()
+    }
+    return runner(made, bare, env=identity).strip()
 
 
 def init(text: str, *, confirmed: bool, runner: Runner = git_runner.run) -> dict[str, object]:
@@ -143,6 +150,10 @@ def init(text: str, *, confirmed: bool, runner: Runner = git_runner.run) -> dict
         if not confirmed:
             return {**shown, "pushed": False, "next": f"vault-init --vault {url} --yes"}
         commit = _commit(work, runner)
+        vault_push_guard.check(
+            work / "genesis.git",
+            f"refs/heads/main {commit} refs/heads/main {'0' * len(commit)}\n",
+        )
         pushed = ["push", "--quiet", git_runner.END_OF_OPTIONS, url, f"{commit}:refs/heads/main"]
         runner(pushed, work / "genesis.git", allow_file=allow_file)
     return {**shown, "pushed": True, "genesis": commit}
