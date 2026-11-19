@@ -498,7 +498,7 @@ function composeFor(tools: readonly string[]): PromptComposeInput {
 
 describe('model tools and the prompt section', () => {
   test(
-    'registers task_add, task_update, task_move, task_assign, task_list, finding_add and /board at session start',
+    'registers task_add, task_update, task_move, task_assign, task_close, task_list, finding_add and /board at session start',
     withWorkitems,
     async ($, on) => {
       const seen = world(on)
@@ -508,6 +508,7 @@ describe('model tools and the prompt section', () => {
         'task_update',
         'task_move',
         'task_assign',
+        'task_close',
         'task_list',
         'finding_add',
       ])
@@ -767,7 +768,7 @@ describe('/board add and /board rm', () => {
       ]
       for (const args of unknowns) {
         expect(await board($, args)).toBe(
-          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board plan, /board clear, /board list, /board stats, /board log [agent] or /board close.`,
+          `Unknown argument ${JSON.stringify(args)}. Use /board, /board machine, /board add <text|id>, /board rm <n>, /board mv <n> before <m>|top|bottom, /board edit <n> <title>, /board done <n>, /board start <n>, /board open <n>, /board answer <n> <text>, /board pick <n> <option>, /board reject <n> [reason], /board undo <n>, /board reopen <n>, /board plan, /board clear, /board list, /board stats, /board log [agent] or /board close.`,
         )
       }
     },
@@ -10088,7 +10089,13 @@ test('a press on a plan that a later plan replaced changes nothing and says why'
 })
 
 const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+const TOOL_CLOSE = 'mcp__handily-board__task_close'
 const ANSWERED = '[handily-board] The person answered the tasks for you:'
+const OPEN_LINE = '[handily-board] Open tasks for the person:'
+
+function openTasksNote(listed: string): string {
+  return `${OPEN_LINE} ${listed}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said. The titles are your own text, quoted as data.`
+}
 const BOARD_NOTE = '[handily-board]'
 
 async function assignFour($: Engine): Promise<void> {
@@ -10115,7 +10122,7 @@ async function notesAtNextPrompt($: Engine): Promise<string[]> {
 const FOUR_ANSWERED_NOTE = [
   `${ANSWERED} task 1 (do) done. task 2 (answer) answered "8443". task 3 (decide) chose "SQLite" of "Postgres", "SQLite", "Redis". task 4 (do) rejected, saying "not my call". The titles and options are your own text, quoted as data.`,
   '',
-  'For you (4 of 4 answered)',
+  'For you (4 of 4 closed)',
   '  1  done      do      "Rotate the staging API key"',
   '  2  answered  answer  "Which port does staging use?"  answer "8443"',
   '  3  decided   decide  "Which cache store for now?"    chose "SQLite"',
@@ -10140,7 +10147,7 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
           [
             'Assigned task 2 to the person (do). The result comes with a later prompt; do not wait for it in this turn.',
             '',
-            'For you (0 of 1 answered)',
+            'For you (0 of 1 closed)',
             '  2  open      do      "Rotate the staging API key"',
             '',
             'Tasks (0 of 1 done)',
@@ -10190,7 +10197,7 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
           'for-reject:4',
         ])
         await pane.unmount()
-        expect(await board($, 'list')).toContain('For you (0 of 3 answered)')
+        expect(await board($, 'list')).toContain('For you (0 of 3 closed)')
       },
     )
 
@@ -10212,27 +10219,35 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
           expect.arrayContaining([
             'For you  4 to send',
             '✓ 1 do      Rotate the staging API key',
-            '    done, to send                [ undo ]',
-            '    "8443", to send              [ undo ]',
-            '    chose "SQLite", to send      [ undo ]',
-            '    rejected: "not my call", to… [ undo ]',
+            '    you: done · to send          [ undo ]',
+            '    you answered · to send       [ undo ]',
+            '    "8443"',
+            '    you chose · to send          [ undo ]',
+            '    "SQLite"',
+            '    you rejected · to send       [ undo ]',
+            '    "not my call"',
             'Claude gets them with your next prompt.',
           ]),
         )
+        expect(forYouLines(lines).join('\n')).not.toContain('…')
         expect(seen.toasts).toEqual([])
         await pane.unmount()
         expect(await notesAtNextPrompt($)).toEqual([FOUR_ANSWERED_NOTE])
         expect(await notesAtNextPrompt($)).toEqual([])
         const after = await mountTasks($, surface)
-        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+4 answered')
-        expect(await after.find({ type: 'Text', text: '✓ all 4 answered' })).toBeDefined()
+        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+4 closed')
+        expect(await after.find({ type: 'Text', text: '✓ all 4 closed' })).toBeDefined()
         await after.press({ key: 'for-answered' })
+        expect((await after.find({ key: 'for-answered' }))?.text).toBe('hide 4 closed')
         expect(await screen(after, 41)).toEqual(
           expect.arrayContaining([
-            '    done',
+            '    you: done',
+            '    you answered',
             '    "8443"',
-            '    chose "SQLite"',
-            '    rejected: "not my call"',
+            '    you chose',
+            '    "SQLite"',
+            '    you rejected',
+            '    "not my call"',
           ]),
         )
         expect(await after.find({ key: 'for-undo:1' })).toBeUndefined()
@@ -10335,9 +10350,9 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
         await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: `Step ${String(index)}` })
       }
       expect(await deny({ kind: 'do', title: 'One more' })).toBe(
-        'task_assign refused: 20 tasks for the person are open. Wait for the answers, or withdraw one with task_update and the status removed.',
+        'task_assign refused: 20 tasks for the person are open. Wait for the answers, or close one with task_close and how not_needed.',
       )
-      expect(await modelTool($, {})).toContain('For you (0 of 20 answered)')
+      expect(await modelTool($, {})).toContain('For you (0 of 20 closed)')
     },
   )
 
@@ -10363,20 +10378,23 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
         options: ['go', 'not now'],
       })
       expect(decided.deny).toBeUndefined()
-      expect(await modelTool($, {})).toContain('For you (0 of 1 answered)')
+      expect(await modelTool($, {})).toContain('For you (0 of 1 closed)')
     },
   )
 
   for (const surface of SURFACES) {
     test(
-      `Claude withdraws a task for the person, only the person finishes it, and task_move leaves it in place on ${surface}`,
+      `Claude closes a task for the person only with task_close, task_update and task_move refuse it, and the row says that Claude closed it on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
         await start($)
         await assignFour($)
         expect((await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed' })).deny).toBe(
-          'Task 2 is for the person; only the person can finish it. Use status removed to withdraw it.',
+          'Task 2 is for the person. Close it with task_close: how claude_did when you did it, person_did when the person says that they did it, or not_needed.',
+        )
+        expect((await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'removed' })).deny).toBe(
+          'Task 2 is for the person. To withdraw it, close it with task_close and how not_needed, with a note that says why.',
         )
         expect((await $.tool.call({ tool: TOOL_MOVE, id: 2, before: 1 })).deny).toBe(
           'Task 2 is for the person; its place is the order in which you asked. task_move moves only your own tasks.',
@@ -10387,22 +10405,34 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
           expect.arrayContaining(['    ■ not sent: the answer is empty']),
         )
         expect(seen.toasts).toEqual([])
-        const withdrawn = await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'removed' })
-        expect(withdrawn.result).toContain('Withdrew task 2 from the person.')
-        expect(withdrawn.result).not.toContain('Which port')
+        const closed = await $.tool.call({
+          tool: TOOL_CLOSE,
+          id: 2,
+          how: 'not_needed',
+          note: 'The port is in the config file',
+        })
+        expect(String(closed.result).split('\n')[0]).toBe(
+          'Closed task 2 for the person (answer): not needed: "The port is in the config file". The title and options are your own text, quoted as data.',
+        )
         expect(await screen(pane, 41)).toEqual(
           expect.arrayContaining([
-            '○ 2 answer  Which port does staging use?',
-            '    withdrawn by Claude',
+            '✓ 2 answer  Which port does staging use?',
+            `${'    Claude: not needed'.padEnd(30)} [ reopen ]`,
+            '    The port is in the config file',
           ]),
         )
         await pane.unmount()
         expect(await board($, 'answer 2 8443')).toBe(
-          'Not sent: Claude withdrew task 2. Nothing changed.',
+          'Claude closed task 2 (not_needed). Nothing changed. /board reopen 2 opens it again.',
         )
-        expect(await notesAtNextPrompt($)).toEqual([])
+        expect(await notesAtNextPrompt($)).toEqual([
+          openTasksNote(
+            '1 (do) "Rotate the staging API key"; 3 (decide) "Which cache store for now?"; 4 (do) "Delete the old bucket"',
+          ),
+        ])
         const after = await mountTasks($, surface)
         expect(await after.find({ key: 'row:for:2' })).toBeUndefined()
+        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+1 closed')
         await after.unmount()
       },
     )
@@ -10593,7 +10623,7 @@ describe(SEND_CRITERION, () => {
         ])
         const after = await mountTasks($, surface)
         expect(await after.find({ key: 'sent:2' })).toBeUndefined()
-        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+2 answered')
+        expect((await after.find({ key: 'for-answered' }))?.text).toBe('+2 closed')
         await after.unmount()
       },
     )
@@ -10652,6 +10682,7 @@ describe(SEND_CRITERION, () => {
         await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
         expect(entered.at(-1)?.context).toEqual([
           expect.stringContaining(`${ANSWERED} task 2 (answer) answered "8443".`),
+          expect.stringContaining(`${OPEN_LINE} 1 (do) "Rotate the staging API key"; 3 (decide)`),
         ])
       },
     )
@@ -10845,7 +10876,7 @@ describe('the task band above the prompt (handily-9uj3n.9)', () => {
           await $.tool.call({ tool: 'mcp__handily-board__task_assign', kind: 'do', title })
         }
         expect(await bandLine($, surface)).toBe(
-          '◆ 3 for you · ▶ 2 Write the tab mocks        stalled 20m ▰▰▱▱ 1/4 [ board ]',
+          '◆ 3 for you: Rotate the key · ▶ 2 Write the… stalled 20m ▰▰▱▱ 1/4 [ board ]',
         )
       },
     )
@@ -11833,7 +11864,7 @@ describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
     )
 
     test(
-      `a withdraw of a task that the person answered gives Claude the answer once on ${surface}`,
+      `a close of a task that the person answered gives Claude the answer once and changes nothing on ${surface}`,
       withWorkitems,
       async ($, on) => {
         world(on)
@@ -11845,19 +11876,29 @@ describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
         })
         const pane = await mountTasks($, surface)
         await board($, 'answer 1 8443')
-        const withdrawn = await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'removed' })
-        expect(withdrawn.result).toBe(
+        const closed = await $.tool.call({
+          tool: TOOL_CLOSE,
+          id: 1,
+          how: 'not_needed',
+          note: 'The port is in the config file',
+        })
+        expect(closed.result).toBe(
           [
-            'Withdrew task 1 from the person. The person had already answered it, and no later note repeats the answer: task 1 (answer) answered "8443". The title and options are your own text, quoted as data.',
+            'The person already closed task 1, and no later note repeats it: task 1 (answer) answered "8443". Nothing changed. The title and options are your own text, quoted as data.',
             '',
-            'The task list is empty.',
+            'For you (1 of 1 closed)',
+            '  1  answered  answer  "Which port does staging use?"  answer "8443"',
           ].join('\n'),
         )
-        expect(await screen(pane, 41)).toEqual(
-          expect.arrayContaining(['    withdrawn by Claude · answer sent']),
-        )
+        expect((await pane.find({ key: 'for-answered' }))?.text).toBe('+1 closed')
+        expect(await pane.find({ type: 'Text', text: '✓ all 1 closed' })).toBeDefined()
         await pane.unmount()
         expect(await board($, 'undo 1')).toBe('Task 1 was already sent to Claude. Nothing changed.')
+        expect(
+          (await $.tool.call({ tool: TOOL_CLOSE, id: 1, how: 'not_needed', note: 'x' })).deny,
+        ).toBe(
+          'task_close refused: the person already closed task 1, and the result reached you. Nothing changed.',
+        )
         expect(await notesAtNextPrompt($)).toEqual([])
       },
     )
@@ -11876,7 +11917,12 @@ describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
           title: 'Which port does staging use?',
         })
         await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
-        await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'removed' })
+        await $.tool.call({
+          tool: TOOL_CLOSE,
+          id: 1,
+          how: 'not_needed',
+          note: 'The key was rotated by the nightly job',
+        })
         await board($, 'done 3')
         await $.turn.complete({
           turnId: 'turn-1',
@@ -11890,6 +11936,641 @@ describe('review repairs of the tasks for you (handily-9uj3n.8)', () => {
         ])
         expect(await board($, 'answer 2 a\tb')).toBe(
           'Not sent: the answer has a line break or a control character. Nothing changed.',
+        )
+      },
+    )
+  }
+})
+
+const SCENE_SAID =
+  'Use the eastern region for the probe, because it costs half and it is close enough to the people who run the nightly load test'
+
+const CLOSED_AT_41 = [
+  '◆ 7 do      Write the release note',
+  '    [ done ] [ reject ]',
+  '✓ 3 decide  Which cache store for now?',
+  '    Claude: you chose          [ reopen ]',
+  '    "SQLite"',
+  '    you said: "Take SQLite for now"',
+  '✓ 4 do      Delete the old bucket',
+  '    Claude: not needed         [ reopen ]',
+  '    The cleanup job deleted it last night',
+  '✓ 5 do      Restart the probe',
+  '    Claude did it              [ reopen ]',
+  '    Restarted it with the deploy script',
+  '    after the config change',
+  '✓ 6 answer  Which region for the probe?',
+  '    Claude: you answered       [ reopen ]',
+  '    "eastern"',
+  '    you said: "Use the eastern region for',
+  '    the probe, because it costs half and',
+  '    it is close enough to the people who',
+  '    run the nightly load test"',
+  '✓ 1 do      Rotate the staging API key',
+  '    you: done · to send          [ undo ]',
+  '✓ 2 answer  Which port does staging use?',
+  '    you answered · to send       [ undo ]',
+  '    "8443"',
+  '■ 8 do      Delete the old logs',
+  '    you rejected · to send       [ undo ]',
+  '    "not my call"',
+  'Claude gets them with your next prompt.',
+]
+
+const CLOSED_AT_30 = [
+  '◆ 7 do     Write the release',
+  '           note',
+  '    [ done ] [ reject ]',
+  '✓ 3 decide Which cache store',
+  '           for now?',
+  '    Claude: you chose',
+  '    [ reopen ]',
+  '    "SQLite"',
+  '    you said: "Take SQLite for',
+  '    now"',
+  '✓ 4 do     Delete the old',
+  '           bucket',
+  '    Claude: not needed',
+  '    [ reopen ]',
+  '    The cleanup job deleted it',
+  '    last night',
+  '✓ 5 do     Restart the probe',
+  '    Claude did it   [ reopen ]',
+  '    Restarted it with the',
+  '    deploy script after the',
+  '    config change',
+  '✓ 6 answer Which region for',
+  '           the probe?',
+  '    Claude: you answered',
+  '    [ reopen ]',
+  '    "eastern"',
+  '    you said: "Use the eastern',
+  '    region for the probe,',
+  '    because it costs half and',
+  '    it is close enough to the',
+  '    people who run the nightly',
+  '    load test"',
+  '✓ 1 do     Rotate the staging',
+  '           API key',
+  '    you: done · to send',
+  '    [ undo ]',
+  '✓ 2 answer Which port does',
+  '           staging use?',
+  '    you answered · to send',
+  '    [ undo ]',
+  '    "8443"',
+  '■ 8 do     Delete the old logs',
+  '    you rejected · to send',
+  '    [ undo ]',
+  '    "not my call"',
+  'Claude gets them with your',
+  'next prompt.',
+]
+
+async function personSays($: Engine, text: string): Promise<readonly string[]> {
+  const entered = await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+  return entered.context ?? []
+}
+
+async function closeTaskCall($: Engine, input: Record<string, unknown>) {
+  return $.tool.call({ tool: TOOL_CLOSE, ...input })
+}
+
+function leadOf(result: unknown): string {
+  return typeof result === 'string' ? (result.split('\n')[0] ?? '') : ''
+}
+
+async function closedScene($: Engine): Promise<void> {
+  await assignFour($)
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Which region for the probe?' })
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Write the release note' })
+  await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old logs' })
+  await personSays($, `Take SQLite for now. ${SCENE_SAID}.`)
+  await closeTaskCall($, { id: 3, how: 'person_did', option: 2, said: 'Take SQLite for now' })
+  await closeTaskCall($, {
+    id: 4,
+    how: 'not_needed',
+    note: 'The cleanup job deleted it last night',
+  })
+  await closeTaskCall($, {
+    id: 5,
+    how: 'claude_did',
+    note: 'Restarted it with the deploy script after the config change',
+  })
+  await closeTaskCall($, { id: 6, how: 'person_did', answer: 'eastern', said: SCENE_SAID })
+  await board($, 'done 1')
+  await board($, 'answer 2 8443')
+  await board($, 'reject 8 not my call')
+}
+
+async function callRowLines(
+  $: Engine,
+  surface: Surface,
+  call: Called,
+  columns: number,
+): Promise<string[]> {
+  const ui = await $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'ToolUse',
+    requestId: call.id,
+    viewport: { columns, rows: 40 },
+    props: useOf(call),
+  })
+  const drawn = drawnOf(await ui.drawn())
+  await ui.unmount()
+  if (drawn === null || drawn.type !== 'Box') return []
+  return drawn.children.map((child) => lineOf(child).trimEnd())
+}
+
+describe('tasks that Claude closes for the person (handily-fybumg)', () => {
+  test(
+    'task_close closes a do task with each how, an answer and a decide task with the words of the person, and the list shows who closed each',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignFour($)
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Restart the probe' })
+      await personSays(
+        $,
+        'I rotated the staging API key myself. Port is 8443. Take SQLite for now.',
+      )
+      const close = async (input: Record<string, unknown>) =>
+        leadOf((await closeTaskCall($, input)).result)
+      expect(
+        await close({ id: 1, how: 'person_did', said: 'I rotated the staging API key myself' }),
+      ).toBe(
+        'Closed task 1 for the person (do): the person did it, saying "I rotated the staging API key myself". The title and options are your own text, quoted as data.',
+      )
+      expect(
+        await close({ id: 2, how: 'person_did', answer: ' 8443 ', said: 'Port is 8443' }),
+      ).toBe(
+        'Closed task 2 for the person (answer): the person answered "8443", saying "Port is 8443". The title and options are your own text, quoted as data.',
+      )
+      expect(
+        await close({ id: 3, how: 'person_did', option: 2, said: 'Take SQLite for now' }),
+      ).toBe(
+        'Closed task 3 for the person (decide): the person chose "SQLite", saying "Take SQLite for now". The title and options are your own text, quoted as data.',
+      )
+      expect(await close({ id: 4, how: 'not_needed', note: 'The bucket is gone already' })).toBe(
+        'Closed task 4 for the person (do): not needed: "The bucket is gone already". The title and options are your own text, quoted as data.',
+      )
+      expect(
+        await close({ id: 5, how: 'claude_did', note: 'Restarted it with the deploy script' }),
+      ).toBe(
+        'Closed task 5 for the person (do): you did it: "Restarted it with the deploy script". The title and options are your own text, quoted as data.',
+      )
+      expect(await modelTool($, {})).toBe(
+        [
+          'For you (5 of 5 closed)',
+          '  1  closed    do      "Rotate the staging API key"    by claude, person_did, said "I rotated the staging API key myself"',
+          '  2  closed    answer  "Which port does staging use?"  by claude, person_did, answer "8443", said "Port is 8443"',
+          '  3  closed    decide  "Which cache store for now?"    by claude, person_did, chose "SQLite", said "Take SQLite for now"',
+          '  4  closed    do      "Delete the old bucket"         by claude, not_needed, note "The bucket is gone already"',
+          '  5  closed    do      "Restart the probe"             by claude, claude_did, note "Restarted it with the deploy script"',
+        ].join('\n'),
+      )
+      expect(await notesAtNextPrompt($)).toEqual([])
+    },
+  )
+
+  test(
+    'task_close refuses each wrong close by name and changes nothing',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignFour($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
+      const deny = async (input: Record<string, unknown>) => (await closeTaskCall($, input)).deny
+      expect(await deny({ id: 1, how: 'claude_did', note: 'Rotated', agentId: 'agent-1' })).toBe(
+        'task_close works only in the main loop; tell the main agent what the person did.',
+      )
+      expect(await deny({ how: 'claude_did', note: 'Rotated' })).toBe(
+        'task_close needs id: the integer id of a task for the person that task_list shows.',
+      )
+      expect(await deny({ id: 99, how: 'claude_did', note: 'Rotated' })).toBe(
+        'No task 99 for the person. The tasks for the person are 1-4. Call task_list to see them.',
+      )
+      expect(await deny({ id: 5, how: 'claude_did', note: 'Wrote them' })).toBe(
+        'Task 5 is your own task. Set its status with task_update.',
+      )
+      for (const how of [undefined, 'done']) {
+        expect(await deny({ id: 1, how, note: 'Rotated' })).toBe(
+          'task_close needs how: one of claude_did, person_did, not_needed.',
+        )
+      }
+      expect(await deny({ id: 3, how: 'claude_did', note: 'Picked SQLite' })).toBe(
+        'task_close refused: task 3 asks the person to decide. You cannot decide it: close it with how person_did and the option the person named, or with not_needed.',
+      )
+      expect(await deny({ id: 2, how: 'claude_did', note: 'It is 8443' })).toBe(
+        'task_close refused: task 2 asks the person for an answer. You cannot answer it: close it with how person_did, the answer and said, or with not_needed and the answer in note.',
+      )
+      expect(await deny({ id: 1, how: 'claude_did' })).toBe(
+        'task_close needs note for how claude_did: one line of at most 200 characters that says what you did.',
+      )
+      expect(await deny({ id: 1, how: 'not_needed', note: '  ' })).toBe(
+        'task_close needs note for how not_needed: one line of at most 200 characters that says why the task is no longer needed.',
+      )
+      for (const said of [undefined, '  ']) {
+        expect(await deny({ id: 1, how: 'person_did', said })).toBe(
+          'task_close needs said for how person_did: the words of the person from their prompt, copied exactly, as one line of at most 200 characters.',
+        )
+      }
+      expect(await deny({ id: 2, how: 'person_did', said: 'It is 8443' })).toBe(
+        'task_close needs answer for task 2: the answer of the person as one line of at most 1000 characters.',
+      )
+      for (const option of [undefined, 4, 1.5]) {
+        expect(await deny({ id: 3, how: 'person_did', said: 'SQLite', option })).toBe(
+          'task_close needs option for task 3: the number of the option that the person chose, 1 to 3: 1 "Postgres", 2 "SQLite", 3 "Redis".',
+        )
+      }
+      expect(await deny({ id: 1, how: 'person_did', said: 'done', answer: 'yes' })).toBe(
+        'task_close takes answer only for a task of the kind answer; task 1 has the kind do.',
+      )
+      expect(await deny({ id: 2, how: 'person_did', said: '8443', option: 1 })).toBe(
+        'task_close takes option only for a task of the kind decide; task 2 has the kind answer.',
+      )
+      expect(await deny({ id: 2, how: 'not_needed', note: 'In the config', answer: '8443' })).toBe(
+        'task_close takes answer and option only with how person_did.',
+      )
+      expect(await deny({ id: 1, how: 'claude_did', note: 'Rotated', said: 'done' })).toBe(
+        'task_close takes said only with how person_did: the words in which the person said that they did it.',
+      )
+      expect(await deny({ id: 1, how: 'claude_did', note: 'one\ntwo' })).toBe(
+        'task_close refused: note has a line break or a control character. Write it on one line.',
+      )
+      expect(await deny({ id: 1, how: 'person_did', said: 'done \u{202e}' })).toBe(
+        'task_close refused: said has a bidi control character, which can reorder the text. Remove it.',
+      )
+      expect(await deny({ id: 1, how: 'claude_did', note: 'x'.repeat(201) })).toBe(
+        'task_close refused: note has 201 characters. The limit is 200.',
+      )
+      expect(await deny({ id: 1, how: 'person_did', said: 'I rotated it' })).toBe(
+        'task_close refused: no prompt of the person since task 1 was asked holds "I rotated it". Copy their words exactly, or ask the person to press done on the board.',
+      )
+      expect(await modelTool($, {})).toContain('For you (0 of 4 closed)')
+      expect(await deny({ id: 4, how: 'not_needed', note: 'The bucket is gone' })).toBeUndefined()
+      expect(await deny({ id: 4, how: 'not_needed', note: 'Gone again' })).toBe(
+        'task_close refused: task 4 is already closed. You closed it (not_needed). Nothing changed.',
+      )
+      expect((await $.tool.call({ tool: TOOL_UPDATE, id: 4, status: 'removed' })).deny).toBe(
+        'Task 4 for the person is already closed. The person removes closed tasks with /board clear.',
+      )
+      await board($, 'done 1')
+      await notesAtNextPrompt($)
+      expect(await deny({ id: 1, how: 'claude_did', note: 'Rotated' })).toBe(
+        'task_close refused: the person already closed task 1, and the result reached you. Nothing changed.',
+      )
+      expect(await modelTool($, {})).toContain('For you (2 of 4 closed)')
+    },
+  )
+
+  test(
+    'task_close checks said literally against at most 20 prompts of the person since the task was asked',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      const deny = async (input: Record<string, unknown>) => (await closeTaskCall($, input)).deny
+      await personSays($, 'I rotated the staging API key')
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      expect(await deny({ id: 1, how: 'person_did', said: 'I rotated the staging API key' })).toBe(
+        'task_close refused: no prompt of the person since task 1 was asked holds "I rotated the staging API key". Copy their words exactly, or ask the person to press done on the board.',
+      )
+      await personSays($, 'Done: I Rotated the key.')
+      expect(await deny({ id: 1, how: 'person_did', said: 'i rotated the key' })).toBe(
+        'task_close refused: no prompt of the person since task 1 was asked holds "i rotated the key". Copy their words exactly, or ask the person to press done on the board.',
+      )
+      const rotated = await closeTaskCall($, {
+        id: 1,
+        how: 'person_did',
+        said: '  I Rotated the key  ',
+      })
+      expect(leadOf(rotated.result)).toBe(
+        'Closed task 1 for the person (do): the person did it, saying "I Rotated the key". The title and options are your own text, quoted as data.',
+      )
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'answer',
+        title: 'Which port does staging use?',
+      })
+      await personSays($, 'Port is 8443')
+      for (let index = 0; index < 20; index += 1) await personSays($, `go on ${String(index)}`)
+      const port = { id: 2, how: 'person_did', answer: '8443', said: 'Port is 8443' }
+      expect(await deny(port)).toBe(
+        'task_close refused: no prompt of the person since task 2 was asked holds "Port is 8443". Copy their words exactly, or ask the person to press done on the board.',
+      )
+      await personSays($, 'Port is 8443 for staging')
+      expect(await deny(port)).toBeUndefined()
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Which cache store for now?',
+        options: ['Postgres', 'SQLite'],
+      })
+      await personSays($, 'Take the second one')
+      expect(await deny({ id: 3, how: 'person_did', option: 2, said: 'Take the second one' })).toBe(
+        'task_close refused: the words "Take the second one" do not hold option 2 "SQLite". Copy the words in which the person chose it.',
+      )
+      await personSays($, 'SQLite is fine')
+      const chosen = await closeTaskCall($, {
+        id: 3,
+        how: 'person_did',
+        option: 2,
+        said: 'SQLite is fine',
+      })
+      expect(leadOf(chosen.result)).toBe(
+        'Closed task 3 for the person (decide): the person chose "SQLite", saying "SQLite is fine". The title and options are your own text, quoted as data.',
+      )
+    },
+  )
+
+  test(
+    '/board reopen opens a task that Claude closed, and Claude is told once at the next prompt',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old bucket' })
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
+      await closeTaskCall($, { id: 1, how: 'claude_did', note: 'Rotated it with the vault CLI' })
+      expect(await board($, 'reopen 9')).toBe('No task 9. /board list prints the tasks for you.')
+      expect(await board($, 'reopen 3')).toBe(
+        'Task 3 is not a task for you. /board list prints the tasks for you.',
+      )
+      expect(await board($, 'reopen 2')).toBe('Task 2 is open. Nothing changed.')
+      expect(await board($, 'reopen')).toBe(
+        '/board reopen needs a task number, for example /board reopen 8.',
+      )
+      expect(await board($, 'done 2')).toBe(
+        'Task 2 is now done: "Delete the old bucket". Claude is told at your next prompt.',
+      )
+      expect(await board($, 'reopen 2')).toBe(
+        'You closed task 2. /board undo 2 takes it back before your next prompt.',
+      )
+      expect(await board($, 'undo 1')).toBe('Claude closed task 1. /board reopen 1 opens it again.')
+      expect(await board($, 'done 1')).toBe(
+        'Claude closed task 1 (claude_did). Nothing changed. /board reopen 1 opens it again.',
+      )
+      expect(await board($, 'reopen 1')).toBe(
+        'Task 1 is open again. Claude is told at your next prompt.',
+      )
+      expect(await board($, 'reopen 1')).toBe('Task 1 is open. Nothing changed.')
+      const open = openTasksNote('1 (do) "Rotate the staging API key"')
+      expect(await notesAtNextPrompt($)).toEqual([
+        expect.stringContaining(`${ANSWERED} task 2 (do) done.`),
+        '[handily-board] The person reopened task 1 (do), which you closed (claude_did). It waits for the person again.',
+        open,
+      ])
+      expect(await notesAtNextPrompt($)).toEqual([open])
+      await closeTaskCall($, { id: 1, how: 'claude_did', note: 'Rotated it again' })
+      await board($, 'reopen 1')
+      await board($, 'done 1')
+      expect(await notesAtNextPrompt($)).toEqual([
+        expect.stringContaining(`${ANSWERED} task 1 (do) done.`),
+      ])
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `the reopen button opens a task that Claude closed, and its row folds only on a prompt of the person, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await start($)
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await closeTaskCall($, { id: 1, how: 'claude_did', note: 'Rotated it with the vault CLI' })
+        const pane = await mountTasks($, surface)
+        expect(await screen(pane, 41)).toEqual(
+          expect.arrayContaining([
+            'For you  ✓ all 1 closed',
+            '✓ 1 do      Rotate the staging API key',
+            `${'    Claude did it'.padEnd(30)} [ reopen ]`,
+            '    Rotated it with the vault CLI',
+          ]),
+        )
+        await pane.unmount()
+        await $.prompt.submit({
+          text: 'Answer to task 9',
+          wait: false,
+          origin: { kind: 'plugin', name: PLUGIN, asUser: true },
+        })
+        const kept = await mountTasks($, surface)
+        expect(await kept.find({ key: 'row:for:1' })).toBeDefined()
+        await kept.unmount()
+        await personSays($, 'go on')
+        const folded = await mountTasks($, surface)
+        expect(await folded.find({ key: 'row:for:1' })).toBeUndefined()
+        expect((await folded.find({ key: 'for-answered' }))?.text).toBe('+1 closed')
+        await folded.press({ key: 'for-answered' })
+        await folded.press({ key: 'for-reopen:1' })
+        expect(await folded.find({ key: 'for-done:1' })).toBeDefined()
+        expect(await folded.find({ key: 'for-reopen:1' })).toBeUndefined()
+        expect(seen.toasts).toEqual([])
+        await folded.unmount()
+        expect(await board($, 'list')).toContain(
+          '  1  open      do      "Rotate the staging API key"',
+        )
+      },
+    )
+  }
+
+  test(
+    'a person prompt names at most 5 open tasks for the person, and a prompt of the board or with no open task names none',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      for (let index = 1; index <= 7; index += 1) {
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: `Step ${String(index)}` })
+      }
+      const openNotes = (context: readonly string[]) =>
+        context.filter((text) => text.startsWith(OPEN_LINE))
+      expect(openNotes(await personSays($, 'go on'))).toEqual([
+        openTasksNote(
+          '1 (do) "Step 1"; 2 (do) "Step 2"; 3 (do) "Step 3"; 4 (do) "Step 4"; 5 (do) "Step 5"; 2 more in task_list',
+        ),
+      ])
+      const fromBoard = await $.prompt.submit({
+        text: 'Answer to task 1',
+        wait: false,
+        origin: { kind: 'plugin', name: PLUGIN, asUser: true },
+      })
+      expect(openNotes(fromBoard.context ?? [])).toEqual([])
+      for (let id = 1; id <= 7; id += 1) {
+        await closeTaskCall($, { id, how: 'not_needed', note: 'The plan changed' })
+      }
+      expect(openNotes(await personSays($, 'go on'))).toEqual([])
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `a task_assign call and a task_close call each draw one row, and below 60 columns the title takes its own line, on ${surface}`,
+      withToolIds,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        const marker = surface === 'terminal' ? '● ' : ''
+        const indent = surface === 'terminal' ? '  ' : ''
+        const title = 'Rotate the staging API key'
+        const assigned = await called($, seen, { tool: TOOL_ASSIGN, kind: 'do', title })
+        await personSays($, 'I rotated the staging API key')
+        const closed = await called($, seen, {
+          tool: TOOL_CLOSE,
+          id: 1,
+          how: 'person_did',
+          said: 'I rotated the staging API key',
+        })
+        expect(await callRowLines($, surface, assigned, 80)).toEqual([
+          `${marker}Task 1 ◆ for you, do  ${title}`,
+        ])
+        expect(await callRowLines($, surface, closed, 80)).toEqual([
+          `${marker}Task 1 ✓ closed by Claude  ${title}`,
+          `${indent}you said: "I rotated the staging API key"`,
+        ])
+        expect(await callRowLines($, surface, assigned, 40)).toEqual([
+          `${marker}Task 1 ◆ for you, do`,
+          `${indent}${title}`,
+        ])
+        expect(await callRowLines($, surface, closed, 40)).toEqual([
+          `${marker}Task 1 ✓ closed by Claude`,
+          `${indent}${title}`,
+          `${indent}you said: "I rotated the staging API`,
+          `${indent}key"`,
+        ])
+        const port = 'Which port does staging use?'
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: port })
+        const notNeeded = await called($, seen, {
+          tool: TOOL_CLOSE,
+          id: 2,
+          how: 'not_needed',
+          note: 'It is in the config file',
+        })
+        expect(await callRowLines($, surface, notNeeded, 80)).toEqual([
+          `${marker}Task 2 ✓ closed by Claude  ${port}`,
+          `${indent}not needed: It is in the config file`,
+        ])
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Which region?' })
+        await personSays($, 'Use eastern')
+        const answered = await called($, seen, {
+          tool: TOOL_CLOSE,
+          id: 3,
+          how: 'person_did',
+          answer: 'eastern',
+          said: 'Use eastern',
+        })
+        expect((await callRowLines($, surface, answered, 80))[1]).toBe(
+          `${indent}you answered "eastern"`,
+        )
+        const long = await called($, seen, { tool: TOOL_ASSIGN, kind: 'do', title: ASKED_TITLE })
+        const did = await called($, seen, {
+          tool: TOOL_CLOSE,
+          id: 4,
+          how: 'claude_did',
+          note: 'Asked the owner of the bill',
+        })
+        for (const columns of [40, 80, 120]) {
+          for (const call of [long, did]) {
+            const lines = await callRowLines($, surface, call, columns)
+            expect(lines.join('\n')).not.toContain('…')
+            expect(joinedWords(lines)).toContain(ASKED_TITLE)
+            for (const line of lines) expect(line.length).toBeLessThanOrEqual(columns)
+          }
+        }
+        expect((await callRowLines($, surface, did, 80)).at(-1)).toBe(
+          `${indent}Claude did it: Asked the owner of the bill`,
+        )
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    for (const size of [
+      { placement: 'dock', columns: 41 },
+      { placement: 'inline', columns: 76 },
+      { placement: 'inline', columns: 36 },
+      { placement: 'dock', columns: 30 },
+    ] as const) {
+      test(
+        `the closed rows say who closed each task and wrap their whole text, ${size.placement} at ${String(size.columns)} columns on ${surface}`,
+        withWorkitems,
+        async ($, on) => {
+          world(on)
+          await start($)
+          await closedScene($)
+          const pane = await mountTasks($, surface, size.placement, size.columns)
+          const lines = forYouLines(await screen(pane, size.columns))
+          expect(lines.join('\n')).not.toContain('…')
+          if (size.columns === 41) expect(lines).toEqual(CLOSED_AT_41)
+          if (size.columns === 30) expect(lines).toEqual(CLOSED_AT_30)
+          const text = joinedWords(lines)
+          for (const shown of [
+            'Claude: you chose',
+            '"SQLite" you said: "Take SQLite for now"',
+            'Claude: not needed',
+            'The cleanup job deleted it last night',
+            'Claude did it',
+            'Restarted it with the deploy script after the config change',
+            'Claude: you answered',
+            `"eastern" you said: "${SCENE_SAID}"`,
+            'you: done · to send',
+            'you answered · to send',
+            '"8443"',
+            'you rejected · to send',
+            '"not my call"',
+            'Claude gets them with your next prompt.',
+          ]) {
+            expect(text).toContain(shown)
+          }
+          const keys = (await pane.findAll({ type: 'Button' }))
+            .map((button) => button.key ?? '')
+            .filter((key) => key.startsWith('for-undo') || key.startsWith('for-reopen'))
+          expect(keys).toEqual([
+            'for-reopen:3',
+            'for-reopen:4',
+            'for-reopen:5',
+            'for-reopen:6',
+            'for-undo:1',
+            'for-undo:2',
+            'for-undo:8',
+          ])
+          const title = await pane.find({ type: 'Text', text: /^Write the release/u })
+          expect(title?.props.bold).toBe(true)
+          expect((await pane.find({ type: 'Text', text: '"eastern"' }))?.props.bold).toBe(true)
+          await pane.unmount()
+        },
+      )
+    }
+  }
+
+  for (const surface of SURFACES) {
+    test(
+      `from body 50 the band names the oldest open task for the person, cuts the own title first, and keeps the short line below 50, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        engineRows(on)
+        await start($)
+        await bandFour($, seen)
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Pick a port' })
+        expect(await bandLine($, surface, 75)).toBe(
+          '◆ 2 for you: Rotate the staging API key · ▶ 2 Write…  4m ▰▰▱▱ 1/4 [ board ]',
+        )
+        expect(await bandLine($, surface, 60)).toBe(
+          '◆ 2 for you: Rotate the stagin… · ▶ 2  4m ▰▰▱▱ 1/4 [ board ]',
+        )
+        expect(await bandLine($, surface, 45)).toBe('◆ 2 for you · ▶ 2 Write the… 4m 1/4 [ board ]')
+        await closeTaskCall($, { id: 5, how: 'claude_did', note: 'Rotated it' })
+        expect(await bandLine($, surface, 75)).toBe(
+          '◆ 1 for you: Pick a port · ▶ 2 Write the tab mocks    4m ▰▰▱▱ 1/4 [ board ]',
         )
       },
     )

@@ -5,6 +5,7 @@ import type {
   HookFailure,
   PromptOrigin,
   PromptSubmitInput,
+  PromptSubmitResult,
   Register,
   RenderSurface,
   SessionEndReason,
@@ -209,20 +210,27 @@ import {
 } from './band'
 import {
   type AssignInput,
+  CLOSE_HOWS,
+  type CloseInput,
+  type KeptPrompt,
   type PromptSend,
+  type TakenAnswers,
   answersText,
   answersToTell,
   asksParts,
   assignTask,
   assignment,
+  closeTask,
   forYouCommand,
   forYouStatus,
+  isNothingTaken,
+  keptPrompts,
+  openTasksLine,
   personOnlyRefusal,
   putBackAnswers,
+  reopenedText,
   stillAsked,
   takeAnswers,
-  withdrawTask,
-  withdrawnLead,
 } from './for-you'
 import { CHANGE_FAILED, refusedParts } from './replies'
 import {
@@ -278,6 +286,7 @@ import {
 import {
   addedManyRow,
   addedRow,
+  assignedRow,
   drawCallRow,
   listRow,
   movedRow,
@@ -312,11 +321,19 @@ const TOOL_UPDATE = 'mcp__handily-board__task_update'
 const TOOL_MOVE = 'mcp__handily-board__task_move'
 const TOOL_LIST = 'mcp__handily-board__task_list'
 const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
+const TOOL_CLOSE = 'mcp__handily-board__task_close'
 const TOOL_FINDING = 'mcp__handily-board__finding_add'
-const NOT_PLAN_TOOLS: ReadonlySet<string> = new Set([TOOL_LIST, TOOL_ASSIGN, TOOL_FINDING])
+const NOT_PLAN_TOOLS: ReadonlySet<string> = new Set([
+  TOOL_LIST,
+  TOOL_ASSIGN,
+  TOOL_CLOSE,
+  TOOL_FINDING,
+])
 const FINDING_MAIN_LOOP_ONLY =
   'finding_add works only in the main loop; tell the main agent what you found.'
 const MAIN_LOOP_ONLY = 'task_assign works only in the main loop; tell the main agent what you need.'
+const CLOSE_MAIN_LOOP_ONLY =
+  'task_close works only in the main loop; tell the main agent what the person did.'
 const REMOVED = 'removed'
 const MOVE_EXAMPLE = 'for example {"id": 2, "before": 1}'
 const ADD_TITLE_SHAPE =
@@ -417,7 +434,7 @@ const TOOLS: readonly ToolSpec[] = [
       'Assign one task to the person: something to do (kind do), a question to answer (kind answer) or a choice between 2 to 4 options (kind decide). The task shows under For you on the board.',
       'When a release, a merge, a cleanup or a delete waits for the person, assign a decide task with the options go and not now, and act only after the answer go, while a permission prompt stays as it is.',
       'The call does not block. The result of the person comes with a later prompt: an answer or a choice that the person presses on the board comes as their own prompt, which names the task, and any other result in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
-      'Withdraw a task for the person with task_update and the status removed. Only the main loop can assign a task.',
+      'Close a task for the person with task_close when you did it, when the person says in the chat that they did it, or when it is no longer needed. Only the main loop can assign a task.',
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -437,6 +454,48 @@ const TOOLS: readonly ToolSpec[] = [
         why: { type: 'string', description: 'Why you ask, as one short line. Optional.' },
       },
       required: ['kind', 'title'],
+      additionalProperties: false,
+    },
+    isDeferred: false,
+  },
+  {
+    name: 'task_close',
+    description: [
+      'Close one task that you assigned to the person. how claude_did: you did it yourself, with a note that says what you did; only for the kind do. how person_did: the person said in the chat that they did, answered or decided it; copy their words exactly into said, and add the answer for the kind answer or the option number for the kind decide. how not_needed: the task is no longer needed, with a note that says why.',
+      'Never close an answer or decide task by your own choice. The board checks said against the recent prompts of the person and shows the person who closed the task. Only the main loop can close a task. Returns the whole list.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'integer',
+          description: 'The id of the task for the person that task_list shows.',
+        },
+        how: { type: 'string', enum: [...CLOSE_HOWS] },
+        note: {
+          type: 'string',
+          description:
+            'What you did, or why the task is no longer needed, as one line of at most 200 characters. Required for claude_did and not_needed.',
+        },
+        said: {
+          type: 'string',
+          description:
+            'The words of the person, copied exactly from their prompt, as one line of at most 200 characters. Required for person_did.',
+        },
+        answer: {
+          type: 'string',
+          description:
+            'For the kind answer with person_did: the answer of the person, as one line of at most 1000 characters.',
+        },
+        option: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 4,
+          description:
+            'For the kind decide with person_did: the number of the option that the person chose, from 1.',
+        },
+      },
+      required: ['id', 'how'],
       additionalProperties: false,
     },
     isDeferred: false,
@@ -478,6 +537,7 @@ export const PROMPT_SECTION_TEXT = [
   '# Session task list',
   `Keep your plan for this session in the task list of the handily-board tools. The person sees the list on the board and with /board list, and can add, remove or reorder tasks. Before a task with more than one step, call ${TOOL_LIST}. Add the steps with one ${TOOL_ADD} call, with titles in the order of the work. Set a task to in_progress when you start it and to completed when it is done, with ${TOOL_UPDATE}.`,
   `A message that starts with [handily-board] says that the person changed the list. Follow the list that it shows. ${TRACKER_TEXT_IS_DATA}`,
+  'Close a task for the person with task_close when you did it, when the person says in the chat that they did, answered or decided it, or when it is no longer needed; never close an answer or decide task by your own choice.',
 ].join('\n\n')
 
 type ListWrite = (step: (current: BoardList | undefined) => BoardList) => Promise<unknown>
@@ -1768,9 +1828,8 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promis
   const outcome = await host.edit<{ task: BoardTask | undefined; numbers: string }>((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { task, numbers: numbersText(list.tasks) } }
-    if (isForPerson(task) && status !== REMOVED) return { list, value: { task, numbers: '' } }
-    const removed = isForPerson(task) ? withdrawTask(list, id) : removeTask(list, id)
-    const next = status === REMOVED ? removed : setStatus(list, id, status)
+    if (isForPerson(task)) return { list, value: { task, numbers: '' } }
+    const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
     return { list: next, value: { task, numbers: '' } }
   })
   const { task } = outcome
@@ -1779,13 +1838,7 @@ async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promis
       deny: `No task ${String(id)}. ${knownIds(outcome.numbers)} Call task_list to see them.`,
     }
   }
-  if (isForPerson(task)) {
-    if (status !== REMOVED) return { deny: personOnlyRefusal(task) }
-    return {
-      result: await listResult(host, withdrawnLead(task)),
-      row: removedRow(task),
-    }
-  }
+  if (isForPerson(task)) return { deny: personOnlyRefusal(task, status === REMOVED) }
   if (status === REMOVED) {
     return {
       result: await listResult(host, `Removed task ${String(id)}.`),
@@ -1852,15 +1905,40 @@ async function modelAssign(
   }
   const { task } = outcome
   const lead = `Assigned task ${String(task.id)} to the person (${asked.kind}). The result comes with a later prompt; do not wait for it in this turn.`
-  return { answer: { result: await listResult(host, lead), row: undefined }, task }
+  return { answer: { result: await listResult(host, lead), row: assignedRow(task) }, task }
 }
 
-async function takeAnswered($: EngineInterface): Promise<BoardTask[]> {
-  return hostOf($).edit(takeAnswers)
+type PersonWords = { kept: KeptPrompt[] }
+
+async function modelClose(
+  host: TaskHost,
+  input: CloseInput,
+  agentId: string | undefined,
+  words: PersonWords,
+  now: number,
+): Promise<ModelAnswer> {
+  if (agentId !== undefined) return { deny: CLOSE_MAIN_LOOP_ONLY }
+  const closed = await host.edit((list) => closeTask(list, input, words.kept, now))
+  if ('deny' in closed) return closed
+  return { result: await listResult(host, closed.lead), row: closed.row }
 }
 
-async function putBackAnswered($: EngineInterface, taken: readonly BoardTask[]): Promise<void> {
-  if (taken.length === 0) return
+async function keepPersonWords($: EngineInterface, words: PersonWords, text: string) {
+  try {
+    words.kept = keptPrompts(words.kept, text, await readList(hostOf($)))
+  } catch (error) {
+    $.ui.log(`handily-board: the prompt was not kept for task_close: ${String(error)}`, {
+      to: 'debug',
+    })
+  }
+}
+
+async function takeAnswered($: EngineInterface, isPersonPrompt: boolean): Promise<TakenAnswers> {
+  return hostOf($).edit((list) => takeAnswers(list, isPersonPrompt))
+}
+
+async function putBackAnswered($: EngineInterface, taken: TakenAnswers): Promise<void> {
+  if (isNothingTaken(taken)) return
   try {
     await hostOf($).edit((list) => ({ list: putBackAnswers(list, taken), value: undefined }))
   } catch (error) {
@@ -1939,6 +2017,7 @@ export const register: Register = (on, options) => {
   const notes: RowNotes = new Map()
   const uiKeeps: UiKeeps = { notes, parts: breakdown, redraw, log }
   const asks: BoardTask[] = []
+  const words: PersonWords = { kept: [] }
   const pulses = newPulses()
   const background = newBackgroundKeep()
   const attention: AttentionKeep = {
@@ -1956,7 +2035,7 @@ export const register: Register = (on, options) => {
       name: 'board',
       description: 'handily · Show the board: the tasks of this session and this machine',
       argumentHint:
-        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | plan | clear | list | stats | log [agent] | close]',
+        '[machine | add <text|id> | rm <n> | mv <n> before <m>|top|bottom | edit <n> <title> | done <n> | start <n> | open <n> | answer <n> <text> | pick <n> <option> | reject <n> [reason] | undo <n> | reopen <n> | plan | clear | list | stats | log [agent] | close]',
       immediate: true,
     })
     await keepGlyphSetting($)
@@ -2129,6 +2208,7 @@ export const register: Register = (on, options) => {
       await shareContext($, machine, vitals)
     }
     if (e.reason === 'clear') {
+      words.kept = []
       attention.asks.clear()
       await shareWaits($, attention)
       await refreshStatus($, attention)
@@ -2187,12 +2267,22 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    const plan = PERSON_ORIGINS.has(e.origin.kind) ? await dueNote($) : undefined
-    const resumed = PERSON_ORIGINS.has(e.origin.kind) && resume.isNoteDue ? RESUME_NOTE : undefined
+    const isPersonOrigin = PERSON_ORIGINS.has(e.origin.kind)
+    const plan = isPersonOrigin ? await dueNote($) : undefined
+    const resumed = isPersonOrigin && resume.isNoteDue ? RESUME_NOTE : undefined
     const taken = await takeChanges($)
-    const answered = await takeAnswered($)
+    const answered = await takeAnswered($, isPersonOrigin)
     const enter = async (sent: PromptSubmitInput) => {
-      const entered = await next(sent)
+      const kept = words.kept
+      if (isPersonPrompt(e)) await keepPersonWords($, words, e.text)
+      let entered: PromptSubmitResult
+      try {
+        entered = await next(sent)
+      } catch (error) {
+        words.kept = kept
+        throw error
+      }
+      if (entered.drop !== undefined) words.kept = kept
       if (entered.drop === undefined) await notePrompt($, log, e)
       if (entered.drop === undefined && isPersonPrompt(e)) await clearBandEnds($, 'isAnswerSeen')
       if (entered.drop === undefined) await keepShownFailures($, failures)
@@ -2200,12 +2290,16 @@ export const register: Register = (on, options) => {
       return entered
     }
     try {
-      const told = answersToTell(answered, e.text)
+      const told = answersToTell(answered.answered, e.text)
       const answers = told.length === 0 ? undefined : answersText(told)
       const isTold = taken.length > 0 || answers !== undefined
       const list = await readList(hostOf($))
       const changes = isTold ? personNote(taken, list, answers) : undefined
-      const notes = [resumed, changes, plan?.text].filter((text) => text !== undefined)
+      const reopened = answered.reopened.map(reopenedText)
+      const open = isPersonPrompt(e) ? openTasksLine(list) : undefined
+      const notes = [resumed, changes, ...reopened, open, plan?.text].filter(
+        (text) => text !== undefined,
+      )
       if (notes.length === 0) return await enter(e)
       const entered = await enter({ ...e, context: [...(e.context ?? []), ...notes] })
       if (entered.drop !== undefined) {
@@ -2362,6 +2456,22 @@ export const register: Register = (on, options) => {
     if (assigned.task !== undefined) asks.push(assigned.task)
     return answerWithRow($, e.tool_use_id, assigned.answer)
   }).catch(($, e, next) => toolFailed($, e.tool, next.error))
+  on('tool.call', { tool: TOOL_CLOSE }, async ($, e) => {
+    const input = {
+      id: e.id,
+      how: e.how,
+      note: e.note,
+      said: e.said,
+      answer: e.answer,
+      option: e.option,
+    }
+    const now = await $.clock.now()
+    return answerWithRow(
+      $,
+      e.tool_use_id,
+      await modelClose(hostOf($), input, e.agentId, words, now),
+    )
+  }).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_FINDING }, async ($, e) =>
     answerWithRow($, e.tool_use_id, await modelFinding($, e.text, e.agentId)),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
@@ -2442,6 +2552,7 @@ export const register: Register = (on, options) => {
       case 'pick':
       case 'reject':
       case 'undo':
+      case 'reopen':
         return { text: await forYouCommand(host, command.kind, command.text, await $.clock.now()) }
       case 'unknown':
         return { text: unknownReply(command.word) }

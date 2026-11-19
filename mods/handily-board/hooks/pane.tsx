@@ -54,6 +54,7 @@ import {
   personDone,
   personPick,
   personReject,
+  personReopen,
   personUndo,
   sendAnswer,
 } from './for-you'
@@ -987,6 +988,9 @@ function forYouPress(host: TaskHost, ui: PaneUi, act: Act, now: number) {
     },
     undo: (id: number) => {
       settle(id, () => personUndo(host, id))
+    },
+    reopen: (id: number) => {
+      settle(id, () => personReopen(host, id))
     },
     clear: () => {
       act(async () => (await personClear(host)).toastParts)

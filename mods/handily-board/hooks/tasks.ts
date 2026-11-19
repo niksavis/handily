@@ -2,6 +2,7 @@ import type { PluginState } from 'claude-code'
 import type {
   BoardAuthor,
   BoardList,
+  BoardResult,
   BoardResultVerb,
   BoardSource,
   BoardStatus,
@@ -334,12 +335,34 @@ const RESULT_WORDS: Record<BoardResultVerb, string> = {
   rejected: 'rejected',
 }
 
-const RESULT_WORD_WIDTH = Math.max(...Object.values(RESULT_WORDS).map((word) => word.length))
+const CLOSED_WORD = 'closed'
+
+const RESULT_WORD_WIDTH = Math.max(
+  CLOSED_WORD.length,
+  ...Object.values(RESULT_WORDS).map((word) => word.length),
+)
+
+function resultWord(task: BoardTask): string {
+  const { result } = task
+  if (!result) return 'open'
+  return result.by === 'claude' ? CLOSED_WORD : RESULT_WORDS[result.verb]
+}
 
 const KIND_WIDTH = 6
 
+function closedDetail(result: BoardResult): string {
+  const parts = ['by claude', result.how ?? 'claude_did']
+  if (result.text !== null) {
+    parts.push(`${result.verb === 'chose' ? 'chose' : 'answer'} ${quoted(result.text)}`)
+  }
+  if (result.said !== undefined) parts.push(`said ${quoted(result.said)}`)
+  if (result.note !== undefined) parts.push(`note ${quoted(result.note)}`)
+  return parts.join(', ')
+}
+
 function resultDetail(task: BoardTask): string | undefined {
   const { result } = task
+  if (result?.by === 'claude') return closedDetail(result)
   if (result === undefined) {
     const options = task.options ?? []
     return options.length === 0 ? undefined : `options ${options.map(quoted).join(', ')}`
@@ -358,15 +381,15 @@ function forYouText(tasks: readonly BoardTask[]): string {
   const width = Math.max(...tasks.map((task) => String(task.id).length))
   const titleWidth = Math.max(...tasks.map((task) => quoted(task.title).length))
   const rows = tasks.map((task) => {
-    const word = task.result ? RESULT_WORDS[task.result.verb] : 'open'
+    const word = resultWord(task)
     const detail = resultDetail(task)
     const title = quoted(task.title)
     const shown = detail === undefined ? title : `${title.padEnd(titleWidth)}  ${detail}`
     const kind = (task.kind ?? 'do').padEnd(KIND_WIDTH)
     return `  ${String(task.id).padEnd(width)}  ${word.padEnd(RESULT_WORD_WIDTH)}  ${kind}  ${shown}`
   })
-  const answered = tasks.filter((task) => task.result !== undefined).length
-  const head = `For you (${String(answered)} of ${String(tasks.length)} answered)`
+  const closed = tasks.filter((task) => task.result !== undefined).length
+  const head = `For you (${String(closed)} of ${String(tasks.length)} closed)`
   return [head, ...rows].join('\n')
 }
 

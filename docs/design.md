@@ -1083,7 +1083,7 @@ Decisions of the person (2026-10-29):
 6. The tasks for you on a this machine card (8.12l) are built in a later record, handily-nvtbc.
    The store key of a session holds `openForYou`, the count of its open tasks for the person. A
    count over 0 makes the session need you, by the same rule as a permission wait.
-7. The answers that Claude received fold under `[ +N answered ]`. They count against the limit
+7. The answers that Claude received fold under `[ +N closed ]`. They count against the limit
    of 100 tasks, and `[ clear done ]` and `/board clear` remove them, as done tasks.
 8. The steps of a plan are the items of the first top-level numbered list with at least 2
    items. The block shows the count and the first two steps, so a wrong pick shows before the
@@ -1136,13 +1136,26 @@ Tasks for you (handily-9uj3n.8):
   in one update of the list, so an undo never races a prompt. This differs from the designer's
   sketch, which queued each result in `personChanges`. There an undo had to change two state
   keys, and a prompt between the two writes could send an answer that the person had undone.
-- `task_update` with the status `removed` withdraws a task for the person. The row stays, dim,
-  as `withdrawn by Claude`, until the next prompt removes it. Any other status is refused by
-  name. `task_move` refuses a task for the person.
-- A withdraw of a task that the person answered, before the next prompt sent the answer,
-  carries the answer in the `task_update` answer, once (review of 2026-10-29). The row reads
-  `withdrawn by Claude · answer sent`. A refused withdraw was the other choice. It would block
-  Claude on a task that it no longer needs, and Claude would still not have the words.
+- `task_close` is the one path for Claude to close or withdraw a task for the person
+  (handily-fybumg, mocks 20). `task_update` refuses every status on a task for the person, and
+  the status `removed` names `task_close` with `not_needed`. `task_move` refuses a task for
+  the person.
+- `task_close` takes `how`: `claude_did` (only for `do`), `person_did` with the words of
+  the person in `said`, or `not_needed`. Claude never closes an answer or decide task by its
+  own choice. The result keeps `by`, `how`, `note` and `said`, and the row says who closed
+  the task. A result of Claude is sent at once, so the note of the next prompt leaves it out.
+- `person_did` checks `said` literally against the prompts of the person: at most 20, of
+  origin `composer` or `bridge`, kept in memory only, since the oldest open task for the
+  person. A said that no prompt holds is refused by name. A model can still invent a close, but
+  it cannot invent the words of the person. The check is a guard against a mistake, not a gate.
+- A close of a task that the person closed, before the next prompt sent the result, gives
+  Claude the result once, changes nothing, and marks the result as sent (review of 2026-10-29).
+  A refused close was the other choice. It would block Claude on a task that it no longer needs,
+  and Claude would still not have the words.
+- The rows that Claude closed fold only on a prompt that the person types, so the person sees
+  each close. `[ reopen ]` and `/board reopen` open such a task again, and the next prompt
+  tells Claude once. Nothing sets `isWithdrawn` any more. The board still draws and drops a
+  row that an earlier version marked so.
 - `task_assign` and `task_list` do not count as a plan update for the plan warning, because
   they do not change the own list of Claude. Only the own tasks count for the empty-list note,
   the task list row, the `Tasks` header, the band and the this machine card. `listSummary` in

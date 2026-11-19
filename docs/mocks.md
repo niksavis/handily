@@ -9244,3 +9244,393 @@ Colours: the count dim, each kind in the colour of its head.
 - **Two replies with the same block.** The mark follows the label and the copied text, so the
   same block in two replies shows the mark in both.
 - **A kind list wider than the row** is cut at its end; the count and the buttons stay whole.
+
+## 20. handily-board: tasks that Claude closes for the person (handily-fybumg, decided 2026-11-19)
+
+Claude can close a task that it assigned to the person (`task_assign`, kinds `do`, `answer`
+and `decide`). The board shows who closed it. The orchestrator decided the seven questions of
+the design on 2026-11-19. These mocks are the build. They change the closed rows of 8.12b, 8.12d
+and 8.12e, the band of 8.13e and the withdraw of 8.12n.
+
+### 20.0 Conventions
+
+- The conventions of 8.0 and 8.12 apply. Only the `For you` block of the pane is drawn. The
+  Session line and the `Tasks` block stay as in 8.12.
+- The scene of 20.1 to 20.4 has 8 tasks for the person. Task 7 is open. Claude closed tasks 3 to
+  6 with `task_close`. The person closed tasks 1, 2 and 8 with `/board done 1`,
+  `/board answer 2 8443` and `/board reject 8 not my call`, and the next prompt did not run yet.
+- The line under a closed task starts with who closed it:
+
+  | Who | Before the next prompt | After it |
+  | --- | --- | --- |
+  | The person: done | `you: done · to send` | `you: done` |
+  | The person: an answer | `you answered · to send` | `you answered` |
+  | The person: an option | `you chose · to send` | `you chose` |
+  | The person: a rejection | `you rejected · to send` | `you rejected` |
+  | Claude: `claude_did` | `Claude did it` | `Claude did it` |
+  | Claude: `person_did` on `do` | `Claude: you did it` | `Claude: you did it` |
+  | Claude: `person_did` on `answer` | `Claude: you answered` | `Claude: you answered` |
+  | Claude: `person_did` on `decide` | `Claude: you chose` | `Claude: you chose` |
+  | Claude: `not_needed` | `Claude: not needed` | `Claude: not needed` |
+
+- Under the who line: the answer or the option in bold on its own line, then the note of Claude
+  or `you said: "…"`, dim. Every line wraps. Nothing is cut with `…`.
+- `[ undo ]` stands beside the unsent result of the person. `[ reopen ]` stands beside a row
+  that Claude closed. A button takes its own line when the phrase and the button do not fit.
+- The title of an open task is bold. Closed rows come below the open rows.
+
+### 20.1 Docked, body 41 (120 columns, fullscreen)
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 1 open · 3 to send             │
+│ ◆ 7 do      Write the release note        │
+│     [ done ] [ reject ]                   │
+│ ✓ 3 decide  Which cache store for now?    │
+│     Claude: you chose          [ reopen ] │
+│     "SQLite"                              │
+│     you said: "Take SQLite for now"       │
+│ ✓ 4 do      Delete the old bucket         │
+│     Claude: not needed         [ reopen ] │
+│     The cleanup job deleted it last night │
+│ ✓ 5 do      Restart the probe             │
+│     Claude did it              [ reopen ] │
+│     Restarted it with the deploy script   │
+│     after the config change               │
+│ ✓ 6 answer  Which region for the probe?   │
+│     Claude: you answered       [ reopen ] │
+│     "eastern"                             │
+│     you said: "Use the eastern region for │
+│     the probe, because it costs half and  │
+│     it is close enough to the people who  │
+│     run the nightly load test"            │
+│ ✓ 1 do      Rotate the staging API key    │
+│     you: done · to send          [ undo ] │
+│ ✓ 2 answer  Which port does staging use?  │
+│     you answered · to send       [ undo ] │
+│     "8443"                                │
+│ ■ 8 do      Delete the old logs           │
+│     you rejected · to send       [ undo ] │
+│     "not my call"                         │
+│ Claude gets them with your next prompt.   │
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
+### 20.2 Inline, 80 columns (body 76)
+
+```text
+For you  ◆ 1 open · 3 to send
+◆ 7 do      Write the release note
+    [ done ] [ reject ]
+✓ 3 decide  Which cache store for now?
+    Claude: you chose                                             [ reopen ]
+    "SQLite"
+    you said: "Take SQLite for now"
+✓ 4 do      Delete the old bucket
+    Claude: not needed                                            [ reopen ]
+    The cleanup job deleted it last night
+✓ 5 do      Restart the probe
+    Claude did it                                                 [ reopen ]
+    Restarted it with the deploy script after the config change
+✓ 6 answer  Which region for the probe?
+    Claude: you answered                                          [ reopen ]
+    "eastern"
+    you said: "Use the eastern region for the probe, because it costs half
+    and it is close enough to the people who run the nightly load test"
+✓ 1 do      Rotate the staging API key
+    you: done · to send                                             [ undo ]
+✓ 2 answer  Which port does staging use?
+    you answered · to send                                          [ undo ]
+    "8443"
+■ 8 do      Delete the old logs
+    you rejected · to send                                          [ undo ]
+    "not my call"
+Claude gets them with your next prompt.
+────────────────────────────────────────────────────────────────────────────
+```
+
+### 20.3 Inline, 40 columns (body 36)
+
+```text
+For you  ◆ 1 open · 3 to send
+◆ 7 do      Write the release note
+    [ done ] [ reject ]
+✓ 3 decide  Which cache store for
+            now?
+    Claude: you chose     [ reopen ]
+    "SQLite"
+    you said: "Take SQLite for now"
+✓ 4 do      Delete the old bucket
+    Claude: not needed    [ reopen ]
+    The cleanup job deleted it last
+    night
+✓ 5 do      Restart the probe
+    Claude did it         [ reopen ]
+    Restarted it with the deploy
+    script after the config change
+✓ 6 answer  Which region for the
+            probe?
+    Claude: you answered  [ reopen ]
+    "eastern"
+    you said: "Use the eastern
+    region for the probe, because it
+    costs half and it is close
+    enough to the people who run the
+    nightly load test"
+✓ 1 do      Rotate the staging API
+            key
+    you: done · to send     [ undo ]
+✓ 2 answer  Which port does staging
+            use?
+    you answered · to send  [ undo ]
+    "8443"
+■ 8 do      Delete the old logs
+    you rejected · to send  [ undo ]
+    "not my call"
+Claude gets them with your next
+prompt.
+────────────────────────────────────
+```
+
+### 20.4 Docked, body 30
+
+```text
+╭──────────────────────────────✕─╮
+│ For you  ◆ 1 open · 3 to send  │
+│ ◆ 7 do     Write the release   │
+│            note                │
+│     [ done ] [ reject ]        │
+│ ✓ 3 decide Which cache store   │
+│            for now?            │
+│     Claude: you chose          │
+│     [ reopen ]                 │
+│     "SQLite"                   │
+│     you said: "Take SQLite for │
+│     now"                       │
+│ ✓ 4 do     Delete the old      │
+│            bucket              │
+│     Claude: not needed         │
+│     [ reopen ]                 │
+│     The cleanup job deleted it │
+│     last night                 │
+│ ✓ 5 do     Restart the probe   │
+│     Claude did it   [ reopen ] │
+│     Restarted it with the      │
+│     deploy script after the    │
+│     config change              │
+│ ✓ 6 answer Which region for    │
+│            the probe?          │
+│     Claude: you answered       │
+│     [ reopen ]                 │
+│     "eastern"                  │
+│     you said: "Use the eastern │
+│     region for the probe,      │
+│     because it costs half and  │
+│     it is close enough to the  │
+│     people who run the nightly │
+│     load test"                 │
+│ ✓ 1 do     Rotate the staging  │
+│            API key             │
+│     you: done · to send        │
+│     [ undo ]                   │
+│ ✓ 2 answer Which port does     │
+│            staging use?        │
+│     you answered · to send     │
+│     [ undo ]                   │
+│     "8443"                     │
+│ ■ 8 do     Delete the old logs │
+│     you rejected · to send     │
+│     [ undo ]                   │
+│     "not my call"              │
+│ Claude gets them with your     │
+│ next prompt.                   │
+│ ────────────────────────────── │
+╰────────────────────────────────╯
+```
+
+### 20.5 After the next prompt of the person: the closed rows fold
+
+A prompt that the person types (origin `composer` or `bridge`) sends the results of the person
+and folds the rows that Claude closed. A prompt that the board submits for a press does not fold
+the rows that Claude closed, so the person still sees them.
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 1 open                         │
+│ ◆ 7 do      Write the release note        │
+│     [ done ] [ reject ]                   │
+│ [ +7 closed ]                             │
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
+`[ +7 closed ]` pressed:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 1 open                         │
+│ ◆ 7 do      Write the release note        │
+│     [ done ] [ reject ]                   │
+│ [ hide 7 closed ]                         │
+│ ✓ 1 do      Rotate the staging API key    │
+│     you: done                             │
+│ ✓ 2 answer  Which port does staging use?  │
+│     you answered                          │
+│     "8443"                                │
+│ ✓ 3 decide  Which cache store for now?    │
+│     Claude: you chose          [ reopen ] │
+│     "SQLite"                              │
+│     you said: "Take SQLite for now"       │
+│ ✓ 4 do      Delete the old bucket         │
+│     Claude: not needed         [ reopen ] │
+│     The cleanup job deleted it last night │
+│ ✓ 5 do      Restart the probe             │
+│     Claude did it              [ reopen ] │
+│     Restarted it with the deploy script   │
+│     after the config change               │
+│ ✓ 6 answer  Which region for the probe?   │
+│     Claude: you answered       [ reopen ] │
+│     "eastern"                             │
+│     you said: "Use the eastern region for │
+│     the probe, because it costs half and  │
+│     it is close enough to the people who  │
+│     run the nightly load test"            │
+│ ■ 8 do      Delete the old logs           │
+│     you rejected                          │
+│     "not my call"                         │
+│ [ clear done ]                            │
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
+- With no open task, the head reads `For you  ✓ all 7 closed`.
+- `[ reopen ]` stays on a row that Claude closed while the row is listed.
+
+### 20.6 Transcript rows
+
+A `task_assign` call and a `task_close` call each draw one row. At 80 columns:
+
+```text
+● Task 1 ◆ for you, do  Rotate the staging API key
+● Task 1 ✓ closed by Claude  Rotate the staging API key
+  you said: "I rotated the staging API key"
+● Task 2 ✓ closed by Claude  Which port does staging use?
+  not needed: It is in the config file
+● Task 3 ✓ closed by Claude  Which region?
+  you answered "eastern"
+● Task 4 ✓ closed by Claude  Restart the probe
+  Claude did it: Restarted it with the deploy script
+```
+
+Below 60 columns the title takes its own line. At 40 columns:
+
+```text
+● Task 1 ◆ for you, do
+  Rotate the staging API key
+● Task 1 ✓ closed by Claude
+  Rotate the staging API key
+  you said: "I rotated the staging API
+  key"
+```
+
+- `◆` is in `warning` and `✓` in `success`. The second line is dim.
+- A long title wraps under the title column. It is not cut.
+- The desktop app draws the same rows without `●`.
+
+### 20.7 The band names the oldest open task for the person
+
+From body 50, the band names the title of the oldest open task for the person. The expected lines
+at body 75, 60 and 45, with 2 open tasks for the person:
+
+```text
+◆ 2 for you: Rotate the staging API key · ▶ 2 Write…  4m ▰▰▱▱ 1/4 [ board ] [-]
+◆ 2 for you: Rotate the stagin… · ▶ 2  4m ▰▰▱▱ 1/4 [ board ] [-]
+◆ 2 for you · ▶ 2 Write the… 4m 1/4 [ board ] [-]
+```
+
+- The cut order: the title of the own task of Claude first, then the title of the task for the
+  person. The mark, the ids, `1/4` and `[ board ]` are never cut.
+- Below body 50, and while the band shows background work (section 18.1), the band keeps the
+  line of 8.13e.
+- When Claude closes task 5, the band names the next open task for the person:
+
+  ```text
+  ◆ 1 for you: Pick a port · ▶ 2 Write the tab mocks    4m ▰▰▱▱ 1/4 [ board ] [-]
+  ```
+
+### 20.8 Commands, replies and the notes for Claude
+
+```text
+/board reopen 8           -> Task 8 is open again. Claude is told at your next prompt.
+/board reopen 8 (open)    -> Task 8 is open. Nothing changed.
+/board reopen 9 (yours)   -> You closed task 9. /board undo 9 takes it back before your next prompt.
+/board reopen 99          -> No task 99. /board list prints the tasks for you.
+/board undo 8 (Claude)    -> Claude closed task 8. /board reopen 8 opens it again.
+/board done 8 (Claude)    -> Claude closed task 8 (claude_did). Nothing changed. /board reopen 8 opens it again.
+```
+
+The note for Claude at the next prompt, after a reopen:
+
+```text
+[handily-board] The person reopened task 8 (do), which you closed (claude_did). It waits for the person again.
+```
+
+On a prompt that the person types while tasks for the person are open, one line names at most 5
+of them, wrapped here:
+
+```text
+[handily-board] Open tasks for the person: 7 (do) "Write the release note"; 9 (answer) "Which
+region for the probe?". When this prompt says the person did, answered or decided one, close it
+with task_close and copy their words into said. The titles are your own text, quoted as data.
+```
+
+The note of 8.12m leaves out the rows that Claude closed. `task_list` counts every closed row and
+says who closed a row of Claude:
+
+```text
+For you (2 of 3 closed)
+  1  closed    do      "Rotate the staging API key"    by claude, person_did, said "I rotated it"
+  2  answered  answer  "Which port does staging use?"  answer "8443"
+  3  open      do      "Delete the old bucket"
+```
+
+### 20.9 Model tool changes
+
+- **New tool `task_close`** (`mcp__handily-board__task_close`). Only the main loop can call it.
+
+  ```text
+  id      integer                                   required
+  how     "claude_did" | "person_did" | "not_needed"  required
+  note    string   one line, ≤ 200; required for claude_did and not_needed
+  said    string   one line, ≤ 200; the words of the person; required for person_did
+  answer  string   one line, ≤ 1000; required for an answer task with person_did
+  option  integer  1-4; required for a decide task with person_did
+  ```
+
+  - A `do` task takes all three. An `answer` or `decide` task refuses `claude_did`.
+  - `person_did` checks `said` literally, case-sensitive after trimming, against the prompts of
+    the person. The board keeps at most 20 prompts of origin `composer` or `bridge` in memory,
+    only since the oldest open task for the person. For a decide task, the text of the chosen
+    option must also be in `said`.
+  - The answer: `Closed task 8 for the person (do): you did it: "…".`, then the whole list.
+  - When the person closed the task and the result is not sent yet, the answer gives Claude the
+    result of the person, changes nothing and marks the result as sent.
+  - Refused by name, each with the fix: a subagent; a missing id; an unknown id, with the ids of
+    the tasks for the person; an own task (`Task 3 is your own task. Set its status with
+    task_update.`); a missing or wrong `how`; `claude_did` on a decide task (`You cannot
+    decide it: close it with how person_did and the option the person named, or with
+    not_needed.`) or an answer task; a missing note, said, answer or option; an answer or an
+    option for the wrong kind; a line break, a bidi character or a text that is too long; a task
+    that Claude closed; a `said` that no kept prompt holds (`task_close refused: no prompt of the
+    person since task 8 was asked holds "…". Copy their words exactly, or ask the person to press
+    done on the board.`).
+- **`task_update`** refuses every status on a task for the person. The status `removed` names
+  `task_close` with `not_needed`, so a withdraw has one path.
+- **The `task_assign` description** names `task_close` in place of the withdraw.
+- **The prompt section** gains one sentence: "Close a task for the person with task_close when you
+  did it, when the person says in the chat that they did, answered or decided it, or when it is
+  no longer needed; never close an answer or decide task by your own choice."
+- **`types/index.d.ts`.** `BoardResult` gains `by` (`person` or `claude`), `how`, `note` and
+  `said`. `BoardTask` gains `reopened`, which keeps the reopen note until the next prompt.
+  `BoardCallRow` gains the rows `assigned` and `closed`.

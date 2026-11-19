@@ -37,6 +37,7 @@ and `/agent-board` commands are gone. Use `/board` and `/board list`.
 | `/board pick <n> <option>` | Picks option number `option` of task `n` for you, a decision            |
 | `/board reject <n> [why]`  | Rejects task `n` for you, with an optional reason                       |
 | `/board undo <n>`          | Opens task `n` for you again, before your next prompt                   |
+| `/board reopen <n>`        | Opens task `n` for you again after Claude closed it, and tells Claude   |
 | `/board clear`             | Removes every done task                                                 |
 | `/board list`              | Prints the list as text. With no tasks, it lists the open tracker items |
 | `/board stats`             | Prints the session figures and the agents as text                       |
@@ -201,14 +202,15 @@ You can press every button on both panes with the keyboard alone. A live check o
 
 ## What Claude gets
 
-| Tool          | Input                                                                  | Effect                               |
-| ------------- | ---------------------------------------------------------------------- | ------------------------------------ |
-| `task_add`    | `title`, or `titles` for several, and an optional `before` task id     | Adds pending tasks                   |
-| `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task |
-| `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before` |
-| `task_assign` | `kind`: `do`, `answer` or `decide`, `title`, and `options` and `why`   | Assigns a task to you                |
-| `task_list`   | none                                                                   | Returns the list                     |
-| `finding_add` | `text`: one line                                                       | Lists a finding for you              |
+| Tool          | Input                                                                  | Effect                                      |
+| ------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
+| `task_add`    | `title`, or `titles` for several, and an optional `before` task id     | Adds pending tasks                          |
+| `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task        |
+| `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before`        |
+| `task_assign` | `kind`: `do`, `answer` or `decide`, `title`, and `options` and `why`   | Assigns a task to you                       |
+| `task_close`  | `id`, `how`, and `note`, `said`, `answer` or `option`                  | Closes a task for you, and names who did it |
+| `task_list`   | none                                                                   | Returns the list                            |
+| `finding_add` | `text`: one line                                                       | Lists a finding for you                     |
 
 - The mod registers the tools at `session.start`. The model calls them as
   `mcp__handily-board__<name>`. Each answer is the whole list, in the order of the work.
@@ -440,20 +442,42 @@ For you  ◆ 3 open
   Claude gets the answer once. When the prompt box does not take it either, the answer waits for
   your next prompt.
 - `[ done ]`, a rejection, and the commands `/board answer` and `/board pick` wait for your next
-  prompt and show `to send` with `[ undo ]`. That prompt carries one note for Claude with every
-  such result, after your list changes. After the prompt the results fold under
-  `[ +N answered ]`. `[ clear done ]` and `/board clear` remove them.
+  prompt and show `you: done · to send` with `[ undo ]`. That prompt carries one note for
+  Claude with every such result, after your list changes. After the prompt the results fold under
+  `[ +N closed ]`. `[ clear done ]` and `/board clear` remove them.
 - A long title, question, reason of Claude or option wraps over as many lines as it needs, at
   any width, and so does the text that a press sent. None of these is cut. When an option does
   not fit on a button, its button shows its number, such as `[ 1 ]`, and the full option wraps
   beside it.
 - An empty answer, an answer of more than 1000 characters and an answer with a line break or a
   bidi control character are refused on the row, by name. Nothing is sent.
-- Claude withdraws a task with `task_update` and the status `removed`. The row stays, dim, as
-  `withdrawn by Claude`, until your next prompt. Claude cannot set another status on a task for
-  you, and `task_move`, `/board edit` and `/board mv` leave it in place.
-- When you answered a task before Claude withdraws it, the answer of `task_update` gives
-  Claude your answer once, and the row reads `withdrawn by Claude · answer sent`.
+- Claude closes a task for you with `task_close`: when it did the task itself (`claude_did`,
+  only for `do`), when you say in the chat that you did, answered or decided it (`person_did`),
+  or when the task is no longer needed (`not_needed`). It never closes an answer or decide task
+  by its own choice. `task_update` refuses a task for you and names `task_close` with
+  `not_needed`, so a withdraw has one path. `task_move`, `/board edit` and `/board mv` leave
+  the task in place.
+- A `person_did` close copies your words into `said`. The mod checks them literally against
+  your last prompts: at most 20, typed by you, kept in memory only, since the oldest open task for
+  you. A close with words that you did not type is refused.
+- The line under a closed task says who closed it: `you: done · to send`, `you answered`,
+  `Claude did it`, `Claude: you did it`, `Claude: you answered`, `Claude: you chose` or
+  `Claude: not needed`. Then the answer or the option, in bold, and the note of Claude or
+  `you said: "…"`, dim. Nothing on these lines is cut. Docked at 41 columns:
+
+  ```text
+  ✓ 3 decide  Which cache store for now?
+      Claude: you chose          [ reopen ]
+      "SQLite"
+      you said: "Take SQLite for now"
+  ```
+
+- A row that Claude closed stays until a prompt that you type. `[ reopen ]` and
+  `/board reopen <n>` open the task again, and your next prompt tells Claude once.
+- When you closed a task before Claude closes it, the answer of `task_close` gives Claude your
+  result once and changes nothing.
+- While tasks for you are open, each prompt that you type carries one line for Claude that names
+  at most 5 of them, so Claude can close the one that your prompt is about.
 - At the end of a turn in which Claude assigned tasks, one toast names them while the
   `this session` tab is not shown.
 - A subagent cannot assign a task. At most 20 tasks for you are open at a time. The tasks for
@@ -1181,7 +1205,7 @@ under it up to 3 agent rows. Captures from the tests, at 80 columns (the band bo
 ```text
 ▶ 2 Write the tab mocks                               4m ▰▰▱▱ 1/4 [ board ]
 ○ 3 Review the mocks with Codex                     next ▰▱▱▱ 1/4 [ board ]
-◆ 3 for you · ▶ 2 Write the tab mocks        stalled 20m ▰▰▱▱ 1/4 [ board ]
+◆ 3 for you: Rotate the key · ▶ 2 Write the… stalled 20m ▰▰▱▱ 1/4 [ board ]
 Plan  approved · 3 steps  [ add 3 as tasks ]                      [ board ]
 ```
 
@@ -1199,8 +1223,10 @@ Agents  6 · no open task                                          [ board ]
   the times move.
 - A switch to the `this machine` tab shows the band at once. Claude Code tells a plugin nothing
   about a switch to the tab of another mod, so the band shows within 10 seconds then.
-- Open tasks for you come first. While an approved plan waits, the band shows the plan offer,
-  and its button adds the steps as the Plan block does.
+- Open tasks for you come first. From a band body of 50 columns, the band names the title of the
+  oldest open task for you. The title of the task of Claude is cut first, then the title of the
+  task for you. Below 50 columns the band shows only the count. While an approved plan waits, the
+  band shows the plan offer, and its button adds the steps as the Plan block does.
 - `[ board ]` acts as `/board`: it shows the `this session` tab and gives it the keyboard. The
   band then goes. The band buttons have no hotkey, because Claude Code presses a band button
   with a digit typed into an empty prompt.

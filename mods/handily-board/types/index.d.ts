@@ -13,6 +13,10 @@ export type BoardTaskKind = 'do' | 'answer' | 'decide'
 
 export type BoardResultVerb = 'done' | 'answered' | 'chose' | 'rejected'
 
+export type BoardCloser = 'person' | 'claude'
+
+export type BoardCloseHow = 'claude_did' | 'person_did' | 'not_needed'
+
 export type BoardResult = {
   verb: BoardResultVerb
   text: string | null
@@ -20,6 +24,10 @@ export type BoardResult = {
   isSent: boolean
   prompt?: string
   isFresh?: true
+  by?: BoardCloser
+  how?: BoardCloseHow
+  note?: string
+  said?: string
 }
 
 export type BoardTask = {
@@ -33,6 +41,7 @@ export type BoardTask = {
   askedAt?: number
   result?: BoardResult
   isWithdrawn?: boolean
+  reopened?: BoardCloseHow
 } & BoardSource
 
 export type BoardList = {
@@ -166,6 +175,8 @@ export type BoardCallRow =
   | { kind: 'removed'; id: number; title: string }
   | { kind: 'moved'; id: number; before: number; title: string }
   | { kind: 'list'; done: number; total: number }
+  | { kind: 'assigned'; id: number; taskKind: BoardTaskKind; title: string }
+  | { kind: 'closed'; id: number; title: string; detail: string }
 
 declare module 'claude-code' {
   interface PluginState {

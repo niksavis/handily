@@ -1,11 +1,12 @@
 import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
-import type { BoardList, BoardTask } from '../types'
+import type { BoardList, BoardResult, BoardResultVerb, BoardTask } from '../types'
 import { elapsedText } from './activity'
+import { isClosedByClaude } from './for-you'
 import { wrappedText } from './frame'
 import type { PaneElements, RowLayout } from './pane'
 import { SIGNALS, type SignalLooks } from './signals'
 import { escaped, isForPerson } from './tasks'
-import { displayWidth, fitted } from './width'
+import { displayWidth } from './width'
 
 export const FOR_YOU_GROUP = 'group:for-you'
 export const ANSWERED_GROUP = 'group:answered'
@@ -25,6 +26,7 @@ export type ForYouPress = {
   pick: (id: number, choice: number) => void
   reject: (id: number, reason: string) => void
   undo: (id: number) => void
+  reopen: (id: number) => void
   clear: () => void
 }
 
@@ -82,7 +84,7 @@ function headParts(
   }
   if (parts.length === 0 && sent > 0) {
     parts.push({
-      text: `${signals.done.mark} all ${String(sent)} answered`,
+      text: `${signals.done.mark} all ${String(sent)} closed`,
       style: { color: signals.done.color },
     })
   }
@@ -146,6 +148,7 @@ function rowLine(
   const isWide = elements.bodyColumns >= WIDE_FROM
   const { mark, color } = markOf(task, elements.signals)
   const isDim = task.isWithdrawn === true
+  const isOpen = task.result === undefined && !isDim
   const lead = `${mark} ${String(task.id).padStart(idWidth)} `
   const kind = `${(task.kind ?? 'do').padEnd(KIND_WIDTH)}${isWide ? '  ' : ' '}`
   const room = Math.max(elements.bodyColumns - displayWidth(lead) - displayWidth(kind), 1)
@@ -161,13 +164,13 @@ function rowLine(
     onPress: () => {
       view.layout.toggle(openKey(task.id))
     },
-    children: [Text({ dimColor: isDim, children: first })],
+    children: [Text({ bold: isOpen, dimColor: isDim, children: first })],
   })
   return hanging(
     elements,
     `row:for:${String(task.id)}`,
     { parts: head, width: displayWidth(lead) + displayWidth(kind) },
-    [button, ...rest.map((line) => Text({ dimColor: isDim, children: line }))],
+    [button, ...rest.map((line) => Text({ bold: isOpen, dimColor: isDim, children: line }))],
   )
 }
 
@@ -336,60 +339,130 @@ function openActions(elements: PaneElements, task: BoardTask, view: ForYouView):
   }
 }
 
-function resultParts(task: BoardTask): { text: string; style: TextStyle }[] {
-  const { result } = task
-  if (!result) return []
-  const text = result.text === null ? '' : `"${escaped(result.text)}"`
-  switch (result.verb) {
-    case 'done':
-      return [{ text: 'done', style: {} }]
-    case 'answered':
-      return [{ text, style: { bold: true } }]
-    case 'chose':
-      return [{ text: `chose ${text}`, style: {} }]
-    case 'rejected':
-      return [
-        { text: 'rejected', style: { color: SIGNALS.blocked.color } },
-        ...(text === '' ? [] : [{ text: `: ${text}`, style: {} }]),
-      ]
+const TO_SEND = ' · to send'
+
+const PERSON_PHRASES: Record<BoardResultVerb, string> = {
+  done: 'you: done',
+  answered: 'you answered',
+  chose: 'you chose',
+  rejected: 'you rejected',
+}
+
+function claudePhrase(result: BoardResult): string {
+  switch (result.how) {
+    case 'not_needed':
+      return 'Claude: not needed'
+    case 'person_did':
+      if (result.verb === 'answered') return 'Claude: you answered'
+      if (result.verb === 'chose') return 'Claude: you chose'
+      return 'Claude: you did it'
+    case 'claude_did':
+    case undefined:
+      return 'Claude did it'
   }
 }
 
-function settledLine(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement {
-  const { Box, Text, Button } = elements
+function whoPhrase(result: BoardResult): string {
+  if (result.by === 'claude') return claudePhrase(result)
+  const phrase = PERSON_PHRASES[result.verb]
+  return result.isSent ? phrase : `${phrase}${TO_SEND}`
+}
+
+function valueText(result: BoardResult): string | undefined {
+  if (result.text === null || result.verb === 'done') return undefined
+  return `"${escaped(result.text)}"`
+}
+
+function remarkText(result: BoardResult): string | undefined {
+  if (result.by !== 'claude') return undefined
+  if (result.how === 'person_did') {
+    return result.said === undefined ? undefined : `you said: "${escaped(result.said)}"`
+  }
+  return result.note === undefined ? undefined : escaped(result.note)
+}
+
+function actionButton(
+  elements: PaneElements,
+  task: BoardTask,
+  view: ForYouView,
+): { button: RenderElement; label: string } | undefined {
   const id = String(task.id)
-  const isToSend = task.result?.isSent === false
-  const parts = [...resultParts(task), ...(isToSend ? [{ text: ', to send', style: {} }] : [])]
-  const undoWidth = isToSend ? 'undo'.length + BUTTON_CHROME + BUTTON_GAP : 0
-  let room = elements.bodyColumns - UNDER_INDENT - undoWidth
-  const shown = parts.flatMap((part) => {
-    if (room <= 0) return []
-    const text = fitted(part.text, room)
-    room -= displayWidth(text)
-    return [Text({ ...part.style, children: text })]
+  if (isClosedByClaude(task)) {
+    const label = 'reopen'
+    const button = elements.Button({
+      key: `for-reopen:${id}`,
+      label,
+      onPress: () => {
+        view.press.reopen(task.id)
+      },
+    })
+    return { button, label }
+  }
+  if (task.result?.isSent !== false) return undefined
+  const label = 'undo'
+  const button = elements.Button({
+    key: `for-undo:${id}`,
+    label,
+    onPress: () => {
+      view.press.undo(task.id)
+    },
   })
+  return { button, label }
+}
+
+function whoLine(
+  elements: PaneElements,
+  task: BoardTask,
+  result: BoardResult,
+  view: ForYouView,
+): RenderElement {
+  const { Box, Text } = elements
+  const key = `result:${String(task.id)}`
+  const phrase = whoPhrase(result)
+  const style: TextStyle = result.verb === 'rejected' ? { color: SIGNALS.blocked.color } : {}
+  const room = elements.bodyColumns - UNDER_INDENT
+  const action = actionButton(elements, task, view)
+  const buttonWidth = action === undefined ? 0 : action.label.length + BUTTON_CHROME + BUTTON_GAP
+  if (action !== undefined && displayWidth(phrase) + buttonWidth <= room) {
+    return Box({
+      key,
+      flexDirection: 'row',
+      children: [
+        Box({
+          flexDirection: 'row',
+          flexGrow: 1,
+          flexShrink: 1,
+          children: [Text({ ...style, children: phrase })],
+        }),
+        Box({ flexShrink: 0, marginLeft: BUTTON_GAP, children: [action.button] }),
+      ],
+    })
+  }
   return Box({
-    key: `result:${id}`,
-    flexDirection: 'row',
+    key,
+    flexDirection: 'column',
     children: [
-      Box({ flexDirection: 'row', flexGrow: 1, flexShrink: 1, children: shown }),
-      isToSend
-        ? Box({
-            flexShrink: 0,
-            marginLeft: BUTTON_GAP,
-            children: [
-              Button({
-                key: `for-undo:${id}`,
-                label: 'undo',
-                onPress: () => {
-                  view.press.undo(task.id)
-                },
-              }),
-            ],
-          })
-        : null,
+      ...wrappedLines(elements, phrase, room, style),
+      ...(action === undefined ? [] : [Box({ flexDirection: 'row', children: [action.button] })]),
     ],
   })
+}
+
+function closedLines(
+  elements: PaneElements,
+  task: BoardTask,
+  result: BoardResult,
+  view: ForYouView,
+): RenderElement[] {
+  const room = elements.bodyColumns - UNDER_INDENT
+  const value = valueText(result)
+  const remark = remarkText(result)
+  const valueStyle: TextStyle = result.verb === 'rejected' ? {} : { bold: true }
+  return [
+    whoLine(elements, task, result, view),
+    ...(value === undefined ? [] : wrappedLines(elements, value, room, valueStyle)),
+    ...(remark === undefined ? [] : wrappedLines(elements, remark, room, { dimColor: true })),
+  ]
 }
 
 const SENT_LEAD = 'sent '
@@ -407,29 +480,29 @@ function sentLine(elements: PaneElements, task: BoardTask, prompt: string): Rend
 
 function settledLines(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
   const { result } = task
-  const note = result?.isSent === false ? view.notes.get(task.id) : undefined
+  if (!result) return []
+  const note = result.isSent ? undefined : view.notes.get(task.id)
   const notes = note === undefined ? [] : [noteLine(elements, task.id, note)]
-  const prompt = result?.prompt
-  if (prompt !== undefined && result?.isFresh === true) {
+  const { prompt } = result
+  if (prompt !== undefined && result.isFresh === true) {
     return [sentLine(elements, task, prompt), ...notes]
   }
   const room = elements.bodyColumns - UNDER_INDENT
   const filled =
-    prompt !== undefined && result?.isSent === false
+    prompt !== undefined && !result.isSent
       ? wrappedLines(elements, `${FILLED_LEAD}${prompt}`, room, { dimColor: true })
       : []
-  return [...notes, ...filled, settledLine(elements, task, view)]
+  return [...notes, ...filled, ...closedLines(elements, task, result, view)]
 }
 
 function openedLines(elements: PaneElements, task: BoardTask, view: ForYouView) {
-  const { Text } = elements
   if (!view.layout.expanded.has(openKey(task.id))) return []
   const asked =
     task.askedAt === undefined ? 'asked' : `asked ${elapsedText(view.now - task.askedAt)} ago`
   const by = task.kind === 'decide' ? ' · options by Claude' : ''
   const room = elements.bodyColumns - UNDER_INDENT
   return [
-    Text({ dimColor: true, children: fitted(`${asked}${by}`, room) }),
+    ...wrappedLines(elements, `${asked}${by}`, room, { dimColor: true }),
     ...(task.why === undefined
       ? []
       : wrappedLines(elements, escaped(task.why), room, { dimColor: true })),
@@ -503,16 +576,15 @@ export function drawForYou(elements: PaneElements, view: ForYouView): RenderElem
     ...fresh.map(draw),
     ...toSend.map(draw),
     ...withdrawn.map(draw),
-    toSend.length > 0
-      ? Text({
+    ...(toSend.length > 0
+      ? wrappedLines(elements, 'Claude gets them with your next prompt.', elements.bodyColumns, {
           dimColor: true,
-          children: fitted('Claude gets them with your next prompt.', elements.bodyColumns),
         })
-      : null,
+      : []),
     sent.length > 0
       ? Button({
           key: 'for-answered',
-          label: isSentShown ? `hide ${sentCount} answered` : `+${sentCount} answered`,
+          label: isSentShown ? `hide ${sentCount} closed` : `+${sentCount} closed`,
           onPress: () => {
             view.layout.toggle(ANSWERED_GROUP)
           },

@@ -65,6 +65,7 @@ const NO_ANSWER = 'no answer'
 const PERMISSION = 'permission'
 const PART_LEAD = ' · '
 const STEP_WORD = 'step'
+const PERSON_TITLE_FROM = 50
 const HEAD_KEY = 'band-head'
 const FOLD_KEY = 'band-agents-more'
 
@@ -85,6 +86,7 @@ export type BandView =
       kind: 'tasks'
       list: BoardList
       forYou: number
+      forYouTask: BoardTask | undefined
       activity: BoardActivity
       now: number
     }
@@ -105,11 +107,13 @@ export function bandView(
 ): BandView | undefined {
   if (plan !== undefined && isOffered(plan) && !plan.isDismissed) return { kind: 'plan', plan }
   const list = ownList(all)
-  const forYou = all.tasks.filter(
+  const asked = all.tasks.filter(
     (task) => task.for === 'person' && task.isWithdrawn !== true && task.result === undefined,
-  ).length
+  )
+  const forYou = asked.length
+  const forYouTask = asked[0]
   const isOpen = list.tasks.some((task) => task.status !== 'completed')
-  if (isOpen || forYou > 0) return { kind: 'tasks', list, forYou, activity, now }
+  if (isOpen || forYou > 0) return { kind: 'tasks', list, forYou, forYouTask, activity, now }
   if (agents > 0) return { kind: 'agents', count: agents }
   return isWaitingNow ? { kind: 'waiting' } : undefined
 }
@@ -327,6 +331,72 @@ function draw(
   })
 }
 
+function cutTitle(title: string, room: number): string {
+  if (room < 1) return ''
+  return fitted(title, room).replace(SPACE_BEFORE_CUT, CUT_MARK)
+}
+
+function ownLead(task: BoardTask | undefined, signals: SignalLooks): Part[] {
+  if (task === undefined) return []
+  const look = task.status === 'in_progress' ? signals.doing : signals.toDo
+  return [
+    { text: ' · ', dimColor: true },
+    { text: `${look.mark} `, color: look.color },
+    { text: `${String(task.id)} ` },
+  ]
+}
+
+function shownTitles(
+  person: BoardTask,
+  task: BoardTask | undefined,
+  more: readonly Part[],
+  room: number,
+): { person: string; own: Part[] } {
+  const personTitle = escaped(person.title)
+  const own = task === undefined ? '' : escaped(task.title)
+  const personWidth = displayWidth(personTitle)
+  const ownWidth = task === undefined ? 0 : displayWidth(own) + partsWidth(more)
+  if (personWidth + ownWidth <= room) {
+    return { person: personTitle, own: task === undefined ? [] : [{ text: own }, ...more] }
+  }
+  if (task !== undefined && room - personWidth >= TITLE_AT_LEAST) {
+    return { person: personTitle, own: [{ text: cutTitle(own, room - personWidth) }] }
+  }
+  return { person: cutTitle(personTitle, room), own: [] }
+}
+
+function drawWithPerson(
+  elements: BandElements,
+  view: Extract<BandView, { kind: 'tasks' }>,
+  person: BoardTask,
+  task: BoardTask | undefined,
+  columns: number,
+  button: RenderElement,
+  key: string,
+): RenderElement {
+  const { list } = view
+  const { mark, color } = elements.signals.waitsForYou
+  const head: Part = { text: `${mark} ${String(view.forYou)} for you: `, color }
+  const own = ownLead(task, elements.signals)
+  const lead = [head, ...own]
+  const counted: Part[] =
+    list.tasks.length > 0
+      ? [{ text: `${String(doneCount(list))}/${String(list.tasks.length)}`, dimColor: true }]
+      : []
+  const bar = barParts(list)
+  const roomOf = (right: readonly Part[]) =>
+    columns - (partsWidth(right) + 1 + buttonWidth(BOARD_LABEL) + 1 + partsWidth(lead))
+  const timed = spaced([timePart(task, view), bar, counted])
+  const right = roomOf(timed) >= TITLE_AT_LEAST ? timed : spaced([bar, counted])
+  const titles = shownTitles(
+    person,
+    task,
+    task === undefined ? [] : moreRunning(list),
+    roomOf(right),
+  )
+  return draw(elements, [head, { text: titles.person }, ...own, ...titles.own], right, button, key)
+}
+
 function drawTasks(
   elements: BandElements,
   view: Extract<BandView, { kind: 'tasks' }>,
@@ -339,6 +409,10 @@ function drawTasks(
   const task =
     list.tasks.find((one) => one.status === 'in_progress') ??
     list.tasks.find((one) => one.status === 'pending')
+  const person = columns >= PERSON_TITLE_FROM && waiting === undefined ? view.forYouTask : undefined
+  if (person !== undefined) {
+    return drawWithPerson(elements, view, person, task, columns, button, key)
+  }
   const count: Part = {
     text: `${String(doneCount(list))}/${String(list.tasks.length)}`,
     dimColor: true,

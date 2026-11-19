@@ -1,4 +1,12 @@
-import type { BoardList, BoardResult, BoardResultVerb, BoardTask, BoardTaskKind } from '../types'
+import type {
+  BoardCallRow,
+  BoardCloseHow,
+  BoardList,
+  BoardResult,
+  BoardResultVerb,
+  BoardTask,
+  BoardTaskKind,
+} from '../types'
 import { type TaskHost, firstWord, isTaskNumber, taskNumber, withoutFinalPeriod } from './commands'
 import { type PersonReply, refusedParts, unchangedParts } from './replies'
 import {
@@ -7,6 +15,7 @@ import {
   askedTasks,
   findTask,
   isForPerson,
+  numbersText,
   quoted,
   textFault,
   textLength,
@@ -14,11 +23,15 @@ import {
 } from './tasks'
 import type { PromptFill } from './board'
 import { marked, type ToastParts } from './toast'
+import { closedRow } from './transcript'
 
 export const KINDS: readonly BoardTaskKind[] = ['do', 'answer', 'decide']
 export const MAX_ANSWER_LENGTH = 1000
 export const MAX_OPTION_LENGTH = 60
 export const MAX_OPEN_FOR_PERSON = 20
+export const MAX_KEPT_PROMPTS = 20
+export const OPEN_LINE_AT_MOST = 5
+export const CLOSE_HOWS: readonly BoardCloseHow[] = ['claude_did', 'person_did', 'not_needed']
 const OPTIONS_AT_LEAST = 2
 const OPTIONS_AT_MOST = 4
 const TOLD = 'Claude is told at your next prompt.'
@@ -121,7 +134,7 @@ export function assignTask(
     return {
       list,
       value: {
-        refusal: `${String(MAX_OPEN_FOR_PERSON)} tasks for the person are open. Wait for the answers, or withdraw one with task_update and the status removed.`,
+        refusal: `${String(MAX_OPEN_FOR_PERSON)} tasks for the person are open. Wait for the answers, or close one with task_close and how not_needed.`,
       },
     }
   }
@@ -150,18 +163,6 @@ function withoutResult(task: BoardTask): BoardTask {
   return open
 }
 
-export function withdrawTask(list: BoardList, id: number): BoardList {
-  const task = findTask(list, id)
-  if (!task) return list
-  if (task.result?.isSent === true || task.isWithdrawn === true) {
-    return { ...list, tasks: list.tasks.filter((one) => one.id !== id) }
-  }
-  const withdrawn: BoardTask = task.result
-    ? { ...task, isWithdrawn: true, result: { ...task.result, isSent: true } }
-    : { ...task, isWithdrawn: true }
-  return { ...list, tasks: list.tasks.map((one) => (one.id === id ? withdrawn : one)) }
-}
-
 function withoutFresh(task: BoardTask): BoardTask {
   if (task.result?.isFresh !== true) return task
   const result = { ...task.result }
@@ -169,27 +170,76 @@ function withoutFresh(task: BoardTask): BoardTask {
   return { ...task, result }
 }
 
-export function takeAnswers(list: BoardList): { list: BoardList; value: BoardTask[] } {
-  const taken = list.tasks.filter(
-    (task) => isForPerson(task) && task.result !== undefined && !task.result.isSent,
+export type TakenAnswers = {
+  answered: BoardTask[]
+  folded: number[]
+  reopened: BoardTask[]
+}
+
+export function isClosedByClaude(task: BoardTask): boolean {
+  return task.result?.by === 'claude'
+}
+
+function isFoldedBy(task: BoardTask, isPersonPrompt: boolean): boolean {
+  return task.result?.isFresh === true && (isPersonPrompt || !isClosedByClaude(task))
+}
+
+function withoutReopened(task: BoardTask): BoardTask {
+  if (task.reopened === undefined) return task
+  const kept = { ...task }
+  delete kept.reopened
+  return kept
+}
+
+export function takeAnswers(
+  list: BoardList,
+  isPersonPrompt: boolean,
+): { list: BoardList; value: TakenAnswers } {
+  const answered = list.tasks.filter(
+    (task) =>
+      isForPerson(task) &&
+      task.result !== undefined &&
+      !task.result.isSent &&
+      !isClosedByClaude(task),
   )
-  const hasFresh = list.tasks.some((task) => task.result?.isFresh === true)
+  const folded = list.tasks.filter((task) => isFoldedBy(task, isPersonPrompt))
+  const reopened = list.tasks.filter(
+    (task) => task.reopened !== undefined && task.result === undefined && task.isWithdrawn !== true,
+  )
   const tasks = list.tasks
     .filter((task) => task.isWithdrawn !== true)
-    .map((task) =>
-      taken.includes(task) && task.result
-        ? { ...task, status: 'completed' as const, result: { ...task.result, isSent: true } }
-        : withoutFresh(task),
-    )
-  const isSame = taken.length === 0 && !hasFresh && tasks.length === list.tasks.length
-  return { list: isSame ? list : { ...list, tasks }, value: taken }
+    .map((task) => {
+      const kept = withoutReopened(task)
+      if (answered.includes(task) && task.result) {
+        return { ...kept, status: 'completed' as const, result: { ...task.result, isSent: true } }
+      }
+      return folded.includes(task) ? withoutFresh(kept) : kept
+    })
+  const isSame =
+    answered.length === 0 &&
+    folded.length === 0 &&
+    list.tasks.every((task) => task.reopened === undefined) &&
+    tasks.length === list.tasks.length
+  return {
+    list: isSame ? list : { ...list, tasks },
+    value: { answered, folded: folded.map((task) => task.id), reopened },
+  }
+}
+
+export function isNothingTaken(taken: TakenAnswers): boolean {
+  return taken.answered.length === 0 && taken.folded.length === 0 && taken.reopened.length === 0
 }
 
 export function answersToTell(taken: readonly BoardTask[], typed: string): BoardTask[] {
   return taken.filter((task) => {
     const prompt = task.result?.prompt
-    return prompt === undefined || !typed.includes(prompt)
+    return !isClosedByClaude(task) && (prompt === undefined || !typed.includes(prompt))
   })
+}
+
+export function reopenedText(task: BoardTask): string {
+  const how = task.reopened ?? 'claude_did'
+  return `[handily-board] The person reopened task ${String(task.id)} (${task.kind ?? 'do'}), which you closed (${how}). It waits for the person again.`
 }
 
 export function answerPrompt(task: BoardTask): string | undefined {
@@ -226,7 +276,12 @@ function promptMarked(
   if (!task?.result || !was || task.result.at !== was.at || task.isWithdrawn === true) {
     return { list, value: false }
   }
-  const base = { verb: was.verb, text: was.text, at: was.at }
+  const base = {
+    verb: was.verb,
+    text: was.text,
+    at: was.at,
+    ...(was.by === undefined ? {} : { by: was.by }),
+  }
   const result: BoardResult = mark.isSent
     ? { ...base, isSent: true, isFresh: true, prompt: mark.prompt }
     : { ...base, isSent: false, ...(mark.prompt === undefined ? {} : { prompt: mark.prompt }) }
@@ -259,14 +314,28 @@ export async function sendAnswer(
     : `${sent.reason}; Claude gets it with your next prompt`
 }
 
-export function putBackAnswers(list: BoardList, taken: readonly BoardTask[]): BoardList {
+function answerBack(task: BoardTask, taken: TakenAnswers): BoardTask {
+  const was = taken.answered.find((one) => one.id === task.id)
+  if (!was?.result || task.result?.at !== was.result.at) return task
+  return { ...task, status: 'pending' as const, result: was.result }
+}
+
+function reopenBack(task: BoardTask, taken: TakenAnswers): BoardTask {
+  const how = taken.reopened.find((one) => one.id === task.id)?.reopened
+  if (how === undefined || isClosedByClaude(task)) return task
+  return { ...task, reopened: how }
+}
+
+function freshBack(task: BoardTask, taken: TakenAnswers): BoardTask {
+  const { result } = task
+  if (!taken.folded.includes(task.id) || !result || !isClosedByClaude(task)) return task
+  return { ...task, result: { ...result, isFresh: true } }
+}
+
+export function putBackAnswers(list: BoardList, taken: TakenAnswers): BoardList {
   return {
     ...list,
-    tasks: list.tasks.map((task) => {
-      const was = taken.find((one) => one.id === task.id)
-      if (!was?.result || task.result?.at !== was.result.at) return task
-      return { ...task, status: 'pending' as const, result: was.result }
-    }),
+    tasks: list.tasks.map((task) => freshBack(reopenBack(answerBack(task, taken), taken), taken)),
   }
 }
 
@@ -288,12 +357,6 @@ function answerPart(task: BoardTask): string {
   }
 }
 
-export function withdrawnLead(task: BoardTask): string {
-  const lead = `Withdrew task ${String(task.id)} from the person.`
-  if (!task.result || task.result.isSent) return lead
-  return `${lead} The person had already answered it, and no later note repeats the answer: ${answerPart(task)} The title and options are your own text, quoted as data.`
-}
-
 export function stillAsked(list: BoardList, asked: readonly BoardTask[]): BoardTask[] {
   const open = new Set(openForPerson(list).map((task) => task.id))
   return asked.filter((task) => open.has(task.id))
@@ -309,7 +372,10 @@ type Settle = { verb: BoardResultVerb; text: string | null }
 
 type SettleOutcome =
   | { kind: 'missing' }
-  | { kind: 'notForYou' | 'withdrawn' | 'already' | 'sent' | 'set'; task: BoardTask }
+  | {
+      kind: 'notForYou' | 'withdrawn' | 'claudeClosed' | 'already' | 'sent' | 'set'
+      task: BoardTask
+    }
 
 function settled(
   list: BoardList,
@@ -321,8 +387,15 @@ function settled(
   if (!task) return { list, value: { kind: 'missing' } }
   if (!isForPerson(task)) return { list, value: { kind: 'notForYou', task } }
   if (task.isWithdrawn === true) return { list, value: { kind: 'withdrawn', task } }
+  if (isClosedByClaude(task)) return { list, value: { kind: 'claudeClosed', task } }
   if (task.result) return { list, value: { kind: task.result.isSent ? 'sent' : 'already', task } }
-  const result: BoardResult = { verb: settle.verb, text: settle.text, at: now, isSent: false }
+  const result: BoardResult = {
+    verb: settle.verb,
+    text: settle.text,
+    at: now,
+    isSent: false,
+    by: 'person',
+  }
   const next = { ...task, result }
   return {
     list: { ...list, tasks: list.tasks.map((one) => (one.id === id ? next : one)) },
@@ -376,6 +449,13 @@ function outcomeReply(outcome: SettleOutcome, typed: string, settle: Settle): Fo
         `Claude withdrew task ${typed}`,
         ...yours,
       ])
+    }
+    case 'claudeClosed': {
+      const how = outcome.task.result?.how ?? 'claude_did'
+      return plain(
+        `Claude closed task ${typed} (${how}). Nothing changed. /board reopen ${typed} opens it again.`,
+        unchangedParts(`Claude closed task ${typed}`),
+      )
     }
     case 'already': {
       const word = VERB_WORDS[outcome.task.result?.verb ?? 'done']
@@ -512,7 +592,8 @@ export async function personReject(
 }
 
 type UndoOutcome =
-  { kind: 'missing' | 'notForYou' | 'open' | 'sent' } | { kind: 'undone'; task: BoardTask }
+  | { kind: 'missing' | 'notForYou' | 'open' | 'claudeClosed' | 'sent' }
+  | { kind: 'undone'; task: BoardTask }
 
 export async function personUndo(host: TaskHost, id: number): Promise<ForYouReply> {
   const outcome = await host.edit<UndoOutcome>((list) => {
@@ -520,6 +601,7 @@ export async function personUndo(host: TaskHost, id: number): Promise<ForYouRepl
     if (!task) return { list, value: { kind: 'missing' } }
     if (!isForPerson(task)) return { list, value: { kind: 'notForYou' } }
     if (!task.result) return { list, value: { kind: 'open' } }
+    if (isClosedByClaude(task)) return { list, value: { kind: 'claudeClosed' } }
     if (task.result.isSent) return { list, value: { kind: 'sent' } }
     const open = withoutResult(task)
     return {
@@ -543,6 +625,11 @@ export async function personUndo(host: TaskHost, id: number): Promise<ForYouRepl
       return plain(
         `Task ${number} is open. Nothing changed.`,
         unchangedParts(`task ${number} is open`),
+      )
+    case 'claudeClosed':
+      return plain(
+        `Claude closed task ${number}. /board reopen ${number} opens it again.`,
+        refusedParts('Not undone', `Claude closed task ${number}`),
       )
     case 'sent':
       return plain(
@@ -577,9 +664,15 @@ export function asksParts(tasks: readonly BoardTask[]): ToastParts | undefined {
   ]
 }
 
-export function personOnlyRefusal(task: BoardTask): string {
+export function personOnlyRefusal(task: BoardTask, isRemove: boolean): string {
   const number = String(task.id)
-  return `Task ${number} is for the person; only the person can finish it. Use status removed to withdraw it.`
+  if (task.result) {
+    return `Task ${number} for the person is already closed. The person removes closed tasks with /board clear.`
+  }
+  if (isRemove) {
+    return `Task ${number} is for the person. To withdraw it, close it with task_close and how not_needed, with a note that says why.`
+  }
+  return `Task ${number} is for the person. Close it with task_close: how claude_did when you did it, person_did when the person says that they did it, or not_needed.`
 }
 
 export function forYouStatusRefusal(task: BoardTask): string {
@@ -587,7 +680,7 @@ export function forYouStatusRefusal(task: BoardTask): string {
   return `Task ${number} is for you. /board done ${number}, /board answer ${number}, /board pick ${number} or /board reject ${number} answers it.`
 }
 
-export type ForYouWord = 'answer' | 'pick' | 'reject' | 'undo'
+export type ForYouWord = 'answer' | 'pick' | 'reject' | 'undo' | 'reopen'
 
 const NUMBER_NEEDED: Record<ForYouWord, string> = {
   answer: ANSWER_EXAMPLE,
@@ -595,6 +688,7 @@ const NUMBER_NEEDED: Record<ForYouWord, string> = {
   reject:
     '/board reject needs a task number and an optional reason, for example /board reject 11 not my call.',
   undo: '/board undo needs a task number, for example /board undo 9.',
+  reopen: '/board reopen needs a task number, for example /board reopen 8.',
 }
 
 export async function forYouCommand(
@@ -618,6 +712,9 @@ export async function forYouCommand(
     case 'undo':
       if (rest !== '') return NUMBER_NEEDED.undo
       return (await personUndo(host, id)).text
+    case 'reopen':
+      if (rest !== '') return NUMBER_NEEDED.reopen
+      return (await personReopen(host, id)).text
   }
 }
 
@@ -633,4 +730,310 @@ export async function forYouStatus(
   if (!task || !isForPerson(task)) return undefined
   if (word === 'done') return personDone(host, id, now)
   return plain(forYouStatusRefusal(task), refusedParts('Not changed', `task ${text} is for you`))
+}
+
+type ReopenOutcome = { kind: 'missing' | 'notForYou' | 'open' | 'person' | 'reopened' }
+
+export async function personReopen(host: TaskHost, id: number): Promise<ForYouReply> {
+  const outcome = await host.edit<ReopenOutcome>((list) => {
+    const task = findTask(list, id)
+    if (!task) return { list, value: { kind: 'missing' } }
+    if (!isForPerson(task)) return { list, value: { kind: 'notForYou' } }
+    if (!task.result) return { list, value: { kind: 'open' } }
+    if (!isClosedByClaude(task)) return { list, value: { kind: 'person' } }
+    const how = task.result.how ?? 'claude_did'
+    const open: BoardTask = { ...withoutResult(task), status: 'pending', reopened: how }
+    return {
+      list: { ...list, tasks: list.tasks.map((one) => (one.id === id ? open : one)) },
+      value: { kind: 'reopened' },
+    }
+  })
+  const number = String(id)
+  switch (outcome.kind) {
+    case 'missing':
+      return plain(
+        `No task ${number}. /board list prints the tasks for you.`,
+        refusedParts('Not reopened', `no task ${number} in this session`),
+      )
+    case 'notForYou':
+      return plain(
+        `Task ${number} is not a task for you. /board list prints the tasks for you.`,
+        refusedParts('Not reopened', `task ${number} is not for you`),
+      )
+    case 'open':
+      return plain(
+        `Task ${number} is open. Nothing changed.`,
+        unchangedParts(`task ${number} is open`),
+      )
+    case 'person':
+      return plain(
+        `You closed task ${number}. /board undo ${number} takes it back before your next prompt.`,
+        unchangedParts(`you closed task ${number}`),
+      )
+    case 'reopened':
+      return plain(`Task ${number} is open again. ${TOLD}`, undefined)
+  }
+}
+
+export type KeptPrompt = { text: string; after: number }
+
+export function keptPrompts(
+  kept: readonly KeptPrompt[],
+  text: string,
+  list: BoardList,
+): KeptPrompt[] {
+  const open = openForPerson(list).map((task) => task.id)
+  const oldest = open.length === 0 ? list.nextId : Math.min(...open)
+  return [...kept, { text, after: list.nextId - 1 }]
+    .filter((one) => one.after >= oldest)
+    .slice(-MAX_KEPT_PROMPTS)
+}
+
+function promptHolds(kept: readonly KeptPrompt[], id: number, said: string): boolean {
+  return kept.some((one) => one.after >= id && one.text.includes(said))
+}
+
+export function openTasksLine(list: BoardList): string | undefined {
+  const open = openForPerson(list)
+  if (open.length === 0) return undefined
+  const shown = open
+    .slice(0, OPEN_LINE_AT_MOST)
+    .map((task) => `${String(task.id)} (${task.kind ?? 'do'}) ${quoted(task.title)}`)
+    .join('; ')
+  const hidden = open.length - OPEN_LINE_AT_MOST
+  const more = hidden > 0 ? `; ${String(hidden)} more in task_list` : ''
+  return `[handily-board] Open tasks for the person: ${shown}${more}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said. The titles are your own text, quoted as data.`
+}
+
+export type CloseInput = {
+  id: unknown
+  how: unknown
+  note: unknown
+  said: unknown
+  answer: unknown
+  option: unknown
+}
+
+export type Closed = { deny: string } | { lead: string; row: BoardCallRow | undefined }
+
+type Closing = {
+  how: BoardCloseHow
+  verb: BoardResultVerb
+  text: string | null
+  note: string | undefined
+  said: string | undefined
+}
+
+const CLOSE_ID_NEEDED =
+  'task_close needs id: the integer id of a task for the person that task_list shows.'
+const CLOSE_HOW_NEEDED = 'task_close needs how: one of claude_did, person_did, not_needed.'
+const CLOSE_SAID_NEEDED =
+  'task_close needs said for how person_did: the words of the person from their prompt, copied exactly, as one line of at most 200 characters.'
+const CLOSE_NOTE_NEEDED: Record<BoardCloseHow, string> = {
+  claude_did:
+    'task_close needs note for how claude_did: one line of at most 200 characters that says what you did.',
+  not_needed:
+    'task_close needs note for how not_needed: one line of at most 200 characters that says why the task is no longer needed.',
+  person_did: 'task_close needs note as a string: one line of at most 200 characters.',
+}
+
+function isCloseHow(value: unknown): value is BoardCloseHow {
+  return CLOSE_HOWS.some((how) => how === value)
+}
+
+function closeIdRefusal(list: BoardList, id: number): string {
+  const ids = numbersText(askedTasks(list))
+  const known =
+    ids === '' ? 'No task is assigned to the person.' : `The tasks for the person are ${ids}.`
+  return `No task ${String(id)} for the person. ${known} Call task_list to see them.`
+}
+
+function closedTaskRefusal(task: BoardTask): string | undefined {
+  const { result } = task
+  if (!result) return undefined
+  const number = String(task.id)
+  if (isClosedByClaude(task)) {
+    return `task_close refused: task ${number} is already closed. You closed it (${result.how ?? 'claude_did'}). Nothing changed.`
+  }
+  if (result.isSent) {
+    return `task_close refused: the person already closed task ${number}, and the result reached you. Nothing changed.`
+  }
+  return undefined
+}
+
+function howRefusal(task: BoardTask, how: BoardCloseHow): string | undefined {
+  if (how !== 'claude_did') return undefined
+  const number = String(task.id)
+  switch (task.kind) {
+    case 'decide':
+      return `task_close refused: task ${number} asks the person to decide. You cannot decide it: close it with how person_did and the option the person named, or with not_needed.`
+    case 'answer':
+      return `task_close refused: task ${number} asks the person for an answer. You cannot answer it: close it with how person_did, the answer and said, or with not_needed and the answer in note.`
+    case 'do':
+    case undefined:
+      return undefined
+  }
+}
+
+function extraRefusal(task: BoardTask, how: BoardCloseHow, input: CloseInput): string | undefined {
+  const kind = task.kind ?? 'do'
+  const number = String(task.id)
+  if (input.answer !== undefined && kind !== 'answer') {
+    return `task_close takes answer only for a task of the kind answer; task ${number} has the kind ${kind}.`
+  }
+  if (input.option !== undefined && kind !== 'decide') {
+    return `task_close takes option only for a task of the kind decide; task ${number} has the kind ${kind}.`
+  }
+  if ((input.answer !== undefined || input.option !== undefined) && how !== 'person_did') {
+    return 'task_close takes answer and option only with how person_did.'
+  }
+  if (input.said !== undefined && how !== 'person_did') {
+    return 'task_close takes said only with how person_did: the words in which the person said that they did it.'
+  }
+  return undefined
+}
+
+type Line = { text: string | undefined } | { deny: string }
+
+function closeLine(value: unknown, name: string, most: number, needed: string): Line {
+  if (value === undefined) return { text: undefined }
+  if (typeof value !== 'string' || value.trim() === '') return { deny: needed }
+  const text = value.trim()
+  const refusal = lineRefusal(name, text, most)
+  return refusal === undefined ? { text } : { deny: `task_close refused: ${refusal}` }
+}
+
+function optionsText(options: readonly string[]): string {
+  return options.map((option, index) => `${String(index + 1)} ${quoted(option)}`).join(', ')
+}
+
+type Choice = { verb: BoardResultVerb; text: string | null }
+
+function closedChoice(task: BoardTask, input: CloseInput): Choice | { deny: string } {
+  const number = String(task.id)
+  if (task.kind === 'answer') {
+    const needed = `task_close needs answer for task ${number}: the answer of the person as one line of at most 1000 characters.`
+    const answer = closeLine(input.answer, 'answer', MAX_ANSWER_LENGTH, needed)
+    if ('deny' in answer) return answer
+    return answer.text === undefined ? { deny: needed } : { verb: 'answered', text: answer.text }
+  }
+  if (task.kind === 'decide') {
+    const options = task.options ?? []
+    const { option } = input
+    const chosen =
+      typeof option === 'number' && Number.isInteger(option) ? options[option - 1] : undefined
+    if (chosen === undefined) {
+      return {
+        deny: `task_close needs option for task ${number}: the number of the option that the person chose, 1 to ${String(options.length)}: ${optionsText(options)}.`,
+      }
+    }
+    return { verb: 'chose', text: chosen }
+  }
+  return { verb: 'done', text: null }
+}
+
+function closing(task: BoardTask, input: CloseInput): Closing | { deny: string } {
+  const { how } = input
+  if (!isCloseHow(how)) return { deny: CLOSE_HOW_NEEDED }
+  const wrong = howRefusal(task, how) ?? extraRefusal(task, how, input)
+  if (wrong !== undefined) return { deny: wrong }
+  const note = closeLine(input.note, 'note', MAX_TITLE_LENGTH, CLOSE_NOTE_NEEDED[how])
+  if ('deny' in note) return note
+  if (how !== 'person_did') {
+    if (note.text === undefined) return { deny: CLOSE_NOTE_NEEDED[how] }
+    return { how, verb: 'done', text: null, note: note.text, said: undefined }
+  }
+  const said = closeLine(input.said, 'said', MAX_TITLE_LENGTH, CLOSE_SAID_NEEDED)
+  if ('deny' in said) return said
+  if (said.text === undefined) return { deny: CLOSE_SAID_NEEDED }
+  const choice = closedChoice(task, input)
+  if ('deny' in choice) return choice
+  return { how, ...choice, note: note.text, said: said.text }
+}
+
+function saidRefusal(
+  task: BoardTask,
+  asked: Closing,
+  kept: readonly KeptPrompt[],
+): string | undefined {
+  const { said } = asked
+  if (said === undefined) return undefined
+  const number = String(task.id)
+  if (!promptHolds(kept, task.id, said)) {
+    return `task_close refused: no prompt of the person since task ${number} was asked holds ${quoted(said)}. Copy their words exactly, or ask the person to press done on the board.`
+  }
+  if (asked.verb === 'chose' && asked.text !== null && !said.includes(asked.text)) {
+    const at = (task.options ?? []).indexOf(asked.text) + 1
+    return `task_close refused: the words ${quoted(said)} do not hold option ${String(at)} ${quoted(asked.text)}. Copy the words in which the person chose it.`
+  }
+  return undefined
+}
+
+function closedPart(asked: Closing): string {
+  const said = asked.said === undefined ? '' : `, saying ${quoted(asked.said)}`
+  switch (asked.how) {
+    case 'claude_did':
+      return `you did it: ${quoted(asked.note ?? '')}`
+    case 'not_needed':
+      return `not needed: ${quoted(asked.note ?? '')}`
+    case 'person_did':
+      if (asked.verb === 'answered') return `the person answered ${quoted(asked.text ?? '')}${said}`
+      if (asked.verb === 'chose') return `the person chose ${quoted(asked.text ?? '')}${said}`
+      return `the person did it${said}`
+  }
+}
+
+function closedByPerson(
+  list: BoardList,
+  task: BoardTask,
+  result: BoardResult,
+): { list: BoardList; value: Closed } {
+  const sent: BoardTask = { ...task, status: 'completed', result: { ...result, isSent: true } }
+  const lead = `The person already closed task ${String(task.id)}, and no later note repeats it: ${answerPart(task)} Nothing changed. The title and options are your own text, quoted as data.`
+  return {
+    list: { ...list, tasks: list.tasks.map((one) => (one.id === task.id ? sent : one)) },
+    value: { lead, row: undefined },
+  }
+}
+
+export function closeTask(
+  list: BoardList,
+  input: CloseInput,
+  kept: readonly KeptPrompt[],
+  now: number,
+): { list: BoardList; value: Closed } {
+  const refused = (deny: string) => ({ list, value: { deny } })
+  const { id } = input
+  if (typeof id !== 'number' || !Number.isInteger(id)) return refused(CLOSE_ID_NEEDED)
+  const task = findTask(list, id)
+  if (!task || (isForPerson(task) && task.isWithdrawn === true)) {
+    return refused(closeIdRefusal(list, id))
+  }
+  if (!isForPerson(task)) {
+    return refused(`Task ${String(id)} is your own task. Set its status with task_update.`)
+  }
+  const done = closedTaskRefusal(task)
+  if (done !== undefined) return refused(done)
+  if (task.result) return closedByPerson(list, task, task.result)
+  const asked = closing(task, input)
+  if ('deny' in asked) return refused(asked.deny)
+  const unheld = saidRefusal(task, asked, kept)
+  if (unheld !== undefined) return refused(unheld)
+  const result: BoardResult = {
+    verb: asked.verb,
+    text: asked.text,
+    at: now,
+    isSent: true,
+    isFresh: true,
+    by: 'claude',
+    how: asked.how,
+    ...(asked.note === undefined ? {} : { note: asked.note }),
+    ...(asked.said === undefined ? {} : { said: asked.said }),
+  }
+  const next: BoardTask = { ...withoutReopened(task), status: 'completed', result }
+  const lead = `Closed task ${String(id)} for the person (${task.kind ?? 'do'}): ${closedPart(asked)}. The title and options are your own text, quoted as data.`
+  return {
+    list: { ...list, tasks: list.tasks.map((one) => (one.id === id ? next : one)) },
+    value: { lead, row: closedRow(next) },
+  }
 }
