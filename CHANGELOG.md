@@ -6,6 +6,17 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.28.3 - 2026-11-19
+
+### Fixed
+
+- **handily-board: the plan reminder counts Code Mode work as steps, and stays quiet where the
+  board is not used.** In Code Mode every call inside a REPL script counted as a tool call, so one
+  script could bring the "your task list did not change in N tool calls" note. Now a REPL call
+  counts once and the calls inside it count not at all. The note goes out only in a session that
+  called a board tool. After a resume, the next prompt tells Claude once that the task list is
+  empty and the old task ids are gone. (handily-n1no1o)
+
 ## handily-board 0.28.2 - 2026-11-19
 
 ### Fixed
