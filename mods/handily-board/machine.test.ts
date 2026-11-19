@@ -623,6 +623,31 @@ describe(LIST_CRITERION, () => {
     },
   )
 
+  for (const surface of SURFACES) {
+    test(
+      `a session file with no name shows the first 8 characters of its session id as the row name on ${surface}`,
+      WITH_STORE,
+      async ($, on) => {
+        const seen = world(on, {
+          files: [
+            sessionFile('0f3c9a7e-5b21-4d8e-9c6f-2a1b3c4d5e6f', -10 * MINUTE, { project: 'app' }),
+            sessionFile('7d1e2f3a-0000-4000-8000-000000000001', -10 * MINUTE, {
+              name: ' ',
+              project: 'app',
+            }),
+          ],
+        })
+        await shownAfterRead($, seen)
+        const lines = await screenAt($, surface, 'dock', 41)
+        expect(lines.filter((line) => line.startsWith('? '))).toEqual([
+          '? 0f3c9a7e  stale                      0s',
+          '? 7d1e2f3a  stale                      0s',
+        ])
+        expect(lines.join('\n')).not.toContain('0f3c9a7e-')
+      },
+    )
+  }
+
   test(
     'a store folder that is missing names the folder and the option and retries in 15 seconds',
     { options: { store: '~/work/.orch' } },

@@ -1,4 +1,5 @@
 import type { PluginOptions, RenderSurface } from 'claude-code'
+import type { ChatView } from './chat'
 import type { PromptSend } from './for-you'
 import { marked, type ToastParts } from './toast'
 
@@ -49,6 +50,8 @@ export type PaneUi = {
   log: (text: string) => void
   notes: () => ReadonlyMap<number, string>
   noteRow: (id: number, note: string | undefined) => void
+  chat: () => ChatView
+  keepChatOpen: (id: number) => void
   countParts: () => Promise<void>
   keepClock: (surface: RenderSurface, isTicking: boolean) => void
 }

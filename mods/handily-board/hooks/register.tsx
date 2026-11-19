@@ -193,7 +193,6 @@ import {
   type AssignInput,
   CLOSE_HOWS,
   type CloseInput,
-  type KeptPrompt,
   type PromptSend,
   type TakenAnswers,
   answersText,
@@ -213,6 +212,13 @@ import {
   stillAsked,
   takeAnswers,
 } from './for-you'
+import {
+  type PersonWords,
+  forgetPersonWords,
+  keepChatOpen,
+  newPersonWords,
+  noteChatMarks,
+} from './chat'
 import { CHANGE_FAILED, refusedParts } from './replies'
 import {
   EMPTY_FINDINGS,
@@ -1544,10 +1550,16 @@ async function resetAgentLists($: EngineInterface): Promise<void> {
 
 type RowNotes = Map<number, string>
 
-type UiKeeps = { notes: RowNotes; parts: PartsKeep; redraw: Redraw; log: LogKeep }
+type UiKeeps = {
+  notes: RowNotes
+  parts: PartsKeep
+  redraw: Redraw
+  log: LogKeep
+  words: PersonWords
+}
 
 function uiOf($: EngineInterface, keeps: UiKeeps): PaneUi {
-  const { notes, parts, redraw, log } = keeps
+  const { notes, parts, redraw, log, words } = keeps
   return {
     open: async (pane, focus) => {
       const opened = await $.ui.open(
@@ -1591,6 +1603,11 @@ function uiOf($: EngineInterface, keeps: UiKeeps): PaneUi {
       if (notes.get(id) === note) return
       if (note === undefined) notes.delete(id)
       else notes.set(id, note)
+      $.ui.invalidate('ui.render')
+    },
+    chat: () => ({ kept: words.kept, marks: words.marks }),
+    keepChatOpen: (id) => {
+      keepChatOpen(words, id)
       $.ui.invalidate('ui.render')
     },
     countParts: () => countParts($, parts),
@@ -1867,8 +1884,6 @@ async function modelAssign(
   return { answer: { result: await listResult(host, lead), row: assignedRow(task) }, task }
 }
 
-type PersonWords = { kept: KeptPrompt[] }
-
 async function modelClose(
   host: TaskHost,
   input: CloseInput,
@@ -1884,12 +1899,25 @@ async function modelClose(
 
 async function keepPersonWords($: EngineInterface, words: PersonWords, text: string) {
   try {
-    words.kept = keptPrompts(words.kept, text, await readList(hostOf($)))
+    words.seq += 1
+    const said = { text, at: await $.clock.now(), seq: words.seq }
+    words.kept = keptPrompts(words.kept, said, await readList(hostOf($)))
   } catch (error) {
     $.ui.log(`handily-board: the prompt was not kept for task_close: ${String(error)}`, {
       to: 'debug',
     })
   }
+}
+
+async function noteChatAnswers($: EngineInterface, words: PersonWords): Promise<void> {
+  try {
+    noteChatMarks(words, await readList(hostOf($)))
+  } catch (error) {
+    $.ui.log(`handily-board: the answers in the chat were not read: ${String(error)}`, {
+      to: 'debug',
+    })
+  }
+  $.ui.invalidate('ui.render')
 }
 
 async function takeAnswered($: EngineInterface, isPersonPrompt: boolean): Promise<TakenAnswers> {
@@ -1971,9 +1999,9 @@ export const register: Register = (on, options) => {
   const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
   const refused = new Set<string>()
   const notes: RowNotes = new Map()
-  const uiKeeps: UiKeeps = { notes, parts: breakdown, redraw, log }
+  const words = newPersonWords()
+  const uiKeeps: UiKeeps = { notes, parts: breakdown, redraw, log, words }
   const asks: BoardTask[] = []
-  const words: PersonWords = { kept: [] }
   const pulses = newPulses()
   const background = newBackgroundKeep()
   const attention: AttentionKeep = {
@@ -2085,6 +2113,7 @@ export const register: Register = (on, options) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
       await keepShownFailures($, failures)
+      await noteChatAnswers($, words)
       const asked = stillAsked(await readList(hostOf($)), asks.splice(0))
       const parts = asksParts(asked)
       if (parts !== undefined && !(await isSessionTabSeen($))) showGlyphToast($, parts)
@@ -2130,7 +2159,7 @@ export const register: Register = (on, options) => {
       breakdown.view = UNREAD_PARTS
     }
     if (e.reason === 'clear') {
-      words.kept = []
+      forgetPersonWords(words)
       attention.asks.clear()
       await refreshStatus($, attention)
       checks.current = EMPTY_CHECKS
@@ -2208,6 +2237,7 @@ export const register: Register = (on, options) => {
       if (entered.drop === undefined && isPersonPrompt(e)) await clearBandEnds($, 'isAnswerSeen')
       if (entered.drop === undefined) await keepShownFailures($, failures)
       if (entered.drop === undefined && isPersonPrompt(e)) await clearSentFixes($, e.text)
+      if (entered.drop === undefined && isPersonPrompt(e)) $.ui.invalidate('ui.render')
       return entered
     }
     try {
@@ -2217,7 +2247,7 @@ export const register: Register = (on, options) => {
       const list = await readList(hostOf($))
       const changes = isTold ? personNote(taken, list, answers) : undefined
       const reopened = answered.reopened.map(reopenedText)
-      const open = isPersonPrompt(e) ? openTasksLine(list) : undefined
+      const open = isPersonPrompt(e) ? openTasksLine(list, e.text) : undefined
       const notes = [resumed, changes, ...reopened, open, plan?.text].filter(
         (text) => text !== undefined,
       )

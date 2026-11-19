@@ -1,8 +1,10 @@
 import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
 import type { BoardList, BoardResult, BoardResultVerb, BoardTask } from '../types'
 import { elapsedText } from './activity'
+import { type ChatMark, type ChatView, openText, staleFor } from './chat'
 import { isClosedByClaude } from './for-you'
 import { wrappedText } from './frame'
+import { logTime } from './log'
 import type { PaneElements, RowLayout } from './pane'
 import { SIGNALS, type SignalLooks } from './signals'
 import { escaped, isForPerson } from './tasks'
@@ -27,6 +29,8 @@ export type ForYouPress = {
   reject: (id: number, reason: string) => void
   undo: (id: number) => void
   reopen: (id: number) => void
+  keepOpen: (id: number) => void
+  unneeded: (id: number) => void
   clear: () => void
 }
 
@@ -34,6 +38,7 @@ export type ForYouView = {
   list: BoardList
   now: number
   notes: ReadonlyMap<number, string>
+  chat: ChatView
   layout: RowLayout
   press: ForYouPress
 }
@@ -147,14 +152,14 @@ function rowLine(
   const { Text, Button } = elements
   const isWide = elements.bodyColumns >= WIDE_FROM
   const { mark, color } = markOf(task, elements.signals)
-  const isDim = task.isWithdrawn === true
+  const isDim = task.isWithdrawn === true || staleFor(task, view.now, view.chat.kept) !== undefined
   const isOpen = task.result === undefined && !isDim
   const lead = `${mark} ${String(task.id).padStart(idWidth)} `
   const kind = `${(task.kind ?? 'do').padEnd(KIND_WIDTH)}${isWide ? '  ' : ' '}`
   const room = Math.max(elements.bodyColumns - displayWidth(lead) - displayWidth(kind), 1)
   const [first = '', ...rest] = wrappedText(escaped(task.title), room)
   const head = [
-    Text({ color, dimColor: isDim, children: `${mark} ` }),
+    Text({ color, dimColor: task.isWithdrawn === true, children: `${mark} ` }),
     Text({ dimColor: isDim, children: `${String(task.id).padStart(idWidth)} ` }),
     Text({ dimColor: true, children: kind }),
   ]
@@ -346,6 +351,7 @@ const PERSON_PHRASES: Record<BoardResultVerb, string> = {
   answered: 'you answered',
   chose: 'you chose',
   rejected: 'you rejected',
+  dropped: 'you: not needed',
 }
 
 function claudePhrase(result: BoardResult): string {
@@ -509,6 +515,106 @@ function openedLines(elements: PaneElements, task: BoardTask, view: ForYouView) 
   ]
 }
 
+type Labelled = { button: RenderElement; label: string }
+
+function besideButtons(
+  elements: PaneElements,
+  key: string,
+  text: string,
+  buttons: readonly Labelled[],
+): RenderElement[] {
+  const { Box, Text } = elements
+  const room = elements.bodyColumns - UNDER_INDENT
+  const style: TextStyle = { dimColor: true }
+  const width = buttons.reduce(
+    (sum, one) => sum + BUTTON_GAP + displayWidth(one.label) + BUTTON_CHROME,
+    0,
+  )
+  if (displayWidth(text) + width <= room) {
+    return [
+      Box({
+        key,
+        flexDirection: 'row',
+        children: [
+          Box({
+            flexDirection: 'row',
+            flexGrow: 1,
+            flexShrink: 1,
+            children: [Text({ ...style, children: text })],
+          }),
+          ...buttons.map((one) =>
+            Box({ flexShrink: 0, marginLeft: BUTTON_GAP, children: [one.button] }),
+          ),
+        ],
+      }),
+    ]
+  }
+  const lines = packed(
+    buttons.map((one) => one.label),
+    room,
+  )
+  return [
+    ...wrappedLines(elements, text, room, style),
+    ...lines.map((line, index) =>
+      buttonRow(
+        elements,
+        `${key}:${String(index)}`,
+        line.flatMap((at) => buttons[at]?.button ?? []),
+      ),
+    ),
+  ]
+}
+
+function closeLabel(elements: PaneElements, task: BoardTask, mark: ChatMark): string {
+  const option = escaped(task.options?.[mark.option - 1] ?? String(mark.option))
+  const label = `close as ${option}`
+  const room = elements.bodyColumns - UNDER_INDENT
+  return displayWidth(label) + BUTTON_CHROME <= room ? label : `close as ${String(mark.option)}`
+}
+
+function chatLines(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
+  const mark = view.chat.marks.get(task.id)
+  if (mark === undefined || task.kind !== 'decide') return []
+  const id = String(task.id)
+  const closeAs = closeLabel(elements, task, mark)
+  const close = elements.Button({
+    key: `for-chat-close:${id}`,
+    label: closeAs,
+    onPress: () => {
+      view.press.pick(task.id, mark.option)
+    },
+  })
+  const keepLabel = 'still open'
+  const keep = elements.Button({
+    key: `for-chat-open:${id}`,
+    label: keepLabel,
+    onPress: () => {
+      view.press.keepOpen(task.id)
+    },
+  })
+  const text = `answered in chat? you said "${escaped(mark.said)}" · ${logTime(mark.at, false)}`
+  return besideButtons(elements, `chat:${id}`, text, [
+    { button: close, label: closeAs },
+    { button: keep, label: keepLabel },
+  ])
+}
+
+function staleLines(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
+  const open = staleFor(task, view.now, view.chat.kept)
+  if (open === undefined) return []
+  const id = String(task.id)
+  const label = 'not needed'
+  const button = elements.Button({
+    key: `for-unneeded:${id}`,
+    label,
+    onPress: () => {
+      view.press.unneeded(task.id)
+    },
+  })
+  const text = `open ${openText(open)} · still needed?`
+  return besideButtons(elements, `stale:${id}`, text, [{ button, label }])
+}
+
 function withdrawnText(task: BoardTask): string {
   return task.result ? 'withdrawn by Claude · answer sent' : 'withdrawn by Claude'
 }
@@ -526,7 +632,11 @@ function drawTask(
       ? [Text({ dimColor: true, children: withdrawnText(task) })]
       : task.result
         ? settledLines(elements, task, view)
-        : openActions(elements, task, view)
+        : [
+            ...chatLines(elements, task, view),
+            ...staleLines(elements, task, view),
+            ...openActions(elements, task, view),
+          ]
   return Box({
     key: `task:for:${String(task.id)}`,
     flexDirection: 'column',

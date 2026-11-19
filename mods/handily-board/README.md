@@ -477,7 +477,43 @@ For you  ◆ 3 open
 - When you closed a task before Claude closes it, the answer of `task_close` gives Claude your
   result once and changes nothing.
 - While tasks for you are open, each prompt that you type carries one line for Claude that names
-  at most 5 of them, so Claude can close the one that your prompt is about.
+  at most 5 of them, so Claude can close the one that your prompt is about. When your prompt
+  holds an option that 2 or more open decide tasks share, such as `go`, the line names those
+  tasks and tells Claude to ask which one and to close none.
+- When a prompt that you type holds an option of an open decide task, and the turn of Claude
+  ends with the task still open, the row asks `answered in chat?`. The line quotes the line of
+  your prompt that holds the option, and the time of the prompt. The option counts only as a
+  whole word, in any case. Docked at 41 columns:
+
+  ```text
+  ◆ 1 decide  Ship the build?
+      answered in chat? you said "go" ·
+      18:12
+      [ close as go ] [ still open ]
+      [ go ] [ not now ]
+      [ reject ]
+  ```
+
+- `[ close as go ]` is the same press as the option `[ go ]`, so the board sends your choice to
+  Claude at once. `[ still open ]` removes the question until a later prompt holds an option of
+  the task again. A prompt that holds two options of one task asks nothing. An `answer` or
+  `do` task never gets the question. The question is kept in memory only, and `/clear`
+  removes it.
+- A task for you that is open for 2 hours or more draws dim and says how long it is open and
+  `still needed?`, unless a prompt that you typed since Claude asked it names it. A prompt names
+  a task by its number, or by a word of 4 or more letters from its title. `[ not needed ]`
+  closes the task, with `[ undo ]` until your next prompt. That prompt tells Claude once, such
+  as `The person closed task 3 (decide) as not needed.` Until the press, the task counts as
+  open. The board checks the time each time the pane draws, by the board clock.
+
+  ```text
+  ◆ 3 decide  Ship the build?
+      open 2h 10m · still needed?
+      [ not needed ]
+      [ go ] [ not now ]
+      [ reject ]
+  ```
+
 - At the end of a turn in which Claude assigned tasks, one toast names them while the
   `this session` tab is not shown.
 - A subagent cannot assign a task. At most 20 tasks for you are open at a time. The tasks for
@@ -1355,6 +1391,8 @@ Sessions  6 · 2 need you · 1 dead · read 12s ago
   group and has the badge `this`.
 - The first line of a card is the mark, the name, the state word and the age. These four are never
   cut. When they do not fit on one line, the state and the age go on a second line.
+- A session file with no `name`, or a name of only spaces, shows the first 8 characters of its
+  session id as the name.
 - The second line is the project, the vendor and a note: `process gone` for a dead session,
   `last write 3h ago` for a stale one, or `clock ahead`.
 - A session that needs you has a `waits on:` line. The `▸` line is the now text of the session.

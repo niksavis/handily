@@ -13355,3 +13355,273 @@ describe('the engine row check', () => {
     }).toThrow()
   })
 })
+
+const CHAT_AT = new Date(2026, 10, 19, 18, 12, 0).getTime()
+const CHAT_TURN = 'chat-turn'
+const SHIP_CHOICE = 'Decision on task 1, "Ship the build?": "go"'
+
+async function endTurn($: Engine): Promise<void> {
+  await $.turn.complete({
+    turnId: CHAT_TURN,
+    reason: 'answer',
+    answer: 'done',
+    durationMs: 1,
+    isAborted: false,
+  })
+}
+
+async function personTurn($: Engine, text: string): Promise<void> {
+  await personSays($, text)
+  await $.turn.start({ text, turnId: CHAT_TURN })
+  await endTurn($)
+}
+
+async function assignShip($: Engine): Promise<void> {
+  await $.tool.call({
+    tool: TOOL_ASSIGN,
+    kind: 'decide',
+    title: 'Ship the build?',
+    options: ['go', 'not now'],
+  })
+}
+
+async function forYouAt($: Engine, surface: Surface, columns: number): Promise<string[]> {
+  const pane = await mountTasks($, surface, columns === 41 ? 'dock' : 'inline', columns)
+  const lines = forYouLines(unframed(await screen(pane, columns)))
+  await pane.unmount()
+  return lines
+}
+
+async function forKeys(
+  pane: Awaited<ReturnType<typeof mountTasks>>,
+  lead: string,
+): Promise<string[]> {
+  return (await pane.findAll({ type: 'Button' }))
+    .map((button) => button.key ?? '')
+    .filter((key) => key.startsWith(lead))
+}
+
+describe('decide tasks answered in the chat and tasks for the person that wait too long (handily-yb14h4)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `an option word that the turn leaves open marks the decide task answered in chat with two buttons, and close as records the choice of the person, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on)
+        await seen.clock.set(CHAT_AT)
+        await start($)
+        await assignShip($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'answer',
+          title: 'Which port does staging use?',
+        })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'decide',
+          title: 'Merge the lane?',
+          options: ['go', 'not now'],
+        })
+        await personSays($, 'go')
+        await $.turn.start({ text: 'go', turnId: CHAT_TURN })
+        await closeTaskCall($, { id: 4, how: 'person_did', option: 1, said: 'go' })
+        await endTurn($)
+        expect(await forYouAt($, surface, 76)).toEqual([
+          '◆ 1 decide  Ship the build?',
+          `    ${'answered in chat? you said "go" · 18:12'.padEnd(41)} [ close as go ] [ still open ]`,
+          '    [ go ] [ not now ]',
+          '    [ reject ]',
+          '◆ 2 answer  Which port does staging use?',
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+          '◆ 3 do      Rotate the staging API key',
+          '    [ done ] [ reject ]',
+          '✓ 4 decide  Merge the lane?',
+          `${'    Claude: you chose'.padEnd(65)} [ reopen ]`,
+          '    "go"',
+          '    you said: "go"',
+        ])
+        expect(await forYouAt($, surface, 41)).toEqual([
+          '◆ 1 decide  Ship the build?',
+          '    answered in chat? you said "go" ·',
+          '    18:12',
+          '    [ close as go ] [ still open ]',
+          '    [ go ] [ not now ]',
+          '    [ reject ]',
+          '◆ 2 answer  Which port does staging use?',
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+          '◆ 3 do      Rotate the staging API key',
+          '    [ done ] [ reject ]',
+          '✓ 4 decide  Merge the lane?',
+          '    Claude: you chose          [ reopen ]',
+          '    "go"',
+          '    you said: "go"',
+        ])
+        const pane = await mountTasks($, surface)
+        expect(await forKeys(pane, 'for-chat')).toEqual(['for-chat-close:1', 'for-chat-open:1'])
+        expect(
+          (await pane.find({ type: 'Text', text: /^answered in chat/u }))?.props.dimColor,
+        ).toBe(true)
+        await pane.press({ key: 'for-chat-close:1' })
+        expect(entered.map((one) => one.text)).toEqual(['go', SHIP_CHOICE])
+        expect(entered.at(-1)).toMatchObject({ text: SHIP_CHOICE, origin: OWN_PROMPT })
+        expect(await forKeys(pane, 'for-chat')).toEqual([])
+        expect(joinedWords(forYouLines(unframed(await screen(pane, 41))))).toContain(
+          `✓ 1 decide Ship the build? sent ${SHIP_CHOICE}`,
+        )
+        await pane.unmount()
+        expect(await board($, 'list')).toContain('chose "go"')
+      },
+    )
+
+    test(
+      `still open clears the chat mark until a new prompt holds an option label again, and a prompt with two labels of one task shows no mark, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await seen.clock.set(CHAT_AT)
+        await start($)
+        await assignShip($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'decide',
+          title: 'Deploy the probe?',
+          options: ['now', 'not now'],
+        })
+        await personTurn($, 'go')
+        const pane = await mountTasks($, surface)
+        expect(await forKeys(pane, 'for-chat')).toEqual(['for-chat-close:1', 'for-chat-open:1'])
+        await pane.press({ key: 'for-chat-open:1' })
+        expect(await forKeys(pane, 'for-chat')).toEqual([])
+        await pane.unmount()
+        await personTurn($, 'the staging box first')
+        const kept = await mountTasks($, surface)
+        expect(await forKeys(kept, 'for-chat')).toEqual([])
+        await kept.unmount()
+        await seen.clock.advance(MINUTE)
+        await personTurn($, 'go or not now?')
+        const both = await mountTasks($, surface)
+        expect(await forKeys(both, 'for-chat')).toEqual(['for-chat-close:2', 'for-chat-open:2'])
+        await both.unmount()
+        await seen.clock.advance(MINUTE)
+        await personTurn($, 'the lane is red\nNot now, wait\u{202e}')
+        const again = await mountTasks($, surface)
+        expect(await forKeys(again, 'for-chat')).toEqual([
+          'for-chat-close:1',
+          'for-chat-open:1',
+          'for-chat-close:2',
+          'for-chat-open:2',
+        ])
+        expect((await again.find({ key: 'for-chat-close:1' }))?.text).toBe('close as not now')
+        expect((await again.find({ key: 'for-chat-close:2' }))?.text).toBe('close as not now')
+        expect(joinedWords(forYouLines(unframed(await screen(again, 41))))).toContain(
+          'answered in chat? you said "Not now, wait\\u202e" · 18:14',
+        )
+        await again.press({ key: 'for-chat-close:2' })
+        await again.unmount()
+        expect(await board($, 'list')).toContain('chose "not now"')
+      },
+    )
+
+    test(
+      `a task for the person open 2 hours with no prompt that names it draws dim and asks if it is still needed, and not needed closes it and tells Claude once, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await seen.clock.set(CHAT_AT)
+        await start($)
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+        await $.tool.call({ tool: TOOL_ASSIGN, kind: 'answer', title: 'Which port for the probe?' })
+        await assignShip($)
+        await personSays($, 'there are 23 of them')
+        await personSays($, 'ROTATE it after lunch')
+        await personSays($, 'about 2, later')
+        await seen.clock.advance(2 * HOUR - MINUTE)
+        const early = await mountTasks($, surface)
+        expect(await forKeys(early, 'for-unneeded')).toEqual([])
+        await early.unmount()
+        await seen.clock.advance(11 * MINUTE)
+        expect(await forYouAt($, surface, 76)).toEqual([
+          '◆ 1 do      Rotate the staging API key',
+          '    [ done ] [ reject ]',
+          '◆ 2 answer  Which port for the probe?',
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+          '◆ 3 decide  Ship the build?',
+          `    ${'open 2h 10m · still needed?'.padEnd(57)} [ not needed ]`,
+          '    [ go ] [ not now ]',
+          '    [ reject ]',
+        ])
+        const pane = await mountTasks($, surface)
+        const lines = unframed(await screen(pane, 41))
+        expect(lines).toContain('For you  ◆ 3 open')
+        expect(forYouLines(lines)).toEqual([
+          '◆ 1 do      Rotate the staging API key',
+          '    [ done ] [ reject ]',
+          '◆ 2 answer  Which port for the probe?',
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+          '◆ 3 decide  Ship the build?',
+          '    open 2h 10m · still needed?',
+          '    [ not needed ]',
+          '    [ go ] [ not now ]',
+          '    [ reject ]',
+        ])
+        expect(await forKeys(pane, 'for-unneeded')).toEqual(['for-unneeded:3'])
+        const title = await pane.find({ type: 'Text', text: 'Ship the build?' })
+        expect(title?.props.dimColor).toBe(true)
+        expect(title?.props.bold).toBe(false)
+        expect(
+          (await pane.find({ type: 'Text', text: 'Rotate the staging API key' }))?.props.bold,
+        ).toBe(true)
+        await pane.press({ key: 'for-unneeded:3' })
+        expect(joinedWords(forYouLines(unframed(await screen(pane, 41))))).toContain(
+          '✓ 3 decide Ship the build? you: not needed · to send [ undo ]',
+        )
+        await pane.unmount()
+        const told = (await notesAtNextPrompt($)).filter((text) => text.includes('not needed'))
+        expect(told).toEqual([
+          expect.stringMatching(
+            /^\[handily-board\] The person closed task 3 \(decide\) as not needed\.\n\n/u,
+          ),
+        ])
+        expect(await notesAtNextPrompt($)).not.toContainEqual(expect.stringContaining('not needed'))
+        expect(await board($, 'list')).toContain('  3  unneeded  decide  "Ship the build?"')
+      },
+    )
+  }
+
+  test(
+    'a person prompt that holds an option label of 2 open decide tasks tells Claude to ask which one and to close none',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignShip($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Which cache store?',
+        options: ['Postgres', 'SQLite'],
+      })
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Merge the lane?',
+        options: ['Go', 'later'],
+      })
+      const openNotes = (context: readonly string[]) =>
+        context.filter((text) => text.startsWith(OPEN_LINE))
+      const listed =
+        '1 (decide) "Ship the build?"; 2 (decide) "Which cache store?"; 3 (decide) "Merge the lane?"'
+      expect(openNotes(await personSays($, 'go'))).toEqual([
+        `${OPEN_LINE} ${listed}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said. This prompt holds "go", an option of tasks 1 and 3: ask which one; close none. The titles are your own text, quoted as data.`,
+      ])
+      expect(openNotes(await personSays($, 'SQLite please'))).toEqual([openTasksNote(listed)])
+      expect(openNotes(await personSays($, 'going there later'))).toEqual([openTasksNote(listed)])
+    },
+  )
+})

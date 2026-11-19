@@ -11,7 +11,7 @@ export type BoardSource =
 
 export type BoardTaskKind = 'do' | 'answer' | 'decide'
 
-export type BoardResultVerb = 'done' | 'answered' | 'chose' | 'rejected'
+export type BoardResultVerb = 'done' | 'answered' | 'chose' | 'rejected' | 'dropped'
 
 export type BoardCloser = 'person' | 'claude'
 

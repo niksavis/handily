@@ -56,6 +56,7 @@ import {
   personReject,
   personReopen,
   personUndo,
+  personUnneeded,
   sendAnswer,
 } from './for-you'
 import { drawForYou } from './for-you-view'
@@ -992,6 +993,12 @@ function forYouPress(host: TaskHost, ui: PaneUi, act: Act, now: number) {
     reopen: (id: number) => {
       settle(id, () => personReopen(host, id))
     },
+    keepOpen: (id: number) => {
+      ui.keepChatOpen(id)
+    },
+    unneeded: (id: number) => {
+      settle(id, () => personUnneeded(host, id, now))
+    },
     clear: () => {
       act(async () => (await personClear(host)).toastParts)
     },
@@ -1037,6 +1044,7 @@ export async function drawPane(
     list: all,
     now: work.now,
     notes: ui.notes(),
+    chat: ui.chat(),
     layout,
     press: forYouPress(host, ui, act, work.now),
   })
