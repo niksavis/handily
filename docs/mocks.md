@@ -957,6 +957,8 @@ Agent call). It is drawn as doing, `on hold`, not as needs you.
 
 #### 8.1b Docked, body 41, "this machine"
 
+Superseded by 8.17 (handily-s3yqhr): the this machine tab reads the session store.
+
 ```text
 ╭─────────────────────────────────────────✕─╮
 │ this session  [this machine]              │  (engine tab row)
@@ -1147,6 +1149,8 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 
 #### 8.2f Docked, body 41, "this machine": 4 sessions, one with 6 agents, one waits for you
 
+Superseded by 8.17 (handily-s3yqhr): the this machine tab reads the session store.
+
 ```text
 ╭─────────────────────────────────────────✕─╮
 │ this session  [this machine]              │  (engine tab row)
@@ -1239,6 +1243,8 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 
 ### 8.4 Inline above the prompt, 80 columns (body 76)
 
+The this machine half is superseded by 8.17 (handily-s3yqhr).
+
 ```text
 ╭────────────────────────────────────────────────────────────────────────────✕─╮
 │ [this session]  this machine                                                 │  (engine tab row)
@@ -1279,6 +1285,8 @@ fold button goes away with the last done task. A folded done group shows no `[ c
 - `inter`/`bg` are the short badges inline; docked uses `interactive`/`background` (session-board README).
 
 ### 8.5 Empty, loading, stale and error states (body 41)
+
+The this machine states are superseded by 8.17 (handily-s3yqhr).
 
 "this session":
 
@@ -1861,6 +1869,8 @@ in all. Each line is as wide as its frame: body 41, 30, 89 or 76. No line is wid
 ```
 
 #### 8.10o The this machine tab, body 41: the card of this session with a high context
+
+Superseded by 8.17 (handily-s3yqhr): the this machine tab reads the session store.
 
 ```text
 ╭─────────────────────────────────────────✕─╮
@@ -2472,6 +2482,8 @@ wraps every title in full (8.12g); this inline layout is not built.
 
 #### 8.12l This machine card (built in handily-nvtbc)
 
+Superseded by 8.17 (handily-s3yqhr): the this machine tab reads the session store.
+
 ```text
 ╭─────────────────────────────────────────✕─╮
 │ this session  [this machine]              │  (engine tab row)
@@ -2987,6 +2999,8 @@ too. A jump from below 80 to 95 percent or more shows only the 95 percent toast.
 
 ### 8.16 The Inbox on the this machine tab (handily-fwkt.8.28)
 
+Superseded by 8.17 (handily-s3yqhr): the this machine tab reads the session store.
+
 The F1 draft mocks of 2026-11-12, at 80 and 40 columns, are not in this repository. The blocks
 below are the text that the board tests assert, not the draft. The rules and the limits are in
 docs/design.md section 4.9, under "The Inbox".
@@ -3131,6 +3145,498 @@ Inbox  2 wait in 2 sessions · read 12s ago
   nothing and a second one shows the tab.
 - Upgrade: removing the old plugins without aliases leaves `/task` users with an unknown command; only
   the release note tells them.
+
+### 8.17 The session store reader on the this machine tab (handily-s3yqhr, approved 2026-11-19)
+
+The design of the designer agent, with the decisions of the orchestrator of 2026-11-19 15:35 and
+15:48 UTC (dev-j6oqo). It supersedes 8.1b, 8.2f, the this machine half of 8.4, 8.5, 8.10o, the
+this machine card of 8.12l and 8.16. `d41` is a dock with body 41, `i76` and `i36` are inline
+bodies. A note at the right of a frame is not drawn. The test captures in
+`mods/handily-board/machine.test.ts` are the drawn form. The state "the output passed 4 MiB" of the
+draft belonged to a read through the process runner and is not built, because the tab reads with
+`$.fs`.
+
+#### 8.17 d41-nosetting
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions                                  │
+│ No store folder is set. Set the           │
+│ handily-board option store in /config     │
+│ to the folder that holds sessions/        │
+│ and asks/.                                │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-missing
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions                                  │
+│ The store folder is missing:              │
+│ ~/work/.orch                              │
+│ Check the option store in /config.        │
+│   retry in 15s                            │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-loading
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions                                  │
+│ Reading the store…                        │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-empty
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  0 · 12s                         │
+│ No session has written to the store.      │
+│ No ask is open.                           │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-full
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  6 · 2 need you · 1 dead · 12s   │
+│ ◆ decide  handily-s3yqhr               6m │
+│   Release handily-board 0.24.0?           │
+│   options: go | not now                   │
+│   answer in the Orchestrator window       │
+│ ───────────────────────────────────────── │
+│ ◆ api-login  needs you                 2m │
+│   api · claude                            │
+│   waits on: owner go for the 0.24.0 re…   │
+│ ───────────────────────────────────────── │
+│ ■ old-lane  dead                      25m │
+│   handily · claude · process gone         │
+│   ▸ runs npm run check · 25m old          │
+│ ───────────────────────────────────────── │
+│ ▶ dev  this  working                   1m │
+│   development · claude                    │
+│   ▸ builds the work overview              │
+│   next: rehearsal 7c after 16:20          │
+│ ───────────────────────────────────────── │
+│ ▶ lane-b  working                      4m │
+│   handily · codex                         │
+│   ▸ writes the store reader               │
+│ ───────────────────────────────────────── │
+│ ○ docs-pass  quiet                    40m │
+│   docs · claude                           │
+│   ▸ reviewed the README · 40m old         │
+│ ───────────────────────────────────────── │
+│ ? scout  stale                         3h │
+│   app · claude · last write 3h ago        │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-orch-before
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  6 · 2 need you · 1 dead · 12s   │
+│ ◆ decide  handily-s3yqhr               6m │
+│   Release handily-board 0.24.0?           │
+│   [ go ]  [ not now ]                     │  focus: Tab reaches [ go ] first
+│   a press fills the prompt box with       │
+│   "handily-s3yqhr: go"; Enter sends it    │
+│ ───────────────────────────────────────── │
+│ ◆ api-login  needs you                 2m │
+│   …                                       │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-orch-pressed
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ◆ decide  handily-s3yqhr               6m │
+│   Release handily-board 0.24.0?           │
+│   [ go ]  [ not now ]                     │  [ go ] pressed; focus stays on it
+│   in your prompt box, not sent:           │  dim
+│   handily-s3yqhr: go                      │  the exact text
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-orch-refused
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ◆ decide  handily-s3yqhr               6m │
+│   Release handily-board 0.24.0?           │
+│   [ go ]  [ not now ]                     │
+│   ■ not filled: a dialog holds the keys.  │  ■ and "not filled:" in error
+│   Type it: handily-s3yqhr: go             │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-noopts
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ◆ decide  handily-ab12                 1h │
+│   Which region should the probe use?      │
+│   [ answer ]                              │  Orchestrator window only
+│   a press fills "handily-ab12: " and      │
+│   you type the rest                       │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-closed
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  6 · 1 needs you · 1 dead · 12s  │
+│ ✓ approved  handily-s3yqhr             3m │  whole row dim, ✓ in success
+│   Release handily-board 0.24.0?           │
+│ ───────────────────────────────────────── │
+│ ○ withdrawn  handily-ab12             40m │  whole row dim
+│   Which region should the probe use?      │
+│ ───────────────────────────────────────── │
+│ ◆ api-login  needs you                 2m │
+│   …                                       │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-staleask
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ? old ask  handily-cd34                2d │  whole row dim
+│   Merge the lane? (open, not counted)     │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-bad
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  3 · 12s                         │
+│ ▶ dev  this  working                   1m │
+│   …                                       │
+│ ───────────────────────────────────────── │
+│ ■ 3 files not read; the debug log has     │  ■ and "files not read" in error
+│   each reason                             │
+│   a1b2c3d4.json: not JSON                 │  dim
+│   e5f6a7b8.json: over 16 KiB              │  dim
+│   9c0d1e2f.json: id is not the file name  │  dim
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-many
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  64 · 3 need you · 2 dead · 12s  │
+│ ◆ decide  handily-s3yqhr               6m │
+│   …                                       │
+│ ───────────────────────────────────────── │
+│ ◆ api-login  needs you                 2m │
+│   …                                       │
+│ ───────────────────────────────────────── │
+│ ◆ lane-c7  needs you                   9m │
+│   …                                       │
+│ ───────────────────────────────────────── │
+│ ■ old-lane  dead                      25m │
+│   …                                       │
+│ ───────────────────────────────────────── │
+│ ■ lane-a3  dead                        2h │
+│   …                                       │
+│ ───────────────────────────────────────── │
+│ ▶ dev  this  working                   1m │
+│   …                                       │  the fold: one Button, key machine:more
+│ [ +58 · 4 working · 9 quiet · 45 stale ]  │  dim; only past the file limit
+│ 120 files over the limit of 200 not read  │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-many-open
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ …                                         │
+│ ? scout  stale                         3h │
+│   app · claude · last write 3h ago        │
+│ [ hide 58 ]                               │  focus stays on the fold
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-failed
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  6 · 2m                          │  age of the last good read
+│ The store was not read: permission        │
+│ denied. The debug log names the file.     │
+│   retry in 15s                            │
+│ Showing the read of 2m ago.               │  warning colour
+│ ◆ api-login  needs you                 2m │  mark and word dim, not warning
+│   …                                       │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-nolive
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions  4 · 1 needs you · 12s           │
+│ No process check on this system;          │  dim, once under the head
+│ a session that ended shows as stale.      │
+│ ◆ api-login  needs you                 2m │
+│   …                                       │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-desktop
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ Sessions                                  │
+│ The store is read only in a terminal      │
+│ session.                                  │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 d41-escape
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ ▶ lane\u0000a1  working                4m │
+│   handily · claude                        │
+│   ▸ Ship\u2066 it\u001b[31m               │
+╰───────────────────────────────────────────╯
+```
+
+#### 8.17 i76-full
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Sessions  6 · 2 need you · 1 dead · read 12s ago                             │
+│ ◆ decide     handily-s3yqhr               Release handily-board 0.24.0?   6m │
+│     options: go | not now · answer in the Orchestrator window                │
+│ ◆ api-login  needs you       api          waits on: owner go for the 0.…  2m │
+│ ■ old-lane   dead            handily      process gone · ▸ runs npm run… 25m │
+│ ▶ dev        this · working  development  ▸ builds the work overview      1m │
+│     next: rehearsal 7c after 16:20                                           │
+│ ▶ lane-b     working         handily      ▸ writes the store reader · c…  4m │
+│ ○ docs-pass  quiet           docs         ▸ reviewed the README · 40m o… 40m │
+│ ? scout      stale           app          last write 3h ago               3h │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-orch
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Sessions  6 · 2 need you · 1 dead · read 12s ago                             │
+│ ◆ decide     handily-s3yqhr               Release handily-board 0.24.0?   6m │
+│     [ go ]  [ not now ]  a press fills "handily-s3yqhr: go"; Enter sends it  │
+│ …                                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-orch-pressed
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ ◆ decide     handily-s3yqhr               Release handily-board 0.24.0?   6m │
+│     [ go ]  [ not now ]  in your prompt box, not sent: handily-s3yqhr: go    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-closed
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ ✓ approved   handily-s3yqhr               Release handily-board 0.24.0?   3m │
+│ ○ withdrawn  handily-ab12                 Which region should the probe… 40m │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-nosetting
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Sessions                                                                     │
+│ No store folder is set. Set the handily-board option store in /config to     │
+│ the folder that holds sessions/ and asks/.                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-missing
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Sessions                                                                     │
+│ The store folder is missing: ~/work/.orch                                    │
+│ Check the option store in /config.  retry in 15s                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-empty
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Sessions  0 · read 12s ago                                                   │
+│ No session has written to the store. No ask is open.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-bad
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Sessions  3 · read 12s ago                                                   │
+│ ▶ dev        this · working  development  ▸ builds the work overview      1m │
+│ ■ 3 files not read: a1b2c3d4.json not JSON · e5f6a7b8.json over 16 KiB · …   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i76-many
+
+```text
+╭────────────────────────────────────────────────────────────────────────────✕─╮
+│ Sessions  64 · 3 need you · 2 dead · read 12s ago                            │
+│ ◆ decide     handily-s3yqhr               Release handily-board 0.24.0?   6m │
+│ ◆ api-login  needs you       api          waits on: owner go for the 0.…  2m │
+│ ◆ lane-c7    needs you       app          waits on: a plan approval       9m │
+│ ■ old-lane   dead            handily      process gone                   25m │
+│ ■ lane-a3    dead            handily      process gone                    2h │
+│ ▶ dev        this · working  development  ▸ builds the work overview      1m │
+│ [ +58 more · 4 working · 9 quiet · 45 stale ]                                │
+│ 120 files over the limit of 200 not read                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### 8.17 i36-full
+
+```text
+╭────────────────────────────────────✕─╮
+│ Sessions  6 · 2 need you · 1 dead    │  the read age drops first
+│ ◆ decide  handily-s3yqhr          6m │
+│   Release handily-board 0.24.0?      │
+│   options: go | not now              │
+│   answer in the Orchestrator         │
+│ ──────────────────────────────────── │
+│ ◆ api-login  needs you            2m │
+│   api · claude                       │
+│   waits on: owner go for the 0.2…    │
+│ ──────────────────────────────────── │
+│ ■ old-lane  dead                 25m │
+│   handily · claude · process gone    │
+│   ▸ runs npm run check · 25m old     │
+│ ──────────────────────────────────── │
+│ ▶ dev  this  working              1m │
+│   development · claude               │
+│   ▸ builds the work overview         │
+│   next: rehearsal 7c after 16:20     │
+│ ──────────────────────────────────── │
+│ ▶ lane-b  working                 4m │
+│   handily · codex                    │
+│   ▸ writes the store reader          │
+│ ──────────────────────────────────── │
+│ ○ docs-pass  quiet               40m │
+│   docs · claude                      │
+│   ▸ reviewed the README · 40m old    │
+│ ──────────────────────────────────── │
+│ ? scout  stale                    3h │
+│   app · claude · last write 3h ago   │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-orch
+
+```text
+╭────────────────────────────────────✕─╮
+│ ◆ decide  handily-s3yqhr          6m │
+│   Release handily-board 0.24.0?      │
+│   [ go ]  [ not now ]                │
+│   a press fills the prompt box;      │
+│   Enter sends it                     │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-orch-pressed
+
+```text
+╭────────────────────────────────────✕─╮
+│ ◆ decide  handily-s3yqhr          6m │
+│   Release handily-board 0.24.0?      │
+│   [ go ]  [ not now ]                │
+│   in your prompt box, not sent:      │
+│   handily-s3yqhr: go                 │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-closed
+
+```text
+╭────────────────────────────────────✕─╮
+│ ✓ approved  handily-s3yqhr        3m │
+│   Release handily-board 0.24.0?      │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-nosetting
+
+```text
+╭────────────────────────────────────✕─╮
+│ Sessions                             │
+│ No store folder is set. Set the      │
+│ handily-board option store in        │
+│ /config to the folder that holds     │
+│ sessions/ and asks/.                 │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-missing
+
+```text
+╭────────────────────────────────────✕─╮
+│ Sessions                             │
+│ The store folder is missing:         │
+│ ~/work/.orch                         │
+│ Check the option store in /config.   │
+│   retry in 15s                       │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-empty
+
+```text
+╭────────────────────────────────────✕─╮
+│ Sessions  0                          │
+│ No session has written to the        │
+│ store. No ask is open.               │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-bad
+
+```text
+╭────────────────────────────────────✕─╮
+│ ■ 3 files not read; the debug log    │
+│   has each reason                    │
+│   a1b2c3d4.json: not JSON            │
+│   e5f6a7b8.json: over 16 KiB         │
+│   9c0d1e2f.json: id is not the fi…   │
+╰──────────────────────────────────────╯
+```
+
+#### 8.17 i36-many
+
+```text
+╭────────────────────────────────────✕─╮
+│ Sessions  64 · 3 need you · 2 dead   │
+│ …                                    │
+│ [ +58 · 4 working · 9 quiet · 45… ]  │
+╰──────────────────────────────────────╯
+```
 
 ## 9. handily-reply-view: tables, code and diagrams (approved 2026-10-27)
 

@@ -1,8 +1,8 @@
 # handily-board
 
 `board` shows your work in one pane at a time. The `this session` pane shows the task list
-that Claude and you share. The `this machine` pane shows a card for each Claude Code session on
-this machine, and the session that waits for you comes first. Claude keeps
+that Claude and you share. The `this machine` pane reads a session store folder and shows the open owner
+asks and a card for each session in it. Claude keeps
 its plan in the list through four model tools. You see the list and change it with `/board`, or
 on the board. A fifth tool, `finding_add`, lists what Claude found outside the task, and you
 file, fix or dismiss each finding.
@@ -320,7 +320,7 @@ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
 - The first rows are the Session section. A later section describes it.
 - In the `widget` placement, the small form of a minimized pane on the desktop app, the tab
   draws the `Tasks` head line alone and no button, because a click may not reach a widget. The
-  `this machine` tab draws its `Inbox` head and its `Sessions` head line there.
+  `this machine` tab draws its `Sessions` head line there.
 - The header shows a bar, the done count of all tasks, the counts of the tasks in progress
   (`▶`) and pending (`○`), and the time since the first tool call of the main loop. The bar
   has one cell for each task, at most 8. Its cells are done in `success`, in progress in
@@ -481,8 +481,7 @@ For you  ◆ 3 open
 - At the end of a turn in which Claude assigned tasks, one toast names them while the
   `this session` tab is not shown.
 - A subagent cannot assign a task. At most 20 tasks for you are open at a time. The tasks for
-  you count against the limit of 100 tasks. The `Tasks` header and the this machine card count
-  only the other tasks.
+  you count against the limit of 100 tasks. The `Tasks` header counts only the other tasks.
 - The open rows and the unfolded groups are kept in `$.state` under `expanded`. `/clear`
   closes them.
 
@@ -867,7 +866,7 @@ It also sets the line while the session waits on background work:
   which tab is shown every 10 seconds while a tab is open, so a switch to `this machine` shows the
   line within 10 seconds.
 - The call target is masked as in the permission checks.
-- The kind of the wait comes from the same rule as the Inbox, `askWait` in `hooks/waits.ts`. An
+- The kind of the wait comes from one rule, `askSight` in `hooks/waits.ts`. An
   `AskUserQuestion` ask reads `asks a question` with the first question, and an `ExitPlanMode`
   ask reads `waits` with the tool name. Two or more waits that are not all tool permissions read
   `wait for you`. The line says `permission` only for a tool permission.
@@ -1297,237 +1296,153 @@ and the band draws even with no open task. Captures from the tests, at a band bo
 
 ## The this machine tab
 
-The tab shows the Inbox and a card for each Claude Code session on this machine. A capture from
-the tests, docked at 41 columns:
+The tab reads the session store: a folder that another tool writes, with one JSON file for each
+session and one for each open owner ask. The tab lists the open asks first and then every
+session with its state. The board reads the store and never writes it. A capture from the
+tests, docked at 41 columns:
 
 ```text
-Inbox  1 wait · 1 session · 12s
-◆ api-login waits                       —
-  permission prompt
-Sessions  4 · 1 needs you · 12s ago
-◆ api-login  interactive  needs you
-  waits for: permission prompt
-  ▶ Fix the login redirect ▰▰▱ 2/3
-  api · feat/login · 2h worked
+Sessions  6 · 2 need you · 1 dead · 12s
+◆ decide  handily-s3yqhr               6m
+  Release handily-board 0.24.0?
+  options: go | not now
+  answer in the Orchestrator window
 ─────────────────────────────────────────
-▶ mocks  interactive  this  busy
-  ▶ Write the tab mocks ▰▱▱▱ 1/4
-  app · main · 14m worked · est. 30m left
-  agents 3 · 1 failed
+◆ api-login  needs you                 2m
+  api · claude
+  waits on: owner go for the 0.24.0 rele…
 ─────────────────────────────────────────
-▶ lane-a1  background  working
-  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6
-  app.wt/lane-a1 · lane/a1 · 22m worked
+■ old-lane  dead                      25m
+  handily · claude · process gone
+  ▸ runs npm run check · 25m old
 ─────────────────────────────────────────
-✓ docs-pass  background  done
-  docs · main · ended
-1 older background job hidden
+▶ dev  this  working                   1m
+  development · claude
+  ▸ builds the work overview
+  next: rehearsal 7c after 16:20
+─────────────────────────────────────────
+▶ lane-b  working                      4m
+  handily · codex
+  ▸ writes the store reader
+─────────────────────────────────────────
+○ docs-pass  quiet                    40m
+  docs · claude
+  ▸ reviewed the README · 40m old
+─────────────────────────────────────────
+? scout  stale                         3h
+  app · claude · last write 3h ago
 ```
 
-- The header counts the cards, the sessions that need you and the failed ones, and says how old
-  the list is.
-- The cards sort by attention: a session that needs you, then failed, working, waiting, idle and
-  ended.
-  This session goes first in its own group, not first overall.
-- The first line of a card is the mark, the name, the `interactive` or `background` badge,
-  `this` on this session, and the state.
-
-  | Mark | State                                                       | Colour       |
-  | ---- | ----------------------------------------------------------- | ------------ |
-  | `◆`  | `needs you`: a `waitingFor` value, or `waiting`, `blocked`  | `warning`    |
-  | `■`  | `failed`                                                    | `error`      |
-  | `▶`  | `busy`, `working`                                           | `claude`     |
-  | `◷`  | `waiting 3m`: idle, and the board published background work | `suggestion` |
-  | `○`  | `idle`, or a word the board does not know                   | `subtle`     |
-  | `✓`  | `done`, `stopped`                                           | `success`    |
-
-- A session that needs you has a `waits for:` line with its `waitingFor` value. With no value,
-  the line says `waits for: an answer`.
-- A waiting session has an `in background:` line with the oldest item, such as
-  `in background: shell Watch the CI run`, and `+1 more` for the rest. Only a session that runs
-  the board and publishes its background work shows waiting. Claude Code reports such a session
-  as idle, and a session without the board keeps the engine word. The Inbox does not list
-  background work.
-- The task line shows the current task, a bar and the done count. The bar has one cell per task,
-  at most 8. With more tasks, each cell is a share. A session that runs the board with an empty
-  list shows `no tasks`. A session without the board has no task line.
-- The place line is the worktree, the branch and the time. The time is `worked` for a session
-  that runs the board: the sum of its turns. Other sessions show the time `elapsed` since they
-  started. `est. <time> left` follows when the board has an estimate.
-- A session that runs the board with a context of 80 percent or more gets a context line under
-  the place line: the percent with the word `high` in the theme colour `warning`, and the cost
-  of the session. Under 80 percent, the card has no context line. Inline, the line is under the
-  row. A capture from the tests, docked at 41 columns:
-
-  ```text
-  ▶ mocks  interactive  this  busy
-    ▶ Write the tab mocks ▰▱▱▱ 1/4
-    app · main · 14m worked · est. 30m left
-    ctx 91% high · $12.40
-    agents 3 · 1 failed
-  ```
-
-- This session's card reads the task list, the time worked and the agents of this session, not
-  the poll. Its `agents` line counts the agents that did not end, and the failed ones.
-- A card of another session that has not ended, with a key that is not stale and lists agents,
-  has an `agents` line and at most 4 agent rows: the mark, the name, the current task and the
-  done count. An agent that has no task list shows `no tasks`. A failed agent has the mark `■`.
-  The other agents fold into a `+N more agents` button, which adds `· N need you` when a hidden
-  agent needs you. A capture from the tests, docked at 41 columns:
-
-  ```text
-  agents 6 · 1 needs you · 1 failed
-  ◆ scout         needs you         4/9
-  ▶ Explore       Map the hooks     2/5
-  ▶ tester        Run the unit te…  0/1
-  ▶ reviewer      Review board.tsx  1/3
-  [ +2 more agents ]
-  ```
-
-- An agent name on a card keeps up to 12 characters. A longer name keeps its first 4 and its last
-  7 characters around `…`, such as `gene…purpose`. The task text is cut first. At 30 columns,
-  `▶ gene…purpose Write…  1/4` keeps the whole name.
-
-- The rows that need you come first. No source marks an agent as one that needs you yet; the
-  board reads a `needsYou` flag in the store key when one is there.
-- A background session whose state has not changed for over 24 hours is hidden, and a footer
-  counts it.
-- Below 36 columns, the badge, the age of the list and the words `worked` and `elapsed` drop.
-- Inline above the prompt, from 60 columns, each session is one row: the name, `inter` or `bg`,
-  the state, the place, the task count and the time. A name of more than 9 characters keeps its
-  first 4 and last 4 characters. The agents of another session fold into one `N agents` button
-  under the row. Pressed, it shows the agent rows and becomes `hide N agents`.
-
-### The Inbox
-
-The Inbox at the top of the tab lists what waits for you in the other sessions of this machine. A
-capture from the tests, inline at 76 columns:
+The same store inline above the prompt at 76 columns:
 
 ```text
-Inbox  3 wait in 2 sessions · read 12s ago
-◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m
-◆ lane-a1      permission  scout: Edit hooks/band.ts                     40s
-◆ lane-a1      decide      Release handily-board 0.23.0?                  6m
+Sessions  6 · 2 need you · 1 dead · read 12s ago
+◆ decide     handily-s3yqhr               Release handily-board 0.24.0?   6m
+    options: go | not now · answer in the Orchestrator window
+◆ api-login  needs you       api          waits on: owner go for the 0.…  2m
+■ old-lane   dead            handily      process gone · ▸ runs npm run… 25m
+▶ dev        this · working  development  ▸ builds the work overview      1m
+    next: rehearsal 7c after 16:20
+▶ lane-b     working         handily      ▸ writes the store reader · c…  4m
+○ docs-pass  quiet           docs         ▸ reviewed the README · 40m o… 40m
+? scout      stale           app          last write 3h ago               3h
 ```
 
-Below 60 columns, the detail goes on a second line. When a row does not fit, the session name
-shortens and the age stays whole. The same waits, docked at 41 columns:
+- The header counts the sessions, the asks and sessions that need you, the dead sessions, and
+  the age of the read. Below 36 columns, or when it does not fit, the age drops first.
+- Asks come first: `decide`, then `old ask`, `approved` and `withdrawn`. Sessions follow by
+  state: `needs you`, `dead`, `working`, `quiet` and `stale`. This session goes first in its
+  group and has the badge `this`.
+- The first line of a card is the mark, the name, the state word and the age. These four are never
+  cut. When they do not fit on one line, the state and the age go on a second line.
+- The second line is the project, the vendor and a note: `process gone` for a dead session,
+  `last write 3h ago` for a stale one, or `clock ahead`.
+- A session that needs you has a `waits on:` line. The `▸` line is the now text of the session.
+  A now text older than 15 minutes shows its own age, such as `· 25m old`. The `next:` line
+  is the next text. Below 30 columns, the `next:` line drops.
+- Inline from 60 columns, each session is one row: the name, the state, the project, the detail
+  and the age. The `next:` line goes under the row. When the names are too long for a row, the
+  tab draws the cards.
+- The board escapes each control and bidi character in a text from a file.
 
-```text
-Inbox  3 wait · 2 sessions · 12s
-◆ api-login permission                 2m
-  Claude: Bash npm test --workspace mods…
-◆ lane-a1 permission                  40s
-  scout: Edit hooks/band.ts
-◆ lane-a1 decide                       6m
-  Release handily-board 0.23.0?
-```
+| Mark | Word                    | Colour    |
+| ---- | ----------------------- | --------- |
+| `◆`  | `decide`, `needs you`   | `warning` |
+| `■`  | `dead`, a file not read | `error`   |
+| `▶`  | `working`               | `claude`  |
+| `○`  | `quiet`, `withdrawn`    | `subtle`  |
+| `?`  | `stale`, `old ask`      | `subtle`  |
+| `✓`  | `approved`              | `success` |
 
-- A row is the session name, the kind, the detail and the age. The name comes from
-  `claude agents`. A session with no name shows the last folder of its path.
+### Asks
 
-  | Kind                       | Source                                                                  | Detail                                       |
-  | -------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
-  | `permission`               | a permission ask of that session with no decision after 3 seconds       | the agent, the tool and the masked target    |
-  | `question`                 | an `AskUserQuestion` ask of that session with no answer after 3 seconds | the first question, masked, or the tool name |
-  | `waits`                    | an `ExitPlanMode` ask of that session with no decision after 3 seconds  | `ExitPlanMode`                               |
-  | `decide`, `answer` or `do` | an open task for you in that session                                    | the task title                               |
-  | `waits`                    | a session that needs you in `claude agents` and publishes no board wait | the `waitingFor` text, or `an answer`        |
+An ask file names a tracker record, a question and up to 4 options. An open ask under 24 hours
+shows `decide` and counts in the header. An open ask of 24 hours or more shows `old ask` with
+`(open, not counted)`. A closed ask shows `approved` or `withdrawn`, dim, for 1 hour, and
+then drops.
 
-- The rows sort by kind: `permission`, `question`, `waits`, `decide`, `answer`, then `do`.
-  Inside a kind, the oldest wait comes first.
-- The Inbox shows at most 5 rows. A fold button counts the rest by kind, such as
-  `+3 more · 1 decide · 2 do`. Pressed, it shows all rows and becomes `hide N more`. Waits that
-  the other session could not keep in its store key show as `N more over the store limit`.
-- The fold is the only button. No row answers a permission prompt or a question. Go to that
-  session to answer it.
-- When nothing waits, the head reads `nothing waits`, the count of the other sessions and the
-  age of the list, such as `Inbox  nothing waits · 3 sessions · read 12s ago`. When the head does
-  not fit, the age drops first.
-- The board escapes each control and bidi character in a name, a target, a title or a
-  `waitingFor` text, because another session wrote that text.
-- The Inbox shows other sessions only, never this session. The desktop app shows no Inbox,
-  because it lists no other session.
+In the session whose store file has a `name` equal to the setting `answerWindow`, each option
+is a button. A press fills the prompt box with the record id and the label, such as
+`handily-s3yqhr: go`, and never sends it. You send it with Enter. An ask with no options has
+an `[ answer ]` button that fills the record id and a colon, such as `handily-ab12:`, and you
+type the rest. After a press the
+row says `in your prompt box, not sent:` and the text. When the prompt box refuses the text,
+the row says `■ not filled:`, the reason and `Type it:` with the text.
 
-| State                               | The Inbox head shows                                                                                  |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| The first poll has not answered     | `reading the other sessions…`                                                                         |
-| `claude agents` failed with no list | `could not read the other sessions`                                                                   |
-| The store cannot be read            | `could not read the other sessions; the debug log names why`, and the `waits` rows of `claude agents` |
-| A poll failed                       | the rows, dim, with `last report 2m` in place of each age                                             |
+In every other session, the options show read only with `answer in the Orchestrator window`.
 
-What the Inbox cannot show:
+### The fold
 
-- **A plan approval and a tool permission of a session with no board wait look the same.**
-  `claude agents` gives `permission prompt` for both, so such a row reads `waits` and
-  `permission prompt` for both. A session that runs the board publishes its own asks: a tool
-  permission reads `permission`, a question reads `question`, and a plan approval reads `waits`
-  with `ExitPlanMode`. The input of `ExitPlanMode` holds no plan, so the row does not say `plan`.
-- **A session that ended shows until the next poll that answers.** Its key stays in the store,
-  but the Inbox draws only the sessions that `claude agents` lists. The rows of an ended session
-  stay until the next poll, at most 15 seconds later while the tab shows. While the poll fails,
-  the rows stay until a poll answers. From the first failed poll, each row reads the age of the
-  last report, such as `last report 2m`, and the mark, the kind and the wait count of the head
-  draw dim, not in the colour of needs you. So no row of a failed poll reads as a live wait.
-- **A session first seen while it waits has no age.** The `waits` row shows `—`, because the
-  poll did not see the wait begin.
-- **A session that loads the board from another source shares no store.** A session started with
-  `--plugin-dir` and an installed session each have their own store. Each sees the other only as
-  a `waits` row from `claude agents`, with no permission detail.
-- **The Inbox does not say why a session ended.** `claude agents` stops listing an ended session
-  and gives no reason.
-- **A background job whose state has not changed for over 24 hours shows no `an answer` row.**
-  Its card is hidden, so the Inbox draws it only with a wait in its key or a `waitingFor` text.
+With more than 12 rows, the tab folds. The fold keeps every ask, every session that needs you,
+every dead session and this session, and fills up to 6 rows with the rest. One button,
+`+58 · 4 working · 9 quiet · 45 stale`, counts what it hides. Pressed, it shows every row and
+becomes `hide 58`. The fold never hides an ask, a session that needs you or a dead session.
 
 ### Where the data comes from
 
-- `claude agents --json --all`, every 15 seconds, only while the tab is shown. The mod keeps the
-  result with its time in its `$.store` under the key `agents`. When another session polled less
-  than 15 seconds ago, the tab uses that result.
-- The worktree and the branch come from two git commands in the folder of the session. The mod
-  runs them only when that folder changes.
-- Each session that runs the board writes its store key `session:<session id>`: the current
-  task, the done and total counts, and the time worked. Other sessions read it from the same
-  store. A poll removes a key of a session that is not listed and is older than 24 hours.
-- The key also lists the active subagents of the session: the name, the current task, the done
-  and total counts and whether the agent failed. The board writes it when a subagent task list
-  changes, when an agent starts and when an agent turn ends. The name keeps 40 characters and
-  the task 80.
-- The key also lists the waits of the session, at most 5: each ask with no decision after 3
-  seconds, then the open tasks for you. A permission ask keeps the agent name, the tool, the
-  masked target and the time of the ask. An `AskUserQuestion` ask keeps the first question,
-  masked, and an `ExitPlanMode` ask keeps the tool name. It counts the rest by kind. The
-  decision, a forgotten ask, the end of the agent turn and `/clear` remove the wait of an ask.
-  The agent name and the tool keep 40 characters, and the target and the title 80.
-- The key also keeps the background work of the last Stop: the count, the time it was first
-  seen, the time of that Stop, and the kind and the title of the oldest item, cut to 80
-  characters. A turn start and `/clear` set it to none. A key from an earlier version without
-  it reads as none.
-- The key also keeps the context percent and the cost from the engine event `session.measure`.
-  The board writes them when the rounded percent or the cost in cents changes, and at each
-  session start. A key from an earlier version without them reads as no context.
-- A key is at most 4096 bytes. When it is larger, the board drops agents from the end of the
-  list until it fits, and keeps the count of all agents. The opened fold then says how many are
-  over the store limit. A key that is larger with no agent is not written, and the debug log
-  says so.
-- A key written more than 60 seconds before its session started is from an earlier run. Its task
-  shows `(stale)`, with no estimate, and the card shows the elapsed time.
-- The estimate divides the done tasks by all tasks and applies the result to the time since the
-  first task. It shows after one task is done, and not for 5 minutes after a task is added.
+- The setting `store` names the folder. The tab reads `<store>/sessions/<session id>.json`
+  and `<store>/asks/<record>.json` with `$.fs`, every 15 seconds and only while the tab is
+  shown.
+- The tab reads the newest 200 session files and 50 ask files by their change time. It counts
+  the rest, such as `5 files over the limit of 200 not read`. It does not read a file over
+  16 KiB.
+- A file must carry `"v": 1`. A session file needs `id`, equal to the file name, and
+  `updated_at`, an ISO 8601 time with `Z` or an offset. An ask file needs `record`, equal to
+  the file name. A file that fails one of these, or is not JSON, shows under `files not read`
+  with its reason, and the debug log has each reason. Every other file still shows.
+- The other fields are optional: `name`, `project`, `vendor`, `platform`, `pid`,
+  `pid_start`, `state`, `state_at`, `now`, `now_at`, `next` and `waiting_on` of a
+  session, and `question`, `options`, `opened_at`, `closed_at` and `closed_by` of an ask.
+  The tab drops a field that it refuses, writes a debug line, and still shows the file. It
+  ignores a key that it does not know.
+- On Linux, `pid` and `pid_start` name the process of the session. `pid_start` is field 22 of
+  `/proc/<pid>/stat`. They come together and only with `platform` `linux`. Otherwise the tab
+  drops both, and the session is never dead.
 
 ### States
 
-| State                                         | The tab shows                                                          |
-| --------------------------------------------- | ---------------------------------------------------------------------- |
-| The first poll has not answered               | `Listing the local sessions…`                                          |
-| The poll lists no session                     | `No local sessions are listed.`, and this card as `not listed (stale)` |
-| Only this session runs                        | `Sessions  1` and `Only this session is running.`                      |
-| A poll failed over 30 s after the last answer | `Last poll failed; showing 2m old data.` above the cards               |
-| The command exits with an error               | `claude agents --json failed: exit 1.` and `retry in 15s`              |
-| The output is no JSON list                    | `claude agents --json failed: the output is not a JSON list.`          |
-| The output is over 4 MiB                      | `claude agents --json failed: the output is over 4 MiB and was cut.`   |
-| `claude` does not start                       | `claude is not on PATH, so other sessions cannot be listed.`           |
-| No terminal surface, such as the desktop app  | `Other sessions are listed only in a terminal session.`, and this card |
+The tab derives the state of a session in this order:
+
+| State       | Rule                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `dead`      | `/proc/<pid>/stat` is missing, or its start differs from `pid_start`                      |
+| `stale`     | `updated_at` is 2 hours old or more, or more than 5 minutes in the future (`clock ahead`) |
+| `needs you` | `state` is `needs-you`                                                                    |
+| `working`   | `state` is `working` and `updated_at` is under 15 minutes old                             |
+| `quiet`     | anything else                                                                             |
+
+When `/proc/self/stat` cannot be read, the tab has no process check. No row shows dead, and
+the tab says once: `No process check on this system; a session that ended shows as stale.`
+
+| State of the tab                     | The tab shows                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------------- |
+| The setting `store` is not set       | `No store folder is set.` and the option to set                                    |
+| The setting `store` is not usable    | `The handily-board option store in /config is not usable:` and the reason          |
+| The first read has not answered      | `Reading the store…`                                                               |
+| The folder is missing                | `The store folder is missing:`, the folder and `retry in 15s`                      |
+| The store holds no file              | `No session has written to the store.` and `No ask is open.`                       |
+| A read failed after a good read      | `The store was not read:`, the reason, and `Showing the read of 2m ago.`, rows dim |
+| No terminal, such as the desktop app | `The store is read only in a terminal session.`                                    |
 
 ## Settings
 
@@ -1555,6 +1470,20 @@ What the Inbox cannot show:
 | `off`               | The board draws no band                                        |
 
 - When the mod loads, it refuses any other `band` value by name.
+
+| `userConfig` `store` | Effect                                                         |
+| -------------------- | -------------------------------------------------------------- |
+| not set (default)    | The this machine tab names the option to set and reads nothing |
+| an absolute path     | The this machine tab reads the session store in that folder    |
+| `~/` and a path      | As an absolute path, from the folder in `HOME`                 |
+
+- The tab refuses by name a relative path, a control character or a line break, and a path of
+  more than 4096 characters, and says what is wrong.
+
+| `userConfig` `answerWindow` | Effect                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| not set (default)           | Every session shows the ask options read only                                |
+| a session name              | The session whose store file has this `name` fills the prompt box on a press |
 
 ### Glyphs
 

@@ -1,7 +1,7 @@
 {
   "name": "handily-board",
   "version": "0.29.0",
-  "description": "A board with two panes, one open at a time: this session shows the task list that Claude and you share, and this machine shows every local session, the ones that wait for you first. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss.",
+  "description": "A board with two panes, one open at a time: this session shows the task list that Claude and you share, and this machine reads a session store folder and shows its open owner asks and every session in it. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss.",
   "author": {
     "name": "niksavis"
   },
@@ -28,6 +28,16 @@
       "description": "on: while the this session tab is not shown, one line above the prompt shows the current task, done of total and an approved plan that waits. off: the board draws no band.",
       "options": ["on", "off"],
       "default": "on"
+    },
+    "store": {
+      "type": "string",
+      "title": "Session store",
+      "description": "The absolute path of the folder that holds sessions/ and asks/. A leading ~/ starts from your home folder. Not set: the this machine tab names this option and reads nothing."
+    },
+    "answerWindow": {
+      "type": "string",
+      "title": "Answer window",
+      "description": "The name of the session whose board fills the prompt box when you press an option of an ask. In every other session the options show read only. Not set: every session shows them read only."
     }
   }
 }

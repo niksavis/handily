@@ -8311,7 +8311,7 @@ for (const surface of SURFACES) {
 }
 
 const ASK_KIND_CRITERION =
-  'When an AskUserQuestion or ExitPlanMode ask waits, the attention notice and the status line use the kind of askWait (question or waits) and never the word permission'
+  'When an AskUserQuestion or ExitPlanMode ask waits, the attention notice and the status line use the kind of askSight (question or waits) and never the word permission'
 
 const REGION_QUESTION = {
   tool: 'AskUserQuestion' as const,

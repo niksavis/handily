@@ -126,11 +126,13 @@ dots, `2▶`, `⌀` and `↻` are not built yet. In their place, the time of a t
 
 | Signal | this session: tasks | this session: agents | this machine |
 | --- | --- | --- | --- |
-| Doing | a task in progress | `running`, `waiting` (drawn as `on hold`) | `busy`, `working` |
-| Done | a done task | `done`, `killed` | a session that ended without a failure |
-| To do | an open task | `pending`, `idle` | `idle`, an unknown word |
-| Blocked | none | `failed` | a session that ended with `failed` |
-| Waits for you | none | none | `waiting`, `blocked`, any `waitingFor` |
+| Doing | a task in progress | `running`, `waiting` (drawn as `on hold`) | `working` |
+| Done | a done task | `done`, `killed` | an `approved` ask, for 1 hour |
+| To do | an open task | `pending`, `idle` | `quiet`, a `withdrawn` ask |
+| Blocked | none | `failed` | `dead`, a file not read, a fill not done |
+| Waits for you | none | none | `needs you`, an open ask (`decide`) |
+
+The this machine tab draws `stale` and `old ask` with `?` in `subtle`. It is not a signal.
 
 On 2026-10-09 the person also asked the task pane to drop the author `claude` from each row.
 The pane shows the author only for `you` and `tracker`.
@@ -891,7 +893,7 @@ Defer to quiet-items:
 
 - Decision of the person (2026-10-13): one plugin, `handily-board`, replaces `task-pane`,
   `agent-board` and `session-board`. It has two panes: `this session` (tasks and this session's
-  agents) and `this machine` (every local session).
+  agents) and `this machine` (the sessions and owner asks of the session store, handily-s3yqhr).
 - Decision of the owner (2026-11-17, handily-c6yihd): the board opens one pane at a time.
   `/board` and `/board machine` open the pane asked for and close the other board pane, so one
   close from the tab closes the board. Before, both panes opened as two tabs, and closing the
@@ -908,7 +910,7 @@ Defer to quiet-items:
   panes. With two plugins, the agent data of other sessions would sit in two stores, and
   `/board` could not show the machine tab.
 - Facts measured in tmux on Claude Code 2.1.296:
-  - A pane in a hidden tab does not draw. The poll of `claude agents --json` also runs only while
+  - A pane in a hidden tab does not draw. The read of the session store also runs only while
     its pane `isShown` (`index.d.ts`, `UiPane`).
   - A command that opens both panes gets both placed at 90 and at 120 columns in fullscreen.
   - A second `ui.open` of a hidden pane without `focus` does not bring it forward. With
@@ -1128,7 +1130,7 @@ Tasks for you (handily-9uj3n.8):
 
 - A task for the person is a task of the shared list with `for: 'person'` and a `kind` (`do`,
   `answer` or `decide`). It shares the ids and the limit of 100 tasks. The Tasks section, its
-  header, the band and the this machine card count only the other tasks.
+  header and the band count only the other tasks.
 - The result of the person (`done`, `answered`, `chose` or `rejected`) is kept on the task, with
   `isSent` false. The next prompt that enters marks every unsent result as sent in one state
   update, and carries one note with the list changes of 8.6 and the answers. A prompt that is
@@ -1158,8 +1160,7 @@ Tasks for you (handily-9uj3n.8):
   row that an earlier version marked so.
 - `task_assign` and `task_list` do not count as a plan update for the plan warning, because
   they do not change the own list of Claude. Only the own tasks count for the empty-list note,
-  the task list row, the `Tasks` header, the band and the this machine card. `listSummary` in
-  `hooks/progress.ts` gives the card and the stored progress the same counts.
+  the task list row, the `Tasks` header and the band.
 - `task_assign` refuses a call from a subagent, because a subagent has its own list, which the
   person does not see.
 
@@ -1305,9 +1306,9 @@ Session head and the this machine cards show it.
   board never clears waiting by itself.
 - A 10 second timer runs while the session waits and redraws and refreshes the status line, so
   the age moves with no tab and no band.
-- The session entry `session:<id>` keeps `background`: the count, the first and last seen times,
-  and the kind and title of the oldest item, cut to 80 characters, so the 4096 byte limit holds.
-  A card shows waiting only where the engine reports the session idle.
+- Until handily-s3yqhr, the session entry `session:<id>` kept `background` for the this machine
+  cards. The reader of the session store replaced the entry, so the this machine tab no longer
+  shows waiting.
 - The glyph role `waiting` is `◷` (U+25F7) in the plain set and nf-cod-watch (U+EB7C) in the nerd
   set. The code point was checked against the codicon CSS that ships with VS Code extensions on
   this machine, where seven known roles match; it was not checked against nerd-fonts
@@ -1420,8 +1421,7 @@ The engine source of each new number:
 - **Stale keys.** A key is stale when its cycle is past, its cycle is more than 10 minutes from the
   reset time of the limit, or the board cannot read its `v`. With no reset time, a fall of 20
   points or more below the warned level starts a new cycle. The board deletes a stale key when it
-  reads it, and at session start it deletes each key with a past cycle or a `v` it cannot read, as
-  `deleteExpired` in `hooks/sessions.ts` does for the session keys.
+  reads it, and at session start it deletes each key with a past cycle or a `v` it cannot read.
 - **Past resets.** A limit whose reset time is past, or does not parse, shows no toast and
   reads or deletes no key, so it never deletes the key of a new cycle.
 - **Failures.** A store call that fails logs to the debug log and shows no toast.
@@ -1443,68 +1443,53 @@ The named constants, all in `hooks/pace.ts`:
 | `WARN_MARK` | the `waitsForYou` role (`◆` in the plain set) | The mark at the start of the toast, drawn from the glyph set |
 | `CLAIM_WAIT_MS` | 200 to 800 | The random wait before the read-back |
 
-#### The Inbox (handily-fwkt.8.28)
+#### The session store reader (handily-s3yqhr)
 
-Step 1 of the F1 inbox, the owner pick of 2026-11-12. The Inbox at the top of the this machine
-tab lists what waits for the person in the other sessions of this machine. The mocks are
-`docs/mocks.md` section 8.16. They are the test captures, because the F1 draft mocks are not in
-this repository.
+Owner go of 2026-11-19, relayed by the orchestrator (dev-j6oqo). The this machine tab reads the
+per-session state files that the workspace kit writes, and the open owner asks. It replaced the
+Inbox (handily-fwkt.8.28), the poll of `claude agents --json`, the per-session progress key
+`session:<id>` of the board store and the cards of other sessions. No shim stays. The mocks are
+`docs/mocks.md` section 8.17.
 
-Known limits:
-
-- **A plan approval and a tool permission look the same in `claude agents`.** `claude agents
-  --json` gives `waitingFor` `permission prompt` for both (probe handily-gmvyf3). A row from it
-  reads `waits` and the raw text, and never names a plan. A board wait tells them apart by the
-  tool: `AskUserQuestion` publishes `question`, and `ExitPlanMode` publishes `waits` with the
-  tool name, because its input holds no plan that proves a plan approval.
-- **A session that ended shows until the next poll.** A session that ends leaves `claude agents`
-  at once, and its store key stays. The Inbox draws only the sessions of the last poll, so the
-  rows of an ended session stay until the next poll answers, at most 15 seconds later while the
-  tab shows. The test `a session that died still draws its waits until the next poll, under the
-  age of the last read, and no row after it` asserts it.
-- **A session first seen while it waits has no age.** The poll keeps the time of the last state
-  change (`stateSince`). When it equals the start time, the poll did not see the wait begin, and
-  the row shows `—`.
-- **Two sources share no store.** A session that loads the board from another source sees the
-  other only through `claude agents`, as a `waits` row.
-- **No end reason.** `claude agents` gives no reason when a session ends.
-
-The sources:
-
-| Row | Source |
-| --- | --- |
-| `permission` | the store key `session:<session id>` of that session: a `tool.check` ask with no decision after `NEEDS_YOU_AFTER_MS` (3 s), with the agent name, the tool, the masked target and the time of the ask |
-| `question` | the same key: an ask of `AskUserQuestion` after 3 s, with the first line of the first question, masked, or the tool name, by `askWait` in `hooks/waits.ts` |
-| `waits` with `ExitPlanMode` | the same key: an ask of `ExitPlanMode` after 3 s, by the same `askWait` |
-| `decide`, `answer`, `do` | the same key: the open tasks for the person, after the permission waits |
-| `waits` | `claude agents --json`: the `waitingFor` text of a session that needs the person and has no wait in its key, or `an answer` with no text, by `waitsForOf` in `hooks/cards.ts`, the rule of the card |
-| `waits` with `N tasks for you` | a key from an earlier version that has `openForYou` and no wait list |
-
-- **Which sessions.** The Inbox reads the sessions that the last poll lists as not ended, other
-  than this session. A background job that `isOldBackground` hides from the cards still draws its
-  key waits and its `waitingFor` text, but no `an answer` row. A key written more than 60 seconds
-  before its session started shows no row.
-- **The key.** It keeps at most `WAITS_AT_MOST` (5) waits and counts the rest by kind in
-  `waitsMore`. The agent name and the tool keep `WAIT_NAME_AT_MOST` (40) characters, and the
-  target and a title `WAIT_TEXT_AT_MOST` (80). A key over 4096 bytes sheds waits into the count
-  before the board refuses it. The decision, a forgotten ask, the end of the agent turn and
-  `/clear` remove the wait of an ask.
-- **The order.** `permission`, `question`, `waits`, `decide`, `answer`, then `do`, the order of
-  `WAIT_KINDS` in `hooks/waits.ts`. Inside a kind, the oldest first.
-- **The fold.** The Inbox draws at most `INBOX_ROWS_AT_MOST` (5) rows. The fold button
-  `machine:inbox` counts the rest by kind, with the waits that the keys counted in `waitsMore`.
-  It is the only button of the Inbox. No row answers a permission prompt or a question, because a
-  mod shows and asks and never acts for the person in another session.
-- **The width.** From 60 columns, each wait is one row. Below, the detail goes on a second line.
-  When the head does not fit, the read age drops first. When a row does not fit, the session name
-  shortens to the room that the mark, the kind and the age leave, to 5 columns at least. So the
-  age stays whole, also `report 57s` at body 30.
-- **Failures.** A store that cannot be read logs to the debug log, and the Inbox keeps the `waits`
-  rows of `claude agents`. From the first failed poll, each row shows the age of the last report,
-  and the mark, the kind and the wait count draw dim, not in the colour of needs you. While the
-  poll fails, the Inbox cannot see that a session ended, so the rows of that session stay until a
-  poll answers, and none of them reads as a live wait (handily-7sx9q6).
-- **Escaping.** Every name, tool, target, title and `waitingFor` text goes through `escaped`.
+- **The store.** The setting `store` names the folder, with no default. A leading `~/` expands
+  from `$.env.get('HOME')`. `storeSetting` in `hooks/store.ts` refuses a relative path, a control
+  character or a line break, and a path of more than 4096 characters by name, and the tab says
+  what is wrong. The files are `<store>/sessions/<session id>.json` and
+  `<store>/asks/<record>.json`.
+- **The read.** `$.fs.list` and `$.fs.read`, measured live on 2026-11-19. One read runs every
+  `POLL_INTERVAL_MS` (15 s) while the tab is shown, with the poll timer and the in-flight guard of
+  `hooks/sessions.ts`. The render draws the last read from memory and does no file access. The
+  reader keeps files whose name matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.json$`, at most 200
+  session files and 50 ask files, newest first by `mtimeMs`, and counts the rest. A file over
+  16 KiB is not read.
+- **The format.** Every file carries `"v": 1`. A missing or other `v` refuses the file by name,
+  such as `v is 2; this board reads v 1`. A refused `id`, `updated_at` or `record` refuses the
+  file. A refused optional field is dropped with a debug line. Unknown keys are ignored.
+  `pid` and `pid_start` come together and only with `platform` `linux`. Else both are dropped
+  with a debug line, and the row is never dead. A `platform` that is not 1 to 32 characters of
+  `a-z` and `0-9` is dropped, so such a row is never dead.
+- **Liveness.** `hooks/liveness.ts` reads `/proc/self/stat` as the known-match control. When it
+  rejects, no row is dead and the tab says so once. Else it reads `/proc/<pid>/stat` per pid.
+  `ENOENT` means gone. Field 22 is the token at index 19 after the last `)`, because the process
+  name can hold spaces and parentheses. Another rejection leaves the row alive.
+- **Derived state.** In order: `dead`, `stale` (2 hours old or more, or more than 5 minutes in
+  the future), `needs you`, `working` (under 15 minutes old), else `quiet`. Negative ages clamp
+  to 0. `byAttention` in `hooks/cards.ts` sorts asks first, then needs you, dead, working,
+  quiet and stale, with this session first in its group.
+- **Asks.** An open ask under 24 hours is a `decide` row and counts. An older open ask shows
+  `old ask` and does not count. A closed ask shows `approved` or `withdrawn` for 1 hour. An
+  option label is at most 24 characters with no control or format character, because a press puts
+  it in the prompt box. At most 4 labels.
+- **The answer window.** When the store file of this session has a `name` equal to the setting
+  `answerWindow`, each option is a Button. A press calls `fillPrompt`, which uses
+  `$.prompt.fill` and never submits. A refused fill shows `■ not filled:` with the reason and
+  the text to type. Elsewhere the options are read only.
+- **The fold.** With more than 12 rows, the Button `machine:more` folds the rows to 6. It never
+  hides an ask, a session that needs you, a dead session or this session.
+- **Failures.** A list that rejects with `ENOENT` on both folders is `folder missing`. Another
+  rejection keeps the last good read, shows its age in `warning` and draws the rows dim. The
+  desktop surface does not read the store, because `$.fs` on the desktop app is not measured.
+- **Escaping.** Every text from a file goes through `escaped`.
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 

@@ -23,7 +23,6 @@ import {
   wakeupTime,
 } from './hooks/background'
 import { GLYPH_SETS } from './hooks/glyphs'
-import { emptyProgress, progressKey, readProgress } from './hooks/progress'
 import { EMPTY_CHECKS } from './hooks/checks'
 import { DEFAULT_PALETTE } from './hooks/palette'
 import { NO_REQUEST } from './hooks/request'
@@ -760,27 +759,6 @@ describe(NO_TURN_CRITERION, () => {
     )
 
     test(
-      `a session start writes no background into its entry, so a reload never shows old work, on ${surface}`,
-      withWorkitems,
-      async ($, on) => {
-        const seen = world(on, [surface])
-        const old = {
-          ...emptyProgress(OWN_ID, ROOT, START - MINUTE),
-          background: {
-            since: START - 60 * MINUTE,
-            seenAt: START - 50 * MINUTE,
-            count: 1,
-            kind: 'shell',
-            title: 'Old',
-          },
-        }
-        seen.store.set(progressKey(OWN_ID), old)
-        await start($, surface)
-        expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.background).toBeNull()
-      },
-    )
-
-    test(
       `a cleared session after waiting resets to no turn and clears the status line, on ${surface}`,
       withWorkitems,
       async ($, on) => {
@@ -797,8 +775,6 @@ describe(NO_TURN_CRITERION, () => {
             ? '╭─ Session ───────────────── ○ no turn ─╮'
             : 'Session  ○ no turn',
         )
-        const entry = readProgress(seen.store.get(progressKey(OWN_ID)))
-        expect(entry?.background).toBeNull()
       },
     )
   }
@@ -831,9 +807,6 @@ describe(REPAIR_CRITERION, () => {
         await stop($, { tasks: [SHELL], crons: [] })
         await $.turn.start({ text: 'scout', turnId: 'a1', agentId: 'a0000002scout' })
         await $.turn.start({ text: 'scout again', turnId: 'a2', agentId: 'a0000002scout' })
-        expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.background?.title).toBe(
-          'Watch the CI run',
-        )
         expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toContain('◷ waiting')
       },
     )
@@ -864,7 +837,6 @@ describe(REPAIR_CRITERION, () => {
             ? '╭─ Session ────────────── ◷ waiting 3m ─╮'
             : 'Session  ◷ waiting 3m',
         )
-        expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.background?.count).toBe(1)
       },
     )
 

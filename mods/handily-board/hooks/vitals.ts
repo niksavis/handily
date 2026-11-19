@@ -1,6 +1,5 @@
 import type { SessionMeasureInput, SessionRateLimit, SessionUsage } from 'claude-code'
 import { type LimitReadings, NO_READINGS, withReadings } from './pace'
-import type { SharedContext } from './progress'
 
 export const CONTEXT_HIGH = 80
 
@@ -176,12 +175,6 @@ export function highPercent(vitals: Vitals): number | undefined {
 
 export function highText(shown: number): string {
   return `${String(shown)}% high`
-}
-
-export function sharedContext(vitals: Vitals): SharedContext | null {
-  if (vitals.hasNoUsage || vitals.percent === undefined) return null
-  const { usd } = vitals
-  return { percent: Math.round(vitals.percent), cents: usd === undefined ? null : cents(usd) }
 }
 
 export function addedCents(vitals: Vitals): number | undefined {

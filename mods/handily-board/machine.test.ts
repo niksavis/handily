@@ -1,4 +1,4 @@
-import type { AgentInfo, ConfigRow, On, RenderPropsOf, RenderSurface } from 'claude-code'
+import type { ConfigRow, On, RenderPropsOf, RenderSurface } from 'claude-code'
 import {
   describe,
   expect,
@@ -8,164 +8,168 @@ import {
   type MockClock,
   type Mounted,
 } from 'claude-code/testing'
-import { AGENTS_ARGV, AGENTS_CACHE_KEY, parseAgents, POLL_INTERVAL_MS } from './hooks/agents-json'
-import {
-  ENTRY_BYTES_AT_MOST,
-  entryBytes,
-  progressKey,
-  readProgress,
-  withAsks,
-  withinLimit,
-  withTasks,
-  type AgentSummary,
-  type Progress,
-} from './hooks/progress'
-import {
-  askWait,
-  countOf,
-  permissionWait as sharedAsk,
-  WAITS_AT_MOST,
-  type SharedWait,
-} from './hooks/waits'
-import type { BoardList, BoardTask, BoardTaskKind } from './types'
+import { isEnded, startOfStat } from './hooks/liveness'
+import { readAsk, readSession, sessionRow, storeSetting, type FiledSession } from './hooks/store'
 import { displayWidth } from './hooks/width'
-import { MACHINE_AGENTS, MACHINE_NOW, RECORDED_AGENTS, type AgentEntry } from './fixtures/agents'
 
 const SECOND = 1000
 const MINUTE = 60 * SECOND
 const HOUR = 60 * MINUTE
-const NOW = MACHINE_NOW
+const NOW = Date.parse('2026-11-19T16:00:00.000Z')
 const ROOT = '/work/app'
+const STORE = '/work/.orch'
 const PLUGIN = 'handily-board'
-const TASKS = 'tasks'
 const MACHINE = 'sessions'
-const TOOL_ADD = 'mcp__handily-board__task_add'
-const TOOL_UPDATE = 'mcp__handily-board__task_update'
-const OWN_ID = '00000000-0000-4000-8000-00000000000a'
-const API_ID = '00000000-0000-4000-8000-00000000000c'
-const LANE_ID = '00000000-0000-4000-8000-00000000000b'
+const OWN_ID = 'dev'
 const SURFACES = ['terminal', 'desktop'] as const
+const WITH_STORE = { options: { store: STORE } }
+const IN_ANSWER_WINDOW = { options: { store: STORE, answerWindow: 'orchestrator' } }
+const OWN_PID = 4242
+const SELF_START = 7
 
-type AgentsAnswer =
-  { exitCode: number; stdout: string; isStdoutTruncated?: boolean } | { deny: string }
+type FakeFile = { text: string; mtimeMs: number; size?: number }
 
 type World = {
   clock: MockClock
-  store: Map<string, unknown>
+  files: Map<string, FakeFile>
+  folders: Set<string>
   surfaces: RenderSurface[]
   panes: Set<string>
   shown: string | undefined
-  agents: AgentsAnswer
-  agentsRuns: number
-  gitCwds: string[]
-  subagents: AgentInfo[]
+  procs: Map<number, number>
+  hasProc: boolean
+  listDenial: string | null
+  lists: string[]
+  reads: string[]
   logs: string[]
-  hold: (() => Promise<void>) | null
-  keysDenial: string | null
+  fills: string[]
+  isFillRefused: boolean
+  submitted: string[]
 }
 
-const REPOS: Record<string, { top: string; gitDir: string; commonDir: string; branch: string }> = {
-  '/work/app': {
-    top: '/work/app',
-    gitDir: '/work/app/.git',
-    commonDir: '/work/app/.git',
-    branch: 'main',
-  },
-  '/work/app.wt/lane-a1': {
-    top: '/work/app.wt/lane-a1',
-    gitDir: '/work/app/.git/worktrees/lane-a1',
-    commonDir: '/work/app/.git',
-    branch: 'lane/a1',
-  },
-  '/work/app.wt/lane-b2': {
-    top: '/work/app.wt/lane-b2',
-    gitDir: '/work/app/.git/worktrees/lane-b2',
-    commonDir: '/work/app/.git',
-    branch: 'lane/b2',
-  },
-  '/work/api': {
-    top: '/work/api',
-    gitDir: '/work/api/.git',
-    commonDir: '/work/api/.git',
-    branch: 'feat/login',
-  },
-  '/work/docs': {
-    top: '/work/docs',
-    gitDir: '/work/docs/.git',
-    commonDir: '/work/docs/.git',
-    branch: 'main',
-  },
+function iso(at: number): string {
+  return new Date(at).toISOString()
 }
 
-function answer(exitCode: number, stdout: string) {
-  return { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+function statOf(pid: number, start: number): string {
+  return `${String(pid)} (node (worker)) S ${'0 '.repeat(18)}${String(start)} 0 0`
 }
 
-function agentsJson(entries: readonly AgentEntry[]): AgentsAnswer {
-  return { exitCode: 0, stdout: JSON.stringify(entries) }
+type Fields = Record<string, unknown>
+
+function sessionFile(id: string, agoMs: number, fields: Fields = {}): [string, FakeFile] {
+  const body = { v: 1, id, platform: 'linux', updated_at: iso(NOW - agoMs), ...fields }
+  return [`${STORE}/sessions/${id}.json`, { text: JSON.stringify(body), mtimeMs: NOW - agoMs }]
 }
 
-function progressOf(sessionId: string, fields: Partial<Progress>): Progress {
-  return {
-    sessionId,
-    cwd: ROOT,
-    updatedAt: NOW - MINUTE,
-    isWorking: false,
-    turnStartedAt: null,
-    workedMs: 0,
-    task: null,
-    taskStatus: null,
-    done: 0,
-    total: 0,
-    taskIds: [],
-    firstTaskAt: null,
-    lastAddedAt: null,
-    agents: [],
-    agentCount: 0,
-    context: null,
-    openForYou: 0,
-    waits: [],
-    waitsMore: {},
-    background: null,
-    ...fields,
+function askFile(record: string, agoMs: number, fields: Fields = {}): [string, FakeFile] {
+  const body = { v: 1, record, opened_at: iso(NOW - agoMs), ...fields }
+  return [`${STORE}/asks/${record}.json`, { text: JSON.stringify(body), mtimeMs: NOW - agoMs }]
+}
+
+function rawFile(path: string, text: string, size?: number): [string, FakeFile] {
+  return [
+    `${STORE}/${path}`,
+    size === undefined ? { text, mtimeMs: NOW } : { text, mtimeMs: NOW, size },
+  ]
+}
+
+const RELEASE_ASK = askFile('handily-s3yqhr', 6 * MINUTE, {
+  question: 'Release handily-board 0.24.0?',
+  options: 'go|not now',
+})
+
+const API_LOGIN = sessionFile('api-login', 2 * MINUTE, {
+  name: 'api-login',
+  project: 'api',
+  vendor: 'claude',
+  state: 'needs-you',
+  state_at: iso(NOW - 2 * MINUTE),
+  waiting_on: 'owner go for the 0.24.0 release',
+})
+
+const OLD_LANE = sessionFile('old-lane', 25 * MINUTE, {
+  name: 'old-lane',
+  project: 'handily',
+  vendor: 'claude',
+  state: 'working',
+  now: 'runs npm run check',
+  now_at: iso(NOW - 25 * MINUTE),
+  pid: 501,
+  pid_start: 900,
+})
+
+const DEV = sessionFile(OWN_ID, MINUTE, {
+  name: 'dev',
+  project: 'development',
+  vendor: 'claude',
+  state: 'working',
+  now: 'builds the work overview',
+  now_at: iso(NOW - MINUTE),
+  next: 'rehearsal 7c after 16:20',
+  pid: 502,
+  pid_start: 910,
+})
+
+const LANE_B = sessionFile('lane-b', 4 * MINUTE, {
+  name: 'lane-b',
+  project: 'handily',
+  vendor: 'codex',
+  state: 'working',
+  now: 'writes the store reader',
+  now_at: iso(NOW - 4 * MINUTE),
+})
+
+const DOCS_PASS = sessionFile('docs-pass', 40 * MINUTE, {
+  name: 'docs-pass',
+  project: 'docs',
+  vendor: 'claude',
+  state: 'idle',
+  now: 'reviewed the README',
+  now_at: iso(NOW - 40 * MINUTE),
+})
+
+const SCOUT = sessionFile('scout', 3 * HOUR, {
+  name: 'scout',
+  project: 'app',
+  vendor: 'claude',
+  state: 'working',
+})
+
+const FULL_STORE = [RELEASE_ASK, API_LOGIN, OLD_LANE, DEV, LANE_B, DOCS_PASS, SCOUT]
+
+const LIVE_PROCS: [number, number][] = [
+  [501, 999],
+  [502, 910],
+]
+
+type WorldOptions = {
+  files?: readonly [string, FakeFile][]
+  surfaces?: RenderSurface[]
+  folders?: readonly string[]
+}
+
+function world(on: On, options: WorldOptions = {}): World {
+  const state: World = {
+    clock: mock.clock(on, { now: NOW }),
+    files: new Map(options.files ?? FULL_STORE),
+    folders: new Set(options.folders ?? [`${STORE}/sessions`, `${STORE}/asks`]),
+    surfaces: options.surfaces ?? ['terminal', 'desktop'],
+    panes: new Set(),
+    shown: undefined,
+    procs: new Map(LIVE_PROCS),
+    hasProc: true,
+    listDenial: null,
+    lists: [],
+    reads: [],
+    logs: [],
+    fills: [],
+    isFillRefused: false,
+    submitted: [],
   }
-}
-
-const API_PROGRESS = progressOf(API_ID, {
-  cwd: '/work/api',
-  workedMs: 2 * HOUR,
-  task: 'Fix the login redirect',
-  taskStatus: 'in_progress',
-  done: 2,
-  total: 3,
-  taskIds: [1, 2, 3],
-})
-
-const LANE_PROGRESS = progressOf(LANE_ID, {
-  cwd: '/work/app.wt/lane-a1',
-  workedMs: 22 * MINUTE,
-  task: 'Build the tab pane',
-  taskStatus: 'in_progress',
-  done: 3,
-  total: 6,
-  taskIds: [1, 2, 3, 4, 5, 6],
-})
-
-function storeWith(...entries: Progress[]): Record<string, unknown> {
-  return Object.fromEntries(entries.map((entry) => [progressKey(entry.sessionId), entry]))
-}
-
-function memoryStore(
-  on: On,
-  entries: Record<string, unknown>,
-  keysDenial: () => string | null,
-): Map<string, unknown> {
-  const store = new Map(Object.entries(entries))
+  const store = new Map<string, unknown>()
   on('store.get', (_$, e) => ({ value: store.get(e.key) }))
-  on('store.keys', () => {
-    const deny = keysDenial()
-    return deny === null ? { value: [...store.keys()] } : { deny }
-  })
+  on('store.keys', () => ({ value: [...store.keys()] }))
   on('store.delete', (_$, e) => {
     store.delete(e.key)
     return { value: undefined }
@@ -174,38 +178,14 @@ function memoryStore(
     store.set(e.key, e.value)
     return { value: undefined }
   })
-  return store
-}
-
-function world(
-  on: On,
-  entries: Record<string, unknown> = storeWith(API_PROGRESS, LANE_PROGRESS),
-  surfaces: RenderSurface[] = ['terminal'],
-): World {
-  const state: World = {
-    clock: mock.clock(on, { now: NOW - 14 * MINUTE }),
-    store: memoryStore(on, entries, () => state.keysDenial),
-    surfaces,
-    panes: new Set(),
-    shown: undefined,
-    agents: agentsJson(MACHINE_AGENTS),
-    agentsRuns: 0,
-    gitCwds: [],
-    subagents: [],
-    logs: [],
-    hold: null,
-    keysDenial: null,
-  }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: OWN_ID }))
   on('session.cwd', () => ({ value: ROOT }))
   on('session.surfaces', () => ({ value: state.surfaces }))
-  on('agent.list', () => ({ value: state.subagents }))
-  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
-  on('turn.complete', () => ({ text: '' }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/person' : undefined }))
+  on('agent.list', () => ({ value: [] }))
   on('tool.register', (_$, e) => ({ value: { tool: `mcp__handily-board__${e.name}` } }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
-  on('tool.call', () => ({ result: '' }))
   on('ui.open', (_$, e) => {
     state.panes.add(e.id)
     if (state.shown === undefined || e.focus === true) state.shown = e.id
@@ -229,23 +209,52 @@ function world(
     state.logs.push(e.text)
     return { value: undefined }
   })
-  on('process.run', async (_$, e) => {
-    const [command, flag, cwd, verb] = e.argv
-    if (command === 'claude') {
-      state.agentsRuns += 1
-      expect(e.argv).toEqual(AGENTS_ARGV)
-      if (state.hold) await state.hold()
-      if ('deny' in state.agents) return { deny: state.agents.deny }
-      const { exitCode, stdout, isStdoutTruncated = false } = state.agents
-      return { value: { ...answer(exitCode, stdout), isStdoutTruncated } }
+  on('fs.list', (_$, e) => {
+    state.lists.push(e.path)
+    if (state.listDenial !== null) return { deny: state.listDenial }
+    const prefix = `${e.path}/`
+    const entries = [...state.files]
+      .filter(([path]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
+      .map(([path, one]) => ({
+        name: path.slice(prefix.length),
+        kind: 'file' as const,
+        size: one.size ?? new TextEncoder().encode(one.text).length,
+        mtimeMs: one.mtimeMs,
+        isLink: false,
+      }))
+    if (entries.length === 0 && !state.folders.has(e.path)) {
+      return { deny: `ENOENT: no such file or directory, scandir '${e.path}'` }
     }
-    expect(command).toBe('git')
-    expect(flag).toBe('-C')
-    state.gitCwds.push(cwd ?? '')
-    const repo = REPOS[cwd ?? '']
-    if (!repo) return { value: answer(128, '') }
-    if (verb === 'branch') return { value: answer(0, `${repo.branch}\n`) }
-    return { value: answer(0, `${repo.top}\n${repo.gitDir}\n${repo.commonDir}\n`) }
+    return { value: entries }
+  })
+  on('fs.read', (_$, e) => {
+    state.reads.push(e.path)
+    if (e.path === '/proc/self/stat') {
+      return state.hasProc
+        ? { value: statOf(OWN_PID, SELF_START) }
+        : { deny: 'EACCES: permission denied' }
+    }
+    const pid = /^\/proc\/(\d+)\/stat$/.exec(e.path)?.[1]
+    if (pid !== undefined) {
+      const start = state.procs.get(Number(pid))
+      return start === undefined
+        ? { deny: `ENOENT: no such file or directory, open '${e.path}'` }
+        : { value: statOf(Number(pid), start) }
+    }
+    const found = state.files.get(e.path)
+    return found === undefined
+      ? { deny: `ENOENT: no such file or directory, open '${e.path}'` }
+      : { value: found.text }
+  })
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+  on('prompt.fill', (_$, e) => {
+    if (state.isFillRefused) return { isFilled: false }
+    state.fills.push(e.text)
+    return { isFilled: true }
+  })
+  on('prompt.submit', (_$, e) => {
+    state.submitted.push(e.text)
+    return { text: e.text }
   })
   return state
 }
@@ -260,39 +269,6 @@ async function board($: Engine, args: string): Promise<string> {
   return result.text ?? ''
 }
 
-function subagent(id: string, type: string, status: AgentInfo['status']): AgentInfo {
-  return { id, description: '', type, status }
-}
-
-const MOCK_SUBAGENTS: AgentInfo[] = [
-  subagent('a1', 'lane-b', 'failed'),
-  subagent('a2', 'Explore', 'running'),
-  subagent('a3', 'scout', 'waiting'),
-  subagent('a4', 'Plan', 'completed'),
-  subagent('a5', 'tester', 'killed'),
-]
-
-async function mockWork($: Engine, seen: World): Promise<void> {
-  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-  await $.turn.start({ text: 'go', turnId: 't1' })
-  await seen.clock.advance(4 * MINUTE)
-  await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
-  await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
-  await $.tool.call({ tool: TOOL_ADD, title: 'Review the mocks with Codex' })
-  await board($, 'add Ask the person about tabs')
-  await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
-  await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
-  await seen.clock.advance(10 * MINUTE)
-  seen.subagents = MOCK_SUBAGENTS
-}
-
-async function showMachine($: Engine, seen: World): Promise<void> {
-  expect(await board($, 'machine')).toBe('Board opened: this machine.')
-  const first = await mountTab($, 'terminal', 'dock', 41)
-  await first.unmount()
-  await seen.clock.settle()
-}
-
 type Placement = RenderPropsOf['Pane']['placement']
 
 function paneProps(placement: Placement, bodyColumns: number): RenderPropsOf['Pane'] {
@@ -301,7 +277,7 @@ function paneProps(placement: Placement, bodyColumns: number): RenderPropsOf['Pa
     isFocused: false,
     bodyColumns,
     placement,
-    scroll: { offset: 0, bodyRows: 40 },
+    scroll: { offset: 0, bodyRows: 80 },
     view: {},
   }
 }
@@ -340,28 +316,20 @@ function numberProp(element: Drawn, name: string): number {
   return typeof value === 'number' ? value : 0
 }
 
-function wrapped(text: string, width: number): string[] {
-  if (text.length <= width || width <= 0) return [text]
-  const space = text.lastIndexOf(' ', width)
-  const cut = space > 0 ? space : width
-  return [text.slice(0, cut), ...wrapped(text.slice(cut).trimStart(), width)]
-}
-
-function screenOf(element: Drawn, width: number): string[] {
-  if (element.type === 'Text' || element.type === 'Button') return wrapped(element.text, width)
+function screenOf(element: Drawn): string[] {
+  if (element.type === 'Text' || element.type === 'Button') return [element.text]
   const indent = numberProp(element, 'paddingLeft')
-  const inner = width - indent
   const lines =
     element.props.flexDirection === 'row'
       ? [element.children.map((child) => child.text).join('')]
-      : element.children.flatMap((child) => screenOf(child, inner))
+      : element.children.flatMap((child) => screenOf(child))
   return lines.map((line) => `${' '.repeat(indent)}${line}`)
 }
 
 async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<string[]> {
   const root = drawnOf(await ui.find({ type: 'Box' }))
   if (root === null) throw new Error('the pane drew no Box')
-  const lines = screenOf(root, columns).map((line) => line.trimEnd())
+  const lines = screenOf(root).map((line) => line.trimEnd())
   for (const line of lines) {
     expect(displayWidth(line) <= columns, `"${line}" is wider than ${String(columns)}`).toBe(true)
   }
@@ -380,1130 +348,977 @@ async function screenAt(
   return lines
 }
 
-function sessionsOf(lines: readonly string[]): string[] {
-  const start = lines.findIndex((line) => line.startsWith('Sessions'))
-  if (start < 0) throw new Error('the screen has no Sessions head')
-  return lines.slice(start)
+async function showMachine($: Engine, seen: World): Promise<void> {
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  expect(await board($, 'machine')).toBe('Board opened: this machine.')
+  const first = await mountTab($, 'terminal', 'dock', 41)
+  await first.unmount()
+  await seen.clock.settle()
+}
+
+async function shownAfterRead($: Engine, seen: World): Promise<void> {
+  await showMachine($, seen)
+  await seen.clock.advance(12 * SECOND)
+}
+
+function sessionListings(seen: World): number {
+  return seen.lists.filter((path) => path === `${STORE}/sessions`).length
 }
 
 const RULE_41 = '─'.repeat(41)
-const RULE_30 = '─'.repeat(30)
 
 const MOCK_41 = [
-  'Inbox  1 wait · 1 session · 12s',
-  '◆ api-login waits                       —',
-  '  permission prompt',
-  'Sessions  4 · 1 needs you · 12s ago',
-  '◆ api-login  interactive  needs you',
-  '  waits for: permission prompt',
-  '  ▶ Fix the login redirect ▰▰▱ 2/3',
-  '  api · feat/login · 2h worked',
+  'Sessions  6 · 2 need you · 1 dead · 12s',
+  '◆ decide  handily-s3yqhr               6m',
+  '  Release handily-board 0.24.0?',
+  '  options: go | not now',
+  '  answer in the Orchestrator window',
   RULE_41,
-  '▶ mocks  interactive  this  busy',
-  '  ▶ Write the tab mocks ▰▱▱▱ 1/4',
-  '  app · main · 14m worked · est. 30m left',
-  '  agents 3 · 1 failed',
+  '◆ api-login  needs you                 2m',
+  '  api · claude',
+  '  waits on: owner go for the 0.24.0 rele…',
   RULE_41,
-  '▶ lane-a1  background  working',
-  '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
-  '  app.wt/lane-a1 · lane/a1 · 22m worked',
+  '■ old-lane  dead                      25m',
+  '  handily · claude · process gone',
+  '  ▸ runs npm run check · 25m old',
   RULE_41,
-  '✓ docs-pass  background  done',
-  '  docs · main · ended',
-  '1 older background job hidden',
-]
-
-const MOCK_30 = [
-  'Inbox  1 wait · 1 session',
-  '◆ api-login waits            —',
-  '  permission prompt',
-  'Sessions  4 · 1 needs you',
-  '◆ api-login  needs you',
-  '  waits for: permission prompt',
-  '  ▶ Fix the login red… ▰▰▱ 2/3',
-  '  api · feat/login · 2h',
-  RULE_30,
-  '▶ mocks  this  busy',
-  '  ▶ Write the tab mo… ▰▱▱▱ 1/4',
-  '  app · main · 14m · est. 30m…',
-  '  agents 3 · 1 failed',
-  RULE_30,
-  '▶ lane-a1  working',
-  '  ▶ Build the tab … ▰▰▰▱▱▱ 3/6',
-  '  app.wt/lane-a1 · lane/a1 · …',
-  RULE_30,
-  '✓ docs-pass  done',
-  '  docs · main · ended',
-  '1 older background job hidden',
+  '▶ dev  this  working                   1m',
+  '  development · claude',
+  '  ▸ builds the work overview',
+  '  next: rehearsal 7c after 16:20',
+  RULE_41,
+  '▶ lane-b  working                      4m',
+  '  handily · codex',
+  '  ▸ writes the store reader',
+  RULE_41,
+  '○ docs-pass  quiet                    40m',
+  '  docs · claude',
+  '  ▸ reviewed the README · 40m old',
+  RULE_41,
+  '? scout  stale                         3h',
+  '  app · claude · last write 3h ago',
 ]
 
 const MOCK_76 = [
-  'Inbox  1 wait in 1 session · read 12s ago',
-  '◆ api-login    waits       permission prompt                               —',
-  'Sessions  4 · 1 needs you · polled 12s ago',
-  '◆ api-login  inter needs you   api · feat/login                      2/3  2h',
-  '    waits for: permission prompt',
-  '▶ mocks      inter this · busy app · main                            1/4 14m',
-  '    agents 3 · 1 failed',
-  '▶ lane-a1    bg    working     app.wt/lane-a1 · lane/a1              3/6 22m',
-  '✓ docs-pass  bg    done        docs · main                                 —',
-  '1 older background job hidden',
+  'Sessions  6 · 2 need you · 1 dead · read 12s ago',
+  '◆ decide     handily-s3yqhr               Release handily-board 0.24.0?   6m',
+  '    options: go | not now · answer in the Orchestrator window',
+  '◆ api-login  needs you       api          waits on: owner go for the 0.…  2m',
+  '■ old-lane   dead            handily      process gone · ▸ runs npm run… 25m',
+  '▶ dev        this · working  development  ▸ builds the work overview      1m',
+  '    next: rehearsal 7c after 16:20',
+  '▶ lane-b     working         handily      ▸ writes the store reader · c…  4m',
+  '○ docs-pass  quiet           docs         ▸ reviewed the README · 40m o… 40m',
+  '? scout      stale           app          last write 3h ago               3h',
 ]
 
-const CARD_CRITERION =
-  'The this machine tab draws one card per local session from claude agents --json, polled every 15 seconds only while the tab is shown'
+const NO_SETTING_CRITERION =
+  'When the store setting is unset, the this machine tab names the setting to set and shows no session and no ask.'
 
-describe(CARD_CRITERION, () => {
+describe(NO_SETTING_CRITERION, () => {
   for (const surface of SURFACES) {
-    for (const { placement, columns, lines } of [
-      { placement: 'dock', columns: 41, lines: MOCK_41 },
-      { placement: 'dock', columns: 30, lines: MOCK_30 },
-      { placement: 'inline', columns: 76, lines: MOCK_76 },
-    ] as const) {
-      test(`draws mock 8.1b, 8.3 and 8.4 on ${surface}, ${placement}, at ${String(columns)} columns`, async ($, on) => {
-        const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
-        await mockWork($, seen)
-        await showMachine($, seen)
-        await seen.clock.advance(12 * SECOND)
-        expect(await screenAt($, surface, placement, columns)).toEqual(lines)
-      })
-    }
-  }
-
-  test('the recorded claude agents output parses into four sessions with generic paths', () => {
-    const outcome = parseAgents(RECORDED_AGENTS)
-    if (outcome.kind !== 'ok') throw new Error(`expected rows, got ${outcome.kind}`)
-    expect(outcome.rows.map((row) => [row.name, row.kind, row.word])).toEqual([
-      ['docs-pass', 'background', 'blocked'],
-      ['api-login', 'interactive', 'busy'],
-      ['mocks', 'interactive', 'busy'],
-      ['lane-a1', 'interactive', 'idle'],
-    ])
-    const text = RECORDED_AGENTS.toLowerCase()
-    expect(text).not.toContain('/home/')
-    expect(text).not.toContain('/users/')
-  })
-
-  test('polls every 15 seconds while the tab is shown, never while it is hidden or closed', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    await board($, '')
-    expect(seen.shown).toBe(TASKS)
-    await seen.clock.advance(POLL_INTERVAL_MS * 2)
-    expect(seen.agentsRuns).toBe(0)
-    await showMachine($, seen)
-    expect(seen.agentsRuns).toBe(1)
-    await seen.clock.advance(POLL_INTERVAL_MS)
-    expect(seen.agentsRuns).toBe(2)
-    await board($, '')
-    expect(seen.shown).toBe(TASKS)
-    await seen.clock.advance(POLL_INTERVAL_MS * 3)
-    expect(seen.agentsRuns).toBe(2)
-    await showMachine($, seen)
-    expect(seen.agentsRuns).toBe(3)
-    expect(await board($, 'close')).toBe('Board closed.')
-    await seen.clock.advance(POLL_INTERVAL_MS * 3)
-    expect(seen.agentsRuns).toBe(3)
-  })
-
-  test('polls at once when the tab becomes shown with data older than 15 seconds', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    await showMachine($, seen)
-    expect(seen.agentsRuns).toBe(1)
-    await board($, '')
-    expect(seen.shown).toBe(TASKS)
-    await seen.clock.advance(POLL_INTERVAL_MS + 5 * SECOND)
-    expect(seen.agentsRuns).toBe(1)
-    await showMachine($, seen)
-    expect(seen.shown).toBe(MACHINE)
-    expect(seen.agentsRuns).toBe(2)
-    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
-      'Sessions  4 · 1 needs you · 0s ago',
-    )
-  })
-
-  test('does not poll again when the tab becomes shown with data newer than 15 seconds', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    await showMachine($, seen)
-    expect(seen.agentsRuns).toBe(1)
-    await board($, '')
-    expect(seen.shown).toBe(TASKS)
-    await seen.clock.advance(5 * SECOND)
-    await showMachine($, seen)
-    expect(seen.shown).toBe(MACHINE)
-    expect(seen.agentsRuns).toBe(1)
-    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
-      'Sessions  4 · 1 needs you · 5s ago',
-    )
-  })
-
-  test('reuses the result that another session polled less than 15 seconds ago', async ($, on) => {
-    const seen = world(on, {
-      [AGENTS_CACHE_KEY]: {
-        at: NOW - 5 * SECOND,
-        failure: null,
-        listed: { at: NOW - 5 * SECOND, rows: rowsOf(MACHINE_AGENTS) },
-        places: {},
-      },
-    })
-    await mockWork($, seen)
-    await showMachine($, seen)
-    expect(seen.agentsRuns).toBe(0)
-    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
-      'Sessions  4 · 1 needs you · 5s ago',
-    )
-    await seen.clock.advance(POLL_INTERVAL_MS)
-    expect(seen.agentsRuns).toBe(1)
-    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
-      'Sessions  4 · 1 needs you · 0s ago',
-    )
-  })
-
-  test('runs git only when the folder of a session changes', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const listed = MACHINE_AGENTS.length * 2
-    expect(seen.gitCwds).toHaveLength(listed)
-    await seen.clock.advance(POLL_INTERVAL_MS)
-    expect(seen.agentsRuns).toBe(2)
-    expect(seen.gitCwds).toHaveLength(listed)
-    seen.agents = agentsJson(
-      MACHINE_AGENTS.map((entry) =>
-        entry.sessionId === LANE_ID ? { ...entry, cwd: '/work/app.wt/lane-b2' } : entry,
-      ),
-    )
-    await seen.clock.advance(POLL_INTERVAL_MS)
-    expect(seen.gitCwds.slice(listed)).toEqual(['/work/app.wt/lane-b2', '/work/app.wt/lane-b2'])
-    expect(await screenAt($, 'terminal', 'dock', 41)).toContain(
-      '  app.wt/lane-b2 · lane/b2 · 22m worked',
-    )
-  })
-
-  test('another session reads the progress key that this session writes in the handily-board store', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    await $.turn.complete({
-      answer: 'ok',
-      durationMs: 14 * MINUTE,
-      isAborted: false,
-      turnId: 't1',
-      reason: 'answer',
-    })
-    const kept = readProgress(seen.store.get(progressKey(OWN_ID)))
-    expect(kept).toMatchObject({
-      sessionId: OWN_ID,
-      cwd: ROOT,
-      isWorking: false,
-      workedMs: 14 * MINUTE,
-      task: 'Write the tab mocks',
-      taskStatus: 'in_progress',
-      done: 1,
-      total: 4,
-      firstTaskAt: NOW - 10 * MINUTE,
-    })
-  })
-})
-
-function rowsOf(entries: readonly AgentEntry[]) {
-  const outcome = parseAgents(JSON.stringify(entries))
-  if (outcome.kind !== 'ok') throw new Error(`expected rows, got ${outcome.kind}`)
-  return outcome.rows
-}
-
-function session(name: string, fields: AgentEntry): AgentEntry {
-  return { cwd: '/work/docs', startedAt: NOW - HOUR, sessionId: `${name}-id`, name, ...fields }
-}
-
-const STATE_AGENTS: AgentEntry[] = [
-  session('bg-done', { id: 'b1', kind: 'background', state: 'done' }),
-  session('bg-failed', { id: 'b2', kind: 'background', state: 'failed' }),
-  session('inter-idle', { pid: 3001, kind: 'interactive', status: 'idle' }),
-  session('bg-blocked', { id: 'b3', kind: 'background', state: 'blocked' }),
-  session('inter-busy', { pid: 3002, kind: 'interactive', status: 'busy' }),
-  session('bg-stopped', { id: 'b4', kind: 'background', state: 'stopped' }),
-  session('inter-waiting', {
-    pid: 3003,
-    kind: 'interactive',
-    status: 'waiting',
-    waitingFor: 'permission prompt',
-  }),
-  session('mocks', {
-    pid: 2001,
-    kind: 'interactive',
-    status: 'busy',
-    sessionId: OWN_ID,
-    cwd: ROOT,
-  }),
-]
-
-const SORT_CRITERION =
-  'Cards sort by attention: a session that needs the person, then failed, working, idle and ended; this session leads its own group'
-
-describe(SORT_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`needs you, failed, working with this session first, idle, ended on ${surface}`, async ($, on) => {
-      const seen = world(on, {}, ['terminal', surface])
-      seen.agents = agentsJson(STATE_AGENTS)
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const ui = await mountTab($, surface, 'dock', 41)
-      const heads = (await screen(ui, 41)).filter((line) => /^[▶◆○✓■] /.test(line))
-      expect(heads).toEqual([
-        '◆ bg-blocked waits                      —',
-        '◆ inte…waiting waits                    —',
-        '◆ bg-blocked  background  needs you',
-        '◆ inter-waiting  interactive  needs you',
-        '■ bg-failed  background  failed',
-        '▶ mocks  interactive  this  busy',
-        '▶ inter-busy  interactive  busy',
-        '○ inter-idle  interactive  idle',
-        '✓ bg-done  background  done',
-        '✓ bg-stopped  background  stopped',
-      ])
-      const marks = (await ui.findAll({ type: 'Text', text: /^[▶◆○✓■] $/ })).map((found) => [
-        found.text,
-        found.props.color,
-      ])
-      expect(marks.slice(0, 5)).toEqual([
-        ['◆ ', 'warning'],
-        ['◆ ', 'warning'],
-        ['◆ ', 'warning'],
-        ['◆ ', 'warning'],
-        ['■ ', 'error'],
-      ])
-      expect((await ui.find({ type: 'Text', text: '  needs you' }))?.props.color).toBe('warning')
-      expect((await ui.find({ type: 'Text', text: '1 failed' }))?.props.color).toBe('error')
-      await ui.unmount()
-    })
-  }
-
-  test('inline, a name of more than 9 characters keeps its first 4 and last 4 characters', async ($, on) => {
-    const seen = world(on, {})
-    seen.agents = agentsJson(STATE_AGENTS)
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'terminal', 'inline', 76)
-    expect(lines).toEqual([
-      'Inbox  2 wait in 2 sessions · read 0s ago',
-      '◆ bg-blocked   waits       an answer                                       —',
-      '◆ inte…waiting waits       permission prompt                               —',
-      'Sessions  8 · 2 need you · 1 failed · polled 0s ago',
-      '◆ bg-b…cked  bg    needs you   docs · main                                1h',
-      '    waits for: an answer',
-      '◆ inte…ting  inter needs you   docs · main                                1h',
-      '    waits for: permission prompt',
-      '■ bg-failed  bg    failed      docs · main                                 —',
-      '▶ mocks      inter this · busy app · main                            1/4 14m',
-      '    agents 3 · 1 failed',
-      '▶ inte…busy  inter busy        docs · main                                1h',
-      '○ inte…idle  inter idle        docs · main                                1h',
-      '✓ bg-done    bg    done        docs · main                                 —',
-      '✓ bg-s…pped  bg    stopped     docs · main                                 —',
-    ])
-  })
-
-  test('a session that needs the person goes before this session, which leads the working group', async ($, on) => {
-    const seen = world(on, {})
-    seen.agents = agentsJson([
-      session('lane-a1', { id: 'b9', kind: 'background', state: 'working' }),
-      session('mocks', {
-        pid: 2001,
-        kind: 'interactive',
-        status: 'busy',
-        sessionId: OWN_ID,
-        cwd: ROOT,
-      }),
-      session('api-login', {
-        pid: 2003,
-        kind: 'interactive',
-        status: 'waiting',
-        waitingFor: 'permission prompt',
-      }),
-    ])
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const heads = sessionsOf(await screenAt($, 'terminal', 'inline', 76)).filter((line) =>
-      /^[▶◆○✓■] /.test(line),
-    )
-    expect(heads.map((line) => line.split(/\s+/)[1])).toEqual(['api-login', 'mocks', 'lane-a1'])
-  })
-
-  test('this session leads the idle group when it is idle', async ($, on) => {
-    const seen = world(on, {})
-    seen.agents = agentsJson([
-      session('inter-idle', { pid: 3001, kind: 'interactive', status: 'idle' }),
-      session('mocks', {
-        pid: 2001,
-        kind: 'interactive',
-        status: 'idle',
-        sessionId: OWN_ID,
-        cwd: ROOT,
-      }),
-      session('bg-done', { id: 'b1', kind: 'background', state: 'done' }),
-    ])
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const heads = (await screenAt($, 'terminal', 'dock', 41)).filter((line) =>
-      /^[▶◆○✓■] /.test(line),
-    )
-    expect(heads).toEqual([
-      '○ mocks  interactive  this  idle',
-      '○ inter-idle  interactive  idle',
-      '✓ bg-done  background  done',
-    ])
-  })
-})
-
-const WAITS_CRITERION = 'A session that needs the person shows a waits for line from waitingFor'
-
-describe(WAITS_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`the waits for line names waitingFor under the card on ${surface}, docked and inline`, async ($, on) => {
-      const seen = world(on, storeWith(API_PROGRESS), ['terminal', surface])
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const docked = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(docked).slice(1, 3)).toEqual([
-        '◆ api-login  interactive  needs you',
-        '  waits for: permission prompt',
-      ])
-      const inline = await screenAt($, surface, 'inline', 76)
-      expect(sessionsOf(inline)[2]).toBe('    waits for: permission prompt')
-      expect(docked.filter((line) => line.includes('waits for:'))).toHaveLength(1)
-    })
-  }
-
-  test('a blocked session with no waitingFor waits for an answer', async ($, on) => {
-    const seen = world(on, {})
-    seen.agents = agentsJson(STATE_AGENTS)
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'terminal', 'dock', 41)
-    const blocked = lines.indexOf('◆ bg-blocked  background  needs you')
-    expect(lines[blocked + 1]).toBe('  waits for: an answer')
-    const waiting = lines.indexOf('◆ inter-waiting  interactive  needs you')
-    expect(lines[waiting + 1]).toBe('  waits for: permission prompt')
-  })
-})
-
-const LOCAL_CRITERION =
-  "This session's card shows its agent counts from local state, not from the poll"
-
-describe(LOCAL_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`the agents line and the task line follow local state between two polls on ${surface}`, async ($, on) => {
-      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const runs = seen.agentsRuns
-      const before = await screenAt($, surface, 'dock', 41)
-      expect(before).toContain('  agents 3 · 1 failed')
-      seen.subagents = [...MOCK_SUBAGENTS, subagent('a6', 'reviewer', 'running')]
-      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'completed' })
-      const after = await screenAt($, surface, 'dock', 41)
-      expect(seen.agentsRuns).toBe(runs)
-      expect(after).toContain('  agents 4 · 1 failed')
-      expect(after).toContain('  ○ Review the mocks with Codex ▰▰▱▱ 2/4')
-      expect(after.filter((line) => line.startsWith('  agents'))).toHaveLength(1)
-    })
-  }
-
-  test('no agents line while this session has no agent that runs or failed', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    seen.subagents = [subagent('a4', 'Plan', 'completed')]
-    await showMachine($, seen)
-    expect(
-      (await screenAt($, 'terminal', 'dock', 41)).some((line) => line.includes('agents')),
-    ).toBe(false)
-    seen.subagents = [subagent('a2', 'Explore', 'running')]
-    expect(await screenAt($, 'terminal', 'dock', 41)).toContain('  agents 1')
-  })
-})
-
-const STATES_CRITERION =
-  'The loading, empty, stale and error states draw as section 5 of the mock says'
-
-describe(STATES_CRITERION, () => {
-  test('loading: the first poll has not answered yet', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    seen.hold = () => seen.clock.sleep(20 * SECOND)
-    await showMachine($, seen)
-    for (const surface of SURFACES) {
-      seen.surfaces = ['terminal', surface]
-      for (const columns of [30, 41]) {
-        expect(await screenAt($, surface, 'dock', columns)).toEqual([
-          'Inbox  reading the sessions…',
-          'Sessions',
-          'Listing the local sessions…',
-        ])
-      }
-    }
-  })
-
-  test('empty: the poll lists no session, and this session shows its card marked not listed', async ($, on) => {
-    const seen = world(on)
-    seen.agents = agentsJson([])
-    await mockWork($, seen)
-    await showMachine($, seen)
-    expect(await screenAt($, 'terminal', 'dock', 41)).toEqual([
-      'Inbox  nothing waits · 0 sessions · 0s',
-      'Sessions',
-      'No local sessions are listed.',
-      '▶ 00000000  this  busy',
-      '  not listed (stale)',
-      '  ▶ Write the tab mocks ▰▱▱▱ 1/4',
-      '  app · 14m worked · est. 30m left',
-      '  agents 3 · 1 failed',
-    ])
-  })
-
-  test('only this session: the header counts 1 and says so', async ($, on) => {
-    const seen = world(on)
-    seen.agents = agentsJson(MACHINE_AGENTS.filter((entry) => entry.sessionId === OWN_ID))
-    await mockWork($, seen)
-    await showMachine($, seen)
-    expect((await screenAt($, 'terminal', 'dock', 41)).slice(0, 4)).toEqual([
-      'Inbox  nothing waits · 0 sessions · 0s',
-      'Sessions  1',
-      'Only this session is running.',
-      '▶ mocks  interactive  this  busy',
-    ])
-  })
-
-  test('stale: a failed poll over 30 seconds after the last answer keeps the cards under a warning', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    await showMachine($, seen)
-    seen.agents = { exitCode: 1, stdout: '' }
-    await seen.clock.advance(POLL_INTERVAL_MS)
-    const fresh = sessionsOf(await screenAt($, 'terminal', 'dock', 41))
-    expect(fresh[0]).toBe('Sessions  4 · 1 needs you · 15s ago')
-    expect(fresh[1]).toBe('◆ api-login  interactive  needs you')
-    await seen.clock.advance(POLL_INTERVAL_MS * 7)
-    const lines = sessionsOf(await screenAt($, 'terminal', 'dock', 41))
-    expect(lines.slice(0, 4)).toEqual([
-      'Sessions  4 · 1 needs you · 2m ago',
-      'Last poll failed; showing 2m old data.',
-      '  retry in 15s',
-      '◆ api-login  interactive  needs you',
-    ])
-    expect(lines).toContain('▶ mocks  interactive  this  busy')
-  })
-
-  const FAILURES: readonly { answer: AgentsAnswer; lines: readonly string[] }[] = [
-    {
-      answer: { exitCode: 1, stdout: '' },
-      lines: [
-        'Sessions',
-        'claude agents --json failed: exit 1.',
-        'Run it in a shell to see why.',
-        'retry in 15s',
-      ],
-    },
-    {
-      answer: { exitCode: 0, stdout: 'Usage: claude agents' },
-      lines: ['Sessions', 'claude agents --json failed: the output', 'is not a JSON list.'],
-    },
-    {
-      answer: { exitCode: 0, stdout: '[', isStdoutTruncated: true },
-      lines: ['Sessions', 'claude agents --json failed: the output', 'is over 4 MiB and was cut.'],
-    },
-    {
-      answer: { deny: 'spawn claude ENOENT' },
-      lines: ['Sessions', 'claude is not on PATH, so other sessions', 'cannot be listed.'],
-    },
-  ]
-
-  for (const { answer: failed, lines } of FAILURES) {
-    test(`error: ${lines[1] ?? ''}`, async ($, on) => {
+    test(`with no store option the tab names the option and lists no folder, on ${surface}`, async ($, on) => {
       const seen = world(on)
-      seen.agents = failed
-      await mockWork($, seen)
       await showMachine($, seen)
-      for (const surface of SURFACES) {
-        seen.surfaces = ['terminal', surface]
-        expect(await screenAt($, surface, 'dock', 41)).toEqual([
-          'Inbox  other sessions unreadable',
-          ...lines,
-        ])
-      }
-      const ui = await mountTab($, 'terminal', 'dock', 41)
-      expect((await ui.find({ type: 'Text', text: /^claude / }))?.props.color).toBe('error')
-      await ui.unmount()
+      expect(await screenAt($, surface, 'dock', 41)).toEqual([
+        'Sessions',
+        'No store folder is set. Set the',
+        'handily-board option store in /config to',
+        'the folder that holds sessions/ and',
+        'asks/.',
+      ])
+      expect(seen.lists).toEqual([])
+      expect(seen.reads).toEqual([])
     })
   }
 
-  test('a task key written over 60 seconds before its session started is stale, with the elapsed time', async ($, on) => {
-    const lane = MACHINE_AGENTS.find((entry) => entry.sessionId === LANE_ID)
-    if (!lane) throw new Error('the fixture has no lane session')
-    const seen = world(
-      on,
-      storeWith({ ...LANE_PROGRESS, updatedAt: Number(lane.startedAt) - 61 * SECOND }),
-    )
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'terminal', 'dock', 41)
-    expect(lines).toContain('  ▶ Build the tab pane (stale) ▰▰▰▱▱▱ 3/6')
-    expect(lines).toContain('  app.wt/lane-a1 · lane/a1 · 1h elapsed')
-    expect(lines).toContain('  api · feat/login · 2h elapsed')
+  test(
+    'a relative store path is named as not usable and nothing is read',
+    { options: { store: 'work/.orch' } },
+    async ($, on) => {
+      const seen = world(on)
+      await showMachine($, seen)
+      expect(await screenAt($, 'terminal', 'inline', 76)).toEqual([
+        'Sessions',
+        'The handily-board option store in /config is not usable: it is a relative',
+        'path.',
+        'Set it to the absolute path of the folder that holds sessions/ and asks/.',
+      ])
+      expect(seen.lists).toEqual([])
+    },
+  )
+
+  test('the store setting refuses a relative path, a control character, a line break, a long path and a value that is not a text', () => {
+    expect(storeSetting(undefined, '/home/person')).toEqual({ kind: 'unset' })
+    expect(storeSetting('  ', '/home/person')).toEqual({ kind: 'unset' })
+    expect(storeSetting('work/.orch', '/home/person')).toEqual({
+      kind: 'refused',
+      reason: 'it is a relative path',
+    })
+    expect(storeSetting('/work/\u{7}orch', '/home/person')).toEqual({
+      kind: 'refused',
+      reason: 'it holds a control character or a line break',
+    })
+    expect(storeSetting('/work/\norch', '/home/person')).toEqual({
+      kind: 'refused',
+      reason: 'it holds a control character or a line break',
+    })
+    expect(storeSetting(`/${'a'.repeat(4096)}`, '/home/person')).toEqual({
+      kind: 'refused',
+      reason: 'it is longer than 4096 characters',
+    })
+    expect(storeSetting(42, '/home/person')).toEqual({
+      kind: 'refused',
+      reason: 'it is not a text',
+    })
   })
 
-  test('a session with the board and an empty list shows no tasks, and one without the board shows no task line', async ($, on) => {
-    const seen = world(
-      on,
-      storeWith({ ...API_PROGRESS, task: null, taskStatus: null, done: 0, total: 0, taskIds: [] }),
-    )
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'terminal', 'dock', 41)
-    const api = lines.indexOf('◆ api-login  interactive  needs you')
-    expect(lines.slice(api + 1, api + 4)).toEqual([
-      '  waits for: permission prompt',
-      '  no tasks',
-      '  api · feat/login · 2h worked',
-    ])
-    const lane = lines.indexOf('▶ lane-a1  background  working')
-    expect(lines[lane + 1]).toBe('  app.wt/lane-a1 · lane/a1 · 1h elapsed')
+  test('a leading ~/ expands from HOME, and with no HOME it is refused by name', () => {
+    expect(storeSetting('~/work/.orch/', '/home/person/')).toEqual({
+      kind: 'set',
+      path: '/home/person/work/.orch',
+      shown: '~/work/.orch/',
+    })
+    expect(storeSetting('~/work/.orch', undefined)).toEqual({
+      kind: 'refused',
+      reason: 'it starts with ~/ and HOME is not set',
+    })
   })
 
-  test('desktop: other sessions are listed only in a terminal session, above this session card', async ($, on) => {
-    const seen = world(on, storeWith(API_PROGRESS), ['desktop'])
-    await mockWork($, seen)
-    await showMachine($, seen)
-    await seen.clock.advance(POLL_INTERVAL_MS)
-    expect(seen.agentsRuns).toBe(0)
-    expect(await screenAt($, 'desktop', 'dock', 41)).toEqual([
-      'Sessions',
-      'Other sessions are listed only in a',
-      'terminal session.',
-      '▶ 00000000  this  busy',
-      '  ▶ Write the tab mocks ▰▱▱▱ 1/4',
-      '  app · 14m worked · est. 30m left',
-      '  agents 3 · 1 failed',
-    ])
-  })
-
-  test('the bar holds at most 8 cells, each a share of the tasks', async ($, on) => {
-    const seen = world(on)
-    seen.agents = agentsJson(MACHINE_AGENTS.filter((entry) => entry.sessionId === OWN_ID))
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    for (let index = 1; index <= 10; index += 1) {
-      await $.tool.call({ tool: TOOL_ADD, title: `Step ${String(index)}` })
-    }
-    for (const id of [1, 2, 3, 4, 5])
-      await $.tool.call({ tool: TOOL_UPDATE, id, status: 'completed' })
-    await showMachine($, seen)
-    expect(sessionsOf(await screenAt($, 'terminal', 'dock', 41))[3]).toBe(
-      '  ○ Step 6 ▰▰▰▰▱▱▱▱ 5/10',
-    )
-  })
+  test(
+    'a session with only the desktop surface says the store is read only in a terminal session and reads nothing',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, { surfaces: ['desktop'] })
+      await showMachine($, seen)
+      expect(await screenAt($, 'desktop', 'dock', 41)).toEqual([
+        'Sessions',
+        'The store is read only in a terminal',
+        'session.',
+      ])
+      expect(seen.lists).toEqual([])
+    },
+  )
 })
 
-function shared(name: string, fields: Partial<AgentSummary> = {}): AgentSummary {
-  return { name, task: null, done: 0, total: 0, isFailed: false, ...fields }
-}
+const LIST_CRITERION =
+  'When the store folder holds session files and ask files, the tab lists open asks first and then every session with its derived state (dead, stale, needs you, working, quiet), its project, its now text with its age past 15 minutes, and its next text, with a refresh every 15 seconds while the tab is shown.'
 
-const LANE_AGENTS: AgentSummary[] = [
-  shared('Explore', { task: 'Map the hooks', done: 2, total: 5 }),
-  shared('tester', { task: 'Run the unit tests', done: 0, total: 1 }),
-  shared('reviewer', { task: 'Review board.tsx', done: 1, total: 3 }),
-  shared('scout', { task: 'Ask about the plan', done: 4, total: 9, needsYou: true }),
-  shared('lane-b'),
-  shared('implementer', { task: 'Edit b.ts', done: 1, total: 2, isFailed: true }),
-]
-
-const SHARED_CRITERION =
-  'When a subagent task list changes, handily-board writes the agent name, its current task and its done and total counts into its session store key, at most 4096 bytes for each session'
-
-describe(SHARED_CRITERION, () => {
-  test('a subagent task list change writes each active agent of this session into its store key', async ($, on) => {
-    const seen = world(on)
-    seen.subagents = [
-      subagent('x1', 'Explore', 'running'),
-      subagent('x2', 'tester', 'running'),
-      subagent('x3', 'lane-b', 'failed'),
-      subagent('x4', 'Plan', 'completed'),
-    ]
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    await $.tool.call({ tool: TOOL_ADD, title: 'Read the design', agentId: 'x1' })
-    await $.tool.call({ tool: TOOL_ADD, title: 'Map the hooks', agentId: 'x1' })
-    await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed', agentId: 'x1' })
-    const kept = readProgress(seen.store.get(progressKey(OWN_ID)))
-    expect(kept?.agentCount).toBe(3)
-    expect(kept?.agents).toEqual([
-      shared('lane-b', { isFailed: true }),
-      shared('Explore', { task: 'Map the hooks', done: 1, total: 2 }),
-      shared('tester'),
-    ])
-  })
-
-  test('the writer drops agents from the end until the entry is at most 4096 bytes, and keeps the full count', async ($, on) => {
-    const seen = world(on)
-    const ids = Array.from({ length: 30 }, (_, index) => `x${String(index + 10)}`)
-    seen.subagents = ids.map((id) => subagent(id, `${id}-${'n'.repeat(60)}`, 'running'))
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    for (const id of ids) {
-      await $.tool.call({ tool: TOOL_ADD, title: `${id} ${'t'.repeat(150)}`, agentId: id })
-    }
-    const raw = seen.store.get(progressKey(OWN_ID))
-    const kept = readProgress(raw)
-    if (kept === null) throw new Error('the session key was not written')
-    expect(new TextEncoder().encode(JSON.stringify(raw)).length).toBeLessThanOrEqual(
-      ENTRY_BYTES_AT_MOST,
-    )
-    expect(kept.agentCount).toBe(30)
-    expect(kept.agents.length).toBeGreaterThan(0)
-    expect(kept.agents.length).toBeLessThan(30)
-    expect(kept.agents.map((agent) => agent.name.slice(0, 3))).toEqual(
-      ids.slice(0, kept.agents.length),
-    )
-    expect(kept.agents[0]?.name).toHaveLength(40)
-    expect(kept.agents[0]?.task).toHaveLength(80)
-  })
-
-  test('an entry over 4096 bytes with no agent is refused by name', () => {
-    const entry = progressOf(OWN_ID, { cwd: `/${'d'.repeat(ENTRY_BYTES_AT_MOST)}` })
-    expect(() => withinLimit(entry)).toThrow(
-      /bytes with no agent and no wait, over the limit of 4096/,
-    )
-    expect(entryBytes(progressOf(OWN_ID, {}))).toBeLessThan(ENTRY_BYTES_AT_MOST)
-  })
-
-  test('a key without agents, from an earlier version, reads as no agents', () => {
-    const old = Object.fromEntries(
-      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'agents' && key !== 'agentCount'),
-    )
-    expect(readProgress(old)).toMatchObject({ agents: [], agentCount: 0 })
-    expect(readProgress({ ...LANE_PROGRESS, agents: [{ name: 1 }] })).toBeNull()
-  })
-})
-
-const ROWS_CRITERION =
-  'When the this machine tab draws a card whose store key lists agents, the card shows at most 4 agent rows, those that need the person first, then a fold that names how many more agents and how many of them need the person'
-
-describe(ROWS_CRITERION, () => {
+describe(LIST_CRITERION, () => {
   for (const surface of SURFACES) {
-    test(`docked at 41 and 30 columns on ${surface}: 4 agent rows, needs you first, then the fold, and this session keeps counts only`, async ($, on) => {
-      const seen = world(
-        on,
-        storeWith(API_PROGRESS, { ...LANE_PROGRESS, agents: LANE_AGENTS, agentCount: 6 }),
-        ['terminal', surface],
-      )
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const ui = await mountTab($, surface, 'dock', 41)
-      const lines = await screen(ui, 41)
-      const lane = lines.indexOf('▶ lane-a1  background  working')
-      expect(lines.slice(lane + 3, lane + 9)).toEqual([
-        '  agents 6 · 1 needs you · 1 failed',
-        '  ◆ scout         needs you         4/9',
-        '  ▶ Explore       Map the hooks     2/5',
-        '  ▶ tester        Run the unit te…  0/1',
-        '  ▶ reviewer      Review board.tsx  1/3',
-        '  [ +2 more agents ]',
-      ])
-      const mocks = lines.indexOf('▶ mocks  interactive  this  busy')
-      expect(lines[mocks + 3]).toBe('  agents 3 · 1 failed')
-      expect(lines[mocks + 4]).toBe(RULE_41)
-      const more = await ui.find({ type: 'Button', text: '+2 more agents' })
-      await ui.press({ key: more?.key ?? '' })
-      const opened = await screen(ui, 41)
-      expect(opened.slice(lane + 8, lane + 11)).toEqual([
-        '  ▶ lane-b        no tasks',
-        '  ■ implementer   Edit b.ts         1/2',
-        '  [ hide 2 more agents ]',
-      ])
-      await ui.unmount()
-      const narrow = await screenAt($, surface, 'dock', 30)
-      const narrowLane = narrow.indexOf('▶ lane-a1  working')
-      expect(narrow.slice(narrowLane + 4, narrowLane + 11)).toEqual([
-        '  ◆ scout        needs…  4/9',
-        '  ▶ Explore      Map t…  2/5',
-        '  ▶ tester       Run t…  0/1',
-        '  ▶ reviewer     Revie…  1/3',
-        '  ▶ lane-b       no ta…',
-        '  ■ implementer  Edit …  1/2',
-        '  [ hide 2 more agents ]',
-      ])
+    test(`draws mock d41-full docked at 41 columns, on ${surface}`, WITH_STORE, async ($, on) => {
+      const seen = world(on)
+      await shownAfterRead($, seen)
+      expect(await screenAt($, surface, 'dock', 41)).toEqual(MOCK_41)
+    })
+
+    test(`draws mock i76-full inline at 76 columns, on ${surface}`, WITH_STORE, async ($, on) => {
+      const seen = world(on)
+      await shownAfterRead($, seen)
+      expect(await screenAt($, surface, 'inline', 76)).toEqual(MOCK_76)
     })
   }
 
-  test('the fold counts the agents it hides that need the person', async ($, on) => {
-    const waiting = LANE_AGENTS.map((agent) => ({ ...agent, needsYou: true as const }))
-    const seen = world(on, storeWith({ ...LANE_PROGRESS, agents: waiting, agentCount: 6 }))
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'terminal', 'dock', 41)
-    expect(lines).toContain('  agents 6 · 6 need you · 1 failed')
-    expect(lines).toContain('  [ +2 more agents · 2 need you ]')
+  test('the widget placement draws the Sessions head alone', WITH_STORE, async ($, on) => {
+    const seen = world(on)
+    await shownAfterRead($, seen)
+    expect(await screenAt($, 'terminal', 'widget', 76)).toEqual([
+      'Sessions  6 · 2 need you · 1 dead · 12s',
+    ])
   })
 
-  test('inline at 76 columns: the row folds its agents into one button that unfolds them', async ($, on) => {
-    const seen = world(
-      on,
-      storeWith(API_PROGRESS, { ...LANE_PROGRESS, agents: LANE_AGENTS, agentCount: 6 }),
-    )
-    await mockWork($, seen)
-    await showMachine($, seen)
-    await seen.clock.advance(12 * SECOND)
-    const ui = await mountTab($, 'terminal', 'inline', 76)
-    const lines = await screen(ui, 76)
-    const lane = lines.findIndex((line) => line.startsWith('▶ lane-a1'))
-    expect(lines[lane + 1]).toBe('    [ 6 agents · 1 needs you ]')
-    expect(lines[lane + 2]).toMatch(/^✓ docs-pass/)
-    const fold = await ui.find({ type: 'Button', text: '6 agents · 1 needs you' })
-    await ui.press({ key: fold?.key ?? '' })
-    const opened = await screen(ui, 76)
-    expect(opened.slice(lane + 1, lane + 7)).toEqual([
-      '    [ hide 6 agents ]',
-      '    ◆ scout         needs you                                          4/9',
-      '    ▶ Explore       Map the hooks                                      2/5',
-      '    ▶ tester        Run the unit tests                                 0/1',
-      '    ▶ reviewer      Review board.tsx                                   1/3',
-      '    [ +2 more agents ]',
+  test(
+    'reads the store every 15 seconds while the tab is shown and never while it is hidden',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on)
+      await showMachine($, seen)
+      expect(sessionListings(seen)).toBe(1)
+      await seen.clock.advance(15 * SECOND)
+      expect(sessionListings(seen)).toBe(2)
+      await seen.clock.advance(15 * SECOND)
+      expect(sessionListings(seen)).toBe(3)
+      expect(await board($, '')).toBe('Board opened: this session.')
+      await seen.clock.advance(60 * SECOND)
+      expect(sessionListings(seen)).toBe(3)
+    },
+  )
+
+  test('each derived state follows its rule in order', () => {
+    const now = NOW
+    const base = (fields: Partial<FiledSession>): FiledSession => ({
+      id: 'one',
+      updatedAt: now - MINUTE,
+      name: null,
+      project: null,
+      vendor: null,
+      platform: 'linux',
+      pid: null,
+      pidStart: null,
+      state: null,
+      stateAt: null,
+      now: null,
+      nowAt: null,
+      next: null,
+      waitingOn: null,
+      mtimeMs: now,
+      isDead: false,
+      ...fields,
+    })
+    const stateOf = (fields: Partial<FiledSession>) => sessionRow(base(fields), now, 'dev').state
+    expect(stateOf({ isDead: true, state: 'needs-you', updatedAt: now - 3 * HOUR })).toBe('dead')
+    expect(stateOf({ state: 'needs-you', updatedAt: now - 2 * HOUR })).toBe('stale')
+    expect(stateOf({ state: 'working', updatedAt: now - 2 * HOUR + 1 })).toBe('quiet')
+    expect(stateOf({ state: 'working', updatedAt: now + 6 * MINUTE })).toBe('stale')
+    expect(sessionRow(base({ updatedAt: now + 6 * MINUTE }), now, 'dev').isClockAhead).toBe(true)
+    expect(stateOf({ state: 'working', updatedAt: now + 4 * MINUTE })).toBe('working')
+    expect(stateOf({ state: 'needs-you' })).toBe('needsYou')
+    expect(stateOf({ state: 'working', updatedAt: now - 15 * MINUTE + 1 })).toBe('working')
+    expect(stateOf({ state: 'working', updatedAt: now - 15 * MINUTE })).toBe('quiet')
+    expect(stateOf({ state: 'idle' })).toBe('quiet')
+    expect(stateOf({})).toBe('quiet')
+    expect(sessionRow(base({ updatedAt: now + 4 * MINUTE }), now, 'dev').ageMs).toBe(0)
+  })
+
+  test(
+    'a now text past 15 minutes shows its own age and a newer one shows none',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          sessionFile('fresh', MINUTE, {
+            name: 'fresh',
+            state: 'working',
+            now: 'builds',
+            now_at: iso(NOW - 14 * MINUTE),
+          }),
+          sessionFile('older', MINUTE, {
+            name: 'older',
+            state: 'working',
+            now: 'reads',
+            now_at: iso(NOW - 16 * MINUTE),
+          }),
+        ],
+      })
+      await shownAfterRead($, seen)
+      const lines = await screenAt($, 'terminal', 'dock', 41)
+      expect(lines).toContain('  ▸ builds')
+      expect(lines).toContain('  ▸ reads · 16m old')
+    },
+  )
+
+  test(
+    'a stale session with a clock ahead says so instead of a last write age',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [sessionFile('ahead', -10 * MINUTE, { name: 'ahead', project: 'app' })],
+      })
+      await shownAfterRead($, seen)
+      expect(await screenAt($, 'terminal', 'dock', 41)).toEqual([
+        'Sessions  1 · 12s',
+        '? ahead  stale                         0s',
+        '  app · clock ahead',
+      ])
+    },
+  )
+
+  test(
+    'a store folder that is missing names the folder and the option and retries in 15 seconds',
+    { options: { store: '~/work/.orch' } },
+    async ($, on) => {
+      const seen = world(on, { files: [], folders: [] })
+      await shownAfterRead($, seen)
+      expect(await screenAt($, 'terminal', 'dock', 41)).toEqual([
+        'Sessions',
+        'The store folder is missing:',
+        '~/work/.orch',
+        'Check the option store in /config.',
+        '  retry in 15s',
+      ])
+      expect(await screenAt($, 'terminal', 'inline', 76)).toEqual([
+        'Sessions',
+        'The store folder is missing: ~/work/.orch',
+        'Check the option store in /config.  retry in 15s',
+      ])
+      expect(seen.lists).toContain('/home/person/work/.orch/sessions')
+    },
+  )
+
+  test(
+    'an empty store counts 0 and says that no session wrote and no ask is open',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, { files: [] })
+      await shownAfterRead($, seen)
+      expect(await screenAt($, 'terminal', 'dock', 41)).toEqual([
+        'Sessions  0 · 12s',
+        'No session has written to the store.',
+        'No ask is open.',
+      ])
+      expect(await screenAt($, 'terminal', 'inline', 76)).toEqual([
+        'Sessions  0 · read 12s ago',
+        'No session has written to the store. No ask is open.',
+      ])
+    },
+  )
+
+  test(
+    'a list that fails keeps the last read with its age and draws its marks dim',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, { files: [API_LOGIN] })
+      await showMachine($, seen)
+      seen.listDenial = 'EACCES: permission denied'
+      await seen.clock.advance(2 * MINUTE)
+      const ui = await mountTab($, 'terminal', 'dock', 41)
+      expect(await screen(ui, 41)).toEqual([
+        'Sessions  1 · 2m',
+        'The store was not read: permission',
+        'denied. The debug log names the file.',
+        '  retry in 15s',
+        'Showing the read of 2m ago.',
+        '◆ api-login  needs you                 4m',
+        '  api · claude',
+        '  waits on: owner go for the 0.24.0 rele…',
+      ])
+      const head = drawnOf(await ui.find({ key: 'card:session:api-login:head' }))
+      expect(head?.children[0]?.props.dimColor).toBe(true)
+      expect(head?.children.map((part) => part.props.color)).not.toContain('warning')
+      await ui.unmount()
+      expect(seen.logs.some((line) => line.includes('EACCES'))).toBe(true)
+    },
+  )
+
+  test('a first read that fails says that the store was not read', WITH_STORE, async ($, on) => {
+    const seen = world(on)
+    seen.listDenial = 'EACCES: permission denied'
+    await shownAfterRead($, seen)
+    expect(await screenAt($, 'terminal', 'dock', 41)).toEqual([
+      'Sessions',
+      'The store was not read: permission',
+      'denied. The debug log names the file.',
+      '  retry in 15s',
     ])
-    await ui.unmount()
+  })
+
+  test(
+    'of 205 session files and 53 ask files the newest 200 and 50 are read and the rest are counted',
+    WITH_STORE,
+    async ($, on) => {
+      const sessions = Array.from({ length: 205 }, (_, index) =>
+        sessionFile(`s${String(index).padStart(3, '0')}`, 3 * HOUR + index * SECOND),
+      )
+      const asks = Array.from({ length: 53 }, (_, index) =>
+        askFile(`handily-a${String(index).padStart(3, '0')}`, 2 * HOUR + index * SECOND, {
+          closed_by: 'approved',
+          closed_at: iso(NOW - 2 * HOUR),
+        }),
+      )
+      const seen = world(on, { files: [...sessions, ...asks] })
+      await shownAfterRead($, seen)
+      const read = seen.reads.filter((path) => path.startsWith(STORE))
+      expect(read.filter((path) => path.includes('/sessions/'))).toHaveLength(200)
+      expect(read.filter((path) => path.includes('/asks/'))).toHaveLength(50)
+      expect(read).not.toContain(`${STORE}/sessions/s204.json`)
+      expect(read).toContain(`${STORE}/sessions/s000.json`)
+      const lines = await screenAt($, 'terminal', 'dock', 41)
+      expect(lines[0]).toBe('Sessions  200 · 12s')
+      expect(lines.slice(-2)).toEqual([
+        '5 files over the limit of 200 not read',
+        '3 ask files over the limit of 50 not read',
+      ])
+    },
+  )
+
+  test(
+    'an open ask counts, an ask open for 24 hours is an old ask that does not count, and a closed ask shows dim for 1 hour',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          askFile('handily-open1', 23 * HOUR, { question: 'Merge it?' }),
+          askFile('handily-cd34', 2 * 24 * HOUR, { question: 'Merge the lane?' }),
+          askFile('handily-s3yqhr', 2 * HOUR, {
+            question: 'Release handily-board 0.24.0?',
+            closed_by: 'approved',
+            closed_at: iso(NOW - 3 * MINUTE),
+          }),
+          askFile('handily-ab12', 2 * HOUR, {
+            question: 'Which region should the probe use?',
+            closed_by: 'withdrawn',
+            closed_at: iso(NOW - 40 * MINUTE),
+          }),
+          askFile('handily-gone1', 3 * HOUR, {
+            question: 'Gone?',
+            closed_by: 'approved',
+            closed_at: iso(NOW - 61 * MINUTE),
+          }),
+        ],
+      })
+      await shownAfterRead($, seen)
+      const ui = await mountTab($, 'terminal', 'inline', 76)
+      expect(await screen(ui, 76)).toEqual([
+        'Sessions  0 · 1 needs you · read 12s ago',
+        '◆ decide     handily-open1   Merge it?                                   23h',
+        '    answer in the Orchestrator window',
+        '? old ask    handily-cd34    Merge the lane? (open, not counted)          2d',
+        '✓ approved   handily-s3yqhr  Release handily-board 0.24.0?                3m',
+        '○ withdrawn  handily-ab12    Which region should the probe use?          40m',
+      ])
+      const approved = drawnOf(await ui.find({ key: 'card:ask:handily-s3yqhr:head' }))
+      expect(approved?.children.map((part) => part.props.color ?? 'dim')).toEqual([
+        'success',
+        'success',
+        'dim',
+        'dim',
+        'dim',
+      ])
+      await ui.unmount()
+      await seen.clock.advance(21 * MINUTE)
+      const later = (await screenAt($, 'terminal', 'inline', 76)).join('\n')
+      expect(later).not.toContain('handily-ab12')
+      expect(later).toContain('handily-s3yqhr')
+    },
+  )
+
+  for (const surface of SURFACES) {
+    test(
+      `a control or bidi character from a file draws escaped, on ${surface}`,
+      WITH_STORE,
+      async ($, on) => {
+        const seen = world(on, {
+          files: [
+            sessionFile('lane-a1', 4 * MINUTE, {
+              name: 'lane\u{0}a1',
+              project: 'handily',
+              vendor: 'claude',
+              state: 'working',
+              now: 'Ship\u{2066} it\u{1b}[31m',
+              now_at: iso(NOW - 4 * MINUTE),
+            }),
+          ],
+        })
+        await shownAfterRead($, seen)
+        expect(await screenAt($, surface, 'dock', 41)).toEqual([
+          'Sessions  1 · 12s',
+          '▶ lane\\u0000a1  working                4m',
+          '  handily · claude',
+          '  ▸ Ship\\u2066 it\\u001b[31m',
+        ])
+      },
+    )
+  }
+
+  test(
+    'a file with no v or another v is not read and names the version it reads',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          rawFile('sessions/old.json', JSON.stringify({ id: 'old', updated_at: iso(NOW) })),
+          rawFile('sessions/new.json', JSON.stringify({ v: 2, id: 'new', updated_at: iso(NOW) })),
+          DEV,
+        ],
+      })
+      await shownAfterRead($, seen)
+      const lines = await screenAt($, 'terminal', 'dock', 41)
+      expect(lines[1]).toBe('▶ dev  this  working                   1m')
+      expect(lines).toContain('  new.json: v is 2; this board reads v 1')
+      expect(lines).toContain('  old.json: v is missing; this board rea…')
+      expect(seen.logs).toContain(
+        'handily-board: the store file sessions/old.json was not read: v is missing; this board reads v 1',
+      )
+    },
+  )
+
+  test('a refused optional field is dropped with a debug line and the row still shows', () => {
+    const dropped: string[] = []
+    const body = {
+      v: 1,
+      id: 'one',
+      updated_at: '2026-11-19T15:00:00+01:00',
+      name: 'n'.repeat(41),
+      state: 'busy',
+      unknown: 1,
+    }
+    const read = readSession('one.json', JSON.stringify(body), (key, why) => {
+      dropped.push(`${key}: ${why}`)
+    })
+    expect(
+      read.kind === 'read' ? [read.value.name, read.value.state, read.value.updatedAt] : null,
+    ).toEqual([null, null, Date.parse('2026-11-19T14:00:00Z')])
+    expect(dropped).toEqual([
+      'name: it is not a text of at most 40 characters',
+      'state: it is not working, needs-you or idle',
+    ])
+    const late = { v: 1, id: 'one', updated_at: 'yesterday' }
+    expect(readSession('one.json', JSON.stringify(late), () => undefined)).toEqual({
+      kind: 'refused',
+      reason: 'updated_at is not an ISO 8601 time',
+    })
   })
 })
 
-const GENERAL_PURPOSE_ROWS: Record<number, string[]> = {
-  41: ['  ▶ gene…purpose  Write the user …  1/4', '  ▶ gene…rpose 2  Check the links   0/2'],
-  30: ['  ▶ gene…purpose Write…  1/4', '  ▶ gene…rpose 2 Check…  0/2'],
-}
+const DEAD_CRITERION =
+  'When a session file names a pid and a pid start that no live process matches, the row shows dead; when /proc/self/stat cannot be read, no row is shown dead and the tab says that it has no process check.'
+
+describe(DEAD_CRITERION, () => {
+  test(
+    'a pid that runs with another start and a pid with no /proc entry both draw dead, and a matching start keeps the written state',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          sessionFile('reused', MINUTE, {
+            name: 'reused',
+            state: 'working',
+            pid: 501,
+            pid_start: 900,
+          }),
+          sessionFile('gone', MINUTE, { name: 'gone', state: 'working', pid: 503, pid_start: 1 }),
+          sessionFile('alive', MINUTE, {
+            name: 'alive',
+            state: 'working',
+            pid: 502,
+            pid_start: 910,
+          }),
+        ],
+      })
+      await shownAfterRead($, seen)
+      expect(await screenAt($, 'terminal', 'inline', 76)).toEqual([
+        'Sessions  3 · 2 dead · read 12s ago',
+        '■ gone    dead     process gone                                           1m',
+        '■ reused  dead     process gone                                           1m',
+        '▶ alive   working                                                         1m',
+      ])
+    },
+  )
+
+  test(
+    'with no /proc/self/stat no row is dead and the tab says once that it has no process check',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          sessionFile('reused', MINUTE, {
+            name: 'reused',
+            state: 'working',
+            pid: 501,
+            pid_start: 900,
+          }),
+          sessionFile('gone', MINUTE, { name: 'gone', state: 'needs-you', pid: 503, pid_start: 1 }),
+        ],
+      })
+      seen.hasProc = false
+      await shownAfterRead($, seen)
+      expect(await screenAt($, 'terminal', 'dock', 41)).toEqual([
+        'Sessions  2 · 1 needs you · 12s',
+        'No process check on this system; a',
+        'session that ended shows as stale.',
+        '◆ gone  needs you                      1m',
+        RULE_41,
+        '▶ reused  working                      1m',
+      ])
+      expect(seen.reads.filter((path) => /^\/proc\/\d+/.test(path))).toEqual([])
+    },
+  )
+
+  test(
+    'a pid without pid_start, or a pid on another platform, is dropped with a debug line and never dead',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          sessionFile('half', MINUTE, { name: 'half', state: 'working', pid: 503 }),
+          sessionFile('mac', MINUTE, {
+            name: 'mac',
+            state: 'working',
+            platform: 'darwin',
+            pid: 503,
+            pid_start: 1,
+          }),
+        ],
+      })
+      await shownAfterRead($, seen)
+      const lines = await screenAt($, 'terminal', 'dock', 41)
+      expect(lines.join('\n')).not.toContain('dead')
+      expect(seen.logs).toContain(
+        'handily-board: the store file sessions/half.json drops pid and pid_start: they come together',
+      )
+      expect(seen.logs).toContain(
+        'handily-board: the store file sessions/mac.json drops pid and pid_start: they count only on platform linux',
+      )
+    },
+  )
+
+  test('the start of a process is field 22 of its stat, read after the last parenthesis', () => {
+    expect(startOfStat(statOf(12, 345))).toBe(345)
+    expect(startOfStat('12 (a) b) S 1 2')).toBeNull()
+    expect(startOfStat('no parenthesis')).toBeNull()
+    expect(isEnded({ canCheck: false, starts: new Map([[1, { kind: 'gone' }]]) }, 1, 5)).toBe(false)
+    expect(isEnded({ canCheck: true, starts: new Map([[1, { kind: 'unknown' }]]) }, 1, 5)).toBe(
+      false,
+    )
+  })
+})
+
+const ANSWER_CRITERION =
+  'When the board runs in the session whose store file name equals the answerWindow setting, a press on an ask option fills the prompt box with the record id and the option label and does not send it; in every other session the ask shows the options read only with the words answer in the Orchestrator window.'
+
+const ORCHESTRATOR = sessionFile(OWN_ID, MINUTE, { name: 'orchestrator', state: 'working' })
+
+describe(ANSWER_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `in the answer window a press on an option fills the prompt box with the record and the label and sends nothing, on ${surface}`,
+      IN_ANSWER_WINDOW,
+      async ($, on) => {
+        const seen = world(on, { files: [RELEASE_ASK, ORCHESTRATOR] })
+        await shownAfterRead($, seen)
+        const ui = await mountTab($, surface, 'dock', 41)
+        expect((await screen(ui, 41)).slice(1, 6)).toEqual([
+          '◆ decide  handily-s3yqhr               6m',
+          '  Release handily-board 0.24.0?',
+          '  [ go ]  [ not now ]',
+          '  a press fills the prompt box with',
+          '  "handily-s3yqhr: go"; Enter sends it',
+        ])
+        await ui.press({ key: 'machine:ask:handily-s3yqhr:0' })
+        await seen.clock.settle()
+        expect(seen.fills).toEqual(['handily-s3yqhr: go'])
+        expect(seen.submitted).toEqual([])
+        await ui.unmount()
+        expect((await screenAt($, surface, 'dock', 41)).slice(3, 6)).toEqual([
+          '  [ go ]  [ not now ]',
+          '  in your prompt box, not sent:',
+          '  handily-s3yqhr: go',
+        ])
+        expect((await screenAt($, surface, 'inline', 76)).slice(1, 3)).toEqual([
+          '◆ decide        handily-s3yqhr  Release handily-board 0.24.0?             6m',
+          '    [ go ]  [ not now ]  in your prompt box, not sent: handily-s3yqhr: go',
+        ])
+      },
+    )
+
+    test(
+      `in another session the options are read only with answer in the Orchestrator window, on ${surface}`,
+      WITH_STORE,
+      async ($, on) => {
+        const seen = world(on, { files: [RELEASE_ASK, ORCHESTRATOR] })
+        await shownAfterRead($, seen)
+        const ui = await mountTab($, surface, 'dock', 41)
+        expect((await screen(ui, 41)).slice(1, 5)).toEqual([
+          '◆ decide  handily-s3yqhr               6m',
+          '  Release handily-board 0.24.0?',
+          '  options: go | not now',
+          '  answer in the Orchestrator window',
+        ])
+        expect(await ui.find({ type: 'Button' })).toBeUndefined()
+        await ui.unmount()
+      },
+    )
+  }
+
+  test(
+    'an ask with no options fills the record and a colon for the person to finish',
+    IN_ANSWER_WINDOW,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          askFile('handily-ab12', HOUR, { question: 'Which region should the probe use?' }),
+          ORCHESTRATOR,
+        ],
+      })
+      await shownAfterRead($, seen)
+      const ui = await mountTab($, 'terminal', 'dock', 41)
+      expect((await screen(ui, 41)).slice(1, 6)).toEqual([
+        '◆ decide  handily-ab12                 1h',
+        '  Which region should the probe use?',
+        '  [ answer ]',
+        '  a press fills "handily-ab12: " and you',
+        '  type the rest',
+      ])
+      await ui.press({ key: 'machine:ask:handily-ab12:answer' })
+      await seen.clock.settle()
+      expect(seen.fills).toEqual(['handily-ab12: '])
+      expect(seen.submitted).toEqual([])
+      await ui.unmount()
+    },
+  )
+
+  test('a refused fill names the reason and the text to type', IN_ANSWER_WINDOW, async ($, on) => {
+    const seen = world(on, { files: [RELEASE_ASK, ORCHESTRATOR] })
+    seen.isFillRefused = true
+    await shownAfterRead($, seen)
+    const ui = await mountTab($, 'terminal', 'dock', 41)
+    await ui.press({ key: 'machine:ask:handily-s3yqhr:0' })
+    await seen.clock.settle()
+    await ui.unmount()
+    expect((await screenAt($, 'terminal', 'dock', 41)).slice(3, 7)).toEqual([
+      '  [ go ]  [ not now ]',
+      '  ■ not filled: the prompt box did not',
+      '  take it.',
+      '  Type it: handily-s3yqhr: go',
+    ])
+    expect(seen.submitted).toEqual([])
+  })
+
+  test('an option label with a control or format character drops the options, and the ask still shows', () => {
+    const dropped: string[] = []
+    const read = readAsk(
+      'handily-ab12.json',
+      JSON.stringify({ v: 1, record: 'handily-ab12', options: 'go\u{202e}|no' }),
+      (key) => {
+        dropped.push(key)
+      },
+    )
+    expect(read.kind === 'read' ? read.value.options : null).toEqual([])
+    expect(dropped).toEqual(['options'])
+  })
+})
+
+const BAD_FILE_CRITERION =
+  'When a session file or an ask file is not JSON, is over 16 KiB, or has an id that differs from its file name, the tab names the file as not read and still shows every other file.'
+
+describe(BAD_FILE_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `a file that is not JSON, over 16 KiB or named apart from its id is named as not read and every other file shows, on ${surface}`,
+      WITH_STORE,
+      async ($, on) => {
+        const seen = world(on, {
+          files: [
+            DEV,
+            rawFile('sessions/a1b2c3d4.json', '{"v": 1,'),
+            rawFile('sessions/e5f6a7b8.json', '{}', 17 * 1024),
+            rawFile(
+              'sessions/9c0d1e2f.json',
+              JSON.stringify({ v: 1, id: 'other', updated_at: iso(NOW) }),
+            ),
+            rawFile('asks/handily-zz99.json', JSON.stringify({ v: 1, record: 'handily-zz98' })),
+          ],
+        })
+        await shownAfterRead($, seen)
+        expect(await screenAt($, surface, 'dock', 41)).toEqual([
+          'Sessions  1 · 12s',
+          '▶ dev  this  working                   1m',
+          '  development · claude',
+          '  ▸ builds the work overview',
+          '  next: rehearsal 7c after 16:20',
+          RULE_41,
+          '■ 4 files not read; the debug log has',
+          '  each reason',
+          '  9c0d1e2f.json: id is not the file name',
+          '  a1b2c3d4.json: not JSON',
+          '  e5f6a7b8.json: over 16 KiB',
+          '  handily-zz99.json: record is not the f…',
+        ])
+        expect((await screenAt($, surface, 'inline', 76)).at(-1)).toBe(
+          '■ 4 files not read: 9c0d1e2f.json id is not the file name · a1b2c3d4.json n…',
+        )
+        expect(seen.reads).not.toContain(`${STORE}/sessions/e5f6a7b8.json`)
+        expect(seen.logs).toContain(
+          'handily-board: the store file sessions/a1b2c3d4.json was not read: not JSON',
+        )
+      },
+    )
+  }
+})
+
+describe(BAD_FILE_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `a reason that quotes a value from the file draws its bidi character escaped, on ${surface}`,
+      WITH_STORE,
+      async ($, on) => {
+        const seen = world(on, {
+          files: [rawFile('sessions/bidi.json', JSON.stringify({ v: '\u{202e}abc', id: 'bidi' }))],
+        })
+        await shownAfterRead($, seen)
+        expect((await screenAt($, surface, 'dock', 41)).at(-1)).toBe(
+          '  bidi.json: v is "\\u202eabc"; this boar…',
+        )
+        expect((await screenAt($, surface, 'inline', 76)).at(-1)).toBe(
+          '■ 1 file not read: bidi.json v is "\\u202eabc"; this board reads v 1',
+        )
+      },
+    )
+  }
+})
 
 const WIDTH_CRITERION =
-  'A test with 10 sessions of 5 agents draws every card within the tab at 41 columns'
+  'When the tab is drawn at 120, 80 and 40 columns, no state word, mark, name or age is cut, and a fold never hides an ask, a needs you session or a dead session.'
 
-describe(WIDTH_CRITERION, () => {
-  test('10 sessions of 5 agents with long names and titles stay within 41 columns', async ($, on) => {
-    const sessions = Array.from({ length: 10 }, (_, index) => `lane-${String(index)}`)
-    const agents = Array.from({ length: 5 }, (_, index) =>
-      shared(`general-purpose-${String(index)}`, {
-        task: `Write the ${'very '.repeat(12)}long title ${String(index)}`,
-        done: 10 + index,
-        total: 100,
+const LONG_NAME = 'a-session-name-of-forty-characters-long1'
+
+function wideStore(): [string, FakeFile][] {
+  return [
+    askFile('handily-s3yqhr', 6 * MINUTE, {
+      question: 'Release handily-board 0.24.0?',
+      options: 'go|not now',
+    }),
+    sessionFile('long-a', 2 * MINUTE, {
+      name: LONG_NAME,
+      project: 'p'.repeat(64),
+      state: 'needs-you',
+      waiting_on: 'w'.repeat(200),
+    }),
+    sessionFile('long-b', 25 * MINUTE, {
+      name: `${LONG_NAME.slice(0, 39)}2`,
+      project: 'handily',
+      pid: 501,
+      pid_start: 900,
+      now: 'n'.repeat(200),
+      now_at: iso(NOW - 25 * MINUTE),
+    }),
+    sessionFile('long-c', 3 * HOUR, {
+      name: `${LONG_NAME.slice(0, 39)}3`,
+      project: 'app',
+      state: 'working',
+    }),
+  ]
+}
+
+const WHOLE_HEADS: readonly (readonly [string, readonly string[]])[] = [
+  ['card:ask:handily-s3yqhr', ['◆', 'decide', 'handily-s3yqhr', '6m']],
+  ['card:session:long-a', ['◆', LONG_NAME, 'needs you', '2m']],
+  ['card:session:long-b', ['■', `${LONG_NAME.slice(0, 39)}2`, 'dead', '25m']],
+  ['card:session:long-c', ['?', `${LONG_NAME.slice(0, 39)}3`, 'stale', '3h']],
+]
+
+async function headWords(ui: { find: Mounted['find'] }, key: string): Promise<string[]> {
+  const card = drawnOf(await ui.find({ key }))
+  if (card === null) throw new Error(`no card ${key}`)
+  const heads = card.children.filter(
+    (child) => typeof child.props.key === 'string' && child.props.key.startsWith(`${key}:head`),
+  )
+  const pieces = heads.flatMap((head) =>
+    head.children.length === 0 ? [head.text] : head.children.map((part) => part.text),
+  )
+  return pieces.map((piece) => piece.trim()).filter((piece) => piece !== '')
+}
+
+function foldStore(): [string, FakeFile][] {
+  const many = (lead: string, count: number, agoMs: number, fields: Fields) =>
+    Array.from({ length: count }, (_, index) =>
+      sessionFile(`${lead}${String(index).padStart(2, '0')}`, agoMs, {
+        name: `${lead}${String(index)}`,
+        ...fields,
       }),
     )
-    const entries = sessions.map((name) =>
-      progressOf(`${name}-id`, { agents, agentCount: 5, updatedAt: NOW - MINUTE }),
-    )
-    const seen = world(on, storeWith(...entries))
-    seen.agents = agentsJson(
-      sessions.map((name, index) =>
-        session(name, { id: `c${String(index)}`, kind: 'background', state: 'working' }),
-      ),
-    )
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'terminal', 'dock', 41)
-    expect(lines.filter((line) => line.startsWith('  ▶ gene…'))).toHaveLength(40)
-    expect(lines.filter((line) => line === '  [ +1 more agents ]')).toHaveLength(10)
-    expect(lines).toContain('  ▶ gene…rpose-0  Write the very…  10/100')
-    for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(41)
-  })
-
-  for (const columns of [41, 30]) {
-    test(`docked at ${String(columns)} columns: an agent name keeps 12 columns and the task text is cut first`, async ($, on) => {
-      const agents = [
-        shared('general-purpose', { task: 'Write the user guide of every mod', done: 1, total: 4 }),
-        shared('general-purpose', { task: 'Check the links', done: 0, total: 2 }),
-      ]
-      const seen = world(on, storeWith({ ...LANE_PROGRESS, agents, agentCount: 2 }))
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const lines = await screenAt($, 'terminal', 'dock', columns)
-      const rows = lines.filter((line) => line.startsWith('  ▶ gene…'))
-      expect(rows).toEqual(GENERAL_PURPOSE_ROWS[columns])
-    })
-  }
-})
-
-const RING_MARK = 0xe000
-
-function ringMarked(element: Drawn, count: { buttons: number }): Drawn {
-  if (element.type === 'Button') {
-    const mark = String.fromCodePoint(RING_MARK + count.buttons)
-    count.buttons += 1
-    return { ...element, text: mark.repeat(element.text.length) }
-  }
-  return { ...element, children: element.children.map((child) => ringMarked(child, count)) }
+  return [
+    RELEASE_ASK,
+    API_LOGIN,
+    sessionFile('lane-c7', 9 * MINUTE, { name: 'lane-c7', state: 'needs-you' }),
+    OLD_LANE,
+    sessionFile('lane-a3', 2 * HOUR - MINUTE, { name: 'lane-a3', pid: 503, pid_start: 1 }),
+    DEV,
+    ...many('q', 9, 40 * MINUTE, { state: 'idle' }),
+    ...many('w', 4, 4 * MINUTE, { state: 'working' }),
+    ...many('s', 45, 3 * HOUR, {}),
+  ]
 }
 
-function isOutOfFlow(element: Drawn): boolean {
-  const direction = element.props.flexDirection
-  const isReversed = typeof direction === 'string' && direction.endsWith('-reverse')
-  return isReversed || element.props.position === 'absolute'
-}
-
-function outOfFlow(element: Drawn): Drawn[] {
-  return [...(isOutOfFlow(element) ? [element] : []), ...element.children.flatMap(outOfFlow)]
-}
-
-type Ring = { keys: string[]; read: string[]; lines: string[] }
-
-async function ringOf(ui: Pick<Mounted, 'find' | 'findAll'>, columns: number): Promise<Ring> {
-  const root = drawnOf(await ui.find({ type: 'Box' }))
-  if (root === null) throw new Error('the pane drew no Box')
-  expect(outOfFlow(root), 'a reversed or absolute Box draws out of document order').toEqual([])
-  const count = { buttons: 0 }
-  const lines = screenOf(ringMarked(root, count), columns)
-  const marks = lines
-    .flatMap((line) => Array.from(line))
-    .map((character) => (character.codePointAt(0) ?? 0) - RING_MARK)
-    .filter((index) => index >= 0 && index < count.buttons)
-  const keys = (await ui.findAll({ type: 'Button' })).map((button) => button.key ?? '')
-  const read = [...new Set(marks)].map((index) => keys[index] ?? '')
-  return { keys, read, lines: await screen(ui, columns) }
-}
-
-const RING_CRITERION =
-  'When a board tab has the keyboard, Tab reaches every Button on it in reading order and Enter presses it, on terminal and desktop'
-
-function twoFoldingCards(on: On, surface: RenderSurface): World {
-  return world(
-    on,
-    storeWith(
-      { ...API_PROGRESS, agents: LANE_AGENTS, agentCount: 6 },
-      { ...LANE_PROGRESS, agents: LANE_AGENTS, agentCount: 6 },
-    ),
-    ['terminal', surface],
-  )
-}
-
-function cardLine(lines: readonly string[], name: string): number {
-  return lines.findIndex((line) => line.includes(` ${name} `))
-}
-
-describe(RING_CRITERION, () => {
+describe(WIDTH_CRITERION, () => {
   for (const surface of SURFACES) {
-    test(`docked on ${surface}: each card fold is one Button under its own key, in the order of the cards`, async ($, on) => {
-      const seen = twoFoldingCards(on, surface)
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const ui = await mountTab($, surface, 'dock', 41)
-      const ring = await ringOf(ui, 41)
-      expect(ring.keys).toHaveLength(2)
-      expect(ring.keys.every((key) => key.startsWith('machine:more:'))).toBe(true)
-      expect(new Set(ring.keys).size).toBe(2)
-      expect(ring.read).toEqual(ring.keys)
-      const [first, second] = ring.keys
-      await ui.press({ key: first ?? '' })
-      const opened = await ringOf(ui, 41)
-      expect(opened.keys).toEqual(ring.keys)
-      const hide = opened.lines.indexOf('  [ hide 2 more agents ]')
-      expect(hide).toBeGreaterThan(cardLine(opened.lines, 'api-login'))
-      expect(hide).toBeLessThan(cardLine(opened.lines, 'lane-a1'))
-      expect(opened.lines.indexOf('  [ +2 more agents ]')).toBeGreaterThan(
-        cardLine(opened.lines, 'lane-a1'),
+    for (const placement of ['dock', 'inline'] as const) {
+      for (const columns of [120, 80, 40]) {
+        test(
+          `${placement} at ${String(columns)} columns no mark, name, state word or age is cut, on ${surface}`,
+          WITH_STORE,
+          async ($, on) => {
+            const seen = world(on, { files: wideStore() })
+            await shownAfterRead($, seen)
+            const ui = await mountTab($, surface, placement, columns)
+            await screen(ui, columns)
+            for (const [key, words] of WHOLE_HEADS) {
+              const drawn = (await headWords(ui, key)).join('')
+              for (const word of words) expect(drawn, `${key} ${word}`).toContain(word)
+            }
+            await ui.unmount()
+          },
+        )
+      }
+    }
+  }
+
+  test(
+    'the fold never hides an ask, a needs you or a dead session, and a press opens and closes it',
+    WITH_STORE,
+    async ($, on) => {
+      const quiet = Array.from({ length: 9 }, (_, index) =>
+        sessionFile(`q${String(index)}`, 40 * MINUTE, { name: `q${String(index)}`, state: 'idle' }),
       )
-      await ui.press({ key: second ?? '' })
-      const both = await ringOf(ui, 41)
-      expect(both.lines.filter((line) => line === '  [ hide 2 more agents ]')).toHaveLength(2)
-      await ui.press({ key: first ?? '' })
-      await ui.press({ key: second ?? '' })
-      expect(
-        (await ringOf(ui, 41)).lines.filter((line) => line === '  [ +2 more agents ]'),
-      ).toHaveLength(2)
-      await ui.unmount()
-    })
-
-    test(`inline at 76 columns on ${surface}: a pressed agents fold brings its more fold right after its rows`, async ($, on) => {
-      const seen = twoFoldingCards(on, surface)
-      await mockWork($, seen)
-      await showMachine($, seen)
-      await seen.clock.advance(12 * SECOND)
-      const ui = await mountTab($, surface, 'inline', 76)
-      const ring = await ringOf(ui, 76)
-      expect(ring.keys).toHaveLength(2)
-      expect(ring.keys.every((key) => key.startsWith('machine:agents:'))).toBe(true)
-      expect(ring.read).toEqual(ring.keys)
-      const [first, second] = ring.keys
-      await ui.press({ key: first ?? '' })
-      const opened = await ringOf(ui, 76)
-      expect(opened.read).toEqual(opened.keys)
-      expect(opened.keys).toEqual([
-        first,
-        first?.replace('machine:agents:', 'machine:more:'),
-        second,
-      ])
-      await ui.press({ key: first ?? '' })
-      expect((await ringOf(ui, 76)).keys).toEqual(ring.keys)
-      await ui.unmount()
-    })
-  }
-})
-
-const TOOL_ASSIGN = 'mcp__handily-board__task_assign'
-
-describe('the own card counts only the tasks of Claude (handily-9uj3n.8)', () => {
-  for (const surface of ['terminal', 'desktop'] as const) {
-    test(`a task for the person is neither counted nor the current task on ${surface}`, async ($, on) => {
-      const seen = world(on, undefined, [surface])
-      seen.agents = agentsJson(MACHINE_AGENTS.filter((entry) => entry.sessionId === OWN_ID))
-      await $.session.start({ cwd: ROOT, surface, isInteractive: true })
-      await $.tool.call({ tool: TOOL_ADD, title: 'Read the design' })
-      await $.tool.call({ tool: TOOL_UPDATE, id: 1, status: 'completed' })
-      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
-      await $.tool.call({ tool: TOOL_ADD, title: 'Draw the card' })
-      await showMachine($, seen)
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(lines).toContain('  ○ Draw the card ▰▱ 1/2')
-      expect(lines.join('\n')).not.toContain('Rotate')
-    })
-  }
-})
-
-const HIGH_CONTEXT_CRITERION =
-  'When a session that runs the board has a context of 80 percent or more, its card shows the percent with the word high and its cost.'
-const LOW_CONTEXT_CRITERION =
-  'When the context is under 80 percent, the card shows no context line.'
-
-function measures(on: On): void {
-  on('session.measure', (_$, e) => ({ changed: e.changed }))
-}
-
-async function measureOwn($: Engine, percent: number, usd: number): Promise<void> {
-  await $.session.measure({
-    context: { window: 200_000, percent, tokens: percent * 2_000 },
-    rateLimits: [],
-    cost: { usd },
-    changed: ['context', 'cost'],
-  })
-}
-
-function contextLines(lines: readonly string[]): string[] {
-  return lines.filter((line) => line.trimStart().startsWith('ctx '))
-}
-
-async function contextPart(
-  $: Engine,
-  surface: RenderSurface,
-  key: string,
-): Promise<{ text: string; color: unknown }[]> {
-  const ui = await mountTab($, surface, 'dock', 41)
-  const line = drawnOf(await ui.find({ key: `card:${key}:context` }))
-  await ui.unmount()
-  return (line?.children ?? []).map((part) => ({ text: part.text, color: part.props.color }))
-}
-
-const HIGH_API = { ...API_PROGRESS, context: { percent: 85, cents: 731 } }
-
-describe(HIGH_CONTEXT_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`the card of this session shows ctx 91% high and the cost under its place line, as mock 8.10o, and the session key keeps both, on ${surface}`, async ($, on) => {
-      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
-      measures(on)
-      await mockWork($, seen)
-      await measureOwn($, 91.2, 12.4)
-      await showMachine($, seen)
-      const lines = await screenAt($, surface, 'dock', 41)
-      const own = lines.indexOf('▶ mocks  interactive  this  busy')
-      expect(lines.slice(own, own + 5)).toEqual([
-        '▶ mocks  interactive  this  busy',
-        '  ▶ Write the tab mocks ▰▱▱▱ 1/4',
-        '  app · main · 14m worked · est. 30m left',
-        '  ctx 91% high · $12.40',
-        '  agents 3 · 1 failed',
-      ])
-      expect(await contextPart($, surface, OWN_ID)).toEqual([
-        { text: 'ctx ', color: undefined },
-        { text: '91% high', color: 'warning' },
-        { text: ' · ', color: undefined },
-        { text: '$12.40', color: undefined },
-      ])
-      expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.context).toEqual({
-        percent: 91,
-        cents: 1240,
+      const working = Array.from({ length: 4 }, (_, index) =>
+        sessionFile(`w${String(index)}`, 4 * MINUTE, {
+          name: `w${String(index)}`,
+          state: 'working',
+        }),
+      )
+      const stale = Array.from({ length: 45 }, (_, index) =>
+        sessionFile(`s${String(index).padStart(2, '0')}`, 3 * HOUR, { name: `s${String(index)}` }),
+      )
+      const seen = world(on, {
+        files: [
+          RELEASE_ASK,
+          API_LOGIN,
+          sessionFile('lane-c7', 9 * MINUTE, { name: 'lane-c7', state: 'needs-you' }),
+          OLD_LANE,
+          sessionFile('lane-a3', 2 * HOUR - MINUTE, { name: 'lane-a3', pid: 503, pid_start: 1 }),
+          DEV,
+          ...quiet,
+          ...working,
+          ...stale,
+        ],
       })
-    })
-
-    test(`the card of another session that runs the board shows its high context docked and under its row inline, on ${surface}`, async ($, on) => {
-      const seen = world(on, storeWith(HIGH_API, LANE_PROGRESS), ['terminal', surface])
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const docked = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(docked).slice(1, 6)).toEqual([
-        '◆ api-login  interactive  needs you',
-        '  waits for: permission prompt',
-        '  ▶ Fix the login redirect ▰▰▱ 2/3',
-        '  api · feat/login · 2h worked',
-        '  ctx 85% high · $7.31',
+      await shownAfterRead($, seen)
+      const ui = await mountTab($, 'terminal', 'inline', 76)
+      expect((await screen(ui, 76)).map((line) => line.slice(0, 24))).toEqual([
+        'Sessions  63 · 3 need yo',
+        '◆ decide     handily-s3y',
+        '    options: go | not no',
+        '◆ api-login  needs you  ',
+        '◆ lane-c7    needs you  ',
+        '■ old-lane   dead       ',
+        '■ lane-a3    dead       ',
+        '▶ dev        this · work',
+        '    next: rehearsal 7c a',
+        '[ +58 more · 4 working ·',
       ])
-      expect(contextLines(docked)).toEqual(['  ctx 85% high · $7.31'])
-      const inline = await screenAt($, surface, 'inline', 76)
-      expect(sessionsOf(inline).slice(1, 4)).toEqual([
-        '◆ api-login  inter needs you   api · feat/login                      2/3  2h',
-        '    waits for: permission prompt',
-        '    ctx 85% high · $7.31',
-      ])
-    })
-  }
+      expect(drawnOf(await ui.find({ key: 'machine:more' }))?.text).toBe(
+        '[ +58 more · 4 working · 9 quiet · 45 stale ]',
+      )
+      await ui.press({ key: 'machine:more' })
+      await ui.unmount()
+      const open = await screenAt($, 'terminal', 'inline', 76)
+      expect(open.at(-1)).toBe('[ hide 58 ]')
+      expect(open.filter((line) => /^[▶○?◆■] /.test(line))).toHaveLength(64)
+    },
+  )
 
-  test('the desktop app draws the high context on the card of this session', async ($, on) => {
-    const seen = world(on, undefined, ['desktop'])
-    measures(on)
-    await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
-    await measureOwn($, 88, 3)
-    await showMachine($, seen)
-    expect(contextLines(await screenAt($, 'desktop', 'dock', 41))).toEqual([
-      '  ctx 88% high · $3.00',
-    ])
-  })
-
-  test('a context of 80 percent with no cost shows the percent and the word high alone', async ($, on) => {
-    const seen = world(
-      on,
-      storeWith({ ...API_PROGRESS, context: { percent: 80, cents: null } }, LANE_PROGRESS),
-    )
-    await mockWork($, seen)
-    await showMachine($, seen)
-    expect(contextLines(await screenAt($, 'terminal', 'dock', 41))).toEqual(['  ctx 80% high'])
-  })
-})
-
-describe(LOW_CONTEXT_CRITERION, () => {
   for (const surface of SURFACES) {
-    test(`a context of 79 percent draws no context line on any card, and 80 percent draws it, on ${surface}`, async ($, on) => {
-      const low = { ...API_PROGRESS, context: { percent: 79, cents: 731 } }
-      const seen = world(on, storeWith(low, LANE_PROGRESS), ['terminal', surface])
-      measures(on)
-      await mockWork($, seen)
-      await measureOwn($, 79.4, 12.4)
-      await showMachine($, seen)
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(contextLines(lines)).toEqual([])
-      expect(lines.join('\n')).not.toContain('high')
-      await measureOwn($, 80, 12.4)
-      expect(contextLines(await screenAt($, surface, 'dock', 41))).toEqual([
-        '  ctx 80% high · $12.40',
-      ])
-    })
-
-    test(`a context that falls under 80 percent takes the line away, on ${surface}`, async ($, on) => {
-      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
-      measures(on)
-      await mockWork($, seen)
-      await measureOwn($, 91, 12.4)
-      await showMachine($, seen)
-      expect(contextLines(await screenAt($, surface, 'dock', 41))).toHaveLength(1)
-      await measureOwn($, 40, 12.6)
-      expect(contextLines(await screenAt($, surface, 'dock', 41))).toEqual([])
-    })
-  }
-
-  test('a key from an earlier version with no context reads as no context, and a bad context drops the key', () => {
-    const old = Object.fromEntries(
-      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'context'),
+    test(
+      `docked at 41 columns the fold keeps every ask, needs you and dead card, on ${surface}`,
+      WITH_STORE,
+      async ($, on) => {
+        const seen = world(on, { files: foldStore() })
+        await shownAfterRead($, seen)
+        const ui = await mountTab($, surface, 'dock', 41)
+        const lines = await screen(ui, 41)
+        expect(lines.filter((line) => /^[▶○?◆■] /.test(line))).toEqual([
+          '◆ decide  handily-s3yqhr               6m',
+          '◆ api-login  needs you                 2m',
+          '◆ lane-c7  needs you                   9m',
+          '■ old-lane  dead                      25m',
+          '■ lane-a3  dead                        1h',
+          '▶ dev  this  working                   1m',
+        ])
+        expect(lines.at(-1)).toBe('[ +58 · 4 working · 9 quiet · 45 stale ]')
+        await ui.unmount()
+      },
     )
-    expect(readProgress(old)).toMatchObject({ context: null })
-    expect(readProgress({ ...LANE_PROGRESS, context: { percent: '91' } })).toBeNull()
-    expect(readProgress({ ...LANE_PROGRESS, context: { percent: 91, cents: 'x' } })).toBeNull()
-  })
+  }
 })
 
 const NERD_OF_PLAIN: readonly (readonly [string, string])[] = [
@@ -1528,1043 +1343,15 @@ function nerdSwapped(line: string): string {
   return NERD_OF_PLAIN.reduce((text, [plain, nerd]) => text.replaceAll(plain, nerd), line)
 }
 
-describe('With glyphs nerd the this machine tab swaps each signal mark one for one on the terminal and draws plain on the desktop', () => {
+describe('With glyphs nerd the this machine tab swaps each signal mark one for one on the terminal, keeps the stale mark, and draws plain on the desktop', () => {
   for (const surface of SURFACES) {
-    for (const { columns, lines } of [
-      { columns: 41, lines: MOCK_41 },
-      { columns: 30, lines: MOCK_30 },
-    ] as const) {
-      test(`the cards of mock 8.1b at ${String(columns)} columns on ${surface}`, async ($, on) => {
-        const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
-        on('config.list', () => ({ value: [NERD_ROW] }))
-        await mockWork($, seen)
-        await showMachine($, seen)
-        await seen.clock.advance(12 * SECOND)
-        const drawn = await screenAt($, surface, 'dock', columns)
-        expect(drawn).toEqual(surface === 'terminal' ? lines.map(nerdSwapped) : lines)
-        expect(drawn.map(displayWidth)).toEqual(lines.map(displayWidth))
-      })
-    }
-  }
-})
-
-const FOR_YOU_CARD_CRITERION =
-  'When a session on this machine that runs handily has open tasks for the person, its card on the this machine tab shows waits for: 2 tasks for you with its count, as mock 8.12l, and the Sessions head line counts that session as needs you.'
-const NO_FOR_YOU_CRITERION =
-  'When a session has no open task for the person, its card shows no tasks-for-you line and the session is not counted as needs you for tasks.'
-
-const DOCS_ID = '00000000-0000-4000-8000-00000000000d'
-const FOR_YOU_LINE = /tasks? for you/
-
-function cardFrom(lines: readonly string[], head: string, count: number): string[] {
-  const cards = lines.findIndex((line) => line.startsWith('Sessions'))
-  const at = lines.findIndex((line, index) => index > cards && line.startsWith(head))
-  if (at < 0) throw new Error(`no card starts with ${head}`)
-  return lines.slice(at, at + count)
-}
-
-async function machineWith(
-  $: Engine,
-  on: On,
-  surface: RenderSurface,
-  ...entries: Progress[]
-): Promise<World> {
-  const seen = world(on, storeWith(...entries), ['terminal', surface])
-  await mockWork($, seen)
-  await showMachine($, seen)
-  await seen.clock.advance(12 * SECOND)
-  return seen
-}
-
-describe(FOR_YOU_CARD_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`another session with 2 open tasks for the person waits for 2 tasks for you and counts as need you, docked on ${surface}`, async ($, on) => {
-      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 2 })
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 2 need you · 12s ago')
-      expect(cardFrom(lines, '◆ lane-a1', 4)).toEqual([
-        '◆ lane-a1  background  needs you',
-        '  waits for: 2 tasks for you',
-        '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
-        '  app.wt/lane-a1 · lane/a1 · 22m worked',
-      ])
-    })
-
-    test(`another session with 2 open tasks for the person waits for 2 tasks for you under its row, inline on ${surface}`, async ($, on) => {
-      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 2 })
-      const lines = await screenAt($, surface, 'inline', 76)
-      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 2 need you · polled 12s ago')
-      expect(cardFrom(lines, '◆ lane-a1', 2)).toEqual([
-        '◆ lane-a1    bg    needs you   app.wt/lane-a1 · lane/a1              3/6 22m',
-        '    waits for: 2 tasks for you',
-      ])
-    })
-
-    test(`1 open task for the person reads 1 task for you, on ${surface}`, async ($, on) => {
-      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 1 })
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(cardFrom(lines, '◆ lane-a1', 2)).toEqual([
-        '◆ lane-a1  background  needs you',
-        '  waits for: 1 task for you',
-      ])
-    })
-
-    test(`this session with 2 open tasks for the person waits for them on its own card and counts as need you, on ${surface}`, async ($, on) => {
-      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
-      await mockWork($, seen)
-      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
-      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old bucket' })
-      await showMachine($, seen)
-      await seen.clock.advance(12 * SECOND)
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 2 need you · 12s ago')
-      expect(cardFrom(lines, '◆ mocks', 3)).toEqual([
-        '◆ mocks  interactive  this  needs you',
-        '  waits for: 2 tasks for you',
-        '  ▶ Write the tab mocks ▰▱▱▱ 1/4',
-      ])
+    test(`the rows of mock d41-full at 41 columns on ${surface}`, WITH_STORE, async ($, on) => {
+      const seen = world(on)
+      on('config.list', () => ({ value: [NERD_ROW] }))
+      await shownAfterRead($, seen)
+      const drawn = await screenAt($, surface, 'dock', 41)
+      expect(drawn).toEqual(surface === 'terminal' ? MOCK_41.map(nerdSwapped) : MOCK_41)
+      expect(drawn.map(displayWidth)).toEqual(MOCK_41.map(displayWidth))
     })
   }
-
-  test('the desktop app draws the tasks for you on the card of this session', async ($, on) => {
-    const seen = world(on, undefined, ['desktop'])
-    await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
-    await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
-    await showMachine($, seen)
-    const lines = await screenAt($, 'desktop', 'dock', 41)
-    expect(cardFrom(lines, '◆ 00000000', 2)).toEqual([
-      '◆ 00000000  this  needs you',
-      '  waits for: 1 task for you',
-    ])
-  })
-
-  test('the session key keeps the count of open tasks for the person as the For you list changes', async ($, on) => {
-    const seen = world(on)
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
-    await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Delete the old bucket' })
-    expect(readProgress(seen.store.get(progressKey(OWN_ID)))).toMatchObject({
-      total: 0,
-      openForYou: 2,
-    })
-    await board($, 'done 1')
-    expect(readProgress(seen.store.get(progressKey(OWN_ID)))?.openForYou).toBe(1)
-  })
-})
-
-describe(NO_FOR_YOU_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`a session with 0 open tasks for the person shows no tasks for you line and is not counted, on ${surface}`, async ($, on) => {
-      await machineWith($, on, surface, API_PROGRESS, { ...LANE_PROGRESS, openForYou: 0 })
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
-      expect(cardFrom(lines, '▶ lane-a1', 2)).toEqual([
-        '▶ lane-a1  background  working',
-        '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
-      ])
-      expect(lines.filter((line) => FOR_YOU_LINE.test(line))).toEqual([])
-    })
-
-    test(`a key from an earlier version with no count shows no tasks for you line and is not counted, on ${surface}`, async ($, on) => {
-      const old = Object.fromEntries(
-        Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'openForYou'),
-      )
-      const seen = world(on, { ...storeWith(API_PROGRESS), [progressKey(LANE_ID)]: old }, [
-        'terminal',
-        surface,
-      ])
-      await mockWork($, seen)
-      await showMachine($, seen)
-      await seen.clock.advance(12 * SECOND)
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
-      expect(cardFrom(lines, '▶ lane-a1', 2)).toEqual([
-        '▶ lane-a1  background  working',
-        '  ▶ Build the tab pane ▰▰▰▱▱▱ 3/6',
-      ])
-      expect(lines.filter((line) => FOR_YOU_LINE.test(line))).toEqual([])
-    })
-
-    test(`a session with a permission wait and tasks for the person is counted once, on ${surface}`, async ($, on) => {
-      await machineWith($, on, surface, { ...API_PROGRESS, openForYou: 2 }, LANE_PROGRESS)
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
-      expect(cardFrom(lines, '◆ api-login', 4)).toEqual([
-        '◆ api-login  interactive  needs you',
-        '  waits for: permission prompt',
-        '  waits for: 2 tasks for you',
-        '  ▶ Fix the login redirect ▰▰▱ 2/3',
-      ])
-    })
-
-    test(`an ended session and a stale key show no tasks for you line and are not counted, on ${surface}`, async ($, on) => {
-      const lane = MACHINE_AGENTS.find((entry) => entry.sessionId === LANE_ID)
-      if (!lane) throw new Error('the fixture has no lane session')
-      await machineWith(
-        $,
-        on,
-        surface,
-        API_PROGRESS,
-        { ...LANE_PROGRESS, openForYou: 2, updatedAt: Number(lane.startedAt) - 61 * SECOND },
-        progressOf(DOCS_ID, { cwd: '/work/docs', openForYou: 3 }),
-      )
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(sessionsOf(lines)[0]).toBe('Sessions  4 · 1 needs you · 12s ago')
-      expect(lines).toContain('▶ lane-a1  background  working')
-      expect(lines).toContain('✓ docs-pass  background  done')
-      expect(lines.filter((line) => FOR_YOU_LINE.test(line))).toEqual([])
-    })
-  }
-
-  test('a key from an earlier version with no count reads as no count, and a bad count drops the key', () => {
-    const old = Object.fromEntries(
-      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'openForYou'),
-    )
-    expect(readProgress(old)).toMatchObject({ openForYou: null })
-    expect(readProgress({ ...LANE_PROGRESS, openForYou: '2' })).toBeNull()
-    expect(readProgress({ ...LANE_PROGRESS, openForYou: -1 })).toBeNull()
-    expect(readProgress({ ...LANE_PROGRESS, openForYou: 1.5 })).toBeNull()
-  })
-})
-
-const DRAW_AT = NOW + 12 * SECOND
-const ABSENT_ID = '00000000-0000-4000-8000-00000000000e'
-
-function permissionWait(agent: string, tool: string, target: string, ageMs: number): SharedWait {
-  return { kind: 'permission', agent, tool, target, since: DRAW_AT - ageMs }
-}
-
-function taskWait(kind: BoardTaskKind, title: string, ageMs: number): SharedWait {
-  return { kind, title, since: DRAW_AT - ageMs }
-}
-
-const API_WAITS: SharedWait[] = [
-  permissionWait('Claude', 'Bash', 'npm test --workspace mods/api', 2 * MINUTE),
-]
-
-const LANE_WAITS: SharedWait[] = [
-  permissionWait('scout', 'Edit', 'hooks/band.ts', 40 * SECOND),
-  taskWait('decide', 'Release handily-board 0.23.0?', 6 * MINUTE),
-]
-
-const API_WAITING = { ...API_PROGRESS, waits: API_WAITS }
-const LANE_WAITING = { ...LANE_PROGRESS, waits: LANE_WAITS, openForYou: 1 }
-
-function inboxOf(lines: readonly string[]): string[] {
-  const end = lines.findIndex((line) => line.startsWith('Sessions'))
-  return end === -1 ? [...lines] : lines.slice(0, end)
-}
-
-function agentsWith(change: (entry: AgentEntry) => AgentEntry | null): AgentsAnswer {
-  return agentsJson(
-    MACHINE_AGENTS.map(change).filter((entry): entry is AgentEntry => entry !== null),
-  )
-}
-
-function without(entry: AgentEntry, field: string): AgentEntry {
-  return Object.fromEntries(Object.entries(entry).filter(([key]) => key !== field))
-}
-
-function apiAs(fields: AgentEntry): AgentsAnswer {
-  return agentsWith((entry) => {
-    if (entry.sessionId !== API_ID) return entry
-    return { ...without(entry, 'waitingFor'), ...fields }
-  })
-}
-
-const INBOX_WIDE = [
-  'Inbox  3 wait in 2 sessions · read 12s ago',
-  '◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m',
-  '◆ lane-a1      permission  scout: Edit hooks/band.ts                     40s',
-  '◆ lane-a1      decide      Release handily-board 0.23.0?                  6m',
-]
-
-const INBOX_NARROW = [
-  'Inbox  3 wait · 2 sessions · 12s',
-  '◆ api-login permission                 2m',
-  '  Claude: Bash npm test --workspace mods…',
-  '◆ lane-a1 permission                  40s',
-  '  scout: Edit hooks/band.ts',
-  '◆ lane-a1 decide                       6m',
-  '  Release handily-board 0.23.0?',
-]
-
-const INBOX_CRITERION =
-  'When the store holds a wait or open tasks for the person of another session that claude agents lists as running, the this machine tab draws an Inbox section at its top with one row for each wait'
-
-describe(INBOX_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`the inbox draws one row for each wait with the session name, the kind word, the detail and the age, above the cards, on ${surface}`, async ($, on) => {
-      await machineWith($, on, surface, API_WAITING, LANE_WAITING)
-      const wide = await screenAt($, surface, 'inline', 76)
-      expect(inboxOf(wide)).toEqual(INBOX_WIDE)
-      expect(wide[INBOX_WIDE.length]).toBe('Sessions  4 · 2 need you · polled 12s ago')
-      const narrow = await screenAt($, surface, 'dock', 41)
-      expect(inboxOf(narrow)).toEqual(INBOX_NARROW)
-    })
-  }
-
-  test('the kind word and the mark take the colour of needs you, the name is bold and the age is dim', async ($, on) => {
-    await machineWith($, on, 'terminal', API_WAITING, LANE_WAITING)
-    const ui = await mountTab($, 'terminal', 'inline', 76)
-    expect((await ui.find({ type: 'Text', text: 'Inbox' }))?.props.bold).toBe(true)
-    expect((await ui.find({ type: 'Text', text: /^decide/ }))?.props.color).toBe('warning')
-    expect((await ui.find({ type: 'Text', text: /^api-login/ }))?.props.bold).toBe(true)
-    expect((await ui.find({ type: 'Text', text: '  6m' }))?.props.dimColor).toBe(true)
-    await ui.unmount()
-  })
-
-  test('the name comes from claude agents, otherwise from the last folder of the cwd', async ($, on) => {
-    const seen = await machineWith($, on, 'terminal', API_WAITING, LANE_PROGRESS)
-    seen.agents = agentsWith((entry) => {
-      if (entry.sessionId !== API_ID) return entry
-      return { ...without(entry, 'name'), cwd: '/work/api-v2' }
-    })
-    await seen.clock.advance(3 * SECOND)
-    const lines = inboxOf(await screenAt($, 'terminal', 'inline', 76))
-    expect(lines[1]).toBe(
-      '◆ api-v2       permission  Claude: Bash npm test --workspace mods/api     2m',
-    )
-  })
-
-  test('a desktop session draws no inbox, because other sessions are listed only in a terminal session', async ($, on) => {
-    const seen = world(on, storeWith(API_WAITING, LANE_WAITING), ['desktop'])
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'desktop', 'dock', 41)
-    expect(lines[0]).toBe('Sessions')
-    expect(lines.filter((line) => line.startsWith('Inbox'))).toEqual([])
-  })
-})
-
-const LISTED_WAIT_CRITERION =
-  'When claude agents gives a waitingFor text for a running session that holds no board wait, the inbox draws a row with the word waits and that text, and it never tells a plan approval from a tool permission'
-
-describe(LISTED_WAIT_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`a session first seen while it waits draws waits and the raw text with no age, on ${surface}`, async ($, on) => {
-      await machineWith($, on, surface, API_PROGRESS, LANE_PROGRESS)
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
-        'Inbox  1 wait in 1 session · read 12s ago',
-        '◆ api-login    waits       permission prompt                               —',
-      ])
-      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
-        'Inbox  1 wait · 1 session · 12s',
-        '◆ api-login waits                       —',
-        '  permission prompt',
-      ])
-    })
-  }
-
-  test('a wait the poll saw begin draws the age since that poll', async ($, on) => {
-    const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS))
-    seen.agents = apiAs({ status: 'busy' })
-    await mockWork($, seen)
-    await showMachine($, seen)
-    seen.agents = apiAs({ status: 'waiting', waitingFor: 'input needed' })
-    await seen.clock.advance(POLL_INTERVAL_MS)
-    await seen.clock.settle()
-    await seen.clock.advance(2 * MINUTE)
-    const lines = inboxOf(await screenAt($, 'terminal', 'inline', 76))
-    expect(lines[1]).toBe(
-      '◆ api-login    waits       input needed                                   2m',
-    )
-  })
-
-  test('a plan approval and a tool permission both draw as waits with the same raw text, never as plan', async ($, on) => {
-    await machineWith($, on, 'terminal', API_PROGRESS, LANE_PROGRESS)
-    const lines = inboxOf(await screenAt($, 'terminal', 'inline', 76))
-    expect(lines.filter((line) => /plan/.test(line))).toEqual([])
-    expect(lines.filter((line) => line.includes(' waits '))).toHaveLength(1)
-  })
-
-  test('a session with a board wait draws only its board rows, not the waitingFor row', async ($, on) => {
-    await machineWith($, on, 'terminal', API_WAITING, LANE_PROGRESS)
-    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
-      'Inbox  1 wait in 1 session · read 12s ago',
-      '◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m',
-    ])
-  })
-
-  for (const surface of SURFACES) {
-    test(`a waiting or blocked session with no waitingFor draws waits an answer, as its card does, on ${surface}`, async ($, on) => {
-      const seen = world(on, {}, ['terminal', surface])
-      seen.agents = agentsJson(STATE_AGENTS)
-      await mockWork($, seen)
-      await showMachine($, seen)
-      const lines = await screenAt($, surface, 'dock', 41)
-      expect(inboxOf(lines)).toEqual([
-        'Inbox  2 wait · 2 sessions · 0s',
-        '◆ bg-blocked waits                      —',
-        '  an answer',
-        '◆ inte…waiting waits                    —',
-        '  permission prompt',
-      ])
-      expect(sessionsOf(lines)[0]).toMatch(/^Sessions {2}8 · 2 need you · /)
-    })
-  }
-
-  test('a key with open tasks for the person and no wait list draws a count row', async ($, on) => {
-    const old = Object.fromEntries(
-      Object.entries({ ...LANE_PROGRESS, openForYou: 2 }).filter(
-        ([key]) => key !== 'waits' && key !== 'waitsMore',
-      ),
-    )
-    const seen = world(on, { ...storeWith(API_WAITING), [progressKey(LANE_ID)]: old })
-    await mockWork($, seen)
-    await showMachine($, seen)
-    await seen.clock.advance(12 * SECOND)
-    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
-      'Inbox  3 wait in 2 sessions · read 12s ago',
-      '◆ api-login    permission  Claude: Bash npm test --workspace mods/api     2m',
-      '◆ lane-a1      waits       2 tasks for you                                 —',
-    ])
-  })
-  test('an old background job that claude agents lists as running draws its waits, though its card is hidden', async ($, on) => {
-    const factoryId = '00000000-0000-4000-8000-000000000009'
-    const factory = progressOf(factoryId, {
-      cwd: '/work/docs',
-      waits: [permissionWait('scout', 'Edit', 'docs/a.md', 5 * MINUTE)],
-    })
-    await machineWith($, on, 'terminal', API_PROGRESS, LANE_PROGRESS, factory)
-    const lines = await screenAt($, 'terminal', 'inline', 76)
-    expect(inboxOf(lines)).toEqual([
-      'Inbox  2 wait in 2 sessions · read 12s ago',
-      '◆ factory loop permission  scout: Edit docs/a.md                          5m',
-      '◆ api-login    waits       permission prompt                               —',
-    ])
-    expect(lines).toContain('1 older background job hidden')
-  })
-
-  test('an old background job with a waitingFor text draws a waits row, though its card is hidden', async ($, on) => {
-    const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS))
-    seen.agents = agentsWith((entry) =>
-      entry.name === 'factory loop' ? { ...entry, waitingFor: 'input needed' } : entry,
-    )
-    await mockWork($, seen)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'terminal', 'inline', 76)
-    expect(inboxOf(lines).filter((line) => line.startsWith('◆ factory loop'))).toEqual([
-      '◆ factory loop waits       input needed                                    —',
-    ])
-    expect(lines).toContain('1 older background job hidden')
-  })
-})
-
-function questionWait(title: string, ageMs: number): SharedWait {
-  return { kind: 'question', title, since: DRAW_AT - ageMs }
-}
-
-const QUESTION_CRITERION =
-  'When an ask of this session is a question or a plan approval, the inbox draws the word question or waits and never permission'
-
-describe(QUESTION_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`a question wait draws the word question with the question, and an ExitPlanMode wait draws waits, on ${surface}`, async ($, on) => {
-      await machineWith(
-        $,
-        on,
-        surface,
-        { ...API_PROGRESS, waits: [questionWait('Which date library should we use?', 2 * MINUTE)] },
-        {
-          ...LANE_PROGRESS,
-          waits: [{ kind: 'waits', title: 'ExitPlanMode', since: DRAW_AT - 40 * SECOND }],
-        },
-      )
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
-        'Inbox  2 wait in 2 sessions · read 12s ago',
-        '◆ api-login    question    Which date library should we use?              2m',
-        '◆ lane-a1      waits       ExitPlanMode                                  40s',
-      ])
-      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
-        'Inbox  2 wait · 2 sessions · 12s',
-        '◆ api-login question                   2m',
-        '  Which date library should we use?',
-        '◆ lane-a1 waits                       40s',
-        '  ExitPlanMode',
-      ])
-    })
-  }
-
-  test('a question hidden by the fold counts as question', async ($, on) => {
-    await machineWith(
-      $,
-      on,
-      'terminal',
-      { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
-      {
-        ...LANE_PROGRESS,
-        waits: [...OVERFLOW_WAITS.lane.slice(0, 2), questionWait('Which region?', 10 * SECOND)],
-      },
-    )
-    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76)).at(-1)).toBe(
-      '[ +1 more · 1 question ]',
-    )
-  })
-})
-
-const STALE_AT_FIRST_FAILURE = [
-  'Inbox  3 wait in 2 sessions · read 27s ago',
-  '◆ lane-a1      permission  scout: Edit hooks/band.ts         last report 27s',
-  '◆ api-login    waits       permission prompt                 last report 27s',
-  '◆ lane-a1      decide      Release handily-board 0.23.0?     last report 27s',
-]
-
-const STALE_AT_FIRST_FAILURE_41 = [
-  'Inbox  3 wait · 2 sessions · 27s',
-  '◆ lane-a1 permission           report 27s',
-  '  scout: Edit hooks/band.ts',
-  '◆ api-login waits              report 27s',
-  '  permission prompt',
-  '◆ lane-a1 decide               report 27s',
-  '  Release handily-board 0.23.0?',
-]
-
-const FIRST_FAILURE_CRITERION =
-  'When the claude agents poll has failed once, the inbox draws no row of that poll as a live wait: each such row is marked stale with the age of the last good report from the first failed poll'
-
-describe(FIRST_FAILURE_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`from the first failed poll each row reads the age of the last report, and the mark, the kind and the wait count draw dim and never in the colour of needs you, on ${surface}`, async ($, on) => {
-      const seen = await machineWith($, on, surface, API_PROGRESS, LANE_WAITING)
-      seen.agents = { exitCode: 1, stdout: '' }
-      await seen.clock.advance(POLL_INTERVAL_MS)
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual(STALE_AT_FIRST_FAILURE)
-      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual(STALE_AT_FIRST_FAILURE_41)
-      const ui = await mountTab($, surface, 'inline', 76)
-      for (const text of [/^◆ $/, /^permission/, /^decide/, /^3 wait/]) {
-        const found = await ui.find({ type: 'Text', text })
-        expect(found?.props.dimColor).toBe(true)
-        expect(found?.props.color).toBeUndefined()
-      }
-      await ui.unmount()
-    })
-  }
-})
-
-const ABSENT_CRITERION =
-  'When a session is absent from claude agents, the inbox draws no row for it, even when its store key still holds waits'
-
-describe(ABSENT_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`an absent session, an ended session and a key older than its session draw no row, on ${surface}`, async ($, on) => {
-      const lane = MACHINE_AGENTS.find((entry) => entry.sessionId === LANE_ID)
-      if (!lane) throw new Error('the fixture has no lane session')
-      const seen = await machineWith(
-        $,
-        on,
-        surface,
-        { ...API_PROGRESS, waits: [] },
-        { ...LANE_WAITING, updatedAt: Number(lane.startedAt) - 61 * SECOND },
-        progressOf(ABSENT_ID, { cwd: '/work/gone', waits: API_WAITS }),
-        progressOf(DOCS_ID, { cwd: '/work/docs', waits: LANE_WAITS, openForYou: 1 }),
-      )
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
-        'Inbox  1 wait in 1 session · read 12s ago',
-        '◆ api-login    waits       permission prompt                               —',
-      ])
-      expect(readProgress(seen.store.get(progressKey(ABSENT_ID)))?.waits).toEqual(API_WAITS)
-    })
-  }
-
-  test('a session that died still draws its waits until the next poll, under the age of the last read, and no row after it', async ($, on) => {
-    const seen = await machineWith($, on, 'terminal', API_PROGRESS, LANE_WAITING)
-    seen.agents = agentsWith((entry) => (entry.sessionId === LANE_ID ? null : entry))
-    const before = inboxOf(await screenAt($, 'terminal', 'inline', 76))
-    expect(before[0]).toBe('Inbox  3 wait in 2 sessions · read 12s ago')
-    expect(before.filter((line) => line.startsWith('◆ lane-a1'))).toHaveLength(2)
-    await seen.clock.advance(POLL_INTERVAL_MS - 12 * SECOND)
-    await seen.clock.settle()
-    const after = inboxOf(await screenAt($, 'terminal', 'inline', 76))
-    expect(after).toEqual([
-      'Inbox  1 wait in 1 session · read 0s ago',
-      '◆ api-login    waits       permission prompt                               —',
-    ])
-    expect(readProgress(seen.store.get(progressKey(LANE_ID)))?.waits).toEqual(LANE_WAITS)
-  })
-
-  for (const surface of SURFACES) {
-    test(`a session that died while the poll keeps failing draws its waits under the age of the last report, and no row once a poll answers, on ${surface}`, async ($, on) => {
-      const seen = await machineWith($, on, surface, API_PROGRESS, LANE_WAITING)
-      seen.agents = { exitCode: 1, stdout: '' }
-      await seen.clock.advance(POLL_INTERVAL_MS)
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual(STALE_AT_FIRST_FAILURE)
-      await seen.clock.advance(POLL_INTERVAL_MS * 7)
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
-        'Inbox  3 wait in 2 sessions · read 2m ago',
-        '◆ lane-a1      permission  scout: Edit hooks/band.ts          last report 2m',
-        '◆ api-login    waits       permission prompt                  last report 2m',
-        '◆ lane-a1      decide      Release handily-board 0.23.0?      last report 2m',
-      ])
-      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
-        'Inbox  3 wait · 2 sessions · 2m',
-        '◆ lane-a1 permission            report 2m',
-        '  scout: Edit hooks/band.ts',
-        '◆ api-login waits               report 2m',
-        '  permission prompt',
-        '◆ lane-a1 decide                report 2m',
-        '  Release handily-board 0.23.0?',
-      ])
-      seen.agents = agentsWith((entry) => (entry.sessionId === LANE_ID ? null : entry))
-      await seen.clock.advance(POLL_INTERVAL_MS)
-      await seen.clock.settle()
-      expect(inboxOf(await screenAt($, surface, 'inline', 76))).toEqual([
-        'Inbox  1 wait in 1 session · read 12s ago',
-        '◆ api-login    waits       permission prompt                               —',
-      ])
-      expect(readProgress(seen.store.get(progressKey(LANE_ID)))?.waits).toEqual(LANE_WAITS)
-    })
-  }
-
-  test('when the poll fails for over 30 seconds, each row reads the age of the last report', async ($, on) => {
-    const seen = await machineWith($, on, 'terminal', API_PROGRESS, LANE_WAITING)
-    seen.agents = { exitCode: 1, stdout: '' }
-    await seen.clock.advance(POLL_INTERVAL_MS * 8)
-    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
-      'Inbox  3 wait in 2 sessions · read 2m ago',
-      '◆ lane-a1      permission  scout: Edit hooks/band.ts          last report 2m',
-      '◆ api-login    waits       permission prompt                  last report 2m',
-      '◆ lane-a1      decide      Release handily-board 0.23.0?      last report 2m',
-    ])
-    expect(inboxOf(await screenAt($, 'terminal', 'dock', 41)).slice(0, 2)).toEqual([
-      'Inbox  3 wait · 2 sessions · 2m',
-      '◆ lane-a1 permission            report 2m',
-    ])
-  })
-
-  for (const surface of SURFACES) {
-    test(`at a body of 30 columns a stale permission row shortens the session name and keeps the whole age, on ${surface}`, async ($, on) => {
-      const factory = progressOf('00000000-0000-4000-8000-000000000009', {
-        cwd: '/work/docs',
-        waits: [permissionWait('scout', 'Edit', 'docs/a.md', 5 * MINUTE)],
-      })
-      const seen = await machineWith($, on, surface, API_WAITING, LANE_WAITING, factory)
-      seen.agents = { exitCode: 1, stdout: '' }
-      await seen.clock.advance(POLL_INTERVAL_MS * 3)
-      expect(inboxOf(await screenAt($, surface, 'dock', 30))).toEqual([
-        'Inbox  4 wait · 3 sessions',
-        '◆ fact…p permission report 57s',
-        '  scout: Edit docs/a.md',
-        '◆ api-…n permission report 57s',
-        '  Claude: Bash npm test --wor…',
-        '◆ lane…1 permission report 57s',
-        '  scout: Edit hooks/band.ts',
-        '◆ lane-a1 decide    report 57s',
-        '  Release handily-board 0.23.…',
-      ])
-      await seen.clock.advance(POLL_INTERVAL_MS * 5)
-      expect(
-        inboxOf(await screenAt($, surface, 'dock', 30)).filter((line) => line.startsWith('◆')),
-      ).toEqual([
-        '◆ fact…op permission report 2m',
-        '◆ api-…in permission report 2m',
-        '◆ lane-a1 permission report 2m',
-        '◆ lane-a1 decide     report 2m',
-      ])
-    })
-  }
-})
-
-const OVERFLOW_WAITS = {
-  api: [
-    permissionWait('Claude', 'Bash', 'npm run a', 2 * MINUTE),
-    permissionWait('Claude', 'Bash', 'npm run b', MINUTE),
-    permissionWait('Claude', 'Bash', 'npm run c', 30 * SECOND),
-  ],
-  lane: [
-    permissionWait('scout', 'Edit', 'a.ts', 40 * SECOND),
-    permissionWait('scout', 'Edit', 'b.ts', 20 * SECOND),
-    taskWait('decide', 'Release handily-board 0.23.0?', 6 * MINUTE),
-    taskWait('do', 'Rotate the staging API key', 5 * MINUTE),
-  ],
-}
-
-const WIDGET_CRITERION =
-  'When a pane of handily-board, handily-filetree or handily-tests renders in the widget placement, it draws no button, as the types say a click may not reach a widget'
-
-describe(WIDGET_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`the this machine tab in the widget placement draws the Inbox head and the Sessions head alone and no button, while the docked form has the fold button, on ${surface}`, async ($, on) => {
-      await machineWith(
-        $,
-        on,
-        surface,
-        { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
-        { ...LANE_PROGRESS, waits: OVERFLOW_WAITS.lane },
-      )
-      const docked = await mountTab($, surface, 'dock', 41)
-      expect(await docked.find({ type: 'Button' })).toBeDefined()
-      const dockLines = await screen(docked, 41)
-      await docked.unmount()
-      const widget = await mountTab($, surface, 'widget', 41)
-      expect(inboxOf(dockLines)[0]).toBe('Inbox  7 wait · 2 sessions · 12s')
-      expect(sessionsOf(dockLines)[0]).toMatch(/^Sessions {2}4 · /)
-      expect(await screen(widget, 41)).toEqual([inboxOf(dockLines)[0], sessionsOf(dockLines)[0]])
-      expect(await widget.find({ type: 'Button' })).toBeUndefined()
-      await widget.unmount()
-    })
-  }
-})
-
-const INBOX_STATES_CRITERION =
-  'When nothing waits, the Inbox head reads nothing waits with the session count and the read age; when more than 5 waits exist, it draws 5 rows and a fold that counts the rest by kind'
-
-describe(INBOX_STATES_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`nothing waits: the head counts the other running sessions and the read age, on ${surface}`, async ($, on) => {
-      const seen = world(on, storeWith(API_PROGRESS, LANE_PROGRESS), ['terminal', surface])
-      seen.agents = apiAs({ status: 'busy' })
-      await mockWork($, seen)
-      await showMachine($, seen)
-      await seen.clock.advance(12 * SECOND)
-      const wide = await screenAt($, surface, 'inline', 76)
-      expect(inboxOf(wide)).toEqual(['Inbox  nothing waits · 3 sessions · read 12s ago'])
-      expect(inboxOf(await screenAt($, surface, 'dock', 41))).toEqual([
-        'Inbox  nothing waits · 3 sessions · 12s',
-      ])
-    })
-
-    test(`more than 5 waits: 5 rows and a fold that counts the rest by kind, also the waits over the store limit, on ${surface}`, async ($, on) => {
-      await machineWith(
-        $,
-        on,
-        surface,
-        { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
-        { ...LANE_PROGRESS, waits: OVERFLOW_WAITS.lane, waitsMore: { do: 1 }, openForYou: 3 },
-      )
-      const ui = await mountTab($, surface, 'inline', 76)
-      expect(inboxOf(await screen(ui, 76))).toEqual([
-        'Inbox  8 wait in 2 sessions · read 12s ago',
-        '◆ api-login    permission  Claude: Bash npm run a                         2m',
-        '◆ api-login    permission  Claude: Bash npm run b                         1m',
-        '◆ lane-a1      permission  scout: Edit a.ts                              40s',
-        '◆ api-login    permission  Claude: Bash npm run c                        30s',
-        '◆ lane-a1      permission  scout: Edit b.ts                              20s',
-        '[ +3 more · 1 decide · 2 do ]',
-      ])
-      const fold = await ui.find({ type: 'Button', text: '+3 more · 1 decide · 2 do' })
-      await ui.press({ key: fold?.key ?? '' })
-      expect(inboxOf(await screen(ui, 76)).slice(6)).toEqual([
-        '◆ lane-a1      decide      Release handily-board 0.23.0?                  6m',
-        '◆ lane-a1      do          Rotate the staging API key                     5m',
-        '[ hide 2 more ]',
-        '1 more over the store limit',
-      ])
-      await ui.unmount()
-    })
-  }
-
-  test('loading: the head says it reads the sessions until the first poll answers', async ($, on) => {
-    const seen = world(on)
-    await mockWork($, seen)
-    seen.hold = () => seen.clock.sleep(20 * SECOND)
-    await showMachine($, seen)
-    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
-      'Inbox  reading the other sessions…',
-    ])
-    expect(inboxOf(await screenAt($, 'terminal', 'dock', 41))).toEqual([
-      'Inbox  reading the sessions…',
-    ])
-  })
-
-  test('error: an unreadable store keeps the waitingFor rows of claude agents and logs why', async ($, on) => {
-    const seen = await machineWith($, on, 'terminal', API_WAITING, LANE_WAITING)
-    seen.keysDenial = 'the store file is not JSON'
-    expect(inboxOf(await screenAt($, 'terminal', 'inline', 76))).toEqual([
-      'Inbox  could not read the other sessions; the debug log names why',
-      '◆ api-login    waits       permission prompt                               —',
-    ])
-    expect(inboxOf(await screenAt($, 'terminal', 'dock', 41))[0]).toBe(
-      'Inbox  other sessions unreadable',
-    )
-    expect(
-      seen.logs.filter((line) => line.includes('the other sessions were not read')),
-    ).not.toEqual([])
-  })
-
-  test('error: a failed claude agents with nothing listed says the other sessions are not read', async ($, on) => {
-    const seen = world(on)
-    seen.agents = { exitCode: 1, stdout: '' }
-    await mockWork($, seen)
-    await showMachine($, seen)
-    expect((await screenAt($, 'terminal', 'inline', 76)).slice(0, 2)).toEqual([
-      'Inbox  could not read the other sessions',
-      'Sessions',
-    ])
-  })
-})
-
-const INBOX_ESCAPE_CRITERION =
-  'When a wait detail holds a control or bidi character, the inbox draws it escaped, and no inbox row has a button that answers a permission prompt or a question'
-
-const RAW_UNSAFE = /[\p{Cc}\p{Cf}]/u
-
-describe(INBOX_ESCAPE_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`a control or bidi character in a name, a target, a title or a waitingFor draws escaped, on ${surface}`, async ($, on) => {
-      const seen = world(
-        on,
-        storeWith(API_PROGRESS, {
-          ...LANE_PROGRESS,
-          waits: [
-            permissionWait('sc\u{202E}out', 'Bash', 'rm \u0007x', 40 * SECOND),
-            taskWait('decide', 'Ship\u{2066} it\u001b[31m', 6 * MINUTE),
-          ],
-        }),
-        ['terminal', surface],
-      )
-      seen.agents = agentsWith((entry) => {
-        if (entry.sessionId === API_ID) return { ...entry, waitingFor: 'input\u{202E}needed' }
-        if (entry.sessionId === LANE_ID) return { ...entry, name: 'lane\u0000a1' }
-        return entry
-      })
-      await mockWork($, seen)
-      await showMachine($, seen)
-      await seen.clock.advance(12 * SECOND)
-      const lines = inboxOf(await screenAt($, surface, 'inline', 76))
-      expect(lines).toEqual([
-        'Inbox  3 wait in 2 sessions · read 12s ago',
-        '◆ lane\\u0000a1 permission  sc\\u202eout: Bash rm \\u0007x                  40s',
-        '◆ api-login    waits       input\\u202eneeded                               —',
-        '◆ lane\\u0000a1 decide      Ship\\u2066 it\\u001b[31m                        6m',
-      ])
-      expect(lines.filter((line) => RAW_UNSAFE.test(line))).toEqual([])
-    })
-  }
-
-  test('no inbox row has a button, and the only inbox button is the fold', async ($, on) => {
-    await machineWith(
-      $,
-      on,
-      'terminal',
-      { ...API_PROGRESS, waits: OVERFLOW_WAITS.api },
-      { ...LANE_PROGRESS, waits: OVERFLOW_WAITS.lane, openForYou: 2 },
-    )
-    const ui = await mountTab($, 'terminal', 'inline', 76)
-    const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.map((button) => button.key)).toEqual(['machine:inbox'])
-    await ui.unmount()
-    const few = await screenAt($, 'terminal', 'dock', 41)
-    expect(few.filter((line) => /\[ (go|allow|deny|yes|no|answer)/.test(line))).toEqual([])
-  })
-})
-
-function personTask(id: number, kind: BoardTaskKind, title: string): BoardTask {
-  return {
-    id,
-    title,
-    status: 'pending',
-    for: 'person',
-    kind,
-    askedAt: NOW - MINUTE,
-    by: 'model',
-    item: null,
-  }
-}
-
-function listOf(...tasks: BoardTask[]): BoardList {
-  return { tasks, nextId: tasks.length + 1 }
-}
-
-const KEY_WAITS_CRITERION =
-  'The store key of a session keeps at most 5 waits and counts the rest by kind, within 4096 bytes, with the permission waits before the tasks for the person'
-
-describe(KEY_WAITS_CRITERION, () => {
-  test('7 permission waits with long multi-byte text and 2 tasks keep at most 5 waits, count the rest by kind and stay within 4096 bytes', () => {
-    const long = 'é漢\u0007'.repeat(100)
-    const asks = Array.from({ length: 7 }, (_, index) =>
-      sharedAsk(`agent ${String(index)} ${long}`, `Tool${long}`, long, NOW - index * SECOND),
-    )
-    const list = listOf(personTask(1, 'decide', long), personTask(2, 'do', long))
-    const kept = withinLimit(withAsks(progressOf(OWN_ID, {}), asks, list, NOW))
-    expect(entryBytes(kept)).toBeLessThanOrEqual(ENTRY_BYTES_AT_MOST)
-    expect(kept.waits.length).toBeLessThanOrEqual(WAITS_AT_MOST)
-    expect(kept.waits.length + countOf(kept.waitsMore)).toBe(9)
-    expect(kept.waitsMore.decide).toBe(1)
-    expect(kept.waitsMore.do).toBe(1)
-    expect(kept.waits.every((wait) => wait.kind === 'permission')).toBe(true)
-    expect(readProgress(JSON.parse(JSON.stringify(kept)))).toEqual(kept)
-  })
-
-  test('a task for the person joins after the permission waits, and a task change keeps the permission waits', () => {
-    const ask = sharedAsk('Claude', 'Bash', 'npm test', NOW - SECOND)
-    const asked = listOf(personTask(1, 'decide', 'Release it?'))
-    const both = withAsks(progressOf(OWN_ID, {}), [ask], asked, NOW)
-    expect(both.waits).toEqual([ask, { kind: 'decide', title: 'Release it?', since: NOW - MINUTE }])
-    const answered = withTasks(both, listOf(), NOW)
-    expect(answered.waits).toEqual([ask])
-    expect(withAsks(answered, [], listOf(), NOW).waits).toEqual([])
-  })
-
-  test('a task change keeps the question and waits asks, and their counts over the limit', () => {
-    const question = askWait(
-      'Claude',
-      { tool: 'AskUserQuestion', target: null, question: 'Which date library?' },
-      NOW - SECOND,
-    )
-    const plan = askWait(
-      'Claude',
-      { tool: 'ExitPlanMode', target: null, question: null },
-      NOW - SECOND,
-    )
-    const bash = askWait(
-      'Claude',
-      { tool: 'Bash', target: 'npm test', question: 'not a question' },
-      NOW - SECOND,
-    )
-    expect([question, plan, bash]).toEqual([
-      { kind: 'question', title: 'Which date library?', since: NOW - SECOND },
-      { kind: 'waits', title: 'ExitPlanMode', since: NOW - SECOND },
-      {
-        kind: 'permission',
-        agent: 'Claude',
-        tool: 'Bash',
-        target: 'npm test',
-        since: NOW - SECOND,
-      },
-    ])
-    const asked = listOf(personTask(1, 'decide', 'Release it?'))
-    const both = withAsks(progressOf(OWN_ID, {}), [question, plan], asked, NOW)
-    expect(both.waits).toEqual([
-      question,
-      plan,
-      { kind: 'decide', title: 'Release it?', since: NOW - MINUTE },
-    ])
-    expect(withTasks(both, listOf(), NOW).waits).toEqual([question, plan])
-    const many = withAsks(progressOf(OWN_ID, {}), Array(6).fill(question), listOf(), NOW)
-    expect(many.waitsMore).toEqual({ question: 1 })
-    const changed = withTasks(many, asked, NOW)
-    expect(changed.waits).toEqual(Array(5).fill(question))
-    expect(changed.waitsMore).toEqual({ question: 1, decide: 1 })
-    expect(readProgress(JSON.parse(JSON.stringify(changed)))).toEqual(changed)
-  })
-
-  test('a key with no wait list reads as no waits, and a bad wait drops the key', () => {
-    const old = Object.fromEntries(
-      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'waits' && key !== 'waitsMore'),
-    )
-    expect(readProgress(old)).toMatchObject({ waits: [], waitsMore: {} })
-    expect(readProgress({ ...LANE_PROGRESS, waits: [{ kind: 'plan', title: 'x' }] })).toBeNull()
-    expect(readProgress({ ...LANE_PROGRESS, waits: [{ kind: 'permission', agent: 1 }] })).toBeNull()
-    expect(readProgress({ ...LANE_PROGRESS, waitsMore: { permission: -1 } })).toBeNull()
-    expect(readProgress({ ...LANE_PROGRESS, waits: Array(6).fill(API_WAITS[0]) })).toBeNull()
-  })
-})
-
-const WAITING_CARD_CRITERION =
-  'When the board publishes this session for the this machine tab, a waiting session shows waiting on its card, in the order needs you, failed, working, waiting, idle, ended.'
-
-const CI_SHELL = {
-  id: 'bakfjlhsk',
-  type: 'shell',
-  status: 'running',
-  description: 'Watch the CI run',
-  command: 'gh run watch 18842 --exit-status',
-}
-
-const IDLE_AGENTS: readonly AgentEntry[] = MACHINE_AGENTS.map((entry) => {
-  if (entry.sessionId === OWN_ID) return { ...entry, status: 'idle' }
-  if (entry.sessionId === LANE_ID) return { ...entry, state: 'idle' }
-  return entry
-})
-
-const LANE_IN_BACKGROUND = progressOf(LANE_ID, {
-  ...LANE_PROGRESS,
-  background: {
-    since: NOW - 20 * MINUTE,
-    seenAt: NOW - 5 * MINUTE,
-    count: 2,
-    kind: 'monitor',
-    title: 'deploy log',
-  },
-})
-
-async function waitOnShell($: Engine, seen: World, on: On): Promise<void> {
-  on('classic.Stop', () => ({}))
-  on('ui.status', () => ({ value: undefined }))
-  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-  await $.turn.start({ text: 'go', turnId: 't1' })
-  await seen.clock.advance(MINUTE)
-  await $.turn.complete({
-    turnId: 't1',
-    reason: 'answer',
-    answer: '',
-    durationMs: MINUTE,
-    isAborted: false,
-  })
-  await $.classic.Stop({
-    session_id: OWN_ID,
-    transcript_path: '/work/t.jsonl',
-    cwd: ROOT,
-    stop_hook_active: false,
-    background_tasks: [CI_SHELL],
-    session_crons: [],
-  })
-}
-
-describe(WAITING_CARD_CRITERION, () => {
-  for (const surface of SURFACES) {
-    test(`this session and a session that publishes background work draw waiting, after needs you and before ended, on ${surface}`, async ($, on) => {
-      const seen = world(on, storeWith(API_PROGRESS, LANE_IN_BACKGROUND), ['terminal', surface])
-      seen.agents = agentsJson(IDLE_AGENTS)
-      await waitOnShell($, seen, on)
-      const entry = readProgress(seen.store.get(progressKey(OWN_ID)))
-      expect(entry?.background).toEqual({
-        since: NOW - 13 * MINUTE,
-        seenAt: NOW - 13 * MINUTE,
-        count: 1,
-        kind: 'shell',
-        title: 'Watch the CI run',
-      })
-      await seen.clock.advance(MINUTE)
-      await showMachine($, seen)
-      await seen.clock.advance(2 * MINUTE)
-      const lines = sessionsOf(await screenAt($, surface, 'dock', 41))
-      const heads = lines.filter((line) => /^[◆■▶◷○✓] /u.test(line))
-      expect(heads).toEqual([
-        '◆ api-login  interactive  needs you',
-        '◷ mocks  interactive  this  waiting 3m',
-        '◷ lane-a1  background  waiting 10m',
-        '✓ docs-pass  background  done',
-      ])
-      const own = lines.indexOf('◷ mocks  interactive  this  waiting 3m')
-      expect(lines[own + 1]).toBe('  in background: shell Watch the CI run')
-      const lane = lines.indexOf('◷ lane-a1  background  waiting 10m')
-      expect(lines[lane + 1]).toBe('  in background: monitor deploy log · +1…')
-    })
-  }
-
-  test('a desktop session draws its own card waiting with the plain mark', async ($, on) => {
-    const seen = world(on, storeWith(API_PROGRESS), ['desktop'])
-    await waitOnShell($, seen, on)
-    await showMachine($, seen)
-    const lines = await screenAt($, 'desktop', 'dock', 41)
-    const own = lines.findIndex((line) => line.startsWith('◷ 00000000'))
-    expect(lines.slice(own, own + 2)).toEqual([
-      '◷ 00000000  this  waiting 0s',
-      '  in background: shell Watch the CI run',
-    ])
-  })
-
-  test('a session without the board, or with the engine word working, keeps the engine word', async ($, on) => {
-    const busy = MACHINE_AGENTS.map((entry) =>
-      entry.sessionId === LANE_ID ? { ...entry, state: 'working' } : entry,
-    )
-    const seen = world(on, storeWith(API_PROGRESS, LANE_IN_BACKGROUND), ['terminal'])
-    seen.agents = agentsJson(busy)
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    await showMachine($, seen)
-    const lines = sessionsOf(await screenAt($, 'terminal', 'dock', 41))
-    expect(lines).toContain('▶ lane-a1  background  working')
-    expect(lines.join('\n')).not.toContain('in background')
-  })
-
-  test('the store entry of a stale wait reads back, and a bad background drops the entry', () => {
-    expect(readProgress(JSON.parse(JSON.stringify(LANE_IN_BACKGROUND)))).toEqual(LANE_IN_BACKGROUND)
-    expect(readProgress({ ...LANE_IN_BACKGROUND, background: { since: 'x' } })).toBeNull()
-    const old = Object.fromEntries(
-      Object.entries(LANE_PROGRESS).filter(([key]) => key !== 'background'),
-    )
-    expect(readProgress(old)?.background).toBeNull()
-  })
 })

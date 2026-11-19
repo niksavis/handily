@@ -131,18 +131,11 @@ import {
   unknownReply,
   withoutFinalPeriod,
 } from './commands'
-import { lastSegment } from './agents-json'
+import { lastSegment } from './names'
 import { openedKeys, shownNames, stepText } from './agent-rows'
 import { DEFAULT_PALETTE } from './palette'
 import { drawMachine, drawMachineGlance } from './machine'
-import {
-  type Machine,
-  type SessionsHost,
-  newMachine,
-  readMachine,
-  removeExpiredKeys,
-  updateProgress,
-} from './sessions'
+import { type Machine, type SessionsHost, newMachine, readMachine } from './sessions'
 import {
   type WarnHost,
   type WarnKeep,
@@ -151,17 +144,6 @@ import {
   removeStaleWarnings,
   warnLimits,
 } from './limit-warn'
-import {
-  type AgentSummary,
-  agentSummary,
-  completeTurn,
-  startTurn,
-  withAgents,
-  withAsks,
-  withBackground,
-  withContext,
-  withTasks,
-} from './progress'
 import {
   BACKGROUND_TICK_MS,
   type BackgroundKeep,
@@ -177,10 +159,9 @@ import {
   newBackgroundKeep,
   noteStop,
   noteTurnStart,
-  sharedBackground,
   waitingStatusText,
 } from './background'
-import { askedQuestion, askWait, type AskWait } from './waits'
+import { askedQuestion } from './waits'
 import { type PaneWork, agentsOpener, drawGlance, drawPane } from './pane'
 import {
   PLAN_TOOL,
@@ -298,7 +279,6 @@ import {
   EMPTY_VITALS,
   type Vitals,
   isEditTool,
-  sharedContext,
   hasCarriedLimits,
   withMeasure,
   withClear,
@@ -803,13 +783,6 @@ function agentHostOf($: EngineInterface): AgentHost {
   }
 }
 
-async function agentSummaries($: EngineInterface): Promise<AgentSummary[]> {
-  const rows = await agentView(agentHostOf($), await $.clock.now())
-  return rows
-    .filter((row) => !row.isEnded)
-    .map((row) => agentSummary(row.label, row.plan, row.look === 'failed'))
-}
-
 async function keepAgentPlan(
   $: EngineInterface,
   agentId: string,
@@ -818,12 +791,6 @@ async function keepAgentPlan(
 ): Promise<void> {
   await update($, AGENT_PLANS, (current = {}) =>
     withAgentPlan(current, agentId, list.tasks, version),
-  )
-}
-
-function shareAgents($: EngineInterface, machine: Machine): Promise<void> {
-  return updateProgress(sessionsHost($), machine, async (progress, now) =>
-    withAgents(progress, await agentSummaries($), now),
   )
 }
 
@@ -1253,7 +1220,7 @@ type ChecksKeep = { current: BoardChecks }
 
 type RequestKeep = { current: RequestFacts }
 
-type VitalsKeep = { current: Vitals; shared: string | undefined }
+type VitalsKeep = { current: Vitals }
 
 type PartsKeep = { view: PartsView; isStale: boolean }
 
@@ -1271,7 +1238,6 @@ type AttentionKeep = {
   text: string | undefined
   refreshes: number
   asks: Map<string, WaitingAsk>
-  machine: Machine
   background: BackgroundKeep
 }
 
@@ -1338,7 +1304,6 @@ async function forgetAsks(
 ): Promise<void> {
   const forgotten = [...attention.asks].filter(([callId, ask]) => isForgotten(callId, ask))
   for (const [callId] of forgotten) attention.asks.delete(callId)
-  if (forgotten.length > 0) await shareWaits($, attention)
   if (forgotten.some(([, ask]) => ask.agentId !== undefined)) await refreshStatus($, attention)
 }
 
@@ -1360,7 +1325,6 @@ async function settleAsk(
   const ask = attention.asks.get(callId)
   if (ask === undefined) return
   attention.asks.delete(callId)
-  await shareWaits($, attention)
   if (ask.agentId === undefined) return
   await noteSettled(agentHostOf($), ask.agentId, callId)
   $.ui.invalidate('ui.render')
@@ -1386,24 +1350,6 @@ async function waitOf($: EngineInterface, ask: WaitingAsk): Promise<Wait | undef
   const rows = await agentView(agentHostOf($), await $.clock.now())
   const row = rows.find((one) => one.id === agentId && one.look === 'needsYou')
   return row === undefined ? undefined : agentWait(row, ask.question)
-}
-
-async function askWaits($: EngineInterface, attention: AttentionKeep): Promise<AskWait[]> {
-  const now = await $.clock.now()
-  const waits: AskWait[] = []
-  for (const ask of attention.asks.values()) {
-    if (now - ask.since < NEEDS_YOU_AFTER_MS) continue
-    const wait = await waitOf($, ask)
-    if (wait === undefined) continue
-    waits.push(askWait(wait.who, { ...ask.sight, question: ask.question }, ask.since))
-  }
-  return waits.sort((a, b) => a.since - b.since)
-}
-
-function shareWaits($: EngineInterface, attention: AttentionKeep): Promise<void> {
-  return updateProgress(sessionsHost($), attention.machine, async (progress, now, list) =>
-    withAsks(progress, await askWaits($, attention), list, now),
-  )
 }
 
 async function notifyOrToast($: EngineInterface, text: string, parts: ToastParts): Promise<void> {
@@ -1462,7 +1408,6 @@ async function noteCheck(
     $.ui.invalidate('ui.render')
     void refreshStatus($, attention)
     void noticeWait($, attention, callId)
-    if (attention.asks.has(callId)) void shareWaits($, attention)
   })
 }
 
@@ -1509,19 +1454,18 @@ function noteMode($: EngineInterface, keep: RequestKeep, e: ClassicFacts): void 
   noteRequest($, keep, (facts) => withMode(facts, e.permission_mode))
 }
 
-async function shareContext($: EngineInterface, machine: Machine, keep: VitalsKeep): Promise<void> {
-  const context = sharedContext(keep.current)
-  const shared = JSON.stringify(context)
-  if (shared === keep.shared) return
-  keep.shared = shared
-  await updateProgress(sessionsHost($), machine, (progress, now) =>
-    withContext(progress, context, now),
-  )
-}
-
 function warnHost($: EngineInterface): WarnHost {
   return {
-    ...sessionsHost($),
+    now: () => $.clock.now(),
+    sessionId: () => $.session.id(),
+    storeGet: (key) => $.store.get(key),
+    storeSet: (key, value) => $.store.set(key, value),
+    storeDelete: (key) => $.store.delete(key),
+    storeKeys: () => $.store.keys(),
+    after: (ms, fn) => $.clock.after(ms, fn),
+    debug: (line) => {
+      $.ui.log(line, { to: 'debug' })
+    },
     random: randomUnit,
     showToast: (parts) => {
       showGlyphToast($, parts)
@@ -1657,28 +1601,43 @@ function uiOf($: EngineInterface, keeps: UiKeeps): PaneUi {
 }
 
 function sessionsHost($: EngineInterface): SessionsHost {
+  const debug = (line: string) => {
+    $.ui.log(line, { to: 'debug' })
+  }
   return {
     now: () => $.clock.now(),
     sessionId: () => $.session.id(),
-    cwd: () => $.session.cwd(),
     surfaces: () => $.session.surfaces(),
-    list: async () => (await $.state.get(LIST)).value ?? EMPTY_LIST,
-    agents: () => $.agent.list(),
-    storeGet: (key) => $.store.get(key),
-    storeSet: (key, value) => $.store.set(key, value),
-    storeDelete: (key) => $.store.delete(key),
-    storeKeys: () => $.store.keys(),
-    run: (argv) => $.process.run(argv),
+    home: () => $.env.get('HOME'),
     panes: () => $.ui.panes(),
+    store: { list: (path) => $.fs.list(path), read: (path) => $.fs.read(path), debug },
     redraw: () => {
       $.ui.invalidate('ui.render')
     },
     every: (ms, fn) => $.clock.every(ms, fn),
     after: (ms, fn) => $.clock.after(ms, fn),
-    debug: (line) => {
-      $.ui.log(line, { to: 'debug' })
-    },
+    debug,
   }
+}
+
+async function fillAsk(
+  $: EngineInterface,
+  machine: Machine,
+  record: string,
+  text: string,
+): Promise<void> {
+  let refusal: string | null
+  try {
+    const filled = await fillPrompt($, text)
+    refusal = filled.isFilled ? null : (filled.refusal ?? 'the prompt box did not take it')
+  } catch (error) {
+    $.ui.log(`handily-board: the answer was not put in the prompt box: ${String(error)}`, {
+      to: 'debug',
+    })
+    refusal = 'the prompt box did not take it'
+  }
+  machine.fills.set(record, { text, refusal })
+  $.ui.invalidate('ui.render')
 }
 
 function listAnswer(list: BoardList, lead: string): string {
@@ -1971,10 +1930,6 @@ async function noteBackground(
 ): Promise<void> {
   keepBackgroundTick($, redraw, attention)
   $.ui.invalidate('ui.render')
-  const shared = sharedBackground(attention.background.current)
-  await updateProgress(sessionsHost($), attention.machine, (progress, now) =>
-    withBackground(progress, shared, now),
-  )
   await refreshStatus($, attention)
 }
 
@@ -2003,7 +1958,8 @@ export const register: Register = (on, options) => {
     backgroundTimer: undefined,
   }
   const machine = newMachine(SESSIONS_PANE.id)
-  const vitals: VitalsKeep = { current: EMPTY_VITALS, shared: undefined }
+  const storeOptions = { store: options.store, answerWindow: options.answerWindow }
+  const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const warnings = newWarnKeep()
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const request: RequestKeep = { current: NO_REQUEST }
@@ -2025,7 +1981,6 @@ export const register: Register = (on, options) => {
     text: undefined,
     refreshes: 0,
     asks: new Map(),
-    machine,
     background,
   }
 
@@ -2044,21 +1999,10 @@ export const register: Register = (on, options) => {
     if (mode === 'always') await openUnasked(uiOf($, uiKeeps))
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
-    const host = sessionsHost($)
-    await removeExpiredKeys(host)
     await removeStaleWarnings(warnHost($))
-    await updateProgress(host, machine, async (progress, now, list) =>
-      withBackground(
-        withAsks(withTasks(progress, list, now), await askWaits($, attention), list, now),
-        sharedBackground(background.current),
-        now,
-      ),
-    )
     await readUsage($, vitals)
     await warnFromVitals($, warnings, vitals.current)
     await trendOf($, trend)
-    vitals.shared = undefined
-    await shareContext($, machine, vitals)
     return started
   })
 
@@ -2078,7 +2022,6 @@ export const register: Register = (on, options) => {
     if (e.changed.includes('context') && tokens !== undefined) {
       await noteTrend($, trend, (current) => trendMeasured(current, tokens))
     }
-    await shareContext($, machine, vitals)
     return measured
   })
 
@@ -2109,10 +2052,6 @@ export const register: Register = (on, options) => {
       await noteRunStart(agentHostOf($), e.agentId)
       noteLogRun(log, e.agentId)
     }
-    const shared = sharedBackground(background.current)
-    await updateProgress(sessionsHost($), machine, (progress, now, list) =>
-      withBackground(withTasks(startTurn(progress, now), list, now), shared, now),
-    )
     return next(e)
   })
 
@@ -2153,9 +2092,6 @@ export const register: Register = (on, options) => {
       await noteTrend($, trend, trendTurnEnded)
       if (await isDetailsShown($)) await countParts($, breakdown)
       else breakdown.isStale = true
-      await updateProgress(sessionsHost($), machine, (progress, now, list) =>
-        withTasks(completeTurn(progress, now), list, now),
-      )
       if (e.reason === 'aborted' && noteAbortedTurn(background)) {
         await noteBackground($, redraw, attention)
       }
@@ -2166,27 +2102,14 @@ export const register: Register = (on, options) => {
       noteAgentEnd($, log, await $.clock.now(), { kind, agentId, detail })
       await noteTurnEnd(agentHostOf($), agentId, e.answer)
       await forgetAsks($, attention, (_callId, ask) => ask.agentId === agentId)
-      await shareAgents($, machine)
     }
     return completed
   }).catch((_$, e, next) => next(e))
-
-  on('state.set', { plugin: 'handily-board', key: 'list' }, async ($, e, next) => {
-    const result = await next(e)
-    if (result.deny === undefined && result.value.isSet) {
-      const list = e.value
-      await updateProgress(sessionsHost($), machine, (progress, now) =>
-        withTasks(progress, list, now),
-      )
-    }
-    return result
-  })
 
   on('state.set', { plugin: 'handily-board', key: 'agentList' }, async ($, e, next) => {
     const result = await next(e)
     if (result.deny === undefined && result.value.isSet) {
       await keepAgentPlan($, e.id, e.value, result.value.version)
-      await shareAgents($, machine)
     }
     return result
   })
@@ -2205,12 +2128,10 @@ export const register: Register = (on, options) => {
       noteRequest($, request, withRequestsCleared)
       await setTrend($, trend, EMPTY_TREND)
       breakdown.view = UNREAD_PARTS
-      await shareContext($, machine, vitals)
     }
     if (e.reason === 'clear') {
       words.kept = []
       attention.asks.clear()
-      await shareWaits($, attention)
       await refreshStatus($, attention)
       checks.current = EMPTY_CHECKS
       log.current = EMPTY_LOG
@@ -2429,7 +2350,6 @@ export const register: Register = (on, options) => {
     noteLogRun(log, spawned.agentId)
     noteEvent($, log, at, { kind: 'spawn', agentId: spawned.agentId, detail: e.description })
     if (e.parentAgentId === undefined) await noteVitals($, vitals, withTurnSpawn)
-    await shareAgents($, machine)
     return spawned
   }).catch((_$, e, next) => next(e))
 
@@ -2735,7 +2655,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const host = hostOf($)
     const expanded = new Set(await host.expanded())
-    const { view, inbox, now } = await readMachine(sessionsHost($), machine)
+    const { view, now } = await readMachine(sessionsHost($), machine, storeOptions)
     startRedraw($, redraw, attention)
     const { bodyColumns, placement } = e.props
     const toggle = (key: string) => {
@@ -2756,8 +2676,12 @@ export const register: Register = (on, options) => {
       expanded,
       toggle,
       signals: await drawnSignals($, e.surface),
+      fills: machine.fills,
+      fill: (record: string, text: string) => {
+        void fillAsk($, machine, record, text)
+      },
     }
-    if (placement === 'widget') return drawMachineGlance(elements, view, now, inbox)
-    return drawMachine(elements, view, now, inbox)
+    if (placement === 'widget') return drawMachineGlance(elements, view, now)
+    return drawMachine(elements, view, now)
   })
 }
