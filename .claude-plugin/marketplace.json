@@ -68,8 +68,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-reply-view",
-        "ref": "handily-reply-view--v0.27.0",
-        "sha": "0d2025e5c8057b139bf39182c227f9b42814d0ad"
+        "ref": "handily-reply-view--v0.28.0",
+        "sha": "ae03e2948081481408bc254ce9db8226ecd3d0e4"
       },
       "description": "Long replies fold to their first lines, tables draw in a full box or with rules between their columns with Table style rules, numbers, paths and inline code in replies draw in their own colours, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
