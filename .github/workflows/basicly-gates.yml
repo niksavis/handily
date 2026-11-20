@@ -14,7 +14,7 @@ name: basicly-gates
     paths-ignore:
       - ".basicly/ledger/**"
   schedule:
-    - cron: "17 5 * * *"
+    - cron: "17 */4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -22,6 +22,7 @@ permissions:
 
 jobs:
   commit-messages:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -55,6 +56,7 @@ jobs:
           exit "${failed}"
 
   gates:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -120,13 +122,17 @@ jobs:
           node-version: "24"
           cache: npm
       - name: Install dev dependencies
+        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         run: npm ci --no-fund --no-audit
       - name: Install the Claude Code CLI
+        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         run: npm install -g "${{ matrix.package }}"
       - name: Print the resolved Claude Code version
+        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         shell: bash
         run: claude --version | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the mod tests of this shard
+        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/${{ matrix.shards }}
 
   mods-newest:
@@ -153,3 +159,33 @@ jobs:
       - name: Run the scripts tests on the newest Claude Code
         if: ${{ !cancelled() }}
         run: npm run test-scripts
+
+  report-break:
+    name: report a break of the newest Claude Code
+    needs: [mod-tests, mods-newest]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTS: ${{ needs.mod-tests.result }}
+          NEWEST: ${{ needs.mods-newest.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          version="$(npm view @anthropic-ai/claude-code version)"
+          title="Claude Code ${version} breaks handily"
+          failed=""
+          [ "${TESTS}" = "failure" ] && failed="${failed} mod tests on the newest Claude Code;"
+          [ "${NEWEST}" = "failure" ] && failed="${failed} mods on newest Claude Code;"
+          body="Failed jobs:${failed} run ${RUN_URL}"
+          number="$(gh issue list --state open --search "\"${title}\" in:title" --json number --jq '.[0].number')"
+          if [ -n "${number}" ]; then
+            gh issue comment "${number}" --body "${body}"
+          else
+            gh issue create --title "${title}" --body "${body}"
+          fi
