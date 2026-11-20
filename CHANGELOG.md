@@ -6,6 +6,62 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.30.2 - 2026-11-20
+
+The mod keeps working on Claude Code 2.1.329 and says so when no app answered a copy or a
+fill.
+
+### Fixed
+
+- **A copy or a prompt fill that no app answered now says so.** Claude Code 2.1.329 adds the
+  `unanswered` reason: an app was asked and none answered, so the text may still have landed.
+  The copy toasts of reply-view and simple-view, the copy path and @ to prompt toasts of the files
+  tab, and the "not filled" line of the board's machine tab now say that no app answered and that
+  the text may still be there. Before this fix, the files tab showed no toast for such a copy, and
+  the machine tab showed the bare word `unanswered`. (handily-6798pw)
+
+## handily-simple-view 0.14.1 - 2026-11-20
+
+The mod keeps working on Claude Code 2.1.329 and says so when no app answered a copy or a
+fill.
+
+### Fixed
+
+- **A copy or a prompt fill that no app answered now says so.** Claude Code 2.1.329 adds the
+  `unanswered` reason: an app was asked and none answered, so the text may still have landed.
+  The copy toasts of reply-view and simple-view, the copy path and @ to prompt toasts of the files
+  tab, and the "not filled" line of the board's machine tab now say that no app answered and that
+  the text may still be there. Before this fix, the files tab showed no toast for such a copy, and
+  the machine tab showed the bare word `unanswered`. (handily-6798pw)
+
+## handily-reply-view 0.29.1 - 2026-11-20
+
+The mod keeps working on Claude Code 2.1.329 and says so when no app answered a copy or a
+fill.
+
+### Fixed
+
+- **A copy or a prompt fill that no app answered now says so.** Claude Code 2.1.329 adds the
+  `unanswered` reason: an app was asked and none answered, so the text may still have landed.
+  The copy toasts of reply-view and simple-view, the copy path and @ to prompt toasts of the files
+  tab, and the "not filled" line of the board's machine tab now say that no app answered and that
+  the text may still be there. Before this fix, the files tab showed no toast for such a copy, and
+  the machine tab showed the bare word `unanswered`. (handily-6798pw)
+
+## handily-filetree 0.15.1 - 2026-11-20
+
+The mod keeps working on Claude Code 2.1.329 and says so when no app answered a copy or a
+fill.
+
+### Fixed
+
+- **A copy or a prompt fill that no app answered now says so.** Claude Code 2.1.329 adds the
+  `unanswered` reason: an app was asked and none answered, so the text may still have landed.
+  The copy toasts of reply-view and simple-view, the copy path and @ to prompt toasts of the files
+  tab, and the "not filled" line of the board's machine tab now say that no app answered and that
+  the text may still be there. Before this fix, the files tab showed no toast for such a copy, and
+  the machine tab showed the bare word `unanswered`. (handily-6798pw)
+
 ## handily-simple-view 0.14.0 - 2026-11-19
 
 A failed tool call draws one row with its reason, also inside a REPL script, and more opens the
