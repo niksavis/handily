@@ -1,0 +1,27 @@
+{
+  "archive": "ledger-archive",
+  "files": {
+    "pending-main.jsonl": "9bc7126716fb1561276507e1d6cf3e4dec8155963434d51883f562459df2d3dc",
+    "pending-worktree-agent-a14149ef46737c3bc.jsonl": "05c8fac16d82b543543185e9f62b7a606c55cdd376a639ababbb0b9c31566537",
+    "pending-worktree-agent-a1c47ee309106c000.jsonl": "a73c57e49f1e9825a322a603590d6474e1f5848be31d95761a6390a95ceeb92d",
+    "pending-worktree-agent-a2faebf93bf034450.jsonl": "80dfa2355d4423a997334c589501aec3d2624e8daafffc0a92828496f3ea0d1b",
+    "pending-worktree-agent-a6b84a4920fe4999b.jsonl": "400dc4d4466eb8d2a28459bfc8f16a9896b6dd3a2525c839cc7c04432708adae",
+    "pending-worktree-agent-a6dd9a62c09faec3d.jsonl": "6df9c3da3043981c0523867a25fdac8cae2d9d9161672b4a928db44d1318c685",
+    "pending-worktree-agent-a70e34d95ec220b14.jsonl": "4040036b75080fd58d4d3fb2e48fee0b26fff4a5af91c36056cda8770e5f2595",
+    "pending-worktree-agent-a89a57ae46d14a48b.jsonl": "b695ac388d516c6878a65c1868435c2a0ac501b3d1479dd0c3dc644d38a5660e",
+    "pending-worktree-agent-a91751a0fd3c63497.jsonl": "a84814d45ef4ad1a172a8b68f15085a92a2eea95949918cfaa6eb17f6156e13e",
+    "pending-worktree-agent-a9298140a9b38a9a2.jsonl": "ccb26cf5f791763aee149ff819ec157e6628fafedfd0b33a8792f34b370210c7",
+    "pending-worktree-agent-a9e543cbe9c0c7e0a.jsonl": "965b4184e87eee68785a67cb3c6111682ced58e38db37f5d3b663ff7786dbef9",
+    "pending-worktree-agent-a9ee313fb125a1f72.jsonl": "91824d03618aca90bd964cb7e257b9443cb07d1df84eff2f41afb30f0a353ec7",
+    "pending-worktree-agent-aa1efdbbb785ef57d.jsonl": "20ff49c8ad16fa50cde46d90784ed4b18fed06170e48d94ead91340ed1ff5430",
+    "pending-worktree-agent-aa820376176fc79d5.jsonl": "605864aa267ce549f5453ac909a3c50e63274f2eb90008f4657dd7735d88103b",
+    "pending-worktree-agent-ab207f467399c59d8.jsonl": "e533e684723498cc1717e2f2ffa03bb67fae64ba5feec1a43ccc5e4932e06042",
+    "pending-worktree-agent-ac00e9eb71de2a471.jsonl": "55d776d62bdd3f072717f9669d43c17c95da2c99f341ad73a702e0ebf64619b5",
+    "pending-worktree-agent-afed63b1f4a34ce63.jsonl": "e7ca81fa193d658b48ee72ff33c7db44198f82dd2343f5dac311d2c0d24fc470",
+    "template.json": "7d0a1123a73d3f24db676015aabc033912217e14adc546d1cbe777571dcf981f"
+  },
+  "notice": "Local history is archived and frozen; use basicly-tracker status and configured vault commands.",
+  "prefix": "handily",
+  "schema": "basicly.tracker.frozen-ledger.v1",
+  "vault_digest": "e91ef3b24d99233494ae583cd284dbfe901c3674071d0cf4d2de5652283aa642"
+}
