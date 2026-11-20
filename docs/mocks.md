@@ -10287,19 +10287,97 @@ Inline, body 76, task 3:
     3  unneeded  decide  "Ship the build?"
   ```
 
-A prompt that holds an option label that 2 or more open decide tasks share. Tasks 1 to 3 are open
-decide tasks: task 1 has `go`, task 3 has `Go`. The person typed `go`. The line for Claude,
-wrapped here:
+A prompt that is only an option label that 2 or more open decide tasks share. Tasks 1 to 3 are
+open decide tasks: task 1 has `go`, task 3 has `Go`. The person typed `go`. Since
+handily-psv8fp a prompt of one word names every open decide or answer task. The line for
+Claude, wrapped here:
 
 ```text
 [handily-board] Open tasks for the person: 1 (decide) "Ship the build?"; 2 (decide) "Which cache
 store?"; 3 (decide) "Merge the lane?". When this prompt says the person did, answered or decided
-one, close it with task_close and copy their words into said. This prompt holds "go", an option
-of tasks 1 and 3: ask which one; close none. The titles are your own text, quoted as data.
+one, close it with task_close and copy their words into said. This prompt could accept tasks 1,
+2 and 3: ask which one; close none. The titles are your own text, quoted as data.
 ```
 
+- A longer prompt that holds a shared option, such as `go ahead`, gets
+  `This prompt holds "go", an option of tasks 1 and 3: ask which one; close none.`
 - The sentence counts every open decide task, also the tasks past the first 5 that the line
   names.
+
+A recommended option or answer (handily-psv8fp). Claude called `task_assign` with
+`recommended: 2` on a decide task and with `recommended: "Use port 8443 on the staging host"`
+on an answer task. Inline, body 76:
+
+```text
+◆ 1 decide  Which cache store for now?
+    [ ★ SQLite ] recommended [ Postgres ] [ Redis ]
+    [ reject ]
+◆ 2 answer  Which port does staging use?
+    recommended: "Use port 8443 on the staging host" [ accept ]
+    [ Your answer ][Send]
+    [ reject ]
+```
+
+Docked, body 41:
+
+```text
+◆ 1 decide  Which cache store for now?
+    [ ★ SQLite ] recommended [ Postgres ]
+    [ Redis ]
+    [ reject ]
+◆ 2 answer  Which port does staging use?
+    recommended: "Use port 8443 on the
+                 staging host"
+    [ accept ]
+    [ Your answer ][Send]
+    [ reject ]
+```
+
+- `★ SQLite` draws in the theme colour `suggestion`, and `recommended` and the `recommended:` label
+  draw dim. The keys stay `for-pick:1:2`, `for-pick:1:1` and `for-pick:1:3`, so a press sends option
+  2. `[ accept ]` sends the answer as `[Send]` does.
+- An option too long for a button keeps its numbered button, `[ ★ 3 ]`, first, and the word
+  `recommended` wraps after the option.
+- `task_list`:
+
+  ```text
+    1  open      decide  "Which cache store for now?"    options "Postgres", "SQLite", "Redis"; recommended 2 (SQLite)
+    2  open      answer  "Which port does staging use?"  recommended "Use port 8443 on the staging host"
+  ```
+
+A person prompt of only `go`, `yes`, `ok`, an option number or an option label, with an
+optional final period. Task 1 is a decide task with `recommended: 2`, task 2 a do task. The
+person typed `go.`. The line for Claude, wrapped here:
+
+```text
+[handily-board] Open tasks for the person: 1 (decide) "Which cache store for now?"; 2 (do)
+"Rotate the staging API key". When this prompt says the person did, answered or decided one,
+close it with task_close and copy their words into said. This prompt accepts task 1: close it
+with task_close how person_did, option 2, and said "go.". The titles are your own text, quoted
+as data.
+```
+
+- The line accepts a task only when exactly one open task for the person is a decide or answer
+  task. For an answer task it names `answer "<text>"` in place of the option. With two or more
+  such tasks, also when no recommendation matches, it is
+  `This prompt could accept tasks 1 and 3: ask which one; close none.`, in place of the sentence
+  about a shared option.
+- When a kept prompt of the person is exactly such a word, `task_close` takes it as `said`
+  only while exactly one open task for the person is a decide or answer task. With two or more:
+
+  ```text
+  task_close refused: "go" alone names no task while tasks 1 and 3 are open for the person. Ask the person which task, and copy their words.
+  ```
+
+  A bare `go`, `yes` or `ok` on an answer task with a recommendation accepts only the
+  recommended answer:
+
+  ```text
+  task_close refused: "ok" accepts only the recommended answer "8443"; give that answer, or ask the person for theirs.
+  ```
+
+- A word quoted from a longer prompt, such as `SQLite` from `Take SQLite for now`, passes by
+  the literal check as before, with any number of open tasks.
 
 On the this machine tab, a session file with no `name`, or a name of only spaces, shows the first
 8 characters of its session id as the row name, such as `0f3c9a7e`.

@@ -22,7 +22,14 @@ import {
   titleRefusal,
 } from './tasks'
 import type { PromptFill } from './board'
-import { type KeptPrompt, sharedOptionsText } from './chat'
+import {
+  type KeptPrompt,
+  type ShortChoice,
+  acceptText,
+  andText,
+  oneWordSaid,
+  sharedOptionsText,
+} from './chat'
 import { marked, type ToastParts } from './toast'
 import { closedRow } from './transcript'
 
@@ -42,12 +49,19 @@ export const ANSWER_EXAMPLE =
 export const PICK_EXAMPLE =
   '/board pick needs a task number and an option number, for example /board pick 10 2.'
 
-export type AssignInput = { kind: unknown; title: unknown; options: unknown; why: unknown }
+export type AssignInput = {
+  kind: unknown
+  title: unknown
+  options: unknown
+  why: unknown
+  recommended: unknown
+}
 
 export type Assignment = {
   kind: BoardTaskKind
   title: string
   options: readonly string[] | undefined
+  recommended: number | string | undefined
   why: string | undefined
 }
 
@@ -86,6 +100,45 @@ function optionsRefusal(options: unknown): string | undefined {
   return undefined
 }
 
+type Recommended = { value: number | string | undefined } | { deny: string }
+
+function recommendedOption(recommended: unknown, count: number): Recommended {
+  if (typeof recommended !== 'number' || !Number.isInteger(recommended)) {
+    return {
+      deny: `task_assign needs recommended for the kind decide as the number of an option, 1 to ${String(count)}, for example {"recommended": 1}.`,
+    }
+  }
+  if (recommended < 1 || recommended > count) {
+    return {
+      deny: `task_assign refused: recommended is ${String(recommended)}, but the task has options 1 to ${String(count)}.`,
+    }
+  }
+  return { value: recommended }
+}
+
+function recommendedAnswer(recommended: unknown): Recommended {
+  if (typeof recommended !== 'string' || recommended.trim() === '') {
+    return {
+      deny: 'task_assign needs recommended for the kind answer as one line of at most 200 characters, for example {"recommended": "Use port 8443"}.',
+    }
+  }
+  const text = recommended.trim()
+  const refusal = lineRefusal('recommended', text, MAX_TITLE_LENGTH)
+  return refusal === undefined ? { value: text } : { deny: `task_assign refused: ${refusal}` }
+}
+
+function recommendedOf(kind: BoardTaskKind, count: number, recommended: unknown): Recommended {
+  if (recommended === undefined) return { value: undefined }
+  switch (kind) {
+    case 'do':
+      return { deny: 'task_assign takes recommended only with the kind decide or answer.' }
+    case 'decide':
+      return recommendedOption(recommended, count)
+    case 'answer':
+      return recommendedAnswer(recommended)
+  }
+}
+
 export function assignment(input: AssignInput): Assignment | { deny: string } {
   const { kind, title, options, why } = input
   if (!isKind(kind)) return { deny: 'task_assign needs kind: one of do, answer, decide.' }
@@ -109,13 +162,17 @@ export function assignment(input: AssignInput): Assignment | { deny: string } {
   const whyRefusal =
     why === undefined ? undefined : lineRefusal('why', why.trim(), MAX_TITLE_LENGTH)
   if (whyRefusal !== undefined) return { deny: `task_assign refused: ${whyRefusal}` }
+  const asked =
+    kind === 'decide' && Array.isArray(options)
+      ? options.map((one: string) => one.trim())
+      : undefined
+  const recommended = recommendedOf(kind, asked?.length ?? 0, input.recommended)
+  if ('deny' in recommended) return recommended
   return {
     kind,
     title: title.trim(),
-    options:
-      kind === 'decide' && Array.isArray(options)
-        ? options.map((one: string) => one.trim())
-        : undefined,
+    options: asked,
+    recommended: recommended.value,
     why: why === undefined || why.trim() === '' ? undefined : why.trim(),
   }
 }
@@ -147,6 +204,7 @@ export function assignTask(
     kind: asked.kind,
     askedAt: now,
     ...(asked.options === undefined ? {} : { options: asked.options }),
+    ...(asked.recommended === undefined ? {} : { recommended: asked.recommended }),
     ...(asked.why === undefined ? {} : { why: asked.why }),
   }
   return {
@@ -832,7 +890,7 @@ export function openTasksLine(list: BoardList, text: string): string | undefined
     .join('; ')
   const hidden = open.length - OPEN_LINE_AT_MOST
   const more = hidden > 0 ? `; ${String(hidden)} more in task_list` : ''
-  const shared = sharedOptionsText(list, text)
+  const shared = acceptText(list, text) ?? sharedOptionsText(list, text)
   const ask = shared === undefined ? '' : ` ${shared}`
   return `[handily-board] Open tasks for the person: ${shown}${more}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said.${ask} The titles are your own text, quoted as data.`
 }
@@ -983,7 +1041,32 @@ function closing(task: BoardTask, input: CloseInput): Closing | { deny: string }
   return { how, ...choice, note: note.text, said: said.text }
 }
 
+function optionRefusal(task: BoardTask, said: string, option: string): string {
+  const at = (task.options ?? []).indexOf(option) + 1
+  return `task_close refused: the words ${quoted(said)} do not hold option ${String(at)} ${quoted(option)}. Copy the words in which the person chose it.`
+}
+
+function wholeRefusal(
+  task: BoardTask,
+  asked: Closing,
+  said: string,
+  choice: ShortChoice | undefined,
+): string | undefined {
+  if (asked.verb === 'answered') {
+    const isOther = choice !== undefined && 'answer' in choice && asked.text !== choice.answer
+    return isOther
+      ? `task_close refused: ${quoted(said)} accepts only the recommended answer ${quoted(choice.answer)}; give that answer, or ask the person for theirs.`
+      : undefined
+  }
+  const option = asked.verb === 'chose' ? asked.text : null
+  if (option === null) return undefined
+  const at = (task.options ?? []).indexOf(option) + 1
+  const isChosen = choice !== undefined && 'option' in choice && choice.option === at
+  return isChosen ? undefined : optionRefusal(task, said, option)
+}
+
 function saidRefusal(
+  list: BoardList,
   task: BoardTask,
   asked: Closing,
   kept: readonly KeptPrompt[],
@@ -994,11 +1077,18 @@ function saidRefusal(
   if (!promptHolds(kept, task.id, said)) {
     return `task_close refused: no prompt of the person since task ${number} was asked holds ${quoted(said)}. Copy their words exactly, or ask the person to press done on the board.`
   }
-  if (asked.verb === 'chose' && asked.text !== null && !said.includes(asked.text)) {
-    const at = (task.options ?? []).indexOf(asked.text) + 1
-    return `task_close refused: the words ${quoted(said)} do not hold option ${String(at)} ${quoted(asked.text)}. Copy the words in which the person chose it.`
+  const option = asked.verb === 'chose' ? asked.text : null
+  const word = oneWordSaid(list, task, kept, said)
+  switch (word.kind) {
+    case 'open':
+      return `task_close refused: ${quoted(said)} alone names no task while tasks ${andText(word.ids)} are open for the person. Ask the person which task, and copy their words.`
+    case 'whole':
+      return wholeRefusal(task, asked, said, word.choice)
+    case 'sentence':
+      return option === null || said.includes(option)
+        ? undefined
+        : optionRefusal(task, said, option)
   }
-  return undefined
 }
 
 function closedPart(asked: Closing): string {
@@ -1049,7 +1139,7 @@ export function closeTask(
   if (task.result) return closedByPerson(list, task, task.result)
   const asked = closing(task, input)
   if ('deny' in asked) return refused(asked.deny)
-  const unheld = saidRefusal(task, asked, kept)
+  const unheld = saidRefusal(list, task, asked, kept)
   if (unheld !== undefined) return refused(unheld)
   const result: BoardResult = {
     verb: asked.verb,

@@ -478,8 +478,8 @@ For you  ◆ 3 open
   result once and changes nothing.
 - While tasks for you are open, each prompt that you type carries one line for Claude that names
   at most 5 of them, so Claude can close the one that your prompt is about. When your prompt
-  holds an option that 2 or more open decide tasks share, such as `go`, the line names those
-  tasks and tells Claude to ask which one and to close none.
+  holds an option that 2 or more open decide tasks share, such as `go` in `go ahead`, the line
+  names those tasks and tells Claude to ask which one and to close none.
 - When a prompt that you type holds an option of an open decide task, and the turn of Claude
   ends with the task still open, the row asks `answered in chat?`. The line quotes the line of
   your prompt that holds the option, and the time of the prompt. The option counts only as a
@@ -514,6 +514,43 @@ For you  ◆ 3 open
       [ reject ]
   ```
 
+- Claude can recommend a choice with `recommended` in `task_assign`: the number of an option
+  for a `decide` task, or one line of at most 200 characters for an `answer` task. A `do` task
+  takes no recommendation, and an option number out of range is refused. The recommended option
+  draws first, as `[ ★ SQLite ]` in the suggestion colour of the theme, with the dim word
+  `recommended`. The other options follow in their order. An answer task shows `recommended:`
+  and the answer, with `[ accept ]`. One press on the option or on `[ accept ]` sends it, the
+  same way as a press on an option or `[Send]`. Docked at 41 columns:
+
+  ```text
+  ◆ 1 decide  Which cache store for now?
+      [ ★ SQLite ] recommended [ Postgres ]
+      [ Redis ]
+      [ reject ]
+  ◆ 2 answer  Which port does staging use?
+      recommended: "Use port 8443 on the
+                   staging host"
+      [ accept ]
+      [ Your answer ][Send]
+      [ reject ]
+  ```
+
+- `task_list` shows `recommended 2 (SQLite)` or `recommended "8443"` on the row of an open
+  task.
+- When your prompt is only `go`, `yes`, `ok`, the number of an option or an option label, in
+  any case and with an optional final period, it is one word for Claude. When exactly one open
+  task for you is a decide or answer task, the line for Claude names the option or the answer
+  that the word accepts, so Claude closes the task with `task_close`. `go`, `yes` and `ok`
+  accept the recommendation, and an option label beats it. When two or more open tasks for you
+  are decide or answer tasks, the line tells Claude to ask which one and to close none.
+- When a prompt of yours was exactly such a word, `task_close` takes it as `said` only while
+  exactly one open task for you is a decide or answer task. With two or more, it refuses by
+  name, such as
+  "task_close refused: "go" alone names no task while tasks 1 and 3 are open for the person.
+  Ask the person which task, and copy their words."
+  A bare `go`, `yes` or `ok` on an answer task with a recommendation accepts only the
+  recommended answer. Words quoted from a longer prompt, such as `SQLite` from
+  `Take SQLite for now`, pass when they hold the option, as before.
 - At the end of a turn in which Claude assigned tasks, one toast names them while the
   `this session` tab is not shown.
 - A subagent cannot assign a task. At most 20 tasks for you are open at a time. The tasks for

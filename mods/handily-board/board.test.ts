@@ -13427,9 +13427,15 @@ describe('decide tasks answered in the chat and tasks for the person that wait t
           title: 'Merge the lane?',
           options: ['go', 'not now'],
         })
+        await personSays($, 'Merge the lane: go')
         await personSays($, 'go')
         await $.turn.start({ text: 'go', turnId: CHAT_TURN })
-        await closeTaskCall($, { id: 4, how: 'person_did', option: 1, said: 'go' })
+        await closeTaskCall($, {
+          id: 4,
+          how: 'person_did',
+          option: 1,
+          said: 'Merge the lane: go',
+        })
         await endTurn($)
         expect(await forYouAt($, surface, 76)).toEqual([
           '◆ 1 decide  Ship the build?',
@@ -13444,7 +13450,7 @@ describe('decide tasks answered in the chat and tasks for the person that wait t
           '✓ 4 decide  Merge the lane?',
           `${'    Claude: you chose'.padEnd(65)} [ reopen ]`,
           '    "go"',
-          '    you said: "go"',
+          '    you said: "Merge the lane: go"',
         ])
         expect(await forYouAt($, surface, 41)).toEqual([
           '◆ 1 decide  Ship the build?',
@@ -13461,7 +13467,7 @@ describe('decide tasks answered in the chat and tasks for the person that wait t
           '✓ 4 decide  Merge the lane?',
           '    Claude: you chose          [ reopen ]',
           '    "go"',
-          '    you said: "go"',
+          '    you said: "Merge the lane: go"',
         ])
         const pane = await mountTasks($, surface)
         expect(await forKeys(pane, 'for-chat')).toEqual(['for-chat-close:1', 'for-chat-open:1'])
@@ -13469,7 +13475,7 @@ describe('decide tasks answered in the chat and tasks for the person that wait t
           (await pane.find({ type: 'Text', text: /^answered in chat/u }))?.props.dimColor,
         ).toBe(true)
         await pane.press({ key: 'for-chat-close:1' })
-        expect(entered.map((one) => one.text)).toEqual(['go', SHIP_CHOICE])
+        expect(entered.map((one) => one.text)).toEqual(['Merge the lane: go', 'go', SHIP_CHOICE])
         expect(entered.at(-1)).toMatchObject({ text: SHIP_CHOICE, origin: OWN_PROMPT })
         expect(await forKeys(pane, 'for-chat')).toEqual([])
         expect(joinedWords(forYouLines(unframed(await screen(pane, 41))))).toContain(
@@ -13621,10 +13627,470 @@ describe('decide tasks answered in the chat and tasks for the person that wait t
       const listed =
         '1 (decide) "Ship the build?"; 2 (decide) "Which cache store?"; 3 (decide) "Merge the lane?"'
       expect(openNotes(await personSays($, 'go'))).toEqual([
+        `${OPEN_LINE} ${listed}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said. This prompt could accept tasks 1, 2 and 3: ask which one; close none. The titles are your own text, quoted as data.`,
+      ])
+      expect(openNotes(await personSays($, 'go ahead'))).toEqual([
         `${OPEN_LINE} ${listed}. When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said. This prompt holds "go", an option of tasks 1 and 3: ask which one; close none. The titles are your own text, quoted as data.`,
       ])
       expect(openNotes(await personSays($, 'SQLite please'))).toEqual([openTasksNote(listed)])
       expect(openNotes(await personSays($, 'going there later'))).toEqual([openTasksNote(listed)])
+    },
+  )
+})
+
+const RECOMMEND_ANSWER = 'Use port 8443 on the staging host'
+const RECOMMEND_SENT_CHOICE = 'Decision on task 1, "Which cache store for now?": "SQLite"'
+const RECOMMEND_SENT_ANSWER = `Answer to task 2, "Which port does staging use?": ${RECOMMEND_ANSWER}`
+
+async function assignRecommended($: Engine): Promise<void> {
+  await $.tool.call({
+    tool: TOOL_ASSIGN,
+    kind: 'decide',
+    title: 'Which cache store for now?',
+    options: ['Postgres', 'SQLite', 'Redis'],
+    recommended: 2,
+  })
+  await $.tool.call({
+    tool: TOOL_ASSIGN,
+    kind: 'answer',
+    title: 'Which port does staging use?',
+    recommended: RECOMMEND_ANSWER,
+  })
+}
+
+const OPEN_RULE = 'close it with task_close and copy their words into said.'
+const OPEN_TAIL = ' The titles are your own text, quoted as data.'
+
+function acceptNotes(context: readonly string[]): string[] {
+  return context
+    .filter((text) => text.startsWith(OPEN_LINE))
+    .map((text) =>
+      text.slice(text.indexOf(OPEN_RULE) + OPEN_RULE.length, text.lastIndexOf(OPEN_TAIL)).trim(),
+    )
+}
+
+describe('a recommended option or answer that the person accepts with one click or one word (handily-psv8fp)', () => {
+  for (const surface of SURFACES) {
+    test(
+      `a decide task draws its recommended option first with a star and the word recommended, and one press sends it, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on)
+        await start($)
+        await assignRecommended($)
+        expect(await forYouAt($, surface, 76)).toEqual([
+          '◆ 1 decide  Which cache store for now?',
+          '    [ ★ SQLite ] recommended [ Postgres ] [ Redis ]',
+          '    [ reject ]',
+          '◆ 2 answer  Which port does staging use?',
+          `    recommended: "${RECOMMEND_ANSWER}" [ accept ]`,
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+        ])
+        expect((await forYouAt($, surface, 41)).slice(0, 4)).toEqual([
+          '◆ 1 decide  Which cache store for now?',
+          '    [ ★ SQLite ] recommended [ Postgres ]',
+          '    [ Redis ]',
+          '    [ reject ]',
+        ])
+        const pane = await mountTasks($, surface)
+        expect(await forKeys(pane, 'for-pick')).toEqual([
+          'for-pick:1:2',
+          'for-pick:1:1',
+          'for-pick:1:3',
+        ])
+        expect((await pane.find({ type: 'Text', text: '★ SQLite' }))?.props.color).toBe(
+          'suggestion',
+        )
+        expect((await pane.find({ type: 'Text', text: 'recommended' }))?.props.dimColor).toBe(true)
+        await pane.press({ key: 'for-pick:1:2' })
+        expect(entered).toMatchObject([{ text: RECOMMEND_SENT_CHOICE, origin: OWN_PROMPT }])
+        await pane.unmount()
+        expect(await board($, 'list')).toContain('chose "SQLite"')
+      },
+    )
+
+    test(
+      `an answer task draws the recommended answer with the word recommended and accept sends it with one press, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on)
+        await start($)
+        await assignRecommended($)
+        expect((await forYouAt($, surface, 41)).slice(4)).toEqual([
+          '◆ 2 answer  Which port does staging use?',
+          '    recommended: "Use port 8443 on the',
+          '                 staging host"',
+          '    [ accept ]',
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+        ])
+        const pane = await mountTasks($, surface)
+        expect((await pane.find({ type: 'Text', text: 'recommended: ' }))?.props.dimColor).toBe(
+          true,
+        )
+        expect((await pane.find({ type: 'Text', text: /^"Use port 8443/u }))?.props.color).toBe(
+          'suggestion',
+        )
+        await pane.press({ key: 'for-accept:2' })
+        expect(entered).toMatchObject([{ text: RECOMMEND_SENT_ANSWER, origin: OWN_PROMPT }])
+        await pane.unmount()
+        expect(await board($, 'list')).toContain(`answer "${RECOMMEND_ANSWER}"`)
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    test(
+      `a recommended option too long for a button draws first on a numbered star button and wraps in full, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on)
+        await start($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'decide',
+          title: 'Which region for the probe?',
+          options: ASKED_OPTIONS,
+          recommended: 3,
+        })
+        const lines = await forYouAt($, surface, 41)
+        expect(lines.join('\n')).not.toContain('…')
+        expect(lines[1]).toBe('    [ ★ 3 ] Both regions, with the probe')
+        expect(joinedWords(lines)).toContain(`[ ★ 3 ] ${ASKED_OPTIONS[2] ?? ''} recommended [ 1 ]`)
+        const pane = await mountTasks($, surface)
+        expect(await forKeys(pane, 'for-pick')).toEqual([
+          'for-pick:1:3',
+          'for-pick:1:1',
+          'for-pick:1:2',
+          'for-pick:1:4',
+        ])
+        await pane.press({ key: 'for-pick:1:3' })
+        expect(entered.map((one) => one.text)).toEqual([
+          `Decision on task 1, "Which region for the probe?": "${ASKED_OPTIONS[2] ?? ''}"`,
+        ])
+        await pane.unmount()
+      },
+    )
+  }
+
+  test(
+    'task_list shows the recommended option and the recommended answer on the row',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignRecommended($)
+      expect(await modelTool($, {})).toBe(
+        [
+          'For you (0 of 2 closed)',
+          '  1  open      decide  "Which cache store for now?"    options "Postgres", "SQLite", "Redis"; recommended 2 (SQLite)',
+          `  2  open      answer  "Which port does staging use?"  recommended "${RECOMMEND_ANSWER}"`,
+        ].join('\n'),
+      )
+    },
+  )
+
+  test(
+    'with one open decide or answer task, a prompt of only ok or a bare option number tells Claude to close it, and task_close takes those words as said',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Which cache store for now?',
+        options: ['Postgres', 'SQLite', 'Redis'],
+        recommended: 2,
+      })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      expect(acceptNotes(await personSays($, '3'))).toEqual([
+        'This prompt accepts task 1: close it with task_close how person_did, option 3, and said "3".',
+      ])
+      const byNumber = await closeTaskCall($, { id: 1, how: 'person_did', option: 3, said: '3' })
+      expect(byNumber.deny).toBeUndefined()
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'answer',
+        title: 'Which port does staging use?',
+        recommended: RECOMMEND_ANSWER,
+      })
+      expect(acceptNotes(await personSays($, 'OK'))).toEqual([
+        `This prompt accepts task 3: close it with task_close how person_did, answer "${RECOMMEND_ANSWER}", and said "OK".`,
+      ])
+      const byWord = await closeTaskCall($, {
+        id: 3,
+        how: 'person_did',
+        answer: RECOMMEND_ANSWER,
+        said: 'OK',
+      })
+      expect(byWord.deny).toBeUndefined()
+      expect(await modelTool($, {})).toContain('chose "Redis", said "3"')
+    },
+  )
+
+  test(
+    'with two or more open decide or answer tasks, a one-word prompt asks which task and task_close refuses that word as said by name',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Which cache store for now?',
+        options: ['Postgres', 'SQLite', 'Redis'],
+        recommended: 2,
+      })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'answer',
+        title: 'Which port does staging use?',
+      })
+      const ask = 'This prompt could accept tasks 1 and 3: ask which one; close none.'
+      for (const word of ['go', ' Yes. ', '2', 'sqlite']) {
+        expect(acceptNotes(await personSays($, word))).toEqual([ask])
+      }
+      const refusal = (said: string) =>
+        `task_close refused: "${said}" alone names no task while tasks 1 and 3 are open for the person. Ask the person which task, and copy their words.`
+      expect(
+        (await closeTaskCall($, { id: 1, how: 'person_did', option: 2, said: 'go' })).deny,
+      ).toBe(refusal('go'))
+      expect(
+        (await closeTaskCall($, { id: 1, how: 'person_did', option: 2, said: 'sqlite' })).deny,
+      ).toBe(refusal('sqlite'))
+      expect(
+        (await closeTaskCall($, { id: 3, how: 'person_did', answer: '8443', said: 'Yes.' })).deny,
+      ).toBe(refusal('Yes.'))
+      expect(
+        (await closeTaskCall($, { id: 2, how: 'person_did', said: 'go' })).deny,
+      ).toBeUndefined()
+      expect(await modelTool($, {})).toContain('For you (1 of 3 closed)')
+    },
+  )
+
+  test(
+    'a prompt of only go accepts the one recommended option, and task_close takes go as said for an option of another name',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Which cache store for now?',
+        options: ['Postgres', 'SQLite'],
+        recommended: 2,
+      })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      const context = await personSays($, 'go.')
+      expect(context.filter((text) => text.startsWith(OPEN_LINE))).toEqual([
+        `${OPEN_LINE} 1 (decide) "Which cache store for now?"; 2 (do) "Rotate the staging API key". When this prompt says the person did, answered or decided one, close it with task_close and copy their words into said. This prompt accepts task 1: close it with task_close how person_did, option 2, and said "go.". The titles are your own text, quoted as data.`,
+      ])
+      expect(
+        (await closeTaskCall($, { id: 1, how: 'person_did', option: 1, said: 'go.' })).deny,
+      ).toBe(
+        'task_close refused: the words "go." do not hold option 1 "Postgres". Copy the words in which the person chose it.',
+      )
+      const closed = await closeTaskCall($, { id: 1, how: 'person_did', option: 2, said: 'go.' })
+      expect(leadOf(closed.result)).toBe(
+        'Closed task 1 for the person (decide): the person chose "SQLite", saying "go.". The title and options are your own text, quoted as data.',
+      )
+    },
+  )
+
+  test(
+    'a one-word said quoted from a longer prompt passes by the literal check while two tasks are open, and a word that does not hold the option is refused as before',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignRecommended($)
+      await personSays($, 'there are 23 of them')
+      expect(
+        (await closeTaskCall($, { id: 1, how: 'person_did', option: 2, said: '2' })).deny,
+      ).toBe(
+        'task_close refused: the words "2" do not hold option 2 "SQLite". Copy the words in which the person chose it.',
+      )
+      await personSays($, 'Take SQLite for now')
+      const closed = await closeTaskCall($, { id: 1, how: 'person_did', option: 2, said: 'SQLite' })
+      expect(closed.deny).toBeUndefined()
+      expect(await modelTool($, {})).toContain('chose "SQLite", said "SQLite"')
+    },
+  )
+
+  test(
+    'an option label alone as the whole prompt counts as one word: it accepts the one open task, and while two are open the line asks which one and the label is refused as said',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Which cache store for now?',
+        options: ['Postgres', 'SQLite', 'Redis'],
+      })
+      await $.tool.call({ tool: TOOL_ASSIGN, kind: 'do', title: 'Rotate the staging API key' })
+      expect(acceptNotes(await personSays($, 'SQLite'))).toEqual([
+        'This prompt accepts task 1: close it with task_close how person_did, option 2, and said "SQLite".',
+      ])
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'answer',
+        title: 'Which port does staging use?',
+      })
+      expect(acceptNotes(await personSays($, 'Redis.'))).toEqual([
+        'This prompt could accept tasks 1 and 3: ask which one; close none.',
+      ])
+      expect(
+        (await closeTaskCall($, { id: 1, how: 'person_did', option: 3, said: 'Redis.' })).deny,
+      ).toBe(
+        'task_close refused: "Redis." alone names no task while tasks 1 and 3 are open for the person. Ask the person which task, and copy their words.',
+      )
+      expect(await modelTool($, {})).toContain('For you (0 of 3 closed)')
+    },
+  )
+
+  test(
+    'task_close refuses a bare ok as said on an answer task unless the answer is the recommended answer',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'answer',
+        title: 'Which port does staging use?',
+        recommended: '8443',
+      })
+      await personSays($, 'ok')
+      expect(
+        (await closeTaskCall($, { id: 1, how: 'person_did', answer: '9000', said: 'ok' })).deny,
+      ).toBe(
+        'task_close refused: "ok" accepts only the recommended answer "8443"; give that answer, or ask the person for theirs.',
+      )
+      const closed = await closeTaskCall($, {
+        id: 1,
+        how: 'person_did',
+        answer: '8443',
+        said: 'ok',
+      })
+      expect(closed.deny).toBeUndefined()
+      expect(await modelTool($, {})).toContain('answer "8443", said "ok"')
+    },
+  )
+
+  test(
+    'a prompt of only go asks which one when one task recommends and another has the option go',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'answer',
+        title: 'Which port does staging use?',
+        recommended: '8443',
+      })
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Merge the lane?',
+        options: ['go', 'later'],
+      })
+      expect(acceptNotes(await personSays($, 'go'))).toEqual([
+        'This prompt could accept tasks 1 and 2: ask which one; close none.',
+      ])
+    },
+  )
+
+  test(
+    'a literal option beats the recommendation, two matching tasks ask which one, and a longer prompt adds nothing',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Ship the build?',
+        options: ['go', 'not now'],
+        recommended: 2,
+      })
+      expect(acceptNotes(await personSays($, 'Go'))).toEqual([
+        'This prompt accepts task 1: close it with task_close how person_did, option 1, and said "Go".',
+      ])
+      await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'decide',
+        title: 'Merge the lane?',
+        options: ['now', 'later'],
+      })
+      expect(acceptNotes(await personSays($, '2'))).toEqual([
+        'This prompt could accept tasks 1 and 2: ask which one; close none.',
+      ])
+      expect(acceptNotes(await personSays($, '5'))).toEqual([
+        'This prompt could accept tasks 1 and 2: ask which one; close none.',
+      ])
+      expect(acceptNotes(await personSays($, 'go on'))).toEqual([''])
+      expect(acceptNotes(await personSays($, 'yes please'))).toEqual([''])
+    },
+  )
+
+  test(
+    'task_assign refuses a recommended option out of range, a wrong type and a recommendation on a do task by name, and assigns nothing',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      const deny = async (input: Record<string, unknown>) =>
+        (await $.tool.call({ tool: TOOL_ASSIGN, ...input })).deny
+      const decide = { kind: 'decide', title: 'Ship the build?', options: ['go', 'not now'] }
+      expect(await deny({ ...decide, recommended: 3 })).toBe(
+        'task_assign refused: recommended is 3, but the task has options 1 to 2.',
+      )
+      expect(await deny({ ...decide, recommended: 0 })).toBe(
+        'task_assign refused: recommended is 0, but the task has options 1 to 2.',
+      )
+      expect(await deny({ ...decide, recommended: 'go' })).toBe(
+        'task_assign needs recommended for the kind decide as the number of an option, 1 to 2, for example {"recommended": 1}.',
+      )
+      expect(await deny({ kind: 'do', title: 'Rotate it', recommended: 1 })).toBe(
+        'task_assign takes recommended only with the kind decide or answer.',
+      )
+      const answer = { kind: 'answer', title: 'Which port?' }
+      expect(await deny({ ...answer, recommended: 8443 })).toBe(
+        'task_assign needs recommended for the kind answer as one line of at most 200 characters, for example {"recommended": "Use port 8443"}.',
+      )
+      expect(await deny({ ...answer, recommended: '8443\n8080' })).toBe(
+        'task_assign refused: recommended has a line break or a control character. Write it on one line.',
+      )
+      expect(await deny({ ...answer, recommended: '9'.repeat(201) })).toBe(
+        'task_assign refused: recommended has 201 characters. The limit is 200.',
+      )
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+    },
+  )
+
+  test(
+    'the prompt section tells Claude to give a recommendation when it has one',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      on('prompt.compose', () => ({ sections: [] }))
+      const composed = await $.prompt.compose(
+        composeFor(['Read', TOOL_ADD, TOOL_UPDATE, TOOL_LIST]),
+      )
+      const section = composed.sections.find((part) => part.id === 'handily-board:tasks')
+      expect(section?.text).toContain(
+        'When you have a recommended option or answer for a decide or answer task, give it with recommended in task_assign.',
+      )
     },
   )
 })

@@ -361,13 +361,27 @@ function closedDetail(result: BoardResult): string {
   return parts.join(', ')
 }
 
+function recommendedDetail(task: BoardTask): string | undefined {
+  const { recommended } = task
+  if (typeof recommended === 'string') return `recommended ${quoted(recommended)}`
+  const option = recommended === undefined ? undefined : task.options?.[recommended - 1]
+  if (recommended === undefined || option === undefined) return undefined
+  return `recommended ${String(recommended)} (${escaped(option)})`
+}
+
+function openDetail(task: BoardTask): string | undefined {
+  const options = task.options ?? []
+  const parts = [
+    options.length === 0 ? undefined : `options ${options.map(quoted).join(', ')}`,
+    recommendedDetail(task),
+  ].filter((part) => part !== undefined)
+  return parts.length === 0 ? undefined : parts.join('; ')
+}
+
 function resultDetail(task: BoardTask): string | undefined {
   const { result } = task
   if (result?.by === 'claude') return closedDetail(result)
-  if (result === undefined) {
-    const options = task.options ?? []
-    return options.length === 0 ? undefined : `options ${options.map(quoted).join(', ')}`
-  }
+  if (result === undefined) return openDetail(task)
   if (result.text === null) return undefined
   const words: Record<BoardResultVerb, string> = {
     done: 'note',

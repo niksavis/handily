@@ -11,6 +11,9 @@ const WORD_PART = '[\\p{L}\\p{N}_]'
 const REGEX_SYNTAX = /[\\^$.*+?()[\]{}|/]/g
 const LETTERS = /\p{L}+/gu
 const SPACES = /\s+/gu
+const ACCEPT_WORDS: ReadonlySet<string> = new Set(['go', 'yes', 'ok'])
+const OPTION_NUMBER = /^[1-9][0-9]*$/u
+const FINAL_PERIOD = /\.$/u
 
 export type KeptPrompt = { text: string; after: number; at: number; seq: number }
 
@@ -158,10 +161,88 @@ export function openText(ms: number): string {
   return `${String(Math.floor(hours / HOURS_PER_DAY))}d ${String(hours % HOURS_PER_DAY)}h`
 }
 
-function andText(ids: readonly number[]): string {
+export function andText(ids: readonly number[]): string {
   const words = ids.map(String)
   const last = words.pop() ?? ''
   return words.length === 0 ? last : `${words.join(', ')} and ${last}`
+}
+
+type ShortReply = { kind: 'accept' } | { kind: 'number'; option: number } | { kind: 'label' }
+
+export type ShortChoice = { option: number } | { answer: string }
+
+function shortReply(text: string, tasks: readonly BoardTask[]): ShortReply | undefined {
+  const bare = text.trim().replace(FINAL_PERIOD, '').toLocaleLowerCase()
+  if (ACCEPT_WORDS.has(bare)) return { kind: 'accept' }
+  if (OPTION_NUMBER.test(bare)) return { kind: 'number', option: Number(bare) }
+  const isLabel = tasks.some((task) =>
+    (task.options ?? []).some((option) => option.toLocaleLowerCase() === bare),
+  )
+  return isLabel ? { kind: 'label' } : undefined
+}
+
+function decideChoice(task: BoardTask, reply: ShortReply, text: string): ShortChoice | undefined {
+  const options = task.options ?? []
+  const held = heldOptions(text, options)
+  const [index] = held
+  if (held.length === 1 && index !== undefined) return { option: index + 1 }
+  if (reply.kind === 'number') {
+    return reply.option <= options.length ? { option: reply.option } : undefined
+  }
+  if (reply.kind === 'label') return undefined
+  const { recommended } = task
+  return typeof recommended === 'number' ? { option: recommended } : undefined
+}
+
+function choiceOf(task: BoardTask, reply: ShortReply, text: string): ShortChoice | undefined {
+  if (task.kind === 'decide') return decideChoice(task, reply, text)
+  const { recommended } = task
+  const isAnswer = task.kind === 'answer' && reply.kind === 'accept'
+  return isAnswer && typeof recommended === 'string' ? { answer: recommended } : undefined
+}
+
+function isDecision(task: BoardTask): boolean {
+  return task.kind === 'decide' || task.kind === 'answer'
+}
+
+function openDecisions(list: BoardList): BoardTask[] {
+  return openAsked(list).filter(isDecision)
+}
+
+export type OneWordSaid =
+  | { kind: 'sentence' }
+  | { kind: 'open'; ids: readonly number[] }
+  | { kind: 'whole'; choice: ShortChoice | undefined }
+
+export function oneWordSaid(
+  list: BoardList,
+  task: BoardTask,
+  kept: readonly KeptPrompt[],
+  said: string,
+): OneWordSaid {
+  const reply = isDecision(task) ? shortReply(said, [task]) : undefined
+  const isWhole = kept.some((one) => isSince(one, task) && one.text.trim() === said.trim())
+  if (reply === undefined || !isWhole) return { kind: 'sentence' }
+  const open = openDecisions(list)
+  if (open.length >= 2) return { kind: 'open', ids: open.map((one) => one.id) }
+  return { kind: 'whole', choice: choiceOf(task, reply, said) }
+}
+
+function choiceText(choice: ShortChoice): string {
+  return 'option' in choice ? `option ${String(choice.option)}` : `answer ${quoted(choice.answer)}`
+}
+
+export function acceptText(list: BoardList, text: string): string | undefined {
+  const open = openDecisions(list)
+  const reply = shortReply(text, open)
+  if (reply === undefined) return undefined
+  if (open.length >= 2) {
+    return `This prompt could accept tasks ${andText(open.map((one) => one.id))}: ask which one; close none.`
+  }
+  const [task] = open
+  const choice = task === undefined ? undefined : choiceOf(task, reply, text)
+  if (task === undefined || choice === undefined) return undefined
+  return `This prompt accepts task ${String(task.id)}: close it with task_close how person_did, ${choiceText(choice)}, and said ${quoted(text.trim())}.`
 }
 
 type SharedOption = { label: string; ids: number[] }

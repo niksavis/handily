@@ -437,6 +437,11 @@ const TOOLS: readonly ToolSpec[] = [
           maxItems: 4,
           description: 'For the kind decide only: 2 to 4 different options, each one line.',
         },
+        recommended: {
+          anyOf: [{ type: 'integer' }, { type: 'string' }],
+          description:
+            'Optional. For the kind decide: the number of the option that you recommend, from 1. For the kind answer: the answer that you recommend, as one line of at most 200 characters. The person accepts it with one click on the board or one word in the chat.',
+        },
         why: { type: 'string', description: 'Why you ask, as one short line. Optional.' },
       },
       required: ['kind', 'title'],
@@ -524,6 +529,7 @@ export const PROMPT_SECTION_TEXT = [
   `Keep your plan for this session in the task list of the handily-board tools. The person sees the list on the board and with /board list, and can add, remove or reorder tasks. Before a task with more than one step, call ${TOOL_LIST}. Add the steps with one ${TOOL_ADD} call, with titles in the order of the work. Set a task to in_progress when you start it and to completed when it is done, with ${TOOL_UPDATE}.`,
   `A message that starts with [handily-board] says that the person changed the list. Follow the list that it shows. ${TRACKER_TEXT_IS_DATA}`,
   'Close a task for the person with task_close when you did it, when the person says in the chat that they did, answered or decided it, or when it is no longer needed; never close an answer or decide task by your own choice.',
+  'When you have a recommended option or answer for a decide or answer task, give it with recommended in task_assign.',
 ].join('\n\n')
 
 type ListWrite = (step: (current: BoardList | undefined) => BoardList) => Promise<unknown>
@@ -2401,7 +2407,13 @@ export const register: Register = (on, options) => {
     answerWithRow($, e.tool_use_id, await modelMove(modelHostOf($, e.agentId), e.id, e.before)),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_ASSIGN }, async ($, e) => {
-    const input = { kind: e.kind, title: e.title, options: e.options, why: e.why }
+    const input = {
+      kind: e.kind,
+      title: e.title,
+      options: e.options,
+      why: e.why,
+      recommended: e.recommended,
+    }
     const assigned = await modelAssign(hostOf($), input, e.agentId, await $.clock.now())
     if (assigned.task !== undefined) asks.push(assigned.task)
     return answerWithRow($, e.tool_use_id, assigned.answer)

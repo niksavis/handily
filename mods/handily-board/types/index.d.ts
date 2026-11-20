@@ -37,6 +37,7 @@ export type BoardTask = {
   for?: 'person'
   kind?: BoardTaskKind
   options?: readonly string[]
+  recommended?: number | string
   why?: string
   askedAt?: number
   result?: BoardResult

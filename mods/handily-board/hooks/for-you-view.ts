@@ -21,6 +21,11 @@ const BUTTON_GAP = 1
 const PLACEHOLDER_WIDE = 'Your answer'
 const PLACEHOLDER_NARROW = 'Answer'
 const NOT_SENT = 'not sent:'
+const RECOMMENDED_MARK = '★'
+const RECOMMENDED_WORD = 'recommended'
+const RECOMMENDED_LEAD = 'recommended: '
+const RECOMMENDED_COLOR: ThemeKey = 'suggestion'
+const ACCEPT_LABEL = 'accept'
 
 export type ForYouPress = {
   done: (id: number) => void
@@ -179,11 +184,14 @@ function rowLine(
   )
 }
 
-function packed(labels: readonly string[], room: number): number[][] {
+function buttonWidth(label: string): number {
+  return displayWidth(label) + BUTTON_CHROME
+}
+
+function packed(widths: readonly number[], room: number): number[][] {
   const lines: number[][] = []
   let width = 0
-  labels.forEach((label, index) => {
-    const cells = displayWidth(label) + BUTTON_CHROME
+  widths.forEach((cells, index) => {
     const current = lines.at(-1)
     if (current !== undefined && width + BUTTON_GAP + cells <= room) {
       current.push(index)
@@ -221,44 +229,123 @@ function noteLine(elements: PaneElements, id: number, note: string): RenderEleme
   )
 }
 
+function recommendedOption(task: BoardTask): number | undefined {
+  const { recommended } = task
+  const count = task.options?.length ?? 0
+  const isOption = typeof recommended === 'number' && recommended >= 1 && recommended <= count
+  return task.kind === 'decide' && isOption ? recommended : undefined
+}
+
+function optionOrder(count: number, best: number | undefined): number[] {
+  const numbers = Array.from({ length: count }, (_value, at) => at + 1)
+  return best === undefined ? numbers : [best, ...numbers.filter((number) => number !== best)]
+}
+
 function optionRows(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
-  const { Box, Button } = elements
+  const { Box, Button, Text } = elements
   const id = String(task.id)
   const labels = (task.options ?? []).map((option) => escaped(option))
+  const best = recommendedOption(task)
+  const order = optionOrder(labels.length, best)
   const room = elements.bodyColumns - UNDER_INDENT
-  const pick = (at: number, label: string) =>
+  const shown = (number: number, label: string) =>
+    number === best ? `${RECOMMENDED_MARK} ${label}` : label
+  const pick = (number: number, label: string) =>
     Button({
-      key: `for-pick:${id}:${String(at + 1)}`,
-      label,
+      key: `for-pick:${id}:${String(number)}`,
+      label: shown(number, label),
+      ...(number === best
+        ? { children: [Text({ color: RECOMMENDED_COLOR, children: shown(number, label) })] }
+        : {}),
       onPress: () => {
-        view.press.pick(task.id, at + 1)
+        view.press.pick(task.id, number)
       },
     })
-  if (labels.every((label) => displayWidth(label) + BUTTON_CHROME <= room)) {
-    return packed(labels, room).map((line, index) =>
+  const word = () => Text({ dimColor: true, children: RECOMMENDED_WORD })
+  const labelOf = (number: number) => labels[number - 1] ?? ''
+  const widths = order.map(
+    (number) =>
+      buttonWidth(shown(number, labelOf(number))) +
+      (number === best ? BUTTON_GAP + displayWidth(RECOMMENDED_WORD) : 0),
+  )
+  if (widths.every((width) => width <= room)) {
+    return packed(widths, room).map((line, index) =>
       buttonRow(
         elements,
         `options:${id}:${String(index)}`,
-        line.map((at) => pick(at, labels[at] ?? '')),
+        line.flatMap((at) => {
+          const number = order[at] ?? 0
+          const button = pick(number, labelOf(number))
+          return number === best ? [button, word()] : [button]
+        }),
       ),
     )
   }
-  return labels.map((label, at) => {
-    const number = String(at + 1)
-    const width = displayWidth(number) + BUTTON_CHROME + BUTTON_GAP
+  return order.map((number) => {
+    const width = buttonWidth(shown(number, String(number))) + BUTTON_GAP
+    const lines = wrappedLines(elements, labelOf(number), room - width)
+    const words =
+      number === best
+        ? wrappedLines(elements, RECOMMENDED_WORD, room - width, { dimColor: true })
+        : []
     return hanging(
       elements,
-      `options:${id}:${String(at)}`,
+      `options:${id}:${String(number - 1)}`,
       {
         parts: [
-          Box({ flexShrink: 0, children: [pick(at, number)] }),
+          Box({ flexShrink: 0, children: [pick(number, String(number))] }),
           elements.Text({ children: ' '.repeat(BUTTON_GAP) }),
         ],
         width,
       },
-      wrappedLines(elements, label, room - width),
+      [...lines, ...words],
     )
   })
+}
+
+function recommendedAnswerLines(
+  elements: PaneElements,
+  task: BoardTask,
+  view: ForYouView,
+): RenderElement[] {
+  const { recommended } = task
+  if (task.kind !== 'answer' || typeof recommended !== 'string') return []
+  const { Box, Button, Text } = elements
+  const id = String(task.id)
+  const text = `"${escaped(recommended)}"`
+  const accept = Button({
+    key: `for-accept:${id}`,
+    label: ACCEPT_LABEL,
+    onPress: () => {
+      view.press.answer(task.id, recommended)
+    },
+  })
+  const room = elements.bodyColumns - UNDER_INDENT
+  const lead = Text({ dimColor: true, children: RECOMMENDED_LEAD })
+  const leadWidth = displayWidth(RECOMMENDED_LEAD)
+  const fits = leadWidth + displayWidth(text) + BUTTON_GAP + buttonWidth(ACCEPT_LABEL) <= room
+  if (fits) {
+    return [
+      Box({
+        key: `recommended:${id}`,
+        flexDirection: 'row',
+        children: [
+          lead,
+          Text({ color: RECOMMENDED_COLOR, children: text }),
+          Box({ flexShrink: 0, marginLeft: BUTTON_GAP, children: [accept] }),
+        ],
+      }),
+    ]
+  }
+  return [
+    hanging(
+      elements,
+      `recommended:${id}`,
+      { parts: [lead], width: leadWidth },
+      wrappedLines(elements, text, room - leadWidth, { color: RECOMMENDED_COLOR }),
+    ),
+    buttonRow(elements, `accept:${id}`, [accept]),
+  ]
 }
 
 function rejectButton(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement {
@@ -326,7 +413,7 @@ function openActions(elements: PaneElements, task: BoardTask, view: ForYouView):
             },
           })
         : Text({ dimColor: true, children: `answer: /board answer ${id} <text>` })
-      return [field, ...notes, reject]
+      return [...recommendedAnswerLines(elements, task, view), field, ...notes, reject]
     }
     case 'decide':
       return [...optionRows(elements, task, view), ...notes, reject]
@@ -550,7 +637,7 @@ function besideButtons(
     ]
   }
   const lines = packed(
-    buttons.map((one) => one.label),
+    buttons.map((one) => buttonWidth(one.label)),
     room,
   )
   return [
