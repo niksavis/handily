@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import re
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -35,6 +36,9 @@ LISTENER_IMPORTS = frozenset({"http", "http.server", "urllib.parse"})
 
 GIT_RUNNER = ("tracker", "git_runner.py")
 GIT_RUNNER_IMPORTS = frozenset({"subprocess"})
+
+ORCH_RUNNER = ("orch", "runner.py")
+ORCH_RUNNER_IMPORTS = frozenset({"subprocess"})
 
 ENVIRONMENT_KIT = "tracker"
 ENVIRONMENT_ADAPTERS = frozenset({
@@ -236,6 +240,8 @@ def allowed_imports(place: tuple[str, ...]) -> frozenset[str]:
         return LISTENER_IMPORTS
     if place == GIT_RUNNER:
         return GIT_RUNNER_IMPORTS
+    if place == ORCH_RUNNER:
+        return ORCH_RUNNER_IMPORTS
     return frozenset()
 
 
@@ -252,10 +258,27 @@ def module_findings(module: Path, rel: str, place: tuple[str, ...] = ()) -> list
     return findings
 
 
-def scan(kit_root: Path, repo_root: Path | None = None) -> list[Finding]:
+def committed_modules(repo_root: Path, kit_root: Path) -> set[Path] | None:
+    try:
+        listed = subprocess.run(  # nosec B603 B607
+            ["git", "ls-files", "-z", "--", str(kit_root)],
+            cwd=repo_root,
+            capture_output=True,
+            check=True,
+        ).stdout
+    except OSError, subprocess.CalledProcessError:
+        return None
+    return {(repo_root / name.decode()).resolve() for name in listed.split(b"\0") if name}
+
+
+def scan(
+    kit_root: Path, repo_root: Path | None = None, only: set[Path] | None = None
+) -> list[Finding]:
     base = repo_root or kit_root
     findings: list[Finding] = []
     for module in kit_modules(kit_root):
+        if only is not None and module.resolve() not in only:
+            continue
         try:
             rel = module.relative_to(base).as_posix()
         except ValueError:
@@ -280,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"kit-boundary: no kit tree at {kit_root}; nothing to gate.")
         return 0
 
-    findings = scan(kit_root, repo_root)
+    findings = scan(kit_root, repo_root, committed_modules(repo_root, kit_root))
     if not findings:
         return 0
 
@@ -291,7 +314,10 @@ def main(argv: list[str] | None = None) -> int:
         "reaching no network and spawning no process. Only the board kit may import "
         f"{', '.join(sorted(LISTENER_IMPORTS))}, to listen on loopback when a person serves it. "
         f"Only {'/'.join(GIT_RUNNER)} may import "
-        f"{', '.join(sorted(GIT_RUNNER_IMPORTS))}, to run git.",
+        f"{', '.join(sorted(GIT_RUNNER_IMPORTS))}, to run git. "
+        f"Only {'/'.join(ORCH_RUNNER)} may import "
+        f"{', '.join(sorted(ORCH_RUNNER_IMPORTS))}, to run herdr, codex and the tracker CLI "
+        "for the orchestrator (owner approval 2026-11-19, basicly-qpr2xmr.3.17).",
         file=sys.stderr,
     )
     for finding in findings:

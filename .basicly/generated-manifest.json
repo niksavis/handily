@@ -2,12 +2,13 @@
   "version": "1",
   "outputs": {
     ".claude/CLAUDE.md": {
-      "hash": "sha256:41b1518e4c586a48f4136257137d936ec9b94a72cb5d2358f7a2df39e05ec522",
+      "hash": "sha256:7d789dd85741be9c688a395de78cec18cca387ab3f3a24f853a81a337ab47586",
       "source_fragments": [
         "code-is-authoritative",
         "secure-coding",
         "require-explicit-confirmation",
         "project-overview",
+        "agentic-kanban",
         "commands",
         "lane-dispatch",
         "knowledge-priming",
@@ -24,18 +25,19 @@
       ]
     },
     ".claude/rules/mod-authoring.md": {
-      "hash": "sha256:96585fcbb62761d57f5a9f17a522a60de7943becf45c0850c3b2b6dd3add8e7e",
+      "hash": "sha256:b05ba0849b30dfac5b1279bdc5458dae49a62ff20ea2439e6a3a9c304a348d93",
       "source_fragments": [
         "mod-authoring"
       ]
     },
     "AGENTS.md": {
-      "hash": "sha256:a6f9b8d7df4ee6cafe905d54d80b0b09055845b0d4f4f1c86b9482848c6710d3",
+      "hash": "sha256:572595cb31decabbe600147af0079fd4454d33937749a1e92e7f4f5656afa31a",
       "source_fragments": [
         "code-is-authoritative",
         "secure-coding",
         "require-explicit-confirmation",
         "project-overview",
+        "agentic-kanban",
         "commands",
         "lane-dispatch",
         "knowledge-priming",
@@ -53,12 +55,13 @@
       ]
     },
     ".github/copilot-instructions.md": {
-      "hash": "sha256:41b1518e4c586a48f4136257137d936ec9b94a72cb5d2358f7a2df39e05ec522",
+      "hash": "sha256:7d789dd85741be9c688a395de78cec18cca387ab3f3a24f853a81a337ab47586",
       "source_fragments": [
         "code-is-authoritative",
         "secure-coding",
         "require-explicit-confirmation",
         "project-overview",
+        "agentic-kanban",
         "commands",
         "lane-dispatch",
         "knowledge-priming",

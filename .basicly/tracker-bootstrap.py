@@ -8,7 +8,7 @@ from pathlib import Path
 
 BOOTSTRAP_OWNER = "basicly-tracker"
 SOURCE = (
-    "https://github.com/niksavis/basicly/releases/download/v0.46.4/basicly-0.46.4-py3-none-any.whl"
+    "https://github.com/niksavis/basicly/releases/download/v0.47.0/basicly-0.47.0-py3-none-any.whl"
 )
 TOOL = "basicly"
 MINIMUM_PYTHON = (3, 14)
@@ -17,7 +17,7 @@ MINIMUM_PYTHON = (3, 14)
 def _run(
     command: list[str], *, cwd: Path | None = None, capture_output: bool = True
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 — Resolved uv or tracker executables receive repository-owned source and literal argv; a shell would reinterpret repository paths.
+    return subprocess.run(
         command, cwd=cwd, capture_output=capture_output, text=True, encoding="utf-8", check=False
     )
 
