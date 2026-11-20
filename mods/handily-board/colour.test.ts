@@ -16,6 +16,7 @@ import {
   type Mounted,
   type Plugin,
 } from 'claude-code/testing'
+import { agentInfo } from './fixtures/agent-info'
 import { displayWidth } from './hooks/width'
 
 const ROOT = '/work/app'
@@ -400,13 +401,15 @@ async function fullScene($: Engine, seen: World, surface: Surface = 'terminal'):
   await seen.clock.advance(3 * MINUTE)
   await measure($, 71, 9.33, [limit('five_hour', 31), limit('seven_day', 13)])
   await spawn($, SCOUT, 'scout')
-  seen.agents.push({
-    id: SCOUT,
-    type: 'general-purpose',
-    status: 'running',
-    name: 'scout',
-    description: 'scout the hooks',
-  })
+  seen.agents.push(
+    agentInfo({
+      id: SCOUT,
+      type: 'general-purpose',
+      status: 'running',
+      name: 'scout',
+      description: 'scout the hooks',
+    }),
+  )
 }
 
 type Coloured = { text: string; color: unknown; bold: unknown; dim: unknown }
@@ -970,13 +973,15 @@ async function scoutWorks(
   await start($, surface)
   await $.tool.call({ tool: TOOL_ADD, title: 'Build the vitals line' })
   await spawn($, SCOUT, 'scout')
-  seen.agents.push({
-    id: SCOUT,
-    type: 'general-purpose',
-    status: 'running',
-    name: 'scout',
-    description: 'scout the hooks',
-  })
+  seen.agents.push(
+    agentInfo({
+      id: SCOUT,
+      type: 'general-purpose',
+      status: 'running',
+      name: 'scout',
+      description: 'scout the hooks',
+    }),
+  )
   seen.failing.add('npm test')
   await $.tool.call(inLoop({ tool: 'Read', file_path: `${ROOT}/docs/design.md` }, SCOUT))
   await seen.clock.advance(20_000)
@@ -1065,13 +1070,17 @@ describe(CALLS_CRITERION, () => {
           isAborted: false,
           agentId: SCOUT,
         })
-        seen.agents.splice(0, 1, {
-          id: SCOUT,
-          type: 'general-purpose',
-          status: 'completed',
-          name: 'scout',
-          description: 'scout the hooks',
-        })
+        seen.agents.splice(
+          0,
+          1,
+          agentInfo({
+            id: SCOUT,
+            type: 'general-purpose',
+            status: 'completed',
+            name: 'scout',
+            description: 'scout the hooks',
+          }),
+        )
         const ui = await mountTab($, surface, 'dock', 41)
         await ui.press({ key: 'group:ended-agents' })
         await ui.unmount()
@@ -1085,13 +1094,17 @@ describe(CALLS_CRITERION, () => {
         expect(ended.lines.join('\n')).not.toContain(TOKEN)
         expect(ended.lines.some((line) => line.includes('✓ Bash npm run check'))).toBe(true)
         expect((await board($, 'stats')).includes(TOKEN)).toBe(false)
-        seen.agents.splice(0, 1, {
-          id: SCOUT,
-          type: 'general-purpose',
-          status: 'failed',
-          name: 'scout',
-          description: 'scout the hooks',
-        })
+        seen.agents.splice(
+          0,
+          1,
+          agentInfo({
+            id: SCOUT,
+            type: 'general-purpose',
+            status: 'failed',
+            name: 'scout',
+            description: 'scout the hooks',
+          }),
+        )
         const failed = await openedScout($, surface, 41)
         const none = failed.lines.find((line) => line.includes('answer:'))
         expect(bare(none)).toBe('answer: none, the run failed')

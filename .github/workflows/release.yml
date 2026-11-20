@@ -87,7 +87,7 @@ jobs:
       - name: Install dev dependencies
         run: npm ci --no-fund --no-audit
       - name: Install the pinned Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.323
+        run: npm install -g @anthropic-ai/claude-code@2.1.329
       - name: Check the tag with claude plugin tag
         shell: bash
         env:
@@ -126,7 +126,7 @@ jobs:
       - name: Install dev dependencies
         run: npm ci --no-fund --no-audit
       - name: Install the pinned Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.323
+        run: npm install -g @anthropic-ai/claude-code@2.1.329
       - name: Run the mod tests of this shard
         run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/4
 

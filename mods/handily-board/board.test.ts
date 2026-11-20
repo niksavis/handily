@@ -35,6 +35,7 @@ import { displayWidth } from './hooks/width'
 import type { TaskHost } from './hooks/commands'
 import { type PlanHost, addPlanAsTasks, newPlan } from './hooks/plan'
 import type { BoardList, BoardPlan } from './types'
+import { agentInfo } from './fixtures/agent-info'
 import { bandSetting } from './hooks/band'
 import { EMPTY_CHECKS } from './hooks/checks'
 import { detailsText } from './hooks/details'
@@ -2603,7 +2604,7 @@ async function readsOf($: Engine, count: number): Promise<void> {
 }
 
 function agent(id: string, description: string, status: AgentInfo['status']): AgentInfo {
-  return { id, description, type: 'Explore', status }
+  return agentInfo({ id, description, type: 'Explore', status })
 }
 
 describe('the pane follows the work', () => {
@@ -7565,12 +7566,14 @@ async function step(
 async function stepAgentWorks($: Engine, seen: World, calls: number): Promise<void> {
   await start($)
   await spawnFrom($, STEP_AGENT)
-  seen.agents.push({
-    id: STEP_AGENT,
-    type: 'Explore',
-    status: 'running',
-    description: 'find the element table',
-  })
+  seen.agents.push(
+    agentInfo({
+      id: STEP_AGENT,
+      type: 'Explore',
+      status: 'running',
+      description: 'find the element table',
+    }),
+  )
   for (let index = 0; index < calls; index += 1) {
     await $.tool.call({
       tool: 'Read',
@@ -7942,7 +7945,7 @@ function personDialog(on: On): PersonDialog {
 }
 
 function runningAgent(id: string, name: string): AgentInfo {
-  return { id, name, type: 'general-purpose', status: 'running', description: name }
+  return agentInfo({ id, name, type: 'general-purpose', status: 'running', description: name })
 }
 
 async function startOn($: Engine, surface: Surface): Promise<void> {

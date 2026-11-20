@@ -1,6 +1,7 @@
+import type { UiCopyResult } from 'claude-code'
 import { marked, type ToastLine, type ToastParts } from './toast'
 
-type CopyRefusal = 'no-surface' | 'no-clipboard' | 'refused'
+type CopyRefusal = Extract<UiCopyResult, { isCopied: false }>['reason']
 
 const NOT_COPIED: ToastLine = marked('blocked', 'Not copied')
 
@@ -8,6 +9,7 @@ const COPY_REFUSALS: Readonly<Record<CopyRefusal, readonly [string] | readonly [
   {
     'no-surface': ['no screen is attached to this session'],
     'no-clipboard': ['the clipboard took nothing', 'a long text may not fit this terminal'],
+    unanswered: ['no app answered the copy', 'the text may still have been copied'],
     refused: ['another plugin refused the copy'],
   }
 

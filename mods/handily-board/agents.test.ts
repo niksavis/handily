@@ -19,6 +19,7 @@ import {
   type Plugin,
 } from 'claude-code/testing'
 import type { BoardAgent, BoardTask } from './types'
+import { agentInfo } from './fixtures/agent-info'
 import { cutName } from './hooks/names'
 import { NEEDS_YOU_AFTER_MS, withAgentPlan } from './hooks/agents'
 import { maskedCredentials } from './hooks/credentials'
@@ -214,7 +215,7 @@ function listed(
   options: { name?: string; parentId?: string; description?: string } = {},
 ): AgentInfo {
   const { description = '', ...rest } = options
-  return { id, type, status, description, ...rest }
+  return agentInfo({ id, type, status, description, ...rest })
 }
 
 function inLoop(input: ToolCallArgs, agentId: string): ToolCallArgs {

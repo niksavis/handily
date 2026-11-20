@@ -79,7 +79,7 @@ jobs:
       - name: Install dev dependencies
         run: npm ci --no-fund --no-audit
       - name: Install the pinned Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.323
+        run: npm install -g @anthropic-ai/claude-code@2.1.329
       - name: mods-validate
         run: node scripts/mods.mjs validate
       - name: mods-typecheck
@@ -105,7 +105,7 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6]
         include:
           - engine: pinned
-            package: "@anthropic-ai/claude-code@2.1.323"
+            package: "@anthropic-ai/claude-code@2.1.329"
             shards: 6
           - engine: newest
             package: "@anthropic-ai/claude-code@latest"

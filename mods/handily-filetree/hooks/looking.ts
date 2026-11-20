@@ -1,4 +1,4 @@
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, PromptFilled, UiCopyResult } from 'claude-code'
 import {
   type DiffResult,
   type Look,
@@ -11,6 +11,10 @@ import type { PaneActions } from './pane'
 import { marked } from './toast'
 import { showGlyphToast } from './toasting'
 
+type CopyRefusal = Extract<UiCopyResult, { isCopied: false }>['reason']
+type FillRefusal = NonNullable<PromptFilled['refusal']>
+type Why = readonly [string] | readonly [string, string]
+
 export type Looking = { opened: string | undefined; look: Look | undefined; generation: number }
 
 export type LookActions = Pick<
@@ -19,12 +23,22 @@ export type LookActions = Pick<
 >
 
 const WHITESPACE = /\s/
-const NOT_COPIED: Readonly<Record<'no-surface' | 'no-clipboard' | 'refused', string>> = {
-  'no-surface': 'no surface takes it',
-  'no-clipboard': 'no clipboard took it',
-  refused: 'a hook kept it out',
+const NOT_COPIED: Readonly<Record<CopyRefusal, Why>> = {
+  'no-surface': ['no surface takes it'],
+  'no-clipboard': ['no clipboard took it'],
+  unanswered: ['no app answered the copy', 'the text may still have been copied'],
+  refused: ['a hook kept it out'],
 }
-const NOT_FILLED = { no_composer: 'no prompt box here', dialog: 'a dialog holds the keys' }
+const NOT_FILLED: Readonly<Record<FillRefusal, Why>> = {
+  no_composer: ['no prompt box here'],
+  dialog: ['a dialog holds the keys'],
+  unanswered: ['no app answered', 'the text may still be in the prompt box'],
+}
+const HOOK_KEPT_IT_OUT: Why = ['a hook kept it out']
+
+export function notFilledWhy(refusal: FillRefusal | undefined): Why {
+  return refusal === undefined ? HOOK_KEPT_IT_OUT : NOT_FILLED[refusal]
+}
 
 export function newLooking(): Looking {
   return { opened: undefined, look: undefined, generation: 0 }
@@ -133,7 +147,7 @@ export function lookActionsOf(
             return
           }
           log($, `the copy of ${text} did not take: ${result.reason}`)
-          showGlyphToast($, [marked('blocked', 'Not copied'), NOT_COPIED[result.reason]])
+          showGlyphToast($, [marked('blocked', 'Not copied'), ...NOT_COPIED[result.reason]])
         })
         .catch(failedToast($, 'Copy'))
     },
@@ -142,9 +156,10 @@ export function lookActionsOf(
         .fill({ text: mentionOf(path), mode: 'insert' })
         .then((filled) => {
           if (filled.isFilled) return
-          const why =
-            filled.refusal === undefined ? 'a hook kept it out' : NOT_FILLED[filled.refusal]
-          showGlyphToast($, [marked('blocked', 'Not in the prompt'), why])
+          showGlyphToast($, [
+            marked('blocked', 'Not in the prompt'),
+            ...notFilledWhy(filled.refusal),
+          ])
         })
         .catch(failedToast($, 'Prompt fill'))
     },

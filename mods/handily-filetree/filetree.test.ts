@@ -16,6 +16,8 @@ import {
   type MockClock,
   type Mounted,
 } from 'claude-code/testing'
+import { notFilledWhy } from './hooks/looking'
+import { TOAST_COLUMNS, marked, toastText } from './hooks/toast'
 import { beginShellRun, endShellRun, endTurn, newShell } from './hooks/shellmarks'
 import { newTouches } from './hooks/touches'
 import { displayWidth } from './hooks/width'
@@ -3207,6 +3209,32 @@ describe('preview and diff: copy path and @ to prompt', () => {
     await ui.press({ key: 'to-prompt' })
     expect(fills).toEqual(['@"a b.md"'])
     await ui.unmount()
+  })
+
+  test('a copy path that no app answered says the text may still have been copied', async ($, on) => {
+    const seen = gitWorld(on, GIT_APP, { kind: 'ok', stdout: APP_CHANGES })
+    on('ui.copy', () => ({ value: { isCopied: false as const, reason: 'unanswered' as const } }))
+    await copyDesignPath($, seen, 'terminal')
+    expect(seen.toasts).toEqual([
+      '■ Not copied'.padEnd(TOAST_COLUMNS) +
+        'no app answered the copy'.padEnd(TOAST_COLUMNS) +
+        'the text may still have been copied',
+    ])
+  })
+
+  test('an @ to prompt that no app answered says the text may still be in the prompt box', () => {
+    expect(notFilledWhy('unanswered')).toEqual([
+      'no app answered',
+      'the text may still be in the prompt box',
+    ])
+    expect(notFilledWhy(undefined)).toEqual(['a hook kept it out'])
+    expect(
+      toastText([marked('blocked', 'Not in the prompt'), ...notFilledWhy('unanswered')], 'plain'),
+    ).toBe(
+      '■ Not in the prompt'.padEnd(TOAST_COLUMNS) +
+        'no app answered'.padEnd(TOAST_COLUMNS) +
+        'the text may still be in the prompt box',
+    )
   })
 })
 

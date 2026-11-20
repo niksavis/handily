@@ -2,6 +2,7 @@ import type {
   BoxProps,
   ButtonProps,
   ElementConstructor,
+  PromptFilled,
   RenderElement,
   TextProps,
   ThemeKey,
@@ -95,10 +96,13 @@ const ASK_WORDS: Readonly<Record<AskLook, string>> = {
   withdrawn: 'withdrawn',
 }
 
+type FillRefusal = NonNullable<PromptFilled['refusal']>
+
 const REFUSALS: Readonly<Record<string, string>> = {
   dialog: 'a dialog holds the keys',
   no_composer: 'this session has no prompt box',
-}
+  unanswered: 'no app answered; the text may still be in the prompt box',
+} satisfies Readonly<Record<FillRefusal, string>>
 
 function stateLook(state: DerivedState, signals: SignalLooks): SignalLook {
   switch (state) {
@@ -421,7 +425,7 @@ function hintText(row: AskRow, columns: number, isRow: boolean): string {
     : `a press fills the prompt box with "${text}"; Enter sends it`
 }
 
-function refusalText(refusal: string): string {
+export function refusalText(refusal: string): string {
   return REFUSALS[refusal] ?? refusal
 }
 

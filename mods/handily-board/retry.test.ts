@@ -8,6 +8,7 @@ import {
   type MockClock,
   type Plugin,
 } from 'claude-code/testing'
+import { agentInfo } from './fixtures/agent-info'
 import type { BoardAgent } from './types'
 
 const ROOT = '/work/app'
@@ -196,7 +197,9 @@ async function spawn($: Engine, seen: World, id: string, name: string): Promise<
     fork: false,
     name,
   })
-  seen.agents.push({ id, name, type: 'general-purpose', status: 'running', description: name })
+  seen.agents.push(
+    agentInfo({ id, name, type: 'general-purpose', status: 'running', description: name }),
+  )
 }
 
 function bashAs(
@@ -800,13 +803,15 @@ describe(CLEARS_CRITERION, () => {
       isListed: true,
       hasLoopEvents: true,
     }
-    seen.agents.push({
-      id: LANE,
-      name: 'lane-b',
-      type: 'general-purpose',
-      status: 'running',
-      description: 'lane-b',
-    })
+    seen.agents.push(
+      agentInfo({
+        id: LANE,
+        name: 'lane-b',
+        type: 'general-purpose',
+        status: 'running',
+        description: 'lane-b',
+      }),
+    )
     let seed: readonly BoardAgent[] | undefined = [old]
     on('state.set', { plugin: PLUGIN, key: 'agents' }, (_$, e, next) => {
       seed = undefined

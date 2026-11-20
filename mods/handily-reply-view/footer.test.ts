@@ -2,6 +2,7 @@ import type { AgentInfo, AgentStatus, ConfigRow, ConfigValue, On, RenderPropsOf 
 import { describe, expect, mock, test, type Engine, type MockClock } from 'claude-code/testing'
 import { register } from './hooks/register'
 import { displayWidth } from './hooks/width'
+import { agentInfo } from './fixtures/agent-info'
 import { expectEngineRow } from './fixtures/engine-row'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -47,7 +48,12 @@ function configRow(key: string, value: ConfigValue, plugin = 'engine'): ConfigRo
 }
 
 function agent(status: AgentStatus): AgentInfo {
-  return { id: 'agent-1', description: 'scout the hooks', type: 'general-purpose', status }
+  return agentInfo({
+    id: 'agent-1',
+    description: 'scout the hooks',
+    type: 'general-purpose',
+    status,
+  })
 }
 
 function engineBeneath(on: On, scene: Scene): World {

@@ -655,6 +655,26 @@ describe('long reply', () => {
   })
 
   viewTest(
+    'a copy that no app answered says the text may still have been copied',
+    async (world, $) => {
+      world.copyResult = { isCopied: false, reason: 'unanswered' }
+      const ui = await mountReply($, reply(FENCE))
+      await ui.press({ key: 'block-1-copy' })
+      expect(world.toasts).toEqual([
+        {
+          lines: [
+            '■ Not copied',
+            'no app answered the copy',
+            'the text may still have been copied',
+          ],
+          timeoutMs: 10000,
+        },
+      ])
+      await ui.unmount()
+    },
+  )
+
+  viewTest(
     'a copy that throws says the transcript shows why and logs the detail there',
     async (world, $) => {
       world.copyError = new Error('the clipboard tool crashed')

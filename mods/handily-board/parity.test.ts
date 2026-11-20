@@ -17,6 +17,7 @@ import {
   type Mounted,
   type Plugin,
 } from 'claude-code/testing'
+import { agentInfo } from './fixtures/agent-info'
 import { NEEDS_YOU_AFTER_MS, RUN_SETTLE_MS } from './hooks/agents'
 import { displayWidth } from './hooks/width'
 
@@ -452,7 +453,7 @@ async function spawn($: Engine, id: string, name: string, description: string): 
 }
 
 function listed(id: string, name: string, type: string, description: string): AgentInfo {
-  return { id, type, status: 'running', name, description }
+  return agentInfo({ id, type, status: 'running', name, description })
 }
 
 async function bash($: Engine, command: string, agentId?: string): Promise<void> {
@@ -1825,7 +1826,9 @@ for (const surface of SURFACES) {
           [EXPLORE, 'docs/two.md'],
         ] as const) {
           await spawnUnnamed($, id, `read ${file}`)
-          seen.agents.push({ id, type: 'Explore', status: 'running', description: `read ${file}` })
+          seen.agents.push(
+            agentInfo({ id, type: 'Explore', status: 'running', description: `read ${file}` }),
+          )
           await edit($, file, id)
           await seen.clock.advance(MINUTE)
         }

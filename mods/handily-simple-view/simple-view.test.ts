@@ -1,4 +1,11 @@
-import type { ConfigRow, ConfigValue, On, RenderPropsOf, ToolCallResult } from 'claude-code'
+import type {
+  ConfigRow,
+  ConfigValue,
+  On,
+  RenderPropsOf,
+  ToolCallResult,
+  UiCopyResult,
+} from 'claude-code'
 import {
   describe,
   expect,
@@ -71,7 +78,7 @@ type World = {
   groups: boolean[]
   copies: string[]
   toasts: Toast[]
-  copyRefusal: 'no-surface' | 'no-clipboard' | 'refused' | null
+  copyRefusal: Extract<UiCopyResult, { isCopied: false }>['reason'] | null
   files: Record<string, string>
   commandDescriptions: string[]
   renumberedUseId: string | null
@@ -1554,6 +1561,26 @@ describe('tool row fold and copy', () => {
       await ui.unmount()
     })
   }
+
+  viewTest(
+    'says the text may still have been copied when no app answered the copy',
+    async (world, $) => {
+      const ui = await mountUse($, await longCall(world, $))
+      world.copyRefusal = 'unanswered'
+      await ui.press({ key: 'copy' })
+      expect(world.toasts).toEqual([
+        {
+          lines: [
+            '■ Not copied',
+            'no app answered the copy',
+            'the text may still have been copied',
+          ],
+          timeoutMs: 10000,
+        },
+      ])
+      await ui.unmount()
+    },
+  )
 
   viewTest(
     'a copy that throws says the transcript shows why and logs the detail there',

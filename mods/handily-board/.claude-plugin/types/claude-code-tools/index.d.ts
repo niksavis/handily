@@ -333,15 +333,16 @@ declare module 'claude-code' {
       }>
     }
     ExitWorktree: {
-      /** "keep" leaves the worktree and branch on disk; "remove" deletes both. */
+      /** "keep" leaves the worktree and branch on disk; "remove" deletes the worktree and, unless a hook made it or git refuses, its branch. */
       action: "keep" | "remove"
-      /** Required true when action is "remove" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise. */
+      /** Required true when action is "remove" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise. It also removes the worktree under any task still running there, so set it only after the user has confirmed. */
       discard_changes?: boolean
     }
     FetchInboxMessage: {
       /** The file_id from the session-inbox notification you received */
       file_id: string
     }
+    GetGoal: {}
     GetTask: {
       /** The taskId from the result that moved the command to the background */
       taskId: string
@@ -351,6 +352,8 @@ declare module 'claude-code' {
       channel?: string
       /** Not available in this build; leave unset. */
       q?: string
+      /** The cursor the last line of a long listing gave, for its next page. Omit to list from the start. */
+      cursor?: string
     }
     ListConnectors: {
       /** Optional filter; omit to list everything. */
@@ -379,6 +382,10 @@ declare module 'claude-code' {
       character: number
       /** The symbol name or partial name to search for (workspaceSymbol only). Most language servers return no results for an empty query, so always provide it when using workspaceSymbol. */
       query?: string
+    }
+    McpTaskResumePolling: {
+      /** The id of the background MCP task, as its notification gave it. */
+      task_id: string
     }
     memory_list: {
       /** Id of the memory store to list. Omit to list the memory stores available in this session (id, description, writable or read-only, and the path of its index document). */
@@ -433,6 +440,10 @@ declare module 'claude-code' {
       /** A short phrase naming what the task needs the user's own browser for. */
       reason?: string
     }
+    PauseGoal: {
+      /** What blocks you and what you need from the user, who reads this. At most 500 characters. */
+      reason: string
+    }
     Poll: {}
     Projects: {
       method: "project_info" | "project_read" | "project_search" | "project_write" | "project_delete" | "project_memory_list" | "project_memory_read"
@@ -470,12 +481,6 @@ declare module 'claude-code' {
         /** For a new skill or a full rewrite. The complete SKILL.md exactly as it should be saved: frontmatter plus the full body. When the user saves, the body below the frontmatter becomes the skill's entire instructions and the name and description come from the fields above; other frontmatter keys are not kept. For an improvement this replaces the existing skill's SKILL.md entirely, so read that skill's current SKILL.md first and include everything worth keeping, not only the changes. */
         skillMd?: string
       }>
-    }
-    ProposeGoal: {
-      /** The completion condition to propose, written so a separate evaluator can verify it from the conversation (e.g. "all tests in test/auth pass (bun test exits 0)"). At most 500 characters — the user must be able to read the whole condition in the approval dialog. */
-      condition: string
-      /** Whether to ask the user for approval before the goal is set. Defaults to true — an approval dialog is shown. Set false ONLY when the user's own words in this conversation stated this outcome as what they want; the goal is then set directly, with a visible notice in the transcript, and the user can clear it with /goal clear. */
-      ask_user?: boolean
     }
     PublishPlugin: {
       /** The plugin's folder on this machine: the one that holds .claude-plugin/plugin.json, or a mod's hooks/ where there is no manifest yet. */
@@ -591,6 +596,14 @@ declare module 'claude-code' {
       /** Required for create and update; optional for run */
       body?: {}
     }
+    REPL: {
+      /** JavaScript code to execute. Supports top-level await. State persists across calls. */
+      code: string
+      /** Clear, concise description of what this script does in active voice (5-10 words). E.g. "Trace upgrade message to its feature flag" */
+      description?: string
+      /** Optional limit on the script's own running time in milliseconds; time spent inside the tool calls it awaits is not counted (default 30000, max 600000) */
+      timeout?: number
+    }
     ReportFindings: {
       /** Effort level the review ran at */
       level?: "low" | "medium" | "high" | "xhigh" | "max"
@@ -600,7 +613,7 @@ declare module 'claude-code' {
         file: string
         /** 1-indexed line the finding anchors to */
         line?: number
-        /** One-sentence statement of the defect */
+        /** Statement of the defect */
         summary: string
         /** Compressed label for compact UI (≤60 chars): the claim alone, no rationale or consequence clause */
         short_summary?: string
@@ -608,6 +621,8 @@ declare module 'claude-code' {
         failure_scenario: string
         /** Short kebab-case slug of the finding type, e.g. "correctness", "simplification", "efficiency", "test-coverage" */
         category?: string
+        /** Set when the review instructions ask for it. important: a bug the change adds or makes worse; pre_existing: a bug that was there before the change; nit: a minor issue */
+        severity?: "important" | "pre_existing" | "nit"
         /** Set when a verify pass ran; absent on inline-only reviews */
         verdict?: "CONFIRMED" | "PLAUSIBLE"
         /** Set ONLY when re-reporting after applying fixes: what happened to this finding */
@@ -722,6 +737,12 @@ declare module 'claude-code' {
     SendUserMessage: {
       /** The message for the user. Supports markdown formatting. */
       message: string
+    }
+    SetGoal: {
+      /** The completion condition to set, written so a separate evaluator can verify it from the conversation (e.g. "all tests in test/auth pass (bun test exits 0)"). At most 500 characters — the user must be able to read the whole condition in the approval dialog. */
+      condition: string
+      /** Whether to ask the user for approval before the goal is set. Defaults to true — an approval dialog is shown. Set false ONLY when the user's own words in this conversation stated this outcome as what they want; the goal is then set directly, with a visible notice in the transcript, and the user can clear it with /goal clear. While a goal is active the dialog is shown whatever this says. */
+      ask_user?: boolean
     }
     ShareOnboardingGuide: {
       /** 'check' (default): if ONBOARDING.md is present locally, uploads it to the most-recent guide (creates one if none exist); otherwise reports the existing link without uploading. 'update': upload to a specific guide by short_code. 'create': always make a new link. 'delete': remove the guide named by short_code; with no short_code, nothing is deleted and the user's guides are listed. */
@@ -853,7 +874,7 @@ declare module 'claude-code' {
       args?: unknown
       /** Path to a workflow script file on disk. Every Workflow invocation persists its script under the session directory and returns the path in the tool result. To iterate, edit that file with Write/Edit and re-invoke Workflow with the same `scriptPath` instead of re-sending the full script. Takes precedence over `script` and `name`. */
       scriptPath?: string
-      /** Run ID of a prior Workflow invocation to resume from. Completed agent() calls with unchanged (prompt, opts) return their cached results instantly; only edited or new calls re-run. Same-session only. Stop the prior run first (TaskStop) before resuming. */
+      /** Run ID of a prior Workflow invocation to resume from. The cache is positional: agent() calls replay from cache up to the first call that failed, no longer matches the earlier run (edited, added, removed or reordered) or never started in it; that call and every call after it run again, even when their own (prompt, opts) are unchanged. A call a usage limit refused, or one still running when the run stopped, usually runs again without ending reuse: finished calls after it still come from cache. Same-session only. Stop the prior run first (TaskStop) before resuming. */
       resumeFromRunId?: string
     }
     WrapUp: {
@@ -904,6 +925,8 @@ declare module 'claude-code' {
         text: string
         /** Auto mode's warning to show above `text`: a SECURITY WARNING, or a note that the review could not run */
         warning?: string
+        /** Id of the subagent's own SubagentHandback tool_use block that sent the report, not of the call that started the agent. Copies of one report repeat it. Show the report even when no such block is loaded */
+        toolUseId?: string
       }
       content: Array<{
         type: "text"
@@ -979,6 +1002,8 @@ declare module 'claude-code' {
       canReadOutputFile?: boolean
       /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
       canContinueAgent?: boolean
+      /** @internal True when this foreground agent was moved to the background because nobody had answered its permission prompt (drives the model-facing text; not a stable API) */
+      waitsAtPermissionPrompt?: boolean
       /** @internal True when this unisolated write-capable agent was launched into a working directory where another one is already running and a worktree could have been made here (drives a model-facing note; not a stable consumer field) */
       sharesCwd?: boolean
     } | {
@@ -1105,6 +1130,7 @@ declare module 'claude-code' {
           chars: number
           clipped?: boolean
         }[]
+        token_files?: string[]
         unavailable?: string
       }
     } | {
@@ -1137,6 +1163,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -1358,6 +1385,7 @@ declare module 'claude-code' {
             chars: number
             clipped?: boolean
           }[]
+          token_files?: string[]
           unavailable?: string
         }
         design_guidance?: boolean
@@ -1741,6 +1769,9 @@ declare module 'claude-code' {
           sha256: string
           live?: true
         }[]
+        can_publish?: boolean
+        owned?: boolean
+        audience?: "owner" | "users" | "org" | "public" | "agent_scoped" | "unknown"
         cowritten?: true
         outside_writer?: true
         public_read?: true
@@ -1985,6 +2016,7 @@ declare module 'claude-code' {
           chars: number
           clipped?: boolean
         }[]
+        token_files?: string[]
         unavailable?: string
       }
     } | {
@@ -2017,6 +2049,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -2238,6 +2271,7 @@ declare module 'claude-code' {
             chars: number
             clipped?: boolean
           }[]
+          token_files?: string[]
           unavailable?: string
         }
         design_guidance?: boolean
@@ -2621,6 +2655,9 @@ declare module 'claude-code' {
           sha256: string
           live?: true
         }[]
+        can_publish?: boolean
+        owned?: boolean
+        audience?: "owner" | "users" | "org" | "public" | "agent_scoped" | "unknown"
         cowritten?: true
         outside_writer?: true
         public_read?: true
@@ -2865,6 +2902,7 @@ declare module 'claude-code' {
           chars: number
           clipped?: boolean
         }[]
+        token_files?: string[]
         unavailable?: string
       }
     } | {
@@ -2897,6 +2935,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -3118,6 +3157,7 @@ declare module 'claude-code' {
             chars: number
             clipped?: boolean
           }[]
+          token_files?: string[]
           unavailable?: string
         }
         design_guidance?: boolean
@@ -3501,6 +3541,9 @@ declare module 'claude-code' {
           sha256: string
           live?: true
         }[]
+        can_publish?: boolean
+        owned?: boolean
+        audience?: "owner" | "users" | "org" | "public" | "agent_scoped" | "unknown"
         cowritten?: true
         outside_writer?: true
         public_read?: true
@@ -3745,6 +3788,7 @@ declare module 'claude-code' {
           chars: number
           clipped?: boolean
         }[]
+        token_files?: string[]
         unavailable?: string
       }
     } | {
@@ -3777,6 +3821,7 @@ declare module 'claude-code' {
       faviconSent?: true
       iconDropped?: true
       audience?: string
+      folder_audience?: "others" | "unknown"
       seq?: number
       unchanged?: true
       merged_over?: {
@@ -3998,6 +4043,7 @@ declare module 'claude-code' {
             chars: number
             clipped?: boolean
           }[]
+          token_files?: string[]
           unavailable?: string
         }
         design_guidance?: boolean
@@ -4381,6 +4427,9 @@ declare module 'claude-code' {
           sha256: string
           live?: true
         }[]
+        can_publish?: boolean
+        owned?: boolean
+        audience?: "owner" | "users" | "org" | "public" | "agent_scoped" | "unknown"
         cowritten?: true
         outside_writer?: true
         public_read?: true
@@ -4605,6 +4654,8 @@ declare module 'claude-code' {
       backgroundedByTurnAbort?: boolean
       /** @internal True if the command was moved to the background so a message queued for the model could reach it */
       backgroundedToDeliverMessage?: boolean
+      /** @internal True if that message was a subagent's message or report, and the command had run for a minute */
+      backgroundedForAgentReport?: true
       /** Set when the command hit its timeout and was auto-backgrounded; the timeout value in ms */
       timedOutAfterMs?: number
       /** @internal True if the async subagent foreground cap shortened the command's timeout */
@@ -4629,10 +4680,6 @@ declare module 'claude-code' {
       persistedOutputSize?: number
       /** @internal True when stdout holds the first part of the persisted output, a line saying that the middle was left out, and then its last lines */
       stdoutHoldsOutputEnd?: boolean
-      /** @internal Path to a saved copy of the output that the command piped into tail */
-      tailInputPath?: string
-      /** @internal Model-facing note about the file at tailInputPath */
-      tailInputNote?: string
       /** @internal Tells the model that the kernel killed a process for lack of memory while the command ran */
       memoryLimitNote?: string
       /** @internal One line of advice for the model after a finished command, set by a rule in a feature flag */
@@ -4681,6 +4728,8 @@ declare module 'claude-code' {
         skipped?: true
         shared?: true
       }
+      /** @internal The image files that went to the model with this result, for rendering. */
+      viewedImagePaths?: string[]
     }
     ClaudeDesign: {
       operation: string
@@ -4694,6 +4743,12 @@ declare module 'claude-code' {
       durable?: boolean
       /** Epoch ms of the job's next run, the scheduler's per-job offset included */
       nextFireAt?: number
+      /** Other session-only one-shot tasks that have yet to fire */
+      otherOneShots?: {
+        id: string
+        humanSchedule: string
+        prompt: string
+      }[]
     }
     CronDelete: {
       id: string
@@ -4731,6 +4786,8 @@ declare module 'claude-code' {
       isOwned?: boolean
       canEdit?: boolean
       moveState?: "moving" | "moved"
+      movedTo?: string
+      movedToHeldBy?: "you" | "owner" | "someone_else"
     } | {
       method: "list_files"
       notice?: string
@@ -4831,6 +4888,8 @@ declare module 'claude-code' {
       worktreePath: string
       worktreeBranch?: string
       message: string
+      /** @internal Told to the model and shown to the person where the sandbox stays on only through this move, or where commands are refused after it. */
+      sandboxNote?: string
     }
     ExitPlanMode: {
       /** The plan that was presented to the user */
@@ -4860,6 +4919,8 @@ declare module 'claude-code' {
       /** @internal originalCwd was gone (or a network path the session will not touch), so restoredCwd is a fallback directory. */
       originalCwdMissing?: boolean
       message: string
+      /** @internal Told to the model and shown to the person where the sandbox stays on only through this move, or where commands are refused after it. */
+      sandboxNote?: string
     }
     FetchInboxMessage: {
       ok: boolean
@@ -4874,6 +4935,14 @@ declare module 'claude-code' {
       received_at?: string
       attachments_prefix?: string
       reason?: string
+    }
+    GetGoal: {
+      /** The goal condition, or null when no goal is active */
+      condition: string | null
+      /** The evaluator's last reason the goal isn't met */
+      lastReason?: string
+      /** Whether the goal is paused until the user's next message */
+      paused?: boolean
     }
     GetTask: {
       taskId: string
@@ -4992,6 +5061,11 @@ declare module 'claude-code' {
       /** Number of files containing results */
       fileCount?: number
     }
+    McpTaskResumePolling: {
+      /** What came of the call */
+      message: string
+      isError: boolean
+    }
     memory_list: {
       outcome: "ok" | "refused" | "failed"
       store_kind?: "personal" | "project"
@@ -5040,6 +5114,8 @@ declare module 'claude-code' {
       timeoutMs: number
       /** No timeout — runs until TaskStop or session end. */
       persistent?: boolean
+      /** True when the command ran in the sandbox only because its permission check relied on the sandbox; the settings would otherwise have exempted it. */
+      keptInSandboxByCheck?: boolean
     }
     NotebookEdit: {
       /** The new source code that was written to the cell */
@@ -5065,6 +5141,10 @@ declare module 'claude-code' {
     }
     OfferChromeSetup: {
       outcome: "connected" | "not_now" | "no_attempt_yet"
+    }
+    PauseGoal: {
+      /** The goal that was paused */
+      condition: string
     }
     Poll: {
       /** Rendered event envelopes, or "(no pending events)" */
@@ -5100,6 +5180,7 @@ declare module 'claude-code' {
         at: string
         fields: {}
       } | null>
+      rows?: Array<string | null>
     }
     Projects: {
       method: "project_info"
@@ -5129,7 +5210,7 @@ declare module 'claude-code' {
       method: "project_read"
       notice?: string
       path: string
-      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain is on, on a project_read that saved the whole text to a file, and on a project_write by local_path in a conversation (not a script's inner call). A later checked write by path looks for this hash. */
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain is on, on a project_read that saved the whole text to a file, and on a project_write by local_path in a conversation (not a script's inner call); always on a project_write with edits. A later checked write by path looks for this hash. */
       version?: string
       file_kind?: string
       content?: string
@@ -5161,7 +5242,7 @@ declare module 'claude-code' {
       notice?: string
       path: string
       doc_uuid: string
-      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain is on, on a project_read that saved the whole text to a file, and on a project_write by local_path in a conversation (not a script's inner call). A later checked write by path looks for this hash. */
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain is on, on a project_read that saved the whole text to a file, and on a project_write by local_path in a conversation (not a script's inner call); always on a project_write with edits. A later checked write by path looks for this hash. */
       version?: string
       replaced: boolean
       present_to_user?: boolean
@@ -5194,12 +5275,6 @@ declare module 'claude-code' {
     propose_skills: {
       /** Number of proposals shown on the review card */
       proposalCount: number
-    }
-    ProposeGoal: {
-      /** The condition shown to the user for approval, or set directly when ask_user was false */
-      condition: string
-      /** Whether the user was asked for approval (true) or the goal was set directly (false) */
-      askUser: boolean
     }
     PublishPlugin: {
       state: "published" | "in-review" | "publishing" | "on-shelf" | "refused"
@@ -5367,6 +5442,68 @@ declare module 'claude-code' {
       json: string
       summary?: string
     }
+    REPL: {
+      /** The code that was executed */
+      code: string
+      /** Return value from the code execution */
+      result?: unknown
+      /** What the script logged (self.log; console.log outside REPL mode) */
+      stdout: string
+      /** Captured console.error output */
+      stderr: string
+      /** Error message if execution failed */
+      error?: string
+      /** Set when the user stopped the script: 'user' for Esc or a Stop from another client, 'refusal' for a No on one of its permission prompts. The error field then gives each tool call's state at the stop: finished, failed, declined, or still running. After the first 30 calls, the rest are counted by state and tool name. */
+      stoppedBy?: "user" | "refusal"
+      /** True when this Output carries no execution output: the receipt of an async eval (its outcome arrives in a poll event), a refusal at the cap on unsettled evals, or an eval that was cancelled before it ran */
+      asyncDispatched?: boolean
+      /** Set when the eval was cancelled before its script ran: 'person' when the turn was cut (usually by a person's Esc or Stop), 'other' when a script, a TaskStop call or Claude Code cancelled it. The error field then holds the text written for the model */
+      neverRan?: "person" | "other"
+      /** @internal Set for some errors that Claude Code wrote for the model. `text` is a short line shown to people instead of `replaces`, the line the error would otherwise show. If the error no longer shows `replaces`, for example because a PostToolUse hook rewrote it, the error's own line is shown */
+      plainErrorLine?: {
+        text: string
+        replaces: string
+      }
+      /** @internal True when a plugin's turn abort made this call return its receipt early while the script kept running; resume treats a transcript that ends on it as a finished turn (conversationRecovery.ts) */
+      keptByTurnAbort?: boolean
+      /** The eval's number on the async lane. On a result, the script ended inside the settle window, and its late output arrives under this number. On a receipt, its settle arrives under this number, or a lost event after a process exit (lostEvals.ts). On a batch of late output (late is true), the number of the eval whose script logged it */
+      evalId?: number
+      /** How long the script ran, in milliseconds (async lane) */
+      ms?: number
+      /** @internal True when this Output carries only an async eval's late output: stdout is the lines the script logged after its settle, delivered as one batch to the PostToolUse hooks before it reaches the model. Never set on a settle or a result */
+      late?: boolean
+      /** Images returned by inner Read and MCP tool calls — surfaced as image content blocks */
+      images?: {
+        base64: string
+        mediaType: string
+      }[]
+      /** Count of images from inner tool calls dropped by the per-result image cap; surfaced as a note in the tool_result */
+      imagesOmitted?: number
+      /** Note for images of inner Reads that are left out because their files were shown often and have not changed; surfaced in the tool_result */
+      imagesRefused?: string
+      /** Note on the calls that were refused while the script ran, with each refusal's text, on a script that did not throw; a part of its own in the tool_result */
+      refusedCalls?: string
+      /** Pages of inner page-range Reads that could not be processed as an image; surfaced as one note each in the tool_result */
+      imagePagesFailed?: {
+        page: number
+        file?: string
+        error?: string
+      }[]
+      /** Count of failed-page notes dropped by the per-result note cap; surfaced as a note in the tool_result */
+      imagePagesFailedOmitted?: number
+      /** PDFs returned by inner Read calls — surfaced as document content blocks */
+      documents?: {
+        base64: string
+      }[]
+      /** Count of inner-Read PDFs dropped by the per-result document cap; surfaced as a note in the tool_result */
+      documentsOmitted?: number
+      /** The text of each ReadNotifications call the script made, as a direct call's result has it, whole; the first parts of the tool_result */
+      notifications?: string[]
+      /** The tools the script called, and those its calls' results say their work called, whose names this conversation's prompt did not yet carry: a synchronous result's first line, or the first child of its <repl-output>, names them (an async settle's delivery names them instead) */
+      toolsUsed?: string[]
+      /** Provenance markers of what this script, or an earlier one whose variables it can read, got from its tool calls. They go ahead of the output, after the tools line, in the tool_result or, for a background script, in its event. */
+      carriedMarkers?: string[]
+    }
     ReportFindings: {
       /** Number of findings reported */
       count: number
@@ -5378,7 +5515,7 @@ declare module 'claude-code' {
         file: string
         /** 1-indexed line the finding anchors to */
         line?: number
-        /** One-sentence statement of the defect */
+        /** Statement of the defect */
         summary: string
         /** Compressed label for compact UI (≤60 chars): the claim alone, no rationale or consequence clause */
         short_summary?: string
@@ -5386,6 +5523,8 @@ declare module 'claude-code' {
         failure_scenario: string
         /** Short kebab-case slug of the finding type, e.g. "correctness", "simplification", "efficiency", "test-coverage" */
         category?: string
+        /** Set when the review instructions ask for it. important: a bug the change adds or makes worse; pre_existing: a bug that was there before the change; nit: a minor issue */
+        severity?: "important" | "pre_existing" | "nit"
         /** Set when a verify pass ran; absent on inline-only reviews */
         verdict?: "CONFIRMED" | "PLAUSIBLE"
         /** Set ONLY when re-reporting after applying fixes: what happened to this finding */
@@ -5424,6 +5563,7 @@ declare module 'claude-code' {
         presents_as?: string | null
         installation_preference?: string | null
       }>
+      note?: string
     }
     SearchSkills: {
       results: Array<{
@@ -5435,6 +5575,7 @@ declare module 'claude-code' {
         presents_as?: string | null
         installation_preference?: string | null
       }>
+      note?: string
     }
     SendFeedback: {
       success: boolean
@@ -5539,6 +5680,12 @@ declare module 'claude-code' {
       sentAt?: string
       rendered_locally?: boolean
     }
+    SetGoal: {
+      /** The condition shown to the user for approval, or set directly */
+      condition: string
+      /** Whether the user was asked for approval (true) or the goal was set directly (false) */
+      askUser: boolean
+    }
     ShareOnboardingGuide: {
       status: "created" | "updated" | "deleted" | "has_existing" | "unavailable"
       share_url?: string
@@ -5594,6 +5741,8 @@ declare module 'claude-code' {
       }[]
       note: string
       trigger?: "user_asked" | "proactive"
+      answer?: "added" | "not_added" | "not_now"
+      added?: string[]
     }
     SuggestSkills: {
       results: Array<{
@@ -5614,6 +5763,8 @@ declare module 'claude-code' {
         /** The task's description as saved. It can differ from the tool_use input if Claude Code corrects a malformed call or a PreToolUse hook changes the input. Absent in results from older Claude Code versions. */
         description?: string
       }
+      /** @internal Present when the result told Claude that the app sets task statuses. */
+      appKeepsStatuses?: true
     }
     TaskGet: {
       task: {
@@ -5732,6 +5883,8 @@ declare module 'claude-code' {
       durationSeconds: number
       /** Number of web searches performed */
       searchCount?: number
+      /** @internal The hits hold page text that goes to the model in the plain string, even with citations on */
+      plainPageText?: true
     }
     Workflow: {
       status: "async_launched" | "remote_launched"
@@ -5757,15 +5910,15 @@ declare module 'claude-code' {
     WrapUp: {
       /** Whether the call put a question to the user */
       asks: boolean
-      /** The next-step box for this call, to draw without reading the tool's input. Open the box when blocked is true or actions isn't empty; otherwise draw no box. Trust it only when the result's entry in tool_result_meta has built_in_tool set to this tool. It is built from the input the call ran with, which a permission answer or a hook before the call may have rewritten, so built_in_tool does not say that Claude wrote it. The recap and the question are each cleaned to one line of at most 500 UTF-16 units, ending in an ellipsis where that limit cut it, with no whole <cc-memory> markers, no terminal escape sequences and no invisible characters other than those an emoji or a word needs. A placeholder such as [REDACTED] or <token> stands in place of most keys and tokens recognised by their shape. A private key that could not be masked, or a tool call's own markup, is cut with all the text after it, and an ellipsis then shows only if what is left still passes that limit or the text ran past 2000 units. Draw the recap and the question as plain text, as they stand: they may hold Markdown, HTML or links, and normalizing them can undo the cleaning. Absent from a result stored by an earlier version of Claude Code. */
+      /** The next-step box for this call, to draw without reading the tool's input. Open the box when blocked is true or actions isn't empty; otherwise draw no box. Trust it only when the result's entry in tool_result_meta has built_in_tool set to this tool. It is built from the input the call ran with; where a permission answer or a hook before the call changed that input, the entry has no built_in_tool. The recap and the question are each cleaned to one line of at most 500 UTF-16 units, ending in an ellipsis where that limit cut it, with no whole <cc-memory> markers, no terminal escape sequences and no invisible characters other than those an emoji or a word needs. A placeholder such as [REDACTED] or <token> stands in place of most keys and tokens recognised by their shape. A private key that could not be masked, or a tool call's own markup, is cut with all the text after it, and an ellipsis then shows only if what is left still passes that limit or the text ran past 2000 units. Draw the recap and the question as plain text, as they stand: they may hold Markdown, HTML or links, and normalizing them can undo the cleaning. Absent from a result stored by an earlier version of Claude Code. */
       nextStep?: {
-        /** Claude's short summary of the turn. Empty when nothing visible is left, even when ask is present. */
+        /** Claude's short summary of the turn. Empty when nothing visible is left, or when it holds a key that cannot be masked alone (one that an invisible character, an accent or nested markers part, or whose rest comes to stand right after its mask), even when ask is present. */
         recap: string
-        /** The decision Claude asks of the user. Absent when Claude asked none, or when nothing visible is left. */
+        /** The decision Claude asks of the user. Absent when Claude asked none, when nothing visible is left, or when it holds a key that cannot be masked alone, as for recap. */
         ask?: string
         /** Whether Claude's work stops here until the user answers. Can be true with no question. */
         blocked: boolean
-        /** The buttons to draw under the question, in Claude's order, its pick first. Two replies with the same label are listed once, and a reply whose label holds a key or token is left out. Empty when there is no question. */
+        /** The buttons to draw under the question, in Claude's order, its pick first. Two replies with the same label are listed once, and a reply whose label holds a key or token is left out. Empty when there is no question, and when the first button is left out. */
         actions: Array<{
           /** A reply button's text. Draw it as plain text with no links. On a click, put exactly this text into the message box and let the person send it. Never send it yourself. */
           label: string
@@ -5843,6 +5996,7 @@ declare module 'claude-code' {
         at: string
         fields: {}
       } | null>
+      rows?: Array<string | null>
     }
   }
 }

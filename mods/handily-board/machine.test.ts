@@ -9,6 +9,7 @@ import {
   type Mounted,
 } from 'claude-code/testing'
 import { isEnded, startOfStat } from './hooks/liveness'
+import { refusalText } from './hooks/machine'
 import { readAsk, readSession, sessionRow, storeSetting, type FiledSession } from './hooks/store'
 import { displayWidth } from './hooks/width'
 
@@ -1087,6 +1088,12 @@ describe(ANSWER_CRITERION, () => {
       '  Type it: handily-s3yqhr: go',
     ])
     expect(seen.submitted).toEqual([])
+  })
+
+  test('a fill that no app answered says the text may still be in the prompt box', () => {
+    expect(refusalText('unanswered')).toBe(
+      'no app answered; the text may still be in the prompt box',
+    )
   })
 
   test('an option label with a control or format character drops the options, and the ask still shows', () => {
