@@ -24,8 +24,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-board",
-        "ref": "handily-board--v0.30.1",
-        "sha": "dcb494dcf0205854af57c9833e4e08041a654db0"
+        "ref": "handily-board--v0.30.2",
+        "sha": "471d66283e688118b330e4cb1b68dcc603c0e1e3"
       },
       "description": "A board with two panes, one open at a time: this session shows the task list that Claude and you share, and this machine reads a session store folder and shows its open owner asks and every session in it. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss."
     },
@@ -35,8 +35,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-filetree",
-        "ref": "handily-filetree--v0.15.0",
-        "sha": "6c4a98cf7fc9fc7b37bb46d3410b9f01ce3ea6d5"
+        "ref": "handily-filetree--v0.15.1",
+        "sha": "471d66283e688118b330e4cb1b68dcc603c0e1e3"
       },
       "description": "A files tab beside the board that lists the working folder, folders first. /tree opens it."
     },
@@ -68,8 +68,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-reply-view",
-        "ref": "handily-reply-view--v0.29.0",
-        "sha": "ba48d8c8e0fba34ba72ecc2afbdc1a124a02e1de"
+        "ref": "handily-reply-view--v0.29.1",
+        "sha": "471d66283e688118b330e4cb1b68dcc603c0e1e3"
       },
       "description": "Long replies fold to their first lines, tables draw in a full box or with rules between their columns with Table style rules, numbers, paths and inline code in replies draw in their own colours, each table and code block gets a copy button, and each prompt you type opens under a coloured rule labelled you."
     },
@@ -79,8 +79,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-simple-view",
-        "ref": "handily-simple-view--v0.14.0",
-        "sha": "ba48d8c8e0fba34ba72ecc2afbdc1a124a02e1de"
+        "ref": "handily-simple-view--v0.14.1",
+        "sha": "471d66283e688118b330e4cb1b68dcc603c0e1e3"
       },
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
