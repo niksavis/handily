@@ -19,7 +19,8 @@
     "check": "node scripts/mods.mjs check",
     "install-gate": "node scripts/install-gate.mjs",
     "install-gate:pinned": "node scripts/install-gate.mjs --pinned",
-    "live": "node scripts/live.mjs"
+    "live": "node scripts/live.mjs",
+    "hint-cost": "node scripts/hint-cost.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

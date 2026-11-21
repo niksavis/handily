@@ -894,7 +894,11 @@ are the sum of `input_tokens`, `cache_creation_input_tokens` and `cache_read_inp
 `usage` of `--output-format json`. The same method measured the hint of 516 characters that
 listed the drawn kinds at 229 tokens. A test fails when the hint grows past 540 characters, which
 keeps it under 250 tokens. When the hint text changes, measure again and record the new count and
-its date here.
+its date here. `npm run hint-cost` makes the measurement in one command. It runs `claude -p` three
+times with a scratch mod that passes each prompt on and three times with one that adds the hint,
+and prints the input tokens of each run, both medians and the difference. `--runs`, `--prompt`
+and `--model` change the count, the prompt and the model. On 2026-11-21 with Claude Code
+2.1.330, it printed medians of 29768 and 29983 input tokens, so the hint still costs 215 tokens.
 
 The hint text:
 
