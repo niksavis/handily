@@ -1435,6 +1435,14 @@ Sessions  6 · 2 need you · 1 dead · read 12s ago
 - A session that needs you has a `waits on:` line. The `▸` line is the now text of the session.
   A now text older than 15 minutes shows its own age, such as `· 25m old`. The `next:` line
   is the next text. Below 30 columns, the `next:` line drops.
+- The line under the facts is the item of the session: the `item` of its store file, such as
+  `handily-1smtn2`, in the code colour. With no `item`, it is the first record id in the now
+  text. `orch state set --item` writes it.
+- The line after the `▸` line is the last result: `✓` in green for a pass, `■` in red for a
+  failure, the `last` text and its age, such as `✓ reply-view 0.33.0 released · 10m ago`.
+  `orch state set --last` writes it. With no `last`, the line drops.
+- A session dead for 2 hours or more folds into one dim line at the end, such as
+  `+2 dead for 2 hours or more`, so the live sessions stay on top.
 - Inline from 60 columns, each session is one row: the name, the state, the project, the detail
   and the age. The `next:` line goes under the row. When the names are too long for a row, the
   tab draws the cards.

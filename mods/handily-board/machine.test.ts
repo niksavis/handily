@@ -562,6 +562,10 @@ describe(LIST_CRITERION, () => {
       nowAt: null,
       next: null,
       waitingOn: null,
+      item: null,
+      last: null,
+      lastAt: null,
+      lastOk: null,
       mtimeMs: now,
       isDead: false,
       ...fields,
@@ -1386,4 +1390,85 @@ describe('With glyphs nerd the this machine tab swaps each signal mark one for o
       expect(drawn.map(displayWidth)).toEqual(MOCK_41.map(displayWidth))
     })
   }
+})
+
+describe('the current item, step and last result of each session', () => {
+  test(
+    'a session with item and last draws the record id, the step and a passed result with its age',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          sessionFile('lane', MINUTE, {
+            name: 'lane',
+            state: 'working',
+            item: 'handily-1smtn2',
+            now: 'board design',
+            now_at: iso(NOW - MINUTE),
+            last: 'reply-view 0.33.0 released',
+            last_at: iso(NOW - 10 * MINUTE),
+            last_ok: true,
+          }),
+        ],
+      })
+      await shownAfterRead($, seen)
+      const lines = await screenAt($, 'terminal', 'dock', 46)
+      expect(lines).toContain('  handily-1smtn2')
+      expect(lines).toContain('  ▸ board design')
+      expect(lines).toContain('  ✓ reply-view 0.33.0 released · 10m ago')
+    },
+  )
+
+  test('a failed last result draws the failure mark', WITH_STORE, async ($, on) => {
+    const seen = world(on, {
+      files: [
+        sessionFile('lane', MINUTE, {
+          name: 'lane',
+          state: 'working',
+          last: 'CI landing refused',
+          last_ok: false,
+        }),
+      ],
+    })
+    await shownAfterRead($, seen)
+    expect(await screenAt($, 'terminal', 'dock', 46)).toContain('  ■ CI landing refused')
+  })
+
+  test(
+    'with no item field the item is the first record id in the step, and with no last there is no result line',
+    WITH_STORE,
+    async ($, on) => {
+      const seen = world(on, {
+        files: [
+          sessionFile('lane', MINUTE, {
+            name: 'lane',
+            state: 'working',
+            now: 'handily-ib002t hotfix build',
+            now_at: iso(NOW - MINUTE),
+          }),
+        ],
+      })
+      await shownAfterRead($, seen)
+      const lines = await screenAt($, 'terminal', 'dock', 46)
+      expect(lines).toContain('  handily-ib002t')
+      expect(lines.some((line) => /^ {2}[✓■·] /.test(line))).toBe(false)
+    },
+  )
+
+  test(
+    'a session dead for 2 hours or more folds into one line and a newer dead session stays',
+    WITH_STORE,
+    async ($, on) => {
+      const gone = (id: string, agoMs: number) =>
+        sessionFile(id, agoMs, { name: id, state: 'working', pid: 501, pid_start: 900 })
+      const seen = world(on, {
+        files: [gone('recent', 25 * MINUTE), gone('older', 3 * HOUR), gone('oldest', 30 * HOUR)],
+      })
+      await shownAfterRead($, seen)
+      const lines = await screenAt($, 'terminal', 'dock', 46)
+      expect(lines.some((line) => line.includes('recent'))).toBe(true)
+      expect(lines.some((line) => line.includes('older'))).toBe(false)
+      expect(lines).toContain('+2 dead for 2 hours or more')
+    },
+  )
 })

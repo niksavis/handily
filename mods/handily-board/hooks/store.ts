@@ -87,6 +87,10 @@ export type StoreSession = {
   nowAt: number | null
   next: string | null
   waitingOn: string | null
+  item: string | null
+  last: string | null
+  lastAt: number | null
+  lastOk: boolean | null
 }
 
 export type StoreAsk = {
@@ -114,6 +118,10 @@ function characters(text: string): number {
 
 function textUpTo(atMost: number): (value: unknown) => string | undefined {
   return (value) => (typeof value === 'string' && characters(value) <= atMost ? value : undefined)
+}
+
+function booleanOf(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
 }
 
 function timeOf(value: unknown): number | undefined {
@@ -234,6 +242,10 @@ const SESSION_FIELDS = {
   nowAt: { key: 'now_at', read: timeOf, why: TIME_WHY },
   next: { key: 'next', read: textUpTo(TEXT_AT_MOST), why: TEXT_WHY },
   waitingOn: { key: 'waiting_on', read: textUpTo(TEXT_AT_MOST), why: TEXT_WHY },
+  item: { key: 'item', read: textUpTo(TEXT_AT_MOST), why: TEXT_WHY },
+  last: { key: 'last', read: textUpTo(TEXT_AT_MOST), why: TEXT_WHY },
+  lastAt: { key: 'last_at', read: timeOf, why: TIME_WHY },
+  lastOk: { key: 'last_ok', read: booleanOf, why: 'it is not true or false' },
 } as const
 
 function processFields(
@@ -282,6 +294,10 @@ export function readSession(
     nowAt: field(SESSION_FIELDS.nowAt),
     next: field(SESSION_FIELDS.next),
     waitingOn: field(SESSION_FIELDS.waitingOn),
+    item: field(SESSION_FIELDS.item),
+    last: field(SESSION_FIELDS.last),
+    lastAt: field(SESSION_FIELDS.lastAt),
+    lastOk: field(SESSION_FIELDS.lastOk),
   }
   return { kind: 'read', value: { ...session, ...processFields(session, dropped) } }
 }
@@ -500,6 +516,7 @@ export type SessionRow = {
   ageMs: number
   isClockAhead: boolean
   nowAgeMs: number | null
+  lastAgeMs: number | null
 }
 
 export type AskRow = { kind: 'ask'; key: string; ask: FiledAsk; look: AskLook; ageMs: number }
@@ -545,6 +562,7 @@ export function sessionRow(session: FiledSession, now: number, ownId: string): S
     ageMs: ageOf(now, rowSince(session, state)),
     isClockAhead: isClockAhead(session, now),
     nowAgeMs: nowAgeOf(session, now),
+    lastAgeMs: session.lastAt === null ? null : ageOf(now, session.lastAt),
   }
 }
 

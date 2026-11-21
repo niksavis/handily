@@ -66,6 +66,9 @@ const SHORT_ID = 8
 const CARD_RULE = '─'
 const OWN_BADGE = 'this'
 const NOW_MARK = '▸'
+const CODE_COLOR: ThemeKey = 'permission'
+const RECORD_ID = /\b[a-z][a-z0-9]*-(?=[a-z0-9]*\d)[a-z0-9]{4,7}(?:\.\d+)*\b/
+const DEAD_KEPT_MS = 2 * 60 * 60 * 1000
 const ERROR_COLOR: ThemeKey = 'error'
 const WARNING_COLOR: ThemeKey = 'warning'
 const OWN_COLOR: ThemeKey = 'suggestion'
@@ -380,6 +383,33 @@ function nowParts(row: SessionRow, room: number, isDim: boolean): Part[] {
   ]
 }
 
+function itemOf(row: SessionRow): string | null {
+  const { item, now } = row.session
+  if (item !== null) return item
+  return now === null ? null : (RECORD_ID.exec(now)?.[0] ?? null)
+}
+
+function itemParts(row: SessionRow, room: number): Part[] {
+  const item = itemOf(row)
+  return item === null
+    ? []
+    : [{ text: fitted(escaped(item), Math.max(room, 1)), color: CODE_COLOR }]
+}
+
+function lastParts(row: SessionRow, room: number, signals: SignalLooks): Part[] {
+  const { last, lastOk } = row.session
+  if (last === null) return []
+  const look = lastOk === false ? signals.blocked : lastOk === true ? signals.done : null
+  const mark: Part =
+    look === null ? { text: '· ', dimColor: true } : { text: `${look.mark} `, color: look.color }
+  const age = row.lastAgeMs === null ? '' : `${SEPARATOR}${ageOf(row.lastAgeMs)} ago`
+  const text = fitted(
+    escaped(last),
+    Math.max(room - displayWidth(mark.text) - displayWidth(age), 1),
+  )
+  return [mark, { text }, ...(age === '' ? [] : [{ text: age, dimColor: true }])]
+}
+
 function waitsParts(row: SessionRow): Part[] {
   const { waitingOn } = row.session
   if (row.state !== 'needsYou' || waitingOn === null) return []
@@ -396,8 +426,10 @@ function sessionCard(elements: MachineElements, row: SessionRow, layout: Layout)
   const room = layout.columns - CARD_INDENT
   const lines: [string, Part[]][] = [
     ['facts', factsFor(row, room)],
+    ['item', itemParts(row, room)],
     ['waits', waitsParts(row)],
     ['now', nowParts(row, room, layout.isDim)],
+    ['last', lastParts(row, room, elements.signals)],
     ['next', layout.columns >= NEXT_FROM ? nextParts(row) : []],
   ]
   return [
@@ -893,7 +925,29 @@ function emptyLines(elements: MachineElements, layout: Layout): RenderElement[] 
   ]
 }
 
+function isOldDead(row: StoreRow): boolean {
+  return row.kind === 'session' && row.state === 'dead' && row.ageMs >= DEAD_KEPT_MS
+}
+
 function rowLines(
+  elements: MachineElements,
+  allRows: readonly StoreRow[],
+  layout: Layout,
+): RenderElement[] {
+  const rows = allRows.filter((row) => !isOldDead(row))
+  const folded = allRows.length - rows.length
+  const foldLine =
+    folded === 0
+      ? []
+      : [
+          drawParts(elements, 'old-dead', [
+            { text: `+${String(folded)} dead for 2 hours or more`, dimColor: true },
+          ]),
+        ]
+  return [...rowLinesOf(elements, rows, layout), ...foldLine]
+}
+
+function rowLinesOf(
   elements: MachineElements,
   rows: readonly StoreRow[],
   layout: Layout,

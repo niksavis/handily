@@ -3154,6 +3154,21 @@ Inbox  2 wait in 2 sessions · read 12s ago
 
 ### 8.17 The session store reader on the this machine tab (handily-s3yqhr, approved 2026-11-19)
 
+Addition of 2026-11-21 (handily-1smtn2, orchestrator decision): each session card adds its item
+(the store `item`, else the first record id in `now`) in the code colour under the facts, and
+its last result (`✓` or `■`, the `last` text and its age) after the `▸` line. A session dead
+for 2 hours or more folds into `+N dead for 2 hours or more`. The session cards keep one rule
+between them.
+
+```text
+▶ handily  this · working                  1m
+  handily · claude
+  handily-1smtn2
+  ▸ board design
+  ✓ reply-view 0.33.0 released · 10m ago
+  next: build in one cut with the docs
+```
+
 The design of the designer agent, with the decisions of the orchestrator of 2026-11-19 15:35 and
 15:48 UTC (dev-j6oqo). It supersedes 8.1b, 8.2f, the this machine half of 8.4, 8.5, 8.10o, the
 this machine card of 8.12l and 8.16. `d41` is a dock with body 41, `i76` and `i36` are inline
