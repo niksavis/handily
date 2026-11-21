@@ -2439,7 +2439,9 @@ bold labels, boxes and colours. A message that holds markdown draws as written. 
 gets its structure from these rules, in this order:
 
 ```text
-── from Orchestrator · peer session ─────────────────
+from Orchestrator · ask                         [ copy ]
+peer session · 4 lines
+─────────────────────────────────────────────────────
 **Ask the owner:**
 
  1. a screenshot of the rows

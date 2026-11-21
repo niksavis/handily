@@ -1698,6 +1698,14 @@ place on the screen. The mocks are `docs/mocks.md` section 21.
   left out. With `isExpanded` true (the ctrl+o view) the row passes to the engine, so ctrl+o
   still shows the whole message. `more` shows the message in the `message` tab under the rule
   of simple-view: docked from 110 columns, else a dim `ctrl+o` line under the row.
+- **The message tab draws structured text** (handily-qv5sb8, handily-3o3bzv, handily-7glk45).
+  The tab turns a plain text message into markdown by ordered rules per line kind and draws it
+  through the reply renderer whole, with no fold: bold labels, numbered lists, warning and note
+  boxes, and ids, tags, commits, file names, paths and code names as code. The head reads
+  `from` the sender, `ask` or `note` and the line count, with `copy` at its right. Copy gives
+  the message as sent. `/replies message N` opens the tab from the keyboard. The desktop draws
+  the lines as sent. The owner review of 0.32.0 found the rules off on a message with numbered
+  lines; a test keeps that message.
 - **The fold keeps the pressed button at its line.** The open reply draws the folded preview
   unchanged, then the fold row with the same text and layout, then the rest. No rule is added
   above the preview. Each cut of a block returns its rest from the same split point, so a
