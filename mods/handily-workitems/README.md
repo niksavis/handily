@@ -7,7 +7,7 @@ gives other mods one typed list. It draws nothing of its own.
 
 | Tracker               | Detected by                                        | Read path                                             |
 | --------------------- | -------------------------------------------------- | ----------------------------------------------------- |
-| basicly               | `.basicly/ledger/template.json`                    | `basicly tracker items --json`, after approval        |
+| basicly               | `.basicly/ledger/template.json`, or a vault file   | `basicly tracker items --json`, after approval        |
 | beads (`bd`, `br`)    | `.beads/issues.jsonl`                              | Built-in JSON Lines reader, streamed over 4 MiB       |
 | beans                 | `.beans.yml` or `.beans/`                          | Built-in front matter reader                          |
 | Any other (`files`)   | `globs` in `.handily.json`                         | Generic JSON, JSON Lines or front matter reader       |
@@ -47,6 +47,10 @@ gives other mods one typed list. It draws nothing of its own.
 - When `basicly` is not on `PATH`, the read fails with "basicly is not on PATH. Install it to
   read this tracker." The mod never runs the repo's own `.basicly/core/kit/tracker/cli.py`.
 - The poll reads again when a file in `.basicly/ledger` or any file under the kit folder changes.
+- A repository whose ledger moved to a vault has a file `.basicly/ledger`, with the schema
+  `basicly.tracker.frozen-ledger.v1`, in place of the folder. The mod reads it as a basicly
+  tracker too. A change in the vault changes no file in the repository, so the poll reads such a
+  tracker again once in each 30 seconds, and the polls between run no command.
 - `basicly` and `basicly --version` run with `PYTHONDONTWRITEBYTECODE=1` and
   `PYTHONPYCACHEPREFIX` set to a new folder. The new folder does not exist, so Python never runs
   a cached `.pyc` file from the repo.

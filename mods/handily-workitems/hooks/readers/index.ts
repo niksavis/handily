@@ -26,6 +26,7 @@ export type TrackerCommands = {
 
 export type TrackerFiles = {
   root: string
+  now: () => Promise<number>
   read: (relativePath: string) => Promise<string>
   stream: (relativePath: string) => AsyncGenerator<string, void>
   exists: (relativePath: string) => Promise<boolean>

@@ -505,6 +505,88 @@ async function legacyApproval(world: World): Promise<void> {
   world.stored.set(`approval:${await jsonDigest(key)}`, key)
 }
 
+const FROZEN_LEDGER = JSON.stringify({
+  archive: 'ledger-archive',
+  files: {},
+  prefix: 'app',
+  schema: 'basicly.tracker.frozen-ledger.v1',
+  vault_digest: 'e91ef3b2',
+})
+
+const FROZEN_REPO: Record<string, string> = {
+  ...Object.fromEntries(
+    Object.entries(BASICLY_REPO).filter(([path]) => !path.startsWith('.basicly/ledger/')),
+  ),
+  '.basicly/ledger': `${FROZEN_LEDGER}\n`,
+}
+
+async function approvedRepo($: Engine, on: On, repo: Record<string, string>) {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = fakeWorld(on, repo, PATH_WITH_BASICLY)
+  answerBasicly(world)
+  world.answer = ALLOW
+  const snapshot = await startSession($, clock, true, {
+    isDone: (current) => current.state !== 'approval-needed' && world.runs.length >= 1,
+    condition: 'the approved read and its run',
+  })
+  return { clock, world, snapshot }
+}
+
+describe('basicly source in a vault repository', () => {
+  test(
+    'detects a repository whose .basicly/ledger is a frozen ledger file and lists its items',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { snapshot } = await approvedRepo($, on, FROZEN_REPO)
+      expect(snapshot.state).toBe('ok')
+      expect(snapshot.source).toBe('basicly')
+      expect(snapshot.items.map((item) => item.key)).toEqual([
+        'basicly:app-3o75',
+        'basicly:app-ngri',
+        'basicly:app-f0fo',
+      ])
+    },
+  )
+
+  test(
+    'still detects a repository whose .basicly/ledger is a folder with its template',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { snapshot } = await approvedRepo($, on, BASICLY_REPO)
+      expect(snapshot.state).toBe('ok')
+      expect(snapshot.source).toBe('basicly')
+    },
+  )
+
+  test(
+    'a frozen ledger file of another schema is no basicly tracker',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 1_000 })
+      const repo = { ...FROZEN_REPO, '.basicly/ledger': '{"schema":"something.else.v1"}\n' }
+      const world = fakeWorld(on, repo, PATH_WITH_BASICLY)
+      const snapshot = await startSession($, clock, true)
+      expect(snapshot.source).not.toBe('basicly')
+      expect(itemsRunCount(world)).toBe(0)
+    },
+  )
+
+  test(
+    'a vault repository runs basicly tracker items once in each 30 second step and never on the polls between',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { clock, world } = await approvedRepo($, on, FROZEN_REPO)
+      const first = itemsRunCount(world)
+      expect(first).toBe(1)
+      for (let at = 0; at < 14; at += 1) await clock.advance(2_000)
+      expect(itemsRunCount(world)).toBe(first)
+      await pollUntil($, clock, 2_000, itemsRunsSince(world, 0, first + 1))
+      for (let at = 0; at < 5; at += 1) await clock.advance(2_000)
+      expect(itemsRunCount(world)).toBe(first + 1)
+    },
+  )
+})
+
 describe('basicly source', () => {
   test(
     'runs one basicly tracker items for every open status after approval and maps the items',

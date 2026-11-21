@@ -184,6 +184,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
   }
   const files: TrackerFiles = {
     root,
+    now: () => host.now(),
     stream: streamAt,
     stat: statAt,
     hash: hashAt,

@@ -18,6 +18,8 @@ import type { ReadOutcome, Reader, TrackerFiles } from './index'
 const SOURCE = 'basicly'
 const LEDGER = '.basicly/ledger'
 const TEMPLATE = `${LEDGER}/template.json`
+const FROZEN_SCHEMA = 'basicly.tracker.frozen-ledger.v1'
+export const VAULT_READ_MS = 30_000
 const KIT_FOLDER = '.basicly/core/kit/tracker'
 const KIT_CODE: readonly CoveredFolder[] = [{ path: KIT_FOLDER, suffix: '', recursive: true }]
 const PROGRAM = 'basicly'
@@ -175,10 +177,36 @@ async function readBasicly(files: TrackerFiles, memory: VersionMemory): Promise<
   }
 }
 
-async function basiclySignature(files: TrackerFiles): Promise<string> {
-  const ledger = (await files.list(LEDGER))
+async function isFrozenLedger(files: TrackerFiles): Promise<boolean> {
+  try {
+    if ((await files.stat(LEDGER)).kind !== 'file') return false
+    const parsed: unknown = JSON.parse(await files.read(LEDGER))
+    return isRecord(parsed) && parsed.schema === FROZEN_SCHEMA
+  } catch {
+    return false
+  }
+}
+
+async function isBasiclyPresent(files: TrackerFiles): Promise<boolean> {
+  return (await files.exists(TEMPLATE)) || isFrozenLedger(files)
+}
+
+async function ledgerStamp(files: TrackerFiles): Promise<string[]> {
+  if (await isFrozenLedger(files)) {
+    const stat = await files.stat(LEDGER)
+    const step = Math.floor((await files.now()) / VAULT_READ_MS)
+    return [
+      `frozen ${String(stat.size)} ${String(stat.mtimeMs)}`,
+      `vault read step ${String(step)}`,
+    ]
+  }
+  return (await files.list(LEDGER))
     .map((entry) => `${entry.name} ${String(entry.size)} ${String(entry.mtimeMs)}`)
     .sort()
+}
+
+async function basiclySignature(files: TrackerFiles): Promise<string> {
+  const ledger = await ledgerStamp(files)
   return [
     ...ledger,
     await coverStamp(files, KIT_CODE),
@@ -245,6 +273,7 @@ export function createBasiclyReader(): Reader {
   return {
     name: SOURCE,
     marker: TEMPLATE,
+    isPresent: isBasiclyPresent,
     signature: basiclySignature,
     read: (files) => readBasicly(files, memory),
     create: createBasicly,
