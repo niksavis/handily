@@ -1,18 +1,32 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import shlex
 import sys
 from pathlib import Path
 
-from orch_relay import classes, messages, record, start
+from orch_relay import accept, brief, classes, messages, record, start
 from orch_state import commands, relay_guard
 
 from orch_lessons import doctor, log
 
 
-def parser() -> argparse.ArgumentParser:
+def version() -> str:
+    try:
+        return f"orch {importlib.metadata.version('basicly-orch')}"
+    except importlib.metadata.PackageNotFoundError:
+        return "orch from a kit folder, not an installed package"
+
+
+def _top() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(prog="orch")
+    top.add_argument("--version", action="version", version=version())
+    return top
+
+
+def parser() -> argparse.ArgumentParser:
+    top = _top()
     groups = top.add_subparsers(dest="group", required=True)
     lesson = groups.add_parser("lesson").add_subparsers(dest="action", required=True)
     add = lesson.add_parser("add")
@@ -90,9 +104,24 @@ def relay(args: argparse.Namespace, writer: messages.Writer) -> str:
     return writer.decide(act, why)
 
 
+def _read(args: argparse.Namespace, cwd: Path, environ: dict[str, str]) -> str | None:
+    if args.group == "accept":
+        text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+        return accept.check(text, args.record, args.repo, args.action)
+    if args.group == "brief":
+        tracker = record.Tracker(log.repo_root(cwd))
+        found = record.find(tracker)
+        shown = brief.notes(tracker.notes(found))
+        return brief.render(found, shown, commands.session_lines(cwd, environ))
+    return None
+
+
 def run_relay(args: argparse.Namespace, cwd: Path, environ: dict[str, str]) -> int | None:
     if args.group == "send":
         print(messages.order(args.to, args.record, args.goal, args.limits, args.proof))
+        return 0
+    if (shown := _read(args, cwd, environ)) is not None:
+        print(shown)
         return 0
     if args.group == "start":
         repo = log.repo_root(cwd)

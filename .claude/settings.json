@@ -126,5 +126,6 @@
   "skillListingBudgetFraction": 0.02,
   "worktree": {
     "bgIsolation": "none"
-  }
+  },
+  "promptCacheTtl": "1h"
 }
