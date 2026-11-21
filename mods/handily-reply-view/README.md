@@ -2433,6 +2433,39 @@ Colours: `>` and `from` dim, the sender bold in `suggestion`, the count and the 
   its height.
 - Below 110 columns no pane opens. The row adds one dim line, `ctrl+o shows the whole message.`,
   and a second press removes it.
+
+In the terminal the `message` tab draws the message as a reply draws, with paragraphs, lists,
+bold labels, boxes and colours. A message that holds markdown draws as written. Plain text
+gets its structure from these rules, in this order:
+
+```text
+── from Orchestrator · peer session ─────────────────
+**Ask the owner:**
+
+ 1. a screenshot of the rows
+ 2. which session it was.
+
+**Cause:** seven test files had no stored time.
+
+▌ WARNING
+▌ **On any red run:** stop and report; never move a pushed tag.
+
+Tag handily-reply-view--v0.30.0 on ba5a82b closes handily-15iquz.
+```
+
+- A message whose lines look like a log, such as timestamps or paths at the start of most
+  lines, draws its lines as sent.
+- Each line is a paragraph. A sentence that starts a new instruction, such as `Then`, `Next`,
+  `Also`, `Report` or a label, starts a new paragraph.
+- Inline items `(1) … (2) …` or `1) … 2) …`, numbered from 1, become a numbered list. The text
+  before the first item is its bold lead.
+- A label of 1 to 4 words and a colon at the start of a sentence draws bold.
+- A sentence with `never`, `do not`, `stop`, `refuse`, `blocked` or `on any red` draws in a
+  warning box, and a sentence that starts with `Recommended` in a note box.
+- Record ids such as `handily-15iquz`, release tags, commit ids and URLs draw as code, and a URL
+  as a link. A markdown mark in plain text, such as `*` or `#`, stays text.
+- No word is changed, added or dropped. `copy` copies the message as it was sent.
+- On the desktop the tab draws the lines as sent.
 - ctrl+o still shows the whole message: in the ctrl+o view the engine draws the row
   (`isExpanded` true).
 - Every other message row, such as a teammate, a channel or a task notification, draws as Claude

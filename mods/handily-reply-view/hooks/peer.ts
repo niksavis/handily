@@ -215,6 +215,7 @@ export function drawMessagePane(
   site: MessageSite,
   bodyColumns: number,
   copy: (surface: RenderSurface) => void,
+  body: RenderElement | null = null,
 ): RenderElement {
   const { Box, Text, Button } = elements
   const { message } = site
@@ -234,12 +235,14 @@ export function drawMessagePane(
         }),
       }),
       rule('message-top'),
-      ...message.lines.map((line, index) =>
-        Box({
-          key: `message-line-${String(index)}`,
-          children: Text({ children: line === '' ? ' ' : line }),
-        }),
-      ),
+      ...(body === null
+        ? message.lines.map((line, index) =>
+            Box({
+              key: `message-line-${String(index)}`,
+              children: Text({ children: line === '' ? ' ' : line }),
+            }),
+          )
+        : [Box({ key: 'message-body', flexDirection: 'column', children: body })]),
       rule('message-bottom'),
       Box({
         key: 'message-buttons',

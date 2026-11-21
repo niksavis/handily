@@ -50,6 +50,7 @@ import {
   turnLine,
 } from './footer'
 import { blocksOf, type Block } from './markdown'
+import { structuredMarkdown } from './plain-text'
 import {
   DEFAULT_PROMPT_STYLE,
   drawnPrompt,
@@ -871,11 +872,44 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: MESSAGE_PANE.id }, async ($, e) => {
     messageSite.widest = widestAfter(messageSite.widest, e.viewport)
     await $.state.get(VIEWED_MESSAGE)
-    const { Box, Text, Button } = $.ui.resolve(e)
-    return drawMessagePane({ Box, Text, Button }, messageSite, e.props.bodyColumns, (surface) => {
+    const elements = $.ui.resolve(e)
+    const { Box, Text, Button } = elements
+    const message = messageSite.message
+    let body: RenderElement | null = null
+    try {
+      const markdown = message === null ? null : structuredMarkdown(message.lines)
+      if (message !== null && markdown !== null) {
+        body = replyTree(
+          elements,
+          markdown,
+          blocksOf(markdown),
+          {
+            columns: e.props.bodyColumns,
+            hasBullet: false,
+            isFirstOfReply: false,
+            surface: e.surface,
+            drawsDiagrams,
+            tableStyle,
+            headingStyle,
+            doneGlyph: (await paneGlyphs($, e.surface)).done,
+            marks: await replyMarks($, e.surface),
+            highlight,
+            palette: await shownPalette($, e.surface),
+            replyStyle: 'off',
+            sideBySide,
+          },
+          'open',
+          replyActions($, message.requestId),
+        )
+      }
+    } catch (error) {
+      logFailure($, 'the message tab draws the message as sent', error)
+    }
+    const copy = (surface: RenderSurface) => {
       const lines = messageSite.message?.lines ?? []
       void copyText($, lines.join('\n'), 'the message', surface)
-    })
+    }
+    return drawMessagePane({ Box, Text, Button }, messageSite, e.props.bodyColumns, copy, body)
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {

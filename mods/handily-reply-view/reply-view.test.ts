@@ -15,6 +15,7 @@ import { drawFlowchart, type LayoutMeter } from './hooks/flowchart'
 import { drawSequence } from './hooks/sequence'
 import { diagramOf, replyTree, type ReplyElements } from './hooks/draw'
 import { blocksOf } from './hooks/markdown'
+import { RULE_SAMPLES } from './fixtures/plain-text'
 import { jumpTo, railCommandOf, runRailCommand, type RailPort } from './hooks/jump'
 import {
   addPrompt,
@@ -6471,13 +6472,13 @@ async function mountPeer(
   })
 }
 
-async function mountMessagePane($: Engine, surface: Surface) {
+async function mountMessagePane($: Engine, surface: Surface, bodyColumns = 60) {
   return $.ui.mount({
     plugin: 'handily-reply-view',
     surface,
     component: 'Pane',
     requestId: 'message',
-    props: { ...paneProps('dock', 60), title: 'message' },
+    props: { ...paneProps('dock', bodyColumns), title: 'message' },
     viewport: { columns: 150, rows: 40, isFullscreen: true },
   })
 }
@@ -6491,6 +6492,82 @@ async function peerLines(ui: {
 
 const PEER_DOCKED = { columns: 83, rows: 40, isFullscreen: true } as const
 const PEER_WIDEST = { columns: 150, rows: 40, isFullscreen: true } as const
+
+async function isBoldText(
+  ui: {
+    findAll: (query: {
+      type: string
+      text: string
+    }) => Promise<{ props: Record<string, unknown> }[]>
+  },
+  text: string,
+): Promise<boolean> {
+  return (await ui.findAll({ type: 'Text', text })).some((found) => found.props.bold === true)
+}
+
+async function openedMessage($: Engine, world: RailWorld, text: string, surface: Surface) {
+  const ui = await mountPeer($, peer(text, 'coordinator'), surface, PEER_WIDEST)
+  await ui.press({ key: 'message-fold' })
+  await ui.unmount()
+  expect(world.opens.at(-1)?.id).toBe('message')
+}
+
+describe('structured text in the message tab', () => {
+  for (const surface of SURFACES) {
+    railTest(
+      'copy in the message tab copies the message byte for byte for every plain text rule',
+      surface,
+      async (world, $) => {
+        for (const { text } of RULE_SAMPLES) {
+          const source = `${text}\nThe second line of the message.`
+          await openedMessage($, world, source, surface)
+          const pane = await mountMessagePane($, surface, 120)
+          await pane.press({ key: 'message-copy' })
+          await pane.unmount()
+          expect(world.copies.at(-1)).toBe(source)
+        }
+      },
+    )
+
+    for (const columns of [120, 40]) {
+      railTest(
+        `the message tab draws a lead, numbered items and a bold label as distinct parts at ${String(columns)} columns`,
+        surface,
+        async (world, $) => {
+          const source =
+            'Ask the owner: (1) a screenshot of the rows, (2) which session it was.\nCause: seven test files had no stored time.'
+          await openedMessage($, world, source, surface)
+          const pane = await mountMessagePane($, surface, columns)
+          if (surface === 'terminal') {
+            expect(await isBoldText(pane, 'Ask the owner:')).toBe(true)
+            expect(await isBoldText(pane, 'Cause:')).toBe(true)
+            expect(
+              await pane.find({ type: 'Text', text: /a screenshot of the rows/ }),
+            ).toBeDefined()
+            expect(await pane.find({ key: 'message-body' })).toBeDefined()
+          } else {
+            expect(await pane.find({ key: 'message-body' })).toBeUndefined()
+            expect((await peerLines(pane)).slice(2, 4)).toEqual(source.split('\n'))
+          }
+          await pane.unmount()
+        },
+      )
+    }
+
+    railTest(
+      'a message whose lines look like a log draws its lines as sent',
+      surface,
+      async (world, $) => {
+        const log = RULE_SAMPLES.find((one) => one.rule === 'log')?.text ?? ''
+        await openedMessage($, world, log, surface)
+        const pane = await mountMessagePane($, surface, 120)
+        expect(await pane.find({ key: 'message-body' })).toBeUndefined()
+        expect((await peerLines(pane)).slice(2, 5)).toEqual(log.split('\n'))
+        await pane.unmount()
+      },
+    )
+  }
+})
 
 describe('peer messages', () => {
   for (const surface of SURFACES) {
@@ -6580,9 +6657,15 @@ describe('peer messages', () => {
         expect(await peerLines(pane)).toEqual([
           'from coordinator · peer session',
           '─'.repeat(60),
-          'the push window ended at 14:00 UTC. Nothing was landed: the lane carries a tracker change.',
-          'The next window opens at 16:00 UTC.',
-          'Ask before you push.',
+          ...(surface === 'terminal'
+            ? [
+                'the push window ended at 14:00 UTC.Nothing was landed: the lane carries a tracker change.The next window opens at 16:00 UTC.Ask before you push.',
+              ]
+            : [
+                'the push window ended at 14:00 UTC. Nothing was landed: the lane carries a tracker change.',
+                'The next window opens at 16:00 UTC.',
+                'Ask before you push.',
+              ]),
           '─'.repeat(60),
           'copy',
         ])
