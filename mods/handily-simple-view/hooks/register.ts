@@ -8,6 +8,7 @@ import type {
   ToolGroupCall,
 } from 'claude-code'
 import type { SimpleViewCall, SimpleViewFold, SimpleViewMode } from '../types'
+import { codeModeNote } from './code-mode'
 import { commandLabel, programOf } from './command'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
 import { KEPT_CALLS, callRecord, elapsedText, showText, slotOf, type CallFacts } from './detail'
@@ -672,6 +673,7 @@ async function genericUse(
     state: genericState(props),
     lines: null,
     elapsedMs: null,
+    note: codeModeNote(props.tool, props.output),
   }
   if (view.state === 'pending') return genericRow(look, view)
   const id = timingKey(await generationOf($), props.tool_use_id)

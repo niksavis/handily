@@ -1,4 +1,5 @@
 import type { Elements, RenderElement, RenderSurface, ThemeKey } from 'claude-code'
+import type { CodeModeNote } from './code-mode'
 import { elapsedText } from './detail'
 import { FOLD_BUTTONS_CELLS, foldButtons, type FoldActions, type FoldLabel } from './fold'
 import type { BashEnd, Denial, Denier, FileChange, StderrSummary, Totals } from './output'
@@ -449,6 +450,7 @@ export type GenericView = {
   state: GenericState
   lines: number | null
   elapsedMs: number | null
+  note?: CodeModeNote | null
 }
 
 const GENERIC_STATES: Readonly<Record<GenericState, { marker: ThemeKey; cell: Cell }>> = {
@@ -460,18 +462,27 @@ const GENERIC_STATES: Readonly<Record<GenericState, { marker: ThemeKey; cell: Ce
 
 export type GenericReason = { text: string; buttons: RowButtons | null }
 
+function noteState(note: CodeModeNote): { marker: ThemeKey; cell: Cell } {
+  const color: ThemeKey = note.isError ? 'error' : 'success'
+  return { marker: color, cell: { text: note.text, style: { color } } }
+}
+
 export function genericRow(
   look: RowLook,
   view: GenericView,
   reason: GenericReason | null = null,
 ): RenderElement {
-  const { marker, cell: stateCell } = GENERIC_STATES[view.state]
+  const note = view.state === 'done' ? (view.note ?? null) : null
+  const { marker, cell: stateCell } = note === null ? GENERIC_STATES[view.state] : noteState(note)
   const leading: Cell[] = [
     { text: view.label },
     { text: view.summary, style: { wrap: 'truncate-end' }, canShrink: true },
     stateCell,
     {
-      text: view.state === 'done' && view.lines !== null ? plural(view.lines, 'line') : '',
+      text:
+        view.state === 'done' && note === null && view.lines !== null
+          ? plural(view.lines, 'line')
+          : '',
       style: { dimColor: true },
     },
   ]

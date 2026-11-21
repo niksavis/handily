@@ -228,6 +228,24 @@ Claude Code release adds, and any MCP tool, gets the generic row.
 - A call has no line count and no time when a subagent made it, when it is from an ended
   session, or when a plugin above simple-view answered it.
 
+In Code Mode, Claude Code runs tool calls inside `REPL` scripts. Two rows show more than `done`:
+
+```text
+● REPL  Read the last commit  dispatched #12
+● Poll  #12 done · 1 running
+● Poll  #3 error
+● Poll  no new events
+```
+
+- A `REPL` script that Claude Code started without waiting for it shows `dispatched` and its
+  number in place of `done`. A script that ran to its end keeps `done` and its line count.
+- A `Poll` row names each event that arrived: the script number and `done` or `error`, and the
+  count of scripts that still run. A row with an `error` is red. A `Poll` that found nothing
+  shows `no new events`.
+- Only an event with a nonce from the first line of the result counts. An event that a script
+  output quotes does not count. A result with no nonce line keeps `done` and its line count.
+- The calls inside a script draw their own rows, as outside Code Mode.
+
 These tools keep the row of Claude Code, because you must read or answer what the row shows:
 
 | Tool                                                         | Why the engine row stays                              |
