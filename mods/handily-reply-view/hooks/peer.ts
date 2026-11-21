@@ -16,7 +16,15 @@ const EMPTY_TEXT = 'No message is shown here yet. Press more on a message row.'
 
 export type PeerMessage = { requestId: string; name: string; lines: string[] }
 
-export type MessageSite = { message: PeerMessage | null; widest: Widest | null }
+export type MessageSite = {
+  message: PeerMessage | null
+  widest: Widest | null
+  kept: PeerMessage[]
+}
+
+export const KEPT_MESSAGES = 20
+const MESSAGE_NUMBER = /^[1-9]\d{0,2}$/
+const MESSAGE_COMMAND = '/replies message'
 
 export type MessageSeat = {
   columns: number
@@ -40,7 +48,60 @@ type PeerElements = Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>
 export type PeerRowLook = { columns: number; isShown: boolean; isHinted: boolean }
 
 export function newMessageSite(): MessageSite {
-  return { message: null, widest: null }
+  return { message: null, widest: null, kept: [] }
+}
+
+export function keepMessage(site: MessageSite, message: PeerMessage): void {
+  const at = site.kept.findIndex((kept) => kept.requestId === message.requestId)
+  if (at >= 0) {
+    site.kept[at] = message
+    return
+  }
+  const last = site.kept.at(-1)
+  if (
+    last !== undefined &&
+    last.name === message.name &&
+    last.lines.join('\n') === message.lines.join('\n')
+  ) {
+    site.kept[site.kept.length - 1] = message
+    return
+  }
+  site.kept.push(message)
+  if (site.kept.length > KEPT_MESSAGES) site.kept.shift()
+}
+
+export type MessagePick = { message: PeerMessage; number: number } | { text: string }
+
+export function pickedMessage(site: MessageSite, word: string | undefined): MessagePick {
+  const count = site.kept.length
+  if (count === 0) {
+    return {
+      text: `No message from another session is kept yet in this session. ${MESSAGE_COMMAND} shows the last one once it is drawn.`,
+    }
+  }
+  const range = `a number from 1 to ${String(count)}, where 1 is the last message`
+  if (word !== undefined && !MESSAGE_NUMBER.test(word)) {
+    return { text: `${MESSAGE_COMMAND} takes ${range}, not ${word}.` }
+  }
+  const number = word === undefined ? 1 : Number(word)
+  const message = site.kept[count - number]
+  if (message === undefined)
+    return { text: `No message ${String(number)} is kept. ${MESSAGE_COMMAND} takes ${range}.` }
+  return { message, number }
+}
+
+export async function showMessage(
+  port: MessagePort,
+  site: MessageSite,
+  picked: { message: PeerMessage; number: number },
+): Promise<string> {
+  site.message = picked.message
+  await port.show(picked.message.requestId)
+  const { isPlaced } = await port.open()
+  const which = `Message ${String(picked.number)} of the last ${String(site.kept.length)}, from ${picked.message.name},`
+  return isPlaced
+    ? `${which} is in the message tab.`
+    : `${which} waits for the message tab, which opens when the window has room.`
 }
 
 function bodyOf(text: string, name: string): string {

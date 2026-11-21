@@ -2466,6 +2466,10 @@ Tag handily-reply-view--v0.30.0 on ba5a82b closes handily-15iquz.
   as a link. A markdown mark in plain text, such as `*` or `#`, stays text.
 - No word is changed, added or dropped. `copy` copies the message as it was sent.
 - On the desktop the tab draws the lines as sent.
+- `/replies message` opens the last message from another session in the `message` tab, and
+  `/replies message 2` the one before it, for a keyboard with no mouse. The tab keeps the last 20
+  messages that the transcript drew in this session. `1` is the last one. A number out of range,
+  a word or no kept message gets a reply that names the range and the command.
 - ctrl+o still shows the whole message: in the ctrl+o view the engine draws the row
   (`isExpanded` true).
 - Every other message row, such as a teammate, a channel or a task notification, draws as Claude
@@ -2779,6 +2783,8 @@ the end time draw in the number colour of the palette, `planMode`, or `#a6e3a1` 
 | `/replies next`          | Moves the transcript to the next prompt                                            |
 | `/replies prev`          | Moves the transcript to the previous prompt                                        |
 | `/replies prompt 9`      | Moves the transcript to prompt 9                                                   |
+| `/replies message`       | Opens the last message from another session in the message tab                     |
+| `/replies message 2`     | Opens the message before the last one in the message tab                           |
 
 While the view is off, Claude Code draws every reply and every prompt unchanged.
 

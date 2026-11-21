@@ -1771,7 +1771,7 @@ describe('typed prompts', () => {
 })
 
 const USAGE =
-  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. /replies message opens the last message from another session in the message tab, and /replies message and a number an earlier one. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
 
 describe('/replies', () => {
   viewTest(
@@ -6511,6 +6511,101 @@ async function openedMessage($: Engine, world: RailWorld, text: string, surface:
   await ui.unmount()
   expect(world.opens.at(-1)?.id).toBe('message')
 }
+
+async function repliesCommand($: Engine, args: string): Promise<string> {
+  const result = await $.command.run({
+    command: 'replies',
+    args,
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 120 },
+  })
+  return result.text ?? ''
+}
+
+describe('the message tab from the keyboard', () => {
+  for (const surface of SURFACES) {
+    railTest(
+      '/replies message opens the last drawn message and message 2 the one before',
+      surface,
+      async (world, $) => {
+        for (const [id, text] of [
+          ['peer-1', 'first message\nline two'],
+          ['peer-2', 'second message\nline two'],
+        ] as const) {
+          const ui = await $.ui.mount({
+            plugin: 'handily-reply-view',
+            surface,
+            component: 'UserMessage',
+            props: peer(text, 'coordinator'),
+            requestId: id,
+            viewport: PEER_WIDEST,
+          })
+          await ui.unmount()
+        }
+        expect(await repliesCommand($, 'message')).toBe(
+          'Message 1 of the last 2, from coordinator, is in the message tab.',
+        )
+        expect(world.opens.at(-1)?.id).toBe('message')
+        const last = await mountMessagePane($, surface)
+        await last.press({ key: 'message-copy' })
+        await last.unmount()
+        expect(world.copies.at(-1)).toBe('second message\nline two')
+        expect(await repliesCommand($, 'message 2')).toBe(
+          'Message 2 of the last 2, from coordinator, is in the message tab.',
+        )
+        const earlier = await mountMessagePane($, surface)
+        await earlier.press({ key: 'message-copy' })
+        await earlier.unmount()
+        expect(world.copies.at(-1)).toBe('first message\nline two')
+      },
+    )
+
+    railTest(
+      '/replies message counts a message drawn under two ids once',
+      surface,
+      async (_world, $) => {
+        for (const id of ['peer-1', 'peer-1b']) {
+          const ui = await $.ui.mount({
+            plugin: 'handily-reply-view',
+            surface,
+            component: 'UserMessage',
+            props: peer('same message\nline two', 'coordinator'),
+            requestId: id,
+            viewport: PEER_WIDEST,
+          })
+          await ui.unmount()
+        }
+        expect(await repliesCommand($, 'message')).toBe(
+          'Message 1 of the last 1, from coordinator, is in the message tab.',
+        )
+      },
+    )
+    railTest(
+      '/replies message names the range or that no message is kept, by the correct command',
+      surface,
+      async (_world, $) => {
+        expect(await repliesCommand($, 'message')).toBe(
+          'No message from another session is kept yet in this session. /replies message shows the last one once it is drawn.',
+        )
+        const ui = await $.ui.mount({
+          plugin: 'handily-reply-view',
+          surface,
+          component: 'UserMessage',
+          props: peer('only message\nline two', 'coordinator'),
+          requestId: 'peer-1',
+          viewport: PEER_WIDEST,
+        })
+        await ui.unmount()
+        expect(await repliesCommand($, 'message 3')).toBe(
+          'No message 3 is kept. /replies message takes a number from 1 to 1, where 1 is the last message.',
+        )
+        expect(await repliesCommand($, 'message two')).toBe(
+          '/replies message takes a number from 1 to 1, where 1 is the last message, not two.',
+        )
+      },
+    )
+  }
+})
 
 describe('structured text in the message tab', () => {
   for (const surface of SURFACES) {

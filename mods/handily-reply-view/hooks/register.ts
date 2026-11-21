@@ -84,6 +84,9 @@ import {
   peerMessage,
   peerRow,
   pressMessage,
+  keepMessage,
+  pickedMessage,
+  showMessage,
   widestAfter,
   type MessagePort,
   type MessageSite,
@@ -100,6 +103,7 @@ const COPIED = { plugin: 'handily-reply-view', key: 'copied' } as const
 const HELD = { plugin: 'handily-reply-view', key: 'held' } as const
 const VIEWED_MESSAGE = { plugin: 'handily-reply-view', key: 'viewedMessage' } as const
 const HINTS_ARGUMENT = 'hints'
+const MESSAGE_ARGUMENT = 'message'
 const COPY_ARGUMENT = 'copy'
 const REPLY_WORD = 'reply'
 const COPY_REPLY_COMMAND = `/replies ${COPY_ARGUMENT} ${REPLY_WORD}`
@@ -190,7 +194,7 @@ const DIAGRAMS_OFF_CAUSE: NoHintCause = {
 }
 const HINTS_OFF_TEXT = 'diagram hints off for this session. A prompt that you type carries no hint.'
 const USAGE_TEXT =
-  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
+  '/replies turns the reply view off or on for this session. /replies hints turns the diagram hints off or on. /replies copy diagram, chart, table, code or reply copies that block of the last reply. /replies prompts opens or closes the prompts tab, /replies next and /replies prev move to the next or the previous prompt, and /replies prompt and a number moves to that prompt. /replies message opens the last message from another session in the message tab, and /replies message and a number an earlier one. Set the defaults with the plugin\'s "mode" and "diagramHints" settings.'
 const NO_REPLY_TEXT = 'No reply to copy yet. /replies copy reads the last reply of this session.'
 
 const BLOCK_NAMES: Readonly<Record<BlockKind, string>> = {
@@ -554,6 +558,7 @@ async function peerDrawing(
   if (name === null) return null
   const message = peerMessage(e.requestId, name, e.props.text)
   if (message.lines.length === 0) return null
+  keepMessage(site, message)
   const { value: viewed } = await $.state.get(VIEWED_MESSAGE)
   const { value: fold = 'folded' } = await $.state.get({
     plugin: 'handily-reply-view',
@@ -679,6 +684,11 @@ export const register: Register = (on, options) => {
     }
     const [first, second, ...rest] = words
     if (first === undefined) return { text: await toggle($, defaultMode, promptStyle) }
+    if (first === MESSAGE_ARGUMENT && rest.length === 0) {
+      const picked = pickedMessage(messageSite, second)
+      if ('text' in picked) return { text: picked.text }
+      return { text: await showMessage(messagePortOf($), messageSite, picked) }
+    }
     if (first === HINTS_ARGUMENT && second === undefined) {
       return { text: await toggleHints($, defaultHints, hintRule) }
     }
@@ -699,6 +709,7 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     lastReply = undefined
     messageSite.message = null
+    messageSite.kept = []
     try {
       const { value } = await $.state.get(VIEWED_MESSAGE)
       if (value !== undefined && value.requestId !== '') {
