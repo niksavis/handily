@@ -6,6 +6,18 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.34.0 - 2026-11-21
+
+A long reply draws each markdown block once, already formatted.
+
+### Fixed
+
+- **A long reply no longer draws raw markdown first.** Text that streams longer than 8 seconds
+  now draws one whole markdown block at a time: a paragraph or a list at its blank line, a table
+  at its end, a code block or a diagram at its closing fence. Before, it streamed raw and changed
+  to the formatted view at the end. A block that stays open past 6,000 characters streams as it
+  comes. (handily-j2wg8z)
+
 ## handily-board 0.32.0 - 2026-11-21
 
 The this machine tab shows each session's item, step and last result.
