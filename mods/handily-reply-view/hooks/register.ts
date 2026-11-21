@@ -908,6 +908,7 @@ export const register: Register = (on, options) => {
             palette: await shownPalette($, e.surface),
             replyStyle: 'off',
             sideBySide,
+            isWhole: true,
           },
           'open',
           replyActions($, message.requestId),

@@ -6650,6 +6650,22 @@ describe('structured text in the message tab', () => {
     }
 
     railTest(
+      'the message tab draws a long message whole, with no fold row',
+      surface,
+      async (world, $) => {
+        const source = Array.from(
+          { length: 40 },
+          (_, at) => `Line ${String(at + 1)} of a long message.`,
+        ).join('\n')
+        await openedMessage($, world, source, surface)
+        const pane = await mountMessagePane($, surface, 60)
+        expect(await pane.find({ type: 'Text', text: /more lines?$/ })).toBeUndefined()
+        expect(await pane.find({ type: 'Text', text: /Line 40 of a long message/ })).toBeDefined()
+        await pane.unmount()
+      },
+    )
+
+    railTest(
       'a message whose lines look like a log draws its lines as sent',
       surface,
       async (world, $) => {

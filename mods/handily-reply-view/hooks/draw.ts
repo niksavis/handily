@@ -205,6 +205,7 @@ export type ReplyLayout = {
   sideBySide?: SideBySide
   marks?: ReplyMarks
   copyMark?: ReplyViewCopyMark | null
+  isWhole?: boolean
 }
 
 type ReplyEdge = 'none' | 'bullet' | 'frame'
@@ -2363,7 +2364,7 @@ export function replyTree(
   const blockPieces = blocks.map((block, index) => pieceOf(context, block, index))
   const pieces = sharesRows(layout) ? rowsOfPieces(context, blockPieces) : blockPieces
   const total = sum(pieces.map((piece) => piece.rows)) + Math.max(pieces.length - 1, 0)
-  const preview = total > FOLD_AFTER_ROWS ? foldedPreview(pieces) : null
+  const preview = total > FOLD_AFTER_ROWS && layout.isWhole !== true ? foldedPreview(pieces) : null
   const previewRows = sum(preview?.shown.map((drawing) => drawing.rows) ?? [])
   const isLong = preview !== null && previewRows < total
   const isEngineReply = layout.surface !== PROSE_SURFACE && blocks.every(isProse)
