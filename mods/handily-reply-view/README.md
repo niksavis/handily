@@ -106,9 +106,12 @@ buttons at the right edge:
   [A folded diagram](#a-folded-diagram) gives the rule.
 - On the terminal, the view holds back the text of a reply while it streams and draws the reply
   once, in its final layout. Meanwhile the spinner line shows the progress, such as
-  `writing reply · 12 lines · 1 table`. Text that streams longer than 8 seconds shows at once and
-  streams on, so a long reply never looks stopped. Esc shows the held text at once, and the
-  transcript keeps it. The `streaming` setting `live` streams replies as Claude Code draws them.
+  `writing reply · 12 lines · 1 table`. Text that streams longer than 8 seconds shows one whole
+  markdown block at a time: a paragraph or a list at its blank line, a table at its end, a code
+  block or a diagram at its closing fence. So a long reply never looks stopped, and no block draws
+  as raw text first. A block that stays open past 6,000 characters streams as it comes. Esc
+  shows the held text at once, and the transcript keeps it. The `streaming` setting `live`
+  streams replies as Claude Code draws them.
   The replies of a subagent, and every reply on the desktop app, stream as Claude Code draws them.
 
 ## A table

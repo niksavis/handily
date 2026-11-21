@@ -1,6 +1,6 @@
 import type { On, RenderPropsOf, TurnStepChunk, TurnStepResult } from 'claude-code'
 import { describe, expect, mock, test, type Engine, type MockClock } from 'claude-code/testing'
-import { HOLD_BOUND_MS } from './hooks/holdback'
+import { BLOCK_HELD_AT_MOST, blockCut, HOLD_BOUND_MS } from './hooks/holdback'
 
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
 const STEP = { turnId: 'turn-1', index: 0, model: 'opus', messageCount: 1 }
@@ -193,28 +193,66 @@ describe('a streaming reply is held back', () => {
     )
   })
 
-  test('text that streams past the bound shows at once and the rest of its block streams live', async ($, on) => {
+  test('text that streams past the bound draws by complete markdown block and never a part of one', async ($, on) => {
     const world = await started($, on)
     const [late, live] = [gate(), gate()]
     world.gates.push(late, live)
-    world.chunks = [text('a'), 'gate', text('b'), text('c'), 'gate', text('d'), STOP]
+    world.chunks = [
+      text('Para one.\n'),
+      'gate',
+      text('\nPara two'),
+      text('.\n\n'),
+      text('Tail'),
+      'gate',
+      text(' end.'),
+      STOP,
+    ]
     const stream = $.turn.step(STEP)
     const read = watched(stream)
     await late.reached
     expect(read.isSettled()).toBe(false)
     await world.clock.advance(HOLD_BOUND_MS)
     late.open()
-    expect((await read.first).value).toEqual(text('a'))
-    expect(texts([(await stream.next()).value as TurnStepChunk])).toEqual(['b'])
-    expect(texts([(await stream.next()).value as TurnStepChunk])).toEqual(['c'])
+    expect((await read.first).value).toEqual(text('Para one.\n'))
+    expect(texts([(await stream.next()).value as TurnStepChunk])).toEqual(['\nPara two'])
+    expect(texts([(await stream.next()).value as TurnStepChunk])).toEqual(['.\n\n'])
     const last = watched(stream)
     await live.reached
+    expect(last.isSettled()).toBe(false)
     live.open()
-    expect((await last.first).value).toEqual(text('d'))
-    expect(texts((await rest(stream)).chunks)).toEqual(['stop'])
-    expect(world.debugLogs.some((line) => line.includes('released by bound after 8000 ms'))).toBe(
-      true,
-    )
+    expect((await last.first).value).toEqual(text('Tail'))
+    expect(texts((await rest(stream)).chunks)).toEqual([' end.', 'stop'])
+    expect(
+      world.debugLogs.some((line) => line.includes('streams by markdown block after 8000 ms')),
+    ).toBe(true)
+  })
+
+  test('past the bound a fenced block draws at its closing fence and a block over the cap draws at once', () => {
+    const fence = [text('```mermaid\n'), text('a\n\n'), text('b\n'), text('```\n'), text('after')]
+    expect(blockCut(fence, false)).toEqual({ count: 4, isFenced: false })
+    expect(blockCut(fence.slice(0, 3), false)).toEqual({ count: 0, isFenced: false })
+    expect(blockCut([text('| a |\n|---|\n| 1 |\n'), text('\n')], false)).toEqual({
+      count: 2,
+      isFenced: false,
+    })
+    expect(BLOCK_HELD_AT_MOST).toBeLessThan(10_000)
+  })
+
+  test('past the bound an unclosed block longer than the cap streams as it comes', async ($, on) => {
+    const world = await started($, on)
+    const late = gate()
+    world.gates.push(late)
+    const long = 'x'.repeat(BLOCK_HELD_AT_MOST)
+    world.chunks = [text('```\n'), 'gate', text(long), text('y'), text('z'), STOP]
+    const stream = $.turn.step(STEP)
+    const read = watched(stream)
+    await late.reached
+    await world.clock.advance(HOLD_BOUND_MS)
+    late.open()
+    expect((await read.first).value).toEqual(text('```\n'))
+    expect(texts([(await stream.next()).value as TurnStepChunk])).toEqual([long])
+    expect(texts([(await stream.next()).value as TurnStepChunk])).toEqual(['y'])
+    expect(texts((await rest(stream)).chunks)).toEqual(['z', 'stop'])
   })
 
   test('held text still reaches the transcript when the stream beneath stops mid block', async ($, on) => {

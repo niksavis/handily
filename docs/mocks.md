@@ -7500,7 +7500,8 @@ Section 19 (handily-d75xdi) supersedes the block heads, the button places and th
 - **Environment.** Terminal first. The desktop app is stated in each part. Mobile draws as the
   desktop does (no pointer: the buttons are native).
 - **Streaming.** On the terminal, reply-view holds back the text of a reply while it streams, and
-  draws the complete reply once (handily-sr0k5y). This holds for every mock here.
+  draws the complete reply once (handily-sr0k5y). A text block that streams past 8 seconds draws
+  one whole markdown block at a time (handily-j2wg8z). This holds for every mock here.
 
 ### 15.1 Every reply: paragraphs, headings, lists, task lists, quotes and alerts
 

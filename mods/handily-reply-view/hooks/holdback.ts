@@ -4,6 +4,10 @@ import { DRAWN_CHARACTERS_AT_MOST, plural } from './draw'
 
 export const HOLD_BOUND_MS = 8_000
 
+export const BLOCK_HELD_AT_MOST = 6_000
+
+const FENCE_LINE = /^\s*(```|~~~)/
+
 export const STREAMINGS = ['held', 'live'] as const
 
 export type Streaming = (typeof STREAMINGS)[number]
@@ -14,7 +18,40 @@ export function isStreaming(value: unknown): value is Streaming {
   return STREAMINGS.some((option) => option === value)
 }
 
-export type Release = 'block end' | 'bound' | 'size' | 'stream end'
+export type Release = 'block end' | 'size' | 'stream end'
+
+export type Cut = { count: number; isFenced: boolean }
+
+export function blockCut(chunks: readonly TurnStepChunk[], isFenced: boolean): Cut {
+  let fenced = isFenced
+  let line = ''
+  let isAtEnd = false
+  let cut: Cut = { count: 0, isFenced }
+  chunks.forEach((chunk, index) => {
+    if (chunk.kind === 'text') {
+      const parts = (line + chunk.text).split('\n')
+      line = parts.pop() ?? ''
+      for (const part of parts) {
+        if (FENCE_LINE.test(part)) {
+          isAtEnd = fenced
+          fenced = !fenced
+        } else {
+          isAtEnd = !fenced && part.trim() === ''
+        }
+      }
+    }
+    if (isAtEnd && line === '') cut = { count: index + 1, isFenced: fenced }
+  })
+  return cut
+}
+
+function fencedAfter(chunks: readonly TurnStepChunk[], isFenced: boolean): boolean {
+  const text = chunks.map((chunk) => (chunk.kind === 'text' ? chunk.text : '')).join('')
+  return text
+    .split('\n')
+    .slice(0, -1)
+    .reduce((fenced, part) => (FENCE_LINE.test(part) ? !fenced : fenced), isFenced)
+}
 
 export type HoldPort = {
   now: () => Promise<number>
@@ -29,6 +66,9 @@ type Hold = {
   index: number
   startedAt: number
   isLive: boolean
+  isByBlock: boolean
+  isFenced: boolean
+  sinceCut: number
   chunks: TurnStepChunk[]
   characters: number
   texts: number
@@ -42,6 +82,9 @@ function newHold(index: number, startedAt: number): Hold {
     index,
     startedAt,
     isLive: false,
+    isByBlock: false,
+    isFenced: false,
+    sinceCut: 0,
     chunks: [],
     characters: 0,
     texts: 0,
@@ -65,6 +108,10 @@ export function progressText(held: ReplyViewHeld): string {
   const parts = [PROGRESS_WORD, plural(held.lines, 'line')]
   if (held.tables > 0) parts.push(plural(held.tables, 'table'))
   return parts.join(' · ')
+}
+
+function blockNote(hold: Hold, now: number): string {
+  return `reply-view: block ${String(hold.index)} streams by markdown block after ${String(now - hold.startedAt)} ms`
 }
 
 function releaseNote(hold: Hold, release: Release, now: number): string {
@@ -109,19 +156,43 @@ export async function* heldStep(
         yield chunk
         continue
       }
+      if (hold.isByBlock) {
+        hold.chunks.push(chunk)
+        hold.characters += chunk.text.length
+        hold.sinceCut += chunk.text.length
+        const found = blockCut(hold.chunks, hold.isFenced)
+        const count = hold.sinceCut > BLOCK_HELD_AT_MOST ? hold.chunks.length : found.count
+        if (count === 0) continue
+        const out = hold.chunks.splice(0, count)
+        hold.isFenced = count === found.count ? found.isFenced : fencedAfter(out, hold.isFenced)
+        hold.sinceCut = hold.chunks.reduce(
+          (sum, one) => sum + (one.kind === 'text' ? one.text.length : 0),
+          0,
+        )
+        yield* out
+        continue
+      }
       hold.chunks.push(chunk)
       hold.texts += 1
       hold.characters += chunk.text.length
       const now = await port.now()
-      const cut: Release | null =
-        hold.characters > DRAWN_CHARACTERS_AT_MOST
-          ? 'size'
-          : now - hold.startedAt >= HOLD_BOUND_MS
-            ? 'bound'
-            : null
-      if (cut !== null) {
+      if (hold.characters > DRAWN_CHARACTERS_AT_MOST) {
         hold.isLive = true
-        yield* await release(cut)
+        yield* await release('size')
+        continue
+      }
+      if (now - hold.startedAt >= HOLD_BOUND_MS) {
+        hold.isByBlock = true
+        await port.note(blockNote(hold, now))
+        await port.show(null)
+        const found = blockCut(hold.chunks, false)
+        const out = hold.chunks.splice(0, found.count)
+        hold.isFenced = found.isFenced
+        hold.sinceCut = hold.chunks.reduce(
+          (sum, one) => sum + (one.kind === 'text' ? one.text.length : 0),
+          0,
+        )
+        yield* out
         continue
       }
       const held = counted(hold, chunk.text)
