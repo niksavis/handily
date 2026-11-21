@@ -6642,7 +6642,7 @@ describe('structured text in the message tab', () => {
             expect(await pane.find({ key: 'message-body' })).toBeDefined()
           } else {
             expect(await pane.find({ key: 'message-body' })).toBeUndefined()
-            expect((await peerLines(pane)).slice(2, 4)).toEqual(source.split('\n'))
+            expect((await peerLines(pane)).slice(3, 5)).toEqual(source.split('\n'))
           }
           await pane.unmount()
         },
@@ -6657,7 +6657,7 @@ describe('structured text in the message tab', () => {
         await openedMessage($, world, log, surface)
         const pane = await mountMessagePane($, surface, 120)
         expect(await pane.find({ key: 'message-body' })).toBeUndefined()
-        expect((await peerLines(pane)).slice(2, 5)).toEqual(log.split('\n'))
+        expect((await peerLines(pane)).slice(3, 6)).toEqual(log.split('\n'))
         await pane.unmount()
       },
     )
@@ -6750,7 +6750,8 @@ describe('peer messages', () => {
         await ui.unmount()
         const pane = await mountMessagePane($, surface)
         expect(await peerLines(pane)).toEqual([
-          'from coordinator · peer session',
+          'from coordinator · notecopy',
+          'peer session · 3 lines',
           '─'.repeat(60),
           ...(surface === 'terminal'
             ? [
@@ -6761,8 +6762,6 @@ describe('peer messages', () => {
                 'The next window opens at 16:00 UTC.',
                 'Ask before you push.',
               ]),
-          '─'.repeat(60),
-          'copy',
         ])
         await pane.press({ key: 'message-copy' })
         expect(world.copies).toEqual([PEER_LONG.slice('coordinator: '.length)])

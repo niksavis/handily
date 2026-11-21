@@ -2455,15 +2455,24 @@ Tag handily-reply-view--v0.30.0 on ba5a82b closes handily-15iquz.
 
 - A message whose lines look like a log, such as timestamps or paths at the start of most
   lines, draws its lines as sent.
+- The head names the sender, `ask` in the warning colour when the last line asks you something,
+  such as `when you say go` or a question, or else `note`, and the count of lines. The `copy`
+  button stands at the right of the head.
+- A line in a code fence, a heading, a table row or a line with markdown marks stays as written.
+  A numbered or bulleted line keeps its number and gets the label and token rules.
 - Each line is a paragraph. A sentence that starts a new instruction, such as `Then`, `Next`,
   `Also`, `Report` or a label, starts a new paragraph.
 - Inline items `(1) … (2) …` or `1) … 2) …`, numbered from 1, become a numbered list. The text
   before the first item is its bold lead.
-- A label of 1 to 4 words and a colon at the start of a sentence draws bold.
+- A label of 1 to 4 words and a colon at the start of a sentence draws bold, also inside a
+  numbered line and with a comma, such as `Alternative, not recommended:`.
+- When the last line asks you something, it draws in a note box.
 - A sentence with `never`, `do not`, `stop`, `refuse`, `blocked` or `on any red` draws in a
   warning box, and a sentence that starts with `Recommended` in a note box.
-- Record ids such as `handily-15iquz`, release tags, commit ids and URLs draw as code, and a URL
-  as a link. A markdown mark in plain text, such as `*` or `#`, stays text.
+- Record ids such as `handily-15iquz`, release tags, commit ids, file names such as
+  `install.json`, paths, names such as `BASICLY_REF` or `build_py` and a pattern such as
+  `^\d+$` draw as code, and a URL as a link. A markdown mark in plain text, such as `*` or `#`,
+  stays text.
 - No word is changed, added or dropped. `copy` copies the message as it was sent.
 - On the desktop the tab draws the lines as sent.
 - `/replies message` opens the last message from another session in the `message` tab, and

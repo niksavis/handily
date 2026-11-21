@@ -277,25 +277,51 @@ export function drawMessagePane(
   bodyColumns: number,
   copy: (surface: RenderSurface) => void,
   body: RenderElement | null = null,
+  isAsk = false,
 ): RenderElement {
   const { Box, Text, Button } = elements
   const { message } = site
   if (message === null) return Box({ children: Text({ dimColor: true, children: EMPTY_TEXT }) })
   const columns = Math.max(bodyColumns, 1)
-  const rule = (key: string) =>
-    Box({ key, children: Text({ dimColor: true, children: RULE.repeat(columns) }) })
+  const count = message.lines.filter((line) => line.trim() !== '').length
   return Box({
     flexDirection: 'column',
     children: [
       Box({
         key: 'message-head',
+        flexDirection: 'row',
+        children: [
+          Text({
+            wrap: 'truncate-end',
+            children: [
+              Text({ bold: true, color: 'suggestion', children: `from ${message.name}` }),
+              isAsk
+                ? Text({ color: 'warning', children: ' · ask' })
+                : Text({ dimColor: true, children: ' · note' }),
+            ],
+          }),
+          Box({ flexGrow: 1 }),
+          Button({
+            key: 'message-copy',
+            label: 'copy',
+            hotkey: 'c',
+            onPress: (pressed) => {
+              copy(pressed.surface)
+            },
+          }),
+        ],
+      }),
+      Box({
+        key: 'message-meta',
         children: Text({
-          bold: true,
-          wrap: 'truncate-end',
-          children: `from ${message.name} · peer session`,
+          dimColor: true,
+          children: `peer session · ${String(count)} ${count === 1 ? 'line' : 'lines'}`,
         }),
       }),
-      rule('message-top'),
+      Box({
+        key: 'message-top',
+        children: Text({ dimColor: true, children: RULE.repeat(columns) }),
+      }),
       ...(body === null
         ? message.lines.map((line, index) =>
             Box({
@@ -304,19 +330,6 @@ export function drawMessagePane(
             }),
           )
         : [Box({ key: 'message-body', flexDirection: 'column', children: body })]),
-      rule('message-bottom'),
-      Box({
-        key: 'message-buttons',
-        flexDirection: 'row',
-        children: Button({
-          key: 'message-copy',
-          label: 'copy',
-          hotkey: 'c',
-          onPress: (pressed) => {
-            copy(pressed.surface)
-          },
-        }),
-      }),
     ],
   })
 }

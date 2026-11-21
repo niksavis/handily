@@ -4,7 +4,7 @@ const LOG_LINE =
   /^\s*(?:\d{4}-\d\d-\d\d[T ]\d|\[\d|at \S+ \(|\/[\w.-]+\/[\w.-]|\$ |[A-Z]{3,}:|\w+:\d+:)/
 const INLINE_ITEM = /(?:^|\s)\(?(\d{1,2})\)\s+/g
 const SENTENCE_END = /(?<=[.!?;])\s+(?=[A-Z(])/
-const LABEL = /^([A-Z][\w-]*(?: [\w-]+){0,3}):\s+(?=\S)/
+const LABEL = /^([A-Z][\w-]*(?:,? [\w-]+){0,3}):\s+(?=\S)/
 const LEAD = /^[A-Z][\w ,-]{0,40}:$/
 const ITEM_END = /[,;]$/
 const ITEM_JOIN = /^and\s+/
@@ -13,7 +13,7 @@ const LEAD_WORDS =
 const WARNING = /\b(?:never|do not|don't|stop|refuse[sd]?|blocked|on any red)\b/i
 const RECOMMENDED = /^Recommended\b/
 const TOKEN =
-  /https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\b[\w.-]+--v\d+\.\d+\.\d+\b|\b[a-z]{2,}-(?=[a-z0-9]*\d)[a-z0-9]{4,6}(?:\.\d+)*\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g
+  /https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\b[\w.-]+--v\d+\.\d+\.\d+\b|(?<![\w/.])\.?[\w-]+(?:\/[\w.-]+)+(?<![.,;:])|(?<![\w.])_?[\w-]+\.(?:json|jsonl|py|ts|tsx|js|mjs|md|yml|yaml|toml|sh|txt|lock|cfg|ini)\b|\b[a-z]{2,}-(?=[a-z0-9]*\d)[a-z0-9]{4,6}(?:\.\d+)*\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|(?<![\w.])_?[a-z][a-z0-9]*_[a-z0-9_]+\b|\^\S+\$/g
 const ESCAPED = /[\\`*_[\]<>#|~]/g
 
 export function looksLikeMarkdown(lines: readonly string[]): boolean {
@@ -95,13 +95,77 @@ function blockOf(group: string): string {
   return line
 }
 
-function paragraphsOf(lines: readonly string[]): string[] {
-  return lines.map((line) => line.trim()).filter((line) => line !== '')
+const FENCE = /^\s{0,3}(?:```|~~~)/
+const KEPT_LINE = /^\s{0,3}(?:#{1,6}\s|>|\|.*\|)/
+const LIST_LINE = /^(\s*)(\d+[.)]|[-*+])\s+(.*)$/
+
+export function enrichedSentences(text: string): string {
+  return text
+    .split(SENTENCE_END)
+    .map((sentence) => labelled(sentence))
+    .join(' ')
+}
+
+type Piece = { kind: 'kept' | 'list' | 'plain'; text: string }
+
+function piecesOf(lines: readonly string[]): Piece[] {
+  const pieces: Piece[] = []
+  let isFenced = false
+  for (const line of lines) {
+    if (FENCE.test(line)) {
+      isFenced = !isFenced
+      pieces.push({ kind: 'kept', text: line })
+      continue
+    }
+    const item = isFenced ? null : LIST_LINE.exec(line)
+    if (item !== null && MARKDOWN_INLINE.test(line)) {
+      pieces.push({ kind: 'list', text: line })
+      continue
+    }
+    if (isFenced || KEPT_LINE.test(line) || MARKDOWN_INLINE.test(line)) {
+      pieces.push({ kind: 'kept', text: line })
+      continue
+    }
+    if (item !== null) {
+      pieces.push({
+        kind: 'list',
+        text: `${item[1] ?? ''}${item[2] ?? ''} ${enrichedSentences(item[3] ?? '')}`,
+      })
+      continue
+    }
+    if (line.trim() === '') continue
+    for (const block of groupsOf(line.trim()).map(blockOf))
+      pieces.push({ kind: 'plain', text: block })
+  }
+  return pieces
+}
+
+const CLOSING_ASK = /\bwhen you say\b|\bwhen you want\b|\bshall I\b|\bmay I\b|\?\s*$/
+
+export function isAsk(lines: readonly string[]): boolean {
+  const last = [...lines].reverse().find((line) => line.trim() !== '')
+  return last !== undefined && CLOSING_ASK.test(last)
 }
 
 export function structuredMarkdown(lines: readonly string[]): string | null {
   if (lines.every((line) => line.trim() === '')) return null
-  if (looksLikeMarkdown(lines)) return lines.join('\n')
   if (looksLikeLog(lines)) return null
-  return paragraphsOf(lines).flatMap(groupsOf).map(blockOf).join('\n\n')
+  const pieces = piecesOf(lines)
+  const closing = pieces.at(-1)
+  if (closing?.kind === 'plain' && !closing.text.startsWith('>') && isAsk(lines)) {
+    closing.text = `> [!NOTE]\n> ${closing.text}`
+  }
+  let out = ''
+  let last: Piece | undefined
+  for (const piece of pieces) {
+    if (last !== undefined) {
+      const joined =
+        (last.kind === piece.kind && piece.kind !== 'plain') ||
+        (last.kind === 'kept' && piece.kind === 'kept')
+      out += joined ? '\n' : '\n\n'
+    }
+    out += piece.text
+    last = piece
+  }
+  return out
 }

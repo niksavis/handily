@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { RULE_SAMPLES } from './fixtures/plain-text'
-import { structuredMarkdown } from './hooks/plain-text'
+import { REVIEW_MESSAGE, RULE_SAMPLES } from './fixtures/plain-text'
+import { isAsk, structuredMarkdown } from './hooks/plain-text'
 
 function sample(rule: string): string {
   const found = RULE_SAMPLES.find((one) => one.rule === rule)
@@ -61,5 +61,30 @@ describe('plain text in the message tab', () => {
 
   test('an empty message draws as it is', () => {
     expect(structuredMarkdown(['', ' '])).toBeNull()
+  })
+
+  test('the message of the owner review of 2026-11-21 gets its labels, tokens and closing ask box', () => {
+    const drawn = structuredMarkdown(REVIEW_MESSAGE.split('\n')) ?? ''
+    for (const part of [
+      '1. **One source:**',
+      '3. **Risk:**',
+      '**Cost:**',
+      '**Alternative, not recommended:**',
+      '`BASICLY_REF`',
+      '`.basicly/state/install.json`',
+      '`setup.py`',
+      '`test_basicly_pin_matches_the_installed_harness`',
+      '`^\\d+\\.\\d+\\.\\d+$`',
+      '> [!NOTE]\n> I build it as its own record after A2 lands, before B, when you say go.',
+    ]) {
+      expect(drawn).toContain(part)
+    }
+    expect(isAsk(REVIEW_MESSAGE.split('\n'))).toBe(true)
+  })
+
+  test('a numbered line with no other markdown no longer turns the plain text rules off', () => {
+    expect(structuredMarkdown(['Cause: one.', '1. Risk: two.'])).toBe(
+      '**Cause:** one.\n\n1. **Risk:** two.',
+    )
   })
 })

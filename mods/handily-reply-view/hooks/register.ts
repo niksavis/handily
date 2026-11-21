@@ -50,7 +50,7 @@ import {
   turnLine,
 } from './footer'
 import { blocksOf, type Block } from './markdown'
-import { structuredMarkdown } from './plain-text'
+import { isAsk, structuredMarkdown } from './plain-text'
 import {
   DEFAULT_PROMPT_STYLE,
   drawnPrompt,
@@ -920,7 +920,15 @@ export const register: Register = (on, options) => {
       const lines = messageSite.message?.lines ?? []
       void copyText($, lines.join('\n'), 'the message', surface)
     }
-    return drawMessagePane({ Box, Text, Button }, messageSite, e.props.bodyColumns, copy, body)
+    const asks = message !== null && isAsk(message.lines)
+    return drawMessagePane(
+      { Box, Text, Button },
+      messageSite,
+      e.props.bodyColumns,
+      copy,
+      body,
+      asks,
+    )
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
