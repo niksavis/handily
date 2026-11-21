@@ -93,7 +93,7 @@ After an update, type `/reload-plugins` in each open session, or restart Claude 
 | [`handily-quiet-items`](mods/handily-quiet-items/README.md) | One short row in place of each tracker write in the transcript | `/quiet-items` |
 | [`handily-item-toasts`](mods/handily-item-toasts/README.md) | A toast when a work item changes outside your session | `/item-toasts` |
 | [`handily-simple-view`](mods/handily-simple-view/README.md) | One short row for each tool call, except a call that asks you or shows you a plan | `/simple` |
-| [`handily-reply-view`](mods/handily-reply-view/README.md) | Long replies fold, tables draw without box lines, copy buttons, a rule above each prompt | `/replies` |
+| [`handily-reply-view`](mods/handily-reply-view/README.md) | Long replies fold, tables draw without box lines, copy buttons, a rule above each prompt, messages from other sessions as structured text | `/replies` |
 | [`handily-board`](mods/handily-board/README.md) | A board with two tabs: your tasks and agents, and every local session with its agents | `/board` |
 | [`handily-filetree`](mods/handily-filetree/README.md) | A files tab beside the board: the working folder as a tree, with the git state of each file | `/tree` |
 | [`handily-tests`](mods/handily-tests/README.md) | A tests tab and a status line: the failed tests of the last run by name, with their file, line and assertion | `/tests` |

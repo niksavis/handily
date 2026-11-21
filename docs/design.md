@@ -461,7 +461,7 @@ Sources, in order of detection:
 
 | Tracker | Detect by | Read path |
 | --- | --- | --- |
-| basicly | `.basicly/ledger/template.json` | `basicly tracker items --json`, one call for every open status |
+| basicly | `.basicly/ledger/template.json`, or a vault file `.basicly/ledger` | `basicly tracker items --json`, one call for every open status |
 | beads (`bd`), beads_rust (`br`) | `.beads/issues.jsonl` | Built-in JSONL reader; over 4 MiB, streamed through a fixed system reader with no approval |
 | beans | `.beans/**/<id>--<slug>.md` | Built-in front-matter reader |
 | Any other | Globs and a field map in `.handily.json` | Generic JSON, JSONL or front-matter reader |
@@ -472,6 +472,10 @@ basicly:
 - The ledger holds `template.json`, `pending-<branch>.jsonl` and `snapshot.jsonl`. Files
   `events-*.jsonl` appear only after a fold. So the provider detects basicly by
   `template.json`.
+- A ledger that moved to a vault is one file `.basicly/ledger` with the schema
+  `basicly.tracker.frozen-ledger.v1`. The provider detects it too and reads it with the same
+  command. A vault change touches no repository file, so its signature adds a step of 30 seconds
+  from the provider clock, and the polls between two steps run no command (handily-ib002t).
 - The provider runs this command from `PATH` (review decision 9):
   `basicly tracker items --json --status open --status in_progress --status blocked`.
   basicly 0.21.1 or later runs only the installed package for this command. An older basicly
@@ -842,6 +846,9 @@ Compact error rows and the call tab (handily-z1k1cu, decided 2026-11-19). The ow
 compact rows for many tool errors, and for a fold that does not move the view. The probes of
 2026-11-19 on Claude Code 2.1.328 set the build:
 
+- In Code Mode a `REPL` result that the engine stored as dispatched (`asyncDispatched` true) draws
+  `dispatched #N` in place of `done`, and a `Poll` row names each event whose nonce is on the
+  first line of the result, so a quoted event never counts (handily-15iquz).
 - A failed call inside a REPL script renders `ToolUse` and `ToolResult` with its real tool name,
   `isErrored` true and `output` undefined (probe P1). The engine draws its own error row. So the
   `tool.call` hook keeps the error text of each failed call, keyed by `tool_use_id`, for the
@@ -1598,6 +1605,9 @@ Diagrams:
   names the kinds from the list, and the fold row takes the plain name (handily-2dpxv0.27).
   The hint names the five C4 kinds once, as `C4Context and the other C4 kinds`, to stay under
   its limit of 540 characters (handily-2dpxv0.8).
+- A dotted link with a label, `A -. text .-> B`, draws as `A -.->|text| B` does, and an entity
+  code in a label, such as `#quot;` or `#35;`, draws as its character. The flowcharts of the
+  basicly decision skills use both (handily-2dpxv0.28).
 - A flowchart `subgraph` draws as a frame with a dotted border around its boxes, with its title
   on the top edge. A box belongs to the first subgraph that names it, as in Mermaid. The frames
   keep one order in every level, and each frame is only as wide as its boxes and its title need.

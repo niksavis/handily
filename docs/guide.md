@@ -110,6 +110,11 @@ that asks you or shows you a plan keeps the row of Claude Code. The row of anoth
 | `/simple on` | Turns the short rows on for this session |
 | `/simple off` | Turns the short rows off for this session. Tool calls draw as Claude Code draws them |
 | `/simple show N` | Prints the input, the output and the file diff of the N-th last tool call. 1 is the last call |
+| `/simple open N` | Shows the N-th last tool call in the `call` tab. 1 is the last call |
+| `/simple open error` | Shows the last kept call that failed in the `call` tab |
+
+In Code Mode, a `REPL` script that Claude Code started without waiting shows `dispatched` and its
+number, and a `Poll` row names each event that arrived, such as `#12 done` or `no new events`.
 
 Settings:
 
@@ -122,13 +127,19 @@ More: [mods/handily-simple-view/README.md](../mods/handily-simple-view/README.md
 It folds a reply of more than 30 lines to its first lines. Tables and diagrams draw in colour.
 Tables draw with rules between their columns, or in a full box when the Table style setting is
 `box`. Each table and code block gets a `copy` button. Each prompt that you type opens under a
-rule labelled `you`.
+rule labelled `you`. A message from another session draws as one row, and its `message` tab
+draws the message as structured text: bold labels, numbered lists, note and warning boxes, and
+ids, file names and code names in the code colour.
 
 | Command | What it does |
 | --- | --- |
 | `/replies` | Turns the reply view off or on for this session |
-
-`/replies` takes no argument.
+| `/replies hints` | Turns the diagram hints off or on for this session |
+| `/replies copy diagram` | Copies the source of the last diagram of the last reply. `chart`, `table`, `code` and `reply` copy those |
+| `/replies prompts` | Opens or closes the prompts tab. `/replies prompts close` closes it |
+| `/replies next`, `/replies prev` | Moves the transcript to the next or the previous prompt |
+| `/replies prompt 9` | Moves the transcript to prompt 9 |
+| `/replies message` | Opens the last message from another session in the `message` tab. `/replies message 2` opens the one before it |
 
 Settings:
 
