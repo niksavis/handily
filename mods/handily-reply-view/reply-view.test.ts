@@ -2338,7 +2338,7 @@ describe('mermaid flowcharts', () => {
     'A === B',
     'A ---> B',
     'A -->> B',
-    'A -. text .-> B',
+    'A -. text .- B',
     'A -- yes --- B',
     'A[foo (bar)]',
     'A []',

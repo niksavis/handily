@@ -660,6 +660,11 @@ kind of the diagram, and two buttons at the right edge. The drawing replaces the
   `A --> B; B --> C` and `graph LR; A --> B` draw as on separate lines. A semicolon inside a quoted
   label, a bracket label such as `B[three; four]`, a pipe label or a text link such as
   `-- seven; eight -->` stays in the label.
+- A dotted link with a label, such as `A -. dissent .-> B`, draws as `A -.->|dissent| B` does: a
+  dashed line with the label.
+- An entity code in a label draws as its character: `#quot;` as `"`, `#amp;` as `&`, `#lt;` as
+  `<`, `#gt;` as `>`, `#apos;` as `'`, `#nbsp;` as a space, and a number such as `#35;` as the
+  character with that code.
 - When the labels of the boxes must fit, they wrap at spaces at 16 columns, then at 12 columns. A
   longer word stays whole, and its box widens. Only when the drawing still does not fit, a long
   word breaks inside, at the room that its level leaves for each box. A box alone in its level

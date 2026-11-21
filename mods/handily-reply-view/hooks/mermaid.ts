@@ -262,6 +262,16 @@ const LABEL_OPENERS: ReadonlySet<string> = new Set(['[', '(', '{'])
 const LABEL_CLOSERS: ReadonlySet<string> = new Set([']', ')', '}'])
 const QUOTE = '"'
 const TEXT_LINK = /--(?![->.])/y
+const DOTTED_TEXT_LINK = /-\.(?![-.])/y
+const ENTITY = /#(quot|amp|lt|gt|apos|nbsp|\d+);/g
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  quot: '"',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  apos: "'",
+  nbsp: ' ',
+}
 const LINE_BREAK = /<br\s*\/?>/i
 const FLOW_HEADER = /^(flowchart|graph)(?:\s+(\S+))?$/
 const SEQUENCE_HEADER = 'sequenceDiagram'
@@ -296,6 +306,8 @@ const FAN_OUT = /\s*&\s*/y
 const SPACES = /\s*/y
 const TEXT_LINK_OPENING = /\s*--(?![->.])/y
 const TEXT_LINK_CLOSING = '-->'
+const DOTTED_TEXT_LINK_OPENING = /\s*-\.(?![-.])/y
+const DOTTED_TEXT_LINK_CLOSING = '.->'
 const PLAIN_LINK = /\s*(-\.->|-\.-|-->|---|==>)\s*/y
 const PIPE = '|'
 const QUOTED_TEXT = /"[^"]*"/y
@@ -399,8 +411,15 @@ function statementsOf(lines: readonly string[]): Statement[] {
     .filter(({ text }) => text !== '' && !COMMENT.test(text))
 }
 
+function decodedEntity(whole: string, name: string): string {
+  const named = NAMED_ENTITIES[name]
+  if (named !== undefined) return named
+  const code = Number(name)
+  return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+}
+
 export function textLines(text: string): string[] {
-  return text.split(LINE_BREAK).map((line) => line.trim())
+  return text.split(LINE_BREAK).map((line) => line.replace(ENTITY, decodedEntity).trim())
 }
 
 function labelLines(raw: string, line: number): string[] {
@@ -718,6 +737,9 @@ export function takeLink(cursor: Cursor): (LinkSyntax & { label: string[] }) | n
   if (cursor.take(TEXT_LINK_OPENING) !== null) {
     return { stroke: 'solid', arrow: true, label: edgeLabel(cursor, TEXT_LINK_CLOSING) }
   }
+  if (cursor.take(DOTTED_TEXT_LINK_OPENING) !== null) {
+    return { stroke: 'dashed', arrow: true, label: edgeLabel(cursor, DOTTED_TEXT_LINK_CLOSING) }
+  }
   const found = cursor.take(PLAIN_LINK)
   if (found === null) return null
   const syntax = LINKS[found[1] ?? '']
@@ -1004,6 +1026,11 @@ function isTextLinkAt(text: string, at: number): boolean {
   return TEXT_LINK.test(text)
 }
 
+function isDottedTextLinkAt(text: string, at: number): boolean {
+  DOTTED_TEXT_LINK.lastIndex = at
+  return DOTTED_TEXT_LINK.test(text)
+}
+
 function labelEnd(text: string, at: number): number | null {
   const char = text.charAt(at)
   if (char === QUOTE) return closedAt(text, QUOTE, at + 1)
@@ -1012,6 +1039,7 @@ function labelEnd(text: string, at: number): number | null {
   const link = linkAt(text, at)
   if (link !== undefined) return at + link.length
   if (isTextLinkAt(text, at)) return closedAt(text, TEXT_LINK_CLOSING, at + 2)
+  if (isDottedTextLinkAt(text, at)) return closedAt(text, DOTTED_TEXT_LINK_CLOSING, at + 2)
   return null
 }
 
