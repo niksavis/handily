@@ -6,6 +6,34 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-simple-view 0.15.0 - 2026-11-21
+
+In Code Mode, a REPL row says when a script only started, and a Poll row says which scripts
+ended and how.
+
+### Added
+
+- **A REPL script that Claude Code started without waiting shows its number.** The row shows
+  `dispatched #12` in place of `done`. A script that ran to its end keeps `done` and its line
+  count. (handily-15iquz)
+- **A Poll row names each event that arrived.** It shows the script number with `done` or
+  `error`, such as `#12 done`, the count of scripts that still run, or `no new events`. A row
+  with an error is red. An event that a script output only quotes does not count.
+  (handily-15iquz)
+
+## handily-reply-view 0.30.0 - 2026-11-21
+
+reply-view draws the flowcharts of the basicly decision skills, such as council and swarm.
+
+### Added
+
+- **A dotted link with a label draws as a dashed line with the label.** `A -. dissent .-> B`
+  draws as `A -.->|dissent| B` does. Before, the whole diagram showed as source under a note.
+  (handily-2dpxv0.28)
+- **An entity code in a label draws as its character.** `#quot;` draws as `"`, and a number
+  such as `#35;` draws as the character with that code. Before, the code showed as text.
+  (handily-2dpxv0.28)
+
 ## handily-board 0.31.0 - 2026-11-20
 
 Claude can recommend an option or an answer on a task for you. The board draws it first with a
