@@ -6,6 +6,17 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.34.1 - 2026-11-24
+
+A press on more keeps the long reply in view.
+
+### Fixed
+
+- **More keeps the pressed reply in view.** A press on `more` of a long reply at the bottom of
+  a fullscreen transcript jumped the view to the end of the reply, so the reply and its `less`
+  button left the screen. Now the press scrolls the reply to the top of the window first, and the
+  rest opens under the fold row. (handily-wlanuz)
+
 ## handily-reply-view 0.34.0 - 2026-11-21
 
 A long reply draws each markdown block once, already formatted.
