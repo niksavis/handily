@@ -25,6 +25,7 @@ import {
   type ReplyMarks,
 } from './draw'
 import { DEFAULT_REPLY_STYLE, isReplyStyle, REPLY_STYLES, type ReplyStyle } from './frame'
+import { foldId, pressFold, type FoldPort } from './fold-press'
 import { DIAGRAM_HINT } from './hint'
 import {
   DEFAULT_STREAMING,
@@ -343,18 +344,28 @@ async function replyMarks($: EngineInterface, surface: RenderSurface): Promise<R
   }
 }
 
+function foldPortOf($: EngineInterface): FoldPort {
+  return {
+    scroll: (requestId) => $.ui.scroll({ to: { requestId }, block: 'start' }),
+    keep: async (id, next) => {
+      await $.state.set({ plugin: 'handily-reply-view', key: 'folds', id }, next)
+    },
+    log: (text) => {
+      $.ui.log(text, { to: 'debug' })
+    },
+    fail: (what, error) => {
+      logFailure($, what, error)
+    },
+  }
+}
+
 function replyActions($: EngineInterface, id: string): ReplyActions {
   return {
     copy: (copy, surface) => {
       void copyText($, copy.text, copy.what, surface, copy.mark)
     },
     fold: (next, block) => {
-      const what = block === undefined ? 'the reply' : 'the code block'
-      void $.state
-        .set({ plugin: 'handily-reply-view', key: 'folds', id: foldId(id, block) }, next)
-        .catch((error: unknown) => {
-          logFailure($, `${what} did not ${next === 'folded' ? 'fold' : 'open'}`, error)
-        })
+      void pressFold(foldPortOf($), id, next, block)
     },
   }
 }
@@ -452,10 +463,6 @@ async function recheckWork($: EngineInterface): Promise<void> {
   } catch (error) {
     logFailure($, 'the turn lines did not check the running work again', error)
   }
-}
-
-function foldId(id: string, block: string | undefined): string {
-  return block === undefined ? id : `${id}#${block}`
 }
 
 async function foldOf($: EngineInterface, id: string): Promise<ReplyViewFold> {

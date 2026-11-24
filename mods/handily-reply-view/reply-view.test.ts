@@ -17,6 +17,7 @@ import { diagramOf, replyTree, type ReplyElements } from './hooks/draw'
 import { blocksOf } from './hooks/markdown'
 import { RULE_SAMPLES } from './fixtures/plain-text'
 import { jumpTo, railCommandOf, runRailCommand, type RailPort } from './hooks/jump'
+import { pressFold, type FoldPort } from './hooks/fold-press'
 import {
   addPrompt,
   clearRail,
@@ -572,6 +573,59 @@ describe('long reply', () => {
       },
     )
   }
+
+  type FoldCalls = { calls: string[]; port: FoldPort }
+
+  function foldPort(answer: () => Promise<{ deny?: string }>): FoldCalls {
+    const calls: string[] = []
+    return {
+      calls,
+      port: {
+        scroll: (requestId) => {
+          calls.push(`scroll ${requestId}`)
+          return answer()
+        },
+        keep: (id, next) => {
+          calls.push(`keep ${id} ${next}`)
+          return Promise.resolve()
+        },
+        log: (text) => calls.push(`log ${text}`),
+        fail: (what, error) => calls.push(`fail ${what}: ${String(error)}`),
+      },
+    }
+  }
+
+  test('more scrolls the pressed reply to the top of the window inside the press, before it opens', async () => {
+    const { calls, port } = foldPort(() => Promise.resolve({}))
+    const pressed = pressFold(port, 'message-1', 'open')
+    expect(calls).toEqual(['scroll message-1', 'keep message-1 open'])
+    await pressed
+    expect(calls).toEqual(['scroll message-1', 'keep message-1 open'])
+  })
+
+  test('less and the more of a code block do not move the transcript', async () => {
+    const { calls, port } = foldPort(() => Promise.resolve({}))
+    await pressFold(port, 'message-1', 'folded')
+    await pressFold(port, 'message-1', 'open', 'block-1')
+    expect(calls).toEqual(['keep message-1 folded', 'keep message-1#block-1 open'])
+  })
+
+  test('a refused or failed scroll names its reason in the debug log, and the reply still opens', async () => {
+    const refused = foldPort(() => Promise.resolve({ deny: 'not person-initiated' }))
+    await pressFold(refused.port, 'message-1', 'open')
+    expect(refused.calls).toEqual([
+      'scroll message-1',
+      'keep message-1 open',
+      'log reply-view: reply message-1 was not kept in view: not person-initiated',
+    ])
+    const failed = foldPort(() => Promise.reject(new Error('the engine failed')))
+    await pressFold(failed.port, 'message-1', 'open')
+    expect(failed.calls).toEqual([
+      'scroll message-1',
+      'keep message-1 open',
+      'fail reply message-1 was not kept in view: Error: the engine failed',
+    ])
+  })
 
   viewTest('copy copies the whole reply as markdown', async (world, $) => {
     const ui = await mountReply($, reply(LONG_REPLY))

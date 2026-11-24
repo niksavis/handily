@@ -55,12 +55,12 @@ buttons at the right edge:
                      [ more ] [ copy reply ]
 ```
 
-- `more` keeps the place on the screen. The preview stays as it was, no rule is added above it,
-  and the fold row stays at its line with `less` where `more` was. The fold row turns `▸` into
-  `▾`, and the rest of the reply draws under it. A block that the preview cut goes on under
-  the fold row from the line where the preview cut it: a paragraph from the next word, a table
-  from the next row, a code block from the next line with its line numbers, a diagram from its
-  next row. No title and no button repeats. `less` folds the rest again:
+- `more` keeps the reply in view: it scrolls the reply to the top of the window. The preview stays
+  as it was, no rule is added above it, and the fold row keeps `less` where `more` was. The fold
+  row turns `▸` into `▾`, and the rest of the reply draws under it. A block that the preview cut
+  goes on under the fold row from the line where the preview cut it: a paragraph from the next
+  word, a table from the next row, a code block from the next line with its line numbers, a
+  diagram from its next row. No title and no button repeats. `less` folds the rest again:
 
 ```text
 ● The release is done. task-pane 0.3.0 and agent-board 0.2.0 are published, and every gate passed.
@@ -2859,10 +2859,14 @@ chart draws under the block before it.
   stays open or folded when it draws again. A press on `more` of a message row below 110
   columns keeps one small value for that row, and the `message` tab keeps the id of the message
   that it shows.
-- The fold keeps the place of the pressed button only while the engine keeps the place of the
-  reply. At the bottom of a fullscreen transcript the engine keeps its bottom edge, so the rest of
-  a reply that opens under the fold row pushes the reply up. Scrolled up, the engine keeps its
-  top edge, and the button stays at its line (probe P2 of handily-z1k1cu, Claude Code 2.1.328).
+- A press on `more` of a long reply first scrolls that reply to the top of the window, then
+  opens it. At the bottom of a fullscreen transcript the engine keeps its bottom edge, so without
+  the scroll the rest of the reply pushed the reply and its `less` button out of view (probe P2
+  of handily-z1k1cu, Claude Code 2.1.328). The engine moves a transcript row only while the mod
+  answers the press itself, so the scroll runs inside the press, before the reply opens. A scroll
+  after the reply opened was refused as `not person-initiated` (handily-wlanuz, Claude Code
+  2.1.331). A refused scroll goes to the debug log, and the reply still opens. `less` and the
+  `more` of a code block do not scroll.
 - With another pane already docked, such as the board, the transcript is narrower, for example 83
   columns at 150. The mod keeps in memory the widest transcript columns that its own renders saw
   in fullscreen, and the rows that came with them. A press counts as docked when the transcript
