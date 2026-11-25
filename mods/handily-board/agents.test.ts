@@ -335,16 +335,17 @@ function rowLine(children: readonly Drawn[], width: number): string {
     .join('')
 }
 
-const LOG_TITLE = /^(╭─ )?Log {2}/u
+const LOG_TITLE = /^( {2})?Log {2}/u
+const SECTION_RULE = /^─+$/u
 
 function withoutLog(lines: readonly string[]): string[] {
   const head = lines.findIndex((line) => LOG_TITLE.test(line))
   if (head < 0) return [...lines]
-  const isFramed = lines[head]?.startsWith('╭') === true
+  const isFramed = lines[head]?.startsWith('  ') === true
   const first = isFramed ? head : head - 1
   const rest = lines.slice(head + 1)
   const after = isFramed
-    ? rest.findIndex((line) => line.startsWith('╰')) + 1
+    ? rest.findIndex((line) => SECTION_RULE.test(line)) + 1
     : rest.findIndex((line) => line === '')
   return [...lines.slice(0, first), ...lines.slice(head + 1 + Math.max(after, 0))]
 }
@@ -359,16 +360,22 @@ async function screen(ui: { find: Mounted['find'] }, columns: number): Promise<s
   return withoutLog(lines)
 }
 
-const FRAME_TOP = /^╭─ (.*?) ─+(?: (.+?) ─)?╮$/u
-const FRAME_SIDE = /^│ (.*) │$/u
+const FRAME_TITLE = /^ {2}((?:Session|Tasks|Agents|Log)\b.*?)(?: {3,}(\S.*))?$/u
+const FRAME_BODY = /^ {2}/u
 
 function unframed(lines: readonly string[]): string[] {
+  let isInside = false
   return lines.flatMap((line) => {
-    if (line.startsWith('╰')) return []
-    const top = FRAME_TOP.exec(line)
-    if (top !== null) return [top[2] === undefined ? (top[1] ?? '') : `${top[1] ?? ''}  ${top[2]}`]
-    const side = FRAME_SIDE.exec(line)
-    return [side === null ? line : (side[1] ?? '').trimEnd()]
+    const title = FRAME_TITLE.exec(line)
+    if (title !== null) {
+      isInside = true
+      return [title[2] === undefined ? (title[1] ?? '') : `${title[1] ?? ''}  ${title[2]}`]
+    }
+    if (isInside && SECTION_RULE.test(line)) {
+      isInside = false
+      return []
+    }
+    return [isInside ? line.replace(FRAME_BODY, '') : line]
   })
 }
 
@@ -390,12 +397,7 @@ function agentLines(framed: readonly string[]): string[] {
 
 async function textsUnder(ui: { find: Mounted['find'] }, key: string): Promise<string[]> {
   const found = drawnOf(await ui.find({ key }))
-  const sides = new Set(['│ ', ' │'])
-  return found === null
-    ? []
-    : texts(found)
-        .map((one) => one.text)
-        .filter((text) => !sides.has(text))
+  return found === null ? [] : texts(found).map((one) => one.text)
 }
 
 const LANE = 'a0000001lane'
@@ -509,28 +511,28 @@ const SCENE_SCREENS: readonly {
     placement: 'dock',
     columns: 41,
     framed: [
-      '╭─ Session ──────────────────── ○ idle ─╮',
-      '│ ctx — until the first reply           │',
-      '│ limits — until the first reply        │',
-      '│ req —                                 │',
-      `│ ${SCENE_GATE}          │`,
-      `│ ${SCENE_VERDICTS}       │`,
-      `│ ${SCENE_FAMILIES}    │`,
-      '╰───────────────────────────────────────╯',
-      '╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ───────╮',
-      '│ ▶ 2 Write the tab mocks     4m [ rm ] │',
-      '│     ▸ Edit docs/mocks.md      9 tools │',
-      '│ ○ 3 Review the mocks with Cod… [ rm ] │',
-      '│ ○ 4 Ask the person about tabs  [ rm ] │',
-      '│ [ +1 done ]                           │',
-      '╰───────────────────────────────────────╯',
-      '╭─ Agents  3 · 1 failed ────────────────╮',
-      '│ 1: ■ lane-b    failed              4m │',
-      '│     failed after Bash npm test        │',
-      '│ 2: ▶ Explore   plan 2/7      open  1m │',
-      '│ 3: ▶ scout     on hold             2m │',
-      '│ [ +2 ended ]                          │',
-      '╰───────────────────────────────────────╯',
+      '  Session                       ○ idle',
+      '  ctx — until the first reply',
+      '  limits — until the first reply',
+      '  req —',
+      `  ${SCENE_GATE}`,
+      `  ${SCENE_VERDICTS}`,
+      `  ${SCENE_FAMILIES}`,
+      '─────────────────────────────────────────',
+      '  Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
+      '  ▶ 2 Write the tab mocks     4m [ rm ]',
+      '      ▸ Edit docs/mocks.md      9 tools',
+      '  ○ 3 Review the mocks with Cod… [ rm ]',
+      '  ○ 4 Ask the person about tabs  [ rm ]',
+      '  [ +1 done ]',
+      '─────────────────────────────────────────',
+      '  Agents  3 · 1 failed',
+      '  1: ■ lane-b    failed              4m',
+      '      failed after Bash npm test',
+      '  2: ▶ Explore   plan 2/7      open  1m',
+      '  3: ▶ scout     on hold             2m',
+      '  [ +2 ended ]',
+      '─────────────────────────────────────────',
       '',
       '[ Add a task ][Add]',
     ],
@@ -1019,27 +1021,27 @@ describe(FOLD_CRITERION, () => {
           bySurface(
             surface,
             [
-              '╭─ Session ──────────────────── ○ idle ─╮',
-              '│ ctx — until the first reply           │',
-              '│ limits — until the first reply        │',
-              '│ req —                                 │',
-              '│ gate 1 ▮                              │',
-              '│ 1 allowed · 0 asked · 0 denied        │',
-              '│ f: file 0  s: shell 1  o: other 0     │',
-              '╰───────────────────────────────────────╯',
-              '╭─ Tasks  ▱ 0/1 · ○1 ───────────────────╮',
-              '│ ○ 1 Write the tab mocks        [ rm ] │',
-              '╰───────────────────────────────────────╯',
-              '╭─ Agents  16 · 1 failed ───────────────╮',
-              '│ 1: ■ lane-b    failed              0s │',
-              '│     failed after Bash npm test        │',
-              '│ 2: ▶ Explore   running       open  1m │',
-              '│ 3: ▶ Explore 2 running       open  1m │',
-              '│ 4: ▶ Explore 3 running       open  1m │',
-              '│ 5: ▶ Explore 4 running       open  1m │',
-              '│    ▶ Explore 5 running       open  1m │',
-              '│ [ +10 more agents ]  [ +5 ended ]     │',
-              '╰───────────────────────────────────────╯',
+              '  Session                       ○ idle',
+              '  ctx — until the first reply',
+              '  limits — until the first reply',
+              '  req —',
+              '  gate 1 ▮',
+              '  1 allowed · 0 asked · 0 denied',
+              '  f: file 0  s: shell 1  o: other 0',
+              '─────────────────────────────────────────',
+              '  Tasks  ▱ 0/1 · ○1',
+              '  ○ 1 Write the tab mocks        [ rm ]',
+              '─────────────────────────────────────────',
+              '  Agents  16 · 1 failed',
+              '  1: ■ lane-b    failed              0s',
+              '      failed after Bash npm test',
+              '  2: ▶ Explore   running       open  1m',
+              '  3: ▶ Explore 2 running       open  1m',
+              '  4: ▶ Explore 3 running       open  1m',
+              '  5: ▶ Explore 4 running       open  1m',
+              '     ▶ Explore 5 running       open  1m',
+              '  [ +10 more agents ]  [ +5 ended ]',
+              '─────────────────────────────────────────',
               '',
               '[ Add a task ][Add]',
             ],
@@ -2175,17 +2177,17 @@ const CHECK_SCREENS: readonly {
   {
     columns: 41,
     framed: [
-      '╭─ Session ──────────────────── ○ idle ─╮',
-      '│ ctx — until the first reply           │',
-      '│   checks 6 · 3 allowed · 2 asked      │',
-      '│   1 denied                            │',
-      '│   file 3 · shell 3 · other 0          │',
-      '│   [ hide checks ]                     │',
-      '│   denied   Bash GITHUB_TOKEN=*** git… │',
-      '│   allowed  Bash curl -H "Authorizati… │',
-      '│   asked    Edit docs/mocks.md         │',
-      '│   asked    Bash npm test   scout      │',
-      '│   allowed  Read hooks/agen…   Explore │',
+      '  Session                       ○ idle',
+      '  ctx — until the first reply',
+      '    checks 6 · 3 allowed · 2 asked',
+      '    1 denied',
+      '    file 3 · shell 3 · other 0',
+      '    [ hide checks ]',
+      '    denied   Bash GITHUB_TOKEN=*** git…',
+      '    allowed  Bash curl -H "Authorizati…',
+      '    asked    Edit docs/mocks.md',
+      '    asked    Bash npm test   scout',
+      '    allowed  Read hooks/agen…   Explore',
     ],
     lines: [
       'Session  ○ idle',
@@ -2204,16 +2206,16 @@ const CHECK_SCREENS: readonly {
   {
     columns: 100,
     framed: [
-      `╭─ Session ${'─'.repeat(79)} ○ idle ─╮`,
-      `│ ${'ctx — until the first reply'.padEnd(96)} │`,
-      `│ ${'  checks 6 · 3 allowed · 2 asked · 1 denied'.padEnd(96)} │`,
-      `│ ${'  file 3 · shell 3 · other 0'.padEnd(96)} │`,
-      `│ ${'  [ hide checks ]'.padEnd(96)} │`,
-      `│ ${'  denied   Bash GITHUB_TOKEN=*** git push --force origin main'.padEnd(96)} │`,
-      `│ ${'  allowed  Bash curl -H "Authorization: ***" https://***@example.com/api?token=***'.padEnd(96)} │`,
-      `│ ${'  asked    Edit docs/mocks.md'.padEnd(96)} │`,
-      `│ ${'  asked    Bash npm test   scout'.padEnd(96)} │`,
-      `│ ${'  allowed  Read hooks/agents.ts   Explore'.padEnd(96)} │`,
+      `  Session${' '.repeat(82)}○ idle`,
+      '  ctx — until the first reply',
+      '    checks 6 · 3 allowed · 2 asked · 1 denied',
+      '    file 3 · shell 3 · other 0',
+      '    [ hide checks ]',
+      '    denied   Bash GITHUB_TOKEN=*** git push --force origin main',
+      '    allowed  Bash curl -H "Authorization: ***" https://***@example.com/api?token=***',
+      '    asked    Edit docs/mocks.md',
+      '    asked    Bash npm test   scout',
+      '    allowed  Read hooks/agents.ts   Explore',
     ],
     lines: [
       'Session  ○ idle',

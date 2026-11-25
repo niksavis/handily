@@ -299,11 +299,11 @@ async function tabLines(
 }
 
 function sessionPart(lines: readonly string[]): string[] {
-  const first = lines.findIndex((line) => /^(╭─ )?Session /u.test(line))
+  const first = lines.findIndex((line) => /^( {2})?Session /u.test(line))
   if (first < 0) throw new Error(`no Session section in:\n${lines.join('\n')}`)
-  const isFramed = lines[first]?.startsWith('╭') === true
+  const isFramed = lines[first]?.startsWith('  ') === true
   const end = isFramed
-    ? lines.findIndex((line, index) => index > first && line.startsWith('╰'))
+    ? lines.findIndex((line, index) => index > first && /^─+$/u.test(line))
     : lines.findIndex((line, index) => index > first && /^(ctx|req|limits) /u.test(line))
   return lines.slice(first, end < 0 ? undefined : isFramed ? end + 1 : end)
 }
@@ -522,10 +522,10 @@ const NO_TURN_CRITERION =
   'When the Stop input has no background list, the board shows no turn and never idle.'
 
 const FRAMED_WAITING = [
-  '╭─ Session ────────────── ◷ waiting 3m ─╮',
-  '│ on shell   Watch the CI run        3m │',
-  '│    monitor deploy log              3m │',
-  '│    [ tasks ] +1 more                  │',
+  '  Session                 ◷ waiting 3m',
+  '  on shell   Watch the CI run        3m',
+  '     monitor deploy log              3m',
+  '     [ tasks ] +1 more',
 ]
 
 describe(WAITING_CRITERION, () => {
@@ -640,7 +640,7 @@ describe(WAITING_CRITERION, () => {
         )
         const tab = sessionPart(await tabLines($, surface, 'dock', 41))
         if (surface === 'terminal') {
-          expect(tab[0]).toBe('╭─ Session ──────────── ◷ waiting 40m? ─╮')
+          expect(tab[0]).toBe('  Session               ◷ waiting 40m?')
         } else {
           expect(tab.slice(0, 3)).toEqual([
             'Session  ◷ waiting 40m?',
@@ -682,7 +682,7 @@ describe(WAITING_CRITERION, () => {
     })
     expect(seen.statuses).toEqual([])
     expect(sessionPart(await tabLines($, 'terminal', 'dock', 41))[0]).toBe(
-      '╭─ Session ───────────────── ○ no turn ─╮',
+      '  Session                    ○ no turn',
     )
   })
 })
@@ -703,9 +703,7 @@ describe(CLEAR_CRITERION, () => {
         expect(lastStatus(seen)).toBeUndefined()
         const running = sessionPart(await tabLines($, surface, 'dock', 41))
         expect(running[0]).toBe(
-          surface === 'terminal'
-            ? '╭─ Session ───────────────── ▶ working ─╮'
-            : 'Session  ▶ working',
+          surface === 'terminal' ? '  Session                    ▶ working' : 'Session  ▶ working',
         )
         expect(await bandLines($, surface, 120)).toBeUndefined()
         await seen.clock.advance(5 * SECOND)
@@ -719,7 +717,7 @@ describe(CLEAR_CRITERION, () => {
         await stop($, { tasks: [], crons: [] })
         const idle = sessionPart(await tabLines($, surface, 'dock', 41))
         expect(idle[0]).toBe(
-          surface === 'terminal' ? '╭─ Session ──────────────────── ○ idle ─╮' : 'Session  ○ idle',
+          surface === 'terminal' ? '  Session                       ○ idle' : 'Session  ○ idle',
         )
         expect(lastStatus(seen)).toBeUndefined()
         const statuses = seen.statuses.length
@@ -740,15 +738,15 @@ describe(NO_TURN_CRITERION, () => {
         await start($, surface)
         const fresh = sessionPart(await tabLines($, surface, 'dock', 41))
         expect(fresh[0]).toBe(
-          surface === 'terminal' ? '╭─ Session ──────────────────── ○ idle ─╮' : 'Session  ○ idle',
+          surface === 'terminal' ? '  Session                       ○ idle' : 'Session  ○ idle',
         )
         await turn($, seen, 't1')
         await stop($, { crons: [] })
         const lines = sessionPart(await tabLines($, surface, 'dock', 41))
         if (surface === 'terminal') {
           expect(lines.slice(0, 2)).toEqual([
-            '╭─ Session ───────────────── ○ no turn ─╮',
-            '│ background: not reported              │',
+            '  Session                    ○ no turn',
+            '  background: not reported',
           ])
         } else {
           expect(lines[0]).toBe('Session  ○ no turn')
@@ -771,9 +769,7 @@ describe(NO_TURN_CRITERION, () => {
         expect(lastStatus(seen)).toBeUndefined()
         const lines = sessionPart(await tabLines($, surface, 'dock', 41))
         expect(lines[0]).toBe(
-          surface === 'terminal'
-            ? '╭─ Session ───────────────── ○ no turn ─╮'
-            : 'Session  ○ no turn',
+          surface === 'terminal' ? '  Session                    ○ no turn' : 'Session  ○ no turn',
         )
       },
     )
@@ -834,7 +830,7 @@ describe(REPAIR_CRITERION, () => {
         )
         expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toBe(
           surface === 'terminal'
-            ? '╭─ Session ────────────── ◷ waiting 3m ─╮'
+            ? '  Session                 ◷ waiting 3m'
             : 'Session  ◷ waiting 3m',
         )
       },
@@ -871,13 +867,11 @@ describe(REPAIR_CRITERION, () => {
         await start($, surface)
         await sessionStart($, 'startup')
         expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toBe(
-          surface === 'terminal' ? '╭─ Session ──────────────────── ○ idle ─╮' : 'Session  ○ idle',
+          surface === 'terminal' ? '  Session                       ○ idle' : 'Session  ○ idle',
         )
         await sessionStart($, 'resume')
         expect(headOf(sessionPart(await tabLines($, surface, 'dock', 41)))).toBe(
-          surface === 'terminal'
-            ? '╭─ Session ───────────────── ○ no turn ─╮'
-            : 'Session  ○ no turn',
+          surface === 'terminal' ? '  Session                    ○ no turn' : 'Session  ○ no turn',
         )
       },
     )

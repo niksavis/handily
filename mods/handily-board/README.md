@@ -272,18 +272,18 @@ You can press every button on both panes with the keyboard alone. A live check o
 Captures from the tests, docked at 41 columns on the terminal:
 
 ```text
-╭─ Session ─────────────────────────────╮
-│ ctx — until the first reply           │
-│ limits — until the first reply        │
-│ gate ▮▮▮▮▮▮▮▮▮▮ f10                   │
-╰───────────────────────────────────────╯
-╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ───────╮
-│ ▶ 2 Write the tab mocks     4m [ rm ] │
-│     ▸ Edit docs/mocks.md      9 tools │
-│ ○ 3 Review the mocks with Cod… [ rm ] │
-│ ○ 4 You: Ask the person about… [ rm ] │
-│ [ +1 done ]                           │
-╰───────────────────────────────────────╯
+  Session
+  ctx — until the first reply
+  limits — until the first reply
+  gate ▮▮▮▮▮▮▮▮▮▮ f10
+─────────────────────────────────────────
+  Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m
+  ▶ 2 Write the tab mocks     4m [ rm ]
+      ▸ Edit docs/mocks.md      9 tools
+  ○ 3 Review the mocks with Cod… [ rm ]
+  ○ 4 You: Ask the person about… [ rm ]
+  [ +1 done ]
+─────────────────────────────────────────
 
 [ Add a task ][Add]
 ```
@@ -612,23 +612,23 @@ Findings  ◆ 2 open
 
 The Session section shows the context, the cost, the limits, the model, the turn and the
 permission checks of this session. On the terminal, from a body of 41 columns, the Session,
-Tasks, Agents and Log sections each draw in a rounded frame of text, with the title on the top
-edge. A capture from the tests, docked at 41 columns, while a main turn runs and before the
-first model request:
+Tasks, Agents and Log sections each start with a bold title line and end with one dim rule. The
+rows are indented by 2 columns, and no box draws. A capture from the tests, docked at 41
+columns, while a main turn runs and before the first model request:
 
 ```text
-╭─ Session ───────────────── ▶ working ─╮
-│ ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k        │
-│ $4.18                                 │
-│ req —                                 │
-│ turn 0s · 0 edits · 0 errors · +$0.31 │
-│ gate 10 ▮▮▮▮▮▮▮▮▮▮                    │
-│ 10 allowed · 0 asked · 0 denied       │
-│ f: file 10  s: shell 0  o: other 0    │
-╰───────────────────────────────────────╯
+  Session                    ▶ working
+  ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k
+  $4.18
+  req —
+  turn 0s · 0 edits · 0 errors · +$0.31
+  gate 10 ▮▮▮▮▮▮▮▮▮▮
+  10 allowed · 0 asked · 0 denied
+  f: file 10  s: shell 0  o: other 0
+─────────────────────────────────────────
 ```
 
-The same session on the desktop app, docked at 41 columns, draws no frame:
+The same session on the desktop app, docked at 41 columns, draws the rows with no indent:
 
 ```text
 Session  ▶ working
@@ -640,7 +640,7 @@ gate 10 ▮▮▮▮▮▮▮▮▮▮
 f: file 10  s: shell 0  o: other 0
 ```
 
-Inline above the prompt, at 76 columns, the board draws no frame and joins the rows that fit:
+Inline above the prompt, at 76 columns, the board draws no indent and joins the rows that fit:
 
 ```text
 Session  ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.18
@@ -649,11 +649,11 @@ Session  ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $
     f: file 10  s: shell 0  o: other 0
 ```
 
-- The frame title ends with the waits, if any, and then the turn state: `▶ working` in
+- The title line ends with the waits, if any, and then the turn state: `▶ working` in
   `claude` while a main turn runs, `◷ waiting 3m` in `suggestion` while background work runs
   after the turn, `○ idle` dim when the last turn left nothing running, and `○ no turn` dim when
-  the board does not know. Without a frame, the same words follow the title. The section
-  "Waiting on background work" below gives the rule.
+  the board does not know. Below 41 columns, inline and on the desktop, the same words follow
+  the title. The section "Waiting on background work" below gives the rule.
 - When the board knows the context window, the context shows the tokens over the window, such
   as `124k/200k` or `663k/1.0M`, after the percent. A narrow row moves them to the next line.
 - From a body of 56 columns, each limit shows when it resets, such as `5h ▰▱▱▱▱ 31% resets 2h`.
@@ -671,14 +671,13 @@ Session  ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $
 The context and a limit at 80 percent or more, from the tests at 41 columns:
 
 ```text
-│ ctx ▰▰▰▰▰▰▰▰▰▱ 91% high               │
-│ $12.40 · 5h ▰▰▰▰▱ 84% high · 7d 13%   │
+  ctx ▰▰▰▰▰▰▰▰▰▱ 91% high
+  $12.40 · 5h ▰▰▰▰▱ 84% high · 7d 13%
 ```
 
-- The frame and the title of each section take the theme key of the section: Session `claude`,
-  Tasks `planMode`, Agents `merged`. Below 41 columns, inline above the prompt and on the desktop
-  app, no frame draws, and each title is bold in its key. A frame takes 4 columns, so an agent
-  row in a frame at 41 columns has no tool column.
+- The title of each section is bold in the theme key of the section: Session `claude`, Tasks
+  `planMode`, Agents `merged`. The rule under each section is dim. From 41 columns on the
+  terminal the indent takes 4 columns, so an agent row at 41 columns has no tool column.
 - `ctx 71%` is the context percent of the engine event `session.measure`. It is the figure that
   the Claude Code status line shows. The gauge has 10 cells and rounds down, so 71 percent fills
   7 cells. The percent always prints. Filled cells take `claude`, empty cells `subtle`.
@@ -707,7 +706,7 @@ The context and a limit at 80 percent or more, from the tests at 41 columns:
   each of the last 20 permission checks, oldest first: `▮` allowed in `success`, `▯` asked in
   `permission`, `■` denied in `error`. A counts row shows `allowed`, `asked` and `denied`. A
   denied count above 0 takes `error` and is never cut. When the counts fit, they join the gate
-  row. On the terminal frame, `gate no checks yet` shows before the first check.
+  row. On the terminal from 41 columns, `gate no checks yet` shows before the first check.
 - Three plain buttons name the counts of the file family (`f`, Read, Edit, Write,
   NotebookEdit, Glob and Grep), the shell family (`s`, Bash and PowerShell) and every other tool
   (`o`). Press `f`, `s` or `o`, or the button, to show the last 5 checks of that family, verdict
@@ -737,10 +736,10 @@ board marks this state as waiting, so it does not look idle. Captures from the t
 41 columns on the terminal, and inline at 40 columns:
 
 ```text
-╭─ Session ────────────── ◷ waiting 3m ─╮
-│ on shell   Watch the CI run        3m │
-│    monitor deploy log              3m │
-│    [ tasks ] +1 more                  │
+  Session                 ◷ waiting 3m
+  on shell   Watch the CI run        3m
+     monitor deploy log              3m
+     [ tasks ] +1 more
 ```
 
 ```text
@@ -775,8 +774,8 @@ The board reads the turn state from engine facts only:
   shows control and bidi characters as escapes.
 - After 30 minutes with no turn, the age reads `40m?` and the line adds `not seen since 40m`.
   The board never clears waiting by itself, because only Claude Code knows when the work ends.
-- A Stop without the lists, such as on an older Claude Code, shows `○ no turn` and, in the
-  frame, `background: not reported`. The board never guesses idle.
+- A Stop without the lists, such as on an older Claude Code, shows `○ no turn` and, on the
+  terminal from 41 columns, `background: not reported`. The board never guesses idle.
 - `[ tasks ]` and `open` run `/tasks`. A wakeup has no button.
 - While the session waits, the board draws again every 10 seconds, so the age moves also with
   no tab open.
@@ -804,25 +803,25 @@ turn 3m · 2 edits · 1 error · +$0.31
 gate ▮▮■ 1 denied
 ```
 
-In the terminal frame the details open under the context row, indented by 2:
+On the terminal from 41 columns the details open under the context row, indented by 2:
 
 ```text
-╭─ Session ─────────────────────────────╮
-│ ctx ▰▰▰▰▰▰▰▱▱▱ 71%                    │
-│   context 142k of 200k                │
-│   0 compactions                       │
-│   trend after 2 turns                 │
-│   no breakdown on this host           │
-│   limits 5h 31% · 7d 13%              │
-│   resets 5h in 1h · 7d in 1h          │
-│   checks 3 · 2 allowed · 1 denied     │
-│   file 2 · shell 1 · other 0          │
-│   [ last 3 checks ]                   │
-│ $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%   │
-│ opus-5-5 · high · accept edits        │
-│ turn 3m · 2 edits · 1 error · +$0.31  │
-│ gate ▮▮■ 1 denied                     │
-╰───────────────────────────────────────╯
+  Session
+  ctx ▰▰▰▰▰▰▰▱▱▱ 71%
+    context 142k of 200k
+    0 compactions
+    trend after 2 turns
+    no breakdown on this host
+    limits 5h 31% · 7d 13%
+    resets 5h in 1h · 7d in 1h
+    checks 3 · 2 allowed · 1 denied
+    file 2 · shell 1 · other 0
+    [ last 3 checks ]
+  $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%
+  opus-5-5 · high · accept edits
+  turn 3m · 2 edits · 1 error · +$0.31
+  gate ▮▮■ 1 denied
+─────────────────────────────────────────
 ```
 
 After 8 main turns on a host that gives the context parts, with `[ context parts ]` pressed,
@@ -1113,17 +1112,17 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
   ticks each second while the tab shows, and stops when it is hidden. A capture from the tests:
 
   ```text
-  ╭─ Agents  2 · 1 failed ────────────────╮
-  │ ╭────────────────╮ ╭────────────────╮ │
-  │ │ 1: ■ scout     │ │ 2: ▶ Explore   │ │
-  │ │ failed         │ │ quiet 2m       │ │
-  │ │ Bash npm test  │ │ map the hooks  │ │
-  │ │ find the elem… │ │ Explore        │ │
-  │ │ gene…l-purpose │ │ ctx 48k out 6k │ │
-  │ │ ctx 31k out 2k │ │ 1 step    2:00 │ │
-  │ │ 3 steps   2:10 │ │                │ │
-  │ ╰────────────────╯ ╰────────────────╯ │
-  ╰───────────────────────────────────────╯
+    Agents  2 · 1 failed
+    ╭────────────────╮ ╭────────────────╮
+    │ 1: ■ scout     │ │ 2: ▶ Explore   │
+    │ failed         │ │ quiet 2m       │
+    │ Bash npm test  │ │ map the hooks  │
+    │ find the elem… │ │ Explore        │
+    │ gene…l-purpose │ │ ctx 48k out 6k │
+    │ ctx 31k out 2k │ │ 1 step    2:00 │
+    │ 3 steps   2:10 │ │                │
+    ╰────────────────╯ ╰────────────────╯
+  ─────────────────────────────────────────
   ```
 
 - The first 5 agents have the digits 1 to 5. Press a digit to open that agent under the cards
@@ -1216,11 +1215,11 @@ Log  7 events
   at 41 columns:
 
   ```text
-  │     last calls                        │
-  │       ✓ Bash echo ***             20s │
-  │       ■ Bash npm test              3s │
-  │       ▸ Bash npm run check         3s │
-  │     answer: none yet                  │
+        last calls
+          ✓ Bash echo ***             20s
+          ■ Bash npm test              3s
+          ▸ Bash npm run check         3s
+        answer: none yet
   ```
 
 - The board reads the result of a request of a subagent only. It passes the response of a main
@@ -1593,9 +1592,9 @@ setting of its own. The captures in this file show the plain marks.
 
 ### Palette
 
-The frames, the gauge fill and the rules follow the setting Palette of the bundle `handily`.
+The section titles, the gauge fill and the rules follow the setting Palette of the bundle `handily`.
 With `catppuccin-mocha` on a dark theme or the theme `auto`, they draw the Catppuccin Mocha
-colours, such as `#cba6f7` for the Session frame. With `theme`, on a light theme, on an ANSI
+colours, such as `#cba6f7` for the Session title. With `theme`, on a light theme, on an ANSI
 theme, on a theme that the board cannot read, and on the desktop app, they draw the theme keys.
 States keep the theme keys in every palette: done, failed, waits, denied, high gauges and the
 git letters. `/handily palette` lists each role. The board reads the setting when the session

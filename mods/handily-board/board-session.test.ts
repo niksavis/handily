@@ -852,7 +852,7 @@ function sessionRows(lines: readonly string[]): string[] {
     0,
     flat.findIndex((line) => line.startsWith('Tasks')),
   )
-  return lines[0]?.startsWith('╭') === true ? rows.slice(1) : rows
+  return lines[0]?.startsWith('  Session') === true ? rows.slice(1) : rows
 }
 
 async function sessionTexts($: Engine, surface: Surface, columns: number): Promise<Drawn[]> {
@@ -1338,9 +1338,9 @@ async function detailsOf(ui: { find: Mounted['find'] }, columns: number): Promis
   const lines = await screen(ui, columns)
   const details = drawnOf(await ui.find({ key: 'session-details' }))
   if (details === null) return []
-  const isFramed = lines[0]?.startsWith('╭') === true
+  const isFramed = lines[0]?.startsWith('  Session') === true
   const body = unframed(screenOf(details, columns).map((line) => line.trimEnd()))
-  return isFramed ? withContextJoined(body.map((line) => `  ${line}`.trimEnd())) : body
+  return isFramed ? withContextJoined(body) : body
 }
 
 const DETAIL_SCREENS: readonly {

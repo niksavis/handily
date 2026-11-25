@@ -314,10 +314,11 @@ Decisions, each the recommended answer of mocks 12.9:
 
 - Every mock names its colours in a `Colours:` line under the block, by theme key, never by hex.
   Each coloured state also has a mark, a shape or a word, so the mock still reads with no colour.
-- The board draws a frame as text, `╭─ Title ──╮`, in the role key of its section: Session
-  `claude`, Tasks `planMode`, Agents `merged`. The engine `Box` border has no title, and an
-  absolute title position was never probed. Frames draw at body 41 and wider on the terminal
-  only. Inline above the prompt the board draws no frame (mock B7b).
+- From body 41 on the terminal, each section of the this session tab starts with a bold title
+  line in the role key of its section (Session `claude`, Tasks `planMode`, Agents `merged`),
+  indents its rows by 2 columns and ends with one dim rule. No box draws: the owner approved
+  removing the boxes of mocks 8 and 16 on 2026-11-21 (handily-iw7agt). Inline above the prompt
+  the board draws no indent (mock B7b).
 - Diagram lines and lifelines draw in `inactive`, not in `subtle`, because the lines carry the
   meaning and `subtle` has a contrast of 2.1 to 2.6 to 1. Table rules and box borders stay in
   `subtle`. This decision overrides the `subtle` lines in the Colours lines of mocks D1 to D4.

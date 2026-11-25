@@ -1997,13 +1997,9 @@ const WIDTH = 44
 const PLAN_REQUEST =
   'Keep your plan for this work in the task list: add each step with task_add, and set each task to in_progress and completed with task_update as you go.'
 
-const FRAME_SIDES: ReadonlySet<string> = new Set(['│ ', ' │'])
-
 function framedTexts(element: Drawn | null): string[] {
   if (element === null) return []
-  return texts(element)
-    .map((one) => one.text)
-    .filter((text) => !FRAME_SIDES.has(text))
+  return texts(element).map((one) => one.text)
 }
 
 async function mountPane($: Engine, columns = WIDTH) {
@@ -2050,36 +2046,36 @@ describe('the pane follows the work', () => {
       await agentCall($, 'a1', 'hooks/')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ─────────────────────── ○ idle ─╮',
-        '│ ctx — until the first reply              │',
-        '│ limits — until the first reply           │',
-        '│ req —                                    │',
-        '│ gate 5 ▮▮▮▮▮                             │',
-        '│ 5 allowed · 0 asked · 0 denied           │',
-        '│ f: file 4  s: shell 0  o: other 1        │',
-        '╰──────────────────────────────────────────╯',
-        '╭─ Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 4m ────────────╮',
-        '│ ▶ 2 Write the mocks            4m [ rm ] │',
-        '│     ▸ Edit docs/mocks.md         3 tools │',
-        '│ ○ 3 Commit the mocks              [ rm ] │',
-        '│ [ +1 done ]                              │',
-        '╰──────────────────────────────────────────╯',
-        '╭─ Agents  1 not listed ───────────────────╮',
-        '│ [ +1 ended ]                             │',
-        '╰──────────────────────────────────────────╯',
+        '  Session                          ○ idle',
+        '  ctx — until the first reply',
+        '  limits — until the first reply',
+        '  req —',
+        '  gate 5 ▮▮▮▮▮',
+        '  5 allowed · 0 asked · 0 denied',
+        '  f: file 4  s: shell 0  o: other 1',
+        '────────────────────────────────────────────',
+        '  Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 4m',
+        '  ▶ 2 Write the mocks            4m [ rm ]',
+        '      ▸ Edit docs/mocks.md         3 tools',
+        '  ○ 3 Commit the mocks              [ rm ]',
+        '  [ +1 done ]',
+        '────────────────────────────────────────────',
+        '  Agents  1 not listed',
+        '  [ +1 ended ]',
+        '────────────────────────────────────────────',
         '',
         '[ Add a task ][Add]',
       ])
       await seen.clock.advance(MINUTE)
       await bash($, 'npm test')
       expect((await screen(ui, WIDTH)).slice(8, 11)).toEqual([
-        '╭─ Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 5m ────────────╮',
-        '│ ▶ 2 Write the mocks            5m [ rm ] │',
-        '│     ▸ Bash npm test              4 tools │',
+        '  Tasks  ▰▰▱ 1/3 · ▶1 ○1 · 5m',
+        '  ▶ 2 Write the mocks            5m [ rm ]',
+        '      ▸ Bash npm test              4 tools',
       ])
       await $.tool.call({ tool: 'Bash', command: 'npm run lint', description: 'Lint the mods' })
       expect((await screen(ui, WIDTH)).slice(10, 11)).toEqual([
-        '│     ▸ Bash Lint the mods         5 tools │',
+        '      ▸ Bash Lint the mods         5 tools',
       ])
       await ui.unmount()
     },
@@ -2198,22 +2194,22 @@ describe('the pane follows the work', () => {
       await bash($, 'npm test')
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ─────────────────────── ○ idle ─╮',
-        '│ ctx — until the first reply              │',
-        '│ limits — until the first reply           │',
-        '│ req —                                    │',
-        '│ gate 6 ▮▮▮▮▮▮                            │',
-        '│ 6 allowed · 0 asked · 0 denied           │',
-        '│ f: file 4  s: shell 1  o: other 1        │',
-        '╰──────────────────────────────────────────╯',
-        '╭─ Tasks  none kept by Claude ─────────────╮',
-        '│ ▶ Now  Bash npm test        5 tools · 3m │',
-        '│   Read 2 · Edit 2 · Bash 1               │',
-        '│ Open in tracker: beads · no open items   │',
-        '╰──────────────────────────────────────────╯',
-        '╭─ Agents  1 not listed ───────────────────╮',
-        '│ [ +1 ended ]                             │',
-        '╰──────────────────────────────────────────╯',
+        '  Session                          ○ idle',
+        '  ctx — until the first reply',
+        '  limits — until the first reply',
+        '  req —',
+        '  gate 6 ▮▮▮▮▮▮',
+        '  6 allowed · 0 asked · 0 denied',
+        '  f: file 4  s: shell 1  o: other 1',
+        '────────────────────────────────────────────',
+        '  Tasks  none kept by Claude',
+        '  ▶ Now  Bash npm test        5 tools · 3m',
+        '    Read 2 · Edit 2 · Bash 1',
+        '  Open in tracker: beads · no open items',
+        '────────────────────────────────────────────',
+        '  Agents  1 not listed',
+        '  [ +1 ended ]',
+        '────────────────────────────────────────────',
         '',
         '[ Add a task ][Add]',
       ])
@@ -2291,20 +2287,20 @@ describe('the pane follows the work', () => {
       await readsOf($, 20)
       const ui = await mountPane($)
       expect(await screen(ui, WIDTH)).toEqual([
-        '╭─ Session ─────────────────────── ○ idle ─╮',
-        '│ ctx — until the first reply              │',
-        '│ limits — until the first reply           │',
-        '│ req —                                    │',
-        '│ gate 20 ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮             │',
-        '│ 20 allowed · 0 asked · 0 denied          │',
-        '│ f: file 20  s: shell 0  o: other 0       │',
-        '╰──────────────────────────────────────────╯',
-        '╭─ Tasks  ▱ 0/1 · ○1 · 0s ─────────────────╮',
-        '│ ▶ Now  Read src/file19.ts  20 tools · 0s │',
-        '│ ○ 1 Write the mocks               [ rm ] │',
-        '│ No plan update for 20 tool calls.        │',
-        '│ [ Ask Claude for a plan ]                │',
-        '╰──────────────────────────────────────────╯',
+        '  Session                          ○ idle',
+        '  ctx — until the first reply',
+        '  limits — until the first reply',
+        '  req —',
+        '  gate 20 ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮',
+        '  20 allowed · 0 asked · 0 denied',
+        '  f: file 20  s: shell 0  o: other 0',
+        '────────────────────────────────────────────',
+        '  Tasks  ▱ 0/1 · ○1 · 0s',
+        '  ▶ Now  Read src/file19.ts  20 tools · 0s',
+        '  ○ 1 Write the mocks               [ rm ]',
+        '  No plan update for 20 tool calls.',
+        '  [ Ask Claude for a plan ]',
+        '────────────────────────────────────────────',
         '',
         '[ Add a task ][Add]',
       ])
@@ -2482,14 +2478,14 @@ describe('the redraw timer', () => {
       await read($, 'docs/mocks.md')
       const ui = await mountPane($)
       const row = async () => lineWith(await screen(ui, WIDTH), '▶ 1 Write')
-      expect(await row()).toBe('│ ▶ 1 Write the mocks           55s [ rm ] │')
+      expect(await row()).toBe('  ▶ 1 Write the mocks           55s [ rm ]')
       await seen.clock.advance(10_000)
-      expect(await row()).toBe('│ ▶ 1 Write the mocks            1m [ rm ] │')
+      expect(await row()).toBe('  ▶ 1 Write the mocks            1m [ rm ]')
       expect(await paneCommandOf($)).toBe('Board closed.')
       const asked = seen.panesAsked
       await seen.clock.advance(60_000)
       expect(seen.panesAsked).toBe(asked)
-      expect(await row()).toBe('│ ▶ 1 Write the mocks            1m [ rm ] │')
+      expect(await row()).toBe('  ▶ 1 Write the mocks            1m [ rm ]')
       await ui.unmount()
     },
   )
@@ -2510,7 +2506,7 @@ describe('the redraw timer', () => {
       expect(await paneCommandOf($)).toBe('Board closed.')
       await seen.clock.advance(10_000)
       expect(lineWith(await screen(ui, WIDTH), '▶ 1 Write')).toBe(
-        '│ ▶ 1 Write the mocks            1m [ rm ] │',
+        '  ▶ 1 Write the mocks            1m [ rm ]',
       )
       await ui.unmount()
     },
@@ -3270,21 +3266,21 @@ const SESSION_SCREENS: readonly {
     placement: 'dock',
     columns: 41,
     framed: [
-      '╭─ Session ──────────────────── ○ idle ─╮',
-      '│ ctx — until the first reply           │',
-      '│ limits — until the first reply        │',
-      '│ req —                                 │',
-      '│ gate 10 ▮▮▮▮▮▮▮▮▮▮                    │',
-      '│ 10 allowed · 0 asked · 0 denied       │',
-      '│ f: file 10  s: shell 0  o: other 0    │',
-      '╰───────────────────────────────────────╯',
-      '╭─ Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m ───────╮',
-      '│ ▶ 2 Write the tab mocks     4m [ rm ] │',
-      '│     ▸ Edit docs/mocks.md      9 tools │',
-      '│ ○ 3 Review the mocks with Cod… [ rm ] │',
-      '│ ○ 4 You: Ask the person about… [ rm ] │',
-      '│ [ +1 done ]                           │',
-      '╰───────────────────────────────────────╯',
+      '  Session                       ○ idle',
+      '  ctx — until the first reply',
+      '  limits — until the first reply',
+      '  req —',
+      '  gate 10 ▮▮▮▮▮▮▮▮▮▮',
+      '  10 allowed · 0 asked · 0 denied',
+      '  f: file 10  s: shell 0  o: other 0',
+      '─────────────────────────────────────────',
+      '  Tasks  ▰▰▱▱ 1/4 · ▶1 ○2 · 14m',
+      '  ▶ 2 Write the tab mocks     4m [ rm ]',
+      '      ▸ Edit docs/mocks.md      9 tools',
+      '  ○ 3 Review the mocks with Cod… [ rm ]',
+      '  ○ 4 You: Ask the person about… [ rm ]',
+      '  [ +1 done ]',
+      '─────────────────────────────────────────',
       '',
       '[ Add a task ][Add]',
     ],

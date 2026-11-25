@@ -371,12 +371,23 @@ function framed(surface: Surface, columns: number): boolean {
   return surface === 'terminal' && columns >= 41
 }
 
+const FRAMED_TITLE = /^ {2}(Session|Tasks|Agents|Log)\b/u
+const SECTION_RULE = /^─+$/u
+
 function inner(line: string): string {
-  return line.replace(/^│ /u, '').replace(/ │$/u, '').trimEnd()
+  return line.replace(/^ {2}/u, '').trimEnd()
 }
 
 function body(lines: readonly string[]): string[] {
-  return lines.map(inner)
+  let isInside = false
+  return lines.map((line) => {
+    if (FRAMED_TITLE.test(line)) {
+      isInside = true
+      return line
+    }
+    if (SECTION_RULE.test(line)) isInside = false
+    return isInside ? inner(line) : line
+  })
 }
 
 type Coloured = { text: string; color: unknown; bold: unknown; dim: unknown }
@@ -516,12 +527,12 @@ async function sessionScene($: Engine, seen: World, surface: Surface): Promise<v
 
 function sectionOf(lines: readonly string[], title: string): string[] {
   const first = lines.findIndex(
-    (line) => line.startsWith(`╭─ ${title}`) || line.startsWith(`${title}  `),
+    (line) => line.startsWith(`  ${title}`) || line.startsWith(`${title}  `),
   )
   if (first < 0) throw new Error(`no ${title} section in:\n${lines.join('\n')}`)
-  const isFramed = lines[first]?.startsWith('╭') === true
+  const isFramed = lines[first]?.startsWith('  ') === true
   const end = isFramed
-    ? lines.findIndex((line, index) => index > first && line.startsWith('╰'))
+    ? lines.findIndex((line, index) => index > first && /^─+$/u.test(line))
     : lines.findIndex(
         (line, index) =>
           index > first &&
@@ -547,9 +558,9 @@ for (const surface of SURFACES) {
         await turnEnds($)
         const after = await screenOn($, surface, 'dock', 41)
         if (surface === 'terminal') {
-          expect(before[0]).toBe('╭─ Session ──────────────────── ○ idle ─╮')
-          expect(running[0]).toBe('╭─ Session ───────────────── ▶ working ─╮')
-          expect(after[0]).toBe('╭─ Session ───────────────── ○ no turn ─╮')
+          expect(before[0]).toBe('  Session                       ○ idle')
+          expect(running[0]).toBe('  Session                    ▶ working')
+          expect(after[0]).toBe('  Session                    ○ no turn')
         } else {
           expect(before.slice(0, 2)).toEqual(['Session  ○ idle', 'ctx — until the first reply'])
           expect(running.slice(0, 2)).toEqual(['Session  ▶ working', 'ctx — until the first reply'])
@@ -576,11 +587,11 @@ for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         const lines = await screen(ui, 41)
         if (surface === 'terminal') {
-          expect(lines[0]).toBe('╭─ Session ───── ◆ 1 waits · ▶ working ─╮')
+          expect(lines[0]).toBe('  Session        ◆ 1 waits · ▶ working')
           const title = await coloured(ui, 'session-header')
           expect(title.find((part) => part.text === '◆ 1 waits')?.color).toBe('warning')
           expect(title.find((part) => part.text === '▶ working')?.color).toBe('claude')
-          expect(lines[1]).toBe('│ ctx — until the first reply           │')
+          expect(lines[1]).toBe('  ctx — until the first reply')
         } else {
           expect(lines[0]).toBe('Session  ◆ 1 waits · ▶ working')
           const head = await coloured(ui, 'session')
@@ -863,17 +874,17 @@ const CARDS_CRITERION =
   'When the agents that are not folded fit side by side as cards of at least 18 columns (2 at body 41, 4 at body 89, never more than 5), each draws as a card with a title Button, the state word, the wait or failure line, the task, the type, the ctx and out tokens, the steps and a clock that ticks each second while the tab shows.'
 
 const CARDS_41 = [
-  '╭─ Agents  2 · 1 failed ────────────────╮',
-  '│ ╭────────────────╮ ╭────────────────╮ │',
-  '│ │ 1: ■ scout     │ │ 2: ▶ Explore   │ │',
-  '│ │ failed         │ │ quiet 2m       │ │',
-  '│ │ Bash npm test  │ │ map the hooks  │ │',
-  '│ │ find the elem… │ │ Explore        │ │',
-  '│ │ gene…l-purpose │ │ ctx 48k out 6k │ │',
-  '│ │ ctx 31k out 2k │ │ 1 step    2:00 │ │',
-  '│ │ 3 steps   2:10 │ │                │ │',
-  '│ ╰────────────────╯ ╰────────────────╯ │',
-  '╰───────────────────────────────────────╯',
+  '  Agents  2 · 1 failed',
+  '  ╭────────────────╮ ╭────────────────╮',
+  '  │ 1: ■ scout     │ │ 2: ▶ Explore   │',
+  '  │ failed         │ │ quiet 2m       │',
+  '  │ Bash npm test  │ │ map the hooks  │',
+  '  │ find the elem… │ │ Explore        │',
+  '  │ gene…l-purpose │ │ ctx 48k out 6k │',
+  '  │ ctx 31k out 2k │ │ 1 step    2:00 │',
+  '  │ 3 steps   2:10 │ │                │',
+  '  ╰────────────────╯ ╰────────────────╯',
+  '─────────────────────────────────────────',
 ]
 
 for (const surface of SURFACES) {
@@ -919,7 +930,7 @@ for (const surface of SURFACES) {
         const lines = await screenOn($, surface, 'dock', 89)
         if (surface === 'terminal') {
           const agents = sectionOf(lines, 'Agents')
-          expect(agents[1]).toBe(`│ ${'╭──────────────────╮ '.repeat(4).trimEnd()}   │`)
+          expect(agents[1]).toBe(`  ${'╭──────────────────╮ '.repeat(4).trimEnd()}`)
           expect(agents[2]).toContain('│ 4: ▶ lane-c      │')
         } else {
           expect(lines.join('\n')).not.toContain('╭')
@@ -1094,7 +1105,7 @@ for (const surface of SURFACES) {
         const lines = await screen(ui, 41)
         const log = body(sectionOf(lines, 'Log'))
         const isFramedHere = framed(surface, 41)
-        expect(log[0]).toBe(isFramedHere ? `╭─ Log  7 events ${'─'.repeat(23)}╮` : 'Log  7 events')
+        expect(log[0]).toBe(isFramedHere ? '  Log  7 events' : 'Log  7 events')
         const room = isFramedHere ? 37 : 41
         expect(log.slice(1, 7)).toEqual([
           '14:03 scout     ✓ done 4m',
@@ -1473,7 +1484,7 @@ async function spawnUnnamed($: Engine, id: string, description: string): Promise
   })
 }
 
-const RUNNING_TITLE = /^(╭─ )?Agents {2}1(?: |$)/u
+const RUNNING_TITLE = /^( {2})?Agents {2}1(?: |$)/u
 
 async function endedScout($: Engine, seen: World, surface: Surface): Promise<AgentInfo> {
   await start($, surface)
@@ -1507,7 +1518,7 @@ for (const surface of SURFACES) {
         await ui.press({ key: 'group:ended-agents' })
         const lines = await screen(ui, 41)
         await ui.unmount()
-        expect(agentsTitle(lines)).toMatch(/^(╭─ )?Agents {2}all 1 done/u)
+        expect(agentsTitle(lines)).toMatch(/^( {2})?Agents {2}all 1 done/u)
         expect(agentsText(lines)).toContain('scout')
         expect(agentsText(lines)).not.toMatch(/asked|running|▸/u)
         seen.failing.add('npm test')
@@ -1613,7 +1624,7 @@ for (const surface of SURFACES) {
         expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(RUNNING_TITLE)
         await seen.clock.advance(RUN_SETTLE_MS)
         expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
-          /^(╭─ )?Agents {2}all 1 done/u,
+          /^( {2})?Agents {2}all 1 done/u,
         )
         await screenOn($, surface, 'dock', 41)
         expect(await endLines($)).toEqual(['14:01:03 scout ✓ done 1m', '14:00:00 scout ✓ done 4m'])
@@ -1630,7 +1641,7 @@ for (const surface of SURFACES) {
         await agentTurnEnds($, SCOUT, 'answer')
         await seen.clock.advance(RUN_SETTLE_MS)
         expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
-          /^(╭─ )?Agents {2}all 1 done/u,
+          /^( {2})?Agents {2}all 1 done/u,
         )
         await screenOn($, surface, 'dock', 41)
         expect(await endLines($)).toEqual(['14:01:00 scout ✓ done 4m', '14:00:00 scout ✓ done 4m'])
@@ -1750,11 +1761,11 @@ for (const surface of SURFACES) {
         await agentTurnEnds($, SCOUT, 'answer')
         await seen.clock.advance(MINUTE)
         expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
-          /^(╭─ )?Agents {2}all 1 done/u,
+          /^( {2})?Agents {2}all 1 done/u,
         )
         await bash($, 'git log', SCOUT)
         expect(agentsTitle(await screenOn($, surface, 'dock', 41))).toMatch(
-          /^(╭─ )?Agents {2}1(?: |$)/u,
+          /^( {2})?Agents {2}1(?: |$)/u,
         )
       },
     )

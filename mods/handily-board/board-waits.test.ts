@@ -1630,7 +1630,7 @@ async function headerOf(ui: { find: Mounted['find'] }): Promise<Drawn> {
   return header
 }
 
-const FRAME_EDGE = /^[╭╮─ ]+$/u
+const FRAME_EDGE = /^[─ ]+$/u
 
 function colouredParts(element: Drawn): (readonly [string, unknown])[] {
   return texts(element)

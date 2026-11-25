@@ -2408,7 +2408,7 @@ const NERD_DOING = '\u{EB2C}'
 const NERD_TO_DO = '\u{EBB5}'
 const NERD_BELL = '\u{EAA2}'
 const NERD_ERROR = '\u{EA87}'
-const FRAME_EDGES = /^[╭│╰]/u
+const SECTION_RULE = /^─+$/u
 
 function nerdSwapped(line: string): string {
   return NERD_OF_PLAIN.reduce((text, [plain, nerd]) => text.replaceAll(plain, nerd), line)
@@ -2451,7 +2451,7 @@ function widthProblems(lines: readonly string[], columns: number): string[] {
   return lines.flatMap((line) => {
     const width = displayWidth(line)
     if (width > columns) return [`"${line}" measures ${String(width)}, over ${String(columns)}`]
-    if (FRAME_EDGES.test(line) && width !== columns) {
+    if (SECTION_RULE.test(line) && width !== columns) {
       return [`"${line}" measures ${String(width)}, not ${String(columns)}`]
     }
     return []
@@ -2480,7 +2480,7 @@ describe(NERD_TAB_CRITERION, () => {
           expect(widthProblems(nerd, columns)).toEqual([])
           expect(nerd.map(displayWidth)).toEqual(plain.map(displayWidth))
           if (columns === 41 && surface === 'terminal') {
-            expect(nerd.filter((line) => FRAME_EDGES.test(line)).length).toBeGreaterThan(10)
+            expect(nerd.filter((line) => SECTION_RULE.test(line)).length).toBeGreaterThan(2)
           }
           await ui.unmount()
           dialog.allow()

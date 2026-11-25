@@ -580,16 +580,17 @@ function rowLine(children: readonly Drawn[], width: number): string {
     .join('')
 }
 
-const LOG_TITLE = /^(╭─ )?Log {2}/u
+const LOG_TITLE = /^( {2})?Log {2}/u
+const SECTION_RULE = /^─+$/u
 
 function withoutLog(lines: readonly string[]): string[] {
   const head = lines.findIndex((line) => LOG_TITLE.test(line))
   if (head < 0) return [...lines]
-  const isFramed = lines[head]?.startsWith('╭') === true
+  const isFramed = lines[head]?.startsWith('  ') === true
   const first = isFramed ? head : head - 1
   const rest = lines.slice(head + 1)
   const after = isFramed
-    ? rest.findIndex((line) => line.startsWith('╰')) + 1
+    ? rest.findIndex((line) => SECTION_RULE.test(line)) + 1
     : rest.findIndex((line) => line === '')
   return [...lines.slice(0, first), ...lines.slice(head + 1 + Math.max(after, 0))]
 }
@@ -603,16 +604,22 @@ export async function screen(ui: { find: Mounted['find'] }, columns: number): Pr
   return withoutLog(lines)
 }
 
-const FRAME_TOP = /^╭─ (.*?) ─+(?: (.+?) ─)?╮$/u
-const FRAME_SIDE = /^│ (.*) │$/u
+const FRAME_TITLE = /^ {2}((?:Session|Tasks|Agents|Log)\b.*?)(?: {3,}(\S.*))?$/u
+const FRAME_BODY = /^ {2}/u
 
 export function unframed(lines: readonly string[]): string[] {
+  let isInside = false
   return lines.flatMap((line) => {
-    if (line.startsWith('╰')) return []
-    const top = FRAME_TOP.exec(line)
-    if (top !== null) return [top[2] === undefined ? (top[1] ?? '') : `${top[1] ?? ''}  ${top[2]}`]
-    const side = FRAME_SIDE.exec(line)
-    return [side === null ? line : (side[1] ?? '').trimEnd()]
+    const title = FRAME_TITLE.exec(line)
+    if (title !== null) {
+      isInside = true
+      return [title[2] === undefined ? (title[1] ?? '') : `${title[1] ?? ''}  ${title[2]}`]
+    }
+    if (isInside && SECTION_RULE.test(line)) {
+      isInside = false
+      return []
+    }
+    return [isInside ? line.replace(FRAME_BODY, '') : line]
   })
 }
 

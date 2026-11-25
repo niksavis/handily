@@ -7,13 +7,11 @@ import { cutToWidth, displayWidth } from './width'
 const FRAME_FROM = 41
 export const FRAME_COLUMNS = 4
 
-const TOP_LEAD = '╭─ '
-const TOP_END = '╮'
-const BOTTOM_LEAD = '╰'
-const BOTTOM_END = '╯'
-const EDGE = '─'
-const SIDE_LEFT = '│ '
-const SIDE_RIGHT = ' │'
+const TOP_LEAD = '  '
+const TOP_END = ' '
+const RULE = '─'
+const FILL = ' '
+const SIDE_COLUMNS = 2
 const TITLE_GAP = 1
 const EDGE_AT_LEAST = 1
 const END_CHROME = 3
@@ -113,24 +111,19 @@ function wrappedLeaf(elements: PaneElements, leaf: RenderElement, room: number):
   )
 }
 
-function sideRow(
-  elements: PaneElements,
-  color: Color,
-  leaf: RenderElement,
-  indent: number,
-): RenderElement {
-  const { Box, Text } = elements
+function sideRow(elements: PaneElements, leaf: RenderElement, indent: number): RenderElement {
+  const { Box } = elements
   return Box({
     flexDirection: 'row',
+    paddingLeft: SIDE_COLUMNS,
+    paddingRight: SIDE_COLUMNS,
     children: [
-      Text({ color, children: SIDE_LEFT }),
       Box({
         width: elements.bodyColumns - FRAME_COLUMNS,
         flexShrink: 0,
         flexDirection: 'column',
         children: [Box({ paddingLeft: indent, flexDirection: 'column', children: [leaf] })],
       }),
-      Text({ color, children: SIDE_RIGHT }),
     ],
   })
 }
@@ -144,9 +137,7 @@ function framedLines(
   const props = element.type === 'Box' ? (element.props ?? {}) : {}
   if (element.type !== 'Box' || props.flexDirection !== 'column') {
     const room = elements.bodyColumns - FRAME_COLUMNS - indent
-    return wrappedLeaf(elements, element, room).map((leaf) =>
-      sideRow(elements, color, leaf, indent),
-    )
+    return wrappedLeaf(elements, element, room).map((leaf) => sideRow(elements, leaf, indent))
   }
   const inner = indent + numberOf(props.paddingLeft) + numberOf(props.marginLeft)
   const children = (element.children ?? [])
@@ -172,7 +163,7 @@ function topEdge(
   const room = elements.bodyColumns - FRAME_TITLE_CHROME - endWidth
   const shown = fitParts(title, room)
   const fill = room - partsWidth(shown) + EDGE_AT_LEAST
-  const edge = `${' '.repeat(TITLE_GAP)}${EDGE.repeat(fill)}`
+  const edge = `${' '.repeat(TITLE_GAP)}${FILL.repeat(fill)}`
   return Box({
     key: `${key}-header`,
     flexDirection: 'row',
@@ -184,15 +175,14 @@ function topEdge(
         : [
             Text({ color, children: `${edge} ` }),
             ...drawStyledParts(elements, end),
-            Text({ color, children: ` ${EDGE}${TOP_END}` }),
+            Text({ color, children: ` ${FILL}${TOP_END}` }),
           ]),
     ],
   })
 }
 
-function bottomEdge(elements: PaneElements, color: Color): RenderElement {
-  const edge = EDGE.repeat(Math.max(elements.bodyColumns - 2, 0))
-  return elements.Text({ color, children: `${BOTTOM_LEAD}${edge}${BOTTOM_END}` })
+function bottomEdge(elements: PaneElements): RenderElement {
+  return elements.Text({ dimColor: true, children: RULE.repeat(Math.max(elements.bodyColumns, 0)) })
 }
 
 export function drawFrame(
@@ -212,7 +202,7 @@ export function drawFrame(
       ...lines
         .filter((line) => line !== null)
         .flatMap((line) => framedLines(elements, color, line, 0)),
-      bottomEdge(elements, color),
+      bottomEdge(elements),
     ],
   })
 }
