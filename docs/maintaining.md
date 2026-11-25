@@ -139,6 +139,14 @@ git common directory.
 | `.github/workflows/basicly-gates.yml` | A push or a pull request to `main` that changes more than the tracker ledger | Checks the commit messages and runs the basicly drift checks. One job runs the checks of `basicly verify --mode full` step by step on a checkout with the full history and all tags, so that validate can read each release tag, with the mod tests split out: `node scripts/mods.mjs test --shard <n>/<count>` runs a share of the mod test files in each of 6 parallel jobs on the pinned and 6 on the newest Claude Code, balanced by the test file times in `scripts/test-times.json` that `node scripts/mods.mjs test-times <log>...` writes from the job logs, and `node scripts/mods.mjs test-scripts` runs the scripts tests |
 | `.github/workflows/release.yml` | A pushed tag that matches `*--v*` | Checks that the tag and `plugin.json` agree and that the marketplace file is generated, checks the tag with `claude plugin tag`, runs the tasks of `npm run check` on a checkout with all tags, with the mod tests in 4 parallel shard jobs, then publishes a GitHub release with the notes of the `CHANGELOG.md` section of the version |
 
+A schedule, cron `17 */4 * * *`, asks GitHub to start `basicly-gates` every 4 hours with only
+the newest Claude Code jobs. GitHub runs a schedule best effort: from 2026-11-21 to 2026-11-25 it
+started about 2.5 scheduled runs a day (measured with `gh run list --event schedule`). When a
+scheduled run fails, the job `report-break` opens the issue `Claude Code VERSION breaks handily`,
+or comments on it when it is open, with the failed jobs and the run link.
+`scripts/workflows.test.mjs` runs the script of that job with a stub `gh` and checks the search
+and the create or comment arguments.
+
 ## Pinned versions
 
 | Tool | Version | Where it is pinned |
