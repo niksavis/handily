@@ -140,6 +140,7 @@ def run_relay(args: argparse.Namespace, cwd: Path, environ: dict[str, str]) -> i
     writer = messages.Writer(tracker, log.scanner(repo), session=session)
     if args.group == "report":
         print(writer.report(args.record, args.state, args.summary, args.recommend))
+        print(messages.send_step(args.record))
     else:
         print(relay(args, writer))
     commands.after_relay(args, cwd, environ)
@@ -192,7 +193,11 @@ def run(argv: list[str], cwd: Path, environ: dict[str, str]) -> int:
     root = log.find_root(cwd, environ)
     scan = log.scanner(log.repo_root(cwd))
     if (args.group, args.action) in WRITES:
-        print(WRITES[args.group, args.action](args, log.Writer(root, scan, log.member(environ))))
+        print(
+            WRITES[args.group, args.action](
+                args, log.Writer(root, scan, commands.member_name(cwd, environ))
+            )
+        )
         return 0
     repo = log.repo_root(cwd)
     target = args.target.resolve()
