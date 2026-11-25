@@ -6,6 +6,16 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.33.0 - 2026-11-25
+
+The this session tab draws its sections with rules in place of boxes.
+
+### Changed
+
+- **Board sections draw without boxes.** From a body of 41 columns on the terminal, each section
+  of the this session tab starts with a bold title line in its colour, indents its rows by 2
+  columns and ends with one dim rule, in place of a rounded box. (handily-iw7agt)
+
 ## handily-reply-view 0.34.1 - 2026-11-24
 
 A press on more keeps the long reply in view.
