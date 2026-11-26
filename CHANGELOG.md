@@ -6,6 +6,19 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-simple-view 0.16.1 - 2026-11-26
+
+simple-view leaves the result line of a rejected or stopped call in a new wording to Claude Code.
+
+### Fixed
+
+- **simple-view shows the result line of a rejected or stopped call in a new wording.** When
+  the result text of a failed call was not the error text that the call answered, simple-view
+  drew an empty result under the row. A rejection or an interruption in a wording that the mod
+  did not know was then not in view. Now Claude Code draws its own result line in that case. A long
+  error output that Claude Code cut in the text of the call keeps the simple-view row, because
+  its first line is the same. The rows of the known texts did not change. (handily-dcebxy)
+
 ## handily-board 0.34.3 - 2026-11-26
 
 The board drops the store copy that could not restore after the background session list.
