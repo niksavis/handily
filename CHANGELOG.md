@@ -6,6 +6,18 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.34.3 - 2026-11-26
+
+The board drops the store copy that could not restore after the background session list.
+
+### Removed
+
+- **The board no longer keeps a store copy of the task list and the trend.** handily-board 0.34.2
+  wrote a copy to restore them after a return from the background session list. A live check on
+  Claude Code 2.1.332 showed that the return starts a new session with a new id and transcript,
+  and nothing links it to the old one, so the copy never restored. The copy and its debug line
+  are removed. (handily-2zz7g)
+
 ## handily-board 0.34.2 - 2026-11-26
 
 The board keeps its task list and trend after the background session list, and a question wait
