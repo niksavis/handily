@@ -10633,6 +10633,8 @@ Colours: `shown` at full strength, `more` dim; the empty text dim.
 - The press clears the call only when the call tab is the tab on show. When another tab hides the
   call tab, the press shows the call tab again and keeps the call.
 - A press on a row whose call the tab does not show puts that call in the tab, as in 21.3.
+- When the tab showed the call while it ran, the first press after the call ended shows the
+  ended call. The next press clears it.
 - The empty text replaces the empty text of 21.4 everywhere.
 
 ### 22.2 A second press on shown, 40 columns

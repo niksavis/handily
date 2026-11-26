@@ -1349,6 +1349,7 @@ describe('tool row fold and copy', () => {
       command: 'npm test',
       output: { text: 'x', lines: ['x'], savedTo: null },
       isErrored: true,
+      isRunning: false,
     }
 
     test('opens the call tab from 110 columns in fullscreen and hints below', async () => {
@@ -1743,6 +1744,15 @@ describe('tool row fold and copy', () => {
       expect(await viewerBody($)).toEqual(['git add -A', 'git commit -m "save"', 'git push'])
       await world.clock.advance(1000)
       await pending
+      const ended = await mountAt($, useProps(id, 'Bash', input, world.answer(input)), WIDE)
+      const label = async () => (await ended.find({ key: 'fold' }))?.props.label
+      expect(await label()).toBe('shown')
+      await ended.press({ key: 'fold' })
+      expect(await label()).toBe('shown')
+      expect(await viewerBody($)).toEqual(['one', 'two'])
+      await ended.press({ key: 'fold' })
+      expect(await label()).toBe('more')
+      await ended.unmount()
     },
   )
 })

@@ -885,6 +885,13 @@ compact rows for many tool errors, and for a fold that does not move the view. T
 - The press handler is `pressMore(port, site, call, seat)` in `hooks/viewer.ts`. A port carries
   the engine calls, so a test or a probe command can call it.
 
+The second press on shown (handily-nhkdgm, decided 2026-11-20). The owner asked for a toggle. A
+press on `shown` while the `call` tab is the tab on show clears the call and keeps the tab open,
+so the dock does not move. The row reads `more` again. `/simple close` closes the tab. A press
+on a row whose call ended after the tab showed it running shows the ended call, and only the next
+press clears it. The setting that expands a call inline waits for probe P8, because a mod gets no
+signal that the view is scrolled up.
+
 Hand-off to other mods. The order of two plugins in the `user` tier is not in the types. In a
 live check on 2.1.300 the chain was `handily-board`, `handily-reply-view`,
 `handily-simple-view`, `handily-quiet-items`, then `cc-plugin-diff@builtin`. So the `ToolUse`

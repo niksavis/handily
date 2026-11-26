@@ -319,7 +319,8 @@ where it was. What the press does depends on the room:
   call in the same tab.
 - A press on `shown` while the `call` tab is the tab on show clears the call from the tab. The
   tab stays open and empty, and the row reads `more` again. `/simple close` closes the tab.
-  When another tab hides the `call` tab, the press shows the `call` tab again.
+  When another tab hides the `call` tab, the press shows the `call` tab again. When the tab showed
+  the call while it ran, the first press after the call ended shows the ended call.
 - Below 110 columns, or on the main screen, no pane opens, because an inline pane pushes the
   transcript up. The row adds one dim line that names the command, such as
   `/simple open 3 shows this call in the call tab.`. The number follows new calls. A second

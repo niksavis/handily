@@ -546,6 +546,7 @@ async function bashUse(
     command: props.input.command,
     output: output ?? commandOutput(props.input.command),
     isErrored: props.isErrored,
+    isRunning,
   }
   const buttons = await buttonsFor($, draw, viewed, output)
   return withHint($, draw, props.tool_use_id, bashRow(look, view, buttons))
@@ -594,6 +595,7 @@ async function errorButtons(
     command: null,
     output,
     isErrored: true,
+    isRunning: false,
   }
   return buttonsFor($, draw, viewed, output)
 }
@@ -803,6 +805,7 @@ function keptView({ back, record }: KeptCall, kept: number): ViewedCall {
       savedTo: null,
     },
     isErrored: record.isErrored,
+    isRunning: false,
   }
 }
 

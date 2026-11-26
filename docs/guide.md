@@ -112,6 +112,7 @@ that asks you or shows you a plan keeps the row of Claude Code. The row of anoth
 | `/simple show N` | Prints the input, the output and the file diff of the N-th last tool call. 1 is the last call |
 | `/simple open N` | Shows the N-th last tool call in the `call` tab. 1 is the last call |
 | `/simple open error` | Shows the last kept call that failed in the `call` tab |
+| `/simple close` | Closes the `call` tab |
 
 In Code Mode, a `REPL` script that Claude Code started without waiting shows `dispatched` and its
 number, and a `Poll` row names each event that arrived, such as `#12 done` or `no new events`.

@@ -21,6 +21,7 @@ export type ViewedCall = {
   command: string | null
   output: CallOutput
   isErrored: boolean
+  isRunning: boolean
 }
 
 export type ViewerSite = { call: ViewedCall | null; unread: string | null }
@@ -124,7 +125,8 @@ export async function pressMore(
 ): Promise<PressOutcome> {
   const pane = (await port.panes()).find((open) => open.id === VIEWER_PANE.id)
   const isOnShow = pane?.isPlaced === true && pane.isShown
-  if (isOnShow && (await port.viewing()) === call.toolUseId) {
+  const isEnded = site.call?.isRunning === true && !call.isRunning
+  if (isOnShow && !isEnded && (await port.viewing()) === call.toolUseId) {
     await clearShown(port, site, call.toolUseId)
     return 'cleared'
   }
