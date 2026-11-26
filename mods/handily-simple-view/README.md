@@ -35,7 +35,7 @@ tool result. Only the screen changes.
 ● claude-in-chrome · list_connected_browsers  done  1 line
 ```
 
-The approved mocks are in `docs/mocks.md`, sections 6 and 21. Section 7.2 is superseded by
+The approved mocks are in `docs/mocks.md`, sections 6, 21 and 22. Section 7.2 is superseded by
 section 21. The design is in `docs/design.md`, section 4.8.
 
 [docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
@@ -317,6 +317,9 @@ where it was. What the press does depends on the room:
   `call` tab, and `more` reads `shown`. The tab docks beside the transcript. It opens once and
   stays open: Esc gives the keys back and keeps the tab. A second press on another row shows that
   call in the same tab.
+- A press on `shown` while the `call` tab is the tab on show clears the call from the tab. The
+  tab stays open and empty, and the row reads `more` again. `/simple close` closes the tab.
+  When another tab hides the `call` tab, the press shows the `call` tab again.
 - Below 110 columns, or on the main screen, no pane opens, because an inline pane pushes the
   transcript up. The row adds one dim line that names the command, such as
   `/simple open 3 shows this call in the call tab.`. The number follows new calls. A second
@@ -434,6 +437,7 @@ unless a call of the group failed.
 | `/simple open N`     | Shows the N-th last tool call in the `call` tab and gives it the keys. 1 is the last     |
 | `/simple open`       | Shows the last tool call in the `call` tab                                               |
 | `/simple open error` | Shows the last kept call that failed in the `call` tab                                   |
+| `/simple close`      | Closes the `call` tab. Every row whose call the tab showed reads `more` again            |
 
 - The mod keeps the mode in the `mode` key of its `$.state`, so a change does not reach other
   sessions. When the session starts and the key is unset, the mod writes the `mode` setting to

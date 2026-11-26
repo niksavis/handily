@@ -69,6 +69,7 @@ import {
   VIEWER_PANE,
   drawViewer,
   newViewerSite,
+  clearViewer,
   pressMore,
   showInViewer,
   widestAfter,
@@ -95,12 +96,14 @@ const ON_TEXT =
   'on for this session. Tool calls draw as one row, except a call that asks you or shows you a plan. /simple show N prints call N in full, and /simple open N shows it in the call tab, where 1 is the last call.'
 const OFF_TEXT = 'off for this session. Tool calls draw as Claude Code draws them.'
 const USAGE_TEXT =
-  '/simple takes on, off, show N, open N, open error or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, and /simple open error shows the last call that failed. Set the default with the plugin\'s "mode" setting.'
+  '/simple takes on, off, show N, open N, open error, close or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, /simple open error shows the last call that failed, and /simple close closes the call tab. Set the default with the plugin\'s "mode" setting.'
 const NO_CALL_TEXT = '/simple show has no tool call to print yet in this session.'
 const NO_CALL_OPEN_TEXT = '/simple open has no tool call to show yet in this session.'
 const NO_ERROR_OPEN_TEXT =
   'No kept call failed. /simple open N shows call N, where 1 is the last call.'
 const NOT_OPENED_TEXT = 'The call tab did not open'
+const CLOSED_TEXT = 'The call tab is closed.'
+const NOT_OPEN_TEXT = 'The call tab is not open.'
 const NOT_KEPT_HINT = 'This call is no longer kept. /simple show lists the last 50 calls.'
 const ERROR_TEXT_LIMIT = DRAWN_CHARACTERS_AT_MOST
 
@@ -243,8 +246,7 @@ function newMemory(): CallMemory {
 function forgetCalls(memory: CallMemory): void {
   memory.errors.clear()
   memory.seqs.clear()
-  memory.viewer.call = null
-  memory.viewer.unread = null
+  clearViewer(memory.viewer)
 }
 
 function keepBounded<T>(map: Map<string, T>, key: string, value: T): void {
@@ -375,6 +377,11 @@ function viewerPort($: EngineInterface, isAsked: boolean): ViewerPort {
     open: () => $.ui.open(isAsked ? { ...VIEWER_PANE, focus: true } : { ...VIEWER_PANE }),
     read: (path) => $.fs.read(path),
     show: (id) => showCall($, id),
+    viewing: async () => {
+      const { value } = await $.state.get(VIEWING)
+      return value === undefined || value.tool_use_id === '' ? null : value.tool_use_id
+    },
+    clear: () => clearViewing($),
     hint: async (id, isHinted) => {
       await $.state.set(
         { plugin: 'handily-simple-view', key: 'folds', id },
@@ -837,6 +844,13 @@ async function openCommand(
   return `Call ${String(chosen.back)} of the last ${String(kept)} is in the call tab.`
 }
 
+async function closeCommand($: EngineInterface): Promise<string> {
+  const panes = await $.ui.panes()
+  if (!panes.some((pane) => pane.id === VIEWER_PANE.id)) return NOT_OPEN_TEXT
+  await $.ui.close({ id: VIEWER_PANE.id })
+  return CLOSED_TEXT
+}
+
 type Neighbours = { previous: KeptCall | null; next: KeptCall | null; kept: number }
 
 async function errorNeighbours($: EngineInterface, id: string): Promise<Neighbours> {
@@ -933,7 +947,7 @@ export const register: Register = (on, options) => {
       name: COMMAND,
       description:
         'handily · Set or toggle the one-row view of tool calls, or print a call in full',
-      argumentHint: '[on|off|show N|open N|open error]',
+      argumentHint: '[on|off|show N|open N|open error|close]',
     })
     await $.state.set({ plugin: 'handily-simple-view', key: 'ready' }, { root: $.plugin.root })
     const { value: mode, version } = await $.state.get(MODE)
@@ -958,6 +972,7 @@ export const register: Register = (on, options) => {
     if (isMode(verb) && number === undefined) return { text: await setMode($, verb, defaultMode) }
     if (verb === 'show' && rest.length === 0) return { text: await show($, number) }
     if (verb === 'open' && rest.length === 0) return { text: await openCommand($, memory, number) }
+    if (verb === 'close' && number === undefined) return { text: await closeCommand($) }
     return { text: USAGE_TEXT }
   })
 
@@ -974,8 +989,7 @@ export const register: Register = (on, options) => {
 
   on('ui.close', { id: VIEWER_PANE.id }, async ($, e, next) => {
     const result = await next(e)
-    memory.viewer.call = null
-    memory.viewer.unread = null
+    clearViewer(memory.viewer)
     try {
       await clearViewing($)
     } catch (error) {

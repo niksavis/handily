@@ -10497,7 +10497,8 @@ Colours: the head bold; the command, the rules and the count dim.
   `< error` and `error >` draw only when such a call is kept.
 - `/simple open N` and `/simple open error` open the tab with the keys and show the kept record,
   whose head adds `call N of M`.
-- Empty: `No call is shown here yet. Press more on a tool row, or run /simple open.`
+- Empty: `No call is shown here yet. Press more on a tool row, or run /simple open.` Superseded
+  by the empty text of 22.1.
 - A saved output that cannot be read: `The saved output could not be read.` and the path.
 
 Replies of `/simple open`:
@@ -10587,3 +10588,91 @@ Colours: as 19.4.
   `Interrupted by user` keeps the row of the engine.
 - **Recaps** have no render site in Claude Code 2.1.328 (probe P4). They stay as the engine draws
   them: engine gap handily-xaxdjy.
+
+## 22. The call tab: a second press clears it (handily-nhkdgm)
+
+The owner asked on 2026-11-19 for a toggle: a second press on `shown` puts the row back to
+`more`. The orchestrator decided on 2026-11-20 that the second press clears the call and keeps
+the tab open, and that `/simple close` closes the tab. The setting that expands a call inline
+waits for probe P8 and is not in these mocks. These mocks are the build. They change the press of
+21.3 and the empty text of 21.4.
+
+### 22.0 Conventions
+
+As section 21.0: plain text, one `Colours:` line under each block, theme keys only. `[ … ]` is a
+Button. At 120 columns the call tab is docked with body 41. At 40 columns it is inline above the
+prompt with body 36, and only `/simple open` opens it there.
+
+### 22.1 A second press on shown, 120 columns
+
+The call tab shows the call of the row, and the row reads `shown`:
+
+```text
+● Run the unit tests  npm  exit 0  140 lines  3.0s           [ shown ] [ copy ]
+
+Bash · exit 0 · 3.0s
+Run the unit tests
+$ npm test
+─────────────────────────────────────────
+line 1
+…
+```
+
+The person presses `shown`. The row reads `more` again, and the tab stays open and empty:
+
+```text
+● Run the unit tests  npm  exit 0  140 lines  3.0s            [ more ] [ copy ]
+
+No call is shown here. Press more on a tool
+row, or run /simple open. /simple close
+closes this tab.
+```
+
+Colours: `shown` at full strength, `more` dim; the empty text dim.
+
+- The press clears the call only when the call tab is the tab on show. When another tab hides the
+  call tab, the press shows the call tab again and keeps the call.
+- A press on a row whose call the tab does not show puts that call in the tab, as in 21.3.
+- The empty text replaces the empty text of 21.4 everywhere.
+
+### 22.2 A second press on shown, 40 columns
+
+`/simple open 1` opened the call tab inline, so the row reads `shown`:
+
+```text
+● Run the unit tests  npm      [ shown ]
+
+Bash · exit 0 · 3.0s · call 1 of 1
+Run the unit tests
+$ npm test
+────────────────────────────────────
+```
+
+After the press on `shown`:
+
+```text
+● Run the unit tests  npm       [ more ]
+
+No call is shown here. Press more on
+a tool row, or run /simple open.
+/simple close closes this tab.
+```
+
+Colours: as 22.1.
+
+- When no call tab is open, a press adds the line of 21.3 and a second press removes it. The row
+  then reads `more` again.
+- A row that has the line of 21.3 and whose call the tab also shows loses both on the press.
+
+### 22.3 /simple close
+
+Replies:
+
+```text
+The call tab is closed.
+The call tab is not open.
+```
+
+- `/simple close` closes the call tab at any width. Every row whose call the tab showed reads
+  `more` again.
+- `/simple` with a wrong argument names `close` in its usage line.

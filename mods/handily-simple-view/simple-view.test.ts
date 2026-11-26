@@ -1281,6 +1281,7 @@ describe('tool row fold and copy', () => {
     function fakePort(panes: { id: string; isShown: boolean; isPlaced: boolean }[]) {
       const done: string[] = []
       let isHinted = false
+      let viewing: string | null = null
       const port: ViewerPort = {
         panes: () => Promise.resolve(panes),
         open: () => {
@@ -1289,7 +1290,14 @@ describe('tool row fold and copy', () => {
         },
         read: () => Promise.resolve('read'),
         show: (id) => {
+          viewing = id
           done.push(`show ${id}`)
+          return Promise.resolve()
+        },
+        viewing: () => Promise.resolve(viewing),
+        clear: () => {
+          viewing = null
+          done.push('clear')
           return Promise.resolve()
         },
         hint: (id, hinted) => {
@@ -1302,7 +1310,13 @@ describe('tool row fold and copy', () => {
           done.push(text)
         },
       }
-      return { port, done }
+      return {
+        port,
+        done,
+        hinted: (value: boolean) => {
+          isHinted = value
+        },
+      }
     }
     const call: ViewedCall = {
       toolUseId: 'toolu_p1',
@@ -1351,6 +1365,24 @@ describe('tool row fold and copy', () => {
       const hidden = fakePort([{ id: 'call', isShown: false, isPlaced: true }])
       expect(await pressMore(hidden.port, newViewerSite(), call, seat)).toBe('viewer')
       expect(hidden.done).toEqual(['show toolu_p1', 'open'])
+    })
+
+    test('a second press on the call the shown tab holds clears it, keeps the tab and drops the hint', async () => {
+      const seat = { columns: 40, isFullscreen: true, rows: 40, widest: null }
+      const shown = fakePort([{ id: 'call', isShown: true, isPlaced: true }])
+      const site = newViewerSite()
+      expect(await pressMore(shown.port, site, call, seat)).toBe('viewer')
+      shown.hinted(true)
+      expect(await pressMore(shown.port, site, call, seat)).toBe('cleared')
+      expect(site).toEqual(newViewerSite())
+      expect(shown.done).toEqual(['show toolu_p1', 'clear', 'unhint toolu_p1'])
+      expect(await pressMore(shown.port, site, call, seat)).toBe('viewer')
+      const hidden = fakePort([{ id: 'call', isShown: false, isPlaced: true }])
+      const behind = newViewerSite()
+      await pressMore(hidden.port, behind, call, seat)
+      expect(await pressMore(hidden.port, behind, call, seat)).toBe('viewer')
+      expect(hidden.done).toEqual(['show toolu_p1', 'open', 'show toolu_p1', 'open'])
+      expect(behind.call).toEqual(call)
     })
 
     test('opens the call tab below 110 columns while a wider transcript was seen at the same rows', async () => {
@@ -1406,7 +1438,7 @@ describe('tool row fold and copy', () => {
     expect(await viewerText($)).toEqual([])
     const ui = await mountViewer($)
     expect(sketch(await ui.drawn())).toEqual([
-      '~No call is shown here yet. Press more on a tool row, or run /simple open.~',
+      '~No call is shown here. Press more on a tool row, or run /simple open. /simple close closes this tab.~',
     ])
     await ui.unmount()
   })
@@ -1993,7 +2025,7 @@ describe('/simple open', () => {
     expect(await openText($, '0')).toBe(`No call 0 is kept. ${range}`)
     expect(await openText($, 'last')).toBe(range)
     expect(await commandText($, 'open 1 2')).toBe(
-      '/simple takes on, off, show N, open N, open error or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, and /simple open error shows the last call that failed. Set the default with the plugin\'s "mode" setting.',
+      '/simple takes on, off, show N, open N, open error, close or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, /simple open error shows the last call that failed, and /simple close closes the call tab. Set the default with the plugin\'s "mode" setting.',
     )
     expect(world.opens).toEqual([])
   })
@@ -2016,6 +2048,40 @@ describe('/simple open', () => {
     expect(sketch(await ui.drawn())).toEqual([edges(FOLDED_ROW, '[ shown ] [ copy ]')])
     await ui.unmount()
   })
+
+  for (const columns of [40, 120]) {
+    viewTest(
+      `a press on shown clears the call tab and keeps it open, the row reads more, and /simple close closes the tab at ${String(columns)} columns`,
+      async (world, $) => {
+        const ui = await mountAt($, await longCall(world, $), {
+          columns,
+          rows: 40,
+          isFullscreen: true,
+        })
+        const label = async () => (await ui.find({ key: 'fold' }))?.props.label
+        expect(await openText($, '1')).toBe('Call 1 of the last 1 is in the call tab.')
+        expect(await label()).toBe('shown')
+        await ui.press({ key: 'fold' })
+        expect(await label()).toBe('more')
+        expect(world.panes).toEqual(new Set(['call']))
+        expect(world.opens).toEqual([{ ...CALL_TAB, focus: true }])
+        const viewer = await mountViewer($)
+        expect(sketch(await viewer.drawn())).toEqual([
+          '~No call is shown here. Press more on a tool row, or run /simple open. /simple close closes this tab.~',
+        ])
+        await viewer.unmount()
+        await ui.press({ key: 'fold' })
+        expect(await label()).toBe('shown')
+        expect(await viewerBody($)).toEqual(numbered(1, 140))
+        expect(await commandText($, 'close')).toBe('The call tab is closed.')
+        expect(world.panes).toEqual(new Set())
+        expect(await label()).toBe('more')
+        expect(await viewerText($)).toEqual([])
+        expect(await commandText($, 'close')).toBe('The call tab is not open.')
+        await ui.unmount()
+      },
+    )
+  }
 })
 
 describe('Edit and Write rows', () => {
@@ -3870,7 +3936,7 @@ describe('/simple', () => {
     'replies with the valid forms by name to an unknown argument and keeps the mode',
     async (_world, $) => {
       const usage =
-        '/simple takes on, off, show N, open N, open error or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, and /simple open error shows the last call that failed. Set the default with the plugin\'s "mode" setting.'
+        '/simple takes on, off, show N, open N, open error, close or no argument. /simple on and /simple off set this session, /simple toggles it, /simple show N prints the N-th last tool call in full, /simple open N shows it in the call tab, /simple open error shows the last call that failed, and /simple close closes the call tab. Set the default with the plugin\'s "mode" setting.'
       expect(await commandText($, 'of')).toBe(usage)
       expect(await commandText($, 'on now')).toBe(usage)
       expect(await commandText($, 'show 1 2')).toBe(usage)

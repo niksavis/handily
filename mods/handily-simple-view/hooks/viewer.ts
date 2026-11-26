@@ -6,7 +6,8 @@ import { fitted } from './width'
 export const VIEWER_PANE = { id: 'call', title: 'call' } as const
 export const DOCK_FROM_COLUMNS = 110
 const RULE = '─'
-const EMPTY_TEXT = 'No call is shown here yet. Press more on a tool row, or run /simple open.'
+const EMPTY_TEXT =
+  'No call is shown here. Press more on a tool row, or run /simple open. /simple close closes this tab.'
 const UNREAD_TEXT = 'The saved output could not be read.'
 
 export type ViewedCall = {
@@ -27,7 +28,7 @@ export type Seat = {
   widest: Widest | null
 }
 
-export type PressOutcome = 'viewer' | 'hint' | 'unhint'
+export type PressOutcome = 'viewer' | 'cleared' | 'hint' | 'unhint'
 
 export type OpenOutcome = { isPlaced: true } | { isPlaced: false; reason: string }
 
@@ -36,6 +37,8 @@ export type ViewerPort = {
   open: () => Promise<OpenOutcome>
   read: (path: string) => Promise<string>
   show: (toolUseId: string) => Promise<void>
+  viewing: () => Promise<string | null>
+  clear: () => Promise<void>
   hint: (toolUseId: string, isHinted: boolean) => Promise<void>
   isHinted: (toolUseId: string) => Promise<boolean>
   log: (text: string) => void
@@ -98,6 +101,17 @@ export async function showInViewer(
   return port.open()
 }
 
+export function clearViewer(site: ViewerSite): void {
+  site.call = null
+  site.unread = null
+}
+
+async function clearShown(port: ViewerPort, site: ViewerSite, toolUseId: string): Promise<void> {
+  clearViewer(site)
+  await port.clear()
+  if (await port.isHinted(toolUseId)) await port.hint(toolUseId, false)
+}
+
 export async function pressMore(
   port: ViewerPort,
   site: ViewerSite,
@@ -105,6 +119,11 @@ export async function pressMore(
   seat: Seat | undefined,
 ): Promise<PressOutcome> {
   const pane = (await port.panes()).find((open) => open.id === VIEWER_PANE.id)
+  const isOnShow = pane?.isPlaced === true && pane.isShown
+  if (isOnShow && (await port.viewing()) === call.toolUseId) {
+    await clearShown(port, site, call.toolUseId)
+    return 'cleared'
+  }
   if (pane?.isPlaced === true || docksAt(seat)) {
     if ((await showInViewer(port, site, call)).isPlaced) return 'viewer'
   }
