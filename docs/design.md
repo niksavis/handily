@@ -2084,3 +2084,13 @@ Closed by the P0 probes (handily-0m93, Claude Code 2.1.293):
 | P2 | Lanes A1 then A2, B, C, D, E1. E2 after P1, with a confirmed CI edit |
 | P3 | Review, consumer runs, the person's review, then release |
 | P4 | Extras |
+
+### A return from the background session list (handily-2zz7g)
+
+Measured on Claude Code 2.1.332 on 2026-11-26: after the Left key at an empty prompt and Esc, the
+session runs on as a background job with a new session id and a new transcript file. Plugins load
+fresh there with empty `$.state`, so the board shows no session task list and no trend. Neither
+`SessionInfo` nor `session.start` links the new session to the old one, and the mod API cannot tell
+whether another session is live. So the board keeps no copy across that return: board 0.34.2 tried a
+`$.store` copy keyed by session id and transcript path, and 0.34.3 removes it. A later Claude Code
+that links the sessions reopens this.
